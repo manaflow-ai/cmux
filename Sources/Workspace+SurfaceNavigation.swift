@@ -23,6 +23,8 @@ extension Workspace {
             return SurfaceKind.rightSidebarTool.rawValue
         case .customSidebar:
             return SurfaceKind.customSidebar.rawValue
+        case .simulator:
+            return SurfaceKind.simulator.rawValue
         case .agentSession:
             return SurfaceKind.agentSession.rawValue
         case .project:

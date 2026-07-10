@@ -4,8 +4,13 @@ import Testing
 
 @Suite("ShortcutWhenClause")
 struct ShortcutWhenClauseTests {
-    private func state(browser: Bool = false, markdown: Bool = false, sidebar: Bool = false) -> ShortcutFocusState {
-        ShortcutFocusState(browser: browser, markdown: markdown, sidebar: sidebar)
+    private func state(
+        browser: Bool = false,
+        markdown: Bool = false,
+        sidebar: Bool = false,
+        simulator: Bool = false
+    ) -> ShortcutFocusState {
+        ShortcutFocusState(browser: browser, markdown: markdown, sidebar: sidebar, simulator: simulator)
     }
 
     /// A context with one of each value kind for evaluation tests.
@@ -22,6 +27,7 @@ struct ShortcutWhenClauseTests {
     @Test func parsesNegatedAtom() {
         #expect(ShortcutWhenClause.parse("!sidebarFocus") == .not(.atom(.sidebarFocus)))
         #expect(ShortcutWhenClause.parse("  sidebarFocus ") == .atom(.sidebarFocus))
+        #expect(ShortcutWhenClause.parse("simulatorFocus") == .atom(.simulatorFocus))
     }
 
     @Test func parsesAndOrWithPrecedence() {
@@ -187,6 +193,8 @@ struct ShortcutWhenClauseTests {
         #expect(!ShortcutWhenClause.atom(.sidebarFocus).evaluate(state(browser: true)))
         #expect(ShortcutWhenClause.atom(.terminalFocus).evaluate(state()))
         #expect(!ShortcutWhenClause.atom(.terminalFocus).evaluate(state(sidebar: true)))
+        #expect(ShortcutWhenClause.atom(.simulatorFocus).evaluate(state(simulator: true)))
+        #expect(!ShortcutWhenClause.atom(.terminalFocus).evaluate(state(simulator: true)))
     }
 
     @Test func workspaceDigitsExceptSidebar() throws {

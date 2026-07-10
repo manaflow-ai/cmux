@@ -4377,6 +4377,15 @@ struct CMUXCLI {
                 idFormat: idFormat
             )
 
+        case "simulator":
+            try runSimulatorNamespace(
+                commandArgs: commandArgs,
+                client: client,
+                jsonOutput: jsonOutput,
+                idFormat: idFormat,
+                windowOverride: windowId
+            )
+
         case "workspace":
             try runWorkspaceNamespace(
                 commandArgs: commandArgs,
@@ -8030,8 +8039,8 @@ struct CMUXCLI {
             method = "canvas.set_viewport"
         case "new-pane":
             if let type = optionValue(rest, name: "--type")?.lowercased() {
-                guard ["terminal", "browser"].contains(type) else {
-                    throw CLIError(message: "Usage: cmux canvas new-pane [--type terminal|browser]")
+                guard ["terminal", "browser", "simulator"].contains(type) else {
+                    throw CLIError(message: "Usage: cmux canvas new-pane [--type terminal|browser|simulator]")
                 }
                 params["type"] = type
             }
@@ -15049,7 +15058,7 @@ struct CMUXCLI {
               set-viewport --x <n> --y <n> [--zoom <n>]
                                             Center the viewport on a canvas point
                                             (optionally set magnification)
-              new-pane [--type terminal|browser]
+              new-pane [--type terminal|browser|simulator]
                                             Create a new free-floating canvas pane
               join <surface> <target>       Move a surface into the pane hosting target (tab)
               break <surface>               Tear a surface out of its multi-tab pane
@@ -15062,6 +15071,8 @@ struct CMUXCLI {
               cmux canvas new-pane --type terminal
               cmux canvas align tidy
             """
+        case "simulator":
+            return simulatorSubcommandUsage()
         case "events":
             return """
             Usage: cmux events [options]
@@ -16096,7 +16107,7 @@ struct CMUXCLI {
             Create a new pane in the workspace.
 
             Flags:
-              --type <terminal|browser>           Pane type (default: terminal)
+              --type <terminal|browser|simulator> Pane type (default: terminal)
               --direction <left|right|up|down>    Split direction (default: right)
               --placement <workspace|dock>        Target container (default: workspace).
                                                   dock splits the right-sidebar Dock.
@@ -16108,6 +16119,7 @@ struct CMUXCLI {
             Example:
               cmux new-pane
               cmux new-pane --type browser --direction down --url https://example.com
+              cmux new-pane --type simulator --direction right
               cmux new-pane --type browser --placement dock --url https://example.com
             """
         case "new-surface":
@@ -16117,7 +16129,7 @@ struct CMUXCLI {
             Create a new surface (tab) in a pane.
 
             Flags:
-              --type <terminal|browser|agent-session>   Surface type (default: terminal)
+              --type <terminal|browser|simulator|agent-session>   Surface type (default: terminal)
               --pane <id|ref|index>       Target pane
               --placement <workspace|dock>  Target container (default: workspace).
                                            dock adds the surface to the right-sidebar Dock
@@ -16134,6 +16146,7 @@ struct CMUXCLI {
             Example:
               cmux new-surface
               cmux new-surface --type browser --pane pane:1 --url https://example.com
+              cmux new-surface --type simulator --pane pane:1 --focus true
               cmux new-surface --type agent-session --provider claude --renderer solid --focus true
               cmux new-surface --type browser --placement dock --url https://example.com
             """
@@ -35202,6 +35215,7 @@ export default CMUXSessionRestore;
           remotes <list|add|remove> [--route <host:port>] [--tag <tag>] [--json]    (alias: remote)
           ai-accounts <list|upload|remove> [--team <id>] [--json]
           rpc <method> [json-params]
+          \(simulatorCommandUsageLine)
           identify [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--no-caller]
           list-windows
           current-window
@@ -35228,8 +35242,8 @@ export default CMUXSessionRestore;
           top [--all] [--workspace <id|ref|index>] [--window <id|ref|index>] [--processes] [--sort <cpu|mem|proc>] [--flat] [--format <tree|tsv>]
           memory [--all] [--workspace <id|ref|index>] [--groups <count>]
           focus-pane --pane <id|ref|index> [--workspace <id|ref|index>] [--window <id|ref|index>]
-          new-pane [--type <terminal|browser>] [--direction <left|right|up|down>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--url <url>] [--focus <true|false>]
-          new-surface [--type <terminal|browser|agent-session>] [--pane <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--url <url>] [--provider <codex|claude|opencode>] [--renderer <react|solid>] [--focus <true|false>]
+          new-pane [--type <terminal|browser|simulator>] [--direction <left|right|up|down>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--url <url>] [--focus <true|false>]
+          new-surface [--type <terminal|browser|simulator|agent-session>] [--pane <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--url <url>] [--provider <codex|claude|opencode>] [--renderer <react|solid>] [--focus <true|false>]
           close-surface [--surface <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>]
           move-surface --surface <id|ref|index> [--pane <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--before <id|ref|index>] [--after <id|ref|index>] [--index <n>] [--focus <true|false>]
           split-off --surface <id|ref|index> <left|right|up|down> [--workspace <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>]

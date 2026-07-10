@@ -1,0 +1,111 @@
+import CmuxSimulator
+import SwiftUI
+
+struct SimulatorNotificationPrivacyTools: View {
+    let coordinator: SimulatorPaneCoordinator
+    @State private var bundleIdentifier = ""
+    @State private var service: SimulatorPrivacyService = .all
+
+    var body: some View {
+        SimulatorToolSection(simulatorStrings.notificationsAndPrivacy) {
+            TextField(String(localized: simulatorStrings.bundleIdentifier), text: $bundleIdentifier)
+            Button(simulatorStrings.sendPush) {
+                Task { await coordinator.pushNotification(bundleIdentifier: bundleIdentifier) }
+            }
+            .disabled(bundleIdentifier.isEmpty)
+            Divider()
+            Picker(simulatorStrings.privacyService, selection: $service) {
+                ForEach(SimulatorPrivacyService.allCases, id: \.rawValue) { service in
+                    Text(simulatorStrings.privacy(service)).tag(service)
+                }
+            }
+            HStack {
+                Button(simulatorStrings.grant) { apply(.grant) }
+                    .disabled(!Self.actionIsEnabled(
+                        .grant,
+                        service: service,
+                        bundleIdentifier: bundleIdentifier
+                    ))
+                Button(simulatorStrings.revoke) { apply(.revoke) }
+                    .disabled(!Self.actionIsEnabled(
+                        .revoke,
+                        service: service,
+                        bundleIdentifier: bundleIdentifier
+                    ))
+                Button(simulatorStrings.reset) { apply(.reset) }
+                    .disabled(!Self.actionIsEnabled(
+                        .reset,
+                        service: service,
+                        bundleIdentifier: bundleIdentifier
+                    ))
+                Button(simulatorStrings.readPermissions) {
+                    Task { await coordinator.readPrivacy(bundleIdentifier: bundleIdentifier) }
+                }
+            }
+            if let snapshot = coordinator.privacySnapshot {
+                ForEach(
+                    snapshot.authorizations.keys.sorted { $0.rawValue < $1.rawValue },
+                    id: \.rawValue
+                ) { service in
+                    if let authorization = snapshot.authorizations[service] {
+                        LabeledContent(
+                            String(localized: simulatorStrings.privacy(service)),
+                            value: String(localized: simulatorStrings.authorization(authorization))
+                        )
+                    }
+                }
+            }
+        }
+        .task {
+            if coordinator.supports(.foregroundApplication) {
+                await coordinator.refreshForegroundApplication()
+            }
+            adoptForegroundBundleIfEmpty(coordinator.foregroundApplication?.bundleIdentifier)
+        }
+        .onChange(of: coordinator.foregroundApplication?.bundleIdentifier) { _, identifier in
+            adoptForegroundBundleIfEmpty(identifier)
+        }
+    }
+
+    private func apply(_ action: SimulatorPrivacyAction) {
+        let target = bundleIdentifier.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard Self.actionIsEnabled(action, service: service, bundleIdentifier: target) else { return }
+        Task {
+            await coordinator.setPrivacy(
+                action,
+                service: service,
+                bundleIdentifier: target
+            )
+        }
+    }
+
+    private func adoptForegroundBundleIfEmpty(_ foregroundBundleIdentifier: String?) {
+        bundleIdentifier = Self.bundleIdentifier(
+            current: bundleIdentifier,
+            foreground: foregroundBundleIdentifier
+        )
+    }
+
+    nonisolated static func actionIsEnabled(
+        _ action: SimulatorPrivacyAction,
+        service: SimulatorPrivacyService,
+        bundleIdentifier: String
+    ) -> Bool {
+        guard !bundleIdentifier.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return false
+        }
+        return switch action {
+        case .grant, .revoke:
+            service != .all
+        case .reset:
+            true
+        }
+    }
+
+    nonisolated static func bundleIdentifier(current: String, foreground: String?) -> String {
+        guard current.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              let foreground = foreground?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !foreground.isEmpty else { return current }
+        return foreground
+    }
+}

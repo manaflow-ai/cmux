@@ -13279,6 +13279,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
         if cmuxCloseFocusedTerminalFindForEscape(event: event, appDelegate: self) { return true }
+        if activeConfiguredShortcutChordPrefixForCurrentEvent == nil {
+            let shortcutContext = shortcutEventFocusContext(event).shortcutContext
+            let simulatorChordActions = KeyboardShortcutSettings.Action.simulatorActions.filter { action in
+                KeyboardShortcutSettings.effectiveWhenClause(for: action).evaluate(shortcutContext)
+            }
+            if armConfiguredShortcutChordIfNeeded(event: event, actions: simulatorChordActions) {
+                return true
+            }
+        }
+        if handleSimulatorShortcut(event) { return true }
         if matchConfiguredShortcut(event: event, action: .find) {
             let shortcutWindow = resolvedShortcutEventWindow(event)
             cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: tabManager, window: shortcutWindow ?? shortcutRoutingKeyWindow); return performFindShortcutInActiveMainWindow(preferredWindow: shortcutWindow)
@@ -15432,6 +15442,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 MobilePairingWindowController.shared.show()
                 onExecuted?()
                 return true
+            case .newSimulator:
+                guard let workspace = context.tabManager.selectedWorkspace,
+                      let pane = workspace.bonsplitController.focusedPaneId,
+                      workspace.newSimulatorSurface(inPane: pane, focus: true) != nil else {
+                    return false
+                }
+                onExecuted?()
+                return true
             case .newTerminal:
                 context.tabManager.newSurface()
                 onExecuted?()
@@ -15576,6 +15594,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             && action != .clearScreenKeepScrollback
             && action != .fileExplorerOpenSelection
             && action != .fileExplorerOpenSelectionFinderAlias
+            && !KeyboardShortcutSettings.Action.simulatorActions.contains(action)
     }
 
     private func canCurrentShortcutPreventStaleMenuSuppression(_ action: KeyboardShortcutSettings.Action) -> Bool {

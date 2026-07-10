@@ -1,11 +1,13 @@
 import AppKit
 import CmuxSettings
+import CmuxSimulatorUI
 import WebKit
 
 struct ShortcutEventFocusContext {
     let browserPanel: BrowserPanel?
     let markdownPanel: MarkdownPanel?
     let filePreviewTextEditorFocused: Bool
+    let simulatorFocused: Bool
     let rightSidebarFocused: Bool
     /// The full context snapshot a ``ShortcutWhenClause`` evaluates against.
     let shortcutContext: ShortcutContext
@@ -17,7 +19,8 @@ struct ShortcutEventFocusContext {
             browser: browserPanel != nil,
             markdown: markdownPanel != nil,
             sidebar: rightSidebarFocused,
-            filePreviewTextEditor: filePreviewTextEditorFocused
+            filePreviewTextEditor: filePreviewTextEditorFocused,
+            simulator: simulatorFocused
         )
     }
 }
@@ -61,24 +64,30 @@ extension AppDelegate {
         }
 
         let shortcutWindow = shortcutResolvedEventWindow(event) ?? NSApp.keyWindow ?? NSApp.mainWindow
-        let browserPanel = shortcutEventFocusedBrowserPanel(event) ?? shortcutWebInspectorFocusedBrowserPanel(in: shortcutWindow)
+        let simulatorFocused = shortcutWindow?.firstResponder is any SimulatorInputResponder
+        let browserPanel = simulatorFocused
+            ? nil
+            : shortcutEventFocusedBrowserPanel(event) ?? shortcutWebInspectorFocusedBrowserPanel(in: shortcutWindow)
         // Only treat a markdown panel as focused when no browser panel owns the
         // event, so a focused browser never routes markdown shortcuts.
         let markdownPanel = browserPanel == nil ? shortcutFocusedMarkdownPanel(in: shortcutWindow) : nil
         let filePreviewTextEditorFocused = browserPanel == nil && markdownPanel == nil
             ? shortcutFocusedFilePreviewTextEditor(in: shortcutWindow)
             : false
-        let rightSidebarFocused = shortcutWindow.map { shouldRouteRightSidebarModeShortcut(in: $0) } ?? false
+        let rightSidebarFocused = !simulatorFocused
+            && (shortcutWindow.map { shouldRouteRightSidebarModeShortcut(in: $0) } ?? false)
         let focusState = ShortcutFocusState(
             browser: browserPanel != nil,
             markdown: markdownPanel != nil,
             sidebar: rightSidebarFocused,
-            filePreviewTextEditor: filePreviewTextEditorFocused
+            filePreviewTextEditor: filePreviewTextEditorFocused,
+            simulator: simulatorFocused
         )
         let context = ShortcutEventFocusContext(
             browserPanel: browserPanel,
             markdownPanel: markdownPanel,
             filePreviewTextEditorFocused: filePreviewTextEditorFocused,
+            simulatorFocused: simulatorFocused,
             rightSidebarFocused: rightSidebarFocused,
             shortcutContext: buildShortcutContext(focusState: focusState, window: shortcutWindow)
         )

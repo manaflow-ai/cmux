@@ -1595,6 +1595,11 @@ struct SessionFilePreviewPanelSnapshot: Codable, Sendable {
     var filePath: String
 }
 struct SessionCustomSidebarPanelSnapshot: Codable, Sendable { var name: String }
+struct SessionSimulatorPanelSnapshot: Codable, Sendable {
+    var deviceUDID: String?
+    var runtimeIdentifier: String?
+    var deviceTypeIdentifier: String?
+}
 struct SessionProjectPanelSnapshot: Codable, Sendable {
     var projectPath: String
     var selectedNodePath: String?
@@ -1642,6 +1647,7 @@ struct SessionPanelSnapshot: Codable, Sendable {
     var filePreview: SessionFilePreviewPanelSnapshot?
     var rightSidebarTool: SessionRightSidebarToolPanelSnapshot?
     var customSidebar: SessionCustomSidebarPanelSnapshot? = nil
+    var simulator: SessionSimulatorPanelSnapshot? = nil
     var agentSession: SessionAgentSessionPanelSnapshot? = nil
     var project: SessionProjectPanelSnapshot?
 }

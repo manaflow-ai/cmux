@@ -10,6 +10,7 @@ public enum PanelType: String, Codable, Sendable {
     case filePreview = "filepreview"
     case rightSidebarTool
     case customSidebar
+    case simulator
     case agentSession
     case project
     case extensionBrowser

@@ -5517,6 +5517,7 @@ struct ContentView: View {
             return String(localized: "commandPalette.kind.rightSidebarTool", defaultValue: "Tool")
         case .customSidebar:
             return String(localized: "commandPalette.kind.customSidebar", defaultValue: "Custom Sidebar")
+        case .simulator: return String(localized: "commandPalette.kind.simulator", defaultValue: "Simulator")
         case .agentSession:
             return String(localized: "commandPalette.kind.agentSession", defaultValue: "Agent")
         case .project:
@@ -5541,6 +5542,7 @@ struct ContentView: View {
             return ["tool", "files", "find", "vault", "sidebar"]
         case .customSidebar:
             return ["custom", "sidebar", "pane"]
+        case .simulator: return ["simulator", "iphone", "ipad", "ios"]
         case .agentSession:
             return ["agent", "codex", "claude", "opencode", "react", "solid"]
         case .project:
@@ -6184,6 +6186,7 @@ struct ContentView: View {
             snapshot.setBool(CommandPaletteContextKeys.hasFocusedPanel, true)
             snapshot.setString(CommandPaletteContextKeys.panelName, panelDisplayName(workspace: workspace, panelId: panelId, fallback: panelContext.panel.displayTitle))
             snapshot.setBool(CommandPaletteContextKeys.panelIsBrowser, panelContext.panel.panelType == .browser)
+            snapshot.setBool(CommandPaletteContextKeys.panelIsSimulator, panelContext.panel.panelType == .simulator)
             if let browserPanel = panelContext.panel as? BrowserPanel {
                 snapshot.setBool(CommandPaletteContextKeys.panelBrowserFocusModeActive, browserPanel.isBrowserFocusModeActive)
             }
@@ -6411,6 +6414,7 @@ struct ContentView: View {
                 when: { !$0.bool(CommandPaletteContextKeys.browserDisabled) }
             )
         )
+        contributions.append(.newSimulatorPane)
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.closeTab",
@@ -7609,6 +7613,7 @@ struct ContentView: View {
                 _ = AppDelegate.shared?.openBrowserAndFocusAddressBar()
             }
         }
+        registry.registerNewSimulatorPane(tabManager: tabManager, windowId: windowId)
         registry.register(commandId: "palette.closeTab") {
             tabManager.closeCurrentPanelWithConfirmation()
         }
@@ -10994,6 +10999,8 @@ struct VerticalTabsSidebar: View {
         case .rightSidebarTool:
             return .rightSidebarTool
         case .customSidebar:
+            return .unknown
+        case .simulator:
             return .unknown
         case .agentSession:
             return .agentSession

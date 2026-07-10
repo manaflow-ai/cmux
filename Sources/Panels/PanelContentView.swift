@@ -118,6 +118,15 @@ struct PanelContentView: View {
                     )
                 }
             }
+        case .simulator:
+            if let simulatorPanel = panel as? SimulatorPanel {
+                SimulatorPanelView(
+                    panel: simulatorPanel,
+                    isFocused: isFocused,
+                    isVisibleInUI: isVisibleInUI,
+                    onRequestPanelFocus: onRequestPanelFocus
+                )
+            }
         case .agentSession:
             if let agentSessionPanel = panel as? AgentSessionPanel {
                 AgentSessionPanelView(
@@ -167,7 +176,7 @@ struct PanelContentView: View {
     private var shouldInstallPaneDropTarget: Bool {
         guard isVisibleInUI else { return false }
         switch panel.panelType {
-        case .markdown, .filePreview, .rightSidebarTool, .customSidebar, .agentSession, .project, .extensionBrowser, .cloudVMLoading:
+        case .markdown, .filePreview, .rightSidebarTool, .customSidebar, .simulator, .agentSession, .project, .extensionBrowser, .cloudVMLoading:
             return true
         case .terminal, .browser:
             return false

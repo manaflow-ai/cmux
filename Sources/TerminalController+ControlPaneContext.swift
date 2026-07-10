@@ -370,6 +370,14 @@ extension TerminalController: ControlPaneContext {
                 creationPolicy: .automationPreload,
                 initialDividerPosition: initialDividerPosition.map { CGFloat($0) }
             )?.id
+        } else if panelType == .simulator {
+            newPanelId = ws.newSimulatorSplit(
+                from: sourcePanelId,
+                orientation: orientation,
+                insertFirst: insertFirst,
+                focus: focus,
+                initialDividerPosition: initialDividerPosition.map { CGFloat($0) }
+            )?.id
         } else {
             switch ws.newTerminalSplitOutcome(
                 from: sourcePanelId,
@@ -410,26 +418,9 @@ extension TerminalController: ControlPaneContext {
         )
     }
 
-    /// The byte-faithful twin of `v2PanelType`, mapping a raw token to a
-    /// `PanelType` (used only by the create path; the coordinator passes the raw
-    /// string so Bonsplit/PanelType stay app-side).
+    /// Maps the coordinator's raw token through the shared control API parser.
     private func panelType(forRawToken raw: String) -> PanelType? {
-        switch v2NormalizedToken(raw) {
-        case "terminal":
-            return .terminal
-        case "browser":
-            return .browser
-        case "markdown":
-            return .markdown
-        case "filepreview":
-            return .filePreview
-        case "rightsidebartool":
-            return .rightSidebarTool
-        case "agentsession":
-            return .agentSession
-        default:
-            return nil
-        }
+        v2PanelType(rawToken: raw)
     }
 
     /// The byte-faithful twin of `v2BrowserDisabledExternalOpenResult`, mapped

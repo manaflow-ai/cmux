@@ -69,7 +69,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
     }
 
     /// Socket-worker methods; internal so package tests can pin the exact set.
-    static let socketWorkerMethods: Set<String> = [
+    static let socketWorkerMethods: Set<String> = Set([
         "system.ping",
         "system.capabilities",
         "auth.status",
@@ -257,7 +257,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // sending input never activates or reselects anything.
         "surface.send_text",
         "surface.send_key",
-    ]
+    ]).union(simulatorSocketWorkerMethods)
 
     /// Socket-worker methods that are also safe to invoke from the main
     /// thread. The invariant is deadlock-freedom, not zero cost: a member's

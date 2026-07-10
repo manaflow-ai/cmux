@@ -1,0 +1,95 @@
+import AppKit
+import CmuxSimulator
+import CmuxSimulatorUI
+import Combine
+import Foundation
+
+/// App-level panel shim for one isolated native Simulator session.
+///
+/// Mutable Simulator state lives in the Observation-based package coordinator.
+/// This class conforms to the legacy `Panel`/`ObservableObject` boundary only
+/// so the existing workspace registry can own it.
+@MainActor
+final class SimulatorPanel: Panel {
+    let id = UUID()
+    let stableSurfaceIdentity = PanelStableSurfaceIdentity()
+    let panelType: PanelType = .simulator
+    let objectWillChange = ObservableObjectPublisher()
+    let coordinator: SimulatorPaneCoordinator
+
+    private let preferredDeviceID: String?
+    private let preferredRuntimeIdentifier: String?
+    private let preferredDeviceTypeIdentifier: String?
+    private var isClosed = false
+
+    var displayTitle: String {
+        String(localized: "simulator.pane.title", defaultValue: "Simulator")
+    }
+
+    var displayIcon: String? { "iphone" }
+
+    var selectedDeviceID: String? { coordinator.selectedDevice?.id ?? preferredDeviceID }
+    var selectedRuntimeIdentifier: String? {
+        coordinator.selectedDevice?.runtimeIdentifier ?? preferredRuntimeIdentifier
+    }
+    var selectedDeviceTypeIdentifier: String? {
+        coordinator.selectedDevice?.deviceTypeIdentifier ?? preferredDeviceTypeIdentifier
+    }
+
+    init(
+        preferredDeviceID: String? = nil,
+        preferredRuntimeIdentifier: String? = nil,
+        preferredDeviceTypeIdentifier: String? = nil,
+        client: any SimulatorPaneClient = SimulatorWorkerClient.reexecingCurrentBinary()
+    ) {
+        self.preferredDeviceID = preferredDeviceID
+        self.preferredRuntimeIdentifier = preferredRuntimeIdentifier
+        self.preferredDeviceTypeIdentifier = preferredDeviceTypeIdentifier
+        coordinator = SimulatorPaneCoordinator(
+            client: client,
+            preferredDeviceID: preferredDeviceID,
+            preferredRuntimeIdentifier: preferredRuntimeIdentifier,
+            preferredDeviceTypeIdentifier: preferredDeviceTypeIdentifier
+        )
+    }
+
+    func close() {
+        guard !isClosed else { return }
+        isClosed = true
+        let coordinator = self.coordinator
+        Task {
+            await coordinator.close()
+        }
+    }
+
+    func focus() {
+        coordinator.setActive(true)
+    }
+
+    func unfocus() {
+        coordinator.setActive(false)
+    }
+
+    func ownedFocusIntent(for responder: NSResponder, in window: NSWindow) -> PanelFocusIntent? {
+        guard let simulatorResponder = responder as? any SimulatorInputResponder,
+              simulatorResponder.simulatorOwnerID == ObjectIdentifier(coordinator),
+              (responder as? NSView)?.window === window else {
+            return nil
+        }
+        return .panel
+    }
+
+    func yieldFocusIntent(_ intent: PanelFocusIntent, in window: NSWindow) -> Bool {
+        guard intent == .panel,
+              let responder = window.firstResponder,
+              ownedFocusIntent(for: responder, in: window) == intent else {
+            return false
+        }
+        coordinator.releaseInputs()
+        return window.makeFirstResponder(nil)
+    }
+
+    func triggerFlash(reason: WorkspaceAttentionFlashReason) {
+        _ = reason
+    }
+}

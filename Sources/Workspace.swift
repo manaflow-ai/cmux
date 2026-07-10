@@ -497,6 +497,7 @@ extension Workspace {
         let markdownSnapshot: SessionMarkdownPanelSnapshot?
         let filePreviewSnapshot: SessionFilePreviewPanelSnapshot?
         let rightSidebarToolSnapshot: SessionRightSidebarToolPanelSnapshot?; var customSidebarSnapshot: SessionCustomSidebarPanelSnapshot? = nil
+        var simulatorSnapshot: SessionSimulatorPanelSnapshot? = nil
         let agentSessionSnapshot: SessionAgentSessionPanelSnapshot?
         let projectSnapshot: SessionProjectPanelSnapshot?
         switch panel.panelType {
@@ -631,6 +632,20 @@ extension Workspace {
             guard let snapshot = customSidebarSessionSnapshot(for: panel) else { return nil }
             terminalSnapshot = nil; browserSnapshot = nil; markdownSnapshot = nil; filePreviewSnapshot = nil; rightSidebarToolSnapshot = nil
             customSidebarSnapshot = snapshot; agentSessionSnapshot = nil; projectSnapshot = nil
+        case .simulator:
+            guard let simulatorPanel = panel as? SimulatorPanel else { return nil }
+            terminalSnapshot = nil
+            browserSnapshot = nil
+            markdownSnapshot = nil
+            filePreviewSnapshot = nil
+            rightSidebarToolSnapshot = nil
+            simulatorSnapshot = SessionSimulatorPanelSnapshot(
+                deviceUDID: simulatorPanel.selectedDeviceID,
+                runtimeIdentifier: simulatorPanel.selectedRuntimeIdentifier,
+                deviceTypeIdentifier: simulatorPanel.selectedDeviceTypeIdentifier
+            )
+            agentSessionSnapshot = nil
+            projectSnapshot = nil
         case .agentSession:
             guard let agentPanel = panel as? AgentSessionPanel else { return nil }
             terminalSnapshot = nil
@@ -688,6 +703,7 @@ extension Workspace {
             filePreview: filePreviewSnapshot,
             rightSidebarTool: rightSidebarToolSnapshot,
             customSidebar: customSidebarSnapshot,
+            simulator: simulatorSnapshot,
             agentSession: agentSessionSnapshot,
             project: projectSnapshot
         )
@@ -1631,6 +1647,18 @@ extension Workspace {
             applySessionPanelMetadata(snapshot, toPanelId: toolPanel.id)
             return toolPanel.id
         case .customSidebar: return restoreCustomSidebarPanel(from: snapshot, inPane: paneId)
+        case .simulator:
+            guard let simulatorPanel = newSimulatorSurface(
+                inPane: paneId,
+                preferredDeviceID: snapshot.simulator?.deviceUDID,
+                preferredRuntimeIdentifier: snapshot.simulator?.runtimeIdentifier,
+                preferredDeviceTypeIdentifier: snapshot.simulator?.deviceTypeIdentifier,
+                focus: false
+            ) else {
+                return nil
+            }
+            applySessionPanelMetadata(snapshot, toPanelId: simulatorPanel.id)
+            return simulatorPanel.id
         case .agentSession:
             guard let agentSession = snapshot.agentSession,
                   let agentPanel = newAgentSessionSurface(
@@ -8898,7 +8926,7 @@ final class Workspace: Identifiable, ObservableObject {
         return closed
     }
 
-    private func applyInitialSplitDividerPosition(_ position: CGFloat?, sourcePaneId: PaneID, newPaneId: PaneID) {
+    func applyInitialSplitDividerPosition(_ position: CGFloat?, sourcePaneId: PaneID, newPaneId: PaneID) {
         guard let position,
               let splitId = splitIdJoiningPaneIds(
                 sourcePaneId.id.uuidString,
@@ -12793,6 +12821,8 @@ extension Workspace: BonsplitDelegate {
                 _ = AppDelegate.shared?.performCloudVMAction(tabManager: owningTabManager, preferredWindow: presentingWindow, debugSource: "surfaceTabBar.cloudVM")
             case .mobileConnect:
                 MobilePairingWindowController.shared.show()
+            case .newSimulator:
+                _ = newSimulatorSurface(inPane: pane, focus: true)
             case .newTerminal, .newBrowser, .splitRight, .splitDown:
                 break
             }

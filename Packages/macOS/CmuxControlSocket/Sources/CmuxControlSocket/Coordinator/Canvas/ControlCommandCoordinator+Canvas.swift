@@ -263,10 +263,10 @@ extension ControlCommandCoordinator {
     /// defaults to `terminal`).
     func canvasNewPane(_ params: [String: JSONValue]) -> ControlCallResult {
         let type = string(params, "type") ?? "terminal"
-        guard ["terminal", "browser"].contains(type) else {
+        guard ["terminal", "browser", "simulator"].contains(type) else {
             return .err(
                 code: "invalid_params",
-                message: "type must be terminal or browser",
+                message: "type must be terminal, browser, or simulator",
                 data: nil
             )
         }

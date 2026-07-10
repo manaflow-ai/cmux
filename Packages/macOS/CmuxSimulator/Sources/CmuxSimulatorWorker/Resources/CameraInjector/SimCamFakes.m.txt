@@ -1,0 +1,707 @@
+// Adapted from serve-sim commit af681b8c3b0453f31dcb8e98a3389f23b7cfc6b0 (Apache-2.0).
+// Modified by cmux for native worker integration.
+
+#import "SimCamFakes.h"
+#import "SimCamLog.h"
+
+#import <CoreImage/CoreImage.h>
+#import <CoreMedia/CoreMedia.h>
+#import <CoreVideo/CoreVideo.h>
+#import <UIKit/UIKit.h>
+#import <objc/runtime.h>
+#import <objc/message.h>
+#include <stdatomic.h>
+#include <string.h>
+
+#pragma mark - Mirror mode
+
+static SimCamMirrorMode gMirrorMode = SimCamMirrorAuto;
+
+SimCamMirrorMode SimCamGetMirrorMode(void) { return gMirrorMode; }
+void SimCamSetMirrorMode(SimCamMirrorMode m) { gMirrorMode = m; }
+
+BOOL SimCamShouldMirror(AVCaptureDevicePosition p) {
+    if (gMirrorMode == SimCamMirrorForceOn) return YES;
+    if (gMirrorMode == SimCamMirrorForceOff) return NO;
+    return p == AVCaptureDevicePositionFront;
+}
+
+void SimCamReadMirrorModeFromEnv(void) {
+    const char *m = getenv("SIMCAM_MIRROR_MODE");
+    if (!m) return;
+    if (!strcasecmp(m, "on") || !strcmp(m, "1") || !strcasecmp(m, "true")) {
+        gMirrorMode = SimCamMirrorForceOn;
+        simcam_log(@"mirror mode forced ON");
+    } else if (!strcasecmp(m, "off") || !strcmp(m, "0") || !strcasecmp(m, "false")) {
+        gMirrorMode = SimCamMirrorForceOff;
+        simcam_log(@"mirror mode forced OFF");
+    } else if (!strcasecmp(m, "auto")) {
+        gMirrorMode = SimCamMirrorAuto;
+    }
+}
+
+#pragma mark - Position tag tracking
+
+static char kSimCamPositionKey;
+
+AVCaptureDevicePosition SimCamPositionOf(id obj) {
+    if (!obj) return AVCaptureDevicePositionFront;
+    NSNumber *n = objc_getAssociatedObject(obj, &kSimCamPositionKey);
+    return n ? (AVCaptureDevicePosition)n.intValue : AVCaptureDevicePositionFront;
+}
+void SimCamSetPosition(id obj, AVCaptureDevicePosition p) {
+    objc_setAssociatedObject(obj, &kSimCamPositionKey, @(p), OBJC_ASSOCIATION_RETAIN);
+}
+
+#pragma mark - Camera-in-use sticky flag
+
+static atomic_int gSimCamCameraInUse = 0;
+static char kSimCamSessionUsingFakeCameraKey;
+
+BOOL SimCamCameraIsInUse(void) {
+    return atomic_load_explicit(&gSimCamCameraInUse, memory_order_relaxed) > 0;
+}
+void SimCamMarkCameraInUse(void) {
+    atomic_store_explicit(&gSimCamCameraInUse, 1, memory_order_relaxed);
+}
+void SimCamMarkSessionUsingFakeCamera(id session, BOOL usingFakeCamera) {
+    if (!session) return;
+    objc_setAssociatedObject(session,
+        &kSimCamSessionUsingFakeCameraKey,
+        usingFakeCamera ? @YES : nil,
+        OBJC_ASSOCIATION_RETAIN);
+}
+static BOOL SimCamSessionUsesFakeCamera(id session) {
+    if (!session) return NO;
+    if (![session isKindOfClass:[AVCaptureSession class]]) return NO;
+    return [objc_getAssociatedObject(session, &kSimCamSessionUsingFakeCameraKey) boolValue];
+}
+
+#pragma mark - AVF runtime-error notification suppression
+
+BOOL SimCamShouldSwallowAVFRuntimeError(NSNotificationName name, id object) {
+    if (!name) return NO;
+    if (![name isEqualToString:AVCaptureSessionRuntimeErrorNotification]) return NO;
+    return SimCamSessionUsesFakeCamera(object);
+}
+
+void SimCamLogSwallowedRuntimeError(NSString *via, id object, NSDictionary *userInfo) {
+    NSError *err = userInfo[AVCaptureSessionErrorKey];
+    simcam_log(@"SWALLOW AVCaptureSessionRuntimeError via %@ object=%@ code=%ld domain=%@ desc=%@ underlying=%@",
+        via,
+        object ? NSStringFromClass([object class]) : @"<nil>",
+        (long)err.code,
+        err.domain ?: @"<nil>",
+        err.localizedDescription ?: @"<nil>",
+        err.userInfo[NSUnderlyingErrorKey] ?: @"<nil>");
+}
+
+#pragma mark - Weak delegate ref
+
+@implementation SimCamWeakRef
+@end
+
+#pragma mark - SimCamFakeFrameRateRange
+
+@interface SimCamFakeFrameRateRange : AVFrameRateRange
+@end
+@implementation SimCamFakeFrameRateRange
+- (Float64)minFrameRate { return 1.0; }
+- (Float64)maxFrameRate { return 60.0; }
+- (CMTime)minFrameDuration { return CMTimeMake(1, 60); }
+- (CMTime)maxFrameDuration { return CMTimeMake(1, 1); }
+@end
+
+#pragma mark - SimCamFakeFormat
+
+@implementation SimCamFakeFormat {
+    CMVideoFormatDescriptionRef _fd;
+    NSArray<AVFrameRateRange *> *_ranges;
+}
+- (CMFormatDescriptionRef)formatDescription {
+    if (!_fd) {
+        CMVideoFormatDescriptionCreate(kCFAllocatorDefault,
+            kCVPixelFormatType_32BGRA, 1280, 720, NULL, &_fd);
+    }
+    return _fd;
+}
+- (NSArray<AVFrameRateRange *> *)videoSupportedFrameRateRanges {
+    if (!_ranges) {
+        AVFrameRateRange *r = (AVFrameRateRange *)class_createInstance(
+            [SimCamFakeFrameRateRange class], 0);
+        _ranges = r ? @[r] : @[];
+    }
+    return _ranges;
+}
+- (NSString *)mediaType { return AVMediaTypeVideo; }
+- (FourCharCode)mediaSubType { return kCVPixelFormatType_32BGRA; }
+- (CMVideoDimensions)highResolutionStillImageDimensions {
+    return (CMVideoDimensions){ 1280, 720 };
+}
+- (NSArray<NSValue *> *)supportedMaxPhotoDimensions {
+    CMVideoDimensions dims = { 1920, 1080 };
+    return @[ [NSValue valueWithBytes:&dims objCType:@encode(CMVideoDimensions)] ];
+}
+- (BOOL)isHighestPhotoQualitySupported { return YES; }
+- (BOOL)isVideoBinned { return NO; }
+- (BOOL)isVideoStabilizationModeSupported:(AVCaptureVideoStabilizationMode)m { return NO; }
+- (CGFloat)videoMaxZoomFactor { return 16.0; }
+- (CGFloat)videoZoomFactorUpscaleThreshold { return 1.0; }
+- (AVCaptureAutoFocusSystem)autoFocusSystem { return AVCaptureAutoFocusSystemNone; }
+- (BOOL)isMultiCamSupported { return NO; }
+- (NSArray *)supportedColorSpaces { return @[]; }
+- (NSArray *)supportedDepthDataFormats { return @[]; }
+- (BOOL)isPortraitEffectSupported { return NO; }
+- (NSArray<Class> *)unsupportedCaptureOutputClasses { return @[]; }
+- (BOOL)isStreamingDisparitySupported { return NO; }
+- (float)minISO { return 25.0f; }
+- (float)maxISO { return 6400.0f; }
+- (CMTime)minExposureDuration { return CMTimeMake(1, 8000); }
+- (CMTime)maxExposureDuration { return CMTimeMake(1, 30); }
+- (id)figCaptureSourceVideoFormat { return nil; }
+- (void)dealloc { if (_fd) CFRelease(_fd); }
+@end
+
+AVCaptureDeviceFormat *SimCamSharedFakeFormat(void) {
+    static AVCaptureDeviceFormat *f = nil;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        f = (AVCaptureDeviceFormat *)class_createInstance([SimCamFakeFormat class], 0);
+    });
+    return f;
+}
+
+#pragma mark - SimCamFakeDevice
+
+static char kFakePositionKey;
+
+@implementation SimCamFakeDevice
+- (AVCaptureDevicePosition)position {
+    NSNumber *n = objc_getAssociatedObject(self, &kFakePositionKey);
+    return n ? (AVCaptureDevicePosition)n.intValue : AVCaptureDevicePositionFront;
+}
+- (NSString *)uniqueID {
+    return self.position == AVCaptureDevicePositionBack
+        ? @"sim-cam-fake-back-0" : @"sim-cam-fake-front-0";
+}
+- (NSString *)modelID { return @"SimCamFakeCamera"; }
+- (NSString *)localizedName {
+    return self.position == AVCaptureDevicePositionBack
+        ? @"Simulated Camera Back (serve-sim)"
+        : @"Simulated Camera Front (serve-sim)";
+}
+- (NSString *)manufacturer { return @"serve-sim"; }
+- (BOOL)hasMediaType:(AVMediaType)mediaType { return [mediaType isEqualToString:AVMediaTypeVideo]; }
+- (BOOL)supportsAVCaptureSessionPreset:(AVCaptureSessionPreset)preset { return YES; }
+- (AVCaptureDeviceType)deviceType { return AVCaptureDeviceTypeBuiltInWideAngleCamera; }
+- (NSArray<AVCaptureDeviceFormat *> *)formats {
+    AVCaptureDeviceFormat *f = SimCamSharedFakeFormat();
+    return f ? @[f] : @[];
+}
+- (BOOL)isConnected { return YES; }
+- (BOOL)isSuspended { return NO; }
+- (BOOL)lockForConfiguration:(NSError **)e { return YES; }
+- (void)unlockForConfiguration { }
+- (AVCaptureDeviceFormat *)activeFormat { return SimCamSharedFakeFormat(); }
+- (CMTime)activeVideoMinFrameDuration { return CMTimeMake(1, 30); }
+- (CMTime)activeVideoMaxFrameDuration { return CMTimeMake(1, 30); }
+- (CGFloat)videoZoomFactor { return 1.0; }
+- (void)setVideoZoomFactor:(CGFloat)v { (void)v; }
+- (void)rampToVideoZoomFactor:(CGFloat)f withRate:(float)r { (void)f; (void)r; }
+- (void)cancelVideoZoomRamp { }
+- (BOOL)isRampingVideoZoom { return NO; }
+- (CGFloat)minAvailableVideoZoomFactor { return 1.0; }
+- (CGFloat)maxAvailableVideoZoomFactor { return 16.0; }
+- (CGFloat)dualCameraSwitchOverVideoZoomFactor { return 2.0; }
+- (NSArray<NSNumber *> *)virtualDeviceSwitchOverVideoZoomFactors { return @[]; }
+- (NSArray *)constituentDevices { return @[]; }
+- (BOOL)isVirtualDevice { return NO; }
+- (BOOL)hasTorch { return NO; }
+- (BOOL)hasFlash { return NO; }
+- (BOOL)isTorchAvailable { return NO; }
+- (BOOL)isTorchActive { return NO; }
+- (AVCaptureTorchMode)torchMode { return AVCaptureTorchModeOff; }
+- (void)setTorchMode:(AVCaptureTorchMode)m { (void)m; }
+- (BOOL)isTorchModeSupported:(AVCaptureTorchMode)m { (void)m; return NO; }
+- (BOOL)setTorchModeOnWithLevel:(float)l error:(NSError **)e { (void)l; if (e) *e = nil; return YES; }
+- (AVCaptureFocusMode)focusMode { return AVCaptureFocusModeContinuousAutoFocus; }
+- (void)setFocusMode:(AVCaptureFocusMode)m { (void)m; }
+- (BOOL)isFocusModeSupported:(AVCaptureFocusMode)m { (void)m; return YES; }
+- (CGPoint)focusPointOfInterest { return CGPointMake(0.5, 0.5); }
+- (void)setFocusPointOfInterest:(CGPoint)p { (void)p; }
+- (BOOL)isFocusPointOfInterestSupported { return YES; }
+- (BOOL)isAdjustingFocus { return NO; }
+- (BOOL)isSmoothAutoFocusEnabled { return NO; }
+- (void)setSmoothAutoFocusEnabled:(BOOL)b { (void)b; }
+- (BOOL)isSmoothAutoFocusSupported { return NO; }
+- (AVCaptureAutoFocusRangeRestriction)autoFocusRangeRestriction { return AVCaptureAutoFocusRangeRestrictionNone; }
+- (void)setAutoFocusRangeRestriction:(AVCaptureAutoFocusRangeRestriction)r { (void)r; }
+- (BOOL)isAutoFocusRangeRestrictionSupported { return NO; }
+- (AVCaptureExposureMode)exposureMode { return AVCaptureExposureModeContinuousAutoExposure; }
+- (void)setExposureMode:(AVCaptureExposureMode)m { (void)m; }
+- (BOOL)isExposureModeSupported:(AVCaptureExposureMode)m { (void)m; return YES; }
+- (CGPoint)exposurePointOfInterest { return CGPointMake(0.5, 0.5); }
+- (void)setExposurePointOfInterest:(CGPoint)p { (void)p; }
+- (BOOL)isExposurePointOfInterestSupported { return YES; }
+- (BOOL)isAdjustingExposure { return NO; }
+- (float)exposureTargetBias { return 0.0f; }
+- (float)minExposureTargetBias { return -8.0f; }
+- (float)maxExposureTargetBias { return 8.0f; }
+- (CMTime)exposureDuration { return CMTimeMake(1, 30); }
+- (float)ISO { return 100.0f; }
+- (float)minISO { return 25.0f; }
+- (float)maxISO { return 6400.0f; }
+- (CMTime)activeMinExposureDuration { return CMTimeMake(1, 8000); }
+- (CMTime)activeMaxExposureDuration { return CMTimeMake(1, 30); }
+- (AVCaptureWhiteBalanceMode)whiteBalanceMode { return AVCaptureWhiteBalanceModeContinuousAutoWhiteBalance; }
+- (void)setWhiteBalanceMode:(AVCaptureWhiteBalanceMode)m { (void)m; }
+- (BOOL)isWhiteBalanceModeSupported:(AVCaptureWhiteBalanceMode)m { (void)m; return YES; }
+- (BOOL)isAdjustingWhiteBalance { return NO; }
+- (BOOL)isFlashAvailable { return NO; }
+- (BOOL)videoHDREnabled { return NO; }
+- (void)setVideoHDREnabled:(BOOL)b { (void)b; }
+- (BOOL)automaticallyAdjustsVideoHDREnabled { return NO; }
+- (void)setAutomaticallyAdjustsVideoHDREnabled:(BOOL)b { (void)b; }
+- (BOOL)isLowLightBoostSupported { return NO; }
+- (BOOL)isLowLightBoostEnabled { return NO; }
+- (BOOL)automaticallyEnablesLowLightBoostWhenAvailable { return NO; }
+- (void)setAutomaticallyEnablesLowLightBoostWhenAvailable:(BOOL)b { (void)b; }
+- (NSArray *)linkedDevices { return @[]; }
+@end
+
+AVCaptureDevice *SimCamFakeDeviceForPosition(AVCaptureDevicePosition p) {
+    static AVCaptureDevice *front = nil;
+    static AVCaptureDevice *back = nil;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        front = (AVCaptureDevice *)class_createInstance([SimCamFakeDevice class], 0);
+        objc_setAssociatedObject(front, &kFakePositionKey,
+            @(AVCaptureDevicePositionFront), OBJC_ASSOCIATION_RETAIN);
+        back = (AVCaptureDevice *)class_createInstance([SimCamFakeDevice class], 0);
+        objc_setAssociatedObject(back, &kFakePositionKey,
+            @(AVCaptureDevicePositionBack), OBJC_ASSOCIATION_RETAIN);
+    });
+    return p == AVCaptureDevicePositionBack ? back : front;
+}
+
+#pragma mark - SimCamFakeConnection
+
+@interface AVCaptureConnection (SimCamPrivate)
+- (BOOL)sourcesFromExternalCamera;
+- (AVCaptureVideoOrientation)_videoOrientation;
+@end
+
+static AVCaptureInputPort *SimCamFakeInputPortForInput(AVCaptureInput *input, AVCaptureDevicePosition position);
+
+@implementation SimCamFakeConnection {
+    __weak AVCaptureOutput *_outputRef;
+    AVCaptureDevicePosition _position;
+    AVCaptureVideoOrientation _orientation;
+    BOOL _videoMirrored;
+    BOOL _automaticallyAdjustsVideoMirroring;
+    BOOL _enabled;
+}
++ (instancetype)allocWithZone:(NSZone *)zone {
+    return class_createInstance([SimCamFakeConnection class], 0);
+}
++ (instancetype)connectionForOutput:(AVCaptureOutput *)output
+                           position:(AVCaptureDevicePosition)pos {
+    SimCamFakeConnection *c = [self alloc];
+    if (c) {
+        c->_outputRef = output;
+        c->_position = pos;
+        c->_orientation = AVCaptureVideoOrientationPortrait;
+        c->_automaticallyAdjustsVideoMirroring = YES;
+        c->_videoMirrored = SimCamShouldMirror(pos);
+        c->_enabled = YES;
+    }
+    return c;
+}
+- (AVCaptureOutput *)output { return _outputRef; }
+- (NSArray *)inputPorts {
+    AVCaptureInput *input = SimCamOutputInput(_outputRef) ?: SimCamFakeInputForPosition(_position);
+    AVCaptureInputPort *port = SimCamFakeInputPortForInput(input, _position);
+    return port ? @[port] : @[];
+}
+- (AVCaptureInput *)input { return SimCamOutputInput(_outputRef) ?: SimCamFakeInputForPosition(_position); }
+- (AVCaptureVideoPreviewLayer *)videoPreviewLayer { return nil; }
+- (BOOL)isEnabled { return _enabled; }
+- (void)setEnabled:(BOOL)e { _enabled = e; }
+- (BOOL)isActive { return YES; }
+- (NSArray *)audioChannels { return @[]; }
+- (AVMediaType)mediaType { return AVMediaTypeVideo; }
+
+- (AVCaptureDevice *)sourceDevice { return SimCamFakeDeviceForPosition(_position); }
+- (AVCaptureDeviceType)sourceDeviceType { return AVCaptureDeviceTypeBuiltInWideAngleCamera; }
+- (AVCaptureDevicePosition)sourceDevicePosition { return _position; }
+- (AVCaptureSession *)originatingSession { return nil; }
+
+- (AVCaptureDeviceInput *)deviceInput {
+    return SimCamFakeInputForPosition(_position);
+}
+
+- (BOOL)isVideoOrientationSupported { return YES; }
+- (AVCaptureVideoOrientation)videoOrientation { return _orientation; }
+- (void)setVideoOrientation:(AVCaptureVideoOrientation)o { _orientation = o; }
+
+- (BOOL)isVideoRotationAngleSupported:(CGFloat)angle { (void)angle; return YES; }
+- (CGFloat)videoRotationAngle {
+    switch (_orientation) {
+        case AVCaptureVideoOrientationPortrait:           return 90.0;
+        case AVCaptureVideoOrientationPortraitUpsideDown: return 270.0;
+        case AVCaptureVideoOrientationLandscapeRight:     return 0.0;
+        case AVCaptureVideoOrientationLandscapeLeft:      return 180.0;
+        default:                                          return 90.0;
+    }
+}
+- (void)setVideoRotationAngle:(CGFloat)angle {
+    long a = ((long)angle % 360 + 360) % 360;
+    if (a == 0)        _orientation = AVCaptureVideoOrientationLandscapeRight;
+    else if (a == 90)  _orientation = AVCaptureVideoOrientationPortrait;
+    else if (a == 180) _orientation = AVCaptureVideoOrientationLandscapeLeft;
+    else if (a == 270) _orientation = AVCaptureVideoOrientationPortraitUpsideDown;
+}
+
+- (BOOL)isVideoMirroringSupported { return YES; }
+- (BOOL)isVideoMirrored {
+    if (_automaticallyAdjustsVideoMirroring) return SimCamShouldMirror(_position);
+    return _videoMirrored;
+}
+- (void)setVideoMirrored:(BOOL)m {
+    _videoMirrored = m;
+    _automaticallyAdjustsVideoMirroring = NO;
+}
+- (BOOL)automaticallyAdjustsVideoMirroring { return _automaticallyAdjustsVideoMirroring; }
+- (void)setAutomaticallyAdjustsVideoMirroring:(BOOL)b {
+    _automaticallyAdjustsVideoMirroring = b;
+    if (b) _videoMirrored = SimCamShouldMirror(_position);
+}
+
+- (BOOL)isVideoMinFrameDurationSupported { return NO; }
+- (BOOL)isVideoMaxFrameDurationSupported { return NO; }
+- (CMTime)videoMinFrameDuration { return kCMTimeInvalid; }
+- (CMTime)videoMaxFrameDuration { return kCMTimeInvalid; }
+- (void)setVideoMinFrameDuration:(CMTime)d { (void)d; }
+- (void)setVideoMaxFrameDuration:(CMTime)d { (void)d; }
+
+- (BOOL)isVideoStabilizationSupported { return NO; }
+- (AVCaptureVideoStabilizationMode)preferredVideoStabilizationMode { return AVCaptureVideoStabilizationModeOff; }
+- (void)setPreferredVideoStabilizationMode:(AVCaptureVideoStabilizationMode)m { (void)m; }
+- (AVCaptureVideoStabilizationMode)activeVideoStabilizationMode { return AVCaptureVideoStabilizationModeOff; }
+- (BOOL)isVideoStabilizationEnabled { return NO; }
+- (BOOL)enablesVideoStabilizationWhenAvailable { return NO; }
+- (void)setEnablesVideoStabilizationWhenAvailable:(BOOL)b { (void)b; }
+
+- (BOOL)isCameraIntrinsicMatrixDeliverySupported { return NO; }
+- (BOOL)isCameraIntrinsicMatrixDeliveryEnabled { return NO; }
+- (void)setCameraIntrinsicMatrixDeliveryEnabled:(BOOL)b { (void)b; }
+
+- (BOOL)isVideoFieldModeSupported { return NO; }
+- (CGFloat)videoMaxScaleAndCropFactor { return 1.0; }
+- (CGFloat)videoScaleAndCropFactor { return 1.0; }
+- (void)setVideoScaleAndCropFactor:(CGFloat)v { (void)v; }
+
+- (AVCaptureVideoOrientation)_videoOrientation { return _orientation; }
+- (BOOL)sourcesFromExternalCamera { return NO; }
+@end
+
+static char kSimCamOutputConnectionKey;
+
+AVCaptureConnection *SimCamFakeConnectionForOutput(AVCaptureOutput *out) {
+    if (!out) return nil;
+    AVCaptureConnection *conn = objc_getAssociatedObject(out, &kSimCamOutputConnectionKey);
+    if (!conn) {
+        conn = (AVCaptureConnection *)[SimCamFakeConnection
+            connectionForOutput:out
+                       position:SimCamPositionOf(out)];
+        if (conn) {
+            objc_setAssociatedObject(out, &kSimCamOutputConnectionKey, conn,
+                OBJC_ASSOCIATION_RETAIN);
+        }
+    }
+    return conn;
+}
+
+#pragma mark - SimCamFakeInputPort
+
+@interface SimCamFakeInputPort : AVCaptureInputPort
+@end
+
+@implementation SimCamFakeInputPort {
+    __weak AVCaptureInput *_inputRef;
+    AVCaptureDevicePosition _position;
+}
++ (instancetype)allocWithZone:(NSZone *)zone {
+    return class_createInstance([SimCamFakeInputPort class], 0);
+}
++ (instancetype)portForInput:(AVCaptureInput *)input position:(AVCaptureDevicePosition)position {
+    SimCamFakeInputPort *p = [self alloc];
+    if (p) {
+        p->_inputRef = input;
+        p->_position = position;
+    }
+    return p;
+}
+- (AVCaptureInput *)input { return _inputRef; }
+- (AVMediaType)mediaType { return AVMediaTypeVideo; }
+- (AVCaptureDeviceType)sourceDeviceType { return AVCaptureDeviceTypeBuiltInWideAngleCamera; }
+- (AVCaptureDevicePosition)sourceDevicePosition { return _position; }
+- (CMFormatDescriptionRef)formatDescription { return SimCamSharedFakeFormat().formatDescription; }
+- (BOOL)isEnabled { return YES; }
+- (void)setEnabled:(BOOL)enabled { (void)enabled; }
+@end
+
+static char kSimCamOutputInputRefKey;
+static char kSimCamFakeInputPortKey;
+
+void SimCamSetOutputInput(AVCaptureOutput *out, AVCaptureInput *input) {
+    if (!out) return;
+    if (!input) {
+        objc_setAssociatedObject(out, &kSimCamOutputInputRefKey, nil, OBJC_ASSOCIATION_RETAIN);
+        return;
+    }
+    SimCamWeakRef *ref = [SimCamWeakRef new];
+    ref.target = input;
+    objc_setAssociatedObject(out, &kSimCamOutputInputRefKey, ref, OBJC_ASSOCIATION_RETAIN);
+}
+
+AVCaptureInput *SimCamOutputInput(AVCaptureOutput *out) {
+    if (!out) return nil;
+    SimCamWeakRef *ref = objc_getAssociatedObject(out, &kSimCamOutputInputRefKey);
+    return ref.target;
+}
+
+static AVCaptureInputPort *SimCamFakeInputPortForInput(AVCaptureInput *input, AVCaptureDevicePosition position) {
+    if (!input) return nil;
+    AVCaptureInputPort *port = objc_getAssociatedObject(input, &kSimCamFakeInputPortKey);
+    if (!port) {
+        port = (AVCaptureInputPort *)[SimCamFakeInputPort portForInput:input position:position];
+        if (port) {
+            objc_setAssociatedObject(input, &kSimCamFakeInputPortKey, port, OBJC_ASSOCIATION_RETAIN);
+        }
+    }
+    return port;
+}
+
+#pragma mark - SimCamFakeInput marking
+
+static char kSimCamFakeInputKey;
+static char kSimCamFakeInputDeviceKey;
+
+void SimCamMarkFakeInput(id input, AVCaptureDevice *fakeDevice) {
+    if (!input) return;
+    objc_setAssociatedObject(input, &kSimCamFakeInputKey, @YES, OBJC_ASSOCIATION_RETAIN);
+    if (fakeDevice) {
+        objc_setAssociatedObject(input, &kSimCamFakeInputDeviceKey, fakeDevice, OBJC_ASSOCIATION_RETAIN);
+    }
+}
+BOOL SimCamIsFakeInput(id input) {
+    if (!input) return NO;
+    return [objc_getAssociatedObject(input, &kSimCamFakeInputKey) boolValue];
+}
+AVCaptureDevice *SimCamFakeInputDevice(id input) {
+    if (!input) return nil;
+    return objc_getAssociatedObject(input, &kSimCamFakeInputDeviceKey);
+}
+
+AVCaptureDeviceInput *SimCamFakeInputForPosition(AVCaptureDevicePosition p) {
+    static AVCaptureDeviceInput *front = nil;
+    static AVCaptureDeviceInput *back = nil;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        front = (AVCaptureDeviceInput *)class_createInstance([AVCaptureDeviceInput class], 0);
+        SimCamMarkFakeInput(front, SimCamFakeDeviceForPosition(AVCaptureDevicePositionFront));
+        SimCamSetPosition(front, AVCaptureDevicePositionFront);
+
+        back = (AVCaptureDeviceInput *)class_createInstance([AVCaptureDeviceInput class], 0);
+        SimCamMarkFakeInput(back, SimCamFakeDeviceForPosition(AVCaptureDevicePositionBack));
+        SimCamSetPosition(back, AVCaptureDevicePositionBack);
+    });
+    return p == AVCaptureDevicePositionBack ? back : front;
+}
+
+#pragma mark - SimCamFakeResolvedPhotoSettings
+
+@interface SimCamFakeResolvedPhotoSettings (SimCamFactory)
++ (instancetype)settingsWithDimensions:(CMVideoDimensions)dims;
+@end
+
+@implementation SimCamFakeResolvedPhotoSettings {
+    CMVideoDimensions _photoDims;
+}
++ (instancetype)allocWithZone:(NSZone *)zone {
+    return class_createInstance([SimCamFakeResolvedPhotoSettings class], 0);
+}
++ (instancetype)settingsWithDimensions:(CMVideoDimensions)dims {
+    SimCamFakeResolvedPhotoSettings *s = [self alloc];
+    if (s) s->_photoDims = dims;
+    return s;
+}
+- (CMVideoDimensions)photoDimensions { return _photoDims; }
+- (CMVideoDimensions)rawPhotoDimensions { return (CMVideoDimensions){0, 0}; }
+- (CMVideoDimensions)previewDimensions { return _photoDims; }
+- (CMVideoDimensions)embeddedThumbnailDimensions { return (CMVideoDimensions){0, 0}; }
+- (CMVideoDimensions)portraitEffectsMatteDimensions { return (CMVideoDimensions){0, 0}; }
+- (CMVideoDimensions)rawEmbeddedThumbnailDimensions { return (CMVideoDimensions){0, 0}; }
+- (int64_t)uniqueID { return 1; }
+- (BOOL)isFlashEnabled { return NO; }
+- (BOOL)isRedEyeReductionEnabled { return NO; }
+- (BOOL)isContentAwareDistortionCorrectionEnabled { return NO; }
+- (BOOL)isStillImageStabilizationEnabled { return NO; }
+- (BOOL)isVirtualDeviceFusionEnabled { return NO; }
+- (BOOL)isAutoVirtualDeviceFusionEnabled { return NO; }
+- (BOOL)isDualCameraFusionEnabled { return NO; }
+- (BOOL)isAutoDualCameraFusionEnabled { return NO; }
+- (BOOL)isDepthDataDeliveryEnabled { return NO; }
+- (BOOL)isPortraitEffectsMatteDeliveryEnabled { return NO; }
+- (BOOL)isCameraCalibrationDataDeliveryEnabled { return NO; }
+- (NSArray *)enabledSemanticSegmentationMatteTypes { return @[]; }
+- (CMTimeRange)photoProcessingTimeRange {
+    return CMTimeRangeMake(kCMTimeZero, kCMTimeZero);
+}
+- (CMTime)expectedPhotoCaptureDuration { return kCMTimeInvalid; }
+- (NSURL *)deferredPhotoProxyDataFileURL { return nil; }
+- (NSDictionary *)dimensionsRepresentation { return @{}; }
+@end
+
+#pragma mark - SimCamFakePhoto
+
+@implementation SimCamFakePhoto {
+    NSData *_jpegData;
+    CGImageRef _cgImage;
+    NSDictionary *_metadata;
+    AVCaptureResolvedPhotoSettings *_resolvedSettings;
+}
++ (instancetype)allocWithZone:(NSZone *)zone {
+    return class_createInstance([SimCamFakePhoto class], 0);
+}
++ (instancetype)photoFromImage:(CGImageRef)cgImage
+                   jpegQuality:(CGFloat)q
+                      mirrored:(BOOL)mirrored {
+    if (!cgImage) return nil;
+    SimCamFakePhoto *p = [SimCamFakePhoto alloc];
+    if (p) {
+        p->_cgImage = CGImageRetain(cgImage);
+        UIImage *ui = [UIImage imageWithCGImage:cgImage];
+        p->_jpegData = UIImageJPEGRepresentation(ui, q);
+        UInt32 exifOrient = mirrored ? 2u : 1u;
+        p->_metadata = @{
+            (NSString *)kCGImagePropertyOrientation: @(exifOrient),
+        };
+        CMVideoDimensions dims = {
+            (int32_t)CGImageGetWidth(cgImage),
+            (int32_t)CGImageGetHeight(cgImage),
+        };
+        p->_resolvedSettings = (AVCaptureResolvedPhotoSettings *)
+            [SimCamFakeResolvedPhotoSettings settingsWithDimensions:dims];
+    }
+    return p;
+}
+- (NSData *)fileDataRepresentation { return _jpegData; }
+- (NSData *)fileDataRepresentationWithCustomizer:(id)c { return _jpegData; }
+- (NSData *)fileDataRepresentationWithReplacementMetadata:(NSDictionary *)m
+                            replacementEmbeddedThumbnailPhotoFormat:(NSDictionary *)t
+                            replacementEmbeddedThumbnailPixelBuffer:(CVPixelBufferRef)pb
+                                       replacementDepthData:(id)d { return _jpegData; }
+- (CGImageRef)CGImageRepresentation { return _cgImage; }
+- (CGImageRef)previewCGImageRepresentation { return _cgImage; }
+- (NSDictionary *)metadata { return _metadata; }
+- (CVPixelBufferRef)pixelBuffer { return NULL; }
+- (CVPixelBufferRef)previewPixelBuffer { return NULL; }
+- (AVDepthData *)depthData { return nil; }
+- (AVCameraCalibrationData *)cameraCalibrationData { return nil; }
+- (NSData *)bracketSettings { return nil; }
+- (AVCaptureBracketedStillImageSettings *)bracketedSettings { return nil; }
+- (NSData *)embeddedThumbnailPhotoFormat { return nil; }
+- (NSInteger)photoCount { return 1; }
+- (NSInteger)sequenceCount { return 1; }
+- (CMTime)timestamp { return CMTimeMake(0, 30); }
+- (BOOL)isRawPhoto { return NO; }
+- (AVCaptureResolvedPhotoSettings *)resolvedSettings { return _resolvedSettings; }
+- (NSString *)sourceDeviceType { return AVCaptureDeviceTypeBuiltInWideAngleCamera; }
+- (NSArray *)availableRawEmbeddedThumbnailPhotoCodecTypes { return @[]; }
+- (NSArray *)availableEmbeddedThumbnailPhotoCodecTypes { return @[]; }
+- (void)dealloc { if (_cgImage) CGImageRelease(_cgImage); }
+@end
+
+#pragma mark - CoreMotion fakes
+
+@implementation SimCamAttitude
+- (double)pitch { return 0.0; }
+- (double)roll { return 0.0; }
+- (double)yaw { return 0.0; }
+- (CMRotationMatrix)rotationMatrix {
+    return (CMRotationMatrix){ 1, 0, 0,  0, 1, 0,  0, 0, 1 };
+}
+- (CMQuaternion)quaternion { return (CMQuaternion){ 0, 0, 0, 1 }; }
+- (void)multiplyByInverseOfAttitude:(CMAttitude *)attitude { (void)attitude; }
+@end
+
+@implementation SimCamAccelerometerData
+- (CMAcceleration)acceleration { return (CMAcceleration){ 0.0, -1.0, 0.0 }; }
+- (NSTimeInterval)timestamp { return [NSProcessInfo processInfo].systemUptime; }
+@end
+
+@implementation SimCamGyroData
+- (CMRotationRate)rotationRate { return (CMRotationRate){ 0.0, 0.0, 0.0 }; }
+- (NSTimeInterval)timestamp { return [NSProcessInfo processInfo].systemUptime; }
+@end
+
+@implementation SimCamMagnetometerData
+- (CMMagneticField)magneticField { return (CMMagneticField){ 0.0, 0.0, 0.0 }; }
+- (NSTimeInterval)timestamp { return [NSProcessInfo processInfo].systemUptime; }
+@end
+
+@implementation SimCamDeviceMotion
+- (CMAttitude *)attitude { return SimCamSharedAttitude(); }
+- (CMAcceleration)gravity { return (CMAcceleration){ 0.0, -1.0, 0.0 }; }
+- (CMAcceleration)userAcceleration { return (CMAcceleration){ 0.0, 0.0, 0.0 }; }
+- (CMRotationRate)rotationRate { return (CMRotationRate){ 0.0, 0.0, 0.0 }; }
+- (CMCalibratedMagneticField)magneticField {
+    return (CMCalibratedMagneticField){ { 0.0, 0.0, 0.0 },
+        CMMagneticFieldCalibrationAccuracyUncalibrated };
+}
+- (double)heading { return 0.0; }
+- (NSTimeInterval)timestamp { return [NSProcessInfo processInfo].systemUptime; }
+@end
+
+CMAttitude *SimCamSharedAttitude(void) {
+    static CMAttitude *att = nil;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        att = (CMAttitude *)class_createInstance([SimCamAttitude class], 0);
+    });
+    return att;
+}
+CMAccelerometerData *SimCamSharedAccelerometerData(void) {
+    static CMAccelerometerData *d = nil;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        d = (CMAccelerometerData *)class_createInstance([SimCamAccelerometerData class], 0);
+    });
+    return d;
+}
+CMGyroData *SimCamSharedGyroData(void) {
+    static CMGyroData *d = nil;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        d = (CMGyroData *)class_createInstance([SimCamGyroData class], 0);
+    });
+    return d;
+}
+CMMagnetometerData *SimCamSharedMagnetometerData(void) {
+    static CMMagnetometerData *d = nil;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        d = (CMMagnetometerData *)class_createInstance([SimCamMagnetometerData class], 0);
+    });
+    return d;
+}
+CMDeviceMotion *SimCamSharedDeviceMotion(void) {
+    static CMDeviceMotion *d = nil;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        d = (CMDeviceMotion *)class_createInstance([SimCamDeviceMotion class], 0);
+    });
+    return d;
+}

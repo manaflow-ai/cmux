@@ -184,6 +184,8 @@ enum KeyboardShortcutSettings {
         case diffViewerScrollToBottom
         case diffViewerScrollToTop
         case diffViewerOpenFileSearch
+        case simulatorHome, simulatorRotateLeft, simulatorRotateRight
+        case simulatorToggleAppearance, simulatorToggleSoftwareKeyboard
 
         var id: String { rawValue }
 
@@ -302,6 +304,9 @@ enum KeyboardShortcutSettings {
             case .diffViewerScrollToBottom: return String(localized: "shortcut.diffViewerScrollToBottom.label", defaultValue: "Diff Viewer: Scroll to Bottom")
             case .diffViewerScrollToTop: return String(localized: "shortcut.diffViewerScrollToTop.label", defaultValue: "Diff Viewer: Scroll to Top")
             case .diffViewerOpenFileSearch: return String(localized: "shortcut.diffViewerOpenFileSearch.label", defaultValue: "Diff Viewer: Open File Search")
+            case .simulatorHome, .simulatorRotateLeft, .simulatorRotateRight,
+                 .simulatorToggleAppearance, .simulatorToggleSoftwareKeyboard:
+                return simulatorLabel
             }
         }
 
@@ -579,6 +584,9 @@ enum KeyboardShortcutSettings {
                 )
             case .diffViewerOpenFileSearch:
                 return StoredShortcut(key: "/", command: false, shift: false, option: false, control: false)
+            case .simulatorHome, .simulatorRotateLeft, .simulatorRotateRight,
+                 .simulatorToggleAppearance, .simulatorToggleSoftwareKeyboard:
+                return simulatorDefaultShortcut
             }
         }
 

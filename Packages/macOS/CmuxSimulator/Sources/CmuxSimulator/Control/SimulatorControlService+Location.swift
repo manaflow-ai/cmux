@@ -1,0 +1,388 @@
+import Foundation
+
+extension SimulatorControlService {
+    public func setLocation(deviceID: String, coordinate: SimulatorLocationCoordinate) async throws {
+        try Self.validate(coordinate)
+        let token = beginLocationOperation(deviceID: deviceID)
+        activeLocationRoutes.removeValue(forKey: deviceID)
+        do {
+            _ = try await output(arguments: [
+                "simctl", "location", deviceID, "set", Self.coordinateArgument(coordinate),
+            ])
+            guard locationRouteTokens[deviceID] == token else { return }
+            locationRouteInitialCoordinates.removeValue(forKey: deviceID)
+            finishLocationOperation(deviceID: deviceID, token: token)
+        } catch {
+            finishLocationOperation(deviceID: deviceID, token: token)
+            throw error
+        }
+    }
+
+    /// Clears a fixed location or running route.
+    public func clearLocation(deviceID: String) async throws {
+        let token = beginLocationOperation(deviceID: deviceID)
+        activeLocationRoutes.removeValue(forKey: deviceID)
+        do {
+            _ = try await output(arguments: ["simctl", "location", deviceID, "clear"])
+            guard locationRouteTokens[deviceID] == token else { return }
+            locationRouteInitialCoordinates.removeValue(forKey: deviceID)
+            finishLocationOperation(deviceID: deviceID, token: token)
+        } catch {
+            finishLocationOperation(deviceID: deviceID, token: token)
+            throw error
+        }
+    }
+
+    /// Starts a route interpolated by CoreSimulator.
+    public func startLocationRoute(deviceID: String, route: SimulatorLocationRoute) async throws {
+        try Self.validate(route: route, deviceID: deviceID)
+        guard let initialCoordinate = route.waypoints.first else { return }
+        try await startLocationRoute(
+            deviceID: deviceID,
+            route: route,
+            initialCoordinate: initialCoordinate
+        )
+    }
+
+    private func startLocationRoute(
+        deviceID: String,
+        route: SimulatorLocationRoute,
+        initialCoordinate: SimulatorLocationCoordinate
+    ) async throws {
+        let token = beginLocationOperation(deviceID: deviceID)
+        activeLocationRoutes.removeValue(forKey: deviceID)
+        do {
+            try await runLocationRouteCommand(deviceID: deviceID, route: route)
+        } catch {
+            finishLocationOperation(deviceID: deviceID, token: token)
+            throw error
+        }
+        guard locationRouteTokens[deviceID] == token else { return }
+        locationRouteInitialCoordinates[deviceID] = initialCoordinate
+        activeLocationRoutes[deviceID] = .running(route: route, startedAt: now())
+        scheduleLocationLifecycle(deviceID: deviceID, route: route, token: token)
+    }
+
+    private func runLocationRouteCommand(
+        deviceID: String,
+        route: SimulatorLocationRoute
+    ) async throws {
+        try Self.validate(route: route, deviceID: deviceID)
+        var arguments = [
+            "simctl", "location", deviceID, "start", "--speed=\(route.speed)",
+        ]
+        if let distance = route.updateDistance {
+            guard distance.isFinite, distance > 0 else {
+                throw SimulatorControlError(
+                    code: "invalid_location_route",
+                    arguments: arguments,
+                    message: "Location route update distance must be positive."
+                )
+            }
+            arguments.append("--distance=\(distance)")
+        }
+        if let interval = route.updateInterval {
+            guard interval.isFinite, interval > 0 else {
+                throw SimulatorControlError(
+                    code: "invalid_location_route",
+                    arguments: arguments,
+                    message: "Location route update interval must be positive."
+                )
+            }
+            arguments.append("--interval=\(interval)")
+        }
+        arguments += Self.commandWaypoints(for: route).map(Self.coordinateArgument)
+        _ = try await output(arguments: arguments)
+    }
+
+    /// Pauses a route at its estimated current coordinate.
+    public func pauseLocationRoute(deviceID: String) async throws {
+        guard case let .running(route, startedAt) = activeLocationRoutes[deviceID] else {
+            throw SimulatorControlError(
+                code: "location_route_not_running",
+                arguments: ["simctl", "location", deviceID],
+                message: "cmux has no running location route for this device."
+            )
+        }
+        let elapsed = max(0, now().timeIntervalSince(startedAt))
+        let pausedRoute = Self.remainingRoute(route, after: elapsed)
+        let coordinate = pausedRoute.waypoints[0]
+        let token = beginLocationOperation(deviceID: deviceID)
+        activeLocationRoutes.removeValue(forKey: deviceID)
+        do {
+            _ = try await output(arguments: ["simctl", "location", deviceID, "clear"])
+            _ = try await output(arguments: [
+                "simctl", "location", deviceID, "set", Self.coordinateArgument(coordinate),
+            ])
+        } catch {
+            finishLocationOperation(deviceID: deviceID, token: token)
+            throw error
+        }
+        guard locationRouteTokens[deviceID] == token else { return }
+        activeLocationRoutes[deviceID] = .paused(route: pausedRoute)
+    }
+
+    /// Resumes a route previously paused by this service.
+    public func resumeLocationRoute(deviceID: String) async throws {
+        guard case let .paused(route) = activeLocationRoutes[deviceID] else {
+            throw SimulatorControlError(
+                code: "location_route_not_paused",
+                arguments: ["simctl", "location", deviceID],
+                message: "cmux has no paused location route for this device."
+            )
+        }
+        let initialCoordinate = locationRouteInitialCoordinates[deviceID] ?? route.waypoints[0]
+        if route.waypoints.count < 2 {
+            activeLocationRoutes.removeValue(forKey: deviceID)
+            locationRouteTokens.removeValue(forKey: deviceID)
+            return
+        }
+        try await startLocationRoute(
+            deviceID: deviceID,
+            route: route,
+            initialCoordinate: initialCoordinate
+        )
+    }
+
+    /// Stops a route and restores the coordinate where that route began.
+    public func stopLocationRoute(deviceID: String) async throws {
+        guard let initialCoordinate = locationRouteInitialCoordinates[deviceID] else {
+            try await clearLocation(deviceID: deviceID)
+            return
+        }
+        let token = beginLocationOperation(deviceID: deviceID)
+        activeLocationRoutes.removeValue(forKey: deviceID)
+        do {
+            _ = try await output(arguments: ["simctl", "location", deviceID, "clear"])
+            _ = try await output(arguments: [
+                "simctl", "location", deviceID, "set", Self.coordinateArgument(initialCoordinate),
+            ])
+        } catch {
+            finishLocationOperation(deviceID: deviceID, token: token)
+            throw error
+        }
+        guard locationRouteTokens[deviceID] == token else { return }
+        locationRouteInitialCoordinates.removeValue(forKey: deviceID)
+        finishLocationOperation(deviceID: deviceID, token: token)
+    }
+
+    /// Delivers a JSON Apple Push Notification payload file.
+
+    static func validate(_ coordinate: SimulatorLocationCoordinate) throws {
+        guard coordinate.latitude.isFinite,
+              coordinate.longitude.isFinite,
+              (-90...90).contains(coordinate.latitude),
+              (-180...180).contains(coordinate.longitude) else {
+            throw SimulatorControlError(
+                code: "invalid_location",
+                arguments: [],
+                message: "Latitude must be from -90 through 90 and longitude from -180 through 180."
+            )
+        }
+    }
+
+    static func validate(route: SimulatorLocationRoute, deviceID: String) throws {
+        guard route.waypoints.count >= 2, route.speed.isFinite, route.speed > 0 else {
+            throw SimulatorControlError(
+                code: "invalid_location_route",
+                arguments: ["simctl", "location", deviceID, "start"],
+                message: "A location route needs at least two waypoints and a positive speed."
+            )
+        }
+        try route.waypoints.forEach(validate)
+    }
+
+    static func coordinateArgument(_ coordinate: SimulatorLocationCoordinate) -> String {
+        "\(coordinate.latitude),\(coordinate.longitude)"
+    }
+
+    static func remainingRoute(
+        _ route: SimulatorLocationRoute,
+        after elapsed: TimeInterval
+    ) -> SimulatorLocationRoute {
+        if route.loops { return remainingLoopingRoute(route, after: elapsed) }
+        var remainingDistance = elapsed * route.speed
+        let points = route.waypoints
+        guard points.count >= 2, let finalPoint = points.last else { return route }
+        for index in 0..<(points.count - 1) {
+            let start = points[index]
+            let end = points[index + 1]
+            let segmentDistance = distance(from: start, to: end)
+            if remainingDistance < segmentDistance, segmentDistance > 0 {
+                let progress = remainingDistance / segmentDistance
+                let current = SimulatorLocationCoordinate(
+                    latitude: start.latitude + ((end.latitude - start.latitude) * progress),
+                    longitude: start.longitude + ((end.longitude - start.longitude) * progress)
+                )
+                return SimulatorLocationRoute(
+                    waypoints: [current] + Array(points[(index + 1)...]),
+                    speed: route.speed,
+                    updateDistance: route.updateDistance,
+                    updateInterval: route.updateInterval,
+                    loops: false
+                )
+            }
+            remainingDistance -= segmentDistance
+        }
+        return SimulatorLocationRoute(
+            waypoints: [finalPoint],
+            speed: route.speed,
+            updateDistance: route.updateDistance,
+            updateInterval: route.updateInterval,
+            loops: false
+        )
+    }
+
+    static func commandWaypoints(
+        for route: SimulatorLocationRoute
+    ) -> [SimulatorLocationCoordinate] {
+        guard route.loops,
+              let first = route.waypoints.first,
+              route.waypoints.last != first else { return route.waypoints }
+        return route.waypoints + [first]
+    }
+
+    static func routeDuration(_ route: SimulatorLocationRoute) -> TimeInterval? {
+        route.estimatedDuration
+    }
+
+    static func remainingLoopingRoute(
+        _ route: SimulatorLocationRoute,
+        after elapsed: TimeInterval
+    ) -> SimulatorLocationRoute {
+        var points = route.waypoints
+        if points.first == points.last { points.removeLast() }
+        guard points.count >= 2 else { return route }
+        let segments = points.indices.map { index in
+            (points[index], points[(index + 1) % points.count])
+        }
+        let totalDistance = segments.reduce(0) {
+            $0 + distance(from: $1.0, to: $1.1)
+        }
+        guard totalDistance > 0 else { return route }
+        var remainingDistance = (max(0, elapsed) * route.speed)
+            .truncatingRemainder(dividingBy: totalDistance)
+        for index in segments.indices {
+            let segment = segments[index]
+            let segmentDistance = distance(from: segment.0, to: segment.1)
+            if remainingDistance < segmentDistance, segmentDistance > 0 {
+                let progress = remainingDistance / segmentDistance
+                let current = SimulatorLocationCoordinate(
+                    latitude: segment.0.latitude
+                        + ((segment.1.latitude - segment.0.latitude) * progress),
+                    longitude: segment.0.longitude
+                        + ((segment.1.longitude - segment.0.longitude) * progress)
+                )
+                let rotated = (1...points.count).map { offset in
+                    points[(index + offset) % points.count]
+                }
+                return SimulatorLocationRoute(
+                    waypoints: [current] + rotated,
+                    speed: route.speed,
+                    updateDistance: route.updateDistance,
+                    updateInterval: route.updateInterval,
+                    loops: true
+                )
+            }
+            remainingDistance -= segmentDistance
+        }
+        return route
+    }
+
+    private func scheduleLocationLifecycle(
+        deviceID: String,
+        route: SimulatorLocationRoute,
+        token: UUID
+    ) {
+        cancelLocationLifecycle(deviceID: deviceID)
+        guard locationRouteTokens[deviceID] == token,
+              let duration = Self.routeDuration(route) else { return }
+        let routeSleep = routeSleep
+        locationLifecycleTasks[deviceID] = Task { [weak self] in
+            do {
+                try await routeSleep(.seconds(duration))
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
+            if route.loops {
+                await self?.restartLocationLoop(deviceID: deviceID, route: route, token: token)
+            } else {
+                await self?.completeLocationRoute(deviceID: deviceID, route: route, token: token)
+            }
+        }
+    }
+
+    private func completeLocationRoute(
+        deviceID: String,
+        route: SimulatorLocationRoute,
+        token: UUID
+    ) {
+        guard locationRouteTokens[deviceID] == token,
+              case let .running(activeRoute, _) = activeLocationRoutes[deviceID],
+              activeRoute == route else { return }
+        locationLifecycleTasks.removeValue(forKey: deviceID)
+        locationRouteTokens.removeValue(forKey: deviceID)
+        activeLocationRoutes.removeValue(forKey: deviceID)
+    }
+
+    private func restartLocationLoop(
+        deviceID: String,
+        route: SimulatorLocationRoute,
+        token: UUID
+    ) async {
+        guard !Task.isCancelled,
+              locationRouteTokens[deviceID] == token,
+              case let .running(activeRoute, _) = activeLocationRoutes[deviceID],
+              activeRoute == route else { return }
+        do {
+            try await runLocationRouteCommand(deviceID: deviceID, route: route)
+            guard !Task.isCancelled,
+                  locationRouteTokens[deviceID] == token,
+                  case let .running(currentRoute, _) = activeLocationRoutes[deviceID],
+                  currentRoute == route else { return }
+            activeLocationRoutes[deviceID] = .running(route: route, startedAt: now())
+            scheduleLocationLifecycle(deviceID: deviceID, route: route, token: token)
+        } catch {
+            guard locationRouteTokens[deviceID] == token else { return }
+            cancelLocationLifecycle(deviceID: deviceID)
+            locationRouteTokens.removeValue(forKey: deviceID)
+            if case let .running(currentRoute, _) = activeLocationRoutes[deviceID],
+               currentRoute == route {
+                activeLocationRoutes.removeValue(forKey: deviceID)
+            }
+        }
+    }
+
+    private func beginLocationOperation(deviceID: String) -> UUID {
+        cancelLocationLifecycle(deviceID: deviceID)
+        let token = UUID()
+        locationRouteTokens[deviceID] = token
+        return token
+    }
+
+    private func finishLocationOperation(deviceID: String, token: UUID) {
+        guard locationRouteTokens[deviceID] == token else { return }
+        locationRouteTokens.removeValue(forKey: deviceID)
+    }
+
+    private func cancelLocationLifecycle(deviceID: String) {
+        locationLifecycleTasks.removeValue(forKey: deviceID)?.cancel()
+    }
+
+    static func distance(
+        from start: SimulatorLocationCoordinate,
+        to end: SimulatorLocationCoordinate
+    ) -> Double {
+        let earthRadius = 6_371_000.0
+        let latitude1 = start.latitude * .pi / 180
+        let latitude2 = end.latitude * .pi / 180
+        let latitudeDelta = (end.latitude - start.latitude) * .pi / 180
+        let longitudeDelta = (end.longitude - start.longitude) * .pi / 180
+        let a = sin(latitudeDelta / 2) * sin(latitudeDelta / 2)
+            + cos(latitude1) * cos(latitude2)
+            * sin(longitudeDelta / 2) * sin(longitudeDelta / 2)
+        return earthRadius * 2 * atan2(sqrt(a), sqrt(1 - a))
+    }
+
+}

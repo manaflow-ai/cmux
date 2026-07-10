@@ -4,6 +4,8 @@ import CmuxFoundation
 import CmuxPanes
 import CmuxSidebarInterpreterClient
 import CmuxSidebarRemoteRender
+import CmuxSimulator
+import CmuxSimulatorWorker
 import CmuxSettings
 import CmuxSettingsUI
 import CmuxWorkspaces
@@ -28,6 +30,9 @@ import CmuxTerminal
 @main
 enum CmuxMain {
     static func main() {
+        if CommandLine.arguments.contains(SimulatorWorkerClient.workerModeArgument) {
+            runSimulatorWorker()
+        }
         if CommandLine.arguments.contains(RenderWorkerClient.workerModeArgument) {
             runSidebarRenderWorker()
         }
@@ -728,6 +733,18 @@ struct cmuxApp: App {
                         // the browser-availability gate identical to the
                         // shared action path.
                         activeTabManager.addWorkspace(initialSurface: .browser)
+                    }
+                }
+
+                Button(String(localized: "menu.file.newSimulatorPane", defaultValue: "New Simulator Pane")) {
+                    guard let appDelegate = AppDelegate.shared,
+                          appDelegate.executeConfiguredCmuxAction(
+                            id: CmuxSurfaceTabBarBuiltInAction.newSimulator.configID,
+                            tabManager: activeTabManager,
+                            preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
+                          ) else {
+                        NSSound.beep()
+                        return
                     }
                 }
 
