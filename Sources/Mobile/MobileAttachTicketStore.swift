@@ -33,8 +33,20 @@ enum MobileAttachTarget: String, Sendable {
                 route.kind == .debugLoopback && CmxLoopbackHost().matches(route)
             }
         case .physicalDevice:
-            selected = routes.filter { route in
+            let physicalRoutes = routes.filter { route in
                 route.kind == .tailscale && !CmxLoopbackHost().matches(route)
+            }
+            // A route-id filter can leave `tailscale_2` as the only route.
+            // Reindex the selected endpoints to the canonical sequence the v2
+            // QR decoder reconstructs, keeping the destination lossless while
+            // avoiding a token-bearing v1 fallback on physical devices.
+            selected = try physicalRoutes.enumerated().map { index, route in
+                try CmxAttachRoute(
+                    id: index == 0 ? "tailscale" : "tailscale_\(index + 1)",
+                    kind: .tailscale,
+                    endpoint: route.endpoint,
+                    priority: 10 + index * 10
+                )
             }
         }
         guard !selected.isEmpty else {
