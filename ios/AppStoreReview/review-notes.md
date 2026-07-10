@@ -4,6 +4,8 @@ cmux for iOS is a companion app for the cmux macOS terminal. It lets a signed-in
 user pair with their Mac, view workspaces, receive terminal notifications, and
 send input to an active terminal session from iPhone or iPad.
 
+Official App Store Connect app: Apple ID `6783338052`.
+
 Reviewer access:
 
 - Use the demo account entered in App Store Connect Review Information. Do not
@@ -11,6 +13,8 @@ Reviewer access:
 - After sign-in, use the pairing flow shown in the app. Pairing can be tested
   with a prepared review Mac, or with a manual pairing code supplied in the
   Review Information notes for the submitted build.
+- Follow `reviewer-setup.md` before submission so the reviewer can test without
+  owning a Mac.
 - The app may request Local Network permission during pairing so it can discover
   and connect to the user's Mac.
 - Camera permission is used only to scan cmux pairing QR codes.
@@ -26,12 +30,14 @@ Payments:
 - The web billing surface is gated for App Store mode with
   `cmux_distribution=appstore`; direct checkout requests with that distribution
   are redirected before Stack or Stripe checkout creation.
+- Direct billing portal requests with `cmux_distribution=appstore` are also
+  redirected before Stack or Stripe portal session creation.
 - Existing paid access from web or desktop accounts is read-only entitlement
   state in the iOS app. There is no in-app upsell or purchase call to action.
 
 Privacy and account handling:
 
-- Sign in supports Apple, Google, and email code through Stack Auth.
+- Sign in supports Apple, Google, GitHub, and email code through Stack Auth.
 - Push notifications are opt-in. The device token is uploaded only after the user
   enables phone notifications.
 - `ITSAppUsesNonExemptEncryption` is `false`; the app uses standard platform

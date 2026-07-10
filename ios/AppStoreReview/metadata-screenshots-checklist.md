@@ -43,6 +43,7 @@ complete in App Store Connect or in the submitted binary.
 - [ ] The iOS App Store build exposes no Stripe, Stack checkout, external purchase, external upgrade, or billing-management link.
 - [ ] `/app-pricing?cmux_app=1&cmux_distribution=appstore` renders without `/api/billing/checkout`, `/api/billing/portal`, or enterprise sales CTAs.
 - [ ] `/api/billing/checkout?cmux_distribution=appstore` redirects before creating Stack or Stripe checkout state.
+- [ ] `/api/billing/portal?cmux_distribution=appstore` redirects before resolving Stack users or creating Stripe portal state.
 - [ ] Existing paid entitlement state is read-only in iOS. If an iOS purchase flow is added later, it must use StoreKit and restore purchases.
 
 ## Permissions and Privacy

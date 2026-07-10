@@ -11,7 +11,7 @@ export default function PrivacyPolicyPage() {
   return (
     <>
       <h1>Privacy Policy</h1>
-      <p>Last updated: June 23, 2026</p>
+      <p>Last updated: July 10, 2026</p>
 
       <p>
         Manaflow (the &ldquo;Company&rdquo;) is committed to maintaining robust
@@ -21,13 +21,13 @@ export default function PrivacyPolicyPage() {
       </p>
       <p>
         For purposes of this policy, &ldquo;Site&rdquo; refers to the
-        Company&rsquo;s website at{" "}
-        <a href="https://cmux.com">cmux.com</a>.
+        Company&rsquo;s website at <a href="https://cmux.com">cmux.com</a>.
         &ldquo;Application&rdquo; refers to the cmux desktop application for
-        macOS. &ldquo;Service&rdquo; refers to the Site and Application
-        collectively. The terms &ldquo;we,&rdquo; &ldquo;us,&rdquo; and
-        &ldquo;our&rdquo; refer to the Company. &ldquo;You&rdquo; refers to
-        you, as a user of our Service.
+        macOS and the cmux mobile application for iPhone and iPad.
+        &ldquo;Service&rdquo; refers to the Site and Application collectively.
+        The terms &ldquo;we,&rdquo; &ldquo;us,&rdquo; and &ldquo;our&rdquo;
+        refer to the Company. &ldquo;You&rdquo; refers to you, as a user of our
+        Service.
       </p>
       <p>
         By using our Service, you accept this Privacy Policy and our{" "}
@@ -42,7 +42,9 @@ export default function PrivacyPolicyPage() {
         Information.&rdquo; Non-Personal Information includes information that
         cannot be used to personally identify you, such as anonymous usage data,
         platform types, and crash diagnostics. Personal Information includes
-        your email address if you choose to contact us.
+        your email address, account identifiers, and other information you
+        choose to provide when you sign in, contact us, pair a device, or use
+        the Application.
       </p>
 
       <h3>1. Information collected via Technology</h3>
@@ -53,6 +55,14 @@ export default function PrivacyPolicyPage() {
         <li>Crash reports and error diagnostics (via Sentry)</li>
         <li>Operating system version and application version</li>
         <li>Anonymous usage patterns</li>
+        <li>
+          Device, account, and pairing metadata needed to connect your signed-in
+          devices
+        </li>
+        <li>
+          Apple Push Notification service device tokens, only after you enable
+          phone notifications
+        </li>
       </ul>
       <p>
         The Application checks for updates via Sparkle, which may transmit your
@@ -81,6 +91,23 @@ export default function PrivacyPolicyPage() {
         notification of the signup (including that email address) to our internal
         Slack workspace.
       </p>
+      <p>
+        When you sign in to the Application, we receive the account information
+        required to authenticate you, such as your email address and provider
+        identifier from Apple, Google, GitHub, or email-code sign-in. When you
+        pair the mobile app with a Mac, we process the pairing information
+        required to connect those devices. When you use the mobile app to view a
+        workspace, send terminal input, attach selected photos, use speech
+        transcription, or receive terminal notifications, the related content or
+        transcript may be transmitted between your devices and our service as
+        needed to provide that feature.
+      </p>
+      <p>
+        Camera access is used only to scan cmux pairing QR codes. Microphone and
+        speech recognition access are used only when you choose voice
+        transcription in the message box. Photo library access is used only when
+        you choose photos to attach.
+      </p>
 
       <h3>3. Children&rsquo;s Privacy</h3>
       <p>
@@ -95,6 +122,23 @@ export default function PrivacyPolicyPage() {
         The Application integrates with the following third-party services:
       </p>
       <ul>
+        <li>
+          <strong>Stack Auth</strong> &mdash; authentication and account
+          management for sign-in, session management, and account deletion.
+        </li>
+        <li>
+          <strong>Apple, Google, and GitHub</strong> &mdash; optional sign-in
+          providers. These providers send us the account information required to
+          authenticate you.
+        </li>
+        <li>
+          <strong>Apple Push Notification service</strong> &mdash; delivers
+          notifications to iPhone and iPad after you opt in.
+        </li>
+        <li>
+          <strong>Apple Speech Recognition</strong> &mdash; used when you choose
+          voice transcription in the mobile app.
+        </li>
         <li>
           <strong>Sentry</strong> &mdash; error tracking and crash reporting.
           May collect error logs, stack traces, device information, and OS
@@ -190,7 +234,7 @@ export default function PrivacyPolicyPage() {
       <p>
         Crash reports and diagnostics are retained only as long as needed to
         diagnose and fix issues. You may request deletion of any data associated
-        with you by contacting us at{" "}
+        with you from the mobile app account settings or by contacting us at{" "}
         <a href="mailto:founders@manaflow.com">founders@manaflow.com</a>.
       </p>
     </>
