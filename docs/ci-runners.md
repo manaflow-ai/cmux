@@ -91,7 +91,10 @@ defaults to `auto`. Manual `auto` runs follow `MACOS_RUNNER_15` then the Warp
 fallback, so flipping the repo variable redirects those workflows. An explicit
 manual choice wins over the variable; both dropdowns expose Blacksmith, Warp,
 and `depot-macos-*` choices, with a Depot identity guard for GUI-activation
-runs.
+runs. `test-e2e.yml` also exposes `tart-canary` for the isolated self-hosted VM
+trial. That option is available only through `workflow_dispatch`. The job
+accepts runner names matching `tart-cmux-*` and requires the immutable
+`/etc/cmux-tart-ci` VM marker before checkout.
 
 ## Guard
 
@@ -104,17 +107,25 @@ fall back to a free runner. Bare paid-provider labels (`blacksmith-*`, `warp-*`,
 `depot-*`) stay allowed for deliberate single-runner pins. Keep new labels in
 `.github/actionlint.yaml`.
 
-## No self-hosted mac-mini fleet in CI
+The fleet-label guard treats `tart-canary` as self-hosted everywhere except its
+exact `workflow_dispatch.inputs.runner.options` entry in `test-e2e.yml`. It also
+asserts that the workflow remains dispatch-only and retains both Tart identity
+checks.
 
-We do not use the self-hosted mac-mini fleet (`cmux-mac-mini`, `studio1`,
-`mac4-cmuxvnc*`, `cmux-austin-mini-*`) for any CI job. Those minis carry labels
-that collide with cloud labels (notably `macos-26` and `warp-macos-26-arm64-6x`),
-and GitHub prefers a matching self-hosted runner, so a required job could
-silently land on a mini that cannot foreground a GUI app (it stays
-`Running Background`, breaking key-window / pasteboard / IME / XCUITest). Every
-macOS fallback therefore routes to Blacksmith cloud, and
+## No persistent mac-mini fleet in required CI
+
+We do not route required CI directly to the persistent self-hosted mac-mini
+fleet (`cmux-mac-mini`, `studio1`, `mac4-cmuxvnc*`,
+`cmux-austin-mini-*`). Those minis carry labels that collide with cloud labels
+(notably `macos-26` and `warp-macos-26-arm64-6x`), and GitHub prefers a matching
+self-hosted runner, so a required job could silently land on a mini that cannot
+foreground a GUI app. It stays `Running Background`, breaking key-window,
+pasteboard, IME, and XCUITest behavior. Every macOS fallback therefore routes
+to Blacksmith cloud, and
 `check_no_self_hosted_fleet_runners` in `tests/test_ci_self_hosted_guard.sh`
-fails CI if any workflow references a fleet/self-hosted label.
+fails CI if a required workflow references a fleet/self-hosted label. The
+dispatch-only Tart E2E canary is the single narrow exception because each run
+is isolated inside an identity-checked VM.
 
 Residual: this guard checks workflow literals, not repo-variable values. Do not
 set `MACOS_RUNNER_*` / `LINUX_RUNNER` to a self-hosted label; keep them on
