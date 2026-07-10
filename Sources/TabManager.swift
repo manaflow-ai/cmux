@@ -447,12 +447,10 @@ class TabManager: ObservableObject {
     // default) on purpose: the cap is per process, not per window, matching
     // the legacy shared limiter; tests inject their own instance.
     private static let sharedWorkspaceGitProbeLimiter = WorkspaceGitMetadataProbeLimiter(limit: 2)
-    // Default windows share one explicit CmuxGit coordination scope so
-    // identical tracked-snapshot requests join one bounded cache/in-flight
-    // scan. Tests can still inject an isolated service below.
-    private static let sharedGitMetadataService = GitMetadataService(
-        trackedChangesSnapshotCache: GitTrackedChangesSnapshotCache()
-    )
+    // Default windows share one explicit CmuxGit coordination scope and one
+    // fallback clock. Tests can still inject isolated services/coordinators.
+    private static let sharedGitTrackedChangesSnapshotScope = GitTrackedChangesSnapshotScope()
+    private static let sharedWorkspaceGitFallbackCoordinator = WorkspaceGitFallbackCoordinator()
 
     // The sidebar git/PR subsystem (extracted to CmuxSidebarGit). TabManager
     // is the per-window composition point: it constructs the concrete
@@ -472,11 +470,14 @@ class TabManager: ObservableObject {
         workspaceGitMetadataReader: (any WorkspaceGitMetadataReading)? = nil,
         gitPollClock: any GitPollClock = SystemGitPollClock(),
         gitProbeLimiter: WorkspaceGitMetadataProbeLimiter? = nil,
+        gitFallbackCoordinator: WorkspaceGitFallbackCoordinator? = nil,
         panelTitleUpdateCoalescer: NotificationBurstCoalescer? = nil,
         settings: any SettingsWriting = UserDefaultsSettingsClient(defaults: .standard),
         closeTabWarningDefaults: UserDefaults = .standard
     ) {
-        let gitMetadataService = gitMetadataService ?? Self.sharedGitMetadataService
+        let gitMetadataService = gitMetadataService ?? GitMetadataService(
+            trackedChangesSnapshotScope: Self.sharedGitTrackedChangesSnapshotScope
+        )
         self.settings = settings
         self.panelTitleUpdateCoalescer = panelTitleUpdateCoalescer ?? NotificationBurstCoalescer()
         self.closeTabWarningDefaults = closeTabWarningDefaults
@@ -515,6 +516,8 @@ class TabManager: ObservableObject {
             pullRequestProbing: pullRequestPollService,
             probeLimiter: gitProbeLimiter ?? Self.sharedWorkspaceGitProbeLimiter,
             clock: gitPollClock,
+            fallbackCoordinator: gitFallbackCoordinator
+                ?? Self.sharedWorkspaceGitFallbackCoordinator,
             debugLog: sidebarGitDebugLog
         )
         // Wire the host seam before the first workspace is added so the
