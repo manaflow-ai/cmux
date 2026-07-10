@@ -57,4 +57,9 @@ actor TestSecureCredentialStore: CmxIrohSecureCredentialStoring {
     func lastDeletedOrWrittenAccount() -> String? {
         lastAccount
     }
+
+    func onlyStoredData() -> Data? {
+        guard records.count == 1 else { return nil }
+        return records.values.first
+    }
 }

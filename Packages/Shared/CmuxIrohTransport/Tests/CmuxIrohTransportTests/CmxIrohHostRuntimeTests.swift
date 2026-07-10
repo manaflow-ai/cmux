@@ -7,6 +7,46 @@ import Testing
 @Suite
 struct CmxIrohHostRuntimeTests {
     @Test
+    func pendingRevocationFailureBlocksHostRegistrationAndCachedFallback() async throws {
+        let fixture = try HostRuntimeFixture()
+        let pendingRevocations = CmxIrohPendingRevocationOutbox(
+            secureStore: TestSecureCredentialStore()
+        )
+        let pending = try CmxIrohPendingRevocation(
+            accountID: fixture.configuration.accountID,
+            tag: "older-build",
+            bindingID: "123e4567-e89b-42d3-a456-426614174099"
+        )
+        try await pendingRevocations.enqueue(pending)
+        let broker = TestIrohHostBroker(
+            registrationBinding: fixture.binding,
+            discovery: fixture.discovery,
+            revokeError: .connectivity
+        )
+        let runtime = CmxIrohHostRuntime(
+            factory: TestIrohEndpointFactory(
+                endpoints: [TestIrohEndpoint(identity: fixture.endpointID)]
+            ),
+            broker: broker,
+            configuration: fixture.configuration,
+            pendingRevocations: pendingRevocations,
+            handleTransport: { session, _ in await session.close() }
+        )
+
+        await #expect(throws: CmxIrohTrustBrokerClientError.connectivity) {
+            try await runtime.start()
+        }
+
+        #expect(await broker.observedRegistrationCount() == 0)
+        #expect(await broker.observedRevokedBindingIDs() == [pending.bindingID])
+        #expect(
+            try await pendingRevocations.pending(
+                accountID: fixture.configuration.accountID
+            ) == [pending]
+        )
+    }
+
+    @Test
     func startBindsExactRegisteredIdentityAndStopClosesIt() async throws {
         let fixture = try HostRuntimeFixture()
         let endpoint = TestIrohEndpoint(
@@ -423,6 +463,7 @@ private struct HostRuntimeFixture {
             relays: Self.relayURLs
         )
         configuration = CmxIrohHostRuntimeConfiguration(
+            accountID: "account-a",
             deviceID: binding.deviceID,
             appInstanceID: binding.appInstanceID,
             tag: binding.tag,
@@ -439,6 +480,7 @@ private struct HostRuntimeFixture {
         bindPolicy: CmxIrohEndpointBindPolicy = .ephemeral
     ) -> CmxIrohHostRuntimeConfiguration {
         CmxIrohHostRuntimeConfiguration(
+            accountID: configuration.accountID,
             deviceID: binding.deviceID,
             appInstanceID: binding.appInstanceID,
             tag: binding.tag,
@@ -544,19 +586,23 @@ private actor TestIrohHostBroker: CmxIrohHostBrokerServing {
     private var discoveryResponses: [CmxIrohDiscoveryResponse]
     private let registrationError: CmxIrohTrustBrokerClientError?
     private let discoveryError: CmxIrohTrustBrokerClientError?
+    private let revokeError: CmxIrohTrustBrokerClientError?
     private var registrationCount = 0
+    private var revokedBindingIDs: [String] = []
 
     init(
         registrationBinding: CmxIrohBrokerBinding,
         discovery: CmxIrohDiscoveryResponse,
         subsequentDiscoveries: [CmxIrohDiscoveryResponse] = [],
         registrationError: CmxIrohTrustBrokerClientError? = nil,
-        discoveryError: CmxIrohTrustBrokerClientError? = nil
+        discoveryError: CmxIrohTrustBrokerClientError? = nil,
+        revokeError: CmxIrohTrustBrokerClientError? = nil
     ) {
         self.registrationBinding = registrationBinding
         discoveryResponses = [discovery] + subsequentDiscoveries
         self.registrationError = registrationError
         self.discoveryError = discoveryError
+        self.revokeError = revokeError
     }
 
     func register(
@@ -594,9 +640,13 @@ private actor TestIrohHostBroker: CmxIrohHostBrokerServing {
         )
     }
 
-    func revoke(bindingID _: String) {}
+    func revoke(bindingID: String) throws {
+        revokedBindingIDs.append(bindingID)
+        if let revokeError { throw revokeError }
+    }
 
     func observedRegistrationCount() -> Int { registrationCount }
+    func observedRevokedBindingIDs() -> [String] { revokedBindingIDs }
 }
 
 private actor HostRuntimeBindingRecorder {

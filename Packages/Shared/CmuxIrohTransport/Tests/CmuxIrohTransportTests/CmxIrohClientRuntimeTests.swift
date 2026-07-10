@@ -220,10 +220,14 @@ struct CmxIrohClientRuntimeTests {
         )
         let recorder = ClientRuntimeTestRecorder()
         let offlineStore = TestSecureCredentialStore()
+        let pendingRevocations = CmxIrohPendingRevocationOutbox(
+            secureStore: TestSecureCredentialStore()
+        )
         let runtime = try CmxIrohClientRuntime(
             factory: TestIrohEndpointFactory(endpoints: [endpoint]),
             broker: broker,
             configuration: fixture.configuration,
+            pendingRevocations: pendingRevocations,
             offlinePolicyCache: CmxIrohClientOfflinePolicyCache(
                 secureStore: offlineStore
             ),
@@ -231,6 +235,9 @@ struct CmxIrohClientRuntimeTests {
             handleLocalDeactivation: {
                 await recorder.recordLocalWipe(
                     endpointWasClosed: await endpoint.observedCloseCallCount() == 1
+                        && (try? await pendingRevocations.pending(
+                            accountID: fixture.configuration.accountID
+                        ).count) == 1
                 )
             }
         )
@@ -243,11 +250,62 @@ struct CmxIrohClientRuntimeTests {
         #expect(await offlineStore.deleteAllCount() == 1)
         #expect(await runtime.snapshot().state == .inactive)
         await #expect(throws: TestIrohTransportError.unsupported) {
-            try await preparation.revoke(using: broker)
+            try await preparation.revoke(
+                using: broker,
+                pendingRevocations: pendingRevocations
+            )
         }
         #expect(await broker.observedRevokedBindingIDs() == [fixture.binding.bindingID])
+        #expect(
+            try await pendingRevocations.pending(
+                accountID: fixture.configuration.accountID
+            ).count == 1
+        )
         #expect(await recorder.observedLocalWipes() == [true])
         #expect(await runtime.snapshot().state == .inactive)
+    }
+
+    @Test
+    func pendingRevocationFailureBlocksRegistrationAndOfflineFallback() async throws {
+        let fixture = try ClientRuntimeTestFixture()
+        let store = TestSecureCredentialStore()
+        let pendingRevocations = CmxIrohPendingRevocationOutbox(secureStore: store)
+        let pending = try CmxIrohPendingRevocation(
+            accountID: fixture.configuration.accountID,
+            tag: "older-build",
+            bindingID: "123e4567-e89b-42d3-a456-426614174099"
+        )
+        try await pendingRevocations.enqueue(pending)
+        let broker = TestIrohClientBroker(
+            binding: fixture.binding,
+            discovery: fixture.discovery,
+            relay: fixture.relayResponse(),
+            revokeError: CmxIrohTrustBrokerClientError.connectivity
+        )
+        let runtime = try CmxIrohClientRuntime(
+            factory: TestIrohEndpointFactory(
+                endpoints: [TestIrohEndpoint(identity: fixture.endpointID)]
+            ),
+            broker: broker,
+            configuration: fixture.configuration,
+            pendingRevocations: pendingRevocations,
+            offlinePolicyCache: CmxIrohClientOfflinePolicyCache(
+                secureStore: TestSecureCredentialStore()
+            ),
+            now: { fixture.now }
+        )
+
+        await #expect(throws: CmxIrohTrustBrokerClientError.connectivity) {
+            try await runtime.start()
+        }
+
+        #expect(await broker.observedRegistrations().isEmpty)
+        #expect(await broker.observedRevokedBindingIDs() == [pending.bindingID])
+        #expect(
+            try await pendingRevocations.pending(
+                accountID: fixture.configuration.accountID
+            ) == [pending]
+        )
     }
 
     @Test
