@@ -960,10 +960,8 @@ final class BrowserPanelAddressBarFocusRequestTests: XCTestCase {
         XCTAssertNil(panel.pendingAddressBarFocusRequestId)
         XCTAssertEqual(panel.pendingAddressBarFocusSelectionIntent, .preserveFieldEditorSelection)
 
-        // Acknowledgement only clears the durable request; focus suppression follows
-        // explicit blur state transitions.
-        XCTAssertTrue(panel.shouldSuppressWebViewFocus())
-        panel.endSuppressWebViewFocusForAddressBar()
+        // Without a mounted address-bar view holding its own focus lease, consuming
+        // the durable request must not leave WebKit focus suppression latched.
         XCTAssertFalse(panel.shouldSuppressWebViewFocus())
     }
 
