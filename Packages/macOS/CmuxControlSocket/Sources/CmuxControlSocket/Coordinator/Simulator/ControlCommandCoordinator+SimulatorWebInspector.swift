@@ -21,7 +21,7 @@ extension ControlCommandCoordinator {
             guard case let .string(json)? = request.params["json"], !json.isEmpty else {
                 return simulatorInvalidParameters(diagnostic: "json is required")
             }
-            guard json.utf8.count <= ControlSimulatorLimits.maximumWebInspectorJSONByteCount else {
+            guard json.utf8.count <= controlSimulatorMaximumWebInspectorJSONByteCount else {
                 return simulatorInvalidParameters(
                     diagnostic: "json exceeds the 1048576-byte UTF-8 limit"
                 )

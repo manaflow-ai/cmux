@@ -1,37 +1,18 @@
-public import Foundation
-
-public struct ControlSimulatorTouch: Sendable, Equatable {
-    public let phase: String
-    public let x: Double
-    public let y: Double
-    public let secondX: Double?
-    public let secondY: Double?
-    public let edge: String
-
-    public init(
-        phase: String,
-        x: Double,
-        y: Double,
-        secondX: Double? = nil,
-        secondY: Double? = nil,
-        edge: String = "none"
-    ) {
-        self.phase = phase
-        self.x = x
-        self.y = y
-        self.secondX = secondX
-        self.secondY = secondY
-        self.edge = edge
-    }
-}
-
+/// A native action that the app can dispatch to an isolated Simulator worker.
 public enum ControlSimulatorOperation: Sendable, Equatable {
+    /// Sends an ordered sequence of normalized touch events.
     case gesture([ControlSimulatorTouch])
+    /// Presses a named simulated hardware button.
     case hardwareButton(String)
+    /// Rotates the simulated device to a named orientation.
     case rotate(String)
+    /// Enables or disables one Core Animation diagnostic.
     case coreAnimation(diagnostic: String, enabled: Bool)
+    /// Delivers a memory warning to the simulated device.
     case memoryWarning
+    /// Reads up to the requested number of recent Simulator events.
     case eventLog(limit: Int)
+    /// Configures a camera source for an application or disables camera injection.
     case cameraConfigure(
         source: String,
         path: String?,
@@ -39,56 +20,22 @@ public enum ControlSimulatorOperation: Sendable, Equatable {
         hostDeviceID: String?,
         bundleIdentifier: String?
     )
+    /// Switches the active camera feed without changing the target application.
     case cameraSwitch(source: String, path: String?, loops: Bool, hostDeviceID: String?)
+    /// Sets automatic, enabled, or disabled camera mirroring.
     case cameraMirror(String)
+    /// Reads the current camera-injection status.
     case cameraStatus
-    /// Read the selected app's effective permission values.
+    /// Reads the selected app's effective permission values.
     case permissionsRead(bundleIdentifier: String?)
-    /// Grant, revoke, or reset one canonical permission service.
+    /// Grants, revokes, or resets one canonical permission service.
     case permissionsSet(action: String, service: String, bundleIdentifier: String)
-    /// Read every supported Simulator-wide interface setting.
+    /// Reads every supported Simulator-wide interface setting.
     case interfaceStatus
-    /// Set one canonical Simulator-wide interface option.
+    /// Sets one canonical Simulator-wide interface option.
     case interfaceSet(option: String, value: String)
-    /// Read a bounded accessibility tree from the isolated worker.
+    /// Reads a bounded accessibility tree from the isolated worker.
     case accessibility
-    /// Read metadata for the frontmost simulated application.
+    /// Reads metadata for the frontmost simulated application.
     case foregroundApplication
-}
-
-public enum ControlSimulatorOperationCompletion: Sendable, Equatable {
-    case success(JSONValue)
-    case failed(code: String, message: String)
-}
-
-public final class ControlSimulatorOperationReceipt: @unchecked Sendable {
-    private let condition = NSCondition()
-    private var completion: ControlSimulatorOperationCompletion?
-
-    public init() {}
-
-    public func complete(_ completion: ControlSimulatorOperationCompletion) {
-        condition.lock()
-        defer { condition.unlock() }
-        guard self.completion == nil else { return }
-        self.completion = completion
-        condition.broadcast()
-    }
-
-    public func wait(timeout: TimeInterval) -> ControlSimulatorOperationCompletion? {
-        condition.lock()
-        defer { condition.unlock() }
-        let deadline = Date().addingTimeInterval(max(0, timeout))
-        while completion == nil {
-            guard condition.wait(until: deadline) else { break }
-        }
-        return completion
-    }
-}
-
-public enum ControlSimulatorOperationStartResolution: Sendable {
-    case started(surfaceID: UUID, timeoutSeconds: TimeInterval, receipt: ControlSimulatorOperationReceipt)
-    case failed(ControlSimulatorTargetFailure)
-    case unavailable(String)
-    case invalid(String)
 }

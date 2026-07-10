@@ -15,10 +15,11 @@ import Bonsplit
 import UniformTypeIdentifiers
 import CmuxTerminal
 
-/// The process entry point. When the binary is launched with a sidebar worker
-/// flag (the app re-executes its own binary that way so a crash in the
-/// interpreter or renderer kills only the worker process), run that worker
+/// The process entry point. When the binary is launched with a worker flag
+/// (the app re-executes its own binary that way so a crash in the Simulator,
+/// interpreter, or renderer kills only the worker process), run that worker
 /// loop instead of the app:
+/// - the Simulator worker owns private frameworks and remote display state;
 /// - the render worker hosts its own faceless AppKit session and shares the
 ///   rendered layer tree with the host;
 /// - the interpreter worker (stage-1 fallback path) runs before any
@@ -26,7 +27,7 @@ import CmuxTerminal
 @main
 enum CmuxMain {
     static func main() {
-        CmuxWorkerEntrypoint.runIfRequested()
+        CmuxWorkerEntrypoint(arguments: CommandLine.arguments).runIfRequested()
         cmuxApp.main()
     }
 }

@@ -6,10 +6,10 @@ extension ControlCommandCoordinator {
         guard let value = string(params, key) else { return nil }
         let bytes = Array(value.utf8)
         guard !bytes.isEmpty,
-              bytes.count <= ControlSimulatorLimits.maximumCommandTokenUTF8ByteCount,
-              Self.simulatorASCIILowerAlphaNumeric(bytes[0]),
+              bytes.count <= controlSimulatorMaximumCommandTokenUTF8ByteCount,
+              simulatorASCIILowerAlphaNumeric(bytes[0]),
               bytes.allSatisfy({
-                  Self.simulatorASCIILowerAlphaNumeric($0) || $0 == 0x2D
+                  simulatorASCIILowerAlphaNumeric($0) || $0 == 0x2D
               }) else { return nil }
         return value
     }
@@ -17,20 +17,20 @@ extension ControlCommandCoordinator {
     nonisolated func simulatorBundleIdentifier(_ value: String) -> Bool {
         let bytes = Array(value.utf8)
         guard !bytes.isEmpty,
-              bytes.count <= ControlSimulatorLimits.maximumBundleIdentifierUTF8ByteCount,
-              Self.simulatorASCIIAlphaNumeric(bytes[0]) else { return false }
+              bytes.count <= controlSimulatorMaximumBundleIdentifierUTF8ByteCount,
+              simulatorASCIIAlphaNumeric(bytes[0]) else { return false }
         return bytes.allSatisfy {
-            Self.simulatorASCIIAlphaNumeric($0) || $0 == 0x2D || $0 == 0x2E
+            simulatorASCIIAlphaNumeric($0) || $0 == 0x2D || $0 == 0x2E
         }
     }
 
-    private nonisolated static func simulatorASCIIAlphaNumeric(_ value: UInt8) -> Bool {
+    private nonisolated func simulatorASCIIAlphaNumeric(_ value: UInt8) -> Bool {
         (0x30...0x39).contains(value)
             || (0x41...0x5A).contains(value)
             || (0x61...0x7A).contains(value)
     }
 
-    private nonisolated static func simulatorASCIILowerAlphaNumeric(_ value: UInt8) -> Bool {
+    private nonisolated func simulatorASCIILowerAlphaNumeric(_ value: UInt8) -> Bool {
         (0x30...0x39).contains(value) || (0x61...0x7A).contains(value)
     }
 

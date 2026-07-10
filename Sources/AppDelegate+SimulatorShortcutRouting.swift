@@ -1,24 +1,4 @@
 import AppKit
-import CmuxSidebarInterpreterClient
-import CmuxSidebarRemoteRender
-import CmuxSimulator
-import CmuxSimulatorWorker
-import Darwin
-
-enum CmuxWorkerEntrypoint {
-    static func runIfRequested() {
-        if CommandLine.arguments.contains(SimulatorWorkerClient.workerModeArgument) {
-            runSimulatorWorker()
-        }
-        if CommandLine.arguments.contains(RenderWorkerClient.workerModeArgument) {
-            runSidebarRenderWorker()
-        }
-        if CommandLine.arguments.contains(InterpreterClient.workerModeArgument) {
-            runSidebarInterpreterWorker()
-            exit(0)
-        }
-    }
-}
 
 extension cmuxApp {
     func performNewSimulatorPaneFromMenu() {
