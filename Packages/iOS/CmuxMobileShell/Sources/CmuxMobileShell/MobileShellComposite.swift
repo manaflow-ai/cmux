@@ -6664,7 +6664,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     func resyncTerminalOutput(
         reason: String,
         restartEventStream: Bool,
-        surfaceIDs requestedSurfaceIDs: [String]? = nil
+        surfaceIDs requestedSurfaceIDs: [String]? = nil, deferBehindActiveReplay: Bool = false
     ) {
         guard remoteClient != nil, connectionState == .connected else { return }
         if restartEventStream {
@@ -6681,7 +6681,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             "sync.resync reason=\(reason) restart=\(restartEventStream) surfaces=\(surfaceIDs.count)"
         )
         for surfaceID in surfaceIDs {
-            requestTerminalReplay(surfaceID: surfaceID)
+            requestTerminalResync(surfaceID: surfaceID, deferBehindActiveReplay: deferBehindActiveReplay)
         }
     }
 
@@ -6732,7 +6732,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         resyncTerminalOutput(
             reason: "input_seq_behind",
             restartEventStream: false,
-            surfaceIDs: [surfaceID]
+            surfaceIDs: [surfaceID], deferBehindActiveReplay: terminalOutputTransport == .rawBytes
         )
     }
 

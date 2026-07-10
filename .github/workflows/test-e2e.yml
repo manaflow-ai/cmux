@@ -390,9 +390,9 @@ jobs:
           if [ "$RECORD_VIDEO" = "true" ]; then
             # A persistent AVFoundation capture session prevents
             # XCUIApplication from foregrounding a macOS app on both Warp and
-            # Tart. Capture independent JPEG frames instead, then assemble
-            # them after XCTest exits. No recorder owns the display while the
-            # app is activating.
+            # Tart. Capture independent JPEG frames instead, but arm the
+            # recorder until cmux is actually frontmost. Capturing before the
+            # first activation can leave the app Running Background.
             GUI_USER="$(stat -f %Su /dev/console 2>/dev/null || true)"
             if [ -z "$GUI_USER" ] || [ "$GUI_USER" = "root" ]; then
               echo "::error::No logged-in GUI user is available for screen recording"
@@ -400,29 +400,69 @@ jobs:
             fi
             GUI_UID="$(id -u "$GUI_USER")"
             FRAME_DIR=/tmp/test-recording-frames
+            RECORD_READY=/tmp/test-recording-ready
             rm -rf "$FRAME_DIR"
             mkdir -p "$FRAME_DIR"
+            rm -f "$RECORD_READY"
+
+            printf '%s\n' \
+              '#import <AppKit/AppKit.h>' \
+              '' \
+              'int main(int argc, const char *argv[]) {' \
+              '    @autoreleasepool {' \
+              '        if (argc != 2) {' \
+              '            return 2;' \
+              '        }' \
+              '        NSString *expected = [NSString stringWithUTF8String:argv[1]];' \
+              '        NSString *actual = NSWorkspace.sharedWorkspace.frontmostApplication.bundleIdentifier;' \
+              '        return [actual isEqualToString:expected] ? 0 : 1;' \
+              '    }' \
+              '}' \
+              > /tmp/cmux-frontmost-application.m
+            clang -framework AppKit -o /tmp/cmux-frontmost-application \
+              /tmp/cmux-frontmost-application.m
+
             (
               frame=0
+              frontmost_poll_delay=1
+              : > "$RECORD_READY"
               while true; do
+                if ! sudo -n launchctl asuser "$GUI_UID" sudo -n -H -u "$GUI_USER" \
+                  /tmp/cmux-frontmost-application com.cmuxterm.app.debug; then
+                  sleep "$frontmost_poll_delay"
+                  if [ "$frontmost_poll_delay" -lt 5 ]; then
+                    frontmost_poll_delay=$((frontmost_poll_delay + 1))
+                  fi
+                  continue
+                fi
                 output="$(printf '%s/frame-%06d.jpg' "$FRAME_DIR" "$frame")"
-                sudo -n launchctl asuser "$GUI_UID" sudo -n -H -u "$GUI_USER" \
-                  /usr/sbin/screencapture -x -t jpg -D 1 "$output" || exit 1
+                if ! sudo -n launchctl asuser "$GUI_UID" sudo -n -H -u "$GUI_USER" \
+                  /usr/sbin/screencapture -x -t jpg -D 1 "$output"; then
+                  echo "screencapture failed for frame $frame" >&2
+                  sleep 0.5
+                  continue
+                fi
                 frame=$((frame + 1))
                 sleep 0.5
               done
             ) </dev/null >/tmp/screencapture.log 2>&1 &
             RECORD_PID=$!
             echo "RECORD_PID=$RECORD_PID" >> "$GITHUB_ENV"
-            sleep 2
-
-            if kill -0 "$RECORD_PID" 2>/dev/null && [ -s "$FRAME_DIR/frame-000000.jpg" ]; then
-              echo "Frame capture started (PID $RECORD_PID)"
-            else
-              echo "::error::screen frame capture failed to start"
-              cat /tmp/screencapture.log
+            if ! kill -0 "$RECORD_PID"; then
+              echo "::error::Frame recorder process died before initializing"
+              cat /tmp/screencapture.log || true
               exit 1
             fi
+            for _ in {1..50}; do
+              [ -f "$RECORD_READY" ] && break
+              sleep 0.1
+            done
+            if [ ! -f "$RECORD_READY" ]; then
+              echo "::error::Frame recorder failed to initialize"
+              cat /tmp/screencapture.log || true
+              exit 1
+            fi
+            echo "Frame capture armed for frontmost cmux (PID $RECORD_PID)"
           fi
 
           XCODEBUILD_ENV=(

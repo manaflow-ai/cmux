@@ -21,18 +21,26 @@ import UIKit
 @MainActor
 final class TerminalOutputCollector {
     private(set) var lines: [String] = []
+    private(set) var chunks: [MobileTerminalOutputChunk] = []
     private var task: Task<Void, Never>?
 
     /// Begin consuming the surface's output stream into ``lines``.
-    func mount(store: CMUXMobileShellStore, surfaceID: String) {
+    func mount(
+        store: CMUXMobileShellStore,
+        surfaceID: String,
+        automaticallyAcknowledges: Bool = true
+    ) {
         task = Task { @MainActor [weak self] in
             for await chunk in store.terminalOutputStream(surfaceID: surfaceID) {
                 guard let self else { break }
+                self.chunks.append(chunk)
                 self.lines.append(String(data: chunk.data, encoding: .utf8) ?? "")
-                store.terminalOutputDidProcess(
-                    surfaceID: surfaceID,
-                    streamToken: chunk.streamToken
-                )
+                if automaticallyAcknowledges {
+                    store.terminalOutputDidProcess(
+                        surfaceID: surfaceID,
+                        streamToken: chunk.streamToken
+                    )
+                }
             }
         }
     }
@@ -2376,6 +2384,7 @@ struct TerminalStreamTests {
 
 @MainActor
 @Test func terminalInputResyncsOutputWhenMacSequenceIsAhead() async throws {
+    let terminalID = "live-terminal-resync-ahead"
     let route = try CmxAttachRoute(
         id: "debug_loopback",
         kind: .debugLoopback,
@@ -2383,13 +2392,16 @@ struct TerminalStreamTests {
     )
     let ticket = try CmxAttachTicket(
         workspaceID: "live-workspace",
-        terminalID: "live-terminal",
+        terminalID: terminalID,
         macDeviceID: "test-mac",
         macDisplayName: "Test Mac",
         routes: [route],
         expiresAt: Date().addingTimeInterval(60)
     )
-    let router = TerminalOutputSelfHealingRouter()
+    let router = TerminalOutputSelfHealingRouter(
+        terminalID: terminalID,
+        advanceReplayManually: true
+    )
     let runtime = testRuntime(
         supportedRouteKinds: [.debugLoopback],
         transportFactory: RequestAwareTransportFactory(router: router),
@@ -2400,26 +2412,57 @@ struct TerminalStreamTests {
 
     store.signIn()
     await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
-    collector.mount(store: store, surfaceID: "live-terminal")
-    let oldGridText = try terminalRenderGridReplacementText(seq: 4, text: "old")
-    let currentGridText = try terminalRenderGridReplacementText(seq: 12, text: "current")
+    collector.mount(store: store, surfaceID: terminalID, automaticallyAcknowledges: false)
+    let oldGridText = try terminalRenderGridReplacementText(
+        seq: 4,
+        text: "old",
+        surfaceID: terminalID
+    )
+    let currentGridText = try terminalRenderGridReplacementText(
+        seq: 12,
+        text: "current",
+        surfaceID: terminalID
+    )
 
     _ = try await waitForRequestCount("mobile.terminal.replay", count: 1, router: router)
+    let receivedOldChunk = try await waitForTerminalOutputCount(1, collector: collector)
+    #expect(receivedOldChunk)
+    let oldChunk = try #require(collector.chunks.first)
+    #expect(String(data: oldChunk.data, encoding: .utf8) == oldGridText)
+    let replayCountBeforeInput = await router.replayRequestCount()
 
-    await store.submitTerminalRawInput(Data("x".utf8), surfaceID: "live-terminal")
+    // Keep the cold replay unacknowledged while the input response reports a
+    // newer Mac sequence. The resync must remain owned by that replay barrier
+    // and run as its follow-up instead of racing it with a stale token.
+    await router.useCurrentReplay()
+    await store.submitTerminalRawInput(Data("x".utf8), surfaceID: terminalID)
+    let replayCountAfterInput = await router.replayRequestCount()
+    #expect(replayCountAfterInput == replayCountBeforeInput)
+    store.terminalOutputDidProcess(
+        surfaceID: terminalID,
+        streamToken: oldChunk.streamToken
+    )
 
-    _ = try await waitForRequestCount("mobile.terminal.replay", count: 2, router: router)
+    _ = try await waitForRequestCount(
+        "mobile.terminal.replay",
+        count: replayCountBeforeInput + 1,
+        router: router
+    )
     _ = try await waitForRequestCount("mobile.events.subscribe", count: 2, router: router)
-    // The request-count waits only prove the second replay was REQUESTED; its
-    // response still has to round-trip and deliver. The slower CI iPad leg
-    // regularly needs more than the file's usual 200ms here.
-    for _ in 0..<4000 where !collector.lines.contains(currentGridText) {
-        try await Task.sleep(nanoseconds: 1_000_000)
+    var receivedCurrent = false
+    for chunkIndex in 1...(replayCountBeforeInput + 2) {
+        let receivedChunk = try await waitForTerminalOutputCount(chunkIndex + 1, collector: collector)
+        guard receivedChunk else { break }
+        let chunk = collector.chunks[chunkIndex]
+        let text = String(data: chunk.data, encoding: .utf8)
+        #expect(text == oldGridText || text == currentGridText)
+        store.terminalOutputDidProcess(surfaceID: terminalID, streamToken: chunk.streamToken)
+        if text == currentGridText {
+            receivedCurrent = true
+            break
+        }
     }
-
-    #expect(collector.lines.last == currentGridText)
-    #expect(Set(collector.lines).isSubset(of: [oldGridText, currentGridText]))
-    #expect(collector.lines.count <= 2)
+    #expect(receivedCurrent)
     collector.unmount()
 }
 
@@ -2834,6 +2877,20 @@ private func waitForRequestCount(
 }
 
 @MainActor
+private func waitForTerminalOutputCount(
+    _ count: Int,
+    collector: TerminalOutputCollector
+) async throws -> Bool {
+    for _ in 0..<300 {
+        if collector.chunks.count >= count {
+            return true
+        }
+        try await Task.sleep(nanoseconds: 10_000_000)
+    }
+    return collector.chunks.count >= count
+}
+
+@MainActor
 private func waitForWorkspaceIDs(
     in store: CMUXMobileShellStore,
     matching expectedIDs: [String]
@@ -2883,9 +2940,13 @@ private func rpcWorkspaceListFrame(
     )
 }
 
-private func terminalRenderGridReplacementText(seq: UInt64, text: String) throws -> String {
+private func terminalRenderGridReplacementText(
+    seq: UInt64,
+    text: String,
+    surfaceID: String = "live-terminal"
+) throws -> String {
     let frame = try MobileTerminalRenderGridFrame.fromPlainRows(
-        surfaceID: "live-terminal",
+        surfaceID: surfaceID,
         stateSeq: seq,
         columns: 16,
         rows: 4,
@@ -2976,11 +3037,12 @@ private func rpcTerminalReplayFrame(
     rawText: String,
     snapshotText: String? = nil,
     renderGridText: String? = nil,
-    renderGridStyled: Bool = false
+    renderGridStyled: Bool = false,
+    surfaceID: String = "live-terminal"
 ) throws -> Data {
     var result: [String: Any] = [
         "workspace_id": "live-workspace",
-        "surface_id": "live-terminal",
+        "surface_id": surfaceID,
         "seq": NSNumber(value: seq),
         "data_b64": Data(rawText.utf8).base64EncodedString(),
         "columns": 16,
@@ -2995,7 +3057,7 @@ private func rpcTerminalReplayFrame(
             try terminalRenderGridStyledFrame(seq: seq, text: renderGridText)
         } else {
             try MobileTerminalRenderGridFrame.fromPlainRows(
-                surfaceID: "live-terminal",
+                surfaceID: surfaceID,
                 stateSeq: seq,
                 columns: 16,
                 rows: 4,
@@ -3419,11 +3481,20 @@ private actor RemoteCreateWorkspaceRouter: RequestAwareTransportRouter {
 
 private actor TerminalOutputSelfHealingRouter: RequestAwareTransportRouter {
     private let renderGrid: Bool
+    private let terminalID: String
+    private let advanceReplayManually: Bool
     private var requests: [RecordedRPCRequest] = []
     private var replayCount = 0
+    private var currentReplayEnabled = false
 
-    init(renderGrid: Bool = false) {
+    init(
+        renderGrid: Bool = false,
+        terminalID: String = "live-terminal",
+        advanceReplayManually: Bool = false
+    ) {
         self.renderGrid = renderGrid
+        self.terminalID = terminalID
+        self.advanceReplayManually = advanceReplayManually
     }
 
     func record(_ request: RecordedRPCRequest) {
@@ -3434,13 +3505,21 @@ private actor TerminalOutputSelfHealingRouter: RequestAwareTransportRouter {
         requests
     }
 
+    func replayRequestCount() -> Int {
+        requests.count { $0.method == "mobile.terminal.replay" }
+    }
+
+    func useCurrentReplay() {
+        currentReplayEnabled = true
+    }
+
     func response(for request: RecordedRPCRequest) async throws -> Data? {
         switch request.method {
         case "workspace.list":
             return try rpcWorkspaceListFrame(
                 workspaceID: "live-workspace",
                 title: "Live Workspace",
-                terminalID: "live-terminal"
+                terminalID: terminalID
             )
         case "mobile.host.status":
             return try rpcHostStatusFrame(renderGrid: renderGrid)
@@ -3448,25 +3527,27 @@ private actor TerminalOutputSelfHealingRouter: RequestAwareTransportRouter {
             return try rpcResultFrame(result: ["stream_id": "events"])
         case "mobile.terminal.replay":
             replayCount += 1
-            if replayCount == 1 {
+            if advanceReplayManually ? !currentReplayEnabled : replayCount == 1 {
                 return try rpcTerminalReplayFrame(
                     seq: 4,
                     rawText: "stale-old-tail",
                     snapshotText: "old",
-                    renderGridText: "old"
+                    renderGridText: "old",
+                    surfaceID: terminalID
                 )
             }
             return try rpcTerminalReplayFrame(
                 seq: 12,
                 rawText: "stale-current-tail",
                 snapshotText: "current",
-                renderGridText: "current"
+                renderGridText: "current",
+                surfaceID: terminalID
             )
         case "terminal.input":
             return try rpcResultFrame(
                 result: [
                     "workspace_id": "live-workspace",
-                    "surface_id": "live-terminal",
+                    "surface_id": terminalID,
                     "queued": false,
                     "terminal_seq": 12,
                 ]
