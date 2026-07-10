@@ -120,6 +120,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		D7AB0000000000000000000F /* AppDelegateMoveTabToNewWorkspaceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB00000000000000000010 /* AppDelegateMoveTabToNewWorkspaceTests.swift */; };
 		F5588000A1B2C3D4E5F60718 /* AppDelegateOptionDigitShortcutRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5588001A1B2C3D4E5F60718 /* AppDelegateOptionDigitShortcutRoutingTests.swift */; };
 		C34670010000000000000001 /* AppDelegateRenameShortcutContextTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C34670010000000000000002 /* AppDelegateRenameShortcutContextTests.swift */; };
+		D37777040000000000000001 /* AppDelegateSettingsPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = D37777040000000000000002 /* AppDelegateSettingsPresentation.swift */; };
 		6419B0016419B0016419B001 /* AppDelegateShortcutRoutingRepairProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6419B0026419B0026419B002 /* AppDelegateShortcutRoutingRepairProbe.swift */; };
 		F6000000A1B2C3D4E5F60718 /* AppDelegateShortcutRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6000001A1B2C3D4E5F60718 /* AppDelegateShortcutRoutingTests.swift */; };
 		C6711A030000000000000001 /* AppDelegateSurfaceResumeTerminalIdTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6711B030000000000000001 /* AppDelegateSurfaceResumeTerminalIdTests.swift */; };
@@ -1795,6 +1796,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		D7AB00000000000000000010 /* AppDelegateMoveTabToNewWorkspaceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegateMoveTabToNewWorkspaceTests.swift; sourceTree = "<group>"; };
 		F5588001A1B2C3D4E5F60718 /* AppDelegateOptionDigitShortcutRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegateOptionDigitShortcutRoutingTests.swift; sourceTree = "<group>"; };
 		C34670010000000000000002 /* AppDelegateRenameShortcutContextTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegateRenameShortcutContextTests.swift; sourceTree = "<group>"; };
+		D37777040000000000000002 /* AppDelegateSettingsPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/AppDelegateSettingsPresentation.swift; sourceTree = "<group>"; };
 		6419B0026419B0026419B002 /* AppDelegateShortcutRoutingRepairProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegateShortcutRoutingRepairProbe.swift; sourceTree = "<group>"; };
 		F6000001A1B2C3D4E5F60718 /* AppDelegateShortcutRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegateShortcutRoutingTests.swift; sourceTree = "<group>"; };
 		C6711B030000000000000001 /* AppDelegateSurfaceResumeTerminalIdTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegateSurfaceResumeTerminalIdTests.swift; sourceTree = "<group>"; };
@@ -3534,6 +3536,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				D3610C010000000000000002 /* CmuxSettingsJSONPathSupport.swift */,
 				D36090030000000000000002 /* SettingsWindowFactory.swift */,
 				D37777030000000000000002 /* SettingsWindowGeometry.swift */,
+				D37777040000000000000002 /* AppDelegateSettingsPresentation.swift */,
 				D36090010000000000000002 /* SettingsWindowPresenter.swift */,
 					D36090020000000000000002 /* NSWindow+CmuxPeerWindow.swift */,
 					C0DE35860000000000000002 /* BackgroundWorkspacePrimeCoordinator.swift */,
@@ -5455,6 +5458,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A5FB1207 /* AppDelegate+WorkspaceActionSave.swift in Sources */,
 				A5001093 /* AppDelegate.swift in Sources */,
 				B1F0C0080000000000000001 /* AppDelegateDetachedInspectorClose.swift in Sources */,
+				D37777040000000000000001 /* AppDelegateSettingsPresentation.swift in Sources */,
 				A11EAB000000000000000000 /* AppearanceSettings.swift in Sources */,
 				A5001621 /* AppleScriptSupport.swift in Sources */,
 				A5001A02A1B2C3D4E5F60718 /* AppWindowBackdropControllerDependencies.swift in Sources */,
