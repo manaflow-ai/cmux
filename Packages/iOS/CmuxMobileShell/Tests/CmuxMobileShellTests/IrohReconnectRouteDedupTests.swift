@@ -38,13 +38,15 @@ import Testing
 
         let merged = MobileShellComposite.mergedReconnectRoutes(
             ticketRoutes: [siteA],
-            storedRoutes: [siteB]
+            storedRoutes: [siteB],
+            at: now
         )
 
         #expect(Set(merged.map(\.id)) == ["iroh-site-a", "iroh-site-b"])
     }
 
     @Test func reconnectDedupReplacesStaleFreshnessForSameIrohPath() throws {
+        let now = Date(timeIntervalSince1970: 2_000)
         let endpointID = try CmxIrohPeerIdentity(
             endpointID: String(repeating: "a", count: 64)
         )
@@ -71,12 +73,13 @@ import Testing
                 )
             )
         }
-        let fresh = try route(id: "fresh", observedAt: Date(timeIntervalSince1970: 2_000))
-        let stale = try route(id: "stale", observedAt: Date(timeIntervalSince1970: 1_000))
+        let fresh = try route(id: "fresh", observedAt: now.addingTimeInterval(-30))
+        let stale = try route(id: "stale", observedAt: now.addingTimeInterval(-120))
 
         let merged = MobileShellComposite.mergedReconnectRoutes(
             ticketRoutes: [fresh],
-            storedRoutes: [stale]
+            storedRoutes: [stale],
+            at: now
         )
 
         #expect(merged.map(\.id) == ["fresh"])
@@ -118,7 +121,51 @@ import Testing
 
         let merged = MobileShellComposite.mergedReconnectRoutes(
             ticketRoutes: [fresh],
-            storedRoutes: [stored]
+            storedRoutes: [stored],
+            at: now
+        )
+
+        #expect(merged.map(\.id) == ["fresh"])
+    }
+
+    @Test func reconnectDedupIgnoresExpiredStoredHints() throws {
+        let now = Date(timeIntervalSince1970: 2_000)
+        let identity = try CmxIrohPeerIdentity(
+            endpointID: String(repeating: "a", count: 64)
+        )
+        let relayHint = try CmxIrohPathHint(
+            kind: .relayURL,
+            value: "https://relay.example.test/",
+            source: .native,
+            privacyScope: .publicInternet
+        )
+        let expiredHint = try CmxIrohPathHint(
+            kind: .directAddress,
+            value: "10.0.0.4:49152",
+            source: .customVPN,
+            privacyScope: .privateNetwork,
+            observedAt: now.addingTimeInterval(-120),
+            expiresAt: now.addingTimeInterval(-60),
+            networkProfile: CmxIrohNetworkProfileKey(
+                source: .customVPN,
+                profileID: "site-a"
+            )
+        )
+        let fresh = try CmxAttachRoute(
+            id: "fresh",
+            kind: .iroh,
+            endpoint: .peer(identity: identity, pathHints: [relayHint])
+        )
+        let stored = try CmxAttachRoute(
+            id: "stored",
+            kind: .iroh,
+            endpoint: .peer(identity: identity, pathHints: [relayHint, expiredHint])
+        )
+
+        let merged = MobileShellComposite.mergedReconnectRoutes(
+            ticketRoutes: [fresh],
+            storedRoutes: [stored],
+            at: now
         )
 
         #expect(merged.map(\.id) == ["fresh"])

@@ -170,7 +170,8 @@ import Testing
 
         let merged = MobileShellComposite.mergedReconnectRoutes(
             ticketRoutes: [connected],
-            storedRoutes: [stale, connected]
+            storedRoutes: [stale, connected],
+            at: .distantPast
         )
 
         #expect(merged.map { $0.id }.contains(stale.id))
