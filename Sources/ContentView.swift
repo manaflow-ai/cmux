@@ -966,7 +966,7 @@ struct ContentView: View {
     @FocusState private var isCommandPaletteSearchFocused: Bool
     @FocusState private var isCommandPaletteRenameFocused: Bool
     private let windowChrome = AppWindowChromeComposition()
-
+    private let sidebarResizerOcclusionResolver = SidebarResizerOcclusionResolver()
     private struct CommandPaletteRestoreFocusTarget {
         let workspaceId: UUID
         let panelId: UUID
@@ -1411,18 +1411,6 @@ struct ContentView: View {
         }
     }
 
-    private func dividerBandContains(pointInContent point: NSPoint, contentBounds: NSRect) -> Bool {
-        guard point.y >= contentBounds.minY, point.y <= contentBounds.maxY else { return false }
-        if sidebarState.isVisible,
-           SidebarResizeInteraction.Edge.leading.hitRange(dividerX: sidebarWidth).contains(point.x) {
-            return true
-        }
-
-        let rightDividerX = contentBounds.maxX - rightSidebarWidth
-        return rightSidebarVisible &&
-            SidebarResizeInteraction.Edge.trailing.hitRange(dividerX: rightDividerX).contains(point.x)
-    }
-
     private func updateSidebarResizerBandState(using _: NSEvent? = nil) {
         guard sidebarState.isVisible || rightSidebarVisible,
               let window = observedWindow,
@@ -1432,24 +1420,34 @@ struct ContentView: View {
             return
         }
 
-        // Use live global pointer location instead of per-event coordinates.
-        // Overlapping tracking areas (notably WKWebView) can deliver stale/jittery
-        // event locations during cursor updates, which causes visible cursor flicker.
+        // Use live pointer location; overlapping WKWebView tracking areas can report stale cursor-update locations.
         let pointInWindow = window.convertPoint(fromScreen: NSEvent.mouseLocation)
         let pointInContent = contentView.convert(pointInWindow, from: nil)
-        let isInDividerBand = dividerBandContains(pointInContent: pointInContent, contentBounds: contentView.bounds)
-        isResizerBandActive = isInDividerBand
+        let isInDividerBand = sidebarResizerOcclusionResolver.dividerBandContains(
+            point: pointInContent,
+            contentBounds: contentView.bounds,
+            isLeftSidebarVisible: sidebarState.isVisible,
+            leftDividerX: sidebarWidth,
+            isRightSidebarVisible: rightSidebarVisible,
+            rightDividerX: contentView.bounds.maxX - rightSidebarWidth
+        )
+        let mayActivate = sidebarResizerOcclusionResolver.bandMayActivate(
+            isDragging: isResizerDragging,
+            isInDividerBand: isInDividerBand,
+            screenPoint: NSEvent.mouseLocation,
+            observedWindowNumber: window.windowNumber
+        )
+        isResizerBandActive = mayActivate && isInDividerBand
 
-        if isInDividerBand || isResizerDragging {
+        if mayActivate {
             activateSidebarResizerCursor()
             startSidebarResizerCursorStabilizer()
-            // AppKit cursorUpdate handlers from overlapped portal/web views can run
-            // after our local monitor callback and temporarily reset the cursor.
-            // Re-assert on the next runloop turn to keep the resize cursor stable.
+            // Overlapped portal/web cursorUpdate handlers run later and can temporarily reset the cursor.
             DispatchQueue.main.async {
                 Self.fixedSidebarResizeCursor.set()
             }
         } else {
+            hoveredResizerHandles.removeAll()
             stopSidebarResizerCursorStabilizer()
             scheduleSidebarResizerCursorRelease()
         }
@@ -1536,6 +1534,8 @@ struct ContentView: View {
             .contentShape(Rectangle())
             .onHover { hovering in
                 if hovering {
+                    updateSidebarResizerBandState()
+                    guard isResizerBandActive || isResizerDragging else { return }
                     hoveredResizerHandles.insert(handle)
                     activateSidebarResizerCursor()
                 } else {
