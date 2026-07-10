@@ -141,8 +141,20 @@ final class WorkspaceContentViewVisibilityTests {
         }
 
         await Self.drainMainRunLoop(for: window)
-        let panel = try #require(tabManager.selectedWorkspace?.focusedTerminalPanel)
+        let workspace = try #require(tabManager.selectedWorkspace)
+        let initialPanel = try #require(workspace.focusedTerminalPanel)
+        let pane = try #require(workspace.paneId(forPanelId: initialPanel.id))
+        let panel = try #require(workspace.newTerminalSurface(inPane: pane, focus: true))
+        await Self.drainMainRunLoop(for: window)
+
+        #expect(workspace.focusedTerminalPanel?.id == panel.id)
+        #expect(!initialPanel.hostedView.debugPortalVisibleInUI)
         #expect(panel.hostedView.debugPortalVisibleInUI)
+        let portal = try #require(TerminalWindowPortalRegistry.mappedPortal(for: panel.hostedView))
+        let entry = try #require(portal.entriesByHostedId[ObjectIdentifier(panel.hostedView)])
+        let anchor = try #require(entry.anchorView)
+        #expect(entry.visibleInUI)
+        #expect(TerminalWindowPortalRegistry.isHostedView(panel.hostedView, boundTo: anchor))
 
         sidebarSelectionState.selection = .notifications
         await Self.drainMainRunLoop(for: window)

@@ -12046,6 +12046,8 @@ struct GhosttyTerminalView: NSViewRepresentable {
     @MainActor
     final class Coordinator {
         var attachGeneration: Int = 0
+        var committedPortalHandlerAttachGeneration: Int?
+        var transientCandidateRegistrationToken: UInt64 = 0
         var desiredIsActive = true, desiredIsVisibleInUI = true
         var desiredPortalZPriority: Int = 0
         var lastBoundHostId: ObjectIdentifier?
@@ -12096,6 +12098,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
         let presentation = snapshot.portalPresentation()
         switch presentation {
         case .detached:
+            coordinator.committedPortalHandlerAttachGeneration = nil
             hideOwnedPortalHost(
                 hostedView: hostedView,
                 terminalSurface: terminalSurface,
@@ -12106,6 +12109,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
             coordinator.lastAppliedIsVisibleInUI = false
             return
         case .hidden:
+            coordinator.committedPortalHandlerAttachGeneration = nil
             hideOwnedPortalHost(
                 hostedView: hostedView,
                 terminalSurface: terminalSurface,
@@ -12260,6 +12264,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
         reason: String
     ) {
         guard terminalSurface.isPortalHostOwner(hostId: hostId) else { return }
+        hostedView.clearPortalHostHandlersIfOwned(ownerHostId: hostId)
         TerminalWindowPortalRegistry.updateEntryVisibility(for: hostedView, visibleInUI: false)
         hostedView.setPaneDropContext(nil)
         hostedView.setDropZoneOverlay(zone: nil)
@@ -12402,6 +12407,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
 
     static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
         coordinator.attachGeneration += 1
+        coordinator.committedPortalHandlerAttachGeneration = nil
         coordinator.portalMutationScheduler.cancel()
         coordinator.desiredIsActive = false
         coordinator.desiredIsVisibleInUI = false

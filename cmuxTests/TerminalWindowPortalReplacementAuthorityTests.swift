@@ -150,7 +150,7 @@ extension TerminalWindowPortalLifecycleTests {
             reason: "test.neverBind.candidate"
         ))
         XCTAssertEqual(
-            portal.transientReattachCandidatesByHostedId[hostedId]?[ObjectIdentifier(candidateHost)],
+            portal.transientReattachCandidatesByHostedId[hostedId]?[ObjectIdentifier(candidateHost)]?.ownershipGeneration,
             recoveryGeneration,
             "The production scheduler path must register the live replacement candidate"
         )
@@ -241,7 +241,7 @@ extension TerminalWindowPortalLifecycleTests {
             reason: "test.tiny.usable"
         ))
         XCTAssertEqual(
-            portal.transientReattachCandidatesByHostedId[hostedId]?[ObjectIdentifier(candidateHost)],
+            portal.transientReattachCandidatesByHostedId[hostedId]?[ObjectIdentifier(candidateHost)]?.ownershipGeneration,
             recoveryGeneration
         )
 
@@ -254,7 +254,10 @@ extension TerminalWindowPortalLifecycleTests {
             snapshot: snapshot,
             reason: "test.tiny.placeholder"
         )
-        XCTAssertNil(portal.transientReattachCandidatesByHostedId[hostedId]?[ObjectIdentifier(candidateHost)])
+        XCTAssertEqual(
+            portal.transientReattachCandidatesByHostedId[hostedId]?[ObjectIdentifier(candidateHost)]?.isUsable,
+            false
+        )
         portal.pruneDeadEntries()
         XCTAssertEqual(portal.debugEntryCount(), 1, "Tiny intermediate geometry must survive until the shared drain")
 
@@ -320,7 +323,7 @@ extension TerminalWindowPortalLifecycleTests {
         portal.pruneDeadEntries()
 
         XCTAssertEqual(
-            portal.transientReattachCandidatesByHostedId[hostedId]?[ObjectIdentifier(candidate)],
+            portal.transientReattachCandidatesByHostedId[hostedId]?[ObjectIdentifier(candidate)]?.ownershipGeneration,
             newGeneration
         )
         XCTAssertEqual(portal.entriesByHostedId[hostedId]?.transientAnchorRecoveryGeneration, newGeneration)
@@ -394,6 +397,38 @@ extension TerminalWindowPortalLifecycleTests {
     }
 
     @MainActor
+    func testOlderCleanupTokenPreservesNewerSameGenerationCandidate() {
+        let window = NSWindow(
+            contentRect: .zero, styleMask: [], backing: .buffered, defer: false
+        )
+        defer { window.orderOut(nil) }
+        let portal = WindowTerminalPortal(window: window)
+        let hostedView = NSView(), candidateView = NSView()
+        let hostedId = ObjectIdentifier(hostedView)
+        let candidateId = ObjectIdentifier(candidateView)
+
+        portal.updateTransientReattachCandidate(
+            forHostedId: hostedId, hostId: candidateId,
+            ownershipGeneration: 23, registrationToken: 1, isUsable: true
+        )
+        portal.updateTransientReattachCandidate(
+            forHostedId: hostedId, hostId: candidateId,
+            ownershipGeneration: 23, registrationToken: 2, isUsable: true
+        )
+        portal.unregisterTransientReattachCandidate(
+            forHostedId: hostedId, hostId: candidateId,
+            ownershipGeneration: 23, registrationToken: 1
+        )
+
+        XCTAssertEqual(
+            portal.transientReattachCandidatesByHostedId[hostedId]?[candidateId]?.registrationToken,
+            2,
+            "Cleanup from an older drain must not remove a newer registration"
+        )
+        withExtendedLifetime((hostedView, candidateView)) {}
+    }
+
+    @MainActor
     func testAnchorCallbacksCoalesceOnePortalWideSynchronizationPass() async throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 620, height: 360),
@@ -422,6 +457,7 @@ extension TerminalWindowPortalLifecycleTests {
         await portal.scheduleDeferredFullSynchronizeAll().value
         let synchronizationBaseline = portal.debugHostedViewSynchronizationCount
         let fullPassBaseline = portal.debugDeferredFullSynchronizationPassCount
+        let layoutBaseline = portal.debugLayoutHierarchySynchronizationCount
 
         portal.synchronizeHostedViewForAnchor(firstAnchor, syncLayout: false)
         let coalescedPass = portal.synchronizeHostedViewForAnchor(secondAnchor, syncLayout: false)
@@ -431,6 +467,7 @@ extension TerminalWindowPortalLifecycleTests {
 
         await coalescedPass.value
         XCTAssertEqual(portal.debugDeferredFullSynchronizationPassCount - fullPassBaseline, 1)
+        XCTAssertEqual(portal.debugLayoutHierarchySynchronizationCount - layoutBaseline, 1)
         XCTAssertEqual(
             portal.debugHostedViewSynchronizationCount - synchronizationBaseline,
             4,

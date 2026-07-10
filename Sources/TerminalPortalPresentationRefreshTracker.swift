@@ -1,5 +1,11 @@
 import AppKit
 
+struct TransientPortalHostCandidate: Equatable {
+    let ownershipGeneration: UInt64
+    let registrationToken: UInt64
+    let isUsable: Bool
+}
+
 struct TerminalPortalPresentationRefreshTracker {
     private var generation: UInt64 = 0
     private var pendingByHostedId: [ObjectIdentifier: UInt64] = [:]
@@ -24,6 +30,13 @@ struct TerminalPortalPresentationRefreshTracker {
 }
 
 extension WindowTerminalPortal {
+    func retireAndDetachHostedView(withId hostedId: ObjectIdentifier, reason: String) {
+        if let entry = entriesByHostedId[hostedId], let hostedView = entry.hostedView {
+            hostedView.retirePortalHostIfOwned(ownerHostId: entry.anchorHostId, reason: reason)
+        }
+        detachHostedView(withId: hostedId)
+    }
+
     /// Updates portal stacking state without changing whether the entry is visible.
     func updateEntryPriority(forHostedId hostedId: ObjectIdentifier, zPriority: Int) {
         guard var entry = entriesByHostedId[hostedId], entry.zPriority != zPriority else { return }
@@ -47,14 +60,15 @@ extension WindowTerminalPortal {
         forHostedId hostedId: ObjectIdentifier,
         hostId: ObjectIdentifier,
         ownershipGeneration: UInt64,
+        registrationToken: UInt64 = 0,
         isUsable: Bool
     ) {
-        let wasUsableCandidate = transientReattachCandidatesByHostedId[hostedId]?[hostId] != nil
-        if isUsable {
-            transientReattachCandidatesByHostedId[hostedId, default: [:]][hostId] = ownershipGeneration
-        } else {
-            transientReattachCandidatesByHostedId[hostedId]?.removeValue(forKey: hostId)
-        }
+        let wasUsableCandidate = transientReattachCandidatesByHostedId[hostedId]?[hostId]?.isUsable == true
+        transientReattachCandidatesByHostedId[hostedId, default: [:]][hostId] = TransientPortalHostCandidate(
+            ownershipGeneration: ownershipGeneration,
+            registrationToken: registrationToken,
+            isUsable: isUsable
+        )
 
         guard let entry = entriesByHostedId[hostedId],
               let recoveryGeneration = entry.transientAnchorRecoveryGeneration else { return }
@@ -63,9 +77,9 @@ extension WindowTerminalPortal {
             pruneDeadEntries()
             return
         }
-        let hasUsableCandidate = transientReattachCandidatesByHostedId[hostedId]?.values.contains(
-            recoveryGeneration
-        ) == true
+        let hasUsableCandidate = transientReattachCandidatesByHostedId[hostedId]?.values.contains {
+            $0.ownershipGeneration == recoveryGeneration && $0.isUsable
+        } == true
         if hasUsableCandidate {
             transientRecoveryExpiryTasksByHostedId.removeValue(forKey: hostedId)?.cancel()
         } else if wasUsableCandidate {
@@ -81,13 +95,16 @@ extension WindowTerminalPortal {
     func unregisterTransientReattachCandidate(
         forHostedId hostedId: ObjectIdentifier,
         hostId: ObjectIdentifier,
-        ownershipGeneration: UInt64? = nil
+        ownershipGeneration: UInt64? = nil,
+        registrationToken: UInt64? = nil
     ) {
-        if let ownershipGeneration {
-            if let registeredGeneration = transientReattachCandidatesByHostedId[hostedId]?[hostId],
-               registeredGeneration != ownershipGeneration {
-                return
-            }
+        if ownershipGeneration != nil || registrationToken != nil {
+            guard let registeredCandidate = transientReattachCandidatesByHostedId[hostedId]?[hostId]
+            else { return }
+            if let ownershipGeneration,
+               registeredCandidate.ownershipGeneration != ownershipGeneration { return }
+            if let registrationToken,
+               registeredCandidate.registrationToken != registrationToken { return }
         }
         transientReattachCandidatesByHostedId[hostedId]?.removeValue(forKey: hostId)
         if transientReattachCandidatesByHostedId[hostedId]?.isEmpty == true {
@@ -99,9 +116,9 @@ extension WindowTerminalPortal {
         if let ownershipGeneration, recoveryGeneration != ownershipGeneration {
             return
         }
-        let hasUsableCandidate = transientReattachCandidatesByHostedId[hostedId]?.values.contains(
-            recoveryGeneration
-        ) == true
+        let hasUsableCandidate = transientReattachCandidatesByHostedId[hostedId]?.values.contains {
+            $0.ownershipGeneration == recoveryGeneration && $0.isUsable
+        } == true
         guard !hasUsableCandidate else { return }
         clearTransientAnchorRecovery(forHostedId: hostedId, clearCandidates: false)
         pruneDeadEntries()
@@ -131,9 +148,9 @@ extension WindowTerminalPortal {
     private func reconcileTransientRecoveryExpiry(forHostedId hostedId: ObjectIdentifier) {
         guard let entry = entriesByHostedId[hostedId],
               let recoveryGeneration = entry.transientAnchorRecoveryGeneration else { return }
-        let hasUsableCandidate = transientReattachCandidatesByHostedId[hostedId]?.values.contains(
-            recoveryGeneration
-        ) == true
+        let hasUsableCandidate = transientReattachCandidatesByHostedId[hostedId]?.values.contains {
+            $0.ownershipGeneration == recoveryGeneration && $0.isUsable
+        } == true
         if hasUsableCandidate {
             transientRecoveryExpiryTasksByHostedId.removeValue(forKey: hostedId)?.cancel()
             return
@@ -250,7 +267,7 @@ extension WindowTerminalPortal {
         syncLayout: Bool = true,
         allowPresentationRefresh: Bool = true
     ) {
-        guard ensureInstalled(syncLayout: syncLayout) else { return }
+        guard ensureInstalled(syncLayout: false) else { return }
         if syncLayout {
             synchronizeLayoutHierarchy()
         } else {
@@ -261,7 +278,7 @@ extension WindowTerminalPortal {
         for hostedId in hostedIds where hostedId != hostedIdToSkip {
             synchronizeHostedView(
                 withId: hostedId,
-                syncLayout: syncLayout,
+                syncLayout: false,
                 allowPresentationRefresh: allowPresentationRefresh
             )
         }
@@ -308,6 +325,7 @@ extension TerminalWindowPortalRegistry {
         hostedView: GhosttySurfaceScrollView,
         hostId: ObjectIdentifier,
         ownershipGeneration: UInt64,
+        registrationToken: UInt64 = 0,
         isUsable: Bool
     ) {
         let hostedId = ObjectIdentifier(hostedView)
@@ -316,6 +334,7 @@ extension TerminalWindowPortalRegistry {
             forHostedId: hostedId,
             hostId: hostId,
             ownershipGeneration: ownershipGeneration,
+            registrationToken: registrationToken,
             isUsable: isUsable
         )
     }
@@ -323,14 +342,16 @@ extension TerminalWindowPortalRegistry {
     static func unregisterTransientReattachCandidate(
         hostedView: GhosttySurfaceScrollView,
         hostId: ObjectIdentifier,
-        ownershipGeneration: UInt64? = nil
+        ownershipGeneration: UInt64? = nil,
+        registrationToken: UInt64? = nil
     ) {
         let hostedId = ObjectIdentifier(hostedView)
         guard let portal = mappedPortal(for: hostedView) else { return }
         portal.unregisterTransientReattachCandidate(
             forHostedId: hostedId,
             hostId: hostId,
-            ownershipGeneration: ownershipGeneration
+            ownershipGeneration: ownershipGeneration,
+            registrationToken: registrationToken
         )
     }
 }

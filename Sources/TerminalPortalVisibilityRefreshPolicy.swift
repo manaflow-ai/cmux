@@ -20,15 +20,23 @@ extension GhosttyTerminalView {
             candidatePresentationIsVisible = false
         }
         let isDistinctReplacement = !terminalSurface.isPortalHostOwner(hostId: hostId)
-        hostedView.updateTransientPortalHostCandidate(
-            hostId: hostId,
-            ownershipGeneration: snapshot.ownershipGeneration,
-            isUsable: isDistinctReplacement && candidatePresentationIsVisible &&
-                terminalSurface.portalHostIsUsable(
-                    inWindow: host.window != nil,
-                    bounds: host.bounds
-                )
-        )
+        var candidateRegistrationToken: UInt64?
+        if isDistinctReplacement {
+            coordinator.transientCandidateRegistrationToken &+= 1
+            candidateRegistrationToken = coordinator.transientCandidateRegistrationToken
+        }
+        if let candidateRegistrationToken {
+            hostedView.updateTransientPortalHostCandidate(
+                hostId: hostId,
+                ownershipGeneration: snapshot.ownershipGeneration,
+                registrationToken: candidateRegistrationToken,
+                isUsable: candidatePresentationIsVisible &&
+                    terminalSurface.portalHostIsUsable(
+                        inWindow: host.window != nil,
+                        bounds: host.bounds
+                    )
+            )
+        }
         let drain = coordinator.portalMutationScheduler.schedule {
             @MainActor [weak host, weak hostedView, weak terminalSurface, weak coordinator] in
             guard let host, let hostedView, let terminalSurface, let coordinator else { return }
@@ -48,9 +56,11 @@ extension GhosttyTerminalView {
         }
         Task { @MainActor [weak hostedView] in
             await drain.value
+            guard let candidateRegistrationToken else { return }
             hostedView?.unregisterTransientPortalHostCandidate(
                 hostId: hostId,
-                ownershipGeneration: snapshot.ownershipGeneration
+                ownershipGeneration: snapshot.ownershipGeneration,
+                registrationToken: candidateRegistrationToken
             )
         }
         return drain
@@ -64,10 +74,11 @@ extension GhosttyTerminalView {
         snapshot: TerminalPortalMutationSnapshot
     ) {
         let hostId = ObjectIdentifier(host)
+        coordinator.committedPortalHandlerAttachGeneration = snapshot.attachGeneration
         let callbackIsCurrent = {
             @MainActor [weak host, weak terminalSurface, weak coordinator] in
             guard let host, let terminalSurface, let coordinator,
-                  coordinator.attachGeneration == snapshot.attachGeneration,
+                  coordinator.committedPortalHandlerAttachGeneration == snapshot.attachGeneration,
                   terminalSurface.isPortalHostOwner(hostId: ObjectIdentifier(host)),
                   terminalSurface.canAcceptPortalBinding(
                       expectedSurfaceId: snapshot.expectedSurfaceId,
@@ -148,25 +159,40 @@ extension GhosttySurfaceScrollView {
     func updateTransientPortalHostCandidate(
         hostId: ObjectIdentifier,
         ownershipGeneration: UInt64,
+        registrationToken: UInt64 = 0,
         isUsable: Bool
     ) {
         TerminalWindowPortalRegistry.updateTransientReattachCandidate(
             hostedView: self,
             hostId: hostId,
             ownershipGeneration: ownershipGeneration,
+            registrationToken: registrationToken,
             isUsable: isUsable
         )
     }
 
     func unregisterTransientPortalHostCandidate(
         hostId: ObjectIdentifier,
-        ownershipGeneration: UInt64? = nil
+        ownershipGeneration: UInt64? = nil,
+        registrationToken: UInt64? = nil
     ) {
         TerminalWindowPortalRegistry.unregisterTransientReattachCandidate(
             hostedView: self,
             hostId: hostId,
-            ownershipGeneration: ownershipGeneration
+            ownershipGeneration: ownershipGeneration,
+            registrationToken: registrationToken
         )
+    }
+
+    func retirePortalHostIfOwned(ownerHostId: ObjectIdentifier, reason: String) {
+        guard let terminalSurface = surfaceView.terminalSurface,
+              terminalSurface.isPortalHostOwner(hostId: ownerHostId) else { return }
+        clearPortalHostHandlersIfOwned(ownerHostId: ownerHostId)
+        setPaneDropContext(nil)
+        setDropZoneOverlay(zone: nil)
+        setVisibleInUI(false, refreshPolicy: .deferredToPortal)
+        setActive(false)
+        terminalSurface.releasePortalHostIfOwned(hostId: ownerHostId, reason: reason)
     }
 
     /// `TerminalSurfacePaneHosting` compatibility. App presentation paths choose a policy explicitly.
