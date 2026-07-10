@@ -417,7 +417,7 @@ extension Workspace.RestoredAgentResumeState {
         switch self {
         case .manualResumeAvailable, .awaitingAutoResumeCommand, .autoResumeCommandRunning:
             return true
-        case .observedAgentCommandRunning:
+        case .observedAgentCommandRunning, .completedAgentExit:
             return false
         }
     }

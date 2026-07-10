@@ -430,7 +430,8 @@ extension Workspace {
                 resumeBinding: resumeBinding
             ) == nil ? nil : state
         }
-        let effectiveRestorableAgent = Self.restorableAgentForSessionRestore(
+        let restoredAgentCompleted = restoredAgentResumeStatesByPanelId[panelId] == .completedAgentExit
+        let effectiveRestorableAgent = restoredAgentCompleted ? nil : Self.restorableAgentForSessionRestore(
             effectiveHibernationState?.agent ?? restoredAgentSnapshotsByPanelId[panelId],
             resumeBinding: resumeBinding
         )
@@ -2358,10 +2359,7 @@ final class Workspace: Identifiable, ObservableObject {
     /// `Workspace+PanelLifecycle` can clear it on panel close.
     var restoredResumeSessionWorkingDirectoriesByPanelId: [UUID: String] = [:]
     enum RestoredAgentResumeState: Equatable {
-        case manualResumeAvailable
-        case awaitingAutoResumeCommand
-        case autoResumeCommandRunning
-        case observedAgentCommandRunning
+        case manualResumeAvailable, awaitingAutoResumeCommand, autoResumeCommandRunning, observedAgentCommandRunning, completedAgentExit
     }
     var restoredAgentResumeStatesByPanelId: [UUID: RestoredAgentResumeState] = [:]
     var invalidatedRestoredAgentFingerprintsByPanelId: [UUID: Int] = [:]
@@ -4520,7 +4518,7 @@ final class Workspace: Identifiable, ObservableObject {
         panelId: UUID,
         index: RestorableAgentSessionIndex
     ) -> SessionRestorableAgentSnapshot? {
-        guard let snapshot = restoredAgentSnapshotsByPanelId[panelId] ?? index.snapshot(workspaceId: id, panelId: panelId),
+        guard restoredAgentResumeStatesByPanelId[panelId] != .completedAgentExit, let snapshot = restoredAgentSnapshotsByPanelId[panelId] ?? index.snapshot(workspaceId: id, panelId: panelId),
               snapshot.resumeCommand != nil else {
             return nil
         }
@@ -4608,14 +4606,16 @@ final class Workspace: Identifiable, ObservableObject {
                 restoredAgentResumeStatesByPanelId[panelId] = .autoResumeCommandRunning
             case .some(.autoResumeCommandRunning), .some(.observedAgentCommandRunning):
                 break
-            case .some(.manualResumeAvailable), nil:
+            case .some(.manualResumeAvailable), .some(.completedAgentExit), nil:
                 invalidateRestoredAgentSnapshot(panelId: panelId, restoredAgent: restoredAgent)
             }
         case .promptIdle:
             switch restoredAgentResumeStatesByPanelId[panelId] {
             case .some(.autoResumeCommandRunning), .some(.observedAgentCommandRunning):
-                invalidateRestoredAgentSnapshot(panelId: panelId, restoredAgent: restoredAgent)
-            case .some(.awaitingAutoResumeCommand), .some(.manualResumeAvailable), nil:
+                restoredAgentResumeStatesByPanelId[panelId] = .completedAgentExit
+                restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
+                clearRestoredAgentResumeBinding(panelId: panelId, restoredAgent: restoredAgent)
+            case .some(.awaitingAutoResumeCommand), .some(.manualResumeAvailable), .some(.completedAgentExit), nil:
                 break
             }
         case .unknown:

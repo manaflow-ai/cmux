@@ -209,8 +209,8 @@ struct TerminalTabAgentIconTests {
 
     @MainActor
     @Test(arguments: [
-        ("claude", "AgentIcons/Claude"), ("codex", "AgentIcons/Codex"),
-        ("opencode", "AgentIcons/OpenCode"), ("pi", "AgentIcons/Pi"),
+        ("claude", "AgentIcons/Claude"), ("codex", "AgentIcons/Codex"), ("opencode", "AgentIcons/OpenCode"), ("pi", "AgentIcons/Pi"), ("omp", "AgentIcons/Pi"),
+        ("grok", "AgentIcons/Grok"), ("rovodev", "AgentIcons/RovoDev"), ("antigravity", "AgentIcons/Antigravity"), ("hermes-agent", "AgentIcons/HermesAgent"),
     ])
     func promptIdleTitleDoesNotBecomeAgentIdentity(title: String, expectedAsset: String) throws {
         let workspace = Workspace()
@@ -265,7 +265,7 @@ struct TerminalTabAgentIconTests {
 
     @MainActor
     @Test(arguments: [
-        (RestorableAgentKind.claude, "AgentIcons/Claude"), (RestorableAgentKind.codex, "AgentIcons/Codex"),
+        (RestorableAgentKind.claude, "AgentIcons/Claude"), (RestorableAgentKind.codex, "AgentIcons/Codex"), (RestorableAgentKind.opencode, "AgentIcons/OpenCode"), (RestorableAgentKind.pi, "AgentIcons/Pi"),
     ])
     func plainShellTitleClearsObservedRestoredAgentIcon(kind: RestorableAgentKind, expectedAsset: String) throws {
         try assertPlainShellTitleClearsObservedRestoredAgentIcon(kind: kind, expectedAsset: expectedAsset)
@@ -443,11 +443,11 @@ struct TerminalTabAgentIconTests {
         let observedPayload = workspace.terminalTabAgentIconPayload(forPanelId: panel.id)
         #expect(workspace.bonsplitController.tab(tabId)?.iconImageData == observedPayload.imageData)
         #expect(workspace.bonsplitController.tab(tabId)?.iconAsset == observedPayload.assetName)
-
         #expect(workspace.updatePanelTitle(panelId: panel.id, title: "~/manaflow/cmuxterm-hq"))
+        workspace.updatePanelShellActivityState(panelId: panel.id, state: .promptIdle)
 
         #expect(workspace.restoredAgentSnapshotForTesting(panelId: panel.id)?.sessionId == snapshot.sessionId)
-        #expect(workspace.restoredAgentResumeStatesByPanelId[panel.id] == .observedAgentCommandRunning)
+        #expect(workspace.restoredAgentResumeStatesByPanelId[panel.id] == .completedAgentExit)
         #expect(workspace.agentPIDs[stalePIDKey] == nil)
         #expect(workspace.agentPIDKeysByPanelId[panel.id]?.contains(stalePIDKey) != true)
         #expect(workspace.terminalTabAgentIconAsset(forPanelId: panel.id) == nil)
