@@ -150,19 +150,7 @@ public struct CmxIrohPathHint: Equatable, Sendable {
     }
 
     /// Builds an inert compatibility hint from the pre-provenance wire fields.
-    static func legacy(
-        kind: CmxIrohPathHintKind,
-        value: String,
-        privacyScope: CmxIrohPathHintPrivacyScope
-    ) -> Self {
-        Self(
-            legacyKind: kind,
-            value: value,
-            privacyScope: privacyScope
-        )
-    }
-
-    private init(
+    init(
         legacyKind kind: CmxIrohPathHintKind,
         value: String,
         privacyScope: CmxIrohPathHintPrivacyScope
@@ -196,97 +184,11 @@ public struct CmxIrohPathHint: Equatable, Sendable {
         self.networkProfile = networkProfile
     }
 
-    private func validate(
-        requireCurrentPrivateMetadata: Bool,
-        requireSafeValueShape: Bool
-    ) throws {
-        guard !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            throw CmxIrohPathHintError.emptyValue
-        }
-
-        if requireSafeValueShape {
-            switch kind {
-            case .directAddress:
-                guard let directAddressIsAllowed = Self.directSocketAddressIsAllowed(value) else {
-                    throw CmxIrohPathHintError.invalidDirectAddress
-                }
-                guard directAddressIsAllowed else {
-                    throw CmxIrohPathHintError.forbiddenDirectAddress
-                }
-                if privacyScope == .publicInternet,
-                   !Self.directSocketAddressIsGloballyRoutable(value) {
-                    throw CmxIrohPathHintError.nonGlobalPublicDirectAddress
-                }
-            case .relayIdentifier:
-                guard Self.isSafeIdentifier(value, maximumUTF8Count: 255) else {
-                    throw CmxIrohPathHintError.invalidRelayIdentifier
-                }
-            case .relayURL:
-                guard Self.isSafeRelayURL(value) else {
-                    throw CmxIrohPathHintError.unsafeRelayURL
-                }
-            }
-        }
-
-        switch source {
-        case .native:
-            break
-        case .lan:
-            guard privacyScope == .localNetwork else {
-                throw CmxIrohPathHintError.incompatiblePrivacyScope(
-                    source: source,
-                    scope: privacyScope
-                )
-            }
-        case .tailscale, .customVPN:
-            guard privacyScope == .privateNetwork else {
-                throw CmxIrohPathHintError.incompatiblePrivacyScope(
-                    source: source,
-                    scope: privacyScope
-                )
-            }
-        }
-
-        if kind == .relayIdentifier || kind == .relayURL {
-            guard source == .native, privacyScope == .publicInternet else {
-                throw CmxIrohPathHintError.relayHintRequiresNativePublicSource
-            }
-        }
-
-        if privacyScope == .publicInternet {
-            guard networkProfile == nil else {
-                throw CmxIrohPathHintError.unexpectedPublicNetworkProfile
-            }
-            return
-        }
-
-        guard requireCurrentPrivateMetadata else {
-            return
-        }
-        guard let observedAt else {
-            throw CmxIrohPathHintError.missingPrivateHintObservation
-        }
-        guard let expiresAt else {
-            throw CmxIrohPathHintError.missingPrivateHintExpiry
-        }
-        guard let networkProfile else {
-            throw CmxIrohPathHintError.missingPrivateHintNetworkProfile
-        }
-        guard networkProfile.source == source else {
-            throw CmxIrohPathHintError.networkProfileSourceMismatch
-        }
-        let lifetime = expiresAt.timeIntervalSince(observedAt)
-        guard lifetime > 0 else {
-            throw CmxIrohPathHintError.invalidPrivateHintLifetime
-        }
-        guard lifetime <= Self.maximumPrivateHintTTL else {
-            throw CmxIrohPathHintError.privateHintTTLExceedsMaximum
-        }
-    }
-
 }
 
 extension CmxIrohPathHint: Codable {
+    /// Decodes a path hint, preserving incomplete legacy private hints as inert
+    /// compatibility data while validating current wire forms.
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let kind = try container.decode(CmxIrohPathHintKind.self, forKey: .kind)
@@ -338,6 +240,7 @@ extension CmxIrohPathHint: Codable {
         }
     }
 
+    /// Encodes the validated path-hint fields in the current wire form.
     public func encode(to encoder: any Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(kind, forKey: .kind)

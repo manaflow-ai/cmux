@@ -1,11 +1,15 @@
 import Foundation
 
+/// The address shape used to reach an attach route.
 public enum CmxAttachEndpoint: Equatable, Sendable {
     /// The maximum number of reachability hints accepted for one Iroh peer.
     public static let maximumIrohPathHintCount = 16
 
+    /// A direct host and TCP port.
     case hostPort(host: String, port: Int)
+    /// An authenticated Iroh identity plus untrusted reachability hints.
     case peer(identity: CmxIrohPeerIdentity, pathHints: [CmxIrohPathHint])
+    /// A URL-based transport endpoint.
     case url(String)
 }
 
@@ -28,6 +32,7 @@ extension CmxAttachEndpoint: Codable {
         case url
     }
 
+    /// Decodes and validates an attach endpoint.
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let type = try container.decode(EndpointType.self, forKey: .type)
@@ -62,6 +67,7 @@ extension CmxAttachEndpoint: Codable {
         }
     }
 
+    /// Encodes the endpoint while omitting unsafe legacy Iroh hint forms.
     public func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         switch self {
@@ -110,14 +116,21 @@ extension CmxAttachEndpoint: Codable {
     }
 }
 
+/// Validation failures for attach-route endpoints.
 public enum CmxAttachRouteError: Error, Equatable, Sendable {
+    /// A host/port route has an empty host.
     case emptyHost
+    /// An Iroh peer route has an empty peer identity.
     case emptyPeerID
+    /// An Iroh direct-address hint is empty.
     case emptyPeerAddress
+    /// A URL or relay hint is empty.
     case emptyURL
+    /// A host/port route uses a port outside the valid TCP range.
     case invalidPort(Int)
     /// A peer route exceeded ``CmxAttachEndpoint/maximumIrohPathHintCount``.
     case tooManyPeerPathHints(actual: Int, maximum: Int)
+    /// The endpoint shape does not match its declared transport kind.
     case endpointMismatch(kind: CmxAttachTransportKind, endpoint: CmxAttachEndpoint)
 }
 
@@ -157,6 +170,7 @@ public struct CmxAttachRoute: Codable, Equatable, Sendable {
         try validate()
     }
 
+    /// Validates that the endpoint shape and route kind agree.
     public func validate() throws {
         switch endpoint {
         case let .hostPort(host, port):
