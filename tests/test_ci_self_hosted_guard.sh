@@ -871,11 +871,17 @@ check_no_self_hosted_fleet_runners() {
                "runs-on: \${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}" \
                '- warp-macos-15-arm64-6x' '- depot-macos-latest' '- blacksmith-6vcpu-macos-15' \
                '- blacksmith-4vcpu-ubuntu-2404'; do
-    if printf '%s\n' "$probe" | grep -E "($forbidden)" | grep -Eqv "($allowed)"; then
+    if printf '%s\n' "$probe" | sed -E "s/($allowed)//g" | grep -Eq "($forbidden)"; then
       echo "FAIL: fleet-runner guard self-test false-positived a cloud label: $probe"
       exit 1
     fi
   done
+
+  probe="runs-on: \${{ vars.USE_TART == '1' && 'tart-canary' || 'blacksmith-6vcpu-macos-15' }}"
+  if ! printf '%s\n' "$probe" | sed -E "s/($allowed)//g" | grep -Eq "($forbidden)"; then
+    echo "FAIL: fleet-runner guard self-test let an allowed fallback mask a forbidden label: $probe"
+    exit 1
+  fi
 
   local e2e_tart_option_line
   e2e_tart_option_line="$(awk '
@@ -886,7 +892,7 @@ check_no_self_hosted_fleet_runners() {
     in_options && /^          - tart-canary$/ { print FNR }
   ' "$E2E_FILE")"
 
-  local hits="" line content
+  local hits="" line content content_without_allowed
   # Inspect runner-selection lines only: runs-on:, matrix `os:`, and scalar list
   # items (`  - <label>`, which covers dispatch runner dropdowns and multi-line
   # `runs-on:` arrays). `- name:` / `- uses:` step entries have a colon and are
@@ -895,8 +901,8 @@ check_no_self_hosted_fleet_runners() {
   # never match the bare `cmux` label.
   while IFS= read -r line; do
     content="${line#*:*:}"
-    printf '%s\n' "$content" | grep -Eq "($forbidden)" || continue
-    printf '%s\n' "$content" | grep -Eq "($allowed)" && continue
+    content_without_allowed="$(printf '%s\n' "$content" | sed -E "s/($allowed)//g")"
+    printf '%s\n' "$content_without_allowed" | grep -Eq "($forbidden)" || continue
     if [[ -n "$e2e_tart_option_line" ]] && [[ "$line" == "$E2E_FILE:$e2e_tart_option_line:"* ]]; then
       continue
     fi
