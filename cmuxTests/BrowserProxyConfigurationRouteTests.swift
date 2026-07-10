@@ -53,6 +53,21 @@ import WebKit
         #expect(store.proxyConfigurations.isEmpty)
     }
 
+    @Test("Persistent store reacquisition retains the route transition state")
+    @MainActor
+    func persistentStoreReacquisitionRetainsRouteState() throws {
+        let identifier = UUID()
+        let firstStore = WKWebsiteDataStore(forIdentifier: identifier)
+        let mirror = try #require(systemProxyMirror())
+        _ = BrowserProxyConfigurationRoute.mirroredSystem(mirror).apply(to: firstStore)
+        firstStore.proxyConfigurations = []
+
+        let reacquiredStore = WKWebsiteDataStore(forIdentifier: identifier)
+
+        #expect(BrowserProxyConfigurationRoute.direct.apply(to: reacquiredStore))
+        #expect(reacquiredStore.proxyConfigurations.isEmpty)
+    }
+
     @Test("Direct routing after an explicit proxy keeps clearing retained WebKit state")
     @MainActor
     func directRouteAfterExplicitProxyDoesNotCoalesce() throws {
