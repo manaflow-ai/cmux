@@ -590,8 +590,9 @@ class MemoryRepository implements IrohRepositoryShape {
 
   revokeBinding(input: Parameters<IrohRepositoryShape["revokeBinding"]>[0]) {
     const row = this.bindings.find((candidate) =>
-      candidate.id === input.bindingId && candidate.userId === input.userId && !candidate.revokedAt);
+      candidate.id === input.bindingId && candidate.userId === input.userId);
     if (!row) return Effect.succeed(false);
+    if (row.revokedAt) return Effect.succeed(true);
     row.revokedAt = input.now;
     row.revokedReason = "user_requested";
     this.lanGenerations.set(input.userId, (this.lanGenerations.get(input.userId) ?? 1) + 1);

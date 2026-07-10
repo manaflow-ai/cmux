@@ -105,6 +105,7 @@ export type IrohRepositoryShape = {
     userId: string,
     bindingIds: readonly string[],
   ) => Effect.Effect<IrohBindingRecord[], RepositoryError>;
+  /** Returns true when the exact binding is owned and revoked, including retries. */
   readonly revokeBinding: (input: {
     readonly userId: string;
     readonly bindingId: string;
@@ -428,6 +429,18 @@ function makeLiveRepository(): IrohRepositoryShape {
       return await cloudDb().transaction(async (tx) => {
         await assertIrohUserMutationAllowed(tx, input.userId);
         await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`iroh:binding:${input.userId}`}, 0))`);
+        const [binding] = await tx
+          .select({ revokedAt: irohEndpointBindings.revokedAt })
+          .from(irohEndpointBindings)
+          .where(and(
+            eq(irohEndpointBindings.id, input.bindingId),
+            eq(irohEndpointBindings.userId, input.userId),
+          ))
+          .for("update")
+          .limit(1);
+        if (!binding) return false;
+        if (binding.revokedAt) return true;
+
         const revoked = await tx
           .update(irohEndpointBindings)
           .set({
