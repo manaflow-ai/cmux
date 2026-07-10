@@ -60,14 +60,14 @@ public struct ChatArtifactViewerSheet: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .padding()
         case .image(let data):
-            ScrollView([.vertical, .horizontal]) {
-                artifactImage(data: data)
-                    .scaledToFit()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .padding()
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            artifactImage(data: data)
+                .scaledToFit()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding()
         case .text(let text):
+            #if canImport(UIKit)
+            ChatArtifactTextView(text: text)
+            #else
             ScrollView {
                 Text(text)
                     .font(.system(.body, design: .monospaced))
@@ -75,6 +75,7 @@ public struct ChatArtifactViewerSheet: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding()
             }
+            #endif
         case .binary(let stat):
             unavailableView(
                 title: String(localized: "chat.artifact.preview_unavailable.title", defaultValue: "Preview unavailable", bundle: .module),
@@ -84,8 +85,13 @@ public struct ChatArtifactViewerSheet: View {
         case .tooLarge(let limit):
             unavailableView(
                 title: String(localized: "chat.artifact.too_large.title", defaultValue: "File too large to preview", bundle: .module),
-                message: String(localized: "chat.artifact.too_large.message", defaultValue: "This preview is limited to 64 MB.", bundle: .module),
-                detail: formattedSize(limit)
+                message: tooLargeMessage(limit: limit)
+            )
+        case .unsupportedMedia:
+            unavailableView(
+                title: String(localized: "chat.artifact.preview_unavailable.title", defaultValue: "Preview unavailable", bundle: .module),
+                message: String(localized: "chat.artifact.preview_unavailable.message", defaultValue: "This file can't be previewed.", bundle: .module),
+                detail: nil
             )
         case .fileMissing:
             unavailableView(
@@ -242,12 +248,22 @@ public struct ChatArtifactViewerSheet: View {
         ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
     }
 
+    private func tooLargeMessage(limit: Int64) -> String {
+        let format = String(
+            localized: "chat.artifact.too_large.message",
+            defaultValue: "This preview is limited to %@.",
+            bundle: .module
+        )
+        return String.localizedStringWithFormat(format, formattedSize(limit))
+    }
+
     private enum LoadState: Equatable {
         case loading(fetched: Int64, total: Int64?)
         case image(data: Data)
         case text(text: String)
         case binary(stat: ChatArtifactStat)
         case tooLarge(limit: Int64)
+        case unsupportedMedia
         case fileMissing
         case macUnreachable
         case forbidden
@@ -265,13 +281,7 @@ public struct ChatArtifactViewerSheet: View {
             case .macUnreachable, .unavailable, .unsupported, .sessionNotFound, .invalidParams:
                 self = .macUnreachable
             case .unsupportedMedia:
-                self = .binary(stat: ChatArtifactStat(
-                    exists: true,
-                    isDirectory: false,
-                    size: 0,
-                    modifiedAt: Date(timeIntervalSince1970: 0),
-                    kind: .binary
-                ))
+                self = .unsupportedMedia
             case .tooLarge(let limitBytes):
                 self = .tooLarge(limit: limitBytes)
             }

@@ -296,13 +296,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "This preview is limited to 64 MB."
+            "value" : "This preview is limited to %@."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "このプレビューの上限は64 MBです。"
+            "value" : "このプレビューの上限は%@です。"
           }
         }
       }

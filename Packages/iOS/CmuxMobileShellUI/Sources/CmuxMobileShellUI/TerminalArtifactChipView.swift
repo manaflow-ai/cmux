@@ -9,14 +9,14 @@ struct TerminalArtifactChipView: View {
     var body: some View {
         Button(action: onTap) {
             HStack(spacing: 8) {
-                Image(systemName: "doc.text.magnifyingglass")
+                Image(systemName: "photo.on.rectangle")
                     .font(.system(size: 15, weight: .semibold))
 
                 Text(localizedCount)
                     .font(.subheadline.weight(.semibold))
                     .monospacedDigit()
 
-                Image(systemName: "chevron.right")
+                Image(systemName: "chevron.up")
                     .font(.caption.weight(.bold))
                     .foregroundStyle(.secondary)
             }
@@ -26,7 +26,7 @@ struct TerminalArtifactChipView: View {
             .background(.regularMaterial, in: Capsule())
             .overlay {
                 Capsule()
-                    .strokeBorder(.white.opacity(0.18), lineWidth: 0.5)
+                    .strokeBorder(.primary.opacity(0.08), lineWidth: 0.5)
             }
             .shadow(color: .black.opacity(0.2), radius: 8, y: 3)
             .contentShape(Capsule())
@@ -44,12 +44,11 @@ struct TerminalArtifactChipView: View {
     }
 
     private var localizedCount: String {
-        let format = String(
-            localized: "terminal.artifact.chip.count",
-            defaultValue: "%lld files",
+        let attributed = AttributedString(
+            localized: "^[\(count) file](inflect: true)",
             bundle: .module
         )
-        return String.localizedStringWithFormat(format, Int64(count))
+        return String(attributed.characters)
     }
 }
 #endif

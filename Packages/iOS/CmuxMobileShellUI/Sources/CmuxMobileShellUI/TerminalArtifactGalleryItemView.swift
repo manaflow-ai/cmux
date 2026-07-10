@@ -28,7 +28,10 @@ struct TerminalArtifactGalleryItemView: View {
                 gridContent
             }
         }
-        .buttonStyle(.plain)
+        .buttonStyle(TerminalArtifactGalleryButtonStyle())
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(artifact.displayName)
+        .accessibilityValue(accessibilityDetail)
         .task(id: "\(artifact.path)#\(Self.thumbnailDimension)") {
             guard artifact.kind == .image else { return }
             thumbnail = try? await loader.thumbnail(
@@ -66,7 +69,7 @@ struct TerminalArtifactGalleryItemView: View {
 
     private var gridContent: some View {
         let metadata = metadataText
-        return VStack(alignment: .leading, spacing: 7) {
+        return VStack(alignment: .center, spacing: 7) {
             preview
                 .aspectRatio(1, contentMode: .fit)
 
@@ -74,54 +77,94 @@ struct TerminalArtifactGalleryItemView: View {
                 .font(.subheadline)
                 .foregroundStyle(.primary)
                 .lineLimit(2)
-                .frame(height: 38, alignment: .topLeading)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: .infinity, minHeight: 38, alignment: .top)
 
-            Text(metadata ?? " ")
+            Text(metadata ?? "")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
                 .lineLimit(2)
+                .multilineTextAlignment(.center)
                 .opacity(metadata == nil ? 0 : 1)
-                .frame(height: 28, alignment: .topLeading)
+                .frame(maxWidth: .infinity, minHeight: 28, alignment: .top)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: .center)
         .contentShape(Rectangle())
     }
 
     @ViewBuilder
     private var preview: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(Color(uiColor: .secondarySystemBackground))
+        if artifact.kind == .image {
+            ZStack {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(Color(uiColor: .secondarySystemBackground))
 
-            if let thumbnail,
-               let image = UIImage(data: thumbnail.data) {
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFill()
-                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-            } else {
-                Image(systemName: symbolName)
-                    .font(.system(size: layout == .grid ? 34 : 22, weight: .regular))
-                    .foregroundStyle(.secondary)
+                if let thumbnail,
+                   let image = UIImage(data: thumbnail.data) {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFit()
+                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                } else {
+                    placeholderSymbol
+                }
             }
+            .clipped()
+        } else {
+            // Give the bare glyph the same square footprint an image thumbnail
+            // occupies so grid rows mixing images and doc glyphs stay aligned.
+            placeholderSymbol
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .clipped()
+    }
+
+    private var placeholderSymbol: some View {
+        Image(systemName: symbolName)
+            .font(.system(size: layout == .grid ? 48 : 22, weight: .regular))
+            .symbolRenderingMode(.hierarchical)
+            .foregroundStyle(symbolTint)
     }
 
     private var metadataText: String? {
         var components: [String] = []
         if let modifiedAt = artifact.modifiedAt {
-            components.append(modifiedAt.formatted(
-                .dateTime.month(.twoDigits).day(.twoDigits).year()
-            ))
+            components.append(modifiedAt.formatted(date: .abbreviated, time: .omitted))
         }
         if let size = artifact.size {
-            let formatter = ByteCountFormatter()
-            formatter.countStyle = .file
-            formatter.allowedUnits = .useAll
-            components.append(formatter.string(fromByteCount: max(0, size)))
+            components.append(ByteCountFormatter.string(
+                fromByteCount: max(0, size),
+                countStyle: .file
+            ))
         }
         return components.isEmpty ? nil : components.joined(separator: " · ")
+    }
+
+    private var accessibilityDetail: String {
+        [localizedKind, metadataText]
+            .compactMap { $0 }
+            .joined(separator: ", ")
+    }
+
+    private var localizedKind: String {
+        switch artifact.kind {
+        case .image:
+            String(localized: "terminal.artifact.gallery.kind.image", defaultValue: "Image", bundle: .module)
+        case .text:
+            String(localized: "terminal.artifact.gallery.kind.text", defaultValue: "Text document", bundle: .module)
+        case .binary:
+            String(localized: "terminal.artifact.gallery.kind.binary", defaultValue: "Binary file", bundle: .module)
+        case .directory:
+            String(localized: "terminal.artifact.gallery.kind.directory", defaultValue: "Folder", bundle: .module)
+        }
+    }
+
+    private var symbolTint: Color {
+        switch artifact.kind {
+        case .image, .binary:
+            .secondary
+        case .text, .directory:
+            .blue
+        }
     }
 
     private var symbolName: String {

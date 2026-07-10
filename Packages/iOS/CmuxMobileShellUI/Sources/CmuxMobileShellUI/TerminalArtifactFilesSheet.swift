@@ -29,22 +29,33 @@ struct TerminalArtifactFilesSheet: View {
     @State private var state: LoadState = .loading
     @State private var viewMode: ViewMode = .list
     @State private var selection: TerminalArtifactPathSelection?
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        VStack(spacing: 0) {
-            header
-            Divider()
+        NavigationStack {
             content
+                .navigationTitle(String(
+                    localized: "terminal.artifact.gallery.title",
+                    defaultValue: "Files",
+                    bundle: .module
+                ))
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button(String(
+                            localized: "terminal.artifact.gallery.done",
+                            defaultValue: "Done",
+                            bundle: .module
+                        )) {
+                            dismiss()
+                        }
+                    }
+                    ToolbarItem(placement: .topBarTrailing) {
+                        viewModePicker
+                    }
+                }
         }
-        .frame(
-            minWidth: 340,
-            idealWidth: 380,
-            maxWidth: 420,
-            minHeight: 420,
-            idealHeight: 500,
-            maxHeight: 600
-        )
-        .background(Color(uiColor: .systemBackground))
+        .frame(idealWidth: 380, idealHeight: 520)
         .task(id: "\(workspaceID)#\(surfaceID)") {
             await load()
         }
@@ -54,52 +65,39 @@ struct TerminalArtifactFilesSheet: View {
         }
     }
 
-    private var header: some View {
-        HStack(spacing: 16) {
-            Text(String(
-                localized: "terminal.artifact.gallery.title",
-                defaultValue: "Files",
+    private var viewModePicker: some View {
+        Picker(
+            String(
+                localized: "terminal.artifact.gallery.view_mode",
+                defaultValue: "View",
                 bundle: .module
-            ))
-            .font(.headline)
-
-            Spacer(minLength: 0)
-
-            Picker(
+            ),
+            selection: $viewMode
+        ) {
+            Label(
                 String(
-                    localized: "terminal.artifact.gallery.view_mode",
-                    defaultValue: "View",
+                    localized: "terminal.artifact.gallery.view_mode.list",
+                    defaultValue: "List",
                     bundle: .module
                 ),
-                selection: $viewMode
-            ) {
-                Label(
-                    String(
-                        localized: "terminal.artifact.gallery.view_mode.list",
-                        defaultValue: "List",
-                        bundle: .module
-                    ),
-                    systemImage: "list.bullet"
-                )
-                .labelStyle(.iconOnly)
-                .tag(ViewMode.list)
+                systemImage: "list.bullet"
+            )
+            .labelStyle(.iconOnly)
+            .tag(ViewMode.list)
 
-                Label(
-                    String(
-                        localized: "terminal.artifact.gallery.view_mode.grid",
-                        defaultValue: "Icons",
-                        bundle: .module
-                    ),
-                    systemImage: "square.grid.2x2"
-                )
-                .labelStyle(.iconOnly)
-                .tag(ViewMode.grid)
-            }
-            .pickerStyle(.segmented)
-            .frame(width: 112)
+            Label(
+                String(
+                    localized: "terminal.artifact.gallery.view_mode.grid",
+                    defaultValue: "Icons",
+                    bundle: .module
+                ),
+                systemImage: "square.grid.2x2"
+            )
+            .labelStyle(.iconOnly)
+            .tag(ViewMode.grid)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
+        .pickerStyle(.segmented)
+        .frame(width: 112)
     }
 
     @ViewBuilder
@@ -108,7 +106,7 @@ struct TerminalArtifactFilesSheet: View {
         case .loading:
             ProgressView(String(
                 localized: "terminal.artifact.gallery.loading",
-                defaultValue: "Loading files...",
+                defaultValue: "Loading files…",
                 bundle: .module
             ))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -120,7 +118,7 @@ struct TerminalArtifactFilesSheet: View {
                         defaultValue: "No files in view",
                         bundle: .module
                     ),
-                    systemImage: "doc.text.magnifyingglass"
+                    systemImage: "tray"
                 )
             } else {
                 loadedContent(artifacts)
@@ -195,10 +193,7 @@ struct TerminalArtifactFilesSheet: View {
     }
 
     private var gridColumns: [GridItem] {
-        Array(
-            repeating: GridItem(.flexible(minimum: 80, maximum: 120), spacing: 12),
-            count: 3
-        )
+        [GridItem(.adaptive(minimum: 96), spacing: 12)]
     }
 
     private func open(_ artifact: TerminalArtifactReference) {
