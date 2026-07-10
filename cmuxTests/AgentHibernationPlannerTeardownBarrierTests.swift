@@ -25,7 +25,6 @@ extension AgentHibernationPlannerSwiftTests {
             AgentHibernationTrackingGate.setEnabled(wasEnabled)
             resetSharedHibernationState(controller)
         }
-
         let workspace = Workspace()
         let panelId = try #require(workspace.focusedPanelId)
         let panel = try #require(workspace.panels[panelId] as? TerminalPanel)
@@ -38,7 +37,6 @@ extension AgentHibernationPlannerSwiftTests {
         )
         workspace.setRestoredAgentSnapshotForTesting(agent, panelId: panelId)
         workspace.setAgentLifecycle(key: "codex.timeout-before-teardown", panelId: panelId, lifecycle: .idle)
-
         let timeoutWaiter = HibernationGenerationTimeoutWaiter()
         let loadStarted = DispatchSemaphore(value: 0)
         let sharedIndex = SharedLiveAgentIndex(
@@ -56,7 +54,6 @@ extension AgentHibernationPlannerSwiftTests {
             generationTimeoutWaiter: { await timeoutWaiter.wait() },
             hookStoreDirectoryProvider: { FileManager.default.temporaryDirectory.path }
         )
-
         AgentHibernationTrackingGate.setEnabled(true)
         let confirmationFingerprint = "headless-runtime-fingerprint"
         let request = AgentHibernationController.ConfirmedTeardownRequest(
@@ -78,7 +75,6 @@ extension AgentHibernationPlannerSwiftTests {
             epoch: controller.teardownValidationEpochByPanel[panelKey] ?? 0,
             generation: controller.teardownValidationGeneration
         )
-
         let teardownTask = controller.beginConfirmedTeardowns(
             [request],
             postSnapshotIndexLoader: {
@@ -95,13 +91,11 @@ extension AgentHibernationPlannerSwiftTests {
         await timeoutWaiter.waitUntilPending()
         await timeoutWaiter.fire()
         await teardownTask.value
-
         #expect(
             !panel.isAgentHibernated,
             "An unavailable post-snapshot process scan must fail closed instead of hibernating the pane."
         )
     }
-
     @MainActor
     @Test
     func pendingEvaluationDiscardsLaterTimerTicks() async throws {
