@@ -16,7 +16,7 @@ struct DeviceRegistryRedirectTests {
                 accessToken: { "access-token" },
                 refreshToken: { "refresh-token" }
             ),
-            session: URLSession(configuration: configuration),
+            sessionConfiguration: configuration,
             requestTimeout: 0.1
         )
 

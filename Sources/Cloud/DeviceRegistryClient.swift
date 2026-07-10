@@ -21,7 +21,7 @@ import Foundation
 final class DeviceRegistryClient {
     static let shared = DeviceRegistryClient()
 
-    private let session: URLSession = .shared
+    private let session = CmxCredentialedHTTPSession()
     private var auth: AuthCoordinator?
     private var observeTask: Task<Void, Never>?
     /// The scope (team + tag + routes) most recently registered, used to skip

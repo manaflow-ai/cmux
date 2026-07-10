@@ -42,7 +42,7 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
     private let deviceID: String
     private let tokenSource: TokenSource
     private let teamIDProvider: @Sendable () async -> String?
-    private let session: URLSession
+    private let session: CmxCredentialedHTTPSession
     private let requestTimeout: TimeInterval
 
     /// - Parameters:
@@ -51,7 +51,8 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
     ///   - tokenSource: Supplies the Stack access/refresh tokens.
     ///   - teamIDProvider: Supplies the team id to scope to, or `nil` to let the
     ///     server use the Stack-selected team.
-    ///   - session: The URLSession used for API calls.
+    ///   - sessionConfiguration: URL loading configuration. Redirect rejection,
+    ///     cookie isolation, and cache isolation are enforced by the service.
     ///   - requestTimeout: Per-request deadline, bounding the worst-case latency
     ///     of a registry call so it never stalls the reconnect refresh.
     public init(
@@ -59,14 +60,14 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
         deviceID: String,
         tokenSource: TokenSource,
         teamIDProvider: @escaping @Sendable () async -> String? = { nil },
-        session: sending URLSession = .shared,
+        sessionConfiguration: sending URLSessionConfiguration = .ephemeral,
         requestTimeout: TimeInterval = 5
     ) {
         self.apiBaseURL = apiBaseURL
         self.deviceID = deviceID
         self.tokenSource = tokenSource
         self.teamIDProvider = teamIDProvider
-        self.session = session
+        self.session = CmxCredentialedHTTPSession(configuration: sessionConfiguration)
         self.requestTimeout = requestTimeout
     }
 

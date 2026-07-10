@@ -1,3 +1,4 @@
+internal import CMUXMobileCore
 public import Foundation
 
 /// Supplies the short-lived Stack credentials required by native API calls.
@@ -21,39 +22,14 @@ protocol CmxIrohHTTPTransport: Sendable {
 
 /// Production URLSession implementation of ``CmxIrohHTTPTransport``.
 struct CmxIrohURLSessionTransport: CmxIrohHTTPTransport {
-    private let redirectDelegate: CmxIrohRedirectRejectingDelegate
-    private let session: URLSession
+    private let session: CmxCredentialedHTTPSession
 
-    init(configuration: URLSessionConfiguration = .ephemeral) {
-        configuration.httpShouldSetCookies = false
-        configuration.urlCache = nil
-        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
-        let redirectDelegate = CmxIrohRedirectRejectingDelegate()
-        self.redirectDelegate = redirectDelegate
-        session = URLSession(
-            configuration: configuration,
-            delegate: redirectDelegate,
-            delegateQueue: nil
-        )
+    init(configuration: sending URLSessionConfiguration = .ephemeral) {
+        session = CmxCredentialedHTTPSession(configuration: configuration)
     }
 
     func data(for request: URLRequest) async throws -> (Data, URLResponse) {
         try await session.data(for: request)
-    }
-}
-
-private final class CmxIrohRedirectRejectingDelegate: NSObject,
-    URLSessionTaskDelegate,
-    @unchecked Sendable
-{
-    func urlSession(
-        _: URLSession,
-        task _: URLSessionTask,
-        willPerformHTTPRedirection _: HTTPURLResponse,
-        newRequest _: URLRequest,
-        completionHandler: @escaping (URLRequest?) -> Void
-    ) {
-        completionHandler(nil)
     }
 }
 
