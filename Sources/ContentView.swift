@@ -13462,6 +13462,42 @@ struct TabItemView: View, Equatable {
         )
     }
 
+    @ViewBuilder
+    private func mediaActivityIndicators(_ mediaActivity: BrowserMediaActivity) -> some View {
+        if mediaActivity.isPlayingAudio {
+            let audioPlayingTooltip = String(
+                localized: "sidebar.mediaActivity.audio.tooltip",
+                defaultValue: "Playing audio"
+            )
+            CmuxSystemSymbolImage(magnified: "speaker.wave.2.fill", pointSize: scaledFontSize(9), weight: .semibold)
+                .foregroundColor(activeSecondaryColor(0.8))
+                .safeHelp(audioPlayingTooltip)
+                .accessibilityLabel(audioPlayingTooltip)
+        }
+
+        if mediaActivity.isUsingMicrophone {
+            let microphoneInUseTooltip = String(
+                localized: "sidebar.mediaActivity.microphone.tooltip",
+                defaultValue: "Microphone in use"
+            )
+            CmuxSystemSymbolImage(magnified: "mic.fill", pointSize: scaledFontSize(9), weight: .semibold)
+                .foregroundColor(.orange)
+                .safeHelp(microphoneInUseTooltip)
+                .accessibilityLabel(microphoneInUseTooltip)
+        }
+
+        if mediaActivity.isUsingCamera {
+            let cameraInUseTooltip = String(
+                localized: "sidebar.mediaActivity.camera.tooltip",
+                defaultValue: "Camera in use"
+            )
+            CmuxSystemSymbolImage(magnified: "video.fill", pointSize: scaledFontSize(9), weight: .semibold)
+                .foregroundColor(.green)
+                .safeHelp(cameraInUseTooltip)
+                .accessibilityLabel(cameraInUseTooltip)
+        }
+    }
+
     var body: some View {
 #if DEBUG
         let _ = { sidebarLazyContractProbe.workspaceRowBody?() }()
@@ -13554,38 +13590,7 @@ struct TabItemView: View, Equatable {
                 // background browser pane is surfaced on its workspace row,
                 // styled like the pin indicator. Audio is the must-have signal;
                 // mic/camera follow the macOS orange/green convention.
-                if workspaceSnapshot.mediaActivity.isPlayingAudio {
-                    let audioPlayingTooltip = String(
-                        localized: "sidebar.mediaActivity.audio.tooltip",
-                        defaultValue: "Playing audio"
-                    )
-                    CmuxSystemSymbolImage(magnified: "speaker.wave.2.fill", pointSize: scaledFontSize(9), weight: .semibold)
-                        .foregroundColor(activeSecondaryColor(0.8))
-                        .safeHelp(audioPlayingTooltip)
-                        .accessibilityLabel(audioPlayingTooltip)
-                }
-
-                if workspaceSnapshot.mediaActivity.isUsingMicrophone {
-                    let microphoneInUseTooltip = String(
-                        localized: "sidebar.mediaActivity.microphone.tooltip",
-                        defaultValue: "Microphone in use"
-                    )
-                    CmuxSystemSymbolImage(magnified: "mic.fill", pointSize: scaledFontSize(9), weight: .semibold)
-                        .foregroundColor(.orange)
-                        .safeHelp(microphoneInUseTooltip)
-                        .accessibilityLabel(microphoneInUseTooltip)
-                }
-
-                if workspaceSnapshot.mediaActivity.isUsingCamera {
-                    let cameraInUseTooltip = String(
-                        localized: "sidebar.mediaActivity.camera.tooltip",
-                        defaultValue: "Camera in use"
-                    )
-                    CmuxSystemSymbolImage(magnified: "video.fill", pointSize: scaledFontSize(9), weight: .semibold)
-                        .foregroundColor(.green)
-                        .safeHelp(cameraInUseTooltip)
-                        .accessibilityLabel(cameraInUseTooltip)
-                }
+                mediaActivityIndicators(workspaceSnapshot.mediaActivity)
 
                 if isEditing {
                     SidebarInlineRenameField(
