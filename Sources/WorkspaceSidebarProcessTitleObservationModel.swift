@@ -85,6 +85,12 @@ final class WorkspaceSidebarProcessTitleObservationModel {
                     guard let self else { return }
                     self.changeObservers[id] = nil
                     if self.changeObservers.isEmpty {
+                        // A change that was still settling when the last
+                        // observer tore down (row replacement) must survive as
+                        // unobserved, or the replacement row never learns it.
+                        if self.cancelSettleAction != nil || self.cancelDeferralDeadline != nil {
+                            self.hasUnobservedChange = true
+                        }
                         self.cancelPendingProcessTitleChange()
                     }
                 }

@@ -173,6 +173,33 @@ struct WorkspaceSidebarProcessTitleObservationTests {
         withExtendedLifetime(observationStream) {}
     }
 
+    @Test func pendingChangeSurvivesLastObserverTeardown() async {
+        let scheduler = ManualProcessTitleSettleScheduler()
+        let model = WorkspaceSidebarProcessTitleObservationModel(schedule: scheduler.schedule(delay:action:))
+        let workspace = Workspace(sidebarProcessTitleObservation: model)
+
+        // Row replacement: the outgoing row is still subscribed when the
+        // title changes, then tears down before the settle fires. The pending
+        // change must survive as unobserved so the incoming row replays it.
+        do {
+            let outgoing = model.changes()
+            workspace.applyProcessTitle("Agent title")
+            #expect(scheduler.scheduledActionCount > 0)
+            withExtendedLifetime(outgoing) {}
+        }
+        // The termination cleanup hops through a MainActor task; let it run.
+        for _ in 0..<20 {
+            await Task.yield()
+        }
+
+        let incoming = model.changes()
+        #expect(
+            model.changeGeneration == 1,
+            "A change pending at last-observer teardown must replay to the next subscriber."
+        )
+        withExtendedLifetime(incoming) {}
+    }
+
     @Test func customTitleCancelsPendingProcessTitleRefresh() {
         let scheduler = ManualProcessTitleSettleScheduler()
         let model = WorkspaceSidebarProcessTitleObservationModel(schedule: scheduler.schedule(delay:action:))
