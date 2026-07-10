@@ -25,11 +25,25 @@ enum SettingsWindowFactory {
         // Bridge SwiftUI's navigation title, the sidebar toggle, and the
         // search field into the AppKit window's titlebar/toolbar.
         hostingController.sceneBridgingOptions = [.toolbars, .title]
-        let window = NSWindow(contentViewController: hostingController)
+        let window = SettingsHostWindow(contentViewController: hostingController)
         window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
         window.title = String(localized: "settings.title", defaultValue: "Settings")
         window.setContentSize(NSSize(width: 980, height: 680))
         return window
+    }
+}
+
+/// Settings window class that records the moment close teardown begins, so
+/// ``SettingsWindowPresenter`` can deterministically refuse to reuse a dying
+/// window even when a foreign `willClose` observer re-enters `show()` before
+/// the presenter's own observer runs (notification-observer order is not a
+/// lifecycle invariant).
+class SettingsHostWindow: NSWindow {
+    private(set) var isClosingSettingsWindow = false
+
+    override func close() {
+        isClosingSettingsWindow = true
+        super.close()
     }
 }
 

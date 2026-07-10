@@ -187,6 +187,15 @@ final class SettingsWindowPresenter: NSObject {
             $0.identifier?.rawValue == Self.windowIdentifier
         }
         guard let candidate else { return nil }
+        if let hostWindow = candidate as? SettingsHostWindow, hostWindow.isClosingSettingsWindow {
+            // Deterministic mid-close rejection: the dying window must not
+            // absorb this open request, regardless of whether the presenter's
+            // own willClose observer has run yet. It is already closing, so
+            // strip identity but do not close it again.
+            Self.log.notice("settings.window.show candidate is mid-close; building a fresh window")
+            strip(candidate)
+            return nil
+        }
         if let reason = Self.unusableWindowReason(
             hasContent: candidate.contentViewController != nil || candidate.contentView != nil,
             frame: candidate.frame,
@@ -274,6 +283,13 @@ final class SettingsWindowPresenter: NSObject {
         }
         window.adoptCmuxPeerWindowLevel()
         clampToVisibleAreaIfNeeded(window)
+        guard activateApp else {
+            // Socket no-focus-steal contract (`settings.open --activate=false`):
+            // make the window visible without keying it, raising other cmux
+            // windows, or activating/unhiding the app.
+            window.orderFrontRegardless()
+            return
+        }
         // Surface the preferred main window first so Settings opens layered
         // above it — the standard "Settings in front of its app" presentation.
         // Both windows are ordered front *as peers*, never via
@@ -287,10 +303,8 @@ final class SettingsWindowPresenter: NSObject {
             }
             parentWindow.orderFront(nil)
         }
-        if activateApp {
-            NSApp.unhide(nil)
-            NSRunningApplication.current.activate(options: [.activateAllWindows])
-        }
+        NSApp.unhide(nil)
+        NSRunningApplication.current.activate(options: [.activateAllWindows])
         window.makeKeyAndOrderFront(nil)
         window.orderFrontRegardless()
     }
@@ -324,6 +338,16 @@ final class SettingsWindowPresenter: NSObject {
 
     /// Fully retires a window that must never satisfy an open request again.
     private func demolish(_ window: NSWindow) {
+        strip(window)
+        window.orderOut(nil)
+        window.close()
+        window.contentViewController = nil
+        window.contentView = nil
+    }
+
+    /// Removes the window's settings identity and the presenter's tracking,
+    /// without closing it (used for windows that are already mid-close).
+    private func strip(_ window: NSWindow) {
         NotificationCenter.default.removeObserver(
             self,
             name: NSWindow.willCloseNotification,
@@ -333,10 +357,6 @@ final class SettingsWindowPresenter: NSObject {
         if settingsWindow === window {
             settingsWindow = nil
         }
-        window.orderOut(nil)
-        window.close()
-        window.contentViewController = nil
-        window.contentView = nil
     }
 
     @objc
@@ -413,72 +433,4 @@ final class SettingsWindowPresenter: NSObject {
         }
     }
 
-    /// Pure selection of the visible-screen frame the settings window should be
-    /// clamped into. When the window's saved frame is off every active screen
-    /// (e.g. restored onto a now-disconnected display in a multi-monitor setup)
-    /// it recovers onto the screen under the cursor, then the main/first screen.
-    /// Cursor hit-testing uses each screen's *full* frame: `visibleFrame`
-    /// excludes the menu bar and Dock strips, and the cursor sits exactly there
-    /// when Settings is opened from the menu bar, which would misroute the
-    /// recovery to the main screen. The returned rect is always a visible
-    /// frame. Factored out so multi-monitor recovery is unit-testable.
-    static func targetVisibleFrame(
-        windowFrame: NSRect,
-        screens: [(frame: NSRect, visibleFrame: NSRect)],
-        mouseLocation: NSPoint?,
-        fallbackVisibleFrame: NSRect?
-    ) -> NSRect? {
-        guard !screens.isEmpty else { return fallbackVisibleFrame }
-
-        // Prefer the screen the window already overlaps the most so a window
-        // that is mostly visible stays where the user put it.
-        var bestFrame: NSRect?
-        var bestArea: CGFloat = 0
-        for screen in screens {
-            let intersection = screen.visibleFrame.intersection(windowFrame)
-            let area = intersection.isNull ? 0 : intersection.width * intersection.height
-            if area > bestArea {
-                bestArea = area
-                bestFrame = screen.visibleFrame
-            }
-        }
-        if let bestFrame, bestArea > 0 {
-            return bestFrame
-        }
-
-        // The window is off every active screen. Recover onto the screen under
-        // the cursor when possible so Settings appears where the user is looking.
-        if let mouseLocation,
-           let mouseScreen = screens.first(where: { $0.frame.contains(mouseLocation) }) {
-            return mouseScreen.visibleFrame
-        }
-        return fallbackVisibleFrame ?? screens.first?.visibleFrame
-    }
-
-    /// Pure clamp geometry: fit `frame` within `visibleFrame` (honoring `inset`
-    /// and a minimum size). Factored out of `clampToVisibleAreaIfNeeded` so the
-    /// geometry is unit-testable independent of `NSWindow`/`NSScreen`.
-    static func clampedFrame(
-        _ frame: NSRect,
-        minimumSize: NSSize,
-        into visibleFrame: NSRect,
-        inset: CGFloat
-    ) -> NSRect {
-        var result = frame
-        let maxVisibleSize = NSSize(
-            width: max(minimumSize.width, visibleFrame.width - 2 * inset),
-            height: max(minimumSize.height, visibleFrame.height - 2 * inset)
-        )
-        result.size.width = min(result.size.width, maxVisibleSize.width)
-        result.size.height = min(result.size.height, maxVisibleSize.height)
-        let minX = visibleFrame.minX + inset
-        let minY = visibleFrame.minY + inset
-        let maxX = max(minX, visibleFrame.maxX - inset - result.width)
-        let maxY = max(minY, visibleFrame.maxY - inset - result.height)
-        result.origin = NSPoint(
-            x: min(max(result.origin.x, minX), maxX),
-            y: min(max(result.origin.y, minY), maxY)
-        )
-        return result
-    }
 }

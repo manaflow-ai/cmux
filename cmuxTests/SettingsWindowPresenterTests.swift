@@ -164,6 +164,34 @@ struct SettingsWindowPresenterTests {
         }
     }
 
+    @Test func showWithoutActivationPresentsWithoutKeyingTheWindow() {
+        withCleanSettingsWindows {
+            let presenter = SettingsWindowPresenter(windowFactory: { makeFactoryWindow() })
+
+            let result = presenter.show(activateApp: false)
+
+            // Socket no-focus-steal contract: the window becomes visible but
+            // is never made key and the app is not activated.
+            #expect(result == .presented)
+            let window = visibleSettingsWindow() as? TestSettingsWindow
+            #expect(window != nil)
+            #expect(window?.makeKeyAndOrderFrontCallCount == 0)
+        }
+    }
+
+    @Test func hostWindowRecordsCloseBeginForMidCloseRejection() {
+        withCleanSettingsWindows {
+            let window = makeFactoryWindow()
+            #expect(!window.isClosingSettingsWindow)
+
+            window.close()
+
+            // The flag is what lets show() deterministically refuse a dying
+            // window regardless of notification-observer order.
+            #expect(window.isClosingSettingsWindow)
+        }
+    }
+
     // MARK: - Geometry repair on show
 
     @Test func showEnforcesMinimumSizeOnDegenerateFactoryWindow() {
@@ -469,14 +497,16 @@ private func makeFactoryWindow(
 }
 
 @MainActor
-private final class TestSettingsWindow: NSWindow {
+private final class TestSettingsWindow: SettingsHostWindow {
     var refusesToBecomeVisible = false
+    var makeKeyAndOrderFrontCallCount = 0
 
     override var isVisible: Bool {
         refusesToBecomeVisible ? false : super.isVisible
     }
 
     override func makeKeyAndOrderFront(_ sender: Any?) {
+        makeKeyAndOrderFrontCallCount += 1
         guard !refusesToBecomeVisible else { return }
         super.makeKeyAndOrderFront(sender)
     }
