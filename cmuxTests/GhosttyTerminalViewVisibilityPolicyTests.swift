@@ -195,6 +195,20 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
     }
 
     @Test
+    func visibleHostRebindsAfterHiddenPresentationInvalidatesVisibilityCache() {
+        #expect(
+            GhosttyTerminalView.shouldBindPortalHost(
+                boundHostMatches: true,
+                hostedViewHasSuperview: true,
+                portalEntryMatchesHost: true,
+                lastAppliedIsVisibleInUI: false,
+                lastAppliedPortalZPriority: 2,
+                desiredPortalZPriority: 2
+            )
+        )
+    }
+
+    @Test
     func immediateStateUpdateAllowedWhenBoundToCurrentHost() {
         #expect(
             GhosttyTerminalView.shouldApplyImmediateHostedStateUpdate(

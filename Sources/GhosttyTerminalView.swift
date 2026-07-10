@@ -12135,6 +12135,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
                 releaseAuthority: true,
                 reason: "\(reason).detached"
             )
+            coordinator.lastAppliedIsVisibleInUI = false
             return
         case .hidden:
             hideOwnedPortalHost(
@@ -12144,6 +12145,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
                 releaseAuthority: false,
                 reason: "\(reason).hidden"
             )
+            coordinator.lastAppliedIsVisibleInUI = false
             return
         case .retained(let zPriority):
             guard terminalSurface.isPortalHostOwner(hostId: hostId) else { return }
@@ -12204,17 +12206,18 @@ struct GhosttyTerminalView: NSViewRepresentable {
         let geometryRevision = host.geometryRevision
         var isBoundToCurrentHost = TerminalWindowPortalRegistry.isHostedView(hostedView, boundTo: host)
         if hostWindowAttached {
-            let portalEntryMissing = !isBoundToCurrentHost
-            let shouldBind =
-                coordinator.lastBoundHostId != hostId ||
-                hostedView.superview == nil ||
-                portalEntryMissing ||
-                coordinator.lastAppliedIsVisibleInUI != true ||
-                coordinator.lastAppliedPortalZPriority != portalZPriority
+            let shouldBind = Self.shouldBindPortalHost(
+                boundHostMatches: coordinator.lastBoundHostId == hostId,
+                hostedViewHasSuperview: hostedView.superview != nil,
+                portalEntryMatchesHost: isBoundToCurrentHost,
+                lastAppliedIsVisibleInUI: coordinator.lastAppliedIsVisibleInUI,
+                lastAppliedPortalZPriority: coordinator.lastAppliedPortalZPriority,
+                desiredPortalZPriority: portalZPriority
+            )
 
             if shouldBind {
 #if DEBUG
-                if portalEntryMissing {
+                if !isBoundToCurrentHost {
                     cmuxDebugLog(
                         "ws.hostState.rebind surface=\(terminalSurface.id.uuidString.prefix(5)) " +
                         "source=\(reason) reason=portalEntryMissing visible=1 " +
