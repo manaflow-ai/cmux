@@ -1,12 +1,16 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { NextRequest } from "next/server";
 
-import { createTestflightUser } from "./helpers/testflight-user";
+import {
+  createTestflightUser,
+  testflightUserEligibility,
+} from "./helpers/testflight-user";
 
 const dbClientModule = await import("../db/client");
 const realCloudDb = dbClientModule.cloudDb;
 const realCloseCloudDbForTests = dbClientModule.closeCloudDbForTests;
 const realCreateAwsRdsIamPool = dbClientModule.createAwsRdsIamPool;
+const billingProModule = await import("../services/billing/pro");
 
 let stackConfigured = true;
 let ascConfigured = true;
@@ -30,6 +34,14 @@ const ascFetch = mock(async (path: unknown) => {
   return {};
 });
 const captureAscError = mock(() => undefined);
+const isTestflightEligible = mock(async (candidate: unknown) =>
+  testflightUserEligibility(candidate) ?? false,
+);
+
+mock.module("../services/billing/pro", () => ({
+  ...billingProModule,
+  isTestflightEligible,
+}));
 
 mock.module("../app/lib/stack", () => ({
   getStackServerApp: () => ({ getUser }),
