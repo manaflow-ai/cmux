@@ -1,0 +1,13 @@
+{
+  "manifest_version": 3,
+  "name": "CEFKit Test Extension",
+  "version": "1.0",
+  "description": "Injects a marker element so automated checks can prove the Chrome extension system is live.",
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

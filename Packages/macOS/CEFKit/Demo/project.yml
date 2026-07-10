@@ -1,0 +1,47 @@
+name: CEFDemo
+options:
+  minimumXcodeGenVersion: 2.43.0
+  createIntermediateGroups: true
+settings:
+  base:
+    MACOSX_DEPLOYMENT_TARGET: "14.0"
+    SWIFT_VERSION: "5.0"
+    CODE_SIGN_IDENTITY: "-"
+    ENABLE_HARDENED_RUNTIME: NO
+    GENERATE_INFOPLIST_FILE: NO
+packages:
+  CEFKit:
+    path: ..
+targets:
+  CEFDemoHelper:
+    type: application
+    platform: macOS
+    sources:
+      - path: Sources/Helper
+    dependencies:
+      - package: CEFKit
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: local.cefkit.demo.helper
+        PRODUCT_NAME: "CEFDemo Helper"
+        INFOPLIST_FILE: Config/Helper-Info.plist
+  CEFDemo:
+    type: application
+    platform: macOS
+    sources:
+      - path: Sources/App
+    dependencies:
+      - target: CEFDemoHelper
+        embed: false
+      - package: CEFKit
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: local.cefkit.demo
+        PRODUCT_NAME: CEFDemo
+        INFOPLIST_FILE: Config/Info.plist
+    postBuildScripts:
+      - name: Copy CEF Runtime
+        basedOnDependencyAnalysis: false
+        script: |
+          "$SRCROOT/scripts/copy-cef-runtime.sh"
+        shell: /bin/zsh
