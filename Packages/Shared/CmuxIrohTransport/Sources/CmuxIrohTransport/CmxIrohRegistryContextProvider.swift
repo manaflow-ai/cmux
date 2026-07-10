@@ -14,11 +14,15 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
     private let broker: any CmxIrohRegistryServing
     private let localBindingExpectation: CmxIrohLocalBindingExpectation
     private let managedRelayURLs: Set<String>
-    private let activeNetworkProfiles: @Sendable () async -> Set<CmxIrohNetworkProfileKey>
+    private let networkPathSnapshot: (@Sendable () async throws -> CmxIrohNetworkPathSnapshot)?
     private let verifier: CmxIrohGrantVerifier
     private let now: @Sendable () -> Date
     private var grantCache: [CmxIrohPeerIdentity: GrantCache] = [:]
 
+    /// Creates a public-route provider from the legacy generation-less seam.
+    ///
+    /// Private hints remain disabled because a profile set alone cannot prove
+    /// that the network path stayed unchanged between admission and fallback.
     public init(
         supervisor: CmxIrohEndpointSupervisor,
         broker: any CmxIrohRegistryServing,
@@ -32,7 +36,27 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         self.broker = broker
         self.localBindingExpectation = localBindingExpectation
         self.managedRelayURLs = managedRelayURLs
-        self.activeNetworkProfiles = activeNetworkProfiles
+        _ = activeNetworkProfiles
+        networkPathSnapshot = nil
+        self.verifier = verifier
+        self.now = now
+    }
+
+    /// Creates a provider with generation-aware private-network validation.
+    public init(
+        supervisor: CmxIrohEndpointSupervisor,
+        broker: any CmxIrohRegistryServing,
+        localBindingExpectation: CmxIrohLocalBindingExpectation,
+        managedRelayURLs: Set<String>,
+        networkPathSnapshot: @escaping @Sendable () async throws -> CmxIrohNetworkPathSnapshot,
+        verifier: CmxIrohGrantVerifier = CmxIrohGrantVerifier(),
+        now: @escaping @Sendable () -> Date = { Date() }
+    ) {
+        self.supervisor = supervisor
+        self.broker = broker
+        self.localBindingExpectation = localBindingExpectation
+        self.managedRelayURLs = managedRelayURLs
+        self.networkPathSnapshot = networkPathSnapshot
         self.verifier = verifier
         self.now = now
     }
@@ -88,7 +112,11 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
             keys: discovery.grantVerificationKeys,
             now: clock
         )
-        let profiles = await activeNetworkProfiles()
+        let pathSnapshot = try await availableNetworkPathSnapshot(
+            for: targetBinding.pathHints + routeHints,
+            at: clock
+        )
+        let profiles = pathSnapshot?.activeNetworkProfiles ?? []
         let hints = Self.mergeHints(
             primary: targetBinding.pathHints,
             fallback: routeHints,
@@ -107,10 +135,54 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         ) else {
             throw CmxIrohRegistryContextError.dialPlanUnavailable
         }
+        let fallbackAuthorization: CmxIrohPrivateFallbackAuthorization?
+        if let pathSnapshot, !dialPlan.privateFallbackPaths.isEmpty {
+            fallbackAuthorization = try CmxIrohPrivateFallbackAuthorization(
+                networkPathSnapshot: pathSnapshot,
+                pathHints: dialPlan.privateFallbackPaths,
+                admittedAt: clock
+            )
+        } else {
+            fallbackAuthorization = nil
+        }
         return CmxIrohClientContext(
             dialPlan: dialPlan,
-            credential: try .pairGrant(token)
+            credential: try .pairGrant(token),
+            privateFallbackAuthorization: fallbackAuthorization
         )
+    }
+
+    public func validatePrivateFallback(
+        _ authorization: CmxIrohPrivateFallbackAuthorization
+    ) async throws {
+        guard let networkPathSnapshot else {
+            throw CmxIrohPrivateFallbackValidationError.unavailable
+        }
+        try Task.checkCancellation()
+        let clock = now()
+        guard authorization.pathHints.allSatisfy({ hint in
+            hint.privacyScope != .publicInternet && hint.isUsable(at: clock)
+        }) else {
+            throw CmxIrohPrivateFallbackValidationError.hintExpiredOrInvalid
+        }
+        let currentSnapshot: CmxIrohNetworkPathSnapshot
+        do {
+            currentSnapshot = try await networkPathSnapshot()
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            throw CmxIrohPrivateFallbackValidationError.unavailable
+        }
+        try Task.checkCancellation()
+        guard currentSnapshot.generation == authorization.networkPathSnapshot.generation else {
+            throw CmxIrohPrivateFallbackValidationError.generationChanged
+        }
+        guard authorization.pathHints.allSatisfy({ hint in
+            guard let profile = hint.networkProfile else { return false }
+            return currentSnapshot.activeNetworkProfiles.contains(profile)
+        }) else {
+            throw CmxIrohPrivateFallbackValidationError.profileUnavailable
+        }
     }
 
     public func invalidateGrant(for identity: CmxIrohPeerIdentity? = nil) {
@@ -170,6 +242,24 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
             expiresAt: signedExpiresAt
         )
         return response.grant
+    }
+
+    private func availableNetworkPathSnapshot(
+        for hints: [CmxIrohPathHint],
+        at clock: Date
+    ) async throws -> CmxIrohNetworkPathSnapshot? {
+        guard hints.contains(where: {
+            $0.privacyScope != .publicInternet && $0.isUsable(at: clock)
+        }), let networkPathSnapshot else {
+            return nil
+        }
+        do {
+            return try await networkPathSnapshot()
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            return nil
+        }
     }
 
     private static func mergeHints(

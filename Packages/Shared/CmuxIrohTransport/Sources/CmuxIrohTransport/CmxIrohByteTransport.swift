@@ -52,7 +52,9 @@ public actor CmxIrohByteTransport: CmxByteTransport {
                     endpoint: endpoint,
                     targetIdentity: identity,
                     dialPlan: context.dialPlan,
-                    credential: context.credential
+                    credential: context.credential,
+                    privateFallbackAuthorization: context.privateFallbackAuthorization,
+                    privateFallbackValidator: contextProvider
                 )
                 do {
                     try await session.connect()

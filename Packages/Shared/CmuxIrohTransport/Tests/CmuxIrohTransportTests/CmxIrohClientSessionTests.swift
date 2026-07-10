@@ -64,6 +64,8 @@ struct CmxIrohClientSessionTests {
         )
         let publicHint = try publicRelayHint()
         let privateHint = try tailscaleHint()
+        let authorization = try privateFallbackAuthorization(for: [privateHint])
+        let validator = TestPrivateFallbackValidator()
         let session = try CmxIrohClientSession(
             endpoint: endpoint,
             targetIdentity: remoteIdentity,
@@ -71,13 +73,16 @@ struct CmxIrohClientSessionTests {
                 publicPaths: [publicHint],
                 privateFallbackPaths: [privateHint]
             ),
-            credential: credential
+            credential: credential,
+            privateFallbackAuthorization: authorization,
+            privateFallbackValidator: validator
         )
 
         try await session.connect()
 
         let dialed = await endpoint.observedDialedAddresses()
         #expect(dialed.map(\.pathHints) == [[publicHint], [privateHint]])
+        #expect(await validator.observedAuthorizations() == [authorization])
     }
 
     @Test
@@ -106,12 +111,46 @@ struct CmxIrohClientSessionTests {
             credential: credential
         )
 
-        await #expect(throws: (any Error).self) {
+        await #expect(throws: CmxIrohPrivateFallbackValidationError.unavailable) {
             try await session.connect()
         }
 
         let dialed = await endpoint.observedDialedAddresses()
         #expect(dialed.map(\.pathHints) == [[publicHint]])
+    }
+
+    @Test
+    func failedPrivateFallbackRevalidationPreventsItsDial() async throws {
+        let endpoint = TestDialingIrohEndpoint(
+            localIdentity: localIdentity,
+            dialResults: [
+                .failure(.unsupported),
+                .failure(.unsupported),
+            ]
+        )
+        let publicHint = try publicRelayHint()
+        let privateHint = try tailscaleHint()
+        let authorization = try privateFallbackAuthorization(for: [privateHint])
+        let validator = TestPrivateFallbackValidator(error: .generationChanged)
+        let session = try CmxIrohClientSession(
+            endpoint: endpoint,
+            targetIdentity: remoteIdentity,
+            dialPlan: try testIrohDialPlan(
+                publicPaths: [publicHint],
+                privateFallbackPaths: [privateHint]
+            ),
+            credential: credential,
+            privateFallbackAuthorization: authorization,
+            privateFallbackValidator: validator
+        )
+
+        await #expect(throws: CmxIrohPrivateFallbackValidationError.generationChanged) {
+            try await session.connect()
+        }
+
+        let dialed = await endpoint.observedDialedAddresses()
+        #expect(dialed.map(\.pathHints) == [[publicHint]])
+        #expect(await validator.observedAuthorizations() == [authorization])
     }
 
     @Test
@@ -297,5 +336,42 @@ struct CmxIrohClientSessionTests {
                 profileID: String(repeating: "a", count: 64)
             )
         )
+    }
+
+    private func privateFallbackAuthorization(
+        for hints: [CmxIrohPathHint]
+    ) throws -> CmxIrohPrivateFallbackAuthorization {
+        let profiles = Set(hints.compactMap(\.networkProfile))
+        let admittedAt = hints.compactMap(\.observedAt).min()?.addingTimeInterval(1) ?? Date()
+        return try CmxIrohPrivateFallbackAuthorization(
+            networkPathSnapshot: CmxIrohNetworkPathSnapshot(
+                generation: 7,
+                activeNetworkProfiles: profiles
+            ),
+            pathHints: hints,
+            admittedAt: admittedAt
+        )
+    }
+}
+
+private actor TestPrivateFallbackValidator: CmxIrohPrivateFallbackValidating {
+    private let error: CmxIrohPrivateFallbackValidationError?
+    private var authorizations: [CmxIrohPrivateFallbackAuthorization] = []
+
+    init(error: CmxIrohPrivateFallbackValidationError? = nil) {
+        self.error = error
+    }
+
+    func validatePrivateFallback(
+        _ authorization: CmxIrohPrivateFallbackAuthorization
+    ) throws {
+        authorizations.append(authorization)
+        if let error {
+            throw error
+        }
+    }
+
+    func observedAuthorizations() -> [CmxIrohPrivateFallbackAuthorization] {
+        authorizations
     }
 }

@@ -7,6 +7,8 @@ public actor CmxIrohClientSession {
     private let targetIdentity: CmxIrohPeerIdentity
     private let dialPlan: CmxIrohDialPlan
     private let credential: CmxIrohAdmissionCredential
+    private let privateFallbackAuthorization: CmxIrohPrivateFallbackAuthorization?
+    private let privateFallbackValidator: (any CmxIrohPrivateFallbackValidating)?
     private let protocolConfiguration: CmxIrohProtocolConfiguration
     private let headerCodec: CmxIrohStreamHeaderCodec
     private let admissionCodec = CmxIrohAdmissionAckCodec()
@@ -23,6 +25,10 @@ public actor CmxIrohClientSession {
     ///   - targetIdentity: The exact remote EndpointID expected from QUIC TLS.
     ///   - dialPlan: Public paths followed by profile-gated private fallback paths.
     ///   - credential: The backend grant or same-account offline pairing proof.
+    ///   - privateFallbackAuthorization: The generation snapshot that admitted
+    ///     the plan's private hints.
+    ///   - privateFallbackValidator: The provider that can re-read current
+    ///     network state immediately before a private dial.
     ///   - protocolConfiguration: The ALPN and stream-header limit.
     /// - Throws: A stream-codec configuration error.
     public init(
@@ -30,12 +36,16 @@ public actor CmxIrohClientSession {
         targetIdentity: CmxIrohPeerIdentity,
         dialPlan: CmxIrohDialPlan,
         credential: CmxIrohAdmissionCredential,
+        privateFallbackAuthorization: CmxIrohPrivateFallbackAuthorization? = nil,
+        privateFallbackValidator: (any CmxIrohPrivateFallbackValidating)? = nil,
         protocolConfiguration: CmxIrohProtocolConfiguration = .cmuxMobileV1
     ) throws {
         self.endpoint = endpoint
         self.targetIdentity = targetIdentity
         self.dialPlan = dialPlan
         self.credential = credential
+        self.privateFallbackAuthorization = privateFallbackAuthorization
+        self.privateFallbackValidator = privateFallbackValidator
         self.protocolConfiguration = protocolConfiguration
         headerCodec = try CmxIrohStreamHeaderCodec(configuration: protocolConfiguration)
     }
@@ -203,6 +213,17 @@ public actor CmxIrohClientSession {
         } catch {
             try Task.checkCancellation()
             guard !dialPlan.privateFallbackPaths.isEmpty else { throw error }
+            guard let privateFallbackValidator else {
+                throw CmxIrohPrivateFallbackValidationError.unavailable
+            }
+            guard let privateFallbackAuthorization,
+                  privateFallbackAuthorization.pathHints == dialPlan.privateFallbackPaths else {
+                throw CmxIrohPrivateFallbackValidationError.authorizationMismatch
+            }
+            try await privateFallbackValidator.validatePrivateFallback(
+                privateFallbackAuthorization
+            )
+            try Task.checkCancellation()
             establishedConnection = try await endpoint.connect(
                 to: CmxIrohEndpointAddress(
                     identity: targetIdentity,

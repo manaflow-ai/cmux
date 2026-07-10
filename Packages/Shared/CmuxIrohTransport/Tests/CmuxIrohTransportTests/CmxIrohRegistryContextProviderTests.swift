@@ -56,12 +56,16 @@ struct CmxIrohRegistryContextProviderTests {
             pairGrantResponses: [response]
         )
         let supervisor = try await fixture.activeSupervisor()
+        let pathSnapshot = CmxIrohNetworkPathSnapshot(
+            generation: 41,
+            activeNetworkProfiles: [profile]
+        )
         let provider = CmxIrohRegistryContextProvider(
             supervisor: supervisor,
             broker: broker,
             localBindingExpectation: try fixture.localExpectation(),
             managedRelayURLs: [fixture.relayURL],
-            activeNetworkProfiles: { [profile] },
+            networkPathSnapshot: { pathSnapshot },
             now: { fixture.now }
         )
         let request = try fixture.request(hints: [managedRelay, tailscale])
@@ -72,12 +76,128 @@ struct CmxIrohRegistryContextProviderTests {
         #expect(context.dialPlan.privateFallbackPaths == [tailscale])
         #expect(context.credential.kind == .pairGrant)
         #expect(context.credential.pairGrantToken == response.grant)
+        let authorization = try #require(context.privateFallbackAuthorization)
+        #expect(authorization.networkPathSnapshot == pathSnapshot)
+        #expect(authorization.pathHints == [tailscale])
+        #expect(authorization.admittedAt == fixture.now)
         #expect(await broker.observedPairGrantRequests() == [
             .init(
                 initiatorBindingID: fixture.initiator.bindingID,
                 acceptorBindingID: fixture.acceptor.bindingID
             ),
         ])
+    }
+
+    @Test
+    func privateFallbackRevalidationRejectsChangedOrUnavailableNetworkState() async throws {
+        let fixture = try RegistryFixture()
+        let profile = try CmxIrohNetworkProfileKey(
+            source: .tailscale,
+            profileID: opaqueProfileID("tailnet-a")
+        )
+        let privateHint = try CmxIrohPathHint(
+            kind: .directAddress,
+            value: "100.64.0.8:4242",
+            source: .tailscale,
+            privacyScope: .privateNetwork,
+            observedAt: fixture.now,
+            expiresAt: fixture.now.addingTimeInterval(30 * 60),
+            networkProfile: profile
+        )
+        let response = try fixture.pairGrantResponse(
+            issuedAt: fixture.nowSeconds,
+            expiresAt: fixture.nowSeconds + 7 * 24 * 60 * 60
+        )
+        let broker = TestIrohRegistryBroker(
+            discovery: try fixture.discovery(targetHints: [privateHint]),
+            pairGrantResponses: [response]
+        )
+        let pathState = TestNetworkPathState(
+            snapshot: CmxIrohNetworkPathSnapshot(
+                generation: 9,
+                activeNetworkProfiles: [profile]
+            )
+        )
+        let clock = TestRegistryClock(fixture.now)
+        let provider = CmxIrohRegistryContextProvider(
+            supervisor: try await fixture.activeSupervisor(),
+            broker: broker,
+            localBindingExpectation: try fixture.localExpectation(),
+            managedRelayURLs: [fixture.relayURL],
+            networkPathSnapshot: { try await pathState.currentSnapshot() },
+            now: { clock.value() }
+        )
+        let context = try await provider.context(for: fixture.request(hints: []))
+        let authorization = try #require(context.privateFallbackAuthorization)
+
+        await pathState.setSnapshot(CmxIrohNetworkPathSnapshot(
+            generation: 10,
+            activeNetworkProfiles: [profile]
+        ))
+        await #expect(throws: CmxIrohPrivateFallbackValidationError.generationChanged) {
+            try await provider.validatePrivateFallback(authorization)
+        }
+
+        await pathState.setSnapshot(CmxIrohNetworkPathSnapshot(
+            generation: 9,
+            activeNetworkProfiles: []
+        ))
+        await #expect(throws: CmxIrohPrivateFallbackValidationError.profileUnavailable) {
+            try await provider.validatePrivateFallback(authorization)
+        }
+
+        await pathState.setSnapshot(CmxIrohNetworkPathSnapshot(
+            generation: 9,
+            activeNetworkProfiles: [profile]
+        ))
+        clock.set(fixture.now.addingTimeInterval(30 * 60 + 1))
+        await #expect(throws: CmxIrohPrivateFallbackValidationError.hintExpiredOrInvalid) {
+            try await provider.validatePrivateFallback(authorization)
+        }
+
+        clock.set(fixture.now)
+        await pathState.setUnavailable()
+        await #expect(throws: CmxIrohPrivateFallbackValidationError.unavailable) {
+            try await provider.validatePrivateFallback(authorization)
+        }
+    }
+
+    @Test
+    func generationlessProfileSourceCannotAdmitPrivateFallback() async throws {
+        let fixture = try RegistryFixture()
+        let profile = try CmxIrohNetworkProfileKey(
+            source: .tailscale,
+            profileID: opaqueProfileID("tailnet-a")
+        )
+        let privateHint = try CmxIrohPathHint(
+            kind: .directAddress,
+            value: "100.64.0.8:4242",
+            source: .tailscale,
+            privacyScope: .privateNetwork,
+            observedAt: fixture.now,
+            expiresAt: fixture.now.addingTimeInterval(30 * 60),
+            networkProfile: profile
+        )
+        let broker = TestIrohRegistryBroker(
+            discovery: try fixture.discovery(targetHints: [privateHint]),
+            pairGrantResponses: [try fixture.pairGrantResponse(
+                issuedAt: fixture.nowSeconds,
+                expiresAt: fixture.nowSeconds + 7 * 24 * 60 * 60
+            )]
+        )
+        let provider = CmxIrohRegistryContextProvider(
+            supervisor: try await fixture.activeSupervisor(),
+            broker: broker,
+            localBindingExpectation: try fixture.localExpectation(),
+            managedRelayURLs: [fixture.relayURL],
+            activeNetworkProfiles: { [profile] },
+            now: { fixture.now }
+        )
+
+        let context = try await provider.context(for: fixture.request(hints: []))
+
+        #expect(context.dialPlan.privateFallbackPaths.isEmpty)
+        #expect(context.privateFallbackAuthorization == nil)
     }
 
     @Test
@@ -293,6 +413,31 @@ private final class TestRegistryClock: @unchecked Sendable {
 
 private enum TestRegistryError: Error {
     case noGrantResponse
+}
+
+private actor TestNetworkPathState {
+    private var snapshot: CmxIrohNetworkPathSnapshot?
+
+    init(snapshot: CmxIrohNetworkPathSnapshot) {
+        self.snapshot = snapshot
+    }
+
+    func currentSnapshot() throws -> CmxIrohNetworkPathSnapshot {
+        guard let snapshot else { throw TestNetworkPathStateError.unavailable }
+        return snapshot
+    }
+
+    func setSnapshot(_ snapshot: CmxIrohNetworkPathSnapshot) {
+        self.snapshot = snapshot
+    }
+
+    func setUnavailable() {
+        snapshot = nil
+    }
+}
+
+private enum TestNetworkPathStateError: Error {
+    case unavailable
 }
 
 private struct RegistryFixture: Sendable {
