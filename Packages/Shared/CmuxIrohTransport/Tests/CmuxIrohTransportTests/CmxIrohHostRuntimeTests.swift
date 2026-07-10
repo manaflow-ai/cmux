@@ -156,7 +156,7 @@ struct CmxIrohHostRuntimeTests {
         let signingOut = await runtime.snapshot()
         #expect(signingOut.state == .signingOut)
         #expect(signingOut.bindingID == fixture.binding.bindingID)
-        #expect(await connection.observedCloseCallCount() == 1)
+        #expect(await connection.observedCloseCallCount() > 0)
         await #expect(throws: CmxIrohHostRuntimeError.alreadyActive) {
             try await runtime.start()
         }

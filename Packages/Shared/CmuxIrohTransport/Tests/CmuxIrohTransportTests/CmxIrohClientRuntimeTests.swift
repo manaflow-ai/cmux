@@ -243,8 +243,11 @@ struct CmxIrohClientRuntimeTests {
                 let pendingCount = try? await pendingRevocations.pending(
                     accountID: fixture.configuration.accountID
                 ).count
+                let offlineWasDeactivated = await offlineStore.deleteAllCount() == 1
                 await recorder.recordLocalWipe(
-                    endpointWasClosed: endpointWasClosed && pendingCount == 1
+                    endpointWasClosed: endpointWasClosed
+                        && pendingCount == 1
+                        && offlineWasDeactivated
                 )
             }
         )

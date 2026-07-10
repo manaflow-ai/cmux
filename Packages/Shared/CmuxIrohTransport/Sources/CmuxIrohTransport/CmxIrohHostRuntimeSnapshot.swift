@@ -6,6 +6,9 @@ public struct CmxIrohHostRuntimeSnapshot: Equatable, Sendable {
         case inactive
         case starting
         case active
+        case stopping
+        case signingOut
+        case quarantined
         case failed
     }
 

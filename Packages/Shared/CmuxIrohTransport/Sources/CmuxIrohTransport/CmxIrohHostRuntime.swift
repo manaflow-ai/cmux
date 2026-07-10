@@ -36,6 +36,24 @@ public actor CmxIrohHostRuntime {
         let lanRendezvous: CmxIrohLANRendezvous
     }
 
+    private enum LifecyclePhase: Equatable, Sendable {
+        case inactive
+        case starting
+        case active
+        case stopping
+        case signingOut
+        case quarantined
+        case failed
+
+        var allowsStart: Bool {
+            self == .inactive || self == .failed
+        }
+
+        var ownsNetworkOperation: Bool {
+            self == .starting || self == .active
+        }
+    }
+
     private let factory: any CmxIrohEndpointFactory
     private let broker: any CmxIrohHostBrokerServing
     private let configuration: CmxIrohHostRuntimeConfiguration
@@ -51,7 +69,8 @@ public actor CmxIrohHostRuntime {
     private let handleLANPolicy: LANPolicyHandler
 
     private var lifecycleRevision: UInt64 = 0
-    private var desiredActive = false
+    private var lifecyclePhase = LifecyclePhase.inactive
+    private var signOutOperation: Task<CmxIrohHostSignOutPreparation, Never>?
     private var supervisor: CmxIrohEndpointSupervisor?
     private var relayCoordinator: CmxIrohRelayCredentialCoordinator?
     private var endpointServer: CmxIrohEndpointServer?
@@ -105,7 +124,9 @@ public actor CmxIrohHostRuntime {
 
     /// Returns current verified private alias material without broker path hints.
     public func lanAdvertisementContext() -> CmxIrohHostLANAdvertisementContext? {
-        guard desiredActive, let localBinding, let lanRendezvous else { return nil }
+        guard lifecyclePhase == .active,
+              let localBinding,
+              let lanRendezvous else { return nil }
         return CmxIrohHostLANAdvertisementContext(
             binding: localBinding,
             rendezvous: lanRendezvous
@@ -114,15 +135,17 @@ public actor CmxIrohHostRuntime {
 
     /// Reads raw local direct addresses only for the interface-filtering publisher.
     public func localDirectAddresses() async -> [String] {
-        guard desiredActive,
+        guard lifecyclePhase == .active,
               let endpoint = try? await supervisor?.activeEndpoint() else { return [] }
         return await endpoint.localDirectAddresses()
     }
 
     /// Activates connectivity and resolves authenticated broker policy before any cached fallback.
     public func start() async throws {
-        guard !desiredActive else { throw CmxIrohHostRuntimeError.alreadyActive }
-        desiredActive = true
+        guard lifecyclePhase.allowsStart else {
+            throw CmxIrohHostRuntimeError.alreadyActive
+        }
+        lifecyclePhase = .starting
         lifecycleRevision &+= 1
         let revision = lifecycleRevision
         currentSnapshot = CmxIrohHostRuntimeSnapshot(
@@ -218,6 +241,7 @@ public actor CmxIrohHostRuntime {
             }
 
             startSupervisorObservation(supervisor: supervisor, revision: revision)
+            lifecyclePhase = .active
             currentSnapshot = CmxIrohHostRuntimeSnapshot(
                 state: .active,
                 endpointID: endpointID,
@@ -234,23 +258,42 @@ public actor CmxIrohHostRuntime {
                 await handleBinding(registration, discovery, policy.attestation)
             }
         } catch {
+            guard lifecyclePhase == .starting,
+                  lifecycleRevision == revision else {
+                throw error
+            }
+            lifecyclePhase = .stopping
             currentSnapshot = CmxIrohHostRuntimeSnapshot(
                 state: .failed,
                 endpointID: nil,
                 bindingID: localBinding?.bindingID
             )
             await tearDownComponents(notify: true)
-            desiredActive = false
+            if lifecyclePhase == .stopping,
+               lifecycleRevision == revision {
+                lifecyclePhase = .failed
+            }
             throw error
         }
     }
 
     /// Stops accepts, closes the endpoint, and invalidates generation-owned work.
     public func stop() async {
-        guard desiredActive || supervisor != nil else { return }
-        desiredActive = false
+        guard lifecyclePhase == .starting || lifecyclePhase == .active else {
+            return
+        }
+        lifecyclePhase = .stopping
         lifecycleRevision &+= 1
+        let revision = lifecycleRevision
+        currentSnapshot = CmxIrohHostRuntimeSnapshot(
+            state: .stopping,
+            endpointID: currentSnapshot.endpointID,
+            bindingID: localBinding?.bindingID
+        )
         await tearDownComponents(notify: true)
+        guard lifecyclePhase == .stopping,
+              lifecycleRevision == revision else { return }
+        lifecyclePhase = .inactive
         currentSnapshot = CmxIrohHostRuntimeSnapshot(
             state: .inactive,
             endpointID: nil,
@@ -258,9 +301,48 @@ public actor CmxIrohHostRuntime {
         )
     }
 
+    /// Closes networking, durably queues revocation, then deactivates local state.
+    ///
+    /// The binding is captured and the lifecycle enters `signingOut` before the
+    /// first suspension. Endpoint teardown and device-only persistence run
+    /// concurrently. Persistence failure leaves the closed runtime quarantined,
+    /// retains the binding, and skips the injected deactivation handler. Calling
+    /// this method again while quarantined retries the durable enqueue.
+    ///
+    /// - Returns: The prior binding and whether it was durably queued.
+    public func deactivateForSignOut() async -> CmxIrohHostSignOutPreparation {
+        if let signOutOperation {
+            return await signOutOperation.value
+        }
+        let pendingRevocation = localBinding.flatMap { binding in
+            try? CmxIrohPendingRevocation(
+                accountID: configuration.accountID,
+                tag: configuration.tag,
+                bindingID: binding.bindingID
+            )
+        }
+        lifecyclePhase = .signingOut
+        lifecycleRevision &+= 1
+        let revision = lifecycleRevision
+        currentSnapshot = CmxIrohHostRuntimeSnapshot(
+            state: .signingOut,
+            endpointID: currentSnapshot.endpointID,
+            bindingID: pendingRevocation?.bindingID
+        )
+
+        let operation = Task {
+            await self.performSignOut(
+                pendingRevocation: pendingRevocation,
+                revision: revision
+            )
+        }
+        signOutOperation = operation
+        return await operation.value
+    }
+
     /// Creates a one-use five-minute offline invitation from the latest broker proof.
     public func createOfflinePairingInvitation() async throws -> CmxIrohOfflinePairingInvitation {
-        guard desiredActive,
+        guard lifecyclePhase == .active,
               let offlineSessions,
               let binding = localBinding,
               let attestation = endpointAttestation else {
@@ -495,7 +577,8 @@ public actor CmxIrohHostRuntime {
     }
 
     private func scheduleRegistrationRefresh(revision: UInt64) {
-        guard desiredActive, lifecycleRevision == revision,
+        guard lifecyclePhase == .active,
+              lifecycleRevision == revision,
               registrationRefreshTask == nil else { return }
         registrationRefreshTask = Task { [weak self] in
             await self?.refreshRegistration(revision: revision)
@@ -504,7 +587,8 @@ public actor CmxIrohHostRuntime {
 
     private func refreshRegistration(revision: UInt64) async {
         defer { registrationRefreshTask = nil }
-        guard desiredActive, lifecycleRevision == revision,
+        guard lifecyclePhase == .active,
+              lifecycleRevision == revision,
               let supervisor,
               let admissionController,
               let previousBinding = localBinding else { return }
@@ -544,13 +628,19 @@ public actor CmxIrohHostRuntime {
             return
         } catch {
             guard Self.isConnectivityFailure(error) else {
-                desiredActive = false
+                lifecyclePhase = .stopping
+                lifecycleRevision &+= 1
+                let failureRevision = lifecycleRevision
                 currentSnapshot = CmxIrohHostRuntimeSnapshot(
                     state: .failed,
                     endpointID: nil,
                     bindingID: localBinding?.bindingID
                 )
                 await tearDownComponents(notify: true)
+                if lifecyclePhase == .stopping,
+                   lifecycleRevision == failureRevision {
+                    lifecyclePhase = .failed
+                }
                 return
             }
             // Preserve verified policy only while the authenticated broker is unreachable.
@@ -600,14 +690,16 @@ public actor CmxIrohHostRuntime {
     }
 
     private func isCurrent(revision: UInt64, runtimeGeneration: UInt64) async -> Bool {
-        guard desiredActive,
+        guard lifecyclePhase == .active,
               lifecycleRevision == revision,
               let endpointServer else { return false }
         return await endpointServer.isCurrent(runtimeGeneration: runtimeGeneration)
     }
 
     private func requireCurrent(_ revision: UInt64) throws {
-        guard desiredActive, lifecycleRevision == revision, !Task.isCancelled else {
+        guard lifecyclePhase.ownsNetworkOperation,
+              lifecycleRevision == revision,
+              !Task.isCancelled else {
             throw CmxIrohHostRuntimeError.superseded
         }
     }
@@ -685,7 +777,74 @@ public actor CmxIrohHostRuntime {
         return Int64(value.rounded(.down))
     }
 
-    private func tearDownComponents(notify: Bool) async {
+    private func performSignOut(
+        pendingRevocation: CmxIrohPendingRevocation?,
+        revision: UInt64
+    ) async -> CmxIrohHostSignOutPreparation {
+        async let wasPersisted = Self.persist(
+            pendingRevocation,
+            to: pendingRevocations
+        )
+        async let networkTeardown: Void = tearDownComponents(
+            notify: false,
+            preserveBinding: true
+        )
+        let (persisted, _) = await (wasPersisted, networkTeardown)
+        let preparation = CmxIrohHostSignOutPreparation(
+            pendingRevocation: pendingRevocation,
+            wasPersisted: persisted
+        )
+
+        guard lifecyclePhase == .signingOut,
+              lifecycleRevision == revision else {
+            signOutOperation = nil
+            return preparation
+        }
+        guard persisted else {
+            lifecyclePhase = .quarantined
+            currentSnapshot = CmxIrohHostRuntimeSnapshot(
+                state: .quarantined,
+                endpointID: nil,
+                bindingID: pendingRevocation?.bindingID
+            )
+            signOutOperation = nil
+            return preparation
+        }
+
+        await handleDeactivation(pendingRevocation?.bindingID)
+        guard lifecyclePhase == .signingOut,
+              lifecycleRevision == revision else {
+            signOutOperation = nil
+            return preparation
+        }
+        localBinding = nil
+        lifecyclePhase = .inactive
+        currentSnapshot = CmxIrohHostRuntimeSnapshot(
+            state: .inactive,
+            endpointID: nil,
+            bindingID: nil
+        )
+        signOutOperation = nil
+        return preparation
+    }
+
+    private nonisolated static func persist(
+        _ revocation: CmxIrohPendingRevocation?,
+        to pendingRevocations: CmxIrohPendingRevocationOutbox
+    ) async -> Bool {
+        guard let revocation else { return true }
+        do {
+            try await pendingRevocations.enqueue(revocation)
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    private func tearDownComponents(
+        notify: Bool,
+        preserveBinding: Bool = false
+    ) async {
         supervisorEventTask?.cancel()
         supervisorEventTask = nil
         registrationRefreshTask?.cancel()
@@ -700,7 +859,9 @@ public actor CmxIrohHostRuntime {
         onlineAdmissionRegistry = nil
         admissionController = nil
         let bindingID = localBinding?.bindingID
-        localBinding = nil
+        if !preserveBinding {
+            localBinding = nil
+        }
         endpointAttestation = nil
         lanRendezvous = nil
         await supervisor?.deactivate()

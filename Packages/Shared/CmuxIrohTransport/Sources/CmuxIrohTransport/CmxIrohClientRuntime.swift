@@ -40,6 +40,24 @@ public actor CmxIrohClientRuntime {
         let cachedLANRendezvous: CmxIrohLANRendezvous?
     }
 
+    private enum LifecyclePhase: Equatable, Sendable {
+        case inactive
+        case starting
+        case active
+        case stopping
+        case signingOut
+        case quarantined
+        case failed
+
+        var allowsStart: Bool {
+            self == .inactive || self == .failed
+        }
+
+        var ownsNetworkOperation: Bool {
+            self == .starting || self == .active
+        }
+    }
+
     /// The route-aware factory registered by the iOS app before fallback transports.
     public nonisolated let transportFactory: CmxIrohByteTransportFactory
 
@@ -61,7 +79,8 @@ public actor CmxIrohClientRuntime {
     private let handlePolicyInvalidation: PolicyInvalidationHandler
 
     private var lifecycleRevision: UInt64 = 0
-    private var desiredActive = false
+    private var lifecyclePhase = LifecyclePhase.inactive
+    private var signOutOperation: Task<CmxIrohClientSignOutPreparation, Never>?
     private var relayCoordinator: CmxIrohRelayCredentialCoordinator?
     private var supervisorEventTask: Task<Void, Never>?
     private var registrationRefreshTask: Task<Void, Never>?
@@ -158,10 +177,10 @@ public actor CmxIrohClientRuntime {
     ///
     /// - Throws: A bind, broker, signature, fleet, or local-binding validation error.
     public func start() async throws {
-        guard !desiredActive else {
+        guard lifecyclePhase.allowsStart else {
             throw CmxIrohClientRuntimeError.alreadyActive
         }
-        desiredActive = true
+        lifecyclePhase = .starting
         lifecycleRevision &+= 1
         let revision = lifecycleRevision
         currentSnapshot = CmxIrohClientRuntimeSnapshot(
@@ -186,6 +205,7 @@ public actor CmxIrohClientRuntime {
             )
             try await install(policy: policy, revision: revision, startRelays: true)
             startSupervisorObservation(revision: revision)
+            lifecyclePhase = .active
             currentSnapshot = CmxIrohClientRuntimeSnapshot(
                 state: .active,
                 endpointID: endpointID,
@@ -198,13 +218,21 @@ public actor CmxIrohClientRuntime {
                 await handleCachedBindings(policy.cachedTargetBindings, lanRendezvous)
             }
         } catch {
+            guard lifecyclePhase == .starting,
+                  lifecycleRevision == revision else {
+                throw error
+            }
+            lifecyclePhase = .stopping
             currentSnapshot = CmxIrohClientRuntimeSnapshot(
                 state: .failed,
                 endpointID: nil,
                 bindingID: localBinding?.bindingID
             )
             await tearDownNetwork()
-            desiredActive = false
+            if lifecyclePhase == .stopping,
+               lifecycleRevision == revision {
+                lifecyclePhase = .failed
+            }
             throw error
         }
     }
@@ -225,7 +253,7 @@ public actor CmxIrohClientRuntime {
     /// - Throws: A replacement-bind or terminal policy-refresh error. Connectivity
     ///   failure keeps the last verified local policy for a later retry.
     public func didBecomeActive() async throws {
-        guard desiredActive else { return }
+        guard lifecyclePhase == .active else { return }
         let revision = lifecycleRevision
         let checked = try await supervisor.ensureHealthy()
         try requireCurrent(revision)
@@ -249,7 +277,9 @@ public actor CmxIrohClientRuntime {
         lane: CmxIrohLane,
         priority: Int32
     ) async throws -> CmxIrohBidirectionalStream {
-        guard desiredActive else { throw CmxIrohClientRuntimeError.inactive }
+        guard lifecyclePhase == .active else {
+            throw CmxIrohClientRuntimeError.inactive
+        }
         return try await sessionPool.openBidirectionalLane(
             for: request,
             lane: lane,
@@ -261,7 +291,9 @@ public actor CmxIrohClientRuntime {
     public func serverEventByteStream(
         for request: CmxByteTransportRequest
     ) async throws -> CmxIndependentEventByteStream {
-        guard desiredActive else { throw CmxIrohClientRuntimeError.inactive }
+        guard lifecyclePhase == .active else {
+            throw CmxIrohClientRuntimeError.inactive
+        }
         return try await sessionPool.serverEventByteStream(for: request)
     }
 
@@ -276,10 +308,21 @@ public actor CmxIrohClientRuntime {
 
     /// Stops network ownership while preserving account-scoped persistence.
     public func stop() async {
-        guard desiredActive else { return }
-        desiredActive = false
+        guard lifecyclePhase == .starting || lifecyclePhase == .active else {
+            return
+        }
+        lifecyclePhase = .stopping
         lifecycleRevision &+= 1
+        let revision = lifecycleRevision
+        currentSnapshot = CmxIrohClientRuntimeSnapshot(
+            state: .stopping,
+            endpointID: currentSnapshot.endpointID,
+            bindingID: localBinding?.bindingID
+        )
         await tearDownNetwork()
+        guard lifecyclePhase == .stopping,
+              lifecycleRevision == revision else { return }
+        lifecyclePhase = .inactive
         currentSnapshot = CmxIrohClientRuntimeSnapshot(
             state: .inactive,
             endpointID: nil,
@@ -287,14 +330,19 @@ public actor CmxIrohClientRuntime {
         )
     }
 
-    /// Performs local-first sign-out teardown and captures the binding to revoke.
+    /// Closes networking, durably queues revocation, then deactivates local state.
     ///
-    /// The endpoint, route context, and relay scheduler are stopped before the
-    /// injected cache wipe runs. Remote revocation is intentionally separate so
-    /// the auth layer can supply tokens captured before its own local clear.
+    /// The binding is captured and the lifecycle enters `signingOut` before the
+    /// first suspension. Endpoint teardown and device-only persistence run
+    /// concurrently. Persistence failure leaves the closed runtime quarantined,
+    /// retains the binding, and skips every local identity deactivation hook.
+    /// Calling this method again while quarantined retries the durable enqueue.
     ///
-    /// - Returns: The prior binding identifier for best-effort broker revocation.
+    /// - Returns: The prior binding and whether it was durably queued.
     public func deactivateForSignOut() async -> CmxIrohClientSignOutPreparation {
+        if let signOutOperation {
+            return await signOutOperation.value
+        }
         let pendingRevocation = localBinding.flatMap { binding in
             try? CmxIrohPendingRevocation(
                 accountID: configuration.accountID,
@@ -302,32 +350,23 @@ public actor CmxIrohClientRuntime {
                 bindingID: binding.bindingID
             )
         }
-        desiredActive = false
+        lifecyclePhase = .signingOut
         lifecycleRevision &+= 1
-        await tearDownNetwork()
-
-        var wasPersisted = pendingRevocation == nil
-        if let pendingRevocation {
-            do {
-                try await pendingRevocations.enqueue(pendingRevocation)
-                wasPersisted = true
-            } catch {
-                // Local identity teardown must not wait on Keychain recovery.
-                // The returned preparation retries this enqueue before DELETE.
-            }
-        }
-        let preparation = CmxIrohClientSignOutPreparation(
-            pendingRevocation: pendingRevocation,
-            wasPersisted: wasPersisted
-        )
-        try? await offlinePolicyCache?.deactivate()
-        await handleLocalDeactivation()
+        let revision = lifecycleRevision
         currentSnapshot = CmxIrohClientRuntimeSnapshot(
-            state: .inactive,
-            endpointID: nil,
-            bindingID: nil
+            state: .signingOut,
+            endpointID: currentSnapshot.endpointID,
+            bindingID: pendingRevocation?.bindingID
         )
-        return preparation
+
+        let operation = Task {
+            await self.performSignOut(
+                pendingRevocation: pendingRevocation,
+                revision: revision
+            )
+        }
+        signOutOperation = operation
+        return await operation.value
     }
 
     private func resolvePolicy(
@@ -557,7 +596,7 @@ public actor CmxIrohClientRuntime {
     }
 
     private func scheduleRegistrationRefresh(revision: UInt64) {
-        guard desiredActive,
+        guard lifecyclePhase == .active,
               lifecycleRevision == revision,
               registrationRefreshTask == nil else { return }
         registrationRefreshTask = Task { [weak self] in
@@ -571,7 +610,7 @@ public actor CmxIrohClientRuntime {
 
     private func refreshRegistration(revision: UInt64) async throws {
         defer { registrationRefreshTask = nil }
-        guard desiredActive,
+        guard lifecyclePhase == .active,
               lifecycleRevision == revision,
               let previousBinding = localBinding else { return }
         do {
@@ -602,21 +641,92 @@ public actor CmxIrohClientRuntime {
                 // Keep the last exact verified binding only while the broker is unreachable.
                 return
             }
-            desiredActive = false
+            lifecyclePhase = .stopping
             lifecycleRevision &+= 1
+            let failureRevision = lifecycleRevision
             currentSnapshot = CmxIrohClientRuntimeSnapshot(
                 state: .failed,
                 endpointID: nil,
                 bindingID: previousBinding.bindingID
             )
-            try? await offlinePolicyCache?.deactivate()
             await tearDownNetwork()
+            guard lifecyclePhase == .stopping,
+                  lifecycleRevision == failureRevision else {
+                throw error
+            }
+            try? await offlinePolicyCache?.deactivate()
             await handlePolicyInvalidation()
+            if lifecyclePhase == .stopping,
+               lifecycleRevision == failureRevision {
+                lifecyclePhase = .failed
+            }
             throw error
         }
     }
 
-    private func tearDownNetwork() async {
+    private func performSignOut(
+        pendingRevocation: CmxIrohPendingRevocation?,
+        revision: UInt64
+    ) async -> CmxIrohClientSignOutPreparation {
+        async let wasPersisted = Self.persist(
+            pendingRevocation,
+            to: pendingRevocations
+        )
+        async let networkTeardown: Void = tearDownNetwork(preserveBinding: true)
+        let (persisted, _) = await (wasPersisted, networkTeardown)
+        let preparation = CmxIrohClientSignOutPreparation(
+            pendingRevocation: pendingRevocation,
+            wasPersisted: persisted
+        )
+
+        guard lifecyclePhase == .signingOut,
+              lifecycleRevision == revision else {
+            signOutOperation = nil
+            return preparation
+        }
+        guard persisted else {
+            lifecyclePhase = .quarantined
+            currentSnapshot = CmxIrohClientRuntimeSnapshot(
+                state: .quarantined,
+                endpointID: nil,
+                bindingID: pendingRevocation?.bindingID
+            )
+            signOutOperation = nil
+            return preparation
+        }
+
+        try? await offlinePolicyCache?.deactivate()
+        await handleLocalDeactivation()
+        guard lifecyclePhase == .signingOut,
+              lifecycleRevision == revision else {
+            signOutOperation = nil
+            return preparation
+        }
+        localBinding = nil
+        lifecyclePhase = .inactive
+        currentSnapshot = CmxIrohClientRuntimeSnapshot(
+            state: .inactive,
+            endpointID: nil,
+            bindingID: nil
+        )
+        signOutOperation = nil
+        return preparation
+    }
+
+    private nonisolated static func persist(
+        _ revocation: CmxIrohPendingRevocation?,
+        to pendingRevocations: CmxIrohPendingRevocationOutbox
+    ) async -> Bool {
+        guard let revocation else { return true }
+        do {
+            try await pendingRevocations.enqueue(revocation)
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    private func tearDownNetwork(preserveBinding: Bool = false) async {
         registrationRefreshTask?.cancel()
         registrationRefreshTask = nil
         supervisorEventTask?.cancel()
@@ -625,7 +735,9 @@ public actor CmxIrohClientRuntime {
         relayCoordinator = nil
         await sessionPool.deactivate()
         await contextRouter.clear()
-        localBinding = nil
+        if !preserveBinding {
+            localBinding = nil
+        }
         await supervisor.deactivate()
     }
 
@@ -637,7 +749,8 @@ public actor CmxIrohClientRuntime {
     }
 
     private func requireCurrent(_ revision: UInt64) throws {
-        guard desiredActive, lifecycleRevision == revision else {
+        guard lifecyclePhase.ownsNetworkOperation,
+              lifecycleRevision == revision else {
             throw CmxIrohClientRuntimeError.superseded
         }
     }

@@ -1,5 +1,5 @@
 /// The non-secret binding captured before local sign-out state is destroyed.
-public struct CmxIrohClientSignOutPreparation: Equatable, Sendable {
+public struct CmxIrohSignOutPreparation: Equatable, Sendable {
     /// The account-and-tag-scoped binding queued before local teardown.
     public let pendingRevocation: CmxIrohPendingRevocation?
 
@@ -46,3 +46,9 @@ public struct CmxIrohClientSignOutPreparation: Equatable, Sendable {
         )
     }
 }
+
+/// The iOS name for the shared sign-out handoff.
+public typealias CmxIrohClientSignOutPreparation = CmxIrohSignOutPreparation
+
+/// The macOS name for the shared sign-out handoff.
+public typealias CmxIrohHostSignOutPreparation = CmxIrohSignOutPreparation
