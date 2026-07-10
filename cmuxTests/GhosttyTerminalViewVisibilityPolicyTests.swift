@@ -135,16 +135,17 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
             let pane = try #require(dock.bonsplitController.allPaneIds.first)
             dock.setVisibleInUI(true)
             let panelId = try #require(dock.newSurface(kind: .terminal, inPane: pane, focus: true))
+            let tabId = try #require(dock.surfaceId(forPanelId: panelId))
 
             fileExplorerState.rightSidebarOwnsInputFocus = false
             #expect(
-                dock.terminalPortalPresentation(panelId: panelId, paneId: pane) ==
+                dock.terminalPortalPresentation(panelId: panelId, tabId: tabId, paneId: pane) ==
                     .visible(isActive: false, zPriority: 1)
             )
 
             fileExplorerState.rightSidebarOwnsInputFocus = true
             #expect(
-                dock.terminalPortalPresentation(panelId: panelId, paneId: pane) ==
+                dock.terminalPortalPresentation(panelId: panelId, tabId: tabId, paneId: pane) ==
                     .visible(isActive: true, zPriority: 1)
             )
         }

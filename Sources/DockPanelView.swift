@@ -133,7 +133,7 @@ private struct DockSplitContentView: View {
                 terminalAgentContext: "",
                 paneOwnershipOverride: isVisibleInUI,
                 terminalPortalPresentationResolver: {
-                    store.terminalPortalPresentation(panelId: panel.id, paneId: paneId)
+                    store.terminalPortalPresentation(panelId: panel.id, tabId: tab.id, paneId: paneId)
                 },
                 onFocus: {
                     store.bonsplitController.focusPane(paneId)

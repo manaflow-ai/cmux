@@ -4,20 +4,16 @@ import Foundation
 extension DockSplitStore {
     func terminalPortalPresentation(
         panelId: UUID,
+        tabId: TabID,
         paneId: PaneID
     ) -> TerminalPortalPresentation {
-        let panelBelongsToCandidatePane = bonsplitController.tabs(inPane: paneId).contains { tab in
-#if DEBUG
-            TerminalPortalPresentationDebugCounters.dockCandidateTabProbes += 1
-#endif
-            return surfaceIdToPanelId[tab.id] == panelId
-        }
-        guard panelBelongsToCandidatePane else {
+        guard panels[panelId] != nil,
+              surfaceIdToPanelId[tabId] == panelId,
+              bonsplitController.paneId(containing: tabId) == paneId else {
             return .detached
         }
         guard paneIsRenderedInVisibleDock(paneId),
-              let selectedTab = bonsplitController.selectedTab(inPane: paneId),
-              surfaceIdToPanelId[selectedTab.id] == panelId else {
+              bonsplitController.selectedTabId(inPane: paneId) == tabId else {
             return .hidden
         }
         let ownsInputFocus = AppDelegate.shared?.rightSidebarOwnsInputFocus(for: self) ?? false
