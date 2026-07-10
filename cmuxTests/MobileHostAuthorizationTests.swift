@@ -200,12 +200,13 @@ struct MobileHostAuthorizationTests {
     @Test func testMobileHostRouteDisclosureSeparatesAuthenticatedAndPublicHints() throws {
         let now = Date()
         let privateAddress = "100.64.1.2:49152"
+        let endpointID = String(repeating: "a", count: 64)
         let iroh = try CmxAttachRoute(
             id: "iroh",
             kind: .iroh,
             endpoint: .peer(
                 identity: CmxIrohPeerIdentity(
-                    endpointID: String(repeating: "a", count: 64)
+                    endpointID: endpointID
                 ),
                 pathHints: [
                     try CmxIrohPathHint(
@@ -262,12 +263,8 @@ struct MobileHostAuthorizationTests {
             now: now
         )
         let publicRoutes = try #require(publicPayload["routes"] as? [[String: Any]])
-        #expect(publicRoutes.count == 1)
-        let publicEndpoint = try #require(publicRoutes.first?["endpoint"] as? [String: Any])
-        let publicHints = try #require(publicEndpoint["path_hints"] as? [[String: Any]])
-        #expect(publicHints.count == 1)
-        #expect(publicHints.first?["kind"] as? String == CmxIrohPathHintKind.relayURL.rawValue)
-        #expect(!publicHints.contains { $0["network_profile"] != nil })
+        #expect(publicRoutes.isEmpty)
+        #expect(!String(describing: publicPayload).contains(endpointID))
         #expect(!String(describing: publicRoutes).contains(privateAddress))
         #expect(!String(describing: publicRoutes).contains(websocketURL))
     }

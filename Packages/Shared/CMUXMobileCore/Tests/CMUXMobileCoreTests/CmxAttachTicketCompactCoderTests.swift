@@ -17,6 +17,13 @@ import Testing
 private let compactCoder = CmxAttachTicketCompactCoder()
 private let compactCanonicalEndpointID = String(repeating: "c", count: 64)
 
+private func encodeLegacyCompatibility(_ ticket: CmxAttachTicket) throws -> Data {
+    try compactCoder.encode(
+        ticket,
+        routeDisclosureMode: .legacyPrivateNetworkCompatibility
+    )
+}
+
 private func wholeSecondFutureExpiry() -> Date {
     Date(timeIntervalSince1970: 4_000_000_000)
 }
@@ -52,7 +59,7 @@ private func legacyDecoder() -> JSONDecoder {
         authToken: "ticket-secret"
     )
 
-    let data = try compactCoder.encode(ticket)
+    let data = try encodeLegacyCompatibility(ticket)
     let json = try #require(String(data: data, encoding: .utf8))
 
     #expect(!json.contains("auth_token"))
@@ -138,7 +145,7 @@ private func legacyDecoder() -> JSONDecoder {
         authToken: "ticket-secret"
     )
 
-    let encoded = try compactCoder.encode(ticket)
+    let encoded = try encodeLegacyCompatibility(ticket)
     let json = try #require(String(data: encoded, encoding: .utf8))
     #expect(json.contains(compactCanonicalEndpointID))
     #expect(!json.contains("\"ph\""))
@@ -178,6 +185,97 @@ private func legacyDecoder() -> JSONDecoder {
     #expect(!decoded.isExpired(at: .distantFuture))
 }
 
+@Test func identityOnlyQRModeKeepsOnlyIrohIdentityAndRejectsTicketsWithoutIt() throws {
+    let privateAddress = "100.64.1.2:49152"
+    let relayURL = "https://relay.attacker.example/"
+    let websocketURL = "wss://private.example/connect?token=secret"
+    let iroh = try CmxAttachRoute(
+        id: "iroh",
+        kind: .iroh,
+        endpoint: .peer(
+            identity: CmxIrohPeerIdentity(endpointID: compactCanonicalEndpointID),
+            pathHints: [
+                CmxIrohPathHint(
+                    kind: .directAddress,
+                    value: privateAddress,
+                    source: .tailscale,
+                    privacyScope: .privateNetwork,
+                    observedAt: wholeSecondFutureExpiry().addingTimeInterval(-60),
+                    expiresAt: wholeSecondFutureExpiry(),
+                    networkProfile: CmxIrohNetworkProfileKey(
+                        source: .tailscale,
+                        profileID: "production"
+                    )
+                ),
+                CmxIrohPathHint(
+                    kind: .relayURL,
+                    value: relayURL,
+                    source: .native,
+                    privacyScope: .publicInternet
+                ),
+            ]
+        )
+    )
+    let ticket = try CmxAttachTicket(
+        workspaceID: "",
+        terminalID: nil,
+        macDeviceID: "mac-1",
+        macDisplayName: nil,
+        routes: [
+            hostPortRoute(),
+            iroh,
+            CmxAttachRoute(
+                id: "websocket",
+                kind: .websocket,
+                endpoint: .url(websocketURL)
+            ),
+        ]
+    )
+
+    let encoded = try compactCoder.encode(
+        ticket,
+        routeDisclosureMode: .irohIdentityOnly
+    )
+    let json = try #require(String(data: encoded, encoding: .utf8))
+    #expect(json.contains(compactCanonicalEndpointID))
+    #expect(!json.contains(privateAddress))
+    #expect(!json.contains(relayURL))
+    #expect(!json.contains(websocketURL))
+    #expect(!json.contains("\"h\""))
+    #expect(!json.contains("\"u\":\"wss"))
+    #expect(!json.contains("\"ph\""))
+
+    let decoded = try compactCoder.decode(encoded)
+    #expect(decoded.routes.count == 1)
+    #expect(decoded.routes.first?.id == iroh.id)
+    guard case let .peer(identity, hints) = decoded.routes.first?.endpoint else {
+        Issue.record("Expected identity-only Iroh route")
+        return
+    }
+    #expect(identity.endpointID == compactCanonicalEndpointID)
+    #expect(hints.isEmpty)
+    #expect(CmxPairingQRCode().encode(
+        ticket,
+        routeDisclosureMode: .irohIdentityOnly
+    ) == nil)
+
+    let tailscaleOnly = try CmxAttachTicket(
+        workspaceID: "",
+        terminalID: nil,
+        macDeviceID: "mac-1",
+        macDisplayName: nil,
+        routes: [hostPortRoute()]
+    )
+    #expect(throws: CmxAttachTicketCompactCoderError.noRoutesForDisclosureMode(
+        .irohIdentityOnly
+    )) {
+        _ = try compactCoder.encode(
+            tailscaleOnly,
+            routeDisclosureMode: .irohIdentityOnly
+        )
+    }
+}
+
 @Test func compactDecodeKeepsLegacyEmailPayloadsWorking() throws {
     let legacyEmailPayload = """
     {"v":1,"d":"mac-1","u":"user@example.com","r":[{"k":"tailscale","e":{"h":"100.64.1.2","p":49831}}]}
@@ -202,7 +300,7 @@ private func legacyDecoder() -> JSONDecoder {
         authToken: "ticket-secret"
     )
 
-    let data = try compactCoder.encode(ticket)
+    let data = try encodeLegacyCompatibility(ticket)
     let object = try #require(
         try JSONSerialization.jsonObject(with: data) as? [String: Any]
     )
@@ -253,7 +351,7 @@ private func legacyDecoder() -> JSONDecoder {
         routes: routes
     )
 
-    let data = try compactCoder.encode(ticket)
+    let data = try encodeLegacyCompatibility(ticket)
     let object = try #require(
         try JSONSerialization.jsonObject(with: data) as? [String: Any]
     )
@@ -310,7 +408,7 @@ private func legacyDecoder() -> JSONDecoder {
         routes: [try hostPortRoute()],
         expiresAt: wholeSecondFutureExpiry()
     )
-    let compact = try compactCoder.encode(ticket)
+    let compact = try encodeLegacyCompatibility(ticket)
 
     #expect(throws: DecodingError.self) {
         try legacyDecoder().decode(CmxAttachTicket.self, from: compact)
@@ -348,7 +446,7 @@ private func legacyDecoder() -> JSONDecoder {
         routes: [try hostPortRoute()],
         expiresAt: wholeSecondFutureExpiry()
     )
-    let compact = try compactCoder.encode(ticket)
+    let compact = try encodeLegacyCompatibility(ticket)
     let encoder = JSONEncoder()
     encoder.dateEncodingStrategy = .iso8601
     let legacy = try encoder.encode(ticket)
@@ -410,7 +508,7 @@ private func legacyDecoder() -> JSONDecoder {
     let encoder = JSONEncoder()
     encoder.dateEncodingStrategy = .iso8601
     let legacy = try encoder.encode(ticket)
-    let compact = try compactCoder.encode(ticket)
+    let compact = try encodeLegacyCompatibility(ticket)
 
     #expect(compact.count < legacy.count)
     #expect(compact.count <= 150)

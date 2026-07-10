@@ -103,12 +103,16 @@ private func profile(
     #expect(expiredLAN.use == .fallbackOnly)
     #expect(customVPN.use == .fallbackOnly)
     #expect(relay.use == .primary)
-    let firstPhaseOnly = try #require(endpoint.irohDialPlan(at: now))
+    let firstPhaseOnly = try #require(endpoint.irohDialPlan(
+        at: now,
+        managedRelayURLs: [relay.value]
+    ))
     #expect(firstPhaseOnly.publicPaths == [relay])
     #expect(firstPhaseOnly.privateFallbackPaths.isEmpty)
 
     let fullPlan = try #require(endpoint.irohDialPlan(
         at: now,
+        managedRelayURLs: [relay.value],
         activeNetworkProfiles: [
             profile(.tailscale, "production"),
             profile(.customVPN, "corp"),
@@ -460,6 +464,62 @@ private func profile(
     }
 }
 
+@Test func dialPlanAdmitsOnlyExactManagedRelayURLsAndNeverLegacyRelayIdentifiers() throws {
+    let managedURL = "https://use1-1.relay.lawrence.cmux.iroh.link/"
+    let managed = try CmxIrohPathHint(
+        kind: .relayURL,
+        value: managedURL,
+        source: .native,
+        privacyScope: .publicInternet
+    )
+    let sameHostDifferentSpelling = try CmxIrohPathHint(
+        kind: .relayURL,
+        value: "https://use1-1.relay.lawrence.cmux.iroh.link",
+        source: .native,
+        privacyScope: .publicInternet
+    )
+    let attackerControlled = try CmxIrohPathHint(
+        kind: .relayURL,
+        value: "https://relay.attacker.example/",
+        source: .native,
+        privacyScope: .publicInternet
+    )
+    let legacyIdentifier = CmxIrohPathHint.legacy(
+        kind: .relayIdentifier,
+        value: "use1",
+        privacyScope: .publicInternet
+    )
+    let direct = try CmxIrohPathHint(
+        kind: .directAddress,
+        value: "8.8.8.8:49152",
+        source: .native,
+        privacyScope: .publicInternet
+    )
+    let endpoint = CmxAttachEndpoint.peer(
+        identity: try CmxIrohPeerIdentity(endpointID: canonicalEndpointID),
+        pathHints: [
+            attackerControlled,
+            legacyIdentifier,
+            sameHostDifferentSpelling,
+            managed,
+            direct,
+        ]
+    )
+
+    let plan = try #require(endpoint.irohDialPlan(
+        at: Date(),
+        managedRelayURLs: [managedURL]
+    ))
+    #expect(plan.publicPaths == [managed, direct])
+    #expect(plan.privateFallbackPaths.isEmpty)
+
+    let noRelayPlan = try #require(endpoint.irohDialPlan(
+        at: Date(),
+        managedRelayURLs: []
+    ))
+    #expect(noRelayPlan.publicPaths == [direct])
+}
+
 @Test func networkProfileIdentityDisambiguatesOverlappingPrivateNetworks() throws {
     let expiry = Date(timeIntervalSince1970: 2_000_000_000)
     let siteA = try CmxIrohPathHint(
@@ -501,11 +561,13 @@ private func profile(
     )
     let activePlan = try #require(endpoint.irohDialPlan(
         at: Date(timeIntervalSince1970: 1_999_999_999),
+        managedRelayURLs: [],
         activeNetworkProfiles: [profile(.customVPN, "site-a")]
     ))
     #expect(activePlan.privateFallbackPaths == [siteA])
     let inactivePlan = try #require(endpoint.irohDialPlan(
-        at: Date(timeIntervalSince1970: 1_999_999_999)
+        at: Date(timeIntervalSince1970: 1_999_999_999),
+        managedRelayURLs: []
     ))
     #expect(inactivePlan.privateFallbackPaths.isEmpty)
 }
@@ -589,12 +651,7 @@ private func profile(
     }
     #expect(authenticatedHints == [currentPrivate, publicRelay])
 
-    let publicStatus = try #require(route.disclosed(for: .publicStatus, at: now))
-    guard case let .peer(_, publicHints) = publicStatus.endpoint else {
-        Issue.record("Expected public Iroh peer route")
-        return
-    }
-    #expect(publicHints == [publicRelay])
+    #expect(route.disclosed(for: .publicStatus, at: now) == nil)
 
     let pairing = try #require(route.disclosed(for: .pairingQRCode, at: now))
     guard case let .peer(_, pairingHints) = pairing.endpoint else {
@@ -605,7 +662,7 @@ private func profile(
 
     let persisted = try JSONDecoder().decode(
         CmxAttachRoute.self,
-        from: JSONEncoder().encode(route)
+        from: JSONEncoder().encode(authenticated)
     )
     guard case let .peer(_, persistedHints) = persisted.endpoint else {
         Issue.record("Expected persisted Iroh peer route")
@@ -650,6 +707,7 @@ private func profile(
     #expect(!futureHint.isUsable(at: now))
     let dialPlan = try #require(route.endpoint.irohDialPlan(
         at: now,
+        managedRelayURLs: [],
         activeNetworkProfiles: [networkProfile]
     ))
     #expect(dialPlan.privateFallbackPaths.isEmpty)
@@ -663,7 +721,7 @@ private func profile(
 
     let persisted = try JSONDecoder().decode(
         CmxAttachRoute.self,
-        from: JSONEncoder().encode(route)
+        from: JSONEncoder().encode(disclosed)
     )
     guard case let .peer(_, persistedHints) = persisted.endpoint else {
         Issue.record("Expected persisted Iroh peer route")
@@ -672,8 +730,70 @@ private func profile(
     #expect(persistedHints.isEmpty)
 }
 
-@Test func publicStatusOnlyDisclosesPrivacyClassifiedIrohRoutes() throws {
+@Test func endpointEncodingIsClockIndependentAndDoesNotDowngradeFreshnessMetadata() throws {
+    let observedAt = Date(timeIntervalSince1970: 1_000)
+    let expiresAt = Date(timeIntervalSince1970: 1_060)
+    let direct = try CmxIrohPathHint(
+        kind: .directAddress,
+        value: "8.8.8.8:49152",
+        source: .native,
+        privacyScope: .publicInternet,
+        observedAt: observedAt,
+        expiresAt: expiresAt
+    )
+    let relay = try CmxIrohPathHint(
+        kind: .relayURL,
+        value: "https://relay.example.test/",
+        source: .native,
+        privacyScope: .publicInternet,
+        observedAt: observedAt,
+        expiresAt: expiresAt
+    )
+    let endpoint = CmxAttachEndpoint.peer(
+        identity: try CmxIrohPeerIdentity(endpointID: canonicalEndpointID),
+        pathHints: [direct, relay]
+    )
+    let encoder = JSONEncoder()
+    encoder.dateEncodingStrategy = .iso8601
+    encoder.outputFormatting = [.sortedKeys]
+
+    let firstEncoding = try encoder.encode(endpoint)
+    let secondEncoding = try encoder.encode(endpoint)
+
+    #expect(firstEncoding == secondEncoding)
+    let object = try #require(
+        try JSONSerialization.jsonObject(with: firstEncoding) as? [String: Any]
+    )
+    #expect((object["path_hints"] as? [[String: Any]])?.count == 2)
+    // The legacy fields cannot represent freshness metadata. Re-emitting
+    // either hint there would make an expired path look timeless to an older
+    // decoder.
+    #expect(object["direct_addrs"] == nil)
+    #expect(object["relay_url"] == nil)
+    #expect(object["relay_hint"] == nil)
+
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+    #expect(try decoder.decode(CmxAttachEndpoint.self, from: firstEncoding) == endpoint)
+}
+
+@Test func publicStatusDisclosesNoAttachRoutes() throws {
     let routes = try [
+        CmxAttachRoute(
+            id: "iroh",
+            kind: .iroh,
+            endpoint: .peer(
+                identity: CmxIrohPeerIdentity(endpointID: canonicalEndpointID),
+                pathHints: [
+                    CmxIrohPathHint(
+                        kind: .relayURL,
+                        value: "https://relay.example.test/",
+                        source: .native,
+                        privacyScope: .publicInternet
+                    ),
+                ]
+            )
+        ),
         CmxAttachRoute(
             id: "tailscale",
             kind: .tailscale,

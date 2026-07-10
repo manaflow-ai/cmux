@@ -1462,7 +1462,10 @@ final class TerminalOutputCollector {
     )
     // Encode exactly what the Mac's pairing window renders: the compact QR
     // grammar, which drops the token, the display name, and the expiry.
-    let payload = try CmxAttachTicketCompactCoder().encode(ticket)
+    let payload = try CmxAttachTicketCompactCoder().encode(
+        ticket,
+        routeDisclosureMode: .legacyPrivateNetworkCompatibility
+    )
     let url = "cmux-ios://attach?v=\(ticket.version)&payload=\(base64URLEncode(payload))"
     let responses = ScriptedTransportResponses([
         try rpcWorkspaceListFrame(workspaceID: "qr-workspace", title: "QR Workspace"),
