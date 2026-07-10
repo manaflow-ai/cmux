@@ -114,7 +114,11 @@ extension PullRequestPollService {
                 let projectedBranch = GitMetadataService.normalizedBranchName(
                     host.panelGitBranch(workspaceId: result.workspaceId, panelId: result.panelId)?.branch
                 )
-                if resolvedBranch != projectedBranch {
+                // Nudge only while git metadata watching is on: with watching
+                // disabled the probe scheduler clears the panel's branch AND
+                // the badge this pass just applied (there is also no branch
+                // projection to heal).
+                if resolvedBranch != projectedBranch, host.isGitMetadataWatchEnabled {
                     host.schedulePanelGitMetadataProbe(
                         workspaceId: result.workspaceId,
                         panelId: result.panelId,

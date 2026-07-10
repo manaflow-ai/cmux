@@ -300,6 +300,44 @@ import CmuxGit
         })
     }
 
+    /// With git metadata watching disabled, a branch mismatch must not nudge
+    /// the probe scheduler: that path clears the panel's branch and the badge
+    /// the same apply pass just wrote.
+    @Test func resolvedBadgeMismatchDoesNotScheduleProbeWhenWatchDisabled() throws {
+        let host = RecordingSidebarGitHost()
+        host.pollingEnabled = true
+        host.watchEnabled = false
+        let (workspaceId, panelId) = host.addWorkspace(panelDirectory: "/tmp/repo")
+        let service = makeService(host: host, clock: ManualGitPollClock())
+        let key = WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: panelId)
+
+        service.applyWorkspacePullRequestRefreshResults(
+            [
+                WorkspacePullRequestRefreshResult(
+                    workspaceId: workspaceId,
+                    panelId: panelId,
+                    resolution: .resolved(WorkspacePullRequestResolvedItem(
+                        number: 99,
+                        urlString: "https://github.com/o/r/pull/99",
+                        statusRawValue: PullRequestStatus.open.rawValue,
+                        branch: "feature/new"
+                    )),
+                    usedCachedRepoData: false
+                ),
+            ],
+            repoResults: [:],
+            requestedKeys: [key],
+            now: Date(),
+            reason: "test"
+        )
+
+        #expect(host.workspaces[0].state.panels[panelId]?.badge?.number == 99)
+        #expect(!host.events.contains {
+            if case .scheduleGitMetadataProbe = $0 { return true }
+            return false
+        })
+    }
+
     /// Disabling polling resets all tracking and clears every badge.
     @Test func disablingPollingSettingClearsBadgesAndTracking() async throws {
         let host = RecordingSidebarGitHost()
