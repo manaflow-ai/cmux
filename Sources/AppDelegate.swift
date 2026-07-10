@@ -16044,7 +16044,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         browserPanelOwning(webView)?.isBrowserFocusModeActive == true
     }
 
-    private func isWebViewFocused(_ panel: BrowserPanel) -> Bool {
+    func isWebViewFocused(_ panel: BrowserPanel) -> Bool {
         guard let window = panel.webView.window else { return false }
         guard let fr = window.firstResponder as? NSView else { return false }
         return fr.isDescendant(of: panel.webView)

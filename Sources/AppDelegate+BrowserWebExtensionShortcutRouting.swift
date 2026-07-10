@@ -67,9 +67,23 @@ extension AppDelegate {
 
     /// Extension manifest commands run only after configured cmux shortcuts decline the event.
     func shouldOfferBrowserWebExtensionCommand(_ event: NSEvent) -> Bool {
-        shouldOfferBrowserWebExtensionCommand(
+        let focusModePanel = browserFocusModePanelForShortcutEvent(event)
+#if DEBUG
+        if focusModePanel == nil {
+            if let browserPanel = shortcutEventBrowserPanel(event) {
+                cmuxDebugLog(
+                    "browser.webext.offer focusModeCheck panel=\(browserPanel.id.uuidString.prefix(5)) " +
+                    "active=\(browserPanel.isBrowserFocusModeActive ? 1 : 0) " +
+                    "webViewFocused=\(isWebViewFocused(browserPanel) ? 1 : 0)"
+                )
+            } else {
+                cmuxDebugLog("browser.webext.offer focusModeCheck noBrowserPanel keyCode=\(event.keyCode)")
+            }
+        }
+#endif
+        return shouldOfferBrowserWebExtensionCommand(
             event,
-            browserFocusModeActive: browserFocusModePanelForShortcutEvent(event) != nil
+            browserFocusModeActive: focusModePanel != nil
         )
     }
 
@@ -103,6 +117,9 @@ extension AppDelegate {
             }
             if action.usesNumberedDigitMatching {
                 if numberedConfiguredShortcutDigit(event: event, action: action) != nil {
+#if DEBUG
+                    cmuxDebugLog("browser.webext.offer declined action=\(action.rawValue) digit keyCode=\(event.keyCode)")
+#endif
                     return false
                 }
                 continue
@@ -111,6 +128,9 @@ extension AppDelegate {
                 event: event,
                 shortcut: KeyboardShortcutSettings.shortcut(for: action)
             ) {
+#if DEBUG
+                cmuxDebugLog("browser.webext.offer declined action=\(action.rawValue) keyCode=\(event.keyCode)")
+#endif
                 return false
             }
         }
@@ -118,7 +138,13 @@ extension AppDelegate {
         let context = preferredMainWindowContextForShortcutRouting(event: event)
         return !configuredCmuxShortcutActions(for: context).contains { action in
             guard let shortcut = action.shortcut else { return false }
-            return configuredShortcutClaimsWebExtensionCommand(event: event, shortcut: shortcut)
+            let claims = configuredShortcutClaimsWebExtensionCommand(event: event, shortcut: shortcut)
+#if DEBUG
+            if claims {
+                cmuxDebugLog("browser.webext.offer declined windowAction=\(action.id) keyCode=\(event.keyCode)")
+            }
+#endif
+            return claims
         }
     }
 
