@@ -108,10 +108,13 @@ struct RemoteTmuxControlMessageDecoding {
     /// unreachable / connection refused — keep retrying).
     nonisolated func stderrIndicatesSessionGone(_ stderr: String) -> Bool {
         let lowered = stderr.lowercased()
+        let hasExactNoSessionsLine = lowered
+            .split(whereSeparator: \.isNewline)
+            .contains { String($0).trimmingCharacters(in: .whitespaces) == "no sessions" }
         return lowered.contains("can't find session")
             || lowered.contains("can\u{2019}t find session")
             || lowered.contains("no server running")
-            || lowered.contains("no sessions")
+            || hasExactNoSessionsLine
             || lowered.contains("no current session")
             || lowered.contains("session not found")
             || lowered.contains("lost server")

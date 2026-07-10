@@ -383,6 +383,7 @@ import Testing
         #expect(RemoteTmuxControlMessageDecoding().stderrIndicatesSessionGone("can't find session: work"))
         #expect(RemoteTmuxControlMessageDecoding().stderrIndicatesSessionGone("no server running on /tmp/tmux-501/default"))
         #expect(RemoteTmuxControlMessageDecoding().stderrIndicatesSessionGone("no sessions"))
+        #expect(RemoteTmuxControlMessageDecoding().stderrIndicatesSessionGone("warning\n  no sessions  \n"))
         #expect(RemoteTmuxControlMessageDecoding().stderrIndicatesSessionGone("lost server"))
         #expect(RemoteTmuxControlMessageDecoding().stderrIndicatesSessionGone("ERROR: SESSION NOT FOUND"))
     }
@@ -394,6 +395,8 @@ import Testing
             "ssh: connect to host example.com port 22: Operation timed out"))
         #expect(!RemoteTmuxControlMessageDecoding().stderrIndicatesSessionGone(
             "ssh: connect to host x port 22: No route to host"))
+        #expect(!RemoteTmuxControlMessageDecoding().stderrIndicatesSessionGone(
+            "Login banner: no sessions are restored automatically"))
         #expect(!RemoteTmuxControlMessageDecoding().stderrIndicatesSessionGone("Connection to host closed."))
         #expect(!RemoteTmuxControlMessageDecoding().stderrIndicatesSessionGone(""))
     }

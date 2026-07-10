@@ -96,6 +96,7 @@ final class RemoteTmuxControlConnection {
     private var stderrTask: Task<Void, Never>?
     private var parser = RemoteTmuxControlStreamParser()
     private var ingestTask: Task<Void, Never>?
+    private var processGeneration: UInt64 = 0
     var pendingCommands: [CommandKind] = []
     private var connectionWaiters: [UUID: (Bool) -> Void] = [:]
     /// `false` until the attach command's own `%begin`/`%end` block — always the
@@ -375,6 +376,8 @@ final class RemoteTmuxControlConnection {
         stdoutReader = reader
         self.stdoutPipeReader = stdoutPipeReader
         self.stderrPipeReader = stderrPipeReader
+        processGeneration &+= 1
+        let generation = processGeneration
         stderrTask = Task { [weak self] in
             for await chunk in stderrPipeReader.stream {
                 if let text = String(data: chunk, encoding: .utf8), !text.isEmpty {
@@ -388,7 +391,8 @@ final class RemoteTmuxControlConnection {
                 self?.ingest(chunk)
                 stdoutPipeReader.release(chunk)
             }
-            await self?.handleStreamEnd()
+            guard !Task.isCancelled else { return }
+            await self?.handleStreamEnd(processGeneration: generation)
         }
     }
 
@@ -455,6 +459,7 @@ final class RemoteTmuxControlConnection {
     /// `connectionState`, so the connection can either end (``stop()``) or re-spawn
     /// (reconnect) from a clean slate.
     private func teardownProcessHandles() {
+        processGeneration &+= 1
         ingestTask?.cancel()
         ingestTask = nil
         stderrTask?.cancel()
@@ -536,7 +541,8 @@ final class RemoteTmuxControlConnection {
         }
     }
 
-    private func handleStreamEnd() async {
+    private func handleStreamEnd(processGeneration generation: UInt64) async {
+        guard generation == processGeneration else { return }
         record("stream-end")
         switch connectionState {
         case .ended:
@@ -552,8 +558,10 @@ final class RemoteTmuxControlConnection {
             // stream finishes) BEFORE classifying, so the decision can't race a
             // not-yet-delivered chunk and misclassify a gone session as transient.
             await stderrTask?.value
-            // A state change may have raced the drain (e.g. a deliberate stop()).
-            guard connectionState == .reconnecting else { return }
+            // A teardown or state change may have raced the drain (e.g. deliberate
+            // stop or stderr overflow aborting this reconnect attempt).
+            guard generation == processGeneration,
+                  connectionState == .reconnecting else { return }
             // Classify: a session/server found gone is a genuine end; anything else
             // (host unreachable, refused) is transient — keep retrying with backoff.
             let sessionGone = decoding.stderrIndicatesSessionGone(stderrBuffer)
