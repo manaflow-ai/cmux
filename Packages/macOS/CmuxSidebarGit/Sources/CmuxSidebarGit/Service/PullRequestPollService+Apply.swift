@@ -46,8 +46,9 @@ extension PullRequestPollService {
         var needsFollowUpPass = false
 
         defer {
-            if needsFollowUpPass {
+            if needsFollowUpPass || workspacePullRequestFollowUpRequested {
                 let shouldBypassRepoCache = workspacePullRequestFollowUpShouldBypassRepoCache
+                workspacePullRequestFollowUpRequested = false
                 workspacePullRequestFollowUpShouldBypassRepoCache = false
                 refreshTrackedWorkspacePullRequestsIfNeeded(
                     reason: "\(reason).followUp",
@@ -294,6 +295,8 @@ extension PullRequestPollService {
     }
 
     public func resetWorkspacePullRequestRefreshState() {
+        workspacePullRequestScheduledRefreshTask?.cancel()
+        workspacePullRequestScheduledRefreshTask = nil
         workspacePullRequestRefreshTask?.cancel()
         workspacePullRequestRefreshTask = nil
         workspacePullRequestProbeStateByKey.removeAll()
@@ -301,6 +304,9 @@ extension PullRequestPollService {
         workspacePullRequestLastTerminalStateRefreshAtByKey.removeAll()
         workspacePullRequestTransientFailureCountByKey.removeAll()
         workspacePullRequestRepoCacheBySlug.removeAll()
+        workspacePullRequestScheduledRefreshReason = nil
+        workspacePullRequestScheduledRefreshShouldBypassRepoCache = false
+        workspacePullRequestFollowUpRequested = false
         workspacePullRequestFollowUpShouldBypassRepoCache = false
         updateWorkspacePullRequestPollTimer()
     }

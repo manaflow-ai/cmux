@@ -37,6 +37,7 @@ final class RecordingSidebarGitHost: SidebarGitHosting {
     var pollingEnabled = false
     var mobileHostActive = false
     var selectedWorkspaceId: UUID?
+    private(set) var orderedWorkspaceIdsCallCount = 0
     private(set) var events: [ProjectionEvent] = []
     private var eventContinuations: [AsyncStream<ProjectionEvent>.Continuation] = []
 
@@ -76,7 +77,10 @@ final class RecordingSidebarGitHost: SidebarGitHosting {
 
     // MARK: Reads
 
-    func orderedWorkspaceIds() -> [UUID] { workspaces.map(\.id) }
+    func orderedWorkspaceIds() -> [UUID] {
+        orderedWorkspaceIdsCallCount += 1
+        return workspaces.map(\.id)
+    }
     func workspaceExists(_ workspaceId: UUID) -> Bool { state(workspaceId) != nil }
     func isRemoteWorkspace(_ workspaceId: UUID) -> Bool? { state(workspaceId)?.isRemote }
     func panelIds(in workspaceId: UUID) -> [UUID] {
