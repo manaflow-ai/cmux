@@ -63,8 +63,20 @@ fn main() {
         panic!("zig build of libghostty-vt failed with {status}");
     }
 
-    println!("cargo:rustc-link-search=native={}", prefix.join("lib").display());
+    let lib_dir = prefix.join("lib");
+    println!("cargo:rustc-link-search=native={}", lib_dir.display());
     if target.contains("windows") {
+        // zig installs the Windows static archive as `ghostty-vt-static.lib`
+        // (distinct from the DLL import library `ghostty-vt.lib`), but rustc's
+        // *-windows-gnu targets only search the MinGW name `lib<name>.a`.
+        // Mirror the archive under that name; the contents are identical.
+        if target.contains("windows-gnu") {
+            let src = lib_dir.join("ghostty-vt-static.lib");
+            let dst = lib_dir.join("libghostty-vt-static.a");
+            std::fs::copy(&src, &dst).unwrap_or_else(|e| {
+                panic!("failed to copy {} to {}: {e}", src.display(), dst.display())
+            });
+        }
         println!("cargo:rustc-link-lib=static=ghostty-vt-static");
     } else {
         println!("cargo:rustc-link-lib=static=ghostty-vt");
