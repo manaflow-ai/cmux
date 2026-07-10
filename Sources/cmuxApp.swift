@@ -397,6 +397,11 @@ struct cmuxApp: App {
                 }
         }
         .windowStyle(.hiddenTitleBar)
+        // External events (cmux:// URL opens, Handoff) must never materialize a
+        // SwiftUI scene window: AppDelegate owns URL routing and every real
+        // window is AppKit-managed, so a window SwiftUI spawns here is a zombie
+        // that flashes black and self-closes (#7825, Safari auth deep-link).
+        .handlesExternalEvents(matching: [])
         .commands {
             CommandGroup(replacing: .appSettings) {
                 splitCommandButton(title: String(localized: "menu.app.settings", defaultValue: "Settings…"), shortcut: menuShortcut(for: .openSettings)) {

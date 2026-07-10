@@ -25,7 +25,9 @@ public final class AuthPresentationContextProvider: NSObject, AuthPresentationAn
         resolveAnchor()
     }
 
-    private func resolveAnchor() -> ASPresentationAnchor {
+    /// Resolves the presentation anchor. Internal (not private) so tests can
+    /// pin the no-window fallback invariant without starting a real session.
+    func resolveAnchor() -> ASPresentationAnchor {
         #if os(iOS)
         let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
         let activeScene = scenes.first { $0.activationState == .foregroundActive }
@@ -40,12 +42,13 @@ public final class AuthPresentationContextProvider: NSObject, AuthPresentationAn
         if let keyWindow = NSApplication.shared.keyWindow {
             return keyWindow
         }
-        if let window = NSApplication.shared.windows.first {
+        if let window = NSApplication.shared.mainWindow ?? NSApplication.shared.windows.first {
             return window
         }
-        let window = NSWindow()
-        window.makeKey()
-        return window
+        // Last-resort anchor when the app has no windows at all. It must stay
+        // invisible and must never be made key: a bare NSWindow made key shows
+        // up as an empty black zombie window (#7825 class of bugs).
+        return NSWindow()
         #else
         preconditionFailure("AuthPresentationContextProvider: unsupported platform")
         #endif
