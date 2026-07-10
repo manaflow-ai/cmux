@@ -1065,6 +1065,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		7E110877D4049839B248D5B2 /* RemoteTmuxMirrorFrames.swift in Sources */ = {isa = PBXBuildFile; fileRef = 609C73EBCC5E35DDC4E76978 /* RemoteTmuxMirrorFrames.swift */; };
 		A11FBDE1CC12989770B70EBE /* RemoteTmuxMirrorGeometry.swift in Sources */ = {isa = PBXBuildFile; fileRef = D32650AC37D12294A52E4D63 /* RemoteTmuxMirrorGeometry.swift */; };
 		BC22F721323079468ED57528 /* RemoteTmuxMirrorGeometryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD61EDB9377BE136E564F02B /* RemoteTmuxMirrorGeometryTests.swift */; };
+		783300000000000000000002 /* RemoteTmuxMirrorLayoutIdentityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 783300000000000000000001 /* RemoteTmuxMirrorLayoutIdentityTests.swift */; };
 		74060000000000000000000A /* RemoteTmuxMirrorLayoutMathTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 740600000000000000000009 /* RemoteTmuxMirrorLayoutMathTests.swift */; };
 		736200000000000000000006 /* RemoteTmuxMirrorLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 736200000000000000000005 /* RemoteTmuxMirrorLifecycleTests.swift */; };
 		D77330010000000000000004 /* RemoteTmuxMirrorMutationCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = D77330010000000000000003 /* RemoteTmuxMirrorMutationCoordinator.swift */; };
@@ -2751,6 +2752,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		609C73EBCC5E35DDC4E76978 /* RemoteTmuxMirrorFrames.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxMirrorFrames.swift; sourceTree = "<group>"; };
 		D32650AC37D12294A52E4D63 /* RemoteTmuxMirrorGeometry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxMirrorGeometry.swift; sourceTree = "<group>"; };
 		AD61EDB9377BE136E564F02B /* RemoteTmuxMirrorGeometryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxMirrorGeometryTests.swift; sourceTree = "<group>"; };
+		783300000000000000000001 /* RemoteTmuxMirrorLayoutIdentityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxMirrorLayoutIdentityTests.swift; sourceTree = "<group>"; };
 		740600000000000000000009 /* RemoteTmuxMirrorLayoutMathTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxMirrorLayoutMathTests.swift; sourceTree = "<group>"; };
 		736200000000000000000005 /* RemoteTmuxMirrorLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxMirrorLifecycleTests.swift; sourceTree = "<group>"; };
 		D77330010000000000000003 /* RemoteTmuxMirrorMutationCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxMirrorMutationCoordinator.swift; sourceTree = "<group>"; };
@@ -5035,6 +5037,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				740600000000000000000009 /* RemoteTmuxMirrorLayoutMathTests.swift */,
 				74060000000000000000000B /* RemoteTmuxMirrorPlacementTests.swift */,
 				74060000000000000000000D /* RemoteTmuxWindowMirrorFocusSeedTests.swift */,
+				783300000000000000000001 /* RemoteTmuxMirrorLayoutIdentityTests.swift */,
 				5C7032605BF360630E6E207A /* RemoteTmuxConnectionWindowSizingTests.swift */,
 				4D8BD9A2D8B7F7A27B77B289 /* RemoteTmuxRectPublicationTests.swift */,
 				A7C9D1E3F5B7A9C1D3E5F701 /* RemoteTmuxWindowReorderTests.swift */,
@@ -7048,6 +7051,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				7738A0017738A0017738A001 /* RemoteTmuxMirrorCLIObservabilityTests.swift in Sources */,
 				D4F8A2E61C5B39707A8E6F13 /* RemoteTmuxMirrorFeedForwardTests.swift in Sources */,
 				BC22F721323079468ED57528 /* RemoteTmuxMirrorGeometryTests.swift in Sources */,
+				783300000000000000000002 /* RemoteTmuxMirrorLayoutIdentityTests.swift in Sources */,
 				74060000000000000000000A /* RemoteTmuxMirrorLayoutMathTests.swift in Sources */,
 				736200000000000000000006 /* RemoteTmuxMirrorLifecycleTests.swift in Sources */,
 				F11ED7AB0001000100010001 /* RemoteTmuxMirrorNewTabPlacementTests.swift in Sources */,
