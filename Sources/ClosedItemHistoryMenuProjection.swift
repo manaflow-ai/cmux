@@ -13,17 +13,25 @@ enum ClosedItemHistoryMenuProjector {
         isEligible: (Records.Element) -> Bool,
         transform: (Records.Element) -> Item
     ) -> ClosedItemHistoryMenuProjection<Item> {
-        let eligibleRecords = records.filter(isEligible)
-        if let maxItemCount,
-           maxItemCount >= 0,
-           eligibleItemCount > maxItemCount {
+        if let maxItemCount, maxItemCount >= 0 {
+            let projectedItemCount = min(maxItemCount, eligibleItemCount)
+            var items: [Item] = []
+            items.reserveCapacity(projectedItemCount)
+            if projectedItemCount > 0 {
+                for record in records where isEligible(record) {
+                    items.append(transform(record))
+                    if items.count == projectedItemCount {
+                        break
+                    }
+                }
+            }
             return ClosedItemHistoryMenuProjection(
-                items: eligibleRecords.prefix(maxItemCount).map(transform),
-                isLimited: true
+                items: items,
+                isLimited: eligibleItemCount > maxItemCount
             )
         }
         return ClosedItemHistoryMenuProjection(
-            items: eligibleRecords.map(transform),
+            items: records.filter(isEligible).map(transform),
             isLimited: false
         )
     }
