@@ -67,9 +67,10 @@ struct SidebarWorkspaceChecklistSection: View {
     /// "Add Checklist Item…" asks this row to arm and focus its add field.
     let addFieldActivationToken: Int
     /// Whether the `sidebar.beta.workspaceTodos.checklistStyle` setting is
-    /// `popover`: the summary line opens an anchored checklist popover
-    /// instead of the inline expansion. Empty checklists keep the inline
-    /// ghost add row either way (no summary line to anchor to).
+    /// `popover`: the summary line (or, for an empty checklist with no
+    /// summary line yet, the ghost "Add item" row) opens an anchored
+    /// checklist popover instead of the inline expansion — including for a
+    /// workspace's very first item.
     let usesPopoverPresentation: Bool
     let isPopoverPresented: Bool
     let primaryColor: Color
@@ -89,9 +90,14 @@ struct SidebarWorkspaceChecklistSection: View {
     @State private var inlineAddGeneration = 0
     @State private var editingItemId: UUID?
 
-    /// Popover presentation only applies once a summary line exists.
+    /// Whether taps and the "Add Checklist Item…" activation token should
+    /// route to the anchored popover instead of the inline expansion. Equal
+    /// to `usesPopoverPresentation` regardless of `totalCount`, so a
+    /// workspace's very first checklist item also opens the popover in
+    /// `.popover` style — the popover anchor lives on the outer container
+    /// below, which is present whether or not a summary line exists yet.
     private var presentsPopover: Bool {
-        usesPopoverPresentation && totalCount > 0
+        usesPopoverPresentation
     }
 
     var body: some View {
@@ -103,6 +109,27 @@ struct SidebarWorkspaceChecklistSection: View {
                 expandedList
             }
         }
+        // The popover anchor is hosted here (not on `summaryLine` alone) so
+        // the same backing NSView anchors the popover across the 0→1 item
+        // transition, when `summaryLine` first appears and `expandedList`
+        // (which holds the ghost "Add item" row for an empty checklist)
+        // disappears — re-anchoring to a freshly created view would close
+        // and immediately reopen the popover.
+        .modifier(ChecklistSummaryPopoverModifier(
+            isPresented: presentsPopover
+                ? Binding(get: { isPopoverPresented }, set: { onPopoverPresentedChange($0) })
+                : .constant(false),
+            model: SidebarWorkspaceChecklistPopoverModel(
+                workspaceTitle: workspaceTitle,
+                items: items,
+                completedCount: completedCount,
+                totalCount: totalCount,
+                addFieldActivationToken: addFieldActivationToken
+            ),
+            actions: actions,
+            onConsumeAddFieldActivation: onConsumeAddFieldActivation,
+            onPopoverPresentedChange: onPopoverPresentedChange
+        ))
         .task(id: addFieldActivationToken) {
             // In popover presentation the container routes the token into the
             // checklist popover instead; arming the (hidden) inline field
@@ -154,21 +181,6 @@ struct SidebarWorkspaceChecklistSection: View {
                     ? String(localized: "sidebar.checklist.collapseTooltip", defaultValue: "Hide checklist items")
                     : String(localized: "sidebar.checklist.expandTooltip", defaultValue: "Show checklist items"))
         )
-        .modifier(ChecklistSummaryPopoverModifier(
-            isPresented: presentsPopover
-                ? Binding(get: { isPopoverPresented }, set: { onPopoverPresentedChange($0) })
-                : .constant(false),
-            model: SidebarWorkspaceChecklistPopoverModel(
-                workspaceTitle: workspaceTitle,
-                items: items,
-                completedCount: completedCount,
-                totalCount: totalCount,
-                addFieldActivationToken: addFieldActivationToken
-            ),
-            actions: actions,
-            onConsumeAddFieldActivation: onConsumeAddFieldActivation,
-            onPopoverPresentedChange: onPopoverPresentedChange
-        ))
         .accessibilityIdentifier("SidebarChecklistSummaryLine")
     }
 
@@ -313,7 +325,11 @@ struct SidebarWorkspaceChecklistSection: View {
             }
         } else {
             Button {
-                isAddingItem = true
+                if presentsPopover {
+                    onPopoverPresentedChange(!isPopoverPresented)
+                } else {
+                    isAddingItem = true
+                }
             } label: {
                 HStack(spacing: 4) {
                     CmuxSystemSymbolImage(magnified: "plus", pointSize: 7 * fontScale)
@@ -361,11 +377,13 @@ struct SidebarWorkspaceChecklistSection: View {
     }
 }
 
-/// Attaches the checklist popover to the summary line with SwiftUI's native
-/// `.popover` (not the NSPopover host): an embedded NSViewRepresentable inside
-/// a `.onHover`-tracked sidebar row suppresses the row's hover tracking, which
-/// hid the hover-close "x". The add field takes first responder via
-/// `@FocusState` set on appear inside `SidebarWorkspaceChecklistPopover`.
+/// Attaches the checklist popover to the section container (not just the
+/// summary line — see the call site comment in ``SidebarWorkspaceChecklistSection/body``)
+/// with SwiftUI's native `.popover` (not the NSPopover host): an embedded
+/// NSViewRepresentable inside a `.onHover`-tracked sidebar row suppresses the
+/// row's hover tracking, which hid the hover-close "x". The add field takes
+/// first responder via `@FocusState` set on appear inside
+/// `SidebarWorkspaceChecklistPopover`.
 private struct ChecklistSummaryPopoverModifier: ViewModifier {
     @Binding var isPresented: Bool
     let model: SidebarWorkspaceChecklistPopoverModel
@@ -377,8 +395,8 @@ private struct ChecklistSummaryPopoverModifier: ViewModifier {
     // fields). SwiftUI's native `.popover` does not make its window key in
     // cmux's focus-managed environment, so keystrokes fall through to the
     // terminal. Host it in a real NSPopover (which takes key) instead. This
-    // anchor only exists on rows that actually have a checklist summary line,
-    // so it does not touch the every-row hover path the status glyph uses.
+    // modifier is only attached within the checklist section, so it does not
+    // touch the every-row hover path the status glyph uses.
     func body(content: Content) -> some View {
         content.background(
             SidebarWorkspaceTodoPopoverHost(

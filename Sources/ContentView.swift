@@ -10543,12 +10543,13 @@ struct VerticalTabsSidebar: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .workspaceChecklistAddItemRequested)) { notification in
             guard let workspaceId = notification.userInfo?[WorkspaceTodoActions.workspaceIdUserInfoKey] as? UUID,
-                  let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { return }
-            // Popover style routes the add request into the checklist popover
-            // (armed add field); empty checklists keep the inline ghost row
-            // because there is no summary line to anchor a popover to.
-            if WorkspaceTodoFeature.checklistStyle == .popover,
-               !workspace.todoState.checklist.isEmpty {
+                  tabManager.tabs.contains(where: { $0.id == workspaceId }) else { return }
+            // Popover style always routes the add request into the checklist
+            // popover (armed add field), including a workspace's very first
+            // item: the section anchors the popover to its ghost "Add item"
+            // row when there is no summary line yet, so there is no inline
+            // fallback to reach for.
+            if WorkspaceTodoFeature.checklistStyle == .popover {
                 statusPopoverWorkspaceId = nil
                 checklistPopoverWorkspaceId = workspaceId
             } else {

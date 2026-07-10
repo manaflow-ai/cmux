@@ -155,8 +155,10 @@ enum WorkspaceTodoActions {
 
 extension Notification.Name {
     /// Posted by ``WorkspaceTodoActions/requestChecklistAddField(workspaceId:)``;
-    /// observed by the workspace sidebar, which expands the row's checklist
-    /// and arms its add-item field.
+    /// observed by the workspace sidebar, which arms the row's add-item
+    /// field — via the anchored checklist popover in `.popover` style (even
+    /// for a workspace's very first item), or by expanding the row's inline
+    /// checklist in `.inline` style.
     static let workspaceChecklistAddItemRequested = Notification.Name(
         "cmux.workspaceChecklistAddItemRequested"
     )
