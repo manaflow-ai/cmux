@@ -565,7 +565,7 @@ final class FileExplorerStore {
     /// Stable navigation selection. The outline view mirrors this path after reloads.
     // Selection is applied to the NSOutlineView synchronously by the
     // coordinator paths that mutate it; before the Observation migration these
-    // fields sent no objectWillChange, and signaling here would schedule a
+    // fields published no change notification, and signaling here would schedule a
     // full-tree reloadIfNeeded() sweep on every click/arrow-key selection.
     private(set) var selectedPath: String?
 
