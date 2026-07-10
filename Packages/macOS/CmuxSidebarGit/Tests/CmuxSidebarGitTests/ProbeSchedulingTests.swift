@@ -45,6 +45,14 @@ import CmuxGit
         return service
     }
 
+    private func pullRequestTraversalReads(_ host: RecordingSidebarGitHost) -> [Int] {
+        [
+            host.orderedWorkspaceIdsReadCount,
+            host.panelGitBranchPanelIdsReadCount,
+            host.panelPullRequestPanelIdsReadCount,
+        ]
+    }
+
     /// The initial probe's retry offsets [0, 0.5, 1.5, 3, 6, 10] are absolute
     /// offsets from scheduling time, walked as sequential clock gaps. The
     /// reader gate stays closed so no snapshot applies mid-walk (an applied
@@ -505,7 +513,7 @@ import CmuxGit
             branch: " feature/two ",
             isDirty: false
         )
-        #expect(host.orderedWorkspaceIdsReadCount == 3)
+        #expect(await waitUntil { host.orderedWorkspaceIdsReadCount == 3 })
         service.updateSurfaceGitBranch(
             workspaceId: workspaceId,
             panelId: panelId,
@@ -554,9 +562,7 @@ import CmuxGit
             ) && host.orderedWorkspaceIdsReadCount == 1
         })
 
-        let workspaceReadsBeforeDirtyUpdate = host.orderedWorkspaceIdsReadCount
-        let branchPanelReadsBeforeDirtyUpdate = host.panelGitBranchPanelIdsReadCount
-        let pullRequestPanelReadsBeforeDirtyUpdate = host.panelPullRequestPanelIdsReadCount
+        let readsBeforeDirtyUpdate = pullRequestTraversalReads(host)
         service.updateSurfaceGitBranch(
             workspaceId: workspaceId,
             panelId: panelId,
@@ -568,22 +574,16 @@ import CmuxGit
             branch: "feature/x",
             isDirty: true
         ))
-        #expect(host.orderedWorkspaceIdsReadCount == workspaceReadsBeforeDirtyUpdate)
-        #expect(host.panelGitBranchPanelIdsReadCount == branchPanelReadsBeforeDirtyUpdate)
-        #expect(host.panelPullRequestPanelIdsReadCount == pullRequestPanelReadsBeforeDirtyUpdate)
+        #expect(pullRequestTraversalReads(host) == readsBeforeDirtyUpdate)
 
-        let workspaceReadsBeforeCommandHint = host.orderedWorkspaceIdsReadCount
-        let branchPanelReadsBeforeCommandHint = host.panelGitBranchPanelIdsReadCount
-        let pullRequestPanelReadsBeforeCommandHint = host.panelPullRequestPanelIdsReadCount
+        let readsBeforeCommandHint = pullRequestTraversalReads(host)
         pullRequestService.handleWorkspacePullRequestCommandHint(
             workspaceId: workspaceId,
             panelId: panelId,
             action: "merge",
             target: nil
         )
-        #expect(host.orderedWorkspaceIdsReadCount == workspaceReadsBeforeCommandHint + 1)
-        #expect(host.panelGitBranchPanelIdsReadCount == branchPanelReadsBeforeCommandHint + 1)
-        #expect(host.panelPullRequestPanelIdsReadCount == pullRequestPanelReadsBeforeCommandHint + 1)
+        #expect(pullRequestTraversalReads(host) == readsBeforeCommandHint.map { $0 + 1 })
     }
 
     /// A filesystem event that arrives while a probe is already in flight is a
