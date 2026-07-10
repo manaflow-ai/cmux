@@ -54,8 +54,9 @@ complete in App Store Connect or in the submitted binary.
 - [ ] Photo library purpose string says attaching photos to terminal-agent messages.
 - [ ] Permissions are requested only when the user starts the relevant feature.
 - [ ] Push notifications are opt-in and can be disabled after enabling.
-- [ ] iPhone and iPad analytics collection is disabled until the user consents, and Settings exposes a control that withdraws consent for the same telemetry gate used by analytics and crash reporting. Do not submit while the absent `sendAnonymousTelemetry` default remains enabled without an iOS control.
-- [ ] In-app Delete Account deletes or anonymizes account-linked PostHog analytics, or the deletion flow gives the user a bounded follow-up process for that processor data. Do not submit while PostHog deletion is only a support-request path.
+- [x] iPhone and iPad analytics collection is disabled until the user consents, and Settings exposes a control that withdraws consent for the same telemetry gate used by analytics and crash reporting.
+- [x] In-app Delete Account queues deletion of account-linked PostHog analytics before deleting the Stack user.
+- [ ] Production web env has `POSTHOG_PERSONAL_API_KEY` with `person:write` scope, and `POSTHOG_ENVIRONMENT_ID` if the default PostHog environment `244066` changes.
 
 ## ASC Validation Commands
 

@@ -69,6 +69,9 @@ export const dynamic = "force-dynamic";
 
 const VAULT_OBJECT_DELETE_BATCH_SIZE = 100;
 const DELETED_ACCOUNT_ACTOR_ID = "deleted-account";
+const POSTHOG_DEFAULT_API_HOST = "https://us.posthog.com";
+// The shipped PostHog project key belongs to project/environment 244066.
+const POSTHOG_DEFAULT_ENVIRONMENT_ID = "244066";
 
 type DeletableStackUser = {
   readonly id: string;
@@ -194,6 +197,14 @@ export async function DELETE(request: Request): Promise<Response> {
       },
     }, accountScope.teamIds);
     await refreshAccountDeletionTombstoneLease(userId);
+    await deletePostHogPersonForAccountDeletion(userId, {
+      beforeExternalRequest: () => {
+        destructiveCleanupStarted = true;
+      },
+      afterExternalMutation: async () => {
+        await refreshAccountDeletionTombstoneLease(userId);
+      },
+    });
     // Delete cmux-owned data before the Stack user so a Stack-side failure does
     // not strand retained app data behind an account the user can no longer use.
     // These deletes are idempotent, so the same signed-in user can retry the
@@ -213,7 +224,9 @@ export async function DELETE(request: Request): Promise<Response> {
       }, 500);
     }
     try {
-      await finishPostStackAccountCleanup(userId, accountScope.teamIds);
+      await finishPostStackAccountCleanup(userId, accountScope.teamIds, {
+        deletePostHogPerson: false,
+      });
       await markAccountDeletionTombstoneCompleted(userId);
     } catch (error) {
       logAccountDeleteError("account.delete.post_stack_cleanup_failed", error);
@@ -600,9 +613,80 @@ async function deleteVaultRowsAndObjectsForAccountLocked(
   }
 }
 
-async function finishPostStackAccountCleanup(userId: string, accountTeamIds: readonly string[]): Promise<void> {
+async function finishPostStackAccountCleanup(
+  userId: string,
+  accountTeamIds: readonly string[],
+  options: { readonly deletePostHogPerson?: boolean } = {},
+): Promise<void> {
   await deleteVaultRowsAndObjectsForAccount(userId);
+  if (options.deletePostHogPerson !== false) {
+    await deletePostHogPersonForAccountDeletion(userId);
+  }
   await deleteCmuxOwnedAccountRows(userId, accountTeamIds);
+}
+
+async function deletePostHogPersonForAccountDeletion(
+  userId: string,
+  options: {
+    readonly beforeExternalRequest?: () => void;
+    readonly afterExternalMutation?: () => Promise<void>;
+  } = {},
+): Promise<void> {
+  const config = postHogPersonDeletionConfig();
+  if (!config) return;
+
+  options.beforeExternalRequest?.();
+  const response = await fetch(
+    `${config.apiHost}/api/environments/${encodeURIComponent(config.environmentId)}/persons/bulk_delete/`,
+    {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${config.personalApiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        distinct_ids: [userId],
+        delete_events: true,
+        delete_recordings: true,
+        keep_person: false,
+      }),
+    },
+  );
+  if (!response.ok) {
+    throw new Error(`PostHog account deletion failed with status ${response.status}`);
+  }
+  await options.afterExternalMutation?.();
+}
+
+function postHogPersonDeletionConfig(): {
+  readonly apiHost: string;
+  readonly environmentId: string;
+  readonly personalApiKey: string;
+} | null {
+  const personalApiKey = process.env.POSTHOG_PERSONAL_API_KEY?.trim();
+  if (!personalApiKey) {
+    if (
+      process.env.VERCEL_ENV === "production" ||
+      process.env.CMUX_REQUIRE_POSTHOG_PERSON_DELETE === "1"
+    ) {
+      throw new Error("POSTHOG_PERSONAL_API_KEY is required for account deletion");
+    }
+    return null;
+  }
+
+  const apiHost = (
+    process.env.POSTHOG_API_HOST ??
+    POSTHOG_DEFAULT_API_HOST
+  ).replace(/\/$/, "");
+  const environmentId = (
+    process.env.POSTHOG_ENVIRONMENT_ID ??
+    process.env.POSTHOG_PROJECT_ID ??
+    POSTHOG_DEFAULT_ENVIRONMENT_ID
+  ).trim();
+  if (!environmentId) {
+    throw new Error("POSTHOG_ENVIRONMENT_ID is required for account deletion");
+  }
+  return { apiHost, environmentId, personalApiKey };
 }
 
 async function resolveUserBillingForAccountDeletion(

@@ -28,6 +28,9 @@ process.env.NEXT_PUBLIC_STACK_PROJECT_ID ??= "00000000-0000-4000-8000-0000000000
 process.env.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY ??= "test-stack-publishable";
 
 const ACCOUNT_USER_ID = "account-user-1";
+const originalPostHogPersonalApiKey = process.env.POSTHOG_PERSONAL_API_KEY;
+const originalPostHogApiHost = process.env.POSTHOG_API_HOST;
+const originalPostHogEnvironmentId = process.env.POSTHOG_ENVIRONMENT_ID;
 const stackModule = await import("../app/lib/stack");
 const realGetStackServerApp = stackModule.getStackServerApp;
 const realIsStackConfigured = stackModule.isStackConfigured;
@@ -259,6 +262,20 @@ const revokeTenant = mock(async (...args: unknown[]) => {
   if (sequenceError) throw sequenceError;
   if (subrouterRevokeError) throw subrouterRevokeError;
 });
+const realFetch = globalThis.fetch;
+const postHogDeleteFetch = mock(async (...args: unknown[]) => {
+  const fetchArgs = args as Parameters<typeof fetch>;
+  routeEvents.push("posthog-delete");
+  postHogDeleteRequests.push(fetchArgs);
+  if (postHogDeleteError) throw postHogDeleteError;
+  return new Response(JSON.stringify({
+    persons_found: 1,
+    persons_deleted: 1,
+    events_queued_for_deletion: true,
+    recordings_queued_for_deletion: true,
+    deletion_errors: [],
+  }), { status: postHogDeleteStatus });
+});
 
 let deletedTableCount = 0;
 let deletedTables: unknown[] = [];
@@ -303,6 +320,9 @@ let stackUserTeams: StackList = [];
 let useAccountRouteStubs = false;
 let lastRevokeIdentityCall: { readonly userId: string; readonly afterBatch?: unknown } | null = null;
 let vaultLockUsers: string[] = [];
+let postHogDeleteRequests: Parameters<typeof fetch>[] = [];
+let postHogDeleteError: unknown = null;
+let postHogDeleteStatus = 202;
 const originalConsoleError = console.error;
 const consoleError = mock(() => {});
 
@@ -376,6 +396,31 @@ function chainableSelectResult(rows: unknown[]): SelectResult {
     offset: { value: () => result },
   });
   return result;
+}
+
+function restoreEnv(name: string, value: string | undefined): void {
+  if (value === undefined) {
+    delete process.env[name];
+  } else {
+    process.env[name] = value;
+  }
+}
+
+function expectPostHogAccountDeleteRequest(): void {
+  expect(postHogDeleteRequests).toHaveLength(1);
+  const [url, init] = postHogDeleteRequests[0]!;
+  expect(String(url)).toBe("https://posthog.test/api/environments/env-244066/persons/bulk_delete/");
+  expect(init?.method).toBe("POST");
+  expect(init?.headers).toEqual({
+    "Authorization": "Bearer test-posthog-personal-api-key",
+    "Content-Type": "application/json",
+  });
+  expect(JSON.parse(String(init?.body))).toEqual({
+    distinct_ids: [ACCOUNT_USER_ID],
+    delete_events: true,
+    delete_recordings: true,
+    keep_person: false,
+  });
 }
 
 const mockDb = {
@@ -519,6 +564,10 @@ afterAll(() => {
 
 beforeEach(() => {
   console.error = consoleError as typeof console.error;
+  globalThis.fetch = postHogDeleteFetch as typeof fetch;
+  process.env.POSTHOG_PERSONAL_API_KEY = "test-posthog-personal-api-key";
+  process.env.POSTHOG_API_HOST = "https://posthog.test";
+  process.env.POSTHOG_ENVIRONMENT_ID = "env-244066";
   consoleError.mockClear();
   deleteStackUser.mockClear();
   updateStackUser.mockClear();
@@ -542,6 +591,7 @@ beforeEach(() => {
   removeTester.mockClear();
   captureAscError.mockClear();
   revokeTenant.mockClear();
+  postHogDeleteFetch.mockClear();
   deletedTableCount = 0;
   deletedTables = [];
   deletedWhere = [];
@@ -584,10 +634,17 @@ beforeEach(() => {
   stackUserSelectedTeam = null;
   stackUserTeams = [];
   vaultLockUsers = [];
+  postHogDeleteRequests = [];
+  postHogDeleteError = null;
+  postHogDeleteStatus = 202;
 });
 
 afterEach(() => {
   console.error = originalConsoleError;
+  globalThis.fetch = realFetch;
+  restoreEnv("POSTHOG_PERSONAL_API_KEY", originalPostHogPersonalApiKey);
+  restoreEnv("POSTHOG_API_HOST", originalPostHogApiHost);
+  restoreEnv("POSTHOG_ENVIRONMENT_ID", originalPostHogEnvironmentId);
 });
 
 describe("account deletion route", () => {
@@ -658,6 +715,7 @@ describe("account deletion route", () => {
     ]);
     expect(cancelledStripeSubscriptions).toEqual(["sub_user_active"]);
     expect(deletedStripeCustomers).toEqual(["cus_user"]);
+    expectPostHogAccountDeleteRequest();
     expect(updateStackUser).toHaveBeenCalledWith({
       clientReadOnlyMetadata: { cmuxAccountDeleting: true },
     });
@@ -703,12 +761,34 @@ describe("account deletion route", () => {
       "vault-delete",
       "vault-delete",
       "vault-delete",
+      "posthog-delete",
       "transaction",
       "transaction-lock",
       "stack-delete",
       "transaction",
       "transaction-lock",
     ]);
+  });
+
+  test("blocks Stack deletion when PostHog account analytics deletion fails", async () => {
+    postHogDeleteStatus = 500;
+
+    const response = await DELETE(accountDeletionRequest());
+
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({
+      error: "account_delete_retryable",
+      retryable: true,
+      destroyedVms: 2,
+    });
+    expectPostHogAccountDeleteRequest();
+    expect(deleteStackUser).not.toHaveBeenCalled();
+    expect(routeEvents).toContain("posthog-delete");
+    expect(routeEvents).not.toContain("stack-delete");
+    expect(tombstoneUpdates.some((values) =>
+      (values as { readonly status?: unknown; readonly errorMessage?: unknown }).status === "failed" &&
+      (values as { readonly errorMessage?: unknown }).errorMessage === "Error: PostHog account deletion failed with status 500"
+    )).toBe(true);
   });
 
   test("destroys personal VMs with the same provider id on different providers", async () => {
@@ -1779,6 +1859,7 @@ describe("account deletion route", () => {
       clientReadOnlyMetadata: { cmuxAccountDeleting: true },
     });
     expect(updateStackUser).toHaveBeenCalledTimes(1);
+    expectPostHogAccountDeleteRequest();
     expect(deleteStackUser).toHaveBeenCalledTimes(1);
     expect(tombstoneUpdates.some((values) =>
       (values as { readonly status?: unknown; readonly errorMessage?: unknown }).status === "failed" &&
@@ -1793,6 +1874,7 @@ describe("account deletion route", () => {
       "list-vms",
       "destroy-vm",
       "destroy-vm",
+      "posthog-delete",
       "transaction",
       "transaction-lock",
       "stack-delete",

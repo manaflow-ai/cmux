@@ -5,6 +5,12 @@ import CmuxMobileSupport
 import CmuxMobileWorkspace
 import SwiftUI
 
+private enum MobileTelemetryDefaults {
+    /// Shared with `UserDefaultsAnalyticsConsentProvider`; keep the string stable
+    /// so Settings controls the same gate used by analytics and crash reporting.
+    static let sendAnonymousTelemetryKey = "sendAnonymousTelemetry"
+}
+
 /// The mobile app's settings page. Surfaces the signed-in account (so the user
 /// can confirm which cmux account this device uses — the account must match the
 /// Mac it pairs with), plus terminal shortcuts, agent notifications, and the
@@ -19,6 +25,7 @@ struct MobileSettingsView: View {
     /// The shell store, used to drive the multi-Mac switcher. `nil` in previews,
     /// where the "Switch Mac" entry is hidden.
     var store: CMUXMobileShellStore?
+    @AppStorage(MobileTelemetryDefaults.sendAnonymousTelemetryKey) private var sendAnonymousTelemetry = false
 
     @Environment(\.dismiss) private var dismiss
     @State private var showingShortcuts = false
@@ -234,6 +241,23 @@ struct MobileSettingsView: View {
                         )
                     }
                     .accessibilityIdentifier("MobileSettingsNotifications")
+                }
+
+                Section {
+                    Toggle(isOn: $sendAnonymousTelemetry) {
+                        Text(L10n.string(
+                            "mobile.settings.telemetry",
+                            defaultValue: "Share Analytics and Crash Reports"
+                        ))
+                    }
+                    .accessibilityIdentifier("MobileSettingsTelemetryToggle")
+                } header: {
+                    Text(L10n.string("mobile.settings.privacy", defaultValue: "Privacy"))
+                } footer: {
+                    Text(L10n.string(
+                        "mobile.settings.telemetryFooter",
+                        defaultValue: "When off, cmux does not send iPhone or iPad product analytics or crash reports."
+                    ))
                 }
 
                 MobileSettingsLegalSupportSection()

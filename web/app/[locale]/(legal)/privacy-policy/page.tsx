@@ -274,14 +274,11 @@ export default function PrivacyPolicyPage() {
         retained for product analytics and debugging for up to 24 months unless
         you request earlier deletion. The mobile app account settings delete or
         anonymize cmux-owned account, device, pairing, notification, billing, and
-        cloud data as part of account deletion. Account-linked PostHog analytics
-        deletion is not currently triggered by that in-app account deletion flow;
-        contact us to request deletion or anonymization of account-linked
-        PostHog analytics, and we will complete that request within 30 days
-        unless retention is required for security, legal, billing, or
-        fraud-prevention reasons. You may request deletion of cmux-owned data
-        associated with you from the mobile app account settings or by contacting
-        us at{" "}
+        cloud data, and queue deletion of account-linked mobile PostHog
+        analytics, as part of account deletion. Some deletion work may be
+        processed asynchronously by our service providers. You may request
+        deletion of cmux-owned data associated with you from the mobile app
+        account settings or by contacting us at{" "}
         <a href="mailto:founders@manaflow.com">founders@manaflow.com</a>.
       </p>
     </>
