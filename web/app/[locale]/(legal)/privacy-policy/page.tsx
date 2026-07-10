@@ -96,11 +96,11 @@ export default function PrivacyPolicyPage() {
         in, events use a random per-install client identifier. After sign in,
         our server attaches your Stack Auth account identifier to events before
         forwarding them to PostHog. We retain mobile analytics only as long as
-        needed for product analytics and debugging. The current iPhone and iPad
-        Application sends these analytics unless telemetry is disabled through an
-        app-provided preference in the build you are using. Where the Application
-        exposes a Send anonymous telemetry preference, turning it off stops
-        analytics events from being buffered or sent. You may also contact us at{" "}
+        needed for product analytics and debugging. In the current iPhone and
+        iPad Application, analytics and crash reports start disabled and are sent
+        only after you enable the Share Analytics and Crash Reports control in
+        Settings. Turning that control off stops analytics events from being
+        buffered or sent. You may also contact us at{" "}
         <a href="mailto:founders@manaflow.com">founders@manaflow.com</a> to
         request deletion of analytics associated with your account.
       </p>
