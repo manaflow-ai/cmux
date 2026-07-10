@@ -1,3 +1,4 @@
+import CMUXMobileCore
 public import Foundation
 
 /// Generation-scoped accept loop with bounded, timed admission work.
@@ -9,6 +10,7 @@ public actor CmxIrohEndpointServer {
 
     private struct PendingAdmission {
         let generation: UInt64
+        let remoteIdentity: CmxIrohPeerIdentity
         let connection: any CmxIrohConnection
         let handlerTask: Task<Void, Never>
         let deadlineTask: Task<Void, Never>
@@ -16,6 +18,7 @@ public actor CmxIrohEndpointServer {
 
     private let supervisor: CmxIrohEndpointSupervisor
     private let maximumPendingAdmissions: Int
+    private let maximumPendingAdmissionsPerIdentity: Int
     private let admissionTimeout: TimeInterval
     private let clock: any CmxIrohRelayClock
     private let handler: ConnectionHandler
@@ -27,14 +30,18 @@ public actor CmxIrohEndpointServer {
     public init(
         supervisor: CmxIrohEndpointSupervisor,
         maximumPendingAdmissions: Int = 10,
+        maximumPendingAdmissionsPerIdentity: Int = 1,
         admissionTimeout: TimeInterval = 15,
         clock: any CmxIrohRelayClock = CmxIrohSystemRelayClock(),
         handler: @escaping ConnectionHandler
     ) {
         precondition(maximumPendingAdmissions > 0)
+        precondition(maximumPendingAdmissionsPerIdentity > 0)
+        precondition(maximumPendingAdmissionsPerIdentity <= maximumPendingAdmissions)
         precondition(admissionTimeout > 0)
         self.supervisor = supervisor
         self.maximumPendingAdmissions = maximumPendingAdmissions
+        self.maximumPendingAdmissionsPerIdentity = maximumPendingAdmissionsPerIdentity
         self.admissionTimeout = admissionTimeout
         self.clock = clock
         self.handler = handler
@@ -113,7 +120,7 @@ public actor CmxIrohEndpointServer {
                     await connection.close(errorCode: 1, reason: "stale_generation")
                     return
                 }
-                startAdmission(connection: connection, generation: generation)
+                await startAdmission(connection: connection, generation: generation)
             }
         } catch is CancellationError {
             return
@@ -126,11 +133,24 @@ public actor CmxIrohEndpointServer {
     private func startAdmission(
         connection: any CmxIrohConnection,
         generation: UInt64
-    ) {
+    ) async {
+        let remoteIdentity = await connection.remoteIdentity()
+        guard currentGeneration == generation, !Task.isCancelled else {
+            await connection.close(errorCode: 1, reason: "stale_generation")
+            return
+        }
         guard pendingAdmissions.count < maximumPendingAdmissions else {
-            Task {
-                await connection.close(errorCode: 1, reason: "admission_capacity")
-            }
+            await connection.close(errorCode: 1, reason: "admission_capacity")
+            return
+        }
+        let pendingForIdentity = pendingAdmissions.values.lazy.filter {
+            $0.remoteIdentity == remoteIdentity
+        }.count
+        guard pendingForIdentity < maximumPendingAdmissionsPerIdentity else {
+            await connection.close(
+                errorCode: 1,
+                reason: "admission_identity_capacity"
+            )
             return
         }
         let id = UUID()
@@ -154,6 +174,7 @@ public actor CmxIrohEndpointServer {
         }
         pendingAdmissions[id] = PendingAdmission(
             generation: generation,
+            remoteIdentity: remoteIdentity,
             connection: connection,
             handlerTask: handlerTask,
             deadlineTask: deadlineTask
