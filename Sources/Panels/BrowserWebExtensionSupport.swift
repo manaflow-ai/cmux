@@ -396,19 +396,6 @@ final class BrowserWebExtensionSupport: NSObject, BrowserWebExtensionHosting {
     }
 }
 
-/// Creates the app-wide web-extension host at launch on OS versions that
-/// support `WKWebExtensionController`; returns nil elsewhere.
-@MainActor
-func makeBrowserWebExtensionHostAtLaunch(
-    jsonStore: JSONConfigStore,
-    catalog: SettingCatalog
-) -> (any BrowserWebExtensionHosting)? {
-    guard #available(macOS 15.4, *) else { return nil }
-    let support = BrowserWebExtensionSupport()
-    support.configure(jsonStore: jsonStore, catalog: catalog)
-    StartupBreadcrumbLog.append("app.init.browserWebExtensions.configured")
-    return support
-}
 
 extension BrowserPanel {
     func noteWebExtensionActivated() {

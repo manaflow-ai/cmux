@@ -187,7 +187,7 @@ struct cmuxApp: App {
         KeyboardShortcutSettings.settingsFileStore.applyDeferredManagedDefaultSideEffects()
         StartupBreadcrumbLog.append("app.init.keyboardShortcuts.sideEffectsApplied")
         StartupBreadcrumbLog.append("app.init.tabManager.begin")
-        let browserWebExtensionHost = makeBrowserWebExtensionHostAtLaunch(
+        let browserWebExtensionHost = Self.makeBrowserWebExtensionHostAtLaunch(
             jsonStore: settingsRuntime.jsonStore,
             catalog: settingsCatalog
         )
@@ -228,6 +228,18 @@ struct cmuxApp: App {
             auth: authComposition
         )
         StartupBreadcrumbLog.append("app.init.delegate.configured")
+    }
+
+    @MainActor
+    private static func makeBrowserWebExtensionHostAtLaunch(
+        jsonStore: JSONConfigStore,
+        catalog: SettingCatalog
+    ) -> (any BrowserWebExtensionHosting)? {
+        guard #available(macOS 15.4, *) else { return nil }
+        let support = BrowserWebExtensionSupport()
+        support.configure(jsonStore: jsonStore, catalog: catalog)
+        StartupBreadcrumbLog.append("app.init.browserWebExtensions.configured")
+        return support
     }
 
     private static func terminateForMissingLaunchTag() -> Never {
