@@ -36,10 +36,8 @@ extension TabManager {
     /// `title` is merely seeded equal to the group name at creation and would
     /// otherwise drift when the group is renamed.
     func resolvedWorkspaceDisplayTitle(for tab: Workspace) -> String {
-        if let group = workspaceGroups.first(where: { $0.anchorWorkspaceId == tab.id }) {
-            return group.name
-        }
-        return tab.title
+        let anchorGroupName = workspaceGroups.first(where: { $0.anchorWorkspaceId == tab.id })?.name
+        return resolvedWorkspaceDisplayTitle(for: tab, anchorGroupName: anchorGroupName)
     }
 
     func resolvedWorkspaceDisplayTitle(forWorkspaceId workspaceId: UUID) -> String? {
@@ -56,9 +54,16 @@ extension TabManager {
         var titles: [UUID: String] = [:]
         titles.reserveCapacity(workspaceIds.count)
         for workspace in tabs where workspaceIds.contains(workspace.id) {
-            titles[workspace.id] = groupNamesByAnchorId[workspace.id] ?? workspace.title
+            titles[workspace.id] = resolvedWorkspaceDisplayTitle(
+                for: workspace,
+                anchorGroupName: groupNamesByAnchorId[workspace.id]
+            )
         }
         return titles
+    }
+
+    private func resolvedWorkspaceDisplayTitle(for workspace: Workspace, anchorGroupName: String?) -> String {
+        anchorGroupName ?? workspace.title
     }
 
     private func windowTitle(for tab: Workspace?) -> String {
