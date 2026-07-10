@@ -243,11 +243,16 @@ extension RemoteDaemonRPCClient {
     }
 
     /// Terminates a PTY session (`pty.close`).
-    public func closePTY(sessionID: String) throws {
+    ///
+    /// - Parameters:
+    ///   - sessionID: Persistent PTY session to terminate.
+    ///   - timeout: Maximum time to await the daemon response. The default
+    ///     preserves the established standalone close behavior.
+    public func closePTY(sessionID: String, timeout: TimeInterval = 8.0) throws {
         _ = try call(
             method: "pty.close",
             params: ["session_id": sessionID],
-            timeout: 8.0
+            timeout: max(0, timeout)
         )
     }
 

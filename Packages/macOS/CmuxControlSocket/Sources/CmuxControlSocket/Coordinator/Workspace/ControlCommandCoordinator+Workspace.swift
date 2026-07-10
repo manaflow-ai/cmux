@@ -902,47 +902,6 @@ extension ControlCommandCoordinator {
         }
     }
 
-    /// `workspace.remote.terminal_session_end` — record a remote terminal
-    /// session end.
-    func workspaceRemoteTerminalSessionEnd(_ params: [String: JSONValue]) -> ControlCallResult {
-        guard let workspaceID = uuid(params, "workspace_id") else {
-            return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
-        }
-        guard let surfaceID = uuid(params, "surface_id") else {
-            return .err(code: "invalid_params", message: "Missing or invalid surface_id", data: nil)
-        }
-        guard let relayPort = strictInt(params, "relay_port"), relayPort > 0, relayPort <= 65535 else {
-            return .err(code: "invalid_params", message: "Missing or invalid relay_port", data: nil)
-        }
-
-        let resolution = context?.controlWorkspaceRemoteTerminalSessionEnd(
-            workspaceID: workspaceID,
-            surfaceID: surfaceID,
-            relayPort: relayPort
-        ) ?? .notFound
-        switch resolution {
-        case .notFound:
-            return .err(code: "not_found", message: "Workspace not found", data: .object([
-                "workspace_id": .string(workspaceID.uuidString),
-                "workspace_ref": ref(.workspace, workspaceID),
-                "surface_id": .string(surfaceID.uuidString),
-                "surface_ref": ref(.surface, surfaceID),
-                "relay_port": .int(Int64(relayPort)),
-            ]))
-        case .resolved(let windowID, let resolvedWorkspaceID, let remoteStatus):
-            return .ok(.object([
-                "window_id": orNull(windowID?.uuidString),
-                "window_ref": ref(.window, windowID),
-                "workspace_id": .string(resolvedWorkspaceID.uuidString),
-                "workspace_ref": ref(.workspace, resolvedWorkspaceID),
-                "surface_id": .string(surfaceID.uuidString),
-                "surface_ref": ref(.surface, surfaceID),
-                "relay_port": .int(Int64(relayPort)),
-                "remote": remoteStatus,
-            ]))
-        }
-    }
-
     /// `v2HasNonNullParam`-style null test on a typed value.
     private func isNull(_ value: JSONValue) -> Bool {
         if case .null = value { return true }

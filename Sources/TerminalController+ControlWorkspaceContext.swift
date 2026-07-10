@@ -691,14 +691,10 @@ extension TerminalController: ControlWorkspaceContext {
     }
 
     func controlWorkspaceRemotePTYAttachEnd(
-        workspaceID workspaceId: UUID,
-        surfaceID surfaceId: UUID,
-        sessionID: String
+        workspaceID workspaceId: UUID, surfaceID surfaceId: UUID, sessionID: String
     ) -> ControlWorkspaceRemotePTYAttachEndResolution {
         let located = AppDelegate.shared?.workspaceContainingPanel(
-            panelId: surfaceId,
-            preferredWorkspaceId: workspaceId
-        )
+            panelId: surfaceId, preferredWorkspaceId: workspaceId)
         let fallbackOwner = AppDelegate.shared?.tabManagerFor(tabId: workspaceId)
         let fallbackWorkspace = fallbackOwner?.tabs.first(where: { $0.id == workspaceId })
         guard let owner = located?.tabManager ?? fallbackOwner,
@@ -708,8 +704,7 @@ extension TerminalController: ControlWorkspaceContext {
         let outcome = workspace.markRemotePTYAttachEnded(surfaceId: surfaceId, sessionID: sessionID)
         let windowId = AppDelegate.shared?.windowId(for: owner)
         return .resolved(
-            windowID: windowId,
-            workspaceID: workspace.id,
+            windowID: windowId, workspaceID: workspace.id,
             clearedRemotePTYSession: outcome.clearedRemotePTYSession,
             untrackedRemoteTerminal: outcome.untrackedRemoteTerminal,
             remoteStatus: JSONValue(foundationObject: workspace.remoteStatusPayload()) ?? .object([:])
@@ -719,13 +714,17 @@ extension TerminalController: ControlWorkspaceContext {
     func controlWorkspaceRemoteTerminalSessionEnd(
         workspaceID workspaceId: UUID,
         surfaceID surfaceId: UUID,
-        relayPort: Int
+        relayPort: Int?,
+        sessionID: String?,
+        lifecycleID: String?,
+        lifecycleOnly: Bool
     ) -> ControlWorkspaceRemoteTerminalSessionEndResolution {
+        if let sessionID, let lifecycleID { remoteProxyBroker.acknowledgePTYLifecycleAfterWrapperEnd(sessionID: sessionID, lifecycleID: lifecycleID) }
         guard let owner = AppDelegate.shared?.tabManagerFor(tabId: workspaceId),
               let workspace = owner.tabs.first(where: { $0.id == workspaceId }) else {
             return .notFound
         }
-        workspace.markRemoteTerminalSessionEnded(surfaceId: surfaceId, relayPort: relayPort)
+        if !lifecycleOnly { workspace.markRemoteTerminalSessionEnded(surfaceId: surfaceId, relayPort: relayPort) }
         let windowId = AppDelegate.shared?.windowId(for: owner)
         return .resolved(
             windowID: windowId,

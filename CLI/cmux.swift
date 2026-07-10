@@ -4413,18 +4413,21 @@ struct CMUXCLI {
                 jsonOutput: jsonOutput
             )
         case "ssh-pty-attach":
+            let (requestedLifecycleID, attachArgsWithoutLifecycle) = parseOption(commandArgs, name: "--lifecycle-id")
+            let stableLifecycleID = Self.normalizedEnvValue(requestedLifecycleID) ?? UUID().uuidString.lowercased()
+            let stableAttachArgs = attachArgsWithoutLifecycle + ["--lifecycle-id", stableLifecycleID]
             do {
-                try runSSHPTYAttach(commandArgs: commandArgs, client: client, explicitPassword: socketPasswordArg)
+                try runSSHPTYAttach(commandArgs: stableAttachArgs, client: client, explicitPassword: socketPasswordArg)
             } catch let error as CLIError
                 where error.exitCode == SSHPTYAttachExitCode.sessionNotFound.rawValue &&
-                commandArgs.contains("--require-existing") {
+                stableAttachArgs.contains("--require-existing") {
                 let notice = String(
                     localized: "cli.sshPtyAttach.remoteSessionLostRespawn",
                     defaultValue: "[cmux] remote session was lost; starting a new shell."
                 )
                 cliWriteStderr(Data((notice + "\n").utf8))
                 try runSSHPTYAttach(
-                    commandArgs: commandArgs.filter { $0 != "--require-existing" },
+                    commandArgs: stableAttachArgs.filter { $0 != "--require-existing" },
                     client: client,
                     explicitPassword: socketPasswordArg
                 )
@@ -11966,7 +11969,7 @@ struct CMUXCLI {
         }
     }
 
-    private func sshSessionListFailureMessage(_ errors: [[String: Any]]) -> String {
+    func sshSessionListFailureMessage(_ errors: [[String: Any]]) -> String {
         let count = errors.count
         let summary = "ssh-session-list failed for \(count) remote workspace\(count == 1 ? "" : "s")"
         let details = errors.map { error in
@@ -12244,7 +12247,7 @@ struct CMUXCLI {
     private func sshSessionAttachStartupCommand(sessionID: String) -> String {
         let quotedSessionID = shellQuote(sessionID)
         let currentExecutable = shellQuote(resolvedExecutableURL()?.path ?? (args.first ?? "cmux"))
-        let attachCommand = "\"$cmux_ssh_attach_cli\" --socket \"$CMUX_SOCKET_PATH\" ssh-pty-attach --wait --require-existing --workspace \"$CMUX_WORKSPACE_ID\" --session-id \(quotedSessionID) --attachment-id \"${CMUX_SURFACE_ID:-}\""
+        let attachCommand = "\"$cmux_ssh_attach_cli\" --socket \"$CMUX_SOCKET_PATH\" ssh-pty-attach --wait --require-existing --workspace \"$CMUX_WORKSPACE_ID\" --session-id \(quotedSessionID) --lifecycle-id \"$cmux_ssh_attach_lifecycle_id\" --attachment-id \"${CMUX_SURFACE_ID:-}\""
         let script = ([
             "cmux_ssh_attach_cli=\"${CMUX_BUNDLED_CLI_PATH:-}\"",
             "if [ -z \"$cmux_ssh_attach_cli\" ] || [ ! -x \"$cmux_ssh_attach_cli\" ]; then cmux_ssh_attach_cli=\(currentExecutable); fi",
@@ -12252,6 +12255,14 @@ struct CMUXCLI {
             "if [ -z \"$cmux_ssh_attach_cli\" ]; then printf '%s\\n' '[cmux] bundled CLI not found for SSH PTY attach.' >&2; exit 127; fi",
             "if [ -z \"${CMUX_SOCKET_PATH:-}\" ]; then printf '%s\\n' '[cmux] required configuration missing for SSH PTY attach.' >&2; exit 1; fi",
             "if [ -z \"${CMUX_WORKSPACE_ID:-}\" ]; then printf '%s\\n' '[cmux] required workspace context missing for SSH PTY attach.' >&2; exit 1; fi",
+            "cmux_ssh_attach_lifecycle_id=$(/usr/bin/uuidgen | /usr/bin/tr '[:upper:]' '[:lower:]') || exit 1",
+            "cmux_ssh_attach_lifecycle_ended=0",
+            "cmux_ssh_attach_lifecycle_end() { if [ \"$cmux_ssh_attach_lifecycle_ended\" = 1 ]; then return; fi; cmux_ssh_attach_lifecycle_ended=1; \"$cmux_ssh_attach_cli\" --socket \"$CMUX_SOCKET_PATH\" ssh-session-end --lifecycle-only --workspace \"$CMUX_WORKSPACE_ID\" --surface \"${CMUX_SURFACE_ID:-}\" --session-id \(quotedSessionID) --lifecycle-id \"$cmux_ssh_attach_lifecycle_id\" >/dev/null 2>&1 || true; }",
+            "cmux_ssh_attach_signal_exit() { cmux_ssh_attach_signal_status=\"$1\"; trap - EXIT HUP INT TERM; cmux_ssh_attach_lifecycle_end; exit \"$cmux_ssh_attach_signal_status\"; }",
+            "trap 'cmux_ssh_attach_lifecycle_end' EXIT",
+            "trap 'cmux_ssh_attach_signal_exit 129' HUP",
+            "trap 'cmux_ssh_attach_signal_exit 130' INT",
+            "trap 'cmux_ssh_attach_signal_exit 143' TERM",
         ] + sshPTYAttachRetryLoopLines(command: attachCommand)).joined(separator: "\n")
         return "/bin/sh -c \(shellQuote(script))"
     }
@@ -12300,15 +12311,18 @@ struct CMUXCLI {
     private func runSSHPTYAttach(commandArgs: [String], client: SocketClient, explicitPassword: String?) throws {
         let (workspaceOpt, rem0) = parseOption(commandArgs, name: "--workspace")
         let (sessionIDOpt, rem1) = parseOption(rem0, name: "--session-id")
-        let (attachmentIDOpt, rem2) = parseOption(rem1, name: "--attachment-id")
-        let (commandB64Opt, rem3) = parseOption(rem2, name: "--command-b64")
-        let waitForReady = rem3.contains("--wait")
-        let requireExisting = rem3.contains("--require-existing")
-        let remaining = rem3.filter { $0 != "--wait" && $0 != "--require-existing" }
+        let (lifecycleIDOpt, rem2) = parseOption(rem1, name: "--lifecycle-id")
+        let (attachmentIDOpt, rem3) = parseOption(rem2, name: "--attachment-id")
+        let (commandB64Opt, rem4) = parseOption(rem3, name: "--command-b64")
+        let waitForReady = rem4.contains("--wait")
+        let requireExisting = rem4.contains("--require-existing")
+        let remaining = rem4.filter { $0 != "--wait" && $0 != "--require-existing" }
         if let unknown = remaining.first(where: { Self.isFlagToken($0) }) {
             throw CLIError(message: "ssh-pty-attach: unknown flag '\(unknown)'")
         }
-        guard remaining.isEmpty else {
+        guard remaining.isEmpty,
+              let lifecycleID = lifecycleIDOpt?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !lifecycleID.isEmpty else {
             throw CLIError(message: "Usage: cmux ssh-pty-attach --workspace <workspace> --session-id <id> [--attachment-id <id>] [--command-b64 <base64>] [--require-existing]")
         }
         let workspaceRaw = workspaceOpt ?? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
@@ -12343,6 +12357,20 @@ struct CMUXCLI {
         var wrapperWillRetrySameSurface = false
         var attachFinished = false
         var attachmentToken = ""
+        func reconcileBridgeEnd(intentionalOnly: Bool) throws -> Bool {
+            do {
+                return try reconcileSSHPTYBridgeEnd(
+                    client: client, workspaceId: workspaceId, surfaceID: surfaceID,
+                    sessionID: sessionID, lifecycleID: lifecycleID, intentionalOnly: intentionalOnly
+                )
+            } catch let error as CLIError {
+                if SSHPTYAttachExitCode(rawValue: error.exitCode)?.isWrapperRetryable == true,
+                   sshPTYAttachWrapperRetryPending() {
+                    wrapperWillRetrySameSurface = true
+                }
+                throw error
+            }
+        }
         defer {
             if !attachFinished {
                 cleanupFailedSSHPTYAttach(
@@ -12350,8 +12378,10 @@ struct CMUXCLI {
                     workspaceId: workspaceId,
                     surfaceID: surfaceID,
                     sessionID: sessionID,
+                    lifecycleID: lifecycleID,
                     attachmentID: attachmentID,
                     attachmentToken: attachmentToken,
+                    retireLifecycle: !sessionLostWillRespawn && !wrapperWillRetrySameSurface,
                     clearLocalSurface: !bridgeReachedReady && !sessionLostWillRespawn
                         && !wrapperWillRetrySameSurface
                 )
@@ -12364,6 +12394,7 @@ struct CMUXCLI {
                 workspaceId: workspaceId,
                 surfaceID: surfaceID,
                 sessionID: sessionID,
+                lifecycleID: lifecycleID,
                 attachmentID: attachmentID,
                 command: command,
                 requireExisting: requireExisting
@@ -12388,15 +12419,38 @@ struct CMUXCLI {
             } else {
                 exitCode = SSHPTYAttachExitCode.classifyBridgeEstablishmentFailure(String(describing: error))
             }
+            let closedGeneration = (error as? CLIError)?.v2Code == "pty_lifecycle_closed"
+            if !closedGeneration, exitCode.isWrapperRetryable, sshPTYAttachWrapperRetryPending() {
+                wrapperWillRetrySameSurface = true
+            }
+            if closedGeneration {
+                if (try? reconcileBridgeEnd(intentionalOnly: true)) == true {
+                    attachFinished = true
+                    return
+                }
+                cleanupFailedSSHPTYAttach(
+                    client: client,
+                    workspaceId: workspaceId,
+                    surfaceID: surfaceID,
+                    sessionID: sessionID,
+                    lifecycleID: lifecycleID,
+                    attachmentID: attachmentID,
+                    attachmentToken: attachmentToken,
+                    retireLifecycle: true,
+                    clearLocalSurface: true
+                )
+                attachFinished = true
+                return
+            }
+            if exitCode.isWrapperRetryable {
+                if try reconcileBridgeEnd(intentionalOnly: true) {
+                    attachFinished = true
+                    return
+                }
+            }
             if requireExisting && exitCode == .sessionNotFound {
                 // Match the bridge-status path below: keep surface tracking intact before respawn.
                 sessionLostWillRespawn = true
-            }
-            if exitCode.isWrapperRetryable && sshPTYAttachWrapperRetryPending() {
-                // The shell wrapper loop re-runs this attach on the same
-                // surface; keep it tracked instead of sending pty_attach_end.
-                // On the final attempt (or without the wrapper) cleanup runs.
-                wrapperWillRetrySameSurface = true
             }
             throw CLIError(
                 message: "ssh-pty-attach: \(userFacingRemotePTYErrorMessage(error))",
@@ -12429,31 +12483,21 @@ struct CMUXCLI {
             attachmentToken = try readSSHPTYBridgeReady(fd: fd)
             bridgeReachedReady = true
         } catch {
-            // A `pty_session_not_found` failure (exit 253) under
-            // --require-existing is immediately retried by the ssh-pty-attach
-            // command handler with a fresh non-require-existing attach on the
-            // same surface (`runSSHPTYAttach`'s only call sites are that
-            // initial attempt and that retry). Keep the app-side surface
-            // tracking intact across the respawn: sending pty_attach_end here
-            // would untrack the surface and mark it ended while the
-            // replacement shell is about to run on it.
-            if requireExisting,
-               let cliError = error as? CLIError,
-               cliError.exitCode == SSHPTYAttachExitCode.sessionNotFound.rawValue {
+            let sessionNotFound = requireExisting &&
+                (error as? CLIError)?.exitCode == SSHPTYAttachExitCode.sessionNotFound.rawValue
+            if sessionNotFound {
                 sessionLostWillRespawn = true
             }
-            if let cliError = error as? CLIError,
-               SSHPTYAttachExitCode(rawValue: cliError.exitCode)?.isWrapperRetryable == true,
-               sshPTYAttachWrapperRetryPending() {
-                // Transient pre-ready failure (TCP connect, handshake, ready
-                // wait): the shell wrapper loop re-runs this attach on the
-                // same surface; keep it tracked instead of sending
-                // pty_attach_end, which a successful retry cannot undo.
-                // On the final attempt (or without the wrapper) cleanup runs.
+            let preReadyRetryable = (error as? CLIError)
+                .flatMap { SSHPTYAttachExitCode(rawValue: $0.exitCode) }?.isWrapperRetryable == true
+            if preReadyRetryable, sshPTYAttachWrapperRetryPending() {
                 wrapperWillRetrySameSurface = true
             }
-            if let connectedFD {
-                Darwin.close(connectedFD)
+            if let connectedFD { Darwin.close(connectedFD) }
+            if !sessionNotFound, preReadyRetryable,
+               try reconcileBridgeEnd(intentionalOnly: true) {
+                attachFinished = true
+                return
             }
             throw error
         }
@@ -12503,25 +12547,13 @@ struct CMUXCLI {
                 cliWriteStdout(Data(outputBuffer.prefix(count)))
             } else if count == 0 {
                 resizeMonitor.cancel()
-                try handleSSHPTYBridgeEOF(
-                    client: client,
-                    workspaceId: workspaceId,
-                    surfaceID: surfaceID,
-                    sessionID: sessionID,
-                    attachmentID: attachmentID
-                )
+                _ = try reconcileBridgeEnd(intentionalOnly: false)
                 attachFinished = true
                 return
             } else if errno != EINTR {
                 if sshPTYBridgeReadErrorIsEOF(errno) {
                     resizeMonitor.cancel()
-                    try handleSSHPTYBridgeEOF(
-                        client: client,
-                        workspaceId: workspaceId,
-                        surfaceID: surfaceID,
-                        sessionID: sessionID,
-                        attachmentID: attachmentID
-                    )
+                    _ = try reconcileBridgeEnd(intentionalOnly: false)
                     attachFinished = true
                     return
                 }
@@ -12536,68 +12568,6 @@ struct CMUXCLI {
             return true
         default:
             return false
-        }
-    }
-
-    private func handleSSHPTYBridgeEOF(
-        client: SocketClient,
-        workspaceId: String,
-        surfaceID: String?,
-        sessionID: String,
-        attachmentID: String
-    ) throws {
-        let response: [String: Any]
-        do {
-            var params: [String: Any] = [
-                "workspace_id": workspaceId,
-            ]
-            if let surfaceID {
-                params["surface_id"] = surfaceID
-                params["session_id"] = sessionID
-                params["allow_moved_surface"] = true
-            }
-            response = try client.sendV2(method: "workspace.remote.pty_sessions", params: params)
-        } catch {
-            throw CLIError(
-                message: "ssh-pty-attach: bridge closed before remote PTY exit could be confirmed: \(userFacingRemotePTYErrorMessage(error))",
-                exitCode: SSHPTYAttachExitCode.retryableTransient
-            )
-        }
-
-        let errors = response["errors"] as? [[String: Any]] ?? []
-        if !errors.isEmpty {
-            throw CLIError(
-                message: "ssh-pty-attach: bridge closed before remote PTY exit could be confirmed\n\(sshSessionListFailureMessage(errors))",
-                exitCode: SSHPTYAttachExitCode.retryableTransient
-            )
-        }
-
-        let sessions = response["sessions"] as? [[String: Any]] ?? []
-        let sessionStillRunning = sessions.contains {
-            (($0["session_id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "") == sessionID
-        }
-        if sessionStillRunning {
-            throw CLIError(
-                message: "ssh-pty-attach: bridge closed while remote PTY session is still running",
-                exitCode: SSHPTYAttachExitCode.bridgeClosedSessionRunning
-            )
-        }
-
-        guard let surfaceID else {
-            return
-        }
-
-        do {
-            _ = try client.sendV2(method: "workspace.remote.pty_attach_end", params: [
-                "workspace_id": workspaceId,
-                "surface_id": surfaceID,
-                "session_id": sessionID,
-            ])
-        } catch {
-            throw CLIError(
-                message: "ssh-pty-attach: remote PTY exited but local session cleanup failed: \(userFacingRemotePTYErrorMessage(error))",
-                exitCode: SSHPTYAttachExitCode.retryableTransient
-            )
         }
     }
 
@@ -12634,10 +12604,18 @@ struct CMUXCLI {
     }
 
     private func runSSHSessionEnd(commandArgs: [String], client: SocketClient) throws {
-        guard let relayPortRaw = optionValue(commandArgs, name: "--relay-port"),
-              let relayPort = Int(relayPortRaw),
-              relayPort > 0 else {
-            throw CLIError(message: "ssh-session-end requires --relay-port <port>")
+        let lifecycleOnly = commandArgs.contains("--lifecycle-only")
+        let relayPort: Int?
+        if let relayPortRaw = optionValue(commandArgs, name: "--relay-port") {
+            guard let parsedRelayPort = Int(relayPortRaw), parsedRelayPort > 0 else {
+                throw CLIError(message: "ssh-session-end requires --relay-port <port>")
+            }
+            relayPort = parsedRelayPort
+        } else {
+            guard lifecycleOnly else {
+                throw CLIError(message: "ssh-session-end requires --relay-port <port>")
+            }
+            relayPort = nil
         }
         let workspaceRaw = optionValue(commandArgs, name: "--workspace") ?? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
         let surfaceRaw = optionValue(commandArgs, name: "--surface") ?? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"]
@@ -12651,11 +12629,19 @@ struct CMUXCLI {
               !surfaceId.isEmpty else {
             throw CLIError(message: "ssh-session-end requires --surface or CMUX_SURFACE_ID")
         }
-        _ = try client.sendV2(method: "workspace.remote.terminal_session_end", params: [
+        let sessionID = Self.normalizedEnvValue(optionValue(commandArgs, name: "--session-id"))
+        let lifecycleID = Self.normalizedEnvValue(optionValue(commandArgs, name: "--lifecycle-id"))
+        var params: [String: Any] = [
             "workspace_id": workspaceId,
             "surface_id": surfaceId,
-            "relay_port": relayPort,
-        ])
+            "lifecycle_only": lifecycleOnly,
+        ]
+        if let relayPort { params["relay_port"] = relayPort }
+        if let sessionID, let lifecycleID {
+            params["session_id"] = sessionID
+            params["lifecycle_id"] = lifecycleID
+        }
+        _ = try client.sendV2(method: "workspace.remote.terminal_session_end", params: params)
     }
 
     private func runRemoteDaemonStatus(commandArgs: [String], jsonOutput: Bool) throws {

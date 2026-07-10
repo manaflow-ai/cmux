@@ -13,6 +13,11 @@ final class FakeWorkspaceControlCommandContext: ControlCommandContext {
         placement: WorkspaceGroupNewPlacement?,
         referenceWorkspaceID: UUID?
     )?
+    var terminalSessionEndResolution: ControlWorkspaceRemoteTerminalSessionEndResolution = .notFound
+    var terminalSessionEndCall: (
+        workspaceID: UUID, surfaceID: UUID, relayPort: Int?,
+        sessionID: String?, lifecycleID: String?, lifecycleOnly: Bool
+    )?
 
     func controlWindowSummaries() -> [ControlWindowSummary] { [] }
     func controlResolveCurrentWindow(routing: ControlRoutingSelectors) -> ControlCurrentWindowResolution {
@@ -63,5 +68,13 @@ final class FakeWorkspaceControlCommandContext: ControlCommandContext {
             referenceWorkspaceID: referenceWorkspaceID
         )
         return addWorkspaceToGroupResolution
+    }
+
+    func controlWorkspaceRemoteTerminalSessionEnd(
+        workspaceID: UUID, surfaceID: UUID, relayPort: Int?,
+        sessionID: String?, lifecycleID: String?, lifecycleOnly: Bool
+    ) -> ControlWorkspaceRemoteTerminalSessionEndResolution {
+        terminalSessionEndCall = (workspaceID, surfaceID, relayPort, sessionID, lifecycleID, lifecycleOnly)
+        return terminalSessionEndResolution
     }
 }
