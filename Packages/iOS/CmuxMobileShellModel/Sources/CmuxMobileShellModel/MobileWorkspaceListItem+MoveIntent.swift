@@ -1,16 +1,17 @@
 public import Foundation
 
 extension Array where Element == MobileWorkspaceListItem {
-    /// Resolves an index-based programmatic move into a Mac-facing workspace move intent.
+    /// Resolves a SwiftUI `List` move into a Mac-facing workspace move intent.
     ///
-    /// The `destination` uses pre-removal index space. Group headers move their
-    /// anchor workspace, and identity/no-op landings resolve to `nil`.
+    /// The `destination` index is the pre-removal index space reported by
+    /// `ForEach.onMove`. Group headers move their anchor workspace, synthetic
+    /// footers are never movable, and identity/no-op landings resolve to `nil`.
     ///
     /// - Parameters:
     ///   - workspaces: The full workspace order from the Mac.
     ///   - groups: The group snapshots from the Mac.
-    ///   - sourceOffsets: The moved row offsets.
-    ///   - destination: The destination offset in pre-removal space.
+    ///   - sourceOffsets: The moved row offsets from SwiftUI.
+    ///   - destination: The destination offset from SwiftUI, in pre-removal space.
     /// - Returns: A workspace move intent, or `nil` when the move should not fire.
     public func moveIntent(
         workspaces: [MobileWorkspacePreview],

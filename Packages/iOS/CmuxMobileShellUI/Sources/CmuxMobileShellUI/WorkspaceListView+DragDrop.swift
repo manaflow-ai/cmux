@@ -1,11 +1,8 @@
 import CmuxMobileShellModel
 import Foundation
 import SwiftUI
-import UniformTypeIdentifiers
 
 extension WorkspaceListView {
-    static let workspaceDropCoordinateSpace = "MobileWorkspaceDropList"
-
     /// Pipelining bound: with reorder enabled during pending moves, a slow or
     /// offline Mac must not let the send chain grow without limit, and every
     /// queued move currently costs a full workspace refresh on reply. Normal
@@ -66,57 +63,40 @@ extension WorkspaceListView {
         }
     }
 
-    func beginWorkspaceDrag(_ payload: MobileWorkspaceDropPayload) -> NSItemProvider {
-        workspaceDropState.payload = payload
-        workspaceDropState.target = nil
-        let data = (try? JSONEncoder().encode(payload)) ?? Data()
-        return NSItemProvider(
-            item: data as NSData,
-            typeIdentifier: UTType.cmuxWorkspaceListMove.identifier
-        )
-    }
-
-    func commitWorkspaceDrop(
-        payload: MobileWorkspaceDropPayload,
-        intent: MobileWorkspaceMoveIntent
-    ) {
+    func moveFlatRows(from sourceOffsets: IndexSet, to destination: Int) {
         guard enablesWorkspaceReorder else { return }
-        guard payload.isGroupDrag == intent.movesGroup else { return }
-        let sourceWorkspaces = rendersGroupedSections
-            ? displayedGroupedWorkspaces
-            : displayedFlatWorkspaces
-        let sourceGroups = rendersGroupedSections ? groups : []
-        let movedWorkspaces = sourceWorkspaces.applyingWorkspaceMoveIntent(
-            intent,
-            movedWorkspaceID: payload.workspaceID,
-            groups: sourceGroups
-        )
-        if rendersGroupedSections {
-            optimisticGroupedState = MobileWorkspaceOptimisticOrderReconciler(
-                optimisticOrder: MobileWorkspaceOptimisticOrder(workspaces: movedWorkspaces, groups: groups),
-                pendingBases: optimisticGroupedState.pendingBases
-                    + [MobileWorkspaceOptimisticOrder(workspaces: sourceWorkspaces, groups: groups)]
-            )
-        } else {
-            optimisticFlatState = MobileWorkspaceOptimisticOrderReconciler(
-                optimisticOrder: MobileWorkspaceOptimisticOrder(workspaces: movedWorkspaces),
-                pendingBases: optimisticFlatState.pendingBases
-                    + [MobileWorkspaceOptimisticOrder(workspaces: sourceWorkspaces)]
-            )
+        let sourceWorkspaces = displayedFlatWorkspaces
+        let items = sourceWorkspaces.map { MobileWorkspaceListItem.workspace($0, indented: false) }
+        guard let intent = items.moveIntent(
+            workspaces: sourceWorkspaces,
+            groups: [],
+            sourceOffsets: sourceOffsets,
+            destination: destination
+        ) else {
+            return
         }
-        enqueueWorkspaceMove(payload.workspaceID, intent: intent)
-    }
-
-    private func enqueueWorkspaceMove(
-        _ movedWorkspaceID: MobileWorkspacePreview.ID,
-        intent: MobileWorkspaceMoveIntent
-    ) {
+        var movedWorkspaces = sourceWorkspaces
+        movedWorkspaces.move(fromOffsets: sourceOffsets, toOffset: destination)
+        optimisticFlatState = MobileWorkspaceOptimisticOrderReconciler(
+            optimisticOrder: MobileWorkspaceOptimisticOrder(workspaces: movedWorkspaces),
+            pendingBases: optimisticFlatState.pendingBases
+                + [MobileWorkspaceOptimisticOrder(workspaces: sourceWorkspaces)]
+        )
+        guard let sourceIndex = sourceOffsets.first,
+              case .workspace(let workspace, _) = items[sourceIndex] else {
+            return
+        }
         pendingWorkspaceMoveCount += 1
         let previousMove = pendingWorkspaceMoveTask
         let epoch = workspaceMoveEpoch
         pendingWorkspaceMoveTask = Task { @MainActor in
-            // Intents are computed against the prior prediction, so sends stay
-            // serialized and abort after predecessor failure or epoch change.
+            // Chain on the prior send: the intent was computed against the
+            // prior move's predicted order, so the host must apply them in
+            // the same order or the snapshot diverges and drops optimism.
+            // A rejected predecessor rolled the list back, and a supersede
+            // bumped the epoch; either way this stale intent must not be
+            // sent. The handlers reset the chain tail, so drags started
+            // afterwards never see these branches.
             if let previousMove, await previousMove.value == false {
                 pendingWorkspaceMoveCount -= 1
                 return false
@@ -125,44 +105,74 @@ extension WorkspaceListView {
                 pendingWorkspaceMoveCount -= 1
                 return false
             }
-            let accepted = await moveWorkspace?(
-                movedWorkspaceID,
-                intent.groupID,
-                intent.beforeWorkspaceID,
-                intent.movesGroup
-            ) ?? false
+            let accepted = await moveWorkspace?(workspace.id, intent.groupID, intent.beforeWorkspaceID, intent.movesGroup) ?? false
             pendingWorkspaceMoveCount -= 1
             if !accepted {
                 syncOptimisticWorkspaceOrder(moveDidFail: true)
-                // Dependents retain the failed task and abort; fresh drags can
-                // start a detached chain after rollback.
+                // Detach the chain so the completed failed task cannot poison
+                // future drags; queued dependents still hold their captured
+                // reference and drain by aborting above.
                 pendingWorkspaceMoveTask = nil
             }
             return accepted
         }
     }
 
-    /// Scrolls one row per edge-zone update. A stationary finger does not keep
-    /// scrolling because v1 intentionally follows `dropUpdated` cadence only.
-    func autoScrollWorkspaceDrop(
-        point: CGPoint,
-        viewportSize: CGSize,
-        rows: [MobileWorkspaceDropRowFrame],
-        orderedRowIDs: [String],
-        proxy: ScrollViewProxy
-    ) {
-        let visibleRows = rows.filter {
-            $0.frame.maxY > 0 && $0.frame.minY < viewportSize.height
-        }.sorted { $0.frame.minY < $1.frame.minY }
-        guard let first = visibleRows.first, let last = visibleRows.last else { return }
-        if point.y < 60,
-           let index = orderedRowIDs.firstIndex(of: first.kind.stableID),
-           index > orderedRowIDs.startIndex {
-            proxy.scrollTo(orderedRowIDs[index - 1], anchor: .top)
-        } else if point.y > viewportSize.height - 60,
-                  let index = orderedRowIDs.firstIndex(of: last.kind.stableID),
-                  index + 1 < orderedRowIDs.endIndex {
-            proxy.scrollTo(orderedRowIDs[index + 1], anchor: .bottom)
+    func moveGroupedRows(from sourceOffsets: IndexSet, to destination: Int) {
+        guard enablesWorkspaceReorder else { return }
+        let sourceItems = displayedGroupedListItems
+        let sourceWorkspaces = displayedGroupedWorkspaces
+        guard let intent = sourceItems.moveIntent(
+            workspaces: sourceWorkspaces,
+            groups: groups,
+            sourceOffsets: sourceOffsets,
+            destination: destination
+        ) else {
+            return
+        }
+        guard let sourceIndex = sourceOffsets.first else {
+            return
+        }
+        let movedWorkspaceID: MobileWorkspacePreview.ID
+        switch sourceItems[sourceIndex] {
+        case .workspace(let workspace, _):
+            movedWorkspaceID = workspace.id
+        case .groupHeader(let group, _):
+            movedWorkspaceID = group.anchorWorkspaceID
+        case .groupFooter:
+            return
+        }
+        let movedWorkspaces = sourceWorkspaces.applyingWorkspaceMoveIntent(
+            intent,
+            movedWorkspaceID: movedWorkspaceID,
+            groups: groups
+        )
+        optimisticGroupedState = MobileWorkspaceOptimisticOrderReconciler(
+            optimisticOrder: MobileWorkspaceOptimisticOrder(workspaces: movedWorkspaces, groups: groups),
+            pendingBases: optimisticGroupedState.pendingBases
+                + [MobileWorkspaceOptimisticOrder(workspaces: sourceWorkspaces, groups: groups)]
+        )
+        pendingWorkspaceMoveCount += 1
+        let previousMove = pendingWorkspaceMoveTask
+        let epoch = workspaceMoveEpoch
+        pendingWorkspaceMoveTask = Task { @MainActor in
+            // Same ordering, predecessor-failure, and epoch contract as
+            // moveFlatRows.
+            if let previousMove, await previousMove.value == false {
+                pendingWorkspaceMoveCount -= 1
+                return false
+            }
+            guard epoch == workspaceMoveEpoch else {
+                pendingWorkspaceMoveCount -= 1
+                return false
+            }
+            let accepted = await moveWorkspace?(movedWorkspaceID, intent.groupID, intent.beforeWorkspaceID, intent.movesGroup) ?? false
+            pendingWorkspaceMoveCount -= 1
+            if !accepted {
+                syncOptimisticWorkspaceOrder(moveDidFail: true)
+                pendingWorkspaceMoveTask = nil
+            }
+            return accepted
         }
     }
 }
@@ -203,6 +213,13 @@ struct WorkspaceListStableOrderKey: Equatable {
             macDeviceID = nil
             isPinned = group.isPinned
             isGroupCollapsed = group.isCollapsed
+        case .groupFooter(let footerGroupID):
+            workspaceID = nil
+            groupID = footerGroupID
+            windowID = nil
+            macDeviceID = nil
+            isPinned = nil
+            isGroupCollapsed = nil
         }
     }
 }

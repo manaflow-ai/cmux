@@ -83,12 +83,29 @@ import Testing
         ]
         let groups = [group("g", anchor: "anchor")]
         let items = MobileWorkspaceListItem.items(workspaces: workspaces, groups: groups)
-        // [header, member, dragged]: returning dragged to its gap is a no-op.
+        // [header, member, footer, dragged]: returning dragged to its gap is a no-op.
+        let intent = items.moveIntent(
+            workspaces: workspaces,
+            groups: groups,
+            sourceOffsets: IndexSet(integer: 3),
+            destination: 4
+        )
+        #expect(intent == nil)
+    }
+
+    @Test func groupEndSlotCannotBeDragged() {
+        let workspaces = [
+            workspace("anchor", group: "g"),
+            workspace("member", group: "g"),
+            workspace("dragged"),
+        ]
+        let groups = [group("g", anchor: "anchor")]
+        let items = MobileWorkspaceListItem.items(workspaces: workspaces, groups: groups)
         let intent = items.moveIntent(
             workspaces: workspaces,
             groups: groups,
             sourceOffsets: IndexSet(integer: 2),
-            destination: 3
+            destination: 0
         )
         #expect(intent == nil)
     }

@@ -182,8 +182,10 @@ import Testing
         #expect(belowHeader == MobileWorkspaceMoveIntent(groupID: "g", beforeWorkspaceID: "first"))
         let midGroup = try #require(intent(workspaces: workspaces, groups: groups, sourceID: "workspace.dragged", destination: 2))
         #expect(midGroup == MobileWorkspaceMoveIntent(groupID: "g", beforeWorkspaceID: "second"))
-        let mixedBoundary = try #require(intent(workspaces: workspaces, groups: groups, sourceID: "workspace.dragged", destination: 3))
-        #expect(mixedBoundary == MobileWorkspaceMoveIntent(groupID: nil, beforeWorkspaceID: "tail"))
+        let beforeEndSlot = try #require(intent(workspaces: workspaces, groups: groups, sourceID: "workspace.dragged", destination: 3))
+        #expect(beforeEndSlot == MobileWorkspaceMoveIntent(groupID: "g", beforeWorkspaceID: "tail"))
+        let afterEndSlot = try #require(intent(workspaces: workspaces, groups: groups, sourceID: "workspace.dragged", destination: 4))
+        #expect(afterEndSlot == MobileWorkspaceMoveIntent(groupID: nil, beforeWorkspaceID: "tail"))
         let aboveHeader = try #require(intent(workspaces: workspaces, groups: groups, sourceID: "workspace.dragged", destination: 0))
         #expect(aboveHeader == MobileWorkspaceMoveIntent(groupID: nil, beforeWorkspaceID: "anchor"))
 
@@ -237,11 +239,19 @@ import Testing
             "anchor", "last", "first", "root-a", "root-b",
         ])
 
-        let outside = try #require(intent(
+        let directExit = try #require(intent(
             workspaces: workspaces,
             groups: groups,
             sourceID: "workspace.first",
             destination: 4
+        ))
+        #expect(directExit == MobileWorkspaceMoveIntent(groupID: nil, beforeWorkspaceID: "root-a"))
+
+        let outside = try #require(intent(
+            workspaces: workspaces,
+            groups: groups,
+            sourceID: "workspace.first",
+            destination: 5
         ))
         #expect(outside == MobileWorkspaceMoveIntent(groupID: nil, beforeWorkspaceID: "root-b"))
     }

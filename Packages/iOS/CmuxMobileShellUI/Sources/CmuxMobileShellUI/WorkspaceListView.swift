@@ -109,7 +109,11 @@ struct WorkspaceListView: View {
     @State private var macTitlePickerSwitchGeneration: UInt64 = 0
     @State private var macTitlePickerPendingSelection: WorkspaceMacSelection?
     @State var deferredWorkspaceSelectionGeneration: UInt64 = 0
-    /// Value snapshot that keeps unrelated live updates from rebuilding an open Menu.
+    /// Stable machine-menu content. Kept as value state so live workspace or
+    /// device-tree updates that do not change the actual machine set/name
+    /// snapshot do not rebuild an open native Menu. `nil` only before the first
+    /// appearance callback, when the body can still display the live snapshot
+    /// without resetting an already-open menu.
     @State var machineSnapshots: WorkspaceMachineSnapshots?
     /// The workspace whose destructive close action is awaiting confirmation.
     /// Stored at list scope so reusable rows do not own transient presentation
@@ -117,8 +121,11 @@ struct WorkspaceListView: View {
     @State var workspacePendingCloseID: MobileWorkspacePreview.ID?
     @State var optimisticFlatState = MobileWorkspaceOptimisticOrderReconciler()
     @State var optimisticGroupedState = MobileWorkspaceOptimisticOrderReconciler()
-    @State var workspaceDropState = WorkspaceListDropState()
-    /// Moves remain enabled and serialized while optimistic RPCs pipeline.
+    /// In-flight move RPC count plus the tail of the send chain. Moves stay
+    /// enabled while pending (disabling mid-gesture cancels the reorder
+    /// interaction), so rapid drags can pipeline; sends are chained so the Mac
+    /// applies them in UI order and the authoritative snapshot converges on
+    /// the predicted optimistic order instead of racing it.
     @State var pendingWorkspaceMoveCount = 0
     @State var pendingWorkspaceMoveTask: Task<Bool, Never>?
     /// Bumped when a supersede or failure invalidates the pending chain, so
@@ -187,6 +194,10 @@ struct WorkspaceListView: View {
     var groupedListItems: [MobileWorkspaceListItem] {
         MobileWorkspaceListItem.items(workspaces: groupedWorkspaces, groups: groups)
     }
+    var groupsByID: [MobileWorkspaceGroupPreview.ID: MobileWorkspaceGroupPreview] {
+        Dictionary(groups.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+    }
+
     var displayedFlatWorkspaces: [MobileWorkspacePreview] {
         optimisticFlatState.optimisticOrder?
             .materializedWorkspaces(from: filteredWorkspaces) ?? filteredWorkspaces
@@ -206,12 +217,6 @@ struct WorkspaceListView: View {
         return workspaces.filter { currentFilter.matches($0) }
     }
 
-    var orderedWorkspaceDropRowIDs: [String] {
-        rendersGroupedSections
-            ? displayedGroupedListItems.map(\.id)
-            : displayedFlatWorkspaces.map { "workspace.\($0.id.rawValue)" }
-    }
-
     var body: some View {
         let currentMachineSnapshots = liveMachineSnapshots
         let currentVisibleMacSelection = visibleMacSelection
@@ -221,56 +226,71 @@ struct WorkspaceListView: View {
             machineSnapshots: displayedMachineSnapshots,
             visibleSelection: currentVisibleMacSelection
         )
-        let list = ScrollViewReader { proxy in
-            workspaceDropList
-                .listStyle(.plain)
-                .coordinateSpace(name: Self.workspaceDropCoordinateSpace)
-                .background {
-                    GeometryReader { geometry in
-                        Color.clear.preference(
-                            key: WorkspaceListViewportSizePreferenceKey.self,
-                            value: geometry.size
+        let list = List {
+            switch connectionChrome {
+            case .recoveryBanner:
+                if let store {
+                    Section {
+                        MobileConnectionRecoveryBanner(
+                            connectionRequiresReauth: store.connectionRequiresReauth,
+                            connectionRecoveryFailed: store.connectionRecoveryFailed,
+                            isRecoveringConnection: store.isRecoveringConnection,
+                            connectionError: store.connectionError,
+                            retry: { store.retryMobileConnection() },
+                            signOut: signOut,
+                            rendersInline: true
                         )
+                        .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
+                        .listRowSeparator(.hidden)
                     }
                 }
-                .onPreferenceChange(WorkspaceListRowFramePreferenceKey.self) {
-                    workspaceDropState.rows = $0
-                }
-                .onPreferenceChange(WorkspaceListViewportSizePreferenceKey.self) {
-                    workspaceDropState.viewportSize = $0
-                }
-                .onDrop(
-                    of: [.cmuxWorkspaceListMove],
-                    delegate: WorkspaceListDropDelegate(
-                        rows: workspaceDropState.rows,
-                        workspaces: rendersGroupedSections ? displayedGroupedWorkspaces : displayedFlatWorkspaces,
-                        groups: rendersGroupedSections ? groups : [],
-                        viewportSize: workspaceDropState.viewportSize,
-                        payload: $workspaceDropState.payload,
-                        target: $workspaceDropState.target,
-                        commit: commitWorkspaceDrop,
-                        autoScroll: { point in
-                            autoScrollWorkspaceDrop(
-                                point: point,
-                                viewportSize: workspaceDropState.viewportSize,
-                                rows: workspaceDropState.rows,
-                                orderedRowIDs: orderedWorkspaceDropRowIDs,
-                                proxy: proxy
+            case .macStatusRow:
+                Section {
+                    MobileMacConnectionStatusRow(
+                        host: host,
+                        status: connectionStatus,
+                        showsSpinner: isInitialConnectionLoading,
+                        titleOverride: initialConnectionTimedOut
+                            ? L10n.string("mobile.loading.timeout.title", defaultValue: "Still loading")
+                            : nil,
+                        descriptionOverride: initialConnectionTimedOut
+                            ? L10n.string(
+                                "mobile.loading.timeout.message",
+                                defaultValue: "cmux could not finish restoring this session. Check that the selected cmux build is running, then retry or add this computer again."
                             )
-                        }
+                            : nil,
+                        retry: initialConnectionTimedOut ? retryInitialConnection : nil,
+                        addDevice: initialConnectionTimedOut ? showAddDevice : nil,
+                        reconnect: reconnect
                     )
-                )
-                .overlay {
-                    WorkspaceListDropIndicatorOverlay(
-                        target: workspaceDropState.target,
-                        rows: workspaceDropState.rows
-                    )
+                        .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
+                        .listRowSeparator(.hidden)
                 }
-                .sensoryFeedback(.selection, trigger: workspaceDropState.feedbackIdentity) { _, new in
-                    new != nil
+            case .none:
+                EmptyView()
+            }
+            Section {
+                if rendersGroupedSections {
+                    groupedRows
+                } else if activeFilter.isActive && trimmedQuery.isEmpty && filteredWorkspaces.isEmpty && !workspaces.isEmpty {
+                    // The filter alone (not the Mac, and not a search query)
+                    // emptied the list; offer the way back. While searching, the
+                    // standard empty search result is shown instead, since "Show
+                    // All" would not resolve a query that matches nothing.
+                    WorkspaceListFilterEmptyRow(filter: activeFilter) {
+                        filter = .all
+                        macSelection = .all
+                    }
+                        .listRowSeparator(.hidden)
+                } else {
+                    flatRows
                 }
-                .workspaceListRefreshable(refresh)
+            }
         }
+        .listStyle(.plain)
+        // Let the invisible footer use its 16pt boundary height. Real rows are taller.
+        .environment(\.defaultMinListRowHeight, 16)
+        .workspaceListRefreshable(refresh)
         .onChange(of: currentFilterMenuPresentMachineIDs) { _, present in
             // Drop machine filters whose Mac left the aggregated list (a secondary
             // Mac disconnected, or the list fell below two machines so the filter
@@ -292,7 +312,6 @@ struct WorkspaceListView: View {
         .onDisappear {
             invalidateDeferredWorkspaceSelection()
             cancelMacTitlePickerSwitch()
-            workspaceDropState = WorkspaceListDropState()
         }
         .onAppear {
             syncOptimisticWorkspaceOrder()
@@ -491,16 +510,17 @@ struct WorkspaceListView: View {
 
     /// Flat presentation: pinned-first rows when groups are unavailable or while searching.
     @ViewBuilder
-    var flatRows: some View {
+    private var flatRows: some View {
         let enablesReorder = enablesWorkspaceReorder
         ForEach(displayedFlatWorkspaces) { workspace in
             workspaceRow(workspace, indented: false, enablesReorder: enablesReorder)
         }
+        .onMove(perform: moveFlatRows)
     }
 
     /// Grouped presentation: collapsible Mac-ordered group headers and nested members.
     @ViewBuilder
-    var groupedRows: some View {
+    private var groupedRows: some View {
         let enablesReorder = enablesWorkspaceReorder
         ForEach(displayedGroupedListItems, id: \.id) { item in
             switch item {
@@ -521,30 +541,27 @@ struct WorkspaceListView: View {
                     toggleCollapsed: toggleGroupCollapsed,
                     unreadIndicatorLeftShift: unreadIndicatorLeftShift
                 )
+                // The list-wide minimum row height is lowered for the
+                // invisible end-of-group spacer; interactive rows keep the
+                // 44pt tap target (32 content + 6/6 insets) explicitly.
                 .frame(minHeight: 32)
-                .modifier(WorkspaceListDragSourceModifier(
-                    payload: MobileWorkspaceDropPayload(
-                        workspaceID: group.anchorWorkspaceID,
-                        isGroupDrag: true
-                    ),
-                    isEnabled: enablesReorder && anchorCapabilities.supportsMoveActions,
-                    beginDrag: beginWorkspaceDrag
-                ))
-                .workspaceListDropFrame(
-                    kind: .groupHeader(group.id),
-                    coordinateSpace: Self.workspaceDropCoordinateSpace
-                )
-                .id(item.id)
+                .moveDisabled(!(enablesReorder && anchorCapabilities.supportsMoveActions))
                 .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12))
                 .listRowSeparator(.hidden)
+            case .groupFooter(let groupID):
+                WorkspaceGroupFooterRow(groupName: groupsByID[groupID]?.name)
+                    .moveDisabled(true)
+                    .listRowInsets(EdgeInsets(top: 0, leading: 32, bottom: 0, trailing: 12))
+                    .listRowSeparator(.hidden)
             case .workspace(let workspace, let indented):
                 workspaceRow(workspace, indented: indented, enablesReorder: enablesReorder)
             }
         }
+        .onMove(perform: moveGroupedRows)
     }
 
     @ViewBuilder
-    func workspaceRow(_ workspace: MobileWorkspacePreview, indented: Bool, enablesReorder: Bool) -> some View {
+    private func workspaceRow(_ workspace: MobileWorkspacePreview, indented: Bool, enablesReorder: Bool) -> some View {
         let capabilities = workspace.actionCapabilities
         WorkspaceNavigationRow(
             workspace: workspace,
@@ -566,16 +583,7 @@ struct WorkspaceListView: View {
                 confirmCloseWorkspace()
             } : nil
         )
-        .modifier(WorkspaceListDragSourceModifier(
-            payload: MobileWorkspaceDropPayload(workspaceID: workspace.id, isGroupDrag: false),
-            isEnabled: enablesReorder && capabilities.supportsMoveActions,
-            beginDrag: beginWorkspaceDrag
-        ))
-        .workspaceListDropFrame(
-            kind: .workspace(workspace.id),
-            coordinateSpace: Self.workspaceDropCoordinateSpace
-        )
-        .id("workspace.\(workspace.id.rawValue)")
+        .moveDisabled(!(enablesReorder && capabilities.supportsMoveActions))
         .accessibilityHint(
             enablesReorder && capabilities.supportsMoveActions
                 ? L10n.string(

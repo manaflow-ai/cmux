@@ -53,6 +53,7 @@ import Testing
         #expect(items == [
             .groupHeader(group("g", anchor: "a"), hasUnread: false),
             .workspace(workspace("b", group: "g"), indented: true),
+            .groupFooter("g"),
         ])
     }
 
@@ -78,6 +79,7 @@ import Testing
             .workspace(workspace("top"), indented: false),
             .groupHeader(group("g", anchor: "anchor"), hasUnread: false),
             .workspace(workspace("member", group: "g"), indented: true),
+            .groupFooter("g"),
             .workspace(workspace("bottom"), indented: false),
         ])
     }
@@ -98,12 +100,12 @@ import Testing
         #expect(items == [.groupHeader(group("g", anchor: "a"), hasUnread: false)])
     }
 
-    @Test func populatedExpandedGroupEndsWithLastVisibleMember() {
+    @Test func populatedExpandedGroupEndsWithItsDropSlot() {
         let items = MobileWorkspaceListItem.items(
             workspaces: [workspace("a", group: "g"), workspace("b", group: "g")],
             groups: [group("g", anchor: "a")]
         )
-        #expect(items.last == .workspace(workspace("b", group: "g"), indented: true))
+        #expect(items.last == .groupFooter("g"))
     }
 
     @Test func collapsedGroupHeaderCarriesMemberUnread() {
@@ -139,6 +141,7 @@ import Testing
         #expect(items == [
             .groupHeader(group("g", anchor: "a"), hasUnread: false),
             .workspace(workspace("b", group: "g", unread: true), indented: true),
+            .groupFooter("g"),
         ])
     }
 
@@ -153,6 +156,7 @@ import Testing
         #expect(items == [
             .groupHeader(group("g", anchor: "a"), hasUnread: true),
             .workspace(workspace("b", group: "g"), indented: true),
+            .groupFooter("g"),
         ])
     }
 
@@ -207,7 +211,7 @@ import Testing
         let intent = items.moveIntent(
             workspaces: workspaces,
             groups: groups,
-            sourceOffsets: IndexSet(integer: 2),
+            sourceOffsets: IndexSet(integer: 3),
             destination: 1
         )
         #expect(intent == MobileWorkspaceMoveIntent(groupID: "g", beforeWorkspaceID: "member"))
@@ -224,7 +228,7 @@ import Testing
         let intent = items.moveIntent(
             workspaces: workspaces,
             groups: groups,
-            sourceOffsets: IndexSet(integer: 2),
+            sourceOffsets: IndexSet(integer: 3),
             destination: 0
         )
         #expect(intent == MobileWorkspaceMoveIntent(groupID: nil, beforeWorkspaceID: "anchor"))
@@ -244,10 +248,30 @@ import Testing
         let intent = items.moveIntent(
             workspaces: workspaces,
             groups: groups,
-            sourceOffsets: IndexSet(integer: 4),
-            destination: 3
+            sourceOffsets: IndexSet(integer: 5),
+            destination: 4
         )
         #expect(intent == MobileWorkspaceMoveIntent(groupID: nil, beforeWorkspaceID: "between"))
+    }
+
+    @Test func externalWorkspaceBeforeGroupEndSlotJoinsGroup() {
+        let workspaces = [
+            workspace("anchor", group: "g"),
+            workspace("first", group: "g"),
+            workspace("second", group: "g"),
+            workspace("between"),
+            workspace("dragged"),
+            workspace("tail"),
+        ]
+        let groups = [group("g", anchor: "anchor")]
+        let items = MobileWorkspaceListItem.items(workspaces: workspaces, groups: groups)
+        let intent = items.moveIntent(
+            workspaces: workspaces,
+            groups: groups,
+            sourceOffsets: IndexSet(integer: 5),
+            destination: 3
+        )
+        #expect(intent == MobileWorkspaceMoveIntent(groupID: "g", beforeWorkspaceID: "between"))
     }
 
     @Test func currentGroupMemberAtMixedBoundaryStaysAtGroupEnd() {
@@ -283,7 +307,7 @@ import Testing
             workspaces: workspaces,
             groups: groups,
             sourceOffsets: IndexSet(integer: 1),
-            destination: 4
+            destination: 5
         )
         #expect(intent == MobileWorkspaceMoveIntent(groupID: nil, beforeWorkspaceID: "root-b"))
     }
@@ -347,8 +371,8 @@ import Testing
         let intent = items.moveIntent(
             workspaces: workspaces,
             groups: groups,
-            sourceOffsets: IndexSet(integer: 3),
-            destination: 2
+            sourceOffsets: IndexSet(integer: 4),
+            destination: 3
         )
         #expect(intent == MobileWorkspaceMoveIntent(groupID: nil, beforeWorkspaceID: "root"))
     }
@@ -369,8 +393,8 @@ import Testing
         let intent = items.moveIntent(
             workspaces: workspaces,
             groups: groups,
-            sourceOffsets: IndexSet(integer: 4),
-            destination: 2
+            sourceOffsets: IndexSet(integer: 6),
+            destination: 3
         )
         #expect(intent == MobileWorkspaceMoveIntent(groupID: nil, beforeWorkspaceID: "b-anchor"))
     }
@@ -406,7 +430,7 @@ import Testing
             workspaces: workspaces,
             groups: groups,
             sourceOffsets: IndexSet(integer: 1),
-            destination: 3
+            destination: 4
         )
         #expect(intent == MobileWorkspaceMoveIntent(groupID: nil, beforeWorkspaceID: "bottom"))
     }
@@ -423,7 +447,7 @@ import Testing
         #expect(intent == MobileWorkspaceMoveIntent(groupID: nil, beforeWorkspaceID: nil))
     }
 
-    @Test func collapsedGroupRendersHeaderWithoutSyntheticRows() {
+    @Test func collapsedGroupEmitsNoEndOfGroupSlot() {
         let items = MobileWorkspaceListItem.items(
             workspaces: [
                 workspace("anchor", group: "g"),
