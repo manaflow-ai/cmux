@@ -1880,7 +1880,7 @@ func tmuxResizePane(rc *rpcContext, args []string) error {
 			}
 			if pid, _ := pane["id"].(string); pid == paneId {
 				cellPoints := floatFromAny(pane["cell_width_points"])
-				if targetPoints <= 0 && cellPoints > 0 {
+				if !isPercentage && targetPoints <= 0 && cellPoints > 0 {
 					columns := floatFromAny(pane["columns"])
 					frame, _ := pane["pixel_frame"].(map[string]any)
 					paneWidth := floatFromAny(frame["width"])

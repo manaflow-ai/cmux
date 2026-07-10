@@ -32,7 +32,8 @@ extension CMUXCLI {
         let targetPoints: Double?
         if isPercentage, let containerExtent, containerExtent > 0 {
             targetPoints = containerExtent * Double(target) / 100
-        } else if let cellPoints, cellPoints > 0,
+        } else if !isPercentage,
+                  let cellPoints, cellPoints > 0,
                   let gridCells, gridCells > 0,
                   let paneExtent, paneExtent > 0 {
             let residual = max(0, paneExtent - Double(gridCells) * cellPoints)
