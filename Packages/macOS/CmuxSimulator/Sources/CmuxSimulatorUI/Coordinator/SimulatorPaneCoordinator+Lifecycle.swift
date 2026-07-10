@@ -78,6 +78,7 @@ extension SimulatorPaneCoordinator {
             devices = discovered
                 .filter { $0.isAvailable && ($0.family == .iPhone || $0.family == .iPad) }
                 .sorted(by: simulatorDeviceOrdering)
+            pruneActionHistory(keeping: Set(devices.map(\.id)))
             failure = nil
 
             if let selectedDeviceID,
