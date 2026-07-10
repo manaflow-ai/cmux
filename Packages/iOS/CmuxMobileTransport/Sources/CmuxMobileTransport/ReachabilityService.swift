@@ -103,7 +103,7 @@ public actor ReachabilityService: ReachabilityProviding {
         }
     }
 
-    private func register(_ continuation: AsyncStream<Void>.Continuation) -> Int {
+    func register(_ continuation: AsyncStream<Void>.Continuation) -> Int {
         startIfNeeded()
         let id = nextSubscriptionID
         nextSubscriptionID += 1
@@ -128,7 +128,7 @@ public actor ReachabilityService: ReachabilityProviding {
         monitor.start(queue: queue)
     }
 
-    private func apply(online: Bool, primaryType: NWInterface.InterfaceType?) {
+    func apply(online: Bool, primaryType: NWInterface.InterfaceType?) {
         let wasOnline = self.online
         let previousType = lastInterfaceType
         self.online = online
