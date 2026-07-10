@@ -993,7 +993,7 @@ jobs:
             case "$pkg" in
             CMUXAuthCore)
               expected_summary='Test run with 15 tests in 2 suites passed'
-              tolerated_diagnostics='CMUXAuthCorePackageTests\.xctest|doesn.t contain a version for the current architecture|incompatible architecture|dlopen_preflight'
+              tolerated_diagnostics='CMUXAuthCorePackageTests\.xctest.*(doesn.t contain a version for the current architecture|incompatible architecture|dlopen_preflight)|(doesn.t contain a version for the current architecture|incompatible architecture|dlopen_preflight).*CMUXAuthCorePackageTests\.xctest'
               ;;
             CmuxTerminal|CmuxTerminalCore)
               expected_summary='Test run with [0-9]+ tests( in [0-9]+ suites)? passed'
