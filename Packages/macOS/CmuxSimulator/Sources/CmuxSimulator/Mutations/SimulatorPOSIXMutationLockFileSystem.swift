@@ -62,10 +62,11 @@ package struct SimulatorPOSIXMutationLockFileSystem: SimulatorMutationLockFileSy
         }
     }
 
-    /// Blocks until the descriptor owns an exclusive advisory lock.
-    package func lock(_ descriptor: Int32) throws {
+    /// Attempts to acquire the lock without pinning a thread behind another process.
+    package func tryLock(_ descriptor: Int32) throws -> Bool {
         while true {
-            if flock(descriptor, LOCK_EX) == 0 { return }
+            if flock(descriptor, LOCK_EX | LOCK_NB) == 0 { return true }
+            if errno == EWOULDBLOCK { return false }
             if errno != EINTR { throw currentPOSIXError() }
         }
     }

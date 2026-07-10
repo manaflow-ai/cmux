@@ -17,12 +17,12 @@ final class TestMutationLockFileSystem: SimulatorMutationLockFileSystem, @unchec
         try base.openLockFile(url)
     }
 
-    func lock(_ descriptor: Int32) throws {
+    func tryLock(_ descriptor: Int32) throws -> Bool {
         condition.lock()
         attemptCount += 1
         condition.broadcast()
         condition.unlock()
-        try base.lock(descriptor)
+        return try base.tryLock(descriptor)
     }
 
     func unlock(_ descriptor: Int32) {

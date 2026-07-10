@@ -8,15 +8,19 @@ import Foundation
 package struct SimulatorMutationGate: Sendable {
     private let lockDirectory: URL
     private let fileSystem: any SimulatorMutationLockFileSystem
+    private let contentionWaiter: any SimulatorMutationLockWaiting
 
-    /// Creates a mutation gate with injectable lock storage.
+    /// Creates a mutation gate with injectable lock storage and contention waiting.
     package init(
         lockDirectory: URL? = nil,
         fileSystem: any SimulatorMutationLockFileSystem =
-            SimulatorPOSIXMutationLockFileSystem()
+            SimulatorPOSIXMutationLockFileSystem(),
+        contentionWaiter: any SimulatorMutationLockWaiting =
+            ContinuousSimulatorMutationLockWaiter()
     ) {
         self.lockDirectory = lockDirectory ?? fileSystem.defaultLockDirectory
         self.fileSystem = fileSystem
+        self.contentionWaiter = contentionWaiter
     }
 
     /// Runs an operation while holding every requested key in deterministic order.
@@ -46,10 +50,11 @@ package struct SimulatorMutationGate: Sendable {
                 lockDirectory.appendingPathComponent(simulatorMutationLockFileName(for: key))
             )
             pendingDescriptor = descriptor
-            let fileSystem = self.fileSystem
-            try await Task.detached(priority: nil) {
-                try fileSystem.lock(descriptor)
-            }.value
+            while true {
+                try Task.checkCancellation()
+                if try fileSystem.tryLock(descriptor) { break }
+                try await contentionWaiter.wait()
+            }
             try Task.checkCancellation()
             lockedDescriptors.append(descriptor)
             pendingDescriptor = nil
