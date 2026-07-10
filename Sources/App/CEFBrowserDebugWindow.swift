@@ -151,6 +151,7 @@ final class CEFBrowserDebugView: NSView {
     private var pendingProfiles: Set<String> = []
     private var activeProfileName = "Default"
     private var dockedDevTools: CEFBrowser?
+    private var devToolsWidthConstraint: NSLayoutConstraint?
     private var devToolsWindow: CEFDevToolsWindow?
     private var started = false
 
@@ -261,9 +262,24 @@ final class CEFBrowserDebugView: NSView {
     }
 
     private func setDevToolsPaneVisible(_ visible: Bool) {
-        devToolsContainer.isHidden = !visible
+        // NSSplitView keeps hidden arranged subviews collapsed, and holding
+        // priorities preserve a freshly-added pane's zero width regardless of
+        // setPosition, so the pane is added with an explicit width constraint
+        // and removed entirely when undocked.
         if visible {
-            splitView.setPosition(max(splitView.bounds.width * 0.6, 300), ofDividerAt: 0)
+            if devToolsContainer.superview == nil {
+                splitView.addArrangedSubview(devToolsContainer)
+                let width = devToolsContainer.widthAnchor.constraint(
+                    equalTo: splitView.widthAnchor, multiplier: 0.45)
+                width.priority = .defaultHigh
+                width.isActive = true
+                devToolsWidthConstraint = width
+            }
+        } else if devToolsContainer.superview != nil {
+            devToolsWidthConstraint?.isActive = false
+            devToolsWidthConstraint = nil
+            splitView.removeArrangedSubview(devToolsContainer)
+            devToolsContainer.removeFromSuperview()
         }
         splitView.adjustSubviews()
     }
@@ -347,14 +363,11 @@ final class CEFBrowserDebugView: NSView {
             toolbar.addArrangedSubview($0)
         }
 
-        devToolsContainer.isHidden = true
         splitView.isVertical = true
         splitView.dividerStyle = .thin
         splitView.translatesAutoresizingMaskIntoConstraints = false
         splitView.addArrangedSubview(profilesHost)
-        splitView.addArrangedSubview(devToolsContainer)
-        splitView.setHoldingPriority(.defaultLow, forSubviewAt: 0)
-        splitView.setHoldingPriority(.defaultHigh, forSubviewAt: 1)
+        // devToolsContainer joins the split only while DevTools is docked.
 
         addSubview(toolbar)
         addSubview(splitView)
