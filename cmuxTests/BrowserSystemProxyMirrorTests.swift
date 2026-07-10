@@ -479,6 +479,22 @@ import WebKit
         #expect(store.proxyConfigurations.isEmpty)
     }
 
+    @Test("A direct transition clears a remembered explicit route even when WebKit reports empty")
+    @MainActor
+    func directTransitionClearsRememberedExplicitRouteWhenGetterIsEmpty() throws {
+        let store = WKWebsiteDataStore.nonPersistent()
+        let mirror = try #require(
+            BrowserSystemProxyMirror(systemProxySettings: socksProxySettings())
+        )
+        _ = BrowserProxyConfigurationRoute.mirroredSystem(mirror).apply(to: store)
+        store.proxyConfigurations = []
+
+        let didMutate = BrowserProxyConfigurationRoute.direct.apply(to: store)
+
+        #expect(didMutate)
+        #expect(store.proxyConfigurations.isEmpty)
+    }
+
     @Test("An unchanged remote proxy route does not rewrite a shared website data store")
     @MainActor
     func unchangedRemoteProxyRouteDoesNotRewriteSharedStore() {
