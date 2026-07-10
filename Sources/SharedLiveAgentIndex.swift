@@ -115,6 +115,12 @@ final class SharedLiveAgentIndex {
         return index
     }
 
+    /// Returns one shared off-main reload for an interactive fork probe.
+    func refreshedIndex(workspaceId: UUID, panelId: UUID) async -> RestorableAgentSessionIndex {
+        await refreshForkAvailabilityNow(workspaceId: workspaceId, panelId: panelId)
+        return index ?? .empty
+    }
+
     func scheduleRefreshIfStale(validating panelKey: RestorableAgentSessionIndex.PanelKey? = nil) {
         ensureWatchingHookStoreDirectory()
         guard refreshTask == nil, forkAvailabilityRefreshTask == nil else {
@@ -138,16 +144,26 @@ final class SharedLiveAgentIndex {
                 RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId)
             )
         }
-        _ = await reloadIfLiveAgentProcessFingerprintChanged()
+        await forkAvailabilityRefreshTaskForCurrentState().value
+        // A caller can join after the loader produced its index but before the
+        // task cleared. Apply any panel added in that narrow window from the
+        // completed shared result instead of launching another full scan.
+        applyPendingForkValidations()
     }
 
     private func requestForkAvailabilityRefresh(validating panelKey: RestorableAgentSessionIndex.PanelKey) {
         pendingForkValidationPanels.insert(panelKey)
-        guard refreshTask == nil,
-              forkAvailabilityRefreshTask == nil else {
-            return
+        _ = forkAvailabilityRefreshTaskForCurrentState()
+    }
+
+    private func forkAvailabilityRefreshTaskForCurrentState() -> Task<Void, Never> {
+        if let refreshTask {
+            return refreshTask
         }
-        forkAvailabilityRefreshTask = Task { @MainActor [weak self] in
+        if let forkAvailabilityRefreshTask {
+            return forkAvailabilityRefreshTask
+        }
+        let task = Task { @MainActor [weak self] in
             guard let self else { return }
             _ = await self.reloadIfLiveAgentProcessFingerprintChanged()
             self.forkAvailabilityRefreshTask = nil
@@ -157,6 +173,8 @@ final class SharedLiveAgentIndex {
                 self.handleHookStoreChange()
             }
         }
+        forkAvailabilityRefreshTask = task
+        return task
     }
 
     private func startReload() {

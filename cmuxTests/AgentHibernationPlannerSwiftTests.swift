@@ -267,7 +267,7 @@ struct AgentHibernationPlannerSwiftTests {
 
     @MainActor
     @Test
-    func postSnapshotValidationDoesNotReuseTaskStartedBeforeSnapshotPoint() {
+    func postSnapshotValidationDoesNotReuseTaskStartedBeforeSnapshotPoint() async {
         let controller = AgentHibernationController.shared
         defer { resetSharedHibernationState(controller) }
 
@@ -286,11 +286,16 @@ struct AgentHibernationPlannerSwiftTests {
         )
         controller.postSnapshotValidationIndexSequence = 2
 
-        _ = controller.sharedPostSnapshotValidationIndexTask(minimumStartSequence: 2)
+        let replacementTask = controller.sharedPostSnapshotValidationIndexTask(
+            minimumStartSequence: 2,
+            loader: { .empty }
+        )
 
         #expect(controller.postSnapshotValidationIndexTask?.requestID != staleRequestID)
         #expect(controller.postSnapshotValidationIndexTask?.startSequence == 2)
-        #expect(staleTask.isCancelled)
+        #expect(!staleTask.isCancelled)
+        staleTask.cancel()
+        _ = await replacementTask.value
     }
 
     @MainActor

@@ -359,17 +359,27 @@ extension AgentHibernationController {
         return postSnapshotValidationIndexSequence
     }
 
-    func sharedPostSnapshotValidationIndexTask(minimumStartSequence: UInt64) -> Task<RestorableAgentSessionIndex, Never> {
+    func sharedPostSnapshotValidationIndexTask(
+        minimumStartSequence: UInt64,
+        loader: @escaping @Sendable () -> RestorableAgentSessionIndex = {
+            RestorableAgentSessionIndex.loadIncludingProcessDetectedSnapshotsSynchronously()
+        }
+    ) -> Task<RestorableAgentSessionIndex, Never> {
+        let predecessor: Task<RestorableAgentSessionIndex, Never>?
         if let inFlight = postSnapshotValidationIndexTask {
             if inFlight.startSequence >= minimumStartSequence {
                 return inFlight.task
             }
-            inFlight.task.cancel()
+            predecessor = inFlight.task
+        } else {
+            predecessor = nil
         }
         let requestID = UUID()
         let startSequence = postSnapshotValidationIndexSequence
-        let task = Task.detached(priority: .utility) {
-            await RestorableAgentSessionIndex.loadIncludingProcessDetectedSnapshots()
+        let task = Task.detached(priority: .utility) { () -> RestorableAgentSessionIndex in
+            _ = await predecessor?.value
+            guard !Task.isCancelled else { return .empty }
+            return loader()
         }
         postSnapshotValidationIndexTask = PostSnapshotValidationIndexTask(
             requestID: requestID,

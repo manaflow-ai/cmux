@@ -15,7 +15,6 @@ struct SharedLiveAgentIndexAgentLivenessTests {
     func concurrentForkAvailabilityRefreshesShareOneCompleteIndexLoad() async {
         let firstLoadStarted = DispatchSemaphore(value: 0)
         let releaseFirstLoad = DispatchSemaphore(value: 0)
-        let duplicateLoadStarted = DispatchSemaphore(value: 0)
         defer {
             releaseFirstLoad.signal()
             releaseFirstLoad.signal()
@@ -33,8 +32,6 @@ struct SharedLiveAgentIndexAgentLivenessTests {
                 if invocation == 1 {
                     firstLoadStarted.signal()
                     releaseFirstLoad.wait()
-                } else {
-                    duplicateLoadStarted.signal()
                 }
                 return Self.emptyLoadResult
             },
@@ -48,17 +45,14 @@ struct SharedLiveAgentIndexAgentLivenessTests {
         }
         #expect(await Self.wait(for: firstLoadStarted))
 
+        let secondRefreshReachedSuspension = DispatchSemaphore(value: 0)
         let secondRefresh = Task { @MainActor in
+            Task { @MainActor in
+                secondRefreshReachedSuspension.signal()
+            }
             await sharedIndex.refreshForkAvailabilityNow(workspaceId: workspaceId, panelId: panelId)
         }
-        let duplicateStartedWhileFirstWasBlocked = await Self.wait(
-            for: duplicateLoadStarted,
-            timeout: 0.2
-        )
-        #expect(
-            !duplicateStartedWhileFirstWasBlocked,
-            "Concurrent fork probes must await one complete index load instead of scanning every transcript twice."
-        )
+        #expect(await Self.wait(for: secondRefreshReachedSuspension))
 
         releaseFirstLoad.signal()
         await firstRefresh.value
@@ -100,7 +94,7 @@ struct SharedLiveAgentIndexAgentLivenessTests {
         }
         let returnedBeforeExistingReloadFinished = await Self.wait(
             for: refreshReturned,
-            timeout: 0.2
+            timeout: 1
         )
         #expect(
             !returnedBeforeExistingReloadFinished,

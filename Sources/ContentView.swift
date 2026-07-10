@@ -5887,7 +5887,7 @@ struct ContentView: View {
         commandPaletteForkableAgentProbeFingerprintsByPanelKey[panelKey] = probeFingerprint
 
         commandPaletteForkableAgentAvailabilityTasksByPanelKey[panelKey] = Task {
-            let index = await RestorableAgentSessionIndex.loadIncludingProcessDetectedSnapshots()
+            let index = await SharedLiveAgentIndex.shared.refreshedIndex(workspaceId: workspaceId, panelId: panelId)
             guard !Task.isCancelled else { return }
             let indexSnapshot = index.snapshot(workspaceId: workspaceId, panelId: panelId)
             let snapshot = indexSnapshot ?? fallbackSnapshot
