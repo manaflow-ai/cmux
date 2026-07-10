@@ -6,6 +6,24 @@ extension DockSplitStore {
         AppDelegate.shared?.noteRightSidebarKeyboardFocusIntent(mode: .dock, in: window)
     }
 
+    func browserPanel(owning responder: NSResponder?, in window: NSWindow?) -> BrowserPanel? {
+        guard let responder, let window else { return nil }
+        if let focused = focusedPanelId,
+           let browser = panels[focused] as? BrowserPanel,
+           browser.ownedFocusIntent(for: responder, in: window) != nil {
+            return browser
+        }
+        for (panelId, panel) in panels {
+            guard panelId != focusedPanelId,
+                  let browser = panel as? BrowserPanel,
+                  browser.ownedFocusIntent(for: responder, in: window) != nil else {
+                continue
+            }
+            return browser
+        }
+        return nil
+    }
+
     func focusedDockPaneSelection() -> (pane: PaneID?, tab: TabID?) {
         let pane = bonsplitController.focusedPaneId
         return (pane, pane.flatMap { bonsplitController.selectedTab(inPane: $0)?.id })
@@ -58,6 +76,7 @@ extension DockSplitStore {
         guard bonsplitController.togglePaneZoom(inPane: paneId) else { return false }
         bonsplitController.focusPane(paneId)
         applyVisibilityToAllPanels()
+        scheduleDockPortalReconcile(reason: "dock.zoom")
         return true
     }
 
@@ -92,9 +111,11 @@ extension DockSplitStore {
         guard let paneId = bonsplitController.focusedPaneId,
               let tabId = bonsplitController.selectedTab(inPane: paneId)?.id else {
             applyVisibilityToAllPanels()
+            scheduleDockPortalReconcile(reason: "dock.selection.empty")
             return
         }
         applyDockSelection(tabId: tabId, inPane: paneId)
+        scheduleDockPortalReconcile(reason: "dock.selection.focused")
     }
 
     func applyDockSelection(tabId: TabID, inPane pane: PaneID) {
@@ -136,6 +157,7 @@ extension DockSplitStore {
         newPane: PaneID,
         orientation: SplitOrientation
     ) {
+        scheduleDockPortalReconcile(reason: "dock.splitPane")
         // Programmatic splits (config seed, `newSplit`, cross-container transfer)
         // seed their own new-pane tab, so don't auto-create another.
         guard !isProgrammaticDockSplit else { return }
@@ -164,6 +186,7 @@ extension DockSplitStore {
     ) {
         applyDockSelection(tabId: tab.id, inPane: destination)
         panel(for: tab.id)?.focus()
+        scheduleDockPortalReconcile(reason: "dock.moveTab")
     }
 
     /// Replaces a pane that holds only placeholder (panel-less) tabs with a real
@@ -196,7 +219,21 @@ extension DockSplitStore {
                 TerminalWindowPortalRegistry.hideHostedView(terminal.hostedView)
             }
         } else if let browser = panel as? BrowserPanel {
-            if !shouldBeVisible {
+            if shouldBeVisible {
+                browser.noteWebViewVisibility(
+                    true,
+                    reason: "portal.dockVisible",
+                    recordIfUnchanged: true
+                )
+                BrowserWindowPortalRegistry.updateEntryVisibility(
+                    for: browser.webView,
+                    visibleInUI: true,
+                    zPriority: 1
+                )
+                if dockBrowserPortalNeedsReconcile(browser) {
+                    scheduleDockPortalReconcile(reason: "dock.browserVisible")
+                }
+            } else {
                 browser.unfocus()
                 browser.hideBrowserPortalView(source: "dockHidden")
             }

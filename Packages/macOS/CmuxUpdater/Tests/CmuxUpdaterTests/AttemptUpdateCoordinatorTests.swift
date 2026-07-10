@@ -68,7 +68,6 @@ import Testing
         #expect(coordinator.isMonitoring)
         #expect(coordinator.handleStateChange(.idle) == .none)
         #expect(coordinator.isMonitoring)
-
         #expect(coordinator.handleStateChange(.checking(.init(cancel: {}))) == .none)
         #expect(coordinator.handleStateChange(updateAvailable("0.64.16")) == .confirmInstall)
         #expect(!coordinator.isMonitoring)

@@ -14,10 +14,16 @@
          location = "group:CmuxAgentChat">
       </FileRef>
       <FileRef
+         location = "group:CmuxAPIClient">
+      </FileRef>
+      <FileRef
          location = "group:CMUXAuthCore">
       </FileRef>
       <FileRef
          location = "group:CmuxAuthRuntime">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxClientConfig">
       </FileRef>
       <FileRef
          location = "group:CMUXMobileCore">
@@ -43,6 +49,9 @@
       </FileRef>
       <FileRef
          location = "group:CmuxMobileCamera">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxMobileCrashReporting">
       </FileRef>
       <FileRef
          location = "group:CmuxMobileDiagnostics">

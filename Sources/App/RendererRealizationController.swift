@@ -5,6 +5,21 @@ import CmuxTerminal
 // `RendererRealizationPlannerInput` and the pure `RendererRealizationPlanner`
 // policy live in RendererRealizationPlanner.swift.
 
+struct RendererRealizationMemoryPressureReclaimResult: Equatable, Sendable {
+    let reclaimedCount: Int
+    let retryCandidateCount: Int
+
+    static let empty = RendererRealizationMemoryPressureReclaimResult(
+        reclaimedCount: 0,
+        retryCandidateCount: 0
+    )
+
+    func detail(prefix: String) -> String {
+        guard retryCandidateCount > 0 else { return prefix }
+        return "\(prefix) retryCandidates=\(retryCandidateCount)"
+    }
+}
+
 /// Periodically releases the GPU renderer (Metal swap chain / IOSurface, ~40MB
 /// each) of terminal surfaces that have been offscreen and idle, while keeping
 /// their PTY and terminal state alive. The renderer is rebuilt on re-show via
@@ -20,6 +35,7 @@ final class RendererRealizationController {
     private let systemMemoryPressureRetryPasses = 2
     private var timer: DispatchSourceTimer?
     private var settingsObserver: NSObjectProtocol?
+    private var systemMemoryPressureRetryTask: Task<Void, Never>?
 
     private init() {}
 
@@ -45,6 +61,8 @@ final class RendererRealizationController {
     func stop() {
         timer?.cancel()
         timer = nil
+        systemMemoryPressureRetryTask?.cancel()
+        systemMemoryPressureRetryTask = nil
         if let settingsObserver {
             NotificationCenter.default.removeObserver(settingsObserver)
             self.settingsObserver = nil
@@ -83,27 +101,35 @@ final class RendererRealizationController {
         }
     }
 
-    func reclaimForSystemMemoryPressure(now: Date) {
+    @discardableResult
+    func reclaimForSystemMemoryPressure(
+        now: Date,
+        onRetryResult: (@MainActor (RendererRealizationMemoryPressureReclaimResult, Date) -> Void)? = nil
+    ) -> RendererRealizationMemoryPressureReclaimResult {
         evaluate(
             now: now,
             trigger: .systemMemoryPressure,
-            remainingSystemMemoryPressureRetries: systemMemoryPressureRetryPasses
+            remainingSystemMemoryPressureRetries: systemMemoryPressureRetryPasses,
+            onSystemMemoryPressureRetryResult: onRetryResult
         )
     }
 
     /// Run one reclamation pass. Internal so a unit/integration test can drive it
     /// deterministically without the timer.
-    func evaluate(now: Date) {
-        evaluate(now: now, trigger: .scheduled)
+    @discardableResult
+    func evaluate(now: Date) -> Int {
+        evaluate(now: now, trigger: .scheduled).reclaimedCount
     }
 
+    @discardableResult
     private func evaluate(
         now: Date,
         trigger: RendererRealizationReclaimTrigger,
-        remainingSystemMemoryPressureRetries: Int = 0
-    ) {
+        remainingSystemMemoryPressureRetries: Int = 0,
+        onSystemMemoryPressureRetryResult: (@MainActor (RendererRealizationMemoryPressureReclaimResult, Date) -> Void)? = nil
+    ) -> RendererRealizationMemoryPressureReclaimResult {
         let settings = RendererRealizationSettings.values()
-        guard settings.enabled else { return }
+        guard settings.enabled else { return .empty }
 
         // Iterate the global registry rather than re-deriving per-workspace
         // visibility: each TerminalSurface carries its own authoritative
@@ -140,27 +166,54 @@ final class RendererRealizationController {
             now: now.timeIntervalSince1970,
             trigger: trigger
         )
-        guard !selected.isEmpty else { return }
-        var needsSystemMemoryPressureRetry = false
+        guard !selected.isEmpty else { return .empty }
+        var reclaimedCount = 0
+        var retryCandidateCount = 0
         for surface in surfaces where selected.contains(surface.id) {
-            surface.releaseRenderer()
+            if surface.releaseRenderer() {
+                reclaimedCount += 1
+            }
             // A dropped Ghostty mailbox enqueue leaves the renderer realized.
             // Retry with the pressure policy; scheduled policy may keep recent
             // hidden surfaces warm and skip the exact surface pressure selected.
             if trigger == .systemMemoryPressure,
                !surface.isRendererPortalVisible,
                surface.isRendererRealized {
-                needsSystemMemoryPressureRetry = true
+                retryCandidateCount += 1
             }
         }
 
-        if needsSystemMemoryPressureRetry, remainingSystemMemoryPressureRetries > 0 {
-            Task { @MainActor in
-                RendererRealizationController.shared.evaluate(
-                    now: Date(),
-                    trigger: .systemMemoryPressure,
-                    remainingSystemMemoryPressureRetries: remainingSystemMemoryPressureRetries - 1
-                )
+        let result = RendererRealizationMemoryPressureReclaimResult(
+            reclaimedCount: reclaimedCount,
+            retryCandidateCount: retryCandidateCount
+        )
+
+        if retryCandidateCount > 0, remainingSystemMemoryPressureRetries > 0 {
+            scheduleSystemMemoryPressureRetry(
+                remainingRetries: remainingSystemMemoryPressureRetries - 1,
+                onRetryResult: onSystemMemoryPressureRetryResult
+            )
+        }
+        return result
+    }
+
+    private func scheduleSystemMemoryPressureRetry(
+        remainingRetries: Int,
+        onRetryResult: (@MainActor (RendererRealizationMemoryPressureReclaimResult, Date) -> Void)?
+    ) {
+        systemMemoryPressureRetryTask?.cancel()
+        systemMemoryPressureRetryTask = Task { @MainActor [weak self] in
+            guard let self, !Task.isCancelled else { return }
+            self.systemMemoryPressureRetryTask = nil
+            let retryResult = self.evaluate(
+                now: Date(),
+                trigger: .systemMemoryPressure,
+                remainingSystemMemoryPressureRetries: remainingRetries,
+                onSystemMemoryPressureRetryResult: onRetryResult
+            )
+            guard !Task.isCancelled else { return }
+            if retryResult.reclaimedCount > 0 {
+                onRetryResult?(retryResult, Date())
             }
         }
     }

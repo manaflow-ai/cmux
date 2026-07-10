@@ -112,6 +112,22 @@ import Testing
         #expect(UITestConfig.dogfoodAttachURL(from: env) == nil)
     }
 
+    @Test func workspaceDetailRefreshingTerminalMenuFlagIsDebugOnly() {
+        let env = ["CMUX_UITEST_WORKSPACE_DETAIL_REFRESHING_TERMINAL_MENU": "1"]
+        #if DEBUG
+        #expect(UITestConfig.workspaceDetailRefreshingTerminalMenuPreviewEnabled(from: env) == true)
+        #else
+        #expect(UITestConfig.workspaceDetailRefreshingTerminalMenuPreviewEnabled(from: env) == false)
+        #endif
+    }
+
+    @Test func workspaceDetailRefreshingTerminalMenuFlagRequiresOne() {
+        #expect(UITestConfig.workspaceDetailRefreshingTerminalMenuPreviewEnabled(from: [:]) == false)
+        #expect(UITestConfig.workspaceDetailRefreshingTerminalMenuPreviewEnabled(
+            from: ["CMUX_UITEST_WORKSPACE_DETAIL_REFRESHING_TERMINAL_MENU": "0"]
+        ) == false)
+    }
+
     @Test func agentChatPreviewFlagIsDebugOnly() {
         let env = ["CMUX_UITEST_AGENT_CHAT_PREVIEW": "1"]
         let config = UITestEnvironmentConfig(environment: env)

@@ -19,6 +19,10 @@ public enum MobileWorkspaceListItem: Identifiable, Equatable, Sendable {
     /// collapsed it reflects the whole group, anchor included, so hidden
     /// member activity is never silently swallowed.
     case groupHeader(MobileWorkspaceGroupPreview, hasUnread: Bool)
+    /// A synthetic footer marking the end of an expanded group's member run.
+    /// Rendered only in the grouped mobile list so end-of-group insertion gaps
+    /// split into distinct "inside the group" and "top level" targets.
+    case groupFooter(MobileWorkspaceGroupPreview.ID)
     /// A workspace row. `indented` is `true` for non-anchor members nested under
     /// a group header, so the view can inset them.
     case workspace(MobileWorkspacePreview, indented: Bool)
@@ -30,6 +34,8 @@ public enum MobileWorkspaceListItem: Identifiable, Equatable, Sendable {
         switch self {
         case .groupHeader(let group, _):
             return "group.\(group.id.rawValue)"
+        case .groupFooter(let groupID):
+            return "groupFooter.\(groupID.rawValue)"
         case .workspace(let workspace, _):
             return "workspace.\(workspace.id.rawValue)"
         }
@@ -41,7 +47,11 @@ public enum MobileWorkspaceListItem: Identifiable, Equatable, Sendable {
     /// - Items follow `workspaces` order. A group header is emitted at the first
     ///   member's position.
     /// - The anchor workspace is never a separate row (the header represents it).
-    /// - When a group is collapsed, its members are skipped (header kept).
+    /// - Expanded groups append a synthetic ``groupFooter(_:)`` after their last
+    ///   visible member so `List.onMove` has separate insertion gaps for
+    ///   "append inside the group" and "place at the top level".
+    /// - When a group is collapsed, its members are skipped (header kept) and no
+    ///   footer is emitted.
     /// - Ungrouped workspaces interleave inline by position.
     ///
     /// A `groupID` referencing a group not present in `groups` (e.g. a transient
@@ -79,8 +89,21 @@ public enum MobileWorkspaceListItem: Identifiable, Equatable, Sendable {
             }
         }
 
+        var lastVisibleNonAnchorWorkspaceIDByGroupID: [MobileWorkspaceGroupPreview.ID: MobileWorkspacePreview.ID] = [:]
+        var hasVisibleNonAnchorByGroupID: [MobileWorkspaceGroupPreview.ID: Bool] = [:]
+        for workspace in workspaces {
+            guard let groupID = workspace.groupID,
+                  let group = groupsByID[groupID],
+                  !group.isCollapsed,
+                  group.anchorWorkspaceID != workspace.id else {
+                continue
+            }
+            hasVisibleNonAnchorByGroupID[groupID] = true
+            lastVisibleNonAnchorWorkspaceIDByGroupID[groupID] = workspace.id
+        }
+
         var items: [MobileWorkspaceListItem] = []
-        items.reserveCapacity(workspaces.count + groups.count)
+        items.reserveCapacity(workspaces.count + (groups.count * 2))
         var lastEmittedGroupID: MobileWorkspaceGroupPreview.ID?
         var emittedHeaders: Set<MobileWorkspaceGroupPreview.ID> = []
         var collapsedByGroupID: [MobileWorkspaceGroupPreview.ID: Bool] = [:]
@@ -98,6 +121,9 @@ public enum MobileWorkspaceListItem: Identifiable, Equatable, Sendable {
                         ? anyMemberUnreadByGroupID[groupID, default: false]
                         : anchorUnreadByGroupID[groupID, default: false]
                     items.append(.groupHeader(group, hasUnread: hasUnread))
+                    if !group.isCollapsed, hasVisibleNonAnchorByGroupID[groupID] != true {
+                        items.append(.groupFooter(groupID))
+                    }
                     emittedHeaders.insert(groupID)
                     collapsedByGroupID[groupID] = group.isCollapsed
                 }
@@ -111,6 +137,10 @@ public enum MobileWorkspaceListItem: Identifiable, Equatable, Sendable {
             let isCollapsed = groupID.map { collapsedByGroupID[$0] ?? false } ?? false
             if groupID == nil || !isCollapsed {
                 items.append(.workspace(workspace, indented: groupID != nil))
+                if let groupID,
+                   lastVisibleNonAnchorWorkspaceIDByGroupID[groupID] == workspace.id {
+                    items.append(.groupFooter(groupID))
+                }
             }
         }
         return items

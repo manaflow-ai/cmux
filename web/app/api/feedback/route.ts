@@ -79,8 +79,10 @@ export async function POST(request: Request) {
             "feedback.route.rate_limit_not_found",
             feedbackConfig.rateLimitId,
           );
+          return jsonError("service_unavailable", 503);
         } else if (error) {
           console.error("feedback.route.rate_limit_error", error);
+          return jsonError("service_unavailable", 503);
         }
       }
 

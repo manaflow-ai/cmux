@@ -66,6 +66,13 @@ export async function POST(request: Request) {
         if (rateLimited || error === "blocked") {
           return jsonError("Rate limit exceeded", 429);
         }
+        if (error === "not-found") {
+          console.error("waitlist.route.rate_limit_not_found", env.CMUX_FEEDBACK_RATE_LIMIT_ID);
+          return jsonError("service_unavailable", 503);
+        } else if (error) {
+          console.error("waitlist.route.rate_limit_error", error);
+          return jsonError("service_unavailable", 503);
+        }
       }
 
       let payload: unknown;
