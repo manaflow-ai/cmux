@@ -1512,6 +1512,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		A5001403 /* TerminalPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001413 /* TerminalPanelView.swift */; };
 		C7261F010000000000000001 /* TerminalPointerFocusActivationPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7261F010000000000000002 /* TerminalPointerFocusActivationPolicy.swift */; };
 		C7261F020000000000000001 /* TerminalPointerFocusActivationPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7261F020000000000000002 /* TerminalPointerFocusActivationPolicyTests.swift */; };
+		B7843B000000000000000002 /* TerminalPortalHostAuthorityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7843B000000000000000001 /* TerminalPortalHostAuthorityTests.swift */; };
 		D25860090000000000000001 /* TerminalPortalHostContainerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D25860090000000000000002 /* TerminalPortalHostContainerView.swift */; };
 		D25860020000000000000001 /* TerminalPortalMutationScheduler.swift in Sources */ = {isa = PBXBuildFile; fileRef = D25860020000000000000002 /* TerminalPortalMutationScheduler.swift */; };
 		D25860030000000000000001 /* TerminalPortalMutationSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = D25860030000000000000002 /* TerminalPortalMutationSnapshot.swift */; };
@@ -1534,6 +1535,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		A5001532 /* TerminalWindowPortal.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001531 /* TerminalWindowPortal.swift */; };
 		D0B10006A1B2C3D4E5F60001 /* TerminalWindowPortalDebug.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B10007A1B2C3D4E5F60001 /* TerminalWindowPortalDebug.swift */; };
 		C95BAC3D37A6111B487582DC /* TerminalWindowPortalLifecycleHiddenRefreshTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43DB195131CD53CCCCEEEB79 /* TerminalWindowPortalLifecycleHiddenRefreshTests.swift */; };
+		A7843A000000000000000002 /* TerminalWindowPortalReplacementAuthorityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7843A000000000000000001 /* TerminalWindowPortalReplacementAuthorityTests.swift */; };
 		D7332C0A0000000000000001 /* TerminationResumeIndexCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7332C0A0000000000000002 /* TerminationResumeIndexCoordinator.swift */; };
 		D7332C0C0000000000000001 /* TerminationResumeIndexSavePlan.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7332C0C0000000000000002 /* TerminationResumeIndexSavePlan.swift */; };
 		B7758A010000000000000001 /* TerminationWatchdog.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7758A010000000000000002 /* TerminationWatchdog.swift */; };
@@ -3229,6 +3231,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		A5001413 /* TerminalPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/TerminalPanelView.swift; sourceTree = "<group>"; };
 		C7261F010000000000000002 /* TerminalPointerFocusActivationPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPointerFocusActivationPolicy.swift; sourceTree = "<group>"; };
 		C7261F020000000000000002 /* TerminalPointerFocusActivationPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPointerFocusActivationPolicyTests.swift; sourceTree = "<group>"; };
+		B7843B000000000000000001 /* TerminalPortalHostAuthorityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPortalHostAuthorityTests.swift; sourceTree = "<group>"; };
 		D25860090000000000000002 /* TerminalPortalHostContainerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPortalHostContainerView.swift; sourceTree = "<group>"; };
 		D25860020000000000000002 /* TerminalPortalMutationScheduler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPortalMutationScheduler.swift; sourceTree = "<group>"; };
 		D25860030000000000000002 /* TerminalPortalMutationSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPortalMutationSnapshot.swift; sourceTree = "<group>"; };
@@ -3251,6 +3254,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		A5001531 /* TerminalWindowPortal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalWindowPortal.swift; sourceTree = "<group>"; };
 		D0B10007A1B2C3D4E5F60001 /* TerminalWindowPortalDebug.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalWindowPortalDebug.swift; sourceTree = "<group>"; };
 		43DB195131CD53CCCCEEEB79 /* TerminalWindowPortalLifecycleHiddenRefreshTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalWindowPortalLifecycleHiddenRefreshTests.swift; sourceTree = "<group>"; };
+		A7843A000000000000000001 /* TerminalWindowPortalReplacementAuthorityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalWindowPortalReplacementAuthorityTests.swift; sourceTree = "<group>"; };
 		D7332C0A0000000000000002 /* TerminationResumeIndexCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminationResumeIndexCoordinator.swift; sourceTree = "<group>"; };
 		D7332C0C0000000000000002 /* TerminationResumeIndexSavePlan.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminationResumeIndexSavePlan.swift; sourceTree = "<group>"; };
 		B7758A010000000000000002 /* TerminationWatchdog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminationWatchdog.swift; sourceTree = "<group>"; };
@@ -5012,6 +5016,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				02FC74F2C27127CC565B3E8C /* TerminalAndGhosttyTests.swift */,
 				570ED364A7E41085FB2D31FE /* MainWindowSelfSizingTests.swift */,
 				43DB195131CD53CCCCEEEB79 /* TerminalWindowPortalLifecycleHiddenRefreshTests.swift */,
+				A7843A000000000000000001 /* TerminalWindowPortalReplacementAuthorityTests.swift */,
 				6190C0116190C0116190C011 /* TerminalCopyOnSelectManagedConfigLayeringTests.swift */,
 				606600010000000000000002 /* WindowTerminalHostViewTitlebarHitTests.swift */,
 				C0DE53360000000000000002 /* TerminalSearchOverlayMouseReleaseTests.swift */,
@@ -5019,6 +5024,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C44550000000000000000002 /* PanelOwnedNativeViewSessionTests.swift */,
 				3069F1D10000000000000004 /* GhosttyPasteboardFidelityTests.swift */,
 				D7AB34400000000000000004 /* GhosttyTerminalViewVisibilityPolicyTests.swift */,
+				B7843B000000000000000001 /* TerminalPortalHostAuthorityTests.swift */,
 				D7AB00000000000000000012 /* WorkspaceAdjacentPaneMoveTests.swift */,
 				D7AB3605C10DEF0000000002 /* WorkspaceCloseTabsContextMenuTests.swift */,
 				4335E241A33344C48361AD51 /* PortalHitTestingPerformanceTests.swift */,
@@ -7328,12 +7334,14 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A5E380700000000000000001 /* TerminalNotificationSocketActionTests.swift in Sources */,
 				596100000000000000000007 /* TerminalNotificationStore+NativeNotificationDeliveryTesting.swift in Sources */,
 				C7261F020000000000000001 /* TerminalPointerFocusActivationPolicyTests.swift in Sources */,
+				B7843B000000000000000002 /* TerminalPortalHostAuthorityTests.swift in Sources */,
 				D5671101D5671101D5671101 /* TerminalScrollSpeedSettingsFileStoreTests.swift in Sources */,
 				C0DE53360000000000000001 /* TerminalSearchOverlayMouseReleaseTests.swift in Sources */,
 				D3052001000000000000001 /* TerminalSurfaceResizePolicyTests.swift in Sources */,
 				A91C0D0F0000000000000002 /* TerminalTabIconRegressionTests.swift in Sources */,
 				EC010C01 /* TerminalUploadCommandTests.swift in Sources */,
 				C95BAC3D37A6111B487582DC /* TerminalWindowPortalLifecycleHiddenRefreshTests.swift in Sources */,
+				A7843A000000000000000002 /* TerminalWindowPortalReplacementAuthorityTests.swift in Sources */,
 				B7758A020000000000000001 /* TerminationWatchdogTests.swift in Sources */,
 				C0DE7B300000000000000001 /* TextBoxMentionCompletionTests.swift in Sources */,
 				C0DE7B3C0000000000000001 /* TextBoxSubmitActionSettingsFileTests.swift in Sources */,

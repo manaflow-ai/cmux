@@ -303,19 +303,20 @@ struct WorkspaceContentView: View {
         .id(splitZoomRenderIdentity)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
-            updateAgentHibernationPresentationVisibility()
+            updateWorkspacePresentationVisibility()
             syncBonsplitNotificationBadges()
             refreshGhosttyAppearanceConfig(reason: "onAppear")
         }
         .onChange(of: isWorkspaceVisible) { _, isVisible in
-            updateAgentHibernationPresentationVisibility()
+            updateWorkspacePresentationVisibility()
             guard isVisible else { return }
             flushDeferredThemeRefreshIfNeeded()
         }
         .onChange(of: isWorkspaceInputActive) { _, _ in
-            updateAgentHibernationPresentationVisibility()
+            updateWorkspacePresentationVisibility()
         }
         .onDisappear {
+            workspace.setPortalPresentationVisible(false)
             workspace.setAgentHibernationAutoResumePresentationVisible(false)
         }
         .onChange(of: notificationStore.notifications) { _, _ in
@@ -541,7 +542,8 @@ struct WorkspaceContentView: View {
         )
     }
 
-    private func updateAgentHibernationPresentationVisibility() {
+    private func updateWorkspacePresentationVisibility() {
+        workspace.setPortalPresentationVisible(isWorkspaceVisible)
         workspace.setAgentHibernationAutoResumePresentationVisible(isWorkspaceVisible && isWorkspaceInputActive)
     }
 

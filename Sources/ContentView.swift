@@ -1751,7 +1751,7 @@ struct ContentView: View {
                     let portalPriority = isSelectedWorkspace ? 2 : (isRetiringWorkspace ? 1 : 0)
                     WorkspaceContentView(
                         workspace: tab,
-                        isWorkspaceVisible: presentation.isPanelVisible,
+                        isWorkspaceVisible: presentation.isPanelVisible && sidebarSelectionState.selection == .tabs,
                         isWorkspaceInputActive: isInputActive,
                         rightSidebarOwnsInputFocus: fileExplorerState.rightSidebarOwnsInputFocus,
                         isFullScreen: isFullScreen,

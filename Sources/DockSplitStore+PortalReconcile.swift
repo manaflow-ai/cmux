@@ -193,9 +193,6 @@ extension DockSplitStore {
         }
 
         hostedView.reconcileGeometryNow()
-        if terminal.surface.surface != nil {
-            terminal.surface.forceRefresh()
-        }
         if terminal.surface.surface == nil, isAttached, hasUsableBounds {
             terminal.surface.requestBackgroundSurfaceStartIfNeeded()
             needsFollowUpPass = true

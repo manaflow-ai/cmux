@@ -41,6 +41,11 @@ extension TerminalSurface {
         lease.inWindow && lease.area > portalHostAreaThreshold
     }
 
+    /// Whether a candidate host is attached and large enough to claim portal authority.
+    public func portalHostIsUsable(inWindow: Bool, bounds: CGRect) -> Bool {
+        inWindow && Self.portalHostArea(for: bounds) > Self.portalHostAreaThreshold
+    }
+
     /// Whether `hostId` currently owns this surface's portal lease.
     public func isPortalHostOwner(hostId: ObjectIdentifier) -> Bool {
         activePortalHostLease?.hostId == hostId
@@ -123,8 +128,9 @@ extension TerminalSurface {
 
     /// Re-arms the lease when SwiftUI is about to rebuild the owning host.
     @discardableResult
-    public func preparePortalHostReplacementIfOwned(hostId: ObjectIdentifier, reason: String) -> Bool {
-        guard let current = activePortalHostLease, current.hostId == hostId else { return false }
+    public func preparePortalHostReplacementIfOwned(hostId: ObjectIdentifier, reason: String) -> UInt64? {
+        guard let current = activePortalHostLease, current.hostId == hostId,
+              let authority = portalHostAuthority, authority.hostId == hostId else { return nil }
         // SwiftUI can tear down and rebuild the host NSView during split churn. Keep the
         // existing portal binding alive, but make the old lease non-usable so the next
         // distinct host in the same pane can claim immediately instead of waiting for a
@@ -143,7 +149,14 @@ extension TerminalSurface {
             "area=\(String(format: "%.1f", current.area))"
         )
 #endif
-        return true
+        return authority.ownershipGeneration
+    }
+
+    /// Whether an announced replacement still matches the current authority epoch.
+    public func isPortalHostReplacementPending(ownershipGeneration: UInt64) -> Bool {
+        guard let authority = portalHostAuthority else { return false }
+        return authority.ownershipGeneration == ownershipGeneration &&
+            authority.phase == .replacementAllowed
     }
 
     /// Claims (or re-claims) the portal host for a pane.
