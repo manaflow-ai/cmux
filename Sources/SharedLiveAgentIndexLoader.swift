@@ -13,7 +13,6 @@ struct SharedLiveAgentIndexLoader {
     private let fileManager: FileManager
     private let registry: CmuxVaultAgentRegistry?
     private let processSnapshotProvider: () -> CmuxTopProcessSnapshot
-    private let capturedAtProvider: () -> TimeInterval
     private let processArgumentsProvider: (Int) -> CmuxTopProcessArguments?
     private let processIdentityProvider: (Int) -> AgentPIDProcessIdentity?
     private let cachedAgentProcessValidator: CachedAgentProcessIdentityValidator
@@ -23,10 +22,7 @@ struct SharedLiveAgentIndexLoader {
         fileManager: FileManager = .default,
         registry: CmuxVaultAgentRegistry? = nil,
         processSnapshotProvider: @escaping () -> CmuxTopProcessSnapshot = {
-            CmuxTopProcessSnapshot.capture(includeProcessDetails: true)
-        },
-        capturedAtProvider: @escaping () -> TimeInterval = {
-            Date().timeIntervalSince1970
+            CmuxTopProcessSnapshot.captureCached(includeProcessDetails: true, maximumAge: 5)
         },
         processArgumentsProvider: @escaping (Int) -> CmuxTopProcessArguments? = {
             CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: $0)
@@ -41,7 +37,6 @@ struct SharedLiveAgentIndexLoader {
         self.fileManager = fileManager
         self.registry = registry
         self.processSnapshotProvider = processSnapshotProvider
-        self.capturedAtProvider = capturedAtProvider
         self.processArgumentsProvider = processArgumentsProvider
         self.processIdentityProvider = processIdentityProvider
         self.cachedAgentProcessValidator = cachedAgentProcessValidator
@@ -59,7 +54,7 @@ struct SharedLiveAgentIndexLoader {
             registry: resolvedRegistry,
             fileManager: fileManager,
             processSnapshot: processSnapshot,
-            capturedAt: capturedAtProvider(),
+            capturedAt: processSnapshot.sampledAt.timeIntervalSince1970,
             processArgumentsProvider: processArgumentsProvider
         )
         let index = RestorableAgentSessionIndex.load(

@@ -33,7 +33,6 @@ struct ForkParentFallbackResidualTests {
             processSnapshotProvider: {
                 fixture.processSnapshot(processName: "claude-custom", processPath: "/opt/cmux-tools/claude-custom")
             },
-            capturedAtProvider: { 42 },
             processArgumentsProvider: { $0 == fixture.processID ? processArguments : nil },
             processIdentityProvider: { $0 == fixture.processID ? identity : nil }
         )
@@ -297,7 +296,6 @@ struct ForkParentFallbackResidualTests {
             processSnapshotProvider: {
                 fixture.processSnapshot(processName: "claude", processPath: "/usr/local/bin/claude")
             },
-            capturedAtProvider: { 42 },
             processArgumentsProvider: { pid in
                 pid == fixture.processID ? processArguments : nil
             },
@@ -364,7 +362,7 @@ struct ForkParentFallbackResidualTests {
                         threadCount: 1
                     ),
                 ],
-                sampledAt: Date(timeIntervalSince1970: 0),
+                sampledAt: Date(timeIntervalSince1970: 42),
                 includesProcessDetails: true
             )
         }

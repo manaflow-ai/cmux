@@ -266,7 +266,6 @@ struct ForkParentFallbackSessionIndexTests {
             fileManager: fixture.fileManager,
             registry: CmuxVaultAgentRegistry(registrations: []),
             processSnapshotProvider: { processSnapshot },
-            capturedAtProvider: { 42 },
             processArgumentsProvider: { $0 == fixture.forkProcessID ? processArguments : nil },
             processIdentityProvider: { $0 == fixture.forkProcessID ? identity : nil }
         ).loadResultSynchronously()
@@ -414,7 +413,7 @@ struct ForkParentFallbackSessionIndexTests {
                     threadCount: 1
                 ),
             ],
-            sampledAt: Date(timeIntervalSince1970: 0),
+            sampledAt: Date(timeIntervalSince1970: 42),
             includesProcessDetails: true
         )
     }

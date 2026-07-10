@@ -33,13 +33,12 @@ extension RestorableAgentSessionIndex {
         registry: CmuxVaultAgentRegistry,
         fileManager: FileManager
     ) -> [PanelKey: ProcessDetectedSnapshotEntry] {
-        let capturedAt = Date().timeIntervalSince1970
         let processSnapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: true)
         return processDetectedSnapshots(
             registry: registry,
             fileManager: fileManager,
             processSnapshot: processSnapshot,
-            capturedAt: capturedAt
+            capturedAt: processSnapshot.sampledAt.timeIntervalSince1970
         )
     }
 

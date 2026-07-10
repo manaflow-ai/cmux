@@ -369,7 +369,7 @@ extension AgentHibernationController {
         let requestID = UUID()
         let startSequence = postSnapshotValidationIndexSequence
         let task = Task.detached(priority: .utility) {
-            await RestorableAgentSessionIndex.loadIncludingProcessDetectedSnapshots()
+            await RestorableAgentSessionIndex.loadIncludingFreshProcessDetectedSnapshots()
         }
         postSnapshotValidationIndexTask = PostSnapshotValidationIndexTask(
             requestID: requestID,

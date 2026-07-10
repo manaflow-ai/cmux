@@ -108,7 +108,6 @@ struct WorkspaceForkConversationContextMenuTests {
             fileManager: fm,
             registry: registry,
             processSnapshotProvider: { processSnapshot },
-            capturedAtProvider: { 42 },
             processArgumentsProvider: { pid in
                 guard pid == processId else { return nil }
                 return CmuxTopProcessArguments(
@@ -190,7 +189,6 @@ struct WorkspaceForkConversationContextMenuTests {
                     fileManager: .default,
                     registry: registry,
                     processSnapshotProvider: { snapshot },
-                    capturedAtProvider: { snapshot.sampledAt.timeIntervalSince1970 },
                     processArgumentsProvider: { pid in
                         pid == processId
                             ? CmuxTopProcessArguments(arguments: [executable, "--session", sessionId], environment: ["PWD": cwd.path])
@@ -310,7 +308,6 @@ struct WorkspaceForkConversationContextMenuTests {
                             includesProcessDetails: true
                         )
                     },
-                    capturedAtProvider: { sampledAt.timeIntervalSince1970 },
                     processArgumentsProvider: { _ in nil }
                 )
                 .loadResultSynchronously()
@@ -365,7 +362,6 @@ struct WorkspaceForkConversationContextMenuTests {
                     processSnapshotProvider: {
                         CmuxTopProcessSnapshot(processes: [], sampledAt: now.withLock { $0 }, includesProcessDetails: true)
                     },
-                    capturedAtProvider: { now.withLock { $0 }.timeIntervalSince1970 },
                     processArgumentsProvider: { _ in nil }
                 )
                 .loadResultSynchronously()

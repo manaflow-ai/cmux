@@ -92,7 +92,6 @@ struct SharedLiveAgentIndexAgentLivenessTests {
                     fileManager: fm,
                     registry: registry,
                     processSnapshotProvider: { processSnapshot },
-                    capturedAtProvider: { 42 },
                     processArgumentsProvider: { pid in
                         guard pid == agentPID else { return nil }
                         return processArguments.withLock { $0 }
@@ -190,7 +189,6 @@ struct SharedLiveAgentIndexAgentLivenessTests {
                     fileManager: fm,
                     registry: registry,
                     processSnapshotProvider: { processSnapshot },
-                    capturedAtProvider: { 51 },
                     processArgumentsProvider: { pid in
                         guard pid == agentPID else { return nil }
                         processArgumentReads.withLock { $0 += 1 }
@@ -279,7 +277,6 @@ struct SharedLiveAgentIndexAgentLivenessTests {
                     fileManager: fm,
                     registry: registry,
                     processSnapshotProvider: { processSnapshot },
-                    capturedAtProvider: { 61 },
                     processArgumentsProvider: { pid in
                         guard pid == agentPID else { return nil }
                         return CmuxTopProcessArguments(
