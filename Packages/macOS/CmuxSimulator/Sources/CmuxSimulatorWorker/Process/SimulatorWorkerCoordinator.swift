@@ -12,7 +12,7 @@ final class SimulatorWorkerCoordinator {
     let channel: SimulatorLengthPrefixedMessageChannel
     let encoder = JSONEncoder()
     let frameworkLoader = SimulatorFrameworkLoader()
-    let accessibility = SimulatorAccessibilityBridge()
+    let accessibilityExecutor: any SimulatorAccessibilityExecuting
     let subprocessRunner: SimulatorSubprocessRunner
     let camera: SimulatorCameraAdapter
     let interfaceSettings: SimulatorAXSettingsAdapter
@@ -32,13 +32,18 @@ final class SimulatorWorkerCoordinator {
     var gestureStart: SimulatorPoint?
     var gestureUsesTwoFingers = false
     var pendingKeyUsages: Set<UInt32> = []
+    var foregroundApplicationTask: Task<Void, Never>?
+    var foregroundApplicationGeneration: UUID?
+    var foregroundApplicationRequestIdentifiers: [UUID] = []
 
     init(
         channel: SimulatorLengthPrefixedMessageChannel,
-        subprocessRunner: SimulatorSubprocessRunner = SimulatorSubprocessRunner()
+        subprocessRunner: SimulatorSubprocessRunner = SimulatorSubprocessRunner(),
+        accessibilityExecutor: (any SimulatorAccessibilityExecuting)? = nil
     ) {
         self.channel = channel
         self.subprocessRunner = subprocessRunner
+        self.accessibilityExecutor = accessibilityExecutor ?? SimulatorAccessibilityExecutor()
         camera = SimulatorCameraAdapter(subprocessRunner: subprocessRunner)
         interfaceSettings = SimulatorAXSettingsAdapter(subprocessRunner: subprocessRunner)
         privacy = SimulatorPrivatePrivacyAdapter(subprocessRunner: subprocessRunner)
@@ -206,7 +211,7 @@ final class SimulatorWorkerCoordinator {
             do {
                 let inferredApplication: SimulatorApplicationInfo?
                 if configuration.targetBundleIdentifier == nil {
-                    inferredApplication = try accessibility.foregroundApplication()
+                    inferredApplication = try await accessibilityExecutor.foregroundApplication()
                 } else {
                     inferredApplication = nil
                 }
@@ -356,7 +361,9 @@ final class SimulatorWorkerCoordinator {
             let isClear = nodeIdentifier == nil && frame == nil
             if !isClear,
                let currentDisplay,
-               let snapshot = try? accessibility.accessibilitySnapshot(display: currentDisplay) {
+               let snapshot = try? await accessibilityExecutor.accessibilitySnapshot(
+                   display: currentDisplay
+               ) {
                 framebuffer?.setAccessibilityCoordinateSpace(
                     Self.accessibilityCoordinateSpace(nodes: snapshot.roots)
                 )
@@ -399,7 +406,9 @@ final class SimulatorWorkerCoordinator {
                 break
             }
             do {
-                let snapshot = try accessibility.accessibilitySnapshot(display: currentDisplay)
+                let snapshot = try await accessibilityExecutor.accessibilitySnapshot(
+                    display: currentDisplay
+                )
                 framebuffer?.setAccessibilityCoordinateSpace(
                     Self.accessibilityCoordinateSpace(nodes: snapshot.roots)
                 )
@@ -408,12 +417,7 @@ final class SimulatorWorkerCoordinator {
                 report(error, requestID: requestIdentifier)
             }
         case let .requestForegroundApplication(requestIdentifier):
-            do {
-                let application = try accessibility.foregroundApplication()
-                send(.foregroundApplication(requestID: requestIdentifier, application))
-            } catch {
-                report(error, requestID: requestIdentifier)
-            }
+            requestForegroundApplication(requestIdentifier: requestIdentifier)
         case let .requestWebInspectorTargets(requestIdentifier, deviceIdentifier):
             await requestWebInspectorTargets(
                 requestIdentifier: requestIdentifier,

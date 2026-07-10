@@ -4,6 +4,7 @@ import os
 
 extension SimulatorWorkerCoordinator {
     func shutdown() async {
+        cancelForegroundApplicationRequests()
         deviceStateMonitor?.invalidate()
         deviceStateMonitor = nil
         attachedDevice = nil
@@ -12,7 +13,7 @@ extension SimulatorWorkerCoordinator {
         hid = nil
         framebuffer?.stop()
         framebuffer = nil
-        accessibility.detach()
+        await accessibilityExecutor.detach()
         await camera.shutdown()
         webInspector.shutdown()
         renderContext = nil
@@ -70,7 +71,9 @@ extension SimulatorWorkerCoordinator {
                 hidFailure = error
                 self.hid = nil
             }
-            let accessibilityAvailable = accessibility.attach(device: device)
+            let accessibilityAvailable = await accessibilityExecutor.attach(
+                device: SimulatorAccessibilityDevice(device)
+            )
             camera.attach(deviceIdentifier: udid)
             let webInspectorAvailable = await webInspector.isAvailable(deviceIdentifier: udid)
 
@@ -203,12 +206,14 @@ extension SimulatorWorkerCoordinator {
 
         deviceStateMonitor?.invalidate()
         deviceStateMonitor = nil
+        cancelForegroundApplicationRequests()
         attachedDevice = nil
         hid?.releaseInputs()
         hid = nil
         framebuffer?.stop()
         framebuffer = nil
-        accessibility.detach()
+        let accessibilityExecutor = self.accessibilityExecutor
+        Task { await accessibilityExecutor.detach() }
         renderContext = nil
         currentDisplay = nil
         currentDeviceIdentifier = nil
