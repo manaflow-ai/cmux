@@ -5,17 +5,15 @@ import CmuxMobileSupport
 import CmuxMobileWorkspace
 import SwiftUI
 
-private enum MobileTelemetryDefaults {
-    /// Shared with `UserDefaultsAnalyticsConsentProvider`; keep the string stable
-    /// so Settings controls the same gate used by analytics and crash reporting.
-    static let sendAnonymousTelemetryKey = "sendAnonymousTelemetry"
-}
-
 /// The mobile app's settings page. Surfaces the signed-in account (so the user
 /// can confirm which cmux account this device uses — the account must match the
 /// Mac it pairs with), plus terminal shortcuts, agent notifications, and the
 /// paired Mac. Presented as a sheet from the workspace list.
 struct MobileSettingsView: View {
+    /// Shared with `UserDefaultsAnalyticsConsentProvider`; keep the string stable
+    /// so Settings controls the same gate used by analytics and crash reporting.
+    private static let sendAnonymousTelemetryKey = "sendAnonymousTelemetry"
+
     @Environment(AuthCoordinator.self) private var authManager
     @Environment(MobilePushCoordinator.self) private var pushCoordinator
     @Environment(MobileDisplaySettings.self) private var displaySettings
@@ -25,7 +23,7 @@ struct MobileSettingsView: View {
     /// The shell store, used to drive the multi-Mac switcher. `nil` in previews,
     /// where the "Switch Mac" entry is hidden.
     var store: CMUXMobileShellStore?
-    @AppStorage(MobileTelemetryDefaults.sendAnonymousTelemetryKey) private var sendAnonymousTelemetry = false
+    @AppStorage(MobileSettingsView.sendAnonymousTelemetryKey) private var sendAnonymousTelemetry = false
 
     @Environment(\.dismiss) private var dismiss
     @State private var showingShortcuts = false
