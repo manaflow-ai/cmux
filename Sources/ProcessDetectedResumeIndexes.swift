@@ -21,7 +21,14 @@ struct ProcessDetectedResumeIndexes: Sendable {
 
     @MainActor
     static func load(
-        coordinatedBy sharedIndex: SharedLiveAgentIndex = .shared,
+        maximumAge: TimeInterval = 60
+    ) async -> ProcessDetectedResumeIndexes? {
+        await load(coordinatedBy: .shared, maximumAge: maximumAge)
+    }
+
+    @MainActor
+    static func load(
+        coordinatedBy sharedIndex: SharedLiveAgentIndex,
         maximumAge: TimeInterval = 60
     ) async -> ProcessDetectedResumeIndexes? {
         await sharedIndex.resumeIndexesRefreshingIfNeeded(maximumAge: maximumAge)
