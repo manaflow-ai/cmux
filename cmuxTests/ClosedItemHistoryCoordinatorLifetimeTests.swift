@@ -38,7 +38,7 @@ struct ClosedItemHistoryCoordinatorLifetimeTests {
                 coordinatedBy: coordinator
             )
         }
-        let captureTask = try #require(captureTask)
+        let retainedCaptureTask = try #require(captureTask)
 
         #expect(
             await SharedLiveAgentIndexLoadCoalescingTests.wait(
@@ -48,7 +48,7 @@ struct ClosedItemHistoryCoordinatorLifetimeTests {
             "The returned capture must retain its injected coordinator until loading starts."
         )
         releaseLoad.signal()
-        await captureTask.value
+        await retainedCaptureTask.value
         #expect(store.canReopen)
     }
 
