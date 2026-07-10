@@ -44,6 +44,8 @@ pub struct MouseInput {
 pub struct MouseEncoder {
     encoder: sys::GhosttyMouseEncoder,
     event: sys::GhosttyMouseEvent,
+    terminal_state: Option<(usize, [bool; 8])>,
+    size: Option<((u32, u32), (u32, u32))>,
 }
 
 impl MouseEncoder {
@@ -56,13 +58,29 @@ impl MouseEncoder {
             unsafe { sys::ghostty_mouse_encoder_free(encoder) };
             return Err(error);
         }
-        Ok(Self { encoder, event })
+        let track_last_cell = true;
+        unsafe {
+            sys::ghostty_mouse_encoder_setopt(
+                encoder,
+                sys::GHOSTTY_MOUSE_ENCODER_OPT_TRACK_LAST_CELL,
+                &track_last_cell as *const _ as *const c_void,
+            );
+        }
+        Ok(Self { encoder, event, terminal_state: None, size: None })
     }
 
     pub fn sync_from_terminal(&mut self, terminal: &Terminal) {
+        let state = (
+            terminal.raw() as usize,
+            [9, 1000, 1002, 1003, 1005, 1006, 1015, 1016].map(|mode| terminal.mode(mode, false)),
+        );
+        if self.terminal_state == Some(state) {
+            return;
+        }
         unsafe {
             sys::ghostty_mouse_encoder_setopt_from_terminal(self.encoder, terminal.raw());
         }
+        self.terminal_state = Some(state);
     }
 
     pub fn encode(&mut self, input: MouseInput, out: &mut Vec<u8>) -> Result<()> {
@@ -84,19 +102,24 @@ impl MouseEncoder {
                 sys::GhosttyMousePosition { x: input.position.0, y: input.position.1 },
             );
 
-            let size = sys::GhosttyMouseEncoderSize {
-                size: size_of::<sys::GhosttyMouseEncoderSize>(),
-                screen_width: input.screen_size.0,
-                screen_height: input.screen_size.1,
-                cell_width: input.cell_size.0.max(1),
-                cell_height: input.cell_size.1.max(1),
-                ..Default::default()
-            };
-            sys::ghostty_mouse_encoder_setopt(
-                self.encoder,
-                sys::GHOSTTY_MOUSE_ENCODER_OPT_SIZE,
-                &size as *const _ as *const c_void,
-            );
+            let cell_size = (input.cell_size.0.max(1), input.cell_size.1.max(1));
+            let size_key = (input.screen_size, cell_size);
+            if self.size != Some(size_key) {
+                let size = sys::GhosttyMouseEncoderSize {
+                    size: size_of::<sys::GhosttyMouseEncoderSize>(),
+                    screen_width: input.screen_size.0,
+                    screen_height: input.screen_size.1,
+                    cell_width: cell_size.0,
+                    cell_height: cell_size.1,
+                    ..Default::default()
+                };
+                sys::ghostty_mouse_encoder_setopt(
+                    self.encoder,
+                    sys::GHOSTTY_MOUSE_ENCODER_OPT_SIZE,
+                    &size as *const _ as *const c_void,
+                );
+                self.size = Some(size_key);
+            }
             sys::ghostty_mouse_encoder_setopt(
                 self.encoder,
                 sys::GHOSTTY_MOUSE_ENCODER_OPT_ANY_BUTTON_PRESSED,
@@ -231,5 +254,32 @@ mod tests {
         encoder.encode(event, &mut out).unwrap();
 
         assert_eq!(out, b"\x1b[<0;36;40M");
+    }
+
+    #[test]
+    fn same_cell_motion_is_suppressed_until_mode_or_geometry_changes() {
+        let mut terminal = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+        terminal.vt_write(b"\x1b[?1003h\x1b[?1006h");
+        let mut encoder = MouseEncoder::new().unwrap();
+        encoder.sync_from_terminal(&terminal);
+        let mut event = input(MouseAction::Motion, None);
+        event.position = (36.0, 40.0);
+        event.screen_size = (640, 384);
+        event.cell_size = (8, 16);
+        let mut out = Vec::new();
+
+        encoder.encode(event, &mut out).unwrap();
+        assert_eq!(out, b"\x1b[<35;5;3M");
+
+        out.clear();
+        event.position = (39.0, 47.0);
+        encoder.sync_from_terminal(&terminal);
+        encoder.encode(event, &mut out).unwrap();
+        assert!(out.is_empty());
+
+        out.clear();
+        event.cell_size = (4, 8);
+        encoder.encode(event, &mut out).unwrap();
+        assert_eq!(out, b"\x1b[<35;10;6M");
     }
 }

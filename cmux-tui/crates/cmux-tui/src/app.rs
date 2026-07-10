@@ -1235,7 +1235,8 @@ impl App {
     fn handle(&mut self, event: AppEvent) -> anyhow::Result<RenderAction> {
         let event = match event {
             AppEvent::Input(input @ (Event::Key(_) | Event::Mouse(_) | Event::Paste(_)))
-                if self.session.has_pending_mutations() =>
+                if self.session.has_pending_mutations()
+                    && !self.input_can_update_pending_mutation(&input) =>
             {
                 return Ok(self.defer_input(input));
             }
@@ -1374,6 +1375,16 @@ impl App {
                 Ok(RenderAction::Draw)
             }
         }
+    }
+
+    fn input_can_update_pending_mutation(&self, input: &Event) -> bool {
+        matches!(
+            (input, &self.drag),
+            (
+                Event::Mouse(MouseEvent { kind: MouseEventKind::Drag(MouseButton::Left), .. }),
+                Some(Drag::ResizeSplit { .. })
+            )
+        )
     }
 
     fn defer_input(&mut self, input: Event) -> RenderAction {
@@ -4000,7 +4011,7 @@ mod tests {
         assert_eq!(app.encode_buf, b"\x1b[<2;5;3M");
         app.handle_mouse(event(MouseEventKind::Drag(MouseButton::Left), KeyModifiers::NONE))
             .unwrap();
-        assert_eq!(app.encode_buf, b"\x1b[<34;5;3M");
+        assert!(app.encode_buf.is_empty());
         app.handle_mouse(event(MouseEventKind::Up(MouseButton::Left), KeyModifiers::NONE)).unwrap();
         assert_eq!(app.encode_buf, b"\x1b[<2;5;3m");
         assert!(app.drag.is_none());
@@ -4016,7 +4027,7 @@ mod tests {
             modifiers: KeyModifiers::NONE,
         };
         app.handle_mouse(moved_event).unwrap();
-        assert_eq!(app.encode_buf, b"\x1b[<32;5;3M");
+        assert!(app.encode_buf.is_empty());
         app.handle_mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..moved_event })
             .unwrap();
         assert_eq!(app.encode_buf, b"\x1b[<0;5;3m");
@@ -4144,6 +4155,34 @@ mod tests {
         app.handle(settled).unwrap();
         assert!(app.deferred_input.is_empty());
         assert!(!app.session.has_pending_mutations());
+    }
+
+    #[test]
+    fn split_drag_updates_the_coalescing_lane_while_a_ratio_is_pending() {
+        let mux = Mux::new("pending-split-drag-test", SurfaceOptions::default());
+        let (mut app, _events) = test_app_with_events(Session::Local(mux));
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let (_release_tx, release_rx) = std::sync::mpsc::channel::<()>();
+        app.session.enqueue("blocking ratio", move |_| {
+            started_tx.send(()).unwrap();
+            let _ = release_rx.recv();
+            Ok(())
+        });
+        started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        app.drag = Some(Drag::ResizeSplit {
+            horizontal: Some((1, super::PaneEdge::Right)),
+            vertical: None,
+        });
+
+        app.handle(AppEvent::Input(Event::Mouse(MouseEvent {
+            kind: MouseEventKind::Drag(MouseButton::Left),
+            column: 20,
+            row: 5,
+            modifiers: KeyModifiers::NONE,
+        })))
+        .unwrap();
+
+        assert!(app.deferred_input.is_empty());
     }
 
     #[test]
