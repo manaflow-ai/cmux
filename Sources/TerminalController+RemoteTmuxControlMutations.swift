@@ -246,7 +246,7 @@ extension TerminalController {
             paneID: paneID,
             message: String(
                 localized: "socket.pane.resize.remoteUnavailable",
-                defaultValue: "The remote tmux pane could not be resized; wait for the connection to recover and retry."
+                defaultValue: "The remote tmux pane is not ready to resize; wait for it to become available and retry."
             )
         )
         if let axis = inputs.absoluteAxis, let targetPixels = inputs.targetPixels {
