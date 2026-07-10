@@ -590,18 +590,20 @@ final class TerminalPanel: Panel, ObservableObject {
     }
 #endif
 
-    func focus() {
+    func focus() { focus(refreshPolicy: .immediate) }
+
+    func focus(refreshPolicy: TerminalPortalVisibilityRefreshPolicy) {
         if isAgentHibernated {
             _ = requestAgentHibernationResume(focus: true)
             return
         }
-        focusTerminalSurface(respectForeignFirstResponder: true)
+        focusTerminalSurface(respectForeignFirstResponder: true, refreshPolicy: refreshPolicy)
     }
 
     @discardableResult
     private func focusTerminalSurface(
-        respectForeignFirstResponder: Bool,
-        clearTextBoxHideArm: Bool = true
+        respectForeignFirstResponder: Bool, clearTextBoxHideArm: Bool = true,
+        refreshPolicy: TerminalPortalVisibilityRefreshPolicy = .immediate
     ) -> Bool {
         if clearTextBoxHideArm {
             shouldHideTextBoxOnNextEscape = false
@@ -609,7 +611,7 @@ final class TerminalPanel: Panel, ObservableObject {
         if isTextBoxActive,
            respectForeignFirstResponder,
            textBoxInputFocusIntent == .textBox {
-            hostedView.yieldTerminalSurfaceFocusForForeignResponder(reason: "textbox.preserveFocusIntent")
+            hostedView.yieldTerminalSurfaceFocusForForeignResponder(reason: "textbox.preserveFocusIntent", refreshPolicy: refreshPolicy)
             hostedView.setActive(false)
             return true
         }
@@ -635,11 +637,9 @@ final class TerminalPanel: Panel, ObservableObject {
             return false
         }
         surface.setFocus(true)
-        hostedView.ensureFocus(
-            for: workspaceId,
-            surfaceId: id,
-            respectForeignFirstResponder: respectForeignFirstResponder
-        )
+        hostedView.ensureFocus(for: workspaceId, surfaceId: id,
+                               respectForeignFirstResponder: respectForeignFirstResponder,
+                               refreshPolicy: refreshPolicy)
         return true
     }
 
@@ -669,7 +669,7 @@ final class TerminalPanel: Panel, ObservableObject {
         )
         unfocus()
         searchState = nil
-        hostedView.setVisibleInUI(false)
+        hostedView.setVisibleInUI(false, refreshPolicy: .deferredToPortal)
         TerminalWindowPortalRegistry.detach(hostedView: hostedView)
         surface.suspendRuntimeSurfaceForAgentHibernation(reason: "agentHibernation")
         requestViewReattach()

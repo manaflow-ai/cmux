@@ -219,7 +219,9 @@ struct AppDelegateMoveTabToNewWorkspaceTests {
         defer { app.unregisterMainWindowContextForTesting(windowId: windowId) }
 
         let sourceWorkspace = try #require(manager.selectedWorkspace)
-        let movedPanelId = try #require(sourceWorkspace.focusedTerminalPanel?.id)
+        let movedPanel = try #require(sourceWorkspace.focusedTerminalPanel)
+        let movedPanelId = movedPanel.id
+        let ownershipGenerationBefore = movedPanel.portalHostOwnershipGeneration
         let movedBonsplitTabId = try #require(sourceWorkspace.surfaceIdFromPanelId(movedPanelId)?.uuid)
         let destinationWorkspace = manager.addWorkspace(title: "Operations", select: false)
         let destinationOriginalPanelId = try #require(destinationWorkspace.focusedTerminalPanel?.id)
@@ -238,6 +240,7 @@ struct AppDelegateMoveTabToNewWorkspaceTests {
         #expect(destinationWorkspace.panels[movedPanelId] != nil)
         #expect(destinationWorkspace.panels[destinationOriginalPanelId] != nil)
         #expect(destinationWorkspace.panels.count == 2)
+        #expect(movedPanel.portalHostOwnershipGeneration > ownershipGenerationBefore)
     }
 
     @Test
@@ -249,7 +252,9 @@ struct AppDelegateMoveTabToNewWorkspaceTests {
         defer { app.unregisterMainWindowContextForTesting(windowId: windowId) }
 
         let sourceWorkspace = try #require(manager.selectedWorkspace)
-        let movedPanelId = try #require(sourceWorkspace.focusedTerminalPanel?.id)
+        let movedPanel = try #require(sourceWorkspace.focusedTerminalPanel)
+        let movedPanelId = movedPanel.id
+        let ownershipGenerationBefore = movedPanel.portalHostOwnershipGeneration
         let destinationWorkspace = manager.addWorkspace(title: "Operations", select: false)
         let destinationOriginalPanelId = try #require(destinationWorkspace.focusedTerminalPanel?.id)
 
@@ -268,6 +273,7 @@ struct AppDelegateMoveTabToNewWorkspaceTests {
         #expect(destinationWorkspace.panels.count == 2)
         #expect(manager.selectedWorkspace?.id == destinationWorkspace.id)
         #expect(destinationWorkspace.focusedPanelId == movedPanelId)
+        #expect(movedPanel.portalHostOwnershipGeneration > ownershipGenerationBefore)
     }
 
     private func drainMainQueue() async {

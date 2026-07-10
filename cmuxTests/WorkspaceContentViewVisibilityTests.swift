@@ -113,6 +113,64 @@ final class WorkspaceContentViewVisibilityTests {
     }
 
     @Test
+    @MainActor
+    func testSidebarSelectionUpdatesHostedTerminalPortalVisibility() async throws {
+        _ = NSApplication.shared
+        let tabManager = TabManager()
+        defer { tabManager.tabs.forEach { $0.teardownAllPanels() } }
+        let notificationStore = TerminalNotificationStore.shared
+        let sidebarSelectionState = SidebarSelectionState(selection: .tabs)
+        let root = ContentView(updateViewModel: UpdateStateModel(), windowId: UUID())
+            .environmentObject(tabManager)
+            .environmentObject(notificationStore)
+            .environmentObject(notificationStore.sidebarUnread)
+            .environmentObject(SidebarState())
+            .environmentObject(sidebarSelectionState)
+            .environmentObject(FileExplorerState())
+            .environmentObject(CmuxConfigStore())
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 900, height: 640),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = MainWindowHostingView(rootView: root)
+        defer {
+            window.contentView = nil
+            window.close()
+        }
+
+        await Self.drainMainRunLoop(for: window)
+        let workspace = try #require(tabManager.selectedWorkspace)
+        let initialPanel = try #require(workspace.focusedTerminalPanel)
+        let pane = try #require(workspace.paneId(forPanelId: initialPanel.id))
+        let panel = try #require(workspace.newTerminalSurface(inPane: pane, focus: true))
+        await Self.drainMainRunLoop(for: window)
+
+        #expect(workspace.focusedTerminalPanel?.id == panel.id)
+        #expect(!initialPanel.hostedView.debugPortalVisibleInUI)
+        #expect(panel.hostedView.debugPortalVisibleInUI)
+        let portal = try #require(TerminalWindowPortalRegistry.mappedPortal(for: panel.hostedView))
+        let entry = try #require(portal.entriesByHostedId[ObjectIdentifier(panel.hostedView)])
+        let anchor = try #require(entry.anchorView)
+        #expect(entry.visibleInUI)
+        #expect(TerminalWindowPortalRegistry.isHostedView(panel.hostedView, boundTo: anchor))
+
+        sidebarSelectionState.selection = .notifications
+        await Self.drainMainRunLoop(for: window)
+        #expect(!panel.hostedView.debugPortalVisibleInUI)
+        _ = tabManager.selectedWorkspace?.debugReconcileTerminalPortalVisibilityForTesting()
+        #expect(
+            !panel.hostedView.debugPortalVisibleInUI,
+            "A layout follow-up must not override sidebar-owned portal hiding"
+        )
+
+        sidebarSelectionState.selection = .tabs
+        await Self.drainMainRunLoop(for: window)
+        #expect(panel.hostedView.debugPortalVisibleInUI)
+    }
+
+    @Test
     func testNonSelectedNonRetiringWorkspaceIsFullyHidden() {
         #expect(
             MountedWorkspacePresentation.resolve(
@@ -263,5 +321,125 @@ final class WorkspaceContentViewVisibilityTests {
             ) ==
             [CGRect(x: 677.5, y: 28, width: 500, height: 292)]
         )
+    }
+}
+
+@Suite("Canvas portal lifecycle", .serialized)
+struct CanvasPortalLifecycleTests {
+    @Test
+    @MainActor
+    func switchingVisibleWorkspaceToCanvasKeepsPortalPresentationVisible() async throws {
+        _ = NSApplication.shared
+        let tabManager = TabManager()
+        defer { tabManager.tabs.forEach { $0.teardownAllPanels() } }
+        let notificationStore = TerminalNotificationStore.shared
+        let root = ContentView(updateViewModel: UpdateStateModel(), windowId: UUID())
+            .environmentObject(tabManager)
+            .environmentObject(notificationStore)
+            .environmentObject(notificationStore.sidebarUnread)
+            .environmentObject(SidebarState())
+            .environmentObject(SidebarSelectionState())
+            .environmentObject(FileExplorerState())
+            .environmentObject(CmuxConfigStore())
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 900, height: 640),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = MainWindowHostingView(rootView: root)
+        defer {
+            window.contentView = nil
+            window.close()
+        }
+
+        await Self.drainMainRunLoop(for: window)
+        let workspace = try #require(tabManager.selectedWorkspace)
+        #expect(workspace.portalPresentationVisible)
+
+        workspace.setLayoutMode(.canvas)
+        await Self.drainMainRunLoop(for: window)
+
+        #expect(workspace.layoutMode == .canvas)
+        #expect(
+            workspace.portalPresentationVisible,
+            "Replacing the Bonsplit subtree with Canvas must not report that the visible workspace disappeared"
+        )
+    }
+
+    @Test
+    @MainActor
+    func canvasDirectHostReplacesEveryPortalOwnedCallback() {
+        let panel = TerminalPanel(workspaceId: UUID())
+        defer { panel.surface.teardownSurface() }
+        let hostedView = panel.hostedView
+        let portalHost = NSView()
+        var portalFocusCount = 0
+        var portalFlashCount = 0
+        var canvasFocusCount = 0
+        hostedView.setPortalHostHandlers(
+            ownerHostId: ObjectIdentifier(portalHost),
+            focusHandler: { portalFocusCount += 1 },
+            triggerFlashHandler: { portalFlashCount += 1 }
+        )
+
+        let container = NSView(frame: CGRect(x: 0, y: 0, width: 400, height: 300))
+        let mount = CanvasPaneContentMount(
+            content: .terminal(panel),
+            panelId: panel.id,
+            container: container,
+            onFocusPanel: { _ in canvasFocusCount += 1 }
+        )
+        defer { mount.unmount() }
+
+        hostedView.surfaceView.onFocus?()
+        hostedView.surfaceView.onTriggerFlash?()
+
+        #expect(portalFocusCount == 0)
+        #expect(canvasFocusCount == 1)
+        #expect(
+            portalFlashCount == 0,
+            "Canvas direct hosting must not retain the replaced portal host's flash callback"
+        )
+        withExtendedLifetime(portalHost) {}
+    }
+
+    @Test
+    @MainActor
+    func canvasDirectHostRestoresVisibilityWhenRenderingResumes() {
+        let panel = TerminalPanel(workspaceId: UUID())
+        defer { panel.surface.teardownSurface() }
+        let hostedView = panel.hostedView
+        let container = NSView(frame: CGRect(x: 0, y: 0, width: 400, height: 300))
+        let mount = CanvasPaneContentMount(
+            content: .terminal(panel),
+            panelId: panel.id,
+            container: container,
+            onFocusPanel: { _ in }
+        )
+        defer { mount.unmount() }
+        #expect(hostedView.debugPortalVisibleInUI)
+        #expect(!hostedView.isHidden)
+
+        hostedView.setVisibleInUI(false, refreshPolicy: .deferredToPortal)
+        #expect(!hostedView.debugPortalVisibleInUI)
+        #expect(hostedView.isHidden)
+
+        mount.setRendering(true)
+
+        #expect(
+            hostedView.debugPortalVisibleInUI,
+            "Canvas must restore a direct-hosted terminal after workspace or sidebar visibility returns"
+        )
+        #expect(!hostedView.isHidden)
+    }
+
+    @MainActor
+    private static func drainMainRunLoop(for window: NSWindow, iterations: Int = 20) async {
+        for _ in 0..<iterations {
+            window.contentView?.layoutSubtreeIfNeeded()
+            _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.001))
+            await Task.yield()
+        }
     }
 }

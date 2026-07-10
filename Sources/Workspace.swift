@@ -3347,6 +3347,7 @@ final class Workspace: Identifiable, ObservableObject {
     private var layoutFollowUpStalledAttemptCount = 0
     private var pendingReparentFocusSuppressionViews: [ObjectIdentifier: GhosttySurfaceScrollView] = [:]
     private var portalRenderingEnabled = true
+    var portalPresentationVisible = true
     private var agentHibernationAutoResumePresentationVisible = true
     private var isAttemptingLayoutFollowUp = false
     private var isNormalizingPinnedTabOrder = false
@@ -7741,7 +7742,7 @@ final class Workspace: Identifiable, ObservableObject {
         )
 
         oldPanel.unfocus()
-        oldPanel.hostedView.setVisibleInUI(false)
+        oldPanel.hostedView.setVisibleInUI(false, refreshPolicy: .deferredToPortal)
         TerminalWindowPortalRegistry.detach(hostedView: oldPanel.hostedView)
         oldPanel.surface.beginPortalCloseLifecycle(reason: "terminal.respawn")
 
@@ -9778,7 +9779,7 @@ final class Workspace: Identifiable, ObservableObject {
     func hideAllTerminalPortalViews() {
         for panel in panels.values {
             guard let terminal = panel as? TerminalPanel else { continue }
-            terminal.hostedView.setVisibleInUI(false)
+            terminal.hostedView.setVisibleInUI(false, refreshPolicy: .deferredToPortal)
             TerminalWindowPortalRegistry.hideHostedView(terminal.hostedView)
         }
     }
@@ -9806,7 +9807,6 @@ final class Workspace: Identifiable, ObservableObject {
             hideAllBrowserPortalViews()
         }
     }
-
     func setAgentHibernationAutoResumePresentationVisible(_ isVisible: Bool) {
         guard agentHibernationAutoResumePresentationVisible != isVisible else { return }
         agentHibernationAutoResumePresentationVisible = isVisible
@@ -10524,7 +10524,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func renderedVisiblePanelIdsForCurrentLayout() -> Set<UUID> {
-        guard portalRenderingEnabled else { return [] }
+        guard portalRenderingEnabled, portalPresentationVisible else { return [] }
         // Canvas mode renders one panel per canvas pane — its selected tab.
         // Background tabs are unmounted, so reporting them as rendered makes
         // the terminal window portal float them at stale frames (chromeless
@@ -10581,7 +10581,7 @@ final class Workspace: Identifiable, ObservableObject {
             if remoteTmuxWindowMirrors[terminalPanel.id] != nil { continue }
             let shouldBeVisible = visiblePanelIds.contains(terminalPanel.id)
             if terminalPanel.hostedView.debugPortalVisibleInUI != shouldBeVisible {
-                terminalPanel.hostedView.setVisibleInUI(shouldBeVisible)
+                terminalPanel.hostedView.setVisibleInUI(shouldBeVisible, refreshPolicy: .deferredToPortal)
                 didChange = true
             }
             let shouldBeActive = shouldBeVisible && focusedPanelId == terminalPanel.id && !rightSidebarOwnsFocus

@@ -57,6 +57,15 @@ extension AppDelegate {
         return context.fileExplorerState?.rightSidebarOwnsInputFocus ?? false
     }
 
+    /// Whether the right sidebar currently owns input focus in `dock`'s window.
+    func rightSidebarOwnsInputFocus(for dock: DockSplitStore) -> Bool {
+        guard let manager = dockReferenceTabManager(for: dock),
+              let context = mainWindowContexts.values.first(where: { $0.tabManager === manager }) else {
+            return false
+        }
+        return context.fileExplorerState?.rightSidebarOwnsInputFocus ?? false
+    }
+
     /// Finds the Dock (any window's Dock or any workspace's local Dock) that
     /// owns a pane. Used by the portal drop target to route a tab dropped on a
     /// Dock pane to the Dock's own controller instead of the workspace's.

@@ -21,7 +21,7 @@ extension TerminalPanel {
         )
 #endif
         unfocus()
-        hostedView.setVisibleInUI(false)
+        hostedView.setVisibleInUI(false, refreshPolicy: .deferredToPortal)
         TerminalWindowPortalRegistry.detach(hostedView: hostedView)
 #if DEBUG
         cmuxDebugLog(

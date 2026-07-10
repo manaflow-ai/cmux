@@ -178,7 +178,7 @@ extension DockSplitStore {
     private func reconcileVisibleDockTerminalPortal(_ terminal: TerminalPanel) -> Bool {
         var needsFollowUpPass = false
         let hostedView = terminal.hostedView
-        hostedView.setVisibleInUI(true)
+        hostedView.setVisibleInUI(true, refreshPolicy: .deferredToPortal)
         hostedView.setActive(panelIsActiveInVisibleDockPane(terminal.id))
 
         let needsPortalReattach = TerminalWindowPortalRegistry
@@ -193,9 +193,6 @@ extension DockSplitStore {
         }
 
         hostedView.reconcileGeometryNow()
-        if terminal.surface.surface != nil {
-            terminal.surface.forceRefresh()
-        }
         if terminal.surface.surface == nil, isAttached, hasUsableBounds {
             terminal.surface.requestBackgroundSurfaceStartIfNeeded()
             needsFollowUpPass = true

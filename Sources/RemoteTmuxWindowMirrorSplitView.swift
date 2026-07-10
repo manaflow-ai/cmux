@@ -1,6 +1,30 @@
 import Bonsplit
 import SwiftUI
 
+extension RemoteTmuxWindowMirror {
+    func terminalPortalPresentation(
+        tabId: TabID,
+        paneId: PaneID,
+        outerPresentation: TerminalPortalPresentation
+    ) -> TerminalPortalPresentation {
+        guard bonsplitController.paneId(containing: tabId) == paneId else { return .detached }
+        switch outerPresentation {
+        case .visible(let isActive, let zPriority):
+            guard bonsplitController.selectedTabId(inPane: paneId) == tabId else { return .hidden }
+            return .visible(
+                isActive: isActive && isFocused(tabId: tabId),
+                zPriority: zPriority
+            )
+        case .detached:
+            return .detached
+        case .hidden:
+            return .hidden
+        case .retained(let zPriority):
+            return .retained(zPriority: zPriority)
+        }
+    }
+}
+
 @MainActor
 struct RemoteTmuxWindowMirrorSplitView: View {
     let mirror: RemoteTmuxWindowMirror
@@ -8,6 +32,7 @@ struct RemoteTmuxWindowMirrorSplitView: View {
     let isOuterFocused: Bool
     let isVisibleInUI: Bool
     let portalPriority: Int
+    let outerPortalPresentation: @MainActor () -> TerminalPortalPresentation
     let onOuterFocus: () -> Void
     @Environment(\.displayScale) private var displayScale
     @State private var containerSize: CGSize = .zero
@@ -21,6 +46,13 @@ struct RemoteTmuxWindowMirrorSplitView: View {
                     paneId: paneId,
                     isFocused: isOuterFocused && mirror.isFocused(tabId: tab.id),
                     isVisibleInUI: isVisibleInUI,
+                    portalPresentationResolver: {
+                        mirror.terminalPortalPresentation(
+                            tabId: tab.id,
+                            paneId: paneId,
+                            outerPresentation: outerPortalPresentation()
+                        )
+                    },
                     portalPriority: portalPriority,
                     isSplit: true,
                     appearance: appearance,

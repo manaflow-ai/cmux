@@ -47,6 +47,9 @@ private struct WorkspacePanelContentHostView: View {
             customSidebarTabManager: customSidebarTabManager,
             hasUnreadNotification: hasUnreadNotification,
             terminalAgentContext: WorkspaceContentView.terminalAgentContext(panel: panel, workspace: workspace),
+            terminalPortalPresentationResolver: {
+                workspace.terminalPortalPresentation(panelId: panel.id, paneId: paneId)
+            },
             onFocus: onFocus,
             onRequestPanelFocus: onRequestPanelFocus,
             onResumeAgentHibernation: onResumeAgentHibernation,
@@ -223,6 +226,12 @@ struct WorkspaceContentView: View {
                         isOuterFocused: isFocused,
                         isVisibleInUI: isVisibleInUI,
                         portalPriority: workspacePortalPriority,
+                        outerPortalPresentation: {
+                            workspace.terminalPortalPresentation(
+                                panelId: panel.id,
+                                paneId: paneId
+                            )
+                        },
                         onOuterFocus: {
                             workspace.bonsplitController.focusPane(paneId)
                         }
@@ -294,20 +303,8 @@ struct WorkspaceContentView: View {
         .id(splitZoomRenderIdentity)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
-            updateAgentHibernationPresentationVisibility()
             syncBonsplitNotificationBadges()
             refreshGhosttyAppearanceConfig(reason: "onAppear")
-        }
-        .onChange(of: isWorkspaceVisible) { _, isVisible in
-            updateAgentHibernationPresentationVisibility()
-            guard isVisible else { return }
-            flushDeferredThemeRefreshIfNeeded()
-        }
-        .onChange(of: isWorkspaceInputActive) { _, _ in
-            updateAgentHibernationPresentationVisibility()
-        }
-        .onDisappear {
-            workspace.setAgentHibernationAutoResumePresentationVisible(false)
         }
         .onChange(of: notificationStore.notifications) { _, _ in
             syncBonsplitNotificationBadges()
@@ -353,7 +350,7 @@ struct WorkspaceContentView: View {
             )
         }
 
-        Group {
+        ZStack {
             if workspace.layoutMode == .canvas {
                 WorkspaceCanvasHostView(
                     workspace: workspace,
@@ -367,6 +364,21 @@ struct WorkspaceContentView: View {
             }
         }
         .modifier(WorkspaceContentMinimalModeSafeAreaModifier(isFullScreen: isFullScreen))
+        .onAppear {
+            updateWorkspacePresentationVisibility()
+        }
+        .onChange(of: isWorkspaceVisible) { _, isVisible in
+            updateWorkspacePresentationVisibility()
+            guard isVisible else { return }
+            flushDeferredThemeRefreshIfNeeded()
+        }
+        .onChange(of: isWorkspaceInputActive) { _, _ in
+            updateWorkspacePresentationVisibility()
+        }
+        .onDisappear {
+            workspace.setPortalPresentationVisible(false)
+            workspace.setAgentHibernationAutoResumePresentationVisible(false)
+        }
     }
 
     private func syncBonsplitNotificationBadges() {
@@ -532,7 +544,8 @@ struct WorkspaceContentView: View {
         )
     }
 
-    private func updateAgentHibernationPresentationVisibility() {
+    private func updateWorkspacePresentationVisibility() {
+        workspace.setPortalPresentationVisible(isWorkspaceVisible)
         workspace.setAgentHibernationAutoResumePresentationVisible(isWorkspaceVisible && isWorkspaceInputActive)
     }
 
