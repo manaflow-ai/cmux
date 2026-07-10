@@ -267,14 +267,22 @@ public final class HostBrowserSignInFlow {
                     self.signInIsSlow = true
                     if self.handedOffAttemptID != attemptID, let state = self.activeCallbackState {
                         self.log.log("auth.browser.handoff.continueInDefaultBrowser attempt=\(attemptID)")
-                        // Commit to the handed-off state only when the browser
-                        // actually launched. If the open fails, leave the attempt
-                        // un-handed-off so a repeat sign-in click starts fresh
-                        // instead of parking on a browser that never appeared.
                         if self.openExternalURL(self.makeSignInURL(state)) {
+                            // Browser launched: keep the attempt parked so the
+                            // eventual cmux://auth-callback resumes it. Open at
+                            // most once per attempt.
                             self.handedOffAttemptID = attemptID
                         } else {
+                            // No browser launched, so nothing will call back.
+                            // End the attempt with a failure instead of parking
+                            // the awaited sign-in until the timeout, so callers
+                            // and the UI stop waiting and the user can retry.
                             self.log.log("auth.browser.handoff.openFailed attempt=\(attemptID)")
+                            self.resumeActiveSessionContinuation(
+                                returning: .failed(reason: "browser_open_failed"),
+                                reason: "handoffOpenFailed",
+                                expectedAttemptID: attemptID
+                            )
                         }
                     }
                     return

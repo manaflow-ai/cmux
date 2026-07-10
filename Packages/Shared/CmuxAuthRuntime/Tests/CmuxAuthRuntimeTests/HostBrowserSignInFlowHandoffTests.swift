@@ -48,27 +48,26 @@ import Testing
         #expect(!harness.flow.isSigningIn && !harness.flow.isPresentingSignIn)
     }
 
-    @Test func handoffOpenFailureLeavesAttemptRetryable() async {
+    @Test func handoffOpenFailureEndsAttemptAndAllowsRetry() async {
         // The default browser fails to launch on the handed-off attempt.
         let harness = HostBrowserSignInFlowHarness(openSucceeds: false)
         let attempt = Task { await harness.flow.signIn(timeout: 60) }
         await harness.waitForSession()
 
         harness.factory.sessions[0].deliver(URL(string: "https://example.test/handler/sign-in?after_auth_return_to=1")!)
-        let clock = ContinuousClock()
-        let deadline = clock.now.advanced(by: .seconds(2))
-        while harness.openedURLs.isEmpty, clock.now < deadline {
-            await Task.yield()
-        }
 
-        // The open was attempted but failed, so the attempt must not be locked
-        // into the handed-off state: a repeat sign-in click starts fresh.
+        // The open was attempted once but failed, so the attempt ends promptly
+        // with a failure instead of parking the awaited sign-in until timeout.
+        #expect(await attempt.value == false)
         #expect(harness.openedURLs.count == 1)
+        #expect(!harness.flow.isSigningIn)
+        #expect(!harness.flow.isPresentingSignIn)
+        #expect(harness.flow.lastFailure != nil)
+
+        // A fresh sign-in click starts a brand-new attempt.
         harness.flow.beginSignIn()
         await harness.waitForSession(count: 2)
         #expect(harness.factory.sessions.count == 2)
-
-        _ = await attempt.value
     }
 
     @Test func staleNonAuthCompletionDoesNotOpenBrowser() async {
