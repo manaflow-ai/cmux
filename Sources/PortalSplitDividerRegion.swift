@@ -229,9 +229,14 @@ final class PortalSplitDividerRegion {
         var horizontal: [(region: PortalSplitDividerRegion, distance: CGFloat, order: Int)] = []
         var first: PortalSplitDividerRegion?
         for (order, region) in regions.reversed().enumerated() {
-            if checkLiveness, !region.isLive || !region.isInteractable { continue }
+            if checkLiveness, !region.isLive { continue }
             let hitRect = region.hitRectInWindow
             guard !hitRect.isNull, hitRect.contains(windowPoint) else { continue }
+            // Applies to the cursor path too (which skips the structural
+            // liveness check): a parked keepAllAlive divider must neither
+            // advertise a resize/four-way cursor nor join a drag pair. The
+            // alpha walk runs only for regions whose band contains the point.
+            guard region.isInteractable else { continue }
             if first == nil { first = region }
             let distance = region.isVertical
                 ? abs(windowPoint.x - region.rectInWindow.midX)

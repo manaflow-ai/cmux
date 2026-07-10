@@ -383,6 +383,8 @@ final class WindowBrowserHostView: NSView {
     }
 
     override func mouseExited(with event: NSEvent) {
+        // Keep cursor ownership through a claimed drag or mouse-up cannot restore the arrow.
+        guard !intersectionDrag.isActive else { return }
         clearActiveDividerCursor(restoreArrow: true)
     }
 
@@ -514,8 +516,7 @@ final class WindowBrowserHostView: NSView {
         return hitView === self ? nil : hitView
     }
 
-    // The host is the hit view only for hosted-inspector and intersection
-    // mouseDowns; without this a click on a non-opaque view can drag the window.
+    // The host is the hit view only for inspector/intersection mouseDowns; without this a click on a non-opaque view can drag the window.
     override var mouseDownCanMoveWindow: Bool { false }
 
     override func mouseDown(with event: NSEvent) {

@@ -119,6 +119,10 @@ final class WindowTerminalHostView: NSView {
     }
 
     override func mouseExited(with event: NSEvent) {
+        // Tracking areas fire mouseExited while a claimed intersection drag
+        // is in flight; clearing then would drop cursor ownership so the
+        // mouse-up restore becomes a no-op and the four-way cursor sticks.
+        guard !intersectionDrag.isActive else { return }
         clearActiveDividerCursor(restoreArrow: true)
     }
 
