@@ -198,6 +198,45 @@ class TabManager: ObservableObject {
         get { workspaces.tabs }
         set { workspaces.tabs = newValue }
     }
+
+    /// O(1) workspace lookup by id. Backs the broadcast-input hot path
+    /// (`GhosttyNSView.keyDown`), which must not scan `tabs` per keystroke.
+    func workspace(withId id: UUID) -> Workspace? {
+        workspacesById[id]
+    }
+
+    /// Whether broadcast input (pane synchronization) is enabled for the given
+    /// workspace. Cheap enough to consult per keystroke.
+    func isBroadcastInputEnabled(forTabId tabId: UUID) -> Bool {
+        workspacesById[tabId]?.broadcastInputEnabled ?? false
+    }
+
+    /// Shared writer for broadcast input (pane synchronization). Every
+    /// entrypoint — keyboard shortcut, command palette, menu, and the
+    /// `workspace-action toggle-sync` CLI — routes through here (or
+    /// ``setBroadcastInputEnabled(_:forTabId:)``) so the state has a single
+    /// mutation path. `tabId` defaults to the selected workspace.
+    ///
+    /// - Returns: The resulting enabled state, or `nil` when no target
+    ///   workspace could be resolved.
+    @discardableResult
+    func toggleBroadcastInput(forTabId tabId: UUID? = nil) -> Bool? {
+        guard let targetId = tabId ?? selectedTabId,
+              let workspace = workspacesById[targetId] else { return nil }
+        workspace.setBroadcastInputEnabled(!workspace.broadcastInputEnabled)
+        return workspace.broadcastInputEnabled
+    }
+
+    /// Sets broadcast input to an explicit state on the given (or selected)
+    /// workspace. See ``toggleBroadcastInput(forTabId:)``.
+    @discardableResult
+    func setBroadcastInputEnabled(_ enabled: Bool, forTabId tabId: UUID? = nil) -> Bool? {
+        guard let targetId = tabId ?? selectedTabId,
+              let workspace = workspacesById[targetId] else { return nil }
+        workspace.setBroadcastInputEnabled(enabled)
+        return enabled
+    }
+
     /// Named groupings of workspaces shown as collapsible sections in the sidebar.
     /// Group order in this array defines section order in the sidebar.
     /// Each member workspace stores its `groupId` on the `Workspace` model.

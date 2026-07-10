@@ -108,6 +108,18 @@ final class TmuxWorkspacePaneOverlayModel {
 }
 
 /// View that renders a Workspace's content using BonsplitView
+/// The highlight drawn around each visible terminal pane while broadcast input
+/// (pane synchronization) is enabled for the workspace. A distinct warm accent —
+/// deliberately not the blue focus ring — so it's unmistakable that keystrokes
+/// fan out to every pane.
+private struct BroadcastInputPaneBorder: View {
+    var body: some View {
+        RoundedRectangle(cornerRadius: 6, style: .continuous)
+            .strokeBorder(Color.orange, lineWidth: 2)
+            .padding(1)
+    }
+}
+
 struct WorkspaceContentView: View {
     private struct DeferredThemeRefresh {
         let reason: String
@@ -166,6 +178,11 @@ struct WorkspaceContentView: View {
         let usesWorkspacePaneOverlay = TmuxOverlayExperimentSettings.target().usesWorkspacePaneOverlay
         let isWorkspaceManuallyUnread = notificationStore.hasManualUnread(forTabId: workspace.id)
         let workspaceManualUnreadPanelId = workspace.representativePanelIdForWorkspaceManualUnread()
+        // Broadcast input (pane synchronization): read in `body` so toggling it
+        // re-renders the split tree and the per-pane broadcast border below
+        // tracks the state. Cheap — it only changes on an explicit toggle, and
+        // live typing flows through AppKit (`GhosttyNSView`), not this body.
+        let broadcastInputOn = workspace.broadcastInputEnabled
 
         // Inactive workspaces are kept alive in a ZStack (for state preservation) but their
         // AppKit-backed views can still intercept drags. Disable drop acceptance for them.
@@ -273,6 +290,15 @@ struct WorkspaceContentView: View {
                         },
                         onTriggerFlash: { workspace.triggerDebugFlash(panelId: panel.id) }
                     )
+                    .overlay {
+                        // Broadcast input: highlight every visible terminal pane
+                        // that receives fanned-out keystrokes, so it's always
+                        // obvious the workspace is in synchronize-panes mode.
+                        if broadcastInputOn, panel is TerminalPanel {
+                            BroadcastInputPaneBorder()
+                                .allowsHitTesting(false)
+                        }
+                    }
                     .onTapGesture {
                         workspace.bonsplitController.focusPane(paneId)
                     }

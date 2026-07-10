@@ -77,6 +77,9 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case sendCtrlFToTerminal
     /// Clears the focused terminal's visible screen while preserving scrollback.
     case clearScreenKeepScrollback
+    /// Broadcasts keystrokes typed in the focused pane to every other visible
+    /// pane in the workspace (tmux synchronize-panes / iTerm2 Broadcast Input).
+    case toggleBroadcastInput
 
     // MARK: Panes
     case focusLeft
@@ -190,7 +193,7 @@ extension ShortcutAction {
              .newWorkspaceGroup, .groupSelectedWorkspaces, .toggleFocusedWorkspaceGroupCollapsed,
              .reopenClosedBrowserPanel, .newSurface, .toggleTerminalCopyMode,
              .focusTextBoxInput, .cycleTextBoxSubmitAction, .attachTextBoxFile, .sendCtrlFToTerminal,
-             .clearScreenKeepScrollback:
+             .clearScreenKeepScrollback, .toggleBroadcastInput:
             return .navigation
         case .focusLeft, .focusRight, .focusUp, .focusDown, .splitRight, .splitDown,
              .toggleSplitZoom, .equalizeSplits, .splitBrowserRight, .splitBrowserDown,
@@ -275,7 +278,7 @@ extension ShortcutAction {
             return .atom(.sidebarFocus)
         case .renameTab, .renameWorkspace:
             return .and(.not(.atom(.browserFocus)), .not(.atom(.sidebarFocus)))
-        case .sendCtrlFToTerminal, .clearScreenKeepScrollback:
+        case .sendCtrlFToTerminal, .clearScreenKeepScrollback, .toggleBroadcastInput:
             return .and(.not(.atom(.browserFocus)), .not(.atom(.sidebarFocus)))
         case .browserBack, .browserForward, .browserReload, .browserHardReload,
              .toggleBrowserDeveloperTools, .showBrowserJavaScriptConsole, .toggleBrowserFocusMode,
@@ -392,6 +395,8 @@ extension ShortcutAction {
             return String(localized: "shortcut.sendCtrlFToTerminal.label", defaultValue: "Send Ctrl-F to Terminal")
         case .clearScreenKeepScrollback:
             return String(localized: "shortcut.clearScreenKeepScrollback.label", defaultValue: "Clear Screen (Keep Scrollback)")
+        case .toggleBroadcastInput:
+            return String(localized: "shortcut.toggleBroadcastInput.label", defaultValue: "Toggle Broadcast Input")
         case .focusLeft: return "Focus Pane Left"
         case .focusRight: return "Focus Pane Right"
         case .focusUp: return "Focus Pane Up"

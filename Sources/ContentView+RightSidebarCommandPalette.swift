@@ -88,6 +88,8 @@ extension ContentView {
             return .clearScreenKeepScrollback
         case "palette.toggleSplitZoom":
             return .toggleSplitZoom
+        case "palette.toggleBroadcastInput":
+            return .toggleBroadcastInput
         case "palette.equalizeSplits":
             return .equalizeSplits
         case "palette.triggerFlash":

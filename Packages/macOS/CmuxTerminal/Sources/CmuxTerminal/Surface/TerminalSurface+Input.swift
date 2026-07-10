@@ -79,6 +79,30 @@ extension TerminalSurface {
         }
     }
 
+    /// Replays a fully-formed key event onto this surface as part of
+    /// broadcast-input (pane synchronization): a keystroke typed in the focused
+    /// surface is fanned out to the other visible panes of the same workspace
+    /// (tmux `synchronize-panes` / iTerm2 "Broadcast Input").
+    ///
+    /// Only delivers to a live surface — a cold/hibernated pane is skipped
+    /// rather than started, matching the "visible panes only" broadcast scope.
+    /// The caller passes the same `ghostty_input_key_s` it delivered to the
+    /// focused surface; any `text` pointer it carries must stay valid for this
+    /// synchronous call (callers invoke this from inside the originating
+    /// `withCString` scope, exactly like the desktop `keyDown` send path).
+    ///
+    /// - Returns: Whether libghostty handled the key.
+    @MainActor
+    @discardableResult
+    public func replayBroadcastKeyEvent(_ keyEvent: ghostty_input_key_s) -> Bool {
+        guard let liveSurface = liveSurfaceForSocketWrite(reason: "broadcast.replayKey") else {
+            return false
+        }
+        guard !ghostty_surface_process_exited(liveSurface) else { return false }
+        hibernationRecorder.recordTerminalInput(workspaceId: tabId, panelId: id)
+        return ghostty_surface_key(liveSurface, keyEvent)
+    }
+
     /// Sends a named key (e.g. `"ctrl-c"`, `"enter"`), queueing on a cold
     /// surface.
     @MainActor

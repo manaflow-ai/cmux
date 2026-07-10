@@ -4005,3 +4005,67 @@ final class CrossWindowWorkspaceMoveTests: XCTestCase {
         XCTAssertTrue(destination.tabs.contains { $0.id == moving.id })
     }
 }
+
+@MainActor
+final class TabManagerBroadcastInputTests: XCTestCase {
+    func testBroadcastInputDefaultsDisabled() {
+        let manager = TabManager()
+        let workspace = manager.tabs[0]
+        XCTAssertFalse(workspace.broadcastInputEnabled)
+        XCTAssertFalse(manager.isBroadcastInputEnabled(forTabId: workspace.id))
+    }
+
+    func testToggleBroadcastInputFlipsSelectedWorkspace() {
+        let manager = TabManager()
+        let workspace = manager.tabs[0]
+        manager.selectWorkspace(workspace)
+
+        XCTAssertEqual(manager.toggleBroadcastInput(), true)
+        XCTAssertTrue(workspace.broadcastInputEnabled)
+        XCTAssertTrue(manager.isBroadcastInputEnabled(forTabId: workspace.id))
+
+        XCTAssertEqual(manager.toggleBroadcastInput(), false)
+        XCTAssertFalse(workspace.broadcastInputEnabled)
+        XCTAssertFalse(manager.isBroadcastInputEnabled(forTabId: workspace.id))
+    }
+
+    func testToggleBroadcastInputTargetsSpecificWorkspaceNotSelection() {
+        let manager = TabManager()
+        let first = manager.tabs[0]
+        let second = manager.addWorkspace()
+        manager.selectWorkspace(first)
+
+        // Toggling a workspace by id must not touch the selected one.
+        XCTAssertEqual(manager.toggleBroadcastInput(forTabId: second.id), true)
+        XCTAssertTrue(second.broadcastInputEnabled)
+        XCTAssertFalse(first.broadcastInputEnabled)
+    }
+
+    func testSetBroadcastInputEnabledIsIdempotent() {
+        let manager = TabManager()
+        let workspace = manager.tabs[0]
+
+        XCTAssertEqual(manager.setBroadcastInputEnabled(true, forTabId: workspace.id), true)
+        XCTAssertTrue(workspace.broadcastInputEnabled)
+        // Re-setting the same value keeps it enabled (no spurious flip).
+        XCTAssertEqual(manager.setBroadcastInputEnabled(true, forTabId: workspace.id), true)
+        XCTAssertTrue(workspace.broadcastInputEnabled)
+
+        XCTAssertEqual(manager.setBroadcastInputEnabled(false, forTabId: workspace.id), false)
+        XCTAssertFalse(workspace.broadcastInputEnabled)
+    }
+
+    func testBroadcastInputActionsReturnNilForUnknownWorkspace() {
+        let manager = TabManager()
+        XCTAssertNil(manager.toggleBroadcastInput(forTabId: UUID()))
+        XCTAssertNil(manager.setBroadcastInputEnabled(true, forTabId: UUID()))
+    }
+
+    func testVisibleTerminalPanelsIncludesSinglePaneTerminal() {
+        let manager = TabManager()
+        let workspace = manager.tabs[0]
+        let visible = workspace.visibleTerminalPanels
+        XCTAssertEqual(visible.count, 1, "A fresh single-pane workspace has exactly one broadcast target")
+        XCTAssertEqual(visible.first?.id, workspace.focusedPanelId)
+    }
+}
