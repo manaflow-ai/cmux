@@ -140,6 +140,10 @@ extension RemoteTmuxMirrorCLIObservabilityTests {
         defer { harness.tearDown() }
         let tmuxPaneID = try #require(harness.mirror.paneIDsInOrder.first)
         let paneID = try #require(harness.mirror.syntheticPaneID(forPane: tmuxPaneID)?.id)
+        let panel = try #require(harness.mirror.panel(forPane: tmuxPaneID))
+        let sample = try #require(panel.surface.rawSizingSample())
+        let cellWidthPx = try #require(sample.cellWidthPx > 0 ? sample.cellWidthPx : nil)
+        let amountPixels = cellWidthPx * 3
 
         let result = ControlCommandCoordinator(context: TerminalController.shared).handle(
             ControlRequest(
@@ -149,7 +153,7 @@ extension RemoteTmuxMirrorCLIObservabilityTests {
                     "workspace_id": .string(harness.workspace.id.uuidString),
                     "pane_id": .string(paneID.uuidString),
                     "direction": .string("right"),
-                    "amount": .int(10),
+                    "amount": .int(Int64(amountPixels)),
                 ]
             )
         )
@@ -161,7 +165,7 @@ extension RemoteTmuxMirrorCLIObservabilityTests {
         let response = try #require(payload.foundationObject as? [String: Any])
         #expect(response["pane_id"] as? String == paneID.uuidString)
         #expect(response["direction"] as? String == "right")
-        #expect(response["amount"] as? Int == 10)
+        #expect(response["amount"] as? Int == amountPixels)
 
         let writer = try #require(harness.controlWriter)
         let pipe = try #require(harness.controlPipe)
@@ -172,7 +176,7 @@ extension RemoteTmuxMirrorCLIObservabilityTests {
                 encoding: .utf8
             )
         )
-        #expect(commands.contains("resize-pane -t @3.%\(tmuxPaneID) -R 10\n"))
+        #expect(commands.contains("resize-pane -t @3.%\(tmuxPaneID) -R 3\n"))
     }
 
     @Test func absolutePaneResizeConvertsPixelsAndClampsSubcellTarget() throws {

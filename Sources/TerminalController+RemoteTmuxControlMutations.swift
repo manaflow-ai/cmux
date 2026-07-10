@@ -249,9 +249,11 @@ extension TerminalController {
                 defaultValue: "The remote tmux pane is not ready to resize; wait for it to become available and retry."
             )
         )
+        guard let sample = location.pane.panel.surface.rawSizingSample() else {
+            return unavailable
+        }
         if let axis = inputs.absoluteAxis, let targetPixels = inputs.targetPixels {
-            guard targetPixels.isFinite,
-                  let sample = location.pane.panel.surface.rawSizingSample() else {
+            guard targetPixels.isFinite else {
                 return unavailable
             }
             let cellPixels = axis == "horizontal" ? sample.cellWidthPx : sample.cellHeightPx
@@ -276,12 +278,22 @@ extension TerminalController {
             )
         }
 
-        guard let direction = inputs.direction,
-              location.mirror.requestResizePane(
-                location.pane.tmuxPaneID,
-                direction: direction,
-                amount: inputs.amount
-              ) else {
+        guard let direction = inputs.direction else {
+            return unavailable
+        }
+        let cellPixels = direction == "left" || direction == "right"
+            ? sample.cellWidthPx
+            : sample.cellHeightPx
+        guard cellPixels > 0 else { return unavailable }
+        let amountCells = max(
+            1,
+            NSNumber(value: (Double(inputs.amount) / Double(cellPixels)).rounded()).intValue
+        )
+        guard location.mirror.requestResizePane(
+            location.pane.tmuxPaneID,
+            direction: direction,
+            amountCells: amountCells
+        ) else {
             return unavailable
         }
         return .remoteRelativeResizeRequested(

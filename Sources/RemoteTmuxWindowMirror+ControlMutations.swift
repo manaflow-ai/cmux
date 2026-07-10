@@ -69,11 +69,12 @@ extension RemoteTmuxWindowMirror {
         )
     }
 
-    /// Resizes the addressed tmux pane relative to one of its borders. Tmux's
-    /// next layout publication remains the sole source of applied geometry.
+    /// Resizes the addressed tmux pane by `amountCells` relative to one of its
+    /// borders. Tmux's next layout publication remains the sole source of applied
+    /// geometry.
     @discardableResult
-    func requestResizePane(_ tmuxPaneID: Int, direction: String, amount: Int) -> Bool {
-        guard amount > 0 else { return false }
+    func requestResizePane(_ tmuxPaneID: Int, direction: String, amountCells: Int) -> Bool {
+        guard amountCells > 0 else { return false }
         let flag: String
         switch direction {
         case "left": flag = "-L"
@@ -83,7 +84,7 @@ extension RemoteTmuxWindowMirror {
         default: return false
         }
         return sendControlCommand(
-            "resize-pane -t @\(windowId).%\(tmuxPaneID) \(flag) \(amount)"
+            "resize-pane -t @\(windowId).%\(tmuxPaneID) \(flag) \(amountCells)"
         )
     }
 
