@@ -2,6 +2,8 @@ import Darwin
 import Foundation
 
 /// Process-wide cache of `RestorableAgentSessionIndex` results for agent fork and restore paths.
+/// Default async refreshes share this coordinator; synchronous cold and termination
+/// fallbacks remain independent because they cannot suspend for an in-flight task.
 @MainActor
 final class SharedLiveAgentIndex {
     static let shared = SharedLiveAgentIndex()
@@ -144,11 +146,21 @@ final class SharedLiveAgentIndex {
     /// Returns an index from a physical load that starts after this request.
     func refreshedIndex() async -> RestorableAgentSessionIndex {
         let boundary = markLoadBoundary()
-        return await reload(
+        return await reload(forcePublish: true, startedAfter: boundary)
+    }
+
+    /// Interactive variant whose result is discarded after cancellation. It can
+    /// stop behind an older load without launching an otherwise unused successor.
+    func refreshedIndexUnlessCancelled() async -> RestorableAgentSessionIndex? {
+        let boundary = markLoadBoundary()
+        let outcome = await coordinatedLoad(
             forcePublish: true,
+            notifyObservers: true,
             startedAfter: boundary,
             continueFreshnessAfterCancellation: false
         )
+        guard !Task.isCancelled else { return nil }
+        return outcome.result.index
     }
 
     /// Returns an index from a physical load that began after `boundary`.
@@ -164,7 +176,7 @@ final class SharedLiveAgentIndex {
             forcePublish: false,
             notifyObservers: false,
             startedAfter: boundary,
-            continueFreshnessAfterCancellation: false
+            continueFreshnessAfterCancellation: true
         )
         return ProcessDetectedResumeIndexes(
             restorableAgentIndex: outcome.result.index,

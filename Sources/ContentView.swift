@@ -5887,8 +5887,7 @@ struct ContentView: View {
         commandPaletteForkableAgentProbeFingerprintsByPanelKey[panelKey] = probeFingerprint
 
         commandPaletteForkableAgentAvailabilityTasksByPanelKey[panelKey] = Task {
-            let index = await SharedLiveAgentIndex.shared.refreshedIndex()
-            guard !Task.isCancelled else { return }
+            guard let index = await SharedLiveAgentIndex.shared.refreshedIndexUnlessCancelled() else { return }
             let indexSnapshot = index.snapshot(workspaceId: workspaceId, panelId: panelId)
             let snapshot = indexSnapshot ?? fallbackSnapshot
             let supportsFork: Bool

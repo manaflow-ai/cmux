@@ -165,7 +165,7 @@ struct SharedLiveAgentIndexCoalescingTests {
     }
 
     @Test
-    func cancelledFreshRequestDoesNotStartSuccessorLoad() async {
+    func cancelledInteractiveRequestDoesNotStartSuccessorLoad() async {
         let loadCount = OSAllocatedUnfairLock(initialState: 0)
         let firstLoadStarted = DispatchSemaphore(value: 0)
         let releaseFirstLoad = DispatchSemaphore(value: 0)
@@ -204,7 +204,7 @@ struct SharedLiveAgentIndexCoalescingTests {
             Task { @MainActor in
                 freshRequestReachedSuspension.signal()
             }
-            return await sharedIndex.refreshedIndex()
+            return await sharedIndex.refreshedIndexUnlessCancelled()
         }
         let freshRequestDidReachSuspension = await Task.detached {
             Self.wait(for: freshRequestReachedSuspension)
@@ -215,8 +215,9 @@ struct SharedLiveAgentIndexCoalescingTests {
         freshRequest.cancel()
         releaseFirstLoad.signal()
         await initialRefresh.value
-        _ = await freshRequest.value
+        let cancelledResult = await freshRequest.value
 
+        #expect(cancelledResult == nil)
         #expect(
             loadCount.withLock { $0 } == 1,
             "Canceling an interactive refresh should not launch a trailing physical load."
