@@ -4,18 +4,33 @@ import Network
 import ObjectiveC
 import WebKit
 
-private var browserProxyConfigurationIdentityKey: UInt8 = 0
+private var browserProxyConfigurationApplicationStateKey: UInt8 = 0
+
+private enum BrowserProxyConfigurationApplicationState: Equatable {
+    case pristineDirect
+    case explicit(identity: String)
+    case directAfterExplicit
+}
+
+@MainActor
+private final class BrowserProxyConfigurationApplicationStateBox: NSObject {
+    var state: BrowserProxyConfigurationApplicationState = .pristineDirect
+}
 
 /// The semantic network route applied to a browser website data store.
 ///
-/// Route identity is retained on the shared data store because assigning
-/// WebKit's `proxyConfigurations` rebuilds that store's networking session,
-/// even when the new array is empty or semantically identical.
+/// Application state is retained on the shared data store so equivalent
+/// explicit routes can coalesce without treating direct routing as a durable
+/// WebKit state.
 struct BrowserProxyConfigurationRoute {
-    private let configurations: [ProxyConfiguration]
-    private let identity: String
+    private enum Kind {
+        case direct
+        case explicit(identity: String, configurations: [ProxyConfiguration])
+    }
 
-    static let direct = BrowserProxyConfigurationRoute(configurations: [], identity: "direct")
+    private let kind: Kind
+
+    static let direct = BrowserProxyConfigurationRoute(kind: .direct)
 
     static var currentSystem: BrowserProxyConfigurationRoute {
         guard let rawSettings = CFNetworkCopySystemProxySettings()?.takeRetainedValue(),
@@ -28,8 +43,10 @@ struct BrowserProxyConfigurationRoute {
 
     static func mirroredSystem(_ mirror: BrowserSystemProxyMirror) -> BrowserProxyConfigurationRoute {
         BrowserProxyConfigurationRoute(
-            configurations: mirror.proxyConfigurations(),
-            identity: mirroredSystemIdentity(mirror)
+            kind: .explicit(
+                identity: mirroredSystemIdentity(mirror),
+                configurations: mirror.proxyConfigurations()
+            )
         )
     }
 
@@ -42,45 +59,62 @@ struct BrowserProxyConfigurationRoute {
         }
         let endpoint = NWEndpoint.hostPort(host: NWEndpoint.Host(host), port: nwPort)
         return BrowserProxyConfigurationRoute(
-            configurations: [
-                ProxyConfiguration(socksv5Proxy: endpoint),
-                ProxyConfiguration(httpCONNECTProxy: endpoint),
-            ],
-            identity: "remote|\(identityComponent(host))|\(nwPort.rawValue)"
+            kind: .explicit(
+                identity: "remote|\(identityComponent(host))|\(nwPort.rawValue)",
+                configurations: [
+                    ProxyConfiguration(socksv5Proxy: endpoint),
+                    ProxyConfiguration(httpCONNECTProxy: endpoint),
+                ]
+            )
         )
     }
 
     @MainActor
     @discardableResult
     func apply(to websiteDataStore: WKWebsiteDataStore) -> Bool {
-        let previousIdentity = objc_getAssociatedObject(
-            websiteDataStore,
-            &browserProxyConfigurationIdentityKey
-        ) as? String
-        guard previousIdentity != identity else {
-            return false
+        let stateBox = applicationStateBox(for: websiteDataStore)
+        switch kind {
+        case .direct:
+            switch stateBox.state {
+            case .pristineDirect where websiteDataStore.proxyConfigurations.isEmpty:
+                return false
+            case .pristineDirect, .explicit, .directAfterExplicit:
+                // WebKit clears only the live NetworkProcess configuration.
+                // It retains the last explicit payload and can restore it after
+                // that process relaunches, so a store that has ever been
+                // explicit must keep direct routing re-clearable.
+                websiteDataStore.proxyConfigurations = []
+                stateBox.state = .directAfterExplicit
+                return true
+            }
+        case .explicit(let identity, let configurations):
+            if stateBox.state == .explicit(identity: identity) {
+                return false
+            }
+            websiteDataStore.proxyConfigurations = configurations
+            stateBox.state = .explicit(identity: identity)
+            return true
         }
-
-        if identity == "direct",
-           previousIdentity == nil,
-           websiteDataStore.proxyConfigurations.isEmpty {
-            storeIdentity(on: websiteDataStore)
-            return false
-        }
-
-        websiteDataStore.proxyConfigurations = configurations
-        storeIdentity(on: websiteDataStore)
-        return true
     }
 
     @MainActor
-    private func storeIdentity(on websiteDataStore: WKWebsiteDataStore) {
+    private func applicationStateBox(
+        for websiteDataStore: WKWebsiteDataStore
+    ) -> BrowserProxyConfigurationApplicationStateBox {
+        if let stateBox = objc_getAssociatedObject(
+            websiteDataStore,
+            &browserProxyConfigurationApplicationStateKey
+        ) as? BrowserProxyConfigurationApplicationStateBox {
+            return stateBox
+        }
+        let stateBox = BrowserProxyConfigurationApplicationStateBox()
         objc_setAssociatedObject(
             websiteDataStore,
-            &browserProxyConfigurationIdentityKey,
-            identity as NSString,
+            &browserProxyConfigurationApplicationStateKey,
+            stateBox,
             .OBJC_ASSOCIATION_RETAIN_NONATOMIC
         )
+        return stateBox
     }
 
     private static func mirroredSystemIdentity(_ mirror: BrowserSystemProxyMirror) -> String {
