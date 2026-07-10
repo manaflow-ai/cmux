@@ -1,6 +1,7 @@
 import AppKit
 import CmuxCanvasUI
 import CmuxControlSocket
+import CmuxRemoteSession
 import CmuxSettings
 import Foundation
 import CmuxTerminal
@@ -67,13 +68,18 @@ extension TerminalController: ControlDebugContext {
     }
 
     func controlDebugReadProcessPerformanceMetrics() -> JSONValue? {
-        JSONValue(
-            foundationObject: ProcessPerformanceMetrics.shared.snapshot().foundationObject
+        var payload = ProcessPerformanceMetrics.shared.snapshot().foundationObject
+        payload["remote_orphan_processes"] = remoteOrphanedProcessReaper
+            .metricsSnapshot()
+            .foundationObject
+        return JSONValue(
+            foundationObject: payload
         )
     }
 
     func controlDebugResetProcessPerformanceMetrics() -> JSONValue? {
         ProcessPerformanceMetrics.shared.reset()
+        remoteOrphanedProcessReaper.resetMetrics()
         return controlDebugReadProcessPerformanceMetrics()
     }
 
@@ -444,3 +450,31 @@ extension TerminalController: ControlDebugContext {
     }
 #endif
 }
+
+#if DEBUG
+private nonisolated extension RemoteOrphanProcessSnapshotMetrics {
+    var foundationObject: [String: Any] {
+        [
+            "backend": "libproc",
+            "process_launches": processLaunches,
+            "capture_started": captureStarted,
+            "capture_completed": captureCompleted,
+            "in_flight": captureInFlight,
+            "max_in_flight": maximumCaptureInFlight,
+            "captured_process_count": capturedProcessCount,
+            "reuse": [
+                "cache": cacheReuse,
+                "in_flight": inFlightReuse,
+            ],
+            "reap_requests": reapRequests,
+            "candidate_pids": candidatePIDs,
+            "signals_sent": signalsSent,
+            "rejected_reused_pids": rejectedReusedPIDs,
+            "capture_duration_ms": [
+                "total": captureDurationTotalMilliseconds,
+                "max": captureDurationMaximumMilliseconds,
+            ],
+        ]
+    }
+}
+#endif
