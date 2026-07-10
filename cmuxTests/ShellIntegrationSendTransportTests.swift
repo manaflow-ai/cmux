@@ -29,13 +29,22 @@ struct ShellIntegrationSendTransportTests {
         try script.write(to: scriptFile, atomically: true, encoding: .utf8)
         let socketPath = dir.appendingPathComponent("t.sock").path
 
+        // Reproduce the regression: a PATH-first `nc` without unix-socket
+        // support (GNU netcat's shape) that fails every invocation. The
+        // transport must deliver anyway by pinning the system client.
+        let shimDir = dir.appendingPathComponent("shims", isDirectory: true)
+        try FileManager.default.createDirectory(at: shimDir, withIntermediateDirectories: true)
+        let shim = shimDir.appendingPathComponent("nc")
+        try "#!/bin/sh\nexit 1\n".write(to: shim, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: shim.path)
+
         let listener = try UnixLineListener(path: socketPath)
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/zsh")
         process.environment = [
             "CMUX_SOCKET_PATH": socketPath,
-            "PATH": "/usr/bin:/bin",
+            "PATH": "\(shimDir.path):/usr/bin:/bin",
             "HOME": dir.path,
         ]
         process.arguments = [

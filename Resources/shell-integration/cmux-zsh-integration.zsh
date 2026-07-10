@@ -43,11 +43,12 @@ _cmux_restore_status() {
 _cmux_send() {
     local payload="$1"
     if [[ -x /usr/bin/nc ]]; then
-        if print -r -- "$payload" | /usr/bin/nc -N -U "$CMUX_SOCKET_PATH" >/dev/null 2>&1; then
-            :
-        else
-            print -r -- "$payload" | /usr/bin/nc -w 1 -U "$CMUX_SOCKET_PATH" >/dev/null 2>&1 || true
-        fi
+        # Apple's nc defines -N as `num_probes` (it is not OpenBSD's no-arg
+        # shutdown-after-EOF flag), so the -N form fails option parsing; use
+        # the bounded -w form directly. nc still waits for the server to
+        # process the line and close, preserving order in a batched child and
+        # keeping the peer alive through cmuxOnly ancestry checks.
+        print -r -- "$payload" | /usr/bin/nc -w 1 -U "$CMUX_SOCKET_PATH" >/dev/null 2>&1 || true
         return 0
     fi
     if command -v ncat >/dev/null 2>&1; then
@@ -78,6 +79,8 @@ typeset -gi _CMUX_SEND_MAX_IN_FLIGHT=8
 # Accepts multiple payloads: they are sent sequentially inside ONE child, so
 # callers with an ordering dependency between two messages (report_tty before
 # ports_kick) batch them instead of racing two independent children.
+# Returns nonzero when the payload was dropped (cap or job-table saturation)
+# so callers with edge-triggered latches can leave them unset and retry.
 _cmux_send_bg() {
     local -a live=()
     local pid
@@ -85,8 +88,8 @@ _cmux_send_bg() {
         kill -0 "$pid" 2>/dev/null && live+=("$pid")
     done
     _CMUX_SEND_PIDS=("${live[@]}")
-    (( ${#_CMUX_SEND_PIDS[@]} >= _CMUX_SEND_MAX_IN_FLIGHT )) && return 0
-    _cmux_zsh_job_table_saturated && return 0
+    (( ${#_CMUX_SEND_PIDS[@]} >= _CMUX_SEND_MAX_IN_FLIGHT )) && return 1
+    _cmux_zsh_job_table_saturated && return 1
     {
         local _cmux_msg
         for _cmux_msg in "$@"; do
@@ -94,6 +97,7 @@ _cmux_send_bg() {
         done
     } >/dev/null 2>&1 &!
     _CMUX_SEND_PIDS+=("$!")
+    return 0
 }
 
 _cmux_socket_is_unix() {
@@ -836,15 +840,16 @@ _cmux_report_tty_once() {
         local payload=""
         payload="$(_cmux_report_tty_payload)"
         [[ -n "$payload" ]] || return 0
-        _CMUX_TTY_REPORTED=1
         # Batch the first ports kick behind the registration in the same
         # child: the scanner drops kicks for unregistered TTYs, and two
-        # detached children can connect out of order.
+        # detached children can connect out of order. Latch only after the
+        # send was actually enqueued so a cap-dropped registration retries.
         if [[ -n "$CMUX_TAB_ID" && -n "$CMUX_PANEL_ID" ]]; then
-            _cmux_send_bg "$payload" "ports_kick --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID --reason=command"
+            _cmux_send_bg "$payload" "ports_kick --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID --reason=command" || return 0
         else
-            _cmux_send_bg "$payload"
+            _cmux_send_bg "$payload" || return 0
         fi
+        _CMUX_TTY_REPORTED=1
     else
         [[ -n "$_CMUX_TTY_NAME" ]] || return 0
         # Keep the first relay TTY report synchronous so the server can resolve
@@ -862,7 +867,8 @@ _cmux_report_shell_activity_state() {
     [[ -n "$CMUX_PANEL_ID" ]] || return 0
     [[ "$_CMUX_SHELL_ACTIVITY_LAST" == "$state" ]] && return 0
     _CMUX_SHELL_ACTIVITY_LAST="$state"
-    _cmux_send_bg "report_shell_state $state --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
+    _cmux_send_bg "report_shell_state $state --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID" \
+        || _CMUX_SHELL_ACTIVITY_LAST=""
 }
 
 _cmux_reset_terminal_keyboard_protocols() {
