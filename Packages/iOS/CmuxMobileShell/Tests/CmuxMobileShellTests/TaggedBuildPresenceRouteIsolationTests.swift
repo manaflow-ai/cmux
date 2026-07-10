@@ -54,7 +54,7 @@ import Testing
             ]),
             scope: accountScope
         )
-        await store.waitForPushedRouteSyncForTesting()
+        await store.pushedRouteSyncTask?.value
         #expect(await pairedStore.currentUpsertCount() == 1)
         #expect(try await storedRoutes(in: pairedStore) == [routeA])
         let featureARoutes = store.registryDevices.first?.instances
@@ -72,7 +72,7 @@ import Testing
             .online(instance(tag: "feature-b", routes: [restartedB])),
             scope: accountScope
         )
-        await store.waitForPushedRouteSyncForTesting()
+        await store.pushedRouteSyncTask?.value
         #expect(await pairedStore.currentUpsertCount() == 1)
         #expect(try await storedRoutes(in: pairedStore) == [routeA])
         let restartedBRoutes = store.registryDevices.first?.instances
@@ -83,7 +83,7 @@ import Testing
             .online(instance(tag: "feature-a", routes: [restartedA])),
             scope: accountScope
         )
-        await store.waitForPushedRouteSyncForTesting()
+        await store.pushedRouteSyncTask?.value
         #expect(await pairedStore.currentUpsertCount() == 2)
         #expect(try await storedRoutes(in: pairedStore) == [restartedA])
     }
@@ -113,7 +113,7 @@ import Testing
             ]),
             scope: accountScope
         )
-        await store.waitForPushedRouteSyncForTesting()
+        await store.pushedRouteSyncTask?.value
         #expect(await pairedStore.currentUpsertCount() == 0)
         #expect(try await storedRoutes(in: pairedStore) == [original])
 
@@ -125,7 +125,7 @@ import Testing
             .online(instance(tag: "feature-b", routes: [restartedB])),
             scope: accountScope
         )
-        await store.waitForPushedRouteSyncForTesting()
+        await store.pushedRouteSyncTask?.value
         #expect(await pairedStore.currentUpsertCount() == 1)
         #expect(try await storedRoutes(in: pairedStore) == [restartedB])
     }
@@ -163,7 +163,7 @@ import Testing
             .routes(instance(deviceId: "registry-only-mac", tag: "feature-a", routes: [])),
             scope: accountScope
         )
-        await store.waitForPushedRouteSyncForTesting()
+        await store.pushedRouteSyncTask?.value
 
         #expect(store.registryDevices.first?.instances.first?.routes.isEmpty == true)
         #expect(await pairedStore.currentUpsertCount() == 0)
@@ -195,7 +195,7 @@ import Testing
             ]),
             scope: accountScope
         )
-        await store.waitForPushedRouteSyncForTesting()
+        await store.pushedRouteSyncTask?.value
 
         let recoveryRan = try await pollUntil(attempts: 50) {
             store.connectionRecoveryFailed

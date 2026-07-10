@@ -10,10 +10,6 @@ private let presenceRouteSyncLog = Logger(
 
 @MainActor
 extension MobileShellComposite {
-    func waitForPushedRouteSyncForTesting() async {
-        await pushedRouteSyncTask?.value
-    }
-
     /// Writes one presence instance through the build-scoped route authority.
     func syncPushedRoutes(from instance: PresenceInstance, scope: MobileShellScopeSnapshot) {
         syncPushedRoutes(from: [instance], scope: scope)
