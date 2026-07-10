@@ -8,7 +8,7 @@
 12768	Sources/Workspace.swift
 12501	Sources/GhosttyTerminalView.swift
 12261	cmuxTests/AppDelegateShortcutRoutingTests.swift
-11338	Sources/Panels/BrowserPanel.swift
+11341	Sources/Panels/BrowserPanel.swift
 9497	cmuxTests/CLINotifyProcessIntegrationRegressionTests.swift
 8016	CLI/cmux_open.swift
 7956	Sources/Panels/BrowserPanelView.swift
@@ -178,8 +178,8 @@
 630	Packages/macOS/CmuxSettings/Sources/CmuxSettings/Values/ShortcutWhenClause.swift
 624	Sources/SettingsNavigation.swift
 623	Packages/macOS/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Surface/ControlCommandCoordinator+Surface.swift
+620	Packages/macOS/CmuxTerminal/Sources/CmuxTerminal/Surface/TerminalSurface.swift
 620	cmuxTests/FinderFileDropRegressionTests.swift
-617	Packages/macOS/CmuxTerminal/Sources/CmuxTerminal/Surface/TerminalSurface.swift
 608	Sources/TextBoxSubmitActions.swift
 608	cmuxUITests/FeedSidebarUITests.swift
 607	Sources/SessionIndexModels.swift
