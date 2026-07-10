@@ -96,6 +96,39 @@ extension RemoteTmuxMirrorCLIObservabilityTests {
         }
     }
 
+    @Test func paneScopedMutationsTargetTheRequestedProjectedPane() throws {
+        do {
+            let harness = try Harness()
+            defer { harness.tearDown() }
+            let firstTmuxPaneID = try #require(harness.mirror.paneIDsInOrder.first)
+            let firstPaneID = try #require(harness.mirror.syntheticPaneID(forPane: firstTmuxPaneID)?.id)
+            let firstSurfaceID = try #require(harness.mirror.panel(forPane: firstTmuxPaneID)?.id)
+
+            let result = TerminalController.shared.controlSurfaceRespawn(
+                routing: harness.routing(paneID: firstPaneID),
+                inputs: respawnInputs(surfaceID: nil)
+            )
+
+            #expect(result == .respawnFailed(firstSurfaceID))
+        }
+
+        do {
+            let harness = try Harness(addPeerSurface: true)
+            defer { harness.tearDown() }
+            let firstTmuxPaneID = try #require(harness.mirror.paneIDsInOrder.first)
+            let firstPaneID = try #require(harness.mirror.syntheticPaneID(forPane: firstTmuxPaneID)?.id)
+            let firstSurfaceID = try #require(harness.mirror.panel(forPane: firstTmuxPaneID)?.id)
+
+            let result = TerminalController.shared.controlSurfaceClose(
+                routing: harness.routing(paneID: firstPaneID),
+                surfaceID: nil
+            )
+
+            #expect(result == .closeFailed(firstSurfaceID))
+            #expect(harness.workspace.panels[harness.outerPanelID] != nil)
+        }
+    }
+
     private func activeSurfaceID(in harness: Harness) throws -> UUID {
         let paneID = try #require(harness.mirror.activePaneId)
         return try #require(harness.mirror.panel(forPane: paneID)?.id)
