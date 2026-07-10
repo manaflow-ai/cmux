@@ -59,6 +59,7 @@ struct CmxIrohRegistryContextProviderTests {
         let provider = CmxIrohRegistryContextProvider(
             supervisor: supervisor,
             broker: broker,
+            localBindingExpectation: try fixture.localExpectation(),
             managedRelayURLs: [fixture.relayURL],
             activeNetworkProfiles: { [profile] },
             now: { fixture.now }
@@ -100,6 +101,7 @@ struct CmxIrohRegistryContextProviderTests {
         let provider = CmxIrohRegistryContextProvider(
             supervisor: try await fixture.activeSupervisor(),
             broker: broker,
+            localBindingExpectation: try fixture.localExpectation(),
             managedRelayURLs: [fixture.relayURL],
             activeNetworkProfiles: { [] },
             now: { clock.value() }
@@ -134,6 +136,7 @@ struct CmxIrohRegistryContextProviderTests {
         let provider = CmxIrohRegistryContextProvider(
             supervisor: try await fixture.activeSupervisor(),
             broker: broker,
+            localBindingExpectation: try fixture.localExpectation(),
             managedRelayURLs: [fixture.relayURL],
             activeNetworkProfiles: { [] },
             now: { fixture.now }
@@ -157,6 +160,7 @@ struct CmxIrohRegistryContextProviderTests {
         let provider = CmxIrohRegistryContextProvider(
             supervisor: try await fixture.activeSupervisor(),
             broker: broker,
+            localBindingExpectation: try fixture.localExpectation(),
             managedRelayURLs: [fixture.relayURL],
             activeNetworkProfiles: { [] },
             now: { fixture.now }
@@ -178,6 +182,7 @@ struct CmxIrohRegistryContextProviderTests {
         let provider = CmxIrohRegistryContextProvider(
             supervisor: try await fixture.activeSupervisor(),
             broker: broker,
+            localBindingExpectation: try fixture.localExpectation(),
             managedRelayURLs: [fixture.relayURL],
             activeNetworkProfiles: { [] },
             now: { fixture.now }
@@ -209,6 +214,7 @@ struct CmxIrohRegistryContextProviderTests {
         let provider = CmxIrohRegistryContextProvider(
             supervisor: try await fixture.activeSupervisor(),
             broker: broker,
+            localBindingExpectation: try fixture.localExpectation(),
             managedRelayURLs: [fixture.relayURL],
             activeNetworkProfiles: { [] },
             now: { fixture.now }
@@ -351,6 +357,19 @@ private struct RegistryFixture: Sendable {
         )
         _ = try await supervisor.activate()
         return supervisor
+    }
+
+    func localExpectation() throws -> CmxIrohLocalBindingExpectation {
+        try CmxIrohLocalBindingExpectation(
+            deviceID: initiator.deviceID,
+            appInstanceID: "123e4567-e89b-42d3-a456-426614174005",
+            tag: initiator.tag,
+            platform: initiator.platform,
+            endpointID: initiator.endpointID,
+            identityGeneration: initiator.identityGeneration,
+            pairingEnabled: false,
+            capabilities: ["multistream-v1"]
+        )
     }
 
     func route(hints: [CmxIrohPathHint]) throws -> CmxAttachRoute {

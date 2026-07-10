@@ -12,6 +12,7 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
 
     private let supervisor: CmxIrohEndpointSupervisor
     private let broker: any CmxIrohRegistryServing
+    private let localBindingExpectation: CmxIrohLocalBindingExpectation
     private let managedRelayURLs: Set<String>
     private let activeNetworkProfiles: @Sendable () async -> Set<CmxIrohNetworkProfileKey>
     private let verifier: CmxIrohGrantVerifier
@@ -21,6 +22,7 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
     public init(
         supervisor: CmxIrohEndpointSupervisor,
         broker: any CmxIrohRegistryServing,
+        localBindingExpectation: CmxIrohLocalBindingExpectation,
         managedRelayURLs: Set<String>,
         activeNetworkProfiles: @escaping @Sendable () async -> Set<CmxIrohNetworkProfileKey>,
         verifier: CmxIrohGrantVerifier = CmxIrohGrantVerifier(),
@@ -28,6 +30,7 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
     ) {
         self.supervisor = supervisor
         self.broker = broker
+        self.localBindingExpectation = localBindingExpectation
         self.managedRelayURLs = managedRelayURLs
         self.activeNetworkProfiles = activeNetworkProfiles
         self.verifier = verifier
@@ -45,6 +48,10 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         }
         let endpoint = try await supervisor.activeEndpoint()
         let localIdentity = await endpoint.identity()
+        guard localBindingExpectation.platform == .ios,
+              localBindingExpectation.endpointID == localIdentity else {
+            throw CmxIrohRegistryContextError.localBindingUnavailable
+        }
         let discovery = try await broker.discover()
         guard discovery.routeContractVersion == 1 else {
             throw CmxIrohRegistryContextError.incompatibleContract
@@ -53,7 +60,7 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
             throw CmxIrohRegistryContextError.relayFleetMismatch
         }
         let localMatches = discovery.bindings.filter {
-            $0.endpointID == localIdentity && $0.platform == .ios
+            localBindingExpectation.matches($0)
         }
         guard localMatches.count == 1, let localBinding = localMatches.first else {
             throw CmxIrohRegistryContextError.localBindingUnavailable
