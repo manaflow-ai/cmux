@@ -29,7 +29,11 @@ public struct SimulatorUSKeyboardTextEncoder: Sendable {
         while index < scalars.count {
             let scalar = scalars[index]
             if scalar == "\r" {
+                mappings.append((usage: 0x28, shifted: false))
                 index += 1
+                if index < scalars.count, scalars[index] == "\n" {
+                    index += 1
+                }
                 continue
             }
             guard let mapping = mapping(for: scalar) else {
