@@ -5,9 +5,12 @@ import Foundation
 @MainActor
 final class OpenedURLRecorder {
     private(set) var urls: [URL] = []
+    /// Return value for the opener seam, mimicking `NSWorkspace.open` success.
+    var openSucceeds = true
 
-    func append(_ url: URL) {
+    func append(_ url: URL) -> Bool {
         urls.append(url)
+        return openSucceeds
     }
 }
 
@@ -28,7 +31,8 @@ struct HostBrowserSignInFlowHarness {
         user: CMUXAuthUser? = nil,
         browserAttemptTimeout: TimeInterval = 5 * 60,
         slowSignInThreshold: TimeInterval = 30,
-        clock: (any Clock<Duration>)? = nil
+        clock: (any Clock<Duration>)? = nil,
+        openSucceeds: Bool = true
     ) {
         let store = FakeKeyValueStore()
         // The fake client reads and clears the SAME token store the flow seeds,
@@ -36,6 +40,7 @@ struct HostBrowserSignInFlowHarness {
         let tokenStore = FlowInMemoryTokenStore()
         let client = FlowFakeAuthClient(user: user, store: tokenStore)
         let openedURLRecorder = OpenedURLRecorder()
+        openedURLRecorder.openSucceeds = openSucceeds
         let coordinator = AuthCoordinator(
             client: client,
             sessionCache: CMUXAuthSessionCache(keyValueStore: store, key: "has_tokens"),

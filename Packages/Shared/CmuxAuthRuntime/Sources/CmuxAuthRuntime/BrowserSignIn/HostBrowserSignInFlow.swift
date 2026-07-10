@@ -22,7 +22,9 @@ public final class HostBrowserSignInFlow {
     private let callbackRouter: AuthCallbackRouter
     private let makeSignInURL: @MainActor (_ callbackState: String) -> URL
     private let callbackScheme: @MainActor () -> String
-    @ObservationIgnored private let openExternalURL: @MainActor (URL) -> Void
+    /// Opens a URL in the user's default browser. Returns `true` when the
+    /// launch was handed to a browser, `false` when it could not be opened.
+    @ObservationIgnored private let openExternalURL: @MainActor (URL) -> Bool
     private let clock: any Clock<Duration>
     private let browserAttemptTimeout: TimeInterval
     private let slowSignInThreshold: TimeInterval
@@ -49,7 +51,7 @@ public final class HostBrowserSignInFlow {
         callbackRouter: AuthCallbackRouter,
         makeSignInURL: @escaping @MainActor (_ callbackState: String) -> URL,
         callbackScheme: @escaping @MainActor () -> String,
-        openExternalURL: @escaping @MainActor (URL) -> Void,
+        openExternalURL: @escaping @MainActor (URL) -> Bool,
         clock: any Clock<Duration> = ContinuousClock(),
         browserAttemptTimeout: TimeInterval = 10 * 60,
         slowSignInThreshold: TimeInterval = 30
@@ -263,11 +265,16 @@ public final class HostBrowserSignInFlow {
                     self.pendingFallbackCallbackState = self.activeCallbackState
                     self.cancelSlowSignInHint()
                     self.signInIsSlow = true
-                    if self.handedOffAttemptID != attemptID {
-                        self.handedOffAttemptID = attemptID
-                        if let state = self.activeCallbackState {
-                            self.log.log("auth.browser.handoff.continueInDefaultBrowser attempt=\(attemptID)")
-                            self.openExternalURL(self.makeSignInURL(state))
+                    if self.handedOffAttemptID != attemptID, let state = self.activeCallbackState {
+                        self.log.log("auth.browser.handoff.continueInDefaultBrowser attempt=\(attemptID)")
+                        // Commit to the handed-off state only when the browser
+                        // actually launched. If the open fails, leave the attempt
+                        // un-handed-off so a repeat sign-in click starts fresh
+                        // instead of parking on a browser that never appeared.
+                        if self.openExternalURL(self.makeSignInURL(state)) {
+                            self.handedOffAttemptID = attemptID
+                        } else {
+                            self.log.log("auth.browser.handoff.openFailed attempt=\(attemptID)")
                         }
                     }
                     return
