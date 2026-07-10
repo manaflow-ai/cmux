@@ -6041,6 +6041,13 @@ extension SessionPersistenceTests {
             .terminal?
             .resumeBinding
         XCTAssertNil(cleanScanBinding)
+        XCTAssertEqual(cleanScanSnapshot.windows.count, 1)
+        XCTAssertEqual(cleanScanSnapshot.windows.first?.tabManager.workspaces.first?.workspaceId, workspace.id)
+        XCTAssertNotNil(
+            cleanScanSnapshot.windows.first?.tabManager.workspaces.first?.panels
+                .first(where: { $0.id == panelId })?
+                .terminal
+        )
     }
 
     func testTmuxProcessDetectedResumeBindingPreservesSocketFlags() throws {

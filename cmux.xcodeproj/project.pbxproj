@@ -1013,6 +1013,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		D1F0A00100000000000000B3 /* PresenceSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1F0A00100000000000000B4 /* PresenceSettings.swift */; };
 		C0DEA771000000000000000D /* PricingPlansScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEA771000000000000000E /* PricingPlansScreen.swift */; };
 		C0DEA771000000000000000B /* ProBadgeStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEA771000000000000000C /* ProBadgeStyle.swift */; };
+		D7332C0B0000000000000001 /* ProcessDetectedResumeIndexCoordinationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7332C0B0000000000000002 /* ProcessDetectedResumeIndexCoordinationTests.swift */; };
 		F0ACC0DE000000000000000D /* ProcessDetectedResumeIndexes.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0ACC0DE000000000000000E /* ProcessDetectedResumeIndexes.swift */; };
 		C47110010000000000000001 /* ProcessPipeReadCrashRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C47110010000000000000002 /* ProcessPipeReadCrashRegressionTests.swift */; };
 		D75280010000000000000001 /* ProfilingSignposts.swift in Sources */ = {isa = PBXBuildFile; fileRef = D75280010000000000000002 /* ProfilingSignposts.swift */; };
@@ -2732,6 +2733,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		D1F0A00100000000000000B4 /* PresenceSettings.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PresenceSettings.swift; sourceTree = "<group>"; };
 		C0DEA771000000000000000E /* PricingPlansScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PricingPlansScreen.swift; sourceTree = "<group>"; };
 		C0DEA771000000000000000C /* ProBadgeStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProBadgeStyle.swift; sourceTree = "<group>"; };
+		D7332C0B0000000000000002 /* ProcessDetectedResumeIndexCoordinationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessDetectedResumeIndexCoordinationTests.swift; sourceTree = "<group>"; };
 		F0ACC0DE000000000000000E /* ProcessDetectedResumeIndexes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessDetectedResumeIndexes.swift; sourceTree = "<group>"; };
 		C47110010000000000000002 /* ProcessPipeReadCrashRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessPipeReadCrashRegressionTests.swift; sourceTree = "<group>"; };
 		D75280010000000000000002 /* ProfilingSignposts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfilingSignposts.swift; sourceTree = "<group>"; };
@@ -4992,6 +4994,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				F0ACC0DF0000000000000002 /* SharedLiveAgentIndexAgentLivenessTests.swift */,
 				D7332B000000000000000001 /* SharedLiveAgentIndexLoadCoalescingTests.swift */,
 				D7332C030000000000000002 /* SharedLiveAgentIndexScopedRefreshTests.swift */,
+				D7332C0B0000000000000002 /* ProcessDetectedResumeIndexCoordinationTests.swift */,
 				F0ACC0DE0000000000000006 /* WorkspaceForkConversationContextMenuTests.swift */,
 				D7332C040000000000000002 /* WorkspaceForkConversationContextMenuTestSupport.swift */,
 				71F8ED91A4B55D34BE6A0668 /* WorkspaceUnitTests.swift */,
@@ -7151,6 +7154,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 					F4100000A1B2C3D4E5F60718 /* PortScannerTests.swift in Sources */,
 				B8E9500A0000000000000001 /* PostHogAnalyticsPropertiesTests.swift in Sources */,
 				DE71CE00000000000000000A /* PresenceHeartbeatClientTests.swift in Sources */,
+				D7332C0B0000000000000001 /* ProcessDetectedResumeIndexCoordinationTests.swift in Sources */,
 				C47110010000000000000001 /* ProcessPipeReadCrashRegressionTests.swift in Sources */,
 				A64610020000000000000001 /* QuitConfirmationAlertPresenterTests.swift in Sources */,
 				A6D1F0400000000000000002 /* ReleasingWindowControllerTests.swift in Sources */,
