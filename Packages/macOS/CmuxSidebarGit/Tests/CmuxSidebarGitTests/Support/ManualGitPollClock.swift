@@ -6,6 +6,7 @@ import Foundation
 actor ManualGitPollClock: GitPollClock {
     private struct Sleeper {
         let id: UUID
+        let duration: TimeInterval
         let continuation: CheckedContinuation<Void, any Error>
     }
 
@@ -25,7 +26,7 @@ actor ManualGitPollClock: GitPollClock {
                     continuation.resume(throwing: CancellationError())
                     return
                 }
-                sleepers.append(Sleeper(id: id, continuation: continuation))
+                sleepers.append(Sleeper(id: id, duration: seconds, continuation: continuation))
                 while !sleeperWaiters.isEmpty {
                     sleeperWaiters.removeFirst().resume()
                 }
@@ -46,10 +47,29 @@ actor ManualGitPollClock: GitPollClock {
         }
     }
 
+    /// Suspends until a sleeper with the requested virtual duration is parked.
+    func waitForSleeper(duration: TimeInterval) async {
+        while !sleepers.contains(where: { $0.duration == duration }) {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                sleeperWaiters.append(continuation)
+            }
+        }
+    }
+
     /// Resumes the oldest parked sleeper.
     func resumeNext() {
         guard !sleepers.isEmpty else { return }
         sleepers.removeFirst().continuation.resume(returning: ())
+    }
+
+    /// Resumes the oldest parked sleeper with the requested duration.
+    @discardableResult
+    func resumeFirst(duration: TimeInterval) -> Bool {
+        guard let index = sleepers.firstIndex(where: { $0.duration == duration }) else {
+            return false
+        }
+        sleepers.remove(at: index).continuation.resume(returning: ())
+        return true
     }
 
     var lastRecordedDuration: TimeInterval? {

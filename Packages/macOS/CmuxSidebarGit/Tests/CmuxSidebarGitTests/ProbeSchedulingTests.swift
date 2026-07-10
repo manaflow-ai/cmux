@@ -9,7 +9,7 @@ import CmuxGit
         host: RecordingSidebarGitHost,
         reader: GatedMetadataReader,
         clock: ManualGitPollClock,
-        pullRequestProbing: RecordingPullRequestProbing = RecordingPullRequestProbing()
+        pullRequestProbing: any PullRequestProbing = RecordingPullRequestProbing()
     ) -> SidebarGitMetadataService {
         let service = SidebarGitMetadataService(
             workspaceGitMetadataReader: reader,
@@ -30,6 +30,19 @@ import CmuxGit
             await Task.yield()
         }
         return predicate()
+    }
+
+    private func makePullRequestService(
+        host: RecordingSidebarGitHost,
+        clock: ManualGitPollClock = ManualGitPollClock()
+    ) -> PullRequestPollService {
+        let service = PullRequestPollService(
+            gitMetadataService: GitMetadataService(),
+            probeService: PullRequestProbeService(commandRunner: ForbiddenCommandRunner()),
+            clock: clock
+        )
+        service.attach(host: host)
+        return service
     }
 
     /// The initial probe's retry offsets [0, 0.5, 1.5, 3, 6, 10] are absolute
@@ -246,11 +259,11 @@ import CmuxGit
         })
     }
 
-    /// Reapplying the same branch from a filesystem-triggered git probe keeps
-    /// the sidebar branch fresh without forcing another PR refresh when that
-    /// panel is already tracked by the PR poller.
+    /// Poll tracking restored without a local source identity is insufficient
+    /// to dedupe the first snapshot. That snapshot seeds ownership exactly
+    /// once so later directory or branch comparisons are well-defined.
     @Test(.timeLimit(.minutes(1)))
-    func knownBranchSnapshotDoesNotForceDuplicatePullRequestRefresh() async throws {
+    func trackedBranchWithoutSourceIdentitySeedsPullRequestRefreshOnce() async throws {
         let host = RecordingSidebarGitHost()
         host.pollingEnabled = true
         let (workspaceId, panelId) = host.addWorkspace(panelDirectory: "/tmp/repo")
@@ -287,7 +300,8 @@ import CmuxGit
             branch: "feature/x",
             isDirty: true
         ))
-        #expect(pullRequestProbing.scheduledRefreshes.isEmpty)
+        #expect(pullRequestProbing.scheduledRefreshes.count == 1)
+        #expect(pullRequestProbing.scheduledRefreshes.first?.reason == "localGitProbe")
     }
 
     /// Restored sessions can already have a branch projected before the first
@@ -327,6 +341,186 @@ import CmuxGit
         #expect(scheduledRefresh.workspaceId == workspaceId)
         #expect(scheduledRefresh.panelId == panelId)
         #expect(scheduledRefresh.reason == "localGitProbe")
+    }
+
+    /// Default branches intentionally own no PR poll deadline. Reapplying an
+    /// unchanged local snapshot must still remember that source, avoid the
+    /// global refresh traversal, and clear an old badge only once.
+    @Test(.timeLimit(.minutes(1)), arguments: [" main ", " master "])
+    func repeatedDefaultBranchSnapshotSuppressesPullRequestReseedingAndClearsBadgeOnce(
+        rawBranch: String
+    ) async throws {
+        let branch = try #require(GitMetadataService.normalizedBranchName(rawBranch))
+        let host = RecordingSidebarGitHost()
+        host.pollingEnabled = true
+        let (workspaceId, panelId) = host.addWorkspace(panelDirectory: "/tmp/repo")
+        host.workspaces[0].state.panels[panelId]?.badge = SidebarPullRequestBadge(
+            number: 42,
+            label: "PR",
+            url: URL(string: "https://github.com/manaflow-ai/cmux/pull/42")!,
+            status: .open,
+            branch: branch
+        )
+        let clock = ManualGitPollClock()
+        let pullRequestService = makePullRequestService(host: host)
+        let service = makeService(
+            host: host,
+            reader: GatedMetadataReader(metadata: .repository(branch: rawBranch)),
+            clock: clock,
+            pullRequestProbing: pullRequestService
+        )
+
+        for expectedApplyCount in 1...2 {
+            service.scheduleWorkspaceGitMetadataRefreshIfPossible(
+                workspaceId: workspaceId,
+                panelId: panelId,
+                reason: "filesystemEvent"
+            )
+            await clock.waitForSleeper(duration: 0)
+            #expect(await clock.resumeFirst(duration: 0))
+            #expect(await waitUntil {
+                host.events.filter { event in
+                    if case .gitBranch(workspaceId, panelId, branch, false) = event { return true }
+                    return false
+                }.count == expectedApplyCount
+            })
+        }
+
+        let badgeClearCount = host.events.filter { event in
+            if case .clearPullRequestBadge(workspaceId, panelId) = event { return true }
+            return false
+        }.count
+        #expect(badgeClearCount == 1)
+        #expect(host.orderedWorkspaceIdsReadCount == 0)
+        #expect(host.panelGitBranchPanelIdsReadCount == 0)
+        #expect(host.panelPullRequestPanelIdsReadCount == 0)
+    }
+
+    /// A snapshot batch can project several panels in one main-actor turn.
+    /// Its PR seeds should produce one host traversal containing every panel,
+    /// rather than one traversal for every apply callback.
+    @Test(.timeLimit(.minutes(1)))
+    func sameTurnFeatureSnapshotSeedsCoalesceToOnePullRequestTraversal() async throws {
+        let directory = "/tmp/shared-repo"
+        let host = RecordingSidebarGitHost()
+        host.pollingEnabled = true
+        let (workspaceId, firstPanelId) = host.addWorkspace(panelDirectory: directory)
+        let secondPanelId = UUID()
+        host.workspaces[0].state.panels[secondPanelId] = RecordingSidebarGitHost.PanelState(
+            directory: directory
+        )
+        let clock = ManualGitPollClock()
+        let reader = GatedMetadataReader(
+            metadata: .repository(branch: "feature/batched"),
+            gated: true
+        )
+        let pullRequestService = makePullRequestService(host: host)
+        let service = makeService(
+            host: host,
+            reader: reader,
+            clock: clock,
+            pullRequestProbing: pullRequestService
+        )
+
+        for panelId in [firstPanelId, secondPanelId] {
+            service.scheduleWorkspaceGitMetadataRefreshIfPossible(
+                workspaceId: workspaceId,
+                panelId: panelId,
+                reason: "filesystemEvent"
+            )
+        }
+        for _ in 0..<2 {
+            await clock.waitForSleeper()
+            await clock.resumeNext()
+        }
+        await reader.openGate()
+        #expect(await waitUntil {
+            host.workspaces[0].state.panels.values.filter {
+                $0.branch?.branch == "feature/batched"
+            }.count == 2
+        })
+        #expect(await waitUntil { host.orderedWorkspaceIdsReadCount >= 1 })
+
+        #expect(host.orderedWorkspaceIdsReadCount == 1)
+        #expect(host.panelGitBranchPanelIdsReadCount == 1)
+        #expect(host.panelPullRequestPanelIdsReadCount == 1)
+    }
+
+    /// A feature source seeds once. Changing either half of its normalized
+    /// directory/branch identity seeds once more, while a command hint remains
+    /// an explicit force request even when that source is unchanged.
+    @Test(.timeLimit(.minutes(1)))
+    func featureSourceChangesSeedOnceAndCommandHintStillForces() async throws {
+        let host = RecordingSidebarGitHost()
+        host.pollingEnabled = true
+        let (workspaceId, panelId) = host.addWorkspace(panelDirectory: "/tmp/repo")
+        let gitClock = ManualGitPollClock()
+        let pullRequestClock = ManualGitPollClock()
+        let pullRequestService = makePullRequestService(host: host, clock: pullRequestClock)
+        let service = makeService(
+            host: host,
+            reader: GatedMetadataReader(metadata: .repository(branch: "feature/one")),
+            clock: gitClock,
+            pullRequestProbing: pullRequestService
+        )
+
+        for expectedApplyCount in 1...2 {
+            service.scheduleWorkspaceGitMetadataRefreshIfPossible(
+                workspaceId: workspaceId,
+                panelId: panelId,
+                reason: "filesystemEvent"
+            )
+            await gitClock.waitForSleeper(duration: 0)
+            #expect(await gitClock.resumeFirst(duration: 0))
+            #expect(await waitUntil {
+                host.events.filter { event in
+                    if case .gitBranch(workspaceId, panelId, "feature/one", false) = event { return true }
+                    return false
+                }.count == expectedApplyCount
+            })
+            if expectedApplyCount == 1 {
+                #expect(await waitUntil { host.orderedWorkspaceIdsReadCount == 1 })
+            }
+        }
+        #expect(host.orderedWorkspaceIdsReadCount == 1)
+
+        service.updateSurfaceDirectory(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            directory: " file:///tmp/repo-two ",
+            displayLabel: nil
+        )
+        #expect(host.orderedWorkspaceIdsReadCount == 2)
+        service.updateSurfaceDirectory(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            directory: "/tmp/repo-two",
+            displayLabel: nil
+        )
+        #expect(host.orderedWorkspaceIdsReadCount == 2)
+
+        service.updateSurfaceGitBranch(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            branch: " feature/two ",
+            isDirty: false
+        )
+        #expect(host.orderedWorkspaceIdsReadCount == 3)
+        service.updateSurfaceGitBranch(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            branch: "feature/two",
+            isDirty: false
+        )
+        #expect(host.orderedWorkspaceIdsReadCount == 3)
+
+        pullRequestService.handleWorkspacePullRequestCommandHint(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            action: "merge",
+            target: nil
+        )
+        #expect(host.orderedWorkspaceIdsReadCount == 4)
     }
 
     /// A filesystem event that arrives while a probe is already in flight is a

@@ -38,6 +38,9 @@ final class RecordingSidebarGitHost: SidebarGitHosting {
     var mobileHostActive = false
     var selectedWorkspaceId: UUID?
     private(set) var events: [ProjectionEvent] = []
+    private(set) var orderedWorkspaceIdsReadCount = 0
+    private(set) var panelGitBranchPanelIdsReadCount = 0
+    private(set) var panelPullRequestPanelIdsReadCount = 0
     private var eventContinuations: [AsyncStream<ProjectionEvent>.Continuation] = []
 
     /// A stream of projection events, registered before the awaited action.
@@ -76,7 +79,10 @@ final class RecordingSidebarGitHost: SidebarGitHosting {
 
     // MARK: Reads
 
-    func orderedWorkspaceIds() -> [UUID] { workspaces.map(\.id) }
+    func orderedWorkspaceIds() -> [UUID] {
+        orderedWorkspaceIdsReadCount += 1
+        return workspaces.map(\.id)
+    }
     func workspaceExists(_ workspaceId: UUID) -> Bool { state(workspaceId) != nil }
     func isRemoteWorkspace(_ workspaceId: UUID) -> Bool? { state(workspaceId)?.isRemote }
     func panelIds(in workspaceId: UUID) -> [UUID] {
@@ -101,6 +107,7 @@ final class RecordingSidebarGitHost: SidebarGitHosting {
         state(workspaceId)?.panels[panelId]?.branch
     }
     func panelGitBranchPanelIds(in workspaceId: UUID) -> Set<UUID> {
+        panelGitBranchPanelIdsReadCount += 1
         guard let state = state(workspaceId) else { return [] }
         return Set(state.panels.filter { $0.value.branch != nil }.keys)
     }
@@ -108,6 +115,7 @@ final class RecordingSidebarGitHost: SidebarGitHosting {
         state(workspaceId)?.panels[panelId]?.badge
     }
     func panelPullRequestPanelIds(in workspaceId: UUID) -> Set<UUID> {
+        panelPullRequestPanelIdsReadCount += 1
         guard let state = state(workspaceId) else { return [] }
         return Set(state.panels.filter { $0.value.badge != nil }.keys)
     }
