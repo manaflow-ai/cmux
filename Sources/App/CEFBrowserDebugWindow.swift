@@ -32,8 +32,14 @@ enum CEFRuntimeSupport {
 
         var config = CEFConfiguration(rootCachePath: rootCache)
         // Stable per-bundle-id CDP port (also powers docked DevTools);
-        // distinct tagged dev builds get distinct ports.
-        config.remoteDebuggingPort = 12100 + abs(bundleID.hashValue % 800)
+        // distinct tagged dev builds get distinct ports. djb2, not hashValue:
+        // Swift string hashes are seeded per process and would move the port
+        // on every launch.
+        var hash: UInt64 = 5381
+        for byte in bundleID.utf8 {
+            hash = hash &* 33 &+ UInt64(byte)
+        }
+        config.remoteDebuggingPort = 12100 + Int(hash % 800)
         if let override = ProcessInfo.processInfo.environment["CMUX_CEF_DEBUG_PORT"], let port = Int(override) {
             config.remoteDebuggingPort = port
         }
