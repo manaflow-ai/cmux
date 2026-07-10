@@ -61,7 +61,9 @@ struct BrowserProxyConfigurationRoute {
             return false
         }
 
-        if identity == "direct", websiteDataStore.proxyConfigurations.isEmpty {
+        if identity == "direct",
+           previousIdentity == nil,
+           websiteDataStore.proxyConfigurations.isEmpty {
             storeIdentity(on: websiteDataStore)
             return false
         }
