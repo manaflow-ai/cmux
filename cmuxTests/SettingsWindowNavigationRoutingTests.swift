@@ -157,191 +157,6 @@ extension SettingsWindowSharedStateSuites {
             }
         }
 
-        // MARK: - Presentation contract
-
-        @Test func miniaturizedSettingsWindowIsReusedAndVisibleOnReturn() async {
-            await withCleanSettingsWindows {
-                var builtWindows: [SettingsTestHostWindow] = []
-                let presenter = SettingsWindowPresenter(windowFactory: { _ in
-                    let window = makePlainFactoryWindow()
-                    builtWindows.append(window)
-                    return window
-                })
-                #expect(presenter.show() == .presented)
-                guard let firstWindow = builtWindows.first else {
-                    Issue.record("expected the first show to build a window")
-                    return
-                }
-
-                // The user minimizes Settings to the Dock, then reopens it.
-                firstWindow.simulatesDockMiniaturization = true
-
-                let result = presenter.show()
-
-                // The miniaturized window is REUSED — demolishing it would
-                // destroy unsaved Settings edits — and deminiaturize followed
-                // by orderFrontRegardless commits visibility on the same
-                // run-loop turn (probed AppKit behavior the simulation
-                // models), so the verified visible-on-return contract holds.
-                #expect(result == .presented)
-                #expect(builtWindows.count == 1)
-                #expect(firstWindow.deminiaturizeCallCount == 1)
-                #expect(firstWindow.isVisible)
-                #expect(firstWindow.identifier?.rawValue == SettingsWindowPresenter.windowIdentifier)
-            }
-        }
-
-        @Test func asyncDeminiaturizeCommitIsAwaitedWithoutReplacingTheWindow() async {
-            await withCleanSettingsWindows {
-                var builtWindows: [SettingsTestHostWindow] = []
-                let presenter = SettingsWindowPresenter(windowFactory: { _ in
-                    let window = makePlainFactoryWindow()
-                    builtWindows.append(window)
-                    return window
-                })
-                #expect(presenter.show() == .presented)
-                guard let firstWindow = builtWindows.first else {
-                    Issue.record("expected the first show to build a window")
-                    return
-                }
-
-                // OS where the deminiaturize commit lands on a LATER
-                // run-loop turn: the bounded wait must let AppKit finish the
-                // transition — never tear down a live window (and its
-                // unsaved edits) that is about to appear.
-                firstWindow.simulatesDockMiniaturization = true
-                firstWindow.asyncDeminiaturizeCommitDelay = 0.1
-
-                let result = presenter.show()
-
-                #expect(result == .presented)
-                #expect(builtWindows.count == 1)
-                #expect(firstWindow.isVisible)
-                #expect(firstWindow.identifier?.rawValue == SettingsWindowPresenter.windowIdentifier)
-            }
-        }
-
-        @Test func stalledDeminiaturizeCommitFallsBackToAFreshVisibleWindow() async {
-            await withCleanSettingsWindows {
-                let previousTimeout = SettingsWindowPresenter.deminiaturizeSettleTimeout
-                SettingsWindowPresenter.deminiaturizeSettleTimeout = 0.1
-                defer { SettingsWindowPresenter.deminiaturizeSettleTimeout = previousTimeout }
-                var builtWindows: [SettingsTestHostWindow] = []
-                let presenter = SettingsWindowPresenter(windowFactory: { _ in
-                    let window = makePlainFactoryWindow()
-                    builtWindows.append(window)
-                    return window
-                })
-                #expect(presenter.show() == .presented)
-                guard let firstWindow = builtWindows.first else {
-                    Issue.record("expected the first show to build a window")
-                    return
-                }
-
-                // A window whose deminiaturization never lands (wedged
-                // transition): the open must still end in a visible window
-                // (self-heal by replacement), never a silent no-op or a
-                // pending state reported as success.
-                firstWindow.simulatesDockMiniaturization = true
-                firstWindow.stallsDeminiaturizeCommit = true
-
-                let result = presenter.show()
-
-                #expect(result == .presented)
-                #expect(builtWindows.count == 2)
-                #expect(firstWindow.identifier == nil)
-                let visible = visibleSettingsWindow()
-                #expect(visible != nil)
-                #expect(visible !== firstWindow)
-            }
-        }
-
-        @Test func failedShowNeverActivatesOrKeysAnInvisibleWindow() async {
-            await withCleanSettingsWindows {
-                var builtWindows: [SettingsTestHostWindow] = []
-                let presenter = SettingsWindowPresenter(windowFactory: { _ in
-                    let window = makePlainFactoryWindow()
-                    window.refusesToBecomeVisible = true
-                    builtWindows.append(window)
-                    return window
-                })
-
-                guard case .failed = presenter.show() else {
-                    Issue.record("expected .failed when no window becomes visible")
-                    return
-                }
-
-                // Activation and key ordering are post-verification steps: a
-                // presentation that never became visible must not have keyed
-                // any window (the app would otherwise activate and steal
-                // focus while showing nothing).
-                #expect(!builtWindows.isEmpty)
-                #expect(builtWindows.allSatisfy { $0.makeKeyAndOrderFrontCallCount == 0 })
-            }
-        }
-
-        // MARK: - Re-entrant teardown recovery
-
-        @Test func reentrantReopenDuringTeardownAdoptsReplacementWindow() async {
-            await withCleanSettingsWindows {
-                var buildCount = 0
-                let presenter = SettingsWindowPresenter(windowFactory: { _ in
-                    buildCount += 1
-                    let window = makePlainFactoryWindow()
-                    // Only the first window refuses to present, forcing a
-                    // demolish whose close re-enters show() via the observer.
-                    window.refusesToBecomeVisible = buildCount == 1
-                    return window
-                })
-                let reopener = ReopenOnSettingsTestWindowClose {
-                    _ = presenter.show()
-                }
-
-                let result = presenter.show()
-                reopener.stopObserving()
-
-                // The outer retry must adopt the window the re-entrant show
-                // created, not build a duplicate next to it.
-                #expect(result == .presented)
-                #expect(buildCount == 2)
-                let visibleCount = NSApp.windows.filter {
-                    $0.identifier?.rawValue == SettingsWindowPresenter.windowIdentifier && $0.isVisible
-                }.count
-                #expect(visibleCount == 1)
-            }
-        }
-
-        @Test func pathologicalReopenOnCloseFailsLoudlyInsteadOfRecursing() async {
-            await withCleanSettingsWindows {
-                var buildCount = 0
-                let presenter = SettingsWindowPresenter(windowFactory: { _ in
-                    buildCount += 1
-                    let window = makePlainFactoryWindow()
-                    window.refusesToBecomeVisible = true
-                    return window
-                })
-                let reopener = ReopenOnSettingsTestWindowClose {
-                    _ = presenter.show()
-                }
-
-                let result = presenter.show()
-                reopener.stopObserving()
-
-                // Every window refuses to present and every close re-enters
-                // show(): the depth bound must convert this into a loud failure
-                // with a bounded number of attempts, never a runaway recursion.
-                guard case .failed = result else {
-                    Issue.record("expected .failed, got \(result)")
-                    return
-                }
-                #expect(buildCount < 20)
-                let visibleCount = NSApp.windows.filter {
-                    $0.identifier?.rawValue == SettingsWindowPresenter.windowIdentifier && $0.isVisible
-                }.count
-                #expect(visibleCount == 0)
-            }
-        }
-
         // MARK: - Helpers
 
         private func visibleSettingsWindow() -> NSWindow? {
@@ -376,8 +191,9 @@ extension SettingsWindowSharedStateSuites {
     }
 }
 
+// Shared with `SettingsWindowPresentationContractTests` (same target).
 @MainActor
-private func makePlainFactoryWindow() -> SettingsTestHostWindow {
+func makePlainFactoryWindow() -> SettingsTestHostWindow {
     let window = SettingsTestHostWindow(
         contentRect: NSRect(x: 0, y: 0, width: 980, height: 680),
         styleMask: [.titled, .closable, .miniaturizable, .resizable],
@@ -390,7 +206,7 @@ private func makePlainFactoryWindow() -> SettingsTestHostWindow {
 }
 
 @MainActor
-private final class SettingsTestHostWindow: SettingsHostWindow {
+final class SettingsTestHostWindow: SettingsHostWindow {
     var refusesToBecomeVisible = false
     /// Simulates a window minimized to the Dock: `isMiniaturized` reports
     /// true and the window is not visible. `deminiaturize` clears the flag
@@ -452,34 +268,6 @@ private final class SettingsTestHostWindow: SettingsHostWindow {
             }
         }
         super.orderFrontRegardless()
-    }
-}
-
-/// Re-enters the given closure from any `SettingsTestHostWindow`'s willClose
-/// notification (the presenter's demolish closes windows synchronously).
-@MainActor
-private final class ReopenOnSettingsTestWindowClose: NSObject {
-    private let reopen: () -> Void
-
-    init(reopen: @escaping () -> Void) {
-        self.reopen = reopen
-        super.init()
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(windowWillClose(_:)),
-            name: NSWindow.willCloseNotification,
-            object: nil
-        )
-    }
-
-    func stopObserving() {
-        NotificationCenter.default.removeObserver(self)
-    }
-
-    @objc
-    private func windowWillClose(_ notification: Notification) {
-        guard notification.object is SettingsTestHostWindow else { return }
-        reopen()
     }
 }
 

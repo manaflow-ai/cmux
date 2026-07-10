@@ -1179,6 +1179,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		D37777030000000000000001 /* SettingsWindowGeometry.swift in Sources */ = {isa = PBXBuildFile; fileRef = D37777030000000000000002 /* SettingsWindowGeometry.swift */; };
 		D37777020000000000000001 /* SettingsWindowNavigationRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D37777020000000000000002 /* SettingsWindowNavigationRoutingTests.swift */; };
 		D37777010000000000000001 /* SettingsWindowOpenRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D37777010000000000000002 /* SettingsWindowOpenRegressionTests.swift */; };
+		D37777060000000000000001 /* SettingsWindowPresentationContractTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D37777060000000000000002 /* SettingsWindowPresentationContractTests.swift */; };
 		D36090010000000000000001 /* SettingsWindowPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36090010000000000000002 /* SettingsWindowPresenter.swift */; };
 		D36090010000000000000003 /* SettingsWindowPresenterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36090010000000000000004 /* SettingsWindowPresenterTests.swift */; };
 		D10000000000000000A0001E /* SettingsWorkspaceColorsBehaviorUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D10000000000000000A0001F /* SettingsWorkspaceColorsBehaviorUITests.swift */; };
@@ -2817,6 +2818,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		D37777030000000000000002 /* SettingsWindowGeometry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/SettingsWindowGeometry.swift; sourceTree = "<group>"; };
 		D37777020000000000000002 /* SettingsWindowNavigationRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsWindowNavigationRoutingTests.swift; sourceTree = "<group>"; };
 		D37777010000000000000002 /* SettingsWindowOpenRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsWindowOpenRegressionTests.swift; sourceTree = "<group>"; };
+		D37777060000000000000002 /* SettingsWindowPresentationContractTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsWindowPresentationContractTests.swift; sourceTree = "<group>"; };
 		D36090010000000000000002 /* SettingsWindowPresenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/SettingsWindowPresenter.swift; sourceTree = "<group>"; };
 		D36090010000000000000004 /* SettingsWindowPresenterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsWindowPresenterTests.swift; sourceTree = "<group>"; };
 		D10000000000000000A0001F /* SettingsWorkspaceColorsBehaviorUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsWorkspaceColorsBehaviorUITests.swift; sourceTree = "<group>"; };
@@ -4730,6 +4732,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				D37777010000000000000002 /* SettingsWindowOpenRegressionTests.swift */,
 				D37777050000000000000002 /* AppDelegatePresentPreferencesWindowTests.swift */,
 				D37777020000000000000002 /* SettingsWindowNavigationRoutingTests.swift */,
+				D37777060000000000000002 /* SettingsWindowPresentationContractTests.swift */,
 				D36090010000000000000004 /* SettingsWindowPresenterTests.swift */,
 				D36090010000000000000006 /* CmuxMainWindowConstrainFrameTests.swift */,
 				D36090020000000000000006 /* CmuxMainWindowFullScreenCapabilityTests.swift */,
@@ -6918,6 +6921,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A50019B2 /* SettingsSearchIndexTests.swift in Sources */,
 				D37777020000000000000001 /* SettingsWindowNavigationRoutingTests.swift in Sources */,
 				D37777010000000000000001 /* SettingsWindowOpenRegressionTests.swift in Sources */,
+				D37777060000000000000001 /* SettingsWindowPresentationContractTests.swift in Sources */,
 				D36090010000000000000003 /* SettingsWindowPresenterTests.swift in Sources */,
 				F0ACC0DF0000000000000001 /* SharedLiveAgentIndexAgentLivenessTests.swift in Sources */,
 				C0F16A000000000000000001 /* ShellStartupMatrixTests.swift in Sources */,
