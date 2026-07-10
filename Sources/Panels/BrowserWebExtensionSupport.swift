@@ -378,8 +378,31 @@ final class BrowserWebExtensionSupport: NSObject, BrowserWebExtensionHosting {
 #endif
             return true
         }
+#if DEBUG
+        cmuxDebugLog(
+            "browser.webext.command unmatched loaded=\(loadedRecordsInOrder.count) " +
+            "keyCode=\(event.keyCode) mods=\(event.modifierFlags.rawValue)"
+        )
+#endif
         return false
     }
+
+#if DEBUG
+    /// Logs every keyboard command a just-loaded extension registered, so a
+    /// non-firing shortcut can be diagnosed from the debug log alone.
+    func logRegisteredCommands(for context: WKWebExtensionContext) {
+        let summary = context.commands
+            .map { command in
+                let key = command.activationKey ?? "nil"
+                let mods = command.modifierFlags.rawValue
+                return "\(command.id)=\(key)/\(mods)"
+            }
+            .joined(separator: " ")
+        cmuxDebugLog(
+            "browser.webext.commands name=\(context.webExtension.displayName ?? "?") \(summary)"
+        )
+    }
+#endif
 
     // MARK: - Popout windows
 

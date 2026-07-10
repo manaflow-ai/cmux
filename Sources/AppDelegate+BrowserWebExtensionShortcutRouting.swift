@@ -42,7 +42,13 @@ func cmuxPerformBrowserWebExtensionCommandKeyEquivalent(_ event: NSEvent) -> Boo
           appDelegate.shouldOfferBrowserWebExtensionCommand(event) else {
         return false
     }
-    return appDelegate.shortcutEventBrowserPanel(event)?.performWebExtensionCommand(for: event) == true
+    let panel = appDelegate.shortcutEventBrowserPanel(event)
+#if DEBUG
+    if panel == nil {
+        cmuxDebugLog("browser.webext.command noPanel keyCode=\(event.keyCode)")
+    }
+#endif
+    return panel?.performWebExtensionCommand(for: event) == true
 }
 
 extension AppDelegate {

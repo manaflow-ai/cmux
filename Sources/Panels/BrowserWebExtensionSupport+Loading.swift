@@ -231,6 +231,7 @@ extension BrowserWebExtensionSupport {
                 "browser.webext.loaded name=\(webExtension.displayName ?? "?") " +
                 "version=\(webExtension.displayVersion ?? "?") url=\(entry.path)"
             )
+            logRegisteredCommands(for: context)
 #endif
         } catch {
             guard canApplyWebExtensionLoad(generation: generation) else { return }
