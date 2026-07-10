@@ -272,6 +272,36 @@ def speculative_merge_tree(repo_root: pathlib.Path, merge_ref: str, merge_head: 
     return None
 
 
+def commit_subject(repo_root: pathlib.Path, ref: str) -> str:
+    result = subprocess.run(
+        ["git", "-C", str(repo_root), "log", "-1", "--format=%s", ref],
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    if result.returncode != 0:
+        return ""
+    return result.stdout.strip()
+
+
+def range_has_revert_commit(repo_root: pathlib.Path, base_ref: str | None, head_ref: str) -> bool:
+    if base_ref is None:
+        range_expr = head_ref
+    else:
+        range_expr = f"{base_ref}..{head_ref}"
+    result = subprocess.run(
+        ["git", "-C", str(repo_root), "log", "--format=%s", range_expr],
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    if result.returncode != 0:
+        return False
+    return any(line.startswith("Revert ") for line in result.stdout.splitlines())
+
+
 def compare_budget(
     actual: FileLengthBudget,
     allowed: FileLengthBudget,
@@ -282,6 +312,7 @@ def compare_budget(
     base_ref: str | None,
     incidental_growth: int,
     hard_cap: int,
+    allow_revert_growth: bool,
 ) -> int:
     failures: list[tuple[str, int, int | None, str]] = []
     incidental: list[tuple[str, int, int, int]] = []
@@ -301,10 +332,10 @@ def compare_budget(
                 continue
 
             base_growth = actual_count - base_count if base_count is not None else None
-            if actual_count > hard_cap and base_growth is not None and base_growth > 0:
+            if not allow_revert_growth and actual_count > hard_cap and base_growth is not None and base_growth > 0:
                 failures.append((rel_path, actual_count, allowed_count, f"hard cap {hard_cap}"))
                 continue
-            if base_growth is not None and base_growth > incidental_growth:
+            if not allow_revert_growth and base_growth is not None and base_growth > incidental_growth:
                 failures.append(
                     (
                         rel_path,
@@ -516,6 +547,7 @@ def main(argv: list[str]) -> int:
             args.merge_ref,
             args.incidental_growth,
             args.hard_cap,
+            range_has_revert_commit(repo_root, args.merge_ref, args.merge_head),
         )
 
     file_lengths = collect_file_lengths(repo_root, tuple(args.roots))
@@ -557,6 +589,7 @@ def main(argv: list[str]) -> int:
         args.base_ref,
         args.incidental_growth,
         args.hard_cap,
+        range_has_revert_commit(repo_root, args.base_ref, "HEAD"),
     )
 
 

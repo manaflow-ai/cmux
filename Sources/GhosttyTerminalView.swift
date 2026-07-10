@@ -1211,12 +1211,12 @@ class GhosttyApp {
         #endif
         loadCJKFontFallbackIfNeeded(config)
         let renderingModeChanged = setUsesHostLayerBackground(
-            true,
+            Self.usesHostLayerBackground(for: config),
             source: "loadDefaultConfigFilesWithLegacyFallback"
         )
-        // Let cmux own the window-level backdrop once, while Ghostty keeps
-        // rendering text, cell backgrounds, and background images. This avoids
-        // separate translucent fills for terminal and chrome surfaces.
+        // Let cmux own the window-level backdrop except when custom shader intent
+        // requires a complete renderer-owned input. This keeps the host backdrop
+        // and Ghostty background mutually exclusive for translucent surfaces.
         loadInlineGhosttyConfig(
             "macos-background-from-layer = true",
             into: config,
