@@ -550,6 +550,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         var cmuxConfigStore: CmuxConfigStore?
         var closeObserver: WindowCloseObserver?
         weak var window: NSWindow?
+        let workspaceActionSaveCaptureCoordinator = WorkspaceActionSaveCaptureCoordinator()
         /// Per-window Dock owned by this context and torn down with it.
         var windowDock: DockSplitStore?
 

@@ -3,7 +3,7 @@ import Foundation
 
 /// Snapshot of a live workspace as a reusable `type: "workspace"` config
 /// action (saved as a workspace layout from the new-workspace menu).
-struct WorkspaceConfigActionSnapshot {
+nonisolated struct WorkspaceConfigActionSnapshot: Sendable {
     var definition: CmuxWorkspaceDefinition
     /// Panels with no representation in the layout schema (file previews,
     /// markdown viewers, custom sidebars, …) that were left out.
@@ -79,38 +79,26 @@ struct WorkspaceConfigActionSnapshot {
 }
 
 extension Workspace {
-    func configCaptureTTYDeviceByPanelID() -> [UUID: Int64] {
+    /// Captures every layout/UI value synchronously on the main actor. The
+    /// returned value can safely cross an await while foreground commands are
+    /// discovered without rereading live workspace state afterward.
+    func captureConfigActionState() -> WorkspaceConfigActionCapture {
         var ttyDeviceByPanelID: [UUID: Int64] = [:]
         for (panelID, ttyName) in surfaceTTYNames {
             if let device = CmuxTopProcessSnapshot.deviceIdentifier(forTTYName: ttyName) {
                 ttyDeviceByPanelID[panelID] = device
             }
         }
-        return ttyDeviceByPanelID
-    }
-
-    /// Captures the live split tree, per-panel directories, browser URLs, and
-    /// detected agent CLIs into a `CmuxWorkspaceDefinition` that
-    /// `applyCustomLayout` can recreate.
-    func captureConfigActionSnapshot(
-        ttyDeviceByPanelID: [UUID: Int64],
-        liveCommandsByTTY: [Int64: String]
-    ) -> WorkspaceConfigActionSnapshot {
         var skippedPanelCount = 0
+        var nextSurfaceOrdinal = 0
+        var terminalCommandTargets: [WorkspaceConfigActionCapture.TerminalCommandTarget] = []
         let workspaceCwd = Self.configCaptureAbbreviatedPath(currentDirectory)
-        // Panel identity comes from the workspace's own tty registry; the
-        // foreground scan is joined on tty device ids, never on the child
-        // process's spoofable CMUX_* environment.
-        var liveCommands: [UUID: String] = [:]
-        for (panelId, device) in ttyDeviceByPanelID {
-            if let command = liveCommandsByTTY[device] {
-                liveCommands[panelId] = command
-            }
-        }
         let layout = configCaptureLayoutNode(
             from: bonsplitController.treeSnapshot(),
             workspaceCwd: workspaceCwd,
-            liveCommands: liveCommands,
+            ttyDeviceByPanelID: ttyDeviceByPanelID,
+            nextSurfaceOrdinal: &nextSurfaceOrdinal,
+            terminalCommandTargets: &terminalCommandTargets,
             skippedPanelCount: &skippedPanelCount
         )
 
@@ -121,17 +109,26 @@ extension Workspace {
         // Deliberately no env: workspaceEnvironment values can be secrets and
         // the dialog can only disclose keys. Users add env by hand via
         // Customize Workspace Layouts when they want it persisted.
-        definition.layout = Self.configCaptureSimplifiedLayout(layout)
-        return WorkspaceConfigActionSnapshot(
-            definition: definition,
-            skippedPanelCount: skippedPanelCount
+        // Simplification happens after command enrichment so a plain terminal
+        // with a live foreground command cannot be discarded prematurely.
+        definition.layout = layout
+        return WorkspaceConfigActionCapture(
+            snapshot: WorkspaceConfigActionSnapshot(
+                definition: definition,
+                skippedPanelCount: skippedPanelCount
+            ),
+            initialName: customTitle
+                ?? URL(fileURLWithPath: currentDirectory).lastPathComponent,
+            terminalCommandTargets: terminalCommandTargets
         )
     }
 
     private func configCaptureLayoutNode(
         from node: ExternalTreeNode,
         workspaceCwd: String,
-        liveCommands: [UUID: String],
+        ttyDeviceByPanelID: [UUID: Int64],
+        nextSurfaceOrdinal: inout Int,
+        terminalCommandTargets: inout [WorkspaceConfigActionCapture.TerminalCommandTarget],
         skippedPanelCount: inout Int
     ) -> CmuxLayoutNode? {
         switch node {
@@ -139,13 +136,17 @@ extension Workspace {
             let first = configCaptureLayoutNode(
                 from: split.first,
                 workspaceCwd: workspaceCwd,
-                liveCommands: liveCommands,
+                ttyDeviceByPanelID: ttyDeviceByPanelID,
+                nextSurfaceOrdinal: &nextSurfaceOrdinal,
+                terminalCommandTargets: &terminalCommandTargets,
                 skippedPanelCount: &skippedPanelCount
             )
             let second = configCaptureLayoutNode(
                 from: split.second,
                 workspaceCwd: workspaceCwd,
-                liveCommands: liveCommands,
+                ttyDeviceByPanelID: ttyDeviceByPanelID,
+                nextSurfaceOrdinal: &nextSurfaceOrdinal,
+                terminalCommandTargets: &terminalCommandTargets,
                 skippedPanelCount: &skippedPanelCount
             )
             switch (first, second) {
@@ -166,14 +167,19 @@ extension Workspace {
             guard let paneId = bonsplitController.allPaneIds.first(where: { $0.id.uuidString == pane.id }) else {
                 return nil
             }
-            let surfaces = bonsplitController.tabs(inPane: paneId).compactMap { tab -> CmuxSurfaceDefinition? in
-                guard let panelId = panelIdFromSurfaceId(tab.id) else { return nil }
-                return configCaptureSurfaceDefinition(
+            var surfaces: [CmuxSurfaceDefinition] = []
+            for tab in bonsplitController.tabs(inPane: paneId) {
+                guard let panelId = panelIdFromSurfaceId(tab.id),
+                      let surface = configCaptureSurfaceDefinition(
                     panelId: panelId,
                     workspaceCwd: workspaceCwd,
-                    liveCommands: liveCommands,
+                    surfaceOrdinal: nextSurfaceOrdinal,
+                    ttyDeviceByPanelID: ttyDeviceByPanelID,
+                    terminalCommandTargets: &terminalCommandTargets,
                     skippedPanelCount: &skippedPanelCount
-                )
+                ) else { continue }
+                surfaces.append(surface)
+                nextSurfaceOrdinal += 1
             }
             guard !surfaces.isEmpty else { return nil }
             return .pane(CmuxPaneDefinition(surfaces: surfaces))
@@ -183,7 +189,9 @@ extension Workspace {
     private func configCaptureSurfaceDefinition(
         panelId: UUID,
         workspaceCwd: String,
-        liveCommands: [UUID: String],
+        surfaceOrdinal: Int,
+        ttyDeviceByPanelID: [UUID: Int64],
+        terminalCommandTargets: inout [WorkspaceConfigActionCapture.TerminalCommandTarget],
         skippedPanelCount: inout Int
     ) -> CmuxSurfaceDefinition? {
         let customName = panelCustomTitles[panelId]
@@ -193,13 +201,13 @@ extension Workspace {
             var surface = CmuxSurfaceDefinition(type: .terminal)
             surface.name = customName
             surface.cwd = configCaptureSurfaceCwd(panelDirectories[panelId], workspaceCwd: workspaceCwd)
-            if let liveCommand = liveCommands[panelId] {
-                // What the terminal is actually running right now (foreground
-                // argv, agent resume flags stripped so relaunch is fresh).
-                // No guessed fallback: when argv can't be read the pane saves
-                // as a plain terminal, visibly absent from the save dialog's
-                // command disclosure.
-                surface.command = liveCommand
+            // Panel identity comes from the workspace-owned tty registry,
+            // never from a child process's spoofable CMUX_* environment.
+            if let ttyDevice = ttyDeviceByPanelID[panelId] {
+                terminalCommandTargets.append(.init(
+                    surfaceOrdinal: surfaceOrdinal,
+                    ttyDevice: ttyDevice
+                ))
             }
             surface.focus = focus
             return surface
@@ -238,16 +246,4 @@ extension Workspace {
         (path as NSString).abbreviatingWithTildeInPath
     }
 
-    /// A single plain terminal (no command, name, or divergent cwd) carries no
-    /// information beyond the workspace itself — drop the layout entirely.
-    private static func configCaptureSimplifiedLayout(_ layout: CmuxLayoutNode?) -> CmuxLayoutNode? {
-        guard case .pane(let pane)? = layout, pane.surfaces.count == 1 else { return layout }
-        let surface = pane.surfaces[0]
-        let isPlainTerminal = surface.type == .terminal
-            && surface.command == nil
-            && surface.name == nil
-            && surface.cwd == nil
-            && surface.url == nil
-        return isPlainTerminal ? nil : layout
-    }
 }
