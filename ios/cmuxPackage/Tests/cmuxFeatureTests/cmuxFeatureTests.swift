@@ -633,9 +633,9 @@ final class TerminalOutputCollector {
 }
 
 @MainActor
-@Test func manualHostPairingUsesNetworkRouteForTailscaleMagicDNSHost() async throws {
+@Test func manualHostPairingRequiresApprovalForTailscaleMagicDNSHost() async throws {
     let attachRoute = try hostPortRoute(
-        kind: .tailscale,
+        kind: .manualHost,
         host: "work-mac.tailnet.ts.net",
         port: CmxMobileDefaults.defaultHostPort
     )
@@ -644,23 +644,34 @@ final class TerminalOutputCollector {
         try rpcWorkspaceListFrame(workspaceID: "live-workspace", title: "Live Workspace"),
     ])
     let runtime = testRuntime(
-        supportedRouteKinds: [.tailscale],
+        supportedRouteKinds: [.manualHost],
         transportFactory: ScriptedTransportFactory(responses: responses)
     )
     let store = CMUXMobileShellStore.preview(runtime: runtime)
 
     store.signIn()
-    await store.connectManualHost(name: "Work Mac", host: "work-mac.tailnet.ts.net", port: CmxMobileDefaults.defaultHostPort)
+    let firstResult = await store.connectManualHost(
+        name: "Work Mac",
+        host: "work-mac.tailnet.ts.net",
+        port: CmxMobileDefaults.defaultHostPort
+    )
+
+    #expect(firstResult == .needsUserApproval)
+    #expect(store.manualHostTrustWarning?.endpoint == "work-mac.tailnet.ts.net:58465")
+    #expect(try await responses.sentRequests().isEmpty)
+
+    let approvedResult = await store.acceptManualHostTrustWarning()
 
     let route = try #require(store.activeRoute)
+    #expect(approvedResult == .connected)
     #expect(store.phase == .workspaces)
     #expect(store.connectedHostName == "Work Mac")
-    #expect(route.kind == .tailscale)
+    #expect(route.kind == .manualHost)
     if case let .hostPort(host, port) = route.endpoint {
         #expect(host == "work-mac.tailnet.ts.net")
         #expect(port == CmxMobileDefaults.defaultHostPort)
     } else {
-        Issue.record("manual Tailscale route should use host/port")
+        Issue.record("approved manual route should use host/port")
     }
 }
 
@@ -790,28 +801,40 @@ final class TerminalOutputCollector {
 }
 
 @MainActor
-@Test func manualHostPairingProbesTailscaleHostForAttachTicketBeforeStackAuthFallback() async throws {
-    // A manually-entered Tailscale host is probed for a real attach ticket
-    // first; an older Mac that does not implement the probe method falls back
-    // to a synthetic ticket and Stack-authenticated workspace.list.
+@Test func manualHostPairingRequiresApprovalBeforeAttachTicketProbe() async throws {
+    // Host text alone does not prove that the connection traverses Tailscale.
+    // After explicit approval, an older Mac that does not implement the ticket
+    // probe falls back to a synthetic ticket and Stack-authenticated workspace.list.
     let responses = ScriptedTransportResponses([
         try rpcErrorFrame(code: "method_not_found", message: "unknown method"),
         try rpcWorkspaceListFrame(workspaceID: "manual-workspace", title: "Manual Workspace"),
     ])
     let runtime = testRuntime(
-        supportedRouteKinds: [.tailscale],
+        supportedRouteKinds: [.manualHost],
         transportFactory: ScriptedTransportFactory(responses: responses),
         stackAccessToken: "stack-token-for-fallback"
     )
     let store = CMUXMobileShellStore.preview(runtime: runtime)
 
     store.signIn()
-    await store.connectManualHost(name: "Work Mac", host: "100.71.210.41", port: 15432)
+    let firstResult = await store.connectManualHost(
+        name: "Work Mac",
+        host: "100.71.210.41",
+        port: 15432
+    )
 
+    #expect(firstResult == .needsUserApproval)
+    #expect(store.manualHostTrustWarning?.endpoint == "100.71.210.41:15432")
+    #expect(try await responses.sentRequests().isEmpty)
+
+    let approvedResult = await store.acceptManualHostTrustWarning()
+
+    #expect(approvedResult == .connected)
     #expect(store.phase == .workspaces)
     #expect(store.connectionState == .connected)
     #expect(store.connectionError == nil)
     #expect(store.connectedHostName == "Work Mac")
+    #expect(store.activeRoute?.kind == .manualHost)
     let requests = try await responses.sentRequests()
     #expect(requests.map(\.method) == ["mobile.attach_ticket.create", "workspace.list"])
     #expect(requests.allSatisfy { $0.stackAccessToken == "stack-token-for-fallback" })
@@ -819,23 +842,24 @@ final class TerminalOutputCollector {
 }
 
 @MainActor
-@Test func manualHostPairingTimesOutWrongHostWithoutStayingConnected() async throws {
-    let route = try CmxAttachRoute(
-        id: "tailscale",
-        kind: .tailscale,
-        endpoint: .hostPort(host: "work-mac.tailnet.ts.net", port: CmxMobileDefaults.defaultHostPort)
-    )
+@Test func approvedManualHostPairingTimesOutWrongHostWithoutStayingConnected() async throws {
     let runtime = testRuntime(
-        supportedRouteKinds: [.tailscale],
+        supportedRouteKinds: [.manualHost],
         transportFactory: HangingTransportFactory(),
         pairingRequestTimeoutNanoseconds: 1_000_000
     )
     let store = CMUXMobileShellStore.preview(runtime: runtime)
 
     store.signIn()
-    await store.connectManualHost(name: "Slow Mac", host: "work-mac.tailnet.ts.net", port: CmxMobileDefaults.defaultHostPort)
+    let firstResult = await store.connectManualHost(
+        name: "Slow Mac",
+        host: "work-mac.tailnet.ts.net",
+        port: CmxMobileDefaults.defaultHostPort
+    )
+    let approvedResult = await store.acceptManualHostTrustWarning()
 
-    #expect(route.kind == .tailscale)
+    #expect(firstResult == .needsUserApproval)
+    #expect(approvedResult == .failed)
     #expect(store.phase == .pairing)
     #expect(store.connectionState == .disconnected)
     // A handshake timeout to a Tailscale host now points the user at the real
@@ -853,17 +877,31 @@ final class TerminalOutputCollector {
     // the per-route timeouts into the opaque ~60s wait the reporter saw.
     let dials = TransportDialRecorder()
     let runtime = testRuntime(
-        supportedRouteKinds: [.tailscale],
+        supportedRouteKinds: [.manualHost],
         transportFactory: RecordingNeverConnectTransportFactory(dials: dials)
     )
     let store = CMUXMobileShellStore(
         runtime: runtime,
-        reachability: OfflineReachability()
+        identityProvider: TestIdentityProvider(
+            currentUserIDValue: "feature-test-user",
+            currentUserEmailValue: nil
+        ),
+        reachability: OfflineReachability(),
+        manualHostTrustStore: InMemoryMobileManualHostTrustStore()
     )
 
     store.signIn()
-    await store.connectManualHost(name: "Work Mac", host: "work-mac.tailnet.ts.net", port: CmxMobileDefaults.defaultHostPort)
+    let firstResult = await store.connectManualHost(
+        name: "Work Mac",
+        host: "work-mac.tailnet.ts.net",
+        port: CmxMobileDefaults.defaultHostPort
+    )
+    #expect(firstResult == .needsUserApproval)
+    #expect(dials.count == 0)
 
+    let approvedResult = await store.acceptManualHostTrustWarning()
+
+    #expect(approvedResult == .failed)
     #expect(store.phase == .pairing)
     #expect(store.connectionState == .disconnected)
     // Non-empty, offline-specific headline: the spinner can no longer revert
@@ -1022,6 +1060,10 @@ final class TerminalOutputCollector {
     )
     let store = CMUXMobileShellStore(
         runtime: runtime,
+        identityProvider: TestIdentityProvider(
+            currentUserIDValue: "feature-test-user",
+            currentUserEmailValue: nil
+        ),
         reachability: OfflineReachability()
     )
 
@@ -1965,7 +2007,7 @@ final class TerminalOutputCollector {
 
     #expect(firstResult == .needsUserApproval)
     #expect(secondResult == .failed)
-    #expect(staleApprovalResult == .failed)
+    #expect(staleApprovalResult == .superseded)
     #expect(store.manualHostTrustWarning == nil)
     #expect(store.connectionState == .disconnected)
     #expect(try await responses.sentRequests().isEmpty)
@@ -1992,7 +2034,7 @@ final class TerminalOutputCollector {
     let staleApprovalResult = await store.acceptManualHostTrustWarning()
 
     #expect(firstResult == .needsUserApproval)
-    #expect(staleApprovalResult == .failed)
+    #expect(staleApprovalResult == .superseded)
     #expect(store.manualHostTrustWarning == nil)
     #expect(store.connectionState == .disconnected)
     #expect(try await responses.sentRequests().isEmpty)
@@ -2019,7 +2061,7 @@ final class TerminalOutputCollector {
     let staleApprovalResult = await store.acceptManualHostTrustWarning()
 
     #expect(firstResult == .needsUserApproval)
-    #expect(staleApprovalResult == .failed)
+    #expect(staleApprovalResult == .superseded)
     #expect(store.manualHostTrustWarning == nil)
     #expect(try await responses.sentRequests().isEmpty)
 }
@@ -2105,9 +2147,9 @@ final class TerminalOutputCollector {
 }
 
 @MainActor
-@Test func manualHostPairingUsesNetworkRouteForTailscaleIP() async throws {
+@Test func manualHostPairingRequiresApprovalForTailscaleIP() async throws {
     let attachRoute = try hostPortRoute(
-        kind: .tailscale,
+        kind: .manualHost,
         host: "100.71.210.41",
         port: CmxMobileDefaults.defaultHostPort
     )
@@ -2116,26 +2158,37 @@ final class TerminalOutputCollector {
         try rpcWorkspaceListFrame(workspaceID: "tailscale-ip-workspace", title: "Tailscale IP Workspace"),
     ])
     let runtime = testRuntime(
-        supportedRouteKinds: [.tailscale],
+        supportedRouteKinds: [.manualHost],
         transportFactory: ScriptedTransportFactory(responses: responses),
         stackAccessToken: "stack-token-for-tailscale-ip"
     )
     let store = CMUXMobileShellStore.preview(runtime: runtime)
 
     store.signIn()
-    await store.connectManualHost(name: "Work Mac", host: "100.71.210.41", port: CmxMobileDefaults.defaultHostPort)
+    let firstResult = await store.connectManualHost(
+        name: "Work Mac",
+        host: "100.71.210.41",
+        port: CmxMobileDefaults.defaultHostPort
+    )
+
+    #expect(firstResult == .needsUserApproval)
+    #expect(store.manualHostTrustWarning?.endpoint == "100.71.210.41:58465")
+    #expect(try await responses.sentRequests().isEmpty)
+
+    let approvedResult = await store.acceptManualHostTrustWarning()
 
     let route = try #require(store.activeRoute)
+    #expect(approvedResult == .connected)
     #expect(store.phase == .workspaces)
     #expect(store.connectionState == .connected)
     #expect(store.connectionError == nil)
     #expect(store.connectedHostName == "Work Mac")
-    #expect(route.kind == .tailscale)
+    #expect(route.kind == .manualHost)
     if case let .hostPort(host, port) = route.endpoint {
         #expect(host == "100.71.210.41")
         #expect(port == CmxMobileDefaults.defaultHostPort)
     } else {
-        Issue.record("manual Tailscale IP route should use host/port")
+        Issue.record("approved manual IP route should use host/port")
     }
     let attachTicketRequest = try #require(try await responses.sentRequests().first { $0.method == "mobile.attach_ticket.create" })
     #expect(attachTicketRequest.stackAccessToken == "stack-token-for-tailscale-ip")

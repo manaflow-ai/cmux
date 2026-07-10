@@ -25,6 +25,7 @@ public struct MobileShellPreviewFactory {
         CMUXMobileShellStore(
             runtime: runtime,
             workspaces: PreviewMobileHost.workspaces,
+            identityProvider: MobileShellPreviewIdentityProvider(),
             deliveredNotificationClearer: NoopDeliveredNotificationClearer(),
             manualHostTrustStore: manualHostTrustStore
         )
