@@ -2975,6 +2975,48 @@ mod tests {
         mux.close_surface(surface.id);
     }
 
+    #[test]
+    fn plugin_sidebar_registers_resize_drag_hit() {
+        let mux = Mux::new(
+            "plugin-sidebar-drag-test",
+            SurfaceOptions {
+                command: Some(vec![
+                    "/bin/sh".to_string(),
+                    "-c".to_string(),
+                    "sleep 30".to_string(),
+                ]),
+                ..Default::default()
+            },
+        );
+        let surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.sidebar_width = 12;
+        app.config.sidebar.plugin = Some(cmux_tui_core::SidebarPluginOptions {
+            command: vec!["/bin/sh".to_string(), "-c".to_string(), "sleep 30".to_string()],
+            cwd: None,
+        });
+        app.tree = notify_tree(surface.id, false);
+
+        let mut terminal = Terminal::new(TestBackend::new(40, 12)).unwrap();
+        terminal
+            .draw(|frame| {
+                crate::ui::draw(&mut app, frame);
+            })
+            .unwrap();
+
+        // Regression: with a plugin sidebar the divider column must still be a
+        // drag handle, exactly like the built-in sidebar.
+        let divider_x = app.sidebar_width - 1;
+        assert!(
+            app.hits.iter().any(|(rect, hit)| matches!(hit, super::Hit::SidebarResize)
+                && rect.x == divider_x
+                && rect.width == 1),
+            "plugin sidebar must register the SidebarResize hit on the divider column"
+        );
+
+        mux.close_surface(surface.id);
+    }
+
     fn test_app(session: Session) -> App {
         App {
             session,
