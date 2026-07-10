@@ -1,6 +1,17 @@
 import Foundation
 
 extension Workspace {
+    func allowsAgentContinuation(forPanelId panelId: UUID) -> Bool {
+        restoredAgentResumeStatesByPanelId[panelId] != .completedAgentExit
+    }
+
+    func restoredAgentSnapshotForContinuation(
+        panelId: UUID
+    ) -> SessionRestorableAgentSnapshot? {
+        guard allowsAgentContinuation(forPanelId: panelId) else { return nil }
+        return restoredAgentSnapshotsByPanelId[panelId]
+    }
+
     func seedSessionRestoredAgentState(
         panelId: UUID,
         restorableAgent: SessionRestorableAgentSnapshot?,

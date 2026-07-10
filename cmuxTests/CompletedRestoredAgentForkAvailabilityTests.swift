@@ -43,7 +43,8 @@ struct CompletedRestoredAgentForkAvailabilityTests {
                 workspaceId: workspace.id,
                 panelId: panel.id,
                 supportedPanelKeys: [panelKey],
-                fallbackSnapshot: snapshot
+                fallbackSnapshot: workspace.restoredAgentSnapshotForContinuation(panelId: panel.id),
+                allowsAgentContinuation: workspace.allowsAgentContinuation(forPanelId: panel.id)
             )
         )
         #expect(
@@ -56,8 +57,9 @@ struct CompletedRestoredAgentForkAvailabilityTests {
                 snapshotFingerprintsByPanelKey: [
                     panelKey: ContentView.commandPaletteForkSnapshotFingerprint(snapshot),
                 ],
-                fallbackSnapshot: snapshot,
-                cachedSnapshot: snapshot
+                fallbackSnapshot: workspace.restoredAgentSnapshotForContinuation(panelId: panel.id),
+                cachedSnapshot: snapshot,
+                allowsAgentContinuation: workspace.allowsAgentContinuation(forPanelId: panel.id)
             ) == nil
         )
     }
