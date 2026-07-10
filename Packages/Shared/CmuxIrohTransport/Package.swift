@@ -14,9 +14,13 @@ let package = Package(
             targets: ["CmuxIrohTransport"]
         ),
     ],
+    dependencies: [
+        .package(path: "../CMUXMobileCore"),
+    ],
     targets: [
         .target(
             name: "CmuxIrohTransport",
+            dependencies: ["CMUXMobileCore"],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
                 .enableUpcomingFeature("ExistentialAny"),
@@ -25,7 +29,7 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxIrohTransportTests",
-            dependencies: ["CmuxIrohTransport"],
+            dependencies: ["CmuxIrohTransport", "CMUXMobileCore"],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
                 .enableUpcomingFeature("ExistentialAny"),

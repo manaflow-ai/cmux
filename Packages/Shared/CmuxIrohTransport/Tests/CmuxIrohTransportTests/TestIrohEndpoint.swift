@@ -1,0 +1,70 @@
+import CMUXMobileCore
+import Foundation
+@testable import CmuxIrohTransport
+
+actor TestIrohEndpoint: CmxIrohEndpoint {
+    private let peerIdentity: CmxIrohPeerIdentity
+    private let healthStream: AsyncStream<CmxIrohEndpointHealthEvent>
+    private let healthContinuation: AsyncStream<CmxIrohEndpointHealthEvent>.Continuation
+    private var closeCallCount = 0
+    private var relayUpdates: [[CmxIrohRelayConfiguration]] = []
+    private var relayUpdateShouldFail = false
+
+    init(identity: CmxIrohPeerIdentity) {
+        peerIdentity = identity
+        let health = AsyncStream<CmxIrohEndpointHealthEvent>.makeStream()
+        healthStream = health.stream
+        healthContinuation = health.continuation
+    }
+
+    func identity() -> CmxIrohPeerIdentity {
+        peerIdentity
+    }
+
+    func address() -> CmxIrohEndpointAddress {
+        CmxIrohEndpointAddress(identity: peerIdentity, pathHints: [])
+    }
+
+    func connect(
+        to _: CmxIrohEndpointAddress,
+        alpn _: Data
+    ) async throws -> any CmxIrohConnection {
+        throw TestIrohTransportError.unsupported
+    }
+
+    func accept() async throws -> (any CmxIrohConnection)? {
+        nil
+    }
+
+    func replaceRelays(_ relays: [CmxIrohRelayConfiguration]) throws {
+        if relayUpdateShouldFail {
+            throw TestIrohTransportError.relayUpdateFailed
+        }
+        relayUpdates.append(relays)
+    }
+
+    func healthEvents() -> AsyncStream<CmxIrohEndpointHealthEvent> {
+        healthStream
+    }
+
+    func close() {
+        closeCallCount += 1
+        healthContinuation.finish()
+    }
+
+    func emit(_ event: CmxIrohEndpointHealthEvent) {
+        healthContinuation.yield(event)
+    }
+
+    func setRelayUpdateShouldFail(_ shouldFail: Bool) {
+        relayUpdateShouldFail = shouldFail
+    }
+
+    func observedCloseCallCount() -> Int {
+        closeCallCount
+    }
+
+    func observedRelayUpdates() -> [[CmxIrohRelayConfiguration]] {
+        relayUpdates
+    }
+}
