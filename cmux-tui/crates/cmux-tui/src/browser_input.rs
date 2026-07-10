@@ -98,7 +98,7 @@ struct BrowserEnqueueOrder {
 struct FailedBrowserResize {
     desired: (u16, u16),
     attempts: u8,
-    retry_after: Instant,
+    retry_after: Option<Instant>,
 }
 
 fn next_failed_browser_resize(
@@ -113,12 +113,14 @@ fn next_failed_browser_resize(
     FailedBrowserResize {
         desired,
         attempts,
-        retry_after: Instant::now() + Duration::from_secs(delay_seconds.min(30)),
+        retry_after: (attempts < 6)
+            .then(|| Instant::now() + Duration::from_secs(delay_seconds.min(30))),
     }
 }
 
 fn failed_browser_resize_blocks(failure: FailedBrowserResize, desired: (u16, u16)) -> bool {
-    failure.desired == desired && Instant::now() < failure.retry_after
+    failure.desired == desired
+        && failure.retry_after.is_none_or(|retry_after| Instant::now() < retry_after)
 }
 
 impl BrowserInputKind {
@@ -234,7 +236,11 @@ impl BrowserInputDispatcher {
     /// a failed resize does not depend on unrelated user input to run again.
     pub fn resize_retry_due(&self) -> bool {
         let now = Instant::now();
-        self.failed_resizes.lock().unwrap().values().any(|failure| failure.retry_after <= now)
+        self.failed_resizes
+            .lock()
+            .unwrap()
+            .values()
+            .any(|failure| failure.retry_after.is_some_and(|retry_after| retry_after <= now))
     }
 
     /// Expired failures for hidden surfaces are retired. A later layout pass
@@ -243,9 +249,12 @@ impl BrowserInputDispatcher {
         let now = Instant::now();
         let mut failures = self.failed_resizes.lock().unwrap();
         failures.retain(|surface, failure| {
-            failure.retry_after > now || visible_surfaces.contains(surface)
+            failure.retry_after.is_some_and(|retry_after| retry_after > now)
+                || visible_surfaces.contains(surface)
         });
-        failures.values().any(|failure| failure.retry_after <= now)
+        failures
+            .values()
+            .any(|failure| failure.retry_after.is_some_and(|retry_after| retry_after <= now))
     }
 
     pub fn forget_surface(&self, surface_id: SurfaceId) {
@@ -650,7 +659,7 @@ mod tests {
         assert!(failure_rx.try_recv().is_err());
 
         dispatcher.failed_resizes.lock().unwrap().get_mut(&7).unwrap().retry_after =
-            Instant::now() - Duration::from_millis(1);
+            Some(Instant::now() - Duration::from_millis(1));
         assert!(dispatcher.resize_retry_due());
         assert!(!dispatcher.visible_resize_retry_due(&HashSet::new()));
         assert!(!dispatcher.resize_retry_due());
@@ -659,7 +668,7 @@ mod tests {
             FailedBrowserResize {
                 desired: (100, 24),
                 attempts: 1,
-                retry_after: Instant::now() - Duration::from_millis(1),
+                retry_after: Some(Instant::now() - Duration::from_millis(1)),
             },
         );
         assert!(dispatcher.visible_resize_retry_due(&HashSet::from([7])));
@@ -692,7 +701,7 @@ mod tests {
             FailedBrowserResize {
                 desired: (80, 24),
                 attempts: 1,
-                retry_after: Instant::now() + Duration::from_secs(1),
+                retry_after: Some(Instant::now() + Duration::from_secs(1)),
             },
         );
 
@@ -706,6 +715,20 @@ mod tests {
         assert!(queued_event.lifetime.load(Ordering::Acquire));
         drop(queued_event);
         assert!(queued.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn persistent_resize_failure_requires_geometry_or_lifecycle_recovery() {
+        let mut failure = None;
+        for _ in 0..6 {
+            failure = Some(next_failed_browser_resize(failure, (100, 24)));
+        }
+        let failure = failure.unwrap();
+
+        assert_eq!(failure.attempts, 6);
+        assert!(failure.retry_after.is_none());
+        assert!(failed_browser_resize_blocks(failure, (100, 24)));
+        assert!(!failed_browser_resize_blocks(failure, (120, 24)));
     }
 
     #[test]

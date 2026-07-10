@@ -202,22 +202,38 @@ impl Session {
                         retry_after_ms: None,
                     };
                 };
-                let surface_id = data
+                let requested_surface_id = data
                     .get("surface")
                     .and_then(serde_json::Value::as_u64)
                     .map(|id| id as SurfaceId);
-                let surface = surface_id.and_then(|id| {
-                    remote
-                        .ensure_surface_with_kind(id, SurfaceKind::Pty, Some(size))
-                        .map(|surface| SurfaceHandle::Remote(surface, remote.clone()))
-                });
-                drop(surface);
+                let mut error =
+                    data.get("error").and_then(serde_json::Value::as_str).map(str::to_string);
+                let surface_id = match requested_surface_id {
+                    Some(id) => {
+                        match remote.try_ensure_surface_with_kind(id, SurfaceKind::Pty, Some(size))
+                        {
+                            Ok(Some(_)) => Some(id),
+                            Ok(None) => {
+                                error.get_or_insert_with(|| {
+                                    format!("sidebar plugin surface {id} is unavailable")
+                                });
+                                None
+                            }
+                            Err(attach_error) => {
+                                error.get_or_insert_with(|| {
+                                    format!(
+                                        "sidebar plugin surface {id} attach failed: {attach_error}"
+                                    )
+                                });
+                                None
+                            }
+                        }
+                    }
+                    None => None,
+                };
                 SidebarPluginSurface {
                     surface_id,
-                    error: data
-                        .get("error")
-                        .and_then(serde_json::Value::as_str)
-                        .map(str::to_string),
+                    error,
                     retry_after_ms: data.get("retry_after_ms").and_then(serde_json::Value::as_u64),
                 }
             }

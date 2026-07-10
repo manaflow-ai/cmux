@@ -76,6 +76,7 @@ enum MouseModeScan {
         parameter: u16,
         has_parameter: bool,
         has_mouse_mode: bool,
+        soft_reset: bool,
     },
 }
 
@@ -93,6 +94,10 @@ impl MouseModeScan {
                 Self::Escape => match byte {
                     b'[' => Self::csi(),
                     0x1b => Self::Escape,
+                    b'c' => {
+                        changed = true;
+                        Self::Ground
+                    }
                     _ => Self::Ground,
                 },
                 Self::Csi {
@@ -101,18 +106,33 @@ impl MouseModeScan {
                     mut parameter,
                     mut has_parameter,
                     mut has_mouse_mode,
+                    mut soft_reset,
                 } => match byte {
                     b'?' if at_start => {
                         private = true;
                         at_start = false;
-                        Self::Csi { private, at_start, parameter, has_parameter, has_mouse_mode }
+                        Self::Csi {
+                            private,
+                            at_start,
+                            parameter,
+                            has_parameter,
+                            has_mouse_mode,
+                            soft_reset,
+                        }
                     }
                     b'0'..=b'9' => {
                         at_start = false;
                         has_parameter = true;
                         parameter =
                             parameter.saturating_mul(10).saturating_add(u16::from(byte - b'0'));
-                        Self::Csi { private, at_start, parameter, has_parameter, has_mouse_mode }
+                        Self::Csi {
+                            private,
+                            at_start,
+                            parameter,
+                            has_parameter,
+                            has_mouse_mode,
+                            soft_reset,
+                        }
                     }
                     b';' => {
                         has_mouse_mode |=
@@ -120,12 +140,32 @@ impl MouseModeScan {
                         at_start = false;
                         parameter = 0;
                         has_parameter = false;
-                        Self::Csi { private, at_start, parameter, has_parameter, has_mouse_mode }
+                        Self::Csi {
+                            private,
+                            at_start,
+                            parameter,
+                            has_parameter,
+                            has_mouse_mode,
+                            soft_reset,
+                        }
+                    }
+                    b'!' => {
+                        soft_reset = true;
+                        Self::Csi {
+                            private,
+                            at_start,
+                            parameter,
+                            has_parameter,
+                            has_mouse_mode,
+                            soft_reset,
+                        }
                     }
                     0x40..=0x7e => {
                         has_mouse_mode |=
                             private && has_parameter && Self::is_mouse_mode(parameter);
-                        if has_mouse_mode && matches!(byte, b'h' | b'l') {
+                        if (has_mouse_mode && matches!(byte, b'h' | b'l' | b'r'))
+                            || (soft_reset && byte == b'p')
+                        {
                             changed = true;
                         }
                         Self::Ground
@@ -145,6 +185,7 @@ impl MouseModeScan {
             parameter: 0,
             has_parameter: false,
             has_mouse_mode: false,
+            soft_reset: false,
         }
     }
 
@@ -597,5 +638,8 @@ mod tests {
         assert!(scan.feed(b"00;1006h"));
         assert!(!scan.feed(b"ordinary output\x1b[31m"));
         assert!(scan.feed(b"\x9b?1002l"));
+        assert!(scan.feed(b"\x1b[?1000r"));
+        assert!(scan.feed(b"\x1b[!p"));
+        assert!(scan.feed(b"\x1bc"));
     }
 }

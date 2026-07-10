@@ -308,6 +308,27 @@ mod tests {
     }
 
     #[test]
+    fn restored_mouse_mode_resynchronizes_saved_precedence() {
+        let mut terminal = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+        terminal.vt_write(b"\x1b[?1000h\x1b[?1000s\x1b[?1002h\x1b[?1006h");
+        let mut encoder = MouseEncoder::new().unwrap();
+        encoder.sync_from_terminal(&terminal);
+        let mut event = input(MouseAction::Motion, Some(MouseButton::Left));
+        event.any_button_pressed = true;
+        let mut out = Vec::new();
+
+        encoder.encode(event, &mut out).unwrap();
+        assert!(!out.is_empty(), "button tracking must report drag motion");
+
+        terminal.vt_write(b"\x1b[?1000r");
+        encoder.sync_from_terminal(&terminal);
+        out.clear();
+        encoder.encode(event, &mut out).unwrap();
+
+        assert!(out.is_empty(), "restored normal tracking must suppress motion");
+    }
+
+    #[test]
     fn reset_allows_same_cell_motion_to_be_encoded_again() {
         let mut terminal = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
         terminal.vt_write(b"\x1b[?1003h\x1b[?1006h");

@@ -690,15 +690,6 @@ impl RemoteSession {
         self.try_ensure_surface_with_kind(id, kind, size)
     }
 
-    pub fn ensure_surface_with_kind(
-        self: &Arc<Self>,
-        id: SurfaceId,
-        kind: SurfaceKind,
-        size: Option<(u16, u16)>,
-    ) -> Option<Arc<RemoteSurface>> {
-        self.try_ensure_surface_with_kind(id, kind, size).ok().flatten()
-    }
-
     pub fn try_ensure_surface_with_kind(
         self: &Arc<Self>,
         id: SurfaceId,
