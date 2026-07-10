@@ -1051,13 +1051,13 @@ extension CMUXCLI {
         do {
             completedViewer = try completeDeferredDiffViewer(viewer)
         } catch {
-            navigateCompletedDiffViewerIfNeeded(
+            try navigateCompletedDiffViewerIfNeeded(
                 viewer.completeDeferred != nil, viewer.url.scheme, payload,
                 viewer.url, viewer.url, socketPath, explicitPassword
             )
             throw error
         }
-        navigateCompletedDiffViewerIfNeeded(
+        try navigateCompletedDiffViewerIfNeeded(
             viewer.completeDeferred != nil, viewer.url.scheme, payload,
             viewer.url, completedViewer.url, socketPath, explicitPassword
         )

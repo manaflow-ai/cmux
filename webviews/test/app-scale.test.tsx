@@ -1,7 +1,12 @@
 import { expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { renderToStaticMarkup } from "react-dom/server";
-import { FilesSidebarBackdrop, JumpSelect } from "../src/App";
+import {
+  closeFileSearch,
+  FilesSidebarBackdrop,
+  JumpSelect,
+  shouldDismissFileSearch,
+} from "../src/App";
 import type { DiffItem } from "../src/diff-stream";
 import { createDiffViewerLabelResolver } from "../src/labels";
 
@@ -69,4 +74,17 @@ test("mobile file drawer backdrop is an accessible close control", () => {
   control.props.onClick();
   expect(closed).toBe(true);
   expect(FilesSidebarBackdrop({ label, onClose: () => {}, open: false })).toBeNull();
+});
+
+test("mobile file drawer dismisses Escape without changing wide search behavior", () => {
+  expect(shouldDismissFileSearch("Escape", true)).toBe(true);
+  expect(shouldDismissFileSearch("Escape", false)).toBe(false);
+  expect(shouldDismissFileSearch("Enter", true)).toBe(false);
+
+  const dom = new JSDOM('<button id="jump-search-button">Jump</button>');
+  const actions: any[] = [];
+  closeFileSearch((action) => actions.push(action), dom.window.document);
+  expect(actions).toEqual([{ type: "set-file-search-open", open: false }]);
+  expect(dom.window.document.activeElement?.id).toBe("jump-search-button");
+  dom.window.close();
 });

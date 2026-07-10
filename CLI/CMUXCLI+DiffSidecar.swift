@@ -34,17 +34,18 @@ extension CMUXCLI {
         _ completedURL: URL,
         _ socketPath: String,
         _ explicitPassword: String?
-    ) {
-        guard wasDeferred,
-              scheme == "cmux-diff-viewer",
-              let surface = (payload["surface_id"] as? String) ?? (payload["surface_ref"] as? String),
-              let client = try? connectClient(
-                  socketPath: socketPath,
-                  explicitPassword: explicitPassword,
-                  launchIfNeeded: false
-              ) else { return }
+    ) throws {
+        guard wasDeferred, scheme == "cmux-diff-viewer" else { return }
+        guard let surface = (payload["surface_id"] as? String) ?? (payload["surface_ref"] as? String) else {
+            throw CLIError(message: "Deferred diff viewer response is missing its surface")
+        }
+        let client = try connectClient(
+            socketPath: socketPath,
+            explicitPassword: explicitPassword,
+            launchIfNeeded: false
+        )
         defer { client.close() }
-        _ = try? client.sendV2(
+        _ = try client.sendV2(
             method: "browser.navigate",
             params: [
                 "surface_id": surface,

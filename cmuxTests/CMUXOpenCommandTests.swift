@@ -1648,7 +1648,7 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertTrue(large.patch.contains("+new line 4999"), large.patch)
     }
 
-    func testDiffCommandOpensPendingViewerBeforeGitDiffCompletes() throws {
+    func testDiffCommandFailsWhenDeferredNavigationFailsAfterOpeningEarly() throws {
         let cliPath = try bundledCLIPath()
         let rootURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -1801,8 +1801,8 @@ final class CMUXOpenCommandTests: XCTestCase {
 
         let stdout = String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
         let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        XCTAssertEqual(process.terminationStatus, 0, stderr)
-        XCTAssertTrue(stdout.contains("OK surface=surface-id pane=pane-id"), stdout)
+        XCTAssertNotEqual(process.terminationStatus, 0, stderr)
+        XCTAssertFalse(stdout.contains("OK surface=surface-id pane=pane-id"), stdout)
         let openingURL = try XCTUnwrap(openedURLBox.get())
         let navigationParams = state.commands.compactMap { Self.v2Payload(from: $0) }.first { $0["method"] as? String == "browser.navigate" }?["params"] as? [String: Any]
         XCTAssertEqual(navigationParams?["expected_url"] as? String, openingURL)

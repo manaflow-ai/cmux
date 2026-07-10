@@ -1140,7 +1140,9 @@ function FilesSidebar({
             aria-label={state.fileSearchOpen ? label("hideFileSearch") : label("showFileSearch")}
             aria-pressed={state.fileSearchOpen}
             disabled={!state.treeSource}
-            onClick={() => dispatch({ type: "set-file-search-open", open: !state.fileSearchOpen })}
+            onClick={() => state.fileSearchOpen
+              ? closeFileSearch(dispatch)
+              : dispatch({ type: "set-file-search-open", open: true })}
           >
             <Icon name="search" />
           </button>
@@ -1636,10 +1638,14 @@ function useOptionsDismiss(optionsOpen: boolean, dispatch: React.Dispatch<AppAct
   }, [dispatch, optionsOpen]);
 }
 
-function closeFileSearch(dispatch: React.Dispatch<AppAction>) {
+export function closeFileSearch(dispatch: React.Dispatch<AppAction>, targetDocument: Document = document) {
   dispatch({ type: "set-file-search-open", open: false });
-  const trigger = document.getElementById("jump-search-button") ?? document.getElementById("jump-select");
+  const trigger = targetDocument.getElementById("jump-search-button") ?? targetDocument.getElementById("jump-select");
   trigger?.focus();
+}
+
+export function shouldDismissFileSearch(key: string, narrowViewport: boolean): boolean {
+  return key === "Escape" && narrowViewport;
 }
 
 function useFileSearchDismiss(fileSearchOpen: boolean, dispatch: React.Dispatch<AppAction>) {
@@ -1648,7 +1654,8 @@ function useFileSearchDismiss(fileSearchOpen: boolean, dispatch: React.Dispatch<
       return;
     }
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
+      if (shouldDismissFileSearch(event.key, window.matchMedia("(max-width: 520px)").matches)) {
+        event.preventDefault();
         closeFileSearch(dispatch);
       }
     };

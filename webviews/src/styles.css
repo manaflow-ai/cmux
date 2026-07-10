@@ -967,6 +967,10 @@ body[data-loading="false"]:not([data-status-only="true"]) #loading-layer {
     backdrop-filter: blur(2px);
     cursor: default;
   }
+  #app[data-file-search-open="true"] #files-sidebar-backdrop:focus-visible {
+    outline: 2px solid var(--cmux-diff-accent);
+    outline-offset: -2px;
+  }
   #app[data-file-search-open="true"] #files-sidebar {
     display: flex;
     position: absolute;
