@@ -146,7 +146,7 @@ actor BrowserWebExtensionDiscoveryService {
                 return output
             } catch {
                 group.cancelAll()
-                await terminateActivePluginkitProcess()
+                terminateActivePluginkitProcess()
                 throw error
             }
         }
