@@ -12,6 +12,7 @@ import Testing
 
 private actor TerminalInlineImageThumbnailDecodeProbe {
     private let result: TerminalInlineImageThumbnail?
+    private let blockedPaths: Set<String>?
     private var startedCount = 0
     private var activeCount = 0
     private var maximumActiveCount = 0
@@ -19,16 +20,20 @@ private actor TerminalInlineImageThumbnailDecodeProbe {
     private var blockedDecodes: [CheckedContinuation<Void, Never>] = []
     private var startWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
 
-    init(result: TerminalInlineImageThumbnail? = nil) {
+    init(
+        result: TerminalInlineImageThumbnail? = nil,
+        blockedPaths: Set<String>? = nil
+    ) {
         self.result = result
+        self.blockedPaths = blockedPaths
     }
 
-    func decode(path _: String) async -> TerminalInlineImageThumbnail? {
+    func decode(path: String) async -> TerminalInlineImageThumbnail? {
         startedCount += 1
         activeCount += 1
         maximumActiveCount = max(maximumActiveCount, activeCount)
         resumeSatisfiedStartWaiters()
-        if !isOpen {
+        if !isOpen, blockedPaths?.contains(path) ?? true {
             await withCheckedContinuation { continuation in
                 blockedDecodes.append(continuation)
             }
@@ -248,6 +253,47 @@ struct TerminalInlineImagePipelineTests {
         #expect(await replacementRequest.value != nil)
         let snapshot = await probe.snapshot()
         #expect(snapshot.started == 2)
+    }
+
+    @Test
+    func canceledSameKeyDecodeDoesNotBlockUnrelatedPendingWork() async throws {
+        let blockedPath = "/tmp/replaced.png"
+        let probe = TerminalInlineImageThumbnailDecodeProbe(
+            result: try makeThumbnail(),
+            blockedPaths: [blockedPath]
+        )
+        let cache = TerminalInlineImageThumbnailCache(
+            maximumConcurrentDecodes: 2,
+            maximumPendingDecodes: 4,
+            metadataKeyProvider: { "\($0)|version-1" },
+            decode: { path in await probe.decode(path: path) }
+        )
+
+        let canceledRequest = Task { await cache.thumbnail(for: blockedPath) }
+        await probe.waitUntilStarted(1)
+        canceledRequest.cancel()
+        #expect(await canceledRequest.value == nil)
+
+        let replacementRequest = Task { await cache.thumbnail(for: blockedPath) }
+        let unrelatedCompletedBeforeDeadline = await withTaskGroup(of: Bool.self) { group in
+            group.addTask {
+                _ = await cache.thumbnail(for: "/tmp/unrelated.png")
+                return true
+            }
+            group.addTask {
+                // This is a bounded test deadline, not state-settling synchronization.
+                try? await Task.sleep(for: .seconds(1))
+                return false
+            }
+            let completed = await group.next() ?? false
+            group.cancelAll()
+            return completed
+        }
+
+        #expect(unrelatedCompletedBeforeDeadline)
+        replacementRequest.cancel()
+        await probe.open()
+        _ = await replacementRequest.value
     }
 
     private func makeThumbnail() throws -> TerminalInlineImageThumbnail {
