@@ -556,6 +556,78 @@ describe("Iroh trust broker database behavior", () => {
     expect(total).toBe("3");
   });
 
+  dbTest("expires abandoned relay reservations before enforcing endpoint and account quotas", async () => {
+    const repo = requiredRepository();
+    const endpointUserId = "user-relay-abandoned-endpoint";
+    const endpointBindingId = await insertBinding({
+      userId: endpointUserId,
+      endpointId: "63".repeat(32),
+    });
+    for (let index = 0; index < 3; index += 1) {
+      await requiredSql()`
+        insert into iroh_relay_token_issuances (
+          user_id, binding_id, endpoint_id_hash, status, requested_at
+        ) values (
+          ${endpointUserId}, ${endpointBindingId}, ${"64".repeat(32)}, 'pending',
+          ${new Date(NOW.getTime() - 5 * 60 * 1_000 - index * 1_000)}
+        )
+      `;
+    }
+
+    await Effect.runPromise(repo.reserveRelayIssuance({
+      userId: endpointUserId,
+      bindingId: endpointBindingId,
+      now: NOW,
+    }));
+    const endpointStatuses = await requiredSql()<Array<{ status: string; total: string }>>`
+      select status, count(*)::text as total
+      from iroh_relay_token_issuances
+      where user_id = ${endpointUserId}
+      group by status
+      order by status
+    `;
+    expect(endpointStatuses).toEqual([
+      { status: "expired", total: "3" },
+      { status: "pending", total: "1" },
+    ]);
+
+    const accountUserId = "user-relay-abandoned-account";
+    const accountBindingIds: string[] = [];
+    for (let index = 0; index < 10; index += 1) {
+      const bindingId = await insertBinding({
+        userId: accountUserId,
+        endpointId: (0xa0 + index).toString(16).repeat(32),
+      });
+      accountBindingIds.push(bindingId);
+      await requiredSql()`
+        insert into iroh_relay_token_issuances (
+          user_id, binding_id, endpoint_id_hash, status, requested_at
+        )
+        select
+          ${accountUserId}, ${bindingId}, ${"65".repeat(32)}, 'pending',
+          ${new Date(NOW.getTime() - 15 * 60 * 1_000)} - make_interval(secs => value)
+        from generate_series(1, 10) as values(value)
+      `;
+    }
+
+    await Effect.runPromise(repo.reserveRelayIssuance({
+      userId: accountUserId,
+      bindingId: accountBindingIds[0]!,
+      now: NOW,
+    }));
+    const accountStatuses = await requiredSql()<Array<{ status: string; total: string }>>`
+      select status, count(*)::text as total
+      from iroh_relay_token_issuances
+      where user_id = ${accountUserId}
+      group by status
+      order by status
+    `;
+    expect(accountStatuses).toEqual([
+      { status: "expired", total: "100" },
+      { status: "pending", total: "1" },
+    ]);
+  });
+
   dbTest("fails relay finalization when revocation commits during provider mint", async () => {
     const repo = requiredRepository();
     const endpointId = "61".repeat(32);
