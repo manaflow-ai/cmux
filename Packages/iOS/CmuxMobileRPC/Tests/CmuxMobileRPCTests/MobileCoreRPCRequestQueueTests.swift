@@ -4,6 +4,49 @@ import Testing
 @testable import CmuxMobileRPC
 
 @Suite struct MobileCoreRPCRequestQueueTests {
+    @Test func revokedQueuedSendPreservesCancellationWithoutClosingSession() async throws {
+        let transport = QueuedCancellationProbeTransport()
+        let session = MobileCoreRPCSession(makeTransport: { transport })
+        let deadline = DispatchTime.now().uptimeNanoseconds + 60_000_000_000
+        let firstID = "first-blocking-send"
+        let revokedID = "revoked-queued-send"
+        let first = Task {
+            try await session.send(
+                payload: try MobileCoreRPCClient.requestData(method: "workspace.list", id: firstID),
+                requestID: firstID,
+                deadlineUptimeNanoseconds: deadline
+            )
+        }
+        #expect(try await transport.waitForSentRequestCount(1).map(\.id) == [firstID])
+        let revoked = Task {
+            try await session.send(
+                payload: try MobileCoreRPCClient.requestData(method: "workspace.list", id: revokedID),
+                requestID: revokedID,
+                deadlineUptimeNanoseconds: deadline,
+                sendAuthorizer: { throw CancellationError() }
+            )
+        }
+        for _ in 0..<200 where !(await session.queuedRequestIDs.contains(revokedID)) {
+            await Task.yield()
+        }
+        #expect(await session.queuedRequestIDs.contains(revokedID))
+
+        await transport.releaseFirstSend()
+        do {
+            _ = try await revoked.value
+            Issue.record("Expected revoked queued send to preserve cancellation")
+        } catch is CancellationError {
+        } catch {
+            Issue.record("Expected CancellationError, got \(error)")
+        }
+
+        #expect(try await transport.sentRequests().map(\.id) == [firstID])
+        #expect(!(await transport.closed()))
+        first.cancel()
+        _ = try? await first.value
+        await session.tearDown(error: .connectionClosed)
+    }
+
     @Test func timedOutQueuedSameIDRetryIsNotConsumedByOldTombstone() async throws {
         let transport = QueuedCancellationProbeTransport()
         let route = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: 59133)
