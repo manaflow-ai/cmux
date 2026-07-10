@@ -5,31 +5,31 @@ import Testing
 @Suite
 struct BackgroundWorkspaceHeadlessPrimeScheduleTests {
     @Test
-    func timeoutRetriesTheSameWorkspaceWithoutRetainingAMount() {
+    func timeoutAdvancesWithinThePassThenWrapsForRetry() {
         var schedule = BackgroundWorkspaceHeadlessPrimeSchedule<String>()
 
         #expect(schedule.nextWorkspaceID(orderedPendingWorkspaceIDs: ["first", "second"]) == "first")
         #expect(schedule.activeWorkspaceID == "first")
-        #expect(schedule.retainedWorkspaceIDs.isEmpty)
 
         schedule.resolve(workspaceID: "first", resolution: .timeout)
 
+        #expect(schedule.nextWorkspaceID(orderedPendingWorkspaceIDs: ["first", "second"]) == "second")
+        #expect(schedule.activeWorkspaceID == "second")
+
+        schedule.resolve(workspaceID: "second", resolution: .timeout)
+
         #expect(schedule.nextWorkspaceID(orderedPendingWorkspaceIDs: ["first", "second"]) == "first")
-        #expect(schedule.activeWorkspaceID == "first")
-        #expect(schedule.retainedWorkspaceIDs.isEmpty)
     }
 
     @Test
-    func completionAdvancesToTheNextPendingWorkspaceWithoutRetainingMounts() {
+    func completionAdvancesToTheNextPendingWorkspace() {
         var schedule = BackgroundWorkspaceHeadlessPrimeSchedule<String>()
 
         #expect(schedule.nextWorkspaceID(orderedPendingWorkspaceIDs: ["first", "second"]) == "first")
         schedule.resolve(workspaceID: "first", resolution: .completed)
 
         #expect(schedule.activeWorkspaceID == nil)
-        #expect(schedule.retainedWorkspaceIDs.isEmpty)
         #expect(schedule.nextWorkspaceID(orderedPendingWorkspaceIDs: ["second"]) == "second")
-        #expect(schedule.retainedWorkspaceIDs.isEmpty)
     }
 
     @Test
@@ -40,7 +40,6 @@ struct BackgroundWorkspaceHeadlessPrimeScheduleTests {
         cancelledSchedule.resolve(workspaceID: "first", resolution: .cancelled)
 
         #expect(cancelledSchedule.activeWorkspaceID == nil)
-        #expect(cancelledSchedule.retainedWorkspaceIDs.isEmpty)
 
         var removedSchedule = BackgroundWorkspaceHeadlessPrimeSchedule<String>()
         #expect(removedSchedule.nextWorkspaceID(orderedPendingWorkspaceIDs: ["first"]) == "first")
@@ -48,7 +47,6 @@ struct BackgroundWorkspaceHeadlessPrimeScheduleTests {
         removedSchedule.resolve(workspaceID: "first", resolution: .workspaceRemoved)
 
         #expect(removedSchedule.activeWorkspaceID == nil)
-        #expect(removedSchedule.retainedWorkspaceIDs.isEmpty)
     }
 
     @Test
@@ -58,6 +56,5 @@ struct BackgroundWorkspaceHeadlessPrimeScheduleTests {
 
         #expect(schedule.nextWorkspaceID(orderedPendingWorkspaceIDs: ["second", "third"]) == "second")
         #expect(schedule.activeWorkspaceID == "second")
-        #expect(schedule.retainedWorkspaceIDs.isEmpty)
     }
 }

@@ -391,6 +391,9 @@ struct BrowserPanelView: View {
     /// through this rather than the former `BrowserInstalledBrowserDetector` static
     /// namespace.
     private let installedBrowserDetector = BrowserInstalledBrowserDetector()
+    // Omnibar editing stays view-local: tab selection runs the focus-loss reducer before
+    // an ordinary workspace unmounts this view, reverting an uncommitted draft to the URL
+    // retained by BrowserPanel. Committed navigation and the WKWebView remain model-owned.
     @State private var omnibarState = OmnibarState()
     @State private var addressBarFocused: Bool = false
     @AppStorage(BrowserSearchSettingsStore.searchEngineKey) private var searchEngineRaw = BrowserSearchSettingsStore.defaultSearchEngine.rawValue
@@ -978,7 +981,8 @@ struct BrowserPanelView: View {
             detail: "next=\(focused ? 1 : 0)"
         )
 #endif
-        // Ensure this view doesn't retain focus while hidden (bonsplit keepAllAlive).
+        // Ensure this view doesn't retain focus after its panel stops being selected. Ordinary
+        // workspaces unmount it; hosts such as the Dock can keep the hidden view alive.
         if focused {
             applyPendingAddressBarFocusRequestIfNeeded()
             autoFocusOmnibarIfBlank()

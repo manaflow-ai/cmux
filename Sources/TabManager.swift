@@ -227,7 +227,6 @@ class TabManager: ObservableObject {
     private var isRestoringSessionSnapshot: Bool = false
     @Published private(set) var isWorkspaceCycleHot: Bool = false
     @Published private(set) var pendingBackgroundWorkspaceLoadIds: Set<UUID> = []
-    @Published private(set) var mountedBackgroundWorkspaceLoadIds: Set<UUID> = []
     @Published private(set) var debugPinnedWorkspaceLoadIds: Set<UUID> = []
 
     /// Global monotonically increasing counter for CMUX_PORT ordinal assignment.
@@ -1246,21 +1245,6 @@ class TabManager: ObservableObject {
         var updated = pendingBackgroundWorkspaceLoadIds
         updated.remove(workspaceId)
         pendingBackgroundWorkspaceLoadIds = updated
-        releaseBackgroundWorkspaceMount(for: workspaceId)
-    }
-
-    func retainBackgroundWorkspaceMount(for workspaceId: UUID) {
-        guard !mountedBackgroundWorkspaceLoadIds.contains(workspaceId) else { return }
-        var updated = mountedBackgroundWorkspaceLoadIds
-        updated.insert(workspaceId)
-        mountedBackgroundWorkspaceLoadIds = updated
-    }
-
-    func releaseBackgroundWorkspaceMount(for workspaceId: UUID) {
-        guard mountedBackgroundWorkspaceLoadIds.contains(workspaceId) else { return }
-        var updated = mountedBackgroundWorkspaceLoadIds
-        updated.remove(workspaceId)
-        mountedBackgroundWorkspaceLoadIds = updated
     }
 
     func retainDebugWorkspaceLoads(for workspaceIds: Set<UUID>) {
@@ -1283,10 +1267,6 @@ class TabManager: ObservableObject {
         let pruned = pendingBackgroundWorkspaceLoadIds.intersection(existingIds)
         if pruned != pendingBackgroundWorkspaceLoadIds {
             pendingBackgroundWorkspaceLoadIds = pruned
-        }
-        let mounted = mountedBackgroundWorkspaceLoadIds.intersection(existingIds)
-        if mounted != mountedBackgroundWorkspaceLoadIds {
-            mountedBackgroundWorkspaceLoadIds = mounted
         }
         let retained = debugPinnedWorkspaceLoadIds.intersection(existingIds)
         if retained != debugPinnedWorkspaceLoadIds {

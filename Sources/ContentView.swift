@@ -2620,10 +2620,6 @@ struct ContentView: View {
             reconcileMountedWorkspaceIds()
         })
 
-        view = AnyView(view.onReceive(tabManager.$mountedBackgroundWorkspaceLoadIds) { _ in
-            reconcileMountedWorkspaceIds()
-        })
-
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .ghosttyDidSetTitle)) { notification in
             guard tabManager.shouldScheduleRawTitleRefresh(forWorkspaceId: GhosttyTitleChange(notification: notification)?.tabId) else { return }
             scheduleTitlebarTextRefresh()
@@ -3226,9 +3222,7 @@ struct ContentView: View {
         let orderedTabIds = currentTabs.map { $0.id }
         let effectiveSelectedId = selectedId ?? tabManager.selectedTabId
         let handoffPinnedIds = retiringWorkspaceId.map { Set([ $0 ]) } ?? []
-        let pinnedIds = handoffPinnedIds
-            .union(tabManager.mountedBackgroundWorkspaceLoadIds)
-            .union(tabManager.debugPinnedWorkspaceLoadIds)
+        let pinnedIds = handoffPinnedIds.union(tabManager.debugPinnedWorkspaceLoadIds)
         let isCycleHot = tabManager.isWorkspaceCycleHot
         let shouldKeepHandoffPair = isCycleHot && !handoffPinnedIds.isEmpty
         let baseMaxMounted = shouldKeepHandoffPair
