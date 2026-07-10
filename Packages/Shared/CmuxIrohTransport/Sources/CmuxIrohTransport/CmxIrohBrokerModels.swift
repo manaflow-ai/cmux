@@ -259,6 +259,28 @@ public struct CmxIrohRelayTokenResponse: Decodable, Equatable, Sendable {
     public let refreshAfter: String
     public let relayFleet: [String]
 
+    /// Creates a relay-token response for durable cache restoration.
+    ///
+    /// Validation remains centralized in ``relayConfigurations(now:)`` so
+    /// broker responses and restored responses follow the same path.
+    ///
+    /// - Parameters:
+    ///   - token: The lowercase unpadded Base32 RCAN token.
+    ///   - expiresAt: The provider-enforced expiry in ISO 8601 format.
+    ///   - refreshAfter: The replacement time in ISO 8601 format.
+    ///   - relayFleet: The complete managed relay fleet covered by the token.
+    public init(
+        token: String,
+        expiresAt: String,
+        refreshAfter: String,
+        relayFleet: [String]
+    ) {
+        self.token = token
+        self.expiresAt = expiresAt
+        self.refreshAfter = refreshAfter
+        self.relayFleet = relayFleet
+    }
+
     private enum CodingKeys: String, CodingKey {
         case token
         case expiresAt = "expires_at"

@@ -212,6 +212,23 @@ struct CmxIrohBrokerCredentialRepositoryTests {
             ) == nil
         )
         #expect(await secureStore.recordCount() == 0)
+
+        try await repository.saveRelayCredential(
+            response,
+            accountID: "account-a",
+            binding: binding,
+            expectedRelayFleet: Set(relayFleet),
+            now: now
+        )
+        #expect(
+            try await repository.loadRelayCredential(
+                accountID: "account-a",
+                binding: binding,
+                expectedRelayFleet: Set(relayFleet),
+                now: now.addingTimeInterval(2 * 60 * 60)
+            ) == nil
+        )
+        #expect(await secureStore.recordCount() == 0)
     }
 
     @Test("corrupt secure records fail closed and are removed")
@@ -241,6 +258,24 @@ struct CmxIrohBrokerCredentialRepositoryTests {
             ) == nil
         )
         #expect(await secureStore.recordCount() == 0)
+    }
+
+    @Test("persisted binding metadata is revalidated during decoding")
+    func corruptBindingMetadataIsRejected() throws {
+        let binding = try metadata()
+        let encoded = try JSONEncoder().encode(binding)
+        var object = try #require(
+            JSONSerialization.jsonObject(with: encoded) as? [String: Any]
+        )
+        object["bindingID"] = "not-a-uuid"
+        let corrupted = try JSONSerialization.data(withJSONObject: object)
+
+        #expect(throws: CmxIrohBrokerCredentialRepositoryError.invalidBinding) {
+            try JSONDecoder().decode(
+                CmxIrohBrokerBindingMetadata.self,
+                from: corrupted
+            )
+        }
     }
 
     @Test("explicit deletion preserves or clears binding metadata as requested")
