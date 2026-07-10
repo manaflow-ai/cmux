@@ -178,7 +178,7 @@ struct ProcessDetectedResumeIndexCoordinationTests {
         #expect(loadCount.withLock { $0 } == 1)
     }
 
-    private static var emptyLoadResult: SharedLiveAgentIndexLoader.LoadResult {
+    nonisolated private static var emptyLoadResult: SharedLiveAgentIndexLoader.LoadResult {
         (
             index: .empty,
             surfaceResumeBindingIndex: .empty,
