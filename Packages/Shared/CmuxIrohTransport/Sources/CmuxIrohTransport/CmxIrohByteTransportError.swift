@@ -8,6 +8,9 @@ public enum CmxIrohByteTransportError: Error, Equatable, Sendable {
     /// The route does not carry a canonical Iroh peer identity.
     case unsupportedEndpoint(CmxAttachEndpoint)
 
+    /// The caller omitted the expected Mac binding or admission authorization mode.
+    case missingPeerIntent
+
     /// The transport was closed before the requested operation.
     case alreadyClosed
 

@@ -3,7 +3,7 @@ public import Foundation
 
 /// Adapts an admitted Iroh control stream to the existing mobile RPC byte seam.
 public actor CmxIrohByteTransport: CmxByteTransport {
-    private let route: CmxAttachRoute
+    private let request: CmxByteTransportRequest
     private let supervisor: CmxIrohEndpointSupervisor
     private let contextProvider: any CmxIrohClientContextProvider
     private var connectTask: Task<CmxIrohClientSession, any Error>?
@@ -13,15 +13,15 @@ public actor CmxIrohByteTransport: CmxByteTransport {
     /// Creates a disconnected byte transport.
     ///
     /// - Parameters:
-    ///   - route: The validated Iroh peer route.
+    ///   - request: The validated Iroh peer route and intended Mac binding.
     ///   - supervisor: The active endpoint owner.
     ///   - contextProvider: The fresh dial-plan and grant provider.
     public init(
-        route: CmxAttachRoute,
+        request: CmxByteTransportRequest,
         supervisor: CmxIrohEndpointSupervisor,
         contextProvider: any CmxIrohClientContextProvider
     ) {
-        self.route = route
+        self.request = request
         self.supervisor = supervisor
         self.contextProvider = contextProvider
     }
@@ -34,8 +34,8 @@ public actor CmxIrohByteTransport: CmxByteTransport {
     public func connect() async throws {
         guard !closed else { throw CmxIrohByteTransportError.alreadyClosed }
         if session != nil { return }
-        guard case let .peer(identity, _) = route.endpoint else {
-            throw CmxIrohByteTransportError.unsupportedEndpoint(route.endpoint)
+        guard case let .peer(identity, _) = request.route.endpoint else {
+            throw CmxIrohByteTransportError.unsupportedEndpoint(request.route.endpoint)
         }
 
         let task: Task<CmxIrohClientSession, any Error>
@@ -44,10 +44,10 @@ public actor CmxIrohByteTransport: CmxByteTransport {
         } else {
             let supervisor = supervisor
             let contextProvider = contextProvider
-            let route = route
+            let request = request
             task = Task {
                 let endpoint = try await supervisor.activeEndpoint()
-                let context = try await contextProvider.context(for: route)
+                let context = try await contextProvider.context(for: request)
                 let session = try CmxIrohClientSession(
                     endpoint: endpoint,
                     targetIdentity: identity,

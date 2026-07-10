@@ -34,8 +34,12 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         self.now = now
     }
 
-    public func context(for route: CmxAttachRoute) async throws -> CmxIrohClientContext {
+    public func context(
+        for request: CmxByteTransportRequest
+    ) async throws -> CmxIrohClientContext {
+        let route = request.route
         guard route.kind == .iroh,
+              request.authorizationMode == .transportAdmission,
               case let .peer(targetIdentity, routeHints) = route.endpoint else {
             throw CmxIrohRegistryContextError.unsupportedRoute
         }
@@ -59,6 +63,10 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         }
         guard targetMatches.count == 1, let targetBinding = targetMatches.first else {
             throw CmxIrohRegistryContextError.targetBindingUnavailable
+        }
+        guard let expectedPeerDeviceID = request.expectedPeerDeviceID,
+              targetBinding.deviceID == expectedPeerDeviceID else {
+            throw CmxIrohRegistryContextError.targetDeviceMismatch
         }
         guard targetBinding.pairingEnabled else {
             throw CmxIrohRegistryContextError.targetNotPairable

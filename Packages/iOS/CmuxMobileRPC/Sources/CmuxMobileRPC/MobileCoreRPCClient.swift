@@ -12,6 +12,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     private let runtime: any MobileSyncRuntime
     private let route: CmxAttachRoute
     private let ticket: CmxAttachTicket
+    private let transportRequest: CmxByteTransportRequest
     /// The attach ticket this client uses to authorize RPC requests.
     public var attachTicket: CmxAttachTicket { ticket }
     private let allowsStackAuthFallback: Bool
@@ -43,6 +44,12 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         self.runtime = runtime
         self.route = route
         self.ticket = ticket
+        let transportRequest = CmxByteTransportRequest(
+            route: route,
+            expectedPeerDeviceID: ticket.macDeviceID,
+            authorizationMode: route.kind == .iroh ? .transportAdmission : .stackBearer
+        )
+        self.transportRequest = transportRequest
         self.allowsStackAuthFallback = allowsStackAuthFallback
         self.stackTokenGate = stackTokenGate
             ?? RPCStackTokenGate(timedOutResetNanoseconds: stackTokenGateResetNanoseconds)
@@ -53,8 +60,8 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             connectAttemptRegistry: connectAttemptRegistry,
             abandonedConnectCleanupTimeoutNanoseconds: abandonedConnectCleanupTimeoutNanoseconds,
             lateAbandonedConnectCloseTimeoutNanoseconds: lateAbandonedConnectCloseTimeoutNanoseconds,
-            makeTransport: { [route, runtime] in
-                try runtime.transportFactory.makeTransport(for: route)
+            makeTransport: { [runtime, transportRequest] in
+                try runtime.transportFactory.makeTransport(for: transportRequest)
             }
         )
     }
@@ -116,7 +123,8 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             // account, so retrying with a fresh token of THIS account cannot
             // help and would only weaken the same-account gate; it surfaces as
             // `.rpcError("account_mismatch", _)`, not `.authorizationFailed`.
-            guard case .authorizationFailed = error else { throw error }
+            guard transportRequest.authorizationMode == .stackBearer,
+                  case .authorizationFailed = error else { throw error }
             try await forceRefreshStackTokenForRetry(deadline: deadline)
             // Re-run with retry disabled so a fresh token that is still rejected
             // surfaces as a definitive auth failure instead of looping.
@@ -202,6 +210,10 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     private func requestDataWithAuth(_ requestData: Data, deadline: RPCRequestDeadline) async throws -> Data {
         guard var request = try JSONSerialization.jsonObject(with: requestData) as? [String: Any] else {
             return requestData
+        }
+        if transportRequest.authorizationMode == .transportAdmission {
+            request.removeValue(forKey: "auth")
+            return try JSONSerialization.data(withJSONObject: request)
         }
         let requestNeedsAuth = Self.requestRequiresAuth(request)
         let requestIsCoveredByAttachTicket = !Self.requestNeedsStackAuthFallback(request, ticket: ticket)

@@ -34,8 +34,27 @@ public struct CmxIrohByteTransportFactory: CmxRouteAwareByteTransportFactory {
         guard case .peer = route.endpoint else {
             throw CmxIrohByteTransportError.unsupportedEndpoint(route.endpoint)
         }
+        throw CmxIrohByteTransportError.missingPeerIntent
+    }
+
+    /// Creates a disconnected transport bound to the intended Mac device.
+    public func makeTransport(
+        for request: CmxByteTransportRequest
+    ) throws -> any CmxByteTransport {
+        let route = request.route
+        try route.validate()
+        guard route.kind == .iroh else {
+            throw CmxIrohByteTransportError.unsupportedRouteKind(route.kind)
+        }
+        guard case .peer = route.endpoint else {
+            throw CmxIrohByteTransportError.unsupportedEndpoint(route.endpoint)
+        }
+        guard request.authorizationMode == .transportAdmission,
+              request.expectedPeerDeviceID?.isEmpty == false else {
+            throw CmxIrohByteTransportError.missingPeerIntent
+        }
         return CmxIrohByteTransport(
-            route: route,
+            request: request,
             supervisor: supervisor,
             contextProvider: contextProvider
         )

@@ -60,7 +60,7 @@ public struct CmxIrohRegistrationPayload: Encodable, Equatable, Sendable {
         guard Self.isBrokerUUID(deviceID),
               Self.isBrokerUUID(appInstanceID),
               Self.isSafeToken(tag, maximum: 64),
-              CmxIrohPeerIdentity.isCanonical(endpointID),
+              (try? CmxIrohPeerIdentity(endpointID: endpointID)) != nil,
               (1...Int(Int32.max)).contains(identityGeneration),
               capabilities.count <= 32,
               Set(capabilities).count == capabilities.count,

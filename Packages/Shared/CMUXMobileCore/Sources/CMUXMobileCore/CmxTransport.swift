@@ -412,6 +412,16 @@ public protocol CmxByteTransport: Sendable {
 
 public protocol CmxByteTransportFactory: Sendable {
     func makeTransport(for route: CmxAttachRoute) throws -> any CmxByteTransport
+    func makeTransport(for request: CmxByteTransportRequest) throws -> any CmxByteTransport
+}
+
+extension CmxByteTransportFactory {
+    /// Compatibility path for transports whose peer intent is fully represented by the route.
+    public func makeTransport(
+        for request: CmxByteTransportRequest
+    ) throws -> any CmxByteTransport {
+        try makeTransport(for: request.route)
+    }
 }
 
 public protocol CmxRouteAwareByteTransportFactory: CmxByteTransportFactory {
@@ -458,5 +468,14 @@ public struct CmxRouteTransportFactory: CmxRouteAwareByteTransportFactory {
             throw CmxRouteTransportFactoryError.unsupportedRouteKind(route.kind)
         }
         return try factory.makeTransport(for: route)
+    }
+
+    public func makeTransport(
+        for request: CmxByteTransportRequest
+    ) throws -> any CmxByteTransport {
+        guard let factory = factories[request.route.kind] else {
+            throw CmxRouteTransportFactoryError.unsupportedRouteKind(request.route.kind)
+        }
+        return try factory.makeTransport(for: request)
     }
 }

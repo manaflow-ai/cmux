@@ -5,6 +5,7 @@ public enum CmxIrohRegistryContextError: Error, Equatable, Sendable {
     case relayFleetMismatch
     case localBindingUnavailable
     case targetBindingUnavailable
+    case targetDeviceMismatch
     case targetNotPairable
     case invalidGrantExpiry
     case dialPlanUnavailable
