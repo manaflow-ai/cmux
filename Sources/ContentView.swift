@@ -13837,12 +13837,13 @@ struct TabItemView: View, Equatable {
                 .lineLimit(1)
             }
 
-            // Checklist summary line + inline expansion. Rendered while the
-            // workspace-todos feature is on and there is either content or a
-            // pending "Add Checklist Item…" request (which needs the add
-            // field visible on an empty checklist).
-            if workspaceSnapshot.taskStatus != nil,
-               !workspaceSnapshot.checklistItems.isEmpty || checklistAddFieldActivationToken > 0 {
+            // Checklist summary line + inline expansion. Rendered whenever
+            // there is either content or a pending "Add Checklist Item…"
+            // request (which needs the add field visible on an empty
+            // checklist) — independent of whether a status glyph is shown,
+            // since workspaces now default to hidden status and must still
+            // be able to add checklist items from that state.
+            if !workspaceSnapshot.checklistItems.isEmpty || checklistAddFieldActivationToken > 0 {
                 SidebarWorkspaceChecklistSection(
                     items: workspaceSnapshot.checklistItems,
                     completedCount: workspaceSnapshot.checklistCompletedCount,
