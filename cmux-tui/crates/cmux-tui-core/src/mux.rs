@@ -2091,7 +2091,7 @@ mod tests {
 
         assert!(!mux.attach_browser_surface_to_pane_or_kill(123_456, &surface, 1));
         assert!(browser.is_dead());
-        done.recv_timeout(std::time::Duration::from_secs(1))
+        done.recv_timeout(Duration::from_secs(1))
             .expect("browser worker exited after failed attach");
     }
 

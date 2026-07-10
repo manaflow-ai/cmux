@@ -975,7 +975,7 @@ impl BrowserSurface {
     }
 
     pub fn attach_frames(&self) -> (BrowserAttachState, BrowserFrameStream) {
-        let (tx, rx) = std::sync::mpsc::sync_channel(1);
+        let (tx, rx) = sync_channel(1);
         let slot = Arc::new(Mutex::new(BrowserAttachUpdate::default()));
         let mut state = self.state.lock().unwrap();
         let snapshot = browser_attach_state_locked(&state, Instant::now(), self.is_dead(), true);
@@ -1718,7 +1718,7 @@ mod tests {
     }
 
     fn write_ws_json(ws: &mut tungstenite::WebSocket<TcpStream>, value: Value) {
-        ws.send(Message::Text(value.to_string())).unwrap();
+        ws.send(Message::Text(value.to_string().into())).unwrap();
     }
 
     #[test]

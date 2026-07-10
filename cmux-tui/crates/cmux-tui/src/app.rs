@@ -604,6 +604,7 @@ pub fn run(session: Session, session_label: String) -> anyhow::Result<()> {
     // Crossterm input → app channel. Start this after startup terminal
     // probes so DA / window-size responses are not consumed as key input.
     std::thread::Builder::new().name("input".into()).spawn({
+        let tx = tx.clone();
         move || {
             while let Ok(event) = crossterm::event::read() {
                 if tx.send(AppEvent::Input(event)).is_err() {
