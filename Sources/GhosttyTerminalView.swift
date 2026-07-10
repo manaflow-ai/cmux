@@ -9877,7 +9877,7 @@ final class GhosttySurfaceScrollView: NSView {
         }
     }
 
-    func setVisibleInUI(_ visible: Bool) {
+    func setVisibleInUI(_ visible: Bool, refreshPolicy: TerminalPortalVisibilityRefreshPolicy) {
         let wasVisible = surfaceView.isVisibleInUI
         // Re-realize before marking visible so we never draw into a released swap chain.
         surfaceView.terminalSurface?.setRendererPortalVisible(visible)
@@ -9918,10 +9918,10 @@ final class GhosttySurfaceScrollView: NSView {
                 window.makeFirstResponder(nil)
             }
         } else if !wasVisible {
-            // Workspace/sidebar selection can make an already-sized terminal visible again
-            // without a portal frame delta or a focus handoff. Reuse the portal refresh
-            // path so the Metal layer is nudged immediately on plain visibility restores.
-            refreshSurfaceNow(reason: "setVisibleInUI")
+            // Representable updates leave presentation refresh to the portal owner,
+            // which runs after binding and geometry settle. External AppKit callers
+            // retain the immediate behavior used by direct visibility restores.
+            refreshPolicy.refresh(hostedView: self)
             scheduleAutomaticFirstResponderApply(reason: "setVisibleInUI")
         }
     }
@@ -12314,7 +12314,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
                 )
                 coordinator.lastBoundHostId = ObjectIdentifier(host)
                 coordinator.lastSynchronizedHostGeometryRevision = host.geometryRevision
-                hostedView.setVisibleInUI(coordinator.desiredIsVisibleInUI)
+                hostedView.setVisibleInUI(coordinator.desiredIsVisibleInUI, refreshPolicy: .deferredToPortal)
                 hostedView.setActive(coordinator.desiredIsActive)
                 hostedView.setNotificationRing(visible: coordinator.desiredShowsUnreadNotificationRing)
             }
@@ -12351,7 +12351,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
                         deferLayoutSynchronization: true
                     )
                     coordinator.lastBoundHostId = hostId
-                    hostedView.setVisibleInUI(coordinator.desiredIsVisibleInUI)
+                    hostedView.setVisibleInUI(coordinator.desiredIsVisibleInUI, refreshPolicy: .deferredToPortal)
                     hostedView.setActive(coordinator.desiredIsActive)
                     hostedView.setNotificationRing(visible: coordinator.desiredShowsUnreadNotificationRing)
                 }
@@ -12434,7 +12434,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
         )
 
         if portalBindingStillLive() && shouldApplyImmediateHostedState {
-            hostedView.setVisibleInUI(isVisibleInUI)
+            hostedView.setVisibleInUI(isVisibleInUI, refreshPolicy: .deferredToPortal)
             hostedView.setActive(isActive)
         } else {
             // Preserve portal entry visibility while a stale host is still receiving SwiftUI updates.
