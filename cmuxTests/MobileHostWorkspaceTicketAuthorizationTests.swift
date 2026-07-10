@@ -19,12 +19,16 @@ struct MobileHostWorkspaceTicketAuthorizationTests {
         )
     }
 
-    private func tailscaleRoute() throws -> CmxAttachRoute {
+    private func tailscaleRoute(
+        id: String = "tailscale",
+        host: String = "100.64.0.5",
+        priority: Int = 10
+    ) throws -> CmxAttachRoute {
         try CmxAttachRoute(
-            id: "tailscale",
+            id: id,
             kind: .tailscale,
-            endpoint: .hostPort(host: "100.64.0.5", port: 58465),
-            priority: 10
+            endpoint: .hostPort(host: host, port: 58465),
+            priority: priority
         )
     }
 
@@ -81,6 +85,31 @@ struct MobileHostWorkspaceTicketAuthorizationTests {
         let components = try #require(URLComponents(string: attachURL))
         #expect(components.queryItems?.first(where: { $0.name == "v" })?.value == "2")
         #expect(components.queryItems?.contains(where: { $0.name == "payload" }) == false)
+        #expect(try CmxPairingQRCode().decode(components).routes == ticket.routes)
+    }
+
+    @Test func physicalDeviceCanonicalizesFilteredSecondaryRouteForV2() throws {
+        let secondaryRoute = try tailscaleRoute(
+            id: "tailscale_2",
+            host: "100.64.0.6",
+            priority: 20
+        )
+        let selectedRoutes = try MobileAttachTarget.physicalDevice.selectRoutes(from: [secondaryRoute])
+        let selectedRoute = try #require(selectedRoutes.first)
+        #expect(selectedRoute.id == "tailscale")
+        #expect(selectedRoute.endpoint == secondaryRoute.endpoint)
+        #expect(selectedRoute.priority == 10)
+
+        let store = MobileAttachTicketStore()
+        let ticket = try store.createTicket(
+            workspaceID: "",
+            terminalID: nil,
+            routes: selectedRoutes,
+            ttl: 3600
+        )
+        let payload = try store.payload(for: ticket, target: .physicalDevice)
+        let attachURL = try #require(payload["attach_url"] as? String)
+        let components = try #require(URLComponents(string: attachURL))
         #expect(try CmxPairingQRCode().decode(components).routes == ticket.routes)
     }
 
