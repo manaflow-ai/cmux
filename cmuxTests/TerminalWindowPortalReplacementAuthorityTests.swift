@@ -429,50 +429,19 @@ extension TerminalWindowPortalLifecycleTests {
     }
 
     @MainActor
-    func testAnchorCallbacksCoalesceOnePortalWideSynchronizationPass() async throws {
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 620, height: 360),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
-        )
-        defer { window.orderOut(nil) }
-        realizeWindowLayout(window)
-        let contentView = try XCTUnwrap(window.contentView)
-        let firstAnchor = NSView(frame: NSRect(x: 10, y: 10, width: 280, height: 240))
-        let secondAnchor = NSView(frame: NSRect(x: 310, y: 10, width: 280, height: 240))
-        contentView.addSubview(firstAnchor)
-        contentView.addSubview(secondAnchor)
-        let portal = WindowTerminalPortal(window: window)
-        let firstSurface = TerminalSurface(
-            tabId: UUID(), context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: nil, workingDirectory: nil
-        )
-        let secondSurface = TerminalSurface(
-            tabId: UUID(), context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: nil, workingDirectory: nil
-        )
-        portal.bind(hostedView: firstSurface.hostedView, to: firstAnchor, visibleInUI: true)
-        portal.bind(hostedView: secondSurface.hostedView, to: secondAnchor, visibleInUI: true)
-        await portal.scheduleDeferredFullSynchronizeAll().value
-        let synchronizationBaseline = portal.debugHostedViewSynchronizationCount
-        let fullPassBaseline = portal.debugDeferredFullSynchronizationPassCount
-        let layoutBaseline = portal.debugLayoutHierarchySynchronizationCount
+    func testBulkSynchronizationPreparesOnceIndependentOfEntryCount() {
+        for entryCount in [0, 1, 100] {
+            var preparationCount = 0
+            var synchronizedEntries: [Int] = []
 
-        portal.synchronizeHostedViewForAnchor(firstAnchor, syncLayout: false)
-        let coalescedPass = portal.synchronizeHostedViewForAnchor(secondAnchor, syncLayout: false)
+            TerminalPortalBulkSynchronization.run(
+                prepare: { preparationCount += 1 },
+                entries: { Array(0..<entryCount) },
+                synchronize: { synchronizedEntries.append($0) }
+            )
 
-        XCTAssertEqual(portal.debugHostedViewSynchronizationCount - synchronizationBaseline, 2)
-        XCTAssertEqual(portal.debugDeferredFullSynchronizationPassCount - fullPassBaseline, 0)
-
-        await coalescedPass.value
-        XCTAssertEqual(portal.debugDeferredFullSynchronizationPassCount - fullPassBaseline, 1)
-        XCTAssertEqual(portal.debugLayoutHierarchySynchronizationCount - layoutBaseline, 1)
-        XCTAssertEqual(
-            portal.debugHostedViewSynchronizationCount - synchronizationBaseline,
-            4,
-            "Two anchor callbacks must do two primary syncs plus one two-entry portal pass"
-        )
-        withExtendedLifetime((firstSurface, secondSurface)) {}
+            XCTAssertEqual(preparationCount, 1)
+            XCTAssertEqual(synchronizedEntries, Array(0..<entryCount))
+        }
     }
 }

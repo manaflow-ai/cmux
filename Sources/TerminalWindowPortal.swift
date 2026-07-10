@@ -647,8 +647,6 @@ final class WindowTerminalPortal: NSObject {
     private var geometryObservers: [NSObjectProtocol] = []
 #if DEBUG
     private var lastLoggedBonsplitContainerSignature: String?
-    private(set) var debugHostedViewSynchronizationCount = 0
-    var debugDeferredFullSynchronizationPassCount = 0, debugLayoutHierarchySynchronizationCount = 0
 #endif
 
     struct Entry {
@@ -804,9 +802,6 @@ final class WindowTerminalPortal: NSObject {
     }
 
     func synchronizeLayoutHierarchy() {
-#if DEBUG
-        debugLayoutHierarchySynchronizationCount += 1
-#endif
         installedContainerView?.layoutSubtreeIfNeeded()
         _ = synchronizeHostFrameToReference()
     }
@@ -1306,9 +1301,6 @@ final class WindowTerminalPortal: NSObject {
     ) {
         guard ensureInstalled(syncLayout: syncLayout) else { return }
         guard var entry = entriesByHostedId[hostedId] else { return }
-#if DEBUG
-        debugHostedViewSynchronizationCount += 1
-#endif
         guard let hostedView = entry.hostedView else {
             detachHostedView(withId: hostedId)
             return
