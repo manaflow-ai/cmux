@@ -88,6 +88,7 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
     private var lastKnownBindingID: String?
     private var lifecycleRevision: UInt64 = 0
     private var signOutPhase = SignOutPhase.idle
+    private var signOutObservedAuthClear = false
 
     /// Creates the production iOS Iroh composition with device-only persistence.
     ///
@@ -316,6 +317,7 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
             break
         }
 
+        signOutObservedAuthClear = false
         let operation = Task { @MainActor [weak self] in
             guard let self else {
                 return CmxIrohClientSignOutPreparation(
@@ -483,6 +485,9 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
     }
 
     private func prepareForAuthReconcile(accountID: String?) async -> Bool {
+        if accountID == nil, !signOutPhase.allowsLifecycle {
+            signOutObservedAuthClear = true
+        }
         switch signOutPhase {
         case .idle:
             return true
@@ -496,11 +501,14 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
             // The nil state is auth's local-first clear and must not overtake
             // its captured-token remote hook. A later explicit sign-in can
             // safely proceed because this preparation is already durable.
-            guard accountID != nil, preparation.wasPersisted else { return false }
+            guard accountID != nil,
+                  signOutObservedAuthClear,
+                  preparation.wasPersisted else { return false }
             await releaseSignOutQuarantine(preparation)
             return signOutPhase.allowsLifecycle
         case let .quarantined(preparation):
-            guard accountID == preparation.pendingRevocation?.accountID,
+            guard signOutObservedAuthClear,
+                  accountID == preparation.pendingRevocation?.accountID,
                   let auth else { return false }
             do {
                 let broker = try brokerFactory(
@@ -626,6 +634,7 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
         if lastKnownBindingID == preparation.bindingID {
             clearLastKnownBinding()
         }
+        signOutObservedAuthClear = false
         signOutPhase = .idle
     }
 

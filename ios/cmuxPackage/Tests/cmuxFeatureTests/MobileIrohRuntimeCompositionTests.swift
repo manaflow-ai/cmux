@@ -272,6 +272,17 @@ struct MobileIrohRuntimeCompositionTests {
         try await fixture.expectOriginalRepositoriesRemain()
         await fixture.outboxStore.setWriteMode(.normal)
 
+        // Auth still reports the signing-out account between preparation and
+        // its local clear. That state must not look like a later sign-in.
+        await #expect(throws: CmxIrohClientRuntimeError.self) {
+            _ = try await fixture.composition.transport(for: fixture.request)
+        }
+        #expect(await fixture.broker.revokedBindingIDs().isEmpty)
+        #expect(
+            await fixture.endpointFactory.bindCount() == fixture.initialBindCount
+        )
+        try await fixture.expectOriginalRepositoriesRemain()
+
         await fixture.auth.signOut { accessToken, refreshToken in
             await fixture.composition.revokeAfterSignOut(
                 preparation,
