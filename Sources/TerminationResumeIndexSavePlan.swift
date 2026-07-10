@@ -1,15 +1,27 @@
 import Foundation
 
+nonisolated enum TerminationResumeIndexAuthority: Sendable {
+    case pending
+    case completed(ProcessDetectedResumeIndexes?)
+}
+
 nonisolated struct TerminationResumeIndexSavePlan {
     let restorableAgentIndex: RestorableAgentSessionIndex?
     let surfaceResumeBindingIndex: SurfaceResumeBindingIndex?
     let usesCoreSnapshotFallback: Bool
 
     static func resolve(
-        _ resumeIndexes: ProcessDetectedResumeIndexes?,
+        _ authority: TerminationResumeIndexAuthority,
         cachedResumeIndexes: () -> ProcessDetectedResumeIndexes? = { nil }
     ) -> TerminationResumeIndexSavePlan {
-        if let resumeIndexes = resumeIndexes ?? cachedResumeIndexes() {
+        let resumeIndexes: ProcessDetectedResumeIndexes?
+        switch authority {
+        case .pending:
+            resumeIndexes = cachedResumeIndexes()
+        case .completed(let completedIndexes):
+            resumeIndexes = completedIndexes
+        }
+        if let resumeIndexes {
             return TerminationResumeIndexSavePlan(
                 restorableAgentIndex: resumeIndexes.restorableAgentIndex,
                 surfaceResumeBindingIndex: resumeIndexes.surfaceResumeBindingIndex,
@@ -28,21 +40,21 @@ nonisolated struct TerminationResumeIndexSavePlan {
 
 nonisolated struct UpdateRelaunchResumeIndexResolver {
     private let cachedIndexes: () -> ProcessDetectedResumeIndexes?
-    private let loadSynchronously: () -> ProcessDetectedResumeIndexes
 
     init(
-        cachedIndexes: @escaping () -> ProcessDetectedResumeIndexes?,
-        loadSynchronously: @escaping () -> ProcessDetectedResumeIndexes
+        cachedIndexes: @escaping () -> ProcessDetectedResumeIndexes?
     ) {
         self.cachedIndexes = cachedIndexes
-        self.loadSynchronously = loadSynchronously
     }
 
     func resolve(
-        completedTerminationIndexes: ProcessDetectedResumeIndexes?
+        coordinatedBy authority: TerminationResumeIndexAuthority
     ) -> ProcessDetectedResumeIndexes? {
-        completedTerminationIndexes
-            ?? cachedIndexes()
-            ?? loadSynchronously()
+        switch authority {
+        case .pending:
+            return cachedIndexes()
+        case .completed(let completedIndexes):
+            return completedIndexes
+        }
     }
 }

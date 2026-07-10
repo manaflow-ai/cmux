@@ -164,7 +164,11 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
 
     func showReady(toInstallAndRelaunch reply: @escaping @Sendable (SPUUserUpdateChoice) -> Void) {
         log.append("show ready to install")
-        reply(.install)
+        let actionDelegate = actionDelegate
+        Task { @MainActor in
+            await actionDelegate?.updaterPreparesToRelaunchApplication()
+            reply(.install)
+        }
     }
 
     func showInstallingUpdate(withApplicationTerminated applicationTerminated: Bool, retryTerminatingApplication: @escaping () -> Void) {

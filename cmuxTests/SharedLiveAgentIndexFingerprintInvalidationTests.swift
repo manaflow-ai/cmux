@@ -62,6 +62,10 @@ struct SharedLiveAgentIndexFingerprintInvalidationTests {
             refreshed.map { _ in true } == nil,
             "An unavailable replacement capture must not revive the cache whose fingerprint just mismatched."
         )
+        #expect(
+            sharedIndex.cachedResumeIndexes().map { _ in true } == nil,
+            "Fingerprint-invalidated indexes must not remain available to synchronous termination consumers."
+        )
 
         releaseSecondLoad.signal()
         await timeoutWaiter.cancelAll()

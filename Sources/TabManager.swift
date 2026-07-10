@@ -4012,11 +4012,18 @@ class TabManager: ObservableObject {
     /// No-op when no browser panel restore snapshot is available.
     @discardableResult
     func reopenMostRecentlyClosedBrowserPanel() -> Bool {
-        if reopenMostRecentlyClosedItem() {
-            return true
+        if let appDelegate = AppDelegate.shared {
+            return appDelegate.reopenMostRecentlyClosedItem(preferredTabManager: self)
         }
 
-        return reopenMostRecentlyClosedBrowserPanelFromLegacyStack()
+        switch reopenMostRecentlyClosedItemFromStore() {
+        case .restored:
+            return true
+        case .blockedByPendingEnrichment:
+            return false
+        case .unavailable:
+            return reopenMostRecentlyClosedBrowserPanelFromLegacyStack()
+        }
     }
 
     @discardableResult
@@ -4067,20 +4074,7 @@ class TabManager: ObservableObject {
             return appDelegate.reopenMostRecentlyClosedItem(preferredTabManager: self)
         }
 
-        if ClosedItemHistoryStore.shared.restoreFirstRestorable(using: { entry in
-            switch entry {
-            case .panel(let panelEntry):
-                return restoreClosedPanel(panelEntry)
-            case .workspace(let workspaceEntry):
-                return restoreClosedWorkspace(workspaceEntry)
-            case .window:
-                return false
-            }
-        }) {
-            return true
-        }
-
-        return false
+        return reopenMostRecentlyClosedItemFromStore() == .restored
     }
 
     @discardableResult

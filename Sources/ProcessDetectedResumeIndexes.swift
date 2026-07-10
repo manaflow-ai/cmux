@@ -19,12 +19,6 @@ struct ProcessDetectedResumeIndexes: Sendable {
         )
     }
 
-    static func loadSynchronously() -> ProcessDetectedResumeIndexes {
-        ProcessDetectedResumeIndexes(
-            SharedLiveAgentIndexLoader().loadResultSynchronously()
-        )
-    }
-
     @MainActor
     static func load(
         maximumAge: TimeInterval = 60

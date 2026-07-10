@@ -170,7 +170,7 @@ final class ClosedItemHistoryStore: ObservableObject {
 
     @discardableResult
     func restoreFirstRestorable(using restore: (ClosedItemHistoryEntry) -> Bool) -> Bool {
-        restoreFirstRestorable(newerThan: nil, using: restore)
+        restoreFirstRestorableResult(newerThan: nil, using: restore) == .restored
     }
 
     @discardableResult
@@ -180,15 +180,37 @@ final class ClosedItemHistoryStore: ObservableObject {
         onFailure: ((UUID) -> Void)? = nil,
         using restore: (ClosedItemHistoryEntry) -> Bool
     ) -> Bool {
+        restoreFirstRestorableResult(
+            newerThan: cutoff,
+            excluding: excludedRecordIds,
+            onFailure: onFailure,
+            using: restore
+        ) == .restored
+    }
+
+    func restoreFirstRestorableResult(
+        using restore: (ClosedItemHistoryEntry) -> Bool
+    ) -> ClosedItemHistoryRestoreResult {
+        restoreFirstRestorableResult(newerThan: nil, using: restore)
+    }
+
+    func restoreFirstRestorableResult(
+        newerThan cutoff: Date?,
+        excluding excludedRecordIds: Set<UUID> = [],
+        onFailure: ((UUID) -> Void)? = nil,
+        using restore: (ClosedItemHistoryEntry) -> Bool
+    ) -> ClosedItemHistoryRestoreResult {
         let candidates = orderedRestoreCandidates(
             newerThan: cutoff,
             excluding: excludedRecordIds
         )
         guard candidates.first.map({ !pendingEnrichmentRecordIDs.contains($0.id) }) ?? true else {
-            return false
+            return .blockedByPendingEnrichment
         }
         for candidate in candidates {
-            guard !pendingEnrichmentRecordIDs.contains(candidate.id) else { continue }
+            guard !pendingEnrichmentRecordIDs.contains(candidate.id) else {
+                return .blockedByPendingEnrichment
+            }
             guard restore(candidate.entry) else {
                 onFailure?(candidate.id)
                 continue
@@ -198,9 +220,9 @@ final class ClosedItemHistoryStore: ObservableObject {
                 revision &+= 1
                 persistRecords()
             }
-            return true
+            return .restored
         }
-        return false
+        return .unavailable
     }
 
     func removeRecord(id: UUID) -> (record: ClosedItemHistoryRecord, index: Int)? {

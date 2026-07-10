@@ -267,4 +267,89 @@ import Testing
 
         #expect(model.state.isIdle)
     }
+
+    @Test func readyToInstallWaitsForHostRelaunchPreparation() async {
+        let driver = UpdateDriver(
+            model: UpdateStateModel(),
+            log: NoopUpdateLog(),
+            clock: SystemUpdateClock(),
+            isDevLikeBundle: false
+        )
+        let events = RelaunchPreparationEventQueue()
+        let delegate = SuspendedRelaunchPreparationDelegate(events: events)
+        let received = PromptReplyChoiceBox()
+        driver.actionDelegate = delegate
+
+        driver.showReady { choice in
+            MainActor.assumeIsolated {
+                received.append(choice)
+                events.send(.installReplied)
+            }
+        }
+        guard await events.next() == .preparationBegan else {
+            Issue.record("Sparkle received install permission before host relaunch preparation began")
+            return
+        }
+        #expect(received.choices.isEmpty)
+
+        delegate.finishPreparation()
+        #expect(await events.next() == .installReplied)
+        #expect(received.choices == [.install])
+    }
+}
+
+@MainActor
+private final class SuspendedRelaunchPreparationDelegate: UpdateActionDelegate {
+    private let events: RelaunchPreparationEventQueue
+    private var preparationContinuation: CheckedContinuation<Void, Never>?
+
+    init(events: RelaunchPreparationEventQueue) {
+        self.events = events
+    }
+
+    func updaterRequestsRetryCheckForUpdates() {}
+
+    func updaterPreparesToRelaunchApplication() async {
+        events.send(.preparationBegan)
+        await withCheckedContinuation { continuation in
+            preparationContinuation = continuation
+        }
+    }
+
+    func updaterWillRelaunchApplication() {}
+
+    func finishPreparation() {
+        preparationContinuation?.resume()
+        preparationContinuation = nil
+    }
+}
+
+@MainActor
+private final class RelaunchPreparationEventQueue {
+    enum Event: Equatable {
+        case preparationBegan
+        case installReplied
+    }
+
+    private var bufferedEvents: [Event] = []
+    private var waiter: CheckedContinuation<Event, Never>?
+
+    func send(_ event: Event) {
+        if let waiter {
+            self.waiter = nil
+            waiter.resume(returning: event)
+        } else {
+            bufferedEvents.append(event)
+        }
+    }
+
+    func next() async -> Event {
+        if !bufferedEvents.isEmpty {
+            return bufferedEvents.removeFirst()
+        }
+        return await withCheckedContinuation { continuation in
+            precondition(waiter == nil)
+            waiter = continuation
+        }
+    }
 }
