@@ -1,5 +1,7 @@
 "use client";
 
+import { docsChannelUrl } from "@/app/lib/docs-channel";
+
 export function DocsVersionPicker({
   channel,
   releaseLabel,
@@ -24,7 +26,8 @@ export function DocsVersionPicker({
         value={channel}
         onChange={(event) => {
           const origin = event.target.value === "release" ? releaseOrigin : nightlyOrigin;
-          window.location.assign(new URL(window.location.href, origin).toString());
+          const { pathname, search, hash } = window.location;
+          window.location.assign(docsChannelUrl(origin, pathname, search, hash));
         }}
       >
         <option value={channel}>{current}</option>

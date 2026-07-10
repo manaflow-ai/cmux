@@ -18,3 +18,12 @@ export function docsCanonicalOrigin(): string {
   // Nightly is useful to people testing main, but release docs own search results.
   return releaseDocsOrigin();
 }
+
+export function docsChannelUrl(
+  origin: string,
+  pathname: string,
+  search = "",
+  hash = "",
+): string {
+  return new URL(`${pathname}${search}${hash}`, origin).toString();
+}
