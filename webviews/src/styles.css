@@ -768,6 +768,9 @@ body[data-files-hidden="true"] #files-sidebar {
 body[data-status-only="true"] #files-sidebar {
   display: none;
 }
+#files-sidebar-backdrop {
+  display: none;
+}
 #files-header {
   position: relative;
   z-index: 1;
@@ -949,12 +952,39 @@ body[data-loading="false"]:not([data-status-only="true"]) #loading-layer {
   #files-sidebar {
     display: none;
   }
+  #app[data-file-search-open="true"] #files-sidebar-backdrop {
+    position: absolute;
+    inset: 0;
+    z-index: 44;
+    display: block;
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: color-mix(in srgb, #000 38%, transparent);
+    -webkit-backdrop-filter: blur(2px);
+    backdrop-filter: blur(2px);
+    cursor: default;
+  }
   #app[data-file-search-open="true"] #files-sidebar {
     display: flex;
     position: absolute;
-    inset: 0;
+    inset: 0 0 0 auto;
+    width: min(88vw, 360px);
+    max-width: calc(100% - 32px);
     z-index: 45;
-    border-left: 0;
+    visibility: visible;
+    opacity: 1;
+    pointer-events: auto;
+    border-left: 1px solid var(--cmux-diff-border);
+    background: var(--cmux-diff-bg);
+    box-shadow: -18px 0 42px color-mix(in srgb, #000 34%, transparent);
+    isolation: isolate;
+    --cmux-diff-sidebar-bg: var(--cmux-diff-bg);
+  }
+  #app[data-file-search-open="true"] #files-resize-handle {
+    display: none;
   }
 }
 @media (prefers-reduced-motion: reduce) {

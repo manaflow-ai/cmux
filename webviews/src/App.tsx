@@ -270,6 +270,7 @@ export function App({ config, initialStatus }: ConfigProps) {
   useCommentsBootstrap(bridgeAvailable ? repoRoot : null, comments.onLoaded);
   useKeyboardShortcuts(payload.shortcuts ?? {}, viewerContainerRef, dispatch);
   useOptionsDismiss(state.optionsOpen, dispatch);
+  useFileSearchDismiss(state.fileSearchOpen, dispatch);
 
   const renderCommentAnnotation = (annotation: CommentAnnotation, item: DiffItem) => {
     const metadata = annotation.metadata;
@@ -364,6 +365,11 @@ export function App({ config, initialStatus }: ConfigProps) {
         state={state}
       />
       <section id="content" style={{ "--cmux-diff-files-width": `${state.filesWidth}px` } as React.CSSProperties}>
+        <FilesSidebarBackdrop
+          label={label}
+          onClose={() => closeFileSearch(dispatch)}
+          open={state.fileSearchOpen}
+        />
         <FilesSidebar
           commentEntries={commentEntries}
           commentLabels={commentLabels}
@@ -407,6 +413,30 @@ export function App({ config, initialStatus }: ConfigProps) {
         className="copy-fallback-textarea"
       />
     </div>
+  );
+}
+
+export function FilesSidebarBackdrop({
+  label,
+  onClose,
+  open,
+}: {
+  label: DiffViewerLabelResolver;
+  onClose: () => void;
+  open: boolean;
+}) {
+  if (!open) {
+    return null;
+  }
+  return (
+    <button
+      id="files-sidebar-backdrop"
+      type="button"
+      aria-controls="files-sidebar"
+      aria-label={label("hideFileSearch")}
+      title={label("hideFileSearch")}
+      onClick={onClose}
+    />
   );
 }
 
@@ -1604,6 +1634,27 @@ function useOptionsDismiss(optionsOpen: boolean, dispatch: React.Dispatch<AppAct
       document.removeEventListener("keydown", closeOnEscape);
     };
   }, [dispatch, optionsOpen]);
+}
+
+function closeFileSearch(dispatch: React.Dispatch<AppAction>) {
+  dispatch({ type: "set-file-search-open", open: false });
+  const trigger = document.getElementById("jump-search-button") ?? document.getElementById("jump-select");
+  trigger?.focus();
+}
+
+function useFileSearchDismiss(fileSearchOpen: boolean, dispatch: React.Dispatch<AppAction>) {
+  useEffect(() => {
+    if (!fileSearchOpen) {
+      return;
+    }
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        closeFileSearch(dispatch);
+      }
+    };
+    document.addEventListener("keydown", closeOnEscape);
+    return () => document.removeEventListener("keydown", closeOnEscape);
+  }, [dispatch, fileSearchOpen]);
 }
 
 function useDiffTransport(config: DiffTransportConfig | undefined): DiffTransport | null {
