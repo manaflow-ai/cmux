@@ -3,6 +3,60 @@ import Testing
 @testable import CmuxGit
 
 @Suite struct GitTrackedChangesSnapshotCacheTests {
+    @Test(.timeLimit(.minutes(1)))
+    func concurrentServicesSharingCacheRunOneTrackedScan() async throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("main")
+        let entry = try fixture.writeWorkingTreeFile("file.txt", contents: "hello")
+        try fixture.writeIndex(GitIndexFixture(version: 2, entries: [entry]))
+        let repository = try #require(GitMetadataService.resolveGitRepository(containing: fixture.root.path))
+        let filePath = fixture.root.appendingPathComponent("file.txt").path
+        let reader = GatedCountingGitFileStatusReader(gatedPath: filePath)
+        let cache = GitTrackedChangesSnapshotCache()
+        let callerCount = 8
+        let startGate = ConcurrentOperationStartGate(expectedCount: callerCount)
+        let generation = GitTrackedPathEventGeneration(namespace: UUID(), generation: 7)
+        let services = (0..<callerCount).map { _ in
+            GitMetadataService(
+                fileStatusReader: reader,
+                trackedChangesSnapshotCache: cache
+            )
+        }
+        let snapshotsTask = Task {
+            await withTaskGroup(of: GitTrackedChangesSnapshot.self) { group in
+                for service in services {
+                    group.addTask {
+                        await startGate.wait()
+                        return await service.gitTrackedChangesSnapshot(
+                            repository: repository,
+                            trackedPathEventGeneration: generation
+                        )
+                    }
+                }
+                var snapshots: [GitTrackedChangesSnapshot] = []
+                for await snapshot in group {
+                    snapshots.append(snapshot)
+                }
+                return snapshots
+            }
+        }
+        defer {
+            reader.openGate()
+            snapshotsTask.cancel()
+        }
+
+        #expect(reader.waitForCallCount(atPath: filePath, atLeast: 1, timeout: 2))
+        _ = reader.waitForCallCount(atPath: filePath, atLeast: 2, timeout: 0.5)
+        let trackedScanOperationCount = reader.callCount(atPath: filePath)
+        reader.openGate()
+        let snapshots = await snapshotsTask.value
+
+        #expect(trackedScanOperationCount == 1)
+        #expect(snapshots.count == callerCount)
+        let firstSnapshot = try #require(snapshots.first)
+        #expect(snapshots.allSatisfy { $0 == firstSnapshot })
+    }
+
     @Test func alternatingGenerationsKeepSeparateTrackedSnapshotCacheEntries() async throws {
         let fixture = try GitRepositoryFixture()
         try fixture.writeBranch("main")

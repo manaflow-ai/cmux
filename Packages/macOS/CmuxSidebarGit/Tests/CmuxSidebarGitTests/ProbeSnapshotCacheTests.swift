@@ -32,7 +32,7 @@ import CmuxGit
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func fallbackRefreshBypassesTrackedSnapshotCacheGeneration() async throws {
+    func fallbackRefreshReusesCurrentTrackedSnapshotCacheGeneration() async throws {
         let directory = "/tmp/repo"
         let host = RecordingSidebarGitHost()
         let (workspaceId, panelId) = host.addWorkspace(panelDirectory: directory)
@@ -55,9 +55,11 @@ import CmuxGit
         #expect(await reader.waitForTrackedPathEventGenerationProbe())
 
         let generations = await reader.probedTrackedPathEventGenerations
-        #expect(generations == [nil])
-        let advancedGeneration = try #require(service.workspaceGitSnapshotCacheGeneration(directory: directory))
-        #expect(advancedGeneration != initialGeneration)
+        let generation = try #require(generations.first ?? nil)
+        #expect(generations.count == 1)
+        #expect(generation.namespace == service.workspaceGitSnapshotCacheNamespace)
+        #expect(generation.generation == initialGeneration)
+        #expect(service.workspaceGitSnapshotCacheGeneration(directory: directory) == initialGeneration)
     }
 
     @Test(.timeLimit(.minutes(1)))
