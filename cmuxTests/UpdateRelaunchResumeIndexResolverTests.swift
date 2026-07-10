@@ -53,8 +53,8 @@ struct UpdateRelaunchResumeIndexResolverTests {
         #expect(
             completed.map { _ in true } == true
                 && cached.map { _ in true } == true
-                && cold.map { _ in true } == true
-                && events == ["cache-hit", "cache-miss", "cold-load"]
+                && cold.map { _ in true } == nil
+                && events == ["cache-hit", "cache-miss"]
         )
     }
 }

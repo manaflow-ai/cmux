@@ -107,6 +107,14 @@ struct ProcessDetectedResumeIndexCoordinationTests {
             coordinator.current().map { _ in true } == nil,
             "A memoized unavailable termination capture must override an older shared cache."
         )
+        let savePlan = TerminationResumeIndexSavePlan.resolve(
+            coordinator.resolution(),
+            cachedResumeIndexes: { sharedIndex.cachedResumeIndexes() }
+        )
+        #expect(
+            savePlan.usesCoreSnapshotFallback,
+            "A completed unavailable capture must remain authoritative over an older shared cache."
+        )
 
         let second = Task { @MainActor in await coordinator.load(coordinatedBy: sharedIndex) }
         let didStartSecondLoad = await Self.wait(for: secondLoadStarted, timeout: 0.2)
