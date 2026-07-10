@@ -707,16 +707,38 @@ describe("Iroh relay minter response bounds", () => {
     expect(() => parseMinterHmacSecret(Buffer.alloc(32, 0xff).toString("base64url"))).toThrow();
   });
 
-  test("requires HTTPS and the exact isolated minter route", () => {
+  test("allows plaintext only for opted-in local loopback minters", () => {
+    const localDevelopment = {
+      allowInsecureLoopback: true,
+      deploymentEnvironment: "development",
+      isVercelDeployment: false,
+    };
     expect(parseMinterUrl("https://minter.cmux.test/api/relay-token").pathname).toBe("/api/relay-token");
     for (const value of [
+      "http://localhost:49152/api/relay-token",
+      "http://127.0.0.1:49152/api/relay-token",
+      "http://[::1]:49152/api/relay-token",
+    ]) {
+      expect(parseMinterUrl(value, localDevelopment).protocol).toBe("http:");
+    }
+    for (const value of [
       "http://minter.cmux.test/api/relay-token",
+      "http://192.168.1.10:49152/api/relay-token",
       "https://minter.cmux.test/api/relay-token/",
       "https://minter.cmux.test/other",
       "https://minter.cmux.test/api/relay-token?debug=1",
     ]) {
-      expect(() => parseMinterUrl(value)).toThrow();
+      expect(() => parseMinterUrl(value, localDevelopment)).toThrow();
     }
+    expect(() => parseMinterUrl("http://localhost:49152/api/relay-token", {
+      ...localDevelopment,
+      deploymentEnvironment: "production",
+    })).toThrow();
+    expect(() => parseMinterUrl("http://localhost:49152/api/relay-token", {
+      ...localDevelopment,
+      deploymentEnvironment: "preview",
+      isVercelDeployment: true,
+    })).toThrow();
   });
 
   test("parses a bounded response", async () => {
