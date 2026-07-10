@@ -1629,9 +1629,7 @@ final class WindowTerminalPortal: NSObject {
         let currentWindow = window
         let deadHostedIds = entriesByHostedId.compactMap { hostedId, entry -> ObjectIdentifier? in
             guard entry.hostedView != nil else { return hostedId }
-            guard let anchor = entry.anchorView else {
-                return entry.visibleInUI ? nil : hostedId
-            }
+            guard let anchor = entry.anchorView else { return hostedId }
 
             let anchorInvalidForCurrentHost =
                 anchor.window !== currentWindow ||
