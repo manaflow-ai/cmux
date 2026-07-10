@@ -267,50 +267,6 @@ struct AgentHibernationPlannerSwiftTests {
 
     @MainActor
     @Test
-    func postSnapshotValidationDoesNotReuseTaskStartedBeforeSnapshotPoint() {
-        let controller = AgentHibernationController.shared
-        defer { resetSharedHibernationState(controller) }
-
-        let staleRequestID = UUID()
-        let staleTask = Task<RestorableAgentSessionIndex, Never> {
-            while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 1_000_000_000)
-            }
-            return .empty
-        }
-        controller.postSnapshotValidationIndexSequence = 1
-        controller.postSnapshotValidationIndexTask = AgentHibernationController.PostSnapshotValidationIndexTask(
-            requestID: staleRequestID,
-            startSequence: 1,
-            task: staleTask
-        )
-        controller.postSnapshotValidationIndexSequence = 2
-
-        _ = controller.sharedPostSnapshotValidationIndexTask(minimumStartSequence: 2)
-
-        #expect(controller.postSnapshotValidationIndexTask?.requestID != staleRequestID)
-        #expect(controller.postSnapshotValidationIndexTask?.startSequence == 2)
-        #expect(staleTask.isCancelled)
-    }
-
-    @MainActor
-    @Test
-    func postSnapshotValidationReusesTaskForSameBatchBoundary() {
-        let controller = AgentHibernationController.shared
-        defer { resetSharedHibernationState(controller) }
-
-        let boundary = controller.markPostSnapshotValidationPoint()
-        _ = controller.sharedPostSnapshotValidationIndexTask(minimumStartSequence: boundary)
-        let firstRequestID = controller.postSnapshotValidationIndexTask?.requestID
-
-        _ = controller.sharedPostSnapshotValidationIndexTask(minimumStartSequence: boundary)
-
-        #expect(controller.postSnapshotValidationIndexTask?.requestID == firstRequestID)
-        #expect(controller.postSnapshotValidationIndexTask?.startSequence == boundary)
-    }
-
-    @MainActor
-    @Test
     func postSnapshotValidationUsesFreshIndexLifecycleAndActivity() throws {
         let controller = AgentHibernationController.shared
         defer { resetSharedHibernationState(controller) }
@@ -389,8 +345,5 @@ struct AgentHibernationPlannerSwiftTests {
         // suites run concurrently against the shared controller, and a bulk
         // cancel would kill their in-flight monitors mid-test. Tests in this
         // suite that store a monitor clean up their own entry by request ID.
-        controller.postSnapshotValidationIndexTask?.task.cancel()
-        controller.postSnapshotValidationIndexSequence = 0
-        controller.postSnapshotValidationIndexTask = nil
     }
 }

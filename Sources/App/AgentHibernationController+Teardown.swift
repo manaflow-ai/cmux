@@ -80,10 +80,8 @@ extension AgentHibernationController {
                 }
             }
 
-            let postSnapshotSequence = markPostSnapshotValidationPoint()
-            let postSnapshotIndex = await sharedPostSnapshotValidationIndexTask(
-                minimumStartSequence: postSnapshotSequence
-            ).value
+            let postSnapshotBoundary = SharedLiveAgentIndex.shared.markLoadBoundary()
+            let postSnapshotIndex = await SharedLiveAgentIndex.shared.indexLoaded(after: postSnapshotBoundary)
 
             for request in requests {
                 let record = request.record
@@ -352,36 +350,6 @@ extension AgentHibernationController {
             task: task
         )
         return true
-    }
-
-    func markPostSnapshotValidationPoint() -> UInt64 {
-        postSnapshotValidationIndexSequence = postSnapshotValidationIndexSequence &+ 1
-        return postSnapshotValidationIndexSequence
-    }
-
-    func sharedPostSnapshotValidationIndexTask(minimumStartSequence: UInt64) -> Task<RestorableAgentSessionIndex, Never> {
-        if let inFlight = postSnapshotValidationIndexTask {
-            if inFlight.startSequence >= minimumStartSequence {
-                return inFlight.task
-            }
-            inFlight.task.cancel()
-        }
-        let requestID = UUID()
-        let startSequence = postSnapshotValidationIndexSequence
-        let task = Task.detached(priority: .utility) {
-            await RestorableAgentSessionIndex.loadIncludingProcessDetectedSnapshots()
-        }
-        postSnapshotValidationIndexTask = PostSnapshotValidationIndexTask(
-            requestID: requestID,
-            startSequence: startSequence,
-            task: task
-        )
-        Task { @MainActor in
-            _ = await task.value
-            guard self.postSnapshotValidationIndexTask?.requestID == requestID else { return }
-            self.postSnapshotValidationIndexTask = nil
-        }
-        return task
     }
 
     func cancelPostTeardownRestoreTaskForReplacement(transcriptPath: String) async {

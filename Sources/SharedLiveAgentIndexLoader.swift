@@ -4,6 +4,7 @@ import Foundation
 struct SharedLiveAgentIndexLoader {
     typealias LoadResult = (
         index: RestorableAgentSessionIndex,
+        surfaceResumeBindingIndex: SurfaceResumeBindingIndex,
         liveAgentProcessFingerprint: Set<String>,
         processScopeFingerprint: Set<String>,
         forkValidatedPanels: Set<RestorableAgentSessionIndex.PanelKey>
@@ -55,11 +56,12 @@ struct SharedLiveAgentIndexLoader {
         let resolvedRegistry = registry
             ?? CmuxVaultAgentRegistry.load(homeDirectory: homeDirectory, fileManager: fileManager)
         let processSnapshot = processSnapshotProvider()
+        let capturedAt = capturedAtProvider()
         let detectedSnapshots = RestorableAgentSessionIndex.processDetectedSnapshots(
             registry: resolvedRegistry,
             fileManager: fileManager,
             processSnapshot: processSnapshot,
-            capturedAt: capturedAtProvider(),
+            capturedAt: capturedAt,
             processArgumentsProvider: processArgumentsProvider
         )
         let index = RestorableAgentSessionIndex.load(
@@ -70,8 +72,16 @@ struct SharedLiveAgentIndexLoader {
             processArgumentsProvider: processArgumentsProvider,
             processIdentityProvider: processIdentityProvider
         )
+        let detectedBindings = SurfaceResumeBindingIndex.processDetectedTmuxBindings(
+            fileManager: fileManager,
+            processSnapshot: processSnapshot,
+            capturedAt: capturedAt
+        )
         return (
             index: index,
+            surfaceResumeBindingIndex: SurfaceResumeBindingIndex(
+                bindingsByPanel: detectedBindings.mapValues(\.binding)
+            ),
             liveAgentProcessFingerprint: index.liveAgentProcessFingerprint(),
             processScopeFingerprint: Self.processScopeFingerprint(from: processSnapshot),
             forkValidatedPanels: Self.forkValidatedPanels(

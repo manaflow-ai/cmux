@@ -8,7 +8,10 @@ struct ProcessDetectedResumeIndexes: Sendable {
         homeDirectory: String = NSHomeDirectory(),
         fileManager: FileManager = .default
     ) async -> ProcessDetectedResumeIndexes {
-        await Task.detached(priority: .utility) {
+        if homeDirectory == NSHomeDirectory(), fileManager === FileManager.default {
+            return await SharedLiveAgentIndex.shared.processDetectedResumeIndexes()
+        }
+        return await Task.detached(priority: .utility) {
             loadSynchronously(homeDirectory: homeDirectory, fileManager: fileManager, maximumSnapshotAge: 5)
         }.value
     }

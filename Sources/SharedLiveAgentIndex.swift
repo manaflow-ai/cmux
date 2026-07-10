@@ -6,11 +6,30 @@ import Foundation
 final class SharedLiveAgentIndex {
     static let shared = SharedLiveAgentIndex()
 
+    struct LoadBoundary: Sendable {
+        fileprivate let sequence: UInt64
+    }
+
+    private struct InFlightLoad {
+        let sequence: UInt64
+        let task: Task<SharedLiveAgentIndexLoader.LoadResult, Never>
+        var forcePublish: Bool
+        var notifyObservers: Bool
+    }
+
+    private struct LoadOutcome {
+        let sequence: UInt64
+        let result: SharedLiveAgentIndexLoader.LoadResult
+    }
+
     private(set) var index: RestorableAgentSessionIndex?
     private var loadedAt: Date?
     private var liveAgentProcessFingerprint: Set<String> = []
     private var refreshTask: Task<Void, Never>?
     private var forkAvailabilityRefreshTask: Task<Void, Never>?
+    private var nextLoadSequence: UInt64 = 0
+    private var lastAppliedLoadSequence: UInt64 = 0
+    private var inFlightLoad: InFlightLoad?
     private var validatedForkPanelProbeCompletedAt: [RestorableAgentSessionIndex.PanelKey: Date] = [:]
     private var validatedForkPanels = Set<RestorableAgentSessionIndex.PanelKey>()
     private var validatedMissingForkPanels: [RestorableAgentSessionIndex.PanelKey: Date] = [:]
@@ -52,6 +71,7 @@ final class SharedLiveAgentIndex {
     deinit {
         refreshTask?.cancel()
         forkAvailabilityRefreshTask?.cancel()
+        inFlightLoad?.task.cancel()
         deferredReloadTimer?.cancel()
         directoryWatchSource?.cancel()
     }
@@ -115,6 +135,43 @@ final class SharedLiveAgentIndex {
         return index
     }
 
+    /// Captures the most recently started physical load. A later safety-critical
+    /// request can require a scan that starts after this boundary.
+    func markLoadBoundary() -> LoadBoundary {
+        LoadBoundary(sequence: nextLoadSequence)
+    }
+
+    /// Returns an index from a physical load that starts after this request.
+    func refreshedIndex() async -> RestorableAgentSessionIndex {
+        let boundary = markLoadBoundary()
+        return await reload(
+            forcePublish: true,
+            startedAfter: boundary,
+            continueFreshnessAfterCancellation: false
+        )
+    }
+
+    /// Returns an index from a physical load that began after `boundary`.
+    /// Concurrent callers waiting behind the same older load share one successor.
+    func indexLoaded(after boundary: LoadBoundary) async -> RestorableAgentSessionIndex {
+        await reload(forcePublish: true, startedAfter: boundary)
+    }
+
+    /// Shares the same process snapshot and physical index load with autosave callers.
+    func processDetectedResumeIndexes() async -> ProcessDetectedResumeIndexes {
+        let boundary = markLoadBoundary()
+        let outcome = await coordinatedLoad(
+            forcePublish: false,
+            notifyObservers: false,
+            startedAfter: boundary,
+            continueFreshnessAfterCancellation: false
+        )
+        return ProcessDetectedResumeIndexes(
+            restorableAgentIndex: outcome.result.index,
+            surfaceResumeBindingIndex: outcome.result.surfaceResumeBindingIndex
+        )
+    }
+
     func scheduleRefreshIfStale(validating panelKey: RestorableAgentSessionIndex.PanelKey? = nil) {
         ensureWatchingHookStoreDirectory()
         guard refreshTask == nil, forkAvailabilityRefreshTask == nil else {
@@ -151,7 +208,6 @@ final class SharedLiveAgentIndex {
             guard let self else { return }
             _ = await self.reloadIfLiveAgentProcessFingerprintChanged()
             self.forkAvailabilityRefreshTask = nil
-            NotificationCenter.default.post(name: .sharedLiveAgentIndexDidChange, object: self)
             if self.changePending {
                 self.changePending = false
                 self.handleHookStoreChange()
@@ -159,14 +215,13 @@ final class SharedLiveAgentIndex {
         }
     }
 
-    private func startReload() {
+    private func startReload(startedAfter boundary: LoadBoundary? = nil) {
         deferredReloadTimer?.cancel()
         deferredReloadTimer = nil
         refreshTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            await self.reload(forcePublish: true)
+            await self.reload(forcePublish: true, startedAfter: boundary)
             self.refreshTask = nil
-            NotificationCenter.default.post(name: .sharedLiveAgentIndexDidChange, object: self)
             if self.changePending {
                 self.changePending = false
                 self.handleHookStoreChange()
@@ -183,18 +238,104 @@ final class SharedLiveAgentIndex {
         return true
     }
 
-    private func reload(forcePublish: Bool) async {
-        let indexLoader = self.indexLoader
-        let result = await Task.detached(priority: .utility) {
-            indexLoader()
-        }.value
-        guard !Task.isCancelled else { return }
+    @discardableResult
+    private func reload(
+        forcePublish: Bool,
+        startedAfter boundary: LoadBoundary? = nil,
+        continueFreshnessAfterCancellation: Bool = true
+    ) async -> RestorableAgentSessionIndex {
+        let outcome = await coordinatedLoad(
+            forcePublish: forcePublish,
+            notifyObservers: true,
+            startedAfter: boundary,
+            continueFreshnessAfterCancellation: continueFreshnessAfterCancellation
+        )
+        return outcome.result.index
+    }
+
+    private func coordinatedLoad(
+        forcePublish: Bool,
+        notifyObservers: Bool,
+        startedAfter boundary: LoadBoundary? = nil,
+        continueFreshnessAfterCancellation: Bool
+    ) async -> LoadOutcome {
+        while true {
+            if let inFlightLoad {
+                let satisfiesBoundary = boundary.map { inFlightLoad.sequence > $0.sequence } ?? true
+                if satisfiesBoundary, forcePublish {
+                    self.inFlightLoad?.forcePublish = true
+                }
+                if satisfiesBoundary, notifyObservers {
+                    self.inFlightLoad?.notifyObservers = true
+                }
+                let outcome = await finish(inFlightLoad)
+                if Task.isCancelled, !continueFreshnessAfterCancellation {
+                    return outcome
+                }
+                if satisfiesBoundary {
+                    return outcome
+                }
+                continue
+            }
+
+            nextLoadSequence = nextLoadSequence &+ 1
+            let sequence = nextLoadSequence
+            let indexLoader = self.indexLoader
+            let task = Task.detached(priority: .utility) {
+#if DEBUG
+                let startedAt = ProcessInfo.processInfo.systemUptime
+                cmuxDebugLog("agentIndex.load.started sequence=\(sequence)")
+#endif
+                let result = indexLoader()
+#if DEBUG
+                let elapsedMs = (ProcessInfo.processInfo.systemUptime - startedAt) * 1_000
+                let elapsed = String(format: "%.1f", elapsedMs)
+                cmuxDebugLog("agentIndex.load.finished sequence=\(sequence) elapsedMs=\(elapsed)")
+#endif
+                return result
+            }
+            inFlightLoad = InFlightLoad(
+                sequence: sequence,
+                task: task,
+                forcePublish: forcePublish,
+                notifyObservers: notifyObservers
+            )
+        }
+    }
+
+    private func finish(_ load: InFlightLoad) async -> LoadOutcome {
+        let result = await load.task.value
+        let outcome = LoadOutcome(sequence: load.sequence, result: result)
+        if let currentLoad = inFlightLoad,
+           currentLoad.sequence == load.sequence {
+            inFlightLoad = nil
+            let didPublishIndex = apply(outcome, forcePublish: currentLoad.forcePublish)
+            if currentLoad.notifyObservers || didPublishIndex {
+                NotificationCenter.default.post(name: .sharedLiveAgentIndexDidChange, object: self)
+            }
+        }
+        return outcome
+    }
+
+    private func apply(_ outcome: LoadOutcome, forcePublish: Bool) -> Bool {
+        guard outcome.sequence >= lastAppliedLoadSequence else { return false }
+        lastAppliedLoadSequence = outcome.sequence
+        let result = outcome.result
         let loadedAt = dateProvider()
         let hasPendingForkValidations = !pendingForkValidationPanels.isEmpty
-        if forcePublish
+        let indexWasMissing = index == nil
+        let liveAgentFingerprintChanged = result.liveAgentProcessFingerprint != liveAgentProcessFingerprint
+        let processScopeFingerprintChanged = result.processScopeFingerprint != processScopeFingerprint
+        let forkValidatedPanelsChanged = result.forkValidatedPanels != validatedForkPanels
+        let observableStateChanged = indexWasMissing
+            || liveAgentFingerprintChanged
+            || forkValidatedPanelsChanged
             || hasPendingForkValidations
-            || result.liveAgentProcessFingerprint != liveAgentProcessFingerprint
-            || result.processScopeFingerprint != processScopeFingerprint {
+        if indexWasMissing
+            || forcePublish
+            || hasPendingForkValidations
+            || liveAgentFingerprintChanged
+            || processScopeFingerprintChanged {
             applyReloadedIndex(
                 result.index,
                 loadedAt: loadedAt,
@@ -202,6 +343,8 @@ final class SharedLiveAgentIndex {
                 processScopeFingerprint: result.processScopeFingerprint,
                 forkValidatedPanels: result.forkValidatedPanels
             )
+            applyPendingForkValidations()
+            return observableStateChanged
         } else {
             self.loadedAt = loadedAt
             self.processScopeFingerprint = result.processScopeFingerprint
@@ -212,6 +355,7 @@ final class SharedLiveAgentIndex {
             )
         }
         applyPendingForkValidations()
+        return observableStateChanged
     }
 
     private func applyReloadedIndex(
@@ -279,6 +423,10 @@ final class SharedLiveAgentIndex {
             changePending = true
             return
         }
+        if inFlightLoad != nil {
+            startReload(startedAfter: markLoadBoundary())
+            return
+        }
         let elapsed = loadedAt.map { dateProvider().timeIntervalSince($0) } ?? .infinity
         if elapsed >= Self.minEventReloadInterval {
             startReload()
@@ -319,10 +467,12 @@ final class SharedLiveAgentIndex {
         source.setCancelHandler { Darwin.close(fd) }
         source.resume()
         directoryWatchSource = source
-        if refreshTask == nil {
-            startReload()
-        } else {
+        if refreshTask != nil {
             changePending = true
+        } else if inFlightLoad != nil {
+            startReload(startedAfter: markLoadBoundary())
+        } else {
+            startReload()
         }
     }
 }

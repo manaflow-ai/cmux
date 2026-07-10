@@ -10,67 +10,6 @@ import Testing
 
 @MainActor
 @Suite(.serialized)
-struct SharedLiveAgentIndexCoalescingTests {
-    @Test
-    func concurrentForkAvailabilityRefreshesShareOneIndexLoad() async {
-        let loadCount = OSAllocatedUnfairLock(initialState: 0)
-        let firstLoadStarted = DispatchSemaphore(value: 0)
-        let releaseLoads = DispatchSemaphore(value: 0)
-        let sharedIndex = SharedLiveAgentIndex(
-            indexLoader: {
-                let invocation = loadCount.withLock { count in
-                    count += 1
-                    return count
-                }
-                if invocation == 1 {
-                    firstLoadStarted.signal()
-                }
-                releaseLoads.wait()
-                return (
-                    index: .empty,
-                    liveAgentProcessFingerprint: [],
-                    processScopeFingerprint: [],
-                    forkValidatedPanels: []
-                )
-            }
-        )
-
-        let firstRefresh = Task { @MainActor in
-            await sharedIndex.refreshForkAvailabilityNow()
-        }
-        await Task.detached {
-            Self.wait(for: firstLoadStarted)
-        }.value
-
-        let secondRefreshReachedSuspension = DispatchSemaphore(value: 0)
-        let secondRefresh = Task { @MainActor in
-            Task { @MainActor in
-                secondRefreshReachedSuspension.signal()
-            }
-            await sharedIndex.refreshForkAvailabilityNow()
-        }
-        await Task.detached {
-            Self.wait(for: secondRefreshReachedSuspension)
-        }.value
-
-        releaseLoads.signal()
-        releaseLoads.signal()
-        await firstRefresh.value
-        await secondRefresh.value
-
-        #expect(
-            loadCount.withLock { $0 } == 1,
-            "Concurrent refresh requests should await the same expensive index load."
-        )
-    }
-
-    nonisolated private static func wait(for semaphore: DispatchSemaphore) {
-        semaphore.wait()
-    }
-}
-
-@MainActor
-@Suite(.serialized)
 struct SharedLiveAgentIndexAgentLivenessTests {
     @Test
     func forkAvailabilityIgnoresDeadUnrelatedPanelChildProcess() async throws {

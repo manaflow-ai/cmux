@@ -1011,15 +1011,11 @@ struct RestorableAgentSessionIndex: Sendable {
         })
     }
 
-    // WARNING: Expensive. This reads every agent kind's hook-store file from disk,
-    // resolves transcripts, and runs sysctl(KERN_PROCARGS2) per recorded session for
-    // live-PID filtering (measured 350ms-1.8s on machines with large agent history).
-    // Claude transcript path lookups share a cross-load existence cache validated by
-    // project-directory mtimes, but load() still walks hook records and must stay off-main.
-    // NEVER call it synchronously on the main actor or in interactive paths (workspace/
-    // panel/window close, SwiftUI body, didSet, menu evaluation, socket handlers). Read
-    // the off-main, cached `SharedLiveAgentIndex.shared` instead. The only sanctioned
-    // synchronous callers are cold-cache fallbacks guarded by a nil cache check.
+    // WARNING: Expensive. This reads every agent hook store, resolves transcripts, and
+    // runs sysctl(KERN_PROCARGS2) per record (measured 350ms-1.8s on large histories).
+    // Transcript paths have a cross-load mtime cache, but hook records are still walked.
+    // Keep this off the main actor and interactive paths. Read the off-main, cached
+    // `SharedLiveAgentIndex.shared` instead; synchronous use is limited to cold fallbacks.
     static func load(
         homeDirectory: String = NSHomeDirectory(),
         fileManager: FileManager = .default
@@ -1037,7 +1033,10 @@ struct RestorableAgentSessionIndex: Sendable {
         homeDirectory: String = NSHomeDirectory(),
         fileManager: FileManager = .default
     ) async -> RestorableAgentSessionIndex {
-        await Task.detached(priority: .utility) {
+        if homeDirectory == NSHomeDirectory(), fileManager === FileManager.default {
+            return await SharedLiveAgentIndex.shared.refreshedIndex()
+        }
+        return await Task.detached(priority: .utility) {
             loadIncludingProcessDetectedSnapshotsSynchronously(
                 homeDirectory: homeDirectory,
                 fileManager: fileManager
