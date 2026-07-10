@@ -21,18 +21,26 @@ import UIKit
 @MainActor
 final class TerminalOutputCollector {
     private(set) var lines: [String] = []
+    private(set) var chunks: [MobileTerminalOutputChunk] = []
     private var task: Task<Void, Never>?
 
     /// Begin consuming the surface's output stream into ``lines``.
-    func mount(store: CMUXMobileShellStore, surfaceID: String) {
+    func mount(
+        store: CMUXMobileShellStore,
+        surfaceID: String,
+        automaticallyAcknowledges: Bool = true
+    ) {
         task = Task { @MainActor [weak self] in
             for await chunk in store.terminalOutputStream(surfaceID: surfaceID) {
                 guard let self else { break }
+                self.chunks.append(chunk)
                 self.lines.append(String(data: chunk.data, encoding: .utf8) ?? "")
-                store.terminalOutputDidProcess(
-                    surfaceID: surfaceID,
-                    streamToken: chunk.streamToken
-                )
+                if automaticallyAcknowledges {
+                    store.terminalOutputDidProcess(
+                        surfaceID: surfaceID,
+                        streamToken: chunk.streamToken
+                    )
+                }
             }
         }
     }
@@ -2400,10 +2408,11 @@ struct TerminalStreamTests {
         supportsServerPushEvents: true
     )
     let store = CMUXMobileShellStore.preview(runtime: runtime)
+    let collector = TerminalOutputCollector()
 
     store.signIn()
     await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
-    var output = store.terminalOutputStream(surfaceID: terminalID).makeAsyncIterator()
+    collector.mount(store: store, surfaceID: terminalID, automaticallyAcknowledges: false)
     let oldGridText = try terminalRenderGridReplacementText(
         seq: 4,
         text: "old",
@@ -2416,7 +2425,9 @@ struct TerminalStreamTests {
     )
 
     _ = try await waitForRequestCount("mobile.terminal.replay", count: 1, router: router)
-    let oldChunk = try #require(await output.next())
+    let receivedOldChunk = try await waitForTerminalOutputCount(1, collector: collector)
+    #expect(receivedOldChunk)
+    let oldChunk = try #require(collector.chunks.first)
     #expect(String(data: oldChunk.data, encoding: .utf8) == oldGridText)
     let replayCountBeforeInput = await router.replayRequestCount()
 
@@ -2439,8 +2450,10 @@ struct TerminalStreamTests {
     )
     _ = try await waitForRequestCount("mobile.events.subscribe", count: 2, router: router)
     var receivedCurrent = false
-    for _ in 0...(replayCountBeforeInput + 1) {
-        let chunk = try #require(await output.next())
+    for chunkIndex in 1...(replayCountBeforeInput + 2) {
+        let receivedChunk = try await waitForTerminalOutputCount(chunkIndex + 1, collector: collector)
+        guard receivedChunk else { break }
+        let chunk = collector.chunks[chunkIndex]
         let text = String(data: chunk.data, encoding: .utf8)
         #expect(text == oldGridText || text == currentGridText)
         store.terminalOutputDidProcess(surfaceID: terminalID, streamToken: chunk.streamToken)
@@ -2450,6 +2463,7 @@ struct TerminalStreamTests {
         }
     }
     #expect(receivedCurrent)
+    collector.unmount()
 }
 
 @MainActor
@@ -2860,6 +2874,20 @@ private func waitForRequestCount(
         try await Task.sleep(nanoseconds: 10_000_000)
     }
     return matches
+}
+
+@MainActor
+private func waitForTerminalOutputCount(
+    _ count: Int,
+    collector: TerminalOutputCollector
+) async throws -> Bool {
+    for _ in 0..<300 {
+        if collector.chunks.count >= count {
+            return true
+        }
+        try await Task.sleep(nanoseconds: 10_000_000)
+    }
+    return collector.chunks.count >= count
 }
 
 @MainActor

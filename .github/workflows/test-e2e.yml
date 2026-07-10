@@ -424,11 +424,15 @@ jobs:
 
             (
               frame=0
+              frontmost_poll_delay=1
               : > "$RECORD_READY"
               while true; do
                 if ! sudo -n launchctl asuser "$GUI_UID" sudo -n -H -u "$GUI_USER" \
                   /tmp/cmux-frontmost-application com.cmuxterm.app.debug; then
-                  sleep 0.1
+                  sleep "$frontmost_poll_delay"
+                  if [ "$frontmost_poll_delay" -lt 5 ]; then
+                    frontmost_poll_delay=$((frontmost_poll_delay + 1))
+                  fi
                   continue
                 fi
                 output="$(printf '%s/frame-%06d.jpg' "$FRAME_DIR" "$frame")"

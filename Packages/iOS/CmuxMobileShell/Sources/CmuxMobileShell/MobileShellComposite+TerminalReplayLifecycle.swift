@@ -313,6 +313,13 @@ extension MobileShellComposite {
             requestTerminalReplay(surfaceID: surfaceID)
             return
         }
+        guard supportedHostCapabilities.contains(Self.terminalReplayCapability) else {
+            // Legacy hosts answer replay requests but do not support the
+            // replacement acknowledgement needed to release a replay barrier.
+            // Preserve their existing unbarriered recovery path.
+            requestTerminalReplay(surfaceID: surfaceID)
+            return
+        }
         guard hasTerminalOutputSink(surfaceID: surfaceID) else { return }
         if terminalReplayBarrierTokensBySurfaceID[surfaceID] != nil {
             terminalReplayBarrierDroppedOutputSurfaceIDs.insert(surfaceID)
