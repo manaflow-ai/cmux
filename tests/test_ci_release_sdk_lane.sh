@@ -75,6 +75,11 @@ if [[ "$swift_package_section" != *"timeout-minutes: 40"* ]]; then
   exit 1
 fi
 
+if [[ "$swift_package_section" != *"runs-on: \${{ vars.MACOS_RUNNER_HELPER_15 || 'warp-macos-15-arm64-6x' }}"* ]]; then
+  echo "FAIL: CI swift-package-tests must use the SDK-15-helper-capable runner pool" >&2
+  exit 1
+fi
+
 if [[ "$swift_package_section" != *"CMUX_CI_HELPER_XCODE_APP"* ]]; then
   echo "FAIL: CI swift-package-tests must use a helper-specific Xcode pin" >&2
   exit 1

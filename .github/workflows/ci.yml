@@ -826,7 +826,10 @@ jobs:
     # transitive skip otherwise marks every macOS job skipped even when
     # linux-preflight itself succeeds. Require the direct needs explicitly.
     if: ${{ !cancelled() && needs.changes.result == 'success' && needs.linux-preflight.result == 'success' && needs.changes.outputs.macos == 'true' }}
-    runs-on: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}
+    # This lane must have both the SDK-15 helper Xcode and the SDK-26 app
+    # Xcode. The general macOS 15 pool may point at lean Tart images that only
+    # carry Xcode 26, so keep helper production on its capability-specific pool.
+    runs-on: ${{ vars.MACOS_RUNNER_HELPER_15 || 'warp-macos-15-arm64-6x' }}
     timeout-minutes: 40
     env:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_15 }}
