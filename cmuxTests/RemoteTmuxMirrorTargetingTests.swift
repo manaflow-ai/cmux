@@ -1,16 +1,16 @@
+import AppKit
+import CmuxControlSocket
 import Foundation
 import Testing
 import CmuxSettings
-
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
 #elseif canImport(cmux)
 @testable import cmux
 #endif
 
-/// Behavior tests for remote-tmux mirror targeting and lifecycle decisions. These
-/// exercise pure seams and cached unstarted control connections; no ssh/tmux
-/// process is launched.
+/// Behavior tests for remote-tmux mirror targeting and lifecycle decisions using
+/// pure seams and cached unstarted control connections; no ssh/tmux is launched.
 @MainActor
 @Suite(.serialized)
 struct RemoteTmuxMirrorTargetingTests {

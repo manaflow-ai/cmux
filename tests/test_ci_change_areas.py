@@ -601,11 +601,10 @@ def test_required_macos_topology_collapses_display_and_release_helper_jobs() -> 
     assert "CMUX_CI_HELPER_XCODE_APP" in package_block
     assert "/Applications/Xcode_16.4.app" not in package_block
     assert "Select helper Xcode" in package_block
-    assert 'CMUX_CI_XCODE_APP="${CMUX_CI_HELPER_XCODE_APP:-$CMUX_CI_XCODE_APP}"' in package_block
-    assert 'required_sdk_major="${CMUX_CI_REQUIRED_MACOS_SDK_MAJOR:?}"' in package_block
+    assert "CMUX_CI_REQUIRED_MACOS_SDK_MAJOR=15" in package_block
     assert "Build universal Ghostty CLI helper" in package_block
     assert "./scripts/build-ghostty-cli-helper.sh --universal --output ghostty-cli-helper/ghostty" in package_block
-    assert '[[ "${HELPER_SDK_VERSION%%.*}" == "$required_sdk_major" ]]' in package_block
+    assert '[[ "$HELPER_SDK_VERSION" == 15.* ]]' in package_block
     assert "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a" in package_block
     assert package_block.index("Select helper Xcode") < package_block.index("Build universal Ghostty CLI helper")
     assert package_block.index("Build universal Ghostty CLI helper") < package_block.index("Select Xcode")
