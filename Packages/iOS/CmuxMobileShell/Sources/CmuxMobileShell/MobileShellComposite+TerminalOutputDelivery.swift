@@ -233,12 +233,17 @@ extension MobileShellComposite {
     }
 
     private func deliverTerminalOutput(
-        _ delivery: TerminalOutputDelivery,
+        _ incomingDelivery: TerminalOutputDelivery,
         surfaceID: String,
         bypassReplayBarrier: Bool = false
     ) -> Bool {
         guard let continuation = terminalByteContinuationsBySurfaceID[surfaceID],
               let streamToken = terminalOutputStreamTokensBySurfaceID[surfaceID] else { return false }
+        var delivery = incomingDelivery
+        if bypassReplayBarrier,
+           let replayBarrierToken = terminalReplayBarrierTokensBySurfaceID[surfaceID] {
+            delivery.replayBarrierAckToken = replayBarrierToken
+        }
         if let replayBarrierToken = terminalReplayBarrierTokensBySurfaceID[surfaceID],
            !bypassReplayBarrier {
             terminalReplayBarrierDroppedOutputSurfaceIDs.insert(surfaceID)
@@ -301,7 +306,10 @@ extension MobileShellComposite {
     public func terminalOutputDidProcess(surfaceID: String, streamToken: UUID) {
         guard terminalOutputStreamTokensBySurfaceID[surfaceID] == streamToken,
               var queue = terminalOutputQueuesBySurfaceID[surfaceID] else { return }
-        let next = queue.completeInFlight()
+        let next = terminalOutputAfterDroppingStaleQueuedFrames(
+            from: &queue,
+            surfaceID: surfaceID
+        )
         terminalOutputQueuesBySurfaceID[surfaceID] = queue
         if terminalReplayBarrierAckStreamTokensBySurfaceID[surfaceID] == streamToken {
             let replayBarrierToken = terminalReplayBarrierTokensBySurfaceID[surfaceID]
@@ -371,6 +379,11 @@ extension MobileShellComposite {
               terminalOutputStreamTokensBySurfaceID[surfaceID] == streamToken else {
             return
         }
+        prepareQueuedReplayBarrierAckIfNeeded(
+            for: next,
+            surfaceID: surfaceID,
+            streamToken: streamToken
+        )
         continuation.yield(MobileTerminalOutputChunk(
             data: next.bytes,
             streamToken: streamToken,

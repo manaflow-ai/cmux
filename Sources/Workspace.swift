@@ -7447,9 +7447,7 @@ final class Workspace: Identifiable, ObservableObject {
                 inheritedWorkingDirectory: inheritedWorkingDirectory
             )
             : (suppressInheritedStartupWorkingDirectory ? Self.normalizedTerminalWorkingDirectory(workingDirectory) ?? Self.safeLocalTerminalStartupWorkingDirectory() : workingDirectory)
-        if shouldInheritWorkingDirectoryFallback {
-            inheritedConfig = Self.terminalStartupConfigTemplate(inheritedConfig, clearWorkingDirectory: true)
-        }
+        inheritedConfig = Self.terminalStartupConfigTemplate(inheritedConfig, clearWorkingDirectory: true)
 
         let newPanel = TerminalPanel(
             id: newPanelID,
