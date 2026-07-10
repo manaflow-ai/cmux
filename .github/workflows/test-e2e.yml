@@ -393,7 +393,14 @@ jobs:
             # foregrounding a macOS app on both Warp and Tart. The native
             # recorder uses the logged-in WindowServer session without taking
             # the app-activation path away from XCTest.
-            /usr/sbin/screencapture -v -V 3600 -D 1 -C -x \
+            GUI_USER="$(stat -f %Su /dev/console 2>/dev/null || true)"
+            if [ -z "$GUI_USER" ] || [ "$GUI_USER" = "root" ]; then
+              echo "::error::No logged-in GUI user is available for screen recording"
+              exit 1
+            fi
+            GUI_UID="$(id -u "$GUI_USER")"
+            sudo -n launchctl asuser "$GUI_UID" sudo -n -H -u "$GUI_USER" \
+              /usr/sbin/screencapture -v -V 3600 -D 1 -C -x \
               /tmp/test-recording-raw.mov </dev/null >/tmp/screencapture.log 2>&1 &
             RECORD_PID=$!
             echo "RECORD_PID=$RECORD_PID" >> "$GITHUB_ENV"
@@ -402,8 +409,9 @@ jobs:
             if kill -0 "$RECORD_PID" 2>/dev/null; then
               echo "Recording started (PID $RECORD_PID)"
             else
-              echo "::warning::native screen recording failed to start"
+              echo "::error::native screen recording failed to start"
               cat /tmp/screencapture.log
+              exit 1
             fi
           fi
 
