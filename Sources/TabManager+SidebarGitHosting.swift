@@ -150,6 +150,14 @@ extension TabManager: SidebarGitHosting {
         tabs.first(where: { $0.id == workspaceId })?.clearPanelPullRequest(panelId: panelId)
     }
 
+    func schedulePanelGitMetadataProbe(workspaceId: UUID, panelId: UUID, reason: String) {
+        sidebarGitMetadataService.scheduleInitialWorkspaceGitMetadataRefreshIfPossible(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            reason: reason
+        )
+    }
+
     func clearAllSidebarGitMetadata() {
         for workspace in tabs {
             workspace.clearSidebarGitMetadata()
