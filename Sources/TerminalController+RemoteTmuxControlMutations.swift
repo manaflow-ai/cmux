@@ -256,9 +256,10 @@ extension TerminalController {
             }
             let cellPixels = axis == "horizontal" ? sample.cellWidthPx : sample.cellHeightPx
             guard cellPixels > 0 else { return unavailable }
-            let targetCells = NSNumber(
-                value: (targetPixels / Double(cellPixels)).rounded()
-            ).intValue
+            let targetCells = max(
+                1,
+                NSNumber(value: (targetPixels / Double(cellPixels)).rounded()).intValue
+            )
             guard location.mirror.requestResizePane(
                 location.pane.tmuxPaneID,
                 absoluteAxis: axis,

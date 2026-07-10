@@ -173,6 +173,39 @@ extension RemoteTmuxMirrorCLIObservabilityTests {
         #expect(commands.contains("resize-pane -t @3.%\(tmuxPaneID) -R 10\n"))
     }
 
+    @Test func absolutePaneResizeClampsPositiveSubcellTargetToOneCell() throws {
+        let harness = try Harness(connectedTransport: true)
+        defer { harness.tearDown() }
+        let tmuxPaneID = try #require(harness.mirror.paneIDsInOrder.first)
+        let paneID = try #require(harness.mirror.syntheticPaneID(forPane: tmuxPaneID)?.id)
+
+        let result = ControlCommandCoordinator(context: TerminalController.shared).handle(
+            ControlRequest(
+                id: .int(1),
+                method: "pane.resize",
+                params: [
+                    "workspace_id": .string(harness.workspace.id.uuidString),
+                    "pane_id": .string(paneID.uuidString),
+                    "absolute_axis": .string("horizontal"),
+                    "target_pixels": .double(0.1),
+                ]
+            )
+        )
+
+        guard case .ok? = result else {
+            Issue.record("Positive subcell mirror pane resize failed: \(String(describing: result))")
+            return
+        }
+        let writer = try #require(harness.controlWriter)
+        let pipe = try #require(harness.controlPipe)
+        writer.close()
+        let commands = String(
+            decoding: try pipe.fileHandleForReading.readToEnd() ?? Data(),
+            as: UTF8.self
+        )
+        #expect(commands.contains("resize-pane -t @3.%\(tmuxPaneID) -x 1\n"))
+    }
+
     @Test func unsupportedBonsplitOnlyPaneMutationsRejectProjectedPaneIDs() throws {
         let harness = try Harness(focusAwayFromMirror: true)
         defer { harness.tearDown() }
