@@ -1,3 +1,4 @@
+import AppKit
 import CmuxTerminal
 import CoreGraphics
 import Foundation
@@ -294,6 +295,38 @@ struct TerminalInlineImagePipelineTests {
         replacementRequest.cancel()
         await probe.open()
         _ = await replacementRequest.value
+    }
+
+    @MainActor
+    @Test
+    func overlayBlocksClicksOnStaleThumbnailsUntilNextScanResultApplies() throws {
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
+        let overlay = TerminalInlineImageOverlayView(frame: container.bounds)
+        container.addSubview(overlay)
+        let path = "/tmp/preview.png"
+        let annotation = TerminalInlineImageAnnotation(
+            id: UUID(),
+            rowIndex: 3,
+            absoluteRow: 3,
+            path: path,
+            resolvedPath: path,
+            key: TerminalInlineImageAnnotationKey(absoluteRow: 3, canonicalPath: path)
+        )
+        let item = TerminalInlineImageOverlayItem(
+            annotation: annotation,
+            thumbnail: try makeThumbnail(),
+            anchorRect: CGRect(x: 8, y: 120, width: 8, height: 16)
+        )
+        overlay.update(items: [item])
+        let thumbnailFrame = try #require(overlay.subviews.first?.frame)
+        let hitPoint = CGPoint(x: thumbnailFrame.midX, y: thumbnailFrame.midY)
+        #expect(overlay.hitTest(hitPoint) != nil)
+
+        overlay.suspendInteraction()
+        #expect(overlay.hitTest(hitPoint) == nil)
+
+        overlay.update(items: [item])
+        #expect(overlay.hitTest(hitPoint) != nil)
     }
 
     private func makeThumbnail() throws -> TerminalInlineImageThumbnail {
