@@ -124,6 +124,7 @@ struct PanelContentView: View {
                     panel: simulatorPanel,
                     isFocused: isFocused,
                     isVisibleInUI: isVisibleInUI,
+                    appearance: appearance,
                     onRequestPanelFocus: onRequestPanelFocus
                 )
             }

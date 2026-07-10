@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SimulatorToolsPanel: View {
     let coordinator: SimulatorPaneCoordinator
+    let backgroundColor: Color
 
     var body: some View {
         ScrollView {
@@ -40,6 +41,6 @@ struct SimulatorToolsPanel: View {
             }
             .padding(12)
         }
-        .background(.bar)
+        .background(backgroundColor)
     }
 }

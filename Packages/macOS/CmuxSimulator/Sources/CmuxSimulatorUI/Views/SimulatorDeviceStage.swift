@@ -3,11 +3,12 @@ import SwiftUI
 
 struct SimulatorDeviceStage: View {
     let coordinator: SimulatorPaneCoordinator
+    let backgroundColor: Color
     let onRequestPanelFocus: @MainActor () -> Void
 
     var body: some View {
         ZStack {
-            Color(nsColor: .underPageBackgroundColor)
+            backgroundColor
             if coordinator.devices.isEmpty, coordinator.failure == nil {
                 ContentUnavailableView {
                     Label(simulatorStrings.noDevices, systemImage: "iphone.slash")

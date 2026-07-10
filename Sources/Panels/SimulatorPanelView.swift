@@ -5,13 +5,19 @@ struct SimulatorPanelView: View {
     let panel: SimulatorPanel
     let isFocused: Bool
     let isVisibleInUI: Bool
+    let appearance: PanelAppearance
     let onRequestPanelFocus: () -> Void
 
     var body: some View {
         SimulatorPaneView(
             coordinator: panel.coordinator,
+            backgroundColor: Color(nsColor: appearance.contentBackgroundColor),
             onRequestPanelFocus: onRequestPanelFocus
         )
+            .environment(
+                \.colorScheme,
+                cmuxReadableColorScheme(for: appearance.backgroundColor)
+            )
             .onAppear {
                 panel.coordinator.setAccessibilityOverlayVisibility(isVisibleInUI)
                 panel.coordinator.setLiveStatusVisibility(isVisibleInUI)
