@@ -298,6 +298,68 @@ describe("Iroh trust broker database behavior", () => {
     expect(nextExpiry?.getTime()).toBe(pathHintExpiry.getTime());
   });
 
+  dbTest("requires revocation before changing an active binding platform", async () => {
+    const repo = requiredRepository();
+    const userId = "user-platform-change";
+    const deviceId = randomUUID();
+    const appInstanceId = randomUUID();
+    const endpointId = "31".repeat(32);
+
+    const register = async (platform: "mac" | "ios", suffix: string, now: Date) => {
+      const nonceHash = suffix.repeat(64);
+      const challenge = await Effect.runPromise(repo.issueChallenge({
+        userId,
+        deviceUuid: deviceId,
+        appInstanceId,
+        tag: "stable",
+        endpointId,
+        identityGeneration: 1,
+        payloadSha256: `${suffix}${"0".repeat(63)}`,
+        nonceHash,
+        now,
+        expiresAt: new Date(now.getTime() + 5 * 60 * 1_000),
+      }));
+      return repo.consumeChallengeAndRegister({
+        userId,
+        challengeId: challenge.id,
+        nonceHash,
+        payload: {
+          route_contract_version: 1,
+          deviceId,
+          appInstanceId,
+          tag: "stable",
+          platform,
+          endpointId,
+          identityGeneration: 1,
+          pairingEnabled: platform === "mac",
+          capabilities: [],
+          pathHints: [],
+        },
+        now,
+        deviceLimitOverrideAllowed: false,
+      });
+    };
+
+    await Effect.runPromise(await register("mac", "5", NOW));
+    const changed = await Effect.runPromiseExit(await register(
+      "ios",
+      "6",
+      new Date(NOW.getTime() + 1_000),
+    ));
+    expect(changed._tag).toBe("Failure");
+    const causeError = changed._tag === "Failure"
+      ? (changed.cause as unknown as { error?: unknown }).error
+      : undefined;
+    expect(causeError).toMatchObject({
+      _tag: "IrohConflictError",
+      code: "binding_replacement_requires_revocation",
+    });
+    const [{ platform }] = await requiredSql()<Array<{ platform: string }>>`
+      select platform from iroh_endpoint_bindings where app_instance_id = ${appInstanceId}
+    `;
+    expect(platform).toBe("mac");
+  });
+
   dbTest("serializes an account-wide registration challenge rate cap", async () => {
     const userId = "user-challenge-flood";
     await requiredSql()`

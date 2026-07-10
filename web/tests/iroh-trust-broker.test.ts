@@ -58,6 +58,24 @@ describe("Iroh trust broker registration", () => {
     expect(fixture.repository.bindings).toHaveLength(1);
   });
 
+  test("does not mint another relay token when refreshing the same binding", async () => {
+    const fixture = makeFixture();
+    await Effect.runPromise(fixture.broker.register(
+      USER_A,
+      await fixture.signedRegistration(),
+      NOW,
+    ));
+
+    const refreshed = await Effect.runPromise(fixture.broker.register(
+      USER_A,
+      await fixture.signedRegistration(),
+      new Date(NOW.getTime() + 1_000),
+    )) as { relay: { status: string } };
+
+    expect(refreshed.relay.status).toBe("not_requested");
+    expect(fixture.minter.calls).toBe(1);
+  });
+
   test("rejects the wrong key and a changed payload", async () => {
     const wrongKeyFixture = makeFixture();
     const wrongRequest = await wrongKeyFixture.signedRegistration();
@@ -699,13 +717,13 @@ function makeFixture(options: {
     appInstanceId,
     deviceId,
     identityGeneration,
-    async signedRegistration() {
+    async signedRegistration(platform: "mac" | "ios" = "mac") {
       const payload: IrohRegistrationPayload = {
         route_contract_version: 1,
         deviceId,
         appInstanceId,
         tag: "stable",
-        platform: "mac",
+        platform,
         displayName: "Test Mac",
         endpointId,
         identityGeneration,
