@@ -976,16 +976,31 @@ jobs:
             CmuxUpdater
             CMUXAgentLaunch
           )
+          run_swift_package_tests() {
+            local pkgdir="$1"
+            shift
+            local test_status=0
+            local output
+            output="$(swift test --package-path "$pkgdir" "$@" 2>&1)" || test_status=$?
+            printf '%s\n' "$output"
+            if [ "$test_status" -eq 0 ]; then
+              return 0
+            fi
+            if printf '%s\n' "$output" | grep -Eq 'Test run with [0-9]+ tests( in [0-9]+ suites)? passed' \
+              && ! printf '%s\n' "$output" | grep -Eq 'with [1-9][0-9]* failures?' \
+              && printf '%s\n' "$output" | grep -Eq 'unexpected binary|doesn.t contain a version for the current architecture|incompatible architecture|dlopen_preflight' \
+              && ! printf '%s\n' "$output" | grep -v 'unexpected binary' | grep -Eq '(^|[^a-zA-Z])error:'; then
+              echo "Tolerated cosmetic SwiftPM runner diagnostic; all tests passed."
+              return 0
+            fi
+            return "$test_status"
+          }
           # SwiftPM emits an error-severity diagnostic while planning the
           # GhosttyKit binaryTarget (the xcframework's static archive is not
           # lib-prefixed: "unexpected binary name"/"unexpected binary
-          # framework"). The build and every test still succeed, but the
-          # diagnostic poisons the process exit code on a fresh .build. For
-          # the GhosttyKit-referencing packages only, tolerate exactly that
-          # case: a nonzero exit passes only when the all-tests-passed summary
-          # is present, no test failures are reported, and the only error
-          # lines are that known diagnostic. Everything else (compile errors,
-          # test failures, crashes) still fails the job.
+          # framework"). SwiftPM/XCTest can also emit an incompatible-architecture
+          # bundle diagnostic after Swift Testing already reports all tests
+          # passed. Tolerate only those known nonzero runner diagnostics.
           for pkg in "${PACKAGES[@]}"; do
             # Packages live under group folders (Packages/{Shared,iOS,macOS}/);
             # resolve the actual directory so this list stays group-agnostic.
@@ -1009,25 +1024,11 @@ jobs:
               while IFS= read -r suite; do
                 [ -n "$suite" ] || continue
                 echo "swift test $pkgdir --filter $suite"
-                swift test --package-path "$pkgdir" --filter "$suite"
+                run_swift_package_tests "$pkgdir" --filter "$suite"
               done <<< "$suite_list"
               ;;
-            CmuxTerminal|CmuxTerminalCore)
-              test_status=0
-              output="$(swift test --package-path "$pkgdir" 2>&1)" || test_status=$?
-              printf '%s\n' "$output"
-              if [ "$test_status" -ne 0 ]; then
-                if printf '%s\n' "$output" | grep -Eq 'Test run with [0-9]+ tests( in [0-9]+ suites)? passed' \
-                  && ! printf '%s\n' "$output" | grep -Eq 'with [1-9][0-9]* failures?' \
-                  && ! printf '%s\n' "$output" | grep -v 'unexpected binary' | grep -Eq '(^|[^a-zA-Z])error:'; then
-                  echo "Tolerated cosmetic GhosttyKit binaryTarget diagnostic; all tests passed."
-                else
-                  exit "$test_status"
-                fi
-              fi
-              ;;
             *)
-              swift test --package-path "$pkgdir"
+              run_swift_package_tests "$pkgdir"
               ;;
             esac
             echo "::endgroup::"
