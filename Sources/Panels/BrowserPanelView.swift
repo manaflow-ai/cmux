@@ -5511,6 +5511,7 @@ struct WebViewRepresentable: NSViewRepresentable {
         private var activeDividerCursorKind: DividerCursorKind?
         private var hostedInspectorDividerDrag: HostedInspectorDividerDragState?
         private var cachedHostedInspectorDividerHit: CachedHostedInspectorDividerHit?
+        private var lastSyncedHostedInspectorDragExtent: Int?
         private var preferredHostedInspectorWidth: CGFloat?
         private var preferredHostedInspectorWidthFraction: CGFloat?
         private var preferredHostedInspectorHeight: CGFloat?
@@ -6144,13 +6145,13 @@ struct WebViewRepresentable: NSViewRepresentable {
         }
         private func shouldForceHostedInspectorBottomDock(using hit: HostedInspectorDividerHit) -> Bool {
             guard !hit.dockSide.isHorizontalDivider else { return false }
+            // Decide from container capacity, not live frame widths: a user drag
+            // that leaves the page below the side-dock threshold must not yank
+            // the inspector to the bottom right after mouseUp.
             let containerWidth = max(0, hit.containerView.bounds.width)
             guard containerWidth > 1 else { return false }
-            let currentInspectorWidth = max(0, hit.inspectorView.frame.width)
-            let currentPageWidth = max(0, hit.pageView.frame.width)
-            let remainingPageWidth = max(0, containerWidth - max(Self.minimumHostedInspectorWidth, currentInspectorWidth))
-            let effectivePageWidth = min(currentPageWidth, remainingPageWidth)
-            return effectivePageWidth < Self.minimumHostedInspectorPageWidthForSideDock
+            let remainingPageWidth = max(0, containerWidth - Self.minimumHostedInspectorWidth)
+            return remainingPageWidth < Self.minimumHostedInspectorPageWidthForSideDock
         }
         @discardableResult
         private func requestAdaptiveHostedInspectorBottomDock(reason: String) -> Bool {
@@ -6433,6 +6434,7 @@ struct WebViewRepresentable: NSViewRepresentable {
                 return
             }
             cachedHostedInspectorDividerHit = nil
+            lastSyncedHostedInspectorDragExtent = nil
             hostedInspectorReapplyWorkItem?.cancel()
             isHostedInspectorDividerDragActive = true
             hostedInspectorDividerDrag = HostedInspectorDividerDragState(
@@ -6488,6 +6490,11 @@ struct WebViewRepresentable: NSViewRepresentable {
                 ),
                 reason: "drag"
             )
+            // Keep WebKit's stored attachment size tracking the live drag: its
+            // inspectedViewFrameDidChange relayout otherwise re-applies the
+            // stale pre-drag size between our frame writes and the divider
+            // visibly fights the cursor.
+            syncAttachedSizeDuringDrag(extent: inspectorExtent, dockSide: dragState.dockSide)
 #if DEBUG
             debugLogHostedInspectorFrames(
                 stage: "drag.update",
@@ -6521,11 +6528,7 @@ struct WebViewRepresentable: NSViewRepresentable {
                     inspectorFrame: finalDragState.inspectorView.frame,
                     in: finalDragState.containerView.bounds
                 )
-                HostedInspectorAttachedSizeSync.sync(
-                    frontendWebView: hostedInspectorFrontendWebView,
-                    dockSide: finalDragState.dockSide,
-                    extent: finalExtent
-                )
+                syncAttachedSizeDuringDrag(extent: finalExtent, dockSide: finalDragState.dockSide)
 #if DEBUG
                 debugLogHostedInspectorFrames(
                     stage: "drag.end",
@@ -6541,6 +6544,16 @@ struct WebViewRepresentable: NSViewRepresentable {
                 reapplyHostedInspectorDividerToStoredExtentIfNeeded(reason: "drag.end")
             }
             super.mouseUp(with: event)
+        }
+        private func syncAttachedSizeDuringDrag(extent: CGFloat, dockSide: HostedInspectorDockSide) {
+            let roundedExtent = max(0, Int(extent.rounded()))
+            guard roundedExtent != lastSyncedHostedInspectorDragExtent else { return }
+            lastSyncedHostedInspectorDragExtent = roundedExtent
+            HostedInspectorAttachedSizeSync.sync(
+                frontendWebView: hostedInspectorFrontendWebView,
+                dockSide: dockSide,
+                extent: extent
+            )
         }
         private func shouldPassThroughToSidebarResizer(
             at point: NSPoint,

@@ -122,6 +122,7 @@ final class WindowBrowserHostView: NSView {
     private var activeDividerCursorKind: DividerCursorKind?
     private var hostedInspectorDividerDrag: HostedInspectorDividerDragState?
     private var cachedHostedInspectorDividerHit: CachedHostedInspectorDividerHit?
+    private var lastSyncedHostedInspectorDragExtent: Int?
     private var lastHostedInspectorLayoutBoundsSize: NSSize?
 
     deinit {
@@ -407,6 +408,7 @@ final class WindowBrowserHostView: NSView {
             return
         }
         cachedHostedInspectorDividerHit = nil
+        lastSyncedHostedInspectorDragExtent = nil
 
         hostedInspectorHit.slotView.isHostedInspectorDividerDragActive = true
         hostedInspectorDividerDrag = HostedInspectorDividerDragState(
@@ -479,6 +481,9 @@ final class WindowBrowserHostView: NSView {
             ),
             reason: "drag"
         )
+        // Keep WebKit's stored attachment size tracking the live drag so its
+        // relayout can't re-apply the stale pre-drag size mid-drag.
+        syncAttachedSizeDuringDrag(extent: inspectorExtent, dockSide: dragState.dockSide, slotView: dragState.slotView)
         updateDividerCursor(
             at: convert(event.locationInWindow, from: nil),
             dividerHit: nil,
@@ -507,11 +512,7 @@ final class WindowBrowserHostView: NSView {
                 inspectorFrame: dragState.inspectorView.frame,
                 in: dragState.containerView.bounds
             )
-            HostedInspectorAttachedSizeSync.sync(
-                pageWebView: dragState.slotView.hostedInspectorPageWebViewForAttachedSizeSync,
-                dockSide: dragState.dockSide,
-                extent: finalExtent
-            )
+            syncAttachedSizeDuringDrag(extent: finalExtent, dockSide: dragState.dockSide, slotView: dragState.slotView)
 #if DEBUG
             cmuxDebugLog(
                 "browser.portal.manualInspectorDrag stage=end slot=\(browserPortalDebugToken(dragState.slotView)) " +
@@ -740,6 +741,17 @@ final class WindowBrowserHostView: NSView {
         }
 
         return nil
+    }
+
+    private func syncAttachedSizeDuringDrag(extent: CGFloat, dockSide: HostedInspectorDockSide, slotView: WindowBrowserSlotView) {
+        let roundedExtent = max(0, Int(extent.rounded()))
+        guard roundedExtent != lastSyncedHostedInspectorDragExtent else { return }
+        lastSyncedHostedInspectorDragExtent = roundedExtent
+        HostedInspectorAttachedSizeSync.sync(
+            pageWebView: slotView.hostedInspectorPageWebViewForAttachedSizeSync,
+            dockSide: dockSide,
+            extent: extent
+        )
     }
 
     private func cacheHostedInspectorDividerHit(_ hit: HostedInspectorDividerHit, at point: NSPoint) {

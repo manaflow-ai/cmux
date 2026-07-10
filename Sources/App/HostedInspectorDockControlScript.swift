@@ -42,7 +42,15 @@ struct HostedInspectorDockControlScript {
                     return true;
                 return String(configuration).toLowerCase() === literal;
             }
+            function disableFrontendDockedResizer() {
+                if (typeof document === "undefined" || !document.getElementById)
+                    return;
+                const dockedResizer = document.getElementById("docked-resizer");
+                if (dockedResizer && dockedResizer.style)
+                    dockedResizer.style.pointerEvents = "none";
+            }
             function enforceDockControls() {
+                disableFrontendDockedResizer();
                 const disallowSideDock = !WI.__cmuxAllowSideDock;
                 const dockConfiguration = WI.DockConfiguration || {};
                 const dockedLeft = dockMatches(dockConfiguration.Left, "left");
