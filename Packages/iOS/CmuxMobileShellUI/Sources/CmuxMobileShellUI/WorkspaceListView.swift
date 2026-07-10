@@ -128,6 +128,9 @@ struct WorkspaceListView: View {
     /// the predicted optimistic order instead of racing it.
     @State var pendingWorkspaceMoveCount = 0
     @State var pendingWorkspaceMoveTask: Task<Bool, Never>?
+    /// Bumped when a supersede or failure invalidates the pending chain, so
+    /// queued moves computed against overruled predictions abort unsent.
+    @State var workspaceMoveEpoch: UInt64 = 0
 
     var trimmedQuery: String {
         searchText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -538,6 +541,10 @@ struct WorkspaceListView: View {
                     toggleCollapsed: toggleGroupCollapsed,
                     unreadIndicatorLeftShift: unreadIndicatorLeftShift
                 )
+                // The list-wide minimum row height is lowered for the
+                // invisible end-of-group spacer; interactive rows keep the
+                // 44pt tap target (32 content + 6/6 insets) explicitly.
+                .frame(minHeight: 32)
                 .moveDisabled(!(enablesReorder && anchorCapabilities.supportsMoveActions))
                 .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12))
                 .listRowSeparator(.hidden)

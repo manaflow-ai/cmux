@@ -4,10 +4,11 @@ import SwiftUI
 
 extension WorkspaceListView {
     /// Pipelining bound: with reorder enabled during pending moves, a slow or
-    /// offline Mac must not let the send chain grow without limit. Normal
-    /// round-trips never approach this, so drags are unaffected until the
-    /// host is genuinely unresponsive.
-    static let maxPipelinedWorkspaceMoves = 8
+    /// offline Mac must not let the send chain grow without limit, and every
+    /// queued move currently costs a full workspace refresh on reply. Normal
+    /// round-trips resolve between drags, so this only bites when the host is
+    /// genuinely unresponsive.
+    static let maxPipelinedWorkspaceMoves = 3
 
     var enablesWorkspaceReorder: Bool {
         moveWorkspace != nil
@@ -39,6 +40,8 @@ extension WorkspaceListView {
     }
 
     func syncOptimisticWorkspaceOrder(moveDidFail: Bool = false) {
+        let hadPendingOptimism = optimisticFlatState.optimisticOrder != nil
+            || optimisticGroupedState.optimisticOrder != nil
         optimisticFlatState = optimisticFlatState.reconciling(
             authoritative: filteredWorkspaces,
             moveDidFail: moveDidFail
@@ -48,6 +51,16 @@ extension WorkspaceListView {
             groups: groups,
             moveDidFail: moveDidFail
         )
+        let cleared = optimisticFlatState.optimisticOrder == nil
+            && optimisticGroupedState.optimisticOrder == nil
+        // A supersede (or failure) invalidates every queued dependent: their
+        // intents were computed against predictions the host has overruled.
+        // Bumping the epoch makes not-yet-sent moves abort, and detaching the
+        // tail lets fresh drags start a clean chain.
+        if hadPendingOptimism, cleared, pendingWorkspaceMoveCount > 0 {
+            workspaceMoveEpoch &+= 1
+            pendingWorkspaceMoveTask = nil
+        }
     }
 
     func moveFlatRows(from sourceOffsets: IndexSet, to destination: Int) {
@@ -75,18 +88,20 @@ extension WorkspaceListView {
         }
         pendingWorkspaceMoveCount += 1
         let previousMove = pendingWorkspaceMoveTask
+        let epoch = workspaceMoveEpoch
         pendingWorkspaceMoveTask = Task { @MainActor in
             // Chain on the prior send: the intent was computed against the
             // prior move's predicted order, so the host must apply them in
             // the same order or the snapshot diverges and drops optimism.
-            // A rejected predecessor already rolled the list back to the
-            // authoritative order, so an intent based on its prediction must
-            // not be sent at all.
+            // A rejected predecessor rolled the list back, and a supersede
+            // bumped the epoch; either way this stale intent must not be
+            // sent. The handlers reset the chain tail, so drags started
+            // afterwards never see these branches.
             if let previousMove, await previousMove.value == false {
-                // A dependent of a failed chain: the failure already rolled
-                // the list back, so this stale intent must not be sent. The
-                // failure handler reset the chain tail, so drags started
-                // after the failure never see this branch.
+                pendingWorkspaceMoveCount -= 1
+                return false
+            }
+            guard epoch == workspaceMoveEpoch else {
                 pendingWorkspaceMoveCount -= 1
                 return false
             }
@@ -139,10 +154,15 @@ extension WorkspaceListView {
         )
         pendingWorkspaceMoveCount += 1
         let previousMove = pendingWorkspaceMoveTask
+        let epoch = workspaceMoveEpoch
         pendingWorkspaceMoveTask = Task { @MainActor in
-            // Same ordering and predecessor-failure contract as moveFlatRows.
+            // Same ordering, predecessor-failure, and epoch contract as
+            // moveFlatRows.
             if let previousMove, await previousMove.value == false {
-                // Same dependent-abort contract as moveFlatRows.
+                pendingWorkspaceMoveCount -= 1
+                return false
+            }
+            guard epoch == workspaceMoveEpoch else {
                 pendingWorkspaceMoveCount -= 1
                 return false
             }
