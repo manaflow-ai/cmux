@@ -256,7 +256,7 @@ import Testing
         let remoteCommand = "ssh seepine@192.168.5.20"
 
         workspace.configureRemoteConnection(sshRemoteConfiguration(command: remoteCommand), autoConnect: false)
-        #expect(workspace.updatePanelDirectory(panelId: sourcePanelId, directory: remoteDirectory))
+        #expect(workspace.updateRemotePanelDirectory(panelId: sourcePanelId, directory: remoteDirectory))
         workspace.panelShellActivityStates[sourcePanelId] = .promptIdle
 
         let panel = try #require(workspace.newTerminalSplit(
@@ -337,7 +337,7 @@ import Testing
         workspace.configureRemoteConnection(sshRemoteConfiguration(command: remoteCommand), autoConnect: false)
         let remotePanel = try #require(workspace.newTerminalSurface(inPane: paneId, focus: true))
         #expect(workspace.isRemoteTerminalSurface(remotePanel.id))
-        #expect(workspace.updatePanelDirectory(panelId: remotePanel.id, directory: remoteDirectory))
+        #expect(workspace.updateRemotePanelDirectory(panelId: remotePanel.id, directory: remoteDirectory))
 
         let panel = try #require(workspace.newTerminalSurface(
             inPane: paneId,
@@ -361,7 +361,7 @@ import Testing
         workspace.configureRemoteConnection(sshRemoteConfiguration(command: remoteCommand), autoConnect: false)
         let remotePanel = try #require(workspace.newTerminalSurface(inPane: paneId, focus: true))
         #expect(workspace.isRemoteTerminalSurface(remotePanel.id))
-        #expect(workspace.updatePanelDirectory(panelId: remotePanel.id, directory: remoteDirectory))
+        #expect(workspace.updateRemotePanelDirectory(panelId: remotePanel.id, directory: remoteDirectory))
 
         let panel = try #require(workspace.newTerminalSplit(
             from: remotePanel.id,
@@ -382,7 +382,7 @@ import Testing
         let remoteCommand = "ssh seepine@192.168.5.20"
 
         workspace.configureRemoteConnection(sshRemoteConfiguration(command: remoteCommand), autoConnect: false)
-        #expect(workspace.updatePanelDirectory(panelId: sourcePanelId, directory: remoteDirectory))
+        #expect(workspace.updateRemotePanelDirectory(panelId: sourcePanelId, directory: remoteDirectory))
 
         let panel = try #require(workspace.newTerminalSplit(
             from: sourcePanelId,
