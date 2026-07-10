@@ -21,6 +21,8 @@ public struct PairedMacBackupRecord: Codable, Sendable, Equatable {
     public var customColor: String?
     /// User-selected icon override, or `nil` for the platform default.
     public var customIcon: String?
+    /// Trusted iroh EndpointId pinned for this Mac, if any.
+    public var irohEndpointID: String?
 
     /// Create one wire backup record.
     public init(
@@ -32,7 +34,8 @@ public struct PairedMacBackupRecord: Codable, Sendable, Equatable {
         isActive: Bool,
         customName: String? = nil,
         customColor: String? = nil,
-        customIcon: String? = nil
+        customIcon: String? = nil,
+        irohEndpointID: String? = nil
     ) {
         self.macDeviceID = macDeviceID
         self.displayName = displayName
@@ -43,11 +46,13 @@ public struct PairedMacBackupRecord: Codable, Sendable, Equatable {
         self.customName = customName
         self.customColor = customColor
         self.customIcon = customIcon
+        self.irohEndpointID = irohEndpointID
     }
 
     enum CodingKeys: String, CodingKey {
         case macDeviceID, displayName, routes, createdAt, lastSeenAt, isActive
         case customName, customColor, customIcon
+        case irohEndpointID
     }
 
     /// Decode one saved-host backup record, dropping unsupported route entries
@@ -64,6 +69,7 @@ public struct PairedMacBackupRecord: Codable, Sendable, Equatable {
         customName = try c.decodeIfPresent(String.self, forKey: .customName)
         customColor = try c.decodeIfPresent(String.self, forKey: .customColor)
         customIcon = try c.decodeIfPresent(String.self, forKey: .customIcon)
+        irohEndpointID = try c.decodeIfPresent(String.self, forKey: .irohEndpointID)
     }
 
     /// Encode custom override keys even when they are `nil`, so clears sync.
@@ -78,5 +84,6 @@ public struct PairedMacBackupRecord: Codable, Sendable, Equatable {
         try c.encode(customName, forKey: .customName)
         try c.encode(customColor, forKey: .customColor)
         try c.encode(customIcon, forKey: .customIcon)
+        try c.encodeIfPresent(irohEndpointID, forKey: .irohEndpointID)
     }
 }

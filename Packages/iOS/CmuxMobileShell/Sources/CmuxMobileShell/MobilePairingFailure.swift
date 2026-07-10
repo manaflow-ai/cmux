@@ -84,6 +84,16 @@ public enum MobilePairingFailureCategory: Equatable, Sendable {
     /// The pairing code carried no route kind this device build can dial (for
     /// example an iroh-only ticket on a build without the iroh transport).
     case noSupportedRoute
+    /// Could not reach the Mac over iroh.
+    case irohMacUnreachable
+    /// The iroh dial timed out.
+    case irohTimedOut
+    /// Iroh could not establish a secure channel to the pinned peer.
+    case irohSecureChannelFailed
+    /// The pinned iroh EndpointId changed and must be explicitly trusted again.
+    case irohEndpointChanged
+    /// The iroh stream closed before pairing completed.
+    case irohConnectionDropped
     /// The attempt was cancelled (the user tapped Cancel, or a newer attempt
     /// superseded it). Not surfaced as an error.
     case cancelled
@@ -113,6 +123,11 @@ extension MobilePairingFailureCategory {
         case .loopbackRejected: return "loopback_rejected"
         case .unsupportedRoute: return "unsupported_route"
         case .noSupportedRoute: return "no_supported_route"
+        case .irohMacUnreachable: return "iroh_unreachable"
+        case .irohTimedOut: return "iroh_timeout"
+        case .irohSecureChannelFailed: return "iroh_secure_channel_failed"
+        case .irohEndpointChanged: return "iroh_endpoint_changed"
+        case .irohConnectionDropped: return "iroh_connection_dropped"
         case .cancelled: return "cancelled"
         case .unknown: return "other"
         }
@@ -259,6 +274,8 @@ extension MobilePairingFailureCategory {
                 "mobile.pairing.unsupportedRoute",
                 defaultValue: "This pairing code is not supported."
             )
+        case .irohMacUnreachable, .irohTimedOut, .irohSecureChannelFailed, .irohEndpointChanged, .irohConnectionDropped:
+            return irohMessage ?? ""
         case .cancelled:
             return ""
         case let .unknown(host, port):
@@ -318,6 +335,9 @@ extension MobilePairingFailureCategory {
                 "mobile.pairing.guidance.rescanFresh",
                 defaultValue: "Open the pairing window on your Mac and scan a fresh QR or link."
             )
+        case .irohMacUnreachable, .irohTimedOut, .irohConnectionDropped,
+             .irohSecureChannelFailed, .irohEndpointChanged:
+            return irohGuidance
         case .unrecognizedVersion:
             return L10n.string(
                 "mobile.pairing.guidance.updateApp",
@@ -367,6 +387,10 @@ extension MobilePairingFailureCategory {
             }
         }
 
+        if let category = Self.classifyIroh(error: error, host: host, port: port) {
+            return category
+        }
+
         if let connectionError = error as? MobileShellConnectionError {
             switch connectionError {
             case .requestTimedOut:
@@ -379,6 +403,8 @@ extension MobilePairingFailureCategory {
                 return .authFailed
             case .accountMismatch:
                 return .accountMismatch
+            case .irohEndpointChanged:
+                return .irohEndpointChanged
             case .connectionClosed:
                 return .connectionDropped(host: host, port: port)
             case .invalidResponse:

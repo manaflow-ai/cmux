@@ -16,13 +16,25 @@ struct cmuxApp: App {
         // attach to an in-runner mock host; release device builds keep only
         // real transports.
         #if targetEnvironment(simulator) || DEBUG
-        let supportedKinds: [CmxAttachTransportKind] = [.debugLoopback, .tailscale]
+        let baseSupportedKinds: [CmxAttachTransportKind] = [.debugLoopback, .tailscale]
         #else
-        let supportedKinds: [CmxAttachTransportKind] = [.tailscale]
+        let baseSupportedKinds: [CmxAttachTransportKind] = [.tailscale]
         #endif
-        let networkFactory = CmxNetworkByteTransportFactory(supportedKinds: supportedKinds)
-        let registrations = supportedKinds.map { kind in
+        let irohEndpointManager: CmxIrohEndpointManager?
+        let irohEnabled = MobileIrohTransportFlag.resolved().isEnabled
+        if irohEnabled {
+            irohEndpointManager = CmxIrohEndpointManager()
+        } else {
+            irohEndpointManager = nil
+        }
+        let supportedKinds = irohEnabled ? baseSupportedKinds + [.iroh] : baseSupportedKinds
+        let networkFactory = CmxNetworkByteTransportFactory(supportedKinds: baseSupportedKinds)
+        var registrations = baseSupportedKinds.map { kind in
             CmxRouteTransportFactoryRegistration(kind: kind, factory: networkFactory)
+        }
+        if let irohEndpointManager {
+            let irohFactory = CmxIrohByteTransportFactory(endpointManager: irohEndpointManager)
+            registrations.append(CmxRouteTransportFactoryRegistration(kind: .iroh, factory: irohFactory))
         }
         let transportFactory: CmxRouteTransportFactory
         do {
@@ -42,7 +54,12 @@ struct cmuxApp: App {
             stackAccessTokenForceRefresher: CMUXMobileRuntime.stackAccessTokenForceRefresher(from: auth.coordinator)
         )
 
-        return AppCompositionRoot(runtime: runtime, auth: auth, reachability: reachability)
+        return AppCompositionRoot(
+            runtime: runtime,
+            auth: auth,
+            reachability: reachability,
+            irohEndpointManager: irohEndpointManager
+        )
     }()
 
     init() {
@@ -77,6 +94,7 @@ struct cmuxApp: App {
             displaySettings: Self.root.displaySettings,
             onboardingStore: Self.root.onboardingStore,
             tailscaleStatusMonitor: Self.root.tailscaleStatusMonitor,
+            irohEndpointManager: Self.root.irohEndpointManager,
             diagnosticLog: Self.root.diagnosticLog
         )
         #else
@@ -88,7 +106,8 @@ struct cmuxApp: App {
             pushCoordinator: Self.root.pushCoordinator,
             displaySettings: Self.root.displaySettings,
             onboardingStore: Self.root.onboardingStore,
-            tailscaleStatusMonitor: Self.root.tailscaleStatusMonitor
+            tailscaleStatusMonitor: Self.root.tailscaleStatusMonitor,
+            irohEndpointManager: Self.root.irohEndpointManager
         )
         #endif
     }

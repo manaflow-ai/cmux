@@ -3384,6 +3384,40 @@
         }
       }
     },
+    "mobile.pairing.guidance.irohReachability": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No Tailscale setup is needed for Iroh. Keep cmux open on the Mac and make sure both devices are online."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iroh に Tailscale の設定は不要です。Mac で cmux を開いたままにし、両方の端末がオンラインであることを確認してください。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.guidance.irohRetrust": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open cmux on the Mac and trust this phone again before retrying."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac で cmux を開き、この iPhone をもう一度信頼してから再試行してください。"
+          }
+        }
+      }
+    },
     "mobile.pairing.guidance.reachability": {
       "extractionState": "manual",
       "localizations": {
@@ -3465,6 +3499,91 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@:%d に接続できません。Macがスリープしておらず、この端末と同じTailscaleネットワーク上にあることを確認してください。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.irohConnectionDropped": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connected to this Mac over Iroh, but the connection closed before pairing finished."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iroh でこの Mac に接続しましたが、ペアリングが完了する前に接続が閉じられました。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.irohEndpointChanged": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Mac's Iroh identity changed. Trust it again from the Mac before sending account credentials."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac の Iroh ID が変更されました。アカウント認証情報を送信する前に、Mac からもう一度信頼してください。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.irohMacUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not reach this Mac over Iroh. Make sure cmux is open on the Mac and it is awake, then try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iroh でこの Mac に到達できませんでした。Mac がスリープしておらず、cmux が開いていることを確認してから再試行してください。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.irohSecureChannelFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iroh could not verify the secure connection to this Mac. Trust the Mac again before connecting."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iroh がこの Mac への安全な接続を確認できませんでした。接続する前に Mac をもう一度信頼してください。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.irohTimedOut": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iroh did not get a response from this Mac in time. Make sure the Mac is awake and online, then try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iroh が時間内にこの Mac から応答を受け取れませんでした。Mac がスリープしておらずオンラインであることを確認してから、もう一度お試しください。"
           }
         }
       }

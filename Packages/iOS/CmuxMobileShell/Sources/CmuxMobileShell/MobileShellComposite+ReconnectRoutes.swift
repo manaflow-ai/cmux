@@ -1,5 +1,6 @@
 import CMUXMobileCore
 import CmuxMobilePairedMac
+import CmuxMobileShellModel
 import Foundation
 
 @MainActor
@@ -54,8 +55,8 @@ extension MobileShellComposite {
     func freshReconnectRoutesAfterLocalFailure(
         for mac: MobilePairedMac,
         scope: MobileShellScopeSnapshot,
-        triedRoutes: [(host: String, port: Int, routeID: String)]
-    ) async -> [(host: String, port: Int, routeID: String)]? {
+        triedRoutes: [CmxAttachRoute]
+    ) async -> [CmxAttachRoute]? {
         guard let deviceRegistry,
               await isScopeCurrent(scope),
               await !isForgottenMacDeviceID(mac.macDeviceID, scope: scope),
@@ -67,14 +68,14 @@ extension MobileShellComposite {
             return nil
         }
         let supportedKinds = runtime?.supportedRouteKinds ?? []
-        let refreshed = Self.reconnectHostPortRoutes(
+        let refreshed = Self.reconnectRoutes(
             updatedRoutes,
             supportedKinds: supportedKinds,
             preferNonLoopback: Self.prefersNonLoopbackRoutes
         )
         guard !refreshed.isEmpty else { return nil }
-        let tried = Set(triedRoutes.map { "\($0.host)\u{1F}\($0.port)" })
-        let fresh = Set(refreshed.map { "\($0.host)\u{1F}\($0.port)" })
+        let tried = Set(triedRoutes.map(Self.reconnectRouteKey))
+        let fresh = Set(refreshed.map(Self.reconnectRouteKey))
         guard fresh != tried else { return nil }
         return refreshed
     }
@@ -123,42 +124,102 @@ extension MobileShellComposite {
         supportedKinds: [CmxAttachTransportKind],
         preferNonLoopback: Bool = false
     ) -> [(host: String, port: Int, routeID: String)] {
+        reconnectRoutes(
+            routes,
+            supportedKinds: supportedKinds,
+            preferNonLoopback: preferNonLoopback
+        ).compactMap { route in
+            guard case let .hostPort(host, port) = route.endpoint else {
+                return nil
+            }
+            return (host: host, port: port, routeID: route.id)
+        }
+    }
+
+    /// Ordered reconnect candidates for a Mac, preserving route priority while
+    /// treating iroh peer routes as first-class candidates.
+    static func reconnectRoutes(
+        _ routes: [CmxAttachRoute],
+        supportedKinds: [CmxAttachTransportKind],
+        preferNonLoopback: Bool = false
+    ) -> [CmxAttachRoute] {
         let supportedKinds = Set(supportedKinds)
         let ordered = routes.sorted(by: Self.routeSortsBefore)
         var seenEndpoints = Set<String>()
 
         func appendCandidates(
             where predicate: (CmxAttachRoute) -> Bool,
-            to candidates: inout [(host: String, port: Int, routeID: String)]
+            to candidates: inout [CmxAttachRoute]
         ) {
             for route in ordered {
                 if !supportedKinds.isEmpty, !supportedKinds.contains(route.kind) {
                     continue
                 }
-                guard predicate(route),
-                      case let .hostPort(host, port) = route.endpoint else {
+                guard predicate(route) else {
                     continue
                 }
-                let endpointKey = "\(host)\u{1F}\(port)"
+                let endpointKey = reconnectRouteKey(route)
                 guard seenEndpoints.insert(endpointKey).inserted else { continue }
-                candidates.append((host: host, port: port, routeID: route.id))
+                candidates.append(route)
             }
         }
 
-        var candidates: [(host: String, port: Int, routeID: String)] = []
+        var candidates: [CmxAttachRoute] = []
         if preferNonLoopback {
             appendCandidates(where: { route in
-                guard route.kind != .debugLoopback,
-                      case let .hostPort(host, _) = route.endpoint else { return false }
-                return Self.isIPLiteralHost(host)
+                switch route.endpoint {
+                case let .hostPort(host, _):
+                    return route.kind != .debugLoopback && Self.isIPLiteralHost(host)
+                case .peer:
+                    return route.kind == .iroh
+                case .url:
+                    return false
+                }
             }, to: &candidates)
-            appendCandidates(where: { $0.kind != .debugLoopback }, to: &candidates)
+            appendCandidates(where: { route in
+                guard route.kind != .debugLoopback else { return false }
+                if case .hostPort = route.endpoint { return true }
+                return false
+            }, to: &candidates)
             // Any real candidate found: stop here so loopback is unreachable
             // even as a dial-everything fallback (see the doc comment).
             guard candidates.isEmpty else { return candidates }
         }
         appendCandidates(where: { _ in true }, to: &candidates)
         return candidates
+    }
+
+    private static func reconnectRouteKey(_ route: CmxAttachRoute) -> String {
+        switch route.endpoint {
+        case let .hostPort(host, port):
+            return "host:\(host)\u{1F}\(port)"
+        case let .peer(id, _, directAddrs, relayURL):
+            return "peer:\(id)\u{1F}\(directAddrs.joined(separator: ","))\u{1F}\(relayURL ?? "")"
+        case let .url(url):
+            return "url:\(url)"
+        }
+    }
+
+    static func reconnectDisplayName(for route: CmxAttachRoute) -> String {
+        switch route.endpoint {
+        case let .hostPort(host, _):
+            return host
+        case let .peer(id, _, _, _):
+            return id
+        case let .url(url):
+            return url
+        }
+    }
+
+    static func isStoredMacReconnectableRoute(_ route: CmxAttachRoute) -> Bool {
+        switch route.endpoint {
+        case let .hostPort(host, _):
+            return MobileShellRouteAuthPolicy.normalizedManualHost(host) != nil
+        case .peer:
+            return route.kind == .iroh
+        case .url:
+            return false
+        }
     }
 
     /// Merges a constrained reconnect ticket with the previously persisted route set.

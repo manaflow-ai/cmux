@@ -235,6 +235,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
                   MobileShellRouteAuthPolicy.routeAllowsStackAuth(route) else {
                 throw MobileShellConnectionError.insecureManualRoute
             }
+            try await validateIrohEndpointTrust()
             do {
                 auth["stack_access_token"] = try await stackAccessToken(deadline: deadline)
             } catch let error as MobileShellConnectionError {
@@ -272,6 +273,11 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     }
 
     private func stackAccessTokenForStatus(deadline: RPCRequestDeadline) async throws -> String? {
+        do {
+            try await validateIrohEndpointTrust()
+        } catch {
+            return nil
+        }
         let task = Task<String?, any Error> { [runtime] in
             await runtime.stackAccessTokenForStatusProvider()
         }
@@ -290,6 +296,13 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         try await stackTokenGate.token(timeoutNanoseconds: try deadline.remainingNanoseconds()) { [runtime] in
             try await runtime.stackAccessTokenProvider()
         }
+    }
+
+    private func validateIrohEndpointTrust() async throws {
+        guard route.kind == .iroh else {
+            return
+        }
+        try await runtime.irohEndpointTrustValidator(route, ticket)
     }
 
     private static func requestNeedsStackAuthFallback(_ request: [String: Any], ticket: CmxAttachTicket) -> Bool {

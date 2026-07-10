@@ -26,6 +26,10 @@ public protocol MobileSyncRuntime: Sendable {
     /// Transport kinds the app can dial, used to filter attach routes before
     /// connecting. Empty means "no filter" (accept every advertised route).
     var supportedRouteKinds: [CmxAttachTransportKind] { get }
+    /// Validates that an iroh route's peer EndpointId is trusted before the RPC
+    /// layer sends Stack account credentials over it. Non-iroh routes should be
+    /// accepted by the validator.
+    var irohEndpointTrustValidator: @Sendable (CmxAttachRoute, CmxAttachTicket) async throws -> Void { get }
     /// Shorter deadline for pairing-time requests (ticket mint, initial
     /// workspace list), in nanoseconds.
     var pairingRequestTimeoutNanoseconds: UInt64 { get }
@@ -54,6 +58,11 @@ public extension MobileSyncRuntime {
     /// Default user-facing pairing deadline. Individual RPCs can have their own
     /// request timeout, but the sheet must not spin through stacked route waits.
     var pairingAttemptTimeoutNanoseconds: UInt64 { 8_000_000_000 }
+
+    /// Default trust policy for runtimes that do not use iroh.
+    var irohEndpointTrustValidator: @Sendable (CmxAttachRoute, CmxAttachTicket) async throws -> Void {
+        { _, _ in }
+    }
 
     /// Default probe deadline: generous against a momentarily loaded Mac,
     /// while keeping dead-stream recovery within a few seconds of the silence

@@ -2,16 +2,21 @@ public import CMUXMobileCore
 import Foundation
 
 /// The production ``CmxRoutePinging``: opens (and immediately closes) a real TCP
-/// connection over ``CmxNetworkByteTransport`` and times the connect. Lives in
-/// the transport package (the only place that knows the concrete socket layer);
-/// the protocol and result type it satisfies live in CMUXMobileCore.
+/// or iroh connection and times the connect. Lives in the transport package
+/// (the only place that knows the concrete socket layers); the protocol and
+/// result type it satisfies live in CMUXMobileCore.
 public struct CmxNetworkRoutePinger: CmxRoutePinging {
-    /// Creates a pinger that dials real TCP connections via ``CmxNetworkByteTransport``.
-    public init() {}
+    private let irohFactory: CmxIrohByteTransportFactory?
 
-    /// Open a TCP connection to the route's host/port, measure the connect
-    /// latency, then close. Returns the latency or a classified failure; never
-    /// throws.
+    /// Creates a pinger that dials real TCP and iroh connections.
+    public init(
+        irohFactory: CmxIrohByteTransportFactory? = CmxIrohByteTransportFactory()
+    ) {
+        self.irohFactory = irohFactory
+    }
+
+    /// Open a connection to the route, measure connect latency, then close.
+    /// Returns the latency or a classified failure; never throws.
     /// - Parameters:
     ///   - route: The route to probe. Non-host/port routes return
     ///     ``CmxRoutePingResult/unsupportedRoute``.
@@ -21,6 +26,10 @@ public struct CmxNetworkRoutePinger: CmxRoutePinging {
         _ route: CmxAttachRoute,
         timeoutNanoseconds: UInt64 = 5 * 1_000_000_000
     ) async -> CmxRoutePingResult {
+        if route.kind == .iroh {
+            return await pingIroh(route, timeoutNanoseconds: timeoutNanoseconds)
+        }
+
         let transport: CmxNetworkByteTransport
         do {
             transport = try CmxNetworkByteTransport(
@@ -40,6 +49,42 @@ public struct CmxNetworkRoutePinger: CmxRoutePinging {
             await transport.close()
             return .reachable(latencyMilliseconds: elapsed.cmxWholeMilliseconds)
         } catch let error as CmxNetworkByteTransportError {
+            await transport.close()
+            return pingResult(for: error)
+        } catch {
+            await transport.close()
+            return .failed(description: String(describing: error))
+        }
+    }
+
+    private func pingIroh(
+        _ route: CmxAttachRoute,
+        timeoutNanoseconds: UInt64
+    ) async -> CmxRoutePingResult {
+        guard let irohFactory else {
+            return .unsupportedRoute
+        }
+        let transport: any CmxByteTransport
+        do {
+            transport = try CmxIrohByteTransport(
+                route: route,
+                endpointManager: irohFactory.endpointManagerForPinger,
+                ffiClient: irohFactory.ffiClientForPinger,
+                maximumReceiveLength: CmxIrohByteTransport.defaultMaximumReceiveLength,
+                connectTimeoutNanoseconds: timeoutNanoseconds
+            )
+        } catch {
+            return .unsupportedRoute
+        }
+
+        let clock = ContinuousClock()
+        let start = clock.now
+        do {
+            try await transport.connect()
+            let elapsed = clock.now - start
+            await transport.close()
+            return .reachable(latencyMilliseconds: elapsed.cmxWholeMilliseconds)
+        } catch let error as CmxIrohByteTransportError {
             await transport.close()
             return pingResult(for: error)
         } catch {
@@ -78,6 +123,45 @@ public struct CmxNetworkRoutePinger: CmxRoutePinging {
              .sendAlreadyInProgress, .receiveFailed, .sendFailed:
             return .failed(description: String(describing: error))
         }
+    }
+
+    private func pingResult(for error: CmxIrohByteTransportError) -> CmxRoutePingResult {
+        switch error {
+        case let .connectionFailed(description, kind),
+             let .endpointBindFailed(description, kind):
+            return pingResult(description: description, kind: kind)
+        case .emptyPeerID, .invalidMaximumReceiveLength, .unsupportedRouteKind, .unsupportedEndpoint:
+            return .unsupportedRoute
+        case .notConnected, .alreadyClosed, .receiveFailed, .sendFailed:
+            return .failed(description: String(describing: error))
+        }
+    }
+
+    private func pingResult(description: String, kind: CmxConnectFailureKind) -> CmxRoutePingResult {
+        switch kind {
+        case .connectionRefused:
+            return .refused
+        case .hostUnreachable:
+            return .unreachable
+        case .timedOut:
+            return .timedOut
+        case .dnsFailed:
+            return .dnsFailed
+        case .permissionDenied:
+            return .permissionDenied
+        case .secureChannelFailed, .generic:
+            return .failed(description: description)
+        }
+    }
+}
+
+extension CmxIrohByteTransportFactory {
+    var endpointManagerForPinger: CmxIrohEndpointManager {
+        endpointManager
+    }
+
+    var ffiClientForPinger: any CmxIrohFFIClient {
+        ffiClient
     }
 }
 

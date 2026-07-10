@@ -24,6 +24,7 @@ public struct CMUXMobileRuntime: Sendable, MobileSyncRuntime {
     public var pairingRequestTimeoutNanoseconds: UInt64
     public var pairingAttemptTimeoutNanoseconds: UInt64
     public var now: @Sendable () -> Date
+    public var irohEndpointTrustValidator: @Sendable (CmxAttachRoute, CmxAttachTicket) async throws -> Void
     /// When false, `MobileShellStore` skips background terminal refresh.
     /// Scripted transport tests set this off so background subscribe/poll
     /// requests don't consume responses intended for foreground methods.
@@ -136,6 +137,7 @@ public struct CMUXMobileRuntime: Sendable, MobileSyncRuntime {
         pairingRequestTimeoutNanoseconds: UInt64 = CMUXMobileRuntime.defaultPairingRequestTimeoutNanoseconds,
         pairingAttemptTimeoutNanoseconds: UInt64 = CMUXMobileRuntime.defaultPairingAttemptTimeoutNanoseconds,
         now: @escaping @Sendable () -> Date = Date.init,
+        irohEndpointTrustValidator: (@Sendable (CmxAttachRoute, CmxAttachTicket) async throws -> Void)? = nil,
         supportsServerPushEvents: Bool = true
     ) {
         self.supportedRouteKinds = supportedRouteKinds
@@ -147,6 +149,7 @@ public struct CMUXMobileRuntime: Sendable, MobileSyncRuntime {
         self.pairingRequestTimeoutNanoseconds = pairingRequestTimeoutNanoseconds
         self.pairingAttemptTimeoutNanoseconds = pairingAttemptTimeoutNanoseconds
         self.now = now
+        self.irohEndpointTrustValidator = irohEndpointTrustValidator ?? { _, _ in }
         self.supportsServerPushEvents = supportsServerPushEvents
     }
 
@@ -159,6 +162,7 @@ public struct CMUXMobileRuntime: Sendable, MobileSyncRuntime {
         pairingRequestTimeoutNanoseconds: UInt64 = CMUXMobileRuntime.defaultPairingRequestTimeoutNanoseconds,
         pairingAttemptTimeoutNanoseconds: UInt64 = CMUXMobileRuntime.defaultPairingAttemptTimeoutNanoseconds,
         now: @escaping @Sendable () -> Date = Date.init,
+        irohEndpointTrustValidator: (@Sendable (CmxAttachRoute, CmxAttachTicket) async throws -> Void)? = nil,
         supportsServerPushEvents: Bool = true
     ) {
         self.supportedRouteKinds = transportFactory.supportedKinds
@@ -171,6 +175,7 @@ public struct CMUXMobileRuntime: Sendable, MobileSyncRuntime {
         self.pairingAttemptTimeoutNanoseconds = pairingAttemptTimeoutNanoseconds
         self.supportsServerPushEvents = supportsServerPushEvents
         self.now = now
+        self.irohEndpointTrustValidator = irohEndpointTrustValidator ?? { _, _ in }
     }
 }
 

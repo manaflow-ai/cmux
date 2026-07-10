@@ -18,13 +18,28 @@ let package = Package(
         .package(path: "../../Shared/CMUXMobileCore"),
     ],
     targets: [
+        .binaryTarget(
+            name: "CmuxIrohFFI",
+            path: "../../../CmuxIrohFFI.xcframework"
+        ),
+        .target(
+            name: "CmuxIrohC",
+            dependencies: ["CmuxIrohFFI"],
+            publicHeadersPath: "include"
+        ),
         .target(
             name: "CmuxMobileTransport",
-            dependencies: ["CMUXMobileCore"],
+            dependencies: ["CMUXMobileCore", "CmuxIrohC"],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
                 .enableUpcomingFeature("ExistentialAny"),
                 .enableUpcomingFeature("InternalImportsByDefault"),
+            ],
+            linkerSettings: [
+                .linkedFramework("CoreWLAN", .when(platforms: [.macOS])),
+                .linkedFramework("Network"),
+                .linkedFramework("Security"),
+                .linkedFramework("SystemConfiguration"),
             ]
         ),
         .testTarget(

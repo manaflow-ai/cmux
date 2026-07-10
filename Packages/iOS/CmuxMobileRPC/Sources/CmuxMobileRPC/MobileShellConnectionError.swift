@@ -19,6 +19,10 @@ public enum MobileShellConnectionError: LocalizedError {
     /// associated value is a user-facing message; the caller should drive a
     /// re-authentication flow into the owner's account rather than retry.
     case accountMismatch(String)
+    /// The pinned iroh EndpointId for this Mac does not match the route being
+    /// dialed. The associated value is a user-facing message that should drive
+    /// an explicit re-trust flow rather than silently accepting the new key.
+    case irohEndpointChanged(String)
     /// A server-reported RPC error: optional code plus a message.
     case rpcError(String?, String)
 
@@ -37,6 +41,8 @@ public enum MobileShellConnectionError: LocalizedError {
         case let .authorizationFailed(message):
             return message
         case let .accountMismatch(message):
+            return message
+        case let .irohEndpointChanged(message):
             return message
         case let .rpcError(_, message):
             return message

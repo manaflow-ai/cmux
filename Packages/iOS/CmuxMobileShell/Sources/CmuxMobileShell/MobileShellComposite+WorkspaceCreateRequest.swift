@@ -94,6 +94,8 @@ extension MobileShellComposite {
                     return .failure(.requestTimedOut(hostDisplayName: connectedHostName))
                 case .attachTicketExpired, .authorizationFailed, .accountMismatch, .insecureManualRoute:
                     return .failure(.authorizationFailed(hostDisplayName: connectedHostName))
+                case .irohEndpointChanged:
+                    return .failure(.rejected(hostDisplayName: connectedHostName))
                 case let .rpcError(code, _):
                     let normalizedCode = code?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
                     if let normalizedCode,

@@ -30,6 +30,15 @@ import Testing
         )
     }
 
+    private func iroh(id: String = "endpoint-a", priority: Int = 1) throws -> CmxAttachRoute {
+        try CmxAttachRoute(
+            id: "iroh-\(id)",
+            kind: .iroh,
+            endpoint: .peer(id: id, relayHint: nil, directAddrs: [], relayURL: nil),
+            priority: priority
+        )
+    }
+
     @Test func physicalDevicePrefersRealRouteOverLowerPriorityLoopback() throws {
         let pick = MobileShellComposite.firstReconnectHostPortRoute(
             [try loopback(), try tailscale()],
@@ -67,6 +76,26 @@ import Testing
         )
 
         #expect(candidates.map { $0.host } == ["127.0.0.1", "100.82.214.112"])
+    }
+
+    @Test func reconnectCandidatesIncludeIrohPeerRoutesByPriority() throws {
+        let candidates = MobileShellComposite.reconnectRoutes(
+            [try tailscale(), try iroh(priority: 1)],
+            supportedKinds: [.iroh, .tailscale],
+            preferNonLoopback: false
+        )
+
+        #expect(candidates.map(\.kind) == [.iroh, .tailscale])
+    }
+
+    @Test func physicalDeviceCandidatesKeepIrohPeerBeforeLoopback() throws {
+        let candidates = MobileShellComposite.reconnectRoutes(
+            [try loopback(), try iroh(priority: 1)],
+            supportedKinds: [.debugLoopback, .iroh],
+            preferNonLoopback: true
+        )
+
+        #expect(candidates.map(\.kind) == [.iroh])
     }
 
     @Test func physicalDeviceCandidatesNeverIncludeLoopbackWhenRealRoutesExist() throws {

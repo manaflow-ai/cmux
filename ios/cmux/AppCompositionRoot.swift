@@ -23,6 +23,7 @@ final class AppCompositionRoot {
     let runtime: CMUXMobileRuntime
     let auth: MobileAuthComposition
     let reachability: any ReachabilityProviding
+    let irohEndpointManager: CmxIrohEndpointManager?
     let pushCoordinator: MobilePushCoordinator
     let analytics: MobileAnalyticsComposition
     let displaySettings: MobileDisplaySettings
@@ -52,7 +53,8 @@ final class AppCompositionRoot {
     init(
         runtime: CMUXMobileRuntime,
         auth: MobileAuthComposition,
-        reachability: any ReachabilityProviding
+        reachability: any ReachabilityProviding,
+        irohEndpointManager: CmxIrohEndpointManager? = nil
     ) {
         #if DEBUG
         // Arm the durable debug log at launch: `.shared` is lazy, and without
@@ -63,6 +65,7 @@ final class AppCompositionRoot {
         self.runtime = runtime
         self.auth = auth
         self.reachability = reachability
+        self.irohEndpointManager = irohEndpointManager
         let telemetryConsent = UserDefaultsAnalyticsConsentProvider(defaults: .standard)
         MobileCrashReporter.startIfEnabled(
             consent: telemetryConsent,
@@ -156,6 +159,9 @@ final class AppCompositionRoot {
             }
             // Force a flush before the OS may suspend us, so queued events survive.
             Task { await emitter.flush() }
+            if let irohEndpointManager {
+                Task { await irohEndpointManager.closeEndpoint() }
+            }
         case .inactive:
             break
         @unknown default:

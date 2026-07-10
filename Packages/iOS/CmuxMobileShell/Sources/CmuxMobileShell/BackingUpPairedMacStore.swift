@@ -415,10 +415,10 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
             isActive: mac.isActive,
             customName: mac.customName,
             customColor: mac.customColor,
-            customIcon: mac.customIcon
+            customIcon: mac.customIcon,
+            irohEndpointID: mac.irohEndpointID
         )
     }
-
     /// Upload the current record for one Mac. `includesCustomizations` is true
     /// only for explicit rename/color/icon writes; other mirrors preserve the
     /// server's current customizations. Best-effort.

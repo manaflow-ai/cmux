@@ -3,6 +3,7 @@ import CMUXMobileCore
 import CmuxAuthRuntime
 import CmuxMobileAnalytics
 import CmuxMobilePairedMac
+import CmuxMobileRPC
 import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
@@ -54,6 +55,9 @@ public struct CMUXMobileRootScene: View {
     /// separately and replaces this at the composition root without touching the
     /// shell.
     private let draftStore: any TerminalDraftStoring
+    /// Shared phone-side iroh endpoint manager, injected from the app root so
+    /// transport connects and route pings obey the same scene lifecycle.
+    private let irohEndpointManager: CmxIrohEndpointManager?
     #if DEBUG
     /// The structured diagnostic log injected into the shell store so the DEV
     /// dogfood feedback round-trip can export it. DEBUG-only; `nil` when the app
@@ -88,6 +92,7 @@ public struct CMUXMobileRootScene: View {
         displaySettings: MobileDisplaySettings,
         onboardingStore: MobileOnboardingStore,
         tailscaleStatusMonitor: any TailscaleStatusObserving,
+        irohEndpointManager: CmxIrohEndpointManager? = nil,
         diagnosticLog: DiagnosticLog? = nil
     ) {
         self.runtime = runtime
@@ -100,6 +105,7 @@ public struct CMUXMobileRootScene: View {
         self.tailscaleStatusMonitor = tailscaleStatusMonitor
         self.pairedMacStore = Self.openPairedMacStore()
         self.draftStore = InMemoryTerminalDraftStore()
+        self.irohEndpointManager = irohEndpointManager
         #if DEBUG
         self.diagnosticLog = diagnosticLog
         #endif
@@ -110,7 +116,8 @@ public struct CMUXMobileRootScene: View {
         runtime: CMUXMobileRuntime,
         auth: MobileAuthComposition,
         reachability: any ReachabilityProviding,
-        analytics: any AnalyticsEmitting
+        analytics: any AnalyticsEmitting,
+        irohEndpointManager: CmxIrohEndpointManager? = nil
     ) {
         self.runtime = runtime
         self.auth = auth
@@ -119,6 +126,7 @@ public struct CMUXMobileRootScene: View {
         self.tailscaleStatusMonitor = nil
         self.pairedMacStore = Self.openPairedMacStore()
         self.draftStore = InMemoryTerminalDraftStore()
+        self.irohEndpointManager = irohEndpointManager
         #if DEBUG
         self.diagnosticLog = nil
         #endif
@@ -270,6 +278,16 @@ public struct CMUXMobileRootScene: View {
         let deviceRegistry = makeDeviceRegistry()
         let restoreBoundary = PairedMacRestoreBoundary()
         let backedUpPairedMacStore = makeBackedUpPairedMacStore(restoreBoundary: restoreBoundary)
+        var scopedRuntime = runtime
+        scopedRuntime.irohEndpointTrustValidator = Self.makeIrohEndpointTrustValidator(
+            pairedMacStore: backedUpPairedMacStore,
+            currentUserID: { await coordinator.currentUser?.id },
+            teamID: { await coordinator.resolvedTeamID },
+            now: runtime.now
+        )
+        let routePinger = CmxNetworkRoutePinger(
+            irohFactory: irohEndpointManager.map { CmxIrohByteTransportFactory(endpointManager: $0) }
+        )
         let forgottenMacStore = UserDefaultsPairedMacForgottenStore()
         let feedbackEmailSubmitter = MobileFeedbackEmailClient(apiBaseURL: auth.config.apiBaseURL)
         let feedbackStampProvider: @MainActor () -> MobileFeedbackStamp = {
@@ -277,7 +295,7 @@ public struct CMUXMobileRootScene: View {
         }
         #if DEBUG
         return CMUXMobileShellStore(
-            runtime: runtime,
+            runtime: scopedRuntime,
             pairedMacStore: backedUpPairedMacStore,
             pairedMacRestoreBoundary: restoreBoundary,
             deviceRegistry: deviceRegistry,
@@ -285,6 +303,7 @@ public struct CMUXMobileRootScene: View {
             identityProvider: identityProvider,
             teamIDProvider: { await coordinator.resolvedTeamID },
             reachability: reachability,
+            routePinger: routePinger,
             forgottenMacStore: forgottenMacStore,
             analytics: analytics,
             diagnosticLog: diagnosticLog,
@@ -294,7 +313,7 @@ public struct CMUXMobileRootScene: View {
         )
         #else
         return CMUXMobileShellStore(
-            runtime: runtime,
+            runtime: scopedRuntime,
             pairedMacStore: backedUpPairedMacStore,
             pairedMacRestoreBoundary: restoreBoundary,
             deviceRegistry: deviceRegistry,
@@ -302,6 +321,7 @@ public struct CMUXMobileRootScene: View {
             identityProvider: identityProvider,
             teamIDProvider: { await coordinator.resolvedTeamID },
             reachability: reachability,
+            routePinger: routePinger,
             forgottenMacStore: forgottenMacStore,
             analytics: analytics,
             feedbackEmailSubmitter: feedbackEmailSubmitter,
@@ -309,5 +329,65 @@ public struct CMUXMobileRootScene: View {
             draftStore: draftStore
         )
         #endif
+    }
+
+    private static func makeIrohEndpointTrustValidator(
+        pairedMacStore: (any MobilePairedMacStoring)?,
+        currentUserID: @escaping @Sendable () async -> String?,
+        teamID: @escaping @Sendable () async -> String?,
+        now: @escaping @Sendable () -> Date
+    ) -> @Sendable (CmxAttachRoute, CmxAttachTicket) async throws -> Void {
+        { route, ticket in
+            guard route.kind == .iroh,
+                  case let .peer(rawEndpointID, _, _, _) = route.endpoint else {
+                return
+            }
+            let endpointID = rawEndpointID.trimmingCharacters(in: .whitespacesAndNewlines)
+            let macDeviceID = ticket.macDeviceID.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !endpointID.isEmpty, !macDeviceID.isEmpty else {
+                return
+            }
+            guard let pairedMacStore else {
+                throw MobileShellConnectionError.irohEndpointChanged(Self.irohEndpointChangedMessage())
+            }
+            let userID = await currentUserID() ?? ticket.macUserID
+            let teamID = await teamID()
+            let macs = try await pairedMacStore.loadAll(stackUserID: userID, teamID: teamID)
+            if let existing = macs.first(where: { $0.macDeviceID == macDeviceID }) {
+                if let pinned = existing.irohEndpointID?.trimmingCharacters(in: .whitespacesAndNewlines),
+                   !pinned.isEmpty {
+                    guard pinned == endpointID else {
+                        throw MobileShellConnectionError.irohEndpointChanged(Self.irohEndpointChangedMessage())
+                    }
+                    return
+                }
+                try await pairedMacStore.upsert(
+                    macDeviceID: macDeviceID,
+                    displayName: ticket.macDisplayName ?? existing.displayName,
+                    routes: ticket.routes,
+                    markActive: existing.isActive,
+                    stackUserID: userID,
+                    teamID: teamID,
+                    now: now()
+                )
+                return
+            }
+            try await pairedMacStore.upsert(
+                macDeviceID: macDeviceID,
+                displayName: ticket.macDisplayName,
+                routes: ticket.routes,
+                markActive: false,
+                stackUserID: userID,
+                teamID: teamID,
+                now: now()
+            )
+        }
+    }
+
+    nonisolated private static func irohEndpointChangedMessage() -> String {
+        L10n.string(
+            "mobile.pairing.irohEndpointChanged",
+            defaultValue: "This Mac's Iroh identity changed. Trust it again from the Mac before sending account credentials."
+        )
     }
 }

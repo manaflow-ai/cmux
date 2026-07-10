@@ -82,6 +82,20 @@ import Testing
         #expect(category.guidance != nil)
     }
 
+    @Test func irohTimeoutClassifiesWithIrohGuidance() throws {
+        let category = MobilePairingFailureCategory.classify(
+            error: CmxIrohByteTransportError.connectionFailed("timeout", .timedOut),
+            route: try CmxAttachRoute(
+                id: "iroh",
+                kind: .iroh,
+                endpoint: .peer(id: "endpoint-a", relayHint: nil, directAddrs: [], relayURL: nil)
+            )
+        )
+        #expect(category == .irohTimedOut)
+        #expect(category.analyticsReason == "iroh_timeout")
+        #expect(category.guidance?.contains("Tailscale setup") == true)
+    }
+
     @Test func receiveFailureMeansConnectionDropped() throws {
         let category = MobilePairingFailureCategory.classify(
             error: CmxNetworkByteTransportError.receiveFailed("eof"),

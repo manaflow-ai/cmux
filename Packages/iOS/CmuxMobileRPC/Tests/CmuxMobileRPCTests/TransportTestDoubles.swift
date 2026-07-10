@@ -14,6 +14,7 @@ struct TestMobileSyncRuntime: MobileSyncRuntime {
     var rpcRequestTimeoutNanoseconds: UInt64
     var pairingRequestTimeoutNanoseconds: UInt64
     var now: @Sendable () -> Date
+    var irohEndpointTrustValidator: @Sendable (CmxAttachRoute, CmxAttachTicket) async throws -> Void
     var supportsServerPushEvents: Bool
 
     init(
@@ -23,6 +24,7 @@ struct TestMobileSyncRuntime: MobileSyncRuntime {
         stackAccessTokenForStatus: String? = nil,
         stackAccessTokenProvider: (@Sendable () async throws -> String)? = nil,
         stackAccessTokenForStatusProvider: (@Sendable () async -> String?)? = nil,
+        irohEndpointTrustValidator: (@Sendable (CmxAttachRoute, CmxAttachTicket) async throws -> Void)? = nil,
         rpcRequestTimeoutNanoseconds: UInt64 = 30 * 1_000_000_000,
         pairingRequestTimeoutNanoseconds: UInt64 = 30 * 1_000_000_000,
         now: @escaping @Sendable () -> Date = Date.init,
@@ -41,6 +43,7 @@ struct TestMobileSyncRuntime: MobileSyncRuntime {
             guard let stackAccessToken else { throw MissingTestStackAccessToken() }
             return stackAccessToken
         }
+        self.irohEndpointTrustValidator = irohEndpointTrustValidator ?? { _, _ in }
         self.rpcRequestTimeoutNanoseconds = rpcRequestTimeoutNanoseconds
         self.pairingRequestTimeoutNanoseconds = pairingRequestTimeoutNanoseconds
         self.now = now

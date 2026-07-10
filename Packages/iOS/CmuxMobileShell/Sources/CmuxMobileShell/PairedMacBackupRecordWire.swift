@@ -13,6 +13,7 @@ struct PairedMacBackupRecordWire: Encodable {
         try c.encode(record.createdAt, forKey: .createdAt)
         try c.encode(record.lastSeenAt, forKey: .lastSeenAt)
         try c.encode(record.isActive, forKey: .isActive)
+        try c.encodeIfPresent(record.irohEndpointID, forKey: .irohEndpointID)
         guard includesCustomizations else { return }
         try c.encode(record.customName, forKey: .customName)
         try c.encode(record.customColor, forKey: .customColor)

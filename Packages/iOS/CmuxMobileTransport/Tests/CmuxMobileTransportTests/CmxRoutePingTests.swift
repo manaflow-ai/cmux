@@ -44,9 +44,9 @@ import Testing
 
 @Test func pingReportsUnsupportedRouteForNonHostPortEndpoint() async throws {
     let route = try CmxAttachRoute(
-        id: "iroh",
-        kind: .iroh,
-        endpoint: .peer(id: "node-1", relayHint: nil, directAddrs: [], relayURL: nil)
+        id: "websocket",
+        kind: .websocket,
+        endpoint: .url("wss://example.invalid/cmux")
     )
 
     let result = await CmxNetworkRoutePinger().ping(route)

@@ -36,6 +36,10 @@ public struct MobilePairedMac: Codable, Equatable, Sendable, Identifiable {
     /// User's custom icon override, synced per user. `nil` = the automatic icon.
     /// An SF Symbol name (ASCII, e.g. `"desktopcomputer"`) or an emoji.
     public var customIcon: String?
+    /// The trusted iroh EndpointId for this Mac. Once set, iroh routes with a
+    /// different EndpointId require explicit re-trust before Stack credentials
+    /// may be sent over that route.
+    public var irohEndpointID: String?
 
     /// The Mac device identifier doubles as the stable `Identifiable` id.
     public var id: String { macDeviceID }
@@ -68,7 +72,8 @@ public struct MobilePairedMac: Codable, Equatable, Sendable, Identifiable {
         teamID: String? = nil,
         customName: String? = nil,
         customColor: String? = nil,
-        customIcon: String? = nil
+        customIcon: String? = nil,
+        irohEndpointID: String? = nil
     ) {
         self.macDeviceID = macDeviceID
         self.displayName = displayName
@@ -81,5 +86,6 @@ public struct MobilePairedMac: Codable, Equatable, Sendable, Identifiable {
         self.customName = customName
         self.customColor = customColor
         self.customIcon = customIcon
+        self.irohEndpointID = irohEndpointID
     }
 }
