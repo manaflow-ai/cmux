@@ -81,7 +81,12 @@ struct SimulatorLengthPrefixedMessageChannelTests {
             ],
             environment: [:]
         )
-        try await ContinuousClock().sleep(for: .milliseconds(100))
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(2))
+        while connection.terminalFailure() == nil, clock.now < deadline {
+            await Task.yield()
+        }
+        try #require(connection.terminalFailure()?.code == "worker_protocol_queue_overflow")
 
         var received = 0
         var receivedBytes = 0

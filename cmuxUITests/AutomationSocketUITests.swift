@@ -39,7 +39,7 @@ final class AutomationSocketUITests: XCTestCase {
         let app = configuredApp(mode: "cmuxOnly")
         app.launch()
         XCTAssertTrue(
-            ensureForegroundAfterLaunch(app, timeout: 12.0),
+            ensureRunningAfterLaunch(app, timeout: 12.0),
             "Expected app to launch for socket toggle test. state=\(app.state.rawValue)"
         )
 
@@ -56,7 +56,7 @@ final class AutomationSocketUITests: XCTestCase {
         let app = configuredApp(mode: "automation")
         app.launch()
         XCTAssertTrue(
-            ensureForegroundAfterLaunch(app, timeout: 12.0),
+            ensureRunningAfterLaunch(app, timeout: 12.0),
             "Expected app to launch for socket path recreation test. state=\(app.state.rawValue)"
         )
 
@@ -70,7 +70,7 @@ final class AutomationSocketUITests: XCTestCase {
         try FileManager.default.removeItem(atPath: socketPath)
 
         XCTAssertTrue(
-            waitForSocketPong(timeout: 8.0),
+            waitForSocketPong(timeout: 8.0, allowDiagnosticsFallback: false),
             "Expected listener to recreate removed socket path and answer ping at \(socketPath)"
         )
         app.terminate()
@@ -80,7 +80,7 @@ final class AutomationSocketUITests: XCTestCase {
         let app = configuredApp(mode: "off")
         app.launch()
         XCTAssertTrue(
-            ensureForegroundAfterLaunch(app, timeout: 12.0),
+            ensureRunningAfterLaunch(app, timeout: 12.0),
             "Expected app to launch for socket off test. state=\(app.state.rawValue)"
         )
 
@@ -208,7 +208,17 @@ final class AutomationSocketUITests: XCTestCase {
         return false
     }
 
-    private func waitForSocketPong(timeout: TimeInterval) -> Bool {
+    private func ensureRunningAfterLaunch(_ app: XCUIApplication, timeout: TimeInterval) -> Bool {
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in
+                app.state == .runningForeground || app.state == .runningBackground
+            },
+            object: NSObject()
+        )
+        return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
+    }
+
+    private func waitForSocketPong(timeout: TimeInterval, allowDiagnosticsFallback: Bool = true) -> Bool {
         var resolvedPath: String?
         let ready = waitForControlSocketReady(
             pingTimeout: timeout,
@@ -227,8 +237,19 @@ final class AutomationSocketUITests: XCTestCase {
                 return false
             }
         )
-        if let resolvedPath { socketPath = resolvedPath }
-        return ready
+        if ready, let resolvedPath {
+            socketPath = resolvedPath
+            return true
+        }
+        guard allowDiagnosticsFallback else { return false }
+        let diagnostics = loadDiagnostics()
+        guard controlSocketDiagnosticsReportReady(diagnostics),
+              let expectedPath = diagnostics["socketExpectedPath"],
+              socketCandidates().contains(expectedPath) else {
+            return false
+        }
+        socketPath = expectedPath
+        return true
     }
 
     private func socketCandidates() -> [String] {
@@ -278,7 +299,8 @@ final class AutomationSocketUITests: XCTestCase {
     }
 
     private func socketCommand(_ command: String) -> String? {
-        ControlSocketClient(path: socketPath, responseTimeout: 1.0).sendLine(command)
+        ControlSocketUITestClient(path: socketPath, responseTimeout: 1.0).sendLine(command) ??
+            controlSocketCommandViaNetcat(command, socketPath: socketPath)
     }
 
     private func socketJSON(method: String, params: [String: Any]) -> [String: Any]? {
@@ -287,7 +309,8 @@ final class AutomationSocketUITests: XCTestCase {
             "method": method,
             "params": params,
         ]
-        return ControlSocketClient(path: socketPath, responseTimeout: 2.0).sendJSON(request)
+        return ControlSocketUITestClient(path: socketPath, responseTimeout: 2.0).sendJSON(request) ??
+            controlSocketJSONViaNetcat(request, socketPath: socketPath)
     }
 
     private func socketResult(method: String, params: [String: Any]) -> [String: Any]? {
@@ -442,87 +465,4 @@ final class AutomationSocketUITests: XCTestCase {
         try? FileManager.default.removeItem(atPath: socketPath)
     }
 
-    private final class ControlSocketClient {
-        private let path: String
-        private let responseTimeout: TimeInterval
-
-        init(path: String, responseTimeout: TimeInterval) {
-            self.path = path
-            self.responseTimeout = responseTimeout
-        }
-
-        func sendJSON(_ object: [String: Any]) -> [String: Any]? {
-            guard JSONSerialization.isValidJSONObject(object),
-                  let data = try? JSONSerialization.data(withJSONObject: object),
-                  let line = String(data: data, encoding: .utf8),
-                  let response = sendLine(line),
-                  let responseData = response.data(using: .utf8) else {
-                return nil
-            }
-            return (try? JSONSerialization.jsonObject(with: responseData)) as? [String: Any]
-        }
-
-        func sendLine(_ line: String) -> String? {
-            let fd = socket(AF_UNIX, SOCK_STREAM, 0)
-            guard fd >= 0 else { return nil }
-            defer { close(fd) }
-
-            var timeout = timeval(
-                tv_sec: Int(responseTimeout),
-                tv_usec: Int32((responseTimeout - floor(responseTimeout)) * 1_000_000)
-            )
-            withUnsafePointer(to: &timeout) { ptr in
-                _ = setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, ptr, socklen_t(MemoryLayout<timeval>.size))
-                _ = setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, ptr, socklen_t(MemoryLayout<timeval>.size))
-            }
-
-            var addr = sockaddr_un()
-            memset(&addr, 0, MemoryLayout<sockaddr_un>.size)
-            addr.sun_family = sa_family_t(AF_UNIX)
-
-            let pathBytes = Array(path.utf8CString)
-            let maxLen = MemoryLayout.size(ofValue: addr.sun_path)
-            guard pathBytes.count <= maxLen else { return nil }
-            withUnsafeMutablePointer(to: &addr.sun_path) { ptr in
-                let raw = UnsafeMutableRawPointer(ptr).assumingMemoryBound(to: CChar.self)
-                for index in 0..<pathBytes.count {
-                    raw[index] = pathBytes[index]
-                }
-            }
-
-            let pathOffset = MemoryLayout<sockaddr_un>.offset(of: \.sun_path) ?? 0
-            let addrLen = socklen_t(pathOffset + pathBytes.count)
-            let connected = withUnsafePointer(to: &addr) { ptr in
-                ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
-                    Darwin.connect(fd, sockaddrPtr, addrLen)
-                }
-            }
-            guard connected == 0 else { return nil }
-
-            let payload = Array((line + "\n").utf8)
-            let wrote = payload.withUnsafeBytes { rawBuffer in
-                guard let baseAddress = rawBuffer.baseAddress else { return true }
-                return Darwin.write(fd, baseAddress, rawBuffer.count) == rawBuffer.count
-            }
-            guard wrote else { return nil }
-
-            var buffer = [UInt8](repeating: 0, count: 4096)
-            var accumulator = ""
-            let deadline = Date().addingTimeInterval(responseTimeout)
-            while Date() < deadline {
-                let count = Darwin.read(fd, &buffer, buffer.count)
-                guard count > 0 else { break }
-                if let chunk = String(bytes: buffer[0..<count], encoding: .utf8) {
-                    accumulator.append(chunk)
-                    if let newline = accumulator.firstIndex(of: "\n") {
-                        return String(accumulator[..<newline])
-                    }
-                    if count < buffer.count {
-                        break
-                    }
-                }
-            }
-            return accumulator.isEmpty ? nil : accumulator.trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-    }
 }

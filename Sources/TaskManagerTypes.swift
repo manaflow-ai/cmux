@@ -587,6 +587,7 @@ struct CmuxTaskManagerCodingAgentDefinition: Equatable {
             directBasenames: ["omp"],
             argumentNeedles: ["@oh-my-pi/pi-coding-agent"]
         ),
+        .campfire,
         CmuxTaskManagerCodingAgentDefinition(
             id: "pi",
             displayName: "Pi",
@@ -734,10 +735,6 @@ struct CmuxTaskManagerCodingAgentDefinition: Equatable {
             }
         }
     }
-
-    private static let argumentHostBasenames: Set<String> = [
-        "node", "bun", "deno", "npm", "npx", "pnpm", "yarn", "tsx"
-    ]
 
     private static let ambiguousDirectBasenames: Set<String> = [
         "acli"
