@@ -44,6 +44,8 @@ fn install_signal_handlers() {
     }
 }
 
+// No POSIX signals on Windows; Ctrl-C arrives as console input and the
+// TUI's normal quit path handles shutdown.
 #[cfg(not(unix))]
 fn install_signal_handlers() {}
 

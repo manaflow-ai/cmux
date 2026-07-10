@@ -19,7 +19,7 @@ ios/scripts/upload-app-store.sh --export-only
 
 Defaults:
 
-- Bundle ID: `com.cmuxterm.app`
+- Bundle ID: `com.cmux.app`
 - Display name: `cmux`
 - Provisioning profile: `cmux App Store Distribution`
 - Entitlements: `Config/cmux-release.entitlements`

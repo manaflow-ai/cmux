@@ -8,7 +8,10 @@ extension AppDelegate {
     @MainActor
     static func presentPreferencesWindow(
         navigationTarget: SettingsNavigationTarget? = nil,
-        showFallbackSettingsWindow: (@MainActor (SettingsNavigationTarget?) -> Void)? = nil,
+        // Test seam only; a substitute presenter must still report a
+        // `SettingsWindowShowResult`, so there is no alternate path that can
+        // claim success without a verified window (the #7775 failure shape).
+        presentSettingsWindow: (@MainActor (SettingsNavigationTarget?) -> SettingsWindowShowResult)? = nil,
         // The legacy body also passed .activateIgnoringOtherApps; the option
         // is deprecated and documented as a no-op on macOS 14+ (this target's
         // minimum), so dropping it is behavior-neutral.
@@ -19,9 +22,9 @@ extension AppDelegate {
 #if DEBUG
         cmuxDebugLog("settings.open.present path=appkitWindow")
 #endif
-        if let showFallbackSettingsWindow {
-            showFallbackSettingsWindow(navigationTarget)
-        } else if case .failed = SettingsWindowPresenter.show(navigationTarget: navigationTarget) {
+        let present = presentSettingsWindow
+            ?? { SettingsWindowPresenter.show(navigationTarget: $0) }
+        if case .failed = present(navigationTarget) {
             // The presenter already logged the loud failure diagnostics;
             // surface the failed menu/⌘, action instead of silently activating.
             NSSound.beep()

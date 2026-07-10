@@ -1,7 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::io::Write;
 use std::time::Duration;
-
 #[cfg(unix)]
 use std::time::Instant;
 
@@ -153,6 +152,11 @@ fn query_cell_pixels() -> Option<(u16, u16)> {
     Some((((width / cols as u32).max(1)) as u16, ((height / rows as u32).max(1)) as u16))
 }
 
+#[cfg(not(unix))]
+fn ioctl_cell_pixels() -> Option<(u16, u16)> {
+    None
+}
+
 #[cfg(unix)]
 fn read_stdin_for(timeout: Duration) -> Vec<u8> {
     let start = Instant::now();
@@ -178,6 +182,9 @@ fn read_stdin_for(timeout: Duration) -> Vec<u8> {
     out
 }
 
+// Raw non-blocking stdin reads need poll(2); without them the graphics
+// probes can't collect replies, so report "no response" and let callers
+// fall back (no kitty graphics, default cell size).
 #[cfg(not(unix))]
 fn read_stdin_for(_timeout: Duration) -> Vec<u8> {
     Vec::new()

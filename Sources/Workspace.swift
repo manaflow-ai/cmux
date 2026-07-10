@@ -2341,6 +2341,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
     /// Agent runtime maps that affect sidebar status visibility.
     let sidebarAgentRuntimeObservation = WorkspaceSidebarAgentRuntimeObservationModel()
+    let sidebarProcessTitleObservation: WorkspaceSidebarProcessTitleObservationModel
     var restoredTerminalScrollbackByPanelId: [UUID: String] = [:]
 #if DEBUG
     var debugSessionSnapshotScrollbackFallbackPanelIds: Set<UUID> = []
@@ -2570,14 +2571,6 @@ final class Workspace: Identifiable, ObservableObject {
         )
     }
 
-    private static func bonsplitAppearance(from config: GhosttyConfig) -> BonsplitConfiguration.Appearance {
-        bonsplitAppearance(
-            from: config.backgroundColor,
-            backgroundOpacity: config.backgroundOpacity,
-            tabTitleFontSize: config.surfaceTabBarFontSize
-        )
-    }
-
     nonisolated static func usesSharedSurfaceBackdrop(defaults: UserDefaults = .standard) -> Bool {
         defaults.bool(forKey: "sidebarMatchTerminalBackground")
     }
@@ -2736,6 +2729,7 @@ final class Workspace: Identifiable, ObservableObject {
         return BonsplitConfiguration.Appearance(
             tabBarHeight: WindowChromeMetrics.bonsplitTabBarHeight,
             tabTitleFontSize: tabTitleFontSize,
+            dividerHitExpansion: PortalSplitDividerRegion.dividerHitExpansion,
             splitButtonBackdropEffect: Self.bonsplitSplitButtonBackdropEffect(),
             splitButtonTooltips: Self.currentSplitButtonTooltips(),
             enableAnimations: false,
@@ -2868,10 +2862,12 @@ final class Workspace: Identifiable, ObservableObject {
         closeTabWarningDefaults: UserDefaults = .standard,
         agentSessionAutoResumeDefaults: UserDefaults = .standard,
         initialDetachedSurface: DetachedSurfaceTransfer? = nil,
-        sessionRestorePolicy: WorkspaceSessionRestorePolicyService<SurfaceResumeBindingSnapshot>? = nil
+        sessionRestorePolicy: WorkspaceSessionRestorePolicyService<SurfaceResumeBindingSnapshot>? = nil,
+        sidebarProcessTitleObservation: WorkspaceSidebarProcessTitleObservationModel? = nil
     ) {
         self.id = UUID()
         self.sessionRestorePolicy = sessionRestorePolicy ?? Self.makeSessionRestorePolicyService()
+        self.sidebarProcessTitleObservation = sidebarProcessTitleObservation ?? WorkspaceSidebarProcessTitleObservationModel()
         self.closeTabWarningDefaults = closeTabWarningDefaults
         self.agentSessionAutoResumeDefaults = agentSessionAutoResumeDefaults
         let sanitizedWorkspaceEnvironment = Self.sanitizedWorkspaceEnvironment(workspaceEnvironment)
@@ -4276,47 +4272,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     // MARK: - Title Management
-
-    /// Who set a custom title. Auto-naming (AI-generated titles) must never
-    /// overwrite a user-set title; this enum carries that distinction for
-    /// workspace and panel custom titles, and round-trips through session
-    /// persistence.
-    enum CustomTitleSource: String, Codable, Sendable {
-        case user
-        case auto
-    }
-
-    var hasCustomTitle: Bool {
-        let trimmed = customTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return !trimmed.isEmpty
-    }
-
-    /// The provenance of the current custom title, normalizing legacy state:
-    /// `nil` when no custom title is set; `.user` when a title exists but
-    /// provenance was never recorded (pre-provenance snapshots, carried moves).
-    var effectiveCustomTitleSource: CustomTitleSource? {
-        hasCustomTitle ? (customTitleSource ?? .user) : nil
-    }
-
-    var hasCustomDescription: Bool {
-        Self.normalizedCustomDescription(customDescription) != nil
-    }
-
-    func applyProcessTitle(_ title: String) {
-        if processTitle != title {
-            processTitle = title
-        }
-        guard customTitle == nil else { return }
-        guard self.title != title else { return }
-#if DEBUG
-        cmuxDebugLog(
-            "workspace.title.applyProcess workspace=\(id.uuidString.prefix(5)) " +
-            "from=\"\(debugWorkspaceDescriptionPreview(self.title, limit: 80))\" " +
-            "to=\"\(debugWorkspaceDescriptionPreview(title, limit: 80))\""
-        )
-#endif
-        self.title = title
-    }
+    // Title/description ownership lives in Workspace+TitleOwnership.swift.
 
     func setCustomColor(_ hex: String?) {
         if let hex {
@@ -4333,60 +4289,6 @@ final class Workspace: Identifiable, ObservableObject {
             name: Self.terminalScrollBarHiddenDidChangeNotification,
             object: self
         )
-    }
-
-    private static func normalizedCustomDescription(_ description: String?) -> String? {
-        let normalizedLineEndings = description?
-            .replacingOccurrences(of: "\r\n", with: "\n")
-            .replacingOccurrences(of: "\r", with: "\n")
-        let trimmed = normalizedLineEndings?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        guard !trimmed.isEmpty else { return nil }
-        return normalizedLineEndings
-    }
-
-    /// Sets, replaces, or clears (empty/nil `title`) the workspace custom title.
-    ///
-    /// `.auto` writes are rejected when a user-set title exists, and `.auto`
-    /// never clears. Returns whether the write landed.
-    @discardableResult
-    func setCustomTitle(_ title: String?, source: CustomTitleSource = .user) -> Bool {
-        let trimmed = title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if source == .auto {
-            guard !trimmed.isEmpty else { return false }
-            if hasCustomTitle, (customTitleSource ?? .user) == .user { return false }
-        }
-        if trimmed.isEmpty {
-            customTitle = nil
-            customTitleSource = nil
-            self.title = processTitle
-        } else {
-            customTitle = trimmed
-            customTitleSource = source
-            self.title = trimmed
-        }
-        return true
-    }
-
-    func setCustomDescription(_ description: String?) {
-        let normalizedDescription = Self.normalizedCustomDescription(description)
-#if DEBUG
-        let inputNewlines = description?.reduce(into: 0) { count, character in
-            if character == "\n" { count += 1 }
-        } ?? 0
-        let normalizedNewlines = normalizedDescription?.reduce(into: 0) { count, character in
-            if character == "\n" { count += 1 }
-        } ?? 0
-        cmuxDebugLog(
-            "workspace.customDescription.update workspace=\(id.uuidString.prefix(8)) " +
-            "inputLen=\((description as NSString?)?.length ?? 0) " +
-            "inputNewlines=\(inputNewlines) " +
-            "normalizedLen=\((normalizedDescription as NSString?)?.length ?? 0) " +
-            "normalizedNewlines=\(normalizedNewlines) " +
-            "input=\"\(debugWorkspaceDescriptionPreview(description))\" " +
-            "normalized=\"\(debugWorkspaceDescriptionPreview(normalizedDescription))\""
-        )
-#endif
-        customDescription = normalizedDescription
     }
 
     // MARK: - Directory Updates
@@ -4651,9 +4553,7 @@ final class Workspace: Identifiable, ObservableObject {
             return false
         }
         let preparation = terminalPanel.prepareAgentHibernationResume()
-        guard preparation.didResume else {
-            return false
-        }
+        guard preparation.didResume else { return false }
         if restoredAgentSnapshotsByPanelId[panelId] != nil {
             restoredAgentResumeStatesByPanelId[panelId] = preparation.queuedStartupInput
                 ? .awaitingAutoResumeCommand
@@ -6577,7 +6477,7 @@ final class Workspace: Identifiable, ObservableObject {
         let proxyOnlyError = trimmedDetail.map(Self.isProxyOnlyRemoteError) ?? false
         let preserveConnectedStateForRetry =
             (state == .connecting || state == .reconnecting) &&
-                preservesProxyFailureForSSHRemoteWorkspace &&
+                (suppressesProxyOnlySidebarErrorForDefaultCloud || preservesProxyFailureWhileSSHTerminalIsAlive) && // #6409 default cloud; otherwise live non-persistent SSH only (#7366/#7823)
                 hasProxyOnlyRemoteSidebarError
         let suppressProxyOnlySidebarError =
             suppressesProxyOnlySidebarErrorForDefaultCloud &&
@@ -6585,7 +6485,7 @@ final class Workspace: Identifiable, ObservableObject {
         let effectiveState: WorkspaceRemoteConnectionState
         if state == .error && proxyOnlyError && suppressesProxyOnlySidebarErrorForDefaultCloud {
             effectiveState = .connected
-        } else if state == .error && proxyOnlyError && preservesProxyFailureForSSHRemoteWorkspace {
+        } else if state == .error && proxyOnlyError && preservesProxyFailureWhileSSHTerminalIsAlive { // live non-persistent SSH terminal only (#6409 vs #7366/#7823)
             effectiveState = .connected
         } else if preserveConnectedStateForRetry {
             effectiveState = .connected
