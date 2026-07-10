@@ -191,7 +191,7 @@ extension SettingsWindowSharedStateSuites {
             }
         }
 
-        @Test func stalledDeminiaturizeCommitFallsBackToAFreshVisibleWindow() async {
+        @Test func asyncDeminiaturizeCommitIsAwaitedWithoutReplacingTheWindow() async {
             await withCleanSettingsWindows {
                 var builtWindows: [SettingsTestHostWindow] = []
                 let presenter = SettingsWindowPresenter(windowFactory: { _ in
@@ -205,10 +205,43 @@ extension SettingsWindowSharedStateSuites {
                     return
                 }
 
-                // Hypothetical OS where the deminiaturize commit does not
-                // land on the same turn: the open must still end in a
-                // visible window (self-heal by replacement), never a silent
-                // no-op or a pending state reported as success.
+                // OS where the deminiaturize commit lands on a LATER
+                // run-loop turn: the bounded wait must let AppKit finish the
+                // transition — never tear down a live window (and its
+                // unsaved edits) that is about to appear.
+                firstWindow.simulatesDockMiniaturization = true
+                firstWindow.asyncDeminiaturizeCommitDelay = 0.1
+
+                let result = presenter.show()
+
+                #expect(result == .presented)
+                #expect(builtWindows.count == 1)
+                #expect(firstWindow.isVisible)
+                #expect(firstWindow.identifier?.rawValue == SettingsWindowPresenter.windowIdentifier)
+            }
+        }
+
+        @Test func stalledDeminiaturizeCommitFallsBackToAFreshVisibleWindow() async {
+            await withCleanSettingsWindows {
+                let previousTimeout = SettingsWindowPresenter.deminiaturizeSettleTimeout
+                SettingsWindowPresenter.deminiaturizeSettleTimeout = 0.1
+                defer { SettingsWindowPresenter.deminiaturizeSettleTimeout = previousTimeout }
+                var builtWindows: [SettingsTestHostWindow] = []
+                let presenter = SettingsWindowPresenter(windowFactory: { _ in
+                    let window = makePlainFactoryWindow()
+                    builtWindows.append(window)
+                    return window
+                })
+                #expect(presenter.show() == .presented)
+                guard let firstWindow = builtWindows.first else {
+                    Issue.record("expected the first show to build a window")
+                    return
+                }
+
+                // A window whose deminiaturization never lands (wedged
+                // transition): the open must still end in a visible window
+                // (self-heal by replacement), never a silent no-op or a
+                // pending state reported as success.
                 firstWindow.simulatesDockMiniaturization = true
                 firstWindow.stallsDeminiaturizeCommit = true
 
@@ -365,10 +398,14 @@ private final class SettingsTestHostWindow: SettingsHostWindow {
     /// unminiaturize animation, so `isVisible` stays false for the rest of
     /// the current run-loop turn.
     var simulatesDockMiniaturization = false
-    /// Models a hypothetical OS where `deminiaturize` followed by
-    /// `orderFrontRegardless` does NOT commit visibility on the same turn
-    /// (the probed macOS 26 behavior is that it does).
+    /// Models a wedged transition where `deminiaturize` followed by
+    /// `orderFrontRegardless` NEVER commits visibility (the probed macOS 26
+    /// behavior is a same-turn commit).
     var stallsDeminiaturizeCommit = false
+    /// Models an OS where the commit lands on a later run-loop turn: after
+    /// this delay, visibility appears (delivered while the presenter pumps
+    /// the run loop in its bounded wait).
+    var asyncDeminiaturizeCommitDelay: TimeInterval?
     private(set) var deminiaturizeCallCount = 0
     private(set) var makeKeyAndOrderFrontCallCount = 0
     private var isAwaitingDeminiaturizeAnimation = false
@@ -402,10 +439,17 @@ private final class SettingsTestHostWindow: SettingsHostWindow {
 
     override func orderFrontRegardless() {
         guard !refusesToBecomeVisible else { return }
-        if isAwaitingDeminiaturizeAnimation && !stallsDeminiaturizeCommit {
-            // Real AppKit (probed on macOS 26): orderFrontRegardless right
-            // after deminiaturize commits visibility on the same turn.
-            isAwaitingDeminiaturizeAnimation = false
+        if isAwaitingDeminiaturizeAnimation {
+            if let delay = asyncDeminiaturizeCommitDelay {
+                DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                    self?.isAwaitingDeminiaturizeAnimation = false
+                }
+            } else if !stallsDeminiaturizeCommit {
+                // Real AppKit (probed on macOS 26): orderFrontRegardless
+                // right after deminiaturize commits visibility on the same
+                // turn.
+                isAwaitingDeminiaturizeAnimation = false
+            }
         }
         super.orderFrontRegardless()
     }

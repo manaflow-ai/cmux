@@ -47,6 +47,10 @@ final class SettingsWindowPresenter: NSObject {
     /// Maximum re-entrant `show()` depth reached through close-triggered
     /// observers before the presenter fails loudly instead of recursing.
     static let maxReentrantShowDepth = 3
+    /// How long a show may pump the run loop waiting for an initiated
+    /// deminiaturization to land before falling back to window replacement.
+    /// Overridable so tests exercising the stalled path stay fast.
+    static var deminiaturizeSettleTimeout: TimeInterval = 1.0
 
     static let shared = SettingsWindowPresenter()
     /// Release-safe diagnostics so intermittent "Settings won't open" reports
@@ -178,24 +182,29 @@ final class SettingsWindowPresenter: NSObject {
                 reusedExisting = false
             }
 
+            let wasMiniaturized = window.isMiniaturized
             orderFrontWithoutActivation(window)
-            var didActivate = false
             if activateApp && !window.isVisible && NSApp.isHidden {
                 // The app being hidden can be exactly what visibility is
-                // waiting on; unhiding here is the requested activation
-                // doing its job, not a pre-verification focus steal. If the
-                // presentation still fails, the failure exit re-hides the
-                // app so the gamble leaves focus untouched.
-                activateAndSurface(window)
-                didActivate = true
+                // waiting on. Unhide WITHOUT activating (the API exists for
+                // precisely this) so verification itself never activates the
+                // app or redirects focus; the failure exit re-hides.
+                NSApp.unhideWithoutActivation()
                 didUnhideForVerification = true
+            }
+            if wasMiniaturized && !window.isVisible {
+                // The deminiaturization was initiated above; give AppKit a
+                // bounded chance to land it before concluding failure, so a
+                // live window full of unsaved edits is never destroyed just
+                // because an OS version commits the transition a turn later.
+                Self.awaitVisibility(of: window, timeout: Self.deminiaturizeSettleTimeout)
             }
 
             if window.isVisible {
                 // Activation (unhide, activate, make key) runs only after
                 // visibility is verified, so a failed presentation can never
                 // activate the app or steal focus as a side effect.
-                if activateApp && !didActivate {
+                if activateApp {
                     activateAndSurface(window)
                 }
                 deliverNavigation(reusedExistingWindow: reusedExisting)
@@ -235,9 +244,10 @@ final class SettingsWindowPresenter: NSObject {
             pendingNavigationTarget = nil
         }
         if didUnhideForVerification {
-            // The unhide above was a verification gamble that did not pay
-            // off; restore the hidden state so a failed presentation leaves
-            // app focus exactly as the caller found it.
+            // The (non-activating) unhide above was a verification gamble
+            // that did not pay off; re-hide so a failed presentation leaves
+            // the app exactly as the caller found it. Focus was never
+            // touched: activation only ever runs after verified visibility.
             NSApp.hide(nil)
         }
         return .failed(reason: failureReason)
@@ -344,19 +354,28 @@ final class SettingsWindowPresenter: NSObject {
     private func orderFrontWithoutActivation(_ window: NSWindow) {
         if window.isMiniaturized {
             // Reusing (not replacing) a Dock-miniaturized window preserves
-            // its SwiftUI tree and any unsaved Settings edits. Empirically
-            // (macOS 26 probe): `deminiaturize` alone leaves `isVisible`
-            // false until a later run-loop turn, but following it with
-            // `orderFrontRegardless()` below commits visibility on the SAME
-            // turn — so the verified visible-on-return contract still holds.
-            // If an OS version ever breaks that, the attempt loop falls back
-            // to replacing the window with a fresh visible one; never a
-            // silent no-op.
+            // its SwiftUI tree and any unsaved Settings edits; the caller
+            // waits out the transition via `awaitVisibility(of:timeout:)`.
             window.deminiaturize(nil)
         }
         window.adoptCmuxPeerWindowLevel()
         clampToVisibleAreaIfNeeded(window)
         window.orderFrontRegardless()
+    }
+
+    /// Bounded synchronous wait for an initiated deminiaturization: pumps
+    /// the main run loop in small slices (as AppKit's own modal and menu
+    /// tracking do) until the window reports visible or the deadline
+    /// passes. Instant where `deminiaturize` + `orderFrontRegardless`
+    /// commits same-turn (probed on macOS 26); elsewhere it lets AppKit
+    /// finish instead of a live window full of unsaved edits being torn
+    /// down. Still invisible at the deadline means genuinely wedged, and
+    /// the caller's replacement fallback is the right cure.
+    private static func awaitVisibility(of window: NSWindow, timeout: TimeInterval) {
+        let deadline = Date().addingTimeInterval(timeout)
+        while !window.isVisible && Date() < deadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        }
     }
 
     /// The focus-affecting half of presentation, run only for `activateApp`
