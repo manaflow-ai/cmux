@@ -11,9 +11,60 @@ import Testing
         endpoint: .hostPort(host: "100.64.1.2", port: 49831)
     )
 
-    let transport = try CmxNetworkByteTransportFactory().makeTransport(for: route)
+    let request = CmxByteTransportRequest(
+        route: route,
+        expectedPeerDeviceID: "mac-1",
+        authorizationMode: .stackBearer
+    )
+    let transport = try CmxNetworkByteTransportFactory().makeTransport(for: request)
 
     #expect(transport is CmxNetworkByteTransport)
+}
+
+@Test func networkTransportFactoryRejectsTailscaleRouteWithoutAuthorizationIntent() throws {
+    let route = try CmxAttachRoute(
+        id: "tailscale",
+        kind: .tailscale,
+        endpoint: .hostPort(host: "100.64.1.2", port: 49831)
+    )
+
+    #expect(throws: (any Error).self) {
+        _ = try CmxNetworkByteTransportFactory().makeTransport(for: route)
+    }
+}
+
+@Test func networkTransportFactoryRejectsRouteKindAuthorizationSubstitution() throws {
+    let route = try CmxAttachRoute(
+        id: "tailscale",
+        kind: .tailscale,
+        endpoint: .hostPort(host: "100.64.1.2", port: 49831)
+    )
+    let request = CmxByteTransportRequest(
+        route: route,
+        expectedPeerDeviceID: "mac-1",
+        authorizationMode: .transportAdmission
+    )
+
+    #expect(throws: (any Error).self) {
+        _ = try CmxNetworkByteTransportFactory().makeTransport(for: request)
+    }
+}
+
+@Test func networkTransportFactoryRejectsMagicDNSBeforeDial() throws {
+    let route = try CmxAttachRoute(
+        id: "tailscale",
+        kind: .tailscale,
+        endpoint: .hostPort(host: "work-mac.tailnet.ts.net", port: 49831)
+    )
+    let request = CmxByteTransportRequest(
+        route: route,
+        expectedPeerDeviceID: "mac-1",
+        authorizationMode: .stackBearer
+    )
+
+    #expect(throws: (any Error).self) {
+        _ = try CmxNetworkByteTransportFactory().makeTransport(for: request)
+    }
 }
 
 @Test func networkTransportFactoryRejectsNonNetworkRouteKind() throws {

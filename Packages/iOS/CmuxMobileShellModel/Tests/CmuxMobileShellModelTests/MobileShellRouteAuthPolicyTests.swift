@@ -52,6 +52,11 @@ import Testing
     @Test func allowsStackAuthOnlyForTailscaleOrLoopbackRoutes() throws {
         let loopback = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: CmxMobileDefaults.defaultHostPort)
         let tailscaleIP = try hostPortRoute(kind: .tailscale, host: "100.71.210.41", port: CmxMobileDefaults.defaultHostPort)
+        let tailscaleIPv6 = try hostPortRoute(
+            kind: .tailscale,
+            host: "fd7a:115c:a1e0::1234",
+            port: CmxMobileDefaults.defaultHostPort
+        )
         let lanIP = try hostPortRoute(kind: .tailscale, host: "192.168.1.77", port: CmxMobileDefaults.defaultHostPort)
         let localDNS = try hostPortRoute(kind: .tailscale, host: "devbox.local", port: CmxMobileDefaults.defaultHostPort)
         let tailscaleMagicDNS = try hostPortRoute(kind: .tailscale, host: "work-mac.tailnet.ts.net", port: CmxMobileDefaults.defaultHostPort)
@@ -85,8 +90,8 @@ import Testing
 
         // Encrypted / loopback channels may carry the Stack bearer token.
         #expect(MobileShellRouteAuthPolicy.routeAllowsStackAuth(loopback))
-        #expect(MobileShellRouteAuthPolicy.routeAllowsStackAuth(tailscaleMagicDNS))
         #expect(MobileShellRouteAuthPolicy.routeAllowsStackAuth(tailscaleIP))
+        #expect(MobileShellRouteAuthPolicy.routeAllowsStackAuth(tailscaleIPv6))
 
         // Iroh's session context authenticates RPC out of band. The Stack
         // bearer token must never be sent to the peer or any path hint.
@@ -97,11 +102,15 @@ import Testing
         // unencrypted TCP, so it is excluded from the Stack-auth-allowed set.
         #expect(!MobileShellRouteAuthPolicy.routeAllowsStackAuth(lanIP))
         #expect(!MobileShellRouteAuthPolicy.routeAllowsStackAuth(localDNS))
+        // MagicDNS text is not a transport proof. The connection factory must
+        // receive a canonical numeric Tailscale peer so DNS substitution cannot
+        // redirect the plaintext bearer before the Mac authenticates.
+        #expect(!MobileShellRouteAuthPolicy.routeAllowsStackAuth(tailscaleMagicDNS))
         #expect(!MobileShellRouteAuthPolicy.routeAllowsStackAuth(pretendLoopback))
 
         #expect(!MobileShellRouteAuthPolicy.manualHostNeedsTrustWarning("127.0.0.1"))
         #expect(!MobileShellRouteAuthPolicy.manualHostNeedsTrustWarning("100.71.210.41"))
-        #expect(!MobileShellRouteAuthPolicy.manualHostNeedsTrustWarning("work-mac.tailnet.ts.net"))
+        #expect(MobileShellRouteAuthPolicy.manualHostNeedsTrustWarning("work-mac.tailnet.ts.net"))
         #expect(MobileShellRouteAuthPolicy.manualHostNeedsTrustWarning("192.168.1.77"))
         #expect(MobileShellRouteAuthPolicy.manualHostNeedsTrustWarning("devbox.local"))
     }
