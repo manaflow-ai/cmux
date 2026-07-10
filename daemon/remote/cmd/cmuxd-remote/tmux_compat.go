@@ -1883,29 +1883,29 @@ func tmuxResizePane(rc *rpcContext, args []string) error {
 				if cellPoints <= 0 {
 					cellPoints = floatFromAny(pane["cell_width_px"])
 				}
-				if cellPoints > 0 {
-					if targetPoints <= 0 {
-						targetPoints = float64(target) * cellPoints
-					}
-					params := map[string]any{
-						"workspace_id":  wsId,
-						"pane_id":       paneId,
-						"absolute_axis": "horizontal",
-						"target_pixels": targetPoints,
-						"tmux_compat":   true,
-					}
-					if isPercentage {
-						params["target_percentage"] = target
-					} else {
-						params["target_cells"] = target
-					}
-					_, err := rc.call("pane.resize", params)
-					return err
+				if targetPoints <= 0 && cellPoints > 0 {
+					targetPoints = float64(target) * cellPoints
 				}
 				break
 			}
 		}
-		return nil
+		if targetPoints <= 0 {
+			targetPoints = float64(target)
+		}
+		params := map[string]any{
+			"workspace_id":  wsId,
+			"pane_id":       paneId,
+			"absolute_axis": "horizontal",
+			"target_pixels": targetPoints,
+			"tmux_compat":   true,
+		}
+		if isPercentage {
+			params["target_percentage"] = target
+		} else {
+			params["target_cells"] = target
+		}
+		_, err = rc.call("pane.resize", params)
+		return err
 	}
 
 	if hasDirectional {
