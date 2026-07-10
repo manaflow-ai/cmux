@@ -607,7 +607,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private let presence: (any PresenceSubscribing)?
     let identityProvider: (any MobileIdentityProviding)?
     let teamIDProvider: @Sendable () async -> String?
-    private let reachability: any ReachabilityProviding
+    let reachability: any ReachabilityProviding
     // Internal (not private): used by the dismiss-sync extension file.
     let deliveredNotificationClearer: any DeliveredNotificationClearing
     /// Durable outbox for phone→Mac dismissals.
@@ -1419,10 +1419,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     /// True while an automatic reconnect is in progress after a network change
     /// or drop.
-    public private(set) var isRecoveringConnection: Bool = false
+    public internal(set) var isRecoveringConnection: Bool = false
     /// True when automatic recovery could not restore the connection; the UI
     /// surfaces a manual Retry control in this state.
-    public private(set) var connectionRecoveryFailed: Bool = false {
+    public internal(set) var connectionRecoveryFailed: Bool = false {
         didSet {
             // Fire once on the false→true edge ("stuck disconnected, Retry is
             // dead"): the recovery-rate denominator.
@@ -1442,89 +1442,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// the user-facing reason.
     public private(set) var connectionRequiresReauth: Bool = false
 
-    private var networkPathObservationStarted = false
-    private var networkPathObservationTask: Task<Void, Never>?
-    private var recoveryInFlight = false
-    private var recoveryTask: Task<Void, Never>?
-    private var lastReconnectStackUserID: String?
-
-    private enum RecoveryTrigger: CustomStringConvertible {
-        case networkChange
-        case manual
-        case presencePush
-
-        var reschedulesSecondaryAggregation: Bool { self != .presencePush }
-
-        var description: String {
-            switch self {
-            case .networkChange: return "networkChange"
-            case .manual: return "manual"
-            case .presencePush: return "presencePush"
-            }
-        }
-    }
-
-    /// Begin observing every post-initial network path callback so a live
-    /// terminal recovers and plaintext trust is revoked when the network moves
-    /// out from under it. Idempotent; only the first call arms the observation.
-    func startObservingNetworkPathChanges() {
-        guard !networkPathObservationStarted else { return }
-        networkPathObservationStarted = true
-        let reachability = reachability
-        networkPathObservationTask = Task { @MainActor [weak self] in
-            // Every post-initial callback is a security boundary. Public NWPath
-            // attributes can look identical across two different Wi-Fi LANs.
-            for await _ in reachability.pathChanges() {
-                guard let self, !Task.isCancelled else { return }
-                if self.invalidateManualHostTrustForNetworkBoundary() {
-                    continue
-                }
-                self.recoverMobileConnection(trigger: .networkChange)
-            }
-        }
-    }
-
-    /// User-initiated reconnect from the Retry control.
-    public func retryMobileConnection() {
-        connectionRecoveryFailed = false
-        recoverMobileConnection(trigger: .manual)
-    }
-
-    /// Single guarded recovery entry for every trigger (network change, manual
-    /// Retry). When still connected, a network move usually only broke the event
-    /// stream while input keeps flowing over the surviving connection, so a
-    /// resync re-subscribes and requests a render-grid replay to repaint.
-    /// Otherwise the connection dropped, so reconnect once; on failure the UI
-    /// shows Retry and the next network change re-attempts automatically.
-    private func recoverMobileConnection(trigger: RecoveryTrigger) {
-        guard remoteClient != nil || pairedMacStore != nil else { return }
-        if connectionState == .connected, remoteClient != nil {
-            guard !isRecoveringConnection else { return }
-            markMacConnectionReconnecting()
-            resyncTerminalOutput(reason: "networkRecovery.\(trigger)", restartEventStream: true)
-            if multiMacAggregationEnabled, trigger.reschedulesSecondaryAggregation {
-                scheduleSecondaryAggregation()
-            }
-            return
-        }
-        guard !recoveryInFlight else { return }
-        recoveryInFlight = true
-        isRecoveringConnection = true
-        connectionRecoveryFailed = false
-        let stackUserID = lastReconnectStackUserID
-        recoveryTask?.cancel()
-        recoveryTask = Task { @MainActor [weak self] in
-            defer {
-                self?.recoveryInFlight = false
-                self?.isRecoveringConnection = false
-            }
-            guard let self, self.connectionState != .connected else { return }
-            let reconnected = await self.reconnectActiveMacIfAvailable(stackUserID: stackUserID)
-            if !reconnected, !Task.isCancelled {
-                self.connectionRecoveryFailed = true
-            }
-        }
-    }
+    var networkPathObservationStarted = false
+    var networkPathObservationTask: Task<Void, Never>?
+    var recoveryInFlight = false
+    var recoveryTask: Task<Void, Never>?
+    /// Newest-wins trailing network recovery. A later path callback must rotate
+    /// trust immediately, but cannot strand the reconnect it just superseded.
+    var networkRecoveryPending = false
+    var lastReconnectStackUserID: String?
 
     public func connectPreviewHost() {
         let trimmedCode = pairingCode.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -5714,15 +5639,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private func markMacConnectionHealthy() {
         guard connectionState == .connected else {
             macConnectionStatus = .unavailable
+            isRecoveringConnection = false
+            drainPendingNetworkRecoveryIfIdle()
             return
         }
         macConnectionStatus = .connected
         isRecoveringConnection = false
         connectionRecoveryFailed = false
         connectionRequiresReauth = false
+        drainPendingNetworkRecoveryIfIdle()
     }
 
-    private func markMacConnectionReconnecting() {
+    func markMacConnectionReconnecting() {
         guard connectionState == .connected, remoteClient != nil else {
             macConnectionStatus = .unavailable
             return
@@ -5735,11 +5663,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private func markMacConnectionUnavailable() {
         guard connectionState == .connected else {
             macConnectionStatus = .unavailable
+            isRecoveringConnection = false
+            drainPendingNetworkRecoveryIfIdle()
             return
         }
         macConnectionStatus = .unavailable
         isRecoveringConnection = false
         connectionRecoveryFailed = true
+        drainPendingNetworkRecoveryIfIdle()
     }
 
     func markMacConnectionUnavailableIfNeeded(after error: any Error) {

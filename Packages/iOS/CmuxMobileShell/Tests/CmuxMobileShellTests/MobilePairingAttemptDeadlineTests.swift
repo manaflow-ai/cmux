@@ -248,7 +248,11 @@ import Testing
         try installFreshLivenessRemoteClient(on: store, router: oldRouter, box: oldBox, clock: clock)
         let originalClient = try #require(store.remoteClient)
 
-        await store.connectManualHost(name: "Bad Route", host: "100.64.0.5", port: 58_465)
+        await store.connectManualHost(
+            name: "Bad Route",
+            host: "https://bad.example/path",
+            port: 58_465
+        )
 
         #expect(store.connectionState == .connected)
         #expect(store.remoteClient === originalClient)

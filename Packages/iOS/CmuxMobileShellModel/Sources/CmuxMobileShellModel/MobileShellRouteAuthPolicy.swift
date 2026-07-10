@@ -2,7 +2,7 @@ public import CMUXMobileCore
 import Foundation
 
 /// Pure routing/trust policy that decides which attach routes may carry Stack auth
-/// and how a manually typed host maps to a transport kind.
+/// and how a manually typed host maps to a conservative transport kind.
 ///
 /// All members are pure functions of their inputs so the trust decisions (loopback
 /// vs Tailscale vs LAN vs arbitrary host) can be exhaustively tested without a live
@@ -46,9 +46,10 @@ public struct MobileShellRouteAuthPolicy: Sendable {
     ///   - allowsDebugLoopback: Whether loopback aliases should become
     ///     `.debugLoopback`. Keep this `false` for physical-device manual entry:
     ///     loopback dials the phone itself there, not the Mac.
-    /// - Returns: `.debugLoopback` for allowed loopback hosts, `.tailscale` for
-    ///   Tailscale IP/MagicDNS hosts, `.manualHost` otherwise, or `nil` for an
-    ///   invalid host.
+    /// - Returns: `.debugLoopback` for allowed loopback hosts, `.manualHost`
+    ///   otherwise, or `nil` for an invalid host. Host text alone never proves
+    ///   that a raw TCP connection traverses Tailscale; only a structured route
+    ///   may carry that provenance.
     public func manualRouteKind(
         for host: String,
         allowsDebugLoopback: Bool = true
@@ -58,9 +59,6 @@ public struct MobileShellRouteAuthPolicy: Sendable {
         }
         if allowsDebugLoopback, isLoopbackHost(normalizedHost) {
             return .debugLoopback
-        }
-        if isTailscaleHost(normalizedHost) {
-            return .tailscale
         }
         return .manualHost
     }
@@ -168,12 +166,12 @@ public struct MobileShellRouteAuthPolicy: Sendable {
         return isLoopbackHost(host)
     }
 
-    /// Whether a manual host should warn the user that it is neither loopback nor Tailscale.
+    /// Whether a manually entered host should show the plaintext-route warning.
     /// - Parameters:
     ///   - host: The manually typed host.
     ///   - allowsDebugLoopback: Whether loopback aliases are trusted debug hosts
     ///     for this caller.
-    /// - Returns: `true` when the host is valid but outside the loopback/Tailscale trust set.
+    /// - Returns: `true` for every valid host except an allowed debug loopback.
     public func manualHostNeedsTrustWarning(
         _ host: String,
         allowsDebugLoopback: Bool = true

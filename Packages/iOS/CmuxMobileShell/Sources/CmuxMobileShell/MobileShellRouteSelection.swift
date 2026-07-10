@@ -172,7 +172,10 @@ struct MobileShellRouteSelection: Sendable {
               routeAuthPolicy.normalizedManualRouteHost(sourceHost) == routeAuthPolicy.normalizedManualRouteHost(host) else {
             return inferredRoute
         }
-        if sourceRoute.kind == .manualHost || sourceRoute.kind == inferredRoute.kind {
+        if sourceRoute.kind == .manualHost
+            || sourceRoute.kind == inferredRoute.kind
+            || (sourceRoute.kind == .tailscale
+                && routeAuthPolicy.routeAllowsStackAuth(sourceRoute)) {
             return sourceRoute
         }
         return inferredRoute
