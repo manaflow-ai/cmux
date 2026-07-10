@@ -53,6 +53,46 @@ struct ProcessSnapshotCentralizationTests {
         #expect(await capturer.capturedRequirements() == [[.processDetails, .cmuxScope]])
     }
 
+    @Test
+    func foregroundCommandCaptureUsesSuppliedCentralSnapshot() {
+        let ttyDevice: Int64 = 987
+        let process = CmuxTopProcessInfo(
+            pid: 321,
+            parentPID: 1,
+            name: "htop",
+            path: "/usr/bin/htop",
+            ttyDevice: ttyDevice,
+            cmuxWorkspaceID: nil,
+            cmuxSurfaceID: nil,
+            cmuxAttributionReason: nil,
+            processGroupID: 321,
+            terminalProcessGroupID: 321,
+            cpuPercent: 0,
+            residentBytes: 0,
+            virtualBytes: 0,
+            threadCount: 1
+        )
+        let snapshot = CmuxTopProcessSnapshot(
+            processes: [process],
+            sampledAt: Date(timeIntervalSince1970: 100),
+            includesProcessDetails: true,
+            includesCMUXScope: false
+        )
+        var requestedPIDs: [Int32] = []
+
+        let commands = TerminalForegroundCommandCapture.liveCommands(
+            forTTYDevices: [ttyDevice],
+            processSnapshot: snapshot,
+            commandLineArguments: { pid in
+                requestedPIDs.append(pid)
+                return ["htop"]
+            }
+        )
+
+        #expect(requestedPIDs == [321])
+        #expect(commands == [ttyDevice: "htop"])
+    }
+
 #if DEBUG
     @Test
     func synchronousCompatibilityCaptureIsIncludedInProofMetrics() {
