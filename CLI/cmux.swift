@@ -23073,7 +23073,6 @@ struct CMUXCLI {
                     paneId: target.paneId,
                     targetSize: absWidth,
                     absoluteAxis: "horizontal",
-                    cellSizeKey: "cell_width_px",
                     client: client
                 )
             } else if !hasDirectionalFlags, let absHeight = parsed.value("-y") {
@@ -23082,7 +23081,6 @@ struct CMUXCLI {
                     paneId: target.paneId,
                     targetSize: absHeight,
                     absoluteAxis: "vertical",
-                    cellSizeKey: "cell_height_px",
                     client: client
                 )
             } else if hasDirectionalFlags {
@@ -23099,14 +23097,13 @@ struct CMUXCLI {
                 let rawAmount = (parsed.positional.first ?? parsed.value("-x") ?? parsed.value("-y") ?? "1")
                     .replacingOccurrences(of: "%", with: "")
                 let amount = Int(rawAmount) ?? 1
-                _ = try client.sendV2(method: "pane.resize", params: [
-                    "workspace_id": target.workspaceId,
-                    "pane_id": target.paneId,
-                    "direction": direction,
-                    "amount": max(1, amount),
-                    "amount_cells": max(1, amount),
-                    "tmux_compat": true
-                ])
+                try tmuxResizePaneByCells(
+                    workspaceId: target.workspaceId,
+                    paneId: target.paneId,
+                    direction: direction,
+                    amountCells: max(1, amount),
+                    client: client
+                )
             }
 
         case "wait-for":

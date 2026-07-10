@@ -99,11 +99,14 @@ extension TerminalController: ControlPaneContext {
                let ghosttySurface = panel.surface.surface {
                 let size = ghostty_surface_size(ghosttySurface)
                 if size.columns > 0 && size.rows > 0 {
+                    let cellPoints = panel.surface.cellSizePoints()
                     gridSize = ControlPaneGridSize(
                         columns: Int(size.columns),
                         rows: Int(size.rows),
                         cellWidthPx: Int(size.cell_width_px),
-                        cellHeightPx: Int(size.cell_height_px)
+                        cellHeightPx: Int(size.cell_height_px),
+                        cellWidthPoints: cellPoints.map { Double($0.width) },
+                        cellHeightPoints: cellPoints.map { Double($0.height) }
                     )
                 }
             }

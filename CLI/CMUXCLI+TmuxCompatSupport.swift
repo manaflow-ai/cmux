@@ -317,45 +317,6 @@ extension CMUXCLI {
         return Int(trimmed)
     }
 
-    func tmuxResizePaneToSize(
-        workspaceId: String,
-        paneId: String,
-        targetSize: String,
-        absoluteAxis: String,
-        cellSizeKey: String,
-        client: SocketClient
-    ) throws {
-        let trimmed = targetSize.trimmingCharacters(in: .whitespacesAndNewlines)
-        let isPercentage = trimmed.hasSuffix("%")
-        let numericText = isPercentage ? String(trimmed.dropLast()) : trimmed
-        guard let target = Int(numericText), target > 0 else { return }
-        let panePayload = try client.sendV2(method: "pane.list", params: ["workspace_id": workspaceId])
-        let panes = panePayload["panes"] as? [[String: Any]] ?? []
-        guard let matchingPane = panes.first(where: { ($0["id"] as? String) == paneId }),
-              let cellSize = intFromAny(matchingPane[cellSizeKey]), cellSize > 0 else {
-            return
-        }
-        let frame = panePayload["container_frame"] as? [String: Any]
-        let dimensionKey = absoluteAxis == "horizontal" ? "width" : "height"
-        let containerExtent = (frame?[dimensionKey] as? NSNumber)?.doubleValue
-            ?? frame?[dimensionKey] as? Double
-        let targetPoints: Double
-        if isPercentage, let containerExtent, containerExtent > 0 {
-            targetPoints = containerExtent * Double(target) / 100
-        } else {
-            targetPoints = Double(target) * Double(cellSize)
-        }
-        var params: [String: Any] = [
-            "workspace_id": workspaceId,
-            "pane_id": paneId,
-            "absolute_axis": absoluteAxis,
-            "target_pixels": targetPoints,
-            "tmux_compat": true
-        ]
-        params[isPercentage ? "target_percentage" : "target_cells"] = target
-        _ = try client.sendV2(method: "pane.resize", params: params)
-    }
-
     func tmuxInitialDividerPosition(
         workspaceId: String,
         paneId: String,

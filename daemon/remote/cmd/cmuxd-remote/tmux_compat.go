@@ -1851,8 +1851,9 @@ func tmuxResizePane(rc *rpcContext, args []string) error {
 
 	if !hasDirectional {
 		targetSize := strings.TrimSpace(p.value("-x"))
-		// Keep height-only compatibility probes inert: OMX HUD sends them
-		// repeatedly and applying them would overwrite the user's layout.
+		// Deliberately preserve the daemon's historical height-only no-op: recurring
+		// OMX HUD probes share this shape, and this shim has no deterministic HUD
+		// identity signal. Applying -y here would overwrite the user's layout.
 		if targetSize == "" {
 			return nil
 		}
@@ -1865,10 +1866,10 @@ func tmuxResizePane(rc *rpcContext, args []string) error {
 		if err != nil {
 			return err
 		}
-		targetPoints := 0
+		targetPoints := float64(0)
 		if isPercentage {
 			if frame, ok := panePayload["container_frame"].(map[string]any); ok {
-				targetPoints = intFromAnyGo(frame["width"]) * target / 100
+				targetPoints = floatFromAny(frame["width"]) * float64(target) / 100
 			}
 		}
 		panes, _ := panePayload["panes"].([]any)
@@ -1878,10 +1879,13 @@ func tmuxResizePane(rc *rpcContext, args []string) error {
 				continue
 			}
 			if pid, _ := pane["id"].(string); pid == paneId {
-				cellSize := intFromAnyGo(pane["cell_width_px"])
-				if cellSize > 0 {
+				cellPoints := floatFromAny(pane["cell_width_points"])
+				if cellPoints <= 0 {
+					cellPoints = floatFromAny(pane["cell_width_px"])
+				}
+				if cellPoints > 0 {
 					if targetPoints <= 0 {
-						targetPoints = target * cellSize
+						targetPoints = float64(target) * cellPoints
 					}
 					params := map[string]any{
 						"workspace_id":  wsId,
@@ -1924,11 +1928,39 @@ func tmuxResizePane(rc *rpcContext, args []string) error {
 		if amount <= 0 {
 			amount = 1
 		}
+		amountPoints := amount
+		panePayload, err := rc.call("pane.list", map[string]any{"workspace_id": wsId})
+		if err != nil {
+			return err
+		}
+		panes, _ := panePayload["panes"].([]any)
+		for _, pp := range panes {
+			pane, _ := pp.(map[string]any)
+			if pane == nil {
+				continue
+			}
+			if pid, _ := pane["id"].(string); pid == paneId {
+				pointsKey := "cell_width_points"
+				pixelsKey := "cell_width_px"
+				if dir == "up" || dir == "down" {
+					pointsKey = "cell_height_points"
+					pixelsKey = "cell_height_px"
+				}
+				cellPoints := floatFromAny(pane[pointsKey])
+				if cellPoints <= 0 {
+					cellPoints = floatFromAny(pane[pixelsKey])
+				}
+				if cellPoints > 0 {
+					amountPoints = max(1, int(math.Round(float64(amount)*cellPoints)))
+				}
+				break
+			}
+		}
 		_, err := rc.call("pane.resize", map[string]any{
 			"workspace_id": wsId,
 			"pane_id":      paneId,
 			"direction":    dir,
-			"amount":       amount,
+			"amount":       amountPoints,
 			"amount_cells": amount,
 			"tmux_compat":  true,
 		})

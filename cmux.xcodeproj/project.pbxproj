@@ -451,6 +451,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		B900002EA1B2C3D4E5F60719 /* CMUXCLI+Themes.swift in Sources */ = {isa = PBXBuildFile; fileRef = B900002CA1B2C3D4E5F60719 /* CMUXCLI+Themes.swift */; };
 		B900002FA1B2C3D4E5F60719 /* CMUXCLI+ThemeSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B900002DA1B2C3D4E5F60719 /* CMUXCLI+ThemeSupport.swift */; };
 		B9000048A1B2C3D4E5F60719 /* CMUXCLI+TmuxCompatHUDSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000049A1B2C3D4E5F60719 /* CMUXCLI+TmuxCompatHUDSupport.swift */; };
+		7837A0017837A0017837A001 /* CMUXCLI+TmuxCompatResizePane.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7837A0027837A0027837A002 /* CMUXCLI+TmuxCompatResizePane.swift */; };
 		B9000044A1B2C3D4E5F60719 /* CMUXCLI+TmuxCompatSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000045A1B2C3D4E5F60719 /* CMUXCLI+TmuxCompatSupport.swift */; };
 		B9000033A1B2C3D4E5F60719 /* CMUXCLI+TopRendering.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000032A1B2C3D4E5F60719 /* CMUXCLI+TopRendering.swift */; };
 		C0DE31390000000000000105 /* CMUXCLIErrorOutputRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE31390000000000000106 /* CMUXCLIErrorOutputRegressionTests.swift */; };
@@ -2201,6 +2202,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		B900002CA1B2C3D4E5F60719 /* CMUXCLI+Themes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+Themes.swift"; sourceTree = "<group>"; };
 		B900002DA1B2C3D4E5F60719 /* CMUXCLI+ThemeSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+ThemeSupport.swift"; sourceTree = "<group>"; };
 		B9000049A1B2C3D4E5F60719 /* CMUXCLI+TmuxCompatHUDSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+TmuxCompatHUDSupport.swift"; sourceTree = "<group>"; };
+		7837A0027837A0027837A002 /* CMUXCLI+TmuxCompatResizePane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+TmuxCompatResizePane.swift"; sourceTree = "<group>"; };
 		B9000045A1B2C3D4E5F60719 /* CMUXCLI+TmuxCompatSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+TmuxCompatSupport.swift"; sourceTree = "<group>"; };
 		B9000032A1B2C3D4E5F60719 /* CMUXCLI+TopRendering.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+TopRendering.swift"; sourceTree = "<group>"; };
 		C0DE31390000000000000106 /* CMUXCLIErrorOutputRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CMUXCLIErrorOutputRegressionTests.swift; sourceTree = "<group>"; };
@@ -4712,6 +4714,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				DCF61A4F72B75DC4EA47DF6F /* CMUXCLI+SSHReconnectPrompt.swift */,
 				D7AB0000000000000000000E /* CMUXCLI+MoveTabToNewWorkspace.swift */,
 				B9000047A1B2C3D4E5F60719 /* CMUXCLI+ExecutableResolution.swift */,
+				7837A0027837A0027837A002 /* CMUXCLI+TmuxCompatResizePane.swift */,
 				B9000045A1B2C3D4E5F60719 /* CMUXCLI+TmuxCompatSupport.swift */,
 				B9000049A1B2C3D4E5F60719 /* CMUXCLI+TmuxCompatHUDSupport.swift */,
 				B9000051A1B2C3D4E5F60719 /* CMUXCLI+Config.swift */,
@@ -6740,6 +6743,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				B900002EA1B2C3D4E5F60719 /* CMUXCLI+Themes.swift in Sources */,
 				B900002FA1B2C3D4E5F60719 /* CMUXCLI+ThemeSupport.swift in Sources */,
 				B9000048A1B2C3D4E5F60719 /* CMUXCLI+TmuxCompatHUDSupport.swift in Sources */,
+				7837A0017837A0017837A001 /* CMUXCLI+TmuxCompatResizePane.swift in Sources */,
 				B9000044A1B2C3D4E5F60719 /* CMUXCLI+TmuxCompatSupport.swift in Sources */,
 				B9000033A1B2C3D4E5F60719 /* CMUXCLI+TopRendering.swift in Sources */,
 				C0DECAFE0000000000000001 /* CodexTeamsApprovalBridge.swift in Sources */,

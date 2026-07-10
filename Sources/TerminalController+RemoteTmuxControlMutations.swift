@@ -366,10 +366,7 @@ extension TerminalController {
             }
             let commandPaneID: Int
             if direction.requiresPaneInFirstChild {
-                guard let target = context.trailingResizeTargetPaneID else {
-                    return .noAdjacentBorder(paneID: paneID, direction: directionRaw)
-                }
-                commandPaneID = target
+                commandPaneID = location.pane.tmuxPaneID
             } else {
                 guard let target = context.leadingResizeTargetPaneID else {
                     return .noAdjacentBorder(paneID: paneID, direction: directionRaw)
