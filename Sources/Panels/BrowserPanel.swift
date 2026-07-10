@@ -2820,6 +2820,10 @@ final class BrowserPanel: Panel, ObservableObject {
     /// True after the Chromium browser process ended; reload restarts a fresh session.
     @Published private(set) var chromiumDisconnected: Bool = false
 
+    /// Tracks whether the Chromium runtime's DevTools panel is currently open, so
+    /// the shared Toggle Developer Tools action can drive open/close on `.chromium`.
+    private var chromiumDevToolsVisible: Bool = false
+
     /// Initial (or last-requested) URL for a `.chromium` surface whose session is
     /// not yet up. `activateChromiumIfNeeded` consumes it; navigation requests
     /// arriving before activation overwrite it.
@@ -6996,6 +7000,19 @@ extension BrowserPanel {
 
     @discardableResult
     func toggleDeveloperTools() -> Bool {
+        if engineKind == .chromium {
+            guard let session = chromium?.session, !chromiumDisconnected else { return false }
+            let opening = !chromiumDevToolsVisible
+            chromiumDevToolsVisible = opening
+            Task {
+                if opening {
+                    try? await session.openDevTools(mode: .bottom)
+                } else {
+                    try? await session.closeDevTools()
+                }
+            }
+            return true
+        }
 #if DEBUG
         cmuxDebugLog(
             "browser.devtools toggle.begin panel=\(id.uuidString.prefix(5)) " +
@@ -7354,6 +7371,10 @@ extension BrowserPanel {
     func captureAutomationVisibleViewportSnapshot(
         completion: @escaping (Result<NSImage, Error>) -> Void
     ) {
+        if engineKind == .chromium {
+            captureChromiumSurfaceSnapshot(completion: completion)
+            return
+        }
         guard visualAutomationCaptureGate.begin() else {
             completion(.failure(BrowserScreenshotError.emptySnapshot))
             return
@@ -7374,6 +7395,27 @@ extension BrowserPanel {
                 completion(result)
             }
         )
+    }
+
+    private func captureChromiumSurfaceSnapshot(
+        completion: @escaping (Result<NSImage, Error>) -> Void
+    ) {
+        guard let session = chromium?.session, !chromiumDisconnected else {
+            completion(.failure(BrowserScreenshotError.emptySnapshot))
+            return
+        }
+        Task { @MainActor in
+            do {
+                let capture = try await session.captureSurfacePNG()
+                guard let image = NSImage(data: capture.pngData) else {
+                    completion(.failure(BrowserScreenshotError.invalidImageRepresentation))
+                    return
+                }
+                completion(.success(image))
+            } catch {
+                completion(.failure(error))
+            }
+        }
     }
 
     private func withVisualAutomationRenderLease<T>(
@@ -7481,7 +7523,27 @@ extension BrowserPanel {
 
     // MARK: - Find in Page
 
+    private func postChromiumUnsupportedFindNotification() {
+        NSSound.beep()
+        TerminalNotificationStore.shared.addNotification(
+            tabId: workspaceId,
+            surfaceId: nil,
+            title: String(
+                localized: "chromium.unsupported.find",
+                defaultValue: "Find on Page isn't available on Chromium surfaces yet"
+            ),
+            subtitle: "",
+            body: "",
+            cooldownKey: "chromium.unsupported.find.\(id.uuidString)",
+            cooldownInterval: 5
+        )
+    }
+
     func startFind() {
+        if engineKind == .chromium {
+            postChromiumUnsupportedFindNotification()
+            return
+        }
         clearBrowserFocusMode(reason: "startFind")
         preferredFocusIntent = .findField
         let created = searchState == nil

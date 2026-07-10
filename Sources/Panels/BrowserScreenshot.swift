@@ -429,10 +429,36 @@ extension CmuxWebView {
 extension BrowserPanel {
     @MainActor
     func captureScreenshotPageToClipboard() async -> Bool {
+        if engineKind == .chromium {
+            return await captureChromiumScreenshotToClipboard()
+        }
         guard let webView = webView as? CmuxWebView else {
             NSSound.beep()
             return false
         }
         return await webView.captureScreenshotPageToClipboard()
+    }
+
+    @MainActor
+    private func captureChromiumScreenshotToClipboard() async -> Bool {
+        guard let session = chromium?.session, !chromiumDisconnected else {
+            NSSound.beep()
+            return false
+        }
+        do {
+            let capture = try await session.captureSurfacePNG()
+            guard let image = NSImage(data: capture.pngData) else {
+                NSSound.beep()
+                return false
+            }
+            try BrowserScreenshotPasteboardWriter.write(image, to: .general)
+            return true
+        } catch {
+            #if DEBUG
+            cmuxDebugLog("browser.screenshot.chromium.failed error=\(error.localizedDescription)")
+            #endif
+            NSSound.beep()
+            return false
+        }
     }
 }
