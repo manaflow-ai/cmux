@@ -1,6 +1,44 @@
 import Foundation
 
 extension Workspace {
+    func seedSessionRestoredAgentState(
+        panelId: UUID,
+        restorableAgent: SessionRestorableAgentSnapshot?,
+        willRunStartupCommand: Bool,
+        willRunStartupInput: Bool
+    ) {
+        if let restorableAgent {
+            restoredAgentSnapshotsByPanelId[panelId] = restorableAgent
+        } else {
+            restoredAgentSnapshotsByPanelId.removeValue(forKey: panelId)
+        }
+        if willRunStartupCommand {
+            restoredAgentResumeStatesByPanelId[panelId] = .autoResumeCommandRunning
+        } else if willRunStartupInput {
+            restoredAgentResumeStatesByPanelId[panelId] = .awaitingAutoResumeCommand
+        } else if restorableAgent != nil {
+            restoredAgentResumeStatesByPanelId[panelId] = .manualResumeAvailable
+        } else {
+            restoredAgentResumeStatesByPanelId.removeValue(forKey: panelId)
+        }
+        invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: panelId)
+    }
+
+    func seedDetachedRestoredAgentState(from detached: DetachedSurfaceTransfer) {
+        if let restorableAgent = detached.restorableAgent {
+            restoredAgentSnapshotsByPanelId[detached.panelId] = restorableAgent
+            invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: detached.panelId)
+        } else {
+            restoredAgentSnapshotsByPanelId.removeValue(forKey: detached.panelId)
+            invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: detached.panelId)
+        }
+        if let resumeState = detached.restorableAgentResumeState {
+            restoredAgentResumeStatesByPanelId[detached.panelId] = resumeState
+        } else {
+            restoredAgentResumeStatesByPanelId.removeValue(forKey: detached.panelId)
+        }
+    }
+
     func setAgentLifecycle(
         key: String,
         panelId: UUID?,

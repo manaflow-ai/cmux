@@ -60,6 +60,63 @@ extension Workspace {
         sidebarProcessTitleObservation.processTitleDidChange()
     }
 
+    @discardableResult
+    func updatePanelTitle(panelId: UUID, title: String) -> Bool {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, panels[panelId] != nil else { return false }
+        var didMutate = false
+        var didMutatePanelTitle = false
+        var didMutateWorkspaceTitle = false
+
+        if !isRemoteTmuxMirror, panelTitles[panelId] != trimmed {
+            panelTitles[panelId] = trimmed
+            didMutate = true
+            didMutatePanelTitle = true
+        }
+
+        if panels[panelId] is TerminalPanel,
+           clearStaleAgentPIDs(panelId: panelId, refreshPorts: true) {
+            didMutate = true
+        }
+
+        if didMutatePanelTitle,
+           let tabId = surfaceIdFromPanelId(panelId),
+           let panel = panels[panelId],
+           let existing = bonsplitController.tab(tabId) {
+            let baseTitle = panelTitles[panelId] ?? panel.displayTitle
+            let resolvedTitle = resolvedPanelTitle(panelId: panelId, fallback: baseTitle)
+            let titleUpdate: String? = existing.title == resolvedTitle ? nil : resolvedTitle
+            bonsplitController.updateTab(
+                tabId,
+                title: titleUpdate,
+                hasCustomTitle: panelCustomTitles[panelId] != nil
+            )
+        }
+
+        if !isRemoteTmuxMirror, panels.count == 1, customTitle == nil {
+            if self.title != trimmed {
+                applyAutomaticTitle(trimmed)
+                didMutate = true
+                didMutateWorkspaceTitle = true
+            }
+            if processTitle != trimmed {
+                processTitle = trimmed
+            }
+        }
+
+#if DEBUG
+        if didMutate {
+            cmuxDebugLog(
+                "workspace.title.updatePanel workspace=\(id.uuidString.prefix(5)) " +
+                "panel=\(panelId.uuidString.prefix(5)) panels=\(panels.count) custom=\(customTitle == nil ? 0 : 1) " +
+                "panelChanged=\(didMutatePanelTitle ? 1 : 0) workspaceChanged=\(didMutateWorkspaceTitle ? 1 : 0) " +
+                "title=\"\(debugWorkspaceDescriptionPreview(trimmed, limit: 80))\""
+            )
+        }
+#endif
+        return didMutate
+    }
+
     private static func normalizedCustomDescription(_ description: String?) -> String? {
         let normalizedLineEndings = description?
             .replacingOccurrences(of: "\r\n", with: "\n")

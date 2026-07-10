@@ -141,7 +141,6 @@ extension Workspace {
             }
         }
         if refreshPorts { refreshTrackedAgentPorts() }
-        syncTerminalTabAgentIconAssets(forPanelIds: previous.panelId, panelId)
         return didClearOtherStructuredAgentRuntime
     }
 
@@ -189,7 +188,6 @@ extension Workspace {
         agentPIDProcessIdentitiesByKey.removeAll()
         agentPIDPanelIdsByKey.removeAll()
         agentPIDKeysByPanelId.removeAll()
-        syncTerminalTabAgentIconAssetsForAllTerminalPanels()
         if hadAgentPIDs, refreshPorts { refreshTrackedAgentPorts() }
     }
 
@@ -283,16 +281,14 @@ extension Workspace {
         if didChange, refreshPorts {
             refreshTrackedAgentPorts()
         }
-        syncTerminalTabAgentIconAssets(forPanelIds: ownedPanelId ?? panelId)
         return didChange
     }
 
-    /// Clears a panel's restored agent snapshot and resume metadata, then refreshes the tab's agent brand mark.
+    /// Clears a panel's restored agent snapshot and resume metadata.
     func clearRestoredAgentSnapshot(panelId: UUID) {
         restoredAgentSnapshotsByPanelId.removeValue(forKey: panelId)
         restoredAgentResumeStatesByPanelId.removeValue(forKey: panelId)
         restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
-        syncTerminalTabAgentIconAsset(forPanelId: panelId)
     }
 
     func refreshTrackedAgentPorts() {
@@ -333,7 +329,6 @@ extension Workspace {
         for key in runtimeState.agentPIDKeys where runtimeState.agentPIDs[key] == nil {
             recordAgentPIDOwnership(key: key, panelId: runtimeState.panelId)
         }
-        syncTerminalTabAgentIconAsset(forPanelId: runtimeState.panelId)
         if didAdoptAgentPID {
             refreshTrackedAgentPorts()
         }
@@ -417,7 +412,8 @@ extension Workspace {
         debugSessionSnapshotSyntheticScrollbackByPanelId.removeValue(forKey: panelId)
 #endif
         discardAgentRuntimeState(closedAgentRuntimeState)
-        discardTerminalTabAgentIconState(forPanelId: panelId)
+        restoredAgentSnapshotsByPanelId.removeValue(forKey: panelId)
+        restoredAgentResumeStatesByPanelId.removeValue(forKey: panelId)
         restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
         invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: panelId)
         PortScanner.shared.unregisterPanel(workspaceId: id, panelId: panelId)
