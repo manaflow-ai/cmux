@@ -158,6 +158,10 @@ describe("apns response", () => {
 
 describe("apns route policy", () => {
   test("allows only cmux iOS bundle IDs and derives the APNs environment", () => {
+    expect(normalizeApnsBundle("com.cmux.app")).toEqual({
+      bundleId: "com.cmux.app",
+      environment: "production",
+    });
     expect(normalizeApnsBundle("com.cmuxterm.app")).toEqual({
       bundleId: "com.cmuxterm.app",
       environment: "production",
