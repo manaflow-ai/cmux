@@ -12,12 +12,12 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-Current cmux pinned fork head: `e215e78bf`. It combines the previous cmux pin
-`dd726a9a6`, current fork `main` (`8495e581a`), and upstream
-`ghostty-org/ghostty` `main` through `7e02af879` (2026-07-09), followed by the
-render-grid preserved-page OOM fix, lock-free selection notifications, and
-compressed-storage-preserving full scrollback reads.
-Published via
+Current cmux pinned fork head: `5ba4701db`. It extends `e215e78bf` with hidden
+renderer suspension, coalesced visibility transitions, reveal retries across
+mailbox backpressure and draw errors, and content-free renderer activity
+callbacks. The renderer changes are tracked in
+https://github.com/manaflow-ai/ghostty/pull/100. The inherited upstream,
+scrollback, and selection changes were published via
 https://github.com/manaflow-ai/ghostty/pull/96 and
 https://github.com/manaflow-ai/ghostty/pull/99 and
 https://github.com/manaflow-ai/ghostty/pull/104 and
@@ -76,17 +76,30 @@ https://github.com/manaflow-ai/ghostty/pull/106.
    and frees them after formatting, so full `read-screen` and clipboard reads
    no longer make cold history resident. Temporary decode allocation failures
    propagate as `OutOfMemory` through Zig and C formatter APIs.
+9. `src/renderer/Thread.zig` preserves the fork's external-drain ownership while
+   coalescing visibility changes. Hidden surfaces keep dirty state without
+   rebuilding frames. Reveals require a confirmed draw submission, retain
+   prepared damage across mailbox pressure and backend errors, and retry
+   without losing the next redraw. Renderer callbacks expose timing only and
+   never terminal content.
 
-Verified with Zig 0.15.2: compression, formatter, selection activity, and
-libghostty-vt compression tests,
-the cmux link-click regression test, the `wasm32-freestanding` libghostty-vt
-build, a clean universal GhosttyKit build, tagged cmux reloads `gcmp` and
-`gsel2`, and live accessibility reads across select-all, endpoint adjustment,
-and clearing.
+The inherited `e215e78bf` lineage was verified with Zig 0.15.2 compression,
+formatter, selection activity, libghostty-vt compression, and cmux link-click
+tests, plus the `wasm32-freestanding` libghostty-vt build and tagged cmux
+reloads `gcmp` and `gsel2`. The `5ba4701db` universal GhosttyKit archive was
+built and validated by
+https://github.com/manaflow-ai/cmux/actions/runs/29130302422; its SHA-256 is
+pinned in `scripts/ghosttykit-checksums.txt`.
 Prebuilt archive:
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-e215e78bf04df3f7cecbef665eec051a203baf6a-crashsubdir-cmux-crash-v1
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-5ba4701db359dba75c0eff0e5a02a430d4e00187-crashsubdir-cmux-crash-v1
 
 ### Previous pin
+
+The previous cmux pin was `e215e78bf`. It remains the fork-main base of
+`5ba4701db` and contains the compressed-scrollback and lock-free selection
+changes described above.
+
+### Earlier pin
 
 The previous cmux pin was `1ae98c991`. It was superseded by `e215e78bf` after
 full scrollback formatting was changed to preserve compressed storage and
@@ -98,7 +111,7 @@ public action tag values. The fork's prior `main` head was
 `cc31d54ee`, which merged upstream through `d560c645`; both histories are
 ancestors of `e215e78bf`.
 
-### Earlier pin
+### Older pin
 
 Previous cmux pinned fork head: `541e5e89d`, which merges the render-grid span
 preservation head `1b454eb99` from manaflow-ai/ghostty#89 with the
