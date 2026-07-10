@@ -18,6 +18,10 @@ enum CmuxSocketEventMapper {
             return false
         }
         guard method != "events.stream" else { return true }
+        guard let mapping = domainEventMapping(forV2Method: method) else {
+            return true
+        }
+
         let responseObject: [String: Any]
         if let responseData = response.data(using: .utf8),
            let parsed = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any] {
@@ -32,11 +36,8 @@ enum CmuxSocketEventMapper {
 
         let params = request["params"] as? [String: Any] ?? [:]
         let result = responseObject["result"] as? [String: Any] ?? [:]
-        guard let mapping = domainEventMapping(forV2Method: method, result: result) else {
-            return true
-        }
         publishResult(
-            name: mapping.name,
+            name: mapping.name.resolved(using: result),
             category: mapping.category,
             method: method,
             params: mappedParams(params, using: mapping.params),
@@ -46,9 +47,35 @@ enum CmuxSocketEventMapper {
     }
 
     private struct DomainEventMapping {
-        let name: String
+        let name: DomainEventName
         let category: String
         let params: ParameterMapping
+
+        init(name: String, category: String, params: ParameterMapping) {
+            self.name = .fixed(name)
+            self.category = category
+            self.params = params
+        }
+
+        init(name: DomainEventName, category: String, params: ParameterMapping) {
+            self.name = name
+            self.category = category
+            self.params = params
+        }
+    }
+
+    private enum DomainEventName {
+        case fixed(String)
+        case booleanResult(key: String, trueName: String, falseName: String)
+
+        func resolved(using result: [String: Any]) -> String {
+            switch self {
+            case .fixed(let name):
+                return name
+            case .booleanResult(let key, let trueName, let falseName):
+                return result[key] as? Bool == true ? trueName : falseName
+            }
+        }
     }
 
     private enum ParameterMapping {
@@ -57,10 +84,7 @@ enum CmuxSocketEventMapper {
         case redactedNotification
     }
 
-    private static func domainEventMapping(
-        forV2Method method: String,
-        result: [String: Any]
-    ) -> DomainEventMapping? {
+    private static func domainEventMapping(forV2Method method: String) -> DomainEventMapping? {
         switch method {
         case "workspace.rename":
             return DomainEventMapping(name: "workspace.renamed", category: "workspace", params: .unchanged)
@@ -81,10 +105,15 @@ enum CmuxSocketEventMapper {
         case "surface.send_key":
             return DomainEventMapping(name: "surface.key_sent", category: "surface", params: .unchanged)
         case "pane.resize":
-            let name = result["remote"] as? Bool == true
-                ? "pane.resize_requested"
-                : "pane.resized"
-            return DomainEventMapping(name: name, category: "pane", params: .unchanged)
+            return DomainEventMapping(
+                name: .booleanResult(
+                    key: "remote",
+                    trueName: "pane.resize_requested",
+                    falseName: "pane.resized"
+                ),
+                category: "pane",
+                params: .unchanged
+            )
         case "pane.swap":
             return DomainEventMapping(name: "pane.swapped", category: "pane", params: .unchanged)
         case "pane.break":
