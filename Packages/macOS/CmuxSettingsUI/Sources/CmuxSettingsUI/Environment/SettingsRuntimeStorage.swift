@@ -2,7 +2,7 @@ import CmuxSettings
 
 /// Immutable reference storage keeps `SettingsRuntime` cheap to copy through
 /// SwiftUI environment values while preserving its read-only public contract.
-final class SettingsRuntimeStorage: @unchecked Sendable {
+final class SettingsRuntimeStorage {
     let catalog: SettingCatalog
     let searchIndex: SettingsSearchIndex
     let userDefaultsStore: UserDefaultsSettingsStore
