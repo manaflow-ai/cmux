@@ -1,5 +1,5 @@
 import AppKit
-import XCTest
+import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -13,8 +13,9 @@ import XCTest
 /// (https://github.com/manaflow-ai/cmux/issues/7777). Extracted from
 /// `AppDelegateShortcutRoutingTests` to stay within the file-length budget.
 @MainActor
-final class AppDelegatePresentPreferencesWindowTests: XCTestCase {
-    func testPresentPreferencesWindowShowsCustomSettingsWindowAndActivates() {
+@Suite
+struct AppDelegatePresentPreferencesWindowTests {
+    @Test func showsCustomSettingsWindowAndActivates() {
         var presentSettingsWindowCallCount = 0
         var activateApplicationCallCount = 0
         var receivedNavigationTargets: [SettingsNavigationTarget?] = []
@@ -30,12 +31,12 @@ final class AppDelegatePresentPreferencesWindowTests: XCTestCase {
             }
         )
 
-        XCTAssertEqual(presentSettingsWindowCallCount, 1)
-        XCTAssertEqual(activateApplicationCallCount, 1)
-        XCTAssertEqual(receivedNavigationTargets, [nil])
+        #expect(presentSettingsWindowCallCount == 1)
+        #expect(activateApplicationCallCount == 1)
+        #expect(receivedNavigationTargets == [nil])
     }
 
-    func testPresentPreferencesWindowSupportsRepeatedCalls() {
+    @Test func supportsRepeatedCalls() {
         var presentSettingsWindowCallCount = 0
         var activateApplicationCallCount = 0
         var receivedNavigationTargets: [SettingsNavigationTarget?] = []
@@ -62,12 +63,12 @@ final class AppDelegatePresentPreferencesWindowTests: XCTestCase {
             }
         )
 
-        XCTAssertEqual(presentSettingsWindowCallCount, 2)
-        XCTAssertEqual(activateApplicationCallCount, 2)
-        XCTAssertEqual(receivedNavigationTargets, [nil, nil])
+        #expect(presentSettingsWindowCallCount == 2)
+        #expect(activateApplicationCallCount == 2)
+        #expect(receivedNavigationTargets == [nil, nil])
     }
 
-    func testPresentPreferencesWindowForwardsNavigationTarget() {
+    @Test func forwardsNavigationTarget() {
         var receivedNavigationTarget: SettingsNavigationTarget?
         var activateApplicationCallCount = 0
 
@@ -82,11 +83,11 @@ final class AppDelegatePresentPreferencesWindowTests: XCTestCase {
             }
         )
 
-        XCTAssertEqual(receivedNavigationTarget, .keyboardShortcuts)
-        XCTAssertEqual(activateApplicationCallCount, 1)
+        #expect(receivedNavigationTarget == .keyboardShortcuts)
+        #expect(activateApplicationCallCount == 1)
     }
 
-    func testPresentPreferencesWindowForwardsBrowserImportNavigationTarget() {
+    @Test func forwardsBrowserImportNavigationTarget() {
         var receivedNavigationTarget: SettingsNavigationTarget?
         var activateApplicationCallCount = 0
 
@@ -101,11 +102,11 @@ final class AppDelegatePresentPreferencesWindowTests: XCTestCase {
             }
         )
 
-        XCTAssertEqual(receivedNavigationTarget, .browserImport)
-        XCTAssertEqual(activateApplicationCallCount, 1)
+        #expect(receivedNavigationTarget == .browserImport)
+        #expect(activateApplicationCallCount == 1)
     }
 
-    func testPresentPreferencesWindowDoesNotActivateWhenPresentationFails() {
+    @Test func doesNotActivateWhenPresentationFails() {
         var activateApplicationCallCount = 0
 
         AppDelegate.presentPreferencesWindow(
@@ -117,9 +118,8 @@ final class AppDelegatePresentPreferencesWindowTests: XCTestCase {
             }
         )
 
-        XCTAssertEqual(
-            activateApplicationCallCount, 0,
-            "a failed presentation must not silently activate the app as if it succeeded"
-        )
+        // A failed presentation must not silently activate the app as if it
+        // succeeded.
+        #expect(activateApplicationCallCount == 0)
     }
 }
