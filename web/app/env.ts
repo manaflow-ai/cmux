@@ -28,7 +28,7 @@ const isVercelNonPreviewDeployment =
   process.env.VERCEL_ENV !== "preview";
 const irohMinterUrlPolicy: IrohMinterUrlPolicy = {
   allowInsecureLoopback:
-    process.env.CMUX_IROH_DEV_ALLOW_INSECURE_LOOPBACK_MINTER === "1",
+    trimEnv(process.env.CMUX_IROH_DEV_ALLOW_INSECURE_LOOPBACK_MINTER) === "1",
   deploymentEnvironment:
     process.env.VERCEL_ENV ?? process.env.NODE_ENV ?? "development",
   isVercelDeployment: process.env.VERCEL === "1",
