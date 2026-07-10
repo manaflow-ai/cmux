@@ -60,9 +60,25 @@ _cmux_send() {
 # write must not run in the foreground: zsocket has no timeout, so a wedged
 # cmux listener (hung app, full backlog, post-wake socket) would otherwise
 # block every precmd/preexec hook and freeze the user's prompt.
+#
+# Detached (&!) jobs leave the shell's job table, so the jobstates soft limit
+# cannot bound them, and a timeout-free zsocket child can hang for as long as
+# the listener stays wedged. Track in-flight send pids and drop new sends at a
+# small cap: at most _CMUX_SEND_MAX_IN_FLIGHT children ever exist per shell,
+# and sends resume as soon as the listener drains them.
+typeset -ga _CMUX_SEND_PIDS
+typeset -gi _CMUX_SEND_MAX_IN_FLIGHT=8
 _cmux_send_bg() {
+    local -a live=()
+    local pid
+    for pid in "${_CMUX_SEND_PIDS[@]}"; do
+        kill -0 "$pid" 2>/dev/null && live+=("$pid")
+    done
+    _CMUX_SEND_PIDS=("${live[@]}")
+    (( ${#_CMUX_SEND_PIDS[@]} >= _CMUX_SEND_MAX_IN_FLIGHT )) && return 0
     _cmux_zsh_job_table_saturated && return 0
     { _cmux_send "$1" } >/dev/null 2>&1 &!
+    _CMUX_SEND_PIDS+=("$!")
 }
 
 _cmux_socket_is_unix() {
