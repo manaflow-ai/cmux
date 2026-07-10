@@ -27,6 +27,13 @@ import { CmuxCommandError, CmuxConnectionError, CmuxProtocolError, CmuxTimeoutEr
 type ResponseEnvelope = { id?: unknown; ok: true; data: unknown } | { id?: unknown; ok: false; error: string };
 type EventObject = { event: string; [key: string]: unknown };
 
+function normalizeEvent<T extends EventObject>(value: JsonObject): T {
+  if (value.event === "resized" && typeof value.replay !== "string" && typeof value.data === "string") {
+    value.replay = value.data;
+  }
+  return value as T;
+}
+
 export function defaultSocketPath(session = "main"): string {
   const base = process.env.TMPDIR || os.tmpdir();
   return path.join(base, `cmux-tui-${process.getuid?.() ?? 0}`, `${session}.sock`);
@@ -175,7 +182,7 @@ export class CmuxStream<T extends EventObject> implements AsyncIterable<T> {
     for (;;) {
       const value = await conn.recv(timeoutMs);
       if (typeof value.event === "string") {
-        buffered.push(value as T);
+        buffered.push(normalizeEvent<T>(value));
         continue;
       }
       if (value.id !== requestId) continue;
@@ -191,7 +198,7 @@ export class CmuxStream<T extends EventObject> implements AsyncIterable<T> {
     for (;;) {
       const value = await this.conn.recv(timeoutMs);
       if (typeof value.event !== "string") continue;
-      const event = value as T;
+      const event = normalizeEvent<T>(value);
       if (event.event === "detached") this.close();
       return event;
     }

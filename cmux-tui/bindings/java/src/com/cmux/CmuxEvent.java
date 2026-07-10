@@ -32,7 +32,7 @@ public sealed interface CmuxEvent permits TreeChangedEvent, EmptyEvent, SurfaceE
                 CmuxClient.asLong(raw.get("surface")),
                 (int) CmuxClient.asLong(raw.get("cols")),
                 (int) CmuxClient.asLong(raw.get("rows")),
-                CmuxClient.asString(raw.get("replay"))
+                CmuxClient.asString(raw.containsKey("replay") ? raw.get("replay") : raw.get("data"))
             );
             default -> new UnknownEvent(event, raw);
         };

@@ -210,6 +210,7 @@ pub struct ResizedEvent {
     pub surface: u64,
     pub cols: u16,
     pub rows: u16,
+    #[serde(alias = "data")]
     pub replay: String,
 }
 
@@ -750,6 +751,22 @@ mod tests {
         assert!(matches!(
             legacy,
             Event::TitleChanged(TitleChangedEvent { surface: 7, title: None })
+        ));
+    }
+
+    #[test]
+    fn resized_decodes_protocol_v6_data_field() {
+        let event = parse_event(serde_json::json!({
+            "event": "resized",
+            "surface": 7,
+            "cols": 80,
+            "rows": 24,
+            "data": "cmVwbGF5",
+        }));
+
+        assert!(matches!(
+            event,
+            Event::Resized(ResizedEvent { surface: 7, replay, .. }) if replay == "cmVwbGF5"
         ));
     }
 }

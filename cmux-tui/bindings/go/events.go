@@ -42,6 +42,11 @@ func parseEvent(raw map[string]any) Event {
 			return event
 		}
 	case "resized":
+		if _, ok := raw["replay"]; !ok {
+			if data, ok := raw["data"].(string); ok {
+				raw["replay"] = data
+			}
+		}
 		var event ResizedEvent
 		if mustDecode(&event) {
 			return event

@@ -1763,6 +1763,9 @@ impl App {
                 action = action.merge(RenderAction::Draw);
             }
             self.retry_deferred_surface_attach();
+            if self.browser_input.resize_retry_due() {
+                self.reassert_visible_surface_sizes();
+            }
             self.retry_background_refresh_if_due();
             self.render_action(terminal, action)?;
             if self.routing_refresh_pending {
@@ -1798,7 +1801,14 @@ impl App {
 
     fn replay_deferred_input(&mut self) -> anyhow::Result<RenderAction> {
         let mut action = RenderAction::None;
-        while !self.session.has_pending_mutations() && !self.session.remote_tree_is_stale() {
+        // A replayed event can discover that its destination mirror is still
+        // unavailable and append itself again. Only process the queue snapshot
+        // that existed at entry so a blocked attach cannot spin this frame.
+        let replay_count = self.deferred_input.len();
+        for _ in 0..replay_count {
+            if self.session.has_pending_mutations() || self.session.remote_tree_is_stale() {
+                break;
+            }
             let Some(input) = self.deferred_input.pop_front() else { break };
             action = action.merge(self.handle(AppEvent::Input(input))?);
         }
@@ -2246,9 +2256,6 @@ impl App {
             AppEvent::Mux(MuxEvent::SurfaceExited(_) | MuxEvent::LayoutChanged(_))
             | AppEvent::Input(Event::Key(_) | Event::Mouse(_) | Event::Paste(_)) => {
                 self.session.refresh_remote_tree_if_stale();
-            }
-            AppEvent::Mux(MuxEvent::Notification(_)) => {
-                self.session.refresh_remote_tree_background();
             }
             AppEvent::Mux(MuxEvent::TreeChanged) => {
                 if self.session.remote_tree_is_stale() {
@@ -6050,6 +6057,10 @@ mod tests {
             })
         ));
         app.handle(settled).unwrap();
+        assert_eq!(app.deferred_input.len(), 1);
+
+        app.routing_refresh_pending = false;
+        app.replay_deferred_input().unwrap();
         assert_eq!(app.deferred_input.len(), 1);
     }
 

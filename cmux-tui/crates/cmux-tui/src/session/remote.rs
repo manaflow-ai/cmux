@@ -13,7 +13,8 @@ use std::time::{Duration, Instant};
 use base64::Engine;
 use cmux_tui_core::{
     BrowserFrame, BrowserSource, BrowserStatus, DefaultColors, MuxEvent, MuxEventBroadcaster,
-    MuxEventReceiver, Rgb, SurfaceId, SurfaceKind, platform::transport,
+    MuxEventReceiver, NotificationEvent, NotificationLevel, Rgb, SurfaceId, SurfaceKind,
+    platform::transport,
 };
 use ghostty_vt::{Callbacks, RenderState, Terminal};
 use serde_json::{Value, json};
@@ -507,7 +508,25 @@ impl RemoteSession {
                 }
             }
             Some("notification") => {
-                self.emit(MuxEvent::TreeChanged);
+                let Some(notification) = value.get("notification").and_then(Value::as_u64) else {
+                    return;
+                };
+                let level = match value.get("level").and_then(Value::as_str) {
+                    Some("warning") => NotificationLevel::Warning,
+                    Some("error") => NotificationLevel::Error,
+                    _ => NotificationLevel::Info,
+                };
+                self.emit(MuxEvent::Notification(NotificationEvent {
+                    notification,
+                    title: value
+                        .get("title")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default()
+                        .to_string(),
+                    body: value.get("body").and_then(Value::as_str).unwrap_or_default().to_string(),
+                    level,
+                    surface: surface_id(),
+                }));
             }
             Some("status") => {
                 if let Some(message) = value.get("message").and_then(|v| v.as_str()) {
@@ -1129,6 +1148,37 @@ mod tests {
 
         assert_eq!(*surface.server_size.lock().unwrap(), (8, 4));
         assert_eq!(surface.term.lock().unwrap().plain_text().unwrap(), expected);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn notification_event_preserves_payload_without_invalidating_tree() {
+        let (client, _server) = UnixStream::pair().unwrap();
+        let session = socket_test_session(client);
+        let events = session.subscribe();
+        session.tree_stale.store(false, Ordering::Release);
+
+        session.handle_line(json!({
+            "event": "notification",
+            "notification": 42,
+            "title": "Build",
+            "body": "finished",
+            "level": "warning",
+            "surface": 7,
+        }));
+
+        assert!(!session.tree_is_stale());
+        assert!(events.try_iter().any(|event| {
+            matches!(
+                event,
+                MuxEvent::Notification(notification)
+                    if notification.notification == 42
+                        && notification.title == "Build"
+                        && notification.body == "finished"
+                        && notification.level == NotificationLevel::Warning
+                        && notification.surface == Some(7)
+            )
+        }));
     }
 
     #[test]

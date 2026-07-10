@@ -230,6 +230,13 @@ impl BrowserInputDispatcher {
             .is_some_and(|failure| failed_browser_resize_blocks(failure, desired))
     }
 
+    /// The app event loop uses this deadline as a scheduled retry wakeup, so
+    /// a failed resize does not depend on unrelated user input to run again.
+    pub fn resize_retry_due(&self) -> bool {
+        let now = Instant::now();
+        self.failed_resizes.lock().unwrap().values().any(|failure| failure.retry_after <= now)
+    }
+
     pub fn forget_surface(&self, surface_id: SurfaceId) {
         // Surface-exit handling removes the ID from app topology before this
         // call, so no later app input can create a fresh lifetime for it.
@@ -633,6 +640,7 @@ mod tests {
 
         dispatcher.failed_resizes.lock().unwrap().get_mut(&7).unwrap().retry_after =
             Instant::now() - Duration::from_millis(1);
+        assert!(dispatcher.resize_retry_due());
         dispatcher.enqueue(resize_event(7, 100));
         failure_rx.recv_timeout(Duration::from_secs(1)).unwrap();
         assert_eq!(dispatcher.failed_resizes.lock().unwrap().get(&7).unwrap().attempts, 2);

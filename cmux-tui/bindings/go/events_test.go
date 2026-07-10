@@ -24,3 +24,19 @@ func TestParseTitleChangedIncludesAuthoritativeTitle(t *testing.T) {
 		t.Fatalf("legacy event = %#v", legacy)
 	}
 }
+
+func TestParseResizedAcceptsProtocolV6DataField(t *testing.T) {
+	event, ok := parseEvent(map[string]any{
+		"event":   "resized",
+		"surface": float64(7),
+		"cols":    float64(80),
+		"rows":    float64(24),
+		"data":    "cmVwbGF5",
+	}).(ResizedEvent)
+	if !ok {
+		t.Fatalf("event type = %T, want ResizedEvent", event)
+	}
+	if event.Replay != "cmVwbGF5" {
+		t.Fatalf("replay = %q, want protocol v6 data", event.Replay)
+	}
+}
