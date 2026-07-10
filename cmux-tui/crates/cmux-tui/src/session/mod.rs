@@ -472,6 +472,10 @@ impl Session {
 }
 
 impl SurfaceHandle {
+    pub fn is_remote(&self) -> bool {
+        matches!(self, SurfaceHandle::Remote(_, _))
+    }
+
     pub fn kind(&self) -> SurfaceKind {
         match self {
             SurfaceHandle::Local(surface) => surface.kind(),

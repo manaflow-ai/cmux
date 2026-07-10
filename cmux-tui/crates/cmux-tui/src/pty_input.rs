@@ -35,6 +35,7 @@ pub enum PtyInputEnqueueResult {
     Accepted,
     Oversized,
     Saturated,
+    Failed,
 }
 
 pub struct PtyInputEvent {
@@ -45,6 +46,7 @@ pub struct PtyInputEvent {
     mutation: Option<Box<dyn FnOnce() -> anyhow::Result<()> + Send>>,
     label: &'static str,
     coalesce_key: Option<(&'static str, u64)>,
+    remote: bool,
 }
 
 impl PtyInputEvent {
@@ -54,6 +56,7 @@ impl PtyInputEvent {
         bytes: PtyInputBytes,
         kind: PtyInputKind,
     ) -> Self {
+        let remote = surface.is_remote();
         Self {
             surface_id,
             surface,
@@ -62,12 +65,14 @@ impl PtyInputEvent {
             mutation: None,
             label: "PTY input",
             coalesce_key: None,
+            remote,
         }
     }
 
     fn mutation(
         label: &'static str,
         coalesce_key: Option<(&'static str, u64)>,
+        remote: bool,
         operation: impl FnOnce() -> anyhow::Result<()> + Send + 'static,
     ) -> Self {
         Self {
@@ -78,6 +83,7 @@ impl PtyInputEvent {
             mutation: Some(Box::new(operation)),
             label,
             coalesce_key,
+            remote,
         }
     }
 }
@@ -97,6 +103,7 @@ struct QueueState {
     release_reservations: usize,
     in_flight: bool,
     closed: bool,
+    remote_failed: bool,
 }
 
 #[derive(Default)]
@@ -174,6 +181,9 @@ impl PtyInputSender {
         if state.closed {
             return PtyInputEnqueueResult::Saturated;
         }
+        if state.remote_failed && event.remote {
+            return PtyInputEnqueueResult::Failed;
+        }
         if event.bytes.len() > MAX_QUEUED_BYTES {
             return PtyInputEnqueueResult::Oversized;
         }
@@ -200,37 +210,45 @@ impl PtyInputSender {
         self.queue.changed.notify_all();
     }
 
-    pub fn enqueue_mutation(
+    pub fn enqueue_session_mutation(
         &self,
         label: &'static str,
+        remote: bool,
         operation: impl FnOnce() -> anyhow::Result<()> + Send + 'static,
     ) {
-        self.enqueue_mutation_with_key(label, None, operation);
+        self.enqueue_mutation_with_key(label, None, remote, operation);
     }
 
     pub fn enqueue_coalescing_mutation(
         &self,
         label: &'static str,
         key: (&'static str, u64),
+        remote: bool,
         operation: impl FnOnce() -> anyhow::Result<()> + Send + 'static,
     ) {
-        self.enqueue_mutation_with_key(label, Some(key), operation);
+        self.enqueue_mutation_with_key(label, Some(key), remote, operation);
     }
 
     fn enqueue_mutation_with_key(
         &self,
         label: &'static str,
         key: Option<(&'static str, u64)>,
+        remote: bool,
         operation: impl FnOnce() -> anyhow::Result<()> + Send + 'static,
     ) {
-        if self.enqueue(PtyInputEvent::mutation(label, key, operation))
-            != PtyInputEnqueueResult::Accepted
-        {
+        let result = self.enqueue(PtyInputEvent::mutation(label, key, remote, operation));
+        if result != PtyInputEnqueueResult::Accepted {
             (self.on_failure)(PtyOperationFailure {
                 surface_id: None,
                 kind: None,
                 label,
-                error: "operation queue is full; the session was left unchanged".into(),
+                error: match result {
+                    PtyInputEnqueueResult::Failed => {
+                        "remote operation lane is unavailable after a transport failure"
+                    }
+                    _ => "operation queue is full; the session was left unchanged",
+                }
+                .into(),
             });
         }
     }
@@ -341,6 +359,7 @@ fn worker(queue: Arc<SharedQueue>, on_failure: Arc<dyn Fn(PtyOperationFailure) +
         };
         let kind = (event.kind != PtyInputKind::Mutation).then_some(event.kind);
         let surface_id = kind.map(|_| event.surface_id);
+        let remote = event.remote;
         let result = if let Some(operation) = event.mutation {
             operation()
         } else {
@@ -353,13 +372,32 @@ fn worker(queue: Arc<SharedQueue>, on_failure: Arc<dyn Fn(PtyOperationFailure) +
             error: error.to_string(),
         });
         let mut state = queue.state.lock().unwrap();
+        let mut canceled = Vec::new();
         if failure.is_some() && kind == Some(PtyInputKind::Press) {
             state.release_reservations = state.release_reservations.saturating_sub(1);
+        }
+        if failure.is_some() && remote {
+            // One dispatcher belongs to one local or remote App session. A
+            // remote timeout means every queued remote request shares the
+            // same failed transport, so cancel the backlog instead of paying
+            // the request timeout once per event.
+            state.remote_failed = true;
+            canceled.extend(state.events.drain(..).map(|event| PtyOperationFailure {
+                surface_id: (event.kind != PtyInputKind::Mutation).then_some(event.surface_id),
+                kind: (event.kind != PtyInputKind::Mutation).then_some(event.kind),
+                label: event.label,
+                error: "canceled after the remote transport failed".into(),
+            }));
+            state.queued_bytes = 0;
+            state.release_reservations = 0;
         }
         state.in_flight = false;
         queue.changed.notify_all();
         drop(state);
         if let Some(failure) = failure {
+            on_failure(failure);
+        }
+        for failure in canceled {
             on_failure(failure);
         }
     }
@@ -440,7 +478,7 @@ mod tests {
             &mut events,
             &mut queued_bytes,
             &mut releases,
-            PtyInputEvent::mutation("close tab", None, || Ok(())),
+            PtyInputEvent::mutation("close tab", None, false, || Ok(())),
             8,
             1024,
         ));
@@ -558,13 +596,13 @@ mod tests {
         let mutated = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let (started_tx, started_rx) = std::sync::mpsc::channel();
         let (release_tx, release_rx) = std::sync::mpsc::channel();
-        sender.enqueue_mutation("blocking operation", move || {
+        sender.enqueue_session_mutation("blocking operation", false, move || {
             started_tx.send(()).unwrap();
             release_rx.recv().unwrap();
             Ok(())
         });
         let mutation = mutated.clone();
-        sender.enqueue_mutation("following mutation", move || {
+        sender.enqueue_session_mutation("following mutation", false, move || {
             mutation.store(true, std::sync::atomic::Ordering::Release);
             Ok(())
         });
@@ -587,7 +625,9 @@ mod tests {
         })
         .unwrap();
 
-        dispatcher.sender().enqueue_mutation("close pane", || anyhow::bail!("write failed"));
+        dispatcher
+            .sender()
+            .enqueue_session_mutation("close pane", false, || anyhow::bail!("write failed"));
 
         let failure = failure_rx.recv_timeout(Duration::from_secs(1)).unwrap();
         assert_eq!(failure.label, "close pane");
@@ -628,6 +668,35 @@ mod tests {
         );
         failure_rx.recv_timeout(Duration::from_secs(1)).unwrap();
         assert_eq!(dispatcher.sender.queue.state.lock().unwrap().release_reservations, 0);
+    }
+
+    #[test]
+    fn remote_failure_cancels_backlog_and_rejects_later_operations() {
+        let (failure_tx, failure_rx) = std::sync::mpsc::channel();
+        let dispatcher = PtyInputDispatcher::spawn(move |failure| {
+            failure_tx.send(failure).unwrap();
+        })
+        .unwrap();
+        let sender = dispatcher.sender();
+        let ran = Arc::new(std::sync::atomic::AtomicBool::new(false));
+
+        sender.enqueue_session_mutation("remote input", true, || anyhow::bail!("timed out"));
+        let follower_ran = ran.clone();
+        sender.enqueue_session_mutation("queued close", true, move || {
+            follower_ran.store(true, std::sync::atomic::Ordering::Release);
+            Ok(())
+        });
+
+        let first = failure_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        let second = failure_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!([first.label, second.label].contains(&"remote input"));
+        assert!([first.label, second.label].contains(&"queued close"));
+        assert!(!ran.load(std::sync::atomic::Ordering::Acquire));
+
+        sender.enqueue_session_mutation("later resize", true, || Ok(()));
+        let later = failure_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert_eq!(later.label, "later resize");
+        assert!(later.error.contains("unavailable"));
     }
 
     #[test]

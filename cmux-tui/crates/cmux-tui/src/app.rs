@@ -62,11 +62,13 @@ pub struct OrderedSession {
     inner: Session,
     operations: PtyInputSender,
     events: Sender<AppEvent>,
+    remote: bool,
 }
 
 impl OrderedSession {
     fn new(inner: Session, operations: PtyInputSender, events: Sender<AppEvent>) -> Self {
-        Self { inner, operations, events }
+        let remote = matches!(inner, Session::Remote(_));
+        Self { inner, operations, events, remote }
     }
 
     fn enqueue(
@@ -75,7 +77,7 @@ impl OrderedSession {
         operation: impl FnOnce(Session) -> anyhow::Result<()> + Send + 'static,
     ) {
         let session = self.inner.clone();
-        self.operations.enqueue_mutation(label, move || operation(session));
+        self.operations.enqueue_session_mutation(label, self.remote, move || operation(session));
     }
 
     fn resize_surface(
@@ -89,6 +91,7 @@ impl OrderedSession {
         self.operations.enqueue_coalescing_mutation(
             "resize PTY surface",
             ("surface resize", surface_id),
+            self.remote,
             move || {
                 if reassert {
                     surface.reassert_size(cols, rows);
@@ -184,6 +187,7 @@ impl OrderedSession {
         self.operations.enqueue_coalescing_mutation(
             "resize pane split",
             (direction, pane),
+            self.remote,
             move || {
                 session.set_ratio(pane, dir, ratio);
                 Ok(())
@@ -1286,7 +1290,7 @@ impl App {
             }
             AppEvent::Mux(_) => Ok(RenderAction::Draw),
             AppEvent::PtyOperationFailed(failure) => {
-                if failure.kind.is_some()
+                if failure.kind == Some(PtyInputKind::Press)
                     && failure.surface_id.is_some_and(|surface| {
                         matches!(&self.drag, Some(Drag::PtyMouse { surface: active, .. }) if *active == surface)
                     })
@@ -2796,6 +2800,11 @@ impl App {
                     Some("PTY input queue is full; input was not sent".to_string());
                 false
             }
+            PtyInputEnqueueResult::Failed => {
+                self.status_message =
+                    Some("PTY input is unavailable after a transport failure".to_string());
+                false
+            }
         }
     }
 
@@ -4016,6 +4025,13 @@ mod tests {
         assert_eq!(
             app.status_message.as_deref(),
             Some("PTY input queue is full; input was not sent")
+        );
+        assert!(!app.quit);
+
+        assert!(!app.handle_pty_enqueue_result(PtyInputEnqueueResult::Failed));
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("PTY input is unavailable after a transport failure")
         );
         assert!(!app.quit);
     }
