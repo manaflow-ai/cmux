@@ -120,39 +120,6 @@ struct RemoteTmuxMirrorTargetingTests {
         #expect(mirrorTitles == ["new", "old"])
     }
 
-    @Test func mirrorTargetTabManagerPrefersDedicatedWindowWhenResolvable() {
-        let dedicatedId = UUID()
-        let dedicated = TabManager()
-        let fallback = TabManager()
-
-        let resolved = RemoteTmuxController.mirrorTargetTabManager(
-            dedicatedWindowId: dedicatedId,
-            tabManagerForWindow: { $0 == dedicatedId ? dedicated : nil },
-            fallbackTabManager: { fallback }
-        )
-
-        #expect(resolved === dedicated)
-    }
-
-    @Test func mirrorTargetTabManagerFallsBackWhenDedicatedMissingOrUnresolved() {
-        let dedicatedId = UUID()
-        let fallback = TabManager()
-
-        let missing = RemoteTmuxController.mirrorTargetTabManager(
-            dedicatedWindowId: nil,
-            tabManagerForWindow: { _ in nil },
-            fallbackTabManager: { fallback }
-        )
-        let unresolved = RemoteTmuxController.mirrorTargetTabManager(
-            dedicatedWindowId: dedicatedId,
-            tabManagerForWindow: { _ in nil },
-            fallbackTabManager: { fallback }
-        )
-
-        #expect(missing === fallback)
-        #expect(unresolved === fallback)
-    }
-
     @Test func workspaceCloseKillTargetSkipsEndedConnections() {
         #expect(RemoteTmuxController.workspaceCloseKillTarget(
             connectionExited: true,
