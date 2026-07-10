@@ -5491,18 +5491,13 @@ struct WebViewRepresentable: NSViewRepresentable {
             let initialInspectorFrame: NSRect
         }
 
-        private enum DividerCursorKind: Equatable {
-            case vertical
-
-            var cursor: NSCursor { .resizeLeftRight }
-        }
 
         private static let hostedInspectorDividerHitExpansion: CGFloat = 10
         private static let minimumHostedInspectorWidth: CGFloat = 120
         private static let minimumHostedInspectorPageWidthForSideDock: CGFloat = 240
         private static let adaptiveBottomDockRequestCooldown: TimeInterval = 0.25
         private var trackingArea: NSTrackingArea?
-        private var activeDividerCursorKind: DividerCursorKind?
+        private var activeDividerCursorKind: PortalDividerCursorKind?
         private let dividerCursorOcclusion = PortalDividerCursorOcclusion()
         private var hostedInspectorDividerDrag: HostedInspectorDividerDragState?
         private var preferredHostedInspectorWidth: CGFloat?

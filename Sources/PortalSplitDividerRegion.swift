@@ -26,6 +26,20 @@ struct PortalDividerCursorOcclusion {
     }
 }
 
+/// Orientation of a hovered split divider and the resize cursor it shows.
+/// Shared by the portal host views and the hosted web-inspector divider.
+enum PortalDividerCursorKind: Equatable {
+    case vertical
+    case horizontal
+
+    var cursor: NSCursor {
+        switch self {
+        case .vertical: return .resizeLeftRight
+        case .horizontal: return .resizeUpDown
+        }
+    }
+}
+
 @MainActor
 final class PortalSplitDividerRegion {
     weak var splitView: NSSplitView?

@@ -215,17 +215,7 @@ final class WindowBrowserHostView: NSView {
         let initialInspectorFrame: NSRect
     }
 
-    private enum DividerCursorKind: Equatable {
-        case vertical
-        case horizontal
-
-        var cursor: NSCursor {
-            switch self {
-            case .vertical: return .resizeLeftRight
-            case .horizontal: return .resizeUpDown
-            }
-        }
-    }
+    private typealias DividerCursorKind = PortalDividerCursorKind
 
     override var isOpaque: Bool { false }
     private static let sidebarLeadingEdgeEpsilon: CGFloat = 1
