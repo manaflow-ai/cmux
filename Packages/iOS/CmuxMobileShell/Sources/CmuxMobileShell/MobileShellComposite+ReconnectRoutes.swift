@@ -192,7 +192,9 @@ extension MobileShellComposite {
                         hint.privacyScope.rawValue,
                         profileKey,
                     ].joined(separator: ":")
-                }.joined(separator: ",")
+                }
+                .sorted()
+                .joined(separator: ",")
                 return "peer:\(identity.endpointID)\u{1F}\(hintKey)"
             case let .url(url):
                 return "url:\(url)"
