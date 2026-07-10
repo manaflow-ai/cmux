@@ -20,6 +20,7 @@ public enum AgentLaunchCaptureTrust {
 
     private static let nativeProcessAliasesByKind: [String: Set<String>] = [
         "antigravity": ["agy"],
+        "campfire": ["campfire"],
         "claude": ["claude"],
         "codex": ["codex"],
         "codebuddy": ["codebuddy"],
@@ -118,14 +119,27 @@ public enum AgentLaunchCaptureTrust {
         if let executableBase {
             descriptors.insert(executableBase)
         }
-        if nameBase == "node" || nameBase == "bun" || executableBase == "node" || executableBase == "bun" {
+        // Hosts that can run a Campfire script entrypoint; mirrors
+        // CampfireLaunchArgumentNormalizer's supported runtime set.
+        let scriptHostBases: Set<String> = ["node", "bun", "deno", "tsx", "ts-node"]
+        let hostBases = Set([nameBase, executableBase].compactMap { $0 })
+        if !hostBases.isDisjoint(with: scriptHostBases) {
+            if nameBase == "node" || nameBase == "bun" || executableBase == "node" || executableBase == "bun" {
+                if arguments.dropFirst().contains(where: { argument in
+                    let lowered = argument.lowercased()
+                    return processBasename(argument) == "claude"
+                        || lowered.contains("/.claude/")
+                        || lowered.contains("/claude/versions/")
+                }) {
+                    descriptors.insert("claude")
+                }
+            }
             if arguments.dropFirst().contains(where: { argument in
-                let lowered = argument.lowercased()
-                return processBasename(argument) == "claude"
-                    || lowered.contains("/.claude/")
-                    || lowered.contains("/claude/versions/")
+                let lowered = argument.replacingOccurrences(of: "\\", with: "/").lowercased()
+                return lowered.contains("packages/session/bin/campfire.ts")
+                    || lowered.contains("packages/session/dist/campfire")
             }) {
-                descriptors.insert("claude")
+                descriptors.insert("campfire")
             }
             return descriptors
         }
