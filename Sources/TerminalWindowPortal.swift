@@ -134,6 +134,12 @@ final class WindowTerminalHostView: NSView {
     override func mouseDragged(with event: NSEvent) {
         guard intersectionDrag.isActive else { return super.mouseDragged(with: event) }
         intersectionDrag.update(windowPoint: event.locationInWindow)
+        if !intersectionDrag.isActive {
+            // The drag aborted (a captured divider went stale); re-resolve
+            // the cursor now instead of leaving the four-way cursor stuck
+            // until the next pointer move.
+            updateDividerCursor(at: convert(event.locationInWindow, from: nil))
+        }
     }
 
     override func mouseUp(with event: NSEvent) {

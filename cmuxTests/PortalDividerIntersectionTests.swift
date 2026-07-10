@@ -182,6 +182,30 @@ import Testing
         #expect(intersection == nil)
     }
 
+    @Test func intersectionSkipsNearerCandidateFromUnrelatedTree() {
+        let (outer, inner) = makeNestedSplits()
+        let stranger = NSSplitView(frame: Self.contentBounds)
+        stranger.isVertical = true
+        let horizontal = region(outer, rect: horizontalDividerRect, isVertical: false)
+        // The vertical divider nearest the pointer belongs to an unrelated
+        // tree; a slightly farther one forms the real nested corner. The
+        // pair must use the corner-forming candidate instead of returning
+        // nil after pairing the nearest hit.
+        let strangerVertical = region(stranger, rect: NSRect(x: 400, y: 0, width: 1, height: 300), isVertical: true)
+        let nestedVertical = region(inner, rect: NSRect(x: 404, y: 0, width: 1, height: 300), isVertical: true)
+        let point = NSPoint(x: 401, y: 300)
+
+        let hits = PortalSplitDividerRegion.dividerHits(
+            at: point,
+            in: [horizontal, strangerVertical, nestedVertical],
+            checkLiveness: false
+        )
+
+        #expect(hits.vertical === strangerVertical)
+        #expect(hits.intersection?.vertical === nestedVertical)
+        #expect(hits.intersection?.horizontal === horizontal)
+    }
+
     @Test func allAxesCursorResolvesWithoutPrivateSelectors() {
         // Regression: the four-way cursor was resolved via the private
         // `_moveCursor` class method, which is a tombstone on macOS 15 —

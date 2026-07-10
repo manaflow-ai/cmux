@@ -53,6 +53,12 @@ extension WindowBrowserHostView {
     func updateIntersectionDragIfActive(with event: NSEvent) -> Bool {
         guard intersectionDrag.isActive else { return false }
         intersectionDrag.update(windowPoint: event.locationInWindow)
+        if !intersectionDrag.isActive {
+            // The drag aborted (a captured divider went stale); re-resolve
+            // the cursor now instead of leaving the four-way cursor stuck
+            // until the next pointer move.
+            updateDividerCursor(at: convert(event.locationInWindow, from: nil))
+        }
         return true
     }
 

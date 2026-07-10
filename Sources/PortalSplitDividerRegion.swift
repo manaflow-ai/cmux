@@ -103,26 +103,34 @@ struct PortalDividerIntersection {
     let horizontal: PortalSplitDividerRegion
 }
 
-/// Divider regions hit at a single window point. `vertical`/`horizontal` are
-/// the nearest hit per orientation (expanded hit bands of parallel dividers
-/// can overlap around a narrow pane, and the pair must form the corner the
+/// Divider regions hit at a single window point. Candidates are ordered
+/// nearest-first per orientation (expanded hit bands of parallel dividers can
+/// overlap around a narrow pane, and the pair must form the corner the
 /// pointer is actually on). `first` is the topmost hit in z-order, preserving
 /// the legacy precedence for single-axis cursor and routing decisions.
 @MainActor
 struct PortalDividerHits {
-    let vertical: PortalSplitDividerRegion?
-    let horizontal: PortalSplitDividerRegion?
+    let verticalCandidates: [PortalSplitDividerRegion]
+    let horizontalCandidates: [PortalSplitDividerRegion]
     let first: PortalSplitDividerRegion?
 
-    /// The two-axis pair at this point, if the vertical and horizontal hits
-    /// meet at a real pane corner of one nested split tree.
+    var vertical: PortalSplitDividerRegion? { verticalCandidates.first }
+    var horizontal: PortalSplitDividerRegion? { horizontalCandidates.first }
+
+    /// The two-axis pair at this point: the nearest vertical/horizontal
+    /// combination that meets at a real pane corner of one nested split
+    /// tree. Trying candidates nearest-first (instead of only the single
+    /// nearest hit per orientation) keeps a valid corner drag available when
+    /// the nearest hit of one orientation belongs to an unrelated tree.
     var intersection: PortalDividerIntersection? {
-        guard let vertical, let horizontal,
-              !vertical.isInHostedContent, !horizontal.isInHostedContent,
-              PortalSplitDividerRegion.areNested(vertical, horizontal) else {
-            return nil
+        for vertical in verticalCandidates where !vertical.isInHostedContent {
+            for horizontal in horizontalCandidates where !horizontal.isInHostedContent {
+                if PortalSplitDividerRegion.areNested(vertical, horizontal) {
+                    return PortalDividerIntersection(vertical: vertical, horizontal: horizontal)
+                }
+            }
         }
-        return PortalDividerIntersection(vertical: vertical, horizontal: horizontal)
+        return nil
     }
 }
 
@@ -198,10 +206,10 @@ final class PortalSplitDividerRegion {
         in regions: [PortalSplitDividerRegion],
         checkLiveness: Bool = true
     ) -> PortalDividerHits {
-        var vertical: (region: PortalSplitDividerRegion, distance: CGFloat)?
-        var horizontal: (region: PortalSplitDividerRegion, distance: CGFloat)?
+        var vertical: [(region: PortalSplitDividerRegion, distance: CGFloat, order: Int)] = []
+        var horizontal: [(region: PortalSplitDividerRegion, distance: CGFloat, order: Int)] = []
         var first: PortalSplitDividerRegion?
-        for region in regions.reversed() {
+        for (order, region) in regions.reversed().enumerated() {
             if checkLiveness, !region.isLive { continue }
             let hitRect = region.hitRectInWindow
             guard !hitRect.isNull, hitRect.contains(windowPoint) else { continue }
@@ -210,16 +218,19 @@ final class PortalSplitDividerRegion {
                 ? abs(windowPoint.x - region.rectInWindow.midX)
                 : abs(windowPoint.y - region.rectInWindow.midY)
             if region.isVertical {
-                if vertical == nil || distance < vertical!.distance {
-                    vertical = (region, distance)
-                }
-            } else if horizontal == nil || distance < horizontal!.distance {
-                horizontal = (region, distance)
+                vertical.append((region, distance, order))
+            } else {
+                horizontal.append((region, distance, order))
             }
         }
+        // Nearest divider line first; z-order (topmost first) breaks ties.
+        let byProximity: ((region: PortalSplitDividerRegion, distance: CGFloat, order: Int),
+                          (region: PortalSplitDividerRegion, distance: CGFloat, order: Int)) -> Bool = {
+            ($0.distance, $0.order) < ($1.distance, $1.order)
+        }
         return PortalDividerHits(
-            vertical: vertical?.region,
-            horizontal: horizontal?.region,
+            verticalCandidates: vertical.sorted(by: byProximity).map(\.region),
+            horizontalCandidates: horizontal.sorted(by: byProximity).map(\.region),
             first: first
         )
     }
