@@ -2,6 +2,7 @@ import CFNetwork
 import Foundation
 import Network
 import Testing
+import WebKit
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -442,5 +443,48 @@ import Testing
         let configuration = try #require(configurations.first)
         #expect(enumeratedExcludedDomains(configuration) == mirror.excludedDomains)
         #expect(configuration.allowFailover == false)
+    }
+
+    @Test("Direct browser networking is left untouched when no explicit proxy is configured")
+    func directNetworkingDoesNotRewriteAnEmptyProxyConfiguration() {
+        let store = WKWebsiteDataStore.nonPersistent()
+
+        let didMutate = BrowserSystemProxyMirror.applyProxyConfigurations([], to: store)
+
+        #expect(!didMutate)
+        #expect(store.proxyConfigurations.isEmpty)
+    }
+
+    @Test("An explicit proxy is installed for remote and mirrored-system routing")
+    func explicitProxyConfigurationIsInstalled() throws {
+        let store = WKWebsiteDataStore.nonPersistent()
+        let mirror = try #require(
+            BrowserSystemProxyMirror(systemProxySettings: socksProxySettings())
+        )
+
+        let didMutate = BrowserSystemProxyMirror.applyProxyConfigurations(
+            mirror.proxyConfigurations(),
+            to: store
+        )
+
+        #expect(didMutate)
+        #expect(store.proxyConfigurations.count == 1)
+    }
+
+    @Test("A removed explicit proxy is cleared from its website data store")
+    func removedProxyConfigurationIsCleared() throws {
+        let store = WKWebsiteDataStore.nonPersistent()
+        let mirror = try #require(
+            BrowserSystemProxyMirror(systemProxySettings: socksProxySettings())
+        )
+        _ = BrowserSystemProxyMirror.applyProxyConfigurations(
+            mirror.proxyConfigurations(),
+            to: store
+        )
+
+        let didMutate = BrowserSystemProxyMirror.applyProxyConfigurations([], to: store)
+
+        #expect(didMutate)
+        #expect(store.proxyConfigurations.isEmpty)
     }
 }
