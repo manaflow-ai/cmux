@@ -12,7 +12,28 @@ import UIKit
 /// libghostty surface, so the toolbar position, grid reservation, and
 /// keyboard/safe-area geometry are exactly what production renders.
 struct TerminalLayoutPreviewView: View {
+    @Environment(MobileDisplaySettings.self) private var displaySettings
+
     var body: some View {
+        if ProcessInfo.processInfo.environment["CMUX_UITEST_ALT_SCREEN_NOTICE_PREVIEW"] == "1" {
+            NavigationStack {
+                terminalLayoutPreview
+                    .toolbar {
+                        if displaySettings.showAltScreenNotice {
+                            ToolbarItem(placement: .topBarTrailing) {
+                                AltScreenNoticeButton {
+                                    displaySettings.showAltScreenNotice = false
+                                }
+                            }
+                        }
+                    }
+            }
+        } else {
+            terminalLayoutPreview
+        }
+    }
+
+    private var terminalLayoutPreview: some View {
         TerminalLayoutPreviewSurface()
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .background {
