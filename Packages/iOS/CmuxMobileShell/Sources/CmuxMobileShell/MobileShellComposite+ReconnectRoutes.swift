@@ -4,6 +4,26 @@ import Foundation
 
 @MainActor
 extension MobileShellComposite {
+    /// Supported routes for reconnecting an already-paired Mac.
+    ///
+    /// Unlike the legacy host/port helper, this preserves Iroh peer routes. On
+    /// a physical device, loopback remains excluded whenever any real route is
+    /// available, so adding Iroh cannot reintroduce the phone-self dial threat.
+    static func storedReconnectRoutes(
+        _ routes: [CmxAttachRoute],
+        supportedKinds: [CmxAttachTransportKind],
+        preferNonLoopback: Bool = false
+    ) -> [CmxAttachRoute] {
+        let supportedKinds = Set(supportedKinds)
+        var ordered = routes
+            .filter { supportedKinds.isEmpty || supportedKinds.contains($0.kind) }
+            .sorted(by: Self.routeSortsBefore)
+        if preferNonLoopback, ordered.contains(where: { $0.kind != .debugLoopback }) {
+            ordered.removeAll { $0.kind == .debugLoopback }
+        }
+        return ordered
+    }
+
     /// The first reachable host/port route to a Mac, in priority order.
     ///
     /// When `preferNonLoopback` is set (physical devices), a real route
@@ -55,7 +75,7 @@ extension MobileShellComposite {
         for mac: MobilePairedMac,
         scope: MobileShellScopeSnapshot,
         triedRoutes: [(host: String, port: Int, routeID: String)]
-    ) async -> [(host: String, port: Int, routeID: String)]? {
+    ) async -> RefreshedReconnectRoutes? {
         guard let deviceRegistry,
               await isScopeCurrent(scope),
               await !isForgottenMacDeviceID(mac.macDeviceID, scope: scope),
@@ -67,6 +87,14 @@ extension MobileShellComposite {
             return nil
         }
         let supportedKinds = runtime?.supportedRouteKinds ?? []
+        let reconnectRoutes = Self.storedReconnectRoutes(
+            updatedRoutes,
+            supportedKinds: supportedKinds,
+            preferNonLoopback: Self.prefersNonLoopbackRoutes
+        )
+        if reconnectRoutes.contains(where: { $0.kind == .iroh }) {
+            return .ticket(reconnectRoutes)
+        }
         let refreshed = Self.reconnectHostPortRoutes(
             updatedRoutes,
             supportedKinds: supportedKinds,
@@ -76,7 +104,7 @@ extension MobileShellComposite {
         let tried = Set(triedRoutes.map { "\($0.host)\u{1F}\($0.port)" })
         let fresh = Set(refreshed.map { "\($0.host)\u{1F}\($0.port)" })
         guard fresh != tried else { return nil }
-        return refreshed
+        return .hostPorts(refreshed)
     }
 
     func shouldResyncTerminalOutputOnForeground() -> Bool {
@@ -254,4 +282,9 @@ extension MobileShellComposite {
         storedRoutes.forEach(append)
         return merged.sorted(by: Self.routeSortsBefore)
     }
+}
+
+enum RefreshedReconnectRoutes {
+    case ticket([CmxAttachRoute])
+    case hostPorts([(host: String, port: Int, routeID: String)])
 }

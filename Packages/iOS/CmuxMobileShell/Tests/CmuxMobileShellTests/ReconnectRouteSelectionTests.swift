@@ -30,6 +30,20 @@ import Testing
         )
     }
 
+    private func iroh(priority: Int = -10_000) throws -> CmxAttachRoute {
+        try CmxAttachRoute(
+            id: "iroh-personal",
+            kind: .iroh,
+            endpoint: .peer(
+                identity: CmxIrohPeerIdentity(
+                    endpointID: String(repeating: "a", count: 64)
+                ),
+                pathHints: []
+            ),
+            priority: priority
+        )
+    }
+
     @Test func physicalDevicePrefersRealRouteOverLowerPriorityLoopback() throws {
         let pick = MobileShellComposite.firstReconnectHostPortRoute(
             [try loopback(), try tailscale()],
@@ -112,6 +126,38 @@ import Testing
 
         #expect(candidates.count == 1)
         #expect(candidates.first?.routeID == "duplicate")
+    }
+
+    @Test func storedReconnectKeepsIrohFirstAndExcludesPhysicalLoopback() throws {
+        let routes = MobileShellComposite.storedReconnectRoutes(
+            [try loopback(), try tailscale(), try iroh()],
+            supportedKinds: [.iroh, .tailscale, .debugLoopback],
+            preferNonLoopback: true
+        )
+
+        #expect(routes.map(\.kind) == [.iroh, .tailscale])
+    }
+
+    @Test func reconnectActiveMacUsesPersistedIrohBeforeNetworkFallback() async throws {
+        let clock = TestClock()
+        let router = LivenessHostRouter()
+        let box = TransportBox()
+        let factory = KindRecordingTransportFactory(router: router, box: box)
+        let store = try await makeReconnectStore(
+            routes: [try tailscale(), try iroh()],
+            runtime: LivenessTestRuntime(
+                transportFactory: factory,
+                now: { clock.now },
+                supportedRouteKinds: [.iroh, .tailscale]
+            )
+        )
+
+        let connected = await store.reconnectActiveMacIfAvailable(stackUserID: "user-1")
+
+        #expect(connected)
+        #expect(store.connectionState == .connected)
+        #expect(factory.attemptedKinds() == [.iroh])
+        #expect(store.activeRoute?.kind == .iroh)
     }
 
     private func magicDNS(_ port: Int = 50906) throws -> CmxAttachRoute {
@@ -435,4 +481,27 @@ private actor HeldFailingConnectTransport: CmxByteTransport {
     func receive() async throws -> Data? { nil }
     func send(_ data: Data) async throws {}
     func close() async {}
+}
+
+private final class KindRecordingTransportFactory: CmxByteTransportFactory, @unchecked Sendable {
+    private let router: LivenessHostRouter
+    private let box: TransportBox
+    private let lock = NSLock()
+    private var kinds: [CmxAttachTransportKind] = []
+
+    init(router: LivenessHostRouter, box: TransportBox) {
+        self.router = router
+        self.box = box
+    }
+
+    func makeTransport(for route: CmxAttachRoute) throws -> any CmxByteTransport {
+        lock.withLock { kinds.append(route.kind) }
+        let transport = LivenessTransport(router: router)
+        box.set(transport)
+        return transport
+    }
+
+    func attemptedKinds() -> [CmxAttachTransportKind] {
+        lock.withLock { kinds }
+    }
 }

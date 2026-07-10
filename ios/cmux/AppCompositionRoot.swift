@@ -22,8 +22,10 @@ import CmuxMobileDiagnostics
 final class AppCompositionRoot {
     let runtime: CMUXMobileRuntime
     let auth: MobileAuthComposition
+    let iroh: MobileIrohRuntimeComposition
     let reachability: any ReachabilityProviding
     let pushCoordinator: MobilePushCoordinator
+    let signOutHook: MobileSignOutHook
     let analytics: MobileAnalyticsComposition
     let displaySettings: MobileDisplaySettings
     /// First-run onboarding "seen" flag, persisted to `UserDefaults.standard`.
@@ -52,6 +54,7 @@ final class AppCompositionRoot {
     init(
         runtime: CMUXMobileRuntime,
         auth: MobileAuthComposition,
+        iroh: MobileIrohRuntimeComposition,
         reachability: any ReachabilityProviding
     ) {
         #if DEBUG
@@ -62,6 +65,7 @@ final class AppCompositionRoot {
 
         self.runtime = runtime
         self.auth = auth
+        self.iroh = iroh
         self.reachability = reachability
         let telemetryConsent = UserDefaultsAnalyticsConsentProvider(defaults: .standard)
         MobileCrashReporter.startIfEnabled(
@@ -73,10 +77,31 @@ final class AppCompositionRoot {
             tokenProvider: auth.coordinator,
             consent: telemetryConsent
         )
-        self.pushCoordinator = MobilePushCoordinator(
+        let pushCoordinator = MobilePushCoordinator(
             registration: auth.pushRegistration,
             analytics: analytics.emitter
         )
+        self.pushCoordinator = pushCoordinator
+        self.signOutHook = MobileSignOutHook {
+            let preparation = await iroh.prepareSignOut()
+            return { accessToken, refreshToken in
+                await withTaskGroup(of: Void.self) { group in
+                    group.addTask {
+                        await pushCoordinator.unregisterFromServer(
+                            accessToken: accessToken,
+                            refreshToken: refreshToken
+                        )
+                    }
+                    group.addTask {
+                        await iroh.revokeAfterSignOut(
+                            preparation,
+                            accessToken: accessToken,
+                            refreshToken: refreshToken
+                        )
+                    }
+                }
+            }
+        }
         self.displaySettings = MobileDisplaySettings()
         // Skip the one-time onboarding when a UI-test mock harness
         // (`CMUX_UITEST_MOCK_DATA`/XCUITest) or a dogfood auto-pair attach URL is
@@ -118,6 +143,7 @@ final class AppCompositionRoot {
         let emitter = analytics.emitter
         switch phase {
         case .active:
+            iroh.didBecomeActive()
             let now = Date()
             let decision = analytics.sessionizer.resolveForeground(
                 now: now,
@@ -141,6 +167,7 @@ final class AppCompositionRoot {
             emitter.capture("ios_app_foregrounded", foregroundProps)
             hasForegrounded = true
         case .background:
+            iroh.didEnterBackground()
             let now = Date()
             analytics.sessionStore.recordBackgrounded(at: now)
             emitter.capture("ios_app_backgrounded", [:])
