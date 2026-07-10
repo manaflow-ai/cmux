@@ -118,16 +118,24 @@ struct ProcessDetectedResumeIndexCoordinationTests {
     }
 
     @Test
-    func autosaveTicksReuseFreshCaptureUntilSharedTTLExpires() async {
+    func autosaveTicksReuseFreshCaptureUntilScopeOrTTLChanges() async {
         let loadCount = OSAllocatedUnfairLock(initialState: 0)
         let now = OSAllocatedUnfairLock(initialState: Date(timeIntervalSince1970: 100))
+        let processScopeFingerprint = OSAllocatedUnfairLock(initialState: Set(["scope-a"]))
         let hookDirectory = Self.temporaryDirectory(named: "ttl")
         defer { try? FileManager.default.removeItem(at: hookDirectory) }
         let sharedIndex = SharedLiveAgentIndex(
             indexLoader: {
                 loadCount.withLock { $0 += 1 }
-                return Self.emptyLoadResult
+                return (
+                    index: .empty,
+                    surfaceResumeBindingIndex: .empty,
+                    liveAgentProcessFingerprint: [],
+                    processScopeFingerprint: processScopeFingerprint.withLock { $0 },
+                    forkValidatedPanels: []
+                )
             },
+            processScopeFingerprintProvider: { processScopeFingerprint.withLock { $0 } },
             hookStoreDirectoryProvider: { hookDirectory.path },
             dateProvider: { now.withLock { $0 } }
         )
@@ -139,9 +147,14 @@ struct ProcessDetectedResumeIndexCoordinationTests {
         #expect(await Self.loadSucceeded(from: sharedIndex))
         #expect(loadCount.withLock { $0 } == 1)
 
-        now.withLock { $0 = Date(timeIntervalSince1970: 161) }
+        now.withLock { $0 = Date(timeIntervalSince1970: 124) }
+        processScopeFingerprint.withLock { $0 = ["scope-b"] }
         #expect(await Self.loadSucceeded(from: sharedIndex))
         #expect(loadCount.withLock { $0 } == 2)
+
+        now.withLock { $0 = Date(timeIntervalSince1970: 185) }
+        #expect(await Self.loadSucceeded(from: sharedIndex))
+        #expect(loadCount.withLock { $0 } == 3)
     }
 
     @Test
@@ -189,17 +202,30 @@ struct ProcessDetectedResumeIndexCoordinationTests {
         defer { app.unregisterMainWindowContextForTesting(windowId: windowId) }
         let workspace = try #require(manager.selectedWorkspace)
         let panelId = try #require(workspace.focusedPanelId)
+        #expect(workspace.setSurfaceResumeBinding(
+            SurfaceResumeBindingSnapshot(
+                name: "tmux",
+                kind: "tmux",
+                command: "tmux attach -t preserved",
+                cwd: "/tmp/preserved",
+                checkpointId: "preserved",
+                source: "process-detected",
+                updatedAt: 42
+            ),
+            panelId: panelId
+        ))
 
         let plan = TerminationResumeIndexSavePlan.resolve(nil)
         let snapshot = try #require(app.debugBuildSessionSnapshotForTesting(
             includeScrollback: false,
-            surfaceResumeBindingIndex: plan.resumeIndexes.surfaceResumeBindingIndex
+            surfaceResumeBindingIndex: plan.surfaceResumeBindingIndex
         ))
         let savedWorkspace = try #require(snapshot.windows.first?.tabManager.workspaces.first)
 
         #expect(plan.usesCoreSnapshotFallback)
         #expect(savedWorkspace.workspaceId == workspace.id)
-        #expect(savedWorkspace.panels.first(where: { $0.id == panelId })?.terminal != nil)
+        #expect(savedWorkspace.panels.first(where: { $0.id == panelId })?
+            .terminal?.resumeBinding?.checkpointId == "preserved")
     }
 
     @Test
@@ -239,16 +265,6 @@ struct ProcessDetectedResumeIndexCoordinationTests {
         releaseCapture.signal()
         await task.value
         #expect(!didComplete.withLock { $0 })
-    }
-
-    nonisolated private static var emptyLoadResult: SharedLiveAgentIndexLoader.LoadResult {
-        (
-            index: .empty,
-            surfaceResumeBindingIndex: .empty,
-            liveAgentProcessFingerprint: [],
-            processScopeFingerprint: [],
-            forkValidatedPanels: []
-        )
     }
 
     private static func temporaryDirectory(named name: String) -> URL {

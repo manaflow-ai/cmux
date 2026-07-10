@@ -36,12 +36,21 @@ final class SharedLiveAgentIndex {
     private let watchQueue = DispatchQueue(label: "com.cmuxterm.app.sharedLiveAgentIndexWatch")
 
     private let indexLoader: @Sendable () -> SharedLiveAgentIndexLoader.LoadResult
+    private let processScopeFingerprintProvider: @Sendable () -> Set<String>
     private let hookStoreDirectoryProvider: @MainActor () -> String
     private let dateProvider: @MainActor () -> Date
 
     init(
         indexLoader: @escaping @Sendable () -> SharedLiveAgentIndexLoader.LoadResult = {
             SharedLiveAgentIndexLoader().loadResultSynchronously()
+        },
+        processScopeFingerprintProvider: @escaping @Sendable () -> Set<String> = {
+            SharedLiveAgentIndexLoader.processScopeFingerprint(
+                from: CmuxTopProcessSnapshot.captureCached(
+                    includeProcessDetails: false,
+                    maximumAge: 5
+                )
+            )
         },
         hookStoreDirectoryProvider: @escaping @MainActor () -> String = {
             RestorableAgentKind.claude.hookStoreFileURL().deletingLastPathComponent().path
@@ -51,6 +60,7 @@ final class SharedLiveAgentIndex {
         }
     ) {
         self.indexLoader = indexLoader
+        self.processScopeFingerprintProvider = processScopeFingerprintProvider
         self.hookStoreDirectoryProvider = hookStoreDirectoryProvider
         self.dateProvider = dateProvider
     }
@@ -161,10 +171,35 @@ final class SharedLiveAgentIndex {
         maximumAge: TimeInterval = 60
     ) async -> ProcessDetectedResumeIndexes? {
         ensureWatchingHookStoreDirectory()
-        if let latestCompletedLoadResult,
+        if refreshTailID != nil {
+            let task = requestRefresh(
+                freshness: .joinCurrentGeneration,
+                publication: .scoped,
+                validating: nil
+            )
+            return await task.value.map(ProcessDetectedResumeIndexes.init)
+                ?? latestCompletedLoadResult.map(ProcessDetectedResumeIndexes.init)
+        }
+        if case .some = latestCompletedLoadResult,
            let latestCompletedAt,
            dateProvider().timeIntervalSince(latestCompletedAt) < maximumAge {
-            return ProcessDetectedResumeIndexes(latestCompletedLoadResult)
+            let processScopeFingerprintProvider = self.processScopeFingerprintProvider
+            let currentProcessScopeFingerprint = await Task.detached(priority: .utility) {
+                processScopeFingerprintProvider()
+            }.value
+            if let currentResult = self.latestCompletedLoadResult,
+               let currentCompletedAt = self.latestCompletedAt,
+               dateProvider().timeIntervalSince(currentCompletedAt) < maximumAge,
+               currentResult.processScopeFingerprint == currentProcessScopeFingerprint {
+                return ProcessDetectedResumeIndexes(currentResult)
+            }
+            let task = requestRefresh(
+                freshness: .captureAfterRequest,
+                publication: .scoped,
+                validating: nil
+            )
+            return await task.value.map(ProcessDetectedResumeIndexes.init)
+                ?? self.latestCompletedLoadResult.map(ProcessDetectedResumeIndexes.init)
         }
         let task = requestRefresh(
             freshness: .joinCurrentGeneration,
@@ -205,7 +240,11 @@ final class SharedLiveAgentIndex {
 
     private func refreshTaskIfStale(validating panelKey: PanelKey? = nil) -> Task<LoadResult?, Never>? {
         ensureWatchingHookStoreDirectory()
-        let freshestCompletedAt = [loadedAt, latestCompletedAt].compactMap { $0 }.max()
+        let freshestCompletedAt = if panelKey == nil {
+            [loadedAt, latestCompletedAt].compactMap { $0 }.max()
+        } else {
+            loadedAt
+        }
         if let freshestCompletedAt,
            dateProvider().timeIntervalSince(freshestCompletedAt) < Self.cacheTTL {
             return nil
@@ -306,12 +345,20 @@ final class SharedLiveAgentIndex {
                 generationID: generationID
             )
             NotificationCenter.default.post(name: .sharedLiveAgentIndexDidChange, object: self)
+        } else {
+            invalidatePublishedForkValidations()
         }
 
         if refreshTailID == nil, changePending {
             changePending = false
             handleHookStoreChange()
         }
+    }
+
+    private func invalidatePublishedForkValidations() {
+        validatedForkPanels.removeAll()
+        validatedForkPanelProbeCompletedAt.removeAll()
+        validatedMissingForkPanels.removeAll()
     }
 
     private func applyReloadedResult(

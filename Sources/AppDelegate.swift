@@ -4244,8 +4244,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return saveSessionSnapshot(
             includeScrollback: includeScrollback,
             removeWhenEmpty: removeWhenEmpty,
-            restorableAgentIndex: plan.resumeIndexes.restorableAgentIndex,
-            surfaceResumeBindingIndex: plan.resumeIndexes.surfaceResumeBindingIndex
+            restorableAgentIndex: plan.restorableAgentIndex,
+            surfaceResumeBindingIndex: plan.surfaceResumeBindingIndex
         )
     }
 

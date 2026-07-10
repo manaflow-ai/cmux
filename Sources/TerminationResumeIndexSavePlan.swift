@@ -1,7 +1,8 @@
 import Foundation
 
 struct TerminationResumeIndexSavePlan {
-    let resumeIndexes: ProcessDetectedResumeIndexes
+    let restorableAgentIndex: RestorableAgentSessionIndex?
+    let surfaceResumeBindingIndex: SurfaceResumeBindingIndex?
     let usesCoreSnapshotFallback: Bool
 
     static func resolve(
@@ -9,15 +10,14 @@ struct TerminationResumeIndexSavePlan {
     ) -> TerminationResumeIndexSavePlan {
         if let resumeIndexes {
             return TerminationResumeIndexSavePlan(
-                resumeIndexes: resumeIndexes,
+                restorableAgentIndex: resumeIndexes.restorableAgentIndex,
+                surfaceResumeBindingIndex: resumeIndexes.surfaceResumeBindingIndex,
                 usesCoreSnapshotFallback: false
             )
         }
         return TerminationResumeIndexSavePlan(
-            resumeIndexes: ProcessDetectedResumeIndexes(
-                restorableAgentIndex: .empty,
-                surfaceResumeBindingIndex: .empty
-            ),
+            restorableAgentIndex: nil,
+            surfaceResumeBindingIndex: nil,
             usesCoreSnapshotFallback: true
         )
     }

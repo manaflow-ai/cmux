@@ -10,6 +10,66 @@ import Testing
 
 extension SharedLiveAgentIndexLoadCoalescingTests {
     @Test
+    func scopedCompletionInvalidatesPublishedForkValidation() async {
+        let loadCount = OSAllocatedUnfairLock(initialState: 0)
+        let hookDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-scoped-fork-invalidation-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: hookDirectory) }
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let panelKey = RestorableAgentSessionIndex.PanelKey(
+            workspaceId: workspaceId,
+            panelId: panelId
+        )
+        let publishedIndex = Self.index(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            sessionId: "published-session"
+        )
+        let scopedIndex = Self.index(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            sessionId: "scoped-session"
+        )
+        let nextIndex = OSAllocatedUnfairLock(initialState: publishedIndex)
+        let sharedIndex = SharedLiveAgentIndex(
+            indexLoader: {
+                loadCount.withLock { $0 += 1 }
+                let index = nextIndex.withLock { $0 }
+                return (
+                    index: index,
+                    surfaceResumeBindingIndex: .empty,
+                    liveAgentProcessFingerprint: [],
+                    processScopeFingerprint: [],
+                    forkValidatedPanels: [panelKey]
+                )
+            },
+            hookStoreDirectoryProvider: { hookDirectory.path },
+            dateProvider: { Date(timeIntervalSince1970: 100) }
+        )
+
+        await sharedIndex.refreshForkAvailabilityNow(workspaceId: workspaceId, panelId: panelId)
+        #expect(sharedIndex.snapshotForForkAvailability(
+            workspaceId: workspaceId,
+            panelId: panelId
+        )?.sessionId == "published-session")
+
+        nextIndex.withLock { $0 = scopedIndex }
+        _ = await sharedIndex.scopedIndexCapturedAfterRequest()
+        #expect(sharedIndex.snapshotForForkAvailability(
+            workspaceId: workspaceId,
+            panelId: panelId
+        ) == nil)
+
+        await sharedIndex.refreshForkAvailabilityNow(workspaceId: workspaceId, panelId: panelId)
+        #expect(sharedIndex.snapshotForForkAvailability(
+            workspaceId: workspaceId,
+            panelId: panelId
+        )?.sessionId == "scoped-session")
+        #expect(loadCount.withLock { $0 } == 3)
+    }
+
+    @Test
     func scopedRefreshDoesNotPublishWorkspaceNotification() async {
         let notificationCount = OSAllocatedUnfairLock(initialState: 0)
         let hookDirectory = FileManager.default.temporaryDirectory
