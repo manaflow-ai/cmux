@@ -4385,8 +4385,7 @@ final class BrowserPanel: Panel, ObservableObject {
         remoteProxyEndpoint = endpoint
         if shouldSuspendNetworking {
             replaceWebViewPreservingState(
-                from: webView,
-                websiteDataStore: websiteDataStore,
+                from: webView, websiteDataStore: websiteDataStore,
                 reason: "remote_proxy_unavailable"
             )
         }
@@ -4402,16 +4401,11 @@ final class BrowserPanel: Panel, ObservableObject {
     private func applyProxyConfigurationIfAvailable() {
         guard #available(macOS 14.0, *) else { return }
 
-        let route: BrowserProxyConfigurationRoute
-        if let endpoint = remoteProxyEndpoint {
-            route = .remoteWorkspace(host: endpoint.host, port: endpoint.port)
-        } else if usesRemoteWorkspaceProxy {
-            // Keep the last SSH route installed while its replacement endpoint
-            // is pending. New navigations remain queued by the readiness gate.
-            return
-        } else {
-            route = .currentSystem
-        }
+        // Keep the last SSH route while endpoint loss suspends the WebView and queues navigation.
+        guard !usesRemoteWorkspaceProxy || remoteProxyEndpoint != nil else { return }
+        let route = remoteProxyEndpoint.map {
+            BrowserProxyConfigurationRoute.remoteWorkspace(host: $0.host, port: $0.port)
+        } ?? .currentSystem
         route.apply(to: webView.configuration.websiteDataStore)
     }
 
