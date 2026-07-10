@@ -224,6 +224,54 @@ import Testing
         #expect(pathHints == [relayHint, privateHint])
     }
 
+    @Test func reconnectDedupMergesUsableHintsWhenRouteIDsMatch() throws {
+        let now = Date(timeIntervalSince1970: 2_000)
+        let identity = try CmxIrohPeerIdentity(
+            endpointID: String(repeating: "a", count: 64)
+        )
+        let relayHint = try CmxIrohPathHint(
+            kind: .relayURL,
+            value: "https://relay.example.test/",
+            source: .native,
+            privacyScope: .publicInternet
+        )
+        let privateHint = try CmxIrohPathHint(
+            kind: .directAddress,
+            value: "10.0.0.4:49152",
+            source: .customVPN,
+            privacyScope: .privateNetwork,
+            observedAt: now,
+            expiresAt: now.addingTimeInterval(300),
+            networkProfile: CmxIrohNetworkProfileKey(
+                source: .customVPN,
+                profileID: "site-a"
+            )
+        )
+        let fresh = try CmxAttachRoute(
+            id: "iroh",
+            kind: .iroh,
+            endpoint: .peer(identity: identity, pathHints: [relayHint])
+        )
+        let stored = try CmxAttachRoute(
+            id: "iroh",
+            kind: .iroh,
+            endpoint: .peer(identity: identity, pathHints: [relayHint, privateHint])
+        )
+
+        let merged = MobileShellComposite.mergedReconnectRoutes(
+            ticketRoutes: [fresh],
+            storedRoutes: [stored],
+            at: now
+        )
+
+        #expect(merged.map(\.id) == ["iroh"])
+        guard case let .peer(_, pathHints) = merged[0].endpoint else {
+            Issue.record("Expected an Iroh peer route")
+            return
+        }
+        #expect(pathHints == [relayHint, privateHint])
+    }
+
     @Test func reconnectDedupCapsMergedHintsAndPrefersFreshTicketHints() throws {
         let identity = try CmxIrohPeerIdentity(
             endpointID: String(repeating: "a", count: 64)
