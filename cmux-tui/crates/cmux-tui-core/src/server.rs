@@ -1468,7 +1468,7 @@ fn subscribed_event_json(event: &MuxEvent) -> Value {
         }),
         MuxEvent::SurfaceExited(id) => json!({"event": "surface-exited", "surface": id}),
         MuxEvent::TitleChanged { surface, title } => {
-            json!({"event": "title-changed", "surface": surface, "title": title})
+            json!({"event": "title-changed", "surface": surface, "title": title.as_ref()})
         }
         MuxEvent::Bell(id) => json!({"event": "bell", "surface": id}),
         MuxEvent::Notification(notification) => json!({
@@ -1622,7 +1622,7 @@ mod tests {
         loop {
             match events.recv_timeout(Duration::from_secs(1)).unwrap() {
                 MuxEvent::TitleChanged { surface: id, title }
-                    if id == surface.id && title == "server title" =>
+                    if id == surface.id && title.as_ref() == "server title" =>
                 {
                     break;
                 }
@@ -1634,7 +1634,7 @@ mod tests {
         assert_eq!(
             subscribed_event_json(&MuxEvent::TitleChanged {
                 surface: surface.id,
-                title: "server title".to_string(),
+                title: Arc::<str>::from("server title"),
             }),
             json!({
                 "event": "title-changed",

@@ -9,7 +9,7 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::Write;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
-use std::sync::mpsc::{Receiver, RecvTimeoutError, SyncSender, sync_channel};
+use std::sync::mpsc::{Receiver, RecvTimeoutError, SyncSender, TrySendError, sync_channel};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -62,13 +62,23 @@ const APP_EVENT_CAPACITY: usize = 4_096;
 pub enum AppEvent {
     Mux(MuxEvent),
     MuxTitlesReady,
-    MuxSubscriptionRecovered(Result<TreeView, String>),
+    MuxSubscriptionRecovered {
+        routing_generation: u64,
+        result: Result<TreeView, String>,
+    },
     Input(Event),
     BrowserResizeFailed(BrowserResizeFailure),
     PtyOperationFailed(PtyOperationFailure),
     SessionMutationSettled(SessionMutationOutcome),
-    RemoteTreeUpdated { refresh_sequence: u64, result: Result<TreeView, String> },
-    SidebarPluginUpdated { status: SidebarPluginSurface, relaunch: bool },
+    RemoteTreeUpdated {
+        refresh_sequence: u64,
+        routing_generation: u64,
+        result: Result<TreeView, String>,
+    },
+    SidebarPluginUpdated {
+        status: SidebarPluginSurface,
+        relaunch: bool,
+    },
 }
 
 #[derive(Default)]
@@ -79,6 +89,7 @@ struct MuxTitleIngress {
 fn forward_mux_events(
     event_source: Session,
     mut session_events: cmux_tui_core::MuxEventReceiver,
+    routing_mutation_committed: Arc<AtomicU64>,
     tx: SyncSender<AppEvent>,
     mux_titles: Arc<MuxTitleIngress>,
 ) {
@@ -109,8 +120,12 @@ fn forward_mux_events(
         // Subscribe before fetching the authoritative tree so events emitted
         // during recovery are retained by the new mailbox.
         session_events = event_source.events();
+        let routing_generation = routing_mutation_committed.load(Ordering::Acquire);
         let recovered = event_source.refresh_tree().map_err(|error| error.to_string());
-        if tx.send(AppEvent::MuxSubscriptionRecovered(recovered)).is_err() {
+        if tx
+            .send(AppEvent::MuxSubscriptionRecovered { routing_generation, result: recovered })
+            .is_err()
+        {
             return;
         }
     }
@@ -119,14 +134,14 @@ fn forward_mux_events(
 #[derive(Default)]
 struct MuxTitleIngressState {
     wake_queued: bool,
-    titles: HashMap<SurfaceId, String>,
+    titles: HashMap<SurfaceId, Arc<str>>,
 }
 
 impl MuxTitleIngress {
     /// Returns true when the app channel needs one wake event.
-    fn push(&self, surface: SurfaceId, title: String) -> bool {
+    fn push(&self, surface: SurfaceId, title: impl Into<Arc<str>>) -> bool {
         let mut state = self.state.lock().unwrap();
-        state.titles.insert(surface, title);
+        state.titles.insert(surface, title.into());
         if state.wake_queued {
             false
         } else {
@@ -139,7 +154,7 @@ impl MuxTitleIngress {
         self.state.lock().unwrap().titles.remove(&surface);
     }
 
-    fn take(&self) -> HashMap<SurfaceId, String> {
+    fn take(&self) -> HashMap<SurfaceId, Arc<str>> {
         let mut state = self.state.lock().unwrap();
         state.wake_queued = false;
         std::mem::take(&mut state.titles)
@@ -153,11 +168,13 @@ pub enum SessionMutationOutcome {
     AuthoritativeMutationSucceeded {
         tree: TreeView,
         authoritative_generation: u64,
+        routing_generation: u64,
         completion: Option<SessionCompletion>,
     },
     IdentityRefreshSucceeded {
         tree: TreeView,
         authoritative_generation: u64,
+        routing_generation: u64,
         refresh_sequence: u64,
     },
     CommittedTreeStale {
@@ -190,6 +207,8 @@ enum SessionCompletionAction {
 
 struct PendingSessionMutation {
     events: SyncSender<AppEvent>,
+    pending_mutations: Arc<AtomicUsize>,
+    cancellation_pending: Arc<AtomicBool>,
     settled: bool,
 }
 
@@ -203,9 +222,20 @@ impl PendingSessionMutation {
 impl Drop for PendingSessionMutation {
     fn drop(&mut self) {
         if !self.settled {
-            let _ = self
+            match self
                 .events
-                .send(AppEvent::SessionMutationSettled(SessionMutationOutcome::Canceled));
+                .try_send(AppEvent::SessionMutationSettled(SessionMutationOutcome::Canceled))
+            {
+                Ok(()) => {}
+                Err(TrySendError::Full(_)) | Err(TrySendError::Disconnected(_)) => {
+                    let _ = self.pending_mutations.fetch_update(
+                        Ordering::AcqRel,
+                        Ordering::Acquire,
+                        |pending| pending.checked_sub(1),
+                    );
+                    self.cancellation_pending.store(true, Ordering::Release);
+                }
+            }
         }
     }
 }
@@ -341,6 +371,7 @@ pub struct OrderedSession {
     events: SyncSender<AppEvent>,
     remote: bool,
     pending_mutations: Arc<AtomicUsize>,
+    cancellation_pending: Arc<AtomicBool>,
     committed_mutation_generation: Arc<AtomicU64>,
     routing_mutation_started: Arc<AtomicU64>,
     routing_mutation_committed: Arc<AtomicU64>,
@@ -366,6 +397,7 @@ impl OrderedSession {
             events,
             remote,
             pending_mutations: Arc::new(AtomicUsize::new(0)),
+            cancellation_pending: Arc::new(AtomicBool::new(false)),
             committed_mutation_generation: Arc::new(AtomicU64::new(0)),
             routing_mutation_started: Arc::new(AtomicU64::new(0)),
             routing_mutation_committed: Arc::new(AtomicU64::new(0)),
@@ -385,7 +417,12 @@ impl OrderedSession {
 
     fn pending_mutation(&self) -> PendingSessionMutation {
         self.pending_mutations.fetch_add(1, Ordering::AcqRel);
-        PendingSessionMutation { events: self.events.clone(), settled: false }
+        PendingSessionMutation {
+            events: self.events.clone(),
+            pending_mutations: self.pending_mutations.clone(),
+            cancellation_pending: self.cancellation_pending.clone(),
+            settled: false,
+        }
     }
 
     fn tree(&self) -> TreeView {
@@ -548,6 +585,14 @@ impl OrderedSession {
         debug_assert!(result.is_ok(), "session mutation completion without a pending operation");
     }
 
+    fn take_cancellation_pending(&self) -> bool {
+        self.cancellation_pending.swap(false, Ordering::AcqRel)
+    }
+
+    fn defer_cancellation(&self) {
+        self.cancellation_pending.store(true, Ordering::Release);
+    }
+
     fn refresh_remote_tree_if_stale(&self) {
         if !self.inner.take_remote_tree_stale() {
             return;
@@ -559,6 +604,7 @@ impl OrderedSession {
         self.inner.invalidate_remote_tree();
         let session = self.inner.clone();
         let authoritative_generation = self.committed_mutation_generation.load(Ordering::Acquire);
+        let routing_generation = self.routing_mutation_committed.load(Ordering::Acquire);
         let refresh_sequence = self.remote_refresh_sequence.fetch_add(1, Ordering::AcqRel) + 1;
         let pending = self.pending_mutation();
         let claim = RemoteRefreshClaim(self.remote_refresh_queued.clone());
@@ -571,6 +617,7 @@ impl OrderedSession {
                         pending.settle(SessionMutationOutcome::IdentityRefreshSucceeded {
                             tree,
                             authoritative_generation,
+                            routing_generation,
                             refresh_sequence,
                         });
                     }
@@ -608,17 +655,23 @@ impl OrderedSession {
         let session = self.inner.clone();
         let events = self.events.clone();
         let refresh_sequence = self.remote_refresh_sequence.fetch_add(1, Ordering::AcqRel) + 1;
+        let routing_generation = self.routing_mutation_committed.load(Ordering::Acquire);
         let claim = RemoteRefreshClaim(self.remote_refresh_queued.clone());
         let spawn =
             std::thread::Builder::new().name("remote-tree-refresh".into()).spawn(move || {
                 let result = session.refresh_tree_background().map_err(|error| error.to_string());
                 drop(claim);
-                let _ = events.send(AppEvent::RemoteTreeUpdated { refresh_sequence, result });
+                let _ = events.send(AppEvent::RemoteTreeUpdated {
+                    refresh_sequence,
+                    routing_generation,
+                    result,
+                });
             });
         if let Err(error) = spawn {
             self.remote_refresh_queued.store(false, Ordering::Release);
             let _ = self.events.send(AppEvent::RemoteTreeUpdated {
                 refresh_sequence,
+                routing_generation,
                 result: Err(error.to_string()),
             });
         }
@@ -696,9 +749,11 @@ impl OrderedSession {
             } else {
                 match session.refresh_tree() {
                     Ok(tree) => {
+                        let routing_generation = routing_mutation_committed.load(Ordering::Acquire);
                         pending.settle(SessionMutationOutcome::AuthoritativeMutationSucceeded {
                             tree,
                             authoritative_generation: mutation_generation,
+                            routing_generation,
                             completion,
                         });
                     }
@@ -1636,10 +1691,19 @@ pub fn run(
     // Session events → app channel.
     let event_source = session.inner.clone();
     let session_events = event_source.events();
+    let routing_mutation_committed = session.routing_mutation_committed.clone();
     std::thread::Builder::new().name("mux-events".into()).spawn({
         let tx = tx.clone();
         let mux_titles = mux_titles.clone();
-        move || forward_mux_events(event_source, session_events, tx, mux_titles)
+        move || {
+            forward_mux_events(
+                event_source,
+                session_events,
+                routing_mutation_committed,
+                tx,
+                mux_titles,
+            );
+        }
     })?;
 
     // Crossterm input → app channel.
@@ -1825,6 +1889,14 @@ impl App {
                     Err(_) => break,
                 }
             }
+            if self.session.take_cancellation_pending() {
+                if self.session.has_pending_mutations() {
+                    self.session.defer_cancellation();
+                } else {
+                    self.apply_session_cancellation();
+                    action = action.merge(RenderAction::Draw);
+                }
+            }
             if self.quit {
                 break;
             }
@@ -1927,6 +1999,13 @@ impl App {
         }
     }
 
+    fn apply_session_cancellation(&mut self) {
+        self.deferred_input.clear();
+        self.prefix_armed = false;
+        self.pending_session_completions.clear();
+        self.status_message = Some("session operation was canceled".to_string());
+    }
+
     fn apply_mux_titles(&mut self) -> bool {
         let titles = self.mux_titles.take();
         if titles.is_empty() {
@@ -1948,8 +2027,8 @@ impl App {
             else {
                 continue;
             };
-            if tab.title != title {
-                tab.title = title;
+            if tab.title.as_str() != title.as_ref() {
+                tab.title = title.to_string();
                 changed = true;
             }
         }
@@ -1981,8 +2060,12 @@ impl App {
             self.browser_input.forget_surface(surface);
         }
         self.tree = tree;
-        self.applied_routing_generation = self.session.routing_mutation_committed();
         self.rebuild_tab_locations();
+    }
+
+    fn replace_authoritative_tree(&mut self, tree: TreeView, routing_generation: u64) {
+        self.replace_tree(tree);
+        self.applied_routing_generation = self.applied_routing_generation.max(routing_generation);
     }
 
     fn rebuild_tab_locations(&mut self) {
@@ -2408,10 +2491,15 @@ impl App {
             AppEvent::MuxTitlesReady => {
                 Ok(if self.apply_mux_titles() { RenderAction::Paint } else { RenderAction::None })
             }
-            AppEvent::MuxSubscriptionRecovered(result) => {
+            AppEvent::MuxSubscriptionRecovered { routing_generation, result } => {
                 match result {
                     Ok(tree) => {
-                        self.replace_tree(tree);
+                        let empty = tree.workspaces.is_empty();
+                        self.replace_authoritative_tree(tree, routing_generation);
+                        if empty {
+                            self.quit = true;
+                            return Ok(RenderAction::None);
+                        }
                         self.status_message = Some(
                             "Mux event backlog overflowed; subscription recovered".to_string(),
                         );
@@ -2506,16 +2594,18 @@ impl App {
                 if failed_active_press || failure.lane_failed {
                     self.drag = None;
                 }
-                self.status_message = Some(if failure.label == "attach surface"
-                    && failure.delivery == PtyOperationDelivery::Ambiguous
-                {
-                    format!(
-                        "surface attach outcome is unknown; detach and reconnect before sending more input: {}",
-                        failure.error
-                    )
-                } else {
-                    format!("{} failed: {}", failure.label, failure.error)
-                });
+                self.status_message = Some(
+                    if failure.label == "attach surface"
+                        && failure.delivery == PtyOperationDelivery::Ambiguous
+                    {
+                        format!(
+                            "surface attach outcome is unknown; detach and reconnect before sending more input: {}",
+                            failure.error
+                        )
+                    } else {
+                        format!("{} failed: {}", failure.label, failure.error)
+                    },
+                );
                 Ok(RenderAction::Draw)
             }
             AppEvent::SessionMutationSettled(outcome) => {
@@ -2530,10 +2620,11 @@ impl App {
                     SessionMutationOutcome::AuthoritativeMutationSucceeded {
                         tree,
                         authoritative_generation,
+                        routing_generation,
                         completion,
                     } => {
                         self.session.clear_surface_sync_failures();
-                        self.replace_tree(tree);
+                        self.replace_authoritative_tree(tree, routing_generation);
                         self.routing_refresh_retries_remaining = 0;
                         if let Some(completion) = completion {
                             self.pending_session_completions.push_back(completion);
@@ -2543,6 +2634,7 @@ impl App {
                     SessionMutationOutcome::IdentityRefreshSucceeded {
                         tree,
                         authoritative_generation,
+                        routing_generation,
                         refresh_sequence,
                     } => {
                         if !self.accept_refresh_sequence(refresh_sequence) {
@@ -2552,7 +2644,7 @@ impl App {
                         }
                         self.session.clear_surface_sync_failures();
                         self.session.reconcile_exited_surfaces(&tree);
-                        self.replace_tree(tree);
+                        self.replace_authoritative_tree(tree, routing_generation);
                         self.routing_refresh_retries_remaining = 0;
                         self.background_refresh_attempts = 0;
                         self.background_refresh_retry_at = None;
@@ -2623,12 +2715,10 @@ impl App {
                     }
                     SessionMutationOutcome::Canceled => {
                         if self.session.has_pending_mutations() {
+                            self.session.defer_cancellation();
                             return Ok(RenderAction::None);
                         }
-                        self.deferred_input.clear();
-                        self.prefix_armed = false;
-                        self.pending_session_completions.clear();
-                        self.status_message = Some("session operation was canceled".to_string());
+                        self.apply_session_cancellation();
                         return Ok(RenderAction::Draw);
                     }
                 }
@@ -2639,14 +2729,14 @@ impl App {
                 self.routing_refresh_pending = true;
                 Ok(RenderAction::Draw)
             }
-            AppEvent::RemoteTreeUpdated { refresh_sequence, result } => {
+            AppEvent::RemoteTreeUpdated { refresh_sequence, routing_generation, result } => {
                 if !self.accept_refresh_sequence(refresh_sequence) {
                     return Ok(RenderAction::None);
                 }
                 let refreshed = match result {
                     Ok(tree) => {
                         self.session.reconcile_exited_surfaces(&tree);
-                        self.replace_tree(tree);
+                        self.replace_authoritative_tree(tree, routing_generation);
                         self.routing_refresh_pending = true;
                         self.routing_refresh_retries_remaining = 0;
                         self.background_refresh_attempts = 0;
@@ -5557,12 +5647,12 @@ fn browser_key_mapping(
 mod tests {
     use super::{
         App, AppEvent, DeferredInput, Drag, MuxTitleIngress, OrderedSession, PaneArea,
-        RenderAction, SessionCompletion, SessionCompletionAction, SurfaceResizeDecision,
-        browser_content_size_for_rect, browser_hover_forward_allowed, forward_mux_events,
-        pane_parts_for_rect,
+        PendingSessionMutation, RenderAction, SessionCompletion, SessionCompletionAction,
+        SurfaceResizeDecision, browser_content_size_for_rect, browser_hover_forward_allowed,
+        forward_mux_events, pane_parts_for_rect,
     };
     use std::collections::{HashMap, HashSet, VecDeque};
-    use std::sync::atomic::Ordering;
+    use std::sync::atomic::{AtomicU64, Ordering};
     use std::sync::mpsc::Receiver;
     use std::sync::{Arc, Mutex};
     use std::time::{Duration, Instant};
@@ -6015,6 +6105,25 @@ mod tests {
     }
 
     #[test]
+    fn canceled_mutation_does_not_block_on_a_full_app_channel() {
+        let (events, receiver) = std::sync::mpsc::sync_channel(1);
+        events.send(AppEvent::MuxTitlesReady).unwrap();
+        let pending_mutations = Arc::new(std::sync::atomic::AtomicUsize::new(1));
+        let cancellation_pending = Arc::new(std::sync::atomic::AtomicBool::new(false));
+
+        drop(PendingSessionMutation {
+            events,
+            pending_mutations: pending_mutations.clone(),
+            cancellation_pending: cancellation_pending.clone(),
+            settled: false,
+        });
+
+        assert_eq!(pending_mutations.load(Ordering::Acquire), 0);
+        assert!(cancellation_pending.load(Ordering::Acquire));
+        assert!(matches!(receiver.try_recv(), Ok(AppEvent::MuxTitlesReady)));
+    }
+
+    #[test]
     fn deferred_input_is_discarded_when_its_destination_changes() {
         let mux = Mux::new("deferred-destination-test", SurfaceOptions::default());
         let surface = mux.new_workspace(None, None).unwrap();
@@ -6110,6 +6219,34 @@ mod tests {
     }
 
     #[test]
+    fn stale_remote_snapshot_does_not_mark_pending_route_applied() {
+        let mux = Mux::new("stale-routing-snapshot-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.session.remote = true;
+        app.session.routing_mutation_started.store(1, Ordering::Release);
+        app.session.routing_mutation_committed.store(1, Ordering::Release);
+        app.replace_tree(notify_tree(41, false));
+        app.routing_refresh_pending = true;
+
+        app.handle(AppEvent::Input(Event::Key(KeyEvent::new(
+            KeyCode::Char('x'),
+            KeyModifiers::NONE,
+        ))))
+        .unwrap();
+
+        assert_eq!(app.applied_routing_generation, 0);
+        assert_eq!(app.deferred_input.front().and_then(|input| input.routing_intent), Some(1));
+
+        app.handle(AppEvent::RemoteTreeUpdated {
+            refresh_sequence: 1,
+            routing_generation: 1,
+            result: Ok(notify_tree(42, false)),
+        })
+        .unwrap();
+        assert_eq!(app.applied_routing_generation, 1);
+    }
+
+    #[test]
     fn identity_refresh_completion_consumes_coalesced_background_refresh() {
         let mux = Mux::new("identity-refresh-dirty-test", SurfaceOptions::default());
         let (mut app, events) = test_app_with_events(Session::Local(mux));
@@ -6121,6 +6258,7 @@ mod tests {
             super::SessionMutationOutcome::IdentityRefreshSucceeded {
                 tree: TreeView::default(),
                 authoritative_generation: 0,
+                routing_generation: 0,
                 refresh_sequence: 1,
             },
         ))
@@ -6167,8 +6305,9 @@ mod tests {
         let session_events = event_source.events();
         let (tx, rx) = std::sync::mpsc::sync_channel(1);
         let titles = Arc::new(MuxTitleIngress::default());
+        let routing_generation = Arc::new(AtomicU64::new(0));
         let forwarder = std::thread::spawn(move || {
-            forward_mux_events(event_source, session_events, tx, titles);
+            forward_mux_events(event_source, session_events, routing_generation, tx, titles);
         });
 
         for surface in 0..5_000 {
@@ -6178,7 +6317,7 @@ mod tests {
         let mut recovered = false;
         for _ in 0..5_000 {
             let event = rx.recv_timeout(Duration::from_secs(1)).unwrap();
-            if matches!(event, AppEvent::MuxSubscriptionRecovered(Ok(_))) {
+            if matches!(event, AppEvent::MuxSubscriptionRecovered { result: Ok(_), .. }) {
                 recovered = true;
                 break;
             }
@@ -6477,12 +6616,17 @@ mod tests {
             routing_intent: None,
         });
 
-        app.handle(AppEvent::RemoteTreeUpdated { refresh_sequence: 2, result: Ok(newer.clone()) })
-            .unwrap();
+        app.handle(AppEvent::RemoteTreeUpdated {
+            refresh_sequence: 2,
+            routing_generation: 0,
+            result: Ok(newer.clone()),
+        })
+        .unwrap();
         app.handle(AppEvent::SessionMutationSettled(
             super::SessionMutationOutcome::IdentityRefreshSucceeded {
                 tree: older.clone(),
                 authoritative_generation: 0,
+                routing_generation: 0,
                 refresh_sequence: 1,
             },
         ))
@@ -6497,11 +6641,17 @@ mod tests {
             super::SessionMutationOutcome::IdentityRefreshSucceeded {
                 tree: newer,
                 authoritative_generation: 0,
+                routing_generation: 0,
                 refresh_sequence: 4,
             },
         ))
         .unwrap();
-        app.handle(AppEvent::RemoteTreeUpdated { refresh_sequence: 3, result: Ok(older) }).unwrap();
+        app.handle(AppEvent::RemoteTreeUpdated {
+            refresh_sequence: 3,
+            routing_generation: 0,
+            result: Ok(older),
+        })
+        .unwrap();
         assert_eq!(app.tree.workspaces[0].screens[0].panes[0].tabs[0].surface, 22);
     }
 
@@ -6517,13 +6667,18 @@ mod tests {
             action: SessionCompletionAction::BrowserTabCreated { surface },
         });
 
-        app.handle(AppEvent::RemoteTreeUpdated { refresh_sequence: 2, result: Ok(tree.clone()) })
-            .unwrap();
+        app.handle(AppEvent::RemoteTreeUpdated {
+            refresh_sequence: 2,
+            routing_generation: 0,
+            result: Ok(tree.clone()),
+        })
+        .unwrap();
         app.session.pending_mutations.store(1, Ordering::Release);
         app.handle(AppEvent::SessionMutationSettled(
             super::SessionMutationOutcome::IdentityRefreshSucceeded {
                 tree,
                 authoritative_generation: 4,
+                routing_generation: 0,
                 refresh_sequence: 1,
             },
         ))
@@ -6539,6 +6694,7 @@ mod tests {
         let mut app = test_app(Session::Local(mux));
         app.handle(AppEvent::RemoteTreeUpdated {
             refresh_sequence: 1,
+            routing_generation: 0,
             result: Ok(notify_tree(22, false)),
         })
         .unwrap();
@@ -6847,8 +7003,12 @@ mod tests {
         });
         let tree = browser_completion_tree(surface, surface);
 
-        app.handle(AppEvent::RemoteTreeUpdated { refresh_sequence: 1, result: Ok(tree.clone()) })
-            .unwrap();
+        app.handle(AppEvent::RemoteTreeUpdated {
+            refresh_sequence: 1,
+            routing_generation: 0,
+            result: Ok(tree.clone()),
+        })
+        .unwrap();
         assert_eq!(app.pending_session_completions.len(), 1);
         assert!(app.omnibar.is_none());
 
@@ -6865,6 +7025,7 @@ mod tests {
             super::SessionMutationOutcome::IdentityRefreshSucceeded {
                 tree: tree.clone(),
                 authoritative_generation: 3,
+                routing_generation: 0,
                 refresh_sequence: 2,
             },
         ))
@@ -6877,6 +7038,7 @@ mod tests {
             super::SessionMutationOutcome::IdentityRefreshSucceeded {
                 tree,
                 authoritative_generation: 4,
+                routing_generation: 0,
                 refresh_sequence: 3,
             },
         ))
@@ -6902,6 +7064,7 @@ mod tests {
             super::SessionMutationOutcome::IdentityRefreshSucceeded {
                 tree: browser_completion_tree(created_surface, active_surface),
                 authoritative_generation: 4,
+                routing_generation: 0,
                 refresh_sequence: 1,
             },
         ))

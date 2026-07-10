@@ -30,7 +30,7 @@ struct MuxEventMailboxState {
     next_sequence: u128,
     events: VecDeque<(u128, MuxEvent)>,
     title_sequences: HashMap<SurfaceId, u128>,
-    titles: BTreeMap<u128, (SurfaceId, String)>,
+    titles: BTreeMap<u128, (SurfaceId, Arc<str>)>,
     surface_output_sequences: HashMap<SurfaceId, u128>,
     surface_outputs: BTreeMap<u128, SurfaceId>,
     closed: bool,
@@ -104,6 +104,14 @@ impl MuxEventMailbox {
                     return false;
                 }
                 state.events.push_back((sequence, MuxEvent::SurfaceExited(surface)));
+            }
+            MuxEvent::Empty => {
+                state.events.clear();
+                state.title_sequences.clear();
+                state.titles.clear();
+                state.surface_output_sequences.clear();
+                state.surface_outputs.clear();
+                state.events.push_back((sequence, MuxEvent::Empty));
             }
             event => {
                 if !state.reserve_pending_slot() {
@@ -227,26 +235,45 @@ mod tests {
         let fast = broadcaster.subscribe();
         let slow = broadcaster.subscribe();
 
-        broadcaster.emit(MuxEvent::TitleChanged { surface: 1, title: "first".to_string() });
+        broadcaster.emit(MuxEvent::TitleChanged { surface: 1, title: "first".into() });
         assert!(matches!(
             fast.recv().unwrap(),
-            MuxEvent::TitleChanged { surface: 1, title } if title == "first"
+            MuxEvent::TitleChanged { surface: 1, title } if title.as_ref() == "first"
         ));
         for index in 0..10_000 {
-            broadcaster.emit(MuxEvent::TitleChanged { surface: 1, title: format!("one-{index}") });
-            broadcaster.emit(MuxEvent::TitleChanged { surface: 2, title: format!("two-{index}") });
+            broadcaster
+                .emit(MuxEvent::TitleChanged { surface: 1, title: format!("one-{index}").into() });
+            broadcaster
+                .emit(MuxEvent::TitleChanged { surface: 2, title: format!("two-{index}").into() });
         }
 
         for receiver in [&fast, &slow] {
             assert!(matches!(
                 receiver.recv().unwrap(),
-                MuxEvent::TitleChanged { surface: 1, title } if title == "one-9999"
+                MuxEvent::TitleChanged { surface: 1, title } if title.as_ref() == "one-9999"
             ));
             assert!(matches!(
                 receiver.recv().unwrap(),
-                MuxEvent::TitleChanged { surface: 2, title } if title == "two-9999"
+                MuxEvent::TitleChanged { surface: 2, title } if title.as_ref() == "two-9999"
             ));
             assert!(matches!(receiver.try_recv(), Err(TryRecvError::Empty)));
+        }
+    }
+
+    #[test]
+    fn title_fanout_shares_the_payload_allocation() {
+        let broadcaster = MuxEventBroadcaster::default();
+        let first = broadcaster.subscribe();
+        let second = broadcaster.subscribe();
+        let title = Arc::<str>::from("shared title");
+
+        broadcaster.emit(MuxEvent::TitleChanged { surface: 1, title: title.clone() });
+
+        for events in [first, second] {
+            let MuxEvent::TitleChanged { title: received, .. } = events.recv().unwrap() else {
+                panic!("expected title event");
+            };
+            assert!(Arc::ptr_eq(&title, &received));
         }
     }
 
@@ -255,15 +282,15 @@ mod tests {
         let broadcaster = MuxEventBroadcaster::default();
         let events = broadcaster.subscribe();
 
-        broadcaster.emit(MuxEvent::TitleChanged { surface: 1, title: "old".to_string() });
+        broadcaster.emit(MuxEvent::TitleChanged { surface: 1, title: "old".into() });
         broadcaster.emit(MuxEvent::Bell(2));
-        broadcaster.emit(MuxEvent::TitleChanged { surface: 1, title: "latest".to_string() });
+        broadcaster.emit(MuxEvent::TitleChanged { surface: 1, title: "latest".into() });
         broadcaster.emit(MuxEvent::SurfaceExited(3));
 
         assert!(matches!(events.recv().unwrap(), MuxEvent::Bell(2)));
         assert!(matches!(
             events.recv().unwrap(),
-            MuxEvent::TitleChanged { surface: 1, title } if title == "latest"
+            MuxEvent::TitleChanged { surface: 1, title } if title.as_ref() == "latest"
         ));
         assert!(matches!(events.recv().unwrap(), MuxEvent::SurfaceExited(3)));
     }
@@ -273,7 +300,7 @@ mod tests {
         let broadcaster = MuxEventBroadcaster::default();
         let events = broadcaster.subscribe();
 
-        broadcaster.emit(MuxEvent::TitleChanged { surface: 4, title: "gone".to_string() });
+        broadcaster.emit(MuxEvent::TitleChanged { surface: 4, title: "gone".into() });
         broadcaster.emit(MuxEvent::SurfaceExited(4));
 
         assert!(matches!(events.recv().unwrap(), MuxEvent::SurfaceExited(4)));
@@ -332,5 +359,20 @@ mod tests {
 
         broadcaster.emit(MuxEvent::Bell(9_999));
         assert!(matches!(fast.recv().unwrap(), MuxEvent::Bell(9_999)));
+    }
+
+    #[test]
+    fn empty_preempts_a_full_mailbox() {
+        let broadcaster = MuxEventBroadcaster::default();
+        let events = broadcaster.subscribe();
+        for surface in 0..MAX_PENDING_EVENTS {
+            broadcaster.emit(MuxEvent::Bell(surface as SurfaceId));
+        }
+
+        broadcaster.emit(MuxEvent::Empty);
+
+        assert!(matches!(events.recv().unwrap(), MuxEvent::Empty));
+        assert!(matches!(events.try_recv(), Err(TryRecvError::Empty)));
+        assert!(!events.overflowed());
     }
 }

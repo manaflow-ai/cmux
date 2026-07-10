@@ -537,13 +537,19 @@ fn start_surface_thread(
                     if (url_changed || title_changed)
                         && let Some(mux) = mux.upgrade()
                     {
-                        mux.emit(MuxEvent::TitleChanged { surface: id, title: browser.title() });
+                        mux.emit(MuxEvent::TitleChanged {
+                            surface: id,
+                            title: browser.title().into(),
+                        });
                     }
                 }
                 CdpEvent::Other { method, params, .. } if method == "Page.frameNavigated" => {
                     handle_frame_navigated(browser, params);
                     if let Some(mux) = mux.upgrade() {
-                        mux.emit(MuxEvent::TitleChanged { surface: id, title: browser.title() });
+                        mux.emit(MuxEvent::TitleChanged {
+                            surface: id,
+                            title: browser.title().into(),
+                        });
                         mux.emit(MuxEvent::SurfaceOutput(id));
                     }
                 }

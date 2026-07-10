@@ -454,7 +454,10 @@ impl RemoteSession {
                     surface.dirty.store(true, Ordering::Release);
                 }
                 if let Some(title) = value.get("title").and_then(Value::as_str) {
-                    self.emit(MuxEvent::TitleChanged { surface: id, title: title.to_string() });
+                    self.emit(MuxEvent::TitleChanged {
+                        surface: id,
+                        title: Arc::<str>::from(title),
+                    });
                 }
                 self.emit(MuxEvent::SurfaceOutput(id));
             }
@@ -498,7 +501,10 @@ impl RemoteSession {
                         if !updated && self.invalidate_tree_once() {
                             self.emit(MuxEvent::TreeChanged);
                         }
-                        self.emit(MuxEvent::TitleChanged { surface: id, title: title.to_string() });
+                        self.emit(MuxEvent::TitleChanged {
+                            surface: id,
+                            title: Arc::<str>::from(title),
+                        });
                     } else {
                         if self.invalidate_tree_once() {
                             self.emit(MuxEvent::TreeChanged);

@@ -29,7 +29,7 @@ pub enum MuxEvent {
     SurfaceExited(SurfaceId),
     TitleChanged {
         surface: SurfaceId,
-        title: String,
+        title: Arc<str>,
     },
     Bell(SurfaceId),
     Notification(NotificationEvent),
@@ -429,7 +429,7 @@ impl Mux {
                         browser.mark_failed(err.to_string());
                     }
                     mux.emit(MuxEvent::Status(format!("browser failed: {err}")));
-                    mux.emit(MuxEvent::TitleChanged { surface: id, title: surface.title() });
+                    mux.emit(MuxEvent::TitleChanged { surface: id, title: surface.title().into() });
                     mux.emit(MuxEvent::SurfaceOutput(id));
                 }
             },

@@ -293,7 +293,10 @@ impl Surface {
                             let title = term.title().unwrap_or_default();
                             *pty.title.lock().unwrap() = title.clone();
                             if let Some(mux) = mux.upgrade() {
-                                mux.emit(MuxEvent::TitleChanged { surface: surface.id, title });
+                                mux.emit(MuxEvent::TitleChanged {
+                                    surface: surface.id,
+                                    title: title.into(),
+                                });
                             }
                         }
                         if let Some(pwd) = term.pwd() {
