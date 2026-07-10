@@ -152,11 +152,6 @@ fn query_cell_pixels() -> Option<(u16, u16)> {
     Some((((width / cols as u32).max(1)) as u16, ((height / rows as u32).max(1)) as u16))
 }
 
-#[cfg(not(unix))]
-fn ioctl_cell_pixels() -> Option<(u16, u16)> {
-    None
-}
-
 #[cfg(unix)]
 fn read_stdin_for(timeout: Duration) -> Vec<u8> {
     let start = Instant::now();

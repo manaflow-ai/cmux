@@ -1594,7 +1594,7 @@ mod tests {
                 command: Some(vec![
                     "/bin/sh".to_string(),
                     "-c".to_string(),
-                    "printf '\\033]2;server title\\007'".to_string(),
+                    "printf '\\033]2;server title\\007'; exec cat".to_string(),
                 ]),
                 ..SurfaceOptions::default()
             },

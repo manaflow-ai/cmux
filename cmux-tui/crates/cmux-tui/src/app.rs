@@ -6,7 +6,7 @@
 //! snapshots, prefix arming, the current layout, hit map, selection, and
 //! menu/prompt overlays).
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::Write;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
@@ -174,19 +174,24 @@ enum SurfaceResizeDecision {
 
 #[derive(Default)]
 struct SidebarPluginSyncState {
-    claimed: Option<((u16, u16), u64)>,
-    applied: Option<((u16, u16), u64)>,
+    epoch: u64,
+    claimed: Option<((u16, u16), u64, u64)>,
+    applied: Option<((u16, u16), u64, u64)>,
 }
 
 struct SidebarPluginSyncClaim {
     state: Arc<Mutex<SidebarPluginSyncState>>,
-    desired: ((u16, u16), u64),
+    desired: ((u16, u16), u64, u64),
     applied: bool,
 }
 
 impl SidebarPluginSyncClaim {
     fn mark_applied(&mut self) {
         let mut state = self.state.lock().unwrap();
+        if state.epoch != self.desired.2 {
+            self.applied = true;
+            return;
+        }
         state.applied = Some(self.desired);
         if state.claimed == Some(self.desired) {
             state.claimed = None;
@@ -232,6 +237,7 @@ pub struct OrderedSession {
     surface_resize_claims: Arc<Mutex<HashMap<SurfaceId, (u16, u16)>>>,
     config_generation: Arc<AtomicU64>,
     sidebar_plugin_sync: Arc<Mutex<SidebarPluginSyncState>>,
+    exited_surfaces: Arc<Mutex<HashSet<SurfaceId>>>,
 }
 
 impl OrderedSession {
@@ -249,6 +255,7 @@ impl OrderedSession {
             surface_resize_claims: Arc::new(Mutex::new(HashMap::new())),
             config_generation: Arc::new(AtomicU64::new(0)),
             sidebar_plugin_sync: Arc::new(Mutex::new(SidebarPluginSyncState::default())),
+            exited_surfaces: Arc::new(Mutex::new(HashSet::new())),
         }
     }
 
@@ -274,6 +281,7 @@ impl OrderedSession {
     }
 
     fn forget_surface(&self, id: SurfaceId) {
+        self.exited_surfaces.lock().unwrap().insert(id);
         self.inner.forget_surface(id);
     }
 
@@ -286,16 +294,24 @@ impl OrderedSession {
     }
 
     fn attach_surface(&self, id: SurfaceId, size: Option<(u16, u16)>) {
-        if self.inner.cached_surface(id).is_some() {
+        if !self.can_attach_surface(id) {
             return;
         }
         let session = self.inner.clone();
+        let exited_surfaces = self.exited_surfaces.clone();
+        let remote = self.remote;
         let pending = self.pending_mutation();
         self.operations.enqueue_coalescing_mutation(
             "attach surface",
             ("attach surface", id),
             self.remote,
             move || {
+                if exited_surfaces.lock().unwrap().contains(&id)
+                    || (remote && session.remote_tree_is_stale())
+                {
+                    pending.settle(SessionMutationOutcome::Success { tree: None });
+                    return Ok(());
+                }
                 if session.surface_sized(id, size).is_none() {
                     pending.settle(SessionMutationOutcome::Failed(format!(
                         "surface {id} is unavailable"
@@ -306,6 +322,12 @@ impl OrderedSession {
                 Ok(())
             },
         );
+    }
+
+    fn can_attach_surface(&self, id: SurfaceId) -> bool {
+        self.inner.cached_surface(id).is_none()
+            && !self.exited_surfaces.lock().unwrap().contains(&id)
+            && (!self.remote || !self.inner.remote_tree_is_stale())
     }
 
     fn has_pending_mutations(&self) -> bool {
@@ -556,8 +578,8 @@ impl OrderedSession {
         let claim = if relaunch {
             None
         } else {
-            let desired = (size, config_generation);
             let mut state = self.sidebar_plugin_sync.lock().unwrap();
+            let desired = (size, config_generation, state.epoch);
             if state.claimed == Some(desired) || state.applied == Some(desired) {
                 return;
             }
@@ -597,6 +619,16 @@ impl OrderedSession {
                 operation,
             );
         }
+    }
+
+    fn invalidate_sidebar_plugin_sync(&self) {
+        let mut state = self.sidebar_plugin_sync.lock().unwrap();
+        if state.claimed.is_none() && state.applied.is_none() {
+            return;
+        }
+        state.epoch = state.epoch.wrapping_add(1);
+        state.claimed = None;
+        state.applied = None;
     }
 
     pub fn new_tab(&self, pane: Option<PaneId>, size: Option<(u16, u16)>) -> anyhow::Result<()> {
@@ -1609,8 +1641,13 @@ impl App {
     }
 
     fn replace_tree(&mut self, tree: TreeView) {
+        self.tree = tree;
+        self.rebuild_tab_locations();
+    }
+
+    fn rebuild_tab_locations(&mut self) {
         self.tab_locations.clear();
-        for (workspace_index, workspace) in tree.workspaces.iter().enumerate() {
+        for (workspace_index, workspace) in self.tree.workspaces.iter().enumerate() {
             for (screen_index, screen) in workspace.screens.iter().enumerate() {
                 for (pane_index, pane) in screen.panes.iter().enumerate() {
                     for (tab_index, tab) in pane.tabs.iter().enumerate() {
@@ -1622,7 +1659,26 @@ impl App {
                 }
             }
         }
-        self.tree = tree;
+    }
+
+    fn remove_surface_from_tree(&mut self, surface: SurfaceId) {
+        for workspace in &mut self.tree.workspaces {
+            for screen in &mut workspace.screens {
+                for pane in &mut screen.panes {
+                    let Some(index) = pane.tabs.iter().position(|tab| tab.surface == surface)
+                    else {
+                        continue;
+                    };
+                    pane.tabs.remove(index);
+                    if pane.active_tab > index {
+                        pane.active_tab -= 1;
+                    } else if pane.active_tab >= pane.tabs.len() {
+                        pane.active_tab = pane.tabs.len().saturating_sub(1);
+                    }
+                }
+            }
+        }
+        self.rebuild_tab_locations();
     }
 
     fn apply_session_completions_through(&mut self, authoritative_generation: u64) {
@@ -1806,7 +1862,9 @@ impl App {
             let size = Some((content.width, content.height));
             for tab in &pane.tabs {
                 if !self.session.has_surface(tab.surface) {
-                    if self.prepare_pty_input_before_mutation() {
+                    if self.session.can_attach_surface(tab.surface)
+                        && self.prepare_pty_input_before_mutation()
+                    {
                         self.session.attach_surface(tab.surface, size);
                     }
                     continue;
@@ -1846,6 +1904,7 @@ impl App {
 
     fn sync_sidebar_plugin(&mut self, relaunch: bool) -> bool {
         if self.config.sidebar.plugin.is_none() || self.sidebar_width < 3 || !self.sidebar_visible {
+            self.session.invalidate_sidebar_plugin_sync();
             self.sidebar_plugin_surface = None;
             self.sidebar_plugin_error = None;
             self.sidebar_plugin_retry_after_ms = None;
@@ -1865,9 +1924,22 @@ impl App {
     }
 
     fn apply_sidebar_plugin_status(&mut self, status: SidebarPluginSurface, relaunch: bool) {
+        if !self.sidebar_visible || self.config.sidebar.plugin.is_none() {
+            self.session.invalidate_sidebar_plugin_sync();
+            self.sidebar_plugin_surface = None;
+            self.sidebar_plugin_error = None;
+            self.sidebar_plugin_retry_after_ms = None;
+            self.sidebar_focused = false;
+            self.sidebar_focus_pending = false;
+            return;
+        }
+        let had_surface = self.sidebar_plugin_surface.is_some();
         self.sidebar_plugin_surface = status.surface_id;
         self.sidebar_plugin_error = status.error;
         self.sidebar_plugin_retry_after_ms = status.retry_after_ms;
+        if had_surface && self.sidebar_plugin_surface.is_none() {
+            self.session.invalidate_sidebar_plugin_sync();
+        }
         if self.sidebar_focus_pending && (self.sidebar_plugin_surface.is_some() || relaunch) {
             self.sidebar_focus_pending = false;
             if self.sidebar_plugin_surface.is_some() {
@@ -1937,7 +2009,9 @@ impl App {
                 }
                 self.render_states.remove(&id);
                 self.session.forget_surface(id);
+                self.remove_surface_from_tree(id);
                 if self.sidebar_plugin_surface == Some(id) {
+                    self.session.invalidate_sidebar_plugin_sync();
                     self.sidebar_plugin_surface = None;
                     self.sidebar_plugin_error = Some("sidebar plugin exited".to_string());
                     self.sidebar_focused = false;
@@ -2319,7 +2393,9 @@ impl App {
                     }
                     SurfaceResizeDecision::NeedsQueue(_) => {}
                 }
-            } else if self.prepare_pty_input_before_mutation() {
+            } else if self.session.can_attach_surface(area.surface)
+                && self.prepare_pty_input_before_mutation()
+            {
                 self.session
                     .attach_surface(area.surface, Some((area.content.width, area.content.height)));
             }
@@ -2716,6 +2792,7 @@ impl App {
             Action::ToggleSidebar => {
                 self.sidebar_visible = !self.sidebar_visible;
                 if !self.sidebar_visible {
+                    self.session.invalidate_sidebar_plugin_sync();
                     self.sidebar_focused = false;
                 }
             }
@@ -3323,7 +3400,7 @@ impl App {
                     MouseButton::Left,
                     mouse.modifiers,
                 ) {
-                    Ok(RenderAction::Draw)
+                    Ok(RenderAction::None)
                 } else {
                     self.handle_left_drag(mouse.column, mouse.row)
                 }
@@ -3364,7 +3441,7 @@ impl App {
                     MouseButton::Right,
                     mouse.modifiers,
                 ) {
-                    Ok(RenderAction::Draw)
+                    Ok(RenderAction::None)
                 } else {
                     self.handle_right_drag(mouse.column, mouse.row)
                 }
@@ -3394,18 +3471,15 @@ impl App {
                     RenderAction::None
                 },
             ),
-            MouseEventKind::Drag(MouseButton::Middle) => Ok(
-                if self.forward_pty_mouse_drag(
+            MouseEventKind::Drag(MouseButton::Middle) => {
+                self.forward_pty_mouse_drag(
                     mouse.column,
                     mouse.row,
                     MouseButton::Middle,
                     mouse.modifiers,
-                ) {
-                    RenderAction::Draw
-                } else {
-                    RenderAction::None
-                },
-            ),
+                );
+                Ok(RenderAction::None)
+            }
             MouseEventKind::Up(MouseButton::Middle) => Ok(
                 if self.finish_pty_mouse_drag(
                     mouse.column,
@@ -5019,8 +5093,11 @@ mod tests {
             .unwrap();
         assert!(matches!(app.drag, Some(Drag::PtyMouse { button: MouseButton::Right, .. })));
         assert_eq!(app.encode_buf, b"\x1b[<2;5;3M");
-        app.handle_mouse(event(MouseEventKind::Drag(MouseButton::Left), KeyModifiers::NONE))
-            .unwrap();
+        assert_eq!(
+            app.handle_mouse(event(MouseEventKind::Drag(MouseButton::Left), KeyModifiers::NONE))
+                .unwrap(),
+            RenderAction::None
+        );
         assert!(app.encode_buf.is_empty());
         app.handle_mouse(event(MouseEventKind::Up(MouseButton::Left), KeyModifiers::NONE)).unwrap();
         assert_eq!(app.encode_buf, b"\x1b[<2;5;3m");
@@ -5171,7 +5248,7 @@ mod tests {
     }
 
     #[test]
-    fn canceled_known_undelivered_motion_rolls_back_mouse_encoder_dedupe() {
+    fn evicted_known_undelivered_motion_allows_same_cell_retry() {
         let mux = Mux::new("motion-cancel-rollback-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
         let mut terminal = ghostty_vt::Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
@@ -5197,7 +5274,7 @@ mod tests {
             kind: Some(PtyInputKind::Motion),
             reservation_id: None,
             label: "PTY input",
-            error: "canceled before delivery".to_string(),
+            error: "evicted from the bounded PTY queue before delivery".to_string(),
             lane_failed: false,
             delivery: PtyOperationDelivery::KnownNotDelivered,
         }))
@@ -5419,6 +5496,10 @@ mod tests {
     fn sidebar_plugin_sync_is_deduped_after_it_is_applied() {
         let mux = Mux::new("sidebar-plugin-sync-test", SurfaceOptions::default());
         let (mut app, events) = test_app_with_events(Session::Local(mux));
+        app.config.sidebar.plugin = Some(cmux_tui_core::SidebarPluginOptions {
+            command: vec!["unused".to_string()],
+            cwd: None,
+        });
 
         for _ in 0..1_000 {
             app.session.sidebar_plugin((24, 8), false);
@@ -5436,7 +5517,61 @@ mod tests {
         }
         assert_eq!(updates, 1);
         assert!(!app.session.has_pending_mutations());
-        assert_eq!(app.session.sidebar_plugin_sync.lock().unwrap().applied, Some(((24, 8), 0)));
+        assert_eq!(app.session.sidebar_plugin_sync.lock().unwrap().applied, Some(((24, 8), 0, 0)));
+    }
+
+    #[test]
+    fn hiding_then_showing_sidebar_rehydrates_same_size_plugin_status() {
+        let mux = Mux::new("sidebar-plugin-hide-show-test", SurfaceOptions::default());
+        let (mut app, events) = test_app_with_events(Session::Local(mux));
+        app.config.sidebar.plugin = Some(cmux_tui_core::SidebarPluginOptions {
+            command: vec!["unused".to_string()],
+            cwd: None,
+        });
+        app.sidebar_width = 12;
+        app.content_area.height = 8;
+        app.session.sidebar_plugin((11, 9), false);
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+        }
+        assert!(app.session.sidebar_plugin_sync.lock().unwrap().applied.is_some());
+
+        app.sidebar_visible = false;
+        assert!(!app.sync_sidebar_plugin(false));
+        assert!(app.session.sidebar_plugin_sync.lock().unwrap().applied.is_none());
+        app.sidebar_visible = true;
+
+        assert!(app.sync_sidebar_plugin(false));
+        assert!(app.session.has_pending_mutations());
+    }
+
+    #[test]
+    fn surface_exit_removes_stale_topology_without_attach_or_failed_mutation() {
+        let mux = Mux::new("surface-exit-before-refresh-test", SurfaceOptions::default());
+        let (mut app, events) = test_app_with_events(Session::Local(mux));
+        let surface = 77;
+        app.session.remote = true;
+        app.replace_tree(notify_tree(surface, false));
+        app.deferred_input
+            .push_back(Event::Key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)));
+
+        assert_eq!(
+            app.handle(AppEvent::Mux(MuxEvent::SurfaceExited(surface))).unwrap(),
+            RenderAction::Draw
+        );
+        assert!(!app.tab_locations.contains_key(&surface));
+        assert!(app.tree.workspaces[0].screens[0].panes[0].tabs.is_empty());
+
+        // Simulate the stale cached remote tree being painted before the
+        // authoritative exit refresh arrives. The exited-surface guard must
+        // still suppress a synchronous reattach attempt.
+        app.replace_tree(notify_tree(surface, false));
+        app.session.attach_surface(surface, Some((80, 24)));
+
+        assert!(!app.session.can_attach_surface(surface));
+        assert!(!app.session.has_pending_mutations());
+        assert_eq!(app.deferred_input.len(), 1);
+        assert!(events.try_recv().is_err());
     }
 
     #[test]

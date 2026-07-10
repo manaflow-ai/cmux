@@ -286,7 +286,7 @@ impl PtyInputSender {
         }
         let reserves_release = event.kind == PtyInputKind::Press;
         let QueueState { events, queued_bytes, release_reservations, .. } = &mut *state;
-        let accepted = enqueue_bounded(
+        let outcome = enqueue_bounded_with_evictions(
             events,
             queued_bytes,
             release_reservations,
@@ -294,13 +294,18 @@ impl PtyInputSender {
             QUEUE_CAPACITY,
             MAX_QUEUED_BYTES,
         );
-        if accepted {
+        let result = if outcome.accepted {
             let reservation_id = reserves_release.then_some(release_reservations.next_id);
             self.queue.changed.notify_one();
             (PtyInputEnqueueResult::Accepted, reservation_id)
         } else {
             (PtyInputEnqueueResult::Saturated, None)
+        };
+        drop(state);
+        for failure in outcome.evicted {
+            (self.on_failure)(failure);
         }
+        result
     }
 
     pub fn cancel_release_reservation(&self, reservation_id: u64) {
@@ -369,19 +374,45 @@ impl Drop for PtyInputDispatcher {
     }
 }
 
+#[cfg(test)]
 fn enqueue_bounded(
+    events: &mut VecDeque<PtyInputEvent>,
+    queued_bytes: &mut usize,
+    release_reservations: &mut ReleaseReservations,
+    event: PtyInputEvent,
+    capacity: usize,
+    max_bytes: usize,
+) -> bool {
+    enqueue_bounded_with_evictions(
+        events,
+        queued_bytes,
+        release_reservations,
+        event,
+        capacity,
+        max_bytes,
+    )
+    .accepted
+}
+
+struct BoundedEnqueueOutcome {
+    accepted: bool,
+    evicted: Vec<PtyOperationFailure>,
+}
+
+fn enqueue_bounded_with_evictions(
     events: &mut VecDeque<PtyInputEvent>,
     queued_bytes: &mut usize,
     release_reservations: &mut ReleaseReservations,
     mut event: PtyInputEvent,
     capacity: usize,
     max_bytes: usize,
-) -> bool {
+) -> BoundedEnqueueOutcome {
+    let mut evicted = Vec::new();
     if let Some(key) = event.coalesce_key {
         for index in (0..events.len()).rev() {
             if events[index].coalesce_key == Some(key) {
                 events[index] = event;
-                return true;
+                return BoundedEnqueueOutcome { accepted: true, evicted };
             }
             if events[index].coalesce_key.is_none() {
                 break;
@@ -398,11 +429,11 @@ fn enqueue_bounded(
             + event.bytes.len()
             + release_reservations.len() * RESERVED_RELEASE_BYTES;
         if projected_bytes > max_bytes {
-            return false;
+            return BoundedEnqueueOutcome { accepted: false, evicted };
         }
         *queued_bytes = queued_bytes.saturating_sub(previous_len) + event.bytes.len();
         *events.back_mut().unwrap() = event;
-        return true;
+        return BoundedEnqueueOutcome { accepted: true, evicted };
     }
 
     let merge_stream = event.kind == PtyInputKind::Ordered
@@ -436,12 +467,21 @@ fn enqueue_bounded(
     while projected > capacity || projected_bytes > max_bytes {
         let Some(index) = events.iter().position(|queued| queued.kind == PtyInputKind::Motion)
         else {
-            return false;
+            return BoundedEnqueueOutcome { accepted: false, evicted };
         };
         let removed = events.remove(index).unwrap();
         *queued_bytes = queued_bytes.saturating_sub(removed.bytes.len());
         projected -= 1;
         projected_bytes = projected_bytes.saturating_sub(removed.bytes.len());
+        evicted.push(PtyOperationFailure {
+            surface_id: Some(removed.surface_id),
+            kind: Some(PtyInputKind::Motion),
+            reservation_id: removed.reservation_id,
+            label: removed.label,
+            error: "evicted from the bounded PTY queue before delivery".to_string(),
+            lane_failed: false,
+            delivery: PtyOperationDelivery::KnownNotDelivered,
+        });
     }
 
     if event.kind == PtyInputKind::Press {
@@ -461,7 +501,7 @@ fn enqueue_bounded(
         *queued_bytes += event.bytes.len();
         events.push_back(event);
     }
-    true
+    BoundedEnqueueOutcome { accepted: true, evicted }
 }
 
 fn worker(queue: Arc<SharedQueue>, on_failure: Arc<dyn Fn(PtyOperationFailure) + Send + Sync>) {
@@ -634,6 +674,77 @@ mod tests {
         ));
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].bytes.as_slice(), &[2]);
+    }
+
+    #[test]
+    fn bounded_queue_reports_evicted_motion_as_known_not_delivered() {
+        let mut events = VecDeque::new();
+        let mut queued_bytes = 0;
+        let mut releases = ReleaseReservations::default();
+        assert!(enqueue_bounded(
+            &mut events,
+            &mut queued_bytes,
+            &mut releases,
+            event(7, 1, PtyInputKind::Motion),
+            1,
+            1024,
+        ));
+
+        let outcome = enqueue_bounded_with_evictions(
+            &mut events,
+            &mut queued_bytes,
+            &mut releases,
+            event(8, 2, PtyInputKind::Ordered),
+            1,
+            1024,
+        );
+
+        assert!(outcome.accepted);
+        assert_eq!(outcome.evicted.len(), 1);
+        assert_eq!(outcome.evicted[0].surface_id, Some(7));
+        assert_eq!(outcome.evicted[0].kind, Some(PtyInputKind::Motion));
+        assert_eq!(outcome.evicted[0].delivery, PtyOperationDelivery::KnownNotDelivered);
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].surface_id, 8);
+    }
+
+    #[test]
+    fn sender_emits_failure_when_bounded_queue_evicts_motion() {
+        let (failure_tx, failure_rx) = std::sync::mpsc::channel();
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let (unblock_tx, unblock_rx) = std::sync::mpsc::channel();
+        let dispatcher = PtyInputDispatcher::spawn(move |failure| {
+            failure_tx.send(failure).unwrap();
+        })
+        .unwrap();
+        let sender = dispatcher.sender();
+        sender.enqueue_session_mutation("blocker", false, move || {
+            started_tx.send(()).unwrap();
+            unblock_rx.recv().unwrap();
+            Ok(())
+        });
+        started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert_eq!(
+            sender.enqueue(event(7, 1, PtyInputKind::Motion)),
+            PtyInputEnqueueResult::Accepted
+        );
+        for _ in 0..QUEUE_CAPACITY - 1 {
+            assert_eq!(
+                sender.enqueue(PtyInputEvent::mutation("fill", None, false, || Ok(()))),
+                PtyInputEnqueueResult::Accepted
+            );
+        }
+
+        assert_eq!(
+            sender.enqueue(PtyInputEvent::mutation("overflow", None, false, || Ok(()))),
+            PtyInputEnqueueResult::Accepted
+        );
+        let failure = failure_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert_eq!(failure.surface_id, Some(7));
+        assert_eq!(failure.kind, Some(PtyInputKind::Motion));
+        assert_eq!(failure.delivery, PtyOperationDelivery::KnownNotDelivered);
+
+        unblock_tx.send(()).unwrap();
     }
 
     #[test]
