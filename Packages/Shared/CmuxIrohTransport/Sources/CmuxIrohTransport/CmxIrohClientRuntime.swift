@@ -302,6 +302,10 @@ public actor CmxIrohClientRuntime {
                 bindingID: binding.bindingID
             )
         }
+        desiredActive = false
+        lifecycleRevision &+= 1
+        await tearDownNetwork()
+
         var wasPersisted = pendingRevocation == nil
         if let pendingRevocation {
             do {
@@ -316,9 +320,6 @@ public actor CmxIrohClientRuntime {
             pendingRevocation: pendingRevocation,
             wasPersisted: wasPersisted
         )
-        desiredActive = false
-        lifecycleRevision &+= 1
-        await tearDownNetwork()
         try? await offlinePolicyCache?.deactivate()
         await handleLocalDeactivation()
         currentSnapshot = CmxIrohClientRuntimeSnapshot(

@@ -209,9 +209,6 @@ final class MobileHostIrohRuntime {
         eraseAccountState: Bool,
         revision: UInt64
     ) async {
-        if eraseAccountState {
-            await enqueuePendingRevocationBeforeLocalWipe()
-        }
         if activeAccountID != targetAccountID || targetAccountID == nil {
             let previousRuntime = runtime
             runtime = nil
@@ -222,6 +219,7 @@ final class MobileHostIrohRuntime {
         }
 
         if eraseAccountState {
+            await enqueuePendingRevocationBeforeLocalWipe()
             do {
                 try await hostPolicies.deactivate()
             } catch {
