@@ -2599,8 +2599,11 @@ class TerminalController {
             let windowId = v2ResolveWindowId(tabManager: tabManager)
             if let wsId = tabManager.selectedTabId,
                let ws = tabManager.tabs.first(where: { $0.id == wsId }) {
-                let paneUUID = ws.bonsplitController.focusedPaneId?.id
-                let surfaceUUID = ws.focusedPanelId
+                let projection = ws.focusedPanelId.flatMap {
+                    ws.controlSurfaceProjection(forContainerPanelID: $0)
+                }
+                let paneUUID = projection?.paneID
+                let surfaceUUID = projection?.surfaceID
                 focused = [
                     "window_id": v2OrNull(windowId?.uuidString),
                     "window_ref": v2Ref(kind: .window, uuid: windowId),
@@ -2612,8 +2615,8 @@ class TerminalController {
                     "surface_ref": v2Ref(kind: .surface, uuid: surfaceUUID),
                     "tab_id": v2OrNull(surfaceUUID?.uuidString),
                     "tab_ref": v2TabRef(uuid: surfaceUUID),
-                    "surface_type": v2OrNull(surfaceUUID.flatMap { ws.panels[$0]?.panelType.rawValue }),
-                    "is_browser_surface": v2OrNull(surfaceUUID.flatMap { ws.panels[$0]?.panelType == .browser })
+                    "surface_type": v2OrNull(projection?.panel.panelType.rawValue),
+                    "is_browser_surface": v2OrNull(projection.map { $0.panel.panelType == .browser })
                 ]
             } else {
                 focused = [
@@ -2639,16 +2642,15 @@ class TerminalController {
                         "workspace_ref": v2Ref(kind: .workspace, uuid: wsId)
                     ]
 
-                    if let surfaceId, ws.panels[surfaceId] != nil {
-                        let paneUUID = ws.paneId(forPanelId: surfaceId)?.id
-                        payload["surface_id"] = surfaceId.uuidString
-                        payload["surface_ref"] = v2Ref(kind: .surface, uuid: surfaceId)
-                        payload["tab_id"] = surfaceId.uuidString
-                        payload["tab_ref"] = v2TabRef(uuid: surfaceId)
-                        payload["surface_type"] = v2OrNull(ws.panels[surfaceId]?.panelType.rawValue)
-                        payload["is_browser_surface"] = v2OrNull(ws.panels[surfaceId]?.panelType == .browser)
-                        payload["pane_id"] = v2OrNull(paneUUID?.uuidString)
-                        payload["pane_ref"] = v2Ref(kind: .pane, uuid: paneUUID)
+                    if let surfaceId, let target = ws.controlSurfaceTarget(for: surfaceId) {
+                        payload["surface_id"] = target.surfaceID.uuidString
+                        payload["surface_ref"] = v2Ref(kind: .surface, uuid: target.surfaceID)
+                        payload["tab_id"] = target.surfaceID.uuidString
+                        payload["tab_ref"] = v2TabRef(uuid: target.surfaceID)
+                        payload["surface_type"] = target.panel.panelType.rawValue
+                        payload["is_browser_surface"] = target.panel.panelType == .browser
+                        payload["pane_id"] = v2OrNull(target.paneID?.uuidString)
+                        payload["pane_ref"] = v2Ref(kind: .pane, uuid: target.paneID)
                     } else {
                         payload["surface_id"] = NSNull()
                         payload["surface_ref"] = NSNull()

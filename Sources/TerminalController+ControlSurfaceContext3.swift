@@ -2,7 +2,6 @@ import AppKit
 import Bonsplit
 import CmuxControlSocket
 import Foundation
-
 /// The surface-domain input / read / resume / reporting witnesses, plus the
 /// `surface.move` bridge and `debug.terminals` passthrough. Split out of
 /// `TerminalController+ControlSurfaceContext` to keep the conformance readable; see
@@ -163,8 +162,19 @@ extension TerminalController {
             if let surfaceID { return .surfaceNotTerminal(surfaceID) }
             return .noFocusedSurface
         }
-        guard target.panel.performBindingAction("clear_screen") else {
-            return .bindingActionUnavailable
+        if let remote = ws.remoteTmuxControlPane(surfaceID: target.surfaceID) {
+            switch remote.mirror.sendKey(toPane: remote.pane.tmuxPaneID, name: "ctrl-l") {
+            case .sent:
+                break
+            case .rejected:
+                return .surfaceNotTerminal(target.surfaceID)
+            case .unknownKey:
+                return .bindingActionUnavailable
+            }
+        } else {
+            guard target.panel.performBindingAction("clear_screen") else {
+                return .bindingActionUnavailable
+            }
         }
         target.panel.surface.forceRefresh(reason: "terminalController.v2SurfaceClearHistory")
         return .cleared(
@@ -337,6 +347,14 @@ extension TerminalController {
         }
         let surfaceId = target.surfaceID
         let terminalPanel = target.panel
+        if let remote = controlRemoteTmuxSendText(
+            workspace: ws,
+            tabManager: tabManager,
+            surfaceID: surfaceId,
+            text: text
+        ) {
+            return remote
+        }
         let queued: Bool
         switch terminalPanel.sendInputResult(text) {
         case .sent:
@@ -424,6 +442,14 @@ extension TerminalController {
         }
         let surfaceId = target.surfaceID
         let terminalPanel = target.panel
+        if let remote = controlRemoteTmuxSendKey(
+            workspace: ws,
+            tabManager: tabManager,
+            surfaceID: surfaceId,
+            key: key
+        ) {
+            return remote
+        }
         let sendResult = terminalPanel.sendNamedKeyResult(key)
         switch sendResult {
         case .sent:

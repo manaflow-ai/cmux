@@ -46,6 +46,46 @@ extension TerminalController {
         return true
     }
 
+    func controlRemoteTmuxSendText(
+        workspace: Workspace,
+        tabManager: TabManager,
+        surfaceID: UUID,
+        text: String
+    ) -> ControlSurfaceSendResolution? {
+        guard let remote = workspace.remoteTmuxControlPane(surfaceID: surfaceID) else { return nil }
+        guard remote.mirror.sendInput(toPane: remote.pane.tmuxPaneID, text: text) else {
+            return .surfaceUnavailable(surfaceID)
+        }
+        return .sent(
+            windowID: v2ResolveWindowId(tabManager: tabManager),
+            workspaceID: workspace.id,
+            surfaceID: surfaceID,
+            queued: false
+        )
+    }
+
+    func controlRemoteTmuxSendKey(
+        workspace: Workspace,
+        tabManager: TabManager,
+        surfaceID: UUID,
+        key: String
+    ) -> ControlSurfaceSendResolution? {
+        guard let remote = workspace.remoteTmuxControlPane(surfaceID: surfaceID) else { return nil }
+        switch remote.mirror.sendKey(toPane: remote.pane.tmuxPaneID, name: key) {
+        case .sent:
+            return .sent(
+                windowID: v2ResolveWindowId(tabManager: tabManager),
+                workspaceID: workspace.id,
+                surfaceID: surfaceID,
+                queued: false
+            )
+        case .rejected:
+            return .surfaceUnavailable(surfaceID)
+        case .unknownKey:
+            return .unknownKey
+        }
+    }
+
     func controlRemoteTmuxSurfaceSplit(
         workspace: Workspace,
         tabManager: TabManager,

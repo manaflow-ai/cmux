@@ -372,6 +372,10 @@ final class RemoteTmuxWindowMirror {
         connection?.send(command) ?? false
     }
 
+    func connectionSendKeys(paneID: Int, data: Data) -> Bool {
+        connection?.sendKeys(paneId: paneID, data: data) ?? false
+    }
+
     /// The pane's last-known foreground classification (alt-screen flag +
     /// `pane_current_command`), driving the kill-pane close confirmation.
     /// `nil` when the pane was never classified (closes without a dialog).

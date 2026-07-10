@@ -58,7 +58,7 @@ struct RemoteTmuxMirrorCLIObservabilityTests {
             hasSurfaceIDParam: true,
             text: "explicit pane input"
         )
-        #expect(explicitSend.sentSurfaceID == activeSurfaceID)
+        #expect(explicitSend == .surfaceUnavailable(activeSurfaceID))
 
         let defaultSend = TerminalController.shared.controlSurfaceSendText(
             routing: routing,
@@ -66,7 +66,7 @@ struct RemoteTmuxMirrorCLIObservabilityTests {
             hasSurfaceIDParam: false,
             text: "active pane input"
         )
-        #expect(defaultSend.sentSurfaceID == activeSurfaceID)
+        #expect(defaultSend == .surfaceUnavailable(activeSurfaceID))
     }
 
     @Test func unfocusedMirrorStillPublishesInnerPanes() throws {

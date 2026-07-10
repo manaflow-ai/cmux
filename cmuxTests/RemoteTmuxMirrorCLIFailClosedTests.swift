@@ -50,7 +50,7 @@ extension RemoteTmuxMirrorCLIObservabilityTests {
                 hasSurfaceIDParam: true,
                 text: "route through active pane"
             )
-            #expect(send.sentSurfaceID == activeSurfaceID)
+            #expect(send == .surfaceUnavailable(activeSurfaceID))
             #expect(TerminalController.shared.controlSurfaceFocus(
                 routing: harness.routing(),
                 surfaceID: harness.outerPanelID
@@ -168,6 +168,33 @@ extension RemoteTmuxMirrorCLIObservabilityTests {
             workspaceID: harness.workspace.id,
             surfaceID: firstSurfaceID
         ))
+    }
+
+    @Test func treeAndIdentifyUseProjectedMirrorIdentities() throws {
+        let harness = try Harness()
+        defer { harness.tearDown() }
+        let expectedPaneIDs = harness.mirror.paneIDsInOrder.compactMap {
+            harness.mirror.syntheticPaneID(forPane: $0)?.id
+        }
+        let expectedSurfaceIDs = harness.mirror.paneIDsInOrder.compactMap {
+            harness.mirror.panel(forPane: $0)?.id
+        }
+
+        let tree = TerminalController.shared.controlSystemTreeWindows(
+            requestedWindowID: harness.windowID,
+            includeAllWindows: false,
+            focusedWindowID: harness.windowID,
+            workspaceFilter: harness.workspace.id
+        )
+        let workspaceNode = try #require(tree.windows.first?.workspaces.first)
+        #expect(workspaceNode.panes.map(\.paneID) == expectedPaneIDs)
+        #expect(workspaceNode.panes.flatMap(\.surfaceIDs) == expectedSurfaceIDs)
+
+        let identify = TerminalController.shared.controlSystemIdentify(params: [:]).foundationObject
+        let root = try #require(identify as? [String: Any])
+        let focused = try #require(root["focused"] as? [String: Any])
+        #expect(focused["pane_id"] as? String == expectedPaneIDs.last?.uuidString)
+        #expect(focused["surface_id"] as? String == expectedSurfaceIDs.last?.uuidString)
     }
 
     private func activeSurfaceID(in harness: Harness) throws -> UUID {
