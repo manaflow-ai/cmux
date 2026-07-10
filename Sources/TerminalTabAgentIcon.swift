@@ -222,7 +222,7 @@ extension Workspace {
                 didMutate = true
                 didPruneStaleAgentRuntime = true
             }
-            if invalidateRunningRestoredAgentSnapshotForPlainShellTitleIfNeeded(panelId: panelId) {
+            if invalidateObservedRestoredAgentSnapshotForPlainShellTitleIfNeeded(panelId: panelId) {
                 didMutate = true
                 didInvalidateRestoredAgentRun = true
             }
@@ -283,17 +283,17 @@ extension Workspace {
     }
 
     @discardableResult
-    func invalidateRunningRestoredAgentSnapshotForPlainShellTitleIfNeeded(panelId: UUID) -> Bool {
+    func invalidateObservedRestoredAgentSnapshotForPlainShellTitleIfNeeded(panelId: UUID) -> Bool {
         guard let restoredAgent = restoredAgentSnapshotsByPanelId[panelId],
               titleDerivedAgentStatusKeysByPanelId[panelId] == nil,
               agentPIDKeysByPanelId[panelId]?.isEmpty ?? true else {
             return false
         }
         switch restoredAgentResumeStatesByPanelId[panelId] {
-        case .some(.autoResumeCommandRunning), .some(.observedAgentCommandRunning):
+        case .some(.observedAgentCommandRunning):
             invalidateRestoredAgentSnapshot(panelId: panelId, restoredAgent: restoredAgent)
             return true
-        case .some(.manualResumeAvailable), .some(.awaitingAutoResumeCommand), nil:
+        case .some(.manualResumeAvailable), .some(.awaitingAutoResumeCommand), .some(.autoResumeCommandRunning), nil:
             return false
         }
     }

@@ -266,20 +266,24 @@ struct TerminalTabAgentIconTests {
     }
 
     @MainActor
-    @Test func plainShellTitleKeepsPendingAutoResumeRestoredAgentIcon() throws {
+    @Test(arguments: [false, true])
+    func plainShellTitleKeepsAutoResumeRestoredAgentIcon(willRunStartupCommand: Bool) throws {
         let workspace = Workspace()
         let panel = try #require(workspace.focusedTerminalPanel)
         let tabId = try #require(workspace.surfaceIdFromPanelId(panel.id))
         let snapshot = restoredAgentSnapshot(kind: .claude)
+        let expectedState: Workspace.RestoredAgentResumeState = willRunStartupCommand
+            ? .autoResumeCommandRunning
+            : .awaitingAutoResumeCommand
 
         workspace.seedSessionRestoredAgentIconState(
             panelId: panel.id,
             restorableAgent: snapshot,
-            willRunStartupCommand: false,
-            willRunStartupInput: true
+            willRunStartupCommand: willRunStartupCommand,
+            willRunStartupInput: !willRunStartupCommand
         )
 
-        #expect(workspace.restoredAgentResumeStatesByPanelId[panel.id] == .awaitingAutoResumeCommand)
+        #expect(workspace.restoredAgentResumeStatesByPanelId[panel.id] == expectedState)
         #expect(workspace.terminalTabAgentIconAsset(forPanelId: panel.id) == "AgentIcons/Claude")
         let pendingPayload = workspace.terminalTabAgentIconPayload(forPanelId: panel.id)
         #expect(workspace.bonsplitController.tab(tabId)?.iconImageData == pendingPayload.imageData)
@@ -288,7 +292,7 @@ struct TerminalTabAgentIconTests {
         #expect(workspace.updatePanelTitle(panelId: panel.id, title: "~/manaflow/cmuxterm-hq"))
 
         #expect(workspace.restoredAgentSnapshotForTesting(panelId: panel.id)?.sessionId == snapshot.sessionId)
-        #expect(workspace.restoredAgentResumeStatesByPanelId[panel.id] == .awaitingAutoResumeCommand)
+        #expect(workspace.restoredAgentResumeStatesByPanelId[panel.id] == expectedState)
         #expect(workspace.terminalTabAgentIconAsset(forPanelId: panel.id) == "AgentIcons/Claude")
         let retainedPayload = workspace.terminalTabAgentIconPayload(forPanelId: panel.id)
         #expect(workspace.bonsplitController.tab(tabId)?.iconImageData == retainedPayload.imageData)
