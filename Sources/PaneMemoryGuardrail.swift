@@ -113,7 +113,8 @@ final class PaneMemoryGuardrail {
         let requirements: CmuxTopProcessSnapshotRequirements = includeCMUXScope ? .cmuxScope : .basic
         let snapshot = await CmuxTopProcessSnapshotStore.shared.snapshot(
             requirements: requirements,
-            maximumAge: includeCMUXScope ? 5 : 3
+            maximumAge: includeCMUXScope ? 5 : 3,
+            consumer: .memoryGuardrail
         )
         let samples = computeSamples(
             descriptors: descriptors,

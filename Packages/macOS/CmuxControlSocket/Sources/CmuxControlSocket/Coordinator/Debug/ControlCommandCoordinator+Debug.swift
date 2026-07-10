@@ -30,6 +30,10 @@ extension ControlCommandCoordinator {
             return debugSessionSnapshotBenchmark(request.params)
         case "debug.session_snapshot_seed_scrollback":
             return debugSessionSnapshotSeedScrollback(request.params)
+        case "debug.process_metrics.read":
+            return debugProcessMetricsRead()
+        case "debug.process_metrics.reset":
+            return debugProcessMetricsReset()
         case "debug.shortcut.set":
             return debugShortcutSet(request.params)
         case "debug.shortcut.simulate":
@@ -168,6 +172,22 @@ extension ControlCommandCoordinator {
             charactersPerTerminal: charactersPerTerminal
         ) else {
             return .err(code: "unavailable", message: "AppDelegate not available", data: nil)
+        }
+        return .ok(payload)
+    }
+
+    // MARK: - debug.process_metrics.*
+
+    func debugProcessMetricsRead() -> ControlCallResult {
+        guard let payload = debugContext?.controlDebugReadProcessPerformanceMetrics() else {
+            return .err(code: "unavailable", message: "Process metrics unavailable", data: nil)
+        }
+        return .ok(payload)
+    }
+
+    func debugProcessMetricsReset() -> ControlCallResult {
+        guard let payload = debugContext?.controlDebugResetProcessPerformanceMetrics() else {
+            return .err(code: "unavailable", message: "Process metrics unavailable", data: nil)
         }
         return .ok(payload)
     }

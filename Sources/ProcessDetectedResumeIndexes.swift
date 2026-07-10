@@ -10,7 +10,8 @@ struct ProcessDetectedResumeIndexes: Sendable {
     ) async -> ProcessDetectedResumeIndexes {
         let processSnapshot = await CmuxTopProcessSnapshotStore.shared.snapshot(
             requirements: [.processDetails, .cmuxScope],
-            maximumAge: 5
+            maximumAge: 5,
+            consumer: .processDetectedResume
         )
         return await Task.detached(priority: .utility) {
             loadSynchronously(

@@ -52,6 +52,12 @@ extension RestorableAgentSessionIndex {
             CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: $0)
         }
     ) -> [PanelKey: ProcessDetectedSnapshotEntry] {
+#if DEBUG
+        let filterMetricsToken = ProcessPerformanceMetrics.shared.operationStarted(
+            .vaultFilter,
+            inputCount: processSnapshot.processes.count
+        )
+#endif
         // KERN_PROCARGS2 argv/env decoding is the expensive unit of this scan; memoize so
         // the OpenCode, fork-parent-fallback, and registry passes read each pid once.
         // updateValue (not subscript) so a nil miss is unambiguously stored, not removed.
@@ -72,7 +78,15 @@ extension RestorableAgentSessionIndex {
             processArgumentsProvider: cachedProcessArguments
         )
         resolved.merge(processDetectedForkParentFallbackSnapshots(processSnapshot: processSnapshot, capturedAt: capturedAt, scopedProcessIDsByPanelKey: scopedProcessIDsByPanelKey, processArgumentsProvider: cachedProcessArguments)) { existing, _ in existing }
-        guard !registry.registrations.isEmpty else { return resolved }
+        guard !registry.registrations.isEmpty else {
+#if DEBUG
+            ProcessPerformanceMetrics.shared.operationCompleted(
+                filterMetricsToken,
+                outputCount: resolved.count
+            )
+#endif
+            return resolved
+        }
         var registriesByWorkingDirectory: [String: CmuxVaultAgentRegistry] = [:]
 
         func registryForWorkingDirectory(_ workingDirectory: String?) -> CmuxVaultAgentRegistry {
@@ -150,6 +164,12 @@ extension RestorableAgentSessionIndex {
             )
         }
 
+#if DEBUG
+        ProcessPerformanceMetrics.shared.operationCompleted(
+            filterMetricsToken,
+            outputCount: resolved.count
+        )
+#endif
         return resolved
     }
 

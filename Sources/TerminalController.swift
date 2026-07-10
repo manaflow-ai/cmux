@@ -2806,7 +2806,8 @@ class TerminalController {
             : .cmuxScope
         let processSnapshot = await CmuxTopProcessSnapshotStore.shared.snapshot(
             requirements: requirements,
-            maximumAge: 1
+            maximumAge: 1,
+            consumer: .systemTop
         )
         let browserPIDOccurrences = v2TopBrowserPIDOccurrences(in: windowNodes)
         var annotatedWindows = windowNodes

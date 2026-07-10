@@ -210,7 +210,8 @@ final class PortScanner: @unchecked Sendable {
             guard let self else { return }
             let snapshot = await CmuxTopProcessSnapshotStore.shared.snapshot(
                 requirements: .basic,
-                maximumAge: 0.5
+                maximumAge: 0.5,
+                consumer: .portScannerPanel
             )
             let pidToTTY = Self.pidToTTY(
                 panelSnapshot: panelSnapshot,
@@ -225,15 +226,31 @@ final class PortScanner: @unchecked Sendable {
                 guard !allPIDs.isEmpty else { return [Int: Set<Int>]() }
                 return Self.runLsof(pids: allPIDs)
             }.value
+#if DEBUG
+            let filterMetricsToken = ProcessPerformanceMetrics.shared.operationStarted(
+                .portFilter,
+                inputCount: pidToPorts.count
+            )
+#endif
             let scanResult = Self.scanResult(
                 panelSnapshot: panelSnapshot,
                 pidToTTY: pidToTTY,
                 agentPidToWorkspaces: agentPidToWorkspaces,
                 pidToPorts: pidToPorts
             )
+#if DEBUG
+            ProcessPerformanceMetrics.shared.operationCompleted(
+                filterMetricsToken,
+                outputCount: scanResult.panelResults.count + scanResult.agentPortsByWorkspace.count
+            )
+#endif
             self.queue.async { [weak self] in
                 guard let self else { return }
-                guard self.panelScanRevision == scanRevision else { return }
+                guard Self.acceptsResult(
+                    currentRevision: self.panelScanRevision,
+                    expectedRevision: scanRevision,
+                    staleMetric: .portPanelRevision
+                ) else { return }
                 let livePanelResults = scanResult.panelResults.filter { key, _ in
                     self.ttyNames[key] == panelSnapshot[key]
                 }
@@ -354,7 +371,8 @@ final class PortScanner: @unchecked Sendable {
             guard let self else { return }
             let snapshot = await CmuxTopProcessSnapshotStore.shared.snapshot(
                 requirements: .basic,
-                maximumAge: 0.5
+                maximumAge: 0.5,
+                consumer: .portScannerAgent
             )
             let agentPidToWorkspaces = Self.expandAgentProcessTree(
                 agentPIDsByWorkspace: agentPIDsByWorkspace,
@@ -363,10 +381,22 @@ final class PortScanner: @unchecked Sendable {
             let pidToPorts = await Task.detached(priority: .utility) {
                 Self.runLsof(pids: Set(agentPidToWorkspaces.keys))
             }.value
+#if DEBUG
+            let filterMetricsToken = ProcessPerformanceMetrics.shared.operationStarted(
+                .portFilter,
+                inputCount: pidToPorts.count
+            )
+#endif
             let agentPortsByWorkspace = Self.agentPortsByWorkspace(
                 agentPidToWorkspaces: agentPidToWorkspaces,
                 pidToPorts: pidToPorts
             )
+#if DEBUG
+            ProcessPerformanceMetrics.shared.operationCompleted(
+                filterMetricsToken,
+                outputCount: agentPortsByWorkspace.count
+            )
+#endif
             self.queue.async { [weak self] in
                 self?.deliverAgentResults(
                     workspaceIds: workspaceIds,
@@ -386,9 +416,21 @@ final class PortScanner: @unchecked Sendable {
         let panelCallback = onPortsUpdated
         if let panelCallback {
             Task { @MainActor in
+#if DEBUG
+                let applyMetricsToken = ProcessPerformanceMetrics.shared.operationStarted(
+                    .portApply,
+                    inputCount: panelResults.count
+                )
+#endif
                 for (key, ports) in panelResults {
                     panelCallback(key.workspaceId, key.panelId, ports)
                 }
+#if DEBUG
+                ProcessPerformanceMetrics.shared.operationCompleted(
+                    applyMetricsToken,
+                    outputCount: panelResults.count
+                )
+#endif
             }
         }
         deliverAgentResults(
@@ -412,11 +454,23 @@ final class PortScanner: @unchecked Sendable {
                 agentRevisions: agentRevisions
             )
             guard !validatedResults.isEmpty else { return }
+#if DEBUG
+            let applyMetricsToken = ProcessPerformanceMetrics.shared.operationStarted(
+                .portApply,
+                inputCount: validatedResults.count
+            )
+#endif
             let appliedResults = await MainActor.run {
                 validatedResults.filter { result in
                     agentCallback(result.workspaceId, result.ports)
                 }
             }
+#if DEBUG
+            ProcessPerformanceMetrics.shared.operationCompleted(
+                applyMetricsToken,
+                outputCount: appliedResults.count
+            )
+#endif
             await self.acknowledgeAgentResults(
                 validatedResults,
                 appliedWorkspaceIds: Set(appliedResults.map(\.workspaceId))
@@ -432,7 +486,11 @@ final class PortScanner: @unchecked Sendable {
         await withCheckedContinuation { continuation in
             queue.async { [self] in
                 for (workspaceId, ports, revision) in results {
-                    guard agentRevisionByWorkspace[workspaceId, default: 0] == revision else { continue }
+                    guard Self.acceptsResult(
+                        currentRevision: agentRevisionByWorkspace[workspaceId, default: 0],
+                        expectedRevision: revision,
+                        staleMetric: .portAgentAcknowledgement
+                    ) else { continue }
                     guard appliedWorkspaceIds.contains(workspaceId) else {
                         if !trackedAgentWorkspaces.contains(workspaceId) {
                             forceAgentResultWorkspaces.remove(workspaceId)
@@ -462,7 +520,11 @@ final class PortScanner: @unchecked Sendable {
                 var results: [(workspaceId: UUID, ports: [Int], revision: UInt64)] = []
                 for workspaceId in workspaceIds.sorted(by: { $0.uuidString < $1.uuidString }) {
                     let expectedRevision = agentRevisions[workspaceId, default: 0]
-                    guard agentRevisionByWorkspace[workspaceId, default: 0] == expectedRevision else { continue }
+                    guard Self.acceptsResult(
+                        currentRevision: agentRevisionByWorkspace[workspaceId, default: 0],
+                        expectedRevision: expectedRevision,
+                        staleMetric: .portAgentRevision
+                    ) else { continue }
                     let ports = Array(agentPortsByWorkspace[workspaceId] ?? []).sorted()
                     let previousPorts = lastAgentPortsByWorkspace[workspaceId]
                     if !forceAgentResultWorkspaces.contains(workspaceId) {
@@ -486,6 +548,20 @@ final class PortScanner: @unchecked Sendable {
         let nextRevision = agentRevisionByWorkspace[workspaceId, default: 0] &+ 1
         agentRevisionByWorkspace[workspaceId] = nextRevision
         return nextRevision
+    }
+
+    static func acceptsResult(
+        currentRevision: UInt64,
+        expectedRevision: UInt64,
+        staleMetric: ProcessStaleRejection
+    ) -> Bool {
+        guard currentRevision == expectedRevision else {
+#if DEBUG
+            ProcessPerformanceMetrics.shared.recordStaleRejection(staleMetric)
+#endif
+            return false
+        }
+        return true
     }
 
     // MARK: - Process helpers
@@ -606,6 +682,10 @@ final class PortScanner: @unchecked Sendable {
 
     private static func runLsof(pids: Set<Int>) -> [Int: Set<Int>] {
         guard !pids.isEmpty else { return [:] }
+#if DEBUG
+        let metricsToken = ProcessPerformanceMetrics.shared.lsofStarted(pidCount: pids.count)
+        defer { ProcessPerformanceMetrics.shared.lsofCompleted(metricsToken) }
+#endif
         let pidsCSV = pids.sorted().map(String.init).joined(separator: ",")
         // `lsof -nP -a -p <pids> -iTCP -sTCP:LISTEN -F pn`
         guard let output = captureStandardOutput(

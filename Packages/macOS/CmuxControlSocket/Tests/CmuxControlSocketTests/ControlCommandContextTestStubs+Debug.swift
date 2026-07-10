@@ -11,6 +11,8 @@ import Foundation
 extension ControlDebugContext {
     func controlDebugSessionSnapshotBenchmark(includeScrollback: Bool, persist: Bool) -> JSONValue? { nil }
     func controlDebugSessionSnapshotSeedScrollback(charactersPerTerminal: Int) -> JSONValue? { nil }
+    func controlDebugReadProcessPerformanceMetrics() -> JSONValue? { nil }
+    func controlDebugResetProcessPerformanceMetrics() -> JSONValue? { nil }
     func controlDebugSetShortcut(arguments: String) -> String { "ERROR: not implemented" }
     func controlDebugSimulateShortcut(combo: String) -> String { "ERROR: not implemented" }
     func controlDebugActivateApp() -> String { "ERROR: not implemented" }

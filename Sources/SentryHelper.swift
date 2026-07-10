@@ -95,7 +95,8 @@ func sentryRefreshMemoryContext(reason: String) async {
 
     let processSnapshot = await CmuxTopProcessSnapshotStore.shared.snapshot(
         requirements: .basic,
-        maximumAge: 2
+        maximumAge: 2,
+        consumer: .sentry
     )
     let pid = Int(Darwin.getpid())
     let appProcess = processSnapshot.process(pid: pid)

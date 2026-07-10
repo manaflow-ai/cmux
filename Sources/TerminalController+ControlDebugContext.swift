@@ -66,6 +66,17 @@ extension TerminalController: ControlDebugContext {
         return JSONValue(foundationObject: payload)
     }
 
+    func controlDebugReadProcessPerformanceMetrics() -> JSONValue? {
+        JSONValue(
+            foundationObject: ProcessPerformanceMetrics.shared.snapshot().foundationObject
+        )
+    }
+
+    func controlDebugResetProcessPerformanceMetrics() -> JSONValue? {
+        ProcessPerformanceMetrics.shared.reset()
+        return controlDebugReadProcessPerformanceMetrics()
+    }
+
     // MARK: - v1-shared forwards (bodies stay in TerminalController.swift)
 
     func controlDebugSetShortcut(arguments: String) -> String { setShortcut(arguments) }

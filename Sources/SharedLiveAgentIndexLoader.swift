@@ -55,6 +55,12 @@ struct SharedLiveAgentIndexLoader {
         let resolvedRegistry = registry
             ?? CmuxVaultAgentRegistry.load(homeDirectory: homeDirectory, fileManager: fileManager)
         let processSnapshot = processSnapshotProvider()
+#if DEBUG
+        let loadMetricsToken = ProcessPerformanceMetrics.shared.operationStarted(
+            .restorableLoad,
+            inputCount: processSnapshot.processes.count
+        )
+#endif
         let detectedSnapshots = RestorableAgentSessionIndex.processDetectedSnapshots(
             registry: resolvedRegistry,
             fileManager: fileManager,
@@ -70,6 +76,12 @@ struct SharedLiveAgentIndexLoader {
             processArgumentsProvider: processArgumentsProvider,
             processIdentityProvider: processIdentityProvider
         )
+#if DEBUG
+        ProcessPerformanceMetrics.shared.operationCompleted(
+            loadMetricsToken,
+            outputCount: index.forkValidationEntries().count
+        )
+#endif
         return (
             index: index,
             liveAgentProcessFingerprint: index.liveAgentProcessFingerprint(),

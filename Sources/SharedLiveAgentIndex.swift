@@ -37,7 +37,8 @@ final class SharedLiveAgentIndex {
         indexLoader: @escaping @Sendable () async -> SharedLiveAgentIndexLoader.LoadResult = {
             let processSnapshot = await CmuxTopProcessSnapshotStore.shared.snapshot(
                 requirements: [.processDetails, .cmuxScope],
-                maximumAge: 3
+                maximumAge: 3,
+                consumer: .sharedLiveAgentIndex
             )
             return await Task.detached(priority: .utility) {
                 SharedLiveAgentIndexLoader(
@@ -227,6 +228,12 @@ final class SharedLiveAgentIndex {
         processScopeFingerprint: Set<String>,
         forkValidatedPanels: Set<RestorableAgentSessionIndex.PanelKey>
     ) {
+#if DEBUG
+        let applyMetricsToken = ProcessPerformanceMetrics.shared.operationStarted(
+            .restorableApply,
+            inputCount: newIndex.forkValidationEntries().count
+        )
+#endif
         index = newIndex
         self.loadedAt = loadedAt
         validatedForkPanels = forkValidatedPanels
@@ -237,6 +244,12 @@ final class SharedLiveAgentIndex {
         validatedMissingForkPanels.removeAll()
         self.liveAgentProcessFingerprint = liveAgentProcessFingerprint
         self.processScopeFingerprint = processScopeFingerprint
+#if DEBUG
+        ProcessPerformanceMetrics.shared.operationCompleted(
+            applyMetricsToken,
+            outputCount: newIndex.forkValidationEntries().count
+        )
+#endif
     }
 
     private func applyPendingForkValidations() {
