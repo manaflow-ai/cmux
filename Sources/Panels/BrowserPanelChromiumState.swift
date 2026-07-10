@@ -19,6 +19,8 @@ final class BrowserPanelChromiumState {
     func teardown() {
         pollTask?.cancel()
         pollTask = nil
+        webView.onSurfaceTree = nil
+        nativeSurfaceCoordinator = nil
         session.close()
     }
 }
