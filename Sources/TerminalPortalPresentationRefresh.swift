@@ -1,5 +1,41 @@
 import AppKit
 
+@MainActor
+final class TerminalPortalMutationScheduler {
+    private var generation: UInt64 = 0
+    private var pendingTask: Task<Void, Never>?
+
+    @discardableResult
+    func schedule(_ mutation: @escaping @MainActor () -> Void) -> Task<Void, Never> {
+        generation &+= 1
+        let scheduledGeneration = generation
+        pendingTask?.cancel()
+
+        let task = Task { @MainActor [weak self] in
+            // Leave the SwiftUI/AppKit callback stack before touching portal or
+            // hosted-terminal state. The generation check coalesces every
+            // update in the current turn into one latest-state commit.
+            await Task.yield()
+            guard !Task.isCancelled,
+                  let self,
+                  self.generation == scheduledGeneration else { return }
+
+            mutation()
+
+            guard self.generation == scheduledGeneration else { return }
+            self.pendingTask = nil
+        }
+        pendingTask = task
+        return task
+    }
+
+    func cancel() {
+        generation &+= 1
+        pendingTask?.cancel()
+        pendingTask = nil
+    }
+}
+
 enum TerminalPortalVisibilityRefreshPolicy {
     case immediate
     case deferredToPortal

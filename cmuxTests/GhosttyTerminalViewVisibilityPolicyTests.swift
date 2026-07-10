@@ -7,6 +7,51 @@ import XCTest
 #endif
 
 final class GhosttyTerminalViewVisibilityPolicyTests: XCTestCase {
+    @MainActor
+    func testPortalMutationSchedulerDefersCommitPastCurrentCallback() async {
+        let scheduler = TerminalPortalMutationScheduler()
+        var didCommit = false
+
+        let commit = scheduler.schedule {
+            didCommit = true
+        }
+
+        XCTAssertFalse(didCommit)
+        await commit.value
+        XCTAssertTrue(didCommit)
+    }
+
+    @MainActor
+    func testPortalMutationSchedulerCommitsOnlyLatestGeneration() async {
+        let scheduler = TerminalPortalMutationScheduler()
+        var committedValues: [Int] = []
+
+        let staleCommit = scheduler.schedule {
+            committedValues.append(1)
+        }
+        let latestCommit = scheduler.schedule {
+            committedValues.append(2)
+        }
+
+        await staleCommit.value
+        await latestCommit.value
+        XCTAssertEqual(committedValues, [2])
+    }
+
+    @MainActor
+    func testPortalMutationSchedulerCancelInvalidatesPendingCommit() async {
+        let scheduler = TerminalPortalMutationScheduler()
+        var didCommit = false
+
+        let commit = scheduler.schedule {
+            didCommit = true
+        }
+        scheduler.cancel()
+
+        await commit.value
+        XCTAssertFalse(didCommit)
+    }
+
     func testImmediateStateUpdateAllowedWhenDesiredStateIsHidden() {
         XCTAssertTrue(
             GhosttyTerminalView.shouldApplyImmediateHostedStateUpdate(
