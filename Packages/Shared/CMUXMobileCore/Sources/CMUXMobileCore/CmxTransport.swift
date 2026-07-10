@@ -1,9 +1,97 @@
 import Foundation
 
 public enum CmxAttachEndpoint: Equatable, Sendable {
+    /// The maximum number of reachability hints accepted for one Iroh peer.
+    public static let maximumIrohPathHintCount = 16
+
     case hostPort(host: String, port: Int)
-    case peer(id: String, relayHint: String?, directAddrs: [String], relayURL: String?)
+    case peer(identity: CmxIrohPeerIdentity, pathHints: [CmxIrohPathHint])
     case url(String)
+}
+
+extension CmxAttachEndpoint {
+    /// Creates an Iroh endpoint from the legacy peer fields.
+    ///
+    /// This compatibility constructor preserves existing source and wire
+    /// producers while new code moves to ``peer(identity:pathHints:)``.
+    /// Legacy direct addresses have no provenance or expiry, so they decode as
+    /// private, fallback-only, and unusable until refreshed by a current source.
+    /// - Parameters:
+    ///   - id: The Iroh EndpointID.
+    ///   - relayHint: The optional legacy relay identifier.
+    ///   - directAddrs: Legacy direct socket addresses.
+    ///   - relayURL: The optional relay URL.
+    /// - Returns: A peer endpoint with identity separated from path hints.
+    public static func peer(
+        id: String,
+        relayHint: String?,
+        directAddrs: [String],
+        relayURL: String?
+    ) -> Self {
+        var pathHints: [CmxIrohPathHint] = []
+        if let relayHint {
+            pathHints.append(.legacy(
+                kind: .relayIdentifier,
+                value: relayHint,
+                privacyScope: .publicInternet
+            ))
+        }
+        pathHints.append(contentsOf: directAddrs.map { address in
+            .legacy(
+                kind: .directAddress,
+                value: address,
+                privacyScope: .privateNetwork
+            )
+        })
+        if let relayURL {
+            pathHints.append(.legacy(
+                kind: .relayURL,
+                value: relayURL,
+                privacyScope: .publicInternet
+            ))
+        }
+        return .peer(
+            identity: CmxIrohPeerIdentity(endpointID: id),
+            pathHints: pathHints
+        )
+    }
+
+    /// The Iroh identity carried by a peer endpoint, independent of its hints.
+    public var irohPeerIdentity: CmxIrohPeerIdentity? {
+        guard case let .peer(identity, _) = self else {
+            return nil
+        }
+        return identity
+    }
+
+    /// Current Iroh path hints ordered with public paths before private fallbacks.
+    ///
+    /// A profile-scoped hint is omitted unless its overlay/site/profile is
+    /// currently active, preventing an overlapping private address from being
+    /// attempted on the wrong network.
+    /// - Parameters:
+    ///   - now: The time against which hint expiry is checked.
+    ///   - activeNetworkProfileIDs: Locally verified active network profiles.
+    /// - Returns: Current primary hints followed by current fallback-only hints.
+    public func usableIrohPathHints(
+        at now: Date,
+        activeNetworkProfileIDs: Set<String> = []
+    ) -> [CmxIrohPathHint] {
+        guard case let .peer(_, pathHints) = self else {
+            return []
+        }
+        let usable = pathHints.filter { hint in
+            guard hint.isUsable(at: now) else {
+                return false
+            }
+            guard let networkProfileID = hint.networkProfileID else {
+                return true
+            }
+            return activeNetworkProfileIDs.contains(networkProfileID)
+        }
+        return usable.filter { $0.use == .primary }
+            + usable.filter { $0.use == .fallbackOnly }
+    }
 }
 
 extension CmxAttachEndpoint: Codable {
@@ -15,6 +103,7 @@ extension CmxAttachEndpoint: Codable {
         case relayHint = "relay_hint"
         case directAddrs = "direct_addrs"
         case relayURL = "relay_url"
+        case pathHints = "path_hints"
         case url
     }
 
@@ -34,12 +123,25 @@ extension CmxAttachEndpoint: Codable {
                 port: container.decode(Int.self, forKey: .port)
             )
         case .peer:
-            self = try .peer(
-                id: container.decode(String.self, forKey: .id),
-                relayHint: container.decodeIfPresent(String.self, forKey: .relayHint),
-                directAddrs: container.decodeIfPresent([String].self, forKey: .directAddrs) ?? [],
-                relayURL: container.decodeIfPresent(String.self, forKey: .relayURL)
+            let identity = CmxIrohPeerIdentity(
+                endpointID: try container.decode(String.self, forKey: .id)
             )
+            if let pathHints = try container.decodeIfPresent(
+                [CmxIrohPathHint].self,
+                forKey: .pathHints
+            ) {
+                self = .peer(identity: identity, pathHints: pathHints)
+            } else {
+                self = .peer(
+                    id: identity.endpointID,
+                    relayHint: try container.decodeIfPresent(String.self, forKey: .relayHint),
+                    directAddrs: try container.decodeIfPresent(
+                        [String].self,
+                        forKey: .directAddrs
+                    ) ?? [],
+                    relayURL: try container.decodeIfPresent(String.self, forKey: .relayURL)
+                )
+            }
         case .url:
             self = try .url(container.decode(String.self, forKey: .url))
         }
@@ -52,9 +154,26 @@ extension CmxAttachEndpoint: Codable {
             try container.encode(EndpointType.hostPort, forKey: .type)
             try container.encode(host, forKey: .host)
             try container.encode(port, forKey: .port)
-        case let .peer(id, relayHint, directAddrs, relayURL):
+        case let .peer(identity, pathHints):
             try container.encode(EndpointType.peer, forKey: .type)
-            try container.encode(id, forKey: .id)
+            try container.encode(identity.endpointID, forKey: .id)
+            if !pathHints.isEmpty,
+               pathHints.allSatisfy(\.isSafeForCurrentWireFormat) {
+                try container.encode(pathHints, forKey: .pathHints)
+            }
+
+            let relayHint = pathHints.first {
+                $0.kind == .relayIdentifier && $0.isSafeForCurrentWireFormat
+            }?.value
+            // Legacy `direct_addrs` cannot carry expiry, privacy, or network
+            // profile. Emitting private fallbacks there would silently promote
+            // them for old clients, so only public primary addresses downgrade.
+            let directAddrs = pathHints
+                .filter { $0.kind == .directAddress && $0.use == .primary }
+                .map(\.value)
+            let relayURL = pathHints.first {
+                $0.kind == .relayURL && $0.isSafeForCurrentWireFormat
+            }?.value
             try container.encodeIfPresent(relayHint, forKey: .relayHint)
             if !directAddrs.isEmpty {
                 try container.encode(directAddrs, forKey: .directAddrs)
@@ -73,6 +192,8 @@ public enum CmxAttachRouteError: Error, Equatable, Sendable {
     case emptyPeerAddress
     case emptyURL
     case invalidPort(Int)
+    /// A peer route exceeded ``CmxAttachEndpoint/maximumIrohPathHintCount``.
+    case tooManyPeerPathHints(actual: Int, maximum: Int)
     case endpointMismatch(kind: CmxAttachTransportKind, endpoint: CmxAttachEndpoint)
 }
 
@@ -121,18 +242,26 @@ public struct CmxAttachRoute: Codable, Equatable, Sendable {
             guard (1...65535).contains(port) else {
                 throw CmxAttachRouteError.invalidPort(port)
             }
-        case let .peer(id, _, directAddrs, relayURL):
-            guard !id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        case let .peer(identity, pathHints):
+            guard !identity.endpointID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 throw CmxAttachRouteError.emptyPeerID
             }
-            for address in directAddrs {
-                guard !address.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                    throw CmxAttachRouteError.emptyPeerAddress
-                }
+            guard pathHints.count <= CmxAttachEndpoint.maximumIrohPathHintCount else {
+                throw CmxAttachRouteError.tooManyPeerPathHints(
+                    actual: pathHints.count,
+                    maximum: CmxAttachEndpoint.maximumIrohPathHintCount
+                )
             }
-            if let relayURL {
-                guard !relayURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                    throw CmxAttachRouteError.emptyURL
+            for pathHint in pathHints {
+                do {
+                    try pathHint.validate()
+                } catch CmxIrohPathHintError.emptyValue {
+                    switch pathHint.kind {
+                    case .directAddress:
+                        throw CmxAttachRouteError.emptyPeerAddress
+                    case .relayIdentifier, .relayURL:
+                        throw CmxAttachRouteError.emptyURL
+                    }
                 }
             }
         case let .url(url):

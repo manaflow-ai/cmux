@@ -86,10 +86,29 @@ private func legacyDecoder() -> JSONDecoder {
             id: "iroh",
             kind: .iroh,
             endpoint: .peer(
-                id: "peer-1",
-                relayHint: "use1",
-                directAddrs: ["192.168.1.4:4242"],
-                relayURL: "https://relay.example"
+                identity: CmxIrohPeerIdentity(endpointID: "peer-1"),
+                pathHints: [
+                    try CmxIrohPathHint(
+                        kind: .relayIdentifier,
+                        value: "use1",
+                        source: .native,
+                        privacyScope: .publicInternet
+                    ),
+                    try CmxIrohPathHint(
+                        kind: .directAddress,
+                        value: "192.168.1.4:4242",
+                        source: .lan,
+                        privacyScope: .localNetwork,
+                        expiresAt: wholeSecondFutureExpiry(),
+                        networkProfileID: "lan:studio"
+                    ),
+                    try CmxIrohPathHint(
+                        kind: .relayURL,
+                        value: "https://relay.example",
+                        source: .native,
+                        privacyScope: .publicInternet
+                    ),
+                ]
             ),
             priority: 1
         ),

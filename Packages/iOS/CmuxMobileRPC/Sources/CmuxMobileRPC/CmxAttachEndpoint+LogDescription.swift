@@ -6,9 +6,15 @@ extension CmxAttachEndpoint {
         switch self {
         case let .hostPort(host, port):
             return "\(host):\(port)"
-        case let .peer(id, relayHint, directAddrs, relayURL):
-            let addressSummary = directAddrs.isEmpty ? "no-direct-addrs" : "\(directAddrs.count)-direct-addrs"
-            return "peer:\(id):\(relayHint ?? relayURL ?? "no-relay"):\(addressSummary)"
+        case let .peer(identity, pathHints):
+            let directAddressCount = pathHints.count { $0.kind == .directAddress }
+            let addressSummary = directAddressCount == 0
+                ? "no-direct-addrs"
+                : "\(directAddressCount)-direct-addrs"
+            let relay = pathHints.first {
+                $0.kind == .relayIdentifier || $0.kind == .relayURL
+            }?.value
+            return "peer:\(identity.endpointID):\(relay ?? "no-relay"):\(addressSummary)"
         case let .url(url):
             return url
         }

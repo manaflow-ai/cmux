@@ -36,8 +36,10 @@ import Foundation
 /// value, `p` priority (omitted when 0), `e` endpoint.
 /// Key map (endpoint): the type is implied by the keys present (accepted
 /// explicitly under `t` for first-revision payloads): `h` host + `p` port, or
-/// `i` peer id + `rh` relay hint + `da` direct addrs + `ru` relay URL, or
-/// `u` url.
+/// `i` peer id + `ph` provider-attributed path hints + `rh` relay hint + `da`
+/// public direct addrs + `ru` relay URL, or `u` url. Private fallbacks never
+/// downgrade into `da`, because old consumers cannot enforce their expiry,
+/// privacy scope, or active network profile.
 public struct CmxAttachTicketCompactCoder: Sendable {
     /// Creates a coder. The coder is stateless; instances are interchangeable.
     public init() {}

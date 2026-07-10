@@ -377,10 +377,19 @@ extension CmxAttachRoute {
                 "host": host,
                 "port": port
             ]
-        case let .peer(id, relayHint, directAddrs, relayURL):
+        case let .peer(identity, pathHints):
+            let relayHint = pathHints.first {
+                $0.kind == .relayIdentifier && $0.isSafeForCurrentWireFormat
+            }?.value
+            let directAddrs = pathHints
+                .filter { $0.kind == .directAddress && $0.use == .primary }
+                .map(\.value)
+            let relayURL = pathHints.first {
+                $0.kind == .relayURL && $0.isSafeForCurrentWireFormat
+            }?.value
             endpointPayload = [
                 "type": "peer",
-                "id": id,
+                "id": identity.endpointID,
                 "relay_hint": relayHint ?? NSNull(),
             ]
             if !directAddrs.isEmpty {

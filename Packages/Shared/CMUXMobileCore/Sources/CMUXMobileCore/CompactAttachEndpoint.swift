@@ -15,6 +15,7 @@ struct CompactAttachEndpoint: Codable {
     let rh: String?
     let da: [String]?
     let ru: String?
+    let ph: [CmxIrohPathHint]?
     let u: String?
 
     init(_ endpoint: CmxAttachEndpoint) {
@@ -27,14 +28,26 @@ struct CompactAttachEndpoint: Codable {
             rh = nil
             da = nil
             ru = nil
+            ph = nil
             u = nil
-        case let .peer(id, relayHint, directAddrs, relayURL):
+        case let .peer(identity, pathHints):
             h = nil
             p = nil
-            i = id
-            rh = relayHint
+            i = identity.endpointID
+            rh = pathHints.first {
+                $0.kind == .relayIdentifier && $0.isSafeForCurrentWireFormat
+            }?.value
+            // Old compact decoders cannot enforce private hint metadata.
+            let directAddrs = pathHints
+                .filter { $0.kind == .directAddress && $0.use == .primary }
+                .map(\.value)
             da = directAddrs.isEmpty ? nil : directAddrs
-            ru = relayURL
+            ru = pathHints.first {
+                $0.kind == .relayURL && $0.isSafeForCurrentWireFormat
+            }?.value
+            ph = pathHints.isEmpty || !pathHints.allSatisfy(\.isSafeForCurrentWireFormat)
+                ? nil
+                : pathHints
             u = nil
         case let .url(url):
             h = nil
@@ -43,6 +56,7 @@ struct CompactAttachEndpoint: Codable {
             rh = nil
             da = nil
             ru = nil
+            ph = nil
             u = url
         }
     }
@@ -57,6 +71,12 @@ struct CompactAttachEndpoint: Codable {
         case "peer":
             guard let i else {
                 throw Self.corruptedEndpoint("peer endpoint requires i")
+            }
+            if let ph {
+                return .peer(
+                    identity: CmxIrohPeerIdentity(endpointID: i),
+                    pathHints: ph
+                )
             }
             return .peer(id: i, relayHint: rh, directAddrs: da ?? [], relayURL: ru)
         case "url":

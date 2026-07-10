@@ -9,9 +9,10 @@ import Foundation
 /// connection.
 ///
 /// The Stack-bearer-token gate (``routeAllowsStackAuth(_:)``) is intentionally
-/// restricted to **encrypted or loopback channels only**: the Tailscale tunnel
-/// (WireGuard-encrypted), iroh peer connections (encrypted), and loopback (never
-/// leaves the machine). Plain private-LAN and `.local`/Bonjour hosts are dialed
+/// restricted to the **Tailscale tunnel or loopback**: Tailscale is
+/// WireGuard-encrypted, and loopback never leaves the machine. Iroh sessions
+/// authenticate RPC out of band and never carry a Stack bearer token. Plain
+/// private-LAN and `.local`/Bonjour hosts are dialed
 /// over unencrypted TCP (``CmxNetworkByteTransport`` uses `NWParameters(tls: nil)`),
 /// so they are excluded from the Stack-auth-allowed set even though they may still
 /// be reachable as attach routes.
@@ -64,12 +65,11 @@ public struct MobileShellRouteAuthPolicy {
     /// Whether the given route is trusted enough to carry the Stack bearer token.
     ///
     /// The Stack `stack_access_token` is the owner's account credential, so it must
-    /// only ever traverse an encrypted or loopback channel. This predicate gates
+    /// only ever traverse the Tailscale tunnel or loopback. This predicate gates
     /// every Stack-token-send site and returns `true` only for:
     ///
     /// - `.tailscale` to a Tailscale host (a `100.64.0.0/10` CGNAT address or a
     ///   `*.ts.net` MagicDNS host), which rides the WireGuard-encrypted tunnel.
-    /// - `.iroh` to a peer, which is an encrypted QUIC connection.
     /// - `.debugLoopback` to a loopback host, which never leaves the machine.
     ///
     /// Plain private-LAN (`192.168/16`, `10/8`, `172.16/12`, link-local) and
@@ -77,8 +77,10 @@ public struct MobileShellRouteAuthPolicy {
     /// unencrypted TCP (``CmxNetworkByteTransport`` uses `NWParameters(tls: nil)`),
     /// so sending the bearer token to such a host would disclose it in plaintext on
     /// the local network before the Mac proves it is the same-account host.
+    /// Iroh routes always return `false`. Their authenticated session context
+    /// authorizes RPC without disclosing the account bearer token to the peer.
     /// - Parameter route: The candidate attach route.
-    /// - Returns: `true` only for Tailscale-tunnel, iroh peer, and loopback routes.
+    /// - Returns: `true` only for Tailscale-tunnel and loopback routes.
     public static func routeAllowsStackAuth(_ route: CmxAttachRoute) -> Bool {
         switch (route.kind, route.endpoint) {
         case (.debugLoopback, let .hostPort(host, _)):
@@ -86,7 +88,7 @@ public struct MobileShellRouteAuthPolicy {
         case (.tailscale, let .hostPort(host, _)):
             return isTailscaleHost(host)
         case (.iroh, .peer):
-            return true
+            return false
         default:
             return false
         }

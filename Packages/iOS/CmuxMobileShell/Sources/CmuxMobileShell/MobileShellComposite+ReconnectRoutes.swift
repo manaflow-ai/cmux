@@ -178,8 +178,11 @@ extension MobileShellComposite {
             switch route.endpoint {
             case let .hostPort(host, port):
                 return "host:\(host)\u{1F}\(port)"
-            case let .peer(id, _, directAddrs, relayURL):
-                return "peer:\(id)\u{1F}\(directAddrs.joined(separator: ","))\u{1F}\(relayURL ?? "")"
+            case let .peer(identity, pathHints):
+                let hintKey = pathHints.map { hint in
+                    "\(hint.kind.rawValue):\(hint.value):\(hint.source.rawValue):\(hint.privacyScope.rawValue):\(hint.expiresAt?.timeIntervalSince1970.description ?? "")"
+                }.joined(separator: ",")
+                return "peer:\(identity.endpointID)\u{1F}\(hintKey)"
             case let .url(url):
                 return "url:\(url)"
             }

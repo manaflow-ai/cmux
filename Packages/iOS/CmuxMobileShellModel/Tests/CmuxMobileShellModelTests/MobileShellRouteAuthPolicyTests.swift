@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import Foundation
 import Testing
 
 @testable import CmuxMobileShellModel
@@ -43,7 +44,7 @@ import Testing
         #expect(!MobileShellRouteAuthPolicy.routeIsLoopback(irohPeer))
     }
 
-    @Test func allowsStackAuthOnlyForEncryptedOrLoopbackRoutes() throws {
+    @Test func allowsStackAuthOnlyForTailscaleOrLoopbackRoutes() throws {
         let loopback = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: CmxMobileDefaults.defaultHostPort)
         let tailscaleIP = try hostPortRoute(kind: .tailscale, host: "100.71.210.41", port: CmxMobileDefaults.defaultHostPort)
         let lanIP = try hostPortRoute(kind: .tailscale, host: "192.168.1.77", port: CmxMobileDefaults.defaultHostPort)
@@ -53,10 +54,20 @@ import Testing
         let irohPeer = try CmxAttachRoute(
             id: CmxAttachTransportKind.iroh.rawValue,
             kind: .iroh,
-            endpoint: .peer(id: "peer-1", relayHint: nil, directAddrs: [], relayURL: nil),
+            endpoint: .peer(
+                identity: CmxIrohPeerIdentity(endpointID: "peer-1"),
+                pathHints: [
+                    try CmxIrohPathHint(
+                        kind: .directAddress,
+                        value: "100.71.210.41:49152",
+                        source: .tailscale,
+                        privacyScope: .privateNetwork,
+                        expiresAt: Date(timeIntervalSince1970: 2_000_000_000)
+                    ),
+                ]
+            ),
             priority: 0
         )
-
         #expect(MobileShellRouteAuthPolicy.manualRouteKind(for: "127.0.0.1") == .debugLoopback)
         #expect(MobileShellRouteAuthPolicy.manualRouteKind(for: "127.attacker.example") == .tailscale)
 
@@ -64,7 +75,10 @@ import Testing
         #expect(MobileShellRouteAuthPolicy.routeAllowsStackAuth(loopback))
         #expect(MobileShellRouteAuthPolicy.routeAllowsStackAuth(tailscaleMagicDNS))
         #expect(MobileShellRouteAuthPolicy.routeAllowsStackAuth(tailscaleIP))
-        #expect(MobileShellRouteAuthPolicy.routeAllowsStackAuth(irohPeer))
+
+        // Iroh's session context authenticates RPC out of band. The Stack
+        // bearer token must never be sent to the peer or any path hint.
+        #expect(!MobileShellRouteAuthPolicy.routeAllowsStackAuth(irohPeer))
 
         // Plaintext-TCP routes must NOT carry the Stack bearer token: a `.tailscale`
         // route to a private-LAN IP or a `.local`/Bonjour host is dialed over
