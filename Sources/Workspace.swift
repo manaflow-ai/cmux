@@ -7162,10 +7162,12 @@ final class Workspace: Identifiable, ObservableObject {
         )
 #endif
 
-        let splitWorkingDirectory = resolvedTerminalStartupWorkingDirectory(
-            requestedWorkingDirectory: workingDirectory, sourcePanelId: panelId,
-            inheritedWorkingDirectory: !isRemoteStartupCommand && inheritedConfigSourcePanelId == panelId ? inheritedConfig?.workingDirectory : nil
-        )
+        let splitWorkingDirectory = isRemoteStartupCommand
+            ? Self.normalizedTerminalWorkingDirectory(workingDirectory)
+            : resolvedTerminalStartupWorkingDirectory(
+                requestedWorkingDirectory: workingDirectory, sourcePanelId: panelId,
+                inheritedWorkingDirectory: inheritedConfigSourcePanelId == panelId ? inheritedConfig?.workingDirectory : nil
+            )
         inheritedConfig = Self.terminalStartupConfigTemplate(inheritedConfig, clearWorkingDirectory: true)
 
         let newPanel = TerminalPanel(

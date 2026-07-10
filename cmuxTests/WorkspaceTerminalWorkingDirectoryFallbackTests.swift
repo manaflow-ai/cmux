@@ -188,6 +188,47 @@ import Testing
         #expect(panel.surface.debugInitialCommand() != nil)
     }
 
+    @Test func remoteStartupCommandSuppressesSplitFallbackWorkingDirectoryInheritance() throws {
+        let workspace = Workspace()
+        let sourcePanelId = try #require(workspace.focusedPanelId)
+        let remoteDirectory = "/home/seepine/cmux-remote-\(UUID().uuidString)"
+        let remoteCommand = "ssh seepine@192.168.5.20"
+
+        workspace.configureRemoteConnection(sshRemoteConfiguration(command: remoteCommand), autoConnect: false)
+        #expect(workspace.updatePanelDirectory(panelId: sourcePanelId, directory: remoteDirectory))
+        workspace.panelShellActivityStates[sourcePanelId] = .promptIdle
+
+        let panel = try #require(workspace.newTerminalSplit(
+            from: sourcePanelId,
+            orientation: .horizontal,
+            focus: false
+        ))
+
+        #expect(panel.requestedWorkingDirectory == nil)
+        #expect(panel.surface.debugInitialCommand() != nil)
+    }
+
+    @Test func explicitWorkingDirectoryWinsOverRemoteStartupSplitFallback() throws {
+        let workspace = Workspace()
+        let sourcePanelId = try #require(workspace.focusedPanelId)
+        let remoteDirectory = "/home/seepine/cmux-remote-\(UUID().uuidString)"
+        let explicitDirectory = "/tmp/cmux-explicit-split-\(UUID().uuidString)"
+        let remoteCommand = "ssh seepine@192.168.5.20"
+
+        workspace.configureRemoteConnection(sshRemoteConfiguration(command: remoteCommand), autoConnect: false)
+        #expect(workspace.updatePanelDirectory(panelId: sourcePanelId, directory: remoteDirectory))
+
+        let panel = try #require(workspace.newTerminalSplit(
+            from: sourcePanelId,
+            orientation: .horizontal,
+            focus: false,
+            workingDirectory: explicitDirectory
+        ))
+
+        #expect(panel.requestedWorkingDirectory == explicitDirectory)
+        #expect(panel.surface.debugInitialCommand() != nil)
+    }
+
     @Test func startupCommandConfigTemplateClearsInheritedWorkingDirectory() throws {
         var inheritedConfig = CmuxSurfaceConfigTemplate()
         inheritedConfig.fontSize = 17
