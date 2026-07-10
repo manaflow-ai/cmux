@@ -1,0 +1,138 @@
+import Foundation
+import Testing
+import CmuxGit
+@testable import CmuxSidebarGit
+
+private final class EmptyPullRequestURLProtocol: URLProtocol, @unchecked Sendable {
+    override class func canInit(with request: URLRequest) -> Bool {
+        request.url?.host == "api.github.com"
+            && request.url?.path.contains("/repos/cmux-test-7856/") == true
+    }
+
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest {
+        request
+    }
+
+    override func startLoading() {
+        guard let url = request.url,
+              let response = HTTPURLResponse(
+                  url: url,
+                  statusCode: 200,
+                  httpVersion: nil,
+                  headerFields: ["Content-Type": "application/json"]
+              ) else {
+            client?.urlProtocol(self, didFailWithError: URLError(.badURL))
+            return
+        }
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Data("[]".utf8))
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
+}
+
+@MainActor
+@Suite(.serialized)
+struct PullRequestPollServiceBatchBypassTests {
+    private func makeRepository(at root: URL, index: Int) throws -> String {
+        let repository = root.appendingPathComponent("repo-\(index)", isDirectory: true)
+        let gitDirectory = repository.appendingPathComponent(".git", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: gitDirectory,
+            withIntermediateDirectories: true
+        )
+        try Data("ref: refs/heads/feature/x\n".utf8).write(
+            to: gitDirectory.appendingPathComponent("HEAD")
+        )
+        let config = """
+        [core]
+            repositoryformatversion = 0
+            bare = false
+        [remote "origin"]
+            url = https://github.com/cmux-test-7856/repo-\(index).git
+        """
+        try Data(config.utf8).write(to: gitDirectory.appendingPathComponent("config"))
+        return repository.path
+    }
+
+    private func waitUntil(maxYields: Int = 10_000, _ predicate: () -> Bool) async -> Bool {
+        for _ in 0..<maxYields {
+            if predicate() { return true }
+            await Task.yield()
+        }
+        return predicate()
+    }
+
+    /// A fresh-event burst can span more panels than one refresh batch. Every
+    /// batch must reject stale repo cache data, including the timer-driven tail.
+    @Test(.timeLimit(.minutes(1)))
+    func cacheBypassSurvivesAcrossBatchLimit() async throws {
+        URLProtocol.registerClass(EmptyPullRequestURLProtocol.self)
+        defer { URLProtocol.unregisterClass(EmptyPullRequestURLProtocol.self) }
+
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-pr-bypass-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let host = RecordingSidebarGitHost()
+        host.pollingEnabled = true
+        var keys: [WorkspaceGitProbeKey] = []
+        for index in 0...PullRequestPollService.workspacePullRequestRefreshBatchLimit {
+            let directory = try makeRepository(at: root, index: index)
+            let (workspaceId, panelId) = host.addWorkspace(panelDirectory: directory)
+            host.workspaces[index].state.panels[panelId]?.branch =
+                SidebarPanelGitBranch(branch: "feature/x", isDirty: false)
+            keys.append(WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: panelId))
+        }
+
+        let clock = ManualGitPollClock()
+        let service = PullRequestPollService(
+            gitMetadataService: GitMetadataService(),
+            probeService: PullRequestProbeService(commandRunner: ForbiddenCommandRunner()),
+            clock: clock
+        )
+        service.attach(host: host)
+
+        for (index, key) in keys.enumerated() {
+            let slug = "cmux-test-7856/repo-\(index)"
+            service.workspacePullRequestRepoCacheBySlug[slug] = WorkspacePullRequestRepoCacheEntry(
+                fetchedAt: Date(),
+                pullRequestsByBranch: [
+                    "feature/x": GitHubPullRequestProbeItem(
+                        number: 7_856 + index,
+                        state: "OPEN",
+                        url: "https://github.com/\(slug)/pull/\(7_856 + index)",
+                        updatedAt: nil,
+                        headRefName: "feature/x"
+                    ),
+                ]
+            )
+            service.scheduleWorkspacePullRequestRefresh(
+                workspaceId: key.workspaceId,
+                panelId: key.panelId,
+                reason: "localGitProbe"
+            )
+        }
+
+        let headKeys = keys.prefix(PullRequestPollService.workspacePullRequestRefreshBatchLimit)
+        let tailKey = try #require(keys.last)
+        #expect(await waitUntil {
+            service.workspacePullRequestRefreshTask == nil
+                && headKeys.allSatisfy {
+                    service.workspacePullRequestNextPollAtByKey[$0].map { $0 > Date() } == true
+                }
+                && service.workspacePullRequestNextPollAtByKey[tailKey] == .distantPast
+        })
+
+        await clock.waitForSleeper()
+        await clock.resumeNext()
+        #expect(await waitUntil {
+            service.workspacePullRequestRefreshTask == nil
+                && service.workspacePullRequestNextPollAtByKey[tailKey].map { $0 > Date() } == true
+        })
+
+        let tailPanel = try #require(host.workspaces.last?.state.panels[tailKey.panelId])
+        #expect(tailPanel.badge == nil)
+    }
+}
