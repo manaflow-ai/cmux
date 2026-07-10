@@ -47,12 +47,12 @@ final class GhosttyTerminalViewVisibilityPolicyTests: XCTestCase {
         )
     }
 
-    func testSwiftUIHostGeometryCallbackUsesImmediateSyncWithoutLayoutFlush() {
+    func testSwiftUIHostGeometryCallbackDefersPortalMutationUntilAfterLayout() {
         switch GhosttyTerminalView.hostCallbackPortalGeometrySynchronizationAction(window: 3873) {
-        case .synchronizeWithoutLayoutFlush(let window):
-            XCTAssertEqual(window, 3873)
+        case .synchronizeWithoutLayoutFlush:
+            XCTFail("A host callback must not mutate the portal during SwiftUI layout")
         case .skip:
-            XCTFail("Window-attached host callbacks should immediately reconcile portal geometry without layout flushes")
+            break
         }
     }
 
