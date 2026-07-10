@@ -1099,6 +1099,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var terminateKillWatchdogTask: Task<Void, Never>?
     /// Force-exits if AppKit's terminate gauntlet wedges (#6758).
     let terminationWatchdog = TerminationWatchdog()
+    lazy var confirmedTerminationSessionCapture = ConfirmedTerminationSessionCapture(watchdog: terminationWatchdog)
     private var activeQuitConfirmationAlertPresenter: QuitConfirmationAlertPresenter?
     private var activeQuitConfirmationOwnsTerminateRequest = false
     private var didInstallLifecycleSnapshotObservers = false

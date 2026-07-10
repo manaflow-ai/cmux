@@ -16,11 +16,11 @@ final class ConfirmedTerminationSessionCapture {
         capture: @escaping Capture,
         completion: @escaping Completion
     ) -> Task<Void, Never> {
-        Task { @MainActor in
+        persistCoreSnapshot()
+        watchdog.arm()
+        return Task { @MainActor in
             let resumeIndexes = await capture()
             guard !Task.isCancelled else { return }
-            persistCoreSnapshot()
-            watchdog.arm()
             completion(resumeIndexes)
         }
     }
