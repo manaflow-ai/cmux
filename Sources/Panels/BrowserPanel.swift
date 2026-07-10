@@ -3743,6 +3743,9 @@ final class BrowserPanel: Panel, ObservableObject {
             MainActor.assumeIsolated {
                 guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
                 self.isMainFrameProvisionalNavigationActive = false
+                BrowserProxyConfigurationRoute.direct.noteSuccessfulNavigation(
+                    on: webView.configuration.websiteDataStore
+                )
                 // An about:blank commit is WebKit's placeholder document, not
                 // content; leaving the flag false keeps the restore-stall
                 // detector armed so a restore that dead-ends there retries.
@@ -3776,6 +3779,17 @@ final class BrowserPanel: Panel, ObservableObject {
                 }
                 // Keep find-in-page open through load completion and refresh matches for the new DOM.
                 self.restoreFindStateAfterNavigation(replaySearch: true)
+            }
+        }
+        navigationDelegate.recoverProxyRouteAfterProvisionalNavigationFailure = { [weak self] failedWebView, request in
+            MainActor.assumeIsolated {
+                guard let self, self.isCurrentWebView(failedWebView, instanceID: boundWebViewInstanceID),
+                      BrowserProxyConfigurationRoute.direct.reassertAfterNavigationFailure(
+                          to: failedWebView.configuration.websiteDataStore
+                      ) else {
+                    return false
+                }
+                return browserLoadRequest(request, in: failedWebView) != nil
             }
         }
         navigationDelegate.didFailNavigation = { [weak self] failedWebView, failedURL, failedNavigation in

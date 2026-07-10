@@ -6,6 +6,12 @@ import WebKit
 
 private var browserProxyConfigurationApplicationStateKey: UInt8 = 0
 
+func browserReplaySafeProxyRouteRecoveryRequest(_ request: URLRequest?) -> URLRequest? {
+    guard let request, request.httpBody == nil, request.httpBodyStream == nil else { return nil }
+    let method = request.httpMethod?.uppercased() ?? "GET"
+    return ["GET", "HEAD"].contains(method) ? request : nil
+}
+
 /// The semantic network route applied to a browser website data store.
 ///
 /// Application state is retained on the shared data store so equivalent
@@ -65,14 +71,19 @@ struct BrowserProxyConfigurationRoute {
             switch state {
             case .pristineDirect where websiteDataStore.proxyConfigurations.isEmpty:
                 return false
-            case .pristineDirect, .explicit, .directAfterExplicit:
+            case .pristineDirect, .explicit:
                 // WebKit clears only the live NetworkProcess configuration.
                 // It retains the last explicit payload and can restore it after
-                // that process relaunches, so a store that has ever been
-                // explicit must keep direct routing re-clearable.
+                // that process relaunches, so navigation failures can reassert
+                // direct routing once without keeping ordinary calls hot.
                 websiteDataStore.proxyConfigurations = []
-                storeApplicationState(.directAfterExplicit, on: websiteDataStore)
+                storeApplicationState(
+                    .directAfterExplicit(recoveryArmed: true),
+                    on: websiteDataStore
+                )
                 return true
+            case .directAfterExplicit:
+                return false
             }
         }
 
@@ -82,6 +93,33 @@ struct BrowserProxyConfigurationRoute {
         websiteDataStore.proxyConfigurations = configurations
         storeApplicationState(.explicit(identity: identity), on: websiteDataStore)
         return true
+    }
+
+    @MainActor
+    @discardableResult
+    func reassertAfterNavigationFailure(to websiteDataStore: WKWebsiteDataStore) -> Bool {
+        guard isDirect,
+              applicationState(for: websiteDataStore) == .directAfterExplicit(recoveryArmed: true) else {
+            return false
+        }
+        websiteDataStore.proxyConfigurations = []
+        storeApplicationState(
+            .directAfterExplicit(recoveryArmed: false),
+            on: websiteDataStore
+        )
+        return true
+    }
+
+    @MainActor
+    func noteSuccessfulNavigation(on websiteDataStore: WKWebsiteDataStore) {
+        guard isDirect,
+              applicationState(for: websiteDataStore) == .directAfterExplicit(recoveryArmed: false) else {
+            return
+        }
+        storeApplicationState(
+            .directAfterExplicit(recoveryArmed: true),
+            on: websiteDataStore
+        )
     }
 
     @MainActor

@@ -14,6 +14,7 @@ import WebKit
     var didCancelNavigationPolicy: ((WKWebView, PolicyCancellationKind) -> Void)?
     var didBecomeDownload: ((WKWebView, Bool, UUID?) -> Void)?
     var didTerminateWebContentProcess: ((WKWebView) -> Void)?
+    var recoverProxyRouteAfterProvisionalNavigationFailure: ((WKWebView, URLRequest) -> Bool)?
     var openInNewTab: ((URL) -> Void)?
     var requestNavigation: ((URLRequest, BrowserInsecureHTTPNavigationIntent) -> Void)?
     var presentAlert: BrowserAlertPresenter = browserPresentAlert
@@ -128,7 +129,6 @@ import WebKit
             didCancelProvisionalNavigation?(webView, navigation)
             return
         }
-
         // "Frame load interrupted" (WebKitErrorDomain code 102) fires when a
         // navigation response is converted into a download via .download policy.
         // This is expected and should not show an error page.
@@ -137,9 +137,9 @@ import WebKit
             return
         }
 
-        let failedURL = nsError.userInfo[NSURLErrorFailingURLStringErrorKey] as? String
-            ?? lastAttemptedURL?.absoluteString
-            ?? ""
+        let failedURL = nsError.userInfo[NSURLErrorFailingURLStringErrorKey] as? String ?? lastAttemptedURL?.absoluteString ?? ""
+        if let request = browserReplaySafeProxyRouteRecoveryRequest(lastAttemptedRequest),
+           recoverProxyRouteAfterProvisionalNavigationFailure?(webView, request) == true { return }
         didFailNavigation?(webView, failedURL, navigation)
         loadErrorPage(
             in: webView,
