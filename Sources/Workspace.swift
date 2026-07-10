@@ -4593,9 +4593,10 @@ final class Workspace: Identifiable, ObservableObject {
             switch restoredAgentResumeStatesByPanelId[panelId] {
             case .some(.awaitingAutoResumeCommand):
                 restoredAgentResumeStatesByPanelId[panelId] = .autoResumeCommandRunning
-            case .some(.autoResumeCommandRunning), .some(.observedAgentCommandRunning):
+            case .some(.autoResumeCommandRunning), .some(.observedAgentCommandRunning),
+                 .some(.completedAgentExit):
                 break
-            case .some(.manualResumeAvailable), .some(.completedAgentExit), nil:
+            case .some(.manualResumeAvailable), nil:
                 invalidateRestoredAgentSnapshot(panelId: panelId, restoredAgent: restoredAgent)
             }
         case .promptIdle:
