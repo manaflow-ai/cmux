@@ -324,7 +324,7 @@ class TerminalController {
     )
     private var browserDownloadObserver: NSObjectProtocol?
 
-    func cleanupSurfaceState(surfaceIds: [UUID]) {
+    func cleanupSurfaceState(surfaceIds: [UUID], paneIds: [UUID] = []) {
         for surfaceId in Set(surfaceIds) {
             v2BrowserFrameSelectorBySurface.removeValue(forKey: surfaceId)
             v2BrowserInitScriptsBySurface.removeValue(forKey: surfaceId)
@@ -334,9 +334,9 @@ class TerminalController {
             v2ConsumedBrowserDownloadKeysBySurface.removeValue(forKey: surfaceId)
             v2BrowserUnsupportedNetworkRequestsBySurface.removeValue(forKey: surfaceId)
             v2BrowserElementRefs = v2BrowserElementRefs.filter { $0.value.surfaceId != surfaceId }
-
             controlCommandCoordinator.removeRef(kind: .surface, uuid: surfaceId)
         }
+        for paneId in Set(paneIds) { controlCommandCoordinator.removeRef(kind: .pane, uuid: paneId) }
     }
 
     /// Bridges the package server's event closures back to the controller.

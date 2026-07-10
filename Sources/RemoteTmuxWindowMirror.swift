@@ -35,6 +35,8 @@ final class RemoteTmuxWindowMirror {
     @ObservationIgnored private weak var connection: RemoteTmuxControlConnection?
     /// Creates a configured manual-I/O pane panel whose input goes to `tmuxPaneId`.
     @ObservationIgnored private let makePanel: (_ tmuxPaneId: Int) -> TerminalPanel?
+    /// Removes projected control refs when a mirror-owned panel leaves topology.
+    @ObservationIgnored let onControlPaneRemoved: ((PaneID, UUID) -> Void)?
 
     /// The window's BASE pane layout (tmux's full tree even while a pane is
     /// zoomed). Drives panel lifecycle and the sizing structure fold.
@@ -117,6 +119,7 @@ final class RemoteTmuxWindowMirror {
         connection: RemoteTmuxControlConnection,
         layout: RemoteTmuxLayoutNode,
         geometrySource: (() -> RemoteTmuxMirrorGeometry?)? = nil,
+        onControlPaneRemoved: ((PaneID, UUID) -> Void)? = nil,
         makePanel: @escaping (_ tmuxPaneId: Int) -> TerminalPanel?
     ) {
         self.windowId = windowId
@@ -124,6 +127,7 @@ final class RemoteTmuxWindowMirror {
         self.connection = connection
         self.makePanel = makePanel
         self.geometrySource = geometrySource
+        self.onControlPaneRemoved = onControlPaneRemoved
         self.layout = layout
         reconcile(layout: layout)
     }
@@ -182,6 +186,7 @@ final class RemoteTmuxWindowMirror {
             // dereferenced by a later Core Animation commit.
             panel.surface.onManualSizeApplied = nil
             panel.surface.onRuntimeReady = nil
+            cleanupControlPane(tmuxPaneID: paneId)
             panel.close()
             connection?.unsubscribePanePath(paneId: paneId)
             connection?.unsubscribePaneReflow(paneId: paneId)
@@ -362,28 +367,6 @@ final class RemoteTmuxWindowMirror {
         if activePaneId != paneId { activePaneId = paneId }
     }
 
-    /// Records the user-focused pane and asks tmux to make it active.
-    func focus(pane tmuxPaneId: Int) {
-        if activePaneId != tmuxPaneId { activePaneId = tmuxPaneId }
-        connection?.send("select-pane -t @\(windowId).%\(tmuxPaneId)")
-    }
-
-    /// Propagates a user split of `tmuxPaneId` to tmux `split-window`
-    /// (`-h` = side-by-side, `-v` = stacked). The new pane arrives via the
-    /// resulting `%layout-change` → ``reconcile(layout:)``.
-    @discardableResult
-    func requestSplit(fromPane tmuxPaneId: Int, vertical: Bool) -> Bool {
-        guard let connection, connection.connectionState == .connected else { return false }
-        return connection.send("split-window \(vertical ? "-v" : "-h") -t @\(windowId).%\(tmuxPaneId)")
-    }
-
-    /// Propagates a user close of `tmuxPaneId` to tmux `kill-pane`. The pane is
-    /// removed via the resulting `%layout-change` (or `%window-close` if it was
-    /// the window's last pane).
-    func requestKillPane(_ tmuxPaneId: Int) {
-        connection?.send("kill-pane -t @\(windowId).%\(tmuxPaneId)")
-    }
-
     /// The pane's last-known foreground classification (alt-screen flag +
     /// `pane_current_command`), driving the kill-pane close confirmation.
     /// `nil` when the pane was never classified (closes without a dialog).
@@ -486,9 +469,10 @@ final class RemoteTmuxWindowMirror {
             connection?.unsubscribePaneReflow(paneId: paneId)
             connection?.unsubscribePaneHeader(paneId: paneId)
         }
-        for panel in panelsByPaneId.values {
+        for (paneId, panel) in panelsByPaneId {
             panel.surface.onManualSizeApplied = nil
             panel.surface.onRuntimeReady = nil
+            cleanupControlPane(tmuxPaneID: paneId)
             panel.close()
         }
         panelsByPaneId.removeAll()

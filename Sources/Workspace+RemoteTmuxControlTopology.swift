@@ -32,6 +32,17 @@ extension Workspace {
         return nil
     }
 
+    /// Resolves either an advertised inner surface or its hidden mirror
+    /// container to the same authoritative active-pane location.
+    func remoteTmuxControlTarget(surfaceID: UUID) -> RemoteTmuxControlPaneLocation? {
+        if let location = remoteTmuxControlPane(surfaceID: surfaceID) {
+            return location
+        }
+        guard let mirror = remoteTmuxWindowMirror(forPanelId: surfaceID),
+              let pane = mirror.activeControlPane() else { return nil }
+        return (surfaceID, mirror, pane)
+    }
+
     /// Resolves an explicit control-plane surface without making mirror-owned
     /// panels members of the workspace's mutable `panels` collection.
     func controlTerminalPanel(for surfaceID: UUID) -> TerminalPanel? {

@@ -312,6 +312,9 @@ final class RemoteTmuxSessionMirror {
             panelId: panelId,
             connection: connection,
             layout: window.layout,
+            onControlPaneRemoved: { [weak controller = TerminalController.shared] paneID, surfaceID in
+                controller?.cleanupSurfaceState(surfaceIds: [surfaceID], paneIds: [paneID.id])
+            },
             makePanel: { [weak workspace, weak connection] tmuxPaneId in
                 workspace?.makeRemoteTmuxPanePanel(onInput: { data in
                     Task { @MainActor in connection?.sendKeys(paneId: tmuxPaneId, data: data) }

@@ -328,6 +328,12 @@ struct RemoteTmuxMirrorCLIObservabilityTests {
                 panelId: outerPanelID,
                 connection: connection,
                 layout: layout,
+                onControlPaneRemoved: { paneID, surfaceID in
+                    TerminalController.shared.cleanupSurfaceState(
+                        surfaceIds: [surfaceID],
+                        paneIds: [paneID.id]
+                    )
+                },
                 makePanel: { [workspace] _ in
                     workspace.makeRemoteTmuxPanePanel(onInput: { _ in })
                 }
