@@ -34,6 +34,7 @@ final class WindowTerminalHostView: NSView {
     private var splitDividerResizeObserver: NSObjectProtocol?
     private var trackingArea: NSTrackingArea?
     private var activeDividerCursorKind: DividerCursorKind?
+    private let dividerCursorOcclusion = PortalDividerCursorOcclusion()
     let paneDropRoutingSession = PaneDropRoutingSession()
 #if DEBUG
     private var lastDragRouteSignature: String?
@@ -85,7 +86,7 @@ final class WindowTerminalHostView: NSView {
         super.resetCursorRects()
         invalidateSplitDividerRegionCache()
         let regions = splitDividerRegions()
-        let expansion: CGFloat = 4
+        let expansion = PortalSplitDividerRegion.dividerHitExpansion
         for region in regions {
             var rectInHost = convert(region.rectInWindow, from: nil)
             rectInHost = rectInHost.insetBy(
@@ -348,6 +349,10 @@ final class WindowTerminalHostView: NSView {
 
         guard let nextKind = splitDividerCursorKind(at: point) else {
             clearActiveDividerCursor(restoreArrow: true)
+            return
+        }
+        guard dividerCursorOcclusion.mayAssertDividerCursor(in: window) else {
+            clearActiveDividerCursor(restoreArrow: false)
             return
         }
         activeDividerCursorKind = nextKind
