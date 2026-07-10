@@ -377,8 +377,8 @@ extension TerminalWindowPortalLifecycleTests {
         portal.pruneDeadEntries()
         XCTAssertEqual(portal.debugEntryCount(), 1)
 
-        await Task.yield()
-        await Task.yield()
+        let cleanup = try XCTUnwrap(portal.transientRecoveryExpiryTasksByHostedId[hostedId])
+        await cleanup.value
         XCTAssertEqual(portal.debugEntryCount(), 0)
         XCTAssertTrue(surface.hostedView.isHidden)
     }
