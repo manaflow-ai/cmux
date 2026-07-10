@@ -31,7 +31,7 @@ use ratatui::Terminal as RatatuiTerminal;
 use ratatui::backend::CrosstermBackend;
 
 use crate::browser_input::{BrowserInputDispatcher, BrowserInputEvent, BrowserInputKind};
-use crate::config::{Action, Config, ScrollbarPosition};
+use crate::config::{Action, ChromeTheme, Config, ScrollbarPosition};
 use crate::keys;
 use crate::session::{Session, SurfaceHandle, TreeView};
 use crate::ui::graphics::GraphicPlacement;
@@ -379,6 +379,7 @@ enum Drag {
 pub struct App {
     pub session: Session,
     pub config: Config,
+    pub chrome: ChromeTheme,
     pub tree: TreeView,
     pub render_states: HashMap<SurfaceId, RenderState>,
     pub graphics_writer: Option<GraphicsWriter>,
@@ -546,8 +547,14 @@ fn pane_parts_for_rect(
     (bar, omnibar, content, track)
 }
 
-pub fn run(session: Session, session_label: String) -> anyhow::Result<()> {
-    let config = crate::config::load();
+pub fn run(
+    session: Session,
+    session_label: String,
+    default_colors: cmux_tui_core::DefaultColors,
+) -> anyhow::Result<()> {
+    let mut config = crate::config::load();
+    let chrome = ChromeTheme::for_defaults(config.chrome, default_colors);
+    config.apply_chrome_defaults(chrome);
     // First workspace before the terminal switches modes, so a spawn
     // failure prints a normal error. Spawn at the size the first pane
     // will actually render at (a post-spawn resize makes shells like zsh
@@ -634,6 +641,7 @@ pub fn run(session: Session, session_label: String) -> anyhow::Result<()> {
     let mut app = App {
         session,
         config,
+        chrome,
         tree: TreeView::default(),
         render_states: HashMap::new(),
         graphics_writer,
@@ -844,7 +852,8 @@ impl App {
     }
 
     fn reload_config(&mut self) {
-        let config = crate::config::load();
+        let mut config = crate::config::load();
+        config.apply_chrome_defaults(self.chrome);
         self.session.apply_config(&config);
         self.config = config;
     }
@@ -2880,7 +2889,7 @@ mod tests {
     use ratatui::backend::TestBackend;
 
     use crate::browser_input::BrowserInputDispatcher;
-    use crate::config::{Config, ScrollbarPosition};
+    use crate::config::{ChromeTheme, Config, ScrollbarPosition};
     use crate::session::tree::{PaneView, ScreenView, TabNotificationView, TabView, WorkspaceView};
     use crate::session::{Session, TreeView};
 
@@ -3021,6 +3030,7 @@ mod tests {
         App {
             session,
             config: Config::default(),
+            chrome: ChromeTheme::dark(),
             tree: TreeView::default(),
             render_states: HashMap::<u64, RenderState>::new(),
             graphics_writer: None,
