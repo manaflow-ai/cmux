@@ -775,8 +775,8 @@ private func installFileDropOverlayWhenReady(
     }
 
     private(set) var directoryChangeGeneration: UInt64 = 0
-    private weak var tabManager: TabManager?
-    private var cancellable: AnyCancellable?
+    @ObservationIgnored private weak var tabManager: TabManager?
+    @ObservationIgnored private var cancellable: AnyCancellable?
 
     func wire(tabManager: TabManager) {
         guard self.tabManager !== tabManager || cancellable == nil else { return }

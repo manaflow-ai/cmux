@@ -993,7 +993,7 @@ enum FilePreviewTextSaver {
 
     let nativeViewSessions = FilePreviewNativeViewSessions()
 
-    private var originalTextContent = ""
+    @ObservationIgnored private var originalTextContent = ""
     @ObservationIgnored private var textEncoding: String.Encoding = .utf8
     @ObservationIgnored private var previewModeGeneration = 0
     @ObservationIgnored private var textLoadGeneration = 0

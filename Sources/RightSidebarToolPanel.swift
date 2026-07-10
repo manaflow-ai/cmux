@@ -198,7 +198,9 @@ final class RightSidebarToolPanel: Panel {
     private func observeWorkspaceRootChanges(_ workspace: Workspace) {
         workspaceObservationToken?.cancel()
         workspaceDirectoryRevisionCancellable?.cancel()
-        workspaceObservationToken = observeTrackedValue { [weak workspace] in
+        // initial: false — the only caller (reattach) follows up with an explicit
+        // syncWorkspaceRoot, so the initial delivery would sync twice.
+        workspaceObservationToken = observeTrackedValue(initial: false) { [weak workspace] in
             guard let workspace else { return WorkspaceRootObservationState.empty }
             return WorkspaceRootObservationState(
                 currentDirectory: workspace.currentDirectory,

@@ -104,6 +104,10 @@ enum AgentHibernationResumePreparation: Equatable {
     /// Search state for find functionality
     var searchState: TerminalSurface.SearchState? {
         didSet {
+            // Identity guard: the observation mirror writes surface state back
+            // through here, and an unguarded write-through would re-enter
+            // TerminalSurface.searchState's didSet and repeat its search setup.
+            guard surface.searchState !== searchState else { return }
             surface.searchState = searchState
         }
     }

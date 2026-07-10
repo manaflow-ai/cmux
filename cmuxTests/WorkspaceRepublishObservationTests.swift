@@ -20,6 +20,10 @@ final class ObservationChangeFlag: @unchecked Sendable {
 /// workspace's Observation-tracked git properties (extracted from
 /// `WorkspaceUnitTests.swift`, where these assertions counted object-wide
 /// will-change publishes before the Observation migration).
+///
+/// No run-loop pumping: `withObservationTracking`'s `onChange` fires
+/// synchronously at willSet and the mutation helpers are synchronous
+/// main-actor calls, so the flags are settled when the mutation returns.
 @MainActor
 final class WorkspaceRepublishObservationTests: XCTestCase {
     func testUpdatingFocusedPanelGitBranchWithSameStateDoesNotRepublishWorkspace() {
@@ -38,7 +42,6 @@ final class WorkspaceRepublishObservationTests: XCTestCase {
         }
 
         workspace.updatePanelGitBranch(panelId: panelId, branch: "main", isDirty: false)
-        RunLoop.main.run(until: Date().addingTimeInterval(0.01))
 
         XCTAssertTrue(
             firstChangeFlag.fired,
@@ -54,7 +57,6 @@ final class WorkspaceRepublishObservationTests: XCTestCase {
         }
 
         workspace.updatePanelGitBranch(panelId: panelId, branch: "main", isDirty: false)
-        RunLoop.main.run(until: Date().addingTimeInterval(0.01))
 
         XCTAssertFalse(
             identicalChangeFlag.fired,
@@ -88,7 +90,6 @@ final class WorkspaceRepublishObservationTests: XCTestCase {
             status: .open,
             branch: "feature/sidebar-pr"
         )
-        RunLoop.main.run(until: Date().addingTimeInterval(0.01))
 
         XCTAssertTrue(
             firstChangeFlag.fired,
@@ -111,7 +112,6 @@ final class WorkspaceRepublishObservationTests: XCTestCase {
             status: .open,
             branch: "feature/sidebar-pr"
         )
-        RunLoop.main.run(until: Date().addingTimeInterval(0.01))
 
         XCTAssertFalse(
             identicalChangeFlag.fired,
