@@ -26,8 +26,8 @@ public struct ControlPaneResizeInputs: Sendable, Equatable {
     /// Legacy outer-point projection used only by the local Bonsplit path.
     public var targetPixels: Double? {
         switch intent {
-        case .outerAbsolute(_, let points),
-             .tmuxAbsoluteCells(_, _, let points),
+        case .outerAbsolute(_, let points): return points
+        case .tmuxAbsoluteCells(_, _, let points),
              .tmuxAbsolutePercentage(_, _, let points): return points
         case .borderRelative, .tmuxRelative: return nil
         }
@@ -41,11 +41,13 @@ public struct ControlPaneResizeInputs: Sendable, Equatable {
         }
     }
 
-    /// Legacy point delta used only by the local Bonsplit path.
-    public var amount: Int {
+    /// Legacy point delta used only by the local Bonsplit path, or `nil` when
+    /// an exact tmux request had no trustworthy local-metrics projection.
+    public var amount: Int? {
         switch intent {
-        case .borderRelative(_, let points), .tmuxRelative(_, _, let points): return points
-        case .outerAbsolute, .tmuxAbsoluteCells, .tmuxAbsolutePercentage: return 1
+        case .borderRelative(_, let points): return points
+        case .tmuxRelative(_, _, let points): return points
+        case .outerAbsolute, .tmuxAbsoluteCells, .tmuxAbsolutePercentage: return nil
         }
     }
 

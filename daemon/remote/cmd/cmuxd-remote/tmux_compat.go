@@ -1889,15 +1889,14 @@ func tmuxResizePane(rc *rpcContext, args []string) error {
 				break
 			}
 		}
-		if targetPoints <= 0 {
-			targetPoints = float64(target)
-		}
 		params := map[string]any{
 			"workspace_id":  wsId,
 			"pane_id":       paneId,
 			"absolute_axis": "horizontal",
-			"target_pixels": targetPoints,
 			"tmux_compat":   true,
+		}
+		if targetPoints > 0 {
+			params["target_pixels"] = targetPoints
 		}
 		if isPercentage {
 			params["target_percentage"] = target
@@ -1935,7 +1934,7 @@ func tmuxResizePane(rc *rpcContext, args []string) error {
 		if amount <= 0 {
 			amount = 1
 		}
-		amountPoints := amount
+		amountPoints := 0
 		panePayload, err := rc.call("pane.list", map[string]any{"workspace_id": wsId})
 		if err != nil {
 			return err
@@ -1963,14 +1962,17 @@ func tmuxResizePane(rc *rpcContext, args []string) error {
 				break
 			}
 		}
-		_, err = rc.call("pane.resize", map[string]any{
+		params := map[string]any{
 			"workspace_id": wsId,
 			"pane_id":      paneId,
 			"direction":    dir,
-			"amount":       amountPoints,
 			"amount_cells": amount,
 			"tmux_compat":  true,
-		})
+		}
+		if amountPoints > 0 {
+			params["amount"] = amountPoints
+		}
+		_, err = rc.call("pane.resize", params)
 		return err
 	}
 	return nil

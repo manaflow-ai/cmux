@@ -14,7 +14,7 @@ extension ControlCommandCoordinator {
         let targetCells = strictInt(params, "target_cells")
         let targetPercentage = strictInt(params, "target_percentage")
         let directionRaw = (string(params, "direction") ?? "").lowercased()
-        let amount = params.keys.contains("amount") ? strictInt(params, "amount") : 1
+        let amount = strictInt(params, "amount")
         let amountCells = strictInt(params, "amount_cells")
         let parsedTmuxCompatibility = bool(params, "tmux_compat")
         guard !params.keys.contains("target_cells") || (targetCells ?? 0) > 0 else {
@@ -42,7 +42,8 @@ extension ControlCommandCoordinator {
             guard let absoluteAxis, absoluteAxis == "horizontal" || absoluteAxis == "vertical" else {
                 return .err(code: "invalid_params", message: "absolute_axis must be 'horizontal' or 'vertical'", data: nil)
             }
-            guard let targetPixels, targetPixels.isFinite, targetPixels > 0 else {
+            guard !params.keys.contains("target_pixels")
+                    || (targetPixels?.isFinite == true && (targetPixels ?? 0) > 0) else {
                 return .err(code: "invalid_params", message: "target_pixels must be > 0", data: nil)
             }
             guard !params.keys.contains("amount_cells") else {
@@ -52,24 +53,29 @@ extension ControlCommandCoordinator {
                 guard (targetCells != nil) != (targetPercentage != nil) else {
                     return .err(code: "invalid_params", message: invalidParameters, data: nil)
                 }
-            } else if targetCells != nil || targetPercentage != nil {
-                return .err(code: "invalid_params", message: invalidParameters, data: nil)
+            } else {
+                guard let targetPixels, targetPixels.isFinite, targetPixels > 0,
+                      targetCells == nil, targetPercentage == nil else {
+                    return .err(code: "invalid_params", message: invalidParameters, data: nil)
+                }
             }
         } else {
-            guard directionValid, let amount, amount > 0 else {
+            guard directionValid else {
                 return .err(code: "invalid_params", message: "direction must be one of left|right|up|down and amount must be > 0", data: nil)
             }
             if tmuxCompatibility {
                 guard amountCells != nil else {
                     return .err(code: "invalid_params", message: invalidParameters, data: nil)
                 }
-            } else if amountCells != nil {
-                return .err(code: "invalid_params", message: invalidParameters, data: nil)
+            } else {
+                guard (amount ?? 1) > 0, amountCells == nil else {
+                    return .err(code: "invalid_params", message: invalidParameters, data: nil)
+                }
             }
         }
 
         let intent: ControlPaneResizeIntent
-        if let absoluteAxis, let targetPixels {
+        if let absoluteAxis {
             if tmuxCompatibility, let targetPercentage {
                 intent = .tmuxAbsolutePercentage(
                     axis: absoluteAxis,
@@ -82,20 +88,19 @@ extension ControlCommandCoordinator {
                     targetCells: targetCells,
                     fallbackPoints: targetPixels
                 )
-            } else {
+            } else if let targetPixels {
                 intent = .outerAbsolute(axis: absoluteAxis, targetPoints: targetPixels)
+            } else {
+                return .err(code: "invalid_params", message: invalidParameters, data: nil)
             }
-        } else if tmuxCompatibility, let amount, let amountCells {
+        } else if tmuxCompatibility, let amountCells {
             intent = .tmuxRelative(
                 direction: directionRaw,
                 amountCells: amountCells,
                 fallbackPoints: amount
             )
         } else {
-            guard let amount else {
-                return .err(code: "invalid_params", message: invalidParameters, data: nil)
-            }
-            intent = .borderRelative(direction: directionRaw, amountPoints: amount)
+            intent = .borderRelative(direction: directionRaw, amountPoints: amount ?? 1)
         }
         let inputs = ControlPaneResizeInputs(paneID: uuid(params, "pane_id"), intent: intent)
         let resolution = context.controlPaneResize(routing: routing, inputs: inputs)
@@ -111,6 +116,12 @@ extension ControlCommandCoordinator {
         case .paneNotFoundInTree(let id):
             return .err(code: "not_found", message: "Pane not found in split tree", data: .object(["pane_id": .string(id.uuidString)]))
         case .remoteResizeUnavailable(let paneID, let message):
+            return .err(
+                code: "unavailable",
+                message: message,
+                data: .object(["pane_id": .string(paneID.uuidString)])
+            )
+        case .localResizeUnavailable(let paneID, let message):
             return .err(
                 code: "unavailable",
                 message: message,
@@ -141,7 +152,7 @@ extension ControlCommandCoordinator {
                 data: .object(["split_id": .string(splitID.uuidString)])
             )
         case .remoteAbsoluteResizeRequested(let windowID, let workspaceID, let paneID, let axis, let targetPixels):
-            return .ok(.object([
+            var payload: [String: JSONValue] = [
                 "window_id": orNull(windowID?.uuidString),
                 "window_ref": ref(.window, windowID),
                 "workspace_id": .string(workspaceID.uuidString),
@@ -149,11 +160,14 @@ extension ControlCommandCoordinator {
                 "pane_id": .string(paneID.uuidString),
                 "pane_ref": ref(.pane, paneID),
                 "absolute_axis": .string(axis),
-                "target_pixels": .double(targetPixels),
                 "remote": .bool(true),
-            ]))
+            ]
+            if let targetPixels {
+                payload["target_pixels"] = .double(targetPixels)
+            }
+            return .ok(.object(payload))
         case .remoteRelativeResizeRequested(let windowID, let workspaceID, let paneID, let direction, let amount):
-            return .ok(.object([
+            var payload: [String: JSONValue] = [
                 "window_id": orNull(windowID?.uuidString),
                 "window_ref": ref(.window, windowID),
                 "workspace_id": .string(workspaceID.uuidString),
@@ -161,9 +175,12 @@ extension ControlCommandCoordinator {
                 "pane_id": .string(paneID.uuidString),
                 "pane_ref": ref(.pane, paneID),
                 "direction": .string(direction),
-                "amount": .int(Int64(amount)),
                 "remote": .bool(true),
-            ]))
+            ]
+            if let amount {
+                payload["amount"] = .int(Int64(amount))
+            }
+            return .ok(.object(payload))
         case .absoluteResized(let windowID, let workspaceID, let paneID, let splitID, let axis, let targetPixels, let old, let new):
             return .ok(.object([
                 "window_id": orNull(windowID?.uuidString),

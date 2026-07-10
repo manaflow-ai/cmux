@@ -447,6 +447,14 @@ extension TerminalController: ControlPaneContext {
             return .paneNotFoundInTree(paneUUID)
         }
 
+        let localFallbackUnavailable = ControlPaneResizeResolution.localResizeUnavailable(
+            paneID: paneUUID,
+            message: String(
+                localized: "socket.pane.resize.localMetricsUnavailable",
+                defaultValue: "Pane resize metrics are not ready; wait for the pane to finish loading and retry."
+            )
+        )
+
         if let absoluteAxis = inputs.absoluteAxis,
            let targetPixels = inputs.targetPixels,
            let absoluteResize = v2SetAbsolutePaneSize(
@@ -466,6 +474,8 @@ extension TerminalController: ControlPaneContext {
                 oldDividerPosition: Double(absoluteResize.oldPosition),
                 newDividerPosition: Double(absoluteResize.newPosition)
             )
+        } else if inputs.absoluteAxis != nil, inputs.targetPixels == nil {
+            return localFallbackUnavailable
         } else if inputs.absoluteAxis != nil || inputs.targetPixels != nil {
             return .noAbsoluteSplitAncestor(paneID: paneUUID, absoluteAxis: inputs.absoluteAxis)
         }
@@ -490,7 +500,10 @@ extension TerminalController: ControlPaneContext {
             return .noAdjacentBorder(paneID: paneUUID, direction: direction.rawValue)
         }
 
-        let delta = CGFloat(inputs.amount) / candidate.axisPixels
+        guard let amount = inputs.amount else {
+            return localFallbackUnavailable
+        }
+        let delta = CGFloat(amount) / candidate.axisPixels
         let requested = candidate.dividerPosition + (direction.dividerDeltaSign * delta)
         let clamped = min(max(requested, 0.1), 0.9)
         guard ws.bonsplitController.setDividerPosition(clamped, forSplit: candidate.splitId, fromExternal: true) else {
@@ -504,7 +517,7 @@ extension TerminalController: ControlPaneContext {
             paneID: paneUUID,
             splitID: candidate.splitId,
             direction: direction.rawValue,
-            amount: inputs.amount,
+            amount: amount,
             oldDividerPosition: Double(candidate.dividerPosition),
             newDividerPosition: Double(clamped)
         )

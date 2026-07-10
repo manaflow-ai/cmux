@@ -26,19 +26,23 @@ extension CMUXCLI {
         let dimensionKey = horizontal ? "width" : "height"
         let containerExtent = (frame?[dimensionKey] as? NSNumber)?.doubleValue
             ?? frame?[dimensionKey] as? Double
-        let targetPoints: Double
+        let targetPoints: Double?
         if isPercentage, let containerExtent, containerExtent > 0 {
             targetPoints = containerExtent * Double(target) / 100
+        } else if cellPoints > 0 {
+            targetPoints = Double(target) * cellPoints
         } else {
-            targetPoints = Double(target) * max(cellPoints, 1)
+            targetPoints = nil
         }
         var params: [String: Any] = [
             "workspace_id": workspaceId,
             "pane_id": paneId,
             "absolute_axis": absoluteAxis,
-            "target_pixels": targetPoints,
             "tmux_compat": true,
         ]
+        if let targetPoints {
+            params["target_pixels"] = targetPoints
+        }
         params[isPercentage ? "target_percentage" : "target_cells"] = target
         _ = try client.sendV2(method: "pane.resize", params: params)
     }
@@ -59,15 +63,17 @@ extension CMUXCLI {
         let cellPoints = (pane?[pointsKey] as? NSNumber)?.doubleValue
             ?? pane?[pointsKey] as? Double
             ?? Double(intFromAny(pane?[pixelsKey]) ?? 0)
-        let pointDelta = Double(amountCells) * max(cellPoints, 1)
-        let amountPoints = NSNumber(value: pointDelta.rounded()).intValue
-        _ = try client.sendV2(method: "pane.resize", params: [
+        var params: [String: Any] = [
             "workspace_id": workspaceId,
             "pane_id": paneId,
             "direction": direction,
-            "amount": amountPoints,
             "amount_cells": amountCells,
             "tmux_compat": true,
-        ])
+        ]
+        if cellPoints > 0 {
+            let pointDelta = Double(amountCells) * cellPoints
+            params["amount"] = NSNumber(value: pointDelta.rounded()).intValue
+        }
+        _ = try client.sendV2(method: "pane.resize", params: params)
     }
 }

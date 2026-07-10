@@ -7,9 +7,9 @@ public enum ControlPaneResizeIntent: Sendable, Equatable {
     /// Set a pane's outer native extent in layout points.
     case outerAbsolute(axis: String, targetPoints: Double)
     /// Preserve native tmux directional-adjustment semantics and exact cells.
-    case tmuxRelative(direction: String, amountCells: Int, fallbackPoints: Int)
+    case tmuxRelative(direction: String, amountCells: Int, fallbackPoints: Int?)
     /// Preserve a native tmux absolute size in terminal cells.
-    case tmuxAbsoluteCells(axis: String, targetCells: Int, fallbackPoints: Double)
+    case tmuxAbsoluteCells(axis: String, targetCells: Int, fallbackPoints: Double?)
     /// Preserve a native tmux absolute size as a window percentage.
-    case tmuxAbsolutePercentage(axis: String, percentage: Int, fallbackPoints: Double)
+    case tmuxAbsolutePercentage(axis: String, percentage: Int, fallbackPoints: Double?)
 }
