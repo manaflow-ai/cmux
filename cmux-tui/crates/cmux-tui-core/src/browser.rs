@@ -133,6 +133,7 @@ struct Routes {
 pub struct BrowserSurface {
     pub(crate) meta: SurfaceMeta,
     session: Mutex<Option<BrowserSession>>,
+    resize_transaction: Mutex<()>,
     state: Mutex<BrowserState>,
     dirty: AtomicBool,
     dead: AtomicBool,
@@ -286,6 +287,7 @@ pub(crate) fn new_surface(
     Arc::new(Surface::Browser(BrowserSurface {
         meta: SurfaceMeta { id, name: Mutex::new(None), selection: Mutex::new(None) },
         session: Mutex::new(None),
+        resize_transaction: Mutex::new(()),
         state: Mutex::new(BrowserState {
             latest_frame: None,
             taps: Vec::new(),
@@ -644,6 +646,7 @@ impl BrowserSurface {
     }
 
     pub(crate) fn try_resize(&self, cols: u16, rows: u16) -> anyhow::Result<()> {
+        let _transaction = self.resize_transaction.lock().unwrap();
         let (cols, rows) = (cols.max(1), rows.max(1));
         let cell = *self.cell_pixels.lock().unwrap();
         let pixel_w = cols as u32 * cell.0.max(1) as u32;

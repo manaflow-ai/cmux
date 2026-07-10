@@ -121,7 +121,7 @@ Then it sends ordered stream frames:
 
 ```json
 {"event":"output","surface":4,"data":"<base64-pty-bytes>"}
-{"event":"resized","surface":4,"cols":132,"rows":43,"data":"<base64-vt-replay>"}
+{"event":"resized","surface":4,"cols":132,"rows":43,"replay":"<base64-vt-replay>"}
 ```
 
 The `resized` attach frame carries the new cell size and a fresh VT replay captured at that size. It is delivered in the same attach stream as output frames, so a client can reset its local terminal, apply the replay, and continue consuming later output in order.

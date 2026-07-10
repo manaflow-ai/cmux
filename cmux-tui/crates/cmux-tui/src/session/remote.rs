@@ -421,7 +421,8 @@ impl RemoteSession {
                 let cols = value.get("cols").and_then(|v| v.as_u64()).unwrap_or(80) as u16;
                 let rows = value.get("rows").and_then(|v| v.as_u64()).unwrap_or(24) as u16;
                 let replay = value
-                    .get("data")
+                    .get("replay")
+                    .or_else(|| value.get("data"))
                     .and_then(|v| v.as_str())
                     .and_then(|data| base64::engine::general_purpose::STANDARD.decode(data).ok());
                 self.log_frame(
@@ -697,14 +698,26 @@ impl RemoteSession {
     }
 
     pub fn refresh_tree(&self) -> anyhow::Result<TreeView> {
+        self.refresh_tree_inner(true)
+    }
+
+    pub fn refresh_tree_background(&self) -> anyhow::Result<TreeView> {
+        self.refresh_tree_inner(false)
+    }
+
+    fn refresh_tree_inner(&self, identity_refresh: bool) -> anyhow::Result<TreeView> {
         let _refresh = self.tree_refresh.lock().unwrap();
-        self.tree_stale.store(false, Ordering::Release);
+        if identity_refresh {
+            self.tree_stale.store(false, Ordering::Release);
+        }
         let refresh_generation = self.tree.lock().unwrap().title_generation();
         let data = match self.request(json!({"cmd": "list-workspaces"})) {
             Ok(data) => data,
             Err(e) => {
-                // Retry next frame rather than caching a bad tree.
-                self.tree_stale.store(true, Ordering::Release);
+                if identity_refresh {
+                    // Retry identity refreshes rather than caching a bad tree.
+                    self.tree_stale.store(true, Ordering::Release);
+                }
                 return Err(e);
             }
         };
@@ -893,6 +906,30 @@ mod tests {
         assert!(release["id"].as_u64().unwrap() > first["id"].as_u64().unwrap());
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn background_refresh_failure_does_not_mark_identity_stale() {
+        let (client, server) = UnixStream::pair().unwrap();
+        let session = socket_test_session(client);
+        session.tree_stale.store(false, Ordering::Release);
+        let refreshing = session.clone();
+        let refresh = std::thread::spawn(move || refreshing.refresh_tree_background());
+
+        let mut peer = BufReader::new(server);
+        let mut line = String::new();
+        peer.read_line(&mut line).unwrap();
+        let request: Value = serde_json::from_str(&line).unwrap();
+        writeln!(
+            peer.get_mut(),
+            "{}",
+            json!({"id": request["id"], "ok": false, "error": "temporary"})
+        )
+        .unwrap();
+
+        assert!(refresh.join().unwrap().is_err());
+        assert!(!session.tree_is_stale());
+    }
+
     #[test]
     fn indexed_title_update_changes_only_the_addressed_surface() {
         let mut cache = RemoteTreeCache::default();
@@ -1057,6 +1094,41 @@ mod tests {
         let mut mirror = surface.term.lock().unwrap();
         assert_eq!(mirror.plain_text().unwrap(), server_text);
         assert_eq!(mirror.scrollback_rows(), scrollback_rows);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn resized_event_decodes_protocol_replay_field() {
+        let (client, _server) = UnixStream::pair().unwrap();
+        let session = socket_test_session(client);
+        let surface = Arc::new(RemoteSurface {
+            id: 7,
+            kind: SurfaceKind::Pty,
+            term: Mutex::new(Terminal::new(12, 4, 100, Callbacks::default()).unwrap()),
+            dirty: AtomicBool::new(false),
+            server_size: Mutex::new((12, 4)),
+            asserted_size: Mutex::new(None),
+            browser: Mutex::new(RemoteBrowserState::default()),
+        });
+        session.surfaces.lock().unwrap().insert(7, surface.clone());
+
+        let mut authoritative = Terminal::new(12, 4, 100, Callbacks::default()).unwrap();
+        for index in 0..8 {
+            authoritative.vt_write(format!("authoritative-{index}\r\n").as_bytes());
+        }
+        authoritative.resize(8, 4, 8, 16).unwrap();
+        let expected = authoritative.plain_text().unwrap();
+        let replay = authoritative.vt_replay().unwrap();
+        session.handle_line(json!({
+            "event": "resized",
+            "surface": 7,
+            "cols": 8,
+            "rows": 4,
+            "replay": base64::engine::general_purpose::STANDARD.encode(replay),
+        }));
+
+        assert_eq!(*surface.server_size.lock().unwrap(), (8, 4));
+        assert_eq!(surface.term.lock().unwrap().plain_text().unwrap(), expected);
     }
 
     #[test]

@@ -43,7 +43,10 @@ use crate::pty_input::{
     PtyInputBytes, PtyInputDispatcher, PtyInputEnqueueResult, PtyInputEvent, PtyInputKind,
     PtyInputSender, PtyOperationDelivery, PtyOperationFailure,
 };
-use crate::session::{Session, SidebarPluginSurface, SurfaceHandle, TreeView, is_remote_timeout};
+use crate::session::{
+    Session, SidebarPluginSurface, SurfaceHandle, TreeView, is_remote_timeout,
+    is_remote_transport_failure,
+};
 use crate::ui::graphics::GraphicPlacement;
 use crate::ui::graphics_writer::GraphicsWriter;
 use crate::ui::input::{InputEvent, TextInput};
@@ -184,6 +187,37 @@ struct SurfaceResizeClaimState {
     token: u64,
 }
 
+#[derive(Clone, Copy)]
+struct SurfaceSyncFailureState {
+    attempts: u8,
+    retry_after: Option<Instant>,
+}
+
+#[derive(Clone, Copy)]
+struct SurfaceResizeFailure {
+    desired: (u16, u16),
+    state: SurfaceSyncFailureState,
+}
+
+fn next_surface_sync_failure(
+    previous: Option<SurfaceSyncFailureState>,
+    transient: bool,
+) -> SurfaceSyncFailureState {
+    if !transient {
+        return SurfaceSyncFailureState { attempts: 0, retry_after: None };
+    }
+    let attempts = previous.map_or(1, |state| state.attempts.saturating_add(1)).min(6);
+    let delay_seconds = 1_u64 << u32::from(attempts.saturating_sub(1));
+    SurfaceSyncFailureState {
+        attempts,
+        retry_after: Some(Instant::now() + Duration::from_secs(delay_seconds.min(30))),
+    }
+}
+
+fn surface_sync_failure_blocks(state: SurfaceSyncFailureState) -> bool {
+    state.retry_after.is_none_or(|retry_after| Instant::now() < retry_after)
+}
+
 enum SurfaceResizeDecision {
     Noop,
     AlreadyClaimed,
@@ -256,8 +290,8 @@ pub struct OrderedSession {
     remote_refresh_sequence: Arc<AtomicU64>,
     surface_resize_claims: Arc<Mutex<HashMap<SurfaceId, SurfaceResizeClaimState>>>,
     surface_resize_claim_sequence: Arc<AtomicU64>,
-    surface_attach_failures: Arc<Mutex<HashSet<SurfaceId>>>,
-    surface_resize_failures: Arc<Mutex<HashMap<SurfaceId, (u16, u16)>>>,
+    surface_attach_failures: Arc<Mutex<HashMap<SurfaceId, SurfaceSyncFailureState>>>,
+    surface_resize_failures: Arc<Mutex<HashMap<SurfaceId, SurfaceResizeFailure>>>,
     config_generation: Arc<AtomicU64>,
     sidebar_plugin_sync: Arc<Mutex<SidebarPluginSyncState>>,
     exited_surfaces: Arc<Mutex<HashSet<SurfaceId>>>,
@@ -278,7 +312,7 @@ impl OrderedSession {
             remote_refresh_sequence: Arc::new(AtomicU64::new(0)),
             surface_resize_claims: Arc::new(Mutex::new(HashMap::new())),
             surface_resize_claim_sequence: Arc::new(AtomicU64::new(0)),
-            surface_attach_failures: Arc::new(Mutex::new(HashSet::new())),
+            surface_attach_failures: Arc::new(Mutex::new(HashMap::new())),
             surface_resize_failures: Arc::new(Mutex::new(HashMap::new())),
             config_generation: Arc::new(AtomicU64::new(0)),
             sidebar_plugin_sync: Arc::new(Mutex::new(SidebarPluginSyncState::default())),
@@ -354,36 +388,56 @@ impl OrderedSession {
                     Ok(Some(_)) => {
                         attach_failures.lock().unwrap().remove(&id);
                         pending.settle(SessionMutationOutcome::Success { tree: None });
+                        Ok(())
                     }
                     Ok(None) => {
-                        attach_failures.lock().unwrap().insert(id);
+                        let mut failures = attach_failures.lock().unwrap();
+                        let state = next_surface_sync_failure(failures.get(&id).copied(), false);
+                        failures.insert(id, state);
+                        drop(failures);
                         pending.settle(SessionMutationOutcome::SurfaceSyncFailed {
                             surface: id,
                             operation: "attach",
                             error: format!("surface {id} is unavailable"),
                         });
+                        Ok(())
                     }
                     Err(error) => {
-                        attach_failures.lock().unwrap().insert(id);
+                        let transient =
+                            is_remote_timeout(&error) || is_remote_transport_failure(&error);
+                        let mut failures = attach_failures.lock().unwrap();
+                        let state =
+                            next_surface_sync_failure(failures.get(&id).copied(), transient);
+                        failures.insert(id, state);
+                        drop(failures);
                         pending.settle(SessionMutationOutcome::SurfaceSyncFailed {
                             surface: id,
                             operation: "attach",
                             error: error.to_string(),
                         });
+                        if transient { Err(error) } else { Ok(()) }
                     }
                 }
-                Ok(())
             },
         );
         if enqueue_result != PtyInputEnqueueResult::Accepted {
-            enqueue_failures.lock().unwrap().insert(id);
+            let transient = enqueue_result != PtyInputEnqueueResult::Failed;
+            let mut failures = enqueue_failures.lock().unwrap();
+            let state = next_surface_sync_failure(failures.get(&id).copied(), transient);
+            failures.insert(id, state);
         }
     }
 
     fn can_attach_surface(&self, id: SurfaceId) -> bool {
         self.inner.cached_surface(id).is_none()
             && !self.exited_surfaces.lock().unwrap().contains(&id)
-            && !self.surface_attach_failures.lock().unwrap().contains(&id)
+            && !self
+                .surface_attach_failures
+                .lock()
+                .unwrap()
+                .get(&id)
+                .copied()
+                .is_some_and(surface_sync_failure_blocks)
             && (!self.remote || !self.inner.remote_tree_is_stale())
     }
 
@@ -476,7 +530,7 @@ impl OrderedSession {
         let claim = RemoteRefreshClaim(self.remote_refresh_queued.clone());
         let spawn =
             std::thread::Builder::new().name("remote-tree-refresh".into()).spawn(move || {
-                let result = session.refresh_tree().map_err(|error| error.to_string());
+                let result = session.refresh_tree_background().map_err(|error| error.to_string());
                 drop(claim);
                 let _ = events.send(AppEvent::RemoteTreeUpdated { refresh_sequence, result });
             });
@@ -614,21 +668,35 @@ impl OrderedSession {
                         failures.lock().unwrap().remove(&surface_id);
                         committed_mutation_generation.fetch_add(1, Ordering::AcqRel);
                         pending.settle(SessionMutationOutcome::Success { tree: None });
+                        Ok(())
                     }
                     Err(error) => {
-                        failures.lock().unwrap().insert(surface_id, (cols, rows));
+                        let transient =
+                            is_remote_timeout(&error) || is_remote_transport_failure(&error);
+                        let mut failures = failures.lock().unwrap();
+                        let previous = failures.get(&surface_id).map(|failure| failure.state);
+                        let state = next_surface_sync_failure(previous, transient);
+                        failures.insert(
+                            surface_id,
+                            SurfaceResizeFailure { desired: (cols, rows), state },
+                        );
+                        drop(failures);
                         pending.settle(SessionMutationOutcome::SurfaceSyncFailed {
                             surface: surface_id,
                             operation: "resize",
                             error: error.to_string(),
                         });
+                        if transient { Err(error) } else { Ok(()) }
                     }
                 }
-                Ok(())
             },
         );
         if enqueue_result != PtyInputEnqueueResult::Accepted {
-            enqueue_failures.lock().unwrap().insert(surface_id, (cols, rows));
+            let transient = enqueue_result != PtyInputEnqueueResult::Failed;
+            let mut failures = enqueue_failures.lock().unwrap();
+            let previous = failures.get(&surface_id).map(|failure| failure.state);
+            let state = next_surface_sync_failure(previous, transient);
+            failures.insert(surface_id, SurfaceResizeFailure { desired: (cols, rows), state });
         }
     }
 
@@ -639,10 +707,15 @@ impl OrderedSession {
         surface_needs_resize: bool,
     ) -> SurfaceResizeDecision {
         let mut failures = self.surface_resize_failures.lock().unwrap();
-        if failures.get(&surface_id) == Some(&desired) {
+        if let Some(failure) = failures.get(&surface_id).copied()
+            && failure.desired == desired
+            && surface_sync_failure_blocks(failure.state)
+        {
             return SurfaceResizeDecision::Failed;
         }
-        failures.remove(&surface_id);
+        if failures.get(&surface_id).is_some_and(|failure| failure.desired != desired) {
+            failures.remove(&surface_id);
+        }
         drop(failures);
         let mut claims = self.surface_resize_claims.lock().unwrap();
         if claims.get(&surface_id).is_some_and(|claim| claim.desired == desired) {
@@ -1277,6 +1350,8 @@ pub struct App {
     deferred_input: VecDeque<Event>,
     routing_refresh_pending: bool,
     routing_refresh_retries_remaining: u8,
+    background_refresh_attempts: u8,
+    background_refresh_retry_at: Option<Instant>,
     last_applied_refresh_sequence: u64,
     pending_session_completions: VecDeque<SessionCompletion>,
     mux_titles: Arc<MuxTitleIngress>,
@@ -1565,6 +1640,8 @@ pub fn run(
         deferred_input: VecDeque::new(),
         routing_refresh_pending: false,
         routing_refresh_retries_remaining: 0,
+        background_refresh_attempts: 0,
+        background_refresh_retry_at: None,
         last_applied_refresh_sequence: 0,
         pending_session_completions: VecDeque::new(),
         mux_titles,
@@ -1657,6 +1734,7 @@ impl App {
             if self.expire_toast() {
                 action = action.merge(RenderAction::Draw);
             }
+            self.retry_background_refresh_if_due();
             self.render_action(terminal, action)?;
             if self.routing_refresh_pending {
                 self.routing_refresh_pending = false;
@@ -1828,6 +1906,21 @@ impl App {
             && !self.deferred_input.is_empty()
         {
             self.routing_refresh_pending = true;
+        }
+    }
+
+    fn schedule_background_refresh_retry(&mut self) {
+        self.background_refresh_attempts =
+            self.background_refresh_attempts.saturating_add(1).min(6);
+        let delay_seconds = 1_u64 << u32::from(self.background_refresh_attempts.saturating_sub(1));
+        self.background_refresh_retry_at =
+            Some(Instant::now() + Duration::from_secs(delay_seconds.min(30)));
+    }
+
+    fn retry_background_refresh_if_due(&mut self) {
+        if self.background_refresh_retry_at.is_some_and(|retry_at| Instant::now() >= retry_at) {
+            self.background_refresh_retry_at = None;
+            self.session.refresh_remote_tree_background();
         }
     }
 
@@ -2259,6 +2352,8 @@ impl App {
                         self.session.reconcile_exited_surfaces(&tree);
                         self.replace_tree(tree);
                         self.routing_refresh_retries_remaining = 0;
+                        self.background_refresh_attempts = 0;
+                        self.background_refresh_retry_at = None;
                         self.apply_session_completions_through(authoritative_generation);
                         self.complete_remote_tree_refresh(true);
                     }
@@ -2293,7 +2388,7 @@ impl App {
                     }
                     SessionMutationOutcome::SurfaceSyncFailed { surface, operation, error } => {
                         self.status_message = Some(format!(
-                            "surface {surface} {operation} failed; waiting for a lifecycle change: {error}"
+                            "surface {surface} {operation} failed; retries are rate-limited: {error}"
                         ));
                     }
                     SessionMutationOutcome::MutationTimedOut(error) => {
@@ -2334,18 +2429,26 @@ impl App {
                 if !self.accept_refresh_sequence(refresh_sequence) {
                     return Ok(RenderAction::None);
                 }
-                match result {
+                let refreshed = match result {
                     Ok(tree) => {
                         self.session.reconcile_exited_surfaces(&tree);
                         self.replace_tree(tree);
                         self.routing_refresh_pending = true;
                         self.routing_refresh_retries_remaining = 0;
+                        self.background_refresh_attempts = 0;
+                        self.background_refresh_retry_at = None;
+                        true
                     }
                     Err(error) => {
                         self.status_message = Some(format!("refresh remote tree failed: {error}"));
+                        self.schedule_background_refresh_retry();
+                        let _ = self.session.take_background_refresh_dirty();
+                        false
                     }
+                };
+                if refreshed {
+                    self.complete_remote_tree_refresh(true);
                 }
-                self.complete_remote_tree_refresh(true);
                 if !self.session.has_pending_mutations()
                     && !self.session.remote_tree_is_stale()
                     && !self.deferred_input.is_empty()
@@ -5806,6 +5909,23 @@ mod tests {
     }
 
     #[test]
+    fn transient_surface_sync_failures_retry_with_bounded_backoff() {
+        let first = super::next_surface_sync_failure(None, true);
+        assert_eq!(first.attempts, 1);
+        assert!(super::surface_sync_failure_blocks(first));
+
+        let elapsed = super::SurfaceSyncFailureState {
+            attempts: first.attempts,
+            retry_after: Some(std::time::Instant::now() - Duration::from_millis(1)),
+        };
+        assert!(!super::surface_sync_failure_blocks(elapsed));
+        let capped =
+            (0..10).fold(elapsed, |state, _| super::next_surface_sync_failure(Some(state), true));
+        assert_eq!(capped.attempts, 6);
+        assert!(capped.retry_after.unwrap() <= std::time::Instant::now() + Duration::from_secs(30));
+    }
+
+    #[test]
     fn refresh_sequences_are_monotonic_across_identity_and_background_paths() {
         let mux = Mux::new("refresh-sequence-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
@@ -6744,6 +6864,8 @@ mod tests {
             deferred_input: VecDeque::new(),
             routing_refresh_pending: false,
             routing_refresh_retries_remaining: 0,
+            background_refresh_attempts: 0,
+            background_refresh_retry_at: None,
             last_applied_refresh_sequence: 0,
             pending_session_completions: VecDeque::new(),
             mux_titles: Arc::new(MuxTitleIngress::default()),

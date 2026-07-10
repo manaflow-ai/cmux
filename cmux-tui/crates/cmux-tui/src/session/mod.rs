@@ -133,6 +133,13 @@ impl Session {
         }
     }
 
+    pub fn refresh_tree_background(&self) -> anyhow::Result<TreeView> {
+        match self {
+            Session::Local(_) => Ok(self.tree()),
+            Session::Remote(remote) => remote.refresh_tree_background(),
+        }
+    }
+
     /// Make sure the session has at least one workspace to show. `size`
     /// is the expected content size of the first pane, when known.
     pub fn ensure_initial(&self, size: Option<(u16, u16)>) -> anyhow::Result<()> {
