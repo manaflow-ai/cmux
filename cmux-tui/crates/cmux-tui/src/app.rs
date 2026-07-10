@@ -9,7 +9,7 @@
 use std::collections::HashMap;
 use std::io::Write;
 use std::ops::Deref;
-use std::sync::mpsc::{Receiver, RecvTimeoutError, channel};
+use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -51,6 +51,7 @@ pub enum AppEvent {
     Mux(MuxEvent),
     Input(Event),
     PtyOperationFailed(PtyOperationFailure),
+    BrowserTabCreated { pane: Option<PaneId> },
 }
 
 /// Read access stays synchronous, while every UI-originated session mutation
@@ -60,11 +61,12 @@ pub enum AppEvent {
 pub struct OrderedSession {
     inner: Session,
     operations: PtyInputSender,
+    events: Sender<AppEvent>,
 }
 
 impl OrderedSession {
-    fn new(inner: Session, operations: PtyInputSender) -> Self {
-        Self { inner, operations }
+    fn new(inner: Session, operations: PtyInputSender, events: Sender<AppEvent>) -> Self {
+        Self { inner, operations, events }
     }
 
     fn enqueue(
@@ -100,6 +102,21 @@ impl OrderedSession {
 
     pub fn new_tab(&self, pane: Option<PaneId>, size: Option<(u16, u16)>) -> anyhow::Result<()> {
         self.enqueue("create tab", move |session| session.new_tab(pane, size));
+        Ok(())
+    }
+
+    pub fn new_browser_tab(
+        &self,
+        url: String,
+        pane: Option<PaneId>,
+        size: Option<(u16, u16)>,
+    ) -> anyhow::Result<()> {
+        let events = self.events.clone();
+        self.enqueue("create browser tab", move |session| {
+            session.new_browser_tab(url, pane, size)?;
+            let _ = events.send(AppEvent::BrowserTabCreated { pane });
+            Ok(())
+        });
         Ok(())
     }
 
@@ -798,7 +815,7 @@ pub fn run(session: Session, session_label: String) -> anyhow::Result<()> {
     let pty_input = PtyInputDispatcher::spawn(move |failure| {
         let _ = failure_tx.send(AppEvent::PtyOperationFailed(failure));
     })?;
-    let session = OrderedSession::new(session, pty_input.sender());
+    let session = OrderedSession::new(session, pty_input.sender(), tx.clone());
     let stdout_lock = Arc::new(Mutex::new(()));
 
     // Session events → app channel.
@@ -1171,7 +1188,7 @@ impl App {
                     && surface.resize_needed(content.width, content.height, false)
                     && self.prepare_pty_input_before_mutation()
                 {
-                    self.session.resize_surface(
+                    self.enqueue_surface_resize(
                         tab.surface,
                         surface,
                         content.width,
@@ -1269,12 +1286,21 @@ impl App {
             }
             AppEvent::Mux(_) => Ok(RenderAction::Draw),
             AppEvent::PtyOperationFailed(failure) => {
-                if failure.surface_id.is_some_and(|surface| {
-                    matches!(&self.drag, Some(Drag::PtyMouse { surface: active, .. }) if *active == surface)
-                }) {
+                if failure.kind.is_some()
+                    && failure.surface_id.is_some_and(|surface| {
+                        matches!(&self.drag, Some(Drag::PtyMouse { surface: active, .. }) if *active == surface)
+                    })
+                {
                     self.drag = None;
                 }
                 self.status_message = Some(format!("{} failed: {}", failure.label, failure.error));
+                Ok(RenderAction::Draw)
+            }
+            AppEvent::BrowserTabCreated { pane } => {
+                self.tree = self.session.tree();
+                if let Some(pane) = pane.or_else(|| self.active_pane()) {
+                    self.focus_omnibar_with_buffer(pane, String::new(), false);
+                }
                 Ok(RenderAction::Draw)
             }
             AppEvent::Input(Event::Key(key)) => {
@@ -1365,7 +1391,7 @@ impl App {
                 } else if self.prepare_pty_input_before_mutation()
                     && let Some(surface_id) = self.sidebar_plugin_surface
                 {
-                    self.session.resize_surface(surface_id, surface, rect.width, rect.height, true);
+                    self.enqueue_surface_resize(surface_id, surface, rect.width, rect.height, true);
                 }
             }
         }
@@ -1386,7 +1412,7 @@ impl App {
                 if !needs_barrier {
                     surface.reassert_size(area.content.width, area.content.height);
                 } else if self.prepare_pty_input_before_mutation() {
-                    self.session.resize_surface(
+                    self.enqueue_surface_resize(
                         area.surface,
                         surface,
                         area.content.width,
@@ -1402,6 +1428,25 @@ impl App {
         match self.drag {
             Some(Drag::Scrollbar { surface, .. }) => Some(surface),
             _ => None,
+        }
+    }
+
+    fn enqueue_surface_resize(
+        &mut self,
+        surface_id: SurfaceId,
+        surface: SurfaceHandle,
+        cols: u16,
+        rows: u16,
+        reassert: bool,
+    ) {
+        if surface.kind() == SurfaceKind::Browser {
+            self.browser_input.enqueue(BrowserInputEvent {
+                surface_id,
+                surface,
+                kind: BrowserInputKind::Resize { cols, rows, reassert },
+            });
+        } else {
+            self.session.resize_surface(surface_id, surface, cols, rows, reassert);
         }
     }
 
@@ -1513,7 +1558,11 @@ impl App {
         }
         if self.sidebar_focused {
             self.forward_sidebar_key(&key);
-            return Ok(RenderAction::None);
+            return Ok(if self.status_message.is_some() {
+                RenderAction::Draw
+            } else {
+                RenderAction::None
+            });
         }
         if let Some(action) = self.config.keys.modeless_action_for(&key) {
             return self.run_action(action);
@@ -1521,7 +1570,7 @@ impl App {
         // Typing replaces any selection highlight.
         self.selection = None;
         self.forward_key(&key);
-        Ok(RenderAction::None)
+        Ok(if self.status_message.is_some() { RenderAction::Draw } else { RenderAction::None })
     }
 
     /// Commit the open rename dialog (Enter or the OK button).
@@ -1866,11 +1915,6 @@ impl App {
             pane,
             self.browser_tab_size_hint(pane),
         )?;
-        self.tree = self.session.tree();
-        let target_pane = pane.or_else(|| self.active_pane());
-        if let Some(pane) = target_pane {
-            self.focus_omnibar_with_buffer(pane, String::new(), false);
-        }
         Ok(())
     }
 
@@ -4030,7 +4074,8 @@ mod tests {
 
     fn test_app(session: Session) -> App {
         let pty_input = PtyInputDispatcher::spawn(|_| {}).unwrap();
-        let session = OrderedSession::new(session, pty_input.sender());
+        let (events, _) = std::sync::mpsc::channel();
+        let session = OrderedSession::new(session, pty_input.sender(), events);
         App {
             session,
             config: Config::default(),

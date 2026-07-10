@@ -85,6 +85,7 @@ impl PtyInputEvent {
 #[derive(Debug, Clone)]
 pub struct PtyOperationFailure {
     pub surface_id: Option<SurfaceId>,
+    pub kind: Option<PtyInputKind>,
     pub label: &'static str,
     pub error: String,
 }
@@ -227,6 +228,7 @@ impl PtyInputSender {
         {
             (self.on_failure)(PtyOperationFailure {
                 surface_id: None,
+                kind: None,
                 label,
                 error: "operation queue is full; the session was left unchanged".into(),
             });
@@ -337,22 +339,29 @@ fn worker(queue: Arc<SharedQueue>, on_failure: Arc<dyn Fn(PtyOperationFailure) +
             state.queued_bytes = state.queued_bytes.saturating_sub(event.bytes.len());
             event
         };
-        let surface_id = (event.kind != PtyInputKind::Mutation).then_some(event.surface_id);
+        let kind = (event.kind != PtyInputKind::Mutation).then_some(event.kind);
+        let surface_id = kind.map(|_| event.surface_id);
         let result = if let Some(operation) = event.mutation {
             operation()
         } else {
             event.surface.write_bytes(&event.bytes)
         };
-        if let Err(error) = result {
-            on_failure(PtyOperationFailure {
-                surface_id,
-                label: event.label,
-                error: error.to_string(),
-            });
-        }
+        let failure = result.err().map(|error| PtyOperationFailure {
+            surface_id,
+            kind,
+            label: event.label,
+            error: error.to_string(),
+        });
         let mut state = queue.state.lock().unwrap();
+        if failure.is_some() && kind == Some(PtyInputKind::Press) {
+            state.release_reservations = state.release_reservations.saturating_sub(1);
+        }
         state.in_flight = false;
         queue.changed.notify_all();
+        drop(state);
+        if let Some(failure) = failure {
+            on_failure(failure);
+        }
     }
 }
 
@@ -600,6 +609,7 @@ mod tests {
 
         let failure = failure_rx.recv_timeout(Duration::from_secs(1)).unwrap();
         assert_eq!(failure.surface_id, Some(42));
+        assert_eq!(failure.kind, Some(PtyInputKind::Ordered));
         assert_eq!(failure.label, "PTY input");
         assert!(failure.error.contains("browser surface"));
     }

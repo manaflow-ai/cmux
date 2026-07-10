@@ -59,6 +59,11 @@ pub enum BrowserInputKind {
         text: Option<&'static str>,
     },
     InsertText(String),
+    Resize {
+        cols: u16,
+        rows: u16,
+        reassert: bool,
+    },
 }
 
 impl BrowserInputKind {
@@ -66,6 +71,10 @@ impl BrowserInputKind {
     /// the same surface, only the newest matters.
     fn is_mouse_move(&self) -> bool {
         matches!(self, BrowserInputKind::Mouse { event_type: "mouseMoved", .. })
+    }
+
+    fn is_resize(&self) -> bool {
+        matches!(self, BrowserInputKind::Resize { .. })
     }
 }
 
@@ -95,7 +104,7 @@ fn worker(rx: Receiver<BrowserInputEvent>) {
         while let Ok(next) = rx.try_recv() {
             batch.push(next);
         }
-        coalesce_mouse_moves(&mut batch);
+        coalesce_browser_events(&mut batch);
         for event in batch {
             dispatch(&event);
         }
@@ -105,12 +114,14 @@ fn worker(rx: Receiver<BrowserInputEvent>) {
 /// Drop a mouse move when the next event is also a mouse move on the
 /// same surface: only the final position of a consecutive run is
 /// forwarded. Clicks, keys, and wheel events keep their order.
-fn coalesce_mouse_moves(batch: &mut Vec<BrowserInputEvent>) {
+fn coalesce_browser_events(batch: &mut Vec<BrowserInputEvent>) {
     let mut index = 0;
     while index + 1 < batch.len() {
-        let drop_current = batch[index].kind.is_mouse_move()
-            && batch[index + 1].kind.is_mouse_move()
-            && batch[index].surface_id == batch[index + 1].surface_id;
+        let same_coalescing_kind = (batch[index].kind.is_mouse_move()
+            && batch[index + 1].kind.is_mouse_move())
+            || (batch[index].kind.is_resize() && batch[index + 1].kind.is_resize());
+        let drop_current =
+            same_coalescing_kind && batch[index].surface_id == batch[index + 1].surface_id;
         if drop_current {
             batch.remove(index);
         } else {
@@ -142,6 +153,14 @@ fn dispatch(event: &BrowserInputEvent) {
             *text,
         ),
         BrowserInputKind::InsertText(text) => surface.browser_insert_text(text),
+        BrowserInputKind::Resize { cols, rows, reassert } => {
+            if *reassert {
+                surface.reassert_size(*cols, *rows);
+            } else {
+                surface.resize(*cols, *rows);
+            }
+            Ok(())
+        }
     };
 }
 
@@ -177,6 +196,14 @@ mod tests {
         }
     }
 
+    fn resize_event(surface: SurfaceId, cols: u16) -> BrowserInputEvent {
+        BrowserInputEvent {
+            surface_id: surface,
+            surface: SurfaceHandle::RemoteBrowserUnsupported,
+            kind: BrowserInputKind::Resize { cols, rows: 24, reassert: false },
+        }
+    }
+
     fn positions(batch: &[BrowserInputEvent]) -> Vec<(&'static str, SurfaceId)> {
         batch
             .iter()
@@ -190,7 +217,7 @@ mod tests {
     #[test]
     fn consecutive_moves_on_same_surface_keep_latest_only() {
         let mut batch = vec![move_event(1, 1.0), move_event(1, 2.0), move_event(1, 3.0)];
-        coalesce_mouse_moves(&mut batch);
+        coalesce_browser_events(&mut batch);
         assert_eq!(batch.len(), 1);
         match batch[0].kind {
             BrowserInputKind::Mouse { x, .. } => assert_eq!(x, 3.0),
@@ -201,7 +228,7 @@ mod tests {
     #[test]
     fn clicks_break_coalescing_and_keep_order() {
         let mut batch = vec![move_event(1, 1.0), click_event(1), move_event(1, 2.0)];
-        coalesce_mouse_moves(&mut batch);
+        coalesce_browser_events(&mut batch);
         assert_eq!(
             positions(&batch),
             vec![("mouseMoved", 1), ("mousePressed", 1), ("mouseMoved", 1)]
@@ -211,7 +238,19 @@ mod tests {
     #[test]
     fn moves_on_different_surfaces_are_kept() {
         let mut batch = vec![move_event(1, 1.0), move_event(2, 1.0)];
-        coalesce_mouse_moves(&mut batch);
+        coalesce_browser_events(&mut batch);
         assert_eq!(batch.len(), 2);
+    }
+
+    #[test]
+    fn consecutive_resizes_keep_latest_without_crossing_clicks() {
+        let mut batch = vec![resize_event(1, 80), resize_event(1, 100), click_event(1)];
+        coalesce_browser_events(&mut batch);
+        assert_eq!(batch.len(), 2);
+        match batch[0].kind {
+            BrowserInputKind::Resize { cols, .. } => assert_eq!(cols, 100),
+            _ => panic!("expected resize event"),
+        }
+        assert!(matches!(batch[1].kind, BrowserInputKind::Mouse { .. }));
     }
 }
