@@ -143,6 +143,7 @@ struct CmxIrohClientRuntimeTests {
             relay: fixture.relayResponse()
         )
         let offlineStore = TestSecureCredentialStore()
+        let recorder = ClientRuntimeTestRecorder()
         let runtime = try CmxIrohClientRuntime(
             factory: TestIrohEndpointFactory(endpoints: [endpoint]),
             broker: broker,
@@ -150,7 +151,10 @@ struct CmxIrohClientRuntimeTests {
             offlinePolicyCache: CmxIrohClientOfflinePolicyCache(
                 secureStore: offlineStore
             ),
-            now: { fixture.now }
+            now: { fixture.now },
+            handlePolicyInvalidation: {
+                await recorder.recordPolicyInvalidation()
+            }
         )
         try await runtime.start()
         let terminal = CmxIrohTrustBrokerClientError.rejected(
@@ -166,6 +170,7 @@ struct CmxIrohClientRuntimeTests {
         #expect(await runtime.snapshot().state == .failed)
         #expect(await endpoint.observedCloseCallCount() == 1)
         #expect(await offlineStore.deleteAllCount() == 1)
+        #expect(await recorder.observedPolicyInvalidationCount() == 1)
     }
 
     @Test
@@ -178,6 +183,7 @@ struct CmxIrohClientRuntimeTests {
             relay: fixture.relayResponse()
         )
         let offlineStore = TestSecureCredentialStore()
+        let recorder = ClientRuntimeTestRecorder()
         let runtime = try CmxIrohClientRuntime(
             factory: TestIrohEndpointFactory(endpoints: [endpoint]),
             broker: broker,
@@ -185,7 +191,10 @@ struct CmxIrohClientRuntimeTests {
             offlinePolicyCache: CmxIrohClientOfflinePolicyCache(
                 secureStore: offlineStore
             ),
-            now: { fixture.now }
+            now: { fixture.now },
+            handlePolicyInvalidation: {
+                await recorder.recordPolicyInvalidation()
+            }
         )
         try await runtime.start()
         await broker.setRegistrationError(CmxIrohTrustBrokerClientError.connectivity)
@@ -195,6 +204,7 @@ struct CmxIrohClientRuntimeTests {
         #expect(await runtime.snapshot().state == .active)
         #expect(await endpoint.observedCloseCallCount() == 0)
         #expect(await offlineStore.deleteAllCount() == 0)
+        #expect(await recorder.observedPolicyInvalidationCount() == 0)
         await runtime.stop()
     }
 

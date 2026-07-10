@@ -5,6 +5,7 @@ actor ClientRuntimeTestRecorder {
     private var relayCount = 0
     private var localWipeEndpointWasClosed: [Bool] = []
     private var cachedBindingDeviceIDs: [[String]] = []
+    private var policyInvalidationCount = 0
 
     func recordBinding() {
         bindingCount += 1
@@ -22,8 +23,13 @@ actor ClientRuntimeTestRecorder {
         cachedBindingDeviceIDs.append(bindings.map(\.deviceID))
     }
 
+    func recordPolicyInvalidation() {
+        policyInvalidationCount += 1
+    }
+
     func observedBindingCount() -> Int { bindingCount }
     func observedRelayCount() -> Int { relayCount }
     func observedLocalWipes() -> [Bool] { localWipeEndpointWasClosed }
     func observedCachedBindingDeviceIDs() -> [[String]] { cachedBindingDeviceIDs }
+    func observedPolicyInvalidationCount() -> Int { policyInvalidationCount }
 }

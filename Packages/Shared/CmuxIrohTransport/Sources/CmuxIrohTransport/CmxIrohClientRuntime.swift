@@ -27,6 +27,9 @@ public actor CmxIrohClientRuntime {
     /// Removes account-local identity, binding, relay, and route cache state.
     public typealias LocalDeactivationHandler = @Sendable () async -> Void
 
+    /// Removes persisted binding and route state after terminal broker evidence.
+    public typealias PolicyInvalidationHandler = @Sendable () async -> Void
+
     private struct ResolvedPolicy: Sendable {
         let registration: CmxIrohRegistrationResponse?
         let discovery: CmxIrohDiscoveryResponse?
@@ -54,6 +57,7 @@ public actor CmxIrohClientRuntime {
     private let handleCachedBindings: CachedBindingsHandler
     private let handleRelayCredential: RelayCredentialHandler
     private let handleLocalDeactivation: LocalDeactivationHandler
+    private let handlePolicyInvalidation: PolicyInvalidationHandler
 
     private var lifecycleRevision: UInt64 = 0
     private var desiredActive = false
@@ -84,6 +88,7 @@ public actor CmxIrohClientRuntime {
     ///   - handleBinding: Persists the exact verified binding and discovery state.
     ///   - handleRelayCredential: Persists an installed relay credential.
     ///   - handleLocalDeactivation: Wipes account-local Iroh caches during sign-out.
+    ///   - handlePolicyInvalidation: Clears persisted broker routes after a terminal refresh.
     /// - Throws: An endpoint configuration error for an invalid cached relay set.
     public init(
         factory: any CmxIrohEndpointFactory,
@@ -99,7 +104,8 @@ public actor CmxIrohClientRuntime {
         handleBinding: @escaping BindingHandler = { _, _ in },
         handleCachedBindings: @escaping CachedBindingsHandler = { _, _ in },
         handleRelayCredential: @escaping RelayCredentialHandler = { _, _ in },
-        handleLocalDeactivation: @escaping LocalDeactivationHandler = {}
+        handleLocalDeactivation: @escaping LocalDeactivationHandler = {},
+        handlePolicyInvalidation: @escaping PolicyInvalidationHandler = {}
     ) throws {
         let cachedRelays = Self.cachedRelayConfigurations(
             configuration: configuration,
@@ -134,6 +140,7 @@ public actor CmxIrohClientRuntime {
         self.handleCachedBindings = handleCachedBindings
         self.handleRelayCredential = handleRelayCredential
         self.handleLocalDeactivation = handleLocalDeactivation
+        self.handlePolicyInvalidation = handlePolicyInvalidation
         transportFactory = CmxIrohByteTransportFactory(sessionPool: sessionPool)
     }
 
@@ -210,15 +217,15 @@ public actor CmxIrohClientRuntime {
     /// A healthy generation is reused. A stale driver is recreated with the
     /// same secret key before registration is refreshed.
     ///
-    /// - Throws: A replacement-bind error. Transient registration failure keeps
-    ///   the last verified local policy and is retried by later network events.
+    /// - Throws: A replacement-bind or terminal policy-refresh error. Connectivity
+    ///   failure keeps the last verified local policy for a later retry.
     public func didBecomeActive() async throws {
         guard desiredActive else { return }
         let revision = lifecycleRevision
         let checked = try await supervisor.ensureHealthy()
         try requireCurrent(revision)
         await sessionPool.activate(runtimeGeneration: checked.runtimeGeneration)
-        await refreshRegistration(revision: revision)
+        try await refreshRegistration(revision: revision)
     }
 
     /// Opens a terminal or artifact lane on the admitted pooled peer connection.
@@ -528,11 +535,15 @@ public actor CmxIrohClientRuntime {
               lifecycleRevision == revision,
               registrationRefreshTask == nil else { return }
         registrationRefreshTask = Task { [weak self] in
-            await self?.refreshRegistration(revision: revision)
+            do {
+                try await self?.refreshRegistration(revision: revision)
+            } catch {
+                // Terminal errors already revoke local policy and stop networking.
+            }
         }
     }
 
-    private func refreshRegistration(revision: UInt64) async {
+    private func refreshRegistration(revision: UInt64) async throws {
         defer { registrationRefreshTask = nil }
         guard desiredActive,
               lifecycleRevision == revision,
@@ -561,7 +572,21 @@ public actor CmxIrohClientRuntime {
                 await handleCachedBindings(policy.cachedTargetBindings, lanRendezvous)
             }
         } catch {
-            // Keep the last exact verified binding across transient broker failure.
+            guard !Self.isConnectivity(error) else {
+                // Keep the last exact verified binding only while the broker is unreachable.
+                return
+            }
+            desiredActive = false
+            lifecycleRevision &+= 1
+            currentSnapshot = CmxIrohClientRuntimeSnapshot(
+                state: .failed,
+                endpointID: nil,
+                bindingID: previousBinding.bindingID
+            )
+            try? await offlinePolicyCache?.deactivate()
+            await tearDownNetwork()
+            await handlePolicyInvalidation()
+            throw error
         }
     }
 

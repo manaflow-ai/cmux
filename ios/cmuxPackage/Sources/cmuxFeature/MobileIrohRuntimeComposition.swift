@@ -569,6 +569,18 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
                 try? await brokerCredentials.deactivate()
                 try? await identities.deactivate()
                 await appInstances.deactivate()
+            },
+            handlePolicyInvalidation: { [weak self] in
+                await routeCatalog.deactivate(scope: revision)
+                await lanPeerDiscovery?.stop()
+                try? await credentialRepository.deactivate()
+                await MainActor.run {
+                    guard let self,
+                          revision == self.lifecycleRevision,
+                          self.activeAccountID == accountID else { return }
+                    self.runtime = nil
+                    self.lastKnownBindingID = nil
+                }
             }
         )
         await routeCatalog.activate(scope: revision)
