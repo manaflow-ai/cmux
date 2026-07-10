@@ -98,7 +98,7 @@ struct SimulatorUSKeyboardTextEncoderTests {
         #expect(sequence.completionTimeoutSeconds <= 120)
     }
 
-    @Test("CR is skipped while LF still maps to Enter")
+    @Test("CRLF and standalone CR each map to one Enter")
     func carriageReturnNormalization() throws {
         let enter = [
             SimulatorKeyEvent(usage: 0x28, phase: .down),
@@ -109,17 +109,19 @@ struct SimulatorUSKeyboardTextEncoderTests {
         #expect(crlf.events == enter)
 
         let lone = try SimulatorUSKeyboardTextEncoder().encode("a\rb")
-        #expect(lone.characterCount == 2)
+        #expect(lone.characterCount == 3)
         #expect(lone.events == [
             SimulatorKeyEvent(usage: 0x04, phase: .down),
             SimulatorKeyEvent(usage: 0x04, phase: .up),
+            SimulatorKeyEvent(usage: 0x28, phase: .down),
+            SimulatorKeyEvent(usage: 0x28, phase: .up),
             SimulatorKeyEvent(usage: 0x05, phase: .down),
             SimulatorKeyEvent(usage: 0x05, phase: .up),
         ])
 
         let carriageReturnOnly = try SimulatorUSKeyboardTextEncoder().encode("\r")
-        #expect(carriageReturnOnly.characterCount == 0)
-        #expect(carriageReturnOnly.events.isEmpty)
+        #expect(carriageReturnOnly.characterCount == 1)
+        #expect(carriageReturnOnly.events == enter)
     }
 
     @Test("Decoded sequences must remain balanced")
