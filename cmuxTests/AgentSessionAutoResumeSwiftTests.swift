@@ -57,7 +57,8 @@ struct AgentSessionAutoResumeSwiftTests {
                 statusEntries: [:],
                 agentPIDs: [pidKey: livePid],
                 agentPIDProcessIdentities: [pidKey: savedIdentity],
-                agentPIDKeys: [pidKey]
+                agentPIDKeys: [pidKey],
+                dynamicAgentRowKeys: []
             )
         )
 

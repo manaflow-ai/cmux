@@ -12621,14 +12621,20 @@ private struct SidebarFooter: View {
     let onSendFeedback: () -> Void
 
     var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Renders only while the globalSection debug variant is selected.
+            // Owns its TabManager observation internally so the footer (and
+            // the dev footer) never re-render on TabManager changes.
+            SidebarGlobalAgentsSection(fontScale: 1)
 #if DEBUG
-        SidebarDevFooter(updateViewModel: updateViewModel, fileExplorerState: fileExplorerState, onSendFeedback: onSendFeedback)
+            SidebarDevFooter(updateViewModel: updateViewModel, fileExplorerState: fileExplorerState, onSendFeedback: onSendFeedback)
 #else
-        SidebarFooterButtons(updateViewModel: updateViewModel, fileExplorerState: fileExplorerState, onSendFeedback: onSendFeedback)
-            .padding(.leading, 6)
-            .padding(.trailing, 10)
-            .padding(.bottom, 6)
+            SidebarFooterButtons(updateViewModel: updateViewModel, fileExplorerState: fileExplorerState, onSendFeedback: onSendFeedback)
+                .padding(.leading, 6)
+                .padding(.trailing, 10)
+                .padding(.bottom, 6)
 #endif
+        }
     }
 }
 
@@ -13167,6 +13173,7 @@ struct SidebarWorkspaceSnapshotBuilder {
         let copyableSidebarSSHError: String?
         let latestConversationMessage: String?
         let metadataEntries: [SidebarStatusEntry]
+        let agentStatusRows: [SidebarAgentStatusRow]
         let metadataBlocks: [SidebarMetadataBlock]
         let latestLog: SidebarLogEntry?
         let progress: SidebarProgressState?
@@ -13347,6 +13354,22 @@ struct TabItemView: View, Equatable {
         settings.activeTabIndicatorStyle
     }
 
+    // Debug lab observation: bounded (it mutates only on explicit picks in
+    // the Agent Rows Style window) and removed with the lab once a final
+    // design ships. Needed here because the graphite prototype restyles the
+    // workspace card's own selection background and border.
+    @ObservedObject private var agentRowsVariantStore = SidebarAgentRowsVariantStore.shared
+
+    /// Feature-flag gate for the whole per-agent rows surface (rows, graphite
+    /// card styling, lab variants). Off = the pre-feature status pills.
+    private var agentRowsFeatureEnabled: Bool {
+        CmuxFeatureFlags.shared.isSidebarAgentRowsEnabled
+    }
+
+    private var usesGraphiteVariant: Bool {
+        agentRowsFeatureEnabled && agentRowsVariantStore.variant == .graphite
+    }
+
     private var isActive: Bool {
         observedIsActive ?? (tabManager.selectedTabId == tab.id)
     }
@@ -13360,10 +13383,84 @@ struct TabItemView: View, Equatable {
     }
 
     private var selectedWorkspaceBackgroundNSColor: NSColor {
-        sidebarSelectedWorkspaceBackgroundNSColor(
+        // Debug lab "graphite" prototype v2: the selection is a dark tint of
+        // the workspace's own color (custom color when set, else the user's
+        // selection color), borderless. The foreground helper below
+        // auto-contrasts on it. Dies with the variant lab once a final design
+        // ships.
+        if usesGraphiteVariant {
+            return graphiteSelectionFillNSColor
+        }
+        return sidebarSelectedWorkspaceBackgroundNSColor(
             for: colorScheme,
             sidebarSelectionColorHex: sidebarSelectionColorHex
         )
+    }
+
+    /// Graphite prototype: selected-card fill = the workspace's color pulled
+    /// far toward the sidebar base, so custom colors survive as a tint
+    /// instead of a saturated slab. With no custom color (and no explicitly
+    /// customized selection color) the default is a neutral grey, not the
+    /// accent blue.
+    private var graphiteSelectionFillNSColor: NSColor {
+        let explicitBase: NSColor? = workspaceSnapshot.customColorHex.flatMap {
+            WorkspaceTabColorSettings.displayNSColor(
+                hex: $0,
+                colorScheme: colorScheme,
+                forceBright: false
+            )
+        } ?? sidebarSelectionColorHex.flatMap { NSColor(hex: $0) }
+        guard let base = explicitBase else {
+            return colorScheme == .dark
+                ? NSColor(calibratedWhite: 0.24, alpha: 1.0)
+                : NSColor(calibratedWhite: 0.82, alpha: 1.0)
+        }
+        let srgbBase = base.usingColorSpace(.sRGB) ?? base
+        let dimBase = colorScheme == .dark
+            ? NSColor(calibratedWhite: 0.14, alpha: 1.0)
+            : NSColor(calibratedWhite: 0.92, alpha: 1.0)
+        return srgbBase.blended(withFraction: colorScheme == .dark ? 0.66 : 0.45, of: dimBase) ?? srgbBase
+    }
+
+    /// Graphite prototype: the ACTIVE agent row is an even darker shade of
+    /// the same selection hue.
+    private var graphiteActiveAgentRowNSColor: NSColor {
+        let fill = graphiteSelectionFillNSColor
+        let deep = colorScheme == .dark
+            ? NSColor.black
+            : NSColor(calibratedWhite: 0.5, alpha: 1.0)
+        return fill.blended(withFraction: 0.38, of: deep) ?? fill
+    }
+
+    /// Shared mount for the in-card agents accordion; used at both placements
+    /// (top of card / below the branch line).
+    @ViewBuilder
+    private var inCardAgentRowsMount: some View {
+        if !workspaceSnapshot.agentStatusRows.isEmpty {
+            SidebarAgentStatusInCardRows(
+                rows: workspaceSnapshot.agentStatusRows,
+                activePanelId: tab.focusedPanelId,
+                isActive: usesInvertedActiveForeground,
+                activeForegroundColor: activeSecondaryColor(0.95),
+                activeAgentRowColor: Color(nsColor: graphiteActiveAgentRowNSColor),
+                fontScale: fontScale,
+                onFocus: { updateSelection() },
+                onFocusPanel: { panelId in
+                    // The notification-jump path owns cross-workspace focus:
+                    // plain updateSelection + focusPanel loses to the
+                    // workspace's own focus restoration when the workspace
+                    // was not already selected.
+                    if AppDelegate.shared?.notificationNavigation.open(
+                        tabId: tab.id,
+                        surfaceId: panelId,
+                        notificationId: nil
+                    ) != true {
+                        updateSelection()
+                        tab.focusPanel(panelId)
+                    }
+                }
+            )
+        }
     }
 
     private func selectedWorkspaceForegroundNSColor(opacity: CGFloat) -> NSColor {
@@ -13422,6 +13519,9 @@ struct TabItemView: View, Equatable {
     }
 
     private var activeBorderLineWidth: CGFloat {
+        if usesGraphiteVariant {
+            return 0
+        }
         switch activeTabIndicatorStyle {
         case .leftRail:
             return 0
@@ -13432,6 +13532,9 @@ struct TabItemView: View, Equatable {
 
     private var activeBorderColor: Color {
         guard isActive else { return .clear }
+        if usesGraphiteVariant {
+            return .clear
+        }
         switch activeTabIndicatorStyle {
         case .leftRail:
             return .clear
@@ -13762,6 +13865,9 @@ struct TabItemView: View, Equatable {
             if detailVisibility.showsMetadata {
                 let metadataEntries = workspaceSnapshot.metadataEntries
                 let metadataBlocks = workspaceSnapshot.metadataBlocks
+                if agentRowsVariantStore.inCardPlacement == .top {
+                    inCardAgentRowsMount
+                }
                 if !metadataEntries.isEmpty {
                     SidebarMetadataRows(
                         entries: metadataEntries,
@@ -13913,6 +14019,12 @@ struct TabItemView: View, Equatable {
                         )
                     }
                 }
+            }
+
+            // Agents accordion below the branch/directory line (default
+            // placement; switchable to top-of-card in the debug lab).
+            if detailVisibility.showsMetadata, agentRowsVariantStore.inCardPlacement == .belowBranch {
+                inCardAgentRowsMount
             }
 
             // Pull request rows
@@ -14145,7 +14257,27 @@ struct TabItemView: View, Equatable {
                 }
         }
         let _ = SidebarProfilingSignposts.end(signpost)
-        rowView
+        // Agent rows live BELOW the workspace card, not inside it: the card's
+        // whole-row tap gesture selects the workspace, so embedded rows could
+        // not be clicked independently. Out here each agent is its own
+        // full-width click target.
+        VStack(alignment: .leading, spacing: 2) {
+            rowView
+            if detailVisibility.showsMetadata, !workspaceSnapshot.agentStatusRows.isEmpty {
+                SidebarAgentStatusRows(
+                    rows: workspaceSnapshot.agentStatusRows,
+                    fontScale: fontScale,
+                    onFocus: { updateSelection() },
+                    onFocusPanel: { panelId in
+                        updateSelection()
+                        tab.focusPanel(panelId)
+                    }
+                )
+                .padding(.leading, 14)
+                .padding(.trailing, 6)
+                .transition(.opacity)
+            }
+        }
     }
     private func beginInlineRename() {
         updateSelection()
@@ -14475,6 +14607,11 @@ struct TabItemView: View, Equatable {
     }
 
     private var backgroundColor: Color {
+        // Debug lab "graphite" prototype v2: dark tint of the workspace's
+        // own color. Dies with the variant lab once a final design ships.
+        if usesGraphiteVariant, isActive {
+            return Color(nsColor: graphiteSelectionFillNSColor)
+        }
         let style = sidebarWorkspaceRowBackgroundStyle(
             activeTabIndicatorStyle: activeTabIndicatorStyle,
             isActive: isActive,
@@ -14774,6 +14911,11 @@ struct TabItemView: View, Equatable {
             return pullRequestDisplays(orderedPanelIds: orderedPanelIds)
         }()
 
+        let agentStatusRows = detailVisibility.showsMetadata && CmuxFeatureFlags.shared.isSidebarAgentRowsEnabled
+            ? tab.sidebarAgentStatusRows()
+            : []
+        let agentRowStatusKeys = Set(agentStatusRows.map(\.statusKey))
+
         return SidebarWorkspaceSnapshotBuilder.Snapshot(
             presentationKey: workspaceSnapshotPresentationKey,
             title: tab.title,
@@ -14787,7 +14929,10 @@ struct TabItemView: View, Equatable {
                 && (tab.remoteConnectionState == .suspended || tab.remoteConnectionState == .disconnected),
             copyableSidebarSSHError: copyableSidebarSSHError,
             latestConversationMessage: tab.latestConversationMessage,
-            metadataEntries: detailVisibility.showsMetadata ? tab.sidebarStatusEntriesInDisplayOrder() : [],
+            metadataEntries: detailVisibility.showsMetadata
+                ? tab.sidebarStatusEntriesInDisplayOrder().filter { !agentRowStatusKeys.contains($0.key) }
+                : [],
+            agentStatusRows: agentStatusRows,
             metadataBlocks: detailVisibility.showsMetadata ? tab.sidebarMetadataBlocksInDisplayOrder() : [],
             latestLog: detailVisibility.showsLog ? tab.logEntries.last : nil,
             progress: detailVisibility.showsProgress ? tab.progress : nil,
@@ -15348,162 +15493,6 @@ private extension String {
         guard truncated else { return self }
         let trimmed = result.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? "..." : trimmed + "..."
-    }
-}
-
-private struct SidebarMetadataRows: View {
-    let entries: [SidebarStatusEntry]
-    let isActive: Bool
-    let activeForegroundColor: Color
-    let activeSecondaryForegroundColor: Color
-    let fontScale: CGFloat
-    let onFocus: () -> Void
-
-    @State private var isExpanded: Bool = false
-    private let collapsedEntryLimit = 3
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            ForEach(visibleEntries, id: \.key) { entry in
-                SidebarMetadataEntryRow(
-                    entry: entry,
-                    isActive: isActive,
-                    activeForegroundColor: activeForegroundColor,
-                    fontScale: fontScale,
-                    onFocus: onFocus
-                )
-            }
-
-            if shouldShowToggle {
-                Button(isExpanded ? String(localized: "sidebar.metadata.showLess", defaultValue: "Show less") : String(localized: "sidebar.metadata.showMore", defaultValue: "Show more")) {
-                    onFocus()
-                    withAnimation(.easeInOut(duration: 0.15)) {
-                        isExpanded.toggle()
-                    }
-                }
-                .buttonStyle(.plain)
-                .cmuxFont(size: 10 * fontScale, weight: .semibold)
-                .foregroundColor(isActive ? activeSecondaryForegroundColor : .secondary.opacity(0.9))
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-        }
-        .safeHelp(helpText)
-    }
-
-    private var visibleEntries: [SidebarStatusEntry] {
-        guard !isExpanded, entries.count > collapsedEntryLimit else { return entries }
-        return Array(entries.prefix(collapsedEntryLimit))
-    }
-
-    private var helpText: String {
-        entries.map { entry in
-            let trimmed = entry.value.trimmingCharacters(in: .whitespacesAndNewlines)
-            return trimmed.isEmpty ? entry.key : trimmed
-        }
-        .joined(separator: "\n")
-    }
-
-    private var shouldShowToggle: Bool {
-        entries.count > collapsedEntryLimit
-    }
-}
-
-private struct SidebarMetadataEntryRow: View {
-    let entry: SidebarStatusEntry
-    let isActive: Bool
-    let activeForegroundColor: Color
-    let fontScale: CGFloat
-    let onFocus: () -> Void
-
-    var body: some View {
-        Group {
-            if let url = entry.url {
-                Button {
-                    onFocus()
-                    NSWorkspace.shared.open(url)
-                } label: {
-                    rowContent(underlined: true)
-                }
-                .buttonStyle(.plain)
-                .safeHelp(url.absoluteString)
-            } else {
-                rowContent(underlined: false)
-                    .contentShape(Rectangle())
-                    .onTapGesture { onFocus() }
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func rowContent(underlined: Bool) -> some View {
-        HStack(alignment: .center, spacing: 4) {
-            if let icon = iconView {
-                icon
-                    .foregroundColor(foregroundColor.opacity(0.95))
-            }
-            metadataText(underlined: underlined)
-                .lineLimit(1)
-                .truncationMode(.tail)
-            Spacer(minLength: 0)
-        }
-        .cmuxFont(size: 10 * fontScale)
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private var foregroundColor: Color {
-        if isActive,
-           let raw = entry.color,
-           Color(hex: raw) != nil {
-            return activeForegroundColor
-        }
-        if let raw = entry.color, let explicit = Color(hex: raw) {
-            return explicit
-        }
-        return isActive ? activeForegroundColor.opacity(0.84) : .secondary
-    }
-
-    private var iconView: AnyView? {
-        guard let iconRaw = entry.icon?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !iconRaw.isEmpty else {
-            return nil
-        }
-        if iconRaw.hasPrefix("emoji:") {
-            let value = String(iconRaw.dropFirst("emoji:".count))
-            guard !value.isEmpty else { return nil }
-            return AnyView(Text(value).cmuxFont(size: 9 * fontScale))
-        }
-        if iconRaw.hasPrefix("text:") {
-            let value = String(iconRaw.dropFirst("text:".count))
-            guard !value.isEmpty else { return nil }
-            return AnyView(Text(value).cmuxFont(size: 8 * fontScale, weight: .semibold))
-        }
-        let symbolName: String
-        if iconRaw.hasPrefix("sf:") {
-            symbolName = String(iconRaw.dropFirst("sf:".count))
-        } else {
-            symbolName = iconRaw
-        }
-        guard !symbolName.isEmpty else { return nil }
-        return AnyView(CmuxSystemSymbolImage(magnified: symbolName, pointSize: 8 * fontScale, weight: .medium))
-    }
-
-    @ViewBuilder
-    private func metadataText(underlined: Bool) -> some View {
-        let trimmed = entry.value.trimmingCharacters(in: .whitespacesAndNewlines)
-        let display = trimmed.isEmpty ? entry.key : trimmed
-        if entry.format == .markdown,
-           let attributed = try? AttributedString(
-                markdown: display,
-                options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)
-           ) {
-            Text(attributed)
-                .underline(underlined)
-                .foregroundColor(foregroundColor)
-        } else {
-            Text(display)
-                .underline(underlined)
-                .foregroundColor(foregroundColor)
-        }
     }
 }
 

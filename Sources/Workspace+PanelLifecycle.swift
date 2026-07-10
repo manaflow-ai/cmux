@@ -6,7 +6,7 @@ import Foundation
 import CmuxSidebar
 
 extension Workspace {
-    private static let structuredAgentHookStatusKeys = AgentHibernationLifecycleStatusKeys.allowedStatusKeys
+    static let structuredAgentHookStatusKeys = AgentHibernationLifecycleStatusKeys.allowedStatusKeys
     private static let managedSubagentEnvironmentKey = "CMUX_AGENT_MANAGED_SUBAGENT"
     private static let truthyStartupEnvironmentValues: Set<String> = ["1", "true", "yes", "on", "enabled"]
 
@@ -47,9 +47,20 @@ extension Workspace {
                 agentPIDIdentitiesForPanel[key] = agentPIDProcessIdentitiesByKey[key]
             }
             let statusKey = agentStatusKey(forAgentPIDKey: key)
-            if let statusEntry = statusEntries[statusKey] {
+            if let statusEntry = statusEntriesByPanelId[panelId]?[statusKey] {
+                statusEntriesForPanel[statusKey] = statusEntry
+            } else if panelsOwningAgentStatusKey(statusKey).isSubset(of: [panelId]),
+                      let statusEntry = statusEntries[statusKey] {
+                // The workspace-level slot is last-write-wins across panes, so
+                // only attribute it to this panel when no other pane can own
+                // the key; otherwise a transferred pane would adopt a sibling
+                // agent's status text as its own.
                 statusEntriesForPanel[statusKey] = statusEntry
             }
+        }
+        for (statusKey, statusEntry) in statusEntriesByPanelId[panelId] ?? [:]
+        where statusEntriesForPanel[statusKey] == nil {
+            statusEntriesForPanel[statusKey] = statusEntry
         }
         guard !statusEntriesForPanel.isEmpty || !agentPIDsForPanel.isEmpty || !pidKeys.isEmpty else { return nil }
         return DetachedAgentRuntimeState(
@@ -57,7 +68,8 @@ extension Workspace {
             statusEntries: statusEntriesForPanel,
             agentPIDs: agentPIDsForPanel,
             agentPIDProcessIdentities: agentPIDIdentitiesForPanel,
-            agentPIDKeys: pidKeys
+            agentPIDKeys: pidKeys,
+            dynamicAgentRowKeys: dynamicAgentRowKeys.intersection(statusEntriesForPanel.keys)
         )
     }
 
@@ -71,7 +83,7 @@ extension Workspace {
         return String(key[..<dotIndex])
     }
 
-    private func hasAgentRuntime(forStatusKey statusKey: String) -> Bool {
+    func hasAgentRuntime(forStatusKey statusKey: String) -> Bool {
         for key in agentPIDs.keys where agentStatusKey(forAgentPIDKey: key) == statusKey {
             return true
         }
@@ -81,62 +93,22 @@ extension Workspace {
         return false
     }
 
-    private func removeAgentPIDOwnership(key: String) {
-        if let previousPanelId = agentPIDPanelIdsByKey[key] {
-            agentPIDKeysByPanelId[previousPanelId]?.remove(key)
-            if agentPIDKeysByPanelId[previousPanelId]?.isEmpty == true {
-                agentPIDKeysByPanelId.removeValue(forKey: previousPanelId)
-            }
-            agentPIDPanelIdsByKey.removeValue(forKey: key)
-        }
-    }
-
-    private func recordAgentPIDOwnership(key: String, panelId: UUID) {
-        if let previousPanelId = agentPIDPanelIdsByKey[key], previousPanelId != panelId {
-            removeAgentPIDOwnership(key: key)
-        }
-        if isStructuredAgentHookPIDKey(key) {
-            let statusKey = agentStatusKey(forAgentPIDKey: key)
-            let stalePanelKeys = agentPIDKeysByPanelId[panelId]?.filter {
-                $0 != key &&
-                isStructuredAgentHookPIDKey($0) &&
-                agentStatusKey(forAgentPIDKey: $0) != statusKey
-            } ?? []
-            for staleKey in stalePanelKeys {
-                _ = clearAgentPID(key: staleKey, panelId: panelId, clearStatus: true, refreshPorts: false)
-            }
-        }
-        agentPIDPanelIdsByKey[key] = panelId
-        agentPIDKeysByPanelId[panelId, default: []].insert(key)
-    }
-
-    @discardableResult
-    private func clearOtherStructuredAgentRuntimes(onPanel panelId: UUID, keeping retainedKey: String) -> Bool {
-        guard isStructuredAgentHookPIDKey(retainedKey) else { return false }
-        let staleKeys = agentPIDKeysByPanelId[panelId] ?? []
-        var didChange = false
-        for staleKey in staleKeys where staleKey != retainedKey && isStructuredAgentHookPIDKey(staleKey) {
-            if clearAgentPID(key: staleKey, panelId: panelId, clearStatus: true, refreshPorts: false) {
-                didChange = true
-            }
-        }
-        return didChange
-    }
-
     @discardableResult
     func recordAgentPID(key: String, pid: pid_t, panelId: UUID?, refreshPorts: Bool = true) -> Bool {
         let previousPanelId = agentPIDPanelIdsByKey[key]
         var didClearOtherStructuredAgentRuntime = false
+        // Ownership displacement must run BEFORE the bare key's pid/identity
+        // are overwritten: preserveDisplacedBareKeyRuntime re-keys the
+        // previous owner's runtime and must capture the DISPLACED pane's pid,
+        // not the new reporter's.
         if let panelId {
             didClearOtherStructuredAgentRuntime = clearOtherStructuredAgentRuntimes(onPanel: panelId, keeping: key)
-        }
-        agentPIDs[key] = pid
-        agentPIDProcessIdentitiesByKey[key] = Self.agentPIDProcessIdentity(pid: pid)
-        if let panelId {
             recordAgentPIDOwnership(key: key, panelId: panelId)
         } else {
             removeAgentPIDOwnership(key: key)
         }
+        agentPIDs[key] = pid
+        agentPIDProcessIdentitiesByKey[key] = Self.agentPIDProcessIdentity(pid: pid)
         if refreshPorts { refreshTrackedAgentPorts() }
         syncTerminalTabAgentIconAssets(forPanelIds: previousPanelId, panelId)
         return didClearOtherStructuredAgentRuntime
@@ -186,6 +158,8 @@ extension Workspace {
         agentPIDProcessIdentitiesByKey.removeAll()
         agentPIDPanelIdsByKey.removeAll()
         agentPIDKeysByPanelId.removeAll()
+        statusEntriesByPanelId.removeAll()
+        pruneDynamicAgentRowKeys()
         syncTerminalTabAgentIconAssetsForAllTerminalPanels()
         if hadAgentPIDs, refreshPorts { refreshTrackedAgentPorts() }
     }
@@ -237,71 +211,8 @@ extension Workspace {
         return Self.truthyStartupEnvironmentValues.contains(rawValue)
     }
 
-    func sidebarStatusEntriesVisibleForDisplay() -> [SidebarStatusEntry] {
-        let visibleStructuredStatusKeys = visibleStructuredAgentStatusKeysByPanel()
-        return statusEntries.values.filter { entry in
-            shouldDisplaySidebarStatusEntry(entry, visibleStructuredStatusKeys: visibleStructuredStatusKeys)
-        }
-    }
-
-    private func shouldDisplaySidebarStatusEntry(
-        _ entry: SidebarStatusEntry,
-        visibleStructuredStatusKeys: Set<String>
-    ) -> Bool {
-        guard Self.structuredAgentHookStatusKeys.contains(entry.key) else {
-            return true
-        }
-        return visibleStructuredStatusKeys.contains(entry.key)
-    }
-
-    private func visibleStructuredAgentStatusKeysByPanel() -> Set<String> {
-        var statusKeysByPanelId: [UUID: Set<String>] = [:]
-        for (key, panelId) in agentPIDPanelIdsByKey
-        where panels[panelId] != nil {
-            let statusKey = agentStatusKey(forAgentPIDKey: key)
-            guard Self.structuredAgentHookStatusKeys.contains(statusKey),
-                  statusEntries[statusKey] != nil else {
-                continue
-            }
-            statusKeysByPanelId[panelId, default: []].insert(statusKey)
-        }
-        var visibleStatusKeys = Set<String>()
-        for statusKeys in statusKeysByPanelId.values {
-            let winningEntry = statusKeys.compactMap { statusEntries[$0] }.max {
-                isSidebarStatusEntryLessCurrent($0, than: $1)
-            }
-            if let winningEntry {
-                visibleStatusKeys.insert(winningEntry.key)
-            }
-        }
-
-        for key in agentPIDs.keys where agentPIDPanelIdsByKey[key] == nil {
-            let statusKey = agentStatusKey(forAgentPIDKey: key)
-            guard Self.structuredAgentHookStatusKeys.contains(statusKey),
-                  statusEntries[statusKey] != nil else {
-                continue
-            }
-            visibleStatusKeys.insert(statusKey)
-        }
-
-        return visibleStatusKeys
-    }
-
-    private func isSidebarStatusEntryLessCurrent(
-        _ lhs: SidebarStatusEntry,
-        than rhs: SidebarStatusEntry
-    ) -> Bool {
-        if lhs.timestamp != rhs.timestamp {
-            return lhs.timestamp < rhs.timestamp
-        }
-        if lhs.priority != rhs.priority {
-            return lhs.priority < rhs.priority
-        }
-        return lhs.key > rhs.key
-    }
-
-    private func isStructuredAgentHookPIDKey(_ key: String) -> Bool {
-        Self.structuredAgentHookStatusKeys.contains(agentStatusKey(forAgentPIDKey: key))
+    func isStructuredAgentHookPIDKey(_ key: String) -> Bool {
+        isAgentRowKey(agentStatusKey(forAgentPIDKey: key))
     }
 
     @discardableResult
@@ -313,7 +224,30 @@ extension Workspace {
     ) -> Bool {
         let ownedPanelId = agentPIDPanelIdsByKey[key]
         if let panelId, let ownedPanelId, ownedPanelId != panelId {
-            return false
+            // Bare shared keys migrate ownership to the last reporting pane,
+            // so an earlier pane's exit hook arrives with a panel that no
+            // longer owns the PID key. Never touch the current owner's
+            // runtime, but still drop the exiting pane's own panel-scoped row
+            // state or its sidebar row would stay stale until the pane closes.
+            var didChange = false
+            let statusKey = agentStatusKey(forAgentPIDKey: key)
+            if clearAgentLifecycle(key: statusKey, panelId: panelId) {
+                didChange = true
+            }
+            if clearStatus, clearPanelStatusEntry(statusKey: statusKey, panelId: panelId) {
+                didChange = true
+            }
+            // The exiting pane's runtime may live under a synthesized
+            // displacement key (bare-key ownership moved to another pane
+            // after this agent's last report); reap it with the exit hook
+            // instead of waiting for the liveness sweep.
+            let synthesizedKey = Self.synthesizedDisplacedPIDKey(statusKey: statusKey, panelId: panelId)
+            if agentPIDPanelIdsByKey[synthesizedKey] == panelId,
+               clearAgentPID(key: synthesizedKey, panelId: panelId, clearStatus: clearStatus, refreshPorts: refreshPorts) {
+                didChange = true
+            }
+            pruneDynamicAgentRowKeyIfUnused(statusKey)
+            return didChange
         }
         let statusKeyToClear = clearStatus ? agentStatusKey(forAgentPIDKey: key) : nil
 
@@ -333,11 +267,19 @@ extension Workspace {
             if clearAgentLifecycle(key: lifecycleStatusKey, panelId: lifecyclePanelId) {
                 didChange = true
             }
+            if let statusKeyToClear, clearPanelStatusEntry(statusKey: statusKeyToClear, panelId: lifecyclePanelId) {
+                didChange = true
+            }
         }
         if let statusKeyToClear,
            !hasAgentRuntime(forStatusKey: statusKeyToClear),
            statusEntries.removeValue(forKey: statusKeyToClear) != nil {
             didChange = true
+        }
+        if let statusKeyToClear {
+            pruneDynamicAgentRowKeyIfUnused(statusKeyToClear)
+        } else {
+            pruneDynamicAgentRowKeyIfUnused(agentStatusKey(forAgentPIDKey: key))
         }
         if didChange, refreshPorts {
             refreshTrackedAgentPorts()
@@ -379,7 +321,11 @@ extension Workspace {
     func adoptDetachedAgentRuntimeState(_ runtimeState: DetachedAgentRuntimeState?) {
         guard let runtimeState else { return }
         for (statusKey, statusEntry) in runtimeState.statusEntries {
+            if runtimeState.dynamicAgentRowKeys.contains(statusKey) {
+                registerDynamicAgentRowKey(statusKey)
+            }
             statusEntries[statusKey] = statusEntry
+            recordPanelStatusEntry(statusEntry, panelId: runtimeState.panelId)
         }
         var didAdoptAgentPID = false
         for (key, pid) in runtimeState.agentPIDs {
@@ -466,6 +412,8 @@ extension Workspace {
         manualUnreadMarkedAt.removeValue(forKey: panelId)
         panelShellActivityStates.removeValue(forKey: panelId)
         clearAgentLifecycleStates(panelId: panelId)
+        let closedPanelStatusKeys = Set((statusEntriesByPanelId[panelId] ?? [:]).keys)
+        statusEntriesByPanelId.removeValue(forKey: panelId)
         surfaceTTYNames.removeValue(forKey: panelId)
         discardRemotePTYSessionID(panelId: panelId)
         surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
@@ -476,6 +424,21 @@ extension Workspace {
         debugSessionSnapshotSyntheticScrollbackByPanelId.removeValue(forKey: panelId)
 #endif
         discardAgentRuntimeState(closedAgentRuntimeState)
+        // A pane can hold a panel-scoped structured status with no recorded
+        // PID (`set_status --panel` without `--pid`); discardAgentRuntimeState
+        // only sweeps PID-owned keys. Clear the workspace-level slot for keys
+        // whose last plausible owner was this pane, or a future same-type
+        // agent pane would adopt the dead pane's text via the sole-owner
+        // fallback in sidebarAgentStatusRows().
+        for statusKey in closedPanelStatusKeys
+        where panelsOwningAgentStatusKey(statusKey).isEmpty && !hasAgentRuntime(forStatusKey: statusKey) {
+            statusEntries.removeValue(forKey: statusKey)
+        }
+        for statusKey in closedPanelStatusKeys {
+            pruneDynamicAgentRowKeyIfUnused(statusKey)
+        }
+        // Main's icon-state discard also removes restoredAgentSnapshots /
+        // restoredAgentResumeStates for the panel.
         discardTerminalTabAgentIconState(forPanelId: panelId)
         restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
         invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: panelId)

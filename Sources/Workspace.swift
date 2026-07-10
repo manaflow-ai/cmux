@@ -232,13 +232,10 @@ extension Workspace {
         isPinned = snapshot.isPinned
         groupId = snapshot.groupId
 
-        // Status entries and agent PIDs are ephemeral runtime state tied to running
-        // processes (e.g. claude_code "Running"). Don't restore them across app
-        // restarts because the processes that set them are gone.
-        statusEntries.removeAll()
-        clearAllAgentPIDs(refreshPorts: false)
-        clearAllAgentLifecycleStates()
-        agentListeningPorts.removeAll()
+        resetAgentRuntimeStateForSessionRestore(
+            panelSnapshotsById: panelSnapshotsById,
+            oldToNewPanelIds: oldToNewPanelIds
+        )
         logEntries = snapshot.logEntries.map { entry in
             SidebarLogEntry(
                 message: entry.message,
@@ -567,7 +564,9 @@ extension Workspace {
                 textBoxDraft: terminalPanel.sessionTextBoxDraftSnapshot(),
                 isRemoteTerminal: activeRemoteTerminalSurfaceIds.contains(panelId),
                 remotePTYSessionID: remotePTYSessionIDForSnapshot(panelId: panelId),
-                wasAgentRunning: agentWasRunning
+                wasAgentRunning: agentWasRunning,
+                agentStatusEntries: panelScopedAgentStatusSnapshots(panelId: panelId),
+                agentLifecyclesByStatusKey: panelScopedAgentLifecycleSnapshots(panelId: panelId)
             )
             browserSnapshot = nil
             markdownSnapshot = nil

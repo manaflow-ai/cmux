@@ -1,3 +1,4 @@
+import CmuxSidebar
 import Darwin
 import Foundation
 import Observation
@@ -9,6 +10,8 @@ final class WorkspaceSidebarAgentRuntimeObservationModel {
     @ObservationIgnored
     private(set) var agentPIDs: [String: pid_t] = [:]
     @ObservationIgnored
+    private(set) var statusEntriesByPanelId: [UUID: [String: SidebarStatusEntry]] = [:]
+    @ObservationIgnored
     private(set) var agentPIDProcessIdentitiesByKey: [String: AgentPIDProcessIdentity] = [:]
     @ObservationIgnored
     private(set) var agentPIDPanelIdsByKey: [String: UUID] = [:]
@@ -16,6 +19,8 @@ final class WorkspaceSidebarAgentRuntimeObservationModel {
     private(set) var agentPIDKeysByPanelId: [UUID: Set<String>] = [:]
     @ObservationIgnored
     private(set) var agentLifecycleStatesByPanelId: [UUID: [String: AgentHibernationLifecycleState]] = [:]
+    @ObservationIgnored
+    private(set) var dynamicAgentRowKeys: Set<String> = []
     @ObservationIgnored
     private(set) var changeGeneration: UInt64 = 0
 
@@ -60,6 +65,18 @@ final class WorkspaceSidebarAgentRuntimeObservationModel {
     func setAgentLifecycleStatesByPanelId(_ newValue: [UUID: [String: AgentHibernationLifecycleState]]) {
         guard agentLifecycleStatesByPanelId != newValue else { return }
         agentLifecycleStatesByPanelId = newValue
+        notifyChanged()
+    }
+
+    func setStatusEntriesByPanelId(_ newValue: [UUID: [String: SidebarStatusEntry]]) {
+        guard statusEntriesByPanelId != newValue else { return }
+        statusEntriesByPanelId = newValue
+        notifyChanged()
+    }
+
+    func setDynamicAgentRowKeys(_ newValue: Set<String>) {
+        guard dynamicAgentRowKeys != newValue else { return }
+        dynamicAgentRowKeys = newValue
         notifyChanged()
     }
 

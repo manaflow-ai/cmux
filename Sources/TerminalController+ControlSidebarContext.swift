@@ -26,30 +26,15 @@ extension TerminalController: ControlSidebarContext {
         priority: Int,
         format: ControlSidebarMetadataFormat,
         panelID: UUID?,
-        pid: Int32?
+        pid: Int32?,
+        dynamicAgentRowKey: Bool
     ) {
         let appFormat = SidebarMetadataFormat(rawValue: format.rawValue) ?? .plain
         controlSidebarScheduleMutation(target: target) { _, tab in
             if let panelId = panelID, !tab.panels.keys.contains(panelId) {
                 return
             }
-            guard Self.shouldReplaceStatusEntry(
-                current: tab.statusEntries[key],
-                key: key,
-                value: value,
-                icon: icon,
-                color: color,
-                url: url,
-                priority: priority,
-                format: appFormat
-            ) else {
-                // Still update PID tracking even if the status display hasn't changed.
-                if let pid {
-                    tab.recordAgentPID(key: key, pid: pid, panelId: panelID)
-                }
-                return
-            }
-            tab.statusEntries[key] = SidebarStatusEntry(
+            let entry = SidebarStatusEntry(
                 key: key,
                 value: value,
                 icon: icon,
@@ -59,16 +44,54 @@ extension TerminalController: ControlSidebarContext {
                 format: appFormat,
                 timestamp: Date()
             )
+            if dynamicAgentRowKey {
+                tab.registerDynamicAgentRowKey(key)
+            }
+            if Self.shouldReplaceStatusEntry(
+                current: tab.statusEntries[key],
+                key: key,
+                value: value,
+                icon: icon,
+                color: color,
+                url: url,
+                priority: priority,
+                format: appFormat
+            ) {
+                tab.statusEntries[key] = entry
+            }
+            // PID tracking updates even when the status display hasn't changed.
+            // It must also run BEFORE the panel-scoped write below: recording a
+            // new agent PID evicts stale structured runtimes on the panel and
+            // that cleanup clears their panel-scoped entries, so writing the
+            // panel copy first would let the eviction delete it.
             if let pid {
                 tab.recordAgentPID(key: key, pid: pid, panelId: panelID)
+            }
+            // The panel-scoped copy is recorded independently of the workspace
+            // guard above: the workspace slot is last-write-wins per key, so
+            // "no change" there can still be a change for this panel's own row.
+            // recordPanelStatusEntry drops identical repeats itself so agent
+            // heartbeats do not churn the sidebar snapshot.
+            if let panelId = panelID {
+                tab.recordPanelStatusEntry(entry, panelId: panelId)
             }
         }
     }
 
+    /// `clear_status <key>` is the workspace-scoped user command: it removes
+    /// the key from the whole workspace, including every pane's panel-scoped
+    /// copy, by contract. Agent lifecycle hooks never send it; they clean up
+    /// via `clear_agent_pid <key> --panel=<surface> --clear-status`, which
+    /// routes through the panel-scoped `clearAgentPID` and cannot touch
+    /// sibling panes' rows.
     nonisolated func controlSidebarScheduleStatusClear(target: ControlSidebarTabTarget, key: String) {
         controlSidebarScheduleMutation(target: target) { _, tab in
             _ = tab.statusEntries.removeValue(forKey: key)
-            tab.clearAgentPID(key: key)
+            _ = tab.clearPanelStatusEntries(statusKey: key)
+            // Bare shared keys can have been displaced onto synthesized
+            // panel-scoped keys; the workspace-scoped clear must reap those
+            // runtimes and lifecycles too, not just the exact bare key.
+            tab.clearAgentRuntimes(forStatusKey: key)
         }
     }
 
@@ -168,6 +191,9 @@ extension TerminalController: ControlSidebarContext {
         controlSidebarScheduleMutation(target: target) { _, tab in
             if let panelId = panelID, !tab.panels.keys.contains(panelId) {
                 return
+            }
+            if panelID != nil {
+                tab.registerDynamicAgentRowKey(key)
             }
             tab.setAgentLifecycle(key: key, panelId: panelID, lifecycle: lifecycle)
         }

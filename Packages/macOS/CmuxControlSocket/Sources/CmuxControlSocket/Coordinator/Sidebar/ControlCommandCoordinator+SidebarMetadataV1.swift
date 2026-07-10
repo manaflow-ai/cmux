@@ -18,11 +18,14 @@ extension ControlCommandCoordinator {
     // MARK: - Status / metadata entries
 
     /// The shared `set_status`/`report_meta` upsert body: parse + validate on
-    /// the calling thread, then a bus enqueue; the `OK` reply is parse-only
-    /// (zero main hops, exactly the legacy deferred-mutation semantics).
+    /// the calling thread, then a bus enqueue. `set_status --panel` may run
+    /// the app-owned vault-agent allowlist check to decide whether a custom
+    /// key is row-eligible; otherwise the `OK` reply is parse-only (zero main
+    /// hops, exactly the legacy deferred-mutation semantics).
     nonisolated func sidebarUpsertMetadata(
         _ args: String,
         missingError: String,
+        allowsDynamicAgentRows: Bool,
         context: (any ControlCommandContext)?
     ) -> String {
         let parsed = sidebarParseOptionsNoStop(args)
@@ -66,7 +69,7 @@ extension ControlCommandCoordinator {
         }
         let panelResolution = sidebarParseOptionalPanelIdOption(
             options: parsed.options,
-            usage: "set_status <key> <value> [--icon=X] [--color=#hex] [--url=X] [--priority=N] [--format=plain|markdown] [--tab=X] [--panel=ID]"
+            usage: "set_status <key> <value> [--icon=X] [--color=#hex] [--url=X] [--priority=N] [--format=plain|markdown] [--tab=X] [--panel=ID] [--pid=N]"
         )
         if let error = panelResolution.error {
             return error
@@ -80,6 +83,14 @@ extension ControlCommandCoordinator {
             return nil
         }()
 
+        let dynamicAgentRowKey = allowsDynamicAgentRows
+            && panelResolution.panelId != nil
+            && (context?.controlSidebarIsAllowedAgentLifecycleKey(
+                key,
+                target: target,
+                panelID: panelResolution.panelId
+            ) ?? false)
+
         context?.controlSidebarScheduleStatusUpsert(
             target: target,
             key: key,
@@ -90,7 +101,8 @@ extension ControlCommandCoordinator {
             priority: priority,
             format: format,
             panelID: panelResolution.panelId,
-            pid: pidValue
+            pid: pidValue,
+            dynamicAgentRowKey: dynamicAgentRowKey
         )
         return "OK"
     }
@@ -120,7 +132,8 @@ extension ControlCommandCoordinator {
     nonisolated func sidebarSetStatus(_ args: String, context: (any ControlCommandContext)?) -> String {
         sidebarUpsertMetadata(
             args,
-            missingError: "ERROR: Missing status key or value — usage: set_status <key> <value> [--icon=X] [--color=#hex] [--url=X] [--priority=N] [--format=plain|markdown] [--tab=X]",
+            missingError: "ERROR: Missing status key or value — usage: set_status <key> <value> [--icon=X] [--color=#hex] [--url=X] [--priority=N] [--format=plain|markdown] [--tab=X] [--panel=ID] [--pid=N]",
+            allowsDynamicAgentRows: true,
             context: context
         )
     }
@@ -130,6 +143,7 @@ extension ControlCommandCoordinator {
         sidebarUpsertMetadata(
             args,
             missingError: "ERROR: Missing metadata key or value — usage: report_meta <key> <value> [--icon=X] [--color=#hex] [--url=X] [--priority=N] [--format=plain|markdown] [--tab=X]",
+            allowsDynamicAgentRows: false,
             context: context
         )
     }

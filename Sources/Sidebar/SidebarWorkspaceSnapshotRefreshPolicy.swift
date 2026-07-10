@@ -36,6 +36,7 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
             copyableSidebarSSHError: copyableSidebarSSHError,
             latestConversationMessage: latestConversationMessage,
             metadataEntries: metadataEntries,
+            agentStatusRows: agentStatusRows,
             metadataBlocks: metadataBlocks,
             latestLog: latestLog,
             progress: progress,

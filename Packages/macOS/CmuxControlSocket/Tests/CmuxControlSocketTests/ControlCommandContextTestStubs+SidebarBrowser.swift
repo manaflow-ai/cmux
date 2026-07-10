@@ -58,7 +58,8 @@ extension ControlSidebarContext {
         priority: Int,
         format: ControlSidebarMetadataFormat,
         panelID: UUID?,
-        pid: Int32?
+        pid: Int32?,
+        dynamicAgentRowKey: Bool
     ) {}
 
     nonisolated func controlSidebarScheduleStatusClear(target: ControlSidebarTabTarget, key: String) {}

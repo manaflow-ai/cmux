@@ -47,6 +47,12 @@ final class CmuxFeatureFlags {
     private static let agentChatUIDefault = false
     private static let sidebarWorkspaceAgentSpinnerDefault = false
 
+    #if DEBUG
+    private static let sidebarAgentRowsDefault = true
+    #else
+    private static let sidebarAgentRowsDefault = false
+    #endif
+
     private static let overrideKeyPrefix = "cmux.flags.override."
 
     // Order is load-bearing for the typed accessors below. A keyed lookup would
@@ -132,6 +138,23 @@ final class CmuxFeatureFlags {
                 ),
                 defaultWhenUnavailable: CmuxFeatureFlags.sidebarWorkspaceAgentSpinnerDefault
             ),
+
+            // FLAG(key: sidebar-agent-rows-enabled-release, owner: lawrencecchen,
+            //      reviewBy: 2026-10-01, defaultWhenUnavailable: false)
+            // Per-agent sidebar rows: one row per agent pane inside the
+            // workspace card (graphite prototype), spinner/waiting states,
+            // click-to-focus, and the BYO-agent dynamic row keys. Release
+            // builds keep the pre-feature status pills until the PostHog flag
+            // is enabled; DEBUG keeps the rows on for dogfood.
+            CmuxFeatureFlagDefinition(
+                key: "sidebar-agent-rows-enabled-release",
+                title: String(localized: "featureFlags.sidebarAgentRows.title", defaultValue: "Per-agent sidebar rows"),
+                flagDescription: String(
+                    localized: "featureFlags.sidebarAgentRows.description",
+                    defaultValue: "Shows one row per agent pane in the sidebar with live state, replacing the single status pill."
+                ),
+                defaultWhenUnavailable: CmuxFeatureFlags.sidebarAgentRowsDefault
+            ),
         ]
     }()
 
@@ -153,6 +176,10 @@ final class CmuxFeatureFlags {
 
     var isSidebarWorkspaceAgentSpinnerEnabled: Bool {
         effectiveValue(for: Self.allFlags[4])
+    }
+
+    var isSidebarAgentRowsEnabled: Bool {
+        effectiveValue(for: Self.allFlags[5])
     }
 
     @ObservationIgnored

@@ -14,6 +14,7 @@ extension Workspace {
         /// an unrelated process" (same contract as `isRecordedAgentPIDLive`).
         let agentPIDProcessIdentities: [String: AgentPIDProcessIdentity]
         let agentPIDKeys: Set<String>
+        let dynamicAgentRowKeys: Set<String>
     }
 
     struct DetachedSurfaceTransfer {

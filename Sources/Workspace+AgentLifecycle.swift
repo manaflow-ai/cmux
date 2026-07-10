@@ -30,6 +30,9 @@ extension Workspace {
                 recordAgentLifecycleChange(panelId: panelId)
             }
         }
+        if didClear {
+            pruneDynamicAgentRowKeyIfUnused(key)
+        }
         return didClear
     }
 
@@ -57,13 +60,22 @@ extension Workspace {
                 }
             }
         }
+        // Safe for migrated manual keys: the prune is usage-checked, and a
+        // migrated key is still in use on its host panel.
+        for key in removed.keys {
+            pruneDynamicAgentRowKeyIfUnused(key)
+        }
         recordAgentLifecycleChange(panelId: panelId)
     }
 
     func clearAllAgentLifecycleStates() {
         let panelIds = Array(agentLifecycleStatesByPanelId.keys)
         guard !panelIds.isEmpty else { return }
+        let removedKeys = Set(agentLifecycleStatesByPanelId.values.flatMap(\.keys))
         agentLifecycleStatesByPanelId.removeAll()
+        for key in removedKeys {
+            pruneDynamicAgentRowKeyIfUnused(key)
+        }
         for panelId in panelIds {
             recordAgentLifecycleChange(panelId: panelId)
         }

@@ -339,7 +339,8 @@ extension DockSocketLifecycleTests {
                 statusEntries: [:],
                 agentPIDs: ["claude": deadPid],
                 agentPIDProcessIdentities: [:],
-                agentPIDKeys: ["claude"]
+                agentPIDKeys: ["claude"],
+                dynamicAgentRowKeys: []
             )
         )
 
@@ -396,7 +397,8 @@ extension DockSocketLifecycleTests {
                 statusEntries: [:],
                 agentPIDs: ["claude": livePid],
                 agentPIDProcessIdentities: ["claude": mismatchedIdentity],
-                agentPIDKeys: ["claude"]
+                agentPIDKeys: ["claude"],
+                dynamicAgentRowKeys: []
             )
         )
 
@@ -441,7 +443,8 @@ extension DockSocketLifecycleTests {
                 statusEntries: [:],
                 agentPIDs: ["claude": livePid],
                 agentPIDProcessIdentities: ["claude": currentIdentity],
-                agentPIDKeys: ["claude"]
+                agentPIDKeys: ["claude"],
+                dynamicAgentRowKeys: []
             )
         )
 
