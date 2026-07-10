@@ -96,6 +96,10 @@ extension WorkspaceListView {
             // authoritative order, so an intent based on its prediction must
             // not be sent at all.
             if let previousMove, await previousMove.value == false {
+                // A dependent of a failed chain: the failure already rolled
+                // the list back, so this stale intent must not be sent. The
+                // failure handler reset the chain tail, so drags started
+                // after the failure never see this branch.
                 pendingWorkspaceMoveCount -= 1
                 return false
             }
@@ -103,6 +107,10 @@ extension WorkspaceListView {
             pendingWorkspaceMoveCount -= 1
             if !accepted {
                 syncOptimisticWorkspaceOrder(moveDidFail: true)
+                // Detach the chain so the completed failed task cannot poison
+                // future drags; queued dependents still hold their captured
+                // reference and drain by aborting above.
+                pendingWorkspaceMoveTask = nil
             }
             return accepted
         }
@@ -145,6 +153,7 @@ extension WorkspaceListView {
         pendingWorkspaceMoveTask = Task { @MainActor in
             // Same ordering and predecessor-failure contract as moveFlatRows.
             if let previousMove, await previousMove.value == false {
+                // Same dependent-abort contract as moveFlatRows.
                 pendingWorkspaceMoveCount -= 1
                 return false
             }
@@ -152,6 +161,7 @@ extension WorkspaceListView {
             pendingWorkspaceMoveCount -= 1
             if !accepted {
                 syncOptimisticWorkspaceOrder(moveDidFail: true)
+                pendingWorkspaceMoveTask = nil
             }
             return accepted
         }
