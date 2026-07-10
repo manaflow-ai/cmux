@@ -7,23 +7,25 @@ import Testing
         _ id: String,
         name: String? = nil,
         groupID: String? = nil,
-        unread: Bool = false
+        unread: Bool = false,
+        pinned: Bool = false
     ) -> MobileWorkspacePreview {
         MobileWorkspacePreview(
             id: .init(rawValue: id),
             name: name ?? id,
+            isPinned: pinned,
             groupID: groupID.map(MobileWorkspaceGroupPreview.ID.init(rawValue:)),
             hasUnread: unread,
             terminals: []
         )
     }
 
-    private func group(_ id: String, collapsed: Bool) -> MobileWorkspaceGroupPreview {
+    private func group(_ id: String, collapsed: Bool, pinned: Bool = false) -> MobileWorkspaceGroupPreview {
         MobileWorkspaceGroupPreview(
             id: .init(rawValue: id),
             name: id,
             isCollapsed: collapsed,
-            isPinned: false,
+            isPinned: pinned,
             anchorWorkspaceID: "anchor"
         )
     }
@@ -43,7 +45,7 @@ import Testing
         let o3 = snapshots(["b", "c", "d", "a"])
         var state = MobileWorkspaceOptimisticOrderReconciler(
             optimisticOrder: MobileWorkspaceOptimisticOrder(workspaces: o3),
-            pendingBases: [a0, o1, o2].map(MobileWorkspaceOptimisticOrder.init(workspaces:))
+            pendingBases: [a0, o1, o2].map { MobileWorkspaceOptimisticOrder(workspaces: $0) }
         )
 
         state = state.reconciling(authoritative: o1)
@@ -144,4 +146,34 @@ import Testing
         #expect(state.optimisticOrder == optimistic)
         #expect(displayed?.map(\.id.rawValue) == ["b", "a", "new", "c"])
     }
+    @Test func workspacePinChangeSupersedesHeldOptimism() {
+        let predicted = [workspace("b"), workspace("a")]
+        let base = [workspace("a"), workspace("b")]
+        let state = MobileWorkspaceOptimisticOrderReconciler(
+            optimisticOrder: MobileWorkspaceOptimisticOrder(workspaces: predicted),
+            pendingBases: [MobileWorkspaceOptimisticOrder(workspaces: base)]
+        )
+        // The Mac pinned "a" while the move was in flight and clamped the
+        // reorder to a no-op; the same-order snapshot must supersede instead
+        // of matching the stale base.
+        let pinnedSnapshot = [workspace("a", pinned: true), workspace("b")]
+        let next = state.reconciling(authoritative: pinnedSnapshot)
+        #expect(next.optimisticOrder == nil)
+        #expect(next.pendingBases.isEmpty)
+    }
+
+    @Test func groupPinChangeSupersedesHeldOptimism() {
+        let members = [workspace("anchor", groupID: "g"), workspace("m", groupID: "g"), workspace("r")]
+        let predicted = [workspace("anchor", groupID: "g"), workspace("r"), workspace("m", groupID: "g")]
+        let unpinnedGroup = [group("g", collapsed: false)]
+        let state = MobileWorkspaceOptimisticOrderReconciler(
+            optimisticOrder: MobileWorkspaceOptimisticOrder(workspaces: predicted, groups: unpinnedGroup),
+            pendingBases: [MobileWorkspaceOptimisticOrder(workspaces: members, groups: unpinnedGroup)]
+        )
+        let pinnedGroup = [group("g", collapsed: false, pinned: true)]
+        let next = state.reconciling(authoritative: members, groups: pinnedGroup)
+        #expect(next.optimisticOrder == nil)
+        #expect(next.pendingBases.isEmpty)
+    }
+
 }

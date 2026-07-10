@@ -4,13 +4,17 @@ import Foundation
 struct MobileWorkspaceMovePolicy {
     let workspaces: [MobileWorkspacePreview]
     let groups: [MobileWorkspaceGroupPreview]
+    // One synchronous drop runs the policy across per-workspace filters,
+    // clamps, and signatures; the lookup tables are built once here instead of
+    // per access.
+    private let groupsByID: [MobileWorkspaceGroupPreview.ID: MobileWorkspaceGroupPreview]
+    private let groupByAnchorID: [MobileWorkspacePreview.ID: MobileWorkspaceGroupPreview]
 
-    private var groupsByID: [MobileWorkspaceGroupPreview.ID: MobileWorkspaceGroupPreview] {
-        Dictionary(groups.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-    }
-
-    private var groupByAnchorID: [MobileWorkspacePreview.ID: MobileWorkspaceGroupPreview] {
-        Dictionary(groups.map { ($0.anchorWorkspaceID, $0) }, uniquingKeysWith: { first, _ in first })
+    init(workspaces: [MobileWorkspacePreview], groups: [MobileWorkspaceGroupPreview]) {
+        self.workspaces = workspaces
+        self.groups = groups
+        groupsByID = Dictionary(groups.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        groupByAnchorID = Dictionary(groups.map { ($0.anchorWorkspaceID, $0) }, uniquingKeysWith: { first, _ in first })
     }
 
     func normalizedIntent(
@@ -223,7 +227,6 @@ struct MobileWorkspaceMovePolicy {
         _ order: [MobileWorkspacePreview],
         desiredWorkspaceIDs: [MobileWorkspacePreview.ID]
     ) -> [MobileWorkspacePreview] {
-        let groupsByID = groupsByID
         let groupedByGroupID = Dictionary(grouping: order.filter {
             validGroupID($0.groupID) != nil
         }, by: { validGroupID($0.groupID)! })

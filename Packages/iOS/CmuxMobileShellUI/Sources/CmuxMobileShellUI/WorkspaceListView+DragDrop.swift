@@ -45,6 +45,7 @@ extension WorkspaceListView {
         )
         optimisticGroupedState = optimisticGroupedState.reconciling(
             authoritative: groupedWorkspaces,
+            groups: groups,
             moveDidFail: moveDidFail
         )
     }
@@ -132,9 +133,9 @@ extension WorkspaceListView {
             groups: groups
         )
         optimisticGroupedState = MobileWorkspaceOptimisticOrderReconciler(
-            optimisticOrder: MobileWorkspaceOptimisticOrder(workspaces: movedWorkspaces),
+            optimisticOrder: MobileWorkspaceOptimisticOrder(workspaces: movedWorkspaces, groups: groups),
             pendingBases: optimisticGroupedState.pendingBases
-                + [MobileWorkspaceOptimisticOrder(workspaces: sourceWorkspaces)]
+                + [MobileWorkspaceOptimisticOrder(workspaces: sourceWorkspaces, groups: groups)]
         )
         pendingWorkspaceMoveCount += 1
         let previousMove = pendingWorkspaceMoveTask

@@ -29,15 +29,17 @@ public struct MobileWorkspaceOptimisticOrderReconciler {
     /// Returns the next reconciliation state for an authoritative snapshot.
     /// - Parameters:
     ///   - authoritative: The latest host workspace snapshot.
+    ///   - groups: The current groups, for pin-tier staleness checks.
     ///   - moveDidFail: Whether any move in the dependent chain failed.
     public func reconciling(
         authoritative: [MobileWorkspacePreview],
+        groups: [MobileWorkspaceGroupPreview] = [],
         moveDidFail: Bool = false
     ) -> MobileWorkspaceOptimisticOrderReconciler {
         guard !moveDidFail, let optimisticOrder else { return .init() }
-        guard !optimisticOrder.matches(authoritative: authoritative) else { return .init() }
+        guard !optimisticOrder.matches(authoritative: authoritative, groups: groups) else { return .init() }
         guard let matchedIndex = pendingBases.firstIndex(where: {
-            $0.matches(authoritative: authoritative)
+            $0.matches(authoritative: authoritative, groups: groups)
         }) else {
             return .init()
         }

@@ -4,13 +4,19 @@ import Foundation
 public struct MobileWorkspaceOptimisticOrder: Equatable, Sendable {
     /// Ordered workspace identities with their drag-intended memberships.
     public let entries: [MobileWorkspaceOptimisticOrderEntry]
+    /// The group pin states the prediction was computed against.
+    public let groupPins: [MobileWorkspaceGroupPreview.ID: Bool]
 
     /// Captures ordering intent from a workspace snapshot without retaining live row content.
-    /// - Parameter workspaces: The predicted workspace sequence.
-    public init(workspaces: [MobileWorkspacePreview]) {
+    /// - Parameters:
+    ///   - workspaces: The predicted workspace sequence.
+    ///   - groups: The groups the prediction was computed against; their pin
+    ///     states participate in staleness checks like workspace pins do.
+    public init(workspaces: [MobileWorkspacePreview], groups: [MobileWorkspaceGroupPreview] = []) {
         entries = workspaces.map {
-            MobileWorkspaceOptimisticOrderEntry(id: $0.id, groupID: $0.groupID)
+            MobileWorkspaceOptimisticOrderEntry(id: $0.id, groupID: $0.groupID, isPinned: $0.isPinned)
         }
+        groupPins = Dictionary(groups.map { ($0.id, $0.isPinned) }, uniquingKeysWith: { first, _ in first })
     }
 
     /// Rebuilds the optimistic sequence from current authoritative row values.
@@ -59,9 +65,28 @@ public struct MobileWorkspaceOptimisticOrder: Equatable, Sendable {
 
     /// Returns whether the authoritative snapshot has reached this order,
     /// tolerating rows that arrived or disappeared while the move was pending.
-    /// - Parameter authoritative: The current authoritative workspace snapshot.
-    public func matches(authoritative: [MobileWorkspacePreview]) -> Bool {
-        Self(workspaces: materializedWorkspaces(from: authoritative))
+    /// Pin-tier changes (workspace or group) invalidate the match outright:
+    /// they change legal ordering, so the host may have clamped the predicted
+    /// move to a no-op the prediction cannot represent.
+    /// - Parameters:
+    ///   - authoritative: The current authoritative workspace snapshot.
+    ///   - groups: The current groups, for group-pin staleness.
+    public func matches(
+        authoritative: [MobileWorkspacePreview],
+        groups: [MobileWorkspaceGroupPreview] = []
+    ) -> Bool {
+        for workspace in authoritative {
+            if let entry = entries.first(where: { $0.id == workspace.id }),
+               entry.isPinned != workspace.isPinned {
+                return false
+            }
+        }
+        for group in groups {
+            if let capturedPin = groupPins[group.id], capturedPin != group.isPinned {
+                return false
+            }
+        }
+        return Self(workspaces: materializedWorkspaces(from: authoritative))
             == Self(workspaces: authoritative)
     }
 }
