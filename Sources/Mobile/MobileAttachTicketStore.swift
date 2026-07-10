@@ -200,8 +200,8 @@ enum MobileHostIdentity {
     private static let deviceIDKey = "mobileHost.deviceID"
     private static let sharedDeviceIDFileName = "mobile-host-device-id"
     private static let stableBundleIdentifier = "com.cmuxterm.app"
-
-    static func deviceID() -> String {
+    // Resolve once so recurring heartbeats never repeat identity file I/O.
+    private static let processDeviceID: String = {
         let stableDefaults = Bundle.main.bundleIdentifier == stableBundleIdentifier
             ? nil
             : UserDefaults(suiteName: stableBundleIdentifier)
@@ -211,6 +211,10 @@ enum MobileHostIdentity {
             stableDefaults: stableDefaults,
             bundleIdentifier: Bundle.main.bundleIdentifier
         )
+    }()
+
+    static func deviceID() -> String {
+        processDeviceID
     }
 
     static func deviceID(
@@ -250,7 +254,7 @@ enum MobileHostIdentity {
         if !fileManager.fileExists(atPath: directory.path) {
             try? fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
         }
-        return directory.appendingPathComponent(sharedDeviceIDFileName)
+        return directory.appendingPathComponent(sharedDeviceIDFileName, isDirectory: false)
     }
 
     private static func shouldPreferStableDefaults(bundleIdentifier: String?) -> Bool {

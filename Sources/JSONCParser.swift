@@ -4,9 +4,9 @@ enum JSONCParser {
     static func preprocess(data: Data) throws -> Data {
         let source = try sourceString(from: data)
         let withoutBOM = source.hasPrefix("\u{feff}") ? String(source.dropFirst()) : source
-        let stripped = try stripComments(from: withoutBOM)
+        let stripped = try stripComments(from: Array(withoutBOM.utf8))
         let normalized = try stripTrailingCommas(from: stripped)
-        return Data(normalized.utf8)
+        return Data(normalized)
     }
 
     static func source(data: Data) throws -> (text: String, encoding: String.Encoding) {
@@ -85,133 +85,133 @@ enum JSONCParser {
         return scalar == "\n" || scalar == "\r"
     }
 
-    private static func stripComments(from source: String) throws -> String {
-        var result = ""
-        var index = source.startIndex
+    private static func stripComments(from source: [UInt8]) throws -> [UInt8] {
+        var result: [UInt8] = []
+        result.reserveCapacity(source.count)
+        var index = 0
         var inString = false
         var isEscaped = false
-
-        while index < source.endIndex {
-            let character = source[index]
-
+        while index < source.count {
+            let byte = source[index]
             if inString {
-                result.append(character)
+                result.append(byte)
                 if isEscaped {
                     isEscaped = false
-                } else if character == "\\" {
+                } else if byte == UInt8(ascii: "\\") {
                     isEscaped = true
-                } else if character == "\"" {
+                } else if byte == UInt8(ascii: "\"") {
                     inString = false
                 }
-                index = source.index(after: index)
+                index += 1
                 continue
             }
-
-            if character == "\"" {
+            if byte == UInt8(ascii: "\"") {
                 inString = true
-                result.append(character)
-                index = source.index(after: index)
+                result.append(byte)
+                index += 1
                 continue
             }
-
-            if character == "/" {
-                let nextIndex = source.index(after: index)
-                if nextIndex < source.endIndex {
-                    let next = source[nextIndex]
-                    if next == "/" {
-                        index = source.index(after: nextIndex)
-                        while index < source.endIndex && !JSONCParser.isLineTerminator(source[index]) {
-                            index = source.index(after: index)
-                        }
-                        continue
+            if byte == UInt8(ascii: "/"), index + 1 < source.count {
+                switch source[index + 1] {
+                case UInt8(ascii: "/"):
+                    index += 2
+                    while index < source.count {
+                        let current = source[index]
+                        if current == UInt8(ascii: "\n") || current == UInt8(ascii: "\r") { break }
+                        index += 1
                     }
-                    if next == "*" {
-                        index = source.index(after: nextIndex)
-                        var didClose = false
-                        while index < source.endIndex {
-                            let current = source[index]
-                            let followingIndex = source.index(after: index)
-                            if current == "*" && followingIndex < source.endIndex && source[followingIndex] == "/" {
-                                index = source.index(after: followingIndex)
-                                didClose = true
-                                break
-                            }
-                            index = followingIndex
+                    continue
+                case UInt8(ascii: "*"):
+                    index += 2
+                    var didClose = false
+                    while index + 1 < source.count {
+                        if source[index] == UInt8(ascii: "*"), source[index + 1] == UInt8(ascii: "/") {
+                            index += 2
+                            didClose = true
+                            break
                         }
-                        guard didClose else {
-                            throw JSONCError.unterminatedBlockComment
-                        }
-                        continue
+                        index += 1
                     }
+                    guard didClose else { throw JSONCError.unterminatedBlockComment }
+                    continue
+                default:
+                    break
                 }
             }
-
-            result.append(character)
-            index = source.index(after: index)
+            result.append(byte)
+            index += 1
         }
-
         return result
     }
 
-    private static func stripTrailingCommas(from source: String) throws -> String {
-        var result = ""
-        var index = source.startIndex
+    private static func stripTrailingCommas(from source: [UInt8]) throws -> [UInt8] {
+        var result: [UInt8] = []
+        result.reserveCapacity(source.count)
+        var index = 0
         var inString = false
         var isEscaped = false
-        var lastSignificantCharacter: Character?
-
-        while index < source.endIndex {
-            let character = source[index]
-
+        var lastSignificantByte: UInt8?
+        while index < source.count {
+            let byte = source[index]
             if inString {
-                result.append(character)
+                result.append(byte)
                 if isEscaped {
                     isEscaped = false
-                } else if character == "\\" {
+                } else if byte == UInt8(ascii: "\\") {
                     isEscaped = true
-                } else if character == "\"" {
+                } else if byte == UInt8(ascii: "\"") {
                     inString = false
-                    lastSignificantCharacter = character
+                    lastSignificantByte = byte
                 }
-                index = source.index(after: index)
+                index += 1
                 continue
             }
-
-            if character == "\"" {
+            if byte == UInt8(ascii: "\"") {
                 inString = true
-                result.append(character)
-                index = source.index(after: index)
+                result.append(byte)
+                index += 1
                 continue
             }
-
-            if character == "," {
-                var lookahead = source.index(after: index)
-                while lookahead < source.endIndex && source[lookahead].isWhitespace {
-                    lookahead = source.index(after: lookahead)
+            if byte == UInt8(ascii: ",") {
+                var lookahead = index + 1
+                while lookahead < source.count {
+                    let scalar = utf8Scalar(in: source, at: lookahead)
+                    guard scalar.value.properties.isWhitespace else { break }
+                    lookahead += scalar.length
                 }
-                if lookahead < source.endIndex && (source[lookahead] == "}" || source[lookahead] == "]") {
-                    if lastSignificantCharacter == nil ||
-                        lastSignificantCharacter == "," ||
-                        lastSignificantCharacter == "{" ||
-                        lastSignificantCharacter == "[" ||
-                        lastSignificantCharacter == ":" {
+                if lookahead < source.count,
+                   source[lookahead] == UInt8(ascii: "}") || source[lookahead] == UInt8(ascii: "]") {
+                    if lastSignificantByte == nil ||
+                        lastSignificantByte == UInt8(ascii: ",") ||
+                        lastSignificantByte == UInt8(ascii: "{") ||
+                        lastSignificantByte == UInt8(ascii: "[") ||
+                        lastSignificantByte == UInt8(ascii: ":") {
                         throw JSONCError.invalidTrailingComma
                     }
-                    index = source.index(after: index)
+                    index += 1
                     continue
                 }
             }
-
-            result.append(character)
-            if !character.isWhitespace {
-                lastSignificantCharacter = character
+            let scalar = utf8Scalar(in: source, at: index)
+            result.append(contentsOf: source[index..<(index + scalar.length)])
+            if !scalar.value.properties.isWhitespace {
+                lastSignificantByte = byte
             }
-            index = source.index(after: index)
+            index += scalar.length
         }
-
         return result
     }
-
+    private static func utf8Scalar(in bytes: [UInt8], at index: Int) -> (value: Unicode.Scalar, length: Int) {
+        let first = bytes[index]
+        if first < 0x80 { return (Unicode.Scalar(first), 1) }
+        let length = first < 0xE0 ? 2 : first < 0xF0 ? 3 : 4
+        let prefixMask = UInt8((1 << (7 - length)) - 1)
+        var value = UInt32(first & prefixMask)
+        for offset in 1..<length {
+            value = value << 6 | UInt32(bytes[index + offset] & 0x3F)
+        }
+        return (Unicode.Scalar(value)!, length)
+    }
     private enum JSONCError: LocalizedError {
         case invalidTextEncoding
         case invalidTrailingComma

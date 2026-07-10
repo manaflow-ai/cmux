@@ -33,6 +33,8 @@ public struct SettingCatalog: SettingCatalogSection {
     /// Settings for sidebar workspace groups (the `workspaceGroups.*` keys).
     public let workspaceGroups = WorkspaceGroupsCatalogSection()
     public let automation = AutomationCatalogSection()
+    /// Settings for Computer Use and the local cua-driver bridge.
+    public let computerUse = ComputerUseCatalogSection()
     public let browser = BrowserCatalogSection()
     /// Settings for the built-in markdown viewer (the `markdown.*` keys).
     public let markdown = MarkdownCatalogSection()

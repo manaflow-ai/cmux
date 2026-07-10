@@ -84,6 +84,7 @@ extension CMUXCLI {
         "copy-mode",
         "current-window",
         "current-workspace",
+        "cua",
         "debug-terminals",
         "detach-tab",
         "diff",

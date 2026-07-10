@@ -18,6 +18,9 @@ private let hostSettingsLogger = Logger(subsystem: "com.cmuxterm.app", category:
 @MainActor
 final class HostSettingsActions: SettingsHostActions {
     private let configFileURL: URL
+    let computerUseConfigStore: JSONConfigStore
+    let computerUsePermissionChecker: any ComputerUsePermissionChecking
+    var screenRecordingRequested = false
 
     /// Serializes font-size config writes so rapid slider saves persist in order.
     private let fontConfigWriter = FontConfigWriter()
@@ -44,8 +47,13 @@ final class HostSettingsActions: SettingsHostActions {
     private var configWindow: NSWindow?
     private var configWindowCloseObserver: WindowCloseObserver?
 
-    init(configFileURL: URL) {
+    init(
+        configFileURL: URL,
+        computerUsePermissionChecker: any ComputerUsePermissionChecking = LiveComputerUsePermissionChecker()
+    ) {
         self.configFileURL = configFileURL
+        self.computerUseConfigStore = JSONConfigStore(fileURL: configFileURL)
+        self.computerUsePermissionChecker = computerUsePermissionChecker
         startObservingAppIconMode()
     }
 
