@@ -63,6 +63,10 @@ fn draw_plugin(app: &mut App, frame: &mut Frame) {
             buf[(border_x, y)].set_symbol("│").set_style(border_style);
         }
     }
+    // The divider column is a drag handle exactly like the built-in sidebar's;
+    // without this hit zone, drag-resize is dead whenever a plugin owns the
+    // sidebar (the plugin rect stops one column short of the divider).
+    app.hits.push((Rect { x: border_x, y: 0, width: 1, height }, Hit::SidebarResize));
     if let Some(surface_id) = app.sidebar_plugin_surface {
         let Some(surface) = app.session.surface(surface_id) else { return };
         surface.take_dirty();
