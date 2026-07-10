@@ -632,6 +632,7 @@ struct AgentHibernationPlannerSwiftTests {
             processID: childProcessID
         )
         #expect(processDetectedIndex.hasLiveProcess(workspaceId: workspaceId, panelId: panelId))
+        #expect(processDetectedIndex.processIDs(workspaceId: workspaceId, panelId: panelId) == [childProcessID])
 
         let loadCount = OSAllocatedUnfairLock(initialState: 0)
         let monitorReady = DispatchSemaphore(value: 0)
@@ -675,7 +676,7 @@ struct AgentHibernationPlannerSwiftTests {
             lastActivityAt: 0,
             isProtected: false,
             hasLiveProcess: false,
-            processIDs: [childProcessID]
+            processIDs: []
         )
         let request = AgentHibernationController.ConfirmedTeardownRequest(
             record: record,
@@ -717,6 +718,21 @@ struct AgentHibernationPlannerSwiftTests {
             "The scoped process detected after monitor quiescence must not receive SIGTERM."
         )
 
+        let metadataStub = #"{"type":"last-prompt","prompt":"interrupted rewrite"}"# + "\n"
+        try metadataStub.write(to: transcriptURL, atomically: true, encoding: .utf8)
+        try await Task.sleep(for: .seconds(5))
+        #expect(
+            try String(contentsOf: transcriptURL, encoding: .utf8) == metadataStub,
+            "The re-armed monitor must wait for the newly detected process before restoring."
+        )
+
+        scopedChild.terminate()
+        #expect(await Self.wait(for: childExited))
+        #expect(
+            await Self.waitForTranscriptRestore(at: transcriptURL, containing: "keep this turn"),
+            "The re-armed monitor must restore the protected transcript after the process exits."
+        )
+
         controller.cancelPostTeardownRestoreTasks()
         await controller.drainCancelledPostTeardownRestoreTasks()
     }
@@ -744,6 +760,22 @@ struct AgentHibernationPlannerSwiftTests {
         await Task.detached {
             semaphore.wait(timeout: .now() + timeout) == .success
         }.value
+    }
+
+    nonisolated private static func waitForTranscriptRestore(
+        at url: URL,
+        containing expectedText: String,
+        timeout: Duration = .seconds(5)
+    ) async -> Bool {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: timeout)
+        while clock.now < deadline {
+            if (try? String(contentsOf: url, encoding: .utf8).contains(expectedText)) == true {
+                return true
+            }
+            try? await clock.sleep(for: .milliseconds(50))
+        }
+        return (try? String(contentsOf: url, encoding: .utf8).contains(expectedText)) == true
     }
 
     nonisolated private static func indexWithLiveProcess(

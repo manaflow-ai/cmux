@@ -152,6 +152,12 @@ extension AgentHibernationController {
                     } else {
                         finalIndex = postSnapshotIndex
                     }
+                    let finalProcessIDs = record.processIDs.union(
+                        finalIndex.processIDs(
+                            workspaceId: record.key.workspaceId,
+                            panelId: record.key.panelId
+                        )
+                    )
                     let stillQualifies = self.confirmedTeardownStillQualifies(
                         request,
                         index: finalIndex,
@@ -169,7 +175,7 @@ extension AgentHibernationController {
                         // its restore checks fail closed if the live file has turns.
                         if self.armPostTeardownRestoreMonitor(
                             snapshot: snapshot,
-                            processIDs: record.processIDs,
+                            processIDs: finalProcessIDs,
                             snapshotDisposal: .retainForRecovery(sessionId: record.agent.sessionId)
                         ) {
                             restoreOwnedSnapshotPaths.insert(snapshot.snapshotPath)
@@ -186,7 +192,7 @@ extension AgentHibernationController {
                         // armed while this now-active pane continues running.
                         if self.armPostTeardownRestoreMonitor(
                             snapshot: snapshot,
-                            processIDs: record.processIDs
+                            processIDs: finalProcessIDs
                         ) {
                             restoreOwnedSnapshotPaths.insert(snapshot.snapshotPath)
                         }
