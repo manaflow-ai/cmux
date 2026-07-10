@@ -25,6 +25,11 @@ nonisolated enum ProcessSnapshotReuseSource: String, Sendable {
     case inFlight = "in_flight"
 }
 
+nonisolated enum ProcessLsofReuseSource: String, Sendable {
+    case cache
+    case inFlight = "in_flight"
+}
+
 nonisolated enum ProcessMeasuredOperation: String, Sendable {
     case portApply = "port.apply"
     case portFilter = "port.filter"
@@ -71,11 +76,15 @@ nonisolated struct ProcessPerformanceGenerationMetrics: Sendable, Equatable {
 }
 
 nonisolated struct ProcessPerformanceLsofMetrics: Sendable, Equatable {
+    // Kept under the legacy `lsof` RPC key for schema compatibility. The
+    // backend field identifies that these counters now measure libproc scans.
     var started = 0
     var completed = 0
     var inFlight = 0
     var maximumInFlight = 0
     var pidCount = 0
+    var coalescedRequests = 0
+    var reuse = ProcessPerformanceReuseMetrics()
     var duration = ProcessPerformanceDurationMetrics()
 }
 
@@ -147,11 +156,15 @@ private nonisolated extension ProcessPerformanceGenerationMetrics {
 private nonisolated extension ProcessPerformanceLsofMetrics {
     var foundationObject: [String: Any] {
         [
+            "backend": "libproc",
+            "process_launches": 0,
             "started": started,
             "completed": completed,
             "in_flight": inFlight,
             "max_in_flight": maximumInFlight,
             "pid_count": pidCount,
+            "coalesced_requests": coalescedRequests,
+            "reuse": reuse.foundationObject,
             "duration_ms": duration.foundationObject,
         ]
     }
@@ -171,6 +184,7 @@ private nonisolated extension ProcessPerformanceOperationMetrics {
 
 nonisolated struct ProcessPerformanceMetricToken: Sendable {
     fileprivate let key: String
+    fileprivate let epoch: UInt64
     fileprivate let startedAtNanoseconds: UInt64
     fileprivate let inputCount: Int
 }
@@ -183,6 +197,7 @@ nonisolated final class ProcessPerformanceMetrics: @unchecked Sendable {
     static let shared = ProcessPerformanceMetrics()
 
     private struct State {
+        var epoch: UInt64
         var resetAtUnixMilliseconds = ProcessPerformanceMetrics.unixMilliseconds()
         var processSnapshots = ProcessPerformanceSnapshotCaptureMetrics()
         var generations: [UInt64: ProcessPerformanceGenerationMetrics] = [:]
@@ -190,12 +205,18 @@ nonisolated final class ProcessPerformanceMetrics: @unchecked Sendable {
         var lsof = ProcessPerformanceLsofMetrics()
         var staleRejections: [String: Int] = [:]
         var operations: [String: ProcessPerformanceOperationMetrics] = [:]
+
+        init(epoch: UInt64 = 0) {
+            self.epoch = epoch
+        }
     }
 
     private let state = OSAllocatedUnfairLock(initialState: State())
 
     func reset() {
-        state.withLock { $0 = State() }
+        state.withLock { state in
+            state = State(epoch: state.epoch &+ 1)
+        }
     }
 
     func snapshot() -> ProcessPerformanceMetricsSnapshot {
@@ -227,8 +248,12 @@ nonisolated final class ProcessPerformanceMetrics: @unchecked Sendable {
             state.generations[generation, default: ProcessPerformanceGenerationMetrics()]
                 .requirementsRawValue = requirementsRawValue
             state.generations[generation, default: ProcessPerformanceGenerationMetrics()].started += 1
+            return Self.token(
+                key: String(generation),
+                inputCount: 0,
+                epoch: state.epoch
+            )
         }
-        return token(key: String(generation), inputCount: 0)
     }
 
     func processSnapshotCaptureCompleted(
@@ -238,6 +263,7 @@ nonisolated final class ProcessPerformanceMetrics: @unchecked Sendable {
     ) {
         let duration = Self.elapsedMilliseconds(since: token.startedAtNanoseconds)
         state.withLock { state in
+            guard token.epoch == state.epoch else { return }
             state.processSnapshots.captureCompleted += 1
             state.processSnapshots.inFlight = max(0, state.processSnapshots.inFlight - 1)
             state.processSnapshots.duration.record(duration)
@@ -270,16 +296,41 @@ nonisolated final class ProcessPerformanceMetrics: @unchecked Sendable {
             state.lsof.inFlight += 1
             state.lsof.maximumInFlight = max(state.lsof.maximumInFlight, state.lsof.inFlight)
             state.lsof.pidCount += max(0, pidCount)
+            return Self.token(
+                key: "lsof",
+                inputCount: pidCount,
+                epoch: state.epoch
+            )
         }
-        return token(key: "lsof", inputCount: pidCount)
     }
 
     func lsofCompleted(_ token: ProcessPerformanceMetricToken) {
         let duration = Self.elapsedMilliseconds(since: token.startedAtNanoseconds)
         state.withLock { state in
+            guard token.epoch == state.epoch else { return }
             state.lsof.completed += 1
             state.lsof.inFlight = max(0, state.lsof.inFlight - 1)
             state.lsof.duration.record(duration)
+        }
+    }
+
+    func recordLsofReuse(
+        _ source: ProcessLsofReuseSource,
+        token: ProcessPerformanceMetricToken
+    ) {
+        state.withLock { state in
+            guard token.epoch == state.epoch else { return }
+            switch source {
+            case .cache: state.lsof.reuse.cache += 1
+            case .inFlight: state.lsof.reuse.inFlight += 1
+            }
+        }
+    }
+
+    func recordLsofCoalescedRequest(token: ProcessPerformanceMetricToken) {
+        state.withLock { state in
+            guard token.epoch == state.epoch else { return }
+            state.lsof.coalescedRequests += 1
         }
     }
 
@@ -294,8 +345,12 @@ nonisolated final class ProcessPerformanceMetrics: @unchecked Sendable {
         state.withLock { state in
             state.operations[operation.rawValue, default: ProcessPerformanceOperationMetrics()].started += 1
             state.operations[operation.rawValue, default: ProcessPerformanceOperationMetrics()].inputCount += max(0, inputCount)
+            return Self.token(
+                key: operation.rawValue,
+                inputCount: inputCount,
+                epoch: state.epoch
+            )
         }
-        return token(key: operation.rawValue, inputCount: inputCount)
     }
 
     func operationCompleted(
@@ -304,15 +359,21 @@ nonisolated final class ProcessPerformanceMetrics: @unchecked Sendable {
     ) {
         let duration = Self.elapsedMilliseconds(since: token.startedAtNanoseconds)
         state.withLock { state in
+            guard token.epoch == state.epoch else { return }
             state.operations[token.key, default: ProcessPerformanceOperationMetrics()].completed += 1
             state.operations[token.key, default: ProcessPerformanceOperationMetrics()].outputCount += max(0, outputCount)
             state.operations[token.key, default: ProcessPerformanceOperationMetrics()].duration.record(duration)
         }
     }
 
-    private func token(key: String, inputCount: Int) -> ProcessPerformanceMetricToken {
+    private static func token(
+        key: String,
+        inputCount: Int,
+        epoch: UInt64
+    ) -> ProcessPerformanceMetricToken {
         ProcessPerformanceMetricToken(
             key: key,
+            epoch: epoch,
             startedAtNanoseconds: DispatchTime.now().uptimeNanoseconds,
             inputCount: inputCount
         )

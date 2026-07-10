@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import Testing
 
@@ -211,21 +212,44 @@ struct PortScannerSharedSnapshotTests {
     }
 
     @Test
-    func lsofParsingReportsCurrentListenersAndDropsClosedPorts() {
-        let open = PortScanner.parseLsofOutput(
-            """
-            p20
-            n127.0.0.1:3000
-            n*:8080
-            p30
-            n[::1]:9229
-            """
-        )
-        let closed = PortScanner.parseLsofOutput("")
+    func socketInfoReportsIPv4AndIPv6ListenersButExcludesNonListeners() {
+        var ipv4Listener = socket_fdinfo()
+        ipv4Listener.psi.soi_kind = SOCKINFO_TCP
+        ipv4Listener.psi.soi_protocol = IPPROTO_TCP
+        ipv4Listener.psi.soi_proto.pri_tcp.tcpsi_state = TSI_S_LISTEN
+        ipv4Listener.psi.soi_proto.pri_tcp.tcpsi_ini.insi_vflag = UInt8(INI_IPV4)
+        ipv4Listener.psi.soi_proto.pri_tcp.tcpsi_ini.insi_lport = Int32(UInt16(3_000).bigEndian)
 
-        #expect(open[20] == [3000, 8080])
-        #expect(open[30] == [9229])
-        #expect(closed.isEmpty)
+        var ipv6Listener = ipv4Listener
+        ipv6Listener.psi.soi_proto.pri_tcp.tcpsi_ini.insi_vflag = UInt8(INI_IPV6)
+        ipv6Listener.psi.soi_proto.pri_tcp.tcpsi_ini.insi_lport = Int32(UInt16(9_229).bigEndian)
+
+        var connected = ipv4Listener
+        connected.psi.soi_proto.pri_tcp.tcpsi_state = TSI_S_ESTABLISHED
+        var nonTCP = ipv4Listener
+        nonTCP.psi.soi_kind = SOCKINFO_IN
+
+        #expect(PortScanner.listeningTCPPort(from: ipv4Listener) == 3_000)
+        #expect(PortScanner.listeningTCPPort(from: ipv6Listener) == 9_229)
+        #expect(PortScanner.listeningTCPPort(from: connected) == nil)
+        #expect(PortScanner.listeningTCPPort(from: nonTCP) == nil)
+    }
+
+    @Test
+    func libprocScanDiscoversLiveIPv4AndIPv6ListenersOnly() throws {
+        let ipv4 = try makeBoundTCPSocket(family: AF_INET, listening: true)
+        defer { Darwin.close(ipv4.descriptor) }
+        let ipv6 = try makeBoundTCPSocket(family: AF_INET6, listening: true)
+        defer { Darwin.close(ipv6.descriptor) }
+        let nonListener = try makeBoundTCPSocket(family: AF_INET, listening: false)
+        defer { Darwin.close(nonListener.descriptor) }
+
+        let pid = Int(Darwin.getpid())
+        let ports = PortScanner.scanListeningPorts(pids: [pid])[pid] ?? []
+
+        #expect(ports.contains(ipv4.port))
+        #expect(ports.contains(ipv6.port))
+        #expect(!ports.contains(nonListener.port))
     }
 
     private func processSnapshot(_ processes: [CmuxTopProcessInfo]) -> CmuxTopProcessSnapshot {
@@ -255,12 +279,88 @@ struct PortScannerSharedSnapshotTests {
             threadCount: 1
         )
     }
+
+    private func makeBoundTCPSocket(
+        family: Int32,
+        listening: Bool
+    ) throws -> (descriptor: Int32, port: Int) {
+        let descriptor = Darwin.socket(family, SOCK_STREAM, 0)
+        guard descriptor >= 0 else { throw currentPOSIXError() }
+
+        do {
+            let port: Int
+            switch family {
+            case AF_INET:
+                var address = sockaddr_in()
+                address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+                address.sin_family = sa_family_t(AF_INET)
+                address.sin_addr = in_addr(s_addr: INADDR_LOOPBACK.bigEndian)
+                try bindSocket(descriptor, address: &address)
+                try startListeningIfNeeded(descriptor, listening: listening)
+                var length = socklen_t(MemoryLayout<sockaddr_in>.size)
+                guard withUnsafeMutablePointer(to: &address, { pointer in
+                    pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                        Darwin.getsockname(descriptor, $0, &length)
+                    }
+                }) == 0 else {
+                    throw currentPOSIXError()
+                }
+                port = Int(UInt16(bigEndian: address.sin_port))
+            case AF_INET6:
+                var address = sockaddr_in6()
+                address.sin6_len = UInt8(MemoryLayout<sockaddr_in6>.size)
+                address.sin6_family = sa_family_t(AF_INET6)
+                address.sin6_addr = in6addr_loopback
+                try bindSocket(descriptor, address: &address)
+                try startListeningIfNeeded(descriptor, listening: listening)
+                var length = socklen_t(MemoryLayout<sockaddr_in6>.size)
+                guard withUnsafeMutablePointer(to: &address, { pointer in
+                    pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                        Darwin.getsockname(descriptor, $0, &length)
+                    }
+                }) == 0 else {
+                    throw currentPOSIXError()
+                }
+                port = Int(UInt16(bigEndian: address.sin6_port))
+            default:
+                throw POSIXError(.EAFNOSUPPORT)
+            }
+            return (descriptor, port)
+        } catch {
+            Darwin.close(descriptor)
+            throw error
+        }
+    }
+
+    private func bindSocket<Address>(
+        _ descriptor: Int32,
+        address: inout Address
+    ) throws {
+        let result = withUnsafePointer(to: &address) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                Darwin.bind(descriptor, $0, socklen_t(MemoryLayout<Address>.size))
+            }
+        }
+        guard result == 0 else { throw currentPOSIXError() }
+    }
+
+    private func startListeningIfNeeded(
+        _ descriptor: Int32,
+        listening: Bool
+    ) throws {
+        guard listening else { return }
+        guard Darwin.listen(descriptor, 1) == 0 else { throw currentPOSIXError() }
+    }
+
+    private func currentPOSIXError() -> POSIXError {
+        POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+    }
 }
 
 @Suite
 struct PortScanSnapshotStoreTests {
     @Test
-    func concurrentCoveredRequestsShareOneLsofCapture() async {
+    func concurrentCoveredRequestsShareOneLibprocCapture() async {
 #if DEBUG
         let metricsStore = ProcessPerformanceMetrics()
 #endif
@@ -286,7 +386,14 @@ struct PortScanSnapshotStoreTests {
         let covered = Task {
             await store.snapshot(pids: [20], maximumAge: 2)
         }
+#if DEBUG
+        #expect(await waitForMetrics {
+            let reuse = metricsStore.snapshot().lsof.reuse
+            return reuse.cache + reuse.inFlight == 1
+        })
+#else
         await clock.waitForReadCount(2)
+#endif
         await capturer.releaseNext()
 
         let firstResult = await first.value
@@ -300,18 +407,32 @@ struct PortScanSnapshotStoreTests {
         #expect(metrics.lsof.started == 1)
         #expect(metrics.lsof.completed == 1)
         #expect(metrics.lsof.maximumInFlight == 1)
-        #expect(metrics.lsof.reuse.inFlight == 1)
+        #expect(metrics.lsof.reuse.cache + metrics.lsof.reuse.inFlight == 1)
+        let wireLsof = metrics.foundationObject["lsof"] as? [String: Any]
+        #expect(wireLsof?["backend"] as? String == "libproc")
+        #expect(wireLsof?["process_launches"] as? Int == 0)
 #endif
     }
 
     @Test
     func uncoveredRequestsCoalesceIntoOneBoundedFollowup() async {
+#if DEBUG
+        let metricsStore = ProcessPerformanceMetrics()
+#endif
         let capturer = ControlledPortScanCapturer()
         let clock = PortScanTestClock(now: Date(timeIntervalSince1970: 100))
+#if DEBUG
+        let store = PortScanSnapshotStore(
+            now: { await clock.read() },
+            capture: { pids in await capturer.capture(pids: pids) },
+            metrics: metricsStore
+        )
+#else
         let store = PortScanSnapshotStore(
             now: { await clock.read() },
             capture: { pids in await capturer.capture(pids: pids) }
         )
+#endif
 
         let first = Task {
             await store.snapshot(pids: [10], maximumAge: 2)
@@ -323,7 +444,13 @@ struct PortScanSnapshotStoreTests {
         let third = Task {
             await store.snapshot(pids: [30], maximumAge: 2)
         }
+#if DEBUG
+        #expect(await waitForMetrics {
+            metricsStore.snapshot().lsof.coalescedRequests == 2
+        })
+#else
         await clock.waitForReadCount(3)
+#endif
 
         await capturer.releaseNext()
         await capturer.waitForCallCount(2)
@@ -373,6 +500,16 @@ struct PortScanSnapshotStoreTests {
         #expect(metrics.lsof.reuse.cache == 1)
 #endif
     }
+
+    private func waitForMetrics(
+        _ predicate: @escaping @Sendable () -> Bool
+    ) async -> Bool {
+        for _ in 0..<10_000 {
+            if predicate() { return true }
+            await Task.yield()
+        }
+        return predicate()
+    }
 }
 
 #if DEBUG
@@ -394,6 +531,8 @@ struct ProcessPerformanceMetricsEpochTests {
             generation: 1,
             processCount: 3
         )
+        metricsStore.recordLsofReuse(.cache, token: lsofToken)
+        metricsStore.recordLsofCoalescedRequest(token: lsofToken)
         metricsStore.lsofCompleted(lsofToken)
         metricsStore.operationCompleted(operationToken, outputCount: 2)
 
@@ -405,6 +544,8 @@ struct ProcessPerformanceMetricsEpochTests {
         #expect(metrics.lsof.started == 0)
         #expect(metrics.lsof.completed == 0)
         #expect(metrics.lsof.inFlight == 0)
+        #expect(metrics.lsof.coalescedRequests == 0)
+        #expect(metrics.lsof.reuse == ProcessPerformanceReuseMetrics())
         #expect(metrics.operations.isEmpty)
     }
 }

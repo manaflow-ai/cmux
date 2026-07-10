@@ -1,17 +1,16 @@
 import CmuxFoundation
 import Foundation
 
-/// Batched port scanner that replaces per-shell process + `lsof` scanning.
+/// Batched port scanner that replaces per-shell process and socket scanning.
 ///
 /// Each shell sends a lightweight `report_tty` + `ports_kick` over the socket.
-/// PortScanner coalesces kicks across all panels, then runs one shared libproc
-/// snapshot + `lsof -p <pids>` covering every panel that
-/// needs scanning.
+/// PortScanner coalesces kicks across all panels, then combines one shared
+/// process snapshot with a bounded libproc socket scan covering every panel.
 ///
 /// Kick → coalesce → burst flow:
 /// 1. `kick()` adds panel to `pendingKicks` set
 /// 2. If no burst is active, starts a 200ms coalesce timer
-/// 3. Coalesce fires → snapshots pending set → starts burst of 6 scans
+/// 3. Coalesce fires → snapshots pending set → starts 4 bounded refresh probes
 /// 4. New kicks during burst merge into the active burst
 /// 5. After last scan, if new kicks arrived, start a new coalesce cycle
 final class PortScanner: @unchecked Sendable {
@@ -27,6 +26,7 @@ final class PortScanner: @unchecked Sendable {
     // MARK: - State (all guarded by `queue`)
 
     private let queue = DispatchQueue(label: "com.cmux.port-scanner", qos: .utility)
+    private let portScanSnapshotStore = PortScanSnapshotStore()
 
     /// TTY name per (workspace, panel).
     private var ttyNames: [PanelKey: String] = [:]
@@ -56,8 +56,12 @@ final class PortScanner: @unchecked Sendable {
     /// Burst scan offsets in seconds from the start of the burst.
     /// Each scan fires at this absolute offset; the recursive scheduler
     /// converts to relative delays between consecutive scans.
-    private static let burstOffsets: [Double] = [0.5, 1.5, 3, 5, 7.5, 10]
+    // Preexec fires before a server binds. Four probes preserve the original
+    // ten-second discovery window without launching six heavyweight scans.
+    private static let burstOffsets: [Double] = [0.5, 1.5, 4, 10]
     private static let agentRescanInterval: TimeInterval = 2
+    private static let panelPortScanMaximumAge: TimeInterval = 0.5
+    private static let agentPortScanMaximumAge = agentRescanInterval
 
     // MARK: - Public API
 
@@ -222,10 +226,10 @@ final class PortScanner: @unchecked Sendable {
                 processSnapshot: snapshot
             )
             let allPIDs = Set(pidToTTY.keys).union(agentPidToWorkspaces.keys)
-            let pidToPorts = await Task.detached(priority: .utility) {
-                guard !allPIDs.isEmpty else { return [Int: Set<Int>]() }
-                return Self.runLsof(pids: allPIDs)
-            }.value
+            let pidToPorts = await self.portScanSnapshotStore.snapshot(
+                pids: allPIDs,
+                maximumAge: Self.panelPortScanMaximumAge
+            )
 #if DEBUG
             let filterMetricsToken = ProcessPerformanceMetrics.shared.operationStarted(
                 .portFilter,
@@ -378,9 +382,10 @@ final class PortScanner: @unchecked Sendable {
                 agentPIDsByWorkspace: agentPIDsByWorkspace,
                 processSnapshot: snapshot
             )
-            let pidToPorts = await Task.detached(priority: .utility) {
-                Self.runLsof(pids: Set(agentPidToWorkspaces.keys))
-            }.value
+            let pidToPorts = await self.portScanSnapshotStore.snapshot(
+                pids: Set(agentPidToWorkspaces.keys),
+                maximumAge: Self.agentPortScanMaximumAge
+            )
 #if DEBUG
             let filterMetricsToken = ProcessPerformanceMetrics.shared.operationStarted(
                 .portFilter,
@@ -575,50 +580,6 @@ final class PortScanner: @unchecked Sendable {
 
     // MARK: - Process helpers
 
-    static func captureStandardOutput(
-        executablePath: String,
-        arguments: [String]
-    ) -> String? {
-        autoreleasepool {
-            let process = Process()
-            let stdoutPipe = Pipe()
-            let stdoutReadHandle = stdoutPipe.fileHandleForReading
-            let stdoutWriteHandle = stdoutPipe.fileHandleForWriting
-
-            process.executableURL = URL(fileURLWithPath: executablePath)
-            process.arguments = arguments
-            process.standardInput = FileHandle.nullDevice
-            process.standardOutput = stdoutPipe
-            process.standardError = FileHandle.nullDevice
-
-            defer {
-                try? stdoutReadHandle.close()
-                try? stdoutWriteHandle.close()
-            }
-
-            do {
-                try process.run()
-            } catch {
-                return nil
-            }
-
-            // Close the parent's write end before reading. This is required:
-            // The pipe reader blocks until EOF, which only occurs when every
-            // write-fd holder (parent + child) has closed its copy. Keeping the
-            // parent's copy open would deadlock the read. The defer below is a
-            // safety net for the error path (process.run() throws), not a
-            // substitute for this explicit close.
-            try? stdoutWriteHandle.close()
-            let data = stdoutReadHandle.readDataToEndOfFileOrEmpty()
-            process.waitUntilExit()
-
-            guard let output = String(data: data, encoding: .utf8) else {
-                return nil
-            }
-            return output
-        }
-    }
-
     static func expandAgentProcessTree(
         agentPIDsByWorkspace: [UUID: Set<Int>],
         processSnapshot: CmuxTopProcessSnapshot
@@ -689,53 +650,64 @@ final class PortScanner: @unchecked Sendable {
         return result
     }
 
-    private static func runLsof(pids: Set<Int>) -> [Int: Set<Int>] {
+    static func scanListeningPorts(pids: Set<Int>) -> [Int: Set<Int>] {
         guard !pids.isEmpty else { return [:] }
-#if DEBUG
-        let metricsToken = ProcessPerformanceMetrics.shared.lsofStarted(pidCount: pids.count)
-        defer { ProcessPerformanceMetrics.shared.lsofCompleted(metricsToken) }
-#endif
-        let pidsCSV = pids.sorted().map(String.init).joined(separator: ",")
-        // `lsof -nP -a -p <pids> -iTCP -sTCP:LISTEN -F pn`
-        guard let output = captureStandardOutput(
-            executablePath: "/usr/sbin/lsof",
-            arguments: ["-nP", "-a", "-p", pidsCSV, "-iTCP", "-sTCP:LISTEN", "-Fpn"]
-        ) else {
-            return [:]
-        }
-
-        return parseLsofOutput(output)
-    }
-
-    static func parseLsofOutput(_ output: String) -> [Int: Set<Int>] {
-        // Parse lsof -F output: lines starting with 'p' = PID, 'n' = name (host:port).
         var result: [Int: Set<Int>] = [:]
-        var currentPid: Int?
-        for line in output.split(separator: "\n") {
-            guard let first = line.first else { continue }
-            switch first {
-            case "p":
-                currentPid = Int(line.dropFirst())
-            case "n":
-                guard let pid = currentPid else { continue }
-                var name = String(line.dropFirst())
-                // Strip remote endpoint if present.
-                if let arrowIdx = name.range(of: "->") {
-                    name = String(name[..<arrowIdx.lowerBound])
+        for pid in pids.sorted() where pid > 0 {
+            let rawPID = pid_t(pid)
+            let requiredBytes = proc_pidinfo(rawPID, PROC_PIDLISTFDS, 0, nil, 0)
+            guard requiredBytes > 0 else { continue }
+
+            // Leave spare entries for descriptors opened between sizing and
+            // the second syscall. A truncated list is refreshed on the next
+            // bounded scan and never blocks another consumer.
+            let requiredCount = Int(requiredBytes) / MemoryLayout<proc_fdinfo>.stride
+            let capacity = max(1, requiredCount + 16)
+            var descriptors = [proc_fdinfo](repeating: proc_fdinfo(), count: capacity)
+            let bufferBytes = Int32(capacity * MemoryLayout<proc_fdinfo>.stride)
+            let usedBytes = proc_pidinfo(
+                rawPID,
+                PROC_PIDLISTFDS,
+                0,
+                &descriptors,
+                bufferBytes
+            )
+            guard usedBytes > 0 else { continue }
+
+            let descriptorCount = min(
+                descriptors.count,
+                Int(usedBytes) / MemoryLayout<proc_fdinfo>.stride
+            )
+            for descriptor in descriptors.prefix(descriptorCount)
+                where descriptor.proc_fdtype == UInt32(PROX_FDTYPE_SOCKET) {
+                var socketInfo = socket_fdinfo()
+                let infoBytes = proc_pidfdinfo(
+                    rawPID,
+                    descriptor.proc_fd,
+                    PROC_PIDFDSOCKETINFO,
+                    &socketInfo,
+                    Int32(MemoryLayout<socket_fdinfo>.size)
+                )
+                guard infoBytes == MemoryLayout<socket_fdinfo>.size,
+                      let port = listeningTCPPort(from: socketInfo) else {
+                    continue
                 }
-                // Port is after the last colon.
-                if let colonIdx = name.lastIndex(of: ":") {
-                    let portStr = name[name.index(after: colonIdx)...]
-                    // Strip anything non-numeric.
-                    let cleaned = portStr.prefix(while: \.isNumber)
-                    if let port = Int(cleaned), port > 0, port <= 65535 {
-                        result[pid, default: []].insert(port)
-                    }
-                }
-            default:
-                break
+                result[pid, default: []].insert(port)
             }
         }
         return result
+    }
+
+    static func listeningTCPPort(from socketInfo: socket_fdinfo) -> Int? {
+        guard socketInfo.psi.soi_kind == SOCKINFO_TCP,
+              socketInfo.psi.soi_protocol == IPPROTO_TCP,
+              socketInfo.psi.soi_proto.pri_tcp.tcpsi_state == TSI_S_LISTEN else {
+            return nil
+        }
+        let networkPort = UInt16(
+            truncatingIfNeeded: socketInfo.psi.soi_proto.pri_tcp.tcpsi_ini.insi_lport
+        )
+        let port = Int(UInt16(bigEndian: networkPort))
+        return port > 0 ? port : nil
     }
 }
