@@ -6,7 +6,13 @@ extension DockSplitStore {
         panelId: UUID,
         paneId: PaneID
     ) -> TerminalPortalPresentation {
-        guard self.paneId(forPanelId: panelId)?.id == paneId.id else {
+        let panelBelongsToCandidatePane = bonsplitController.tabs(inPane: paneId).contains { tab in
+#if DEBUG
+            TerminalPortalPresentationDebugCounters.dockCandidateTabProbes += 1
+#endif
+            return surfaceIdToPanelId[tab.id] == panelId
+        }
+        guard panelBelongsToCandidatePane else {
             return .detached
         }
         guard paneIsRenderedInVisibleDock(paneId),

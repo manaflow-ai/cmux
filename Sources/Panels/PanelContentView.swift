@@ -26,7 +26,7 @@ struct PanelContentView: View {
     /// the main `Workspace` tree (the Dock). `nil` keeps the main-area behavior.
     var paneOwnershipOverride: Bool? = nil
     /// Live terminal presentation for hosts outside the main `Workspace` tree.
-    var terminalPortalPresentationResolver: (@MainActor () -> TerminalPortalPresentation)? = nil
+    let terminalPortalPresentationResolver: @MainActor () -> TerminalPortalPresentation
     let onFocus: () -> Void
     let onRequestPanelFocus: () -> Void
     let onResumeAgentHibernation: () -> Void

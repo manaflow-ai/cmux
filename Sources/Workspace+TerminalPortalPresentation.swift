@@ -1,17 +1,31 @@
 import Bonsplit
 import Foundation
 
+#if DEBUG
+@MainActor
+enum TerminalPortalPresentationDebugCounters {
+    static var workspaceCandidateTabProbes = 0
+    static var dockCandidateTabProbes = 0
+}
+#endif
+
 extension Workspace {
     func terminalPortalPresentation(
         panelId: UUID,
         paneId: PaneID
     ) -> TerminalPortalPresentation {
-        guard panels[panelId] != nil,
-              self.paneId(forPanelId: panelId)?.id == paneId.id else {
+        guard panels[panelId] != nil else { return .detached }
+        let panelBelongsToCandidatePane = bonsplitController.tabs(inPane: paneId).contains { tab in
+#if DEBUG
+            TerminalPortalPresentationDebugCounters.workspaceCandidateTabProbes += 1
+#endif
+            return panelIdFromSurfaceId(tab.id) == panelId
+        }
+        guard panelBelongsToCandidatePane else {
             return .detached
         }
 
-        let manager = owningTabManager ?? AppDelegate.shared?.tabManagerFor(tabId: id)
+        let manager = owningTabManager
         guard manager?.selectedTabId == id else {
             return .retained(zPriority: 1)
         }

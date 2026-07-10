@@ -99,6 +99,104 @@ extension TerminalWindowPortalLifecycleTests {
     }
 
     @MainActor
+    func testDockVisibilityWithTextBoxIntentDefersRefreshToPortalReconcile() throws {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 340),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer {
+            NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
+            window.orderOut(nil)
+        }
+        realizeWindowLayout(window)
+        let contentView = try XCTUnwrap(window.contentView)
+        let anchor = NSView(frame: NSRect(x: 20, y: 20, width: 360, height: 240))
+        contentView.addSubview(anchor)
+
+        let store = DockSplitStore(workspaceId: UUID(), baseDirectoryProvider: { nil })
+        defer { store.closeAllPanels() }
+        let pane = try XCTUnwrap(store.bonsplitController.allPaneIds.first)
+        let panelId = try XCTUnwrap(store.newSurface(kind: .terminal, inPane: pane, focus: true))
+        let panel = try XCTUnwrap(store.panels[panelId] as? TerminalPanel)
+        let portal = WindowTerminalPortal(window: window)
+        portal.bind(hostedView: panel.hostedView, to: anchor, visibleInUI: false)
+        drainMainQueue()
+        realizeWindowLayout(window)
+        XCTAssertNotNil(panel.surface.surface)
+        panel.preferTextBoxInputWhenActivated()
+        XCTAssertTrue(panel.isTextBoxActive)
+
+        panel.surface.resetDebugForceRefreshCount()
+        store.setVisibleInUI(true)
+
+        XCTAssertFalse(panel.hostedView.debugPortalActive)
+        XCTAssertEqual(
+            panel.surface.debugForceRefreshCount(),
+            0,
+            "Dock activation must leave text-box focus redraw to its scheduled portal reconcile"
+        )
+    }
+
+    @MainActor
+    func testWorkspacePortalProbeCostIgnoresUnrelatedWorkspacesAndPanes() throws {
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        defer { manager.tabs.forEach { $0.teardownAllPanels() } }
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let panel = try XCTUnwrap(workspace.focusedTerminalPanel)
+        let pane = try XCTUnwrap(workspace.paneId(forPanelId: panel.id))
+
+        TerminalPortalPresentationDebugCounters.workspaceCandidateTabProbes = 0
+        let baselinePresentation = workspace.terminalPortalPresentation(panelId: panel.id, paneId: pane)
+        let baselineProbeCount = TerminalPortalPresentationDebugCounters.workspaceCandidateTabProbes
+        XCTAssertGreaterThan(baselineProbeCount, 0)
+
+        XCTAssertNotNil(workspace.newTerminalSplit(
+            from: panel.id,
+            orientation: .horizontal,
+            focus: false
+        ))
+        for _ in 0..<8 { _ = manager.addTab(select: false) }
+
+        TerminalPortalPresentationDebugCounters.workspaceCandidateTabProbes = 0
+        let scaledPresentation = workspace.terminalPortalPresentation(panelId: panel.id, paneId: pane)
+        XCTAssertEqual(scaledPresentation, baselinePresentation)
+        XCTAssertEqual(TerminalPortalPresentationDebugCounters.workspaceCandidateTabProbes, baselineProbeCount)
+    }
+
+    @MainActor
+    func testDockPortalProbeCostIgnoresTabsInUnrelatedPanes() throws {
+        let store = DockSplitStore(workspaceId: UUID(), baseDirectoryProvider: { nil })
+        defer { store.closeAllPanels() }
+        let pane = try XCTUnwrap(store.bonsplitController.allPaneIds.first)
+        let panelId = try XCTUnwrap(store.newSurface(kind: .terminal, inPane: pane, focus: true))
+        store.setVisibleInUI(true)
+
+        TerminalPortalPresentationDebugCounters.dockCandidateTabProbes = 0
+        let baselinePresentation = store.terminalPortalPresentation(panelId: panelId, paneId: pane)
+        let baselineProbeCount = TerminalPortalPresentationDebugCounters.dockCandidateTabProbes
+        XCTAssertGreaterThan(baselineProbeCount, 0)
+
+        let splitPanelId = try XCTUnwrap(store.newSplit(
+            kind: .terminal,
+            orientation: .horizontal,
+            insertFirst: false,
+            sourcePanelId: panelId,
+            focus: false
+        ))
+        let unrelatedPane = try XCTUnwrap(store.paneId(forPanelId: splitPanelId))
+        for _ in 0..<8 {
+            _ = store.newSurface(kind: .terminal, inPane: unrelatedPane, focus: false)
+        }
+
+        TerminalPortalPresentationDebugCounters.dockCandidateTabProbes = 0
+        let scaledPresentation = store.terminalPortalPresentation(panelId: panelId, paneId: pane)
+        XCTAssertEqual(scaledPresentation, baselinePresentation)
+        XCTAssertEqual(TerminalPortalPresentationDebugCounters.dockCandidateTabProbes, baselineProbeCount)
+    }
+
+    @MainActor
     func testTransientReattachDistinguishesAnnouncedAndOrphanedNilAnchors() throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 520, height: 340),

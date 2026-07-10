@@ -10374,7 +10374,7 @@ final class GhosttySurfaceScrollView: NSView {
         }
     }
 
-    func yieldTerminalSurfaceFocusForForeignResponder(reason: String) {
+    func yieldTerminalSurfaceFocusForForeignResponder(reason: String, refreshPolicy: TerminalPortalVisibilityRefreshPolicy = .immediate) {
         surfaceView.desiredFocus = false
         pendingSuppressedFirstResponderFocusReapply = false
         guard let terminalSurface = surfaceView.terminalSurface else { return }
@@ -10382,7 +10382,7 @@ final class GhosttySurfaceScrollView: NSView {
 #if DEBUG
         dlog("focus.surface.yield surface=\(terminalSurface.id.uuidString.prefix(5)) reason=\(reason)")
 #endif
-        terminalSurface.forceRefresh(reason: "focus.surface.\(reason)")
+        if case .immediate = refreshPolicy { terminalSurface.forceRefresh(reason: "focus.surface.\(reason)") }
     }
 
     private func matchesCurrentTerminalFocusTarget(tabId: UUID, surfaceId: UUID) -> Bool {
