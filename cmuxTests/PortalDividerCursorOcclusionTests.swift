@@ -31,4 +31,22 @@ import Testing
 
         #expect(!occlusion.mayAssertDividerCursor(in: nil))
     }
+
+    @Test func hitTestKeepsCursorDuringLeftButtonDrag() {
+        let occlusion = PortalDividerCursorOcclusion(
+            topmostMouseEventWindowNumber: { _ in 11 },
+            isLeftMouseButtonPressed: { true }
+        )
+
+        #expect(occlusion.mayAssertDividerCursorDuringHitTest(in: nil))
+    }
+
+    @Test func hitTestSuppressesHoverCursorWhenNotDragging() {
+        let occlusion = PortalDividerCursorOcclusion(
+            topmostMouseEventWindowNumber: { _ in 11 },
+            isLeftMouseButtonPressed: { false }
+        )
+
+        #expect(!occlusion.mayAssertDividerCursorDuringHitTest(in: nil))
+    }
 }

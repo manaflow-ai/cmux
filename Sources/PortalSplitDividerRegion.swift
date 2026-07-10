@@ -13,8 +13,20 @@ struct PortalDividerCursorOcclusion {
         return windowNumber > 0 ? windowNumber : nil
     }
 
+    var isLeftMouseButtonPressed: () -> Bool = {
+        (NSEvent.pressedMouseButtons & 1) != 0
+    }
+
     func mayAssertDividerCursor(screenPoint: NSPoint, windowNumber: Int) -> Bool {
         topmostMouseEventWindowNumber(screenPoint) == windowNumber
+    }
+
+    /// Hit-test callers see pointer-drag events too. An in-flight left-button
+    /// drag keeps the resize cursor: drag events only arrive after a
+    /// legitimate mouse-down on this window, and the divider being dragged may
+    /// momentarily sit under an overlapping window without the drag ending.
+    func mayAssertDividerCursorDuringHitTest(in window: NSWindow?) -> Bool {
+        isLeftMouseButtonPressed() || mayAssertDividerCursor(in: window)
     }
 
     func mayAssertDividerCursor(in window: NSWindow?) -> Bool {

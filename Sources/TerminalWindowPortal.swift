@@ -153,8 +153,13 @@ final class WindowTerminalHostView: NSView {
             }
 
             if let kind = splitDividerCursorKind(at: point) {
-                activeDividerCursorKind = kind
-                kind.cursor.set()
+                // Hover events reach hit testing even when this window is occluded.
+                if dividerCursorOcclusion.mayAssertDividerCursorDuringHitTest(in: window) {
+                    activeDividerCursorKind = kind
+                    kind.cursor.set()
+                } else {
+                    clearActiveDividerCursor(restoreArrow: false)
+                }
                 TerminalWindowPortalRegistry.noteSplitDividerInteraction(
                     in: window,
                     event: currentEvent
