@@ -28,6 +28,8 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     ///   - ticket: The attach ticket authorizing requests.
     ///   - allowsStackAuthFallback: When `true`, falls back to a Stack Auth token
     ///     on routes that allow it once the attach ticket no longer covers a request.
+    ///   - transportConnectObserver: Optional observer for the underlying transport
+    ///     attempt, success, and failure lifecycle.
     public init(
         runtime: any MobileSyncRuntime,
         route: CmxAttachRoute,
@@ -38,7 +40,8 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         stackTokenForceRefreshGate: RPCStackTokenGate? = nil,
         abandonedConnectCleanupTimeoutNanoseconds: UInt64 = 1_000_000_000,
         lateAbandonedConnectCloseTimeoutNanoseconds: UInt64 = 5_000_000_000,
-        stackTokenGateResetNanoseconds: UInt64 = 30_000_000_000
+        stackTokenGateResetNanoseconds: UInt64 = 30_000_000_000,
+        transportConnectObserver: (@Sendable (MobileRPCTransportConnectEvent) async -> Void)? = nil
     ) {
         self.runtime = runtime
         self.route = route
@@ -55,7 +58,8 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             lateAbandonedConnectCloseTimeoutNanoseconds: lateAbandonedConnectCloseTimeoutNanoseconds,
             makeTransport: { [route, runtime] in
                 try runtime.transportFactory.makeTransport(for: route)
-            }
+            },
+            transportConnectObserver: transportConnectObserver
         )
     }
 

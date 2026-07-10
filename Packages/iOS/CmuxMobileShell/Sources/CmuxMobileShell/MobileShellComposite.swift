@@ -622,6 +622,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// The injected, fire-and-forget product-analytics emitter. Defaults to
     /// ``NoopAnalytics`` so previews/tests inject nothing.
     private let analytics: any AnalyticsEmitting
+    let dialLog: @Sendable (String) async -> Void
     let connectAttemptRegistry = MobileRPCConnectAttemptRegistry()
     let stackTokenGate = RPCStackTokenGate()
     let stackTokenForceRefreshGate = RPCStackTokenGate()
@@ -882,6 +883,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     /// Create a mobile shell store with injectable runtime services for app
     /// composition, previews, and package tests.
+    /// - Parameter dialLog: Optional ordered dial-log sink. The production
+    ///   default writes through ``MobileDebugLog/anchormux(_:)``.
     public init(
         runtime: (any MobileSyncRuntime)? = nil,
         isSignedIn: Bool = false,
@@ -905,6 +908,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         forgottenMacStore: any PairedMacForgottenStoring = InMemoryPairedMacForgottenStore(),
         analytics: any AnalyticsEmitting = NoopAnalytics(),
         diagnosticLog: DiagnosticLog? = nil,
+        dialLog: (@Sendable (String) async -> Void)? = nil,
         feedbackEmailSubmitter: (any MobileFeedbackEmailSubmitting)? = nil,
         feedbackStampProvider: @escaping @MainActor () -> MobileFeedbackStamp = { MobileShellComposite.emptyFeedbackStamp },
         draftStore: (any TerminalDraftStoring)? = nil,
@@ -928,6 +932,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.forgottenMacStore = forgottenMacStore
         self.analytics = analytics
         self.diagnosticLog = diagnosticLog
+        self.dialLog = dialLog ?? { message in MobileDebugLog.anchormux(message) }
         self.feedbackEmailSubmitter = feedbackEmailSubmitter
         self.feedbackStampProvider = feedbackStampProvider
         // Distinguish "key absent" (an install that predates the hint and may
@@ -4979,7 +4984,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// when it returned without connecting and without throwing
     /// (`.noSupportedRoute`), so callers record the matching analytics reason.
     @discardableResult
-    private func connect(
+    func connect(
         ticket: CmxAttachTicket,
         allowsStackAuthFallback: Bool? = nil,
         pairedMacDeviceID: String? = nil,
@@ -5039,9 +5044,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         var lastError: (any Error)?
         for (routeIndex, route) in supportedRoutes.enumerated() {
             activeRoute = route
-            mobileShellLog.info(
-                "mobile attach route attempt index=\(routeIndex + 1, privacy: .public) id=\(route.id, privacy: .public) kind=\(route.kind.rawValue, privacy: .public) endpoint=\(route.endpoint.logDescription, privacy: .private)"
-            )
+            let attemptIndex = routeIndex + 1
+            let routeID = route.id
+            let routeKind = route.kind.rawValue
+            let endpointSummary = Self.mobileDialEndpointSummary(route.endpoint)
+            let dialLog = dialLog
             let client = MobileCoreRPCClient(
                 runtime: runtime,
                 route: route,
@@ -5050,7 +5057,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     ?? MobileShellRouteAuthPolicy.routeAllowsStackAuth(route),
                 connectAttemptRegistry: connectAttemptRegistry,
                 stackTokenGate: stackTokenGate,
-                stackTokenForceRefreshGate: stackTokenForceRefreshGate
+                stackTokenForceRefreshGate: stackTokenForceRefreshGate,
+                transportConnectObserver: { event in
+                    let line: String
+                    switch event {
+                    case .attempt:
+                        line = "mobile.dial.attempt index=\(attemptIndex) route_id=\(routeID) kind=\(routeKind) endpoint=\(endpointSummary)"
+                    case .connected(let elapsedMilliseconds):
+                        line = "mobile.dial.connected index=\(attemptIndex) route_id=\(routeID) kind=\(routeKind) elapsed_ms=\(elapsedMilliseconds)"
+                    case let .failed(error, elapsedMilliseconds):
+                        line = "mobile.dial.failed index=\(attemptIndex) route_id=\(routeID) kind=\(routeKind) failure_kind=\(Self.mobileDialFailureKind(error)) elapsed_ms=\(elapsedMilliseconds)"
+                    }
+                    await dialLog(line)
+                }
             )
             for workspaceListRequest in workspaceListRequests {
                 do {
@@ -5159,6 +5178,57 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
         diagnosticLog?.record(DiagnosticEvent(.pairFail))
         throw lastError ?? MobileShellConnectionError.connectionClosed
+    }
+
+    nonisolated private static func mobileDialEndpointSummary(_ endpoint: CmxAttachEndpoint) -> String {
+        switch endpoint {
+        case let .hostPort(host, port):
+            return "\(host):\(port)"
+        case let .peer(id, relayHint, _, relayURL):
+            let endpointPrefix = String(id.prefix(8))
+            let relayHost = relayURL.flatMap { URL(string: $0)?.host }
+                ?? relayHint.flatMap { hint in
+                    URL(string: hint)?.host ?? URL(string: "https://\(hint)")?.host
+                }
+                ?? "none"
+            return "peer:\(endpointPrefix),relay:\(relayHost)"
+        case .url:
+            return "url:redacted"
+        }
+    }
+
+    nonisolated private static func mobileDialFailureKind(_ error: any Error) -> String {
+        if let error = error as? CmxNetworkByteTransportError {
+            switch error {
+            case .connectionTimedOut:
+                return "timedOut"
+            case .connectionFailed(_, let kind):
+                return mobileDialFailureKind(kind)
+            default:
+                return "transport_error:\(String(describing: type(of: error)))"
+            }
+        }
+        if let error = error as? CmxIrohByteTransportError {
+            switch error {
+            case .endpointBindFailed(_, let kind), .connectionFailed(_, let kind):
+                return mobileDialFailureKind(kind)
+            default:
+                return "transport_error:\(String(describing: type(of: error)))"
+            }
+        }
+        return "transport_error:\(String(describing: type(of: error)))"
+    }
+
+    nonisolated private static func mobileDialFailureKind(_ kind: CmxConnectFailureKind) -> String {
+        switch kind {
+        case .connectionRefused: "connectionRefused"
+        case .hostUnreachable: "hostUnreachable"
+        case .timedOut: "timedOut"
+        case .permissionDenied: "permissionDenied"
+        case .dnsFailed: "dnsFailed"
+        case .secureChannelFailed: "secureChannelFailed"
+        case .generic: "generic"
+        }
     }
 
     private struct WorkspaceListRequest {
