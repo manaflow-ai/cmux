@@ -289,6 +289,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		4BBF42E8A86EAAB94BC9EA16 /* BrowserSystemProxyMirror.swift in Sources */ = {isa = PBXBuildFile; fileRef = 048DACB3F8147BCBDD266297 /* BrowserSystemProxyMirror.swift */; };
 		C7B800062D4202A13C962D2D /* BrowserSystemProxyMirrorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D828DA0070335773EBAE83F /* BrowserSystemProxyMirrorTests.swift */; };
 		0796994CA7CCA25DB990BFEF /* BrowserSystemProxyWatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 326E7A5E13C6DF650B9F8971 /* BrowserSystemProxyWatcher.swift */; };
+		50AC0001000000000000000C /* BrowserThemeSettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50AC0001000000000000000B /* BrowserThemeSettingsTests.swift */; };
 		A50100000000000000000002 /* BrowserWebAuthnAssertionExtensions.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50100000000000000000001 /* BrowserWebAuthnAssertionExtensions.swift */; };
 		A50100000000000000000004 /* BrowserWebAuthnAssertionPublicKeyOptions.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50100000000000000000003 /* BrowserWebAuthnAssertionPublicKeyOptions.swift */; };
 		A50100000000000000000006 /* BrowserWebAuthnAssertionRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50100000000000000000005 /* BrowserWebAuthnAssertionRequest.swift */; };
@@ -2041,6 +2042,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		048DACB3F8147BCBDD266297 /* BrowserSystemProxyMirror.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserSystemProxyMirror.swift; sourceTree = "<group>"; };
 		8D828DA0070335773EBAE83F /* BrowserSystemProxyMirrorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserSystemProxyMirrorTests.swift; sourceTree = "<group>"; };
 		326E7A5E13C6DF650B9F8971 /* BrowserSystemProxyWatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserSystemProxyWatcher.swift; sourceTree = "<group>"; };
+		50AC0001000000000000000B /* BrowserThemeSettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserThemeSettingsTests.swift; sourceTree = "<group>"; };
 		A50100000000000000000001 /* BrowserWebAuthnAssertionExtensions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebAuthnAssertionExtensions.swift; sourceTree = "<group>"; };
 		A50100000000000000000003 /* BrowserWebAuthnAssertionPublicKeyOptions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebAuthnAssertionPublicKeyOptions.swift; sourceTree = "<group>"; };
 		A50100000000000000000005 /* BrowserWebAuthnAssertionRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebAuthnAssertionRequest.swift; sourceTree = "<group>"; };
@@ -5038,6 +5040,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				5B0C00010000000000000004 /* SidebarResizerOcclusionResolverTests.swift */,
 				5B0C00010000000000000006 /* PortalDividerCursorOcclusionTests.swift */,
 				50AC00010000000000000005 /* PortalDividerIntersectionTests.swift */,
+				50AC0001000000000000000B /* BrowserThemeSettingsTests.swift */,
 				C0DE1A080000000000000002 /* SavedLayoutDefinitionTests.swift */,
 				C0DE1A070000000000000002 /* SavedLayoutStoreTests.swift */,
 				5830CA11BAC0000000000001 /* SocketCallbackAwaiterMainThreadTests.swift */,
@@ -6866,6 +6869,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				B6585001B6585001B658PW01 /* BrowserPrewarmedWebViewPoolTests.swift in Sources */,
 				C2035A060000000000000001 /* BrowserSSLTrustBypassStateTests.swift in Sources */,
 				C7B800062D4202A13C962D2D /* BrowserSystemProxyMirrorTests.swift in Sources */,
+				50AC0001000000000000000C /* BrowserThemeSettingsTests.swift in Sources */,
 				C0DE49870000000000000001 /* BrowserWebContentProcessTests.swift in Sources */,
 				C0DE62600000000000000001 /* BrowserWindowPortalRegistryNotificationTests.swift in Sources */,
 				C0DE35530000000000000101 /* BundledCLILinkageTests.swift in Sources */,
