@@ -6,8 +6,10 @@ import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
+private typealias SimulatorStoredShortcut = cmux_DEV.StoredShortcut
 #elseif canImport(cmux)
 @testable import cmux
+private typealias SimulatorStoredShortcut = cmux.StoredShortcut
 #endif
 
 @Suite("Keyboard shortcut context")
@@ -23,14 +25,14 @@ struct KeyboardShortcutContextSwiftTests {
             "simulatorToggleSoftwareKeyboard",
         ])
         #expect(actions.allSatisfy { $0.shortcutContext == .simulatorPanel })
-        #expect(actions.allSatisfy(\.hasPriorityShortcutRouting))
+        #expect(actions.allSatisfy { $0.hasPriorityShortcutRouting })
 
-        let expected: [KeyboardShortcutSettings.Action: StoredShortcut] = [
-            .simulatorHome: StoredShortcut(key: "h", command: true, shift: true, option: false, control: false),
-            .simulatorRotateLeft: StoredShortcut(key: "←", command: true, shift: false, option: false, control: false),
-            .simulatorRotateRight: StoredShortcut(key: "→", command: true, shift: false, option: false, control: false),
-            .simulatorToggleAppearance: StoredShortcut(key: "a", command: true, shift: true, option: false, control: false),
-            .simulatorToggleSoftwareKeyboard: StoredShortcut(key: "k", command: true, shift: false, option: false, control: false),
+        let expected: [KeyboardShortcutSettings.Action: SimulatorStoredShortcut] = [
+            .simulatorHome: SimulatorStoredShortcut(key: "h", command: true, shift: true, option: false, control: false),
+            .simulatorRotateLeft: SimulatorStoredShortcut(key: "←", command: true, shift: false, option: false, control: false),
+            .simulatorRotateRight: SimulatorStoredShortcut(key: "→", command: true, shift: false, option: false, control: false),
+            .simulatorToggleAppearance: SimulatorStoredShortcut(key: "a", command: true, shift: true, option: false, control: false),
+            .simulatorToggleSoftwareKeyboard: SimulatorStoredShortcut(key: "k", command: true, shift: false, option: false, control: false),
         ]
         for action in actions {
             #expect(action.defaultShortcut == expected[action])
