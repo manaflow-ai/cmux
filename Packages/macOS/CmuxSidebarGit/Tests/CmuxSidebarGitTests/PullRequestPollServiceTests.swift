@@ -31,6 +31,45 @@ import CmuxGit
         )
     }
 
+    private func waitUntil(maxYields: Int = 5_000, _ predicate: () -> Bool) async -> Bool {
+        for _ in 0..<maxYields {
+            if predicate() {
+                return true
+            }
+            await Task.yield()
+        }
+        return predicate()
+    }
+
+    /// A synchronous burst of per-panel requests plans one whole-window pass.
+    /// The planner still marks every panel due, while avoiding one full scan per request.
+    @Test func synchronousScheduleBurstCoalescesGlobalPlanning() async throws {
+        let host = RecordingSidebarGitHost()
+        host.pollingEnabled = true
+        var keys: [WorkspaceGitProbeKey] = []
+        for _ in 0..<100 {
+            let (workspaceId, panelId) = host.addWorkspace(panelDirectory: nil)
+            host.workspaces[host.workspaces.count - 1].state.panels[panelId]?.branch =
+                SidebarPanelGitBranch(branch: "feature/x", isDirty: false)
+            keys.append(WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: panelId))
+        }
+        let service = makeService(host: host, clock: ManualGitPollClock())
+
+        for key in keys {
+            service.scheduleWorkspacePullRequestRefresh(
+                workspaceId: key.workspaceId,
+                panelId: key.panelId,
+                reason: "localGitProbe"
+            )
+        }
+
+        #expect(await waitUntil { host.orderedWorkspaceIdsCallCount >= 1 })
+        #expect(host.orderedWorkspaceIdsCallCount == 1)
+        #expect(keys.allSatisfy {
+            service.workspacePullRequestNextPollAtByKey[$0] == .distantPast
+        })
+    }
+
     /// A refresh against a panel whose directory resolves to no GitHub repo
     /// applies `unsupportedRepository` (badge cleared) and re-arms the poll
     /// timer with the jittered background interval, floored at 0.25 seconds.
