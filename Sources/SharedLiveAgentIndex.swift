@@ -429,6 +429,7 @@ final class SharedLiveAgentIndex {
     func handleHookStoreChange() {
         if refreshTailID != nil {
             changePending = true
+            drainPendingHookStoreChangeIfPossible()
             return
         }
         let elapsed = loadedAt.map { dateProvider().timeIntervalSince($0) } ?? .infinity

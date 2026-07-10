@@ -176,7 +176,7 @@ extension SharedLiveAgentIndex {
         }
     }
 
-    private func drainPendingHookStoreChangeIfPossible() {
+    func drainPendingHookStoreChangeIfPossible() {
         guard changePending,
               refreshGenerationsByID.count < Self.maximumConcurrentPhysicalLoads else {
             return
