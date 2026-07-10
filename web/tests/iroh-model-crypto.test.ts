@@ -7,6 +7,7 @@ import {
   assertCurrentSigningKey,
   createOfflinePairSessionRecord,
   deriveAccountSubject,
+  deriveLanRendezvousKey,
   parseVerificationKeys,
   signEndpointAttestation,
   signPairGrant,
@@ -39,6 +40,28 @@ import {
 } from "../services/iroh/relayMinter";
 
 const NOW = new Date("2026-07-09T20:00:00.000Z");
+
+describe("Iroh LAN rendezvous derivation", () => {
+  test("derives an account-scoped generation key with a server-only HMAC secret", () => {
+    const secret = Buffer.alloc(32, 0x4c);
+    const encodedSecret = secret.toString("base64");
+    const expected = createHmac("sha256", secret)
+      .update("cmux/iroh/lan-rendezvous/v1\0", "utf8")
+      .update("account-a", "utf8")
+      .update("\0", "utf8")
+      .update("1", "utf8")
+      .digest("base64url");
+
+    expect(deriveLanRendezvousKey(encodedSecret, "account-a", 1)).toBe(expected);
+    expect(deriveLanRendezvousKey(encodedSecret, "account-b", 1)).not.toBe(expected);
+    expect(deriveLanRendezvousKey(encodedSecret, "account-a", 2)).not.toBe(expected);
+    expect(
+      deriveLanRendezvousKey(Buffer.alloc(32, 0x4d).toString("base64"), "account-a", 1),
+    ).not.toBe(expected);
+    expect(() => deriveLanRendezvousKey(Buffer.alloc(31).toString("base64"), "account-a", 1))
+      .toThrow();
+  });
+});
 
 function registrationPayload(pathHint: Record<string, unknown>) {
   return {

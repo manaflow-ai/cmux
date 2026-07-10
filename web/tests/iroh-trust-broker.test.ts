@@ -165,6 +165,36 @@ describe("Iroh discovery and grants", () => {
     expect(JSON.stringify(discovered.grant_verification_keys)).not.toContain("PRIVATE KEY");
   });
 
+  test("does not combine a pre-revocation binding with a post-revocation LAN generation", async () => {
+    const fixture = makeFixture();
+    const active = binding({ userId: USER_A });
+    fixture.repository.bindings.push(active);
+    let releaseList: (() => void) | undefined;
+    const listCanReturn = new Promise<void>((resolve) => {
+      releaseList = resolve;
+    });
+    let didList: (() => void) | undefined;
+    const listed = new Promise<void>((resolve) => {
+      didList = resolve;
+    });
+    fixture.repository.afterListActiveBindings = async () => {
+      didList?.();
+      await listCanReturn;
+    };
+
+    const discovery = Effect.runPromise(fixture.broker.discover(USER_A, NOW));
+    await listed;
+    await Effect.runPromise(fixture.broker.revoke(USER_A, { bindingId: active.id }, NOW));
+    releaseList?.();
+    const result = await discovery as {
+      bindings: unknown[];
+      lan_rendezvous: { generation: number };
+    };
+
+    expect(result.bindings).toEqual([]);
+    expect(result.lan_rendezvous.generation).toBe(2);
+  });
+
   test("pair grants require two same-user bindings and a pairable Mac", async () => {
     const fixture = makeFixture();
     const initiator = binding({ userId: USER_A, platform: "ios", pairingEnabled: false });
@@ -385,6 +415,7 @@ class MemoryRepository implements IrohRepositoryShape {
     status: string;
   }> = [];
   private lanGenerations = new Map<string, number>();
+  afterListActiveBindings: (() => Promise<void>) | undefined;
   beforeRecordPairGrant: (() => void) | undefined;
   beforeFinalizeEndpointAttestation: (() => void) | undefined;
 
@@ -462,7 +493,13 @@ class MemoryRepository implements IrohRepositoryShape {
   }
 
   listActiveBindings(userId: string) {
-    return Effect.succeed(this.bindings.filter((row) => row.userId === userId && !row.revokedAt));
+    const bindings = this.bindings.filter((row) => row.userId === userId && !row.revokedAt);
+    return this.afterListActiveBindings
+      ? Effect.promise(async () => {
+        await this.afterListActiveBindings?.();
+        return bindings;
+      })
+      : Effect.succeed(bindings);
   }
 
   findActiveBindings(userId: string, bindingIds: readonly string[]) {
