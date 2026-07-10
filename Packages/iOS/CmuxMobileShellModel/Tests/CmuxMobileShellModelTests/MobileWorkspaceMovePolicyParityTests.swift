@@ -132,8 +132,6 @@ import Testing
             workspace.id
         case .groupHeader(let group, _):
             group.anchorWorkspaceID
-        case .groupFooter:
-            nil
         }
     }
 

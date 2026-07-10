@@ -11,12 +11,9 @@ import Foundation
 ///   group; workspace-row drags never change an anchor's membership.
 /// - The gap below an expanded header joins that group, including anchor-only
 ///   groups. Header/member and same-group member/member gaps also stay in-group.
-/// - Populated expanded groups render an end-of-group slot: dropping before it
-///   joins the group at its end (members and external workspaces alike), and
-///   dropping after it lands at root right after the group — the direct touch
-///   equivalent of the Mac's boundary pointer lane.
-/// - When no slot exists (empty groups, collapsed groups, or item arrays
-///   without footers), the mixed gap after a group's last member falls back to
+/// - The point-aware ``MobileWorkspaceDropResolver`` resolves a group's mixed
+///   trailing boundary with the Mac horizontal lane. This index-only fallback
+///   has no finger x-coordinate, so the same mixed gap falls back to
 ///   Mac neighbor inference: a workspace already in that group stays at its
 ///   end; any other workspace lands at root before the next top-level row. See
 ///   `WorkspaceReorderCoordinator.applyDragInferredGroupMembership` lines 421-457.
@@ -94,8 +91,6 @@ struct MobileWorkspaceListMoveIntentResolver {
             return workspace
         case .groupHeader(let group, _):
             return workspaces.first { $0.id == group.anchorWorkspaceID }
-        case .groupFooter:
-            return nil
         }
     }
 
@@ -124,9 +119,6 @@ struct MobileWorkspaceListMoveIntentResolver {
                     ?? workspaceAfterGroup(group.id, workspaces: workspaces)
             )
 
-        case .groupFooter:
-            return rootLevelIntent(nextItem: nextItem, workspaces: workspaces)
-
         case .workspace(let previousWorkspace, _):
             let previousGroupID = validGroupID(previousWorkspace.groupID)
             guard let previousGroupID else {
@@ -146,15 +138,6 @@ struct MobileWorkspaceListMoveIntentResolver {
                     groupID: previousGroupID,
                     nextItem: nextItem,
                     workspaces: workspaces
-                )
-
-            case .groupFooter(let footerGroupID):
-                guard footerGroupID == previousGroupID else {
-                    return rootLevelIntent(nextItem: nextItem, workspaces: workspaces)
-                }
-                return MobileWorkspaceMoveIntent(
-                    groupID: previousGroupID,
-                    beforeWorkspaceID: workspaceAfterGroup(previousGroupID, workspaces: workspaces)
                 )
 
             case .groupHeader, nil:
@@ -205,10 +188,6 @@ struct MobileWorkspaceListMoveIntentResolver {
             return nextWorkspace.id
         case .groupHeader(let nextGroup, _):
             return firstWorkspace(in: nextGroup.id, workspaces: workspaces)
-        case .groupFooter(let groupID):
-            return workspaceAfterGroup(groupID, workspaces: workspaces)
-                ?? firstWorkspace(in: groupID, workspaces: workspaces)
-                ?? groups.first(where: { $0.id == groupID })?.anchorWorkspaceID
         case nil:
             return nil
         }

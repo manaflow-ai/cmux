@@ -111,7 +111,7 @@ import Testing
         let expanded = MobileWorkspaceListItem.items(workspaces: displayed, groups: [group("g", collapsed: false)])
         let collapsed = MobileWorkspaceListItem.items(workspaces: displayed, groups: [group("g", collapsed: true)])
 
-        #expect(expanded.map(\.id) == ["group.g", "workspace.member", "groupFooter.g"])
+        #expect(expanded.map(\.id) == ["group.g", "workspace.member"])
         #expect(collapsed.map(\.id) == ["group.g"])
         guard case .groupHeader(_, hasUnread: true) = collapsed[0] else {
             Issue.record("Collapsed header did not rematerialize its aggregate unread state")

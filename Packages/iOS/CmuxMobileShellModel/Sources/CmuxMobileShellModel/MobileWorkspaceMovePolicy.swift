@@ -1,6 +1,11 @@
 import Foundation
 
 /// Host-style workspace move normalization shared by iOS intent resolution and optimistic ordering.
+///
+/// Point geometry is resolved upstream by ``MobileWorkspaceDropResolver``:
+/// its horizontal lane selects group versus root at mixed boundaries. The
+/// index-only ``MobileWorkspaceListMoveIntentResolver`` retains Mac-style
+/// neighbor inference only for programmatic callers without a finger point.
 struct MobileWorkspaceMovePolicy {
     let workspaces: [MobileWorkspacePreview]
     let groups: [MobileWorkspaceGroupPreview]
