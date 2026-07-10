@@ -161,6 +161,19 @@ struct TerminalPortalHostAuthorityTests {
 
     @MainActor
     @Test
+    func workspaceOwnershipTransferDoesNotInvalidateBindingLifecycle() {
+        let surface = makeSurface()
+        let bindingGeneration = surface.portalBindingGeneration()
+        let ownershipGeneration = surface.currentPortalHostOwnershipGeneration()
+
+        surface.updateWorkspaceId(UUID())
+
+        #expect(surface.portalBindingGeneration() == bindingGeneration)
+        #expect(surface.currentPortalHostOwnershipGeneration() > ownershipGeneration)
+    }
+
+    @MainActor
+    @Test
     func olderHostCannotStealLeaseAfterNewHostBinds() {
         let surface = makeSurface()
         let oldHost = NSView(), newHost = NSView()
