@@ -362,6 +362,10 @@ impl RemoteSession {
         self.subscribers.emit(event);
     }
 
+    fn invalidate_tree_once(&self) -> bool {
+        !self.tree_stale.swap(true, Ordering::AcqRel)
+    }
+
     pub fn subscribe(&self) -> MuxEventReceiver {
         self.subscribers.subscribe()
     }
@@ -491,14 +495,14 @@ impl RemoteSession {
                 if let Some(id) = surface_id() {
                     if let Some(title) = value.get("title").and_then(Value::as_str) {
                         let updated = self.tree.lock().unwrap().update_title(id, title.to_string());
-                        if !updated {
-                            self.tree_stale.store(true, Ordering::Release);
+                        if !updated && self.invalidate_tree_once() {
                             self.emit(MuxEvent::TreeChanged);
                         }
                         self.emit(MuxEvent::TitleChanged { surface: id, title: title.to_string() });
                     } else {
-                        self.tree_stale.store(true, Ordering::Release);
-                        self.emit(MuxEvent::TreeChanged);
+                        if self.invalidate_tree_once() {
+                            self.emit(MuxEvent::TreeChanged);
+                        }
                     }
                 }
             }
@@ -947,6 +951,42 @@ mod tests {
 
         assert!(refresh.join().unwrap().is_err());
         assert!(!session.tree_is_stale());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unknown_surface_title_churn_emits_one_tree_invalidation_per_stale_transition() {
+        let (client, _server) = UnixStream::pair().unwrap();
+        let session = socket_test_session(client);
+        let events = session.subscribe();
+        session.tree_stale.store(false, Ordering::Release);
+
+        for index in 0..1_000 {
+            session.handle_line(json!({
+                "event": "title-changed",
+                "surface": 77,
+                "title": format!("unknown-{index}"),
+            }));
+        }
+
+        let received = events.try_iter().collect::<Vec<_>>();
+        assert_eq!(
+            received.iter().filter(|event| matches!(event, MuxEvent::TreeChanged)).count(),
+            1
+        );
+        assert!(
+            received
+                .iter()
+                .any(|event| matches!(event, MuxEvent::TitleChanged { surface: 77, .. }))
+        );
+
+        assert!(session.take_tree_stale());
+        session.handle_line(json!({
+            "event": "title-changed",
+            "surface": 77,
+            "title": "after-refresh",
+        }));
+        assert!(events.try_iter().any(|event| matches!(event, MuxEvent::TreeChanged)));
     }
 
     #[test]
