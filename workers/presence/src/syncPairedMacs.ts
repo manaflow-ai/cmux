@@ -33,9 +33,12 @@ import {
 /** Logical collection name the client subscribes to and stores under. */
 export const PAIRED_MACS_COLLECTION = "pairedMacs";
 const SCOPED_PAIRED_MACS_COLLECTION = "pairedMacsScoped";
+const IOS_V2_SCOPED_PAIRED_MACS_COLLECTION = "pairedMacsScopedIosV2";
+const IOS_V2_CLIENT_SCOPE_PREFIX = "ios:v2:";
 export const PAIRED_MACS_COLLECTION_TOMBSTONE_PREFIXES = [
   `${PAIRED_MACS_COLLECTION}:`,
   `${SCOPED_PAIRED_MACS_COLLECTION}:`,
+  `${IOS_V2_SCOPED_PAIRED_MACS_COLLECTION}:`,
 ];
 
 /** Max saved-host records a single user may back up. Bounds the storage a client
@@ -48,9 +51,12 @@ export const MAX_PAIRED_MACS_PER_USER = 200;
  * ids → delete → repeat unbounded. 5× the live cap leaves generous headroom for
  * legitimate forget/re-pair while capping the abuse vector. */
 export const MAX_PAIRED_MAC_RECORDS_PER_USER = MAX_PAIRED_MACS_PER_USER * 5;
-/** Max tagged-build backup scopes one user may create. Scopes are client-provided
- * dev-build labels, so the server bounds their count before using them in a
- * physical collection name. */
+/** Max tagged-build backup scopes one user may create per supported storage
+ * generation. Scopes are client-provided dev-build labels, so the server bounds
+ * their count before using them in a physical collection name. The deprecated
+ * iOS v1 and current iOS v2 generations have separate 32-scope namespaces: stale
+ * v1 heads cannot deny v2 capacity, while total retained scope state remains
+ * bounded at twice this limit during the fail-closed migration. */
 export const MAX_PAIRED_MAC_CLIENT_SCOPES_PER_USER = 32;
 
 /** Max ops accepted in one backup request. A full reconcile pushes at most the
@@ -155,21 +161,30 @@ export function normalizeClientScope(value: unknown): string | null {
   return `b64_${base64URL(new TextEncoder().encode(trimmed))}`;
 }
 
-export function pairedMacsCollection(userId: string, clientScope?: string | null): string {
-  const scope = normalizeClientScope(clientScope);
-  return scope ? `${SCOPED_PAIRED_MACS_COLLECTION}:${userId}:${scope}` : `${PAIRED_MACS_COLLECTION}:${userId}`;
+function scopedPairedMacCollectionNamespace(clientScope: unknown): string {
+  const scope = trimmedString(clientScope);
+  return scope.startsWith(IOS_V2_CLIENT_SCOPE_PREFIX) && scope.length > IOS_V2_CLIENT_SCOPE_PREFIX.length
+    ? IOS_V2_SCOPED_PAIRED_MACS_COLLECTION
+    : SCOPED_PAIRED_MACS_COLLECTION;
 }
 
-function scopedPairedMacCollectionHeadPrefix(userId: string): string {
-  return `${SYNC_HEAD_PREFIX}${SCOPED_PAIRED_MACS_COLLECTION}:${userId}:`;
+export function pairedMacsCollection(userId: string, clientScope?: string | null): string {
+  const scope = normalizeClientScope(clientScope);
+  if (!scope) return `${PAIRED_MACS_COLLECTION}:${userId}`;
+  return `${scopedPairedMacCollectionNamespace(clientScope)}:${userId}:${scope}`;
+}
+
+function scopedPairedMacCollectionHeadPrefix(userId: string, clientScope: string): string {
+  return `${SYNC_HEAD_PREFIX}${scopedPairedMacCollectionNamespace(clientScope)}:${userId}:`;
 }
 
 async function hasScopedCollectionCapacity(
   storage: SyncStorage,
   userId: string,
   collection: string,
+  clientScope: string,
 ): Promise<boolean> {
-  const heads = await storage.list<number>({ prefix: scopedPairedMacCollectionHeadPrefix(userId) });
+  const heads = await storage.list<number>({ prefix: scopedPairedMacCollectionHeadPrefix(userId, clientScope) });
   if (heads.has(`${SYNC_HEAD_PREFIX}${collection}`)) return true;
   return heads.size < MAX_PAIRED_MAC_CLIENT_SCOPES_PER_USER;
 }
@@ -299,8 +314,9 @@ export function pairedMacShapeEqual(a: PairedMacBackupRecord, b: PairedMacBackup
 
 /** Relabel a frame's collection from the physical per-user name back to the
  * logical `pairedMacs` so the client never sees (or stores under) the user-id
- * suffix. The rev space is the physical collection's, but each user has exactly
- * one physical collection, so the client's logical cursor tracks it 1:1. */
+ * suffix. The rev space is the physical collection's, and each user/scope pair
+ * has exactly one physical collection, so the client's logical cursor tracks it
+ * 1:1. */
 export function relabelDelta<P>(delta: SyncDeltaFrame<P>): SyncDeltaFrame<P> {
   return { ...delta, collection: PAIRED_MACS_COLLECTION };
 }
@@ -325,7 +341,7 @@ export async function applyBackupOps(
 ): Promise<SyncDeltaFrame<unknown>[]> {
   const collection = pairedMacsCollection(userId, clientScope);
   const scope = normalizeClientScope(clientScope);
-  if (scope && !(await hasScopedCollectionCapacity(storage, userId, collection))) {
+  if (scope && !(await hasScopedCollectionCapacity(storage, userId, collection, clientScope ?? ""))) {
     throw new PairedMacBackupApplyError("too_many_client_scopes");
   }
   // One listing gives both the live count (cap on visible Macs) AND the total

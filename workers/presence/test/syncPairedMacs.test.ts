@@ -187,6 +187,55 @@ describe("applyBackupOps", () => {
     ]);
   });
 
+  it("isolates v2 scope capacity from legacy heads while keeping both generations bounded", async () => {
+    const storage = new FakeStorage();
+    for (let i = 0; i < MAX_PAIRED_MAC_CLIENT_SCOPES_PER_USER; i += 1) {
+      await applyBackupOps(
+        storage,
+        "user-1",
+        [{ kind: "upsert", id: `legacy-${i}`, record: record(`legacy-${i}`, "10.0.0.1", 22) }],
+        T0 + i,
+        `ios:tag-${i}`,
+      );
+    }
+
+    for (let i = 0; i < MAX_PAIRED_MAC_CLIENT_SCOPES_PER_USER; i += 1) {
+      const deltas = await applyBackupOps(
+        storage,
+        "user-1",
+        [{ kind: "upsert", id: `current-${i}`, record: record(`current-${i}`, "10.0.0.2", 22) }],
+        T0 + 1000 + i,
+        `ios:v2:tag-${i}`,
+      );
+      expect(deltas).toHaveLength(1);
+    }
+
+    expect(pairedMacsCollection("user-1", "ios:tag-0").startsWith("pairedMacsScoped:user-1:")).toBe(true);
+    expect(pairedMacsCollection("user-1", "ios:v2:tag-0").startsWith("pairedMacsScopedIosV2:user-1:")).toBe(true);
+    expect((await listBackupSnapshot(storage, "user-1", "ios:tag-0")).records.map((r) => r.macDeviceID)).toEqual([
+      "legacy-0",
+    ]);
+    expect((await listBackupSnapshot(storage, "user-1", "ios:v2:tag-0")).records.map((r) => r.macDeviceID)).toEqual([
+      "current-0",
+    ]);
+
+    let overError: unknown;
+    try {
+      await applyBackupOps(
+        storage,
+        "user-1",
+        [{ kind: "upsert", id: "blocked", record: record("blocked", "10.0.0.3", 22) }],
+        T0 + 2000,
+        "ios:v2:blocked",
+      );
+    } catch (error) {
+      overError = error;
+    }
+    expect(overError).toBeInstanceOf(PairedMacBackupApplyError);
+    expect((overError as PairedMacBackupApplyError).code).toBe("too_many_client_scopes");
+    expect((await listBackupSnapshot(storage, "user-1", "ios:v2:blocked")).records).toEqual([]);
+  });
+
   it("writes the per-user physical collection and relabels frames to the logical name", async () => {
     const storage = new FakeStorage();
     const deltas = await applyBackupOps(
@@ -399,24 +448,43 @@ describe("applyBackupOps", () => {
       "ios:dev",
     );
     await applyBackupOps(storage, "user-1", [{ kind: "delete", id: "scoped-mac" }], T0 + 1000, "ios:dev");
+    await applyBackupOps(
+      storage,
+      "user-1",
+      [{ kind: "upsert", id: "v2-scoped-mac", record: record("v2-scoped-mac", "192.168.1.52", 22) }],
+      T0,
+      "ios:v2:dev",
+    );
+    await applyBackupOps(
+      storage,
+      "user-1",
+      [{ kind: "delete", id: "v2-scoped-mac" }],
+      T0 + 1000,
+      "ios:v2:dev",
+    );
     // The alarm discovers the per-user collection by tombstone prefix without
     // knowing the user id or iOS build scope ahead of time.
     const collection = pairedMacsCollection("user-1");
     const scopedCollection = pairedMacsCollection("user-1", "ios:dev");
+    const v2ScopedCollection = pairedMacsCollection("user-1", "ios:v2:dev");
+    const scopedTombstonePrefix = `${scopedCollection.split(":", 1)[0]}:`;
+    const v2ScopedTombstonePrefix = `${v2ScopedCollection.split(":", 1)[0]}:`;
     expect(await listTombstonedCollections(storage, `${PAIRED_MACS_COLLECTION}:`)).toContain(collection);
-    expect(await listTombstonedCollections(storage, PAIRED_MACS_COLLECTION_TOMBSTONE_PREFIXES[1] ?? "")).toContain(
-      scopedCollection,
-    );
+    expect(PAIRED_MACS_COLLECTION_TOMBSTONE_PREFIXES).toContain(scopedTombstonePrefix);
+    expect(PAIRED_MACS_COLLECTION_TOMBSTONE_PREFIXES).toContain(v2ScopedTombstonePrefix);
+    expect(await listTombstonedCollections(storage, scopedTombstonePrefix)).toContain(scopedCollection);
+    expect(await listTombstonedCollections(storage, v2ScopedTombstonePrefix)).toContain(v2ScopedCollection);
     // GC with retention elapsed collects the tombstone, so churned create/delete
     // cannot grow storage without bound.
     const res = await gcTombstones(storage, collection, T0 + 1_000_000_000, 0);
     expect(res.collected).toBe(1);
     const scopedRes = await gcTombstones(storage, scopedCollection, T0 + 1_000_000_000, 0);
     expect(scopedRes.collected).toBe(1);
+    const v2ScopedRes = await gcTombstones(storage, v2ScopedCollection, T0 + 1_000_000_000, 0);
+    expect(v2ScopedRes.collected).toBe(1);
     expect(await listTombstonedCollections(storage, `${PAIRED_MACS_COLLECTION}:`)).not.toContain(collection);
-    expect(await listTombstonedCollections(storage, PAIRED_MACS_COLLECTION_TOMBSTONE_PREFIXES[1] ?? "")).not.toContain(
-      scopedCollection,
-    );
+    expect(await listTombstonedCollections(storage, scopedTombstonePrefix)).not.toContain(scopedCollection);
+    expect(await listTombstonedCollections(storage, v2ScopedTombstonePrefix)).not.toContain(v2ScopedCollection);
   });
 
   it("listLiveBackup returns live records newest-first and excludes tombstones, scoped per user", async () => {
