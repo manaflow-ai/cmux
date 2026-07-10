@@ -50,22 +50,36 @@ public actor AndroidEmulatorService: AndroidEmulatorServicing {
             )
         }
 
-        var runningByName: [String: AndroidVirtualDeviceState] = [:]
-        for connected in Self.parseConnectedEmulators(devicesResult.stdout ?? "") {
-            let nameResult = await commands.run(
-                directory: installation.rootURL.path,
-                executable: adbURL.path,
-                arguments: ["-s", connected.serial, "emu", "avd", "name"],
-                timeout: 3
-            )
-            guard Self.succeeded(nameResult),
-                  let avdName = Self.parseAVDName(nameResult.stdout ?? "") else {
-                continue
+        let connectedEmulators = Self.parseConnectedEmulators(devicesResult.stdout ?? "")
+        let commands = self.commands
+        let runningByName = await withTaskGroup(
+            of: [String: AndroidVirtualDeviceState].self,
+            returning: [String: AndroidVirtualDeviceState].self
+        ) { group in
+            for connected in connectedEmulators {
+                group.addTask {
+                    let nameResult = await commands.run(
+                        directory: installation.rootURL.path,
+                        executable: adbURL.path,
+                        arguments: ["-s", connected.serial, "emu", "avd", "name"],
+                        timeout: 3
+                    )
+                    guard Self.succeeded(nameResult),
+                          let avdName = Self.parseAVDName(nameResult.stdout ?? "") else {
+                        return [:]
+                    }
+                    return [avdName: .running(
+                        serial: connected.serial,
+                        connectionState: connected.connectionState
+                    )]
+                }
             }
-            runningByName[avdName] = .running(
-                serial: connected.serial,
-                connectionState: connected.connectionState
-            )
+
+            var resolved: [String: AndroidVirtualDeviceState] = [:]
+            for await device in group {
+                resolved.merge(device) { _, latest in latest }
+            }
+            return resolved
         }
 
         let allNames = Set(avdNames).union(runningByName.keys)

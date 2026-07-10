@@ -59,13 +59,13 @@ public final class AndroidEmulatorCoordinator {
         guard !launchingAVDNames.contains(avdName) else { return }
         actionError = nil
         launchingAVDNames.insert(avdName)
+        defer { launchingAVDNames.remove(avdName) }
         do {
             try await service.launch(avdName: avdName)
+            await refresh()
         } catch let error as AndroidEmulatorError {
-            launchingAVDNames.remove(avdName)
             actionError = error
         } catch {
-            launchingAVDNames.remove(avdName)
             actionError = .launchFailed(detail: String(describing: error))
         }
     }
@@ -77,14 +77,13 @@ public final class AndroidEmulatorCoordinator {
         guard !stoppingSerials.contains(serial) else { return }
         actionError = nil
         stoppingSerials.insert(serial)
+        defer { stoppingSerials.remove(serial) }
         do {
             try await service.stop(serial: serial)
             await refresh()
         } catch let error as AndroidEmulatorError {
-            stoppingSerials.remove(serial)
             actionError = error
         } catch {
-            stoppingSerials.remove(serial)
             actionError = .commandFailed(tool: "adb", detail: String(describing: error))
         }
     }
