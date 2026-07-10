@@ -3690,6 +3690,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             actionCapabilities: handle.actionCapabilities
         )
         secondaryMacSubscriptions[macID] = subscription
+        scheduleManualHostTrustExpirationForSecondarySubscription(
+            subscription,
+            stackUserID: scope.userID
+        )
         let displayName = mac.displayName
         let previews = await fetchSecondaryWorkspaces(on: client, macDeviceID: macID)
         // The fetch await is another sign-out window: drop the just-opened

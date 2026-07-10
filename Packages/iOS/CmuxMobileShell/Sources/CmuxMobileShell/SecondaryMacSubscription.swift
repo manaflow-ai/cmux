@@ -21,6 +21,7 @@ final class SecondaryMacSubscription {
     /// Coalesces hot `workspace.updated` bursts to one leading and one trailing fetch.
     var refreshTask: Task<Void, Never>?
     var refreshPending = false
+    var trustExpirationTask: Task<Void, Never>?
 
     init(
         macDeviceID: String,
@@ -44,6 +45,8 @@ final class SecondaryMacSubscription {
         task = nil
         refreshTask?.cancel()
         refreshTask = nil
+        trustExpirationTask?.cancel()
+        trustExpirationTask = nil
         let client = self.client
         Task { await client.disconnect() }
     }
@@ -54,5 +57,7 @@ final class SecondaryMacSubscription {
         task = nil
         refreshTask?.cancel()
         refreshTask = nil
+        trustExpirationTask?.cancel()
+        trustExpirationTask = nil
     }
 }

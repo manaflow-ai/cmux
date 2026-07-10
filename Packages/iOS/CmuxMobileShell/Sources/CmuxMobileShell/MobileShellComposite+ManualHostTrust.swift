@@ -268,6 +268,42 @@ extension MobileShellComposite {
             && manualHostRPCAuthScope == authScope
     }
 
+    func scheduleManualHostTrustExpirationForSecondarySubscription(
+        _ subscription: SecondaryMacSubscription,
+        stackUserID: String
+    ) {
+        subscription.trustExpirationTask?.cancel()
+        subscription.trustExpirationTask = nil
+        guard let scope = manualHostTrustScope(
+            for: subscription.route,
+            stackUserID: stackUserID
+        ) else { return }
+        let trustStore = manualHostTrustStore
+        subscription.trustExpirationTask = Task { @MainActor [weak self, weak subscription] in
+            guard let expiration = await trustStore.expirationDate(for: scope),
+                  let self,
+                  let subscription,
+                  self.secondaryMacSubscriptions[subscription.macDeviceID] === subscription else {
+                return
+            }
+            let delay = expiration.timeIntervalSince(self.runtime?.now() ?? Date())
+            if delay > 0 {
+                // Trust expiry is an intentional bounded deadline tied to this subscription's lifecycle.
+                try? await ContinuousClock().sleep(for: .seconds(delay))
+            }
+            guard !Task.isCancelled,
+                  self.secondaryMacSubscriptions[subscription.macDeviceID] === subscription,
+                  !(await trustStore.isTrusted(scope)),
+                  self.secondaryMacSubscriptions[subscription.macDeviceID] === subscription else {
+                return
+            }
+            self.invalidateSecondaryConnection(
+                macDeviceID: subscription.macDeviceID,
+                client: subscription.client
+            )
+        }
+    }
+
     /// Revokes plaintext-route credentials at any boundary that may represent a new network.
     /// - Returns: Whether an active manual-host connection was queued for reapproval.
     @discardableResult
@@ -335,15 +371,14 @@ extension MobileShellComposite {
     }
 
     private func revokeSecondaryManualHostSubscriptions() {
-        for (macDeviceID, subscription) in secondaryMacSubscriptions
-        where subscription.route.kind == .manualHost {
-            subscription.cancel()
-            secondaryMacSubscriptions[macDeviceID] = nil
-            removeSecondaryConnectionFromPool(macDeviceID: macDeviceID)
-            if var state = workspacesByMac[macDeviceID] {
-                state.status = .unavailable
-                workspacesByMac[macDeviceID] = state
-            }
+        let subscriptions = secondaryMacSubscriptions.values.filter {
+            $0.route.kind == .manualHost
+        }
+        for subscription in subscriptions {
+            invalidateSecondaryConnection(
+                macDeviceID: subscription.macDeviceID,
+                client: subscription.client
+            )
         }
     }
 }

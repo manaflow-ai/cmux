@@ -360,6 +360,7 @@ actor MobileCoreRPCSession {
     private func writeLoop(transport: any CmxByteTransport, frames: AsyncStream<MobileCoreRPCPendingWrite>) async {
         for await write in frames {
             if Task.isCancelled { return }
+            guard shouldSendQueuedWrite(write, claim: false) else { continue }
             if let authorizeSend = write.authorizeSend {
                 do {
                     _ = try await authorizeSend()
@@ -368,7 +369,7 @@ actor MobileCoreRPCSession {
                     continue
                 }
             }
-            guard shouldSendQueuedWrite(write) else { continue }
+            guard shouldSendQueuedWrite(write, claim: true) else { continue }
             do {
                 try await transport.send(write.frame)
             } catch {
@@ -485,14 +486,13 @@ actor MobileCoreRPCSession {
         cont.resume(returning: .failure(MobileShellConnectionError.requestTimedOut))
     }
 
-    private func shouldSendQueuedWrite(_ write: MobileCoreRPCPendingWrite) -> Bool {
-        if cancelledQueuedWriteIDs.remove(write.id) != nil {
+    private func shouldSendQueuedWrite(_ write: MobileCoreRPCPendingWrite, claim: Bool) -> Bool {
+        if cancelledQueuedWriteIDs.remove(write.id) != nil { return false }
+        guard queuedWriteIDs[write.requestID] == write.id,
+              pending[write.requestID] != nil else {
             return false
         }
-        guard queuedWriteIDs[write.requestID] == write.id else {
-            return false
-        }
-        queuedWriteIDs[write.requestID] = nil
-        return pending[write.requestID] != nil
+        if claim { queuedWriteIDs[write.requestID] = nil }
+        return true
     }
 }

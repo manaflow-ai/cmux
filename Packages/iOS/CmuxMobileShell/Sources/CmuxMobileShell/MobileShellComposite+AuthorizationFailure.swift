@@ -73,7 +73,7 @@ extension MobileShellComposite {
         return true
     }
 
-    private func invalidateSecondaryConnection(
+    func invalidateSecondaryConnection(
         macDeviceID: String,
         client: MobileCoreRPCClient
     ) {
