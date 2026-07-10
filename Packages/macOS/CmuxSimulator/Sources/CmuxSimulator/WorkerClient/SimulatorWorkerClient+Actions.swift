@@ -5,6 +5,11 @@ private struct SimulatorCameraConfigurationConfirmation: Sendable {
     let targetBundleIdentifier: String?
 }
 
+enum SimulatorWorkerRequestTimeoutRecovery: Sendable {
+    case restartWorker
+    case preserveWorker
+}
+
 extension SimulatorWorkerClient {
     /// Performs one public Simulator action or routes camera configuration to
     /// the isolated worker.
@@ -102,7 +107,8 @@ extension SimulatorWorkerClient {
             let requestID = UUID()
             let status: SimulatorCameraStatus = try await requestWorkerValue(
                 sending: .requestCameraStatus(requestID: requestID),
-                timeout: .seconds(30)
+                timeout: .seconds(30),
+                timeoutRecovery: .preserveWorker
             ) { message in
                 guard case let .cameraStatus(responseID, status) = message,
                       responseID == requestID else { return nil }
@@ -408,6 +414,7 @@ extension SimulatorWorkerClient {
     func requestWorkerValue<Value: Sendable>(
         sending message: SimulatorWorkerInbound,
         timeout: Duration = .seconds(60),
+        timeoutRecovery: SimulatorWorkerRequestTimeoutRecovery = .restartWorker,
         matching: @escaping @Sendable (SimulatorWorkerOutbound) -> Value?
     ) async throws -> Value {
         let stream = await subscribe()
@@ -455,7 +462,9 @@ extension SimulatorWorkerClient {
             }
         } catch let error as SimulatorControlError
             where error.code == "worker_response_timed_out" {
-            correlatedOperationDeadlineExpired(generation: requestGeneration, failure: error)
+            if timeoutRecovery == .restartWorker {
+                correlatedOperationDeadlineExpired(generation: requestGeneration, failure: error)
+            }
             throw error
         }
     }

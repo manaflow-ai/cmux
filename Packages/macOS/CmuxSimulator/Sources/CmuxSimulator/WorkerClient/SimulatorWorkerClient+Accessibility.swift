@@ -45,7 +45,8 @@ extension SimulatorWorkerClient {
             let requestID = UUID()
             let response: Result<SimulatorApplicationInfo?, SimulatorFailure> = try await requestWorkerValue(
                 sending: .requestForegroundApplication(requestID),
-                timeout: .seconds(15)
+                timeout: .seconds(15),
+                timeoutRecovery: .preserveWorker
             ) { message in
                 switch message {
                 case let .foregroundApplication(responseID, application)
