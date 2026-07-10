@@ -47,13 +47,8 @@ final class TerminationResumeIndexCoordinator {
     }
 
     func current() -> ProcessDetectedResumeIndexes? {
-        current(coordinatedBy: .shared)
-    }
-
-    func current(
-        coordinatedBy sharedIndex: SharedLiveAgentIndex
-    ) -> ProcessDetectedResumeIndexes? {
-        completed ?? sharedIndex.cachedResumeIndexes()
+        guard didComplete else { return nil }
+        return completed
     }
 
 }

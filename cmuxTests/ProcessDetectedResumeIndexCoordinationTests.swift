@@ -44,7 +44,7 @@ struct ProcessDetectedResumeIndexCoordinationTests {
         let task = capture.start(
             persistCoreSnapshot: {
                 events.withLock { $0.append("core") }
-                #expect(coordinator.current(coordinatedBy: sharedIndex) == nil)
+                #expect(coordinator.current() == nil)
             },
             capture: {
                 events.withLock { $0.append("capture") }
@@ -74,6 +74,13 @@ struct ProcessDetectedResumeIndexCoordinationTests {
             releaseSecondLoad.signal()
         }
         let loadCount = OSAllocatedUnfairLock(initialState: 0)
+        let unavailableResult: SharedLiveAgentIndexLoader.LoadResult = (
+            index: .empty,
+            surfaceResumeBindingIndex: .empty,
+            liveAgentProcessFingerprint: [],
+            processScopeFingerprint: [],
+            forkValidatedPanels: []
+        )
         let sharedIndex = SharedLiveAgentIndex(
             indexLoader: {
                 let invocation = loadCount.withLock { count in
@@ -82,13 +89,7 @@ struct ProcessDetectedResumeIndexCoordinationTests {
                 }
                 (invocation == 1 ? firstLoadStarted : secondLoadStarted).signal()
                 (invocation == 1 ? releaseFirstLoad : releaseSecondLoad).wait()
-                return (
-                    index: .empty,
-                    surfaceResumeBindingIndex: .empty,
-                    liveAgentProcessFingerprint: [],
-                    processScopeFingerprint: [],
-                    forkValidatedPanels: []
-                )
+                return unavailableResult
             },
             generationTimeoutWaiter: { await timeoutWaiter.wait() },
             hookStoreDirectoryProvider: { Self.temporaryDirectory(named: "unavailable").path }
@@ -100,6 +101,11 @@ struct ProcessDetectedResumeIndexCoordinationTests {
         await timeoutWaiter.waitUntilPendingCount(1)
         await timeoutWaiter.fireNext()
         #expect(await first.value == nil)
+        sharedIndex.latestCompletedLoadResult = unavailableResult
+        #expect(
+            coordinator.current().map { _ in true } == nil,
+            "A memoized unavailable termination capture must override an older shared cache."
+        )
 
         let second = Task { @MainActor in await coordinator.load(coordinatedBy: sharedIndex) }
         let didStartSecondLoad = await Self.wait(for: secondLoadStarted, timeout: 0.2)
@@ -112,47 +118,6 @@ struct ProcessDetectedResumeIndexCoordinationTests {
         #expect(secondResult == nil)
         #expect(loadCount.withLock { $0 } == 1)
         releaseFirstLoad.signal()
-        await timeoutWaiter.cancelAll()
-    }
-
-    @Test
-    func unavailableTerminationCaptureOverridesOlderSharedCache() async {
-        let timeoutWaiter = TerminationCoordinatorTimeoutWaiter()
-        let loadStarted = DispatchSemaphore(value: 0)
-        let releaseLoad = DispatchSemaphore(value: 0)
-        defer { releaseLoad.signal() }
-        let staleResult: SharedLiveAgentIndexLoader.LoadResult = (
-            index: .empty,
-            surfaceResumeBindingIndex: .empty,
-            liveAgentProcessFingerprint: [],
-            processScopeFingerprint: [],
-            forkValidatedPanels: []
-        )
-        let sharedIndex = SharedLiveAgentIndex(
-            indexLoader: {
-                loadStarted.signal()
-                releaseLoad.wait()
-                return staleResult
-            },
-            generationTimeoutWaiter: { await timeoutWaiter.wait() },
-            hookStoreDirectoryProvider: { Self.temporaryDirectory(named: "unavailable-overrides-cache").path }
-        )
-        sharedIndex.latestCompletedLoadResult = staleResult
-        let coordinator = TerminationResumeIndexCoordinator()
-
-        let capture = Task { @MainActor in
-            await coordinator.load(coordinatedBy: sharedIndex)
-        }
-        #expect(await Self.wait(for: loadStarted))
-        await timeoutWaiter.waitUntilPendingCount(1)
-        await timeoutWaiter.fireNext()
-
-        #expect(await capture.value == nil)
-        #expect(
-            coordinator.current(coordinatedBy: sharedIndex).map { _ in true } == nil,
-            "A memoized unavailable termination capture must override an older shared cache."
-        )
-        releaseLoad.signal()
         await timeoutWaiter.cancelAll()
     }
 
@@ -237,8 +202,8 @@ struct ProcessDetectedResumeIndexCoordinationTests {
             return await terminationCoordinator.load(coordinatedBy: sharedIndex)
         }
         #expect(await Self.wait(for: terminationReachedSuspension))
-        #expect(terminationCoordinator.current(coordinatedBy: sharedIndex).map { _ in true } == nil)
-        #expect(terminationCoordinator.current(coordinatedBy: sharedIndex).map { _ in true } == nil)
+        #expect(terminationCoordinator.current().map { _ in true } == nil)
+        #expect(terminationCoordinator.current().map { _ in true } == nil)
         let startedSecondLoad = await Self.wait(for: secondLoadStarted, timeout: 0.2)
         #expect(
             !startedSecondLoad,
@@ -254,8 +219,8 @@ struct ProcessDetectedResumeIndexCoordinationTests {
         #expect(Self.bindingSession(in: resumeIndexes, workspaceId: workspaceId, panelId: panelId) == "pre-confirmation")
         #expect(Self.bindingSession(in: terminationIndexes, workspaceId: workspaceId, panelId: panelId) == "post-confirmation")
 
-        let firstWillTerminateIndexes = terminationCoordinator.current(coordinatedBy: sharedIndex)
-        let secondWillTerminateIndexes = terminationCoordinator.current(coordinatedBy: sharedIndex)
+        let firstWillTerminateIndexes = terminationCoordinator.current()
+        let secondWillTerminateIndexes = terminationCoordinator.current()
         #expect(Self.bindingSession(in: firstWillTerminateIndexes, workspaceId: workspaceId, panelId: panelId) == "post-confirmation")
         #expect(Self.bindingSession(in: secondWillTerminateIndexes, workspaceId: workspaceId, panelId: panelId) == "post-confirmation")
         #expect(loadState.withLock { $0.count } == 2)
