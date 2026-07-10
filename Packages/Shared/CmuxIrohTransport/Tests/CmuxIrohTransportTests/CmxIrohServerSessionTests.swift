@@ -246,7 +246,7 @@ private struct ServerFixture {
         self.admittedPeer = admittedPeer
         let authorization: CmxIrohAdmissionAuthorization = switch decision {
         case .accepted:
-            .accepted(admittedPeer)
+            .accepted(admittedPeer, onlineLease: nil)
         case let .denied(code):
             .denied(code: code)
         }

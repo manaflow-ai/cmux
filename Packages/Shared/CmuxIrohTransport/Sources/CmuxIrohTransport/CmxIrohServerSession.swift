@@ -9,6 +9,7 @@ public actor CmxIrohServerSession {
     private var controlStream: CmxIrohBidirectionalStream?
     private var controlReceiveBuffer = Data()
     private var admittedPeer: CmxIrohAdmittedPeer?
+    private var onlineAdmissionLease: CmxIrohOnlineAdmissionLease?
     private var admitted = false
     private var closed = false
 
@@ -49,9 +50,9 @@ public actor CmxIrohServerSession {
             )
             let checkedAuthorization: CmxIrohAdmissionAuthorization
             switch authorization {
-            case let .accepted(peer)
+            case let .accepted(peer, onlineLease)
                 where peer.endpointID == peerID && peer.platform == .ios:
-                checkedAuthorization = .accepted(peer)
+                checkedAuthorization = .accepted(peer, onlineLease: onlineLease)
             case .accepted:
                 checkedAuthorization = .denied(code: 1)
             case .denied:
@@ -61,9 +62,10 @@ public actor CmxIrohServerSession {
                 admissionCodec.encode(checkedAuthorization.wireDecision)
             )
             switch checkedAuthorization {
-            case let .accepted(peer):
+            case let .accepted(peer, onlineLease):
                 admitted = true
                 admittedPeer = peer
+                onlineAdmissionLease = onlineLease
                 controlStream = stream
                 controlReceiveBuffer = decoded.trailingBytes
                 return peer
@@ -110,6 +112,12 @@ public actor CmxIrohServerSession {
         try requireAdmitted()
         guard let admittedPeer else { throw CmxIrohServerSessionError.notAdmitted }
         return admittedPeer
+    }
+
+    /// Returns the online revocation lease retained during admission, when applicable.
+    public func admittedOnlineLease() throws -> CmxIrohOnlineAdmissionLease? {
+        try requireAdmitted()
+        return onlineAdmissionLease
     }
 
     /// Accepts a client-created terminal or artifact bidirectional lane.
@@ -178,6 +186,7 @@ public actor CmxIrohServerSession {
         await connection.close(errorCode: 0, reason: "server_closed")
         self.controlStream = nil
         admittedPeer = nil
+        onlineAdmissionLease = nil
         controlReceiveBuffer.removeAll(keepingCapacity: false)
     }
 

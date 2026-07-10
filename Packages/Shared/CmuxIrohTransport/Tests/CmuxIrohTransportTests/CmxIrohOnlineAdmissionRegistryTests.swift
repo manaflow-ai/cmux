@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import CryptoKit
 import Foundation
 import Testing
@@ -29,7 +30,7 @@ struct CmxIrohOnlineAdmissionRegistryTests {
         let registry = fixture.registry(broker: broker)
 
         let authorization = await registry.authorizePairGrant(
-            try fixture.grant(signer: Curve25519.Signing.PrivateKey()),
+            fixture.grant(signer: Curve25519.Signing.PrivateKey()),
             authenticatedPeerID: fixture.initiator.endpointID
         )
 
@@ -195,7 +196,7 @@ struct CmxIrohOnlineAdmissionRegistryTests {
         }
         await clock.waitUntilSleeping()
 
-        await clock.advance(by: 30)
+        clock.advance(by: 30)
         await closeRecorder.waitUntilClosed()
 
         #expect(await closeRecorder.count() == 1)
@@ -229,7 +230,7 @@ struct CmxIrohOnlineAdmissionRegistryTests {
         }
         await clock.waitUntilSleeping()
 
-        await clock.advance(by: 30)
+        clock.advance(by: 30)
         await broker.waitForCallCount(2)
 
         #expect(await closeRecorder.count() == 0)
@@ -254,7 +255,7 @@ struct CmxIrohOnlineAdmissionRegistryTests {
         }
         await clock.waitUntilSleeping()
 
-        await clock.advance(by: 20)
+        clock.advance(by: 20)
         await closeRecorder.waitUntilClosed()
 
         #expect(
@@ -352,17 +353,20 @@ private final class OnlineAdmissionManualClock: CmxIrohRelayClock, @unchecked Se
 
     func sleep(until deadline: Date) async throws {
         let id = UUID()
-        let shouldSleep = withLock { state -> Bool in
-            if deadline <= state.date { return false }
-            let waiters = state.sleepWaiters
-            state.sleepWaiters.removeAll()
-            for waiter in waiters { waiter.resume() }
-            return true
-        }
-        guard shouldSleep else { return }
         try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
-                withLock { $0.sleepers[id] = (deadline, continuation) }
+                let result = withLock { state -> (
+                    immediate: Bool,
+                    waiters: [CheckedContinuation<Void, Never>]
+                ) in
+                    guard deadline > state.date else { return (true, []) }
+                    state.sleepers[id] = (deadline, continuation)
+                    let waiters = state.sleepWaiters
+                    state.sleepWaiters.removeAll()
+                    return (false, waiters)
+                }
+                for waiter in result.waiters { waiter.resume() }
+                if result.immediate { continuation.resume() }
             }
         } onCancel: {
             self.cancel(id)
@@ -378,7 +382,7 @@ private final class OnlineAdmissionManualClock: CmxIrohRelayClock, @unchecked Se
     }
 
     func advance(by seconds: TimeInterval) {
-        let ready = withLock { state -> [(Date, CheckedContinuation<Void, Error>)] in
+        let ready = withLock { state -> [(Date, CheckedContinuation<Void, any Error>)] in
             state.date = state.date.addingTimeInterval(seconds)
             let ready = state.sleepers.filter { $0.value.0 <= state.date }
             for id in ready.keys { state.sleepers[id] = nil }
@@ -493,14 +497,14 @@ private struct OnlineAdmissionFixture {
 
     func grant(
         signer: Curve25519.Signing.PrivateKey? = nil
-    ) throws -> String {
-        let header = try JSONSerialization.data(withJSONObject: [
+    ) -> String {
+        let header = try! JSONSerialization.data(withJSONObject: [
             "alg": "EdDSA",
             "typ": "cmux-pair-grant+jwt",
             "kid": "current",
         ], options: [.sortedKeys])
         let nowSeconds = Int64(now.timeIntervalSince1970)
-        let payload = try JSONSerialization.data(withJSONObject: [
+        let payload = try! JSONSerialization.data(withJSONObject: [
             "jti": "123e4567-e89b-42d3-a456-426614174010",
             "iat": nowSeconds,
             "nbf": nowSeconds,
@@ -513,7 +517,7 @@ private struct OnlineAdmissionFixture {
         let encodedHeader = header.base64URL
         let encodedPayload = payload.base64URL
         let input = Data("\(encodedHeader).\(encodedPayload)".utf8)
-        let signature = try (signer ?? signingKey).signature(for: input)
+        let signature = try! (signer ?? signingKey).signature(for: input)
         return "\(encodedHeader).\(encodedPayload).\(signature.base64URL)"
     }
 
@@ -529,7 +533,14 @@ private struct OnlineAdmissionFixture {
             bindings.append(bindingObject(peer: initiator, pairingEnabled: true))
             if duplicateInitiator {
                 bindings.append(bindingObject(
-                    peer: initiator,
+                    peer: CmxIrohGrantPeer(
+                        bindingID: "123e4567-e89b-42d3-a456-426614174098",
+                        deviceID: initiator.deviceID,
+                        tag: initiator.tag,
+                        platform: initiator.platform,
+                        endpointID: initiator.endpointID,
+                        identityGeneration: initiator.identityGeneration
+                    ),
                     pairingEnabled: true,
                     appInstanceID: "123e4567-e89b-42d3-a456-426614174099"
                 ))

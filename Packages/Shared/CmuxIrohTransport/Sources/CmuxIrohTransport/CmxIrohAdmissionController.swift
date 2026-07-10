@@ -5,6 +5,7 @@ public import Foundation
 public actor CmxIrohAdmissionController: CmxIrohAdmissionAuthorizing {
     private let verifier: CmxIrohGrantVerifier
     private let offlineSessions: CmxIrohOfflinePairingSessions
+    private let onlineRegistry: CmxIrohOnlineAdmissionRegistry?
     private let now: @Sendable () -> Date
     private var keys: CmxIrohGrantVerificationKeySet
     private var acceptor: CmxIrohGrantPeer
@@ -16,6 +17,7 @@ public actor CmxIrohAdmissionController: CmxIrohAdmissionAuthorizing {
         acceptor: CmxIrohGrantPeer,
         pairingEnabled: Bool,
         offlineSessions: CmxIrohOfflinePairingSessions,
+        onlineRegistry: CmxIrohOnlineAdmissionRegistry? = nil,
         verifier: CmxIrohGrantVerifier = CmxIrohGrantVerifier(),
         now: @escaping @Sendable () -> Date = { Date() }
     ) {
@@ -23,6 +25,7 @@ public actor CmxIrohAdmissionController: CmxIrohAdmissionAuthorizing {
         self.acceptor = acceptor
         self.pairingEnabled = pairingEnabled
         self.offlineSessions = offlineSessions
+        self.onlineRegistry = onlineRegistry
         self.verifier = verifier
         self.now = now
     }
@@ -37,6 +40,7 @@ public actor CmxIrohAdmissionController: CmxIrohAdmissionAuthorizing {
         self.acceptor = acceptor
         self.pairingEnabled = pairingEnabled
         await offlineSessions.setPairingEnabled(pairingEnabled)
+        await onlineRegistry?.update(keys: keys, acceptor: acceptor)
     }
 
     /// Applies local revoke before the backend round trip completes.
@@ -60,6 +64,17 @@ public actor CmxIrohAdmissionController: CmxIrohAdmissionAuthorizing {
                 guard let token = credential.pairGrantToken else {
                     return .denied(code: 1)
                 }
+                if let onlineRegistry {
+                    switch await onlineRegistry.authorizePairGrant(
+                        token,
+                        authenticatedPeerID: authenticatedPeerID
+                    ) {
+                    case let .accepted(lease):
+                        return .accepted(lease.peer, onlineLease: lease)
+                    case .denied:
+                        return .denied(code: 1)
+                    }
+                }
                 let claims = try verifier.verifyPairGrant(
                     token,
                     keys: keys,
@@ -70,14 +85,20 @@ public actor CmxIrohAdmissionController: CmxIrohAdmissionAuthorizing {
                 guard !revokedBindingIDs.contains(claims.initiator.bindingID) else {
                     return .denied(code: 1)
                 }
-                return .accepted(CmxIrohAdmittedPeer(peer: claims.initiator))
+                return .accepted(
+                    CmxIrohAdmittedPeer(peer: claims.initiator),
+                    onlineLease: nil
+                )
             case .offlinePairing:
                 let pair = try await offlineSessions.verifyAndConsume(
                     credential: credential,
                     authenticatedPeerID: authenticatedPeerID,
                     now: now()
                 )
-                return .accepted(CmxIrohAdmittedPeer(attestation: pair.initiator))
+                return .accepted(
+                    CmxIrohAdmittedPeer(attestation: pair.initiator),
+                    onlineLease: nil
+                )
             }
         } catch {
             return .denied(code: 1)
