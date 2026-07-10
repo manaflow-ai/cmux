@@ -96,9 +96,12 @@ export default function PrivacyPolicyPage() {
         in, events use a random per-install client identifier. After sign in,
         our server attaches your Stack Auth account identifier to events before
         forwarding them to PostHog. We retain mobile analytics only as long as
-        needed for product analytics and debugging. Where the Application exposes
-        a Send anonymous telemetry preference, turning it off stops analytics
-        events from being buffered or sent. You may also contact us at{" "}
+        needed for product analytics and debugging. The current iPhone and iPad
+        Application sends these analytics unless telemetry is disabled through an
+        app-provided preference or support disables account-linked analytics for
+        your account. Where the Application exposes a Send anonymous telemetry
+        preference, turning it off stops analytics events from being buffered or
+        sent. You may also contact us at{" "}
         <a href="mailto:founders@manaflow.com">founders@manaflow.com</a> to
         request deletion of analytics associated with your account or to disable
         account-linked analytics for your account.
@@ -196,7 +199,10 @@ export default function PrivacyPolicyPage() {
       </ul>
       <p>
         Each of these services has its own privacy policy governing the
-        collection and use of your data.
+        collection and use of your data. When we use a third-party service to
+        process Personal Information on our behalf, we require that service to
+        protect the information with safeguards at least as protective as this
+        Privacy Policy and to use it only to provide services to cmux.
       </p>
 
       <h2>III. How We Use and Share Information</h2>
@@ -268,7 +274,14 @@ export default function PrivacyPolicyPage() {
         when you disable notifications, sign out, delete your account, or Apple
         reports the token invalid. Mobile product analytics in PostHog is
         retained for product analytics and debugging for up to 24 months unless
-        you request earlier deletion. You may request deletion of any data
+        you request earlier deletion. The mobile app account settings delete or
+        anonymize cmux-owned account, device, pairing, notification, billing, and
+        cloud data as part of account deletion. Account-linked PostHog analytics
+        deletion is not currently triggered by that in-app account deletion flow;
+        contact us to request deletion or anonymization of account-linked
+        PostHog analytics, and we will complete that request within 30 days
+        unless retention is required for security, legal, billing, or
+        fraud-prevention reasons. You may request deletion of cmux-owned data
         associated with you from the mobile app account settings or by contacting
         us at{" "}
         <a href="mailto:founders@manaflow.com">founders@manaflow.com</a>.
