@@ -109,16 +109,22 @@ struct SidebarWorkspaceChecklistSection: View {
             if totalCount > 0 {
                 summaryLine
             }
-            if (isExpanded && !presentsPopover) || totalCount == 0 {
+            // In popover style, "Add Checklist Item…" opens the popover
+            // directly (see the container's `.workspaceChecklistAddItemRequested`
+            // handler) — the row itself shows nothing inline (no ghost
+            // "Add item" affordance) until an item actually exists, at
+            // which point `summaryLine` above is the small status preview.
+            if !presentsPopover, isExpanded || totalCount == 0 {
                 expandedList
             }
         }
         // The popover anchor is hosted here (not on `summaryLine` alone) so
         // the same backing NSView anchors the popover across the 0→1 item
-        // transition, when `summaryLine` first appears and `expandedList`
-        // (which holds the ghost "Add item" row for an empty checklist)
-        // disappears — re-anchoring to a freshly created view would close
-        // and immediately reopen the popover.
+        // transition — even though popover style renders neither
+        // `summaryLine` nor `expandedList` while `totalCount == 0`, this
+        // outer container is always present, so the anchor never needs to
+        // move; re-anchoring to a freshly created view would close and
+        // immediately reopen the popover.
         .modifier(ChecklistSummaryPopoverModifier(
             isPresented: presentsPopover
                 ? Binding(get: { isPopoverPresented }, set: { onPopoverPresentedChange($0) })
@@ -211,7 +217,7 @@ struct SidebarWorkspaceChecklistSection: View {
 
     private func checklistItemRow(_ item: WorkspaceChecklistItem) -> some View {
         let isCompleted = item.state == .completed
-        return HStack(alignment: .firstTextBaseline, spacing: 4) {
+        return HStack(alignment: .center, spacing: 4) {
             Button {
                 actions.setItemState(item.id, isCompleted ? .pending : .completed)
             } label: {

@@ -109,7 +109,7 @@ struct SidebarWorkspaceChecklistPopover: View {
 
     private func itemRow(_ item: WorkspaceChecklistItem) -> some View {
         let isCompleted = item.state == .completed
-        return HStack(alignment: .firstTextBaseline, spacing: 6) {
+        return HStack(alignment: .center, spacing: 6) {
             Button {
                 actions.setItemState(item.id, isCompleted ? .pending : .completed)
             } label: {
@@ -159,7 +159,14 @@ struct SidebarWorkspaceChecklistPopover: View {
                 .fill(highlightedItemId == item.id ? Color.primary.opacity(0.08) : Color.clear)
         )
         .contentShape(Rectangle())
-        .onTapGesture { highlightedItemId = item.id }
+        .onTapGesture {
+            // Highlighting a row while the add field holds an in-progress
+            // draft would leave both a "focused" item and a "focused" field
+            // on screen at once, making Return's outcome ambiguous — only
+            // set the highlight when there is no draft to disambiguate.
+            guard pendingItemText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+            highlightedItemId = item.id
+        }
         .onHover { hovering in
             if hovering {
                 hoveredItemId = item.id
@@ -260,8 +267,16 @@ struct SidebarWorkspaceChecklistPopover: View {
             .onKeyPress(.upArrow) { moveHighlight(-1, in: visible) }
             .onKeyPress(.downArrow) { moveHighlight(1, in: visible) }
             .onKeyPress(.return) { handleAddFieldReturn(visible: visible) }
+            .onKeyPress(.delete) { handleAddFieldDelete(visible: visible) }
             .onSubmit(commitPendingItem)
             .onExitCommand(perform: cancelPendingItem)
+            .onChange(of: pendingItemText) { _, newValue in
+                // A highlighted item plus live typed text is the ambiguous
+                // dual-focus state Return can't resolve visually — as soon
+                // as the draft becomes non-empty, drop the highlight.
+                guard !newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+                highlightedItemId = nil
+            }
             .accessibilityIdentifier("SidebarChecklistPopoverAddItemField")
         }
         .padding(.horizontal, 4)
@@ -273,6 +288,12 @@ struct SidebarWorkspaceChecklistPopover: View {
     /// Moves the highlight up/down through the visible items, clamping at the
     /// ends.
     private func moveHighlight(_ delta: Int, in visible: [WorkspaceChecklistItem]) -> KeyPress.Result {
+        // Browsing (arrow-key highlight) and typing a new item are mutually
+        // exclusive: only move the highlight while the draft is empty, so a
+        // highlighted item and live typed text never coexist.
+        guard pendingItemText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return .ignored
+        }
         guard !visible.isEmpty else { return .ignored }
         let currentIndex = visible.firstIndex(where: { $0.id == highlightedItemId })
             ?? (delta > 0 ? -1 : visible.count)
@@ -288,6 +309,19 @@ struct SidebarWorkspaceChecklistPopover: View {
         guard let id = highlightedItemId,
               visible.contains(where: { $0.id == id }) else { return .ignored }
         toggleHighlighted(in: visible)
+        return .handled
+    }
+
+    /// Backspace with an empty draft removes the highlighted item — a
+    /// keyboard-driven delete alongside the row's hover "x" and context-menu
+    /// "Remove", for browsing-mode (Up/Down-highlighted) deletion without
+    /// reaching for the mouse.
+    private func handleAddFieldDelete(visible: [WorkspaceChecklistItem]) -> KeyPress.Result {
+        guard pendingItemText.isEmpty else { return .ignored }
+        guard let id = highlightedItemId,
+              visible.contains(where: { $0.id == id }) else { return .ignored }
+        actions.removeItem(id)
+        highlightedItemId = nil
         return .handled
     }
 
