@@ -133,7 +133,7 @@ struct WorkspaceSidebarObservationTests {
     // the actor instead. Strict same-run-loop-turn timing cannot be expressed
     // from inside a main-actor test job (plan D3 fallback): assert the leading
     // edge is delivered within the bounded drain below.
-    @Test func sidebarImmediateObservationPublisherDeliversFirstChangeInCurrentRunLoopCycle() async {
+    @Test func sidebarImmediateObservationPublisherDeliversManualTitleChange() async {
         let workspace = Workspace()
 
         var publishCount = 0
@@ -143,7 +143,7 @@ struct WorkspaceSidebarObservationTests {
         defer { cancellable.cancel() }
         publishCount = 0
 
-        workspace.title = "User Edit"
+        workspace.setCustomTitle("User Edit")
         await drainMainActor(until: { publishCount == 1 })
 
         #expect(
@@ -155,7 +155,7 @@ struct WorkspaceSidebarObservationTests {
     // Async for the same reason as the leading-edge test above: the re-arm
     // hop and the RunLoop.main coalesce timer only make progress while the
     // test job is suspended off the main actor.
-    @Test func sidebarImmediateObservationPublisherCoalescesTitleBursts() async {
+    @Test func sidebarImmediateObservationPublisherCoalescesDescriptionBursts() async {
         let workspace = Workspace()
 
         var publishCount = 0
@@ -165,15 +165,17 @@ struct WorkspaceSidebarObservationTests {
         defer { cancellable.cancel() }
         publishCount = 0
 
-        workspace.title = "Agent Turn Leading"
+        for turn in 0..<20 {
+            workspace.customDescription = "Agent Turn \(turn)"
+        }
         await drainMainActor(until: { publishCount == 1 })
 
         #expect(
             publishCount == 1,
-            "The first distinct title update should deliver the leading edge after the observation re-read hop."
+            "A synchronous burst of immediate fields must collapse into one leading-edge delivery after the observation re-read hop.
         )
 
-        workspace.title = "Agent Turn Trailing"
+        workspace.customDescription = "Agent Turn Trailing"
         // No wall-clock "still held" assertion here (test-determinism gate):
         // the open-window hold is covered deterministically by
         // coalesceLatestKeepsLeadingEdgeSynchronousAndEmitsLatestTrailing via

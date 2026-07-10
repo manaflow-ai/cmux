@@ -63,6 +63,10 @@ fn draw_plugin(app: &mut App, frame: &mut Frame) {
             buf[(border_x, y)].set_symbol("│").set_style(border_style);
         }
     }
+    // The divider column is a drag handle exactly like the built-in sidebar's;
+    // without this hit zone, drag-resize is dead whenever a plugin owns the
+    // sidebar (the plugin rect stops one column short of the divider).
+    app.hits.push((Rect { x: border_x, y: 0, width: 1, height }, Hit::SidebarResize));
     if let Some(surface_id) = app.sidebar_plugin_surface {
         let Some(surface) = app.session.surface(surface_id) else { return };
         surface.take_dirty();
@@ -111,13 +115,19 @@ fn draw_builtin(app: &mut App, frame: &mut Frame) {
     let workspace_drag = app.workspace_drag();
     let buf = frame.buffer_mut();
 
+    let chrome = app.chrome;
+    let selected_bg = if app.config.theme_overrides.sidebar_active_bg {
+        app.config.theme.sidebar_active_bg
+    } else {
+        chrome.sidebar_selected_bg
+    };
     let base = Style::default();
-    let dim = base.fg(Color::Indexed(242));
+    let dim = base.fg(chrome.sidebar_dim_fg);
     let active_style = Style::default()
-        .bg(app.config.theme.sidebar_active_bg)
-        .fg(Color::Indexed(255))
+        .bg(selected_bg)
+        .fg(chrome.sidebar_selected_fg)
         .add_modifier(Modifier::BOLD);
-    let border = base.fg(Color::Indexed(237));
+    let border = base.fg(chrome.sidebar_border);
 
     for y in 0..height {
         for x in 0..width - 1 {

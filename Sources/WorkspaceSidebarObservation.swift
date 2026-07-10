@@ -25,10 +25,53 @@ extension View {
             }
         }
     }
+
+    func sidebarProcessTitleObservation(
+        id: UUID,
+        model: WorkspaceSidebarProcessTitleObservationModel,
+        onChange: @MainActor @escaping () -> Void
+    ) -> some View {
+        task(id: id) { @MainActor in
+            for await _ in model.changes() {
+                if Task.isCancelled { break }
+                onChange()
+            }
+        }
+    }
+
+    func sidebarProcessTitleObservations(
+        ids: [UUID],
+        models: [WorkspaceSidebarProcessTitleObservationModel],
+        onChange: @MainActor @escaping () -> Void
+    ) -> some View {
+        task(id: ids) { @MainActor in
+            let aggregateObservation = WorkspaceSidebarProcessTitleObservationModel(
+                settleInterval: WorkspaceSidebarProcessTitleObservationModel.extensionSidebarAggregateInterval
+            )
+            let aggregateChanges = aggregateObservation.changes()
+            await withTaskGroup(of: Void.self) { group in
+                group.addTask { @MainActor in
+                    for await _ in aggregateChanges {
+                        if Task.isCancelled { break }
+                        onChange()
+                    }
+                }
+                for model in models {
+                    let changes = model.changes()
+                    group.addTask { @MainActor in
+                        for await _ in changes {
+                            if Task.isCancelled { break }
+                            aggregateObservation.processTitleDidChange()
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 private struct SidebarImmediateObservationState: Equatable {
-    let title: String
+    let customTitle: String?
     let customDescription: String?
     let isPinned: Bool
     let customColor: String?
@@ -73,24 +116,20 @@ private struct SidebarObservationState: Equatable {
 }
 
 extension Workspace {
-    // Leading-edge coalescing for the immediate sidebar observation stream.
-    // Every subscription (a sidebar row, the MergeMany extension-sidebar
-    // aggregate) fires a full makeWorkspaceSnapshot() rebuild per emission.
-    // Agents (e.g. Codex) rewrite a workspace title every turn, and
-    // removeDuplicates() cannot collapse distinct titles, so without coalescing
-    // each rewrite drives a snapshot rebuild per consumer per workspace.
-    // coalesceLatest (below) keeps the first change in a burst synchronous
-    // (a user pin/color/title edit stays immediate, which Combine's throttle
-    // cannot guarantee because it schedules every emission onto the scheduler)
-    // and collapses the tail of the burst into one trailing emission per window.
-    // See https://github.com/manaflow-ai/cmux/issues/4127.
+    // User-owned sidebar fields keep a synchronous leading edge. Automatic
+    // process titles settle separately: agent TUIs can animate their terminal
+    // title at 10 Hz, and per-workspace burst coalescing cannot reduce changes
+    // spaced farther apart than its window. Waiting for the title to settle
+    // prevents those frames from continuously invalidating LazyVStack rows,
+    // and the settle model's deferral deadline still republishes during
+    // sustained churn so a row's title cannot stay stale until the agent
+    // goes quiet. See https://github.com/manaflow-ai/cmux/issues/5570.
     static let sidebarImmediateObservationCoalesceInterval: RunLoop.SchedulerTimeType.Stride = .milliseconds(50)
-
     func makeSidebarImmediateObservationPublisher() -> AnyPublisher<Void, Never> {
-        observedValuesPublisher { [weak self] in
+observedValuesPublisher { [weak self] in
             guard let self else {
                 return SidebarImmediateObservationState(
-                    title: "",
+                    customTitle: nil,
                     customDescription: nil,
                     isPinned: false,
                     customColor: nil,
@@ -100,7 +139,7 @@ extension Workspace {
                 )
             }
             return SidebarImmediateObservationState(
-                title: self.title,
+                customTitle: self.customTitle,
                 customDescription: self.customDescription,
                 isPinned: self.isPinned,
                 customColor: self.customColor,

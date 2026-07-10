@@ -31,6 +31,9 @@ nonisolated enum SSHPTYAttachExitCode: Int32 {
         if normalizedCode == "pty_session_not_found" {
             return .sessionNotFound
         }
+        if normalizedCode == "pty_lifecycle_closed" {
+            return .fatal
+        }
         let rawDescription = [normalizedCode, message]
             .compactMap { $0 }
             .joined(separator: " ")

@@ -217,15 +217,14 @@ struct WorkspaceContentView: View {
                     // Multi-pane tmux window: render its pane layout as splits
                     // inside this single tab. Single-pane windows keep the
                     // standard PanelContentView path below.
-                    RemoteTmuxWindowMirrorView(
+                    RemoteTmuxWindowMirrorSplitView(
                         mirror: windowMirror,
                         appearance: appearance,
+                        isOuterFocused: isFocused,
                         isVisibleInUI: isVisibleInUI,
                         portalPriority: workspacePortalPriority,
-                        onClosePane: { tmuxPaneId in
-                            workspace.requestRemoteTmuxPaneClose(
-                                windowMirror: windowMirror, tmuxPaneId: tmuxPaneId
-                            )
+                        onOuterFocus: {
+                            workspace.bonsplitController.focusPane(paneId)
                         }
                     )
                     .onTapGesture {
@@ -663,7 +662,7 @@ extension WorkspaceContentView {
                 parts.append("textBoxPendingLaunchCommand:\(pendingLaunchCommand)")
             }
         }
-        if let restoredAgent = workspace.restoredAgentSnapshotsByPanelId[panel.id] {
+        if let restoredAgent = workspace.restoredAgentSnapshotForContinuation(panelId: panel.id) {
             parts.append("restoredAgent:\(restoredAgent.kind.rawValue)")
         }
         if let agentPIDKeys = workspace.agentPIDKeysByPanelId[panel.id], !agentPIDKeys.isEmpty {

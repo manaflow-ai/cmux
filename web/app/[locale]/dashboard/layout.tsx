@@ -3,6 +3,7 @@ import { StackProvider, StackTheme } from "@stackframe/stack";
 import { redirect } from "next/navigation";
 import { getStackServerApp, isStackConfigured } from "@/app/lib/stack";
 import { DashboardSkeleton } from "./components/dashboard-skeleton";
+import { DashboardQueryProvider } from "./components/query-provider";
 import { DashboardShell } from "./dashboard-shell";
 
 // Auth redirects are owned by each page, not this layout: a layout cannot see
@@ -23,9 +24,11 @@ export default async function DashboardLayout({
   return (
     <StackProvider app={getStackServerApp()}>
       <StackTheme>
-        <DashboardShell>
-          <Suspense fallback={<DashboardSkeleton />}>{children}</Suspense>
-        </DashboardShell>
+        <DashboardQueryProvider>
+          <DashboardShell>
+            <Suspense fallback={<DashboardSkeleton />}>{children}</Suspense>
+          </DashboardShell>
+        </DashboardQueryProvider>
       </StackTheme>
     </StackProvider>
   );

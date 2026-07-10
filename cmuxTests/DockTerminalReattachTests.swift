@@ -1,4 +1,5 @@
 import AppKit
+import CmuxWorkspaces
 import Combine
 import Darwin
 import Foundation
@@ -50,6 +51,8 @@ extension DockSocketLifecycleTests {
         customTitleSource: Workspace.CustomTitleSource? = nil,
         restorableAgent: SessionRestorableAgentSnapshot? = nil,
         restorableAgentResumeState: Workspace.RestoredAgentResumeState? = nil,
+        restoredAgentCompletedGeneration: RestoredAgentCompletedGeneration? = nil,
+        shellActivityState: PanelShellActivityState? = nil,
         restoredResumeSessionWorkingDirectory: String? = nil,
         resumeBinding: SurfaceResumeBindingSnapshot? = nil,
         agentRuntime: Workspace.DetachedAgentRuntimeState? = nil
@@ -75,6 +78,8 @@ extension DockSocketLifecycleTests {
             restoredUnreadIndicator: nil,
             restorableAgent: restorableAgent,
             restorableAgentResumeState: restorableAgentResumeState,
+            restoredAgentCompletedGeneration: restoredAgentCompletedGeneration,
+            shellActivityState: shellActivityState,
             restoredResumeSessionWorkingDirectory: restoredResumeSessionWorkingDirectory,
             resumeBinding: resumeBinding,
             agentRuntime: agentRuntime,

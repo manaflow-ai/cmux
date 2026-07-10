@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+PLISTBUDDY="${PLISTBUDDY:-/usr/libexec/PlistBuddy}"
+
 die() {
   printf 'install-app-store-provisioning-profile: %s\n' "$*" >&2
   exit 1
@@ -11,7 +13,7 @@ note() {
 }
 
 TEAM_ID="${IOS_APPSTORE_TEAM_ID:-7WLXT3NR37}"
-BUNDLE_IDENTIFIER="${IOS_APPSTORE_BUNDLE_IDENTIFIER:-com.cmuxterm.app}"
+BUNDLE_IDENTIFIER="${IOS_APPSTORE_BUNDLE_IDENTIFIER:-com.cmux.app}"
 EXPECTED_APP_ID="${TEAM_ID}.${BUNDLE_IDENTIFIER}"
 KEYCHAIN_NAME="${IOS_APPSTORE_KEYCHAIN_NAME:-ios-app-store.keychain}"
 TMP_ROOT="${RUNNER_TEMP:-${TMPDIR:-/tmp}}"
@@ -36,17 +38,17 @@ validate_profile() {
   fi
 
   local app_id
-  app_id="$(/usr/libexec/PlistBuddy -c "Print :Entitlements:application-identifier" "$plist_path" 2>/dev/null || true)"
+  app_id="$("$PLISTBUDDY" -c "Print :Entitlements:application-identifier" "$plist_path" 2>/dev/null || true)"
   if [ "$app_id" != "$EXPECTED_APP_ID" ]; then
     if [ "$strict" = "true" ]; then
       die "$label targets unexpected app ID: ${app_id:-<absent>} (expected $EXPECTED_APP_ID)"
     fi
-    note "$label targets $app_id, expected $EXPECTED_APP_ID; ignoring"
+    note "$label targets ${app_id:-<absent>}, expected $EXPECTED_APP_ID; ignoring"
     return 1
   fi
 
   local aps_environment
-  aps_environment="$(/usr/libexec/PlistBuddy -c "Print :Entitlements:aps-environment" "$plist_path" 2>/dev/null || true)"
+  aps_environment="$("$PLISTBUDDY" -c "Print :Entitlements:aps-environment" "$plist_path" 2>/dev/null || true)"
   if [ "$aps_environment" != "production" ]; then
     if [ "$strict" = "true" ]; then
       die "$label aps-environment is '${aps_environment:-<absent>}', expected 'production'"
@@ -56,7 +58,7 @@ validate_profile() {
   fi
 
   local apple_sign_in
-  apple_sign_in="$(/usr/libexec/PlistBuddy -c "Print :Entitlements:com.apple.developer.applesignin:0" "$plist_path" 2>/dev/null || true)"
+  apple_sign_in="$("$PLISTBUDDY" -c "Print :Entitlements:com.apple.developer.applesignin:0" "$plist_path" 2>/dev/null || true)"
   if [ "$apple_sign_in" != "Default" ]; then
     if [ "$strict" = "true" ]; then
       die "$label com.apple.developer.applesignin is '${apple_sign_in:-<absent>}', expected 'Default'"
@@ -65,8 +67,8 @@ validate_profile() {
     return 1
   fi
 
-  RESOLVED_PROFILE_NAME="$(/usr/libexec/PlistBuddy -c "Print :Name" "$plist_path")"
-  RESOLVED_PROFILE_UUID="$(/usr/libexec/PlistBuddy -c "Print :UUID" "$plist_path")"
+  RESOLVED_PROFILE_NAME="$("$PLISTBUDDY" -c "Print :Name" "$plist_path")"
+  RESOLVED_PROFILE_UUID="$("$PLISTBUDDY" -c "Print :UUID" "$plist_path")"
   return 0
 }
 
@@ -131,6 +133,29 @@ raise SystemExit(1)
 PY
 }
 
+print_certificate_summary() {
+  python3 - "$1" <<'PY' >&2
+import json
+import sys
+
+with open(sys.argv[1], "r", encoding="utf-8") as handle:
+    body = json.load(handle)
+data = body.get("data", body) if isinstance(body, dict) else body
+items = data if isinstance(data, list) else []
+if not items:
+    print("install-app-store-provisioning-profile: no distribution certificate candidates returned")
+    raise SystemExit(0)
+print("install-app-store-provisioning-profile: distribution certificate candidates:")
+for item in items:
+    attrs = item.get("attributes", {})
+    serial = str(attrs.get("serialNumber", ""))
+    suffix = serial[-8:] if serial else "<absent>"
+    cert_type = attrs.get("certificateType", "<unknown>")
+    display = attrs.get("displayName") or attrs.get("name") or "<unnamed>"
+    print(f"install-app-store-provisioning-profile: - {cert_type} {display} serial_suffix={suffix}")
+PY
+}
+
 json_profile_id_by_name() {
   python3 - "$1" "$2" <<'PY'
 import json
@@ -166,7 +191,7 @@ PY
 }
 
 download_profile_from_asc() {
-  command -v asc >/dev/null || die "asc CLI is required"
+  command -v asc >/dev/null || die "release upload CLI is required"
   command -v python3 >/dev/null || die "python3 is required"
   command -v openssl >/dev/null || die "openssl is required"
 
@@ -174,11 +199,11 @@ download_profile_from_asc() {
   export ASC_ISSUER_ID="${ASC_ISSUER_ID:-${ASC_API_ISSUER_ID:-}}"
   export ASC_PRIVATE_KEY_PATH="${ASC_PRIVATE_KEY_PATH:-${ASC_API_KEY_PATH:-}}"
   if [ -z "${ASC_KEY_ID:-}" ] || [ -z "${ASC_ISSUER_ID:-}" ] || [ -z "${ASC_PRIVATE_KEY_PATH:-}" ]; then
-    die "ASC_KEY_ID, ASC_ISSUER_ID, and ASC_PRIVATE_KEY_PATH are required to fetch a profile"
+    die "upload credentials are required to fetch a profile"
   fi
 
   if [ -z "${IOS_DISTRIBUTION_IDENTITY:-}" ]; then
-    die "IOS_DISTRIBUTION_IDENTITY is required to resolve the matching certificate"
+    die "distribution signing identity is required to resolve the matching certificate"
   fi
 
   local cert_pem cert_serial
@@ -197,14 +222,17 @@ download_profile_from_asc() {
 
   asc bundle-ids list --paginate --output json > "$bundles_json"
   bundle_id="$(json_id_by_bundle_identifier "$bundles_json" "$BUNDLE_IDENTIFIER")" ||
-    die "App Store Connect bundle id not found for $BUNDLE_IDENTIFIER"
+    die "configured bundle id not found for $BUNDLE_IDENTIFIER"
 
-  asc certificates list --certificate-type IOS_DISTRIBUTION --paginate --output json > "$certs_json"
-  certificate_id="$(json_certificate_id_by_serial "$certs_json" "$cert_serial")" ||
-    die "App Store Connect certificate not found for imported distribution certificate serial $cert_serial"
+  asc certificates list --certificate-type IOS_DISTRIBUTION,DISTRIBUTION --paginate --output json > "$certs_json"
+  certificate_id="$(json_certificate_id_by_serial "$certs_json" "$cert_serial" || true)"
+  if [ -z "$certificate_id" ]; then
+    print_certificate_summary "$certs_json"
+    die "matching distribution certificate not found for imported certificate serial suffix ${cert_serial: -8}"
+  fi
 
   profile_suffix="${cert_serial: -8}"
-  profile_name="cmuxterm App Store CI $profile_suffix"
+  profile_name="cmux App Store CI $profile_suffix"
   asc profiles list --profile-type IOS_APP_STORE --paginate --output json > "$profiles_json"
   profile_id="$(json_profile_id_by_name "$profiles_json" "$profile_name" || true)"
   if [ -z "$profile_id" ]; then
@@ -221,17 +249,27 @@ download_profile_from_asc() {
     note "reusing App Store profile '$profile_name'"
   fi
 
+  rm -f "$TMP_PROFILE"
   asc profiles download --id "$profile_id" --output "$TMP_PROFILE" >/dev/null
-  validate_profile "$TMP_PROFILE" "$TMP_PLIST" "ASC profile '$profile_name'" "true"
+  validate_profile "$TMP_PROFILE" "$TMP_PLIST" "downloaded profile '$profile_name'" "true"
   install_profile
 }
 
-if try_secret_profile "IOS_APPSTORE_PROVISIONING_PROFILE_BASE64" "${IOS_APPSTORE_PROVISIONING_PROFILE_BASE64:-}" "true"; then
+if try_secret_profile "primary profile secret" "${IOS_APPSTORE_PROVISIONING_PROFILE_BASE64:-}" "false"; then
   exit 0
 fi
 
-if try_secret_profile "IOS_PROD_PROVISIONING_PROFILE_BASE64" "${IOS_PROD_PROVISIONING_PROFILE_BASE64:-}" "false"; then
-  exit 0
-fi
+for candidate in \
+  "legacy production profile secret:${IOS_PROD_PROVISIONING_PROFILE_BASE64:-}" \
+  "beta profile secret:${IOS_BETA_PROVISIONING_PROFILE_BASE64:-}" \
+  "release profile secret:${APPLE_RELEASE_PROVISIONING_PROFILE_BASE64:-}" \
+  "nightly profile secret:${APPLE_NIGHTLY_PROVISIONING_PROFILE_BASE64:-}"
+do
+  label="${candidate%%:*}"
+  value="${candidate#*:}"
+  if try_secret_profile "$label" "$value" "false"; then
+    exit 0
+  fi
+done
 
 download_profile_from_asc

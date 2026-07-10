@@ -83,11 +83,11 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "${ASC_API_KEY_ID:-}" ] || [ -z "${ASC_API_ISSUER_ID:-}" ] || [ -z "${ASC_API_KEY_P8_BASE64:-}" ]; then
-            echo "Missing App Store Connect API key secrets" >&2
+            echo "Missing upload credential secrets" >&2
             exit 1
           fi
           if [ -z "${ASC_APP_ID:-}" ]; then
-            echo "Missing App Store Connect app id repository variable" >&2
+            echo "Missing configured app id repository variable" >&2
             exit 1
           fi
           KEY_DIR="$RUNNER_TEMP/appstoreconnect/private_keys"
@@ -141,6 +141,9 @@ jobs:
         env:
           IOS_APPSTORE_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_APPSTORE_PROVISIONING_PROFILE_BASE64 }}
           IOS_PROD_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_PROD_PROVISIONING_PROFILE_BASE64 }}
+          IOS_BETA_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_BETA_PROVISIONING_PROFILE_BASE64 }}
+          APPLE_RELEASE_PROVISIONING_PROFILE_BASE64: ${{ secrets.APPLE_RELEASE_PROVISIONING_PROFILE_BASE64 }}
+          APPLE_NIGHTLY_PROVISIONING_PROFILE_BASE64: ${{ secrets.APPLE_NIGHTLY_PROVISIONING_PROFILE_BASE64 }}
         run: ./.github/scripts/install-app-store-provisioning-profile.sh
 
       - name: Archive, export, and upload production build
@@ -197,13 +200,13 @@ jobs:
           {
             echo "### iOS App Store production"
             echo
-            echo "- lane: \`appstore\` (bundle id \`com.cmuxterm.app\`)"
+            echo "- lane: \`appstore\` (bundle id \`com.cmux.app\`)"
             echo "- signing: manual (CI-imported iOS distribution cert + App Store profile)"
             echo "- build number (CFBundleVersion): \`${FINAL_BUILD_NUMBER}\`"
             echo "- submit for review: \`${INPUT_SUBMIT_FOR_REVIEW}\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Cleanup keychain
+      - name: Cleanup signing material
         if: always()
         run: |
           rm -f "${ASC_API_KEY_PATH:-}"

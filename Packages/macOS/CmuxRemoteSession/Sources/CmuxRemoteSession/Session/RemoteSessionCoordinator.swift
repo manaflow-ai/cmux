@@ -71,8 +71,7 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
     // MARK: - Queue-confined state
     //
     // Every var below is confined to `queue` (see the isolation essay).
-    // Internal (not private) only so the coordinator's same-module extension
-    // files can reach them; nothing outside this type may touch them.
+    // Internal so the coordinator's same-module extension files can reach them.
 
     var isStopping = false
     var proxyLease: RemoteProxyLease?

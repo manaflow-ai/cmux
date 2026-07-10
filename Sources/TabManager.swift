@@ -193,7 +193,7 @@ fileprivate func cmuxVsyncIOSurfaceTimelineCallback(
     // timing (bridge publishers in willSet, selection
     // side effects in didSet).
     let workspaces = WorkspacesModel<Workspace>()
-    private var workspacesById: [UUID: Workspace] = [:]
+    private(set) var workspacesById: [UUID: Workspace] = [:]
 
     var tabs: [Workspace] {
         get { workspaces.tabs }
@@ -3297,9 +3297,12 @@ fileprivate func cmuxVsyncIOSurfaceTimelineCallback(
     }
     func flushPendingPanelTitleUpdatesForWorkspaceSnapshot() { panelTitleUpdateCoalescer.flushNow() }
     private func updatePanelTitle(tabId: UUID, panelId: UUID, title: String, sourceSurface: TerminalSurface) {
-        guard let tab = workspacesById[tabId], let terminalPanel = tab.terminalPanel(for: panelId), terminalPanel.surface === sourceSurface else { return }
+        guard let tab = workspacesById[tabId],
+              let terminalPanel = tab.terminalPanel(for: panelId),
+              terminalPanel.surface === sourceSurface else { return }
         let previousDisplayTitle = resolvedWorkspaceDisplayTitle(for: tab).trimmingCharacters(in: .whitespacesAndNewlines)
         _ = tab.updatePanelTitle(panelId: panelId, title: title)
+        guard !tab.isRemoteTmuxMirror else { return }
         if tab.focusedPanelId == panelId {
             tab.applyProcessTitle(title)
             if selectedTabId == tabId {
@@ -3320,17 +3323,14 @@ fileprivate func cmuxVsyncIOSurfaceTimelineCallback(
     }
 
     func shouldScheduleRawTitleRefresh(forWorkspaceId workspaceId: UUID?) -> Bool { workspaceId == selectedTabId && !PanelTitleUpdateCoalescingSettings.isEnabled(settings: settings) }
-
     func focusedSurfaceTitleDidChange(tabId: UUID) {
         guard let tab = workspacesById[tabId],
+              !tab.isRemoteTmuxMirror,
               let focusedPanelId = tab.focusedPanelId,
               let title = tab.panelTitles[focusedPanelId] else { return }
         tab.applyProcessTitle(title)
-        if selectedTabId == tabId {
-            updateWindowTitle(for: tab)
-        }
+        if selectedTabId == tabId { updateWindowTitle(for: tab) }
     }
-
     func focusTab(
         _ tabId: UUID,
         surfaceId: UUID? = nil,

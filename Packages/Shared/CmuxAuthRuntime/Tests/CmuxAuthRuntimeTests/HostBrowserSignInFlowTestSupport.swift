@@ -3,24 +3,44 @@ import Foundation
 @testable import CmuxAuthRuntime
 
 @MainActor
+final class OpenedURLRecorder {
+    private(set) var urls: [URL] = []
+    /// Return value for the opener seam, mimicking `NSWorkspace.open` success.
+    var openSucceeds = true
+
+    func append(_ url: URL) -> Bool {
+        urls.append(url)
+        return openSucceeds
+    }
+}
+
+@MainActor
 struct HostBrowserSignInFlowHarness {
     let flow: HostBrowserSignInFlow
     let coordinator: AuthCoordinator
     let client: FlowFakeAuthClient
     let tokenStore: FlowInMemoryTokenStore
     let factory: FakeBrowserAuthSessionFactory
+    private let openedURLRecorder: OpenedURLRecorder
+
+    var openedURLs: [URL] {
+        openedURLRecorder.urls
+    }
 
     init(
         user: CMUXAuthUser? = nil,
         browserAttemptTimeout: TimeInterval = 5 * 60,
         slowSignInThreshold: TimeInterval = 30,
-        clock: (any Clock<Duration>)? = nil
+        clock: (any Clock<Duration>)? = nil,
+        openSucceeds: Bool = true
     ) {
         let store = FakeKeyValueStore()
         // The fake client reads and clears the SAME token store the flow seeds,
         // like production. Split stores hide seed/capture/clear races.
         let tokenStore = FlowInMemoryTokenStore()
         let client = FlowFakeAuthClient(user: user, store: tokenStore)
+        let openedURLRecorder = OpenedURLRecorder()
+        openedURLRecorder.openSucceeds = openSucceeds
         let coordinator = AuthCoordinator(
             client: client,
             sessionCache: CMUXAuthSessionCache(keyValueStore: store, key: "has_tokens"),
@@ -38,6 +58,7 @@ struct HostBrowserSignInFlowHarness {
             callbackRouter: AuthCallbackRouter(),
             makeSignInURL: { URL(string: "https://example.test/handler/sign-in?cmux_auth_state=\($0)")! },
             callbackScheme: { "cmux-dev" },
+            openExternalURL: { openedURLRecorder.append($0) },
             clock: clock ?? ContinuousClock(),
             browserAttemptTimeout: browserAttemptTimeout,
             slowSignInThreshold: slowSignInThreshold
@@ -46,6 +67,7 @@ struct HostBrowserSignInFlowHarness {
         self.client = client
         self.tokenStore = tokenStore
         self.factory = factory
+        self.openedURLRecorder = openedURLRecorder
     }
 
     func callbackURL(state: String) -> URL {

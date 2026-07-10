@@ -26,6 +26,7 @@ import SwiftUI
     /// window's right sidebar), but SwiftUI remounts can briefly overlap an old
     /// and new host, so visibility is the union rather than a single flag.
     private var visibleUIHostIds: Set<UUID> = []
+    @ObservationIgnored let dockPortalReconcileState = DockPortalReconcileState()
 
     private let baseDirectoryProvider: () -> String?
     private let remoteBrowserSettingsProvider: () -> DockRemoteBrowserSettings
@@ -34,8 +35,6 @@ import SwiftUI
     var panels: [UUID: any Panel] = [:]
     var surfaceIdToPanelId: [TabID: UUID] = [:]
     var panelCancellables: [UUID: ObservationToken] = [:]
-    @ObservationIgnored
-    var titleDerivedAgentStatusKeysByPanelId: [UUID: String] = [:]
     @ObservationIgnored var detachedSurfaceTransfersByPanelId: [UUID: Workspace.DetachedSurfaceTransfer] = [:]
     private var hasLoadedConfiguration = false
     private var configurationLoadTask: Task<Void, Never>?
@@ -134,24 +133,6 @@ import SwiftUI
 
     func browserPanel(for panelId: UUID) -> BrowserPanel? {
         panels[panelId] as? BrowserPanel
-    }
-
-    func browserPanel(owning responder: NSResponder?, in window: NSWindow?) -> BrowserPanel? {
-        guard let responder, let window else { return nil }
-        if let focused = focusedPanelId,
-           let browser = panels[focused] as? BrowserPanel,
-           browser.ownedFocusIntent(for: responder, in: window) != nil {
-            return browser
-        }
-        for (panelId, panel) in panels {
-            guard panelId != focusedPanelId,
-                  let browser = panel as? BrowserPanel,
-                  browser.ownedFocusIntent(for: responder, in: window) != nil else {
-                continue
-            }
-            return browser
-        }
-        return nil
     }
 
     func surfaceId(forPanelId panelId: UUID) -> TabID? {
@@ -581,7 +562,6 @@ import SwiftUI
             panelCancellables.removeValue(forKey: panelId)
             AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: workspaceId, surfaceId: panelId)
             detachedSurfaceTransfersByPanelId.removeValue(forKey: panelId)
-            titleDerivedAgentStatusKeysByPanelId.removeValue(forKey: panelId)
             if let panel = panels.removeValue(forKey: panelId) { panel.close() }
         }
     }
@@ -625,7 +605,6 @@ import SwiftUI
         for panel in panels.values { panel.close() }
         panels.removeAll(); surfaceIdToPanelId.removeAll()
         detachedSurfaceTransfersByPanelId.removeAll()
-        titleDerivedAgentStatusKeysByPanelId.removeAll()
         panelCancellables.values.forEach { $0.cancel() }
         panelCancellables.removeAll()
     }

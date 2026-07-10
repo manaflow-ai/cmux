@@ -75,7 +75,7 @@ extension Workspace {
                 sessionPanelSnapshot(
                     panelId: panelId,
                     includeScrollback: includeScrollback,
-                    restorableAgent: restorableAgentIndex?.snapshot(workspaceId: id, panelId: panelId),
+                    restorableAgentObservation: restorableAgentIndex?.entry(workspaceId: id, panelId: panelId),
                     resumeBinding: effectiveSurfaceResumeBinding(
                         panelId: panelId,
                         surfaceResumeBindingIndex: surfaceResumeBindingIndex
@@ -395,33 +395,40 @@ extension Workspace {
     private func sessionPanelSnapshot(
         panelId: UUID,
         includeScrollback: Bool,
-        restorableAgent: SessionRestorableAgentSnapshot?,
+        restorableAgentObservation: RestorableAgentSessionIndex.Entry?,
         resumeBinding: SurfaceResumeBindingSnapshot?
     ) -> SessionPanelSnapshot? {
         guard let panel = panels[panelId] else { return nil }
 
-        let compatibleIndexedRestorableAgent = restorableAgent.flatMap {
+        let indexedRestorableAgent = restorableAgentObservation?.snapshot
+        let compatibleIndexedRestorableAgent = indexedRestorableAgent.flatMap {
             Self.restorableAgentForSessionRestore(
                 $0,
                 resumeBinding: resumeBinding
             )
         }
-        if restorableAgent != nil, compatibleIndexedRestorableAgent == nil {
+        if indexedRestorableAgent != nil, compatibleIndexedRestorableAgent == nil {
             clearRestoredAgentSnapshot(panelId: panelId)
         }
-        if let compatibleRestorableAgent = compatibleIndexedRestorableAgent {
-            let fingerprint = TabManager.restorableAgentSnapshotFingerprint(compatibleRestorableAgent)
-            if invalidatedRestoredAgentFingerprintsByPanelId[panelId] == fingerprint {
-                clearRestoredAgentSnapshot(panelId: panelId)
-            } else {
-                restoredAgentSnapshotsByPanelId[panelId] = compatibleRestorableAgent
-                if restoredAgentResumeStatesByPanelId[panelId] == nil {
-                    restoredAgentResumeStatesByPanelId[panelId] = restoredAgentResumeStateForAcceptedSnapshot(
-                        panelId: panelId
-                    )
+        if let compatibleRestorableAgent = compatibleIndexedRestorableAgent,
+           let restorableAgentObservation {
+            reconcileCompletedRestoredAgent(
+                panelId: panelId,
+                observation: restorableAgentObservation
+            )
+            if restoredAgentResumeStatesByPanelId[panelId] != .completedAgentExit {
+                let fingerprint = TabManager.restorableAgentSnapshotFingerprint(compatibleRestorableAgent)
+                if invalidatedRestoredAgentFingerprintsByPanelId[panelId] == fingerprint {
+                    clearRestoredAgentSnapshot(panelId: panelId)
+                } else {
+                    restoredAgentSnapshotsByPanelId[panelId] = compatibleRestorableAgent
+                    if restoredAgentResumeStatesByPanelId[panelId] == nil {
+                        restoredAgentResumeStatesByPanelId[panelId] = restoredAgentResumeStateForAcceptedSnapshot(
+                            panelId: panelId
+                        )
+                    }
+                    invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: panelId)
                 }
-                invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: panelId)
-                syncTerminalTabAgentIconAsset(forPanelId: panelId)
             }
         }
         let hibernationState = (panel as? TerminalPanel)?.agentHibernationState
@@ -431,7 +438,8 @@ extension Workspace {
                 resumeBinding: resumeBinding
             ) == nil ? nil : state
         }
-        let effectiveRestorableAgent = Self.restorableAgentForSessionRestore(
+        let restoredAgentCompleted = restoredAgentResumeStatesByPanelId[panelId] == .completedAgentExit
+        let effectiveRestorableAgent = restoredAgentCompleted ? nil : Self.restorableAgentForSessionRestore(
             effectiveHibernationState?.agent ?? restoredAgentSnapshotsByPanelId[panelId],
             resumeBinding: resumeBinding
         )
@@ -739,11 +747,11 @@ extension Workspace {
         // cmux-launched agents reopen correctly regardless of cache freshness.
         let agentIndex = SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
             ?? RestorableAgentSessionIndex.load()
-        let restorableAgent = agentIndex.snapshot(workspaceId: id, panelId: panelId)
+        let restorableAgentObservation = agentIndex.entry(workspaceId: id, panelId: panelId)
         guard let snapshot = sessionPanelSnapshot(
             panelId: panelId,
             includeScrollback: true,
-            restorableAgent: restorableAgent,
+            restorableAgentObservation: restorableAgentObservation,
             resumeBinding: effectiveSurfaceResumeBinding(
                 panelId: panelId,
                 surfaceResumeBindingIndex: nil
@@ -1545,7 +1553,7 @@ extension Workspace {
                 restoredTerminalScrollbackByPanelId.removeValue(forKey: terminalPanel.id)
             }
             if let restorableAgent {
-                seedSessionRestoredAgentIconState(
+                seedSessionRestoredAgentState(
                     panelId: terminalPanel.id,
                     restorableAgent: restorableAgent,
                     willRunStartupCommand: restoredAgentWillRunStartupCommand,
@@ -1560,7 +1568,7 @@ extension Workspace {
                     )
                 }
             } else {
-                seedSessionRestoredAgentIconState(
+                seedSessionRestoredAgentState(
                     panelId: terminalPanel.id,
                     restorableAgent: nil,
                     willRunStartupCommand: restoredAgentWillRunStartupCommand,
@@ -2194,13 +2202,13 @@ typealias ClosedBrowserPanelRestoreSnapshot = CmuxBrowser.ClosedBrowserPanelRest
         set { sidebarMetadata.panelDirectoryDisplayLabels = newValue }
     }
     var panelTitles: [UUID: String] = [:]
-    var titleDerivedAgentStatusKeysByPanelId: [UUID: String] = [:]
     var panelCustomTitles: [UUID: String] = [:]
     /// Provenance of entries in `panelCustomTitles` (see ``CustomTitleSource``).
     /// An entry may be absent for a title carried across panel moves or
     /// restored from older snapshots; absent provenance is treated as `.user`.
     var panelCustomTitleSources: [UUID: CustomTitleSource] = [:]
     var pinnedPanelIds: Set<UUID> = []
+    var pinMutationTokensByPanelId: [UUID: UUID] = [:]
     var manualUnreadPanelIds: Set<UUID> = [] {
         didSet {
             guard manualUnreadPanelIds != oldValue else { return }
@@ -2341,12 +2349,17 @@ typealias ClosedBrowserPanelRestoreSnapshot = CmuxBrowser.ClosedBrowserPanelRest
     }
     /// Agent runtime maps that affect sidebar status visibility.
     let sidebarAgentRuntimeObservation = WorkspaceSidebarAgentRuntimeObservationModel()
+    let sidebarProcessTitleObservation: WorkspaceSidebarProcessTitleObservationModel
     var restoredTerminalScrollbackByPanelId: [UUID: String] = [:]
 #if DEBUG
     var debugSessionSnapshotScrollbackFallbackPanelIds: Set<UUID> = []
     var debugSessionSnapshotSyntheticScrollbackByPanelId: [UUID: String] = [:]
 #endif
-    var restoredAgentSnapshotsByPanelId: [UUID: SessionRestorableAgentSnapshot] = [:]
+    let restoredAgentLifecycle = RestoredAgentLifecycleCoordinator()
+    var restoredAgentSnapshotsByPanelId: [UUID: SessionRestorableAgentSnapshot] {
+        get { restoredAgentLifecycle.snapshotsByPanelId }
+        set { restoredAgentLifecycle.snapshotsByPanelId = newValue }
+    }
     var surfaceResumeBindingsByPanelId: [UUID: SurfaceResumeBindingSnapshot] = [:]
     private var restoredGuardedWorkingDirectoriesByPanelId: [UUID: String] = [:]
     /// The session directory each restored auto-resume launcher targets, kept
@@ -2357,13 +2370,16 @@ typealias ClosedBrowserPanelRestoreSnapshot = CmuxBrowser.ClosedBrowserPanelRest
     /// `Workspace+PanelLifecycle` can clear it on panel close.
     var restoredResumeSessionWorkingDirectoriesByPanelId: [UUID: String] = [:]
     enum RestoredAgentResumeState: Equatable {
-        case manualResumeAvailable
-        case awaitingAutoResumeCommand
-        case autoResumeCommandRunning
-        case observedAgentCommandRunning
+        case manualResumeAvailable, awaitingAutoResumeCommand, autoResumeCommandRunning, observedAgentCommandRunning, completedAgentExit
     }
-    var restoredAgentResumeStatesByPanelId: [UUID: RestoredAgentResumeState] = [:]
-    var invalidatedRestoredAgentFingerprintsByPanelId: [UUID: Int] = [:]
+    var restoredAgentResumeStatesByPanelId: [UUID: RestoredAgentResumeState] {
+        get { restoredAgentLifecycle.resumeStatesByPanelId }
+        set { restoredAgentLifecycle.resumeStatesByPanelId = newValue }
+    }
+    var invalidatedRestoredAgentFingerprintsByPanelId: [UUID: Int] {
+        get { restoredAgentLifecycle.invalidatedFingerprintsByPanelId }
+        set { restoredAgentLifecycle.invalidatedFingerprintsByPanelId = newValue }
+    }
     @ObservationIgnored private var pendingTerminalInputObserversByPanelId: [UUID: [WorkspacePendingTerminalInputObserver]] = [:]
     private let sessionRestorePolicy: WorkspaceSessionRestorePolicyService<SurfaceResumeBindingSnapshot>
 
@@ -2570,14 +2586,6 @@ typealias ClosedBrowserPanelRestoreSnapshot = CmuxBrowser.ClosedBrowserPanelRest
         )
     }
 
-    private static func bonsplitAppearance(from config: GhosttyConfig) -> BonsplitConfiguration.Appearance {
-        bonsplitAppearance(
-            from: config.backgroundColor,
-            backgroundOpacity: config.backgroundOpacity,
-            tabTitleFontSize: config.surfaceTabBarFontSize
-        )
-    }
-
     nonisolated static func usesSharedSurfaceBackdrop(defaults: UserDefaults = .standard) -> Bool {
         defaults.bool(forKey: "sidebarMatchTerminalBackground")
     }
@@ -2736,6 +2744,7 @@ typealias ClosedBrowserPanelRestoreSnapshot = CmuxBrowser.ClosedBrowserPanelRest
         return BonsplitConfiguration.Appearance(
             tabBarHeight: WindowChromeMetrics.bonsplitTabBarHeight,
             tabTitleFontSize: tabTitleFontSize,
+            dividerHitExpansion: PortalSplitDividerRegion.dividerHitExpansion,
             splitButtonBackdropEffect: Self.bonsplitSplitButtonBackdropEffect(),
             splitButtonTooltips: Self.currentSplitButtonTooltips(),
             enableAnimations: false,
@@ -2868,10 +2877,12 @@ typealias ClosedBrowserPanelRestoreSnapshot = CmuxBrowser.ClosedBrowserPanelRest
         closeTabWarningDefaults: UserDefaults = .standard,
         agentSessionAutoResumeDefaults: UserDefaults = .standard,
         initialDetachedSurface: DetachedSurfaceTransfer? = nil,
-        sessionRestorePolicy: WorkspaceSessionRestorePolicyService<SurfaceResumeBindingSnapshot>? = nil
+        sessionRestorePolicy: WorkspaceSessionRestorePolicyService<SurfaceResumeBindingSnapshot>? = nil,
+        sidebarProcessTitleObservation: WorkspaceSidebarProcessTitleObservationModel? = nil
     ) {
         self.id = UUID()
         self.sessionRestorePolicy = sessionRestorePolicy ?? Self.makeSessionRestorePolicyService()
+        self.sidebarProcessTitleObservation = sidebarProcessTitleObservation ?? WorkspaceSidebarProcessTitleObservationModel()
         self.closeTabWarningDefaults = closeTabWarningDefaults
         self.agentSessionAutoResumeDefaults = agentSessionAutoResumeDefaults
         let sanitizedWorkspaceEnvironment = Self.sanitizedWorkspaceEnvironment(workspaceEnvironment)
@@ -3101,7 +3112,19 @@ typealias ClosedBrowserPanelRestoreSnapshot = CmuxBrowser.ClosedBrowserPanelRest
             queue: nil
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
-                self?.sharedLiveAgentIndexRevision &+= 1
+                guard let self else { return }
+                if let index = SharedLiveAgentIndex.shared.index {
+                    let completedPanelIds = self.restoredAgentResumeStatesByPanelId.compactMap { panelId, state in
+                        state == .completedAgentExit ? panelId : nil
+                    }
+                    for panelId in completedPanelIds {
+                        guard let observation = index.entry(workspaceId: self.id, panelId: panelId) else {
+                            continue
+                        }
+                        self.reconcileCompletedRestoredAgent(panelId: panelId, observation: observation)
+                    }
+                }
+                self.sharedLiveAgentIndexRevision &+= 1
             }
         }
     }
@@ -3813,8 +3836,13 @@ typealias ClosedBrowserPanelRestoreSnapshot = CmuxBrowser.ClosedBrowserPanelRest
         restoredUnreadPanelIndicators.values.contains { $0.contributesToWorkspaceUnread }
     }
 
-    private func normalizePinnedTabs(in paneId: PaneID) {
-        guard !isNormalizingPinnedTabOrder else { return }
+    @discardableResult
+    private func normalizePinnedTabs(
+        in paneId: PaneID,
+        beforeMirrorRollback: () -> Void = {},
+        onMirrorVerification: ((Bool) -> Void)? = nil
+    ) -> Bool {
+        guard !isNormalizingPinnedTabOrder else { return true }
         isNormalizingPinnedTabOrder = true
         defer { isNormalizingPinnedTabOrder = false }
 
@@ -3829,6 +3857,18 @@ typealias ClosedBrowserPanelRestoreSnapshot = CmuxBrowser.ClosedBrowserPanelRest
         }
         let desiredOrder = pinnedTabs + unpinnedTabs
 
+        if isRemoteTmuxMirror, desiredOrder.map(\.id) != tabs.map(\.id) {
+            let desiredPanelOrder = desiredOrder.compactMap { panelIdFromSurfaceId($0.id) }
+            guard desiredPanelOrder.count == desiredOrder.count else { return false }
+            return performRemoteTmuxMirrorOrderMutation(
+                in: paneId,
+                beforeRollback: beforeMirrorRollback,
+                onVerification: onMirrorVerification
+            ) {
+                reorderRemoteTmuxMirrorTabs(toPanelOrder: desiredPanelOrder)
+            }
+        }
+
         for (index, desiredTab) in desiredOrder.enumerated() {
             let currentTabs = bonsplitController.tabs(inPane: paneId)
             guard let currentIndex = currentTabs.firstIndex(where: { $0.id == desiredTab.id }) else { continue }
@@ -3836,6 +3876,8 @@ typealias ClosedBrowserPanelRestoreSnapshot = CmuxBrowser.ClosedBrowserPanelRest
                 _ = bonsplitController.reorderTab(desiredTab.id, toIndex: index)
             }
         }
+        onMirrorVerification?(true)
+        return true
     }
 
     private func insertionIndexToRight(of anchorTabId: TabID, inPane paneId: PaneID) -> Int {
@@ -3985,6 +4027,8 @@ typealias ClosedBrowserPanelRestoreSnapshot = CmuxBrowser.ClosedBrowserPanelRest
         guard panels[panelId] != nil else { return }
         let wasPinned = pinnedPanelIds.contains(panelId)
         guard wasPinned != pinned else { return }
+        let mutationToken = UUID()
+        pinMutationTokensByPanelId[panelId] = mutationToken
         if pinned {
             pinnedPanelIds.insert(panelId)
         } else {
@@ -3992,9 +4036,35 @@ typealias ClosedBrowserPanelRestoreSnapshot = CmuxBrowser.ClosedBrowserPanelRest
         }
 
         guard let tabId = surfaceIdFromPanelId(panelId),
-              let paneId = paneId(forPanelId: panelId) else { return }
+              let paneId = paneId(forPanelId: panelId) else {
+            pinMutationTokensByPanelId.removeValue(forKey: panelId)
+            return
+        }
         bonsplitController.updateTab(tabId, isPinned: pinned)
-        normalizePinnedTabs(in: paneId)
+        let restorePinState = { [weak self] in
+            guard let self,
+                  self.pinMutationTokensByPanelId[panelId] == mutationToken else { return }
+            self.pinMutationTokensByPanelId.removeValue(forKey: panelId)
+            if wasPinned { self.pinnedPanelIds.insert(panelId) } else { self.pinnedPanelIds.remove(panelId) }
+            self.bonsplitController.updateTab(tabId, isPinned: wasPinned)
+        }
+        let handleVerification: (Bool) -> Void = { [weak self] succeeded in
+            guard let self,
+                  self.pinMutationTokensByPanelId[panelId] == mutationToken else { return }
+            if succeeded {
+                self.pinMutationTokensByPanelId.removeValue(forKey: panelId)
+            } else {
+                restorePinState()
+            }
+        }
+        guard normalizePinnedTabs(
+            in: paneId,
+            beforeMirrorRollback: restorePinState,
+            onMirrorVerification: handleVerification
+        ) else {
+            restorePinState()
+            return
+        }
     }
 
     func markPanelUnread(_ panelId: UUID) {
@@ -4119,47 +4189,7 @@ typealias ClosedBrowserPanelRestoreSnapshot = CmuxBrowser.ClosedBrowserPanelRest
     }
 
     // MARK: - Title Management
-
-    /// Who set a custom title. Auto-naming (AI-generated titles) must never
-    /// overwrite a user-set title; this enum carries that distinction for
-    /// workspace and panel custom titles, and round-trips through session
-    /// persistence.
-    enum CustomTitleSource: String, Codable, Sendable {
-        case user
-        case auto
-    }
-
-    var hasCustomTitle: Bool {
-        let trimmed = customTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return !trimmed.isEmpty
-    }
-
-    /// The provenance of the current custom title, normalizing legacy state:
-    /// `nil` when no custom title is set; `.user` when a title exists but
-    /// provenance was never recorded (pre-provenance snapshots, carried moves).
-    var effectiveCustomTitleSource: CustomTitleSource? {
-        hasCustomTitle ? (customTitleSource ?? .user) : nil
-    }
-
-    var hasCustomDescription: Bool {
-        Self.normalizedCustomDescription(customDescription) != nil
-    }
-
-    func applyProcessTitle(_ title: String) {
-        if processTitle != title {
-            processTitle = title
-        }
-        guard customTitle == nil else { return }
-        guard self.title != title else { return }
-#if DEBUG
-        cmuxDebugLog(
-            "workspace.title.applyProcess workspace=\(id.uuidString.prefix(5)) " +
-            "from=\"\(debugWorkspaceDescriptionPreview(self.title, limit: 80))\" " +
-            "to=\"\(debugWorkspaceDescriptionPreview(title, limit: 80))\""
-        )
-#endif
-        self.title = title
-    }
+    // Title/description ownership lives in Workspace+TitleOwnership.swift.
 
     func setCustomColor(_ hex: String?) {
         if let hex {
@@ -4176,60 +4206,6 @@ typealias ClosedBrowserPanelRestoreSnapshot = CmuxBrowser.ClosedBrowserPanelRest
             name: Self.terminalScrollBarHiddenDidChangeNotification,
             object: self
         )
-    }
-
-    private static func normalizedCustomDescription(_ description: String?) -> String? {
-        let normalizedLineEndings = description?
-            .replacingOccurrences(of: "\r\n", with: "\n")
-            .replacingOccurrences(of: "\r", with: "\n")
-        let trimmed = normalizedLineEndings?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        guard !trimmed.isEmpty else { return nil }
-        return normalizedLineEndings
-    }
-
-    /// Sets, replaces, or clears (empty/nil `title`) the workspace custom title.
-    ///
-    /// `.auto` writes are rejected when a user-set title exists, and `.auto`
-    /// never clears. Returns whether the write landed.
-    @discardableResult
-    func setCustomTitle(_ title: String?, source: CustomTitleSource = .user) -> Bool {
-        let trimmed = title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if source == .auto {
-            guard !trimmed.isEmpty else { return false }
-            if hasCustomTitle, (customTitleSource ?? .user) == .user { return false }
-        }
-        if trimmed.isEmpty {
-            customTitle = nil
-            customTitleSource = nil
-            self.title = processTitle
-        } else {
-            customTitle = trimmed
-            customTitleSource = source
-            self.title = trimmed
-        }
-        return true
-    }
-
-    func setCustomDescription(_ description: String?) {
-        let normalizedDescription = Self.normalizedCustomDescription(description)
-#if DEBUG
-        let inputNewlines = description?.reduce(into: 0) { count, character in
-            if character == "\n" { count += 1 }
-        } ?? 0
-        let normalizedNewlines = normalizedDescription?.reduce(into: 0) { count, character in
-            if character == "\n" { count += 1 }
-        } ?? 0
-        cmuxDebugLog(
-            "workspace.customDescription.update workspace=\(id.uuidString.prefix(8)) " +
-            "inputLen=\((description as NSString?)?.length ?? 0) " +
-            "inputNewlines=\(inputNewlines) " +
-            "normalizedLen=\((normalizedDescription as NSString?)?.length ?? 0) " +
-            "normalizedNewlines=\(normalizedNewlines) " +
-            "input=\"\(debugWorkspaceDescriptionPreview(description))\" " +
-            "normalized=\"\(debugWorkspaceDescriptionPreview(normalizedDescription))\""
-        )
-#endif
-        customDescription = normalizedDescription
     }
 
     // MARK: - Directory Updates
@@ -4440,6 +4416,7 @@ typealias ClosedBrowserPanelRestoreSnapshot = CmuxBrowser.ClosedBrowserPanelRest
         } else {
             updateBindingOnlyRestoredAgentResumeState(panelId: panelId, shellState: state)
         }
+        if state == .promptIdle { _ = clearStaleAgentPIDs(panelId: panelId, refreshPorts: true) }
 #if DEBUG
         cmuxDebugLog(
             "surface.shellState workspace=\(id.uuidString.prefix(5)) " +
@@ -4452,7 +4429,12 @@ typealias ClosedBrowserPanelRestoreSnapshot = CmuxBrowser.ClosedBrowserPanelRest
         panelId: UUID,
         index: RestorableAgentSessionIndex
     ) -> SessionRestorableAgentSnapshot? {
-        guard let snapshot = restoredAgentSnapshotsByPanelId[panelId] ?? index.snapshot(workspaceId: id, panelId: panelId),
+        let observation = index.entry(workspaceId: id, panelId: panelId)
+        if let observation {
+            reconcileCompletedRestoredAgent(panelId: panelId, observation: observation)
+        }
+        guard restoredAgentResumeStatesByPanelId[panelId] != .completedAgentExit,
+              let snapshot = restoredAgentSnapshotsByPanelId[panelId] ?? observation?.snapshot,
               snapshot.resumeCommand != nil else {
             return nil
         }
@@ -4483,7 +4465,6 @@ typealias ClosedBrowserPanelRestoreSnapshot = CmuxBrowser.ClosedBrowserPanelRest
         if !keys.isEmpty {
             refreshTrackedAgentPorts()
         }
-        syncTerminalTabAgentIconAsset(forPanelId: panelId)
         terminalPanel.enterAgentHibernation(agent: agent, lastActivityAt: lastActivityAt)
     }
 
@@ -4494,9 +4475,7 @@ typealias ClosedBrowserPanelRestoreSnapshot = CmuxBrowser.ClosedBrowserPanelRest
             return false
         }
         let preparation = terminalPanel.prepareAgentHibernationResume()
-        guard preparation.didResume else {
-            return false
-        }
+        guard preparation.didResume else { return false }
         if restoredAgentSnapshotsByPanelId[panelId] != nil {
             restoredAgentResumeStatesByPanelId[panelId] = preparation.queuedStartupInput
                 ? .awaitingAutoResumeCommand
@@ -4522,89 +4501,6 @@ typealias ClosedBrowserPanelRestoreSnapshot = CmuxBrowser.ClosedBrowserPanelRest
             didResume = resumeAgentHibernation(panelId: panelId, focus: false) || didResume
         }
         return didResume
-    }
-
-    private func restoredAgentResumeStateForAcceptedSnapshot(panelId: UUID) -> RestoredAgentResumeState {
-        panelShellActivityStates[panelId] == .commandRunning
-            ? .observedAgentCommandRunning
-            : .manualResumeAvailable
-    }
-
-    private func updateRestoredAgentResumeState(
-        panelId: UUID,
-        restoredAgent: SessionRestorableAgentSnapshot,
-        shellState: PanelShellActivityState
-    ) {
-        switch shellState {
-        case .commandRunning:
-            switch restoredAgentResumeStatesByPanelId[panelId] {
-            case .some(.awaitingAutoResumeCommand):
-                restoredAgentResumeStatesByPanelId[panelId] = .autoResumeCommandRunning
-            case .some(.autoResumeCommandRunning), .some(.observedAgentCommandRunning):
-                break
-            case .some(.manualResumeAvailable), nil:
-                invalidateRestoredAgentSnapshot(panelId: panelId, restoredAgent: restoredAgent)
-            }
-        case .promptIdle:
-            switch restoredAgentResumeStatesByPanelId[panelId] {
-            case .some(.autoResumeCommandRunning), .some(.observedAgentCommandRunning):
-                invalidateRestoredAgentSnapshot(panelId: panelId, restoredAgent: restoredAgent)
-            case .some(.awaitingAutoResumeCommand), .some(.manualResumeAvailable), nil:
-                break
-            }
-        case .unknown:
-            break
-        }
-    }
-
-    private func updateBindingOnlyRestoredAgentResumeState(
-        panelId: UUID,
-        shellState: PanelShellActivityState
-    ) {
-        switch (shellState, restoredAgentResumeStatesByPanelId[panelId]) {
-        case (.commandRunning, .some(.awaitingAutoResumeCommand)):
-            restoredAgentResumeStatesByPanelId[panelId] = .autoResumeCommandRunning
-        case (.promptIdle, .some(.autoResumeCommandRunning)),
-             (.promptIdle, .some(.observedAgentCommandRunning)):
-            restoredAgentResumeStatesByPanelId.removeValue(forKey: panelId)
-            restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
-            if surfaceResumeBindingsByPanelId[panelId]?.isAgentHookBinding == true {
-                surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
-            }
-        default:
-            break
-        }
-    }
-
-    private func invalidateRestoredAgentSnapshot(
-        panelId: UUID,
-        restoredAgent: SessionRestorableAgentSnapshot
-    ) {
-        let fingerprint = TabManager.restorableAgentSnapshotFingerprint(restoredAgent)
-        invalidatedRestoredAgentFingerprintsByPanelId[panelId] = fingerprint
-        clearRestoredAgentResumeBinding(panelId: panelId, restoredAgent: restoredAgent)
-        clearRestoredAgentSnapshot(panelId: panelId)
-#if DEBUG
-        cmuxDebugLog(
-            "session.restore.agent.invalidate panel=\(panelId.uuidString.prefix(5)) " +
-            "kind=\(restoredAgent.kind.rawValue) session=\(restoredAgent.sessionId.prefix(8))"
-        )
-#endif
-    }
-
-    private func clearRestoredAgentResumeBinding(
-        panelId: UUID,
-        restoredAgent: SessionRestorableAgentSnapshot
-    ) {
-        guard let binding = surfaceResumeBindingsByPanelId[panelId],
-              binding.source == "agent-hook" else {
-            return
-        }
-        let checkpointId = binding.checkpointId?.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard checkpointId == nil || checkpointId == restoredAgent.sessionId else {
-            return
-        }
-        surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
     }
 
     @discardableResult
@@ -4841,10 +4737,10 @@ typealias ClosedBrowserPanelRestoreSnapshot = CmuxBrowser.ClosedBrowserPanelRest
         remoteDirectoryTrustRequiredPanelIds = remoteDirectoryTrustRequiredPanelIds.filter { validSurfaceIds.contains($0) }
         remoteDirectoryReportPanelIds = remoteDirectoryReportPanelIds.filter { validSurfaceIds.contains($0) }
         panelTitles = panelTitles.filter { validSurfaceIds.contains($0.key) }
-        titleDerivedAgentStatusKeysByPanelId = titleDerivedAgentStatusKeysByPanelId.filter { validSurfaceIds.contains($0.key) }
         panelCustomTitles = panelCustomTitles.filter { validSurfaceIds.contains($0.key) }
         panelCustomTitleSources = panelCustomTitleSources.filter { validSurfaceIds.contains($0.key) }
         pinnedPanelIds = pinnedPanelIds.filter { validSurfaceIds.contains($0) }
+        pinMutationTokensByPanelId = pinMutationTokensByPanelId.filter { validSurfaceIds.contains($0.key) }
         manualUnreadPanelIds = manualUnreadPanelIds.filter { validSurfaceIds.contains($0) }
         restoredUnreadPanelIndicators = restoredUnreadPanelIndicators.filter { validSurfaceIds.contains($0.key) }
         panelGitBranches = panelGitBranches.filter { validSurfaceIds.contains($0.key) }
@@ -4992,6 +4888,9 @@ typealias ClosedBrowserPanelRestoreSnapshot = CmuxBrowser.ClosedBrowserPanelRest
     /// Ephemeral remote tmux mirror; excluded from cmux session restore.
     var isRemoteTmuxMirror: Bool = false
 
+    /// Bound action for this mirror's outbound window-order mutation boundary.
+    var remoteTmuxWindowOrderSync: (([UUID], ((Bool) -> Void)?) -> Bool)?
+
     /// Per-window multi-pane renderers, keyed by mirrored window-tab panel id.
     private(set) var remoteTmuxWindowMirrors: [UUID: RemoteTmuxWindowMirror] = [:]
 
@@ -5129,25 +5028,6 @@ typealias ClosedBrowserPanelRestoreSnapshot = CmuxBrowser.ClosedBrowserPanelRest
             ])
         }
         try controller.closePTYSession(sessionID: sessionID)
-    }
-
-    func startRemotePTYBridge(
-        sessionID: String,
-        attachmentID: String,
-        command: String?,
-        requireExisting: Bool
-    ) throws -> RemotePTYBridgeServer.Endpoint {
-        guard let controller = remoteSessionController else {
-            throw NSError(domain: "cmux.remote.pty", code: 12, userInfo: [
-                NSLocalizedDescriptionKey: "remote connection is not active",
-            ])
-        }
-        return try controller.startPTYBridge(
-            sessionID: sessionID,
-            attachmentID: attachmentID,
-            command: command,
-            requireExisting: requireExisting
-        )
     }
 
     func resizeRemotePTY(sessionID: String, attachmentID: String, attachmentToken: String, cols: Int, rows: Int) throws {
@@ -6434,7 +6314,7 @@ typealias ClosedBrowserPanelRestoreSnapshot = CmuxBrowser.ClosedBrowserPanelRest
         let proxyOnlyError = trimmedDetail.map(Self.isProxyOnlyRemoteError) ?? false
         let preserveConnectedStateForRetry =
             (state == .connecting || state == .reconnecting) &&
-                preservesProxyFailureForSSHRemoteWorkspace &&
+                (suppressesProxyOnlySidebarErrorForDefaultCloud || preservesProxyFailureWhileSSHTerminalIsAlive) && // #6409 default cloud; otherwise live non-persistent SSH only (#7366/#7823)
                 hasProxyOnlyRemoteSidebarError
         let suppressProxyOnlySidebarError =
             suppressesProxyOnlySidebarErrorForDefaultCloud &&
@@ -6442,7 +6322,7 @@ typealias ClosedBrowserPanelRestoreSnapshot = CmuxBrowser.ClosedBrowserPanelRest
         let effectiveState: WorkspaceRemoteConnectionState
         if state == .error && proxyOnlyError && suppressesProxyOnlySidebarErrorForDefaultCloud {
             effectiveState = .connected
-        } else if state == .error && proxyOnlyError && preservesProxyFailureForSSHRemoteWorkspace {
+        } else if state == .error && proxyOnlyError && preservesProxyFailureWhileSSHTerminalIsAlive { // live non-persistent SSH terminal only (#6409 vs #7366/#7823)
             effectiveState = .connected
         } else if preserveConnectedStateForRetry {
             effectiveState = .connected
@@ -7675,13 +7555,12 @@ typealias ClosedBrowserPanelRestoreSnapshot = CmuxBrowser.ClosedBrowserPanelRest
         panels[pair.key] = replacementPanel
         panelTitles[pair.key] = replacementPanel.displayTitle
         seedTerminalInheritanceFontPoints(panelId: pair.key, configTemplate: inheritedConfig)
-        let iconPayload = terminalTabAgentIconPayload(forPanelId: pair.key)
         bonsplitController.updateTab(
             tabId,
             title: replacementPanel.displayTitle,
             icon: .some(replacementPanel.displayIcon),
-            iconImageData: .some(iconPayload.imageData),
-            iconAsset: .some(iconPayload.assetName),
+            iconImageData: .some(nil),
+            iconAsset: .some(nil),
             kind: .some(SurfaceKind.terminal.rawValue),
             hasCustomTitle: false,
             isDirty: replacementPanel.isDirty,
@@ -7812,13 +7691,12 @@ typealias ClosedBrowserPanelRestoreSnapshot = CmuxBrowser.ClosedBrowserPanelRest
         bindSurface(tabId, toPanelId: panelId)
         seedTerminalInheritanceFontPoints(panelId: panelId, configTemplate: inheritedConfig)
         let resolvedTitle = resolvedPanelTitle(panelId: panelId, fallback: replacementPanel.displayTitle)
-        let iconPayload = terminalTabAgentIconPayload(forPanelId: panelId)
         bonsplitController.updateTab(
             tabId,
             title: resolvedTitle,
             icon: .some(replacementPanel.displayIcon),
-            iconImageData: .some(iconPayload.imageData),
-            iconAsset: .some(iconPayload.assetName),
+            iconImageData: .some(nil),
+            iconAsset: .some(nil),
             kind: .some(SurfaceKind.terminal.rawValue),
             hasCustomTitle: customTitle != nil,
             isDirty: replacementPanel.isDirty,
@@ -9111,64 +8989,6 @@ typealias ClosedBrowserPanelRestoreSnapshot = CmuxBrowser.ClosedBrowserPanelRest
         return moveSurface(panelId: panelId, toPane: targetPaneId, focus: true)
     }
 
-    @discardableResult
-    func reorderSurface(panelId: UUID, toIndex index: Int, focus: Bool = true) -> Bool {
-        guard let tabId = surfaceIdFromPanelId(panelId) else { return false }
-        guard bonsplitController.reorderTab(tabId, toIndex: index) else { return false }
-
-        if focus, let paneId = paneId(forPanelId: panelId) {
-            applyTabSelection(tabId: tabId, inPane: paneId)
-        } else {
-            scheduleFocusReconcile()
-        }
-        scheduleTerminalGeometryReconcile()
-        return true
-    }
-
-    /// Reorders this workspace's remote-tmux mirror tabs so their left-to-right
-    /// order matches `panelOrder` (the tmux window order), preserving the user's
-    /// current tab selection and pane focus.
-    ///
-    /// This follows reorders that originate on the remote (a second tmux client, or
-    /// a manual `move-window` / a `new-window` inserted mid-list). The cmux→tmux
-    /// drag direction is handled by `handleMirrorWindowsReordered`. bonsplit's
-    /// `reorderTab` selects+focuses the moved tab (and `selectTab`/`focusPane` fire
-    /// the same activation), so the whole operation runs under
-    /// the shared mirror-mutation transaction to suppress that churn — a reactive
-    /// tmux event must not steal focus or resume agents (socket focus policy). The
-    /// user's selection/focus are restored from one snapshot after the reorder.
-    /// No-ops when the tabs already match or aren't all in one pane.
-    ///
-    /// Known beta limitation: if a *remote* window reorder arrives while the user is
-    /// mid tab-drag, this can move tabs under the drag. The trigger is narrow (a
-    /// concurrent remote reorder during a ~1s local drag) and self-heals — the
-    /// drop's `didReorderTabsInPane` reconciles `connection.windowOrder` to the
-    /// final order. A drag-aware guard would need bonsplit to expose drag state.
-    @discardableResult
-    func reorderRemoteTmuxMirrorTabs(toPanelOrder panelOrder: [UUID]) -> Bool {
-        // All mirror tabs must live in a single pane: a global tmux window order
-        // can't be expressed across a user-arranged split. If the requested panels
-        // resolve to more than one pane (or none), skip rather than reorder a
-        // subset of one pane.
-        let presentPaneIds = Set(panelOrder.compactMap { paneId(forPanelId: $0) })
-        guard presentPaneIds.count == 1, let paneId = presentPaneIds.first else { return false }
-        let currentPanelIds = bonsplitController.tabs(inPane: paneId).compactMap { panelIdFromSurfaceId($0.id) }
-        guard let desired = RemoteTmuxSessionMirror.mirrorTabReorder(current: currentPanelIds, requested: panelOrder) else { return false }
-#if DEBUG
-        cmuxDebugLog("remote-tmux: reorder mirror tabs ws=\(id.uuidString.prefix(5)) count=\(desired.count)")
-#endif
-
-        performRemoteTmuxMirrorMutation {
-            for (index, panelId) in desired.enumerated() {
-                guard let tabId = surfaceIdFromPanelId(panelId) else { continue }
-                _ = bonsplitController.reorderTab(tabId, toIndex: index)
-            }
-        }
-
-        scheduleTerminalGeometryReconcile()
-        return true
-    }
-
     func detachSurface(panelId: UUID) -> DetachedSurfaceTransfer? {
         guard let tabId = surfaceIdFromPanelId(panelId) else { return nil }
         guard let sourcePanel = panels[panelId] else { return nil }
@@ -9267,7 +9087,9 @@ typealias ClosedBrowserPanelRestoreSnapshot = CmuxBrowser.ClosedBrowserPanelRest
             surfaceTTYNames.removeValue(forKey: detached.panelId)
         }
         syncRemotePortScanTTYs()
-        seedTitleDerivedTerminalAgentState(from: detached)
+        if let cachedTitle = detached.cachedTitle {
+            panelTitles[detached.panelId] = cachedTitle
+        }
         if let customTitle = detached.customTitle {
             panelCustomTitles[detached.panelId] = customTitle
             panelCustomTitleSources[detached.panelId] = detached.customTitleSource ?? .user
@@ -9291,13 +9113,12 @@ typealias ClosedBrowserPanelRestoreSnapshot = CmuxBrowser.ClosedBrowserPanelRest
         }
         let detachedBrowserMuted = (detached.panel as? BrowserPanel)?.isMuted ?? false
         let detachedBrowserPlayingAudio = (detached.panel as? BrowserPanel)?.isPlayingAudio ?? false
-        let detachedIconPayload = terminalTabAgentIconPayload(forDetached: detached)
+        let detachedIconImageData = detached.panel is TerminalPanel ? nil : detached.iconImageData
         guard let newTabId = bonsplitController.createTab(
             title: detached.title,
             hasCustomTitle: detached.customTitle?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false,
             icon: detached.icon,
-            iconImageData: detachedIconPayload.imageData,
-            iconAsset: detachedIconPayload.assetName,
+            iconImageData: detachedIconImageData,
             kind: detached.kind,
             isDirty: detached.panel.isDirty,
             isLoading: detached.isLoading,
@@ -9313,7 +9134,6 @@ typealias ClosedBrowserPanelRestoreSnapshot = CmuxBrowser.ClosedBrowserPanelRest
             surfaceTTYNames.removeValue(forKey: detached.panelId)
             surfaceResumeBindingsByPanelId.removeValue(forKey: detached.panelId)
             restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: detached.panelId)
-            titleDerivedAgentStatusKeysByPanelId.removeValue(forKey: detached.panelId)
             syncRemotePortScanTTYs()
             panelTitles.removeValue(forKey: detached.panelId)
             panelCustomTitles.removeValue(forKey: detached.panelId)
@@ -9374,7 +9194,6 @@ typealias ClosedBrowserPanelRestoreSnapshot = CmuxBrowser.ClosedBrowserPanelRest
             surfaceResumeBindingsByPanelId.removeValue(forKey: detached.panelId)
         }
         adoptDetachedAgentRuntimeState(detached.agentRuntime)
-        syncTerminalTabAgentIconAsset(forPanelId: detached.panelId)
         if let markdownPanel = detached.panel as? MarkdownPanel,
            panelSubscriptions[markdownPanel.id] == nil {
             installMarkdownPanelSubscription(markdownPanel)
@@ -10657,7 +10476,7 @@ typealias ClosedBrowserPanelRestoreSnapshot = CmuxBrowser.ClosedBrowserPanelRest
         for panel in panels.values {
             guard let terminalPanel = panel as? TerminalPanel else { continue }
             // A multi-pane remote-tmux window-tab is rendered by its
-            // RemoteTmuxWindowMirrorView (its own panel's surface is not mounted),
+            // RemoteTmuxWindowMirrorSplitView (its own panel's surface is not mounted),
             // so the workspace must not drive that panel's portal here.
             if remoteTmuxWindowMirrors[terminalPanel.id] != nil { continue }
             let shouldBeVisible = visiblePanelIds.contains(terminalPanel.id)
@@ -11264,10 +11083,22 @@ typealias ClosedBrowserPanelRestoreSnapshot = CmuxBrowser.ClosedBrowserPanelRest
     /// `SharedLiveAgentIndex` for a process-sensitive snapshot so live panel remaps do not
     /// inherit the stale-tolerant cache used by close-history restore paths.
     func forkableAgentSnapshot(forPanelId panelId: UUID) -> SessionRestorableAgentSnapshot? {
-        if let snapshot = restoredAgentSnapshotsByPanelId[panelId] {
+        if let snapshot = restoredAgentSnapshotForContinuation(panelId: panelId) {
             return snapshot
         }
-        return SharedLiveAgentIndex.shared.snapshotForForkAvailability(workspaceId: id, panelId: panelId)
+        guard let snapshot = SharedLiveAgentIndex.shared.snapshotForForkAvailability(
+            workspaceId: id,
+            panelId: panelId
+        ) else {
+            return nil
+        }
+        if let observation = SharedLiveAgentIndex.shared.index?.entry(
+            workspaceId: id,
+            panelId: panelId
+        ) {
+            reconcileCompletedRestoredAgent(panelId: panelId, observation: observation)
+        }
+        return allowsAgentContinuation(forPanelId: panelId) ? snapshot : nil
     }
 
     /// Fork the panel's agent conversation into a brand-new sibling tab placed immediately
@@ -12205,6 +12036,8 @@ extension Workspace: BonsplitDelegate {
                 restoredUnreadIndicator: restoredUnreadPanelIndicators[panelId],
                 restorableAgent: restorableAgent,
                 restorableAgentResumeState: restorableAgentResumeState,
+                restoredAgentCompletedGeneration: restoredAgentLifecycle.completedGeneration(panelId: panelId),
+                shellActivityState: panelShellActivityStates[panelId],
                 restoredResumeSessionWorkingDirectory: restoredResumeSessionWorkingDirectoriesByPanelId[panelId],
                 resumeBinding: resumeBinding,
                 agentRuntime: agentRuntime,
@@ -12322,9 +12155,7 @@ extension Workspace: BonsplitDelegate {
         guard isRemoteTmuxMirror else { return }
         let orderedPanelIds = orderedTabIds.compactMap { panelIdFromSurfaceId($0) }
         guard !orderedPanelIds.isEmpty else { return }
-        AppDelegate.shared?.remoteTmuxController.handleMirrorWindowsReordered(
-            workspaceId: id, orderedPanelIds: orderedPanelIds
-        )
+        _ = remoteTmuxWindowOrderSync?(orderedPanelIds, nil)
     }
 
     func splitTabBar(_ controller: BonsplitController, didMoveTab tab: Bonsplit.Tab, fromPane source: PaneID, toPane destination: PaneID) {
