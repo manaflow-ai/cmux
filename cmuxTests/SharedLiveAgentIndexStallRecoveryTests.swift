@@ -368,12 +368,38 @@ struct SharedLiveAgentIndexStallRecoveryTests {
         #expect(await SharedLiveAgentIndexLoadCoalescingTests.wait(for: secondCompleted))
         releaseFirst.signal()
         #expect(await SharedLiveAgentIndexLoadCoalescingTests.wait(for: firstCompleted))
+        #expect(await Self.waitForCachedSession(
+            "stalled-2",
+            workspaceId: workspaceId,
+            panelId: panelId,
+            in: sharedIndex
+        ))
         #expect(loadState.withLock { $0.maximum } == 2)
-        #expect(sharedIndex.cachedIndex()?.snapshot(
+        await timeoutWaiter.cancelAll()
+    }
+
+    private static func waitForCachedSession(
+        _ sessionId: String,
+        workspaceId: UUID,
+        panelId: UUID,
+        in sharedIndex: SharedLiveAgentIndex,
+        timeout: Duration = .seconds(2)
+    ) async -> Bool {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: timeout)
+        while clock.now < deadline {
+            if sharedIndex.cachedIndex()?.snapshot(
+                workspaceId: workspaceId,
+                panelId: panelId
+            )?.sessionId == sessionId {
+                return true
+            }
+            try? await clock.sleep(for: .milliseconds(10))
+        }
+        return sharedIndex.cachedIndex()?.snapshot(
             workspaceId: workspaceId,
             panelId: panelId
-        )?.sessionId == "stalled-2")
-        await timeoutWaiter.cancelAll()
+        )?.sessionId == sessionId
     }
 
     private static var temporaryDirectory: URL {

@@ -63,6 +63,59 @@ struct ProcessDetectedResumeIndexCoordinationTests {
     }
 
     @Test
+    func unavailableTerminationCaptureIsMemoized() async {
+        let timeoutWaiter = TerminationCoordinatorTimeoutWaiter()
+        let firstLoadStarted = DispatchSemaphore(value: 0)
+        let secondLoadStarted = DispatchSemaphore(value: 0)
+        let releaseFirstLoad = DispatchSemaphore(value: 0)
+        let releaseSecondLoad = DispatchSemaphore(value: 0)
+        defer {
+            releaseFirstLoad.signal()
+            releaseSecondLoad.signal()
+        }
+        let loadCount = OSAllocatedUnfairLock(initialState: 0)
+        let sharedIndex = SharedLiveAgentIndex(
+            indexLoader: {
+                let invocation = loadCount.withLock { count in
+                    count += 1
+                    return count
+                }
+                (invocation == 1 ? firstLoadStarted : secondLoadStarted).signal()
+                (invocation == 1 ? releaseFirstLoad : releaseSecondLoad).wait()
+                return (
+                    index: .empty,
+                    surfaceResumeBindingIndex: .empty,
+                    liveAgentProcessFingerprint: [],
+                    processScopeFingerprint: [],
+                    forkValidatedPanels: []
+                )
+            },
+            generationTimeoutWaiter: { await timeoutWaiter.wait() },
+            hookStoreDirectoryProvider: { Self.temporaryDirectory(named: "unavailable").path }
+        )
+        let coordinator = TerminationResumeIndexCoordinator()
+
+        let first = Task { @MainActor in await coordinator.load(coordinatedBy: sharedIndex) }
+        #expect(await Self.wait(for: firstLoadStarted))
+        await timeoutWaiter.waitUntilPendingCount(1)
+        await timeoutWaiter.fireNext()
+        #expect(await first.value == nil)
+
+        let second = Task { @MainActor in await coordinator.load(coordinatedBy: sharedIndex) }
+        let didStartSecondLoad = await Self.wait(for: secondLoadStarted, timeout: 0.2)
+        if didStartSecondLoad {
+            releaseSecondLoad.signal()
+        }
+        let secondResult = await second.value
+
+        #expect(!didStartSecondLoad, "A completed unavailable capture must not launch another full scan.")
+        #expect(secondResult == nil)
+        #expect(loadCount.withLock { $0 } == 1)
+        releaseFirstLoad.signal()
+        await timeoutWaiter.cancelAll()
+    }
+
+    @Test
     func quickQuitDuringPrewarmQueuesPostConfirmationCapture() async {
         let loadStarted = DispatchSemaphore(value: 0)
         let secondLoadStarted = DispatchSemaphore(value: 0)
@@ -376,5 +429,37 @@ struct ProcessDetectedResumeIndexCoordinationTests {
         await Task.detached {
             semaphore.wait(timeout: .now() + timeout) == .success
         }.value
+    }
+}
+
+private actor TerminationCoordinatorTimeoutWaiter {
+    private var pending: [CheckedContinuation<Bool, Never>] = []
+    private var countWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
+
+    func wait() async -> Bool {
+        await withCheckedContinuation { continuation in
+            pending.append(continuation)
+            let ready = countWaiters.filter { pending.count >= $0.count }
+            countWaiters.removeAll { pending.count >= $0.count }
+            ready.forEach { $0.continuation.resume() }
+        }
+    }
+
+    func waitUntilPendingCount(_ count: Int) async {
+        guard pending.count < count else { return }
+        await withCheckedContinuation { continuation in
+            countWaiters.append((count: count, continuation: continuation))
+        }
+    }
+
+    func fireNext() {
+        guard !pending.isEmpty else { return }
+        pending.removeFirst().resume(returning: true)
+    }
+
+    func cancelAll() {
+        let continuations = pending
+        pending.removeAll(keepingCapacity: false)
+        continuations.forEach { $0.resume(returning: false) }
     }
 }
