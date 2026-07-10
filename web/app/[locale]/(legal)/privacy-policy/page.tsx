@@ -98,13 +98,11 @@ export default function PrivacyPolicyPage() {
         forwarding them to PostHog. We retain mobile analytics only as long as
         needed for product analytics and debugging. The current iPhone and iPad
         Application sends these analytics unless telemetry is disabled through an
-        app-provided preference or support disables account-linked analytics for
-        your account. Where the Application exposes a Send anonymous telemetry
-        preference, turning it off stops analytics events from being buffered or
-        sent. You may also contact us at{" "}
+        app-provided preference in the build you are using. Where the Application
+        exposes a Send anonymous telemetry preference, turning it off stops
+        analytics events from being buffered or sent. You may also contact us at{" "}
         <a href="mailto:founders@manaflow.com">founders@manaflow.com</a> to
-        request deletion of analytics associated with your account or to disable
-        account-linked analytics for your account.
+        request deletion of analytics associated with your account.
       </p>
 
       <h3>2. Information you provide directly</h3>

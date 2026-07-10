@@ -11,15 +11,16 @@ Reviewer access:
 - Use the demo account entered in App Store Connect Review Information. Do not
   put demo credentials in this repository.
 - After sign-in, use the Add Computer flow shown in the app. Pairing can be
-  tested with a prepared review Mac by entering the exact Name, Host, and Port
-  values supplied in the Review Information notes, or by scanning a QR code whose
-  route is reachable from Apple review networks.
+  tested with a prepared review Mac after joining the supplied Tailscale network
+  and entering the exact Name, Tailscale Host, and Port values supplied in the
+  Review Information notes, or by scanning a generated QR/link whose ticketed
+  route is reachable from the same review network path.
 - The reviewer does not need to own or install cmux on a Mac. Before submission,
   append the prepared review Mac details below directly into App Store Connect:
   - Name: `App Review Mac`
-  - Host: `<EXTERNALLY_REACHABLE_HOST_OR_TAILSCALE_MAGICDNS>`
+  - Host: `<TAILSCALE_MAGICDNS_OR_100_X_ADDRESS>`
   - Port: `<CMUX_MOBILE_HOST_PORT>`
-  - Tailscale access, only if required: `<TAILSCALE_REVIEW_ACCESS>`
+  - Tailscale access: `<TAILSCALE_REVIEW_ACCESS>`
   - Review contact: `<REVIEW_CONTACT_EMAIL>` / `<REVIEW_CONTACT_PHONE>`
 - The prepared Mac must use a dedicated review-only macOS user, no personal or
   developer credentials, a safe `App Review` workspace, and a network route
@@ -57,11 +58,11 @@ Primary review path:
 
 1. Sign in with the demo account supplied in App Store Connect.
 2. Tap Add Computer.
-3. If Tailscale access is required, install Tailscale from the App Store and
-   sign in with the supplied review access first.
-4. Enter the supplied Name, Host, and Port values, then tap Pair. If the
-   supplied QR route is reachable from Apple review networks, Scan QR Code can
-   be used instead.
+3. Install Tailscale from the App Store and sign in with the supplied review
+   access first.
+4. Enter the supplied Name, Tailscale Host, and Port values, then tap Pair. If a
+   generated ticketed QR/link route is reachable after joining the supplied
+   Tailscale network, Scan QR Code can be used instead.
 5. Open the workspace list, then open the `App Review` workspace detail.
 6. Send `echo app-review-ok` from the message box.
 7. Enable phone notifications and verify the opt-in prompt, then disable them
