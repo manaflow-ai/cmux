@@ -103,6 +103,7 @@ public final class SimulatorPaneCoordinator {
     @ObservationIgnored var geometry: SimulatorSurfaceGeometry?
     @ObservationIgnored var selectionGeneration: UInt64 = 0
     @ObservationIgnored var activeControlActions = 0
+    @ObservationIgnored var actionHistoryByDeviceID: [String: [SimulatorActionLogEntry]] = [:]
     @ObservationIgnored var videoSession: SimulatorProcessSession?
     @ObservationIgnored var logSession: SimulatorProcessSession?
     @ObservationIgnored let chromeLoader = SimulatorDeviceChromeLoader()

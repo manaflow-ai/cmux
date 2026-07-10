@@ -102,6 +102,7 @@ extension SimulatorPaneCoordinator {
                 _ = await beginLocationRouteTeardown()?.value
                 guard selectedDeviceID == previousDeviceID else { return }
             }
+            selectActionHistory(deviceID: nextDeviceID)
             selectedDeviceID = nextDeviceID
         } catch {
             guard !Task.isCancelled else { return }
@@ -124,6 +125,7 @@ extension SimulatorPaneCoordinator {
         self.outgoingRecoveryTask = nil
         selectionGeneration &+= 1
         let generation = selectionGeneration
+        selectActionHistory(deviceID: id)
         selectedDeviceID = id
         let deviceScopedTasks = clearDeviceScopedState()
         chromeProfile = nil
@@ -303,7 +305,6 @@ extension SimulatorPaneCoordinator {
         highlightedAccessibilityNodeID = nil
         accessibilityOverlaySelectedNodeID = nil
         clearWebInspectorState()
-        actionLog = []
         installedApplications = []
         userInstalledApplications = []
         clipboardText = ""
