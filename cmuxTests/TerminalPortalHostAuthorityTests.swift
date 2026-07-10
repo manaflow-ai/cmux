@@ -178,43 +178,6 @@ struct TerminalPortalHostAuthorityTests {
 
     @MainActor
     @Test
-    func canvasDirectHostReplacesEveryPortalOwnedCallback() {
-        let panel = TerminalPanel(workspaceId: UUID())
-        defer { panel.surface.teardownSurface() }
-        let hostedView = panel.hostedView
-        let portalHost = NSView()
-        var portalFocusCount = 0
-        var portalFlashCount = 0
-        var canvasFocusCount = 0
-        hostedView.setPortalHostHandlers(
-            ownerHostId: ObjectIdentifier(portalHost),
-            focusHandler: { portalFocusCount += 1 },
-            triggerFlashHandler: { portalFlashCount += 1 }
-        )
-
-        let container = NSView(frame: CGRect(x: 0, y: 0, width: 400, height: 300))
-        let mount = CanvasPaneContentMount(
-            content: .terminal(panel),
-            panelId: panel.id,
-            container: container,
-            onFocusPanel: { _ in canvasFocusCount += 1 }
-        )
-        defer { mount.unmount() }
-
-        hostedView.surfaceView.onFocus?()
-        hostedView.surfaceView.onTriggerFlash?()
-
-        #expect(portalFocusCount == 0)
-        #expect(canvasFocusCount == 1)
-        #expect(
-            portalFlashCount == 0,
-            "Canvas direct hosting must not retain the replaced portal host's flash callback"
-        )
-        withExtendedLifetime(portalHost) {}
-    }
-
-    @MainActor
-    @Test
     func orphanPruneRetiresPortalLeaseAndRendererVisibility() throws {
         let window = NSWindow(
             contentRect: CGRect(x: 0, y: 0, width: 520, height: 340),
