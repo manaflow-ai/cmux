@@ -3,10 +3,6 @@ import Foundation
 import SwiftUI
 
 extension WorkspaceListView {
-    var hasPendingWorkspaceMove: Bool {
-        pendingWorkspaceMoveCount > 0
-    }
-
     /// Pipelining bound: with reorder enabled during pending moves, a slow or
     /// offline Mac must not let the send chain grow without limit. Normal
     /// round-trips never approach this, so drags are unaffected until the
@@ -43,32 +39,19 @@ extension WorkspaceListView {
     }
 
     func syncOptimisticWorkspaceOrder(moveDidFail: Bool = false) {
-        if !MobileWorkspaceOptimisticOrderReconciler(
-            optimistic: optimisticFlatWorkspaces,
+        optimisticFlatState = optimisticFlatState.reconciling(
             authoritative: filteredWorkspaces,
-            previousAuthoritative: optimisticFlatBaseWorkspaces,
-            moveIsPending: hasPendingWorkspaceMove,
             moveDidFail: moveDidFail
-        ).shouldKeepOptimisticOrder() {
-            optimisticFlatWorkspaces = nil
-            optimisticFlatBaseWorkspaces = nil
-        }
-        if !MobileWorkspaceOptimisticOrderReconciler(
-            optimistic: optimisticGroupedWorkspaces,
+        )
+        optimisticGroupedState = optimisticGroupedState.reconciling(
             authoritative: groupedWorkspaces,
-            previousAuthoritative: optimisticGroupedBaseWorkspaces,
-            moveIsPending: hasPendingWorkspaceMove,
             moveDidFail: moveDidFail
-        ).shouldKeepOptimisticOrder() {
-            optimisticGroupedItems = nil
-            optimisticGroupedWorkspaces = nil
-            optimisticGroupedBaseWorkspaces = nil
-        }
+        )
     }
 
     func moveFlatRows(from sourceOffsets: IndexSet, to destination: Int) {
         guard enablesWorkspaceReorder else { return }
-        let sourceWorkspaces = optimisticFlatWorkspaces ?? filteredWorkspaces
+        let sourceWorkspaces = displayedFlatWorkspaces
         let items = sourceWorkspaces.map { MobileWorkspaceListItem.workspace($0, indented: false) }
         guard let intent = items.moveIntent(
             workspaces: sourceWorkspaces,
@@ -80,8 +63,11 @@ extension WorkspaceListView {
         }
         var movedWorkspaces = sourceWorkspaces
         movedWorkspaces.move(fromOffsets: sourceOffsets, toOffset: destination)
-        optimisticFlatBaseWorkspaces = sourceWorkspaces
-        optimisticFlatWorkspaces = movedWorkspaces
+        optimisticFlatState = MobileWorkspaceOptimisticOrderReconciler(
+            optimisticOrder: MobileWorkspaceOptimisticOrder(workspaces: movedWorkspaces),
+            pendingBases: optimisticFlatState.pendingBases
+                + [MobileWorkspaceOptimisticOrder(workspaces: sourceWorkspaces)]
+        )
         guard let sourceIndex = sourceOffsets.first,
               case .workspace(let workspace, _) = items[sourceIndex] else {
             return
@@ -118,8 +104,8 @@ extension WorkspaceListView {
 
     func moveGroupedRows(from sourceOffsets: IndexSet, to destination: Int) {
         guard enablesWorkspaceReorder else { return }
-        let sourceItems = optimisticGroupedItems ?? groupedListItems
-        let sourceWorkspaces = optimisticGroupedWorkspaces ?? groupedWorkspaces
+        let sourceItems = displayedGroupedListItems
+        let sourceWorkspaces = displayedGroupedWorkspaces
         guard let intent = sourceItems.moveIntent(
             workspaces: sourceWorkspaces,
             groups: groups,
@@ -145,9 +131,11 @@ extension WorkspaceListView {
             movedWorkspaceID: movedWorkspaceID,
             groups: groups
         )
-        optimisticGroupedBaseWorkspaces = sourceWorkspaces
-        optimisticGroupedWorkspaces = movedWorkspaces
-        optimisticGroupedItems = MobileWorkspaceListItem.items(workspaces: movedWorkspaces, groups: groups)
+        optimisticGroupedState = MobileWorkspaceOptimisticOrderReconciler(
+            optimisticOrder: MobileWorkspaceOptimisticOrder(workspaces: movedWorkspaces),
+            pendingBases: optimisticGroupedState.pendingBases
+                + [MobileWorkspaceOptimisticOrder(workspaces: sourceWorkspaces)]
+        )
         pendingWorkspaceMoveCount += 1
         let previousMove = pendingWorkspaceMoveTask
         pendingWorkspaceMoveTask = Task { @MainActor in

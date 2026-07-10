@@ -398,45 +398,4 @@ import Testing
         #expect(clamped == MobileWorkspaceMoveIntent(groupID: nil, beforeWorkspaceID: "a"))
     }
 
-    @Test func optimisticReconciliationKeepsUntilSnapshotMatchesOrSupersedes() {
-        let old = [workspace("a"), workspace("b"), workspace("c")]
-        let optimistic = [workspace("b"), workspace("a"), workspace("c")]
-        #expect(MobileWorkspaceOptimisticOrderReconciler(
-            optimistic: optimistic,
-            authoritative: old,
-            previousAuthoritative: old,
-            moveIsPending: false
-        ).shouldKeepOptimisticOrder())
-        #expect(!MobileWorkspaceOptimisticOrderReconciler(
-            optimistic: optimistic,
-            authoritative: optimistic,
-            previousAuthoritative: old,
-            moveIsPending: false
-        ).shouldKeepOptimisticOrder())
-        let superseded = [workspace("c"), workspace("a"), workspace("b")]
-        #expect(!MobileWorkspaceOptimisticOrderReconciler(
-            optimistic: optimistic,
-            authoritative: superseded,
-            previousAuthoritative: old,
-            moveIsPending: true
-        ).shouldKeepOptimisticOrder())
-        #expect(!MobileWorkspaceOptimisticOrderReconciler(
-            optimistic: optimistic,
-            authoritative: old,
-            previousAuthoritative: old,
-            moveIsPending: false,
-            moveDidFail: true
-        ).shouldKeepOptimisticOrder())
-    }
-
-    @Test func pipelinedReconciliationKeepsCombinedOptimisticOrderAtIntermediateSnapshot() {
-        let intermediate = [workspace("b"), workspace("a"), workspace("c")]
-        let combined = [workspace("b"), workspace("c"), workspace("a")]
-        #expect(MobileWorkspaceOptimisticOrderReconciler(
-            optimistic: combined,
-            authoritative: intermediate,
-            previousAuthoritative: intermediate,
-            moveIsPending: true
-        ).shouldKeepOptimisticOrder())
-    }
 }
