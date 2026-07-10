@@ -28,6 +28,7 @@ import {
   type FaqItem,
   type SizeRow,
 } from "../components/pricing-shared";
+import { CheckoutButton } from "../components/checkout-navigation";
 
 const ENTERPRISE_CTA_URL = "/enterprise";
 const pricing = enMessages.pricing;
@@ -128,7 +129,7 @@ export default async function AppPricingPage({
               ) : appStorePaymentGated ? (
                 <DisabledButton>{pricing.billingUnavailable}</DisabledButton>
               ) : (
-                <PrimaryLink href={proCheckoutURL}>{pricing.pro.cta}</PrimaryLink>
+                <CheckoutButton href={proCheckoutURL}>{pricing.pro.cta}</CheckoutButton>
               )}
               <p className="mt-5 text-sm font-medium">
                 {pricing.pro.featuresLead}
@@ -144,7 +145,7 @@ export default async function AppPricingPage({
               {appStorePaymentGated ? (
                 <DisabledButton>{pricing.billingUnavailable}</DisabledButton>
               ) : (
-                <PrimaryLink href={teamCheckoutURL}>{pricing.team.cta}</PrimaryLink>
+                <CheckoutButton href={teamCheckoutURL}>{pricing.team.cta}</CheckoutButton>
               )}
               <p className="mt-5 text-sm font-medium">
                 {pricing.team.featuresLead}
@@ -200,16 +201,16 @@ export default async function AppPricingPage({
                 ) : appStorePaymentGated ? (
                   <DisabledButton size="compact">{pricing.billingUnavailable}</DisabledButton>
                 ) : (
-                  <PrimaryLink href={proCheckoutURL} size="compact">
+                  <CheckoutButton href={proCheckoutURL} size="compact">
                     {pricing.pro.cta}
-                  </PrimaryLink>
+                  </CheckoutButton>
                 ),
                 team: appStorePaymentGated ? (
                   <DisabledButton size="compact">{pricing.billingUnavailable}</DisabledButton>
                 ) : (
-                  <PrimaryLink href={teamCheckoutURL} size="compact">
+                  <CheckoutButton href={teamCheckoutURL} size="compact">
                     {pricing.team.cta}
-                  </PrimaryLink>
+                  </CheckoutButton>
                 ),
                 enterprise: appStorePaymentGated ? (
                   <DisabledButton size="compact">{pricing.billingUnavailable}</DisabledButton>
