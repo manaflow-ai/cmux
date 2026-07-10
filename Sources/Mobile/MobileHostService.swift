@@ -128,6 +128,7 @@ private final class MobileHostConnectionRegistry: @unchecked Sendable {
     static let shared = MobileHostConnectionRegistry()
 
     private let lock = NSLock()
+    private let irohBindingConnectionQuota = CmxIrohActiveBindingConnectionQuota()
     private var connections: [UUID: Entry] = [:]
 
     var count: Int {
@@ -146,6 +147,21 @@ private final class MobileHostConnectionRegistry: @unchecked Sendable {
         guard connections.count < limit else {
             lock.unlock()
             return false
+        }
+        if case let .irohAdmission(peer) = authorization {
+            let activeBindingIDs = connections.values.lazy.compactMap { entry in
+                guard case let .irohAdmission(activePeer) = entry.authorization else {
+                    return nil
+                }
+                return activePeer.bindingID
+            }
+            guard irohBindingConnectionQuota.allowsAdmission(
+                for: peer.bindingID,
+                activeBindingIDs: activeBindingIDs
+            ) else {
+                lock.unlock()
+                return false
+            }
         }
         connections[id] = Entry(connection: connection, authorization: authorization)
         lock.unlock()
@@ -1231,7 +1247,7 @@ final class MobileHostService {
             limit: Self.maximumActiveConnectionCount
         ) else {
             mobileHostLog.error(
-                "mobile host rejected connection because active connection limit was reached"
+                "mobile host rejected connection because an active connection quota was reached"
             )
             await transport.close()
             MobileHostRequestActivity.endConnection()
