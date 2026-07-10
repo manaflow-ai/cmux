@@ -424,13 +424,22 @@ func TestTmuxCorpusResizePaneDispatchesAbsoluteAndDirectionalResize(t *testing.T
 	if err := dispatchTmuxCommand(rc, "resize-pane", []string{"-t", "pane:1", "-x", "100"}); err != nil {
 		t.Fatalf("resize-pane absolute width: %v", err)
 	}
-	if err := dispatchTmuxCommand(rc, "resize-pane", []string{"-t", "pane:1", "-L", "-x", "7"}); err != nil {
+	if err := dispatchTmuxCommand(rc, "resize-pane", []string{"-t", "pane:1", "-x", "50%"}); err != nil {
+		t.Fatalf("resize-pane percentage width: %v", err)
+	}
+	if err := dispatchTmuxCommand(rc, "resize-pane", []string{"-t", "pane:1", "-y", "20"}); err != nil {
+		t.Fatalf("resize-pane compatibility height no-op: %v", err)
+	}
+	if err := dispatchTmuxCommand(rc, "resize-pane", []string{"-t", "pane:1", "-L", "7"}); err != nil {
 		t.Fatalf("resize-pane directional: %v", err)
+	}
+	if err := dispatchTmuxCommand(rc, "resize-pane", []string{"-t", "pane:1", "-R"}); err != nil {
+		t.Fatalf("resize-pane default directional: %v", err)
 	}
 
 	resizeRequests := recorder.requestsFor("pane.resize")
-	if len(resizeRequests) != 2 {
-		t.Fatalf("pane.resize requests = %d, want 2", len(resizeRequests))
+	if len(resizeRequests) != 4 {
+		t.Fatalf("pane.resize requests = %d, want 4", len(resizeRequests))
 	}
 	if got := resizeRequests[0].Params["absolute_axis"]; got != "horizontal" {
 		t.Fatalf("absolute resize axis = %v, want horizontal", got)
@@ -444,17 +453,32 @@ func TestTmuxCorpusResizePaneDispatchesAbsoluteAndDirectionalResize(t *testing.T
 	if got := resizeRequests[0].Params["tmux_compat"]; got != true {
 		t.Fatalf("absolute resize tmux_compat = %v, want true", got)
 	}
-	if got := resizeRequests[1].Params["direction"]; got != "left" {
+	if got := resizeRequests[1].Params["absolute_axis"]; got != "horizontal" {
+		t.Fatalf("percentage resize axis = %v, want horizontal", got)
+	}
+	if got := asInt(t, resizeRequests[1].Params["target_percentage"], "percentage resize target"); got != 50 {
+		t.Fatalf("percentage resize target = %v, want 50", got)
+	}
+	if _, ok := resizeRequests[1].Params["target_cells"]; ok {
+		t.Fatalf("percentage resize unexpectedly sent target_cells")
+	}
+	if got := resizeRequests[2].Params["direction"]; got != "left" {
 		t.Fatalf("directional resize direction = %v, want left", got)
 	}
-	if got := asInt(t, resizeRequests[1].Params["amount"], "directional resize amount"); got != 7 {
+	if got := asInt(t, resizeRequests[2].Params["amount"], "directional resize amount"); got != 7 {
 		t.Fatalf("directional resize amount = %v, want 7", got)
 	}
-	if got := asInt(t, resizeRequests[1].Params["amount_cells"], "directional resize cells"); got != 7 {
+	if got := asInt(t, resizeRequests[2].Params["amount_cells"], "directional resize cells"); got != 7 {
 		t.Fatalf("directional resize cells = %v, want 7", got)
 	}
-	if got := resizeRequests[1].Params["tmux_compat"]; got != true {
+	if got := resizeRequests[2].Params["tmux_compat"]; got != true {
 		t.Fatalf("directional resize tmux_compat = %v, want true", got)
+	}
+	if got := resizeRequests[3].Params["direction"]; got != "right" {
+		t.Fatalf("default directional resize direction = %v, want right", got)
+	}
+	if got := asInt(t, resizeRequests[3].Params["amount_cells"], "default directional resize cells"); got != 1 {
+		t.Fatalf("default directional resize cells = %v, want 1", got)
 	}
 }
 

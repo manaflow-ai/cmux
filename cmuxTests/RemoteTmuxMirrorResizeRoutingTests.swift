@@ -17,6 +17,7 @@ extension RemoteTmuxMirrorCLIObservabilityTests {
         let harness = try Harness(connectedTransport: true, geometryScale: scale)
         defer { harness.tearDown() }
         let tmuxPaneID = try #require(harness.mirror.paneIDsInOrder.first)
+        let adjacentTmuxPaneID = try #require(harness.mirror.paneIDsInOrder.dropFirst().first)
         let paneID = try #require(harness.mirror.syntheticPaneID(forPane: tmuxPaneID)?.id)
         let amountPoints = 24
 
@@ -42,7 +43,7 @@ extension RemoteTmuxMirrorCLIObservabilityTests {
         #expect(response["direction"] as? String == "right")
         #expect(response["amount"] as? Int == amountPoints)
         let commands = try readControlCommands(harness)
-        #expect(commands.contains("resize-pane -t @3.%\(tmuxPaneID) -R 3\n"))
+        #expect(commands.contains("resize-pane -t @3.%\(adjacentTmuxPaneID) -R 3\n"))
     }
 
     @Test func absolutePaneResizeConvertsOuterPointsAndClampsSubcellGrid() throws {
@@ -117,10 +118,29 @@ extension RemoteTmuxMirrorCLIObservabilityTests {
             Issue.record("Exact-cell mirror pane resize failed: \(String(describing: cellHintResult))")
             return
         }
+        let percentageResult = ControlCommandCoordinator(context: TerminalController.shared).handle(
+            ControlRequest(
+                id: .int(4),
+                method: "pane.resize",
+                params: [
+                    "workspace_id": .string(harness.workspace.id.uuidString),
+                    "pane_id": .string(paneID.uuidString),
+                    "absolute_axis": .string("vertical"),
+                    "target_pixels": .double(targetPoints),
+                    "target_percentage": .int(50),
+                    "tmux_compat": .bool(true),
+                ]
+            )
+        )
+        guard case .ok? = percentageResult else {
+            Issue.record("Percentage mirror pane resize failed: \(String(describing: percentageResult))")
+            return
+        }
         let commands = try readControlCommands(harness)
         #expect(commands.contains("resize-pane -t @3.%\(tmuxPaneID) -y 3\n"))
         #expect(commands.contains("resize-pane -t @3.%\(tmuxPaneID) -y 1\n"))
         #expect(commands.contains("resize-pane -t @3.%\(tmuxPaneID) -y 7\n"))
+        #expect(commands.contains("resize-pane -t @3.%\(tmuxPaneID) -y 50%\n"))
     }
 
     @Test func paneResizeTargetsTheSelectedLeadingBorderInNaryLayout() throws {
@@ -152,10 +172,26 @@ extension RemoteTmuxMirrorCLIObservabilityTests {
             Issue.record("Middle-pane leading resize failed: \(String(describing: result))")
             return
         }
+        let trailingResult = ControlCommandCoordinator(context: TerminalController.shared).handle(
+            ControlRequest(
+                id: .int(2),
+                method: "pane.resize",
+                params: [
+                    "workspace_id": .string(harness.workspace.id.uuidString),
+                    "pane_id": .string(paneID.uuidString),
+                    "direction": .string("right"),
+                    "amount": .int(8),
+                ]
+            )
+        )
+        guard case .ok? = trailingResult else {
+            Issue.record("Middle-pane trailing resize failed: \(String(describing: trailingResult))")
+            return
+        }
         let firstPaneID = try #require(harness.mirror.syntheticPaneID(forPane: 11)?.id)
         let hintedResult = ControlCommandCoordinator(context: TerminalController.shared).handle(
             ControlRequest(
-                id: .int(2),
+                id: .int(3),
                 method: "pane.resize",
                 params: [
                     "workspace_id": .string(harness.workspace.id.uuidString),
@@ -174,7 +210,54 @@ extension RemoteTmuxMirrorCLIObservabilityTests {
         let commands = try readControlCommands(harness)
         #expect(commands.contains("resize-pane -t @3.%11 -L 1\n"))
         #expect(!commands.contains("resize-pane -t @3.%22 -L"))
+        #expect(commands.contains("resize-pane -t @3.%33 -R 1\n"))
+        #expect(!commands.contains("resize-pane -t @3.%22 -R"))
         #expect(commands.contains("resize-pane -t @3.%11 -L 2\n"))
+    }
+
+    @Test func paneResizeRejectsMalformedExplicitUnitValues() throws {
+        let harness = try Harness(connectedTransport: true)
+        defer { harness.tearDown() }
+        let tmuxPaneID = try #require(harness.mirror.paneIDsInOrder.first)
+        let paneID = try #require(harness.mirror.syntheticPaneID(forPane: tmuxPaneID)?.id)
+        let coordinator = ControlCommandCoordinator(context: TerminalController.shared)
+        let requests: [[String: JSONValue]] = [
+            [
+                "workspace_id": .string(harness.workspace.id.uuidString),
+                "pane_id": .string(paneID.uuidString),
+                "direction": .string("right"),
+                "amount": .string("bad"),
+            ],
+            [
+                "workspace_id": .string(harness.workspace.id.uuidString),
+                "pane_id": .string(paneID.uuidString),
+                "absolute_axis": .string("horizontal"),
+                "target_pixels": .double(40),
+                "target_cells": .int(0),
+                "tmux_compat": .bool(true),
+            ],
+            [
+                "workspace_id": .string(harness.workspace.id.uuidString),
+                "pane_id": .string(paneID.uuidString),
+                "direction": .string("right"),
+                "amount": .int(8),
+                "amount_cells": .int(0),
+                "tmux_compat": .bool(true),
+            ],
+        ]
+
+        for (index, params) in requests.enumerated() {
+            let result = coordinator.handle(ControlRequest(
+                id: .int(Int64(index + 1)),
+                method: "pane.resize",
+                params: params
+            ))
+            guard case .err(let code, _, _)? = result else {
+                Issue.record("Malformed resize unexpectedly succeeded: \(String(describing: result))")
+                continue
+            }
+            #expect(code == "invalid_params")
+        }
     }
 
     @Test func paneResizeRejectsAbsentRemoteSplitBordersAndAxes() throws {

@@ -4,6 +4,36 @@ import Testing
 
 extension CLITmuxCompatRemoteSplitTests {
     @Test func absoluteResizeCarriesExactTmuxCellTarget() throws {
+        let params = try captureResize(arguments: ["-x", "3"])
+        #expect(params["absolute_axis"] as? String == "horizontal")
+        #expect((params["target_pixels"] as? NSNumber)?.intValue == 48)
+        #expect((params["target_cells"] as? NSNumber)?.intValue == 3)
+        #expect(params["target_percentage"] == nil)
+        #expect(params["tmux_compat"] as? Bool == true)
+    }
+
+    @Test func absoluteResizePreservesTmuxPercentageTarget() throws {
+        let params = try captureResize(arguments: ["-x", "50%"])
+        #expect(params["absolute_axis"] as? String == "horizontal")
+        #expect((params["target_pixels"] as? NSNumber)?.intValue == 800)
+        #expect(params["target_cells"] == nil)
+        #expect((params["target_percentage"] as? NSNumber)?.intValue == 50)
+        #expect(params["tmux_compat"] as? Bool == true)
+    }
+
+    @Test func directionalResizeUsesPositionalAmountAndDefaultsToOneCell() throws {
+        let explicit = try captureResize(arguments: ["-L", "7"])
+        #expect(explicit["direction"] as? String == "left")
+        #expect((explicit["amount"] as? NSNumber)?.intValue == 7)
+        #expect((explicit["amount_cells"] as? NSNumber)?.intValue == 7)
+
+        let defaulted = try captureResize(arguments: ["-R"])
+        #expect(defaulted["direction"] as? String == "right")
+        #expect((defaulted["amount"] as? NSNumber)?.intValue == 1)
+        #expect((defaulted["amount_cells"] as? NSNumber)?.intValue == 1)
+    }
+
+    private func captureResize(arguments: [String]) throws -> [String: Any] {
         let cliPath = try BundledCLITestSupport.bundledCLIPath(
             for: CLITmuxCompatRemoteSplitBundleToken.self
         )
@@ -58,7 +88,7 @@ extension CLITmuxCompatRemoteSplitTests {
 
         let result = Self.runProcess(
             executablePath: cliPath,
-            arguments: ["__tmux-compat", "resize-pane", "-t", "pane:1", "-x", "3"],
+            arguments: ["__tmux-compat", "resize-pane", "-t", "pane:1"] + arguments,
             environment: [
                 "CMUX_SOCKET_PATH": socketPath,
                 "CMUX_WORKSPACE_ID": workspaceID,
@@ -72,11 +102,7 @@ extension CLITmuxCompatRemoteSplitTests {
         #expect(state.errorSnapshot() == [])
         #expect(!result.timedOut, Comment(rawValue: result.stderr))
         #expect(result.status == 0, Comment(rawValue: result.stderr))
-        let params = try #require(capture.snapshot())
-        #expect(params["absolute_axis"] as? String == "horizontal")
-        #expect((params["target_pixels"] as? NSNumber)?.intValue == 48)
-        #expect((params["target_cells"] as? NSNumber)?.intValue == 3)
-        #expect(params["tmux_compat"] as? Bool == true)
+        return try #require(capture.snapshot())
     }
 
     private final class ResizeCapture: @unchecked Sendable {
