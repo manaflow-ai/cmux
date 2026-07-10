@@ -8,13 +8,41 @@ import Testing
 #endif
 
 struct ShellIntegrationSendTransportTests {
+    /// The assertion needs the harness to host a unix-socket loop for spawned
+    /// children at all: on some CI app-host contexts a plain `/usr/bin/nc`
+    /// child delivers nothing to a listener owned by the test process (the
+    /// integration sources cleanly and nc runs; the environment eats the
+    /// connect). Probe that pure baseline, with no shell integration
+    /// involved, so the regression test runs on every developer machine and
+    /// reports as skipped, not failed, where the harness cannot host it.
+    private static func childProcessUnixSocketLoopWorks() -> Bool {
+        guard FileManager.default.isExecutableFile(atPath: "/usr/bin/nc") else { return false }
+        let dir = URL(fileURLWithPath: "/tmp", isDirectory: true)
+            .appendingPathComponent("cmux-stp-\(UUID().uuidString.prefix(8))", isDirectory: true)
+        guard (try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)) != nil else {
+            return false
+        }
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let socketPath = dir.appendingPathComponent("b.sock").path
+        guard let listener = try? UnixLineListener(path: socketPath) else { return false }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        process.arguments = ["-f", "-c", "print -r -- baseline | /usr/bin/nc -w 1 -U '\(socketPath)'"]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        guard (try? process.run()) != nil else { return false }
+        process.waitUntilExit()
+        return listener.waitForLine(timeout: 5) == "baseline"
+    }
+
     /// End-to-end contract for `_cmux_send`: sourcing the bundled integration
     /// in a fresh zsh and sending one payload must deliver that payload to a
     /// unix-socket listener. This transport carries the whole hook channel
     /// (report_tty, ports_kick, report_shell_state, git/PR reports); it broke
     /// silently on machines where PATH `nc` is GNU netcat without unix-socket
     /// support, so delivery must not depend on PATH resolution.
-    @Test func sendDeliversPayloadToUnixSocketListener() throws {
+    @Test(.enabled(if: childProcessUnixSocketLoopWorks(), "harness cannot host a child-process unix-socket loop"))
+    func sendDeliversPayloadToUnixSocketListener() throws {
         let script = try #require(
             RemoteInteractiveShellBootstrapBuilder.bundledShellIntegrationScript(
                 named: "cmux-zsh-integration.zsh"
