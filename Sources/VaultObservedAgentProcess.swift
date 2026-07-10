@@ -201,21 +201,19 @@ extension VaultObservedAgentProcess {
     }
 }
 
-struct VaultAgentSessionIDResolution {
-    let sessionId: String
-    let source: RestorableAgentSessionIndex.ProcessDetectedSessionIDSource
-}
-
 extension CmuxVaultAgentSessionIDSource {
     func sessionIDResolution(
         from process: VaultObservedAgentProcess,
         registration: CmuxVaultAgentRegistration,
         fileManager: FileManager
-    ) -> VaultAgentSessionIDResolution? {
+    ) -> (sessionId: String, source: RestorableAgentSessionIndex.ProcessDetectedSessionIDSource)? {
         switch self {
         case .argvOption(let option):
             guard let sessionId = process.arguments.nonOptionValue(afterOption: option) else { return nil }
-            return VaultAgentSessionIDResolution(sessionId: sessionId, source: registration.processArgumentsCarryForkParentFlag(process.arguments) ? .forkParentFallback : .explicit)
+            return (
+                sessionId: sessionId,
+                source: registration.processArgumentsCarryForkParentFlag(process.arguments) ? .forkParentFallback : .explicit
+            )
         case .piSessionFile:
             if let session = process.piCompatibleSessionID {
                 let sessionId = PiSessionLocator.resolvedSessionPath(
@@ -224,7 +222,10 @@ extension CmuxVaultAgentSessionIDSource {
                     registration: registration,
                     fileManager: fileManager
                 ) ?? session
-                return VaultAgentSessionIDResolution(sessionId: sessionId, source: registration.processArgumentsCarryForkParentFlag(process.arguments) ? .forkParentFallback : .explicit)
+                return (
+                    sessionId: sessionId,
+                    source: registration.processArgumentsCarryForkParentFlag(process.arguments) ? .forkParentFallback : .explicit
+                )
             }
             guard let sessionId = PiSessionLocator.latestSessionPath(
                 for: process,
@@ -233,10 +234,10 @@ extension CmuxVaultAgentSessionIDSource {
             ) else {
                 return nil
             }
-            return VaultAgentSessionIDResolution(sessionId: sessionId, source: .inferredLatestSessionFile)
+            return (sessionId: sessionId, source: .inferredLatestSessionFile)
         case .grokSessionDirectory:
             if let session = process.arguments.grokResumeSessionID {
-                return VaultAgentSessionIDResolution(sessionId: session, source: .explicit)
+                return (sessionId: session, source: .explicit)
             }
             return nil
         }
