@@ -95,3 +95,49 @@ test("streamPatch uses localized fallback for unnamed file tree paths", async ()
   expect(treePaths.at(-1)).toEqual(["Localized untitled"]);
   expect(treeSources.at(-1)?.preparedInput).toBeUndefined();
 });
+
+test("streamPatch reuses incremental tree collections with revisioned flushes", async () => {
+  const dom = new JSDOM("<!doctype html><html><body></body></html>");
+  (globalThis as any).document = dom.window.document;
+  (globalThis as any).window = dom.window;
+  (globalThis as any).fetch = () => Promise.resolve({
+    ok: true,
+    text: () => Promise.resolve("patch"),
+  });
+  dom.window.document.hasFocus = () => false;
+
+  const treeSources: any[] = [];
+  await streamPatch({
+    getCollapsed: () => false,
+    initialFileTreeRowCount: 1,
+    label: createDiffViewerLabelResolver(undefined),
+    onBatch: () => {},
+    onComplete: () => {},
+    onMetrics: () => {},
+    onRename: () => {},
+    onTreeSource: (source) => treeSources.push(source),
+    parsePatchFiles: () => [{
+      files: [
+        { name: "a.ts", type: "new", hunks: [] },
+        { name: "b.ts", type: "deleted", hunks: [] },
+        { name: "c.ts", type: "change", hunks: [] },
+      ],
+    }],
+    patchURL: "/patch.diff",
+    processFile: (patchText) => ({ name: patchText, type: "modified", hunks: [] }),
+  });
+
+  expect(treeSources.map((source) => source.revision)).toEqual([1, 2, 3]);
+  expect(treeSources.map((source) => source.previousRevision)).toEqual([undefined, 1, 2]);
+  expect(treeSources.map((source) => source.pathCount)).toEqual([1, 2, 3]);
+  expect(treeSources[0].paths).toBe(treeSources[2].paths);
+  expect(treeSources[0].pathToItemId).toBe(treeSources[2].pathToItemId);
+  expect(treeSources[0].statsByPath).toBe(treeSources[2].statsByPath);
+  expect(treeSources[0].treePathByItemId).toBe(treeSources[2].treePathByItemId);
+  expect(treeSources[0].gitStatus).toBe(treeSources[2].gitStatus);
+  expect(treeSources[2].paths).toEqual(["a.ts", "b.ts", "c.ts"]);
+  expect(treeSources[2].gitStatus).toEqual([
+    { path: "a.ts", status: "added" },
+    { path: "b.ts", status: "deleted" },
+  ]);
+});
