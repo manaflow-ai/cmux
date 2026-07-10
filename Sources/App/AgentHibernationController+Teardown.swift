@@ -139,17 +139,22 @@ extension AgentHibernationController {
                     // it only now that this request is otherwise committed. A process
                     // can appear while that older task drains, so capture one ordered
                     // successor index before the final synchronous commit checks.
-                    await cancelPostTeardownRestoreTaskForReplacement(
+                    let didQuiesceMonitor = await cancelPostTeardownRestoreTaskForReplacement(
                         transcriptPath: snapshot.transcriptPath
                     )
-                    let postQuiescenceSequence = markPostSnapshotValidationPoint()
-                    let postQuiescenceIndex = await sharedPostSnapshotValidationIndexTask(
-                        minimumStartSequence: postQuiescenceSequence,
-                        loader: postSnapshotIndexLoader
-                    ).value
+                    let finalIndex: RestorableAgentSessionIndex
+                    if didQuiesceMonitor {
+                        let postQuiescenceSequence = markPostSnapshotValidationPoint()
+                        finalIndex = await sharedPostSnapshotValidationIndexTask(
+                            minimumStartSequence: postQuiescenceSequence,
+                            loader: postSnapshotIndexLoader
+                        ).value
+                    } else {
+                        finalIndex = postSnapshotIndex
+                    }
                     let stillQualifies = self.confirmedTeardownStillQualifies(
                         request,
-                        index: postQuiescenceIndex,
+                        index: finalIndex,
                         runtimeObservation: runtimeObservationProvider?(record)
                     )
                     // Nothing may suspend after these checks and before SIGTERM.
@@ -453,12 +458,14 @@ extension AgentHibernationController {
         return task
     }
 
-    func cancelPostTeardownRestoreTaskForReplacement(transcriptPath: String) async {
+    @discardableResult
+    func cancelPostTeardownRestoreTaskForReplacement(transcriptPath: String) async -> Bool {
         let key = Self.postTeardownRestoreTaskKey(transcriptPath: transcriptPath)
-        guard let entry = postTeardownRestoreTasksByTranscriptPath.removeValue(forKey: key) else { return }
+        guard let entry = postTeardownRestoreTasksByTranscriptPath.removeValue(forKey: key) else { return false }
         entry.cancellationState.restoresSnapshotOnCancellation = false
         entry.task.cancel()
         await entry.task.value
+        return true
     }
 
     func cancelPostTeardownRestoreTasks() {
