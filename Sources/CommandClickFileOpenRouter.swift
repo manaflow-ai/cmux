@@ -1,5 +1,4 @@
 import AppKit
-import Bonsplit
 import CmuxSettings
 import Foundation
 
@@ -9,22 +8,6 @@ enum CommandClickFileOpenRouter {
         return store.shouldRouteMarkdown(path: path)
             || store.shouldRouteSupportedFile(path: path)
     }
-
-    /// The most recent cmd-click HTML→browser open, keyed by workspace + path,
-    /// used to collapse the two cmd-click routing paths — the mouse handler and
-    /// Ghostty's OPEN_URL action, both of which reach `openInCmux` for one
-    /// physical click — into a single browser tab.
-    ///
-    /// Interim: unlike `openOrFocus*Split`, `newBrowserSplit` doesn't dedupe,
-    /// and `BrowserPanel` carries no stable local-file identity to match on (its
-    /// `currentURL` drifts to WebKit-normalized values after navigation), so a
-    /// panel-scan open-or-focus isn't reliable here today. Remove this once a
-    /// browser surface has a stable local-file key (cf. #7413) and route through
-    /// an idempotent open-or-focus primitive. Keyed by workspace so the same
-    /// path opened in another workspace within the window isn't swallowed; the
-    /// 1s window only needs to absorb the two dispatches of one click.
-    @MainActor private static var recentBrowserOpen: (workspaceId: UUID, path: String, at: Date)?
-    private static let browserOpenDedupeWindow: TimeInterval = 1.0
 
     @MainActor
     static func openInCmux(
@@ -36,34 +19,20 @@ enum CommandClickFileOpenRouter {
 
         // Local HTML renders in the embedded browser (a rendered page), not the
         // raw-source preview. Gated by the same toggle + readable-regular-file
-        // discipline as the other routed files (via `shouldRouteSupportedFile`)
+        // discipline as the other routed files (via `shouldRouteSupportedFile`),
         // so an opt-out — or a missing / non-regular path — falls through to the
-        // external opener instead of a broken embedded tab.
+        // external opener instead of a broken embedded tab. `openOrFocusBrowserSplit`
+        // focuses an existing tab for this file (matched on a stable local-file
+        // identity), so the two dispatches of one cmd-click (mouse handler +
+        // Ghostty OPEN_URL) collapse into a single tab, and a re-click focuses
+        // the open tab instead of duplicating it.
         if FileRouteSettingsStore.isHTMLPath(filePath),
            store.shouldRouteSupportedFile(path: filePath),
            BrowserAvailabilitySettings.isEnabled() {
-            // The same path can arrive from both cmd-click routes for one click;
-            // see `recentBrowserOpen` for why this window collapses the second
-            // into a no-op instead of opening a duplicate tab.
-            let now = Date()
-            if let recent = recentBrowserOpen,
-               recent.workspaceId == workspace.id,
-               recent.path == filePath,
-               now.timeIntervalSince(recent.at) < browserOpenDedupeWindow {
-                return true
-            }
-            if workspace.newBrowserSplit(
+            return workspace.openOrFocusBrowserSplit(
                 from: sourcePanelId,
-                orientation: .horizontal,
-                url: URL(fileURLWithPath: filePath)
-            ) != nil {
-                recentBrowserOpen = (workspaceId: workspace.id, path: filePath, at: now)
-                return true
-            }
-            // Browser is on but the split couldn't be created (e.g. a remote
-            // tmux mirror has no local browser surface): open externally rather
-            // than dumping raw HTML source into a preview pane.
-            return false
+                localFileURL: URL(fileURLWithPath: filePath)
+            ) != nil
         }
 
         if store.shouldRouteMarkdown(path: filePath),
