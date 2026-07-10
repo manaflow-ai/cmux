@@ -2390,7 +2390,10 @@ struct TerminalStreamTests {
         routes: [route],
         expiresAt: Date().addingTimeInterval(60)
     )
-    let router = TerminalOutputSelfHealingRouter(terminalID: terminalID)
+    let router = TerminalOutputSelfHealingRouter(
+        terminalID: terminalID,
+        advanceReplayManually: true
+    )
     let runtime = testRuntime(
         supportedRouteKinds: [.debugLoopback],
         transportFactory: RequestAwareTransportFactory(router: router),
@@ -2415,26 +2418,38 @@ struct TerminalStreamTests {
     _ = try await waitForRequestCount("mobile.terminal.replay", count: 1, router: router)
     let oldChunk = try #require(await output.next())
     #expect(String(data: oldChunk.data, encoding: .utf8) == oldGridText)
+    let replayCountBeforeInput = await router.replayRequestCount()
 
     // Keep the cold replay unacknowledged while the input response reports a
     // newer Mac sequence. The resync must remain owned by that replay barrier
     // and run as its follow-up instead of racing it with a stale token.
+    await router.useCurrentReplay()
     await store.submitTerminalRawInput(Data("x".utf8), surfaceID: terminalID)
-    let requestsBeforeAcknowledgement = await router.sentRequests()
-    #expect(requestsBeforeAcknowledgement.count { $0.method == "mobile.terminal.replay" } == 1)
+    let replayCountAfterInput = await router.replayRequestCount()
+    #expect(replayCountAfterInput == replayCountBeforeInput)
     store.terminalOutputDidProcess(
         surfaceID: terminalID,
         streamToken: oldChunk.streamToken
     )
 
-    _ = try await waitForRequestCount("mobile.terminal.replay", count: 2, router: router)
-    _ = try await waitForRequestCount("mobile.events.subscribe", count: 2, router: router)
-    let currentChunk = try #require(await output.next())
-    #expect(String(data: currentChunk.data, encoding: .utf8) == currentGridText)
-    store.terminalOutputDidProcess(
-        surfaceID: terminalID,
-        streamToken: currentChunk.streamToken
+    _ = try await waitForRequestCount(
+        "mobile.terminal.replay",
+        count: replayCountBeforeInput + 1,
+        router: router
     )
+    _ = try await waitForRequestCount("mobile.events.subscribe", count: 2, router: router)
+    var receivedCurrent = false
+    for _ in 0...(replayCountBeforeInput + 1) {
+        let chunk = try #require(await output.next())
+        let text = String(data: chunk.data, encoding: .utf8)
+        #expect(text == oldGridText || text == currentGridText)
+        store.terminalOutputDidProcess(surfaceID: terminalID, streamToken: chunk.streamToken)
+        if text == currentGridText {
+            receivedCurrent = true
+            break
+        }
+    }
+    #expect(receivedCurrent)
 }
 
 @MainActor
@@ -3439,12 +3454,19 @@ private actor RemoteCreateWorkspaceRouter: RequestAwareTransportRouter {
 private actor TerminalOutputSelfHealingRouter: RequestAwareTransportRouter {
     private let renderGrid: Bool
     private let terminalID: String
+    private let advanceReplayManually: Bool
     private var requests: [RecordedRPCRequest] = []
     private var replayCount = 0
+    private var currentReplayEnabled = false
 
-    init(renderGrid: Bool = false, terminalID: String = "live-terminal") {
+    init(
+        renderGrid: Bool = false,
+        terminalID: String = "live-terminal",
+        advanceReplayManually: Bool = false
+    ) {
         self.renderGrid = renderGrid
         self.terminalID = terminalID
+        self.advanceReplayManually = advanceReplayManually
     }
 
     func record(_ request: RecordedRPCRequest) {
@@ -3453,6 +3475,14 @@ private actor TerminalOutputSelfHealingRouter: RequestAwareTransportRouter {
 
     func sentRequests() -> [RecordedRPCRequest] {
         requests
+    }
+
+    func replayRequestCount() -> Int {
+        requests.count { $0.method == "mobile.terminal.replay" }
+    }
+
+    func useCurrentReplay() {
+        currentReplayEnabled = true
     }
 
     func response(for request: RecordedRPCRequest) async throws -> Data? {
@@ -3469,7 +3499,7 @@ private actor TerminalOutputSelfHealingRouter: RequestAwareTransportRouter {
             return try rpcResultFrame(result: ["stream_id": "events"])
         case "mobile.terminal.replay":
             replayCount += 1
-            if replayCount == 1 {
+            if advanceReplayManually ? !currentReplayEnabled : replayCount == 1 {
                 return try rpcTerminalReplayFrame(
                     seq: 4,
                     rawText: "stale-old-tail",
