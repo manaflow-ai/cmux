@@ -153,6 +153,44 @@ struct CmxIrohEndpointSupervisorTests {
         #expect(configurations[1].relays == initialConfiguration.relays)
     }
 
+    @Test
+    func supersededRelayRefreshCannotPoisonAReplacementGeneration() async throws {
+        let firstEndpoint = TestBlockingRelayUpdateEndpoint(identity: identity)
+        let secondEndpoint = TestIrohEndpoint(identity: identity)
+        let thirdEndpoint = TestIrohEndpoint(identity: identity)
+        let factory = TestIrohEndpointFactory(
+            endpoints: [firstEndpoint, secondEndpoint, thirdEndpoint]
+        )
+        let initialConfiguration = try endpointConfiguration()
+        let supervisor = CmxIrohEndpointSupervisor(
+            factory: factory,
+            configuration: initialConfiguration
+        )
+        _ = try await supervisor.activate()
+        var updateEvents = await firstEndpoint.updateEvents().makeAsyncIterator()
+        let replacement = try relayConfiguration(
+            url: "https://usw1-1.relay.lawrence.cmux.iroh.link/",
+            token: "bbbb"
+        )
+        let refresh = Task {
+            try await supervisor.replaceRelays([replacement])
+        }
+        _ = await updateEvents.next()
+
+        await supervisor.deactivate()
+        _ = try await supervisor.activate()
+        await firstEndpoint.releaseUpdate()
+        await #expect(throws: CmxIrohEndpointSupervisorError.superseded) {
+            try await refresh.value
+        }
+        await supervisor.deactivate()
+        _ = try await supervisor.activate()
+
+        let configurations = await factory.observedConfigurations()
+        #expect(configurations.count == 3)
+        #expect(configurations[2].relays == initialConfiguration.relays)
+    }
+
     private func endpointConfiguration() throws -> CmxIrohEndpointConfiguration {
         let relay = try relayConfiguration(
             url: "https://use1-1.relay.lawrence.cmux.iroh.link/",
