@@ -29,10 +29,7 @@ import Testing
                 sendAuthorizer: { await authorizationRecorder.authorize() }
             )
         }
-        for _ in 0..<200 where !(await session.queuedRequestIDs.contains(cancelledID)) {
-            await Task.yield()
-        }
-        #expect(await session.queuedRequestIDs.contains(cancelledID))
+        #expect(await waitUntilQueued(cancelledID, in: session))
         cancelled.cancel()
         do {
             _ = try await cancelled.value
@@ -49,10 +46,7 @@ import Testing
                 deadlineUptimeNanoseconds: deadline
             )
         }
-        for _ in 0..<200 where !(await session.queuedRequestIDs.contains(liveID)) {
-            await Task.yield()
-        }
-        #expect(await session.queuedRequestIDs.contains(liveID))
+        #expect(await waitUntilQueued(liveID, in: session))
 
         await transport.releaseFirstSend()
         #expect(try await transport.waitForSentRequestCount(2).map(\.id) == [firstID, liveID])
@@ -87,10 +81,7 @@ import Testing
                 sendAuthorizer: { throw CancellationError() }
             )
         }
-        for _ in 0..<200 where !(await session.queuedRequestIDs.contains(revokedID)) {
-            await Task.yield()
-        }
-        #expect(await session.queuedRequestIDs.contains(revokedID))
+        #expect(await waitUntilQueued(revokedID, in: session))
 
         await transport.releaseFirstSend()
         do {
@@ -298,6 +289,21 @@ import Testing
         } catch {
             Issue.record("Expected CancellationError, got \(error)")
         }
+    }
+
+    private func waitUntilQueued(
+        _ requestID: String,
+        in session: MobileCoreRPCSession
+    ) async -> Bool {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(1))
+        while clock.now < deadline {
+            if await session.queuedRequestIDs.contains(requestID) {
+                return true
+            }
+            await Task.yield()
+        }
+        return await session.queuedRequestIDs.contains(requestID)
     }
 
 }

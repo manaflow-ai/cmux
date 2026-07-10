@@ -1,6 +1,6 @@
 import SwiftUI
 
-enum MobileSceneRefreshAction: Equatable {
+nonisolated enum MobileSceneRefreshAction: Equatable {
     case none
     case enterBackground
     case resumeForeground
