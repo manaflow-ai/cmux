@@ -14,6 +14,38 @@ import {
 
 const MAX_BODY_BYTES = 64 * 1_024;
 const FIREWALL_TIMEOUT_MS = 2_500;
+const FIREWALL_MAX_IN_FLIGHT = 64;
+
+type FirewallCheckResult = Awaited<ReturnType<typeof checkRateLimit>>;
+
+export class IrohFirewallAdmission {
+  private readonly active = new Map<string, Promise<FirewallCheckResult>>();
+
+  constructor(private readonly maxInFlight: number) {
+    if (!Number.isSafeInteger(maxInFlight) || maxInFlight <= 0) {
+      throw new RangeError("maxInFlight must be a positive integer");
+    }
+  }
+
+  get activeCount(): number {
+    return this.active.size;
+  }
+
+  run(key: string, start: () => Promise<FirewallCheckResult>): Promise<FirewallCheckResult> {
+    if (this.active.has(key) || this.active.size >= this.maxInFlight) {
+      throw new Error("firewall_admission_unavailable");
+    }
+
+    const work = Promise.resolve().then(start);
+    const tracked = work.finally(() => {
+      if (this.active.get(key) === tracked) this.active.delete(key);
+    });
+    this.active.set(key, tracked);
+    return tracked;
+  }
+}
+
+const firewallAdmission = new IrohFirewallAdmission(FIREWALL_MAX_IN_FLIGHT);
 
 export type IrohRouteOperation =
   | "challenge"
@@ -32,6 +64,7 @@ type RouteDependencies = {
     readonly id: string;
     readonly check: typeof checkRateLimit;
     readonly timeoutMs?: number;
+    readonly admission?: IrohFirewallAdmission;
   };
 };
 
@@ -55,13 +88,16 @@ export async function handleIrohRoute(
       : undefined
   );
   if (firewall) {
-    let result: Awaited<ReturnType<typeof checkRateLimit>>;
+    const rateLimitKey = createHash("sha256")
+      .update(`iroh-rate:${user.id}:${operation}`)
+      .digest("hex");
+    let result: FirewallCheckResult;
     try {
       result = await withTimeout(
-        firewall.check(firewall.id, {
-          request,
-          rateLimitKey: createHash("sha256").update(`iroh-rate:${user.id}:${operation}`).digest("hex"),
-        }),
+        (firewall.admission ?? firewallAdmission).run(
+          `${firewall.id}:${rateLimitKey}`,
+          () => firewall.check(firewall.id, { request, rateLimitKey }),
+        ),
         firewall.timeoutMs ?? FIREWALL_TIMEOUT_MS,
       );
     } catch {
