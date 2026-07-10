@@ -75,8 +75,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-[[ -n "$APP" ]] || die "App Store app id is required; pass --app or configure the App Store app id"
-[[ "$APP" =~ ^[0-9]+$ ]] || die "App Store app id must be numeric (got '$APP')"
+"$SCRIPT_DIR/require-numeric-app-store-id.sh" "$APP" validate-app-store-release || exit 1
 if [[ -z "$VERSION" ]]; then
   VERSION="$(
     sed -nE 's/^[[:space:]]*MARKETING_VERSION[[:space:]]*=[[:space:]]*([0-9]+(\.[0-9]+){1,2}).*/\1/p' \

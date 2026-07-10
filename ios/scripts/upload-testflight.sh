@@ -910,8 +910,7 @@ if [[ "$EXPORT_ONLY" -eq 1 ]]; then
 fi
 
 upload_app_store_with_asc() {
-  if [[ -z "${ASC_APP_ID:-}" ]]; then
-    echo "error: --lane appstore requires ASC_APP_ID so the upload targets the exact App Store Connect app record" >&2
+  if ! "$SCRIPT_DIR/require-numeric-app-store-id.sh" "${ASC_APP_ID:-}" upload-testflight; then
     exit 2
   fi
   if ! command -v asc >/dev/null 2>&1; then
