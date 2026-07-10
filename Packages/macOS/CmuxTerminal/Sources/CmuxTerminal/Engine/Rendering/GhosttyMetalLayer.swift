@@ -3,6 +3,15 @@ public import QuartzCore
 internal import Foundation
 internal import OSLog
 
+@inline(__always)
+func readRendererProfilingStateIfRequested<Value>(
+    _ requested: Bool,
+    _ read: () -> Value?
+) -> Value? {
+    guard requested else { return nil }
+    return read()
+}
+
 /// Lightweight instrumentation to detect whether Ghostty is actually requesting Metal drawables.
 /// This helps catch "frozen until refocus" regressions without relying on screenshots (which can
 /// mask redraw issues by forcing a window server flush).
@@ -15,8 +24,9 @@ internal import OSLog
 public final class GhosttyMetalLayer: CAMetalLayer {
     private let lock = NSLock()
     private let profilingSignposts = TerminalRendererProfilingSignposts()
-    // SAFETY: all four are guarded by `lock`; written/read from the renderer
-    // thread (`nextDrawable()`) and the main actor (configuration, debug HUD).
+    // SAFETY: all mutable state below is guarded by `lock`; written/read from
+    // the renderer thread (`nextDrawable()`) and the main actor (configuration,
+    // debug HUD).
     nonisolated(unsafe) private var drawableCount: Int = 0
     nonisolated(unsafe) private var lastDrawableTime: CFTimeInterval = 0
     nonisolated(unsafe) private weak var frameReceiver: (any TerminalRenderedFrameReceiving)?
@@ -67,27 +77,31 @@ public final class GhosttyMetalLayer: CAMetalLayer {
 
     override public func nextDrawable() -> (any CAMetalDrawable)? {
         let profilingEnabled = profilingSignposts.isEnabled
-        // One critical section for the instrumentation write and both
-        // injected-collaborator reads; the render thread takes this lock once
-        // per vended drawable.
-        lock.lock()
-        let renderDemand = renderDemand
-        let frameReceiver = frameReceiver
-        let profilingMetadata: TerminalRendererProfilingMetadata? = if profilingEnabled, let profilingIdentity {
-            TerminalRendererProfilingMetadata(
-                identity: profilingIdentity,
-                visible: profilingVisible,
-                focused: profilingFocused,
-                wakeReason: profilingWakeReason,
-                coalescedUpdateCount: 1,
-                dirtyRowCount: nil,
-                fullRedraw: nil
-            )
-        } else {
-            nil
+        // Keep the ordinary render path identical to the legacy path: no lock
+        // before asking Metal for a drawable, then one critical section after
+        // success. Profiling pays for the additional state snapshot only while
+        // an opted-in signpost collector is active.
+        let profilingMetadata: TerminalRendererProfilingMetadata? = readRendererProfilingStateIfRequested(
+            profilingEnabled
+        ) {
+            lock.lock()
+            defer { lock.unlock() }
+            let metadata: TerminalRendererProfilingMetadata? = if let profilingIdentity {
+                TerminalRendererProfilingMetadata(
+                    identity: profilingIdentity,
+                    visible: profilingVisible,
+                    focused: profilingFocused,
+                    wakeReason: profilingWakeReason,
+                    coalescedUpdateCount: 1,
+                    dirtyRowCount: nil,
+                    fullRedraw: nil
+                )
+            } else {
+                nil
+            }
+            profilingWakeReason = .terminalOutput
+            return metadata
         }
-        profilingWakeReason = .terminalOutput
-        lock.unlock()
 
         let interval: OSSignpostIntervalState? = if let profilingMetadata {
             profilingSignposts.beginFrame(profilingMetadata)
@@ -104,6 +118,8 @@ public final class GhosttyMetalLayer: CAMetalLayer {
         lock.lock()
         drawableCount += 1
         lastDrawableTime = CACurrentMediaTime()
+        let renderDemand = renderDemand
+        let frameReceiver = frameReceiver
         lock.unlock()
 
         if let profilingMetadata, let interval {
