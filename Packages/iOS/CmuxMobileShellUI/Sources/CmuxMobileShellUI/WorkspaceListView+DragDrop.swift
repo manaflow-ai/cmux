@@ -36,23 +36,23 @@ extension WorkspaceListView {
     }
 
     func syncOptimisticWorkspaceOrder(moveDidFail: Bool = false) {
-        if !MobileWorkspaceOptimisticOrderReconciler.shouldKeepOptimisticOrder(
+        if !MobileWorkspaceOptimisticOrderReconciler(
             optimistic: optimisticFlatWorkspaces,
             authoritative: filteredWorkspaces,
             previousAuthoritative: optimisticFlatBaseWorkspaces,
             moveIsPending: hasPendingWorkspaceMove,
             moveDidFail: moveDidFail
-        ) {
+        ).shouldKeepOptimisticOrder() {
             optimisticFlatWorkspaces = nil
             optimisticFlatBaseWorkspaces = nil
         }
-        if !MobileWorkspaceOptimisticOrderReconciler.shouldKeepOptimisticOrder(
+        if !MobileWorkspaceOptimisticOrderReconciler(
             optimistic: optimisticGroupedWorkspaces,
             authoritative: groupedWorkspaces,
             previousAuthoritative: optimisticGroupedBaseWorkspaces,
             moveIsPending: hasPendingWorkspaceMove,
             moveDidFail: moveDidFail
-        ) {
+        ).shouldKeepOptimisticOrder() {
             optimisticGroupedItems = nil
             optimisticGroupedWorkspaces = nil
             optimisticGroupedBaseWorkspaces = nil

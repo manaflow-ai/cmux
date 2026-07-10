@@ -1,54 +1,55 @@
 import Foundation
 
 /// Decides whether an optimistic workspace order should remain visible.
+///
+/// Successful move replies can arrive before the authoritative workspace
+/// snapshot. In that window, clearing optimistic state makes the list snap
+/// back to the stale order and then forward again when the snapshot lands.
+/// The reconciler keeps the optimistic order until an authoritative snapshot
+/// either matches it or clearly supersedes the previous authoritative order.
 public struct MobileWorkspaceOptimisticOrderReconciler {
-    /// Returns whether the UI should keep displaying the optimistic order.
-    ///
-    /// Successful move replies can arrive before the authoritative workspace
-    /// snapshot. In that window, clearing optimistic state makes the list snap
-    /// back to the stale order and then forward again when the snapshot lands.
-    /// This helper keeps the optimistic order until an authoritative snapshot
-    /// either matches it or clearly supersedes the previous authoritative order.
-    ///
-    /// - Parameters:
-    ///   - optimistic: The predicted order currently displayed by the UI.
-    ///   - authoritative: The latest authoritative snapshot.
-    ///   - previousAuthoritative: The authoritative snapshot the optimistic
-    ///     order was based on. Pass `nil` when the caller has no prior snapshot.
-    ///   - moveIsPending: Whether the request is still in flight.
-    ///   - moveDidFail: Whether the request failed and should roll back.
-    /// - Returns: `true` to keep the optimistic order, `false` to adopt the
-    ///   authoritative order.
-    public static func shouldKeepOptimisticOrder(
+    /// The predicted order currently displayed by the UI.
+    let optimistic: [MobileWorkspacePreview]?
+    /// The latest authoritative snapshot.
+    let authoritative: [MobileWorkspacePreview]
+    /// The snapshot the optimistic order was based on (the prior optimistic
+    /// order for pipelined moves). `nil` when the caller has no prior snapshot.
+    let previousAuthoritative: [MobileWorkspacePreview]?
+    /// Whether the move request is still in flight.
+    let moveIsPending: Bool
+    /// Whether the move request failed and should roll back.
+    let moveDidFail: Bool
+
+    /// Creates a reconciler over one optimistic/authoritative snapshot pair.
+    public init(
         optimistic: [MobileWorkspacePreview]?,
         authoritative: [MobileWorkspacePreview],
         previousAuthoritative: [MobileWorkspacePreview]?,
         moveIsPending: Bool,
         moveDidFail: Bool = false
-    ) -> Bool {
+    ) {
+        self.optimistic = optimistic
+        self.authoritative = authoritative
+        self.previousAuthoritative = previousAuthoritative
+        self.moveIsPending = moveIsPending
+        self.moveDidFail = moveDidFail
+    }
+
+    /// Returns `true` to keep the optimistic order, `false` to adopt the
+    /// authoritative order.
+    public func shouldKeepOptimisticOrder() -> Bool {
         guard let optimistic else { return false }
         guard !moveDidFail else { return false }
-        let optimisticSignature = signature(optimistic)
-        let authoritativeSignature = signature(authoritative)
+        let optimisticSignature = MobileWorkspaceOrderSignature.signature(optimistic)
+        let authoritativeSignature = MobileWorkspaceOrderSignature.signature(authoritative)
         if optimisticSignature == authoritativeSignature {
             return false
         }
         if moveIsPending {
             guard let previousAuthoritative else { return true }
-            return authoritativeSignature == signature(previousAuthoritative)
+            return authoritativeSignature == MobileWorkspaceOrderSignature.signature(previousAuthoritative)
         }
         guard let previousAuthoritative else { return false }
-        return authoritativeSignature == signature(previousAuthoritative)
-    }
-
-    /// Returns the stable order signature for reconciliation.
-    /// - Parameter workspaces: The workspace snapshot to compare.
-    /// - Returns: A signature that ignores live row content.
-    public static func signature(
-        _ workspaces: [MobileWorkspacePreview]
-    ) -> [MobileWorkspaceOrderSignature] {
-        workspaces.map {
-            MobileWorkspaceOrderSignature(id: $0.id, groupID: $0.groupID, isPinned: $0.isPinned)
-        }
+        return authoritativeSignature == MobileWorkspaceOrderSignature.signature(previousAuthoritative)
     }
 }

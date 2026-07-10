@@ -23,4 +23,15 @@ public struct MobileWorkspaceOrderSignature: Equatable, Sendable {
         self.groupID = groupID
         self.isPinned = isPinned
     }
+
+    /// Returns the stable order signature for a snapshot, ignoring live row
+    /// content so reconciliation compares ordering fields only.
+    /// - Parameter workspaces: The workspace snapshot to compare.
+    public static func signature(
+        _ workspaces: [MobileWorkspacePreview]
+    ) -> [MobileWorkspaceOrderSignature] {
+        workspaces.map {
+            MobileWorkspaceOrderSignature(id: $0.id, groupID: $0.groupID, isPinned: $0.isPinned)
+        }
+    }
 }
