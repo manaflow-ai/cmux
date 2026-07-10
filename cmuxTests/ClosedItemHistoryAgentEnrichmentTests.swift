@@ -84,6 +84,57 @@ struct ClosedItemHistoryAgentEnrichmentTests {
     }
 
     @Test
+    func warmHistoryCaptureReplacesStaleCachedAgentMetadata() async throws {
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let staleIndex = SharedLiveAgentIndexLoadCoalescingTests.index(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            sessionId: "stale-close-session"
+        )
+        let freshIndex = SharedLiveAgentIndexLoadCoalescingTests.index(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            sessionId: "fresh-close-session"
+        )
+        let loadStarted = DispatchSemaphore(value: 0)
+        let releaseLoad = DispatchSemaphore(value: 0)
+        defer { releaseLoad.signal() }
+        let sharedIndex = SharedLiveAgentIndex(
+            indexLoader: {
+                loadStarted.signal()
+                releaseLoad.wait()
+                return Self.loadResult(index: freshIndex)
+            },
+            hookStoreDirectoryProvider: { Self.temporaryDirectory.path }
+        )
+        sharedIndex.latestCompletedLoadResult = Self.loadResult(index: staleIndex)
+        let store = ClosedItemHistoryStore(capacity: 10)
+        let capture = try #require(store.pushPreservingAgentMetadata(
+            .panel(ClosedPanelHistoryEntry(
+                workspaceId: workspaceId,
+                paneId: UUID(),
+                tabIndex: 0,
+                snapshot: Self.panelSnapshot(panelId: panelId)
+            )),
+            coordinatedBy: sharedIndex
+        ))
+
+        #expect(await SharedLiveAgentIndexLoadCoalescingTests.wait(for: loadStarted))
+        #expect(!store.canReopen)
+        releaseLoad.signal()
+        await capture.value
+
+        let recordId = try #require(store.menuSnapshot().items.first?.id)
+        let record = try #require(store.removeRecord(id: recordId)?.record)
+        guard case .panel(let entry) = record.entry else {
+            Issue.record("Expected a panel history record")
+            return
+        }
+        #expect(entry.snapshot.terminal?.agent?.sessionId == "fresh-close-session")
+    }
+
+    @Test
     func timedOutCaptureClosesOnceEvenWhenLoaderFinishesLate() async throws {
         let timeoutGate = AsyncGate()
         let loadStarted = DispatchSemaphore(value: 0)
@@ -249,6 +300,18 @@ struct ClosedItemHistoryAgentEnrichmentTests {
     nonisolated private static var emptyLoadResult: SharedLiveAgentIndexLoader.LoadResult {
         (
             index: .empty,
+            surfaceResumeBindingIndex: .empty,
+            liveAgentProcessFingerprint: [],
+            processScopeFingerprint: [],
+            forkValidatedPanels: []
+        )
+    }
+
+    nonisolated private static func loadResult(
+        index: RestorableAgentSessionIndex
+    ) -> SharedLiveAgentIndexLoader.LoadResult {
+        (
+            index: index,
             surfaceResumeBindingIndex: .empty,
             liveAgentProcessFingerprint: [],
             processScopeFingerprint: [],
