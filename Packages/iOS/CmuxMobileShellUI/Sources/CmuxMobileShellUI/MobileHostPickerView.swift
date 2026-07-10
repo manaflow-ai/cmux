@@ -1,4 +1,5 @@
 #if os(iOS)
+import CMUXMobileCore
 import CmuxMobilePairedMac
 import CmuxMobileShell
 import CmuxMobileSupport
