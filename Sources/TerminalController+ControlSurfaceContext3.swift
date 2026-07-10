@@ -11,6 +11,12 @@ extension TerminalController {
     // MARK: - move (bridge to still-app-side v2SurfaceMove)
 
     func controlSurfaceMove(params: [String: JSONValue]) -> ControlCallResult {
+        if let surfaceID = remoteTmuxMirrorContainerID(in: params) {
+            return .err(
+                code: "not_found", message: "Surface not found",
+                data: .object(["surface_id": .string(surfaceID.uuidString)])
+            )
+        }
         // `v2SurfaceMove` walks windows/workspaces/panes and mutates Bonsplit; it
         // stays in TerminalController.swift (shared with pane.join). We forward the
         // raw params and bridge its Foundation result, exactly as pane.join does.
@@ -31,6 +37,9 @@ extension TerminalController {
         requestedFocus: Bool
     ) -> ControlSurfaceReorderResolution {
         let focus = v2FocusAllowed(requested: requestedFocus)
+        guard locateRemoteTmuxMirrorContainer(surfaceID) == nil else {
+            return .surfaceNotFound(surfaceID)
+        }
         guard let app = AppDelegate.shared,
               let located = app.locateSurface(surfaceId: surfaceID),
               let ws = located.tabManager.tabs.first(where: { $0.id == located.workspaceId }),
@@ -162,19 +171,8 @@ extension TerminalController {
             if let surfaceID { return .surfaceNotTerminal(surfaceID) }
             return .noFocusedSurface
         }
-        if let remote = ws.remoteTmuxControlPane(surfaceID: target.surfaceID) {
-            switch remote.mirror.sendKey(toPane: remote.pane.tmuxPaneID, name: "ctrl-l") {
-            case .sent:
-                break
-            case .rejected:
-                return .surfaceNotTerminal(target.surfaceID)
-            case .unknownKey:
-                return .bindingActionUnavailable
-            }
-        } else {
-            guard target.panel.performBindingAction("clear_screen") else {
-                return .bindingActionUnavailable
-            }
+        guard target.panel.performBindingAction("clear_screen") else {
+            return .bindingActionUnavailable
         }
         target.panel.surface.forceRefresh(reason: "terminalController.v2SurfaceClearHistory")
         return .cleared(
