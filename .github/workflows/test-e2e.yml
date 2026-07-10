@@ -390,9 +390,9 @@ jobs:
           if [ "$RECORD_VIDEO" = "true" ]; then
             # A persistent AVFoundation capture session prevents
             # XCUIApplication from foregrounding a macOS app on both Warp and
-            # Tart. Capture independent JPEG frames instead, then assemble
-            # them after XCTest exits. No recorder owns the display while the
-            # app is activating.
+            # Tart. Capture independent JPEG frames instead, but arm the
+            # recorder until cmux is actually frontmost. Capturing before the
+            # first activation can leave the app Running Background.
             GUI_USER="$(stat -f %Su /dev/console 2>/dev/null || true)"
             if [ -z "$GUI_USER" ] || [ "$GUI_USER" = "root" ]; then
               echo "::error::No logged-in GUI user is available for screen recording"
@@ -402,9 +402,32 @@ jobs:
             FRAME_DIR=/tmp/test-recording-frames
             rm -rf "$FRAME_DIR"
             mkdir -p "$FRAME_DIR"
+
+            printf '%s\n' \
+              '#import <AppKit/AppKit.h>' \
+              '' \
+              'int main(int argc, const char *argv[]) {' \
+              '    @autoreleasepool {' \
+              '        if (argc != 2) {' \
+              '            return 2;' \
+              '        }' \
+              '        NSString *expected = [NSString stringWithUTF8String:argv[1]];' \
+              '        NSString *actual = NSWorkspace.sharedWorkspace.frontmostApplication.bundleIdentifier;' \
+              '        return [actual isEqualToString:expected] ? 0 : 1;' \
+              '    }' \
+              '}' \
+              > /tmp/cmux-frontmost-application.m
+            clang -framework AppKit -o /tmp/cmux-frontmost-application \
+              /tmp/cmux-frontmost-application.m
+
             (
               frame=0
               while true; do
+                if ! sudo -n launchctl asuser "$GUI_UID" sudo -n -H -u "$GUI_USER" \
+                  /tmp/cmux-frontmost-application com.cmuxterm.app.debug; then
+                  sleep 0.1
+                  continue
+                fi
                 output="$(printf '%s/frame-%06d.jpg' "$FRAME_DIR" "$frame")"
                 sudo -n launchctl asuser "$GUI_UID" sudo -n -H -u "$GUI_USER" \
                   /usr/sbin/screencapture -x -t jpg -D 1 "$output" || exit 1
@@ -414,15 +437,8 @@ jobs:
             ) </dev/null >/tmp/screencapture.log 2>&1 &
             RECORD_PID=$!
             echo "RECORD_PID=$RECORD_PID" >> "$GITHUB_ENV"
-            sleep 2
-
-            if kill -0 "$RECORD_PID" 2>/dev/null && [ -s "$FRAME_DIR/frame-000000.jpg" ]; then
-              echo "Frame capture started (PID $RECORD_PID)"
-            else
-              echo "::error::screen frame capture failed to start"
-              cat /tmp/screencapture.log
-              exit 1
-            fi
+            kill -0 "$RECORD_PID"
+            echo "Frame capture armed for frontmost cmux (PID $RECORD_PID)"
           fi
 
           XCODEBUILD_ENV=(
