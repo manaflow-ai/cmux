@@ -249,6 +249,52 @@ struct TerminalTabAgentIconTests {
         )
     }
 
+    @MainActor
+    @Test func plainShellTitleClearsObservedClaudeRestoredAgentIcon() throws {
+        try assertPlainShellTitleClearsObservedRestoredAgentIcon(
+            kind: .claude,
+            expectedAsset: "AgentIcons/Claude"
+        )
+    }
+
+    @MainActor
+    @Test func plainShellTitleClearsObservedCodexRestoredAgentIcon() throws {
+        try assertPlainShellTitleClearsObservedRestoredAgentIcon(
+            kind: .codex,
+            expectedAsset: "AgentIcons/Codex"
+        )
+    }
+
+    @MainActor
+    @Test func plainShellTitleKeepsPendingAutoResumeRestoredAgentIcon() throws {
+        let workspace = Workspace()
+        let panel = try #require(workspace.focusedTerminalPanel)
+        let tabId = try #require(workspace.surfaceIdFromPanelId(panel.id))
+        let snapshot = restoredAgentSnapshot(kind: .claude)
+
+        workspace.seedSessionRestoredAgentIconState(
+            panelId: panel.id,
+            restorableAgent: snapshot,
+            willRunStartupCommand: false,
+            willRunStartupInput: true
+        )
+
+        #expect(workspace.restoredAgentResumeStatesByPanelId[panel.id] == .awaitingAutoResumeCommand)
+        #expect(workspace.terminalTabAgentIconAsset(forPanelId: panel.id) == "AgentIcons/Claude")
+        let pendingPayload = workspace.terminalTabAgentIconPayload(forPanelId: panel.id)
+        #expect(workspace.bonsplitController.tab(tabId)?.iconImageData == pendingPayload.imageData)
+        #expect(workspace.bonsplitController.tab(tabId)?.iconAsset == pendingPayload.assetName)
+
+        #expect(workspace.updatePanelTitle(panelId: panel.id, title: "~/manaflow/cmuxterm-hq"))
+
+        #expect(workspace.restoredAgentSnapshotForTesting(panelId: panel.id)?.sessionId == snapshot.sessionId)
+        #expect(workspace.restoredAgentResumeStatesByPanelId[panel.id] == .awaitingAutoResumeCommand)
+        #expect(workspace.terminalTabAgentIconAsset(forPanelId: panel.id) == "AgentIcons/Claude")
+        let retainedPayload = workspace.terminalTabAgentIconPayload(forPanelId: panel.id)
+        #expect(workspace.bonsplitController.tab(tabId)?.iconImageData == retainedPayload.imageData)
+        #expect(workspace.bonsplitController.tab(tabId)?.iconAsset == retainedPayload.assetName)
+    }
+
     @Test func liveRegisteredAgentResolvesThroughRegistrationLookup() {
         var lookedUpKeys: [String] = []
         let asset = TerminalTabAgentIconResolver().assetName(
@@ -360,6 +406,56 @@ struct TerminalTabAgentIconTests {
         #expect(!workspace.listeningPorts.contains(staleAgentPort))
         #expect(!notificationStore.notifications.contains { $0.id == staleNotification.id })
         #expect(notificationStore.notifications.contains { $0.id == siblingNotification.id })
+    }
+
+    @MainActor
+    private func assertPlainShellTitleClearsObservedRestoredAgentIcon(
+        kind: RestorableAgentKind,
+        expectedAsset: String
+    ) throws {
+        let workspace = Workspace()
+        let panel = try #require(workspace.focusedTerminalPanel)
+        let tabId = try #require(workspace.surfaceIdFromPanelId(panel.id))
+        let snapshot = restoredAgentSnapshot(kind: kind)
+
+        workspace.seedSessionRestoredAgentIconState(
+            panelId: panel.id,
+            restorableAgent: snapshot,
+            willRunStartupCommand: false,
+            willRunStartupInput: false
+        )
+        workspace.restoredAgentResumeStatesByPanelId[panel.id] = .observedAgentCommandRunning
+
+        #expect(workspace.terminalTabAgentIconAsset(forPanelId: panel.id) == expectedAsset)
+        let observedPayload = workspace.terminalTabAgentIconPayload(forPanelId: panel.id)
+        #expect(workspace.bonsplitController.tab(tabId)?.iconImageData == observedPayload.imageData)
+        #expect(workspace.bonsplitController.tab(tabId)?.iconAsset == observedPayload.assetName)
+
+        #expect(workspace.updatePanelTitle(panelId: panel.id, title: "~/manaflow/cmuxterm-hq"))
+
+        #expect(workspace.restoredAgentSnapshotForTesting(panelId: panel.id) == nil)
+        #expect(workspace.restoredAgentResumeStatesByPanelId[panel.id] == nil)
+        #expect(workspace.terminalTabAgentIconAsset(forPanelId: panel.id) == nil)
+        let clearedPayload = workspace.terminalTabAgentIconPayload(forPanelId: panel.id)
+        #expect(workspace.bonsplitController.tab(tabId)?.iconImageData == clearedPayload.imageData)
+        #expect(workspace.bonsplitController.tab(tabId)?.iconAsset == clearedPayload.assetName)
+    }
+
+    private func restoredAgentSnapshot(kind: RestorableAgentKind) -> SessionRestorableAgentSnapshot {
+        SessionRestorableAgentSnapshot(
+            kind: kind,
+            sessionId: "\(kind.rawValue)-terminal-tab-icon-session",
+            workingDirectory: "/tmp/cmux-terminal-tab-icon",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: kind.rawValue,
+                executablePath: "/usr/local/bin/\(kind.rawValue)",
+                arguments: ["/usr/local/bin/\(kind.rawValue)"],
+                workingDirectory: "/tmp/cmux-terminal-tab-icon",
+                environment: nil,
+                capturedAt: 1_777_777_777,
+                source: "test"
+            )
+        )
     }
 
     @Test func payloadUsesRenderedImageDataWhenAvailable() {
