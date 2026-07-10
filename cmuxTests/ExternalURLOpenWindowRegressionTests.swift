@@ -1,7 +1,8 @@
 import AppKit
-import CmuxAuthRuntime
 import CoreServices
 import XCTest
+
+@testable import CmuxAuthRuntime
 
 /// Regression coverage for https://github.com/manaflow-ai/cmux/issues/7825.
 ///
@@ -21,8 +22,9 @@ import XCTest
 ///
 /// 1. `AppDelegate.application(_:open:)` still receives the URL (guards
 ///    against the fix accidentally swallowing URL delivery), observed through
-///    `AuthDebugLog.recentDebugLines()` — an in-process DEBUG buffer, so the
-///    signal cannot be lost to another process truncating a shared log file.
+///    `AuthDebugLog`'s in-process DEBUG line buffer (via `@testable import`),
+///    so the signal cannot be lost to another process truncating a shared
+///    log file.
 /// 2. No new `NSWindow` object appears at any point while the event is
 ///    processed. The zombie window lives only ~300ms, so the run loop is
 ///    pumped in small slices and every slice records windows that were not
@@ -138,11 +140,11 @@ final class ExternalURLOpenWindowRegressionTests: XCTestCase {
 
     /// Whether this process has logged an `auth.openURLs.received` line
     /// mentioning the probe marker. Reads `AuthDebugLog`'s in-process DEBUG
-    /// buffer — the tests run app-hosted in the same process as
-    /// `AppDelegate`, so delivery is observable without any shared file that
-    /// another process could truncate or recreate mid-test.
+    /// line buffer via `@testable import` — the tests run app-hosted in the
+    /// same process as `AppDelegate`, so delivery is observable without any
+    /// shared file that another process could truncate or recreate mid-test.
     private static func authDebugLinesContainDelivery(marker: String) -> Bool {
-        AuthDebugLog.recentDebugLines().contains { line in
+        AuthDebugLog.recentLines.withLock { $0 }.contains { line in
             line.contains("auth.openURLs.received") && line.contains(marker)
         }
     }

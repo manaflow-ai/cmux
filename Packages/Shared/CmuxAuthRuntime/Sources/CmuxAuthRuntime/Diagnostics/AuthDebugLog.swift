@@ -34,16 +34,11 @@ public struct AuthDebugLog: Sendable {
     }
 
     #if DEBUG
-    /// The most recent redacted lines this process has logged, for app-hosted
-    /// tests that must observe delivery in-process: the `/tmp` debug file is
-    /// shared across processes and can be truncated or recreated mid-test,
-    /// while this buffer cannot lose a line once `log(_:)` returns.
-    public static func recentDebugLines() -> [String] {
-        recentLines.withLock { $0 }
-    }
-
-    private static let recentLineCapacity = 512
-    private static let recentLines = OSAllocatedUnfairLock(initialState: [String]())
+    /// In-process ring buffer of the most recent redacted lines, alongside the
+    /// unified-log and `/tmp` sinks: unlike the shared file, it cannot lose a
+    /// line to another process once `log(_:)` returns.
+    static let recentLines = OSAllocatedUnfairLock(initialState: [String]())
+    static let recentLineCapacity = 512
     #endif
 
     private static let logger = Logger(subsystem: "com.cmuxterm.app", category: "auth")
