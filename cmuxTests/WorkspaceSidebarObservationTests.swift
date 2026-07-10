@@ -385,15 +385,6 @@ struct WorkspaceSidebarObservationTests {
     }
 }
 
-// Mutable flag captured by Observation's Sendable onChange closure in this test.
-private final class ObservationChangeFlag: @unchecked Sendable {
-    private(set) var fired = false
-
-    func mark() {
-        fired = true
-    }
-}
-
 private func pumpMainRunLoop(until condition: () -> Bool, timeout: TimeInterval) {
     let deadline = Date().addingTimeInterval(timeout)
     while !condition(), Date() < deadline {
