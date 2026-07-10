@@ -2,7 +2,7 @@
 
 Status: accepted for implementation, July 2026.
 
-This document defines the replacement transport for cmux mobile. It supersedes earlier experimental Iroh designs. Iroh is the default app transport. Tailscale, LAN, and user-configured private networks remain optional ways to reach the same Iroh endpoint.
+This document defines the replacement transport for cmux mobile. It supersedes earlier experimental Iroh designs. Iroh is the default app transport. Managed relays and public direct paths bootstrap normal sessions; authenticated Bonjour can bootstrap a relayless LAN session. Tailscale and other VPN interfaces may become direct paths only after an admitted Iroh connection exchanges candidates. The released-client Tailscale TCP transport remains a separate compatibility path.
 
 ## Boundaries
 
@@ -10,24 +10,26 @@ cmux uses Iroh for application sessions. It does not implement a general IP VPN 
 
 An Iroh EndpointID is peer identity. IP addresses, relay URLs, Bonjour records, Tailscale addresses, and VPN addresses are reachability hints only. No hint can authorize a peer, select an account, or alter a grant.
 
-The legacy Tailscale TCP transport remains during migration for released clients. New functionality uses Iroh. Tailscale and other private networks eventually supply fallback Iroh paths instead of separate application protocols.
+The legacy Tailscale TCP transport remains during migration for released clients and current framed RPC only. It does not receive Iroh multistream, path-migration, priority, or per-lane cancellation features. New functionality uses Iroh. Explicit relayless Tailscale and custom-VPN Iroh bootstrap require separately implemented provider-bound profiles; the wire models alone do not constitute support.
 
 ## Connection plan
 
 Each process owns one Iroh endpoint. A peer route contains one canonical 64-character lowercase hexadecimal EndpointID and separately attributed path hints.
 
-Production endpoints start from Iroh's `Minimal` preset and add the cmux relay fleet explicitly. They do not use the default n0 preset, public n0 DNS address lookup, or public n0 relays. The authenticated cmux device registry is the application-specific address lookup: an endpoint publishes its signed current `watch_addr` value, and same-account peers resolve a known EndpointID through that registry. This distinction is required because an EndpointID authenticates a peer but does not say where that peer is reachable.
+Production endpoints start from Iroh's `Minimal` preset and add the cmux relay fleet explicitly. They do not use the default n0 preset, public n0 DNS address lookup, or public n0 relays. The authenticated cmux device registry is the application-specific address lookup: an endpoint publishes the signed public-disclosure subset of its current `watch_addr` value, and same-account peers resolve a known EndpointID through that registry. Private candidates stay out of the broker and are exchanged in-band only after admission. This distinction is required because an EndpointID authenticates a peer but does not say where that peer is reachable.
 
 cmux-supplied addresses have two explicit phases:
 
-1. Try Iroh-native discovery, globally routable direct addresses, and the managed relay fleet.
-2. After phase one fails, try current LAN, Tailscale, and custom-private-network hints whose source-bound profile is active.
+1. Try globally routable direct addresses and the managed relay fleet. After cmux admits the peer, Iroh may exchange its own NAT-traversal candidates and migrate this connection.
+2. If bootstrap fails, try an authenticated Bonjour LAN hint for the exact known Mac. Tailscale and custom-private-network explicit hints remain disabled until a production provider can prove the active overlay and bind the attempted route to it.
 
 Private hints never enter the first cmux-supplied `EndpointAddr`. Iroh treats supplied IP paths as equivalent candidates, so array order is not a fallback boundary.
 
-This phase split is not an IP-privacy boundary. During relay-assisted NAT traversal, Iroh itself exchanges public addresses, ports, and local addresses between the two TLS-authenticated EndpointIDs, then may migrate the connection to any working direct path. Iroh 1.0 does not expose relay-only mode or a per-connect candidate filter. A same-account peer may therefore learn LAN, Tailscale, or other interface addresses during phase one even when cmux supplied only a relay URL. cmux documents this behavior and does not claim peer-IP concealment. If managed deployments require relay-only traffic, rollout waits for upstream relay-only support or an opt-in fork hook whose default leaves upstream path selection unchanged.
+This phase split is not a relay-only IP-privacy boundary. Stock Iroh 1.0 registers a TLS-complete connection with its path manager before cmux can verify a same-account grant, then exchanges public addresses, ports, and local interface addresses. EndpointID TLS proves key possession, not cmux authorization. The pinned cmux noq, Iroh, and FFI forks therefore negotiate QUIC NAT traversal but defer candidate announcement, inbound `REACH_OUT` processing, probes, timers, and direct-path migration on each connection. The Mac activates them only after verifying the grant and before sending the accepted acknowledgement; the phone activates them only after reading that acknowledgement. A denial activates neither side. Default upstream behavior remains unchanged unless this endpoint option is enabled.
 
-For normal online sessions, this in-band candidate exchange is the generic private-network integration: Iroh can discover a working LAN or VPN interface without cmux publishing private addresses through the broker or identifying a VPN vendor. Explicit provider-qualified private hints are reserved for relayless/offline recovery and environments where Iroh did not discover the path itself. Tailscale raw TCP remains a released-client fallback, not the model for every private network.
+After activation, the admitted peer may learn LAN, Tailscale, or other interface addresses even when cmux supplied only a relay URL. cmux documents this behavior and does not claim peer-IP concealment from an admitted peer. Iroh 1.0 still has no relay-only connection mode. Managed deployments that require peer-IP concealment must disable Iroh until a separately tested relay-only mode exists.
+
+For admitted online sessions, this in-band candidate exchange is the generic private-network integration: Iroh can discover a working LAN or VPN interface without cmux publishing private addresses through the broker or identifying a VPN vendor. It cannot help when relay and public-direct bootstrap both fail. Explicit provider-qualified private hints are reserved for that relayless/offline case and are not production-enabled for Tailscale or custom VPNs in v1. Tailscale raw TCP remains a released-client fallback, not the model for every private network.
 
 Path migration may move an established connection between relay and direct reachability without reopening application streams. cmux treats this as one connection and does not assume Iroh stripes bandwidth across paths.
 
@@ -41,11 +43,15 @@ The active-profile snapshot carries a network-path generation. A slow public att
 
 The wire profile identifier is a provider-qualified, 32-byte account-scoped HMAC digest encoded as canonical lowercase hexadecimal. Human network names remain local UI metadata and never enter discovery, logs, or grants.
 
-An RFC1918, ULA, or CGNAT address does not prove which private network is active. A Tailscale profile may be activated only by Tailscale-specific interface ranges plus a matching MagicDNS resolution when those signals are available. A custom profile declares an expected DNS probe or address range and may require explicit user activation. If iOS cannot identify another vendor's VPN reliably, cmux prompts before the fallback attempt instead of guessing. Iroh still authenticates the EndpointID after reachability succeeds.
+An RFC1918, ULA, or CGNAT address does not prove which private network is active. Future explicit Tailscale profiles require Tailscale-specific interface evidence plus route binding; a text match on `*.ts.net` or `100.64.0.0/10` is insufficient. A custom profile needs an equally provider-bound proof and may require explicit user activation. If iOS cannot identify a VPN reliably, cmux does not attempt that explicit fallback. Iroh still authenticates the EndpointID after reachability succeeds.
 
 iOS normally permits one active packet-tunnel VPN. cmux never starts a competing tunnel, and the connection UI must explain when selecting one private-network profile makes another unavailable.
 
 The Mac exposes a stable configurable UDP listen port, or a small documented port range, for Iroh direct paths. This lets Tailscale ACLs and corporate firewalls allowlist cmux. An ephemeral-only UDP listener is insufficient for managed private-network deployments. Relay fallback remains available where UDP is blocked.
+
+The released-client Tailscale TCP path is encrypted by the overlay but plaintext at the cmux socket layer, so it may send a Stack bearer only after proving the actual route. The phone requires a canonical numeric Tailscale IPv4 or IPv6 destination, exactly one active `utun` interface carrying a Tailscale self-address, and an `NWConnection` bound to that exact `NWInterface`. The proof carries a monotonic path generation. At connection readiness and immediately before every write, the transport rechecks the generation, satisfied path, numeric remote endpoint, and local tailnet address; any path update closes the transport before another byte is accepted. MagicDNS hostnames are display metadata in v1 and are never handed to the bearer-carrying connection. A hostname suffix, CGNAT destination, or active-VPN boolean alone is not authority.
+
+This Tailscale proof is a compatibility hardening boundary, not cryptographic remote identity. Another packet-tunnel provider can imitate an interface name and address range, and Network.framework cannot attest that the remote node is the intended Mac. cmux therefore never extends plaintext bearer authorization to generic LAN or custom VPN routes. New clients use EndpointID TLS and pair-grant admission over Iroh.
 
 Apple endpoints disable Iroh's automatic UPnP, PCP, and NAT-PMP port mapping. Its SSDP replies can trigger the macOS firewall dialog, and on iOS the multicast probe can request Local Network access before the user invokes LAN discovery. Hole punching and managed relays remain enabled. A future explicit port-mapping preference must explain the prompt and cannot silently restore the upstream default.
 
@@ -53,7 +59,19 @@ Bonjour supplies local reachability, not trust. A known EndpointID authenticates
 
 Bonjour must not advertise a stable EndpointID, account identifier, email, device name, build tag, or private-network profile. Same-account devices use a rotating opaque rendezvous alias and opaque SRV hostname derived from a backend-issued local-discovery secret and a bounded time epoch. Revocation rotates that secret. A first-time offline QR carries a separate one-use rendezvous value. The TXT record contains only its version, epoch, and interface-local numeric Iroh addresses. The phone obtains the EndpointID from its authenticated registry or QR proof before dialing, verifies the alias against that exact binding, rejects off-link addresses, then still requires Iroh TLS and a signed pair grant.
 
-Offline LAN discovery is opt-in. The iOS target must declare its cmux Bonjour service in `NSBonjourServices`, retain a localized local-network usage reason, and browse only when reconnecting a known Mac. A normal Iroh connection may also trigger Apple's Local Network prompt when NAT traversal tests an authenticated peer's LAN candidate. Denial disables Bonjour and direct LAN paths but must leave managed-relay connectivity working.
+Offline LAN discovery is opt-in. The iOS target must declare its cmux Bonjour service in `NSBonjourServices`, retain a localized local-network usage reason, and browse only when reconnecting a known Mac. An admitted Iroh connection may also trigger Apple's Local Network prompt when NAT traversal tests that peer's LAN candidate. A denied connection must emit no NAT-traversal candidate or probe. Local Network denial disables Bonjour and direct LAN paths but must leave managed-relay connectivity working.
+
+### Private-network support matrix
+
+| Path | v1 status | Capability boundary |
+| --- | --- | --- |
+| Managed relay or public-direct Iroh | Supported, default | Full admitted Iroh session and multistream features. |
+| Iroh-discovered LAN, Tailscale, or VPN candidate | Supported after admission | Same connection may migrate direct; selection is opportunistic, not guaranteed. |
+| Authenticated Bonjour LAN Iroh bootstrap | Supported | Exact known EndpointID or one-use offline proof; numeric on-link addresses only. |
+| Numeric Tailscale TCP | Compatibility only | Current framed RPC after interface-bound route proof; no Iroh-only features. |
+| Explicit relayless Tailscale/custom-VPN Iroh hint | Deferred | Models and tests exist, but no production provider/profile producer exists. |
+| Generic LAN/custom-VPN raw TCP authorization | Unsupported | Plaintext transport cannot prove the intended Mac or safely carry a Stack bearer. |
+| Relay-only peer-IP concealment | Unsupported | An admitted peer can receive private candidates; managed relays still observe metadata. |
 
 ## Authorization
 
@@ -73,7 +91,7 @@ The five-minute first-pair invitation remains one-use and requires two valid one
 
 Stack bearer and refresh tokens never cross an Iroh connection. Route hints never appear in grant claims. The discovery registry is scoped to the authenticated personal account, not the currently selected Stack team.
 
-The endpoint hook rejects peers without an active or locally pending grant before application streams are accepted. The first grant frame, concurrent handshakes, streams per connection, frame sizes, and unauthenticated processing time all have fixed limits. A peer is admitted only after the TLS EndpointID matches both the connection and the signed grant.
+The first control stream rejects peers without an active or locally pending grant before any application lane is accepted. The per-connection NAT-traversal gate remains closed during that check, so a denied peer receives no local candidate and cannot induce private-address probes. The first grant frame, concurrent handshakes, streams per connection, frame sizes, and unauthenticated processing time all have fixed limits. A peer is admitted only after the TLS EndpointID matches both the connection and the signed grant.
 
 Registration requires a one-use backend challenge and a signature from the endpoint key. Endpoint rotation requires proof from the old and new keys. Lost-key recovery creates a new endpoint and requires reapproval.
 
@@ -108,7 +126,7 @@ Relay replacement must be behavior-tested before rollout. Iroh 1.0 caches the au
 
 No n0 public DNS discovery or development relay enters the production preset. Relay URL syntax validation is separate from the runtime allowlist above.
 
-Iroh 1.0 relay-over-WebSocket does not honor a system HTTP proxy. A network that permits outbound traffic only through an explicit HTTP CONNECT proxy may therefore make every Iroh route unavailable even though ordinary HTTPS works. cmux retains the released-client Tailscale/private-network transport for this case and reports the Iroh failure. Proxy-only Iroh support remains gated on an upstream transport hook or a reviewed fork implementation.
+Iroh 1.0 relay-over-WebSocket does not honor a system HTTP proxy. A network that permits outbound traffic only through an explicit HTTP CONNECT proxy may therefore make every Iroh route unavailable even though ordinary HTTPS works. cmux retains the released-client Tailscale TCP transport for this case and reports the Iroh failure. Generic LAN or custom-VPN plaintext TCP is not an authenticated substitute. Proxy-only Iroh support remains gated on an upstream transport hook or a reviewed fork implementation.
 
 End-to-end encryption does not hide connection metadata. A relay can observe source and destination IP addresses, endpoint identifiers, timing, and relayed byte counts. A direct peer learns the other peer's reachable IP address. cmux must disclose this in privacy documentation and must not enable Iroh Services network-diagnostics capabilities without explicit user consent. Relay-only peer-IP privacy is not a v1 launch claim.
 
@@ -129,13 +147,13 @@ The official Swift FFI exposes raw QUIC connections, bidirectional and unidirect
 
 ## Disclosure and persistence
 
-Private and local path hints may travel only through an authenticated same-account channel. They are excluded from identity-only pairing QR payloads, public host status, logs, support bundles, public discovery, and cloud backup. Public host status returns zero attach routes. Persisted routes prune expired hints. Logs use classifications or keyed hashes, never full EndpointIDs, relay tokens, grants, or private addresses.
+cmux-supplied private and local path hints may travel only through an authenticated same-account channel. Iroh's own private candidates are exchanged only after the per-connection same-account admission gate opens. Both forms are excluded from identity-only pairing QR payloads, public host status, logs, support bundles, public discovery, and cloud backup. Public host status returns zero attach routes. Persisted routes prune expired hints. Logs use classifications or keyed hashes, never full EndpointIDs, relay tokens, grants, or private addresses.
 
 Pairing QR encoding requires an explicit disclosure mode. `irohIdentityOnly` keeps only the Iroh EndpointID and removes every path hint, host/port route, token, and URL route. It is the production default whenever an Iroh route exists. The Mac can separately generate a user-invoked `legacyPrivateNetworkCompatibility` QR for released clients that still require Tailscale or another private-network address. If Iroh is unavailable, the compatibility QR remains the only supported path; loopback alone is never considered pairable.
 
 Application-layer reachability can bypass DNS filters or network-layer allowlists. Managed deployments need an MDM/configuration policy that can disable Iroh, restrict it to approved relay URLs, or require the legacy private-network path. cmux does not disguise relay traffic or create an alternate way around an administrator's access policy.
 
-Connection UI reports the app transport and the observed outer provider separately, for example `Iroh via Tailscale`. A Tailscale path may itself use DERP, so cmux must not label that state as a direct physical path.
+Future connection UI may report app transport and observed outer provider separately, for example `Iroh via Tailscale`, only after the FFI exposes enough selected-path metadata to support that classification. It is not a v1 claim. A Tailscale path may itself use DERP, so cmux must never infer a direct physical path from a Tailscale address alone.
 
 Public direct hints must be globally routable. Direct values reject loopback, unspecified, multicast, broadcast, metadata endpoints, ambiguous numeric forms, and IPv6 link-local wire values. Managed relay URLs require root HTTPS URLs and a runtime allowlist match.
 
@@ -145,13 +163,15 @@ Before defaulting to Iroh, verification must cover:
 
 - arm64 and Intel macOS, including macOS 14.0;
 - arm64 iOS devices and arm64/x86_64 Simulators;
-- direct, NAT-traversed, relay-only, LAN, Tailscale, and custom-profile paths;
+- public direct, managed-relay, post-admission NAT-traversed LAN/Tailscale/custom-VPN candidates, authenticated Bonjour LAN bootstrap, and hardened numeric Tailscale TCP compatibility paths;
 - TCP-only firewalls, blocked UDP, captive portals, constrained paths, and expensive cellular paths;
 - explicit HTTP-proxy-only networks, with a clear legacy/private-network fallback until Iroh relay WebSockets support proxy-controlled connection establishment;
 - relay token denial, expiry, refresh, and long-lived stream preservation;
 - background and foreground endpoint recreation with stable EndpointID;
 - a deterministic failed-rebind/network-resume test that proves the health watchdog detects terminal driver failure and recreates the endpoint from the same key and identity generation with a new runtime generation;
-- measured direct, relay, and private-fallback path selection, including asymmetric traffic, classification of cmux-supplied versus Iroh-discovered candidates, and stale-profile cancellation before explicit fallback;
+- a malicious pre-admission QNT peer, proving zero candidate disclosure, `REACH_OUT` probes, timers, or migration before activation and same-connection migration after both admitted sides activate;
+- measured direct, relay, Bonjour fallback, and post-admission native private-path selection, including asymmetric traffic and classification of cmux-supplied versus Iroh-discovered candidates;
+- numeric Tailscale TCP bearer tests that prove zero token bytes on VPN-off, wrong or multiple interfaces, carrier CGNAT, stale path generation, route-kind substitution, endpoint mismatch, and queued-write races;
 - long-lived multi-interface and VM-bridge connections, checking periodic path churn, battery use, congestion resets, and accidental relay selection;
 - the pinned Iroh core's `pending_open_paths` deduplication and hard cap, plus an adversarial multi-connection test with failing overlay hints that asserts bounded queue and memory growth;
 - custom-home-relay failure and rolling-restart soaks with bounded reachability and stream-recovery telemetry;
