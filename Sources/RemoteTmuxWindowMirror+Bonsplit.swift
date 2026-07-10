@@ -365,10 +365,8 @@ extension RemoteTmuxWindowMirror {
     }
 
     func title(forPane paneId: Int) -> String {
-        Self.paneTitle(
-            command: connection?.paneForegroundStates[paneId]?.command,
-            cwd: cwdByPaneId[paneId]
-        ) ?? String(localized: "remoteTmux.tab.pane", defaultValue: "tmux pane")
+        let index = paneIndexByPaneId[paneId] ?? 0
+        return Self.windowPaneTitle(windowTitle, paneIndex: index)
     }
 
     func combined(children: [RemoteTmuxLayoutNode], orientation: SplitOrientation) -> RemoteTmuxLayoutNode {
