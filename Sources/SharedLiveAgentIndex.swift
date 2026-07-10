@@ -157,15 +157,15 @@ final class SharedLiveAgentIndex {
     }
 
     private func forkAvailabilityRefreshTaskForCurrentState() -> Task<Void, Never> {
-        if let refreshTask {
-            return refreshTask
-        }
         if let forkAvailabilityRefreshTask {
             return forkAvailabilityRefreshTask
         }
+        let predecessor = refreshTask
         let task = Task { @MainActor [weak self] in
+            _ = await predecessor?.value
             guard let self else { return }
-            _ = await self.reloadIfLiveAgentProcessFingerprintChanged()
+            guard !Task.isCancelled else { return }
+            await self.reload(forcePublish: true)
             self.forkAvailabilityRefreshTask = nil
             NotificationCenter.default.post(name: .sharedLiveAgentIndexDidChange, object: self)
             if self.changePending {
@@ -190,15 +190,6 @@ final class SharedLiveAgentIndex {
                 self.handleHookStoreChange()
             }
         }
-    }
-
-    private func reloadIfLiveAgentProcessFingerprintChanged() async -> Bool {
-        guard refreshTask == nil else {
-            changePending = true
-            return false
-        }
-        await reload(forcePublish: index == nil)
-        return true
     }
 
     private func reload(forcePublish: Bool) async {
