@@ -6,17 +6,23 @@ import Foundation
 struct HostPolicyCacheTestFixture {
     let now = Date(timeIntervalSince1970: 1_800_000_000)
     let binding: CmxIrohBrokerBindingMetadata
+    let pairingEnabled: Bool
+    let capabilities: [String]
     let keySet: CmxIrohGrantVerificationKeySet
     let alternateKeySet: CmxIrohGrantVerificationKeySet
 
     private let signingKey: Curve25519.Signing.PrivateKey
 
-    init() throws {
+    init(
+        binding: CmxIrohBrokerBindingMetadata? = nil,
+        pairingEnabled: Bool = true,
+        capabilities: [String] = ["control", "multistream-v1"]
+    ) throws {
         signingKey = Curve25519.Signing.PrivateKey()
         let alternateKey = Curve25519.Signing.PrivateKey()
         keySet = Self.keySet(id: "current", key: signingKey)
         alternateKeySet = Self.keySet(id: "current", key: alternateKey)
-        binding = try CmxIrohBrokerBindingMetadata(
+        self.binding = try binding ?? CmxIrohBrokerBindingMetadata(
             bindingID: "123e4567-e89b-42d3-a456-426614174010",
             deviceID: "123e4567-e89b-42d3-a456-426614174011",
             appInstanceID: "123e4567-e89b-42d3-a456-426614174012",
@@ -27,6 +33,8 @@ struct HostPolicyCacheTestFixture {
             ),
             identityGeneration: 4
         )
+        self.pairingEnabled = pairingEnabled
+        self.capabilities = capabilities
     }
 
     func expectation(
@@ -34,7 +42,7 @@ struct HostPolicyCacheTestFixture {
         appInstanceID: String? = nil,
         endpointID: CmxIrohPeerIdentity? = nil,
         identityGeneration: Int? = nil,
-        pairingEnabled: Bool = true,
+        pairingEnabled: Bool? = nil,
         capabilities: [String]? = nil
     ) throws -> CmxIrohHostPolicyExpectation {
         try CmxIrohHostPolicyExpectation(
@@ -44,8 +52,8 @@ struct HostPolicyCacheTestFixture {
             tag: binding.tag,
             endpointID: endpointID ?? binding.endpointID,
             identityGeneration: identityGeneration ?? binding.identityGeneration,
-            pairingEnabled: pairingEnabled,
-            capabilities: capabilities ?? ["control", "multistream-v1"]
+            pairingEnabled: pairingEnabled ?? self.pairingEnabled,
+            capabilities: capabilities ?? self.capabilities
         )
     }
 
@@ -58,8 +66,8 @@ struct HostPolicyCacheTestFixture {
         let responseKeys = responseKeySet ?? selectedKeySet
         return try CmxIrohCachedHostPolicy(
             binding: binding,
-            pairingEnabled: true,
-            capabilities: ["control", "multistream-v1"],
+            pairingEnabled: pairingEnabled,
+            capabilities: capabilities,
             grantVerificationKeys: selectedKeySet,
             endpointAttestation: attestation(
                 expiresAt: expiresAt ?? now.addingTimeInterval(3_600),

@@ -36,6 +36,7 @@ struct CmxIrohHostRuntimeTests {
         let configurations = await factory.observedConfigurations()
         #expect(configurations.count == 1)
         #expect(configurations.first?.secretKey == fixture.identity.secretKey)
+        #expect(configurations.first?.bindPolicy == .ephemeral)
         #expect(configurations.first?.managedRelayURLs == fixture.managedRelays)
 
         await runtime.stop()
@@ -43,6 +44,143 @@ struct CmxIrohHostRuntimeTests {
         #expect(await endpoint.observedCloseCallCount() == 1)
         #expect(await deactivations.values() == [fixture.binding.bindingID])
         #expect(await runtime.snapshot().state == .inactive)
+    }
+
+    @Test
+    func requiredBindPolicyIsForwardedToTheEndpointGeneration() async throws {
+        let fixture = try HostRuntimeFixture()
+        let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
+        let factory = TestIrohEndpointFactory(endpoints: [endpoint])
+        let broker = TestIrohHostBroker(
+            registrationBinding: fixture.binding,
+            discovery: fixture.discovery
+        )
+        let bindAddress = try CmxIrohBindAddress(
+            ipAddress: "127.0.0.1",
+            port: 4_444
+        )
+        let runtime = CmxIrohHostRuntime(
+            factory: factory,
+            broker: broker,
+            configuration: fixture.configuration(
+                bindPolicy: .required(bindAddress)
+            ),
+            handleTransport: { transport, _, _ in await transport.close() }
+        )
+
+        try await runtime.start()
+
+        #expect(
+            await factory.observedConfigurations().first?.bindPolicy
+                == .required(bindAddress)
+        )
+        await runtime.stop()
+    }
+
+    @Test
+    func connectivityFailureUsesVerifiedCacheOnlyAfterOnlineAttempt() async throws {
+        let fixture = try HostRuntimeFixture()
+        let cachedFixture = try fixture.cachedPolicyFixture()
+        let cachedPolicy = try cachedFixture.policy()
+        let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
+        let factory = TestIrohEndpointFactory(endpoints: [endpoint])
+        let broker = TestIrohHostBroker(
+            registrationBinding: fixture.binding,
+            discovery: fixture.discovery,
+            registrationError: .connectivity
+        )
+        let bindings = HostRuntimeBindingRecorder()
+        let runtime = CmxIrohHostRuntime(
+            factory: factory,
+            broker: broker,
+            configuration: fixture.configuration(cachedHostPolicy: cachedPolicy),
+            now: { cachedFixture.now },
+            handleTransport: { transport, _, _ in await transport.close() },
+            handleBinding: { _, _, _ in await bindings.record() }
+        )
+
+        try await runtime.start()
+
+        #expect(await broker.observedRegistrationCount() == 1)
+        #expect(await runtime.snapshot().bindingID == cachedPolicy.binding.bindingID)
+        #expect(await bindings.count() == 0)
+        await runtime.stop()
+    }
+
+    @Test(arguments: [
+        CmxIrohTrustBrokerClientError.missingAuthentication,
+        .rejected(statusCode: 503, code: "unavailable"),
+        .invalidResponse,
+    ])
+    func terminalBrokerFailureNeverUsesCachedPolicy(
+        _ failure: CmxIrohTrustBrokerClientError
+    ) async throws {
+        let fixture = try HostRuntimeFixture()
+        let cachedFixture = try fixture.cachedPolicyFixture()
+        let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
+        let factory = TestIrohEndpointFactory(endpoints: [endpoint])
+        let broker = TestIrohHostBroker(
+            registrationBinding: fixture.binding,
+            discovery: fixture.discovery,
+            registrationError: failure
+        )
+        let runtime = CmxIrohHostRuntime(
+            factory: factory,
+            broker: broker,
+            configuration: fixture.configuration(
+                cachedHostPolicy: try cachedFixture.policy()
+            ),
+            now: { cachedFixture.now },
+            handleTransport: { transport, _, _ in await transport.close() }
+        )
+
+        do {
+            try await runtime.start()
+            Issue.record("Expected terminal broker failure")
+        } catch let error as CmxIrohTrustBrokerClientError {
+            #expect(error == failure)
+        }
+
+        #expect(await endpoint.observedCloseCallCount() == 1)
+        #expect(await runtime.snapshot().state == .failed)
+    }
+
+    @Test
+    func onlinePolicySupersedesAValidCachedBinding() async throws {
+        let fixture = try HostRuntimeFixture()
+        let cachedMetadata = try CmxIrohBrokerBindingMetadata(
+            bindingID: "123e4567-e89b-42d3-a456-426614174099",
+            deviceID: fixture.binding.deviceID,
+            appInstanceID: fixture.binding.appInstanceID,
+            tag: fixture.binding.tag,
+            platform: .mac,
+            endpointID: fixture.binding.endpointID,
+            identityGeneration: fixture.binding.identityGeneration
+        )
+        let cachedFixture = try fixture.cachedPolicyFixture(binding: cachedMetadata)
+        let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
+        let factory = TestIrohEndpointFactory(endpoints: [endpoint])
+        let broker = TestIrohHostBroker(
+            registrationBinding: fixture.binding,
+            discovery: fixture.discovery
+        )
+        let bindings = HostRuntimeBindingRecorder()
+        let runtime = CmxIrohHostRuntime(
+            factory: factory,
+            broker: broker,
+            configuration: fixture.configuration(
+                cachedHostPolicy: try cachedFixture.policy()
+            ),
+            now: { cachedFixture.now },
+            handleTransport: { transport, _, _ in await transport.close() },
+            handleBinding: { _, _, _ in await bindings.record() }
+        )
+
+        try await runtime.start()
+
+        #expect(await runtime.snapshot().bindingID == fixture.binding.bindingID)
+        #expect(await bindings.count() == 1)
+        await runtime.stop()
     }
 
     @Test
@@ -59,10 +197,14 @@ struct CmxIrohHostRuntimeTests {
             registrationBinding: fixture.binding,
             discovery: substituted
         )
+        let cachedFixture = try fixture.cachedPolicyFixture()
         let runtime = CmxIrohHostRuntime(
             factory: factory,
             broker: broker,
-            configuration: fixture.configuration,
+            configuration: fixture.configuration(
+                cachedHostPolicy: try cachedFixture.policy()
+            ),
+            now: { cachedFixture.now },
             handleTransport: { transport, _, _ in await transport.close() }
         )
 
@@ -110,6 +252,34 @@ private struct HostRuntimeFixture {
             pairingEnabled: binding.pairingEnabled,
             capabilities: binding.capabilities,
             managedRelayURLs: managedRelays
+        )
+    }
+
+    func configuration(
+        cachedHostPolicy: CmxIrohCachedHostPolicy? = nil,
+        bindPolicy: CmxIrohEndpointBindPolicy = .ephemeral
+    ) -> CmxIrohHostRuntimeConfiguration {
+        CmxIrohHostRuntimeConfiguration(
+            deviceID: binding.deviceID,
+            appInstanceID: binding.appInstanceID,
+            tag: binding.tag,
+            displayName: binding.displayName,
+            identity: identity,
+            pairingEnabled: binding.pairingEnabled,
+            capabilities: binding.capabilities,
+            bindPolicy: bindPolicy,
+            managedRelayURLs: managedRelays,
+            cachedHostPolicy: cachedHostPolicy
+        )
+    }
+
+    func cachedPolicyFixture(
+        binding: CmxIrohBrokerBindingMetadata? = nil
+    ) throws -> HostPolicyCacheTestFixture {
+        try HostPolicyCacheTestFixture(
+            binding: binding ?? CmxIrohBrokerBindingMetadata(binding: self.binding),
+            pairingEnabled: self.binding.pairingEnabled,
+            capabilities: self.binding.capabilities
         )
     }
 
@@ -186,21 +356,25 @@ private struct HostRuntimeFixture {
 private actor TestIrohHostBroker: CmxIrohHostBrokerServing {
     private let registrationBinding: CmxIrohBrokerBinding
     private let discoveryResponse: CmxIrohDiscoveryResponse
+    private let registrationError: CmxIrohTrustBrokerClientError?
     private var registrationCount = 0
 
     init(
         registrationBinding: CmxIrohBrokerBinding,
-        discovery: CmxIrohDiscoveryResponse
+        discovery: CmxIrohDiscoveryResponse,
+        registrationError: CmxIrohTrustBrokerClientError? = nil
     ) {
         self.registrationBinding = registrationBinding
         discoveryResponse = discovery
+        self.registrationError = registrationError
     }
 
     func register(
         prepared _: CmxIrohPreparedRegistration,
         signer _: CmxIrohRegistrationSigner
-    ) -> CmxIrohRegistrationResponse {
+    ) throws -> CmxIrohRegistrationResponse {
         registrationCount += 1
+        if let registrationError { throw registrationError }
         return CmxIrohRegistrationResponse(
             binding: registrationBinding,
             relay: .unavailable
@@ -227,6 +401,13 @@ private actor TestIrohHostBroker: CmxIrohHostBrokerServing {
     func revoke(bindingID _: String) {}
 
     func observedRegistrationCount() -> Int { registrationCount }
+}
+
+private actor HostRuntimeBindingRecorder {
+    private var recordedCount = 0
+
+    func record() { recordedCount += 1 }
+    func count() -> Int { recordedCount }
 }
 
 private actor HostRuntimeDeactivationRecorder {

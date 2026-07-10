@@ -126,6 +126,35 @@ struct CmxIrohTrustBrokerClientTests {
         }
     }
 
+    @Test
+    func availabilityURLErrorMapsToConnectivityFailure() async throws {
+        let transport = RecordingBrokerTransport(
+            responses: [],
+            failure: .notConnectedToInternet
+        )
+        let client = try makeClient(transport: transport)
+
+        await #expect(throws: CmxIrohTrustBrokerClientError.connectivity) {
+            _ = try await client.discover()
+        }
+    }
+
+    @Test
+    func tlsValidationURLErrorRemainsTerminal() async throws {
+        let transport = RecordingBrokerTransport(
+            responses: [],
+            failure: .serverCertificateUntrusted
+        )
+        let client = try makeClient(transport: transport)
+
+        do {
+            _ = try await client.discover()
+            Issue.record("Expected TLS validation failure")
+        } catch let error as URLError {
+            #expect(error.code == .serverCertificateUntrusted)
+        }
+    }
+
     private func makeClient(
         transport: RecordingBrokerTransport
     ) throws -> CmxIrohTrustBrokerClient {
@@ -248,13 +277,16 @@ private actor RecordingBrokerTransport: CmxIrohHTTPTransport {
 
     private var pending: [Response]
     private var captured: [URLRequest] = []
+    private let failure: URLError.Code?
 
-    init(responses: [Response]) {
+    init(responses: [Response], failure: URLError.Code? = nil) {
         pending = responses
+        self.failure = failure
     }
 
     func data(for request: URLRequest) async throws -> (Data, URLResponse) {
         captured.append(request)
+        if let failure { throw URLError(failure) }
         let response = pending.removeFirst()
         let http = HTTPURLResponse(
             url: request.url!,
