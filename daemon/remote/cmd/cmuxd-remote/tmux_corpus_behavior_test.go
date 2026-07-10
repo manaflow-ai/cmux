@@ -134,14 +134,16 @@ func (r *tmuxCorpusRPCRecorder) serveConn(conn net.Conn) {
 		resp["result"] = map[string]any{
 			"container_frame": map[string]any{"width": 640, "height": 384},
 			"panes": []map[string]any{{
-				"id":             "33333333-3333-4333-8333-333333333333",
-				"ref":            "pane:1",
-				"index":          1,
-				"focused":        true,
-				"columns":        80,
-				"rows":           24,
-				"cell_width_px":  8,
-				"cell_height_px": 16,
+				"id":                 "33333333-3333-4333-8333-333333333333",
+				"ref":                "pane:1",
+				"index":              1,
+				"focused":            true,
+				"columns":            80,
+				"rows":               24,
+				"cell_width_px":      8,
+				"cell_height_px":     16,
+				"cell_width_points":  4,
+				"cell_height_points": 8,
 			}},
 		}
 	case "pane.surfaces":
@@ -447,8 +449,8 @@ func TestTmuxCorpusResizePaneDispatchesAbsoluteAndDirectionalResize(t *testing.T
 	if got := resizeRequests[0].Params["absolute_axis"]; got != "horizontal" {
 		t.Fatalf("absolute resize axis = %v, want horizontal", got)
 	}
-	if got := asInt(t, resizeRequests[0].Params["target_pixels"], "absolute resize pixels"); got != 800 {
-		t.Fatalf("absolute resize pixels = %v, want 800", got)
+	if got := asInt(t, resizeRequests[0].Params["target_pixels"], "absolute resize pixels"); got != 400 {
+		t.Fatalf("absolute resize pixels = %v, want 400", got)
 	}
 	if got := asInt(t, resizeRequests[0].Params["target_cells"], "absolute resize cells"); got != 100 {
 		t.Fatalf("absolute resize cells = %v, want 100", got)
@@ -471,8 +473,8 @@ func TestTmuxCorpusResizePaneDispatchesAbsoluteAndDirectionalResize(t *testing.T
 	if got := resizeRequests[2].Params["direction"]; got != "left" {
 		t.Fatalf("directional resize direction = %v, want left", got)
 	}
-	if got := asInt(t, resizeRequests[2].Params["amount"], "directional resize amount"); got != 7 {
-		t.Fatalf("directional resize amount = %v, want 7", got)
+	if got := asInt(t, resizeRequests[2].Params["amount"], "directional resize amount"); got != 28 {
+		t.Fatalf("directional resize amount = %v, want 28", got)
 	}
 	if got := asInt(t, resizeRequests[2].Params["amount_cells"], "directional resize cells"); got != 7 {
 		t.Fatalf("directional resize cells = %v, want 7", got)
@@ -485,6 +487,9 @@ func TestTmuxCorpusResizePaneDispatchesAbsoluteAndDirectionalResize(t *testing.T
 	}
 	if got := asInt(t, resizeRequests[3].Params["amount_cells"], "default directional resize cells"); got != 1 {
 		t.Fatalf("default directional resize cells = %v, want 1", got)
+	}
+	if got := asInt(t, resizeRequests[3].Params["amount"], "default directional resize amount"); got != 4 {
+		t.Fatalf("default directional resize amount = %v, want 4", got)
 	}
 }
 

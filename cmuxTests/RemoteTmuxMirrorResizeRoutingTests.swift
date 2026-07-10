@@ -17,7 +17,6 @@ extension RemoteTmuxMirrorCLIObservabilityTests {
         let harness = try Harness(connectedTransport: true, geometryScale: scale)
         defer { harness.tearDown() }
         let tmuxPaneID = try #require(harness.mirror.paneIDsInOrder.first)
-        let adjacentTmuxPaneID = try #require(harness.mirror.paneIDsInOrder.dropFirst().first)
         let paneID = try #require(harness.mirror.syntheticPaneID(forPane: tmuxPaneID)?.id)
         let amountPoints = 24
 
@@ -43,7 +42,7 @@ extension RemoteTmuxMirrorCLIObservabilityTests {
         #expect(response["direction"] as? String == "right")
         #expect(response["amount"] as? Int == amountPoints)
         let commands = try readControlCommands(harness)
-        #expect(commands.contains("resize-pane -t @3.%\(adjacentTmuxPaneID) -R 3\n"))
+        #expect(commands.contains("resize-pane -t @3.%\(tmuxPaneID) -R 3\n"))
     }
 
     @Test func absolutePaneResizeConvertsOuterPointsAndClampsSubcellGrid() throws {
@@ -145,11 +144,12 @@ extension RemoteTmuxMirrorCLIObservabilityTests {
 
     @Test func paneResizeTargetsTheSelectedLeadingBorderInNaryLayout() throws {
         let layout = RemoteTmuxLayoutNode(
-            width: 120, height: 24, x: 0, y: 0,
+            width: 160, height: 24, x: 0, y: 0,
             content: .horizontal([
                 RemoteTmuxLayoutNode(width: 39, height: 24, x: 0, y: 0, content: .pane(11)),
                 RemoteTmuxLayoutNode(width: 39, height: 24, x: 40, y: 0, content: .pane(22)),
-                RemoteTmuxLayoutNode(width: 40, height: 24, x: 80, y: 0, content: .pane(33)),
+                RemoteTmuxLayoutNode(width: 39, height: 24, x: 80, y: 0, content: .pane(33)),
+                RemoteTmuxLayoutNode(width: 40, height: 24, x: 120, y: 0, content: .pane(44)),
             ])
         )
         let harness = try Harness(connectedTransport: true, mirrorLayout: layout)
@@ -210,8 +210,8 @@ extension RemoteTmuxMirrorCLIObservabilityTests {
         let commands = try readControlCommands(harness)
         #expect(commands.contains("resize-pane -t @3.%11 -L 1\n"))
         #expect(!commands.contains("resize-pane -t @3.%22 -L"))
-        #expect(commands.contains("resize-pane -t @3.%33 -R 1\n"))
-        #expect(!commands.contains("resize-pane -t @3.%22 -R"))
+        #expect(commands.contains("resize-pane -t @3.%22 -R 1\n"))
+        #expect(!commands.contains("resize-pane -t @3.%33 -R"))
         #expect(commands.contains("resize-pane -t @3.%11 -L 2\n"))
     }
 

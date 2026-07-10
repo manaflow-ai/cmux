@@ -6,7 +6,7 @@ extension CLITmuxCompatRemoteSplitTests {
     @Test func absoluteResizeCarriesExactTmuxCellTarget() throws {
         let params = try captureResize(arguments: ["-x", "3"])
         #expect(params["absolute_axis"] as? String == "horizontal")
-        #expect((params["target_pixels"] as? NSNumber)?.intValue == 48)
+        #expect((params["target_pixels"] as? NSNumber)?.intValue == 24)
         #expect((params["target_cells"] as? NSNumber)?.intValue == 3)
         #expect(params["target_percentage"] == nil)
         #expect(params["tmux_compat"] as? Bool == true)
@@ -24,12 +24,12 @@ extension CLITmuxCompatRemoteSplitTests {
     @Test func directionalResizeUsesPositionalAmountAndDefaultsToOneCell() throws {
         let explicit = try captureResize(arguments: ["-L", "7"])
         #expect(explicit["direction"] as? String == "left")
-        #expect((explicit["amount"] as? NSNumber)?.intValue == 7)
+        #expect((explicit["amount"] as? NSNumber)?.intValue == 56)
         #expect((explicit["amount_cells"] as? NSNumber)?.intValue == 7)
 
         let defaulted = try captureResize(arguments: ["-R"])
         #expect(defaulted["direction"] as? String == "right")
-        #expect((defaulted["amount"] as? NSNumber)?.intValue == 1)
+        #expect((defaulted["amount"] as? NSNumber)?.intValue == 8)
         #expect((defaulted["amount_cells"] as? NSNumber)?.intValue == 1)
     }
 
@@ -73,6 +73,8 @@ extension CLITmuxCompatRemoteSplitTests {
                         "rows": 24,
                         "cell_width_px": 16,
                         "cell_height_px": 34,
+                        "cell_width_points": 8,
+                        "cell_height_points": 17,
                     ]],
                 ])
             case "pane.resize":
