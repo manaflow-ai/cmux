@@ -218,6 +218,8 @@ struct TerminalTabAgentIconTests {
         let tabId = try #require(workspace.surfaceIdFromPanelId(panel.id))
 
         #expect(workspace.updatePanelTitle(panelId: panel.id, title: title))
+        let pidKey = "\(title).prompt-idle-helper"
+        workspace.recordAgentPID(key: pidKey, pid: pid_t(ProcessInfo.processInfo.processIdentifier), panelId: panel.id, refreshPorts: false)
         #expect(workspace.terminalTabAgentIconAsset(forPanelId: panel.id) == nil)
         #expect(workspace.bonsplitController.tab(tabId)?.iconAsset == nil)
         workspace.updatePanelShellActivityState(panelId: panel.id, state: .commandRunning)
@@ -266,10 +268,7 @@ struct TerminalTabAgentIconTests {
         (RestorableAgentKind.claude, "AgentIcons/Claude"), (RestorableAgentKind.codex, "AgentIcons/Codex"),
     ])
     func plainShellTitleClearsObservedRestoredAgentIcon(kind: RestorableAgentKind, expectedAsset: String) throws {
-        try assertPlainShellTitleClearsObservedRestoredAgentIcon(
-            kind: kind,
-            expectedAsset: expectedAsset
-        )
+        try assertPlainShellTitleClearsObservedRestoredAgentIcon(kind: kind, expectedAsset: expectedAsset)
     }
 
     @MainActor
