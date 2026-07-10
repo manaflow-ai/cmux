@@ -7,6 +7,39 @@ import Testing
 @Suite("Simulator frame surface lifecycle")
 @MainActor
 struct SimulatorRemoteSurfaceLifecycleTests {
+    @Test("The frame layer never presents worker-shared IOSurfaces")
+    func frameLayerPresentsOnlyHostOwnedImages() async throws {
+        let input = try #require(IOSurfaceCreate([
+            kIOSurfaceWidth: 2,
+            kIOSurfaceHeight: 2,
+            kIOSurfaceBytesPerElement: 4,
+            kIOSurfacePixelFormat: kCVPixelFormatType_32BGRA,
+        ] as CFDictionary))
+        let source = EmptySimulatorFrameSurfaceSource(
+            latestFrame: (surface: input, sequence: 2)
+        )
+        let view = SimulatorRemoteSurfaceView(frameSourceFactory: { _ in source })
+
+        view.update(
+            frameTransport: simulatorFrameTransportDescriptor(40),
+            display: SimulatorDisplayMetadata(
+                width: 2,
+                height: 2,
+                orientation: .portrait,
+                scale: 1
+            ),
+            chrome: nil
+        )
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(2))
+        while clock.now < deadline, !isCGImage(view.frameLayer?.contents) {
+            view.renderLatestFrame()
+            try await clock.sleep(for: .milliseconds(1))
+        }
+
+        #expect(isCGImage(view.frameLayer?.contents))
+    }
+
     @Test("Dismantling drops retained frame surfaces and rejects late updates")
     func dismantleIsTerminalForViewInstance() throws {
         let firstDescriptor = simulatorFrameTransportDescriptor(41)
@@ -148,5 +181,10 @@ struct SimulatorRemoteSurfaceLifecycleTests {
         #expect(receivedDescriptor == descriptor)
         #expect(receivedFailure?.code == "framebuffer_unavailable")
         #expect(view.frameLayer == nil)
+    }
+
+    private func isCGImage(_ value: Any?) -> Bool {
+        guard let value else { return false }
+        return CFGetTypeID(value as CFTypeRef) == CGImage.typeID
     }
 }
