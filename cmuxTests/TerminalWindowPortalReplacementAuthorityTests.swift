@@ -159,6 +159,7 @@ extension TerminalWindowPortalLifecycleTests {
 
         coordinator.attachGeneration = 2
         await drain.value
+        await Task.yield()
 
         XCTAssertEqual(portal.debugEntryCount(), 0)
         XCTAssertTrue(surface.hostedView.isHidden)

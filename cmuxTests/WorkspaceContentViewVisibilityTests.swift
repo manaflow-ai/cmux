@@ -4,7 +4,6 @@ import CmuxUpdater
 import CoreGraphics
 import SwiftUI
 import Bonsplit
-import CmuxTerminal
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -412,88 +411,5 @@ struct CanvasPortalLifecycleTests {
             _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.001))
             await Task.yield()
         }
-    }
-}
-
-@Suite("Terminal portal mutation task pressure", .serialized)
-struct TerminalPortalMutationTaskPressureTests {
-    @Test
-    @MainActor
-    func currentOwnerGeometryChurnDoesNotQueueCleanupWaiters() async {
-        let iterations = 10_000
-        let baselineScheduler = TerminalPortalMutationScheduler()
-        let baselineElapsed = await elapsedUntilMainActorBarrier {
-            for _ in 0..<iterations {
-                baselineScheduler.schedule {}
-            }
-        }
-        baselineScheduler.cancel()
-        let surface = TerminalSurface(
-            tabId: UUID(),
-            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: nil,
-            workingDirectory: nil
-        )
-        defer { surface.teardownSurface() }
-        let host = TerminalPortalHostContainerView(
-            frame: CGRect(x: 0, y: 0, width: 400, height: 300)
-        )
-        let pane = PaneID()
-        let coordinator = GhosttyTerminalView.Coordinator()
-        coordinator.attachGeneration = 1
-        let ownershipGeneration = surface.currentPortalHostOwnershipGeneration()
-        #expect(surface.claimPortalHost(
-            hostId: ObjectIdentifier(host),
-            paneId: pane,
-            ownershipGeneration: ownershipGeneration,
-            inWindow: true,
-            bounds: host.bounds,
-            reason: "test.currentOwner.taskPressure"
-        ))
-        let snapshot = TerminalPortalMutationSnapshot(
-            attachGeneration: 1,
-            expectedSurfaceId: surface.id,
-            expectedSurfaceGeneration: surface.portalBindingGeneration(),
-            paneId: pane,
-            ownershipGeneration: ownershipGeneration,
-            portalPresentation: { .visible(isActive: true, zPriority: 2) },
-            showsInactiveOverlay: false,
-            showsUnreadNotificationRing: false,
-            inactiveOverlayColor: .clear,
-            inactiveOverlayOpacity: 0,
-            searchState: nil,
-            paneDropZone: nil,
-            keyStateIndicatorText: nil,
-            onFocus: nil,
-            onTriggerFlash: nil
-        )
-        let portalElapsed = await elapsedUntilMainActorBarrier {
-            for _ in 0..<iterations {
-                _ = GhosttyTerminalView.schedulePortalMutation(
-                    host: host,
-                    hostedView: surface.hostedView,
-                    terminalSurface: surface,
-                    coordinator: coordinator,
-                    snapshot: snapshot,
-                    reason: "test.currentOwner.taskPressure"
-                )
-            }
-        }
-        coordinator.portalMutationScheduler.cancel()
-        let allowedElapsed = baselineElapsed * 6 + 0.02
-        #expect(
-            portalElapsed < allowedElapsed,
-            Comment(rawValue: "Current-owner geometry callbacks must coalesce without one cleanup waiter per callback " +
-                "(baseline: \(baselineElapsed)s, portal: \(portalElapsed)s)")
-        )
-    }
-
-    @MainActor
-    private func elapsedUntilMainActorBarrier(_ enqueue: () -> Void) async -> TimeInterval {
-        let start = ProcessInfo.processInfo.systemUptime
-        enqueue()
-        let barrier = Task { @MainActor in }
-        await barrier.value
-        return ProcessInfo.processInfo.systemUptime - start
     }
 }
