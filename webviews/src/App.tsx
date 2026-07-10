@@ -49,6 +49,8 @@ import { useToolbarWidth } from "./useToolbarWidth";
 import type { DiffViewerLabelResolver } from "./labels";
 import type { DiffViewerStatus } from "./status";
 import type { DiffViewerConfig } from "./types";
+import { createDiffTransport, type DiffTransport } from "./diff/transport";
+import type { DiffTransportConfig } from "./diff/generated/protocol";
 import { createDiffWorkerPoolOptions } from "./worker-pool";
 
 type ConfigProps = {
@@ -240,6 +242,7 @@ export function App({ config, initialStatus }: ConfigProps) {
     assertMissing: shouldAssertMissingLabels(),
   });
   const appearance = resolveDiffViewerAppearance(payload.appearance);
+  const transport = useDiffTransport(payload.transport);
   const [state, dispatch] = useReducer(reducer, initialAppState(config, initialStatus));
   const latestState = useSyncedRef(state);
   const codeViewRef = useRef<CodeViewHandle<any> | null>(null);
@@ -339,6 +342,7 @@ export function App({ config, initialStatus }: ConfigProps) {
     <div id="app">
       <Toolbar
         config={config}
+        transport={transport}
         label={label}
         onCopyGitApply={async () => {
           try {
@@ -551,6 +555,7 @@ function Toolbar({
   onReload,
   onSetLayout,
   state,
+  transport,
 }: {
   config: DiffViewerConfig;
   dispatch: React.Dispatch<AppAction>;
@@ -561,6 +566,7 @@ function Toolbar({
   onReload: () => void;
   onSetLayout: (layout: DiffViewerLayout) => void;
   state: AppState;
+  transport: DiffTransport | null;
 }) {
   const payload = config.payload ?? {};
   const externalURL =
@@ -600,7 +606,7 @@ function Toolbar({
   const showExternalLink = externalURL != null && !overflow.has("external-link");
   return (
     <header id="toolbar" ref={toolbarRef}>
-      <SourceControls label={label} onNavigate={onNavigate} payload={payload} />
+      <SourceControls label={label} onNavigate={onNavigate} payload={payload} transport={transport} />
       {/* The jump-to-file select duplicates the Files sidebar (both scroll to a
           file). It is the only file-jump control when the sidebar is hidden, so
           it always renders, but its centered middle grid track is collapsed via
@@ -702,10 +708,12 @@ function SourceControls({
   label,
   onNavigate,
   payload,
+  transport,
 }: {
   label: DiffViewerLabelResolver;
   onNavigate: (url: string) => void;
   payload: any;
+  transport: DiffTransport | null;
 }) {
   return (
     <div className="toolbar-left flex min-w-0 items-center gap-1.5">
@@ -726,7 +734,7 @@ function SourceControls({
         options={payload.repoOptions}
         onNavigate={onNavigate}
       />
-      <BaseControl label={label} onNavigate={onNavigate} payload={payload} />
+      <BaseControl label={label} onNavigate={onNavigate} payload={payload} transport={transport} />
     </div>
   );
 }
@@ -740,14 +748,16 @@ function BaseControl({
   label,
   onNavigate,
   payload,
+  transport,
 }: {
   label: DiffViewerLabelResolver;
   onNavigate: (url: string) => void;
   payload: any;
+  transport: DiffTransport | null;
 }) {
   const picker = resolveBranchPicker(payload);
   if (picker) {
-    return <BranchBasePicker label={label} onNavigate={onNavigate} picker={picker} />;
+    return <BranchBasePicker label={label} onNavigate={onNavigate} picker={picker} transport={transport} />;
   }
   return (
     <NavigationSelect
@@ -1561,6 +1571,18 @@ function useOptionsDismiss(optionsOpen: boolean, dispatch: React.Dispatch<AppAct
       document.removeEventListener("keydown", closeOnEscape);
     };
   }, [dispatch, optionsOpen]);
+}
+
+function useDiffTransport(config: DiffTransportConfig | undefined): DiffTransport | null {
+  const transportRef = useRef<DiffTransport | null | undefined>(undefined);
+  if (transportRef.current === undefined) {
+    transportRef.current = createDiffTransport(config);
+  }
+  useEffect(() => {
+    const transport = transportRef.current;
+    return () => transport?.close();
+  }, []);
+  return transportRef.current;
 }
 
 type ShortcutStroke = {

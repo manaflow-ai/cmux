@@ -334,6 +334,39 @@ jobs:
         working-directory: webviews
         run: bun run react-doctor:ci
 
+  diff-sidecar-check:
+    needs: changes
+    if: ${{ needs.changes.outputs.macos == 'true' }}
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install Rust
+        run: ./scripts/install-rust-ci.sh
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+
+      - name: Install webview dependencies
+        working-directory: webviews
+        run: bun install --frozen-lockfile
+
+      - name: Check Rust sidecar
+        run: |
+          cargo fmt --manifest-path Native/DiffSidecar/Cargo.toml --all --check
+          cargo clippy --manifest-path Native/DiffSidecar/Cargo.toml --all-targets -- -D warnings
+          cargo test --manifest-path Native/DiffSidecar/Cargo.toml --all-targets
+
+      - name: Verify generated protocol types
+        run: ./scripts/generate-diff-sidecar-types.sh --check
+
+      - name: Enforce diff-viewer performance budgets
+        env:
+          CMUX_DIFF_WEB_BENCH_ITERATIONS: "10"
+        run: ./scripts/benchmark-diff-viewer.sh
+
   web-db-migrations:
     needs: changes
     if: ${{ needs.changes.outputs.web == 'true' }}
@@ -1058,6 +1091,7 @@ jobs:
       - remote-daemon-tests
       - web-typecheck
       - react-apps-check
+      - diff-sidecar-check
       - web-db-migrations
       - agent-session-web-resources
     if: ${{ always() }}
@@ -1079,6 +1113,7 @@ jobs:
               "remote-daemon-tests",
               "web-typecheck",
               "react-apps-check",
+              "diff-sidecar-check",
               "web-db-migrations",
               "agent-session-web-resources",
           }
@@ -1094,6 +1129,7 @@ jobs:
               "remote-daemon-tests": "go",
               "web-typecheck": "web",
               "react-apps-check": "web",
+              "diff-sidecar-check": "macos",
               "web-db-migrations": "web",
               "agent-session-web-resources": "agent_session_web",
           }
@@ -1602,6 +1638,7 @@ jobs:
       - remote-daemon-tests
       - web-typecheck
       - react-apps-check
+      - diff-sidecar-check
       - web-db-migrations
       - linux-preflight
       - app-host-unit-tests

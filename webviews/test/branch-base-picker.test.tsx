@@ -202,6 +202,29 @@ test("selecting a ref navigates to a root-relative regenerate URL", async () => 
   expect(navigated[0]).toBe("/__cmux_diff_viewer_branch?group=g&repo=%2Ftmp%2Fmock&token=abc&base=develop");
 });
 
+test("selecting the active base closes without regenerating the same URL", async () => {
+  dom = createDom();
+  installDomGlobals(dom);
+  const navigated: string[] = [];
+  const picker = pickerPayload(0);
+  const container = document.getElementById("root");
+  root = createRoot(container!);
+  flushSync(() => {
+    root?.render(<BranchBasePicker label={label} onNavigate={(url) => navigated.push(url)} picker={picker} />);
+  });
+
+  document.querySelector<HTMLButtonElement>(".base-picker-button")?.click();
+  await waitFor(() => rowCount() > 0);
+  flushSync(() => {
+    document.querySelector<HTMLElement>(".base-picker-row")?.dispatchEvent(
+      new dom!.window.MouseEvent("mousedown", { bubbles: true, cancelable: true }),
+    );
+  });
+
+  expect(navigated).toEqual([]);
+  expect(document.querySelector(".base-picker-popover")).toBeNull();
+});
+
 function createDom(): JSDOM {
   return new JSDOM("<!doctype html><html><body><div id='root'></div></body></html>", {
     url: "http://127.0.0.1/diff",

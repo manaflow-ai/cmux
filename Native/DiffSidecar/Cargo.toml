@@ -1,0 +1,40 @@
+[package]
+name = "cmux-diff-sidecar"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+publish = false
+
+[dependencies]
+axum = { version = "0.8.9", features = ["ws"] }
+futures-util = "0.3.31"
+notify = "8.2.0"
+reqwest = { version = "0.13.4", default-features = false, features = ["rustls", "stream"] }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.149"
+tokio = { version = "1.52.3", features = ["fs", "io-std", "io-util", "macros", "net", "process", "rt-multi-thread", "sync", "time"] }
+tokio-util = { version = "0.7.18", features = ["io"] }
+ts-rs = { version = "12.0.1", features = ["serde-json-impl"] }
+uuid = { version = "1.22.0", features = ["v4"] }
+
+[dev-dependencies]
+tokio-tungstenite = "0.29.0"
+
+[[bin]]
+name = "diff-sidecar-test-host"
+path = "tests/support/test_host.rs"
+
+[target.'cfg(unix)'.dependencies]
+rustix = { version = "1.1.4", features = ["process"] }
+
+[profile.release]
+lto = "thin"
+panic = "abort"
+strip = "symbols"
+
+[lints.rust]
+unsafe_code = "deny"
+
+[lints.clippy]
+all = "warn"
+pedantic = "warn"

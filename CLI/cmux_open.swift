@@ -5182,6 +5182,8 @@ extension CMUXCLI {
         }
         var picker: [String: Any] = [
             "repoRoot": repoRoot,
+            "groupId": groupID,
+            "capabilityToken": token,
             "headRef": headRef,
             "currentRef": base.ref,
             "currentReason": diffBranchBaseReasonLabel(base.reason),
@@ -5778,7 +5780,7 @@ extension CMUXCLI {
 
     private func diffViewerHTTPServerStateMatchesRuntimeExecutable(_ state: DiffViewerHTTPServerState, runtime: URL?) -> Bool {
         guard state.pid > 0,
-              let currentExecutablePath = diffViewerExecutableURL(for: runtime)?.path,
+              let currentExecutablePath = diffViewerServerExecutableURL(for: runtime)?.path,
               let serverExecutablePath = diffViewerHTTPServerExecutablePath(pid: state.pid),
               serverExecutablePath == currentExecutablePath else {
             return false
@@ -5809,13 +5811,22 @@ extension CMUXCLI {
     }
 
     private func startDiffViewerHTTPServer(rootDirectory: URL, runtime: URL? = nil) throws -> URL {
-        guard let executableURL = diffViewerExecutableURL(for: runtime) else {
+        guard let cmuxExecutableURL = diffViewerExecutableURL(for: runtime),
+              let executableURL = diffViewerServerExecutableURL(for: runtime) else {
             throw CLIError(message: "Failed to resolve cmux executable for diff viewer server")
         }
 
         let process = Process()
         process.executableURL = executableURL
-        process.arguments = ["diff-viewer-server", "--root", rootDirectory.path]
+        if executableURL == cmuxExecutableURL {
+            process.arguments = ["diff-viewer-server", "--root", rootDirectory.path]
+        } else {
+            process.arguments = [
+                "serve",
+                "--root", rootDirectory.path,
+                "--cmux", cmuxExecutableURL.path,
+            ]
+        }
         process.environment = ProcessInfo.processInfo.environment
 
         let stdoutPipe = Pipe()
@@ -5842,6 +5853,24 @@ extension CMUXCLI {
             throw CLIError(message: "Failed to build diff viewer server URL")
         }
         return url
+    }
+
+    private func diffViewerServerExecutableURL(for runtime: URL?) -> URL? {
+        if let override = ProcessInfo.processInfo.environment["CMUX_DIFF_SIDECAR_PATH"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !override.isEmpty {
+            let url = URL(fileURLWithPath: override, isDirectory: false)
+            if FileManager.default.isExecutableFile(atPath: url.path) {
+                return url.standardizedFileURL.resolvingSymlinksInPath()
+            }
+        }
+        guard let cmuxExecutable = diffViewerExecutableURL(for: runtime) else { return nil }
+        let sidecar = cmuxExecutable.deletingLastPathComponent()
+            .appendingPathComponent("cmux-diff-sidecar", isDirectory: false)
+        if FileManager.default.isExecutableFile(atPath: sidecar.path) {
+            return sidecar.standardizedFileURL.resolvingSymlinksInPath()
+        }
+        return cmuxExecutable
     }
 
     private func readDiffViewerHTTPServerPort(from handle: FileHandle, process: Process) throws -> Int {
@@ -7474,6 +7503,14 @@ extension CMUXCLI {
             "repoOptions": repoOptions.map(\.jsonObject),
             "baseOptions": baseOptions.map(\.jsonObject),
             "generatedAt": ISO8601DateFormatter().string(from: Date())
+        ]
+        // The generated file is local even when the viewer is served by the
+        // loopback sidecar. The React adapter enables this transport only for an
+        // HTTP(S) document and falls back to custom-scheme routes after restore.
+        payload["transport"] = [
+            "kind": "fetch",
+            "endpoint": "/__cmux_diff_rpc",
+            "protocolVersion": 1,
         ]
         if let statusMessage {
             payload["statusMessage"] = statusMessage

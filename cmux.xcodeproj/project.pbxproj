@@ -4999,6 +4999,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				D1320AA0D1320AA0D1320AA6 /* Copy Dock Tile Plugin */,
 				A5001020 /* Embed Frameworks */,
 				B900000AA1B2C3D4E5F60719 /* Copy CLI */,
+				D1FF50000000000000000001 /* Build Diff Sidecar */,
 				C0DEFF100000000000000003 /* Build Command Palette Nucleo FFI */,
 				A5001300A1B2C3D4E5F60719 /* ShellScript */,
 				A9E030000000000000000009 /* Reject Bundled Provider Binaries */,
@@ -5352,6 +5353,34 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "\"${SRCROOT}/scripts/build-command-palette-nucleo-ffi.sh\"\n";
+		};
+		D1FF50000000000000000001 /* Build Diff Sidecar */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/Native/DiffSidecar/Cargo.toml",
+				"$(SRCROOT)/Native/DiffSidecar/Cargo.lock",
+				"$(SRCROOT)/Native/DiffSidecar/src/benchmark.rs",
+				"$(SRCROOT)/Native/DiffSidecar/src/lib.rs",
+				"$(SRCROOT)/Native/DiffSidecar/src/main.rs",
+				"$(SRCROOT)/Native/DiffSidecar/src/manifest.rs",
+				"$(SRCROOT)/Native/DiffSidecar/src/protocol.rs",
+				"$(SRCROOT)/Native/DiffSidecar/src/server.rs",
+				"$(SRCROOT)/scripts/build-diff-sidecar.sh",
+			);
+			name = "Build Diff Sidecar";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/cmux-diff-sidecar",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "\"${SRCROOT}/scripts/build-diff-sidecar.sh\"\n";
 		};
 		A9E030000000000000000009 /* Reject Bundled Provider Binaries */ = {
 			isa = PBXShellScriptBuildPhase;
