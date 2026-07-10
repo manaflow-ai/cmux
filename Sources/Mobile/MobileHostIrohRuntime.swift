@@ -69,6 +69,7 @@ final class MobileHostIrohRuntime {
     private let identities = CmxIrohIdentityRepository()
     private let brokerCredentials = CmxIrohBrokerCredentialRepository()
     private let hostPolicies = CmxIrohHostPolicyCache()
+    private let lanPublisher = CmxIrohLANHostPublisher()
     private let authObserver = MobileHostIrohAuthObserver()
 
     private weak var auth: AuthCoordinator?
@@ -109,7 +110,18 @@ final class MobileHostIrohRuntime {
     }
 
     func retryIfNeeded() {
-        guard desiredActive, observedAccountID != nil, runtime == nil else { return }
+        guard desiredActive, observedAccountID != nil else { return }
+        if runtime != nil {
+            let revision = lifecycleRevision
+            Task { @MainActor [weak self] in
+                guard let self,
+                      self.desiredActive,
+                      self.runtime != nil,
+                      revision == self.lifecycleRevision else { return }
+                await self.lanPublisher.permissionMayHaveChanged()
+            }
+            return
+        }
         scheduleReconcile(eraseAccountState: false)
     }
 
@@ -183,6 +195,7 @@ final class MobileHostIrohRuntime {
             activeAccountID = nil
             activeAppInstanceID = nil
             await previousRuntime?.stop()
+            await lanPublisher.stop()
         }
 
         if eraseAccountState {
@@ -315,6 +328,7 @@ final class MobileHostIrohRuntime {
         )
         let credentialRepository = brokerCredentials
         let hostPolicyCache = hostPolicies
+        let lanPublisher = lanPublisher
         let managedRelayURLs = Self.managedRelayURLs
         let hostRuntime = CmxIrohHostRuntime(
             factory: CmxIrohLibEndpointFactory(),
@@ -366,6 +380,7 @@ final class MobileHostIrohRuntime {
                 }
             },
             handleDeactivation: { bindingID in
+                await lanPublisher.stop()
                 await MainActor.run {
                     if let bindingID {
                         MobileHostService.shared.closeIrohConnections(
@@ -382,6 +397,16 @@ final class MobileHostIrohRuntime {
                     binding: binding,
                     expectedRelayFleet: managedRelayURLs,
                     now: Date()
+                )
+            },
+            handleLANRefresh: {
+                await lanPublisher.refresh()
+            },
+            handleLANPolicy: { context, directAddresses in
+                await lanPublisher.activate(
+                    rendezvous: context.rendezvous,
+                    binding: context.binding,
+                    directAddresses: directAddresses
                 )
             }
         )

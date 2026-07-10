@@ -15,6 +15,9 @@ public actor CmxIrohClientRuntime {
         _ lanRendezvous: CmxIrohLANRendezvous
     ) async -> Void
 
+    /// Supplies local-link reachability only for one authenticated Mac tuple.
+    public typealias LANFallbackProvider = CmxIrohRegistryContextProvider.LANFallbackProvider
+
     /// Runs after a relay credential is installed on the exact active binding.
     public typealias RelayCredentialHandler = @Sendable (
         _ response: CmxIrohRelayTokenResponse,
@@ -45,6 +48,7 @@ public actor CmxIrohClientRuntime {
     private let protocolConfiguration: CmxIrohProtocolConfiguration
     private let offlinePolicyCache: CmxIrohClientOfflinePolicyCache?
     private let networkPathSnapshot: @Sendable () async throws -> CmxIrohNetworkPathSnapshot
+    private let lanFallback: LANFallbackProvider?
     private let now: @Sendable () -> Date
     private let handleBinding: BindingHandler
     private let handleCachedBindings: CachedBindingsHandler
@@ -90,6 +94,7 @@ public actor CmxIrohClientRuntime {
         networkPathSnapshot: @escaping @Sendable () async throws -> CmxIrohNetworkPathSnapshot = {
             CmxIrohNetworkPathSnapshot(generation: 1, activeNetworkProfiles: [])
         },
+        lanFallback: LANFallbackProvider? = nil,
         now: @escaping @Sendable () -> Date = { Date() },
         handleBinding: @escaping BindingHandler = { _, _ in },
         handleCachedBindings: @escaping CachedBindingsHandler = { _, _ in },
@@ -123,6 +128,7 @@ public actor CmxIrohClientRuntime {
         self.protocolConfiguration = protocolConfiguration
         self.offlinePolicyCache = offlinePolicyCache
         self.networkPathSnapshot = networkPathSnapshot
+        self.lanFallback = lanFallback
         self.now = now
         self.handleBinding = handleBinding
         self.handleCachedBindings = handleCachedBindings
@@ -451,6 +457,7 @@ public actor CmxIrohClientRuntime {
             managedRelayURLs: configuration.managedRelayURLs,
             networkPathSnapshot: networkPathSnapshot,
             offlinePolicy: offlinePolicy,
+            lanFallback: lanFallback,
             now: now
         )
         await contextRouter.install(provider)

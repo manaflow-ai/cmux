@@ -16,6 +16,13 @@ struct CmxIrohLibEndpointTests {
         let address = await endpoint.address()
         #expect(address.identity.endpointID == expectedID)
         #expect(address.pathHints.allSatisfy { $0.kind != .relayURL })
+        let localDirectAddresses = await endpoint.localDirectAddresses()
+        #expect(localDirectAddresses.allSatisfy { !$0.hasPrefix("https://") })
+        #expect(address.pathHints.allSatisfy { hint in
+            hint.privacyScope == .publicInternet
+                && (!localDirectAddresses.contains(hint.value)
+                    || hint.publicDisclosure(at: Date()) != nil)
+        })
 
         let events = await endpoint.healthEvents()
         let collected = Task { () -> [CmxIrohEndpointHealthEvent] in

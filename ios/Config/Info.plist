@@ -62,6 +62,10 @@
 	<true/>
 	<key>NSCameraUsageDescription</key>
 	<string>Scan cmux pairing QR codes from your Mac terminal.</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_cmux-iroh._udp</string>
+	</array>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Connect to your Mac on the local network for cmux mobile pairing and terminal sync.</string>
 	<key>NSMicrophoneUsageDescription</key>

@@ -9,6 +9,13 @@ public protocol CmxIrohEndpoint: Sendable {
     /// Returns the endpoint's current public reachability snapshot.
     func address() async -> CmxIrohEndpointAddress
 
+    /// Returns the driver's raw direct-address snapshot for local-only policy.
+    ///
+    /// These values must never be copied into broker registration. The LAN
+    /// publisher intersects them with current interface addresses before any
+    /// Bonjour registration.
+    func localDirectAddresses() async -> [String]
+
     /// Connects to the expected peer using only the supplied attempt's hints.
     ///
     /// - Parameters:
@@ -46,4 +53,9 @@ public protocol CmxIrohEndpoint: Sendable {
 
     /// Closes the endpoint and cancels its network work.
     func close() async
+}
+
+public extension CmxIrohEndpoint {
+    /// Test and alternate endpoints opt out of local advertisement by default.
+    func localDirectAddresses() async -> [String] { [] }
 }

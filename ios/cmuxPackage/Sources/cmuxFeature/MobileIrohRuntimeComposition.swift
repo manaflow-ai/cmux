@@ -46,6 +46,7 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
     private let now: @Sendable () -> Date
     private let startNetworkPathObservation: @Sendable () async -> Void
     private let networkPathSnapshot: @Sendable () async throws -> CmxIrohNetworkPathSnapshot
+    private let lanPeerDiscovery: CmxIrohLANPeerDiscovery?
     private let authObserver = MobileIrohAuthObserver()
 
     private weak var auth: AuthCoordinator?
@@ -77,6 +78,22 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
         let installState = CmxIrohUserDefaultsInstallStateStore(defaults: defaults)
         let baseURL = URL(string: apiBaseURL)
         let networkPathState = MobileIrohNetworkPathState()
+        let lanPeerDiscovery = CmxIrohLANPeerDiscovery(
+            networkPath: { await networkPathState.snapshot() },
+            authorizeProfile: { profile, generation, interfaceIndex in
+                await networkPathState.authorizeLANProfile(
+                    profile,
+                    generation: generation,
+                    interfaceIndex: interfaceIndex
+                )
+            },
+            revokeProfile: { profile, generation in
+                await networkPathState.revokeLANProfile(
+                    profile,
+                    generation: generation
+                )
+            }
+        )
         let stableDeviceID = DeviceRegistryService.deviceID(defaults: defaults)
         self.init(
             appInstances: CmxIrohAppInstanceRepository(store: installState),
@@ -104,8 +121,12 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
                 bundleIdentifier: bundleIdentifier
             ),
             now: { Date() },
+            lanPeerDiscovery: lanPeerDiscovery,
             startNetworkPathObservation: {
-                await networkPathState.start(reachability: reachability)
+                await networkPathState.start(
+                    reachability: reachability,
+                    onPathChange: { await lanPeerDiscovery.pathDidChange() }
+                )
             },
             networkPathSnapshot: {
                 await networkPathState.snapshot()
@@ -124,6 +145,7 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
         tag: String,
         now: @escaping @Sendable () -> Date,
         routeCatalog: MobileIrohRouteCatalog = MobileIrohRouteCatalog(),
+        lanPeerDiscovery: CmxIrohLANPeerDiscovery? = nil,
         startNetworkPathObservation: @escaping @Sendable () async -> Void = {},
         networkPathSnapshot: @escaping @Sendable () async throws -> CmxIrohNetworkPathSnapshot = {
             CmxIrohNetworkPathSnapshot(generation: 1, activeNetworkProfiles: [])
@@ -139,6 +161,7 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
         self.tag = tag
         self.now = now
         self.routeCatalog = routeCatalog
+        self.lanPeerDiscovery = lanPeerDiscovery
         self.startNetworkPathObservation = startNetworkPathObservation
         self.networkPathSnapshot = networkPathSnapshot
     }
@@ -224,7 +247,9 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
     public func didBecomeActive() {
         sceneTransitionTask?.cancel()
         let runtime = runtime
+        let lanPeerDiscovery = lanPeerDiscovery
         sceneTransitionTask = Task {
+            await lanPeerDiscovery?.permissionMayHaveChanged()
             do {
                 try await runtime?.didBecomeActive()
             } catch {
@@ -246,6 +271,7 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
         transitionTask = nil
         previous?.cancel()
         await previous?.value
+        await lanPeerDiscovery?.stop()
 
         let previousRuntime = runtime
         runtime = nil
@@ -383,6 +409,7 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
             let previousRuntime = runtime
             runtime = nil
             activeAccountID = nil
+            await lanPeerDiscovery?.stop()
             if let previousRuntime {
                 if shouldErase {
                     _ = await previousRuntime.deactivateForSignOut()
@@ -480,6 +507,7 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
         let credentialRepository = brokerCredentials
         let managedRelayURLs = Self.managedRelayURLs
         let routeCatalog = routeCatalog
+        let lanPeerDiscovery = lanPeerDiscovery
         let clock = now
         let runtime = try CmxIrohClientRuntime(
             factory: endpointFactory,
@@ -487,6 +515,29 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
             configuration: configuration,
             offlinePolicyCache: offlinePolicies,
             networkPathSnapshot: networkPathSnapshot,
+            lanFallback: { target, bindings, rendezvous in
+                guard let lanPeerDiscovery else { return [] }
+                switch await lanPeerDiscovery.discover(
+                    rendezvous: rendezvous,
+                    authenticatedBindings: bindings,
+                    expectedMacDeviceID: target.deviceID,
+                    expectedEndpointID: target.endpointID
+                ) {
+                case let .found(peers):
+                    var hints: [CmxIrohPathHint] = []
+                    for peer in peers where peer.binding == target {
+                        for hint in peer.pathHints where !hints.contains(hint) {
+                            hints.append(hint)
+                            if hints.count == CmxIrohLANTXTRecord.maximumAddressCount {
+                                return hints
+                            }
+                        }
+                    }
+                    return hints
+                case .notFound, .policyDenied:
+                    return []
+                }
+            },
             handleBinding: { [weak self] registration, discovery in
                 let binding = registration.binding
                 try? await credentialRepository.saveBinding(
@@ -514,6 +565,7 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
             },
             handleLocalDeactivation: { [appInstances, identities, brokerCredentials] in
                 await routeCatalog.deactivate(scope: revision)
+                await lanPeerDiscovery?.stop()
                 try? await brokerCredentials.deactivate()
                 try? await identities.deactivate()
                 await appInstances.deactivate()
@@ -543,6 +595,7 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
     }
 
     private func wipeLocalState() async {
+        await lanPeerDiscovery?.stop()
         await routeCatalog.clear()
         try? await brokerCredentials.deactivate()
         try? await offlinePolicies.deactivate()

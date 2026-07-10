@@ -11,6 +11,126 @@ private func opaqueProfileID(_ label: String) -> String {
 @Suite
 struct CmxIrohRegistryContextProviderTests {
     @Test
+    func bonjourFallbackIsLazyAndAddsOnlyGenerationAuthorizedLANHints() async throws {
+        let fixture = try RegistryFixture()
+        let relay = try CmxIrohPathHint(
+            kind: .relayURL,
+            value: fixture.relayURL,
+            source: .native,
+            privacyScope: .publicInternet
+        )
+        let profile = try CmxIrohNetworkProfileKey(
+            source: .lan,
+            profileID: opaqueProfileID("bonjour-profile")
+        )
+        let lanHint = try CmxIrohPathHint(
+            kind: .directAddress,
+            value: "192.168.1.10:50906",
+            source: .lan,
+            privacyScope: .localNetwork,
+            observedAt: fixture.now,
+            expiresAt: fixture.now.addingTimeInterval(60),
+            networkProfile: profile
+        )
+        let recorder = TestLANFallbackRecorder(hints: [lanHint])
+        let broker = TestIrohRegistryBroker(
+            discovery: try fixture.discovery(targetHints: []),
+            pairGrantResponses: [try fixture.pairGrantResponse(
+                issuedAt: fixture.nowSeconds,
+                expiresAt: fixture.nowSeconds + 7 * 24 * 60 * 60
+            )]
+        )
+        let provider = CmxIrohRegistryContextProvider(
+            supervisor: try await fixture.activeSupervisor(),
+            broker: broker,
+            localBindingExpectation: try fixture.localExpectation(),
+            managedRelayURLs: [fixture.relayURL],
+            networkPathSnapshot: {
+                CmxIrohNetworkPathSnapshot(
+                    generation: 23,
+                    activeNetworkProfiles: [profile]
+                )
+            },
+            lanFallback: { target, bindings, rendezvous in
+                await recorder.provide(
+                    target: target,
+                    bindings: bindings,
+                    rendezvous: rendezvous
+                )
+            },
+            now: { fixture.now }
+        )
+        let request = try fixture.request(hints: [relay])
+
+        let publicContext = try await provider.context(for: request)
+
+        #expect(await recorder.callCount() == 0)
+        #expect(publicContext.dialPlan.publicPaths == [relay])
+        #expect(publicContext.dialPlan.privateFallbackPaths.isEmpty)
+
+        let fallbackContext = try await provider.contextWithPrivateFallback(
+            for: request,
+            basedOn: publicContext
+        )
+
+        #expect(await recorder.callCount() == 1)
+        #expect(await recorder.lastTarget() == fixture.acceptor.endpointID)
+        #expect(await recorder.lastBindingCount() == 2)
+        #expect(fallbackContext.dialPlan.publicPaths == [relay])
+        #expect(fallbackContext.dialPlan.privateFallbackPaths == [lanHint])
+        let authorization = try #require(fallbackContext.privateFallbackAuthorization)
+        #expect(authorization.networkPathSnapshot.generation == 23)
+        #expect(authorization.pathHints == [lanHint])
+    }
+
+    @Test
+    func authenticatedRemovalRevokesLANAuthorityBeforeFallbackCanBrowse() async throws {
+        let fixture = try RegistryFixture()
+        let recorder = TestLANFallbackRecorder(hints: [])
+        let broker = TestIrohRegistryBroker(
+            discovery: try fixture.discovery(targetHints: []),
+            pairGrantResponses: [try fixture.pairGrantResponse(
+                issuedAt: fixture.nowSeconds,
+                expiresAt: fixture.nowSeconds + 7 * 24 * 60 * 60
+            )]
+        )
+        let provider = CmxIrohRegistryContextProvider(
+            supervisor: try await fixture.activeSupervisor(),
+            broker: broker,
+            localBindingExpectation: try fixture.localExpectation(),
+            managedRelayURLs: [fixture.relayURL],
+            networkPathSnapshot: {
+                CmxIrohNetworkPathSnapshot(generation: 1, activeNetworkProfiles: [])
+            },
+            lanFallback: { target, bindings, rendezvous in
+                await recorder.provide(
+                    target: target,
+                    bindings: bindings,
+                    rendezvous: rendezvous
+                )
+            },
+            now: { fixture.now }
+        )
+        let request = try fixture.request(hints: [])
+        let oldContext = try await provider.context(for: request)
+
+        await broker.setDiscovery(try fixture.discovery(
+            targetHints: [],
+            includeTarget: false
+        ))
+        await #expect(throws: CmxIrohRegistryContextError.targetBindingUnavailable) {
+            try await provider.context(for: request)
+        }
+
+        let fallback = try await provider.contextWithPrivateFallback(
+            for: request,
+            basedOn: oldContext
+        )
+        #expect(fallback == oldContext)
+        #expect(await recorder.callCount() == 0)
+    }
+
+    @Test
     func policyEligibleFallbacksSurviveUnusableRegistryHintFlood() async throws {
         let fixture = try RegistryFixture()
         let profile = try CmxIrohNetworkProfileKey(
@@ -562,7 +682,7 @@ private actor TestIrohRegistryBroker: CmxIrohRegistryServing {
         let acceptorBindingID: String
     }
 
-    private let discoveryResponse: CmxIrohDiscoveryResponse
+    private var discoveryResponse: CmxIrohDiscoveryResponse
     private var responses: [CmxIrohPairGrantResponse]
     private var pairGrantRequests: [PairGrantRequest] = []
     private let discoveryError: (any Error)?
@@ -585,6 +705,10 @@ private actor TestIrohRegistryBroker: CmxIrohRegistryServing {
         return discoveryResponse
     }
 
+    func setDiscovery(_ discovery: CmxIrohDiscoveryResponse) {
+        discoveryResponse = discovery
+    }
+
     func issuePairGrant(
         initiatorBindingID: String,
         acceptorBindingID: String
@@ -605,6 +729,30 @@ private actor TestIrohRegistryBroker: CmxIrohRegistryServing {
     func pairGrantRequestCount() -> Int {
         pairGrantRequests.count
     }
+}
+
+private actor TestLANFallbackRecorder {
+    private let hints: [CmxIrohPathHint]
+    private var targets: [CmxIrohPeerIdentity] = []
+    private var bindingCounts: [Int] = []
+
+    init(hints: [CmxIrohPathHint]) {
+        self.hints = hints
+    }
+
+    func provide(
+        target: CmxIrohBrokerBindingMetadata,
+        bindings: [CmxIrohBrokerBindingMetadata],
+        rendezvous _: CmxIrohLANRendezvous
+    ) -> [CmxIrohPathHint] {
+        targets.append(target.endpointID)
+        bindingCounts.append(bindings.count)
+        return hints
+    }
+
+    func callCount() -> Int { targets.count }
+    func lastTarget() -> CmxIrohPeerIdentity? { targets.last }
+    func lastBindingCount() -> Int? { bindingCounts.last }
 }
 
 private final class TestRegistryClock: @unchecked Sendable {

@@ -60,7 +60,15 @@ actor CmxIrohClientSessionPool {
                     endpoint: endpoint,
                     targetIdentity: key.identity,
                     dialPlan: context.dialPlan,
-                    credential: context.credential
+                    credential: context.credential,
+                    privateFallbackAuthorization: context.privateFallbackAuthorization,
+                    privateFallbackValidator: contextProvider,
+                    privateFallbackContextProvider: {
+                        try await contextProvider.contextWithPrivateFallback(
+                            for: request,
+                            basedOn: context
+                        )
+                    }
                 )
                 do {
                     try await session.connect()

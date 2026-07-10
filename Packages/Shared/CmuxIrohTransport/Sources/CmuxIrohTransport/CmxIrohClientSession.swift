@@ -3,12 +3,15 @@ public import Foundation
 
 /// An admitted multistream client session over one Iroh QUIC connection.
 public actor CmxIrohClientSession {
+    public typealias PrivateFallbackContextProvider = @Sendable () async throws -> CmxIrohClientContext
+
     private let endpoint: any CmxIrohEndpoint
     private let targetIdentity: CmxIrohPeerIdentity
     private let dialPlan: CmxIrohDialPlan
     private let credential: CmxIrohAdmissionCredential
     private let privateFallbackAuthorization: CmxIrohPrivateFallbackAuthorization?
     private let privateFallbackValidator: (any CmxIrohPrivateFallbackValidating)?
+    private let privateFallbackContextProvider: PrivateFallbackContextProvider?
     private let protocolConfiguration: CmxIrohProtocolConfiguration
     private let headerCodec: CmxIrohStreamHeaderCodec
     private let admissionCodec = CmxIrohAdmissionAckCodec()
@@ -38,6 +41,7 @@ public actor CmxIrohClientSession {
         credential: CmxIrohAdmissionCredential,
         privateFallbackAuthorization: CmxIrohPrivateFallbackAuthorization? = nil,
         privateFallbackValidator: (any CmxIrohPrivateFallbackValidating)? = nil,
+        privateFallbackContextProvider: PrivateFallbackContextProvider? = nil,
         protocolConfiguration: CmxIrohProtocolConfiguration = .cmuxMobileV1
     ) throws {
         self.endpoint = endpoint
@@ -46,6 +50,7 @@ public actor CmxIrohClientSession {
         self.credential = credential
         self.privateFallbackAuthorization = privateFallbackAuthorization
         self.privateFallbackValidator = privateFallbackValidator
+        self.privateFallbackContextProvider = privateFallbackContextProvider
         self.protocolConfiguration = protocolConfiguration
         headerCodec = try CmxIrohStreamHeaderCodec(configuration: protocolConfiguration)
     }
@@ -212,22 +217,37 @@ public actor CmxIrohClientSession {
             )
         } catch {
             try Task.checkCancellation()
-            guard !dialPlan.privateFallbackPaths.isEmpty else { throw error }
+            let fallbackContext: CmxIrohClientContext
+            if let privateFallbackContextProvider {
+                fallbackContext = try await privateFallbackContextProvider()
+                guard fallbackContext.credential == credential,
+                      fallbackContext.dialPlan.publicPaths == dialPlan.publicPaths else {
+                    throw CmxIrohPrivateFallbackValidationError.authorizationMismatch
+                }
+            } else {
+                fallbackContext = CmxIrohClientContext(
+                    dialPlan: dialPlan,
+                    credential: credential,
+                    privateFallbackAuthorization: privateFallbackAuthorization
+                )
+            }
+            let fallbackPaths = fallbackContext.dialPlan.privateFallbackPaths
+            guard !fallbackPaths.isEmpty else { throw error }
             guard let privateFallbackValidator else {
                 throw CmxIrohPrivateFallbackValidationError.unavailable
             }
-            guard let privateFallbackAuthorization,
-                  privateFallbackAuthorization.pathHints == dialPlan.privateFallbackPaths else {
+            guard let authorization = fallbackContext.privateFallbackAuthorization,
+                  authorization.pathHints == fallbackPaths else {
                 throw CmxIrohPrivateFallbackValidationError.authorizationMismatch
             }
             try await privateFallbackValidator.validatePrivateFallback(
-                privateFallbackAuthorization
+                authorization
             )
             try Task.checkCancellation()
             establishedConnection = try await endpoint.connect(
                 to: CmxIrohEndpointAddress(
                     identity: targetIdentity,
-                    pathHints: dialPlan.privateFallbackPaths
+                    pathHints: fallbackPaths
                 ),
                 alpn: protocolConfiguration.alpn
             )

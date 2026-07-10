@@ -18,6 +18,12 @@ public actor CmxIrohHostRuntime {
         _ response: CmxIrohRelayTokenResponse,
         _ binding: CmxIrohBrokerBindingMetadata
     ) async -> Void
+    public typealias LANRefreshHandler = @Sendable () async -> Void
+    public typealias LANDirectAddressProvider = @Sendable () async -> [String]
+    public typealias LANPolicyHandler = @Sendable (
+        _ context: CmxIrohHostLANAdvertisementContext,
+        _ directAddresses: @escaping LANDirectAddressProvider
+    ) async -> Void
 
     private struct ResolvedPolicy: Sendable {
         let registration: CmxIrohRegistrationResponse?
@@ -27,6 +33,7 @@ public actor CmxIrohHostRuntime {
         let grantVerificationKeys: CmxIrohGrantVerificationKeySet
         let attestation: CmxIrohEndpointAttestationResponse?
         let relayBootstrap: CmxIrohRelayTokenResponse?
+        let lanRendezvous: CmxIrohLANRendezvous
     }
 
     private let factory: any CmxIrohEndpointFactory
@@ -38,6 +45,8 @@ public actor CmxIrohHostRuntime {
     private let handleBinding: BindingHandler
     private let handleDeactivation: DeactivationHandler
     private let handleRelayCredential: RelayCredentialHandler
+    private let handleLANRefresh: LANRefreshHandler
+    private let handleLANPolicy: LANPolicyHandler
 
     private var lifecycleRevision: UInt64 = 0
     private var desiredActive = false
@@ -50,6 +59,7 @@ public actor CmxIrohHostRuntime {
     private var registrationRefreshTask: Task<Void, Never>?
     private var localBinding: CmxIrohBrokerBindingMetadata?
     private var endpointAttestation: CmxIrohEndpointAttestationResponse?
+    private var lanRendezvous: CmxIrohLANRendezvous?
     private var currentSnapshot = CmxIrohHostRuntimeSnapshot(
         state: .inactive,
         endpointID: nil,
@@ -65,7 +75,9 @@ public actor CmxIrohHostRuntime {
         handleTransport: @escaping TransportHandler,
         handleBinding: @escaping BindingHandler = { _, _, _ in },
         handleDeactivation: @escaping DeactivationHandler = { _ in },
-        handleRelayCredential: @escaping RelayCredentialHandler = { _, _ in }
+        handleRelayCredential: @escaping RelayCredentialHandler = { _, _ in },
+        handleLANRefresh: @escaping LANRefreshHandler = {},
+        handleLANPolicy: @escaping LANPolicyHandler = { _, _ in }
     ) {
         self.factory = factory
         self.broker = broker
@@ -76,10 +88,28 @@ public actor CmxIrohHostRuntime {
         self.handleBinding = handleBinding
         self.handleDeactivation = handleDeactivation
         self.handleRelayCredential = handleRelayCredential
+        self.handleLANRefresh = handleLANRefresh
+        self.handleLANPolicy = handleLANPolicy
     }
 
     public func snapshot() -> CmxIrohHostRuntimeSnapshot {
         currentSnapshot
+    }
+
+    /// Returns current verified private alias material without broker path hints.
+    public func lanAdvertisementContext() -> CmxIrohHostLANAdvertisementContext? {
+        guard desiredActive, let localBinding, let lanRendezvous else { return nil }
+        return CmxIrohHostLANAdvertisementContext(
+            binding: localBinding,
+            rendezvous: lanRendezvous
+        )
+    }
+
+    /// Reads raw local direct addresses only for the interface-filtering publisher.
+    public func localDirectAddresses() async -> [String] {
+        guard desiredActive,
+              let endpoint = try? await supervisor?.activeEndpoint() else { return [] }
+        return await endpoint.localDirectAddresses()
     }
 
     /// Activates connectivity and resolves authenticated broker policy before any cached fallback.
@@ -145,6 +175,7 @@ public actor CmxIrohHostRuntime {
             self.relayCoordinator = relayCoordinator
             localBinding = policy.binding
             endpointAttestation = policy.attestation
+            lanRendezvous = policy.lanRendezvous
 
             let server = CmxIrohEndpointServer(supervisor: supervisor) { [weak self] connection, generation in
                 guard let self else {
@@ -177,6 +208,12 @@ public actor CmxIrohHostRuntime {
                 endpointID: endpointID,
                 bindingID: policy.binding.bindingID
             )
+            await publishLANPolicy(
+                binding: policy.binding,
+                rendezvous: policy.lanRendezvous,
+                supervisor: supervisor
+            )
+            try requireCurrent(revision)
             if let registration = policy.registration,
                let discovery = policy.discovery {
                 await handleBinding(registration, discovery, policy.attestation)
@@ -317,7 +354,8 @@ public actor CmxIrohHostRuntime {
             pairingEnabled: discovered.pairingEnabled,
             grantVerificationKeys: discovery.grantVerificationKeys,
             attestation: attestation,
-            relayBootstrap: registrationRelayBootstrap(registration)
+            relayBootstrap: registrationRelayBootstrap(registration),
+            lanRendezvous: discovery.lanRendezvous
         )
     }
 
@@ -352,7 +390,8 @@ public actor CmxIrohHostRuntime {
             pairingEnabled: cached.pairingEnabled,
             grantVerificationKeys: cached.grantVerificationKeys,
             attestation: cached.endpointAttestation,
-            relayBootstrap: relayBootstrap ?? configuration.cachedRelayCredential
+            relayBootstrap: relayBootstrap ?? configuration.cachedRelayCredential,
+            lanRendezvous: cached.lanRendezvous
         )
     }
 
@@ -425,6 +464,7 @@ public actor CmxIrohHostRuntime {
                 guard !Task.isCancelled else { return }
                 switch event {
                 case .networkChanged, .recovered:
+                    await self?.handleLANRefresh()
                     await self?.scheduleRegistrationRefresh(revision: revision)
                 case .snapshot:
                     break
@@ -467,6 +507,13 @@ public actor CmxIrohHostRuntime {
             try requireCurrent(revision)
             localBinding = policy.binding
             endpointAttestation = policy.attestation ?? endpointAttestation
+            lanRendezvous = policy.lanRendezvous
+            await publishLANPolicy(
+                binding: policy.binding,
+                rendezvous: policy.lanRendezvous,
+                supervisor: supervisor
+            )
+            try requireCurrent(revision)
             guard let registration = policy.registration,
                   let discovery = policy.discovery else {
                 throw CmxIrohHostRuntimeError.invalidLocalBinding
@@ -548,6 +595,22 @@ public actor CmxIrohHostRuntime {
         )
     }
 
+    private func publishLANPolicy(
+        binding: CmxIrohBrokerBindingMetadata,
+        rendezvous: CmxIrohLANRendezvous,
+        supervisor: CmxIrohEndpointSupervisor
+    ) async {
+        let context = CmxIrohHostLANAdvertisementContext(
+            binding: binding,
+            rendezvous: rendezvous
+        )
+        let directAddresses: LANDirectAddressProvider = {
+            guard let endpoint = try? await supervisor.activeEndpoint() else { return [] }
+            return await endpoint.localDirectAddresses()
+        }
+        await handleLANPolicy(context, directAddresses)
+    }
+
     private func endpointExpectation(
         for binding: CmxIrohBrokerBindingMetadata
     ) -> CmxIrohEndpointExpectation {
@@ -607,6 +670,7 @@ public actor CmxIrohHostRuntime {
         let bindingID = localBinding?.bindingID
         localBinding = nil
         endpointAttestation = nil
+        lanRendezvous = nil
         await supervisor?.deactivate()
         supervisor = nil
         if notify { await handleDeactivation(bindingID) }

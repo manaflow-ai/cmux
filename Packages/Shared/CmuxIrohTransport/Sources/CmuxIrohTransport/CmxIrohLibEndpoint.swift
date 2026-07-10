@@ -91,6 +91,10 @@ actor CmxIrohLibEndpoint: CmxIrohEndpoint {
         return CmxIrohEndpointAddress(identity: peerIdentity, pathHints: hints)
     }
 
+    func localDirectAddresses() -> [String] {
+        driver.addr().directAddresses()
+    }
+
     func connect(
         to address: CmxIrohEndpointAddress,
         alpn: Data

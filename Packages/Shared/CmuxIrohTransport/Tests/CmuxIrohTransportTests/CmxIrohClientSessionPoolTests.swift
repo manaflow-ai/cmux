@@ -132,6 +132,83 @@ struct CmxIrohClientSessionPoolTests {
         #expect(await secondConnection.observedCloseCallCount() == 0)
         await pool.deactivate()
     }
+
+    @Test
+    func pooledSessionStartsPublicThenRefreshesAndValidatesLANFallback() async throws {
+        let fixture = try PoolFixture()
+        let now = Date()
+        let publicHint = try CmxIrohPathHint(
+            kind: .relayURL,
+            value: "https://use1-1.relay.lawrence.cmux.iroh.link/",
+            source: .native,
+            privacyScope: .publicInternet
+        )
+        let profile = try CmxIrohNetworkProfileKey(
+            source: .lan,
+            profileID: String(repeating: "b", count: 64)
+        )
+        let privateHint = try CmxIrohPathHint(
+            kind: .directAddress,
+            value: "192.168.1.10:50906",
+            source: .lan,
+            privacyScope: .localNetwork,
+            observedAt: now,
+            expiresAt: now.addingTimeInterval(60),
+            networkProfile: profile
+        )
+        let authorization = try CmxIrohPrivateFallbackAuthorization(
+            networkPathSnapshot: CmxIrohNetworkPathSnapshot(
+                generation: 9,
+                activeNetworkProfiles: [profile]
+            ),
+            pathHints: [privateHint],
+            admittedAt: now
+        )
+        let base = CmxIrohClientContext(
+            dialPlan: try testIrohDialPlan(publicPaths: [publicHint]),
+            credential: fixture.context.credential
+        )
+        let fallback = CmxIrohClientContext(
+            dialPlan: try testIrohDialPlan(
+                publicPaths: [publicHint],
+                privateFallbackPaths: [privateHint]
+            ),
+            credential: fixture.context.credential,
+            privateFallbackAuthorization: authorization
+        )
+        let provider = TestIrohClientContextProvider(
+            context: base,
+            fallbackContext: fallback
+        )
+        let connection = TestIrohConnection(
+            remoteIdentity: fixture.remoteIdentity,
+            bidirectionalStreams: [fixture.controlStream()]
+        )
+        let endpoint = TestDialingIrohEndpoint(
+            localIdentity: fixture.localIdentity,
+            dialResults: [
+                .failure(.unsupported),
+                .connection(connection),
+            ]
+        )
+        let pool = try await fixture.pool(
+            endpoint: endpoint,
+            generation: 1,
+            contextProvider: provider
+        )
+        let transport = try CmxIrohByteTransportFactory(sessionPool: pool)
+            .makeTransport(for: fixture.request)
+
+        try await transport.connect()
+
+        #expect(await endpoint.observedDialedAddresses().map(\.pathHints) == [
+            [publicHint],
+            [privateHint],
+        ])
+        #expect(await provider.observedFallbackRequestCount() == 1)
+        #expect(await provider.observedAuthorizations() == [authorization])
+        await transport.close()
+    }
 }
 
 private struct PoolFixture {
@@ -164,7 +241,8 @@ private struct PoolFixture {
 
     func pool(
         endpoint: TestDialingIrohEndpoint,
-        generation: UInt64
+        generation: UInt64,
+        contextProvider: (any CmxIrohClientContextProvider)? = nil
     ) async throws -> CmxIrohClientSessionPool {
         let configuration = try CmxIrohEndpointConfiguration(
             secretKey: CmxIrohSecretKey(bytes: Data(repeating: 7, count: 32)),
@@ -179,7 +257,8 @@ private struct PoolFixture {
         _ = try await supervisor.activate()
         let pool = CmxIrohClientSessionPool(
             supervisor: supervisor,
-            contextProvider: TestIrohClientContextProvider(context: context)
+            contextProvider: contextProvider
+                ?? TestIrohClientContextProvider(context: context)
         )
         await pool.activate(runtimeGeneration: generation)
         return pool

@@ -9,13 +9,17 @@ struct CmxIrohHostRuntimeTests {
     @Test
     func startBindsExactRegisteredIdentityAndStopClosesIt() async throws {
         let fixture = try HostRuntimeFixture()
-        let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
+        let endpoint = TestIrohEndpoint(
+            identity: fixture.endpointID,
+            directAddresses: ["192.168.1.10:50906"]
+        )
         let factory = TestIrohEndpointFactory(endpoints: [endpoint])
         let broker = TestIrohHostBroker(
             registrationBinding: fixture.binding,
             discovery: fixture.discovery
         )
         let deactivations = HostRuntimeDeactivationRecorder()
+        let lanPolicies = HostRuntimeLANPolicyRecorder()
         let runtime = CmxIrohHostRuntime(
             factory: factory,
             broker: broker,
@@ -23,6 +27,12 @@ struct CmxIrohHostRuntimeTests {
             handleTransport: { session, _ in await session.close() },
             handleDeactivation: { bindingID in
                 await deactivations.record(bindingID)
+            },
+            handleLANPolicy: { context, directAddresses in
+                await lanPolicies.record(
+                    context: context,
+                    directAddresses: await directAddresses()
+                )
             }
         )
 
@@ -38,12 +48,19 @@ struct CmxIrohHostRuntimeTests {
         #expect(configurations.first?.secretKey == fixture.identity.secretKey)
         #expect(configurations.first?.bindPolicy == .ephemeral)
         #expect(configurations.first?.managedRelayURLs == fixture.managedRelays)
+        let lan = try #require(await runtime.lanAdvertisementContext())
+        #expect(lan.binding == CmxIrohBrokerBindingMetadata(binding: fixture.binding))
+        #expect(lan.rendezvous == fixture.discovery.lanRendezvous)
+        #expect(await runtime.localDirectAddresses() == ["192.168.1.10:50906"])
+        #expect(await lanPolicies.contexts() == [lan])
+        #expect(await lanPolicies.addresses() == [["192.168.1.10:50906"]])
 
         await runtime.stop()
 
         #expect(await endpoint.observedCloseCallCount() == 1)
         #expect(await deactivations.values() == [fixture.binding.bindingID])
         #expect(await runtime.snapshot().state == .inactive)
+        #expect(await runtime.lanAdvertisementContext() == nil)
     }
 
     @Test
@@ -103,7 +120,74 @@ struct CmxIrohHostRuntimeTests {
 
         #expect(await broker.observedRegistrationCount() == 1)
         #expect(await runtime.snapshot().bindingID == cachedPolicy.binding.bindingID)
+        #expect(await runtime.lanAdvertisementContext()?.rendezvous == cachedPolicy.lanRendezvous)
         #expect(await bindings.count() == 0)
+        await runtime.stop()
+    }
+
+    @Test
+    func endpointNetworkChangeRequestsImmediateLANRefresh() async throws {
+        let fixture = try HostRuntimeFixture()
+        let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
+        let recorder = HostRuntimeLANRefreshRecorder()
+        let runtime = CmxIrohHostRuntime(
+            factory: TestIrohEndpointFactory(endpoints: [endpoint]),
+            broker: TestIrohHostBroker(
+                registrationBinding: fixture.binding,
+                discovery: fixture.discovery
+            ),
+            configuration: fixture.configuration,
+            handleTransport: { session, _ in await session.close() },
+            handleLANRefresh: { await recorder.record() }
+        )
+        try await runtime.start()
+
+        await endpoint.emit(.networkChanged)
+        await recorder.waitForRefresh()
+
+        #expect(await recorder.count() == 1)
+        await runtime.stop()
+    }
+
+    @Test
+    func refreshedVerifiedRendezvousReplacesPublishedLANPolicy() async throws {
+        let fixture = try HostRuntimeFixture()
+        let refreshedDiscovery = try HostRuntimeFixture.discovery(
+            binding: fixture.binding,
+            relays: Array(fixture.managedRelays),
+            lanGeneration: 2
+        )
+        let endpoint = TestIrohEndpoint(
+            identity: fixture.endpointID,
+            directAddresses: ["192.168.1.10:50906"]
+        )
+        let policies = HostRuntimeLANPolicyRecorder()
+        let runtime = CmxIrohHostRuntime(
+            factory: TestIrohEndpointFactory(endpoints: [endpoint]),
+            broker: TestIrohHostBroker(
+                registrationBinding: fixture.binding,
+                discovery: fixture.discovery,
+                subsequentDiscoveries: [refreshedDiscovery]
+            ),
+            configuration: fixture.configuration,
+            handleTransport: { session, _ in await session.close() },
+            handleLANPolicy: { context, directAddresses in
+                await policies.record(
+                    context: context,
+                    directAddresses: await directAddresses()
+                )
+            }
+        )
+        try await runtime.start()
+        await endpoint.emit(.networkChanged)
+        await policies.waitForCount(2)
+
+        #expect(await policies.contexts().map(\.rendezvous.generation) == [1, 2])
+        #expect(await policies.addresses() == [
+            ["192.168.1.10:50906"],
+            ["192.168.1.10:50906"],
+        ])
+        #expect(await runtime.lanAdvertisementContext()?.rendezvous.generation == 2)
         await runtime.stop()
     }
 
@@ -399,7 +483,8 @@ private struct HostRuntimeFixture {
         binding: CmxIrohBrokerBinding,
         relays: [String],
         overrideDeviceID: String? = nil,
-        routeContractVersion: Int = 1
+        routeContractVersion: Int = 1,
+        lanGeneration: Int = 1
     ) throws -> CmxIrohDiscoveryResponse {
         let bindingObject = try JSONSerialization.jsonObject(
             with: bindingJSON(
@@ -413,7 +498,7 @@ private struct HostRuntimeFixture {
             "bindings": [bindingObject],
             "relay_fleet": relays,
             "lan_rendezvous": [
-                "generation": 1,
+                "generation": lanGeneration,
                 "key": Data(repeating: 0, count: 32).base64URL,
             ],
             "grant_verification_keys": [
@@ -456,7 +541,7 @@ private struct HostRuntimeFixture {
 
 private actor TestIrohHostBroker: CmxIrohHostBrokerServing {
     private let registrationBinding: CmxIrohBrokerBinding
-    private let discoveryResponse: CmxIrohDiscoveryResponse
+    private var discoveryResponses: [CmxIrohDiscoveryResponse]
     private let registrationError: CmxIrohTrustBrokerClientError?
     private let discoveryError: CmxIrohTrustBrokerClientError?
     private var registrationCount = 0
@@ -464,11 +549,12 @@ private actor TestIrohHostBroker: CmxIrohHostBrokerServing {
     init(
         registrationBinding: CmxIrohBrokerBinding,
         discovery: CmxIrohDiscoveryResponse,
+        subsequentDiscoveries: [CmxIrohDiscoveryResponse] = [],
         registrationError: CmxIrohTrustBrokerClientError? = nil,
         discoveryError: CmxIrohTrustBrokerClientError? = nil
     ) {
         self.registrationBinding = registrationBinding
-        discoveryResponse = discovery
+        discoveryResponses = [discovery] + subsequentDiscoveries
         self.registrationError = registrationError
         self.discoveryError = discoveryError
     }
@@ -487,7 +573,10 @@ private actor TestIrohHostBroker: CmxIrohHostBrokerServing {
 
     func discover() throws -> CmxIrohDiscoveryResponse {
         if let discoveryError { throw discoveryError }
-        return discoveryResponse
+        guard discoveryResponses.count > 1 else {
+            return discoveryResponses[0]
+        }
+        return discoveryResponses.removeFirst()
     }
 
     func issueEndpointAttestation(
@@ -522,6 +611,52 @@ private actor HostRuntimeDeactivationRecorder {
 
     func record(_ bindingID: String?) { recorded.append(bindingID) }
     func values() -> [String?] { recorded }
+}
+
+private actor HostRuntimeLANRefreshRecorder {
+    private var recordedCount = 0
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func record() {
+        recordedCount += 1
+        let pending = waiters
+        waiters.removeAll()
+        for waiter in pending { waiter.resume() }
+    }
+
+    func waitForRefresh() async {
+        if recordedCount > 0 { return }
+        await withCheckedContinuation { waiters.append($0) }
+    }
+
+    func count() -> Int { recordedCount }
+}
+
+private actor HostRuntimeLANPolicyRecorder {
+    private var recordedContexts: [CmxIrohHostLANAdvertisementContext] = []
+    private var recordedAddresses: [[String]] = []
+    private var waiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
+
+    func record(
+        context: CmxIrohHostLANAdvertisementContext,
+        directAddresses: [String]
+    ) {
+        recordedContexts.append(context)
+        recordedAddresses.append(directAddresses)
+        let ready = waiters.filter { recordedContexts.count >= $0.count }
+        waiters.removeAll { recordedContexts.count >= $0.count }
+        for waiter in ready { waiter.continuation.resume() }
+    }
+
+    func contexts() -> [CmxIrohHostLANAdvertisementContext] { recordedContexts }
+    func addresses() -> [[String]] { recordedAddresses }
+
+    func waitForCount(_ count: Int) async {
+        if recordedContexts.count >= count { return }
+        await withCheckedContinuation { continuation in
+            waiters.append((count, continuation))
+        }
+    }
 }
 
 private extension Data {

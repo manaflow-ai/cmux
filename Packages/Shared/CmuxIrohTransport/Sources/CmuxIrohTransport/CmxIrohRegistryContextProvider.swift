@@ -3,11 +3,23 @@ public import Foundation
 
 /// Resolves fresh same-account reachability and a locally verified pair grant per dial.
 public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
+    public typealias LANFallbackProvider = @Sendable (
+        _ target: CmxIrohBrokerBindingMetadata,
+        _ authenticatedBindings: [CmxIrohBrokerBindingMetadata],
+        _ rendezvous: CmxIrohLANRendezvous
+    ) async -> [CmxIrohPathHint]
+
     private struct GrantCache: Sendable {
         let initiator: CmxIrohGrantPeer
         let acceptor: CmxIrohGrantPeer
         let response: CmxIrohPairGrantResponse
         let expiresAt: Date
+    }
+
+    private struct LANAuthority: Sendable {
+        let target: CmxIrohBrokerBinding
+        let bindings: [CmxIrohBrokerBinding]
+        let rendezvous: CmxIrohLANRendezvous
     }
 
     private let supervisor: CmxIrohEndpointSupervisor
@@ -16,9 +28,11 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
     private let managedRelayURLs: Set<String>
     private let networkPathSnapshot: (@Sendable () async throws -> CmxIrohNetworkPathSnapshot)?
     private let offlinePolicy: CmxIrohClientOfflinePolicyContext?
+    private let lanFallback: LANFallbackProvider?
     private let verifier: CmxIrohGrantVerifier
     private let now: @Sendable () -> Date
     private var grantCache: [CmxIrohPeerIdentity: GrantCache] = [:]
+    private var lanAuthorities: [CmxIrohPeerIdentity: LANAuthority] = [:]
 
     /// Creates a public-route provider from the legacy generation-less seam.
     ///
@@ -31,6 +45,7 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         managedRelayURLs: Set<String>,
         activeNetworkProfiles: @escaping @Sendable () async -> Set<CmxIrohNetworkProfileKey>,
         offlinePolicy: CmxIrohClientOfflinePolicyContext? = nil,
+        lanFallback: LANFallbackProvider? = nil,
         verifier: CmxIrohGrantVerifier = CmxIrohGrantVerifier(),
         now: @escaping @Sendable () -> Date = { Date() }
     ) {
@@ -41,6 +56,7 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         _ = activeNetworkProfiles
         networkPathSnapshot = nil
         self.offlinePolicy = offlinePolicy
+        self.lanFallback = lanFallback
         self.verifier = verifier
         self.now = now
     }
@@ -53,6 +69,7 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         managedRelayURLs: Set<String>,
         networkPathSnapshot: @escaping @Sendable () async throws -> CmxIrohNetworkPathSnapshot,
         offlinePolicy: CmxIrohClientOfflinePolicyContext? = nil,
+        lanFallback: LANFallbackProvider? = nil,
         verifier: CmxIrohGrantVerifier = CmxIrohGrantVerifier(),
         now: @escaping @Sendable () -> Date = { Date() }
     ) {
@@ -62,6 +79,7 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         self.managedRelayURLs = managedRelayURLs
         self.networkPathSnapshot = networkPathSnapshot
         self.offlinePolicy = offlinePolicy
+        self.lanFallback = lanFallback
         self.verifier = verifier
         self.now = now
     }
@@ -75,6 +93,7 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
               case let .peer(targetIdentity, routeHints) = route.endpoint else {
             throw CmxIrohRegistryContextError.unsupportedRoute
         }
+        lanAuthorities.removeValue(forKey: targetIdentity)
         let endpoint = try await supervisor.activeEndpoint()
         let localIdentity = await endpoint.identity()
         guard localBindingExpectation.platform == .ios,
@@ -94,6 +113,7 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
                   ) else {
                 throw error
             }
+            rememberCachedLANAuthority(cached)
             return try await context(
                 targetBinding: cached.targetBinding,
                 routeHints: routeHints,
@@ -107,6 +127,7 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         guard Set(discovery.relayFleet) == managedRelayURLs else {
             throw CmxIrohRegistryContextError.relayFleetMismatch
         }
+        lanAuthorities.removeAll(keepingCapacity: false)
         let localMatches = discovery.bindings.filter {
             localBindingExpectation.matches($0)
         }
@@ -126,6 +147,7 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         guard targetBinding.pairingEnabled else {
             throw CmxIrohRegistryContextError.targetNotPairable
         }
+        replaceLANAuthorities(with: discovery)
         let initiator = CmxIrohGrantPeer(binding: localBinding)
         let acceptor = CmxIrohGrantPeer(binding: targetBinding)
         let clock = now()
@@ -147,6 +169,7 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
                   ) else {
                 throw error
             }
+            rememberCachedLANAuthority(cached, bindings: discovery.bindings)
             return try await context(
                 targetBinding: cached.targetBinding,
                 routeHints: routeHints,
@@ -232,6 +255,122 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
             confirmedDiscovery: confirmedDiscovery,
             now: clock
         )
+    }
+
+    public func contextWithPrivateFallback(
+        for request: CmxByteTransportRequest,
+        basedOn context: CmxIrohClientContext
+    ) async throws -> CmxIrohClientContext {
+        guard request.route.kind == .iroh,
+              request.authorizationMode == .transportAdmission,
+              let expectedDeviceID = request.expectedPeerDeviceID,
+              case let .peer(targetIdentity, _) = request.route.endpoint,
+              let authority = lanAuthorities[targetIdentity],
+              authority.target.endpointID == targetIdentity,
+              authority.target.deviceID == expectedDeviceID else {
+            return context
+        }
+        let lanHints = await localFallbackHints(
+            target: authority.target,
+            bindings: authority.bindings,
+            rendezvous: authority.rendezvous
+        )
+        guard !lanHints.isEmpty else { return context }
+        let clock = now()
+        let combined = Self.mergeHints(
+            primary: context.dialPlan.publicPaths + context.dialPlan.privateFallbackPaths,
+            fallback: lanHints,
+            at: clock,
+            managedRelayURLs: managedRelayURLs,
+            activeNetworkProfiles: (try await availableNetworkPathSnapshot(
+                for: lanHints,
+                at: clock
+            ))?.activeNetworkProfiles ?? []
+        )
+        let pathSnapshot = try await availableNetworkPathSnapshot(
+            for: combined,
+            at: clock
+        )
+        let profiles = pathSnapshot?.activeNetworkProfiles ?? []
+        guard let dialPlan = CmxAttachEndpoint.peer(
+            identity: targetIdentity,
+            pathHints: combined
+        ).irohDialPlan(
+            at: clock,
+            managedRelayURLs: managedRelayURLs,
+            activeNetworkProfiles: profiles
+        ), dialPlan.publicPaths == context.dialPlan.publicPaths else {
+            return context
+        }
+        let authorization: CmxIrohPrivateFallbackAuthorization?
+        if let pathSnapshot, !dialPlan.privateFallbackPaths.isEmpty {
+            authorization = try CmxIrohPrivateFallbackAuthorization(
+                networkPathSnapshot: pathSnapshot,
+                pathHints: dialPlan.privateFallbackPaths,
+                admittedAt: clock
+            )
+        } else {
+            authorization = nil
+        }
+        return CmxIrohClientContext(
+            dialPlan: dialPlan,
+            credential: context.credential,
+            privateFallbackAuthorization: authorization
+        )
+    }
+
+    private func localFallbackHints(
+        target: CmxIrohBrokerBinding,
+        bindings: [CmxIrohBrokerBinding],
+        rendezvous: CmxIrohLANRendezvous
+    ) async -> [CmxIrohPathHint] {
+        guard let lanFallback else { return [] }
+        let result = await lanFallback(
+            CmxIrohBrokerBindingMetadata(binding: target),
+            bindings.map(CmxIrohBrokerBindingMetadata.init(binding:)),
+            rendezvous
+        )
+        return Array(result.prefix(CmxIrohLANTXTRecord.maximumAddressCount)).filter {
+            $0.kind == .directAddress
+                && $0.source == .lan
+                && $0.privacyScope == .localNetwork
+                && $0.networkProfile?.source == .lan
+        }
+    }
+
+    private func replaceLANAuthorities(with discovery: CmxIrohDiscoveryResponse) {
+        var replacement: [CmxIrohPeerIdentity: LANAuthority] = [:]
+        let pairableMacs = discovery.bindings.filter {
+            $0.platform == .mac && $0.pairingEnabled
+        }
+        let counts = Dictionary(grouping: pairableMacs, by: \.endpointID).mapValues(\.count)
+        for target in pairableMacs.prefix(32) where counts[target.endpointID] == 1 {
+            replacement[target.endpointID] = LANAuthority(
+                target: target,
+                bindings: discovery.bindings,
+                rendezvous: discovery.lanRendezvous
+            )
+        }
+        lanAuthorities = replacement
+    }
+
+    private func rememberCachedLANAuthority(
+        _ policy: CmxIrohCachedClientPolicy,
+        bindings: [CmxIrohBrokerBinding]? = nil
+    ) {
+        guard policy.targetBinding.platform == .mac,
+              policy.targetBinding.pairingEnabled else { return }
+        lanAuthorities[policy.targetBinding.endpointID] = LANAuthority(
+            target: policy.targetBinding,
+            bindings: bindings ?? [policy.targetBinding],
+            rendezvous: policy.lanRendezvous
+        )
+        if lanAuthorities.count > 32 {
+            let keep = Set(lanAuthorities.keys.sorted {
+                $0.endpointID < $1.endpointID
+            }.prefix(32))
+            lanAuthorities = lanAuthorities.filter { keep.contains($0.key) }
+        }
     }
 
     public func validatePrivateFallback(

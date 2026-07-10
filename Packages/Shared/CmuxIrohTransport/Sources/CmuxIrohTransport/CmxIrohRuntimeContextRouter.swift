@@ -18,4 +18,26 @@ actor CmxIrohRuntimeContextRouter: CmxIrohClientContextProvider {
         }
         return try await provider.context(for: request)
     }
+
+    func contextWithPrivateFallback(
+        for request: CmxByteTransportRequest,
+        basedOn context: CmxIrohClientContext
+    ) async throws -> CmxIrohClientContext {
+        guard let provider else {
+            throw CmxIrohRegistryContextError.localBindingUnavailable
+        }
+        return try await provider.contextWithPrivateFallback(
+            for: request,
+            basedOn: context
+        )
+    }
+
+    func validatePrivateFallback(
+        _ authorization: CmxIrohPrivateFallbackAuthorization
+    ) async throws {
+        guard let provider else {
+            throw CmxIrohPrivateFallbackValidationError.unavailable
+        }
+        try await provider.validatePrivateFallback(authorization)
+    }
 }

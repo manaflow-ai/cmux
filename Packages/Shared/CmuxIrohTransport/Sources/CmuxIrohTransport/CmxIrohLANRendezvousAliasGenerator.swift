@@ -69,7 +69,7 @@ public struct CmxIrohLANRendezvousAliasGenerator: Sendable {
         return match
     }
 
-    private func alias(
+    func alias(
         for binding: CmxIrohBrokerBindingMetadata,
         epoch: Int64
     ) throws -> String {
@@ -85,7 +85,7 @@ public struct CmxIrohLANRendezvousAliasGenerator: Sendable {
             .joined()
     }
 
-    private static func epoch(for date: Date) throws -> Int64 {
+    static func epoch(for date: Date) throws -> Int64 {
         let value = date.timeIntervalSince1970
         guard value.isFinite, value >= 0,
               value <= TimeInterval(Int64.max) * rotationInterval else {
@@ -94,7 +94,7 @@ public struct CmxIrohLANRendezvousAliasGenerator: Sendable {
         return Int64((value / rotationInterval).rounded(.down))
     }
 
-    private static func isCanonicalAlias(_ value: String) -> Bool {
+    static func isCanonicalAlias(_ value: String) -> Bool {
         value.utf8.count == 32 && value.utf8.allSatisfy { byte in
             (48 ... 57).contains(byte) || (97 ... 102).contains(byte)
         }

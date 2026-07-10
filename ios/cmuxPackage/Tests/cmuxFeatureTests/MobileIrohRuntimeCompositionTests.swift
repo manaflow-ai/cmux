@@ -57,6 +57,53 @@ struct MobileIrohRuntimeCompositionTests {
     }
 
     @Test
+    func lanProfileAuthorizationIsBoundToPathGenerationAndRevocation() async throws {
+        let state = MobileIrohNetworkPathState()
+        let profile = try CmxIrohNetworkProfileKey(
+            source: .lan,
+            profileID: String(repeating: "a", count: 64)
+        )
+
+        #expect(await state.authorizeLANProfile(
+            profile,
+            generation: 2,
+            interfaceIndex: 4
+        ) == false)
+        #expect(await state.authorizeLANProfile(
+            profile,
+            generation: 1,
+            interfaceIndex: 0
+        ) == false)
+        #expect(await state.authorizeLANProfile(
+            profile,
+            generation: 1,
+            interfaceIndex: 4
+        ))
+        #expect(await state.snapshot().activeNetworkProfiles == [profile])
+
+        await state.revokeLANProfile(profile, generation: 2)
+        #expect(await state.snapshot().activeNetworkProfiles == [profile])
+
+        await state.revokeLANProfile(profile, generation: 1)
+        #expect(await state.snapshot().activeNetworkProfiles.isEmpty)
+
+        #expect(await state.authorizeLANProfile(
+            profile,
+            generation: 1,
+            interfaceIndex: 4
+        ))
+        await state.pathDidChange()
+        let changed = await state.snapshot()
+        #expect(changed.generation == 2)
+        #expect(changed.activeNetworkProfiles.isEmpty)
+        #expect(await state.authorizeLANProfile(
+            profile,
+            generation: 1,
+            interfaceIndex: 4
+        ) == false)
+    }
+
+    @Test
     func verifiedPersonalMacDiscoveryMergesIntoPairedRefreshOnly() async throws {
         let macDeviceID = "123e4567-e89b-42d3-a456-426614174041"
         let discovery = try mobileIrohDiscovery(
