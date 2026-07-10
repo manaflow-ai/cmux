@@ -95,7 +95,6 @@ jobs:
       - name: Validate macOS lane routing variables
         env:
           MACOS_RUNNER_DUAL_XCODE_VALUE: ${{ vars.MACOS_RUNNER_DUAL_XCODE }}
-          MACOS_RUNNER_APP_HOST_VALUE: ${{ vars.MACOS_RUNNER_APP_HOST }}
         run: ./scripts/ci/check-macos-runner-routing.sh
 
       - name: Validate macOS lane routing guard behavior
@@ -409,15 +408,9 @@ jobs:
     name: app-host unit tests (${{ matrix.shard }}/4)
     # App-host XCTest needs a runner that can broker testmanagerd control
     # sessions. Validated head-to-head that warp-macos-15-arm64-6x runs the
-    # full app-host suite with 0 unexpected failures.
-    # Routed through a dedicated lane variable, NOT the shared MACOS_RUNNER_15:
-    # the 2026-07-10 Tart cutover flipped MACOS_RUNNER_15 to tart-macos-15 and
-    # a poisoned tart slot (tart-cmux-austins-mac-mini-1) repeatedly failed
-    # shard 4 on main. Point MACOS_RUNNER_APP_HOST at a new runner type only
-    # after all four shards prove green on it; the routing guard in
-    # workflow-guard-tests (scripts/ci/check-macos-runner-routing.sh) enforces
-    # the validated allowlist.
-    runs-on: ${{ vars.MACOS_RUNNER_APP_HOST || 'warp-macos-15-arm64-6x' }}
+    # full app-host suite with 0 unexpected failures, so route through the
+    # shared MACOS_RUNNER_15 var like the other macOS jobs.
+    runs-on: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}
     timeout-minutes: 75
     strategy:
       fail-fast: false
@@ -724,6 +717,32 @@ jobs:
           CMUX_SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages" \
             ./tests/test_bundled_ghostty_theme_picker_helper.sh
 
+      - name: Ensure node for wrapper regressions
+        id: detect-node
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        run: |
+          set -euo pipefail
+          # The claude wrapper regressions below exec `node` from fake claude
+          # binaries. The tart-macos-15 runner image shipped without node on
+          # the runner PATH (2026-07-10), which failed every branch. Reuse an
+          # image-provided node when present; otherwise install one below.
+          for candidate in "$(command -v node || true)" /opt/homebrew/bin/node /usr/local/bin/node; do
+            if [ -n "$candidate" ] && [ -x "$candidate" ]; then
+              dirname "$candidate" >> "$GITHUB_PATH"
+              "$candidate" --version
+              echo "found=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          done
+          echo "no node runtime in the runner image; installing via setup-node"
+          echo "found=false" >> "$GITHUB_OUTPUT"
+
+      - name: Install node (runner image has none)
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) && steps.detect-node.outputs.found == 'false' }}
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "20"
+
       - name: Run CLI no-socket regressions
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
         run: |
@@ -842,15 +861,13 @@ jobs:
     # transitive skip otherwise marks every macOS job skipped even when
     # linux-preflight itself succeeds. Require the direct needs explicitly.
     if: ${{ !cancelled() && needs.changes.result == 'success' && needs.linux-preflight.result == 'success' && needs.changes.outputs.macos == 'true' }}
-    # Needs a dual-Xcode image: an SDK-15 Xcode (16.x) for the universal
-    # Ghostty CLI helper plus the pinned SDK-26 Xcode for the package tests.
-    # Routed through a dedicated lane variable, NOT the shared MACOS_RUNNER_15:
-    # the 2026-07-10 Tart cutover flipped MACOS_RUNNER_15 to tart-macos-15,
-    # whose image ships only SDK-26 Xcodes, and this job died on every branch
-    # with "No Xcode.app found ... with macOS SDK major 15". The routing guard
-    # in workflow-guard-tests (scripts/ci/check-macos-runner-routing.sh)
-    # enforces the validated dual-Xcode allowlist for this variable.
-    runs-on: ${{ vars.MACOS_RUNNER_DUAL_XCODE || 'warp-macos-15-arm64-6x' }}
+    # Build the release helper with SDK 15, then run package tests with SDK 26.
+    # This dual-Xcode lane variable must stay on an image shipping BOTH Xcodes
+    # (2026-07-10: MACOS_RUNNER_15=tart-macos-15 killed this job on every
+    # branch because the Tart image has no SDK-15 Xcode). The routing guard in
+    # workflow-guard-tests (scripts/ci/check-macos-runner-routing.sh) enforces
+    # the validated allowlist for this variable.
+    runs-on: ${{ vars.MACOS_RUNNER_DUAL_XCODE || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: 40
     env:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_15 }}
