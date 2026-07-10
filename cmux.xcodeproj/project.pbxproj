@@ -1604,6 +1604,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		5659B0015659B0015659B001 /* WorkspaceSidebarLogEntryLimitProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5659B0025659B0025659B002 /* WorkspaceSidebarLogEntryLimitProvider.swift */; };
 		5659A0015659A0015659A001 /* WorkspaceSidebarObservation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5659A0025659A0025659A002 /* WorkspaceSidebarObservation.swift */; };
 		5659A0035659A0035659A003 /* WorkspaceSidebarObservationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5659A0045659A0045659A004 /* WorkspaceSidebarObservationTests.swift */; };
+		4CC1722A934F4D8B99FC64C5 /* WorkspaceSidebarProcessTitleObservationModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AF91981B8F4A2690981D2D /* WorkspaceSidebarProcessTitleObservationModel.swift */; };
 		A1F4B4A6F4F043FCB3288A3D /* WorkspaceSidebarProcessTitleObservationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14D09524E94048DBB6773437 /* WorkspaceSidebarProcessTitleObservationTests.swift */; };
 		F0F0A001A1B2C3D4E5F60718 /* WorkspaceSidebarScrollUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0F0A002A1B2C3D4E5F60718 /* WorkspaceSidebarScrollUITests.swift */; };
 		6B524A0CB34FD46A771335AB /* WorkspaceSplitStartupCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71F8ED92A4B55D34BE6A0668 /* WorkspaceSplitStartupCommandTests.swift */; };
@@ -3219,6 +3220,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		5659B0025659B0025659B002 /* WorkspaceSidebarLogEntryLimitProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSidebarLogEntryLimitProvider.swift; sourceTree = "<group>"; };
 		5659A0025659A0025659A002 /* WorkspaceSidebarObservation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSidebarObservation.swift; sourceTree = "<group>"; };
 		5659A0045659A0045659A004 /* WorkspaceSidebarObservationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSidebarObservationTests.swift; sourceTree = "<group>"; };
+		D7AF91981B8F4A2690981D2D /* WorkspaceSidebarProcessTitleObservationModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSidebarProcessTitleObservationModel.swift; sourceTree = "<group>"; };
 		14D09524E94048DBB6773437 /* WorkspaceSidebarProcessTitleObservationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSidebarProcessTitleObservationTests.swift; sourceTree = "<group>"; };
 		F0F0A002A1B2C3D4E5F60718 /* WorkspaceSidebarScrollUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSidebarScrollUITests.swift; sourceTree = "<group>"; };
 		71F8ED92A4B55D34BE6A0668 /* WorkspaceSplitStartupCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSplitStartupCommandTests.swift; sourceTree = "<group>"; };
@@ -3802,6 +3804,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C0DE43000000000000000008 /* Workspace+AgentChat.swift */,
 				C3744E040000000000000001 /* AgentPIDProcessIdentity.swift */,
 				6799A0026799A0026799A002 /* WorkspaceSidebarAgentRuntimeObservationModel.swift */,
+				D7AF91981B8F4A2690981D2D /* WorkspaceSidebarProcessTitleObservationModel.swift */,
 				D21553D9A12B4EE4974E1943 /* Workspace+TitleOwnership.swift */,
 				A91C0D0E0000000000000001 /* TerminalTabAgentIcon.swift */,
 				C0A1E5CE01C0A1E5CE01A002 /* CoalesceLatestPublisher.swift */,
@@ -6396,6 +6399,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				6799A0016799A0016799A001 /* WorkspaceSidebarAgentRuntimeObservationModel.swift in Sources */,
 				5659B0015659B0015659B001 /* WorkspaceSidebarLogEntryLimitProvider.swift in Sources */,
 				5659A0015659A0015659A001 /* WorkspaceSidebarObservation.swift in Sources */,
+				4CC1722A934F4D8B99FC64C5 /* WorkspaceSidebarProcessTitleObservationModel.swift in Sources */,
 				D7AB34400000000000000001 /* WorkspaceSurfaceConfig.swift in Sources */,
 				C0DE32470000000000000003 /* WorkspaceSurfaceIdentifierClipboardText.swift in Sources */,
 				E3B7A4000000000000000003 /* WorkspaceTabColorEntry.swift in Sources */,
