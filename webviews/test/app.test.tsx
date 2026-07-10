@@ -129,6 +129,10 @@ test("custom-scheme pending pages stream exactly one typed Rust session", async 
           capabilityToken: "0123456789abcdef",
           pendingReplacement: true,
           sessionSource: { kind: "branch", repoRoot: "/tmp/repo", baseRef: "main" },
+          sourceOptions: [
+            { label: "Branch", selected: true, url: "cmux-diff-viewer://0123456789abcdef/branch.html", value: "branch" },
+            { label: "Unstaged", selected: false, url: "cmux-diff-viewer://0123456789abcdef/unstaged.html", value: "unstaged" },
+          ],
           statusMessage: "Loading diff",
           title: "Diff",
           transport: { kind: "webKit", endpoint: "cmuxDiff", protocolVersion: 1 },
@@ -143,8 +147,12 @@ test("custom-scheme pending pages stream exactly one typed Rust session", async 
   expect(requests[0].params.source).toEqual({ kind: "branch", repoRoot: "/tmp/repo", baseRef: "main" });
   expect(fetched).toEqual(["cmux-diff-viewer://0123456789abcdef/diff-session.patch"]);
   expect(requests.filter((request) => request.method === "sessionClose")).toHaveLength(0);
-  dom.window.dispatchEvent(new dom.window.Event("pagehide"));
+  const sourceSelect = dom.window.document.getElementById("source-select") as HTMLSelectElement;
+  sourceSelect.value = "unstaged";
+  sourceSelect.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
   await waitFor(() => requests.some((request) => request.method === "sessionClose"));
+  expect(requests.map((request) => request.method)).toEqual(["sessionOpen", "sessionClose"]);
+  dom.window.dispatchEvent(new dom.window.Event("pagehide"));
   expect(requests.filter((request) => request.method === "sessionClose")).toHaveLength(1);
   flushSync(() => root?.unmount());
   root = null;

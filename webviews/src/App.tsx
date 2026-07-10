@@ -252,6 +252,7 @@ export function App({ config, initialStatus }: ConfigProps) {
   const latestState = useSyncedRef(state);
   const codeViewRef = useRef<CodeViewHandle<any> | null>(null);
   const copyFallbackRef = useRef<HTMLTextAreaElement | null>(null);
+  const sessionCloserRef = useRef<(() => Promise<void>) | null>(null);
   const viewerContainerRef = useRef<HTMLDivElement | null>(null);
   const workerModuleURL = resolveDiffViewerAssetURL(config.assets?.workerModuleURL);
   const workerPoolOptions = createDiffWorkerPoolOptions(workerModuleURL);
@@ -270,7 +271,7 @@ export function App({ config, initialStatus }: ConfigProps) {
 
   usePageDataAttributes(state);
   usePendingReplacement(payload, label, dispatch, transport);
-  useRenderDiff(config, transport, label, dispatch, latestState, setActivePatchURL);
+  useRenderDiff(config, transport, label, dispatch, latestState, setActivePatchURL, sessionCloserRef);
   useCommentsBootstrap(bridgeAvailable ? repoRoot : null, comments.onLoaded);
   useKeyboardShortcuts(payload.shortcuts ?? {}, viewerContainerRef, dispatch);
   useOptionsDismiss(state.optionsOpen, dispatch);
@@ -359,11 +360,15 @@ export function App({ config, initialStatus }: ConfigProps) {
           }
         }}
         onJump={scrollToItem}
-        onNavigate={(url) => {
+        onNavigate={async (url) => {
           setStatus(createDiffViewerStatus(label("loadingDiff"), { pending: true }));
+          await sessionCloserRef.current?.();
           window.location.href = resolveDiffNavigationURL(url);
         }}
-        onReload={() => window.location.reload()}
+        onReload={async () => {
+          await sessionCloserRef.current?.();
+          window.location.reload();
+        }}
         onSetLayout={setLayout}
         dispatch={dispatch}
         state={state}
@@ -1395,6 +1400,7 @@ function useRenderDiff(
   dispatch: React.Dispatch<AppAction>,
   latestState: React.MutableRefObject<AppState>,
   onPatchURL: (url: string) => void,
+  sessionCloserRef: React.MutableRefObject<(() => Promise<void>) | null>,
 ) {
   const started = useRef(false);
   useEffect(() => {
@@ -1412,18 +1418,24 @@ function useRenderDiff(
     }
     let cancelled = false;
     let openedSessionId: string | null = null;
-    const closeOpenedSession = () => {
+    const closeOpenedSession = async () => {
       const sessionId = openedSessionId;
       if (!sessionId || !transport) {
         return;
       }
       openedSessionId = null;
-      void transport.request({
-        method: "sessionClose",
-        params: { sessionId, capabilityToken: String(payload.capabilityToken ?? "") },
-      }).catch(() => {});
+      try {
+        await transport.request({
+          method: "sessionClose",
+          params: { sessionId, capabilityToken: String(payload.capabilityToken ?? "") },
+        });
+      } catch {}
     };
-    window.addEventListener("pagehide", closeOpenedSession);
+    const handlePageHide = () => {
+      void closeOpenedSession();
+    };
+    sessionCloserRef.current = closeOpenedSession;
+    window.addEventListener("pagehide", handlePageHide);
     void (async () => {
       try {
         let patchURL = payload.patchURL as string | undefined;
@@ -1502,10 +1514,13 @@ function useRenderDiff(
     })();
     return () => {
       cancelled = true;
-      window.removeEventListener("pagehide", closeOpenedSession);
-      closeOpenedSession();
+      window.removeEventListener("pagehide", handlePageHide);
+      if (sessionCloserRef.current === closeOpenedSession) {
+        sessionCloserRef.current = null;
+      }
+      void closeOpenedSession();
     };
-  }, [config, dispatch, label, latestState, onPatchURL, transport]);
+  }, [config, dispatch, label, latestState, onPatchURL, sessionCloserRef, transport]);
 }
 
 function diffSessionRequest(payload: any, transport: DiffTransport | null): {
