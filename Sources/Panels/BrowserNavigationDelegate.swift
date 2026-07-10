@@ -309,21 +309,7 @@ import WebKit
             return
         }
 
-        if let url = navigationAction.request.url,
-           authCallbackNavigationPolicy.shouldOpenNativeAuthCallbackInApp(navigationAction, url: url) {
-            clearAttemptedRequest(discardPendingBypasses: true)
-            let reportTerminalCancellation = terminalPolicyCancellationReporter?(navigationAction, webView) ?? {}
-            let opened = NSWorkspace.shared.open(url)
-#if DEBUG
-            cmuxDebugLog(
-                "browser.nav.decidePolicy.action kind=openNativeAuthCallbackInApp opened=\(opened ? 1 : 0) " +
-                "scheme=\(url.scheme ?? "nil")"
-            )
-#endif
-            if opened { reportTerminalCancellation() }
-            // Cancel even when open fails: WKWebView cannot render a native
-            // scheme URL, so allowing it only produces an error page.
-            decisionHandler(.cancel)
+        if handleAuthCallbackNavigationAction(navigationAction, webView: webView, decisionHandler: decisionHandler) {
             return
         }
 
@@ -441,7 +427,7 @@ import WebKit
         decisionHandler(.allow)
     }
 
-    private let authCallbackNavigationPolicy = BrowserAuthCallbackNavigationPolicy()
+    let authCallbackNavigationPolicy = BrowserAuthCallbackNavigationPolicy()
 
     private func shouldOpenCheckoutInSystemBrowser(_ navigationAction: WKNavigationAction, url: URL) -> Bool {
         guard navigationAction.targetFrame?.isMainFrame != false else { return false }
