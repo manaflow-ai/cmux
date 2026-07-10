@@ -55,8 +55,16 @@ public final class CmuxResolvedIconImageView: NSView {
         }
         let nextKey = RenderKey(request: request, appearance: effectiveAppearance)
         guard force || renderKey != nextKey else { return }
-        renderKey = nextKey
-        imageView.image = renderer.image(for: request, appearance: effectiveAppearance)
+        switch renderer.render(for: request, appearance: effectiveAppearance) {
+        case .success(let image):
+            renderKey = nextKey
+            imageView.image = image
+        case .failure(.sourceUnavailable):
+            renderKey = nextKey
+            imageView.image = nil
+        case .failure(.blankOutput):
+            renderKey = nil
+        }
         imageView.contentTintColor = nil
     }
 
