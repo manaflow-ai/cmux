@@ -46,6 +46,12 @@ extension ControlCommandCoordinator {
                 "opened": .bool(true),
                 "target": .string(target),
             ]))
+        case .failed(let message):
+            return .err(
+                code: "unavailable",
+                message: message,
+                data: .object(["target": orNull(targetRaw)])
+            )
         }
     }
 

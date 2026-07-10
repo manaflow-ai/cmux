@@ -1,36 +1,15 @@
 import CmuxSettings
 import SwiftUI
 
-/// The settings window SwiftUI `Scene`.
+/// Root view of the settings window, hosted in an AppKit-owned
+/// `NSWindow` by the app's `SettingsWindowFactory` (cmux issue
+/// #7777; a SwiftUI `Window` scene's `openWindow(id:)` could
+/// silently no-op and strand the open path).
 ///
 /// Composes a single tall `ScrollView` of stacked sections — the
 /// legacy in-app layout — with a left sidebar that scrolls to a
-/// section's anchor on click. This mirrors what cmux's settings
-/// window has historically looked like; using a `NavigationSplitView`
-/// with one-pane-at-a-time selection was a previous (now reverted)
-/// architecture choice.
-@MainActor
-public struct SettingsWindowScene: Scene {
-    private let runtime: SettingsRuntime
-
-    public init(runtime: SettingsRuntime) {
-        self.runtime = runtime
-    }
-
-    public var body: some Scene {
-        WindowGroup(String(localized: "settings.title", defaultValue: "Settings"), id: "cmux.settings") {
-            SettingsWindowRoot(runtime: runtime)
-                .settingsRuntime(runtime)
-        }
-        .defaultSize(width: 980, height: 680)
-        .windowResizability(.contentMinSize)
-        .commands { SidebarCommands() }
-    }
-}
-
-/// Root view of the settings window. Owns the search query, the
-/// scroll proxy, and the section anchors. Renders sidebar + tall
-/// scrolling content side-by-side.
+/// section's anchor on click. Owns the search query, the scroll
+/// proxy, and the section anchors.
 @MainActor
 public struct SettingsWindowRoot: View {
     private let runtime: SettingsRuntime
@@ -50,8 +29,10 @@ public struct SettingsWindowRoot: View {
     // because under search the user can click an individual setting
     // hit and we still want the section pane to follow, but two
     // sibling hits inside one section must each be selectable.
-    @SceneStorage("selectedSettingsSection") private var selectedSectionRaw: String = SettingsSectionID.account.rawValue
-    @SceneStorage("selectedSettingsSidebarEntry") private var selectedSidebarEntryID: String = "section:\(SettingsSectionID.account.rawValue)"
+    // @AppStorage (not @SceneStorage): the window is AppKit-hosted, so
+    // there is no SwiftUI scene to store into (cmux issue #7777).
+    @AppStorage("selectedSettingsSection") private var selectedSectionRaw: String = SettingsSectionID.account.rawValue
+    @AppStorage("selectedSettingsSidebarEntry") private var selectedSidebarEntryID: String = "section:\(SettingsSectionID.account.rawValue)"
     // Legacy `SettingsRootView` binds `NavigationSplitView`'s
     // `columnVisibility` so the user can collapse the sidebar via the
     // toolbar button (or the SidebarCommands menu) and have that state
