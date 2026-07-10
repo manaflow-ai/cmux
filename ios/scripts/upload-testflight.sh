@@ -979,26 +979,26 @@ fi
 
 upload_app_store_with_asc() {
   if [[ -z "${ASC_APP_ID:-}" ]]; then
-    echo "error: --lane appstore requires ASC_APP_ID so the upload targets the exact App Store Connect app record" >&2
+    echo "error: --lane appstore requires a configured numeric app id so the upload targets the expected app record" >&2
     exit 2
   fi
   if [[ ! "$ASC_APP_ID" =~ ^[0-9]+$ ]]; then
-    echo "error: --lane appstore requires numeric ASC_APP_ID (got '$ASC_APP_ID'); do not pass a bundle id" >&2
+    echo "error: --lane appstore requires the configured app id to be numeric; do not pass a bundle id" >&2
     exit 2
   fi
   if ! command -v asc >/dev/null 2>&1; then
-    echo "error: --lane appstore requires the asc CLI for app-id based upload (install with: brew install asc)" >&2
+    echo "error: --lane appstore requires the release upload CLI for app-id based upload" >&2
     exit 2
   fi
 
   local asc_private_key_path="${ASC_API_KEY_PATH:-}"
   local asc_private_key_b64="${ASC_API_KEY_P8_BASE64:-}"
   if [[ -z "${ASC_API_KEY_ID:-}" || -z "${ASC_API_ISSUER_ID:-}" || ( -z "$asc_private_key_path" && -z "$asc_private_key_b64" ) ]]; then
-    echo "error: --lane appstore asc upload requires ASC_API_KEY_ID, ASC_API_ISSUER_ID, and ASC_API_KEY_PATH or ASC_API_KEY_P8_BASE64" >&2
+    echo "error: --lane appstore upload requires complete upload credentials" >&2
     exit 2
   fi
   if [[ -n "$asc_private_key_path" && ! -f "$asc_private_key_path" ]]; then
-    echo "error: ASC_API_KEY_PATH does not exist: $asc_private_key_path" >&2
+    echo "error: configured private key path does not exist: $asc_private_key_path" >&2
     exit 2
   fi
 
@@ -1062,14 +1062,14 @@ if not found:
 print(found)
 PY
   )" || {
-    echo "error: could not read bundleId from App Store Connect app $ASC_APP_ID" >&2
+    echo "error: could not read bundle id from configured app record" >&2
     exit 2
   }
   if [[ "$asc_bundle_id" != "$PRODUCT_BUNDLE_IDENTIFIER" ]]; then
-    echo "error: App Store Connect app $ASC_APP_ID has bundle id '$asc_bundle_id', but lane '$LANE' is exporting '$PRODUCT_BUNDLE_IDENTIFIER'; refusing to upload" >&2
+    echo "error: configured app record has bundle id '$asc_bundle_id', but lane '$LANE' is exporting '$PRODUCT_BUNDLE_IDENTIFIER'; refusing to upload" >&2
     exit 1
   fi
-  echo "App Store Connect app verified: $ASC_APP_ID bundle id $asc_bundle_id"
+  echo "configured app record verified: $ASC_APP_ID bundle id $asc_bundle_id"
 
   (
     export "${asc_env[@]}"
@@ -1101,11 +1101,11 @@ elif [[ "$LANE" == "appstore" && "$HAS_ANY_ASC_UPLOAD_ENV" -eq 1 && "$HAS_APPLE_
   upload_app_store_with_asc
 elif [[ "$LANE" != "appstore" && ( -n "${ASC_API_KEY_ID:-}" || -n "${ASC_API_ISSUER_ID:-}" || -n "${ASC_API_KEY_PATH:-}" ) ]]; then
   if [[ -z "${ASC_API_KEY_ID:-}" || -z "${ASC_API_ISSUER_ID:-}" || -z "${ASC_API_KEY_PATH:-}" ]]; then
-    echo "error: ASC_API_KEY_ID, ASC_API_ISSUER_ID, and ASC_API_KEY_PATH must be set together" >&2
+    echo "error: upload credentials must be set together" >&2
     exit 2
   fi
   if [[ ! -f "$ASC_API_KEY_PATH" ]]; then
-    echo "error: ASC_API_KEY_PATH does not exist: $ASC_API_KEY_PATH" >&2
+    echo "error: configured private key path does not exist: $ASC_API_KEY_PATH" >&2
     exit 2
   fi
 

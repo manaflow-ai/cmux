@@ -326,16 +326,27 @@ sys.exit(0)
     _write_executable(
         fakebin / "security",
         f"""#!/usr/bin/env python3
+import copy
 import plistlib
 import sys
+from pathlib import Path
 {common}
+LEGACY_PROFILE = copy.deepcopy(PROFILE)
+LEGACY_PROFILE["Entitlements"] = dict(PROFILE["Entitlements"])
+LEGACY_PROFILE["Entitlements"]["application-identifier"] = f"{{TEAM_ID}}.com.cmuxterm.app"
+LEGACY_PROFILE["Entitlements"]["keychain-access-groups"] = [f"{{TEAM_ID}}.com.cmuxterm.app"]
 
 args = sys.argv[1:]
 if args[:3] == ["find-identity", "-v", "-p"]:
     print(f'  1) ABCDEF "{{IDENTITY}}"')
     sys.exit(0)
 if len(args) >= 2 and args[0] == "cms" and args[1] == "-D":
-    sys.stdout.buffer.write(plist_bytes(PROFILE))
+    profile = PROFILE
+    if "-i" in args:
+        source = Path(args[args.index("-i") + 1])
+        if source.exists() and b"legacy profile" in source.read_bytes():
+            profile = LEGACY_PROFILE
+    sys.stdout.buffer.write(plist_bytes(profile))
     sys.exit(0)
 if args and args[0] == "find-certificate":
     print("-----BEGIN CERTIFICATE-----")
@@ -489,7 +500,7 @@ def test_upload_appstore_checks_asc_app_bundle_id_before_upload(tmp: Path, fakeb
     )
     _check(result.returncode == 0, "appstore upload lane succeeds with fake asc")
     _check(
-        f"App Store Connect app verified: {ASC_APP_ID} bundle id {APPSTORE_BUNDLE_ID}" in result.stdout,
+        f"configured app record verified: {ASC_APP_ID} bundle id {APPSTORE_BUNDLE_ID}" in result.stdout,
         "upload lane verifies ASC app bundle id before upload",
     )
 
@@ -521,6 +532,28 @@ def test_profile_installer_accepts_production_profile_by_default(tmp: Path, fake
     _check(
         "IOS_APPSTORE_PROVISIONING_PROFILE_NAME=cmux App Store Distribution Test" in github_env,
         "profile installer exports the resolved App Store profile name",
+    )
+
+
+def test_profile_installer_ignores_stale_primary_secret(tmp: Path, fakebin: Path) -> None:
+    env = _base_env(tmp, fakebin)
+    env["RUNNER_TEMP"] = str(tmp / "runner")
+    env["HOME"] = str(tmp / "home")
+    env["GITHUB_ENV"] = str(tmp / "github-env")
+    Path(env["RUNNER_TEMP"]).mkdir(parents=True, exist_ok=True)
+    env["IOS_APPSTORE_PROVISIONING_PROFILE_BASE64"] = base64.b64encode(b"legacy profile").decode()
+    env["IOS_PROD_PROVISIONING_PROFILE_BASE64"] = base64.b64encode(b"fake profile").decode()
+    result = _run(
+        ["bash", str(ROOT / ".github" / "scripts" / "install-app-store-provisioning-profile.sh")],
+        env=env,
+        tmp=tmp,
+    )
+    _check(result.returncode == 0, "profile installer ignores a stale primary profile secret")
+    _check("primary profile secret targets" in result.stderr, "profile installer reports the stale profile candidate")
+    github_env = Path(env["GITHUB_ENV"]).read_text(encoding="utf-8")
+    _check(
+        "IOS_APPSTORE_PROVISIONING_PROFILE_NAME=cmux App Store Distribution Test" in github_env,
+        "profile installer falls back to a matching production profile",
     )
 
 
@@ -567,6 +600,7 @@ def main() -> None:
         test_upload_appstore_lane_uses_production_bundle_id(tmp / "upload-test", fakebin)
         test_upload_appstore_checks_asc_app_bundle_id_before_upload(tmp / "upload-live-test", fakebin)
         test_profile_installer_accepts_production_profile_by_default(tmp / "profile-test", fakebin)
+        test_profile_installer_ignores_stale_primary_secret(tmp / "profile-stale-test", fakebin)
         test_validate_appstore_release_requires_numeric_app_id(tmp / "validate-test", fakebin)
 
     if FAILURES:
