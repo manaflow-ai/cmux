@@ -4,6 +4,67 @@ import Testing
 @testable import CmuxMobileRPC
 
 @Suite struct MobileCoreRPCRequestQueueTests {
+    @Test func cancelledQueuedSendSkipsAuthorizationWork() async throws {
+        let transport = QueuedCancellationProbeTransport()
+        let session = MobileCoreRPCSession(makeTransport: { transport })
+        let deadline = DispatchTime.now().uptimeNanoseconds + 60_000_000_000
+        let firstID = "first-blocking-send"
+        let cancelledID = "cancelled-queued-send"
+        let liveID = "live-queued-send"
+        let authorizationRecorder = SendAuthorizationInvocationRecorder()
+        let first = Task {
+            try await session.send(
+                payload: try MobileCoreRPCClient.requestData(method: "workspace.list", id: firstID),
+                requestID: firstID,
+                deadlineUptimeNanoseconds: deadline
+            )
+        }
+        #expect(try await transport.waitForSentRequestCount(1).map(\.id) == [firstID])
+
+        let cancelled = Task {
+            try await session.send(
+                payload: try MobileCoreRPCClient.requestData(method: "workspace.list", id: cancelledID),
+                requestID: cancelledID,
+                deadlineUptimeNanoseconds: deadline,
+                sendAuthorizer: { await authorizationRecorder.authorize() }
+            )
+        }
+        for _ in 0..<200 where !(await session.queuedRequestIDs.contains(cancelledID)) {
+            await Task.yield()
+        }
+        #expect(await session.queuedRequestIDs.contains(cancelledID))
+        cancelled.cancel()
+        do {
+            _ = try await cancelled.value
+            Issue.record("Expected queued send cancellation")
+        } catch is CancellationError {
+        } catch {
+            Issue.record("Expected CancellationError, got \(error)")
+        }
+
+        let live = Task {
+            try await session.send(
+                payload: try MobileCoreRPCClient.requestData(method: "workspace.list", id: liveID),
+                requestID: liveID,
+                deadlineUptimeNanoseconds: deadline
+            )
+        }
+        for _ in 0..<200 where !(await session.queuedRequestIDs.contains(liveID)) {
+            await Task.yield()
+        }
+        #expect(await session.queuedRequestIDs.contains(liveID))
+
+        await transport.releaseFirstSend()
+        #expect(try await transport.waitForSentRequestCount(2).map(\.id) == [firstID, liveID])
+        #expect(await authorizationRecorder.invocationCount() == 0)
+
+        first.cancel()
+        live.cancel()
+        _ = try? await first.value
+        _ = try? await live.value
+        await session.tearDown(error: .connectionClosed)
+    }
+
     @Test func revokedQueuedSendPreservesCancellationWithoutClosingSession() async throws {
         let transport = QueuedCancellationProbeTransport()
         let session = MobileCoreRPCSession(makeTransport: { transport })
