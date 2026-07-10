@@ -76,9 +76,19 @@ extension CMUXCLI {
         client: SocketClient,
         includeAmbientTTY: Bool = true
     ) -> CallerTerminalBinding? {
+        callerTerminalBindingResolutionByTTY(
+            client: client,
+            includeAmbientTTY: includeAmbientTTY
+        ).binding
+    }
+
+    func callerTerminalBindingResolutionByTTY(
+        client: SocketClient,
+        includeAmbientTTY: Bool = true
+    ) -> (binding: CallerTerminalBinding?, isAmbiguous: Bool) {
         guard let ttyName = resolveCallerTTYName(includeAmbientTTY: includeAmbientTTY),
               let payload = try? client.sendV2(method: "debug.terminals") else {
-            return nil
+            return (nil, false)
         }
         let terminals = payload["terminals"] as? [[String: Any]] ?? []
         var matched: [CallerTerminalBinding] = []
@@ -90,11 +100,13 @@ extension CMUXCLI {
             }
             matched.append(CallerTerminalBinding(workspaceId: workspaceId, surfaceId: surfaceId))
         }
-        guard let first = matched.first,
-              matched.allSatisfy({ $0.workspaceId == first.workspaceId && $0.surfaceId == first.surfaceId }) else {
-            return nil
+        guard let first = matched.first else {
+            return (nil, false)
         }
-        return first
+        guard matched.allSatisfy({ $0.workspaceId == first.workspaceId && $0.surfaceId == first.surfaceId }) else {
+            return (nil, true)
+        }
+        return (first, false)
     }
 
     /// Like `resolveCallerWorkspaceIdForClaudeHook`, but refuses to guess when the

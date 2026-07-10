@@ -1417,22 +1417,9 @@ extension Workspace {
                 : nil
             let requestedWorkingDirectory =
                 localWorkingDirectory ?? (startupHandlesWorkingDirectory ? workingDirectory : nil)
-            let restoredAgentWillRunStartupCommand = restorableAgent != nil && (
-                restoredAgentResumeLaunch?.initialCommand != nil ||
-                (restoredBindingLaunch?.initialCommand != nil && resumeBinding?.isAgentHookBinding == true)
-            )
-            let restoredAgentWillRunStartupInput =
-                restoredAgentResumeLaunch?.initialInput != nil ||
-                (restoredBindingLaunch?.initialInput != nil && resumeBinding?.isAgentHookBinding == true)
-            logSessionRestoreTerminalPanelBinding(
-                snapshot: snapshot,
-                resumeBinding: resumeBinding,
-                approvedBinding: effectiveResumeBindingForStartup,
-                bindingLaunch: restoredBindingLaunch,
-                agentLaunch: restoredAgentResumeLaunch,
-                startupCommand: restoredStartupCommand,
-                startupInput: restoredStartupInput
-            )
+            let restoredAgentWillRunStartupCommand = restorableAgent != nil && (restoredAgentResumeLaunch?.initialCommand != nil || (restoredBindingLaunch?.initialCommand != nil && resumeBinding?.isAgentHookBinding == true))
+            let restoredAgentWillRunStartupInput = restoredAgentResumeLaunch?.initialInput != nil || (restoredBindingLaunch?.initialInput != nil && resumeBinding?.isAgentHookBinding == true)
+            logSessionRestoreTerminalPanelBinding(snapshot: snapshot, resumeBinding: resumeBinding, approvedBinding: effectiveResumeBindingForStartup, bindingLaunch: restoredBindingLaunch, agentLaunch: restoredAgentResumeLaunch, startupCommand: restoredStartupCommand, startupInput: restoredStartupInput)
 #if DEBUG
             if let restorableAgent {
                 let sessionPreview = String(restorableAgent.sessionId.prefix(8))
@@ -1480,14 +1467,7 @@ extension Workspace {
                 suppressWorkspaceRemoteStartupCommand: suppressWorkspaceRemoteStartupCommand,
                 restoredSurfaceId: reusableSurfaceId
             ) else {
-                logSessionRestoreTerminalPanelOutcome(
-                    snapshot: snapshot,
-                    restoredPanelId: nil,
-                    storedBinding: nil,
-                    startupCommand: restoredStartupCommand,
-                    startupInput: restoredStartupInput,
-                    outcome: "createFailed"
-                )
+                logSessionRestoreTerminalPanelOutcome(snapshot: snapshot, restoredPanelId: nil, storedBinding: nil, startupCommand: restoredStartupCommand, startupInput: restoredStartupInput, outcome: "createFailed")
                 return nil
             }
             // Re-bind the resumed agent session from cmux's own authority, keyed
@@ -1532,14 +1512,7 @@ extension Workspace {
             } else {
                 surfaceResumeBindingsByPanelId.removeValue(forKey: terminalPanel.id)
             }
-            logSessionRestoreTerminalPanelOutcome(
-                snapshot: snapshot,
-                restoredPanelId: terminalPanel.id,
-                storedBinding: surfaceResumeBindingsByPanelId[terminalPanel.id],
-                startupCommand: restoredStartupCommand,
-                startupInput: restoredStartupInput,
-                outcome: "created"
-            )
+            logSessionRestoreTerminalPanelOutcome(snapshot: snapshot, restoredPanelId: terminalPanel.id, storedBinding: surfaceResumeBindingsByPanelId[terminalPanel.id], startupCommand: restoredStartupCommand, startupInput: restoredStartupInput, outcome: "created")
             // A terminal whose startup command cds itself (agent resume, tmux
             // attach, agent-hook) is spawned without a working directory, so its
             // shell starts in the default directory and shell integration reports

@@ -48,12 +48,15 @@ extension Workspace {
         fields["binding"] = resumeBinding == nil ? "missing" : "found"
         fields["approved"] = approvedBinding == nil ? "0" : "1"
         fields["launch"] = sessionRestoreLaunchKind(bindingLaunch: bindingLaunch, agentLaunch: agentLaunch)
+        fields["resumeCommandIssued"] = sessionRestoreHasCommandLaunch(
+            bindingLaunch: bindingLaunch,
+            agentLaunch: agentLaunch
+        ) ? "1" : "0"
         fields["startup"] = sessionRestoreStartupKind(command: startupCommand, input: startupInput)
         if let resumeBinding {
             fields["bindingKind"] = resumeBinding.kind ?? ""
             fields["bindingSource"] = resumeBinding.source ?? ""
-            fields["checkpointId"] = resumeBinding.checkpointId ?? ""
-            fields["resumeCommand"] = resumeBinding.command
+            fields["hasCheckpoint"] = resumeBinding.checkpointId == nil ? "0" : "1"
         }
         StartupBreadcrumbLog.append("app.init.sessionRestore.panel.binding", fields: fields)
     }
@@ -71,9 +74,7 @@ extension Workspace {
         fields["restoredPanelId"] = restoredPanelId?.uuidString ?? ""
         fields["storedBinding"] = storedBinding == nil ? "0" : "1"
         fields["startup"] = sessionRestoreStartupKind(command: startupCommand, input: startupInput)
-        if let startupCommand {
-            fields["startupCommand"] = startupCommand
-        }
+        fields["startupCommandIssued"] = startupCommand == nil ? "0" : "1"
         StartupBreadcrumbLog.append("app.init.sessionRestore.panel.outcome", fields: fields)
     }
 
@@ -97,6 +98,13 @@ extension Workspace {
             return agentLaunch.initialCommand == nil ? "agent.input" : "agent.command"
         }
         return "none"
+    }
+
+    private func sessionRestoreHasCommandLaunch(
+        bindingLaunch: SurfaceResumeStartupLaunch?,
+        agentLaunch: SurfaceResumeStartupLaunch?
+    ) -> Bool {
+        bindingLaunch?.initialCommand != nil || agentLaunch?.initialCommand != nil
     }
 
     private func sessionRestoreStartupKind(command: String?, input: String?) -> String {

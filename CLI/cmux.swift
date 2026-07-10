@@ -30174,6 +30174,7 @@ export default CMUXSessionRestore;
         let hasInvalidDirectWorkspaceArg = hookWsFlag != nil && resolvedDirectWorkspaceArg == nil
         var processBindingCache: CallerTerminalBinding?
         var didResolveProcessBinding = false
+        var processBindingBlockedByAmbiguousTTY = false
         func processBinding() -> CallerTerminalBinding? {
             if !didResolveProcessBinding {
                 didResolveProcessBinding = true
@@ -30184,14 +30185,16 @@ export default CMUXSessionRestore;
                 // resume binding persists it across reload. resolveAgentHookTarget now uses this
                 // binding to OVERRIDE a disagreeing ambient-env surface; the binding stays nil (env
                 // trusted) under remote/SSH where no local TTY maps to a surface.
-                processBindingCache = resolveCallerTerminalBindingByTTY(client: client)
-                    ?? resolveAgentProcessTerminalBinding(pid: inferredPID, client: client)
+                let ttyResolution = callerTerminalBindingResolutionByTTY(client: client)
+                processBindingCache = ttyResolution.binding ?? resolveAgentProcessTerminalBinding(pid: inferredPID, client: client)
+                processBindingBlockedByAmbiguousTTY = ttyResolution.isAmbiguous && ttyResolution.binding == nil && processBindingCache == nil
             }
             return processBindingCache
         }
 #if DEBUG
         func processBindingDebugState() -> String {
             guard didResolveProcessBinding else { return "deferred" }
+            if processBindingBlockedByAmbiguousTTY { return "ambiguousTTY" }
             return processBindingCache == nil ? "nil" : "resolved"
         }
 #endif
@@ -30381,7 +30384,8 @@ export default CMUXSessionRestore;
             func resolveTarget(
                 workspaceId: String,
                 preferredSurfaceId: String?,
-                mapped: ClaudeHookSessionRecord?
+                mapped: ClaudeHookSessionRecord?,
+                allowDefaultSurfaceFallback: Bool = true
             ) -> (workspaceId: String, surfaceId: String)? {
                 if let preferredSurfaceId = nonEmptyClaudeHookIdentifier(preferredSurfaceId),
                    let surfaceId = resolveAccessibleSurfaceId(preferredSurfaceId, workspaceId: workspaceId) {
@@ -30393,10 +30397,17 @@ export default CMUXSessionRestore;
                     return (workspaceId, surfaceId)
                 }
 
+                if !allowDefaultSurfaceFallback { return nil }
                 guard let surfaceId = resolveDefaultSurfaceId(workspaceId: workspaceId) else {
                     return nil
                 }
                 return (workspaceId, surfaceId)
+            }
+
+            func allowsDefaultSurfaceFallback() -> Bool {
+                guard hookWsFlag == nil, explicitSurfaceFlag == nil, resolvedDirectSurfaceArg == nil else { return true }
+                _ = processBinding()
+                return !processBindingBlockedByAmbiguousTTY
             }
 
             // G3 (codex jumble defense-in-depth): the surface id can arrive from the ambient env
@@ -30431,7 +30442,7 @@ export default CMUXSessionRestore;
             if let workspaceId = resolvedDirectWorkspaceArg {
                 let preferredSurfaceId = correctedDirectSurfaceId(workspaceId: workspaceId)
                     ?? (hookWsFlag == nil ? processBinding()?.surfaceId : nil)
-                let target = resolveTarget(workspaceId: workspaceId, preferredSurfaceId: preferredSurfaceId, mapped: mapped)
+                let target = resolveTarget(workspaceId: workspaceId, preferredSurfaceId: preferredSurfaceId, mapped: mapped, allowDefaultSurfaceFallback: allowsDefaultSurfaceFallback())
 #if DEBUG
                 agentHookDebugLog(
                     "agentHook.target.\(target == nil ? "nil" : "resolved") agent=\(def.name) subcommand=\(subcommand) session=\(agentHookDebugShort(sessionId)) source=direct workspace=\(agentHookDebugShort(target?.workspaceId ?? workspaceId)) surface=\(agentHookDebugShort(target?.surfaceId)) mapped=\(mapped == nil ? 0 : 1)",
@@ -30444,11 +30455,7 @@ export default CMUXSessionRestore;
 
             let binding = processBinding()
             if let workspaceId = resolveAccessibleWorkspaceId(binding?.workspaceId),
-               let target = resolveTarget(
-                   workspaceId: workspaceId,
-                   preferredSurfaceId: binding?.surfaceId,
-                   mapped: mapped
-               ) {
+               let target = resolveTarget(workspaceId: workspaceId, preferredSurfaceId: binding?.surfaceId, mapped: mapped, allowDefaultSurfaceFallback: allowsDefaultSurfaceFallback()) {
 #if DEBUG
                 agentHookDebugLog(
                     "agentHook.target.resolved agent=\(def.name) subcommand=\(subcommand) session=\(agentHookDebugShort(sessionId)) source=process workspace=\(agentHookDebugShort(target.workspaceId)) surface=\(agentHookDebugShort(target.surfaceId)) mapped=\(mapped == nil ? 0 : 1)",
@@ -30468,7 +30475,7 @@ export default CMUXSessionRestore;
 #endif
                 return nil
             }
-            let target = resolveTarget(workspaceId: workspaceId, preferredSurfaceId: nil, mapped: mapped)
+            let target = resolveTarget(workspaceId: workspaceId, preferredSurfaceId: nil, mapped: mapped, allowDefaultSurfaceFallback: allowsDefaultSurfaceFallback())
 #if DEBUG
             agentHookDebugLog(
                 "agentHook.target.\(target == nil ? "nil" : "resolved") agent=\(def.name) subcommand=\(subcommand) session=\(agentHookDebugShort(sessionId)) source=mapped workspace=\(agentHookDebugShort(target?.workspaceId ?? workspaceId)) surface=\(agentHookDebugShort(target?.surfaceId)) mapped=\(mapped == nil ? 0 : 1)",
