@@ -1,4 +1,5 @@
 import AppKit
+import CmuxAuthRuntime
 import Foundation
 import WebKit
 
@@ -310,6 +311,24 @@ import WebKit
         }
 
         if let url = navigationAction.request.url,
+           shouldOpenNativeAuthCallbackInApp(navigationAction, url: url) {
+            clearAttemptedRequest(discardPendingBypasses: true)
+            let reportTerminalCancellation = terminalPolicyCancellationReporter?(navigationAction, webView) ?? {}
+            let opened = NSWorkspace.shared.open(url)
+#if DEBUG
+            cmuxDebugLog(
+                "browser.nav.decidePolicy.action kind=openNativeAuthCallbackInApp opened=\(opened ? 1 : 0) " +
+                "scheme=\(url.scheme ?? "nil")"
+            )
+#endif
+            if opened { reportTerminalCancellation() }
+            // Cancel even when open fails: WKWebView cannot render a native
+            // scheme URL, so allowing it only produces an error page.
+            decisionHandler(.cancel)
+            return
+        }
+
+        if let url = navigationAction.request.url,
            navigationAction.targetFrame?.isMainFrame != false,
            shouldBlockInsecureHTTPNavigation?(url) == true {
             let intent: BrowserInsecureHTTPNavigationIntent
@@ -422,6 +441,23 @@ import WebKit
         }
         decisionHandler(.allow)
     }
+
+    /// The app's own auth-callback scheme URLs (`cmux://auth-callback`,
+    /// `cmux-dev-<tag>://auth-callback`, ...) delivered by the hosted
+    /// after-sign-in page. WKWebView cannot open native schemes itself, so
+    /// hand the URL to the OS, which routes it to this app's URL handler
+    /// (the stateless-callback fallback in HostBrowserSignInFlow accepts it).
+    /// Requires a user-activated main-frame link so pages cannot silently
+    /// push tokens into the app.
+    private func shouldOpenNativeAuthCallbackInApp(_ navigationAction: WKNavigationAction, url: URL) -> Bool {
+        guard navigationAction.targetFrame?.isMainFrame != false else { return false }
+        guard navigationAction.navigationType == .linkActivated else { return false }
+        return nativeAuthCallbackRouter.isAuthCallbackURL(url)
+    }
+
+    private lazy var nativeAuthCallbackRouter = AuthCallbackRouter(
+        extraAllowedScheme: AuthEnvironment.callbackScheme
+    )
 
     private func shouldOpenCheckoutInSystemBrowser(_ navigationAction: WKNavigationAction, url: URL) -> Bool {
         guard navigationAction.targetFrame?.isMainFrame != false else { return false }

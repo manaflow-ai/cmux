@@ -54,7 +54,8 @@ export default async function AppPricingPage({
   const appStorePaymentGated = isAppStoreDistributionMode(params);
   const proCheckoutURL = appPricingCheckoutURL("pro", requestOrigin, cmuxScheme);
   const teamCheckoutURL = appPricingCheckoutURL("team", requestOrigin, cmuxScheme);
-  const banner = appPricingBanner(params);
+  const signInHref = appPricingSignInHref(cmuxScheme);
+  const banner = appPricingBanner(params, snapshot, signInHref);
   const appearance = appPricingAppearance(params);
   const pageBackground = appPricingPageBackground(params, appearance);
   const proFeatures = visibleProFeatures({
@@ -89,12 +90,16 @@ export default async function AppPricingPage({
               price={pricing.free.price}
               period={pricing.perMonth}
               badge={
-                snapshot.planId === FREE_PLAN_ID ? (
+                snapshot.authenticated && snapshot.planId === FREE_PLAN_ID ? (
                   <CurrentPlanBadge>{pricing.currentPlan}</CurrentPlanBadge>
                 ) : null
               }
             >
-              {snapshot.planId === FREE_PLAN_ID ? (
+              {!snapshot.authenticated ? (
+                <SecondaryLink href={signInHref}>
+                  {pricing.signedOutSignIn}
+                </SecondaryLink>
+              ) : snapshot.planId === FREE_PLAN_ID ? (
                 <DisabledButton>{pricing.currentPlan}</DisabledButton>
               ) : (
                 <PrimaryLink href={DOWNLOAD_CONFIRMATION_HREF}>
@@ -188,14 +193,17 @@ export default async function AppPricingPage({
                 enterprise: pricing.enterprise.price,
               }}
               actions={{
-                free:
-                  snapshot.planId === FREE_PLAN_ID ? (
-                    <DisabledButton size="compact">{pricing.currentPlan}</DisabledButton>
-                  ) : (
-                    <PrimaryLink href={DOWNLOAD_CONFIRMATION_HREF} size="compact">
-                      {pricing.free.cta}
-                    </PrimaryLink>
-                  ),
+                free: !snapshot.authenticated ? (
+                  <SecondaryLink href={signInHref} size="compact">
+                    {pricing.signedOutSignIn}
+                  </SecondaryLink>
+                ) : snapshot.planId === FREE_PLAN_ID ? (
+                  <DisabledButton size="compact">{pricing.currentPlan}</DisabledButton>
+                ) : (
+                  <PrimaryLink href={DOWNLOAD_CONFIRMATION_HREF} size="compact">
+                    {pricing.free.cta}
+                  </PrimaryLink>
+                ),
                 pro: snapshot.isPro ? (
                   <DisabledButton size="compact">{pricing.currentPlan}</DisabledButton>
                 ) : appStorePaymentGated ? (
@@ -296,8 +304,21 @@ type BillingBannerModel = {
   action?: { href: string; label: string };
 };
 
+/// In-webview sign-in that also signs the native app in: Stack sign-in sets
+/// the webview's session cookies, then /handler/after-sign-in hands tokens to
+/// the app through its <scheme>://auth-callback URL. The stateless callback is
+/// accepted by the app's fallback path (HostBrowserSignInFlow.handleCallbackURL).
+function appPricingSignInHref(cmuxScheme: string): string {
+  const afterSignIn = `/handler/after-sign-in?native_app_return_to=${encodeURIComponent(
+    `${cmuxScheme}://auth-callback`,
+  )}`;
+  return `/handler/native-sign-in?after_auth_return_to=${encodeURIComponent(afterSignIn)}`;
+}
+
 function appPricingBanner(
   params: Record<string, string | string[] | undefined>,
+  snapshot: AppPlanSnapshot,
+  signInHref: string,
 ): BillingBannerModel | null {
   const welcome = firstParam(params.welcome);
   const billing = firstParam(params.billing);
@@ -322,6 +343,12 @@ function appPricingBanner(
   }
   if (billing === "invalid_plan") {
     return { message: pricing.billingInvalidPlan };
+  }
+  if (!snapshot.authenticated) {
+    return {
+      message: pricing.signedOutNotice,
+      action: { href: signInHref, label: pricing.signedOutSignIn },
+    };
   }
   return null;
 }
