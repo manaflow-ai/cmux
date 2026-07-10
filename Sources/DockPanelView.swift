@@ -124,6 +124,7 @@ private struct DockSplitContentView: View {
                 isFocused: isFocused,
                 isSelectedInPane: isSelectedInPane,
                 isVisibleInUI: isVisibleInUI,
+                allowsPointerInput: isVisibleInUI,
                 portalPriority: Self.portalPriority,
                 isSplit: isSplit,
                 appearance: appearance,

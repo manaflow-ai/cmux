@@ -20,6 +20,7 @@ private struct WorkspacePanelContentHostView: View {
     let isFocused: Bool
     let isSelectedInPane: Bool
     let isVisibleInUI: Bool
+    let allowsPointerInput: Bool
     let portalPriority: Int
     let isSplit: Bool
     let appearance: PanelAppearance
@@ -40,6 +41,7 @@ private struct WorkspacePanelContentHostView: View {
             isFocused: isFocused,
             isSelectedInPane: isSelectedInPane,
             isVisibleInUI: isVisibleInUI,
+            allowsPointerInput: allowsPointerInput,
             portalPriority: portalPriority,
             isSplit: isSplit,
             appearance: appearance,
@@ -238,6 +240,9 @@ struct WorkspaceContentView: View {
                         isFocused: isFocused,
                         isSelectedInPane: isSelectedInPane,
                         isVisibleInUI: isVisibleInUI,
+                        allowsPointerInput: isWorkspaceInputActive
+                            && isWorkspaceVisible
+                            && isSelectedInPane,
                         portalPriority: workspacePortalPriority,
                         isSplit: isSplit,
                         appearance: appearance, windowAppearance: windowAppearance, customSidebarTabManager: workspace.owningTabManager,

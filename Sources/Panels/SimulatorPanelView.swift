@@ -1,3 +1,4 @@
+import AppKit
 import CmuxSimulatorUI
 import SwiftUI
 
@@ -5,6 +6,8 @@ struct SimulatorPanelView: View {
     let panel: SimulatorPanel
     let isFocused: Bool
     let isVisibleInUI: Bool
+    let allowsPointerInput: Bool
+    let pointerEntryEventFilter: (@MainActor (NSEvent) -> Bool)?
     let appearance: PanelAppearance
     let onRequestPanelFocus: () -> Void
 
@@ -12,6 +15,8 @@ struct SimulatorPanelView: View {
         SimulatorPaneView(
             coordinator: panel.coordinator,
             backgroundColor: Color(nsColor: appearance.contentBackgroundColor),
+            allowsPointerInput: allowsPointerInput,
+            pointerEntryEventFilter: pointerEntryEventFilter,
             onRequestPanelFocus: onRequestPanelFocus
         )
             .environment(

@@ -19,12 +19,13 @@ struct SimulatorInputStateMachine {
     mutating func pointerBegan(
         at point: SimulatorPoint,
         optionPinch: Bool,
-        parallelPan: Bool = false
+        parallelPan: Bool = false,
+        edge: SimulatorEdge? = nil
     ) -> [SimulatorWorkerInbound] {
         var messages = releasePointerIfNeeded()
         messages.append(contentsOf: releaseScrollIfNeeded())
         activePointer = point
-        activeEdge = simulatorEdge(at: point)
+        activeEdge = edge ?? simulatorEdge(at: point)
         usesSecondaryTouch = optionPinch
         secondaryTouchOffset = optionPinch && parallelPan
             ? SimulatorInputDelta(x: 1 - (2 * point.x), y: 1 - (2 * point.y))

@@ -30,6 +30,11 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
     private var activeChromeButton: SimulatorDeviceChromeProfile.Button?
     private var hoveredChromeButton: SimulatorDeviceChromeProfile.Button?
     private var mouseTrackingArea: NSTrackingArea?
+    var pendingPointerEntry: SimulatorPendingPointerEntry?
+    var stageHaloPointerActive = false
+    var stagePointerMonitor: Any?
+    private(set) var isPointerInputEnabled = false
+    var pointerEntryEventFilter: (@MainActor (NSEvent) -> Bool)?
     var handledFocusGeneration: UInt64 = 0
     var pendingFocusGeneration: UInt64?
 
@@ -75,6 +80,17 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
+    func setPointerInputEnabled(_ enabled: Bool) {
+        guard !isTornDown, enabled != isPointerInputEnabled else { return }
+        isPointerInputEnabled = enabled
+        if enabled, let window {
+            installStagePointerMonitor(for: window)
+        } else {
+            cancelInputs()
+            removeStagePointerMonitor()
+        }
+    }
+
     func update(
         frameTransport: SimulatorFrameTransportDescriptor,
         display: SimulatorDisplayMetadata,
@@ -100,6 +116,7 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
     func teardown() {
         isTornDown = true
         cancelInputs()
+        removeStagePointerMonitor()
         NotificationCenter.default.removeObserver(self)
         if let screenObserver {
             NotificationCenter.default.removeObserver(screenObserver)
@@ -116,6 +133,7 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
         onMessage = nil
         onGeometry = nil
         onRequestPanelFocus = nil
+        pointerEntryEventFilter = nil
         onFrameTransportFailure = nil
         simulatorOwnerID = nil
     }
@@ -145,6 +163,11 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         rebuildDisplayLink()
+        if !isTornDown, isPointerInputEnabled, let window {
+            installStagePointerMonitor(for: window)
+        } else {
+            removeStagePointerMonitor()
+        }
         fulfillPendingFocusRequest()
     }
 
@@ -152,6 +175,7 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
         let isBeingRemoved = window != nil && newWindow == nil
         if window !== newWindow {
             cancelInputs()
+            removeStagePointerMonitor()
             NotificationCenter.default.removeObserver(self)
         }
         super.viewWillMove(toWindow: newWindow)
@@ -181,22 +205,52 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
     }
 
     override func mouseDown(with event: NSEvent) {
-        onRequestPanelFocus?()
-        window?.makeFirstResponder(self)
+        guard isPointerInputEnabled else { return }
+        beginPointerInteraction(with: event, source: .surface)
+    }
+
+    func beginPointerInteraction(
+        with event: NSEvent,
+        source: SimulatorPendingPointerEntry.Source
+    ) {
         let location = convert(event.locationInWindow, from: nil)
-        if let display,
+        if source == .surface {
+            onRequestPanelFocus?()
+            window?.makeFirstResponder(self)
+        }
+        if source == .surface,
+            let display,
             let button = chrome?.button(
                 at: location,
                 in: bounds,
                 orientation: display.orientation
             )
         {
+            pendingPointerEntry = nil
+            stageHaloPointerActive = false
             activeChromeButton = button
             send(chromeButtonInput.press(button))
             needsDisplay = true
             return
         }
-        guard let point = normalizedPoint(for: event) else { return }
+        guard let point = normalizedPoint(for: event) else {
+            guard pointerEntryCaptureRect.contains(location) else { return }
+            let flags = event.modifierFlags
+            pendingPointerEntry = SimulatorPendingPointerEntry(
+                previousLocation: location,
+                optionPinch: flags.contains(.option),
+                parallelPan: flags.contains(.shift),
+                source: source
+            )
+            stageHaloPointerActive = false
+            return
+        }
+        pendingPointerEntry = nil
+        if source == .stageHalo {
+            stageHaloPointerActive = true
+            onRequestPanelFocus?()
+            window?.makeFirstResponder(self)
+        }
         let flags = event.modifierFlags
         send(
             input.pointerBegan(
@@ -207,6 +261,7 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
     }
 
     override func mouseDragged(with event: NSEvent) {
+        guard isPointerInputEnabled else { return }
         if let button = activeChromeButton {
             let location = convert(event.locationInWindow, from: nil)
             if let chrome, let display,
@@ -223,18 +278,60 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
             }
             return
         }
+        let location = convert(event.locationInWindow, from: nil)
+        if input.activePointer == nil, var pendingPointerEntry {
+            guard let entry = simulatorPointerEntry(
+                from: pendingPointerEntry.previousLocation,
+                to: location,
+                displayRect: displayRect
+            ) else {
+                pendingPointerEntry.previousLocation = location
+                self.pendingPointerEntry = pendingPointerEntry
+                return
+            }
+            guard let entryPoint = normalizedSimulatorPoint(
+                location: entry.location,
+                displayRect: displayRect,
+                clamped: true
+            ), let point = normalizedPoint(for: event, clamped: true) else { return }
+            let source = pendingPointerEntry.source
+            self.pendingPointerEntry = nil
+            if source == .stageHalo {
+                stageHaloPointerActive = true
+                onRequestPanelFocus?()
+                window?.makeFirstResponder(self)
+            }
+            send(input.pointerBegan(
+                at: entryPoint,
+                optionPinch: pendingPointerEntry.optionPinch,
+                parallelPan: pendingPointerEntry.parallelPan,
+                edge: entry.edge
+            ))
+            if point != entryPoint {
+                send(input.pointerMoved(to: point))
+            }
+            return
+        }
         guard let point = normalizedPoint(for: event, clamped: true) else { return }
         send(input.pointerMoved(to: point))
     }
 
     override func mouseUp(with event: NSEvent) {
+        guard isPointerInputEnabled else { return }
         if let button = activeChromeButton {
             send(chromeButtonInput.release(button))
             activeChromeButton = nil
+            stageHaloPointerActive = false
             needsDisplay = true
             return
         }
+        if pendingPointerEntry != nil, input.activePointer == nil {
+            pendingPointerEntry = nil
+            stageHaloPointerActive = false
+            return
+        }
         let point = normalizedPoint(for: event, clamped: true) ?? input.activePointer
+        stageHaloPointerActive = false
         guard let point else { return }
         send(input.pointerEnded(at: point))
     }
@@ -462,6 +559,8 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
     }
 
     private func cancelInputs() {
+        pendingPointerEntry = nil
+        stageHaloPointerActive = false
         send(chromeButtonInput.releaseAll())
         activeChromeButton = nil
         hoveredChromeButton = nil

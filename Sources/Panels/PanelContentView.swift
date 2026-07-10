@@ -14,6 +14,8 @@ struct PanelContentView: View {
     let isFocused: Bool
     let isSelectedInPane: Bool
     let isVisibleInUI: Bool
+    let allowsPointerInput: Bool
+    var pointerEntryEventFilter: (@MainActor (NSEvent) -> Bool)? = nil
     let portalPriority: Int
     let isSplit: Bool
     let appearance: PanelAppearance
@@ -124,6 +126,8 @@ struct PanelContentView: View {
                     panel: simulatorPanel,
                     isFocused: isFocused,
                     isVisibleInUI: isVisibleInUI,
+                    allowsPointerInput: allowsPointerInput,
+                    pointerEntryEventFilter: pointerEntryEventFilter,
                     appearance: appearance,
                     onRequestPanelFocus: onRequestPanelFocus
                 )

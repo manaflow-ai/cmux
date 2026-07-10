@@ -1,9 +1,16 @@
+import AppKit
 import CmuxSimulator
 import SwiftUI
+
+enum SimulatorDeviceStageMetrics {
+    static let devicePadding: CGFloat = 22
+}
 
 struct SimulatorDeviceStage: View {
     let coordinator: SimulatorPaneCoordinator
     let backgroundColor: Color
+    let allowsPointerInput: Bool
+    let pointerEntryEventFilter: (@MainActor (NSEvent) -> Bool)?
     let onRequestPanelFocus: @MainActor () -> Void
 
     var body: some View {
@@ -47,6 +54,8 @@ struct SimulatorDeviceStage: View {
                 frameTransport: frameTransport,
                 display: display,
                 chrome: coordinator.chromeProfile,
+                allowsPointerInput: allowsPointerInput,
+                pointerEntryEventFilter: pointerEntryEventFilter,
                 onRequestPanelFocus: onRequestPanelFocus
             )
             if coordinator.accessibilityOverlayEnabled
@@ -67,7 +76,7 @@ struct SimulatorDeviceStage: View {
         )
         .clipShape(.rect(cornerRadius: coordinator.chromeProfile == nil ? deviceCornerRadius : 0))
         .shadow(color: .black.opacity(0.28), radius: 18, y: 8)
-        .padding(22)
+        .padding(SimulatorDeviceStageMetrics.devicePadding)
         .accessibilityLabel(simulatorStrings.simulator)
     }
 

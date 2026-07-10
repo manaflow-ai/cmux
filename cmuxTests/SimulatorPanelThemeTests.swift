@@ -50,6 +50,7 @@ struct SimulatorPanelThemeTests {
             isFocused: true,
             isSelectedInPane: true,
             isVisibleInUI: true,
+            allowsPointerInput: true,
             portalPriority: 0,
             isSplit: false,
             appearance: PanelAppearance(
@@ -83,6 +84,51 @@ struct SimulatorPanelThemeTests {
         bitmap.size = bounds.size
         view.cacheDisplay(in: bounds, to: bitmap)
         return bitmap.colorAt(x: 2, y: 2)?.usingColorSpace(.sRGB)?.hexString()
+    }
+}
+
+@MainActor
+@Suite("Canvas Simulator pointer ownership")
+struct CanvasSimulatorPointerOwnershipTests {
+    @Test("An overlapping pointer entry belongs only to the frontmost pane")
+    func frontmostPaneOwnsPointerEntry() throws {
+        let bounds = CGRect(x: 0, y: 0, width: 300, height: 300)
+        let window = NSWindow(
+            contentRect: bounds,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        let root = NSView(frame: bounds)
+        let obscuredOwner = NSView(frame: bounds)
+        let frontmostOwner = NSView(frame: bounds)
+        root.addSubview(obscuredOwner)
+        root.addSubview(frontmostOwner)
+        window.contentView = root
+        window.orderBack(nil)
+        defer { window.orderOut(nil) }
+        let obscured = CanvasHostedPanelPresentation(
+            allowsPointerInput: true,
+            pointerInputOwner: obscuredOwner
+        )
+        let frontmost = CanvasHostedPanelPresentation(
+            allowsPointerInput: true,
+            pointerInputOwner: frontmostOwner
+        )
+        let event = try #require(NSEvent.mouseEvent(
+            with: .leftMouseDown,
+            location: CGPoint(x: 150, y: 150),
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: window.windowNumber,
+            context: nil,
+            eventNumber: 0,
+            clickCount: 1,
+            pressure: 1
+        ))
+
+        #expect(frontmost.acceptsPointerEntryEvent(event))
+        #expect(!obscured.acceptsPointerEntryEvent(event))
     }
 }
 

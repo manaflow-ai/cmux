@@ -1,3 +1,4 @@
+import AppKit
 import CmuxSimulator
 import SwiftUI
 
@@ -6,6 +7,8 @@ struct SimulatorRemoteSurface: NSViewRepresentable {
     let frameTransport: SimulatorFrameTransportDescriptor
     let display: SimulatorDisplayMetadata
     let chrome: SimulatorDeviceChromeProfile?
+    let allowsPointerInput: Bool
+    let pointerEntryEventFilter: (@MainActor (NSEvent) -> Bool)?
     let onRequestPanelFocus: @MainActor () -> Void
 
     func makeCoordinator() -> SimulatorRemoteSurfaceLifetime {
@@ -15,6 +18,8 @@ struct SimulatorRemoteSurface: NSViewRepresentable {
     func makeNSView(context: Context) -> SimulatorRemoteSurfaceView {
         let view = SimulatorRemoteSurfaceView()
         context.coordinator.view = view
+        view.setPointerInputEnabled(allowsPointerInput)
+        view.pointerEntryEventFilter = pointerEntryEventFilter
         view.simulatorOwnerID = ObjectIdentifier(coordinator)
         view.onMessage = { [weak coordinator] message in
             coordinator?.enqueue(message)
@@ -35,6 +40,8 @@ struct SimulatorRemoteSurface: NSViewRepresentable {
 
     func updateNSView(_ view: SimulatorRemoteSurfaceView, context: Context) {
         context.coordinator.view = view
+        view.setPointerInputEnabled(allowsPointerInput)
+        view.pointerEntryEventFilter = pointerEntryEventFilter
         view.simulatorOwnerID = ObjectIdentifier(coordinator)
         view.onMessage = { [weak coordinator] message in
             coordinator?.enqueue(message)
