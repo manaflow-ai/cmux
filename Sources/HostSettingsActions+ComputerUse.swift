@@ -5,7 +5,7 @@ import Foundation
 
 extension HostSettingsActions {
     func computerUseState() async -> ComputerUseHostState {
-        let driverPath = computerUseDriverPath()
+        let driverPath = await computerUseDriverPath()
         let manager = CuaDriverManager.shared
         let resolved = manager.resolve(settingValue: driverPath)
         let triedSources = manager.resolutionCandidates(settingValue: driverPath)
@@ -31,7 +31,8 @@ extension HostSettingsActions {
         return AsyncStream { continuation in
             let task = Task { @MainActor in
                 for await state in updates {
-                    let resolved = CuaDriverManager.shared.resolve(settingValue: computerUseDriverPath())
+                    let driverPath = await computerUseDriverPath()
+                    let resolved = CuaDriverManager.shared.resolve(settingValue: driverPath)
                     continuation.yield(computerUseDriverState(state, resolved: resolved))
                 }
                 continuation.finish()
@@ -43,7 +44,8 @@ extension HostSettingsActions {
     }
 
     func ensureCuaDriver() async {
-        _ = await CuaDriverManager.shared.ensure(settingValue: computerUseDriverPath())
+        let driverPath = await computerUseDriverPath()
+        _ = await CuaDriverManager.shared.ensure(settingValue: driverPath)
     }
 
     func requestAccessibilityAccess() async -> Bool {
@@ -67,8 +69,8 @@ extension HostSettingsActions {
         NSWorkspace.shared.open(url)
     }
 
-    private func computerUseDriverPath() -> String {
-        computerUseConfigStore.snapshotValue(for: SettingCatalog().computerUse.driverPath)
+    private func computerUseDriverPath() async -> String {
+        await computerUseConfigStore.value(for: SettingCatalog().computerUse.driverPath)
     }
 
     private func computerUseDriverState(

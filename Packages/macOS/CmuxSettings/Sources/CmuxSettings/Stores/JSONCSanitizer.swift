@@ -25,9 +25,9 @@ public struct JSONCSanitizer: Sendable {
     public func sanitize(_ data: Data) throws -> Data {
         let source = try decode(data: data)
         let withoutBOM = source.hasPrefix("\u{feff}") ? String(source.dropFirst()) : source
-        let withoutComments = try stripComments(withoutBOM)
+        let withoutComments = try stripComments(Array(withoutBOM.utf8))
         let withoutTrailingCommas = stripTrailingCommas(withoutComments)
-        return Data(withoutTrailingCommas.utf8)
+        return Data(withoutTrailingCommas)
     }
 
     /// Errors produced by ``sanitize(_:)``.
@@ -56,107 +56,121 @@ public struct JSONCSanitizer: Sendable {
         return nil
     }
 
-    private func isLineTerminator(_ character: Character) -> Bool {
-        guard let scalar = character.unicodeScalars.first else { return false }
-        return scalar == "\n" || scalar == "\r"
-    }
-
-    private func stripComments(_ source: String) throws -> String {
-        var result = ""
-        var index = source.startIndex
+    private func stripComments(_ source: [UInt8]) throws -> [UInt8] {
+        var result: [UInt8] = []
+        result.reserveCapacity(source.count)
+        var index = 0
         var inString = false
         var isEscaped = false
-        while index < source.endIndex {
-            let character = source[index]
+        while index < source.count {
+            let byte = source[index]
             if inString {
-                result.append(character)
+                result.append(byte)
                 if isEscaped {
                     isEscaped = false
-                } else if character == "\\" {
+                } else if byte == UInt8(ascii: "\\") {
                     isEscaped = true
-                } else if character == "\"" {
+                } else if byte == UInt8(ascii: "\"") {
                     inString = false
                 }
-                index = source.index(after: index)
+                index += 1
                 continue
             }
-            if character == "\"" {
+            if byte == UInt8(ascii: "\"") {
                 inString = true
-                result.append(character)
-                index = source.index(after: index)
+                result.append(byte)
+                index += 1
                 continue
             }
-            if character == "/" {
-                let next = source.index(after: index)
-                if next < source.endIndex {
-                    if source[next] == "/" {
-                        index = source.index(after: next)
-                        while index < source.endIndex, !isLineTerminator(source[index]) {
-                            index = source.index(after: index)
+            if byte == UInt8(ascii: "/"), index + 1 < source.count {
+                switch source[index + 1] {
+                case UInt8(ascii: "/"):
+                    index += 2
+                    while index < source.count {
+                        let current = source[index]
+                        if current == UInt8(ascii: "\n") || current == UInt8(ascii: "\r") {
+                            break
                         }
-                        continue
+                        index += 1
                     }
-                    if source[next] == "*" {
-                        index = source.index(after: next)
-                        var didClose = false
-                        while index < source.endIndex {
-                            let following = source.index(after: index)
-                            if source[index] == "*", following < source.endIndex, source[following] == "/" {
-                                index = source.index(after: following)
-                                didClose = true
-                                break
-                            }
-                            index = following
+                    continue
+                case UInt8(ascii: "*"):
+                    index += 2
+                    var didClose = false
+                    while index + 1 < source.count {
+                        if source[index] == UInt8(ascii: "*"), source[index + 1] == UInt8(ascii: "/") {
+                            index += 2
+                            didClose = true
+                            break
                         }
-                        guard didClose else { throw Failure.unterminatedBlockComment }
-                        continue
+                        index += 1
                     }
+                    guard didClose else { throw Failure.unterminatedBlockComment }
+                    continue
+                default:
+                    break
                 }
             }
-            result.append(character)
-            index = source.index(after: index)
+            result.append(byte)
+            index += 1
         }
         return result
     }
 
-    private func stripTrailingCommas(_ source: String) -> String {
-        var result = ""
-        var index = source.startIndex
+    private func stripTrailingCommas(_ source: [UInt8]) -> [UInt8] {
+        var result: [UInt8] = []
+        result.reserveCapacity(source.count)
+        var index = 0
         var inString = false
         var isEscaped = false
-        while index < source.endIndex {
-            let character = source[index]
+        while index < source.count {
+            let byte = source[index]
             if inString {
-                result.append(character)
+                result.append(byte)
                 if isEscaped {
                     isEscaped = false
-                } else if character == "\\" {
+                } else if byte == UInt8(ascii: "\\") {
                     isEscaped = true
-                } else if character == "\"" {
+                } else if byte == UInt8(ascii: "\"") {
                     inString = false
                 }
-                index = source.index(after: index)
+                index += 1
                 continue
             }
-            if character == "\"" {
+            if byte == UInt8(ascii: "\"") {
                 inString = true
-                result.append(character)
-                index = source.index(after: index)
+                result.append(byte)
+                index += 1
                 continue
             }
-            if character == "," {
-                var lookahead = source.index(after: index)
-                while lookahead < source.endIndex, source[lookahead].isWhitespace {
-                    lookahead = source.index(after: lookahead)
+            if byte == UInt8(ascii: ",") {
+                var lookahead = index + 1
+                while lookahead < source.count {
+                    let scalar = utf8Scalar(in: source, at: lookahead)
+                    guard scalar.value.properties.isWhitespace else { break }
+                    lookahead += scalar.length
                 }
-                if lookahead < source.endIndex, source[lookahead] == "}" || source[lookahead] == "]" {
-                    index = source.index(after: index)
+                if lookahead < source.count,
+                   source[lookahead] == UInt8(ascii: "}") || source[lookahead] == UInt8(ascii: "]") {
+                    index += 1
                     continue
                 }
             }
-            result.append(character)
-            index = source.index(after: index)
+            result.append(byte)
+            index += 1
         }
         return result
+    }
+
+    private func utf8Scalar(in bytes: [UInt8], at index: Int) -> (value: Unicode.Scalar, length: Int) {
+        let first = bytes[index]
+        if first < 0x80 { return (Unicode.Scalar(first), 1) }
+        let length = first < 0xE0 ? 2 : first < 0xF0 ? 3 : 4
+        let prefixMask = UInt8((1 << (7 - length)) - 1)
+        var value = UInt32(first & prefixMask)
+        for offset in 1..<length {
+            value = value << 6 | UInt32(bytes[index + offset] & 0x3F)
+        }
+        return (Unicode.Scalar(value)!, length)
     }
 }
