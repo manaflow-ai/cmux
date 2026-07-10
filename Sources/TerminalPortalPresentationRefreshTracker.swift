@@ -1,17 +1,5 @@
 import AppKit
 
-enum TerminalPortalBulkSynchronization {
-    @MainActor
-    static func run<Entry>(
-        prepare: () -> Void,
-        entries: () -> [Entry],
-        synchronize: (Entry) -> Void
-    ) {
-        prepare()
-        entries().forEach(synchronize)
-    }
-}
-
 struct TransientPortalHostCandidate: Equatable {
     let ownershipGeneration: UInt64
     let registrationToken: UInt64
@@ -42,6 +30,16 @@ struct TerminalPortalPresentationRefreshTracker {
 }
 
 extension WindowTerminalPortal {
+    @MainActor
+    func runBulkSynchronization<Entry>(
+        prepare: () -> Void,
+        entries: () -> [Entry],
+        synchronize: (Entry) -> Void
+    ) {
+        prepare()
+        entries().forEach(synchronize)
+    }
+
     func retireAndDetachHostedView(withId hostedId: ObjectIdentifier, reason: String) {
         if let entry = entriesByHostedId[hostedId], let hostedView = entry.hostedView {
             hostedView.retirePortalHostIfOwned(ownerHostId: entry.anchorHostId, reason: reason)
@@ -277,7 +275,7 @@ extension WindowTerminalPortal {
         allowPresentationRefresh: Bool = true
     ) {
         guard ensureInstalled(syncLayout: false) else { return }
-        TerminalPortalBulkSynchronization.run(
+        runBulkSynchronization(
             prepare: {
                 if syncLayout {
                     synchronizeLayoutHierarchy()
