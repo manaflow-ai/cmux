@@ -27,9 +27,34 @@ public final class CEFProfile {
 
         self.name = name
         self.contextPtr = ptr
+        Self.register(self)
     }
 
     deinit {
+        invalidate()
+    }
+
+    private var invalidated = false
+
+    /// Drops the wrapper's context reference. Live profile wrappers at
+    /// cef_shutdown are a fatal CEF DCHECK, so CEFApp.shutdown invalidates
+    /// every registered profile first.
+    func invalidate() {
+        guard !invalidated else { return }
+        invalidated = true
+        Self.liveProfiles.remove(self)
         cefRelease(UnsafeMutableRawPointer(contextPtr))
+    }
+
+    private static let liveProfiles = NSHashTable<CEFProfile>.weakObjects()
+
+    static func register(_ profile: CEFProfile) {
+        liveProfiles.add(profile)
+    }
+
+    static func invalidateAllLiveProfiles() {
+        for profile in liveProfiles.allObjects {
+            profile.invalidate()
+        }
     }
 }

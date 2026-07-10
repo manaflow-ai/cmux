@@ -67,6 +67,17 @@ public final class CEFApp {
         remoteDebuggingPort = configuration.remoteDebuggingPort
 
         var switches = configuration.extraSwitches
+        if configuration.remoteDebuggingPort != 0 {
+            // The DevTools frontend (served from Chrome's remote frontend
+            // origin, or locally) must be allowed to attach to the CDP
+            // WebSocket; without this the docked/window DevTools UI loads but
+            // every connection is rejected with "Rejected an incoming
+            // WebSocket connection".
+            switches.append((
+                "remote-allow-origins",
+                "https://chrome-devtools-frontend.appspot.com,http://127.0.0.1:\(configuration.remoteDebuggingPort)"
+            ))
+        }
         if !configuration.extensionDirectories.isEmpty {
             let staged = CEFExtensionStager.stage(
                 configuration.extensionDirectories,
@@ -84,6 +95,9 @@ public final class CEFApp {
         settings.size = numericCast(MemoryLayout<cef_settings_t>.size)
         settings.no_sandbox = 1
         settings.external_message_pump = 1
+        // The host app owns process signals; Chromium must not intercept
+        // SIGTERM and start its own terminate flow.
+        settings.disable_signal_handlers = 1
         settings.remote_debugging_port = numericCast(configuration.remoteDebuggingPort)
         settings.root_cache_path.assign(configuration.rootCachePath.path)
         settings.cache_path.assign(configuration.rootCachePath.appendingPathComponent("Default").path)
@@ -122,9 +136,55 @@ public final class CEFApp {
     public func shutdown() {
         guard isInitialized else { return }
         CEFMessagePump.shared.stop()
+        // cef_shutdown DCHECKs if any wrapper still holds a cef reference:
+        // drop live profile contexts and our held browser-process-handler
+        // reference first.
+        CEFProfile.invalidateAllLiveProfiles()
+        appHandler?.releaseHeldReferences()
         CEFRuntime.shutdown()
         isInitialized = false
         isContextInitialized = false
+    }
+
+    /// Number of live CEF browsers (created and not yet destroyed).
+    public private(set) var liveBrowserCount = 0
+    private var terminationCompletion: (() -> Void)?
+
+    func browserDidStart() { liveBrowserCount += 1 }
+
+    func browserDidStop() {
+        liveBrowserCount = max(0, liveBrowserCount - 1)
+        if liveBrowserCount == 0, let completion = terminationCompletion {
+            terminationCompletion = nil
+            shutdown()
+            completion()
+        }
+    }
+
+    /// Terminating the process with CEF initialized crashes in Chromium's
+    /// atexit handlers, and browser closes cannot complete while an
+    /// applicationShouldTerminate is pending (Chromium's shutdown machinery
+    /// and AppKit's deadlock). The supported pattern is: cancel the current
+    /// termination, let browsers close on the live run loop, then terminate
+    /// again.
+    ///
+    /// Call from applicationShouldTerminate. Returns true when it is safe to
+    /// terminate right now (CEF idle or already shut down — CEF has been shut
+    /// down when it returns true). Returns false when browsers are still
+    /// open: the caller must return .terminateCancel, and `onReady` runs on
+    /// the main thread after every browser has closed and CEF has shut down
+    /// (re-invoke NSApp.terminate there).
+    public func prepareForTermination(onReady: @escaping () -> Void) -> Bool {
+        guard isInitialized else { return true }
+        if liveBrowserCount == 0 {
+            shutdown()
+            return true
+        }
+        if terminationCompletion == nil {
+            terminationCompletion = onReady
+            CEFBrowser.forceCloseAllLiveBrowsers()
+        }
+        return false
     }
 
     func contextDidInitialize() {
@@ -208,6 +268,15 @@ final class CEFAppHandlerImpl {
                     commandLine.pointee.append_switch?(commandLine, namePtr)
                 }
             }
+        }
+    }
+
+    /// Releases the cached +1 on the browser process handler before
+    /// cef_shutdown.
+    func releaseHeldReferences() {
+        if let handler = browserProcessHandlerPtr {
+            browserProcessHandlerPtr = nil
+            cefRelease(UnsafeMutableRawPointer(handler))
         }
     }
 

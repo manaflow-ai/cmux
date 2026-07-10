@@ -46,6 +46,7 @@ public final class CEFBrowser {
         clientImpl.onBrowserCreated = { [weak parentView] browser in
             browser.profile = profileRef
             browser.hostView = parentView
+            CEFDebugDump.scheduleDump(for: browser, label: url)
             completion(browser)
         }
         let clientPtr = clientImpl.makeClientStruct()
@@ -102,36 +103,41 @@ public final class CEFBrowser {
     }
 
     deinit {
-        cefRelease(UnsafeMutableRawPointer(ptr))
+        if !isClosed {
+            cefRelease(UnsafeMutableRawPointer(ptr))
+        }
     }
 
     // MARK: Navigation
 
     public func load(url: String) {
-        guard let frame = ptr.pointee.get_main_frame?(ptr) else { return }
+        guard !isClosed, let frame = ptr.pointee.get_main_frame?(ptr) else { return }
         defer { cefRelease(UnsafeMutableRawPointer(frame)) }
         withCEFString(url) { frame.pointee.load_url?(frame, $0) }
     }
 
     public var url: String? {
-        guard let frame = ptr.pointee.get_main_frame?(ptr) else { return nil }
+        guard !isClosed, let frame = ptr.pointee.get_main_frame?(ptr) else { return nil }
         defer { cefRelease(UnsafeMutableRawPointer(frame)) }
         return String(consumingCEFUserFree: frame.pointee.get_url?(frame))
     }
 
-    public var canGoBack: Bool { ptr.pointee.can_go_back?(ptr) != 0 }
-    public var canGoForward: Bool { ptr.pointee.can_go_forward?(ptr) != 0 }
+    public var canGoBack: Bool { !isClosed && ptr.pointee.can_go_back?(ptr) != 0 }
+    public var canGoForward: Bool { !isClosed && ptr.pointee.can_go_forward?(ptr) != 0 }
 
-    public func goBack() { ptr.pointee.go_back?(ptr) }
-    public func goForward() { ptr.pointee.go_forward?(ptr) }
-    public func reload() { ptr.pointee.reload?(ptr) }
-    public func stopLoad() { ptr.pointee.stop_load?(ptr) }
+    public func goBack() { guard !isClosed else { return }; ptr.pointee.go_back?(ptr) }
+    public func goForward() { guard !isClosed else { return }; ptr.pointee.go_forward?(ptr) }
+    public func reload() { guard !isClosed else { return }; ptr.pointee.reload?(ptr) }
+    public func stopLoad() { guard !isClosed else { return }; ptr.pointee.stop_load?(ptr) }
 
     // MARK: Host
 
     public var identifier: Int32 {
-        ptr.pointee.get_identifier?(ptr) ?? 0
+        guard !isClosed else { return cachedIdentifier }
+        return ptr.pointee.get_identifier?(ptr) ?? 0
     }
+
+    private var cachedIdentifier: Int32 = 0
 
     public func setFocus(_ focused: Bool) {
         withHost { $0.pointee.set_focus?($0, focused ? 1 : 0) }
@@ -156,8 +162,16 @@ public final class CEFBrowser {
         withHost { $0.pointee.close_browser?($0, force ? 1 : 0) }
     }
 
+    /// Marks destruction complete (on_before_close) and drops the wrapper's
+    /// reference immediately. Holding cef struct references past shutdown is
+    /// a fatal CEF DCHECK inside cef_shutdown, and host apps may keep
+    /// CEFBrowser objects alive (in dictionaries, controllers) long after the
+    /// browser is gone.
     func markClosed() {
+        guard !isClosed else { return }
+        cachedIdentifier = ptr.pointee.get_identifier?(ptr) ?? 0
         isClosed = true
+        cefRelease(UnsafeMutableRawPointer(ptr))
     }
 
     // MARK: DevTools
@@ -196,9 +210,27 @@ public final class CEFBrowser {
     }
 
     private func withHost(_ body: (UnsafeMutablePointer<cef_browser_host_t>) -> Void) {
-        guard let host = ptr.pointee.get_host?(ptr) else { return }
+        guard !isClosed, let host = ptr.pointee.get_host?(ptr) else { return }
         defer { cefRelease(UnsafeMutableRawPointer(host)) }
         body(host)
+    }
+
+    // MARK: Live-browser registry (weak), for graceful shutdown
+
+    private static let liveBrowsers = NSHashTable<CEFBrowser>.weakObjects()
+
+    static func registerLiveBrowser(_ browser: CEFBrowser) {
+        liveBrowsers.add(browser)
+    }
+
+    static func unregisterLiveBrowser(_ browser: CEFBrowser) {
+        liveBrowsers.remove(browser)
+    }
+
+    static func forceCloseAllLiveBrowsers() {
+        for browser in liveBrowsers.allObjects {
+            browser.close(force: true)
+        }
     }
 }
 

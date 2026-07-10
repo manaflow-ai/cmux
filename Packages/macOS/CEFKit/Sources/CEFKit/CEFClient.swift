@@ -60,6 +60,8 @@ final class CEFClientImpl {
     func browserWasCreated(_ browser: CEFBrowser) {
         self.browser = browser
         pendingBrowser = browser
+        CEFApp.shared.browserDidStart()
+        CEFBrowser.registerLiveBrowser(browser)
         onBrowserCreated?(browser)
         onBrowserCreated = nil
     }
@@ -80,6 +82,8 @@ final class CEFClientImpl {
                   browser.identifier == browserPtr.pointee.get_identifier?(browserPtr) else { return }
             impl.delegate?.browserDidClose(browser)
             browser.markClosed()
+            CEFApp.shared.browserDidStop()
+            CEFBrowser.unregisterLiveBrowser(browser)
             impl.pendingBrowser = nil
         }
         lifeSpanPtr = ptr

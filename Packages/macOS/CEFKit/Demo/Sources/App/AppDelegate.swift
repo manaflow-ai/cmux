@@ -25,8 +25,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var activeProfileName = "Default"
     private var dockedDevTools: CEFBrowser?
     private var devToolsWindow: CEFDevToolsWindow?
-    private var openBrowserCount = 0
-    private var terminating = false
 
     private let homeURL = "https://example.com"
 
@@ -149,19 +147,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        if browsers.isEmpty {
-            CEFApp.shared.shutdown()
+        // Cancel-close-reterminate: browser closes cannot complete while a
+        // termination is pending, so cancel, let them close on the live run
+        // loop, and terminate again once CEF has shut down.
+        if CEFApp.shared.prepareForTermination(onReady: { NSApp.terminate(nil) }) {
             return .terminateNow
         }
-        // Ask CEF to destroy every browser first; terminate once
-        // browserDidClose has fired for all of them, then shut CEF down.
-        terminating = true
-        dockedDevTools?.close(force: true)
-        devToolsWindow?.close()
-        for browser in browsers.values {
-            browser.close(force: true)
-        }
-        return .terminateLater
+        return .terminateCancel
     }
 
     // MARK: Browsers and profiles
@@ -196,10 +188,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self.pendingProfiles.remove(name)
             guard let browser else { return }
             self.browsers[name] = browser
-            self.openBrowserCount += 1
-            if self.terminating {
-                browser.close(force: true)
-            } else if name == self.activeProfileName {
+            if name == self.activeProfileName {
                 self.refreshControls()
             }
         }
@@ -274,9 +263,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             closeAllDevTools()
             setDevToolsPaneVisible(true)
             CEFDevTools.openDocked(for: browser, in: devToolsContainer, delegate: self) { [weak self] devtools in
-                guard let self else { return }
-                self.dockedDevTools = devtools
-                if devtools != nil { self.openBrowserCount += 1 }
+                self?.dockedDevTools = devtools
             }
         case 2:  // Window: app-owned NSWindow hosting the DevTools frontend.
             guard CEFDevTools.isDockingAvailable else {
@@ -286,13 +273,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             closeAllDevTools()
             CEFDevToolsWindow.open(for: browser) { [weak self] devToolsWindow in
-                guard let self else { return }
-                self.devToolsWindow = devToolsWindow
-                guard let devToolsWindow else { return }
-                self.openBrowserCount += 1
-                devToolsWindow.onClose = { [weak self] in
-                    self?.devToolsBrowserClosed()
-                }
+                self?.devToolsWindow = devToolsWindow
             }
         default:  // Off
             closeAllDevTools()
@@ -416,17 +397,5 @@ extension AppDelegate: CEFBrowserDelegate {
         forwardButton.isEnabled = canGoForward
     }
 
-    func browserDidClose(_ browser: CEFBrowser) {
-        devToolsBrowserClosed()
-    }
-}
-
-extension AppDelegate {
-    fileprivate func devToolsBrowserClosed() {
-        openBrowserCount -= 1
-        if terminating && openBrowserCount <= 0 {
-            CEFApp.shared.shutdown()
-            NSApp.reply(toApplicationShouldTerminate: true)
-        }
-    }
+    func browserDidClose(_ browser: CEFBrowser) {}
 }

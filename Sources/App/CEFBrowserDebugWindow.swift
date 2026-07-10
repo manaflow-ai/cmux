@@ -49,6 +49,18 @@ enum CEFRuntimeSupport {
         startedThisSession = true
     }
 
+    /// Hook for AppDelegate.applicationShouldTerminate: terminating with CEF
+    /// initialized crashes in Chromium's atexit handlers, and browser closes
+    /// cannot complete while a termination is pending. Returns true when
+    /// terminating may proceed; false when the caller must return
+    /// .terminateCancel (termination is re-initiated automatically once CEF
+    /// has shut down).
+    static func prepareForApplicationTermination() -> Bool {
+        CEFApp.shared.prepareForTermination {
+            NSApp.terminate(nil)
+        }
+    }
+
     private static func extensionDirectories() -> [URL] {
         let fm = FileManager.default
         var roots: [URL] = []

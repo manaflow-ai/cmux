@@ -1915,6 +1915,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        // Terminating with CEF browsers open crashes in Chromium's atexit
+        // handlers; close them on the live run loop first (termination is
+        // re-initiated automatically once CEF has shut down). No-op unless
+        // the Chromium (CEF) debug browser was used this session.
+        if !CEFRuntimeSupport.prepareForApplicationTermination() {
+            return .terminateCancel
+        }
         if let reply = Self.pendingTerminateReply(
             isAwaitingTerminateKills: isAwaitingTerminateKills,
             hasActiveQuitConfirmation: activeQuitConfirmationAlertPresenter != nil,
