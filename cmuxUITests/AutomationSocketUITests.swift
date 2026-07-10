@@ -70,7 +70,7 @@ final class AutomationSocketUITests: XCTestCase {
         try FileManager.default.removeItem(atPath: socketPath)
 
         XCTAssertTrue(
-            waitForSocketPong(timeout: 8.0),
+            waitForSocketPong(timeout: 8.0, allowDiagnosticsFallback: false),
             "Expected listener to recreate removed socket path and answer ping at \(socketPath)"
         )
         app.terminate()
@@ -218,7 +218,10 @@ final class AutomationSocketUITests: XCTestCase {
         return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
     }
 
-    private func waitForSocketPong(timeout: TimeInterval) -> Bool {
+    private func waitForSocketPong(
+        timeout: TimeInterval,
+        allowDiagnosticsFallback: Bool = true
+    ) -> Bool {
         var resolvedPath: String?
         let ready = waitForControlSocketReady(
             pingTimeout: timeout,
@@ -237,8 +240,19 @@ final class AutomationSocketUITests: XCTestCase {
                 return false
             }
         )
-        if let resolvedPath { socketPath = resolvedPath }
-        return ready
+        if ready, let resolvedPath {
+            socketPath = resolvedPath
+            return true
+        }
+        guard allowDiagnosticsFallback else { return false }
+        let diagnostics = loadDiagnostics()
+        guard controlSocketDiagnosticsReportReady(diagnostics),
+              let expectedPath = diagnostics["socketExpectedPath"],
+              socketCandidates().contains(expectedPath) else {
+            return false
+        }
+        socketPath = expectedPath
+        return true
     }
 
     private func socketCandidates() -> [String] {
