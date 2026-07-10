@@ -37,4 +37,10 @@ Set `browser.engine` to `chromium` (Settings → Browser → Browser Engine, or 
 - `ChromiumWebView` — AppKit view hosting the `CALayerHost` and forwarding NSEvents as Blink input
 - `ChromiumBrowserModel` — `@Observable` projection of URL/title/loading/compositor state
 
-The runtime cannot be unloaded once started; cmux keeps a single `ChromiumRuntime` per process. Known limitations: no native back/forward/stop, no popup-menu/file-picker surface hosting yet (the protocol exposes them; the view does not consume surface-tree events), and key input uses a best-effort Windows key-code translation.
+The runtime cannot be unloaded once started; cmux keeps a single `ChromiumRuntime` per process. Known limitations: no native back/forward/stop signal (buttons stay enabled and route through JS history shims), and key input uses a best-effort Windows key-code translation.
+
+## Status
+
+The `browser.engine` setting has shipped. Working end-to-end on Chromium surfaces: browsing/navigation (omnibar, back/forward/reload via JS shims, URL/title mirroring), native `<select>` dropdown menus, native file-upload pickers, screenshots (toolbar button + `cmux browser screenshot` automation, via the OWL capture API), and DevTools toggling. Runtime-missing and mid-session crash both fall back gracefully (new surfaces open as WebKit with a notification; a live surface shows a disconnected banner with Reload-to-restart).
+
+Not yet supported on Chromium surfaces: downloads, find-in-page (⌘F shows an "unsupported" notification on Chromium surfaces), `window.open`/popups, PDF rendering, passkeys, SSL interstitial prompts, media/camera-permission reporting, and persistent per-profile cookie storage (each Chromium session currently gets a fresh scratch user-data directory, so cookies do not survive reload/restart or share cmux's WebKit profile system).
