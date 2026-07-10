@@ -105,8 +105,8 @@ struct SimulatorAccessibilityWorkerClientTests {
         await client.stop()
     }
 
-    @Test("A foreground telemetry timeout preserves the healthy renderer")
-    func foregroundTimeoutDoesNotRestartWorker() async throws {
+    @Test("A foreground telemetry timeout restarts the isolated worker")
+    func foregroundTimeoutRestartsWorker() async throws {
         let launcher = TestWorkerLauncher()
         let client = makeClient(
             launcher: launcher,
@@ -128,8 +128,8 @@ struct SimulatorAccessibilityWorkerClientTests {
             #expect(error.code == "worker_response_timed_out")
         }
 
-        #expect(endpoint.terminationCountValue() == 0)
-        #expect(launcher.endpoint(at: 1) == nil)
+        #expect(endpoint.terminationCountValue() == 1)
+        #expect(launcher.endpoint(at: 1) != nil)
         await client.stop()
     }
 
