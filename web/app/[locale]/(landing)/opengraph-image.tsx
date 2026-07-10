@@ -50,19 +50,28 @@ const localeFonts: Record<string, { name: string; url: string }> = {
     url: `${NOTO_BASE}/NotoSans/hinted/ttf/NotoSans-Regular.ttf`,
   },
 };
-const remoteFontPromises = new Map<string, Promise<ArrayBuffer | null>>();
+const FONT_FETCH_TIMEOUT_MS = 1500;
+const remoteFontData = new Map<string, ArrayBuffer>();
 
-function fetchRemoteFont(url: string) {
-  const existing = remoteFontPromises.get(url);
+async function fetchRemoteFont(url: string) {
+  const existing = remoteFontData.get(url);
   if (existing) {
     return existing;
   }
 
-  const promise = fetch(url)
-    .then((res) => (res.ok ? res.arrayBuffer() : null))
-    .catch(() => null);
-  remoteFontPromises.set(url, promise);
-  return promise;
+  try {
+    const res = await fetch(url, {
+      signal: AbortSignal.timeout(FONT_FETCH_TIMEOUT_MS),
+    });
+    if (!res.ok) {
+      return null;
+    }
+    const data = await res.arrayBuffer();
+    remoteFontData.set(url, data);
+    return data;
+  } catch {
+    return null;
+  }
 }
 
 export default async function Image({
