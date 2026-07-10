@@ -115,10 +115,8 @@ final class DiffSidecarBridge: NSObject, WKScriptMessageHandlerWithReply {
             throw error
         }
 
-        let outputDescriptor = output.fileHandleForReading.fileDescriptor
         let outputTask = Task.detached(priority: .userInitiated) {
-            FileHandle(fileDescriptor: outputDescriptor, closeOnDealloc: false)
-                .readDataToEndOfFile()
+            output.fileHandleForReading.readDataToEndOfFile()
         }
 
         let completion = await withTaskGroup(of: InvocationCompletion.self) { group in
