@@ -633,6 +633,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     let stackTokenForceRefreshGate = RPCStackTokenGate()
     var rpcAuthScope = MobileRPCAuthScope()
     var manualHostRPCAuthScope = MobileRPCAuthScope()
+    var manualHostTrustResetTask: Task<Void, Never>?
+    var manualHostTrustResetGeneration = 0
     var rpcAuthStackUserID: String?
     /// Collapses connection-state edges into one-per-outage lost/recovered events.
     private var connectionOutageThrottle = ConnectionOutageThrottle()
@@ -1041,6 +1043,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private func cleanupForDeinit() {
         presenceTask?.cancel()
         networkPathObservationTask?.cancel()
+        manualHostTrustResetTask?.cancel()
         terminalEventListenerTask?.cancel()
         terminalSubscriptionStartTask?.cancel()
         renderGridLivenessTimer?.cancel()
@@ -1474,12 +1477,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // connection so a moving network repaints instead of going stale.
             for await _ in reachability.pathChanges() {
                 guard let self, !Task.isCancelled else { return }
-                self.rotateManualHostRPCAuthScope()
-                self.invalidatePairingAttempt()
-                self.clearSupersededManualHostTrustWarning()
-                await self.manualHostTrustStore.removeAll()
-                if self.remoteClient != nil,
-                   self.queueForegroundManualHostReapproval(route: self.activeRoute) {
+                if self.invalidateManualHostTrustForNetworkBoundary() {
                     continue
                 }
                 self.recoverMobileConnection(trigger: .networkChange)
@@ -5533,7 +5531,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Invalidate the in-flight attempt outside ``beginPairingAttempt(method:)``
     /// (cancel, sign-out, live-connection teardown), dropping its instrumentation
     /// so a stale attempt can never emit `ios_pairing_*` via a later auth eviction.
-    private func invalidatePairingAttempt() {
+    func invalidatePairingAttempt() {
         pairingAttemptID = UUID()
         pairingAttemptStartedAt = nil
         pairingAttemptMethod = nil

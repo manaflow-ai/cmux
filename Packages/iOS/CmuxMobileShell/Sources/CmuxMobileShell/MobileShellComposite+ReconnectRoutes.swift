@@ -27,13 +27,15 @@ extension MobileShellComposite {
 
     /// Resume foreground-only refresh loops after the app becomes active.
     public func resumeForegroundRefresh() {
+        let queuedManualHostReapproval = lastBackgroundedAt != nil
+            && invalidateManualHostTrustForNetworkBoundary()
         startObservingNetworkPathChanges()
         // Covers stores constructed already-signed-in (no isSignedIn edge) and
         // restarts a subscription torn down while backgrounded.
         evaluatePresenceSubscription()
         let shouldResync = shouldResyncTerminalOutputOnForeground()
         lastBackgroundedAt = nil
-        if shouldResync {
+        if shouldResync, !queuedManualHostReapproval {
             resyncTerminalOutput(reason: "foreground", restartEventStream: true)
         }
         // The foreground Mac's workspace list updates live over the sync stream,

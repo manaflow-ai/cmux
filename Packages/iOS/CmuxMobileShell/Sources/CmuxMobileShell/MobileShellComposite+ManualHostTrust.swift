@@ -38,7 +38,7 @@ extension MobileShellComposite {
         guard let scope = manualHostTrustScope(for: route, stackUserID: stackUserID) else {
             return false
         }
-        return await manualHostTrustStore.isTrusted(scope)
+        return await manualHostTrustIsAvailable(scope)
     }
 
     func manualHostStackAuthTrustProvider(
@@ -48,9 +48,9 @@ extension MobileShellComposite {
         guard let scope = manualHostTrustScope(for: route, stackUserID: stackUserID) else {
             return { false }
         }
-        let trustStore = manualHostTrustStore
-        return {
-            await trustStore.isTrusted(scope)
+        return { [weak self] in
+            guard let self else { return false }
+            return await self.manualHostTrustIsAvailable(scope)
         }
     }
 
@@ -61,7 +61,7 @@ extension MobileShellComposite {
         guard let scope = manualHostTrustScope(for: route, stackUserID: stackUserID) else {
             return false
         }
-        return !(await manualHostTrustStore.isTrusted(scope))
+        return !(await manualHostTrustIsAvailable(scope))
     }
 
     func firstManualHostRouteNeedingApproval(
@@ -71,7 +71,7 @@ extension MobileShellComposite {
         let routeAuthPolicy = MobileShellRouteAuthPolicy()
         for route in routes {
             if let scope = manualHostTrustScope(for: route, stackUserID: stackUserID) {
-                if !(await manualHostTrustStore.isTrusted(scope)) {
+                if !(await manualHostTrustIsAvailable(scope)) {
                     return (route, scope)
                 }
                 return nil
@@ -111,6 +111,9 @@ extension MobileShellComposite {
     /// - Returns: The resumed result, or `.superseded` when the warning is no longer current.
     @discardableResult
     public func acceptManualHostTrustWarning() async -> MobilePairingURLConnectionResult {
+        if let resetTask = manualHostTrustResetTask {
+            await resetTask.value
+        }
         guard let warning = manualHostTrustWarning,
               let pending = pendingManualHostTrust else {
             clearManualHostTrustWarning()
@@ -186,5 +189,33 @@ extension MobileShellComposite {
     private func finishPendingManualHostSwitchAttempt(_ pending: PendingManualHostTrust) {
         guard let attemptID = pending.macSwitchAttemptID else { return }
         finishMacSwitchAttempt(attemptID)
+    }
+
+    private func manualHostTrustIsAvailable(_ scope: MobileManualHostTrustScope) async -> Bool {
+        guard manualHostTrustResetTask == nil else { return false }
+        return await manualHostTrustStore.isTrusted(scope)
+    }
+
+    /// Revokes plaintext-route credentials at any boundary that may represent a new network.
+    /// - Returns: Whether an active manual-host connection was queued for reapproval.
+    @discardableResult
+    func invalidateManualHostTrustForNetworkBoundary() -> Bool {
+        rotateManualHostRPCAuthScope()
+        invalidatePairingAttempt()
+        clearSupersededManualHostTrustWarning()
+
+        manualHostTrustResetGeneration &+= 1
+        let resetGeneration = manualHostTrustResetGeneration
+        manualHostTrustResetTask?.cancel()
+        let trustStore = manualHostTrustStore
+        manualHostTrustResetTask = Task { @MainActor [weak self] in
+            await trustStore.removeAll()
+            guard let self,
+                  self.manualHostTrustResetGeneration == resetGeneration else { return }
+            self.manualHostTrustResetTask = nil
+        }
+
+        guard remoteClient != nil else { return false }
+        return queueForegroundManualHostReapproval(route: activeRoute)
     }
 }
