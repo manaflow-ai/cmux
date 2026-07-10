@@ -319,6 +319,7 @@ final class RemoteTmuxSessionMirror {
             layout: window.layout,
             appearance: workspace.bonsplitController.configuration.appearance,
             workspaceBonsplitController: workspace.bonsplitController,
+            onControlPaneRemoved: TerminalController.remoteTmuxControlPaneRemovalHandler(),
             makePanel: { [weak workspace, weak connection] tmuxPaneId in
                 workspace?.makeRemoteTmuxPanePanel(onInput: { data in
                     Task { @MainActor in connection?.sendKeys(paneId: tmuxPaneId, data: data) }
