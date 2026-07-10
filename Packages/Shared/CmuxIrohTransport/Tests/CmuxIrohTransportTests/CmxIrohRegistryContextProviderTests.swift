@@ -192,6 +192,33 @@ struct CmxIrohRegistryContextProviderTests {
         }
         #expect(await broker.pairGrantRequestCount() == 0)
     }
+
+    @Test
+    func localEndpointIDCannotSubstituteAnotherAppInstanceBinding() async throws {
+        let fixture = try RegistryFixture()
+        let broker = TestIrohRegistryBroker(
+            discovery: try fixture.discovery(
+                targetHints: [],
+                localAppInstanceID: "123e4567-e89b-42d3-a456-426614174099"
+            ),
+            pairGrantResponses: [try fixture.pairGrantResponse(
+                issuedAt: fixture.nowSeconds,
+                expiresAt: fixture.nowSeconds + 7 * 24 * 60 * 60
+            )]
+        )
+        let provider = CmxIrohRegistryContextProvider(
+            supervisor: try await fixture.activeSupervisor(),
+            broker: broker,
+            managedRelayURLs: [fixture.relayURL],
+            activeNetworkProfiles: { [] },
+            now: { fixture.now }
+        )
+
+        await #expect(throws: CmxIrohRegistryContextError.localBindingUnavailable) {
+            try await provider.context(for: fixture.request(hints: []))
+        }
+        #expect(await broker.pairGrantRequestCount() == 0)
+    }
 }
 
 private actor TestIrohRegistryBroker: CmxIrohRegistryServing {
@@ -347,14 +374,15 @@ private struct RegistryFixture: Sendable {
 
     func discovery(
         targetHints: [CmxIrohPathHint],
-        relayFleet: [String]? = nil
+        relayFleet: [String]? = nil,
+        localAppInstanceID: String = "123e4567-e89b-42d3-a456-426614174005"
     ) throws -> CmxIrohDiscoveryResponse {
         let object: [String: Any] = [
             "route_contract_version": 1,
             "bindings": [
                 try bindingObject(
                     peer: initiator,
-                    appInstanceID: "123e4567-e89b-42d3-a456-426614174005",
+                    appInstanceID: localAppInstanceID,
                     pairingEnabled: false,
                     hints: []
                 ),
