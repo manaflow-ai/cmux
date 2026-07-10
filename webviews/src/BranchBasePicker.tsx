@@ -210,7 +210,7 @@ export function BranchBasePicker({
       return;
     }
     if (trimmed === picker.currentRef) {
-      setOpen(false);
+      closePopover();
       setGeneratingRef(null);
       return;
     }

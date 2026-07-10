@@ -95,6 +95,9 @@ struct ServerStateFile<'a> {
 /// Returns an error when root validation, listener setup, state persistence, or serving fails.
 pub async fn run(config: ServerConfig) -> Result<(), String> {
     validate_root(&config.root).await?;
+    // Ring keeps the mandatory sidecar build self-contained. Reqwest's default
+    // AWS-LC provider adds an undeclared CMake prerequisite to every Xcode build.
+    let _ = rustls::crypto::ring::default_provider().install_default();
     let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
         .await
         .map_err(|error| error.to_string())?;

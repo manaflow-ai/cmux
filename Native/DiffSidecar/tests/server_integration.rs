@@ -6,6 +6,7 @@ use futures_util::{SinkExt, StreamExt};
 
 #[test]
 fn serves_only_manifest_allowlisted_files() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
     let root = std::env::temp_dir().join(format!(
         "cmux-diff-sidecar-test-{}-{}",
         std::process::id(),

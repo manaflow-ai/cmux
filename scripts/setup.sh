@@ -27,6 +27,17 @@ if ! command -v cargo &> /dev/null || ! command -v rustc &> /dev/null; then
 fi
 cargo --version
 rustc --version
+rust_version="$(rustc --version | awk '{print $2}')"
+rust_release="${rust_version%%-*}"
+rust_major="${rust_release%%.*}"
+rust_remainder="${rust_release#*.}"
+rust_minor="${rust_remainder%%.*}"
+if ! [[ "$rust_major" =~ ^[0-9]+$ && "$rust_minor" =~ ^[0-9]+$ ]] \
+   || (( rust_major < 1 || (rust_major == 1 && rust_minor < 88) )); then
+    echo "Error: cmux requires Rust 1.88 or newer (found ${rust_version})."
+    echo "Update via: rustup update stable"
+    exit 1
+fi
 
 "$SCRIPT_DIR/ensure-ghosttykit.sh"
 

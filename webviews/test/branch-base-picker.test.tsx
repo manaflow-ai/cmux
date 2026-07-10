@@ -224,6 +224,7 @@ test("selecting the active base closes without regenerating the same URL", async
 
   expect(navigated).toEqual([]);
   expect(document.querySelector(".base-picker-popover")).toBeNull();
+  expect(document.activeElement).toBe(document.querySelector(".base-picker-button"));
 });
 
 test("a failed branch regeneration leaves cached refs available for retry", async () => {
