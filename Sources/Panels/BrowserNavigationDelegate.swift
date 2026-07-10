@@ -13,7 +13,7 @@ import WebKit
     var didCancelProvisionalNavigation: ((WKWebView, WKNavigation?) -> Void)?
     var didCancelNavigationPolicy: ((WKWebView, PolicyCancellationKind) -> Void)?
     var didBecomeDownload: ((WKWebView, Bool, UUID?) -> Void)?
-    var didTerminateWebContentProcess: ((WKWebView) -> Void)?
+    var didTerminateWebContentProcess: ((WKWebView) -> Void)?; var willAllowNavigation: ((WKWebView) -> Void)?
     var openInNewTab: ((URL) -> Void)?
     var requestNavigation: ((URLRequest, BrowserInsecureHTTPNavigationIntent) -> Void)?
     var presentAlert: BrowserAlertPresenter = browserPresentAlert
@@ -303,7 +303,7 @@ import WebKit
                 "url=\(browserNavigationDebugURL(url))"
             )
 #endif
-            if opened { reportTerminalCancellation() }
+            if opened { reportTerminalCancellation() } else { willAllowNavigation?(webView) }
             decisionHandler(opened ? .cancel : .allow)
             return
         }
@@ -419,9 +419,10 @@ import WebKit
                 clearAttemptedRequest()
             }
         }
-        decisionHandler(.allow)
+        allowNavigation(webView, decisionHandler: decisionHandler)
     }
 
+    func allowNavigation(_ webView: WKWebView, decisionHandler: (WKNavigationActionPolicy) -> Void) { willAllowNavigation?(webView); decisionHandler(.allow) }
     private func shouldOpenCheckoutInSystemBrowser(_ navigationAction: WKNavigationAction, url: URL) -> Bool {
         guard navigationAction.targetFrame?.isMainFrame != false else { return false }
         guard navigationAction.navigationType == .linkActivated else { return false }

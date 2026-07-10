@@ -158,7 +158,12 @@ struct BrowserProxyConfigurationRoute {
         }
         monitor.observe(processIdentifier: processIdentifier) { [weak websiteDataStore] in
             guard let websiteDataStore else { return }
-            BrowserProxyConfigurationRoute.direct.apply(to: websiteDataStore)
+            guard case .directAfterExplicit(let appliedIdentifier) = self.applicationState(for: websiteDataStore),
+                  appliedIdentifier == processIdentifier else { return }
+            self.storeApplicationState(
+                .directAfterExplicit(networkProcessIdentifier: nil),
+                on: websiteDataStore
+            )
         }
     }
 

@@ -3730,14 +3730,18 @@ final class BrowserPanel: Panel, ObservableObject {
         navigationDelegate.didClearPDFDocument = { [weak self] in
             MainActor.assumeIsolated { self?.clearRenderedPDFDocument() }
         }
-
         navigationDelegate.didStartProvisionalNavigation = { [weak self] webView in
             MainActor.assumeIsolated {
                 guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
-                self.applyProxyConfigurationIfAvailable()
                 self.isMainFrameProvisionalNavigationActive = true
                 self.refreshBackgroundAppearance()
                 self.applyMuteState(to: webView, reason: "navigationStart")
+            }
+        }
+        navigationDelegate.willAllowNavigation = { [weak self] webView in
+            MainActor.assumeIsolated {
+                guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
+                self.applyProxyConfigurationIfAvailable()
             }
         }
         navigationDelegate.didCommit = { [weak self] webView in
@@ -4383,7 +4387,8 @@ final class BrowserPanel: Panel, ObservableObject {
         if shouldSuspendNetworking {
             replaceWebViewPreservingState(
                 from: webView, websiteDataStore: websiteDataStore,
-                reason: "remote_proxy_unavailable"
+                reason: "remote_proxy_unavailable",
+                waitForManualRecovery: isMainFrameProvisionalNavigationActive
             )
         }
         applyProxyConfigurationIfAvailable()
