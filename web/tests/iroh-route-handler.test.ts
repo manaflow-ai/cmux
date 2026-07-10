@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import * as Effect from "effect/Effect";
 import { IrohDatabaseError, IrohQuotaExceededError } from "../services/iroh/errors";
+import type { IrohFirewallCheck } from "../services/iroh/firewall";
 import { handleIrohRoute, IrohFirewallAdmission } from "../services/iroh/routeHandler";
 import type { IrohTrustBrokerShape } from "../services/iroh/trustBroker";
 import type { AuthedUser } from "../services/vms/auth";
@@ -66,6 +67,13 @@ describe("Iroh route boundary", () => {
 
   test("bounds a firewall check that never settles", async () => {
     let brokerCalled = false;
+    let aborted = false;
+    const check: IrohFirewallCheck = (_id, { signal }) => new Promise<never>((_resolve, reject) => {
+      signal.addEventListener("abort", () => {
+        aborted = true;
+        reject(signal.reason);
+      }, { once: true });
+    });
     const dependencies = {
       verify: async () => USER,
       broker: broker({
@@ -77,7 +85,7 @@ describe("Iroh route boundary", () => {
       firewall: {
         id: "iroh-test-rule",
         timeoutMs: 10,
-        check: () => new Promise<never>(() => {}),
+        check,
       },
     };
 
@@ -90,19 +98,27 @@ describe("Iroh route boundary", () => {
     expect(response.status).toBe(503);
     expect(await response.json()).toEqual({ error: "iroh_service_unavailable" });
     expect(brokerCalled).toBe(false);
+    expect(aborted).toBe(true);
   });
 
   test("caps timed-out firewall work per identity and across the worker", async () => {
     const admission = new IrohFirewallAdmission(2);
     let started = 0;
+    let aborted = 0;
+    const check: IrohFirewallCheck = (_id, { signal }) => {
+      started += 1;
+      return new Promise<never>((_resolve, reject) => {
+        signal.addEventListener("abort", () => {
+          aborted += 1;
+          reject(signal.reason);
+        }, { once: true });
+      });
+    };
     const firewall = {
       id: "iroh-test-rule",
       timeoutMs: 5,
       admission,
-      check: () => {
-        started += 1;
-        return new Promise<never>(() => {});
-      },
+      check,
     };
     const discover = (userId: string) => handleIrohRoute(
       new Request("https://cmux.test/api/devices/iroh"),
@@ -114,12 +130,16 @@ describe("Iroh route boundary", () => {
       },
     );
 
-    expect((await discover("user-1")).status).toBe(503);
-    expect((await discover("user-1")).status).toBe(503);
-    expect((await discover("user-2")).status).toBe(503);
-    expect((await discover("user-3")).status).toBe(503);
+    const responses = await Promise.all([
+      discover("user-1"),
+      discover("user-1"),
+      discover("user-2"),
+      discover("user-3"),
+    ]);
+    expect(responses.map((response) => response.status)).toEqual([503, 503, 503, 503]);
     expect(started).toBe(2);
-    expect(admission.activeCount).toBe(2);
+    expect(aborted).toBe(2);
+    expect(admission.activeCount).toBe(0);
   });
 
   test("aborts timed-out firewall work and admits recovery", async () => {

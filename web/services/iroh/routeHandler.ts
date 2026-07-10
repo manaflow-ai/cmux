@@ -1,4 +1,3 @@
-import { checkRateLimit } from "@vercel/firewall";
 import { createHash } from "node:crypto";
 import * as Effect from "effect/Effect";
 import type * as Layer from "effect/Layer";
@@ -6,6 +5,11 @@ import { env } from "../../app/env";
 import { unauthorized, verifyRequest, type AuthedUser } from "../vms/auth";
 import { enforceBrowserMutationProtection, jsonResponse } from "../vms/routeHelpers";
 import { irohExpectedError } from "./errors";
+import {
+  checkIrohVercelFirewall,
+  type IrohFirewallCheck,
+  type IrohFirewallCheckResult,
+} from "./firewall";
 import {
   IrohTrustBroker,
   IrohTrustBrokerRuntime,
@@ -16,10 +20,8 @@ const MAX_BODY_BYTES = 64 * 1_024;
 const FIREWALL_TIMEOUT_MS = 2_500;
 const FIREWALL_MAX_IN_FLIGHT = 64;
 
-type FirewallCheckResult = Awaited<ReturnType<typeof checkRateLimit>>;
-
 export class IrohFirewallAdmission {
-  private readonly active = new Map<string, Promise<FirewallCheckResult>>();
+  private readonly active = new Map<string, Promise<IrohFirewallCheckResult>>();
 
   constructor(private readonly maxInFlight: number) {
     if (!Number.isSafeInteger(maxInFlight) || maxInFlight <= 0) {
@@ -31,7 +33,7 @@ export class IrohFirewallAdmission {
     return this.active.size;
   }
 
-  run(key: string, start: () => Promise<FirewallCheckResult>): Promise<FirewallCheckResult> {
+  run(key: string, start: () => Promise<IrohFirewallCheckResult>): Promise<IrohFirewallCheckResult> {
     if (this.active.has(key) || this.active.size >= this.maxInFlight) {
       throw new Error("firewall_admission_unavailable");
     }
@@ -62,7 +64,7 @@ type RouteDependencies = {
   readonly runtime?: Layer.Layer<IrohTrustBroker, never, never>;
   readonly firewall?: {
     readonly id: string;
-    readonly check: typeof checkRateLimit;
+    readonly check: IrohFirewallCheck;
     readonly timeoutMs?: number;
     readonly admission?: IrohFirewallAdmission;
   };
@@ -84,21 +86,27 @@ export async function handleIrohRoute(
 
   const firewall = dependencies.firewall ?? (
     process.env.VERCEL === "1" && env.CMUX_IROH_RATE_LIMIT_ID
-      ? { id: env.CMUX_IROH_RATE_LIMIT_ID, check: checkRateLimit }
+      ? { id: env.CMUX_IROH_RATE_LIMIT_ID, check: checkIrohVercelFirewall }
       : undefined
   );
   if (firewall) {
     const rateLimitKey = createHash("sha256")
       .update(`iroh-rate:${user.id}:${operation}`)
       .digest("hex");
-    let result: FirewallCheckResult;
+    const abortController = new AbortController();
+    const timeout = setTimeout(
+      () => abortController.abort(new Error("firewall_timeout")),
+      firewall.timeoutMs ?? FIREWALL_TIMEOUT_MS,
+    );
+    let result: IrohFirewallCheckResult;
     try {
-      result = await withTimeout(
-        (firewall.admission ?? firewallAdmission).run(
-          `${firewall.id}:${rateLimitKey}`,
-          () => firewall.check(firewall.id, { request, rateLimitKey }),
-        ),
-        firewall.timeoutMs ?? FIREWALL_TIMEOUT_MS,
+      result = await (firewall.admission ?? firewallAdmission).run(
+        `${firewall.id}:${rateLimitKey}`,
+        () => firewall.check(firewall.id, {
+          request,
+          rateLimitKey,
+          signal: abortController.signal,
+        }),
       );
     } catch {
       console.error("iroh trust broker firewall unavailable", {
@@ -106,6 +114,8 @@ export async function handleIrohRoute(
         failure: "request_failed_or_timed_out",
       });
       return jsonResponse({ error: "iroh_service_unavailable" }, 503);
+    } finally {
+      clearTimeout(timeout);
     }
     const { error, rateLimited } = result;
     if (rateLimited || error === "blocked") {
@@ -146,18 +156,6 @@ export async function handleIrohRoute(
     // and coarse failure class are enough for operational correlation.
     console.error("iroh trust broker request failed", { operation, failure: "unexpected" });
     return jsonResponse({ error: "iroh_internal_error" }, 500);
-  }
-}
-
-async function withTimeout<T>(work: Promise<T>, timeoutMs: number): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const deadline = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new Error("firewall_timeout")), timeoutMs);
-  });
-  try {
-    return await Promise.race([work, deadline]);
-  } finally {
-    if (timer) clearTimeout(timer);
   }
 }
 
