@@ -53,7 +53,7 @@ Bonjour supplies local reachability, not trust. A known EndpointID authenticates
 
 Bonjour must not advertise a stable EndpointID, account identifier, email, device name, build tag, or private-network profile. Same-account devices use a rotating opaque rendezvous alias and opaque SRV hostname derived from a backend-issued local-discovery secret and a bounded time epoch. Revocation rotates that secret. A first-time offline QR carries a separate one-use rendezvous value. The TXT record contains only its version, epoch, and interface-local numeric Iroh addresses. The phone obtains the EndpointID from its authenticated registry or QR proof before dialing, verifies the alias against that exact binding, rejects off-link addresses, then still requires Iroh TLS and a signed pair grant.
 
-Offline LAN discovery is opt-in. The iOS target must declare its cmux Bonjour service in `NSBonjourServices`, retain a localized local-network usage reason, and request access only when the user enables or invokes LAN discovery.
+Offline LAN discovery is opt-in. The iOS target must declare its cmux Bonjour service in `NSBonjourServices`, retain a localized local-network usage reason, and browse only when reconnecting a known Mac. A normal Iroh connection may also trigger Apple's Local Network prompt when NAT traversal tests an authenticated peer's LAN candidate. Denial disables Bonjour and direct LAN paths but must leave managed-relay connectivity working.
 
 ## Authorization
 
