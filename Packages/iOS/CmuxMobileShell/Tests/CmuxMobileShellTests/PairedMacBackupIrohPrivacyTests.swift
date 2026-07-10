@@ -21,6 +21,7 @@ private let irohBackupRouteDisclosureDate = Date(timeIntervalSince1970: 2_000_00
     @Test func pairedMacCloudBackupNeverCarriesPrivateIrohHints() throws {
         let now = Date()
         let privateAddress = "100.64.1.2:49152"
+        let publicAddress = "8.8.8.8:49152"
         let route = try CmxAttachRoute(
             id: "iroh",
             kind: .iroh,
@@ -44,6 +45,12 @@ private let irohBackupRouteDisclosureDate = Date(timeIntervalSince1970: 2_000_00
                     try CmxIrohPathHint(
                         kind: .relayURL,
                         value: "https://relay.example.test/",
+                        source: .native,
+                        privacyScope: .publicInternet
+                    ),
+                    try CmxIrohPathHint(
+                        kind: .directAddress,
+                        value: publicAddress,
                         source: .native,
                         privacyScope: .publicInternet
                     ),
@@ -72,6 +79,7 @@ private let irohBackupRouteDisclosureDate = Date(timeIntervalSince1970: 2_000_00
         let encoded = try JSONSerialization.data(withJSONObject: object)
         let json = try #require(String(data: encoded, encoding: .utf8))
         #expect(!json.contains(privateAddress))
+        #expect(!json.contains(publicAddress))
         #expect(!json.contains("production"))
     }
     @Test func deleteUploadHasNoRecordBody() throws {
