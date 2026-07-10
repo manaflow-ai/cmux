@@ -41,6 +41,20 @@ struct SimulatorKeyEquivalentTranslatorTests {
         ]))
     }
 
+    @Test("A physically held Command key remains held after the guest chord")
+    func heldCommandModifierIsNotSynthesized() {
+        let action = simulatorKeyEquivalentTranslator.action(
+            keyCode: 8,
+            modifierFlags: [.command],
+            heldUsages: [0xE3]
+        )
+
+        #expect(action == .messages([.keySequence([
+            SimulatorKeyEvent(usage: 0x06, phase: .down),
+            SimulatorKeyEvent(usage: 0x06, phase: .up),
+        ])]))
+    }
+
     @Test("Mapped keypad keys preserve generic Command-chord forwarding")
     func keypadCommandShortcut() {
         let action = simulatorKeyEquivalentTranslator.action(
