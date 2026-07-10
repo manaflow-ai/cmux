@@ -121,7 +121,7 @@ final class DeviceRegistryClient {
             "platform": "mac",
             "tag": tag,
             "routes": routes.mobileHostJSONObjects(
-                for: .authenticated,
+                for: .cloudRendezvous,
                 at: disclosureDate
             ),
         ]

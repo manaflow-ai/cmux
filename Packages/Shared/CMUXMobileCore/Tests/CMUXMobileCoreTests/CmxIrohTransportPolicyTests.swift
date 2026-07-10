@@ -165,6 +165,12 @@ private func profile(
         source: .native,
         privacyScope: .publicInternet
     )
+    let publicDirect = try CmxIrohPathHint(
+        kind: .directAddress,
+        value: "8.8.8.8:49152",
+        source: .native,
+        privacyScope: .publicInternet
+    )
     let currentPrivate = try CmxIrohPathHint(
         kind: .directAddress,
         value: "100.64.1.2:49152",
@@ -188,7 +194,7 @@ private func profile(
         kind: .iroh,
         endpoint: .peer(
             identity: CmxIrohPeerIdentity(endpointID: canonicalEndpointID),
-            pathHints: [expiredPrivate, currentPrivate, publicRelay]
+            pathHints: [expiredPrivate, currentPrivate, publicDirect, publicRelay]
         )
     )
 
@@ -197,7 +203,21 @@ private func profile(
         Issue.record("Expected authenticated Iroh peer route")
         return
     }
-    #expect(authenticatedHints == [currentPrivate, publicRelay])
+    #expect(authenticatedHints == [currentPrivate, publicDirect, publicRelay])
+
+    let cloud = try #require(route.disclosed(for: .cloudRendezvous, at: now))
+    guard case let .peer(_, cloudHints) = cloud.endpoint else {
+        Issue.record("Expected cloud Iroh peer route")
+        return
+    }
+    #expect(cloudHints == [publicRelay])
+
+    let backup = try #require(route.disclosed(for: .pairedMacCloudBackup, at: now))
+    guard case let .peer(_, backupHints) = backup.endpoint else {
+        Issue.record("Expected backup Iroh peer route")
+        return
+    }
+    #expect(backupHints == [publicRelay])
 
     #expect(route.disclosed(for: .publicStatus, at: now) == nil)
 
@@ -216,7 +236,7 @@ private func profile(
         Issue.record("Expected persisted Iroh peer route")
         return
     }
-    #expect(persistedHints == [currentPrivate, publicRelay])
+    #expect(persistedHints == [currentPrivate, publicDirect, publicRelay])
 }
 
 @Test func materiallyFutureDatedPrivateHintsAreNeverAttemptedOrSerialized() throws {

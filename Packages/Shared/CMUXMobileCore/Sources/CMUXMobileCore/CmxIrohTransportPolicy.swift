@@ -117,8 +117,11 @@ extension CmxAttachEndpoint {
         switch disclosure {
         case .authenticated:
             disclosedHints = pathHints.filter { $0.isUsable(at: now) }
-        case .pairedMacCloudBackup:
-            disclosedHints = pathHints.compactMap { $0.publicDisclosure(at: now) }
+        case .cloudRendezvous, .pairedMacCloudBackup:
+            disclosedHints = pathHints.compactMap { hint in
+                guard hint.kind == .relayURL else { return nil }
+                return hint.publicDisclosure(at: now)
+            }
         case .publicStatus, .pairingQRCode:
             disclosedHints = []
         }
@@ -129,9 +132,9 @@ extension CmxAttachEndpoint {
 extension CmxAttachRoute {
     /// Returns the route shape permitted at a serialization boundary.
     ///
-    /// Unauthenticated status exposes no attach routes. Pairing QR and
-    /// paired-Mac cloud backup keep only the route data permitted by their
-    /// stricter disclosure policies.
+    /// Unauthenticated status exposes no attach routes. Cloud rendezvous,
+    /// pairing QR, and paired-Mac backup keep only the route data permitted by
+    /// their stricter disclosure policies.
     public func disclosed(
         for disclosure: CmxAttachRouteDisclosure,
         at now: Date

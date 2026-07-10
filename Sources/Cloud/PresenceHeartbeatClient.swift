@@ -236,7 +236,7 @@ final class PresenceHeartbeatClient {
             "deviceId": deviceID,
             "platform": "mac",
             "tag": tag,
-            "routes": routes.mobileHostJSONObjects(for: .authenticated, at: now),
+            "routes": routes.mobileHostJSONObjects(for: .cloudRendezvous, at: now),
         ]
         // The app's bundle id lets the phone label the build channel on the
         // Computers screen (com.cmuxterm.app = Stable, .nightly/.rc/.staging
