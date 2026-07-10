@@ -129,6 +129,37 @@ struct SimulatorAccessibilityRequestSchedulingTests {
         ))
     }
 
+    @Test("Camera setup releases the ordered worker consumer")
+    @MainActor
+    func cameraSetupDoesNotBlockConsumer() async throws {
+        let executor = GatedAccessibilityExecutor()
+        let fixture = try WorkerOutputFixture()
+        let coordinator = SimulatorWorkerCoordinator(
+            channel: fixture.worker,
+            accessibilityExecutor: executor
+        )
+        let completion = WorkerHandleCompletion()
+
+        let requestTask = Task { @MainActor in
+            let result = await coordinator.handle(.configureCamera(
+                requestID: UUID(),
+                configuration: .placeholder
+            ))
+            await completion.finish(result)
+        }
+        await executor.waitForForegroundReadCount(1)
+        for _ in 0..<200 where await completion.result == nil {
+            await Task.yield()
+        }
+        #expect(await completion.result == true)
+
+        #expect(await coordinator.handle(.ping(100)))
+        #expect(try fixture.receive() == .ack(100))
+        await executor.releaseForegroundRead()
+        await requestTask.value
+        await coordinator.shutdown()
+    }
+
     fileprivate static let display = SimulatorDisplayMetadata(
         width: 1_200,
         height: 2_400,
