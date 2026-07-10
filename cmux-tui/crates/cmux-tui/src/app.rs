@@ -3736,6 +3736,13 @@ mod tests {
         assert!(!app.handle_pty_enqueue_result(PtyInputEnqueueResult::Oversized));
         assert_eq!(app.status_message.as_deref(), Some("Input exceeds the 4 MiB PTY buffer limit"));
         assert!(!app.quit);
+
+        assert!(!app.handle_pty_enqueue_result(PtyInputEnqueueResult::Saturated));
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("PTY input queue is full; input was not sent")
+        );
+        assert!(!app.quit);
     }
 
     #[test]
