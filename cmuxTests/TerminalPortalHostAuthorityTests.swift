@@ -52,7 +52,7 @@ struct TerminalPortalHostAuthorityTests {
 
     @MainActor
     @Test
-    func portalCallbacksRejectStaleGenerationAndHiddenPresentation() {
+    func portalCallbacksStayValidUntilReplacementCommitsAndRejectHiddenPresentation() {
         let surface = makeSurface()
         let host = TerminalPortalHostContainerView(frame: CGRect(x: 0, y: 0, width: 400, height: 300))
         let pane = PaneID()
@@ -95,10 +95,38 @@ struct TerminalPortalHostAuthorityTests {
 
         presentation = .visible(isActive: true, zPriority: 2)
         coordinator.attachGeneration = 2
+        let previouslyCommittedFocusHandler = surface.hostedView.surfaceView.onFocus
+        let previouslyCommittedFlashHandler = surface.hostedView.surfaceView.onTriggerFlash
         surface.hostedView.surfaceView.onFocus?()
         surface.hostedView.surfaceView.onTriggerFlash?()
-        #expect(focusCount == 1)
-        #expect(flashCount == 1)
+        #expect(focusCount == 2)
+        #expect(flashCount == 2)
+
+        let replacementSnapshot = makeSnapshot(
+            surface: surface,
+            pane: pane,
+            ownershipGeneration: 1,
+            attachGeneration: 2,
+            presentation: { presentation },
+            onFocus: { _ in focusCount += 1 },
+            onTriggerFlash: { flashCount += 1 }
+        )
+        GhosttyTerminalView.installPortalHostHandlers(
+            host: host,
+            hostedView: surface.hostedView,
+            terminalSurface: surface,
+            coordinator: coordinator,
+            snapshot: replacementSnapshot
+        )
+
+        previouslyCommittedFocusHandler?()
+        previouslyCommittedFlashHandler?()
+        #expect(focusCount == 2)
+        #expect(flashCount == 2)
+        surface.hostedView.surfaceView.onFocus?()
+        surface.hostedView.surfaceView.onTriggerFlash?()
+        #expect(focusCount == 3)
+        #expect(flashCount == 3)
     }
 
     @MainActor
@@ -142,6 +170,59 @@ struct TerminalPortalHostAuthorityTests {
         ))
         staleFocusHandler?()
         #expect(focusCount == 0)
+    }
+
+    @MainActor
+    @Test
+    func orphanPruneRetiresPortalLeaseAndRendererVisibility() throws {
+        let window = NSWindow(
+            contentRect: CGRect(x: 0, y: 0, width: 520, height: 340),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        let contentView = try #require(window.contentView)
+        let surface = makeSurface()
+        let host = TerminalPortalHostContainerView(
+            frame: CGRect(x: 20, y: 20, width: 360, height: 240)
+        )
+        contentView.addSubview(host)
+        let portal = WindowTerminalPortal(window: window)
+        let hostedId = ObjectIdentifier(surface.hostedView)
+        let ownershipGeneration = surface.currentPortalHostOwnershipGeneration()
+        portal.bind(hostedView: surface.hostedView, to: host, visibleInUI: true)
+        #expect(surface.claimPortalHost(
+            hostId: ObjectIdentifier(host),
+            paneId: PaneID(),
+            ownershipGeneration: ownershipGeneration,
+            inWindow: true,
+            bounds: host.bounds,
+            reason: "test.orphan.owner"
+        ))
+        surface.hostedView.setVisibleInUI(true, refreshPolicy: .deferredToPortal)
+        #expect(surface.isRendererPortalVisible)
+
+        var entry = try #require(portal.entriesByHostedId[hostedId])
+        entry.anchorView = nil
+        portal.entriesByHostedId[hostedId] = entry
+        portal.pruneDeadEntries()
+
+        #expect(portal.entriesByHostedId[hostedId] == nil)
+        #expect(!surface.isPortalHostOwner(hostId: ObjectIdentifier(host)))
+        #expect(!surface.isRendererPortalVisible)
+        #expect(!surface.hostedView.debugPortalVisibleInUI)
+        #expect(surface.hostedView.isHidden)
+
+        let replacementHost = NSView(frame: host.frame)
+        #expect(surface.claimPortalHost(
+            hostId: ObjectIdentifier(replacementHost),
+            paneId: PaneID(),
+            ownershipGeneration: ownershipGeneration,
+            inWindow: true,
+            bounds: replacementHost.bounds,
+            reason: "test.orphan.replacement"
+        ))
     }
 
     @MainActor
