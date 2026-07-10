@@ -53,10 +53,11 @@ final class SimulatorDeviceResolver {
 
 func objectProperty(_ target: NSObject, selectorName: String) -> AnyObject? {
     let selector = NSSelectorFromString(selectorName)
-    guard target.responds(to: selector),
-          let method = class_getInstanceMethod(type(of: target), selector)
-    else {
+    guard target.responds(to: selector) else {
         return nil
+    }
+    guard let method = class_getInstanceMethod(type(of: target), selector) else {
+        return target.perform(selector)?.takeUnretainedValue()
     }
     let implementation = method_getImplementation(method)
 

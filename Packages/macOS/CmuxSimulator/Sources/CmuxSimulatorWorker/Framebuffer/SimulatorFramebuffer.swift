@@ -1,4 +1,5 @@
 import CmuxSimulator
+import Darwin
 import Foundation
 import IOSurface
 import ObjectiveC.runtime
@@ -184,9 +185,7 @@ final class SimulatorFramebuffer {
             "registerScreenCallbacksWithUUID:callbackQueue:frameCallback:" +
                 "surfacesChangedCallback:propertiesChangedCallback:"
         )
-        guard descriptor.responds(to: selector),
-              let implementation = class_getMethodImplementation(type(of: descriptor), selector)
-        else {
+        guard descriptor.responds(to: selector) else {
             throw SimulatorWorkerFailure.framebufferUnavailable(
                 "The active SimulatorKit does not support framebuffer callbacks."
             )
@@ -200,20 +199,12 @@ final class SimulatorFramebuffer {
         let surfacesChangedCallback: @convention(block) () -> Void = { @MainActor [weak self] in
             self?.handleSurfaceTopologyChange()
         }
-        let propertiesChangedCallback: @convention(block) (AnyObject) -> Void = { @MainActor [weak self] properties in
-            self?.handleDisplayPropertiesChange(properties)
+        let propertiesChangedCallback: @convention(block) () -> Void = { @MainActor [weak self, weak descriptor] in
+            guard let descriptor else { return }
+            self?.handleDisplayPropertiesChange(descriptor)
         }
 
-        typealias Function = @convention(c) (
-            AnyObject,
-            Selector,
-            AnyObject,
-            AnyObject,
-            AnyObject,
-            AnyObject,
-            AnyObject
-        ) -> Void
-        unsafeBitCast(implementation, to: Function.self)(
+        guard sendFiveObjectMessage(
             descriptor,
             selector,
             identifier,
@@ -221,7 +212,11 @@ final class SimulatorFramebuffer {
             frameCallback as AnyObject,
             surfacesChangedCallback as AnyObject,
             propertiesChangedCallback as AnyObject
-        )
+        ) else {
+            throw SimulatorWorkerFailure.framebufferUnavailable(
+                "Objective-C message dispatch is unavailable for framebuffer callbacks."
+            )
+        }
     }
 
     private func handleSurfaceTopologyChange() {
@@ -232,8 +227,11 @@ final class SimulatorFramebuffer {
         _ = publishLatest(readNativeOrientation: true)
     }
 
-    private func handleDisplayPropertiesChange(_ properties: AnyObject) {
-        guard let properties = properties as? NSObject,
+    private func handleDisplayPropertiesChange(_ descriptor: NSObject) {
+        guard let properties = objectProperty(
+                  descriptor,
+                  selectorName: "screenProperties"
+              ) as? NSObject,
               let rawValue = Self.unsignedIntegerProperty(
                   properties,
                   selectorName: "uiOrientation"
@@ -426,5 +424,41 @@ private func invokeVoid(_ target: NSObject, selectorName: String) -> Bool {
     let selector = NSSelectorFromString(selectorName)
     guard target.responds(to: selector) else { return false }
     target.perform(selector)
+    return true
+}
+
+private func sendFiveObjectMessage(
+    _ target: AnyObject,
+    _ selector: Selector,
+    _ first: AnyObject,
+    _ second: AnyObject,
+    _ third: AnyObject,
+    _ fourth: AnyObject,
+    _ fifth: AnyObject
+) -> Bool {
+    guard let messageSend = dlsym(
+        UnsafeMutableRawPointer(bitPattern: -2),
+        "objc_msgSend"
+    ) else {
+        return false
+    }
+    typealias Function = @convention(c) (
+        AnyObject,
+        Selector,
+        AnyObject,
+        AnyObject,
+        AnyObject,
+        AnyObject,
+        AnyObject
+    ) -> Void
+    unsafeBitCast(messageSend, to: Function.self)(
+        target,
+        selector,
+        first,
+        second,
+        third,
+        fourth,
+        fifth
+    )
     return true
 }
