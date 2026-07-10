@@ -99,6 +99,9 @@ extension TerminalSurface {
         }
         if let bundleId = Bundle.main.bundleIdentifier, !bundleId.isEmpty {
             setManagedEnvironmentValue("CMUX_BUNDLE_ID", bundleId)
+            if let hookStateDirectory = Self.agentHookStateDirectory(bundleIdentifier: bundleId) {
+                setManagedEnvironmentValue("CMUX_AGENT_HOOK_STATE_DIR", hookStateDirectory)
+            }
         }
 
         // Port range for this workspace is snapshotted once per app session.
@@ -269,6 +272,27 @@ extension TerminalSurface {
             return body(nil)
         }
         return value.withCString(body)
+    }
+
+    private static func agentHookStateDirectory(bundleIdentifier: String) -> String? {
+        let trimmedBundleIdentifier = bundleIdentifier.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedBundleIdentifier.isEmpty else { return nil }
+        let safeBundleIdentifier = trimmedBundleIdentifier.map { character -> Character in
+            character.isLetter || character.isNumber || character == "." || character == "-" || character == "_"
+                ? character
+                : "-"
+        }
+        guard let applicationSupport = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first else {
+            return nil
+        }
+        return applicationSupport
+            .appendingPathComponent("cmux", isDirectory: true)
+            .appendingPathComponent("agent-hooks", isDirectory: true)
+            .appendingPathComponent(String(safeBundleIdentifier), isDirectory: true)
+            .path
     }
 
     private func makeGhosttySurface(

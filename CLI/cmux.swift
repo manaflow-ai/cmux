@@ -25446,10 +25446,7 @@ struct CMUXCLI {
     }
 
     private func resolveCallerTerminalBindingByTTY(client: SocketClient, includeAmbientTTY: Bool = true) -> CallerTerminalBinding? {
-        guard let ttyName = resolveCallerTTYName(includeAmbientTTY: includeAmbientTTY) else {
-            return nil
-        }
-        return resolveTerminalBinding(ttyName: ttyName, client: client)
+        uniqueCallerTerminalBindingByTTY(client: client, includeAmbientTTY: includeAmbientTTY)
     }
 
     private func resolveAgentProcessTerminalBinding(pid: Int?, client: SocketClient) -> CallerTerminalBinding? {
@@ -25526,22 +25523,6 @@ struct CMUXCLI {
             }
         }
         return false
-    }
-
-    private func resolveTerminalBinding(ttyName: String, client: SocketClient) -> CallerTerminalBinding? {
-        guard let payload = try? client.sendV2(method: "debug.terminals") else {
-            return nil
-        }
-        let terminals = payload["terminals"] as? [[String: Any]] ?? []
-        for terminal in terminals {
-            guard normalizedTTYName(terminal["tty"] as? String) == ttyName,
-                  let workspaceId = normalizedHandleValue(terminal["workspace_id"] as? String),
-                  let surfaceId = normalizedHandleValue(terminal["surface_id"] as? String) else {
-                continue
-            }
-            return CallerTerminalBinding(workspaceId: workspaceId, surfaceId: surfaceId)
-        }
-        return nil
     }
 
     func resolveCallerTTYName(includeAmbientTTY: Bool = true) -> String? {

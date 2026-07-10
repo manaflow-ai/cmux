@@ -29,18 +29,18 @@ extension TerminalController {
         if let explicitSurfaceId = explicitTargetID {
             if let explicitWorkspaceId = routing.workspaceID {
                 guard let workspace = fallbackTabManager.tabs.first(where: { $0.id == explicitWorkspaceId }),
-                      workspace.terminalPanel(for: explicitSurfaceId) != nil else {
+                      let surfaceId = workspace.terminalPanelIdForSurfaceResumeTarget(explicitSurfaceId) else {
                     return nil
                 }
-                return (fallbackTabManager, workspace, explicitSurfaceId)
+                return (fallbackTabManager, workspace, surfaceId)
             }
             if hasResolvedWindowID {
                 guard let workspace = fallbackTabManager.tabs.first(where: {
-                    $0.terminalPanel(for: explicitSurfaceId) != nil
-                }) else {
+                    $0.terminalPanelIdForSurfaceResumeTarget(explicitSurfaceId) != nil
+                }), let surfaceId = workspace.terminalPanelIdForSurfaceResumeTarget(explicitSurfaceId) else {
                     return nil
                 }
-                return (fallbackTabManager, workspace, explicitSurfaceId)
+                return (fallbackTabManager, workspace, surfaceId)
             }
             if let located = AppDelegate.shared?.locateSurface(surfaceId: explicitSurfaceId),
                let workspace = located.tabManager.tabs.first(where: { $0.id == located.workspaceId }),
@@ -48,13 +48,13 @@ extension TerminalController {
                 return (located.tabManager, workspace, explicitSurfaceId)
             }
             if let workspace = fallbackTabManager.tabs.first(where: {
-                $0.terminalPanel(for: explicitSurfaceId) != nil
-            }) {
-                return (fallbackTabManager, workspace, explicitSurfaceId)
+                $0.terminalPanelIdForSurfaceResumeTarget(explicitSurfaceId) != nil
+            }), let surfaceId = workspace.terminalPanelIdForSurfaceResumeTarget(explicitSurfaceId) {
+                return (fallbackTabManager, workspace, surfaceId)
             }
             if let workspace = resolveSurfaceWorkspace(routing: routing, tabManager: fallbackTabManager),
-               workspace.terminalPanel(for: explicitSurfaceId) != nil {
-                return (fallbackTabManager, workspace, explicitSurfaceId)
+               let surfaceId = workspace.terminalPanelIdForSurfaceResumeTarget(explicitSurfaceId) {
+                return (fallbackTabManager, workspace, surfaceId)
             }
             return nil
         }
