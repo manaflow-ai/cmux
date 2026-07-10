@@ -168,6 +168,43 @@ import Testing
         #expect(cursorPath != nil)
     }
 
+    @Test func wideCornerZonePairsOutsideSingleAxisBands() {
+        let (outer, inner) = makeNestedSplits()
+        let horizontal = region(outer, rect: horizontalDividerRect, isVertical: false)
+        let vertical = region(inner, rect: verticalDividerRect, isVertical: true)
+        // ~10.5pt diagonally from both divider lines: outside both ±8
+        // single-axis bands, inside the ±14 corner zone, and in the quadrant
+        // past the inner split's bounds that clipping used to exclude.
+        let diagonal = NSPoint(x: 411, y: 311)
+
+        let hits = PortalSplitDividerRegion.dividerHits(
+            at: diagonal,
+            in: [horizontal, vertical],
+            checkLiveness: false
+        )
+
+        #expect(hits.intersection?.vertical === vertical)
+        #expect(hits.intersection?.horizontal === horizontal)
+        #expect(hits.vertical == nil)
+        #expect(hits.horizontal == nil)
+        #expect(hits.first == nil)
+    }
+
+    @Test func wideCornerZoneEndsBeyondIntersectionExpansion() {
+        let (outer, inner) = makeNestedSplits()
+        let horizontal = region(outer, rect: horizontalDividerRect, isVertical: false)
+        let vertical = region(inner, rect: verticalDividerRect, isVertical: true)
+        let tooFar = NSPoint(x: 400, y: 320)
+
+        let intersection = PortalSplitDividerRegion.dividerIntersection(
+            at: tooFar,
+            in: [horizontal, vertical],
+            checkLiveness: false
+        )
+
+        #expect(intersection == nil)
+    }
+
     @Test func hostedContentRegionsDoNotPair() {
         let (outer, inner) = makeNestedSplits()
         let horizontal = region(outer, rect: horizontalDividerRect, isVertical: false)

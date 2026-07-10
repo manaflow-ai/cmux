@@ -47,51 +47,56 @@ enum PortalDividerCursorKind: Equatable {
     /// `_moveCursor` cannot be resolved by selector: on macOS 15 the class
     /// method exists (`responds(to:)` is true) but its implementation is a
     /// tombstone that raises `doesNotRecognizeSelector`, crashing the app the
-    /// moment the cursor is first used. Render the standard four-way arrows
-    /// symbol into a cursor instead (white halo behind a dark glyph so it
-    /// stays visible on any background), degrading to crosshair only if the
-    /// symbol is unavailable.
+    /// moment the cursor is first used. Draw the classic four-directions
+    /// move cursor (N/S/E/W arrows meeting at the center, dark glyph with a
+    /// white rim like the system resize cursors) with bezier paths, so it
+    /// needs no symbol or private API at all.
     private static let allAxesCursor: NSCursor = {
-        guard let halo = tintedAllAxesSymbol(pointSize: 15, weight: .black, color: .white),
-              let glyph = tintedAllAxesSymbol(pointSize: 13, weight: .semibold, color: .black) else {
-            return .crosshair
-        }
-        let size = NSSize(
-            width: max(halo.size.width, glyph.size.width) + 2,
-            height: max(halo.size.height, glyph.size.height) + 2
-        )
-        let image = NSImage(size: size, flipped: false) { rect in
-            for layer in [halo, glyph] {
-                layer.draw(in: NSRect(
-                    x: rect.midX - layer.size.width / 2,
-                    y: rect.midY - layer.size.height / 2,
-                    width: layer.size.width,
-                    height: layer.size.height
-                ))
-            }
+        let side: CGFloat = 24
+        let image = NSImage(size: NSSize(width: side, height: side), flipped: false) { _ in
+            let path = fourDirectionsArrowsPath(center: NSPoint(x: side / 2, y: side / 2))
+            NSColor.white.setStroke()
+            path.lineWidth = 3
+            path.lineJoinStyle = .round
+            path.stroke()
+            NSColor.black.setFill()
+            path.fill()
             return true
         }
-        return NSCursor(image: image, hotSpot: NSPoint(x: size.width / 2, y: size.height / 2))
+        return NSCursor(image: image, hotSpot: NSPoint(x: side / 2, y: side / 2))
     }()
 
-    private static func tintedAllAxesSymbol(
-        pointSize: CGFloat,
-        weight: NSFont.Weight,
-        color: NSColor
-    ) -> NSImage? {
-        guard let symbol = NSImage(
-            systemSymbolName: "arrow.up.and.down.and.arrow.left.and.right",
-            accessibilityDescription: nil
-        )?.withSymbolConfiguration(.init(pointSize: pointSize, weight: weight)) else {
-            return nil
+    /// Cross of four arrows: shafts from the center with a triangular head
+    /// per compass direction. Sized for a 24pt cursor image.
+    private static func fourDirectionsArrowsPath(center c: NSPoint) -> NSBezierPath {
+        let tip: CGFloat = 10.5      // center -> arrow tip
+        let headLength: CGFloat = 4.5
+        let headHalfWidth: CGFloat = 3.6
+        let shaftHalfWidth: CGFloat = 1.2
+
+        let path = NSBezierPath()
+        // Shafts (one cross: horizontal + vertical bars up to the head bases).
+        let base = tip - headLength
+        path.appendRect(NSRect(
+            x: c.x - base, y: c.y - shaftHalfWidth, width: base * 2, height: shaftHalfWidth * 2
+        ))
+        path.appendRect(NSRect(
+            x: c.x - shaftHalfWidth, y: c.y - base, width: shaftHalfWidth * 2, height: base * 2
+        ))
+        // Heads: (unit direction, per-direction perpendicular).
+        let directions: [(dx: CGFloat, dy: CGFloat)] = [(0, 1), (0, -1), (1, 0), (-1, 0)]
+        for d in directions {
+            let tipPoint = NSPoint(x: c.x + d.dx * tip, y: c.y + d.dy * tip)
+            let basePoint = NSPoint(x: c.x + d.dx * base, y: c.y + d.dy * base)
+            let perp = NSPoint(x: -d.dy, y: d.dx)
+            let head = NSBezierPath()
+            head.move(to: tipPoint)
+            head.line(to: NSPoint(x: basePoint.x + perp.x * headHalfWidth, y: basePoint.y + perp.y * headHalfWidth))
+            head.line(to: NSPoint(x: basePoint.x - perp.x * headHalfWidth, y: basePoint.y - perp.y * headHalfWidth))
+            head.close()
+            path.append(head)
         }
-        let image = NSImage(size: symbol.size, flipped: false) { rect in
-            symbol.draw(in: rect)
-            color.set()
-            rect.fill(using: .sourceAtop)
-            return true
-        }
-        return image
+        return path
     }
 }
 
@@ -110,23 +115,39 @@ struct PortalDividerIntersection {
 /// the legacy precedence for single-axis cursor and routing decisions.
 @MainActor
 struct PortalDividerHits {
-    let verticalCandidates: [PortalSplitDividerRegion]
-    let horizontalCandidates: [PortalSplitDividerRegion]
+    /// A divider whose intersection zone (±`intersectionHitExpansion`,
+    /// unclipped) contains the point. `isInSingleAxisBand` marks the subset
+    /// inside the narrower clipped single-axis band (±`dividerHitExpansion`),
+    /// which is what standalone resize cursors and native drags key on.
+    struct Candidate {
+        let region: PortalSplitDividerRegion
+        let isInSingleAxisBand: Bool
+    }
+
+    let verticalCandidates: [Candidate]
+    let horizontalCandidates: [Candidate]
     let first: PortalSplitDividerRegion?
 
-    var vertical: PortalSplitDividerRegion? { verticalCandidates.first }
-    var horizontal: PortalSplitDividerRegion? { horizontalCandidates.first }
+    var vertical: PortalSplitDividerRegion? {
+        verticalCandidates.first(where: \.isInSingleAxisBand)?.region
+    }
+
+    var horizontal: PortalSplitDividerRegion? {
+        horizontalCandidates.first(where: \.isInSingleAxisBand)?.region
+    }
 
     /// The two-axis pair at this point: the nearest vertical/horizontal
     /// combination that meets at a real pane corner of one nested split
-    /// tree. Trying candidates nearest-first (instead of only the single
-    /// nearest hit per orientation) keeps a valid corner drag available when
-    /// the nearest hit of one orientation belongs to an unrelated tree.
+    /// tree. Pairing uses the wider intersection zone so the corner is easy
+    /// to grab from any quadrant; trying candidates nearest-first (instead
+    /// of only the single nearest hit per orientation) keeps a valid corner
+    /// drag available when the nearest hit of one orientation belongs to an
+    /// unrelated tree.
     var intersection: PortalDividerIntersection? {
-        for vertical in verticalCandidates where !vertical.isInHostedContent {
-            for horizontal in horizontalCandidates where !horizontal.isInHostedContent {
-                if PortalSplitDividerRegion.areNested(vertical, horizontal) {
-                    return PortalDividerIntersection(vertical: vertical, horizontal: horizontal)
+        for vertical in verticalCandidates where !vertical.region.isInHostedContent {
+            for horizontal in horizontalCandidates where !horizontal.region.isInHostedContent {
+                if PortalSplitDividerRegion.areNested(vertical.region, horizontal.region) {
+                    return PortalDividerIntersection(vertical: vertical.region, horizontal: horizontal.region)
                 }
             }
         }
@@ -149,6 +170,12 @@ final class PortalSplitDividerRegion {
     /// the same value (see `Workspace.bonsplitAppearance`), so every point
     /// that shows the cursor can start a drag.
     static let dividerHitExpansion: CGFloat = 8
+
+    /// Extra points on each side of a divider line that count toward a
+    /// two-axis intersection. Wider than the single-axis band and not
+    /// clipped to the split's bounds, so the corner zone is an easy
+    /// ~28x28pt target covering all four quadrants of the junction.
+    static let intersectionHitExpansion: CGFloat = 14
 
     init(
         splitView: NSSplitView,
@@ -217,6 +244,13 @@ final class PortalSplitDividerRegion {
             .intersection(boundsInWindow)
     }
 
+    /// Deliberately unclipped: the corner of a nested split sits on the
+    /// inner split's bounds edge, and clipping would cut the zone to one
+    /// side of the junction.
+    var intersectionHitRectInWindow: NSRect {
+        rectInWindow.insetBy(dx: -Self.intersectionHitExpansion, dy: -Self.intersectionHitExpansion)
+    }
+
     /// Hit regions at `windowPoint`: the nearest divider per orientation
     /// (pointer distance to the actual divider line, z-order breaking ties)
     /// plus the topmost hit for legacy single-axis precedence.
@@ -225,36 +259,40 @@ final class PortalSplitDividerRegion {
         in regions: [PortalSplitDividerRegion],
         checkLiveness: Bool = true
     ) -> PortalDividerHits {
-        var vertical: [(region: PortalSplitDividerRegion, distance: CGFloat, order: Int)] = []
-        var horizontal: [(region: PortalSplitDividerRegion, distance: CGFloat, order: Int)] = []
+        var vertical: [(candidate: PortalDividerHits.Candidate, distance: CGFloat, order: Int)] = []
+        var horizontal: [(candidate: PortalDividerHits.Candidate, distance: CGFloat, order: Int)] = []
         var first: PortalSplitDividerRegion?
         for (order, region) in regions.reversed().enumerated() {
             if checkLiveness, !region.isLive { continue }
-            let hitRect = region.hitRectInWindow
-            guard !hitRect.isNull, hitRect.contains(windowPoint) else { continue }
+            // The wide unclipped zone is a superset of the single-axis band;
+            // one containment test gates candidacy for both.
+            guard region.intersectionHitRectInWindow.contains(windowPoint) else { continue }
             // Applies to the cursor path too (which skips the structural
             // liveness check): a parked keepAllAlive divider must neither
             // advertise a resize/four-way cursor nor join a drag pair. The
-            // alpha walk runs only for regions whose band contains the point.
+            // alpha walk runs only for regions whose zone contains the point.
             guard region.isInteractable else { continue }
-            if first == nil { first = region }
+            let hitRect = region.hitRectInWindow
+            let inBand = !hitRect.isNull && hitRect.contains(windowPoint)
+            if inBand, first == nil { first = region }
             let distance = region.isVertical
                 ? abs(windowPoint.x - region.rectInWindow.midX)
                 : abs(windowPoint.y - region.rectInWindow.midY)
+            let candidate = PortalDividerHits.Candidate(region: region, isInSingleAxisBand: inBand)
             if region.isVertical {
-                vertical.append((region, distance, order))
+                vertical.append((candidate, distance, order))
             } else {
-                horizontal.append((region, distance, order))
+                horizontal.append((candidate, distance, order))
             }
         }
         // Nearest divider line first; z-order (topmost first) breaks ties.
-        let byProximity: ((region: PortalSplitDividerRegion, distance: CGFloat, order: Int),
-                          (region: PortalSplitDividerRegion, distance: CGFloat, order: Int)) -> Bool = {
+        let byProximity: ((candidate: PortalDividerHits.Candidate, distance: CGFloat, order: Int),
+                          (candidate: PortalDividerHits.Candidate, distance: CGFloat, order: Int)) -> Bool = {
             ($0.distance, $0.order) < ($1.distance, $1.order)
         }
         return PortalDividerHits(
-            verticalCandidates: vertical.sorted(by: byProximity).map(\.region),
-            horizontalCandidates: horizontal.sorted(by: byProximity).map(\.region),
+            verticalCandidates: vertical.sorted(by: byProximity).map(\.candidate),
+            horizontalCandidates: horizontal.sorted(by: byProximity).map(\.candidate),
             first: first
         )
     }
