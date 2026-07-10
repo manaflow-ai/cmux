@@ -10,7 +10,6 @@ const realCreateAwsRdsIamPool = dbClientModule.createAwsRdsIamPool;
 
 let stackConfigured = true;
 let currentUser: typeof proUser | null = null;
-let stackProductsActive = false;
 let subscriptionRows: Array<Record<string, unknown>> = [];
 let subscriptionResults: Array<Array<Record<string, unknown>>> = [];
 let customerRows: Array<Record<string, unknown>> = [];
@@ -22,23 +21,6 @@ const proUser = {
   clientReadOnlyMetadata: {},
   selectedTeam: null as null | { id: string; displayName?: string; clientReadOnlyMetadata?: unknown },
   listTeams: mock(async () => [] as Array<{ id: string; displayName?: string; clientReadOnlyMetadata?: unknown }>),
-  listProducts: mock(async () =>
-    Object.assign(
-      stackProductsActive
-        ? [
-            {
-              id: "pro",
-              quantity: 1,
-              subscription: {
-                cancelAtPeriodEnd: false,
-                currentPeriodEnd: new Date("2026-12-01T00:00:00Z"),
-              },
-            },
-          ]
-        : [],
-      { nextCursor: null },
-    ),
-  ),
   update: mock(async () => undefined),
 };
 
@@ -84,14 +66,13 @@ describe("dashboard billing page", () => {
   beforeEach(() => {
     stackConfigured = true;
     currentUser = proUser;
-    stackProductsActive = false;
     subscriptionRows = [];
     subscriptionResults = [];
     customerRows = [];
+    proUser.clientReadOnlyMetadata = {};
     proUser.selectedTeam = null;
     proUser.listTeams.mockClear();
     mockImplementation(proUser.listTeams, async () => []);
-    proUser.listProducts.mockClear();
     proUser.update.mockClear();
   });
 
@@ -190,15 +171,13 @@ describe("dashboard billing page", () => {
     expect(html).not.toContain("Upgrade when you need cloud agents or team billing.");
   });
 
-  test("renders legacy Stack Pro without Stripe self-serve actions", async () => {
-    stackProductsActive = true;
+  test("renders Stack metadata-only Pro as Free", async () => {
+    proUser.clientReadOnlyMetadata = { cmuxPlan: "pro" };
 
     const html = await renderBillingPage();
 
-    expect(html).toContain("cmux Pro");
-    expect(html).toContain(
-      "Your subscription is managed by our previous billing system. Contact support to make changes.",
-    );
+    expect(html).toContain("Free");
+    expect(html).toContain("You are currently on the Free plan.");
     expect(html).not.toContain("/api/billing/subscription");
     expect(html).not.toContain("/api/billing/portal");
   });

@@ -115,14 +115,10 @@ export default async function AppPricingPage({
               {snapshot.isPro ? (
                 <div className="space-y-2">
                   <DisabledButton>{pricing.currentPlan}</DisabledButton>
-                  {snapshot.billingManagement === "stripe" && !appStorePaymentGated ? (
+                  {appStorePaymentGated ? null : (
                     <SecondaryLink href="/api/billing/portal">
                       {pricing.manageBilling}
                     </SecondaryLink>
-                  ) : (
-                    <p className="text-sm leading-6 text-muted">
-                      {pricing.billingExternal}
-                    </p>
                   )}
                 </div>
               ) : appStorePaymentGated ? (
@@ -254,7 +250,7 @@ type AppPlanSnapshot = {
   authenticated: boolean;
   planId: string;
   isPro: boolean;
-  billingManagement: "stripe" | "external" | "none";
+  billingManagement: "stripe" | "none";
   email: string | null;
 };
 
@@ -307,12 +303,6 @@ function appPricingBanner(
   if (welcome === "active") {
     return { message: pricing.welcomeActive };
   }
-  if (welcome === "pending") {
-    return {
-      message: pricing.welcomePending,
-      action: { href: "/api/billing/confirm", label: pricing.welcomePendingAction },
-    };
-  }
   if (welcome === "team") {
     return { message: pricing.welcomeTeam };
   }
@@ -321,9 +311,6 @@ function appPricingBanner(
   }
   if (billing === "unavailable") {
     return { message: pricing.billingUnavailable };
-  }
-  if (billing === "external") {
-    return { message: pricing.billingExternal };
   }
   if (billing === "cancelled") {
     return { message: pricing.billingCancelled };

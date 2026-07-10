@@ -107,7 +107,7 @@ export default async function DashboardBillingPage({
           canManageBilling={hasStripeCustomer}
         />
       ) : (
-        <LegacyPlan t={t} />
+        <FreePlan t={t} />
       )}
 
       {billingTeam && teamSubscription ? (
@@ -438,15 +438,6 @@ function TeamPlan({
           </a>
         ) : null}
       </div>
-    </section>
-  );
-}
-
-function LegacyPlan({ t }: { t: Awaited<ReturnType<typeof getTranslations>> }) {
-  return (
-    <section className="border border-border p-3">
-      <h2 className="text-sm font-medium">{t("pro.name")}</h2>
-      <p className="mt-2 max-w-2xl text-muted">{t("legacy.body")}</p>
     </section>
   );
 }

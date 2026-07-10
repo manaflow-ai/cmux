@@ -80,7 +80,7 @@ export default async function PricingPage({
       <SiteHeader />
 
       <main className="w-full max-w-6xl mx-auto px-6 py-16 sm:py-20">
-        {/* Post-checkout / billing states from /api/billing/checkout|confirm */}
+        {/* Post-checkout / billing states from /api/billing/checkout */}
         <Suspense fallback={null}>
           <ProWelcomeBanner />
         </Suspense>
@@ -117,15 +117,9 @@ export default async function PricingPage({
             {snapshot.isPro ? (
               <div className="space-y-2">
                 <DisabledButton>{t("currentPlan")}</DisabledButton>
-                {snapshot.billingManagement === "stripe" ? (
-                  <SecondaryLink href="/api/billing/portal">
-                    {t("manageBilling")}
-                  </SecondaryLink>
-                ) : (
-                  <p className="text-sm leading-6 text-muted">
-                    {t("billingExternal")}
-                  </p>
-                )}
+                <SecondaryLink href="/api/billing/portal">
+                  {t("manageBilling")}
+                </SecondaryLink>
               </div>
             ) : (
               <ProCtaLink checkoutHref={PRO_CHECKOUT_URL} fallbackHref={DOWNLOAD_CONFIRMATION_HREF}>
@@ -277,7 +271,7 @@ export default async function PricingPage({
 
 async function currentPlanSnapshot(): Promise<{
   isPro: boolean;
-  billingManagement: "stripe" | "external" | "none";
+  billingManagement: "stripe" | "none";
 }> {
   if (!isStackConfigured()) {
     return { isPro: false, billingManagement: "none" };
