@@ -4,6 +4,7 @@ import CmuxUpdater
 import CoreGraphics
 import SwiftUI
 import Bonsplit
+import CmuxTerminal
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -482,8 +483,8 @@ struct TerminalPortalMutationTaskPressureTests {
         let allowedElapsed = baselineElapsed * 6 + 0.02
         #expect(
             portalElapsed < allowedElapsed,
-            "Current-owner geometry callbacks must coalesce without one cleanup waiter per callback " +
-                "(baseline: \(baselineElapsed)s, portal: \(portalElapsed)s)"
+            Comment(rawValue: "Current-owner geometry callbacks must coalesce without one cleanup waiter per callback " +
+                "(baseline: \(baselineElapsed)s, portal: \(portalElapsed)s)")
         )
     }
 
