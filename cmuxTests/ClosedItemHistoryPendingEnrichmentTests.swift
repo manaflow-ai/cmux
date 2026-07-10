@@ -160,6 +160,37 @@ struct ClosedItemHistoryPendingEnrichmentTests {
     }
 
     @Test
+    func menuCountRemainsExactWhenPendingRecordsAreRemoved() {
+        let pendingWorkspaceId = UUID()
+        let readyWorkspaceId = UUID()
+        let pendingRecord = ClosedItemHistoryRecord(
+            entry: Self.entry(workspaceId: pendingWorkspaceId, panelId: UUID())
+        )
+        let readyRecord = ClosedItemHistoryRecord(
+            entry: Self.entry(workspaceId: readyWorkspaceId, panelId: UUID())
+        )
+        let replacementRecord = ClosedItemHistoryRecord(
+            entry: Self.entry(workspaceId: readyWorkspaceId, panelId: UUID())
+        )
+
+        let capacityStore = ClosedItemHistoryStore(capacity: 2)
+        capacityStore.pushPendingEnrichment(pendingRecord)
+        capacityStore.push(readyRecord)
+        capacityStore.insert(replacementRecord, at: 1)
+        let capacitySnapshot = capacityStore.menuSnapshot(maxItemCount: 10)
+        #expect(capacitySnapshot.totalItemCount == 2)
+        #expect(capacitySnapshot.items.map(\.id) == [readyRecord.id, replacementRecord.id])
+
+        let removalStore = ClosedItemHistoryStore()
+        removalStore.pushPendingEnrichment(pendingRecord)
+        removalStore.push(readyRecord)
+        removalStore.removePanelRecords(forWorkspaceIds: [pendingWorkspaceId])
+        let removalSnapshot = removalStore.menuSnapshot(maxItemCount: 10)
+        #expect(removalSnapshot.totalItemCount == 1)
+        #expect(removalSnapshot.items.map(\.id) == [readyRecord.id])
+    }
+
+    @Test
     func remapDuringPendingCaptureIsPreservedByEnrichment() async throws {
         let oldWorkspaceId = UUID()
         let newWorkspaceId = UUID()
