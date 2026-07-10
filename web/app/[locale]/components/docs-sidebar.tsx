@@ -9,6 +9,7 @@ import {
 } from "./docs-nav-items";
 import { DocsSearch } from "./docs-search";
 import { ContentLocaleLink } from "./content-locale-link";
+import { DocsVersionPicker } from "./docs-version-picker";
 
 function SidebarLink({
   item,
@@ -45,14 +46,33 @@ function SidebarLink({
   );
 }
 
-export function DocsSidebar({ onNavigate }: { onNavigate?: () => void }) {
+export function DocsSidebar({
+  onNavigate,
+  channel,
+  releaseOrigin,
+  nightlyOrigin,
+}: {
+  onNavigate?: () => void;
+  channel: "release" | "nightly";
+  releaseOrigin: string;
+  nightlyOrigin: string;
+}) {
   const pathname = usePathname();
   const locale = useLocale();
   const t = useTranslations("docs.navItems");
   const navItems = navItemsForLocale(locale);
+  const releaseLabel = useTranslations("docs.api")("release");
+  const nightlyLabel = useTranslations("footer")("nightly");
 
   return (
     <>
+      <DocsVersionPicker
+        channel={channel}
+        releaseLabel={releaseLabel}
+        nightlyLabel={nightlyLabel}
+        releaseOrigin={releaseOrigin}
+        nightlyOrigin={nightlyOrigin}
+      />
       <DocsSearch onNavigate={onNavigate} />
       <nav className="space-y-0.5" data-pagefind-ignore="all">
         {navItems.map((entry) => {

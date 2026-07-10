@@ -7,7 +7,17 @@ import {
   MobileDrawerOverlay,
 } from "@/app/[locale]/components/mobile-drawer";
 
-export function DocsNav({ children }: { children: React.ReactNode }) {
+export function DocsNav({
+  children,
+  channel,
+  releaseOrigin,
+  nightlyOrigin,
+}: {
+  children: React.ReactNode;
+  channel: "release" | "nightly";
+  releaseOrigin: string;
+  nightlyOrigin: string;
+}) {
   const { open, toggle, close, drawerRef, buttonRef } = useMobileDrawer();
 
   return (
@@ -60,7 +70,12 @@ export function DocsNav({ children }: { children: React.ReactNode }) {
           open ? "translate-x-0" : "-translate-x-full"
         }`}
       >
-        <DocsSidebar onNavigate={close} />
+        <DocsSidebar
+          onNavigate={close}
+          channel={channel}
+          releaseOrigin={releaseOrigin}
+          nightlyOrigin={nightlyOrigin}
+        />
       </aside>
 
       {/* Content */}
