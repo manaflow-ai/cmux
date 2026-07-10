@@ -643,36 +643,36 @@ impl BrowserSurface {
         self.resize(cols, rows);
     }
 
-    fn try_resize(&self, cols: u16, rows: u16) -> anyhow::Result<()> {
+    pub(crate) fn try_resize(&self, cols: u16, rows: u16) -> anyhow::Result<()> {
         let (cols, rows) = (cols.max(1), rows.max(1));
         let cell = *self.cell_pixels.lock().unwrap();
         let pixel_w = cols as u32 * cell.0.max(1) as u32;
         let pixel_h = rows as u32 * cell.1.max(1) as u32;
-        let (unchanged, capture_w, capture_h) = {
-            let mut state = self.state.lock().unwrap();
+        let (unchanged, capture_w, capture_h, capture_scale, capture_pixels) = {
+            let state = self.state.lock().unwrap();
             let capture_scale = capture_scale_for(pixel_w, pixel_h, self.capture_options);
             let capture_pixels = scaled_pixels(pixel_w, pixel_h, capture_scale);
             let unchanged = state.size == (cols, rows)
                 && state.pane_pixels == (pixel_w, pixel_h)
                 && state.capture_pixels == capture_pixels;
-            state.size = (cols, rows);
-            state.pane_pixels = (pixel_w, pixel_h);
-            state.capture_pixels = capture_pixels;
-            state.capture_scale = capture_scale;
-            if !unchanged {
-                state.live_since = Some(Instant::now());
-                state.last_frame_at = None;
-                state.stall_nudged = false;
-            }
-            (unchanged, capture_pixels.0, capture_pixels.1)
+            (unchanged, capture_pixels.0, capture_pixels.1, capture_scale, capture_pixels)
         };
         if unchanged {
             return Ok(());
         }
-        let Some(session) = self.live_session()? else { return Ok(()) };
-        session.runtime.client.set_device_metrics(&session.session_id, capture_w, capture_h)?;
-        let _ = session.runtime.client.stop_screencast(&session.session_id);
-        session.runtime.client.start_screencast(&session.session_id, capture_w, capture_h)?;
+        if let Some(session) = self.live_session()? {
+            session.runtime.client.set_device_metrics(&session.session_id, capture_w, capture_h)?;
+            let _ = session.runtime.client.stop_screencast(&session.session_id);
+            session.runtime.client.start_screencast(&session.session_id, capture_w, capture_h)?;
+        }
+        let mut state = self.state.lock().unwrap();
+        state.size = (cols, rows);
+        state.pane_pixels = (pixel_w, pixel_h);
+        state.capture_pixels = capture_pixels;
+        state.capture_scale = capture_scale;
+        state.live_since = Some(Instant::now());
+        state.last_frame_at = None;
+        state.stall_nudged = false;
         Ok(())
     }
 

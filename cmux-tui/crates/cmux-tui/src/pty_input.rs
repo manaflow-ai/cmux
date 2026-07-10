@@ -538,18 +538,21 @@ fn worker(queue: Arc<SharedQueue>, on_failure: Arc<dyn Fn(PtyOperationFailure) +
         // likewise occur while flushing after bytes were written.
         let known_not_delivered =
             remote_transport_failed || (!remote && event.surface.kind() == SurfaceKind::Browser);
-        let failure = result.err().map(|error| PtyOperationFailure {
-            surface_id,
-            kind,
-            reservation_id,
-            label: event.label,
-            error: error.to_string(),
-            lane_failed: remote_transport_failed,
-            delivery: if known_not_delivered {
-                PtyOperationDelivery::KnownNotDelivered
-            } else {
-                PtyOperationDelivery::Ambiguous
-            },
+        let suppress_mutation_timeout = remote_timed_out && event.kind == PtyInputKind::Mutation;
+        let failure = result.err().and_then(|error| {
+            (!suppress_mutation_timeout).then(|| PtyOperationFailure {
+                surface_id,
+                kind,
+                reservation_id,
+                label: event.label,
+                error: error.to_string(),
+                lane_failed: remote_transport_failed,
+                delivery: if known_not_delivered {
+                    PtyOperationDelivery::KnownNotDelivered
+                } else {
+                    PtyOperationDelivery::Ambiguous
+                },
+            })
         });
         let mut state = queue.state.lock().unwrap();
         let mut canceled = Vec::new();
@@ -1136,6 +1139,21 @@ mod tests {
     }
 
     #[test]
+    fn remote_mutation_timeout_is_reported_only_by_its_session_outcome() {
+        let (failure_tx, failure_rx) = std::sync::mpsc::channel();
+        let dispatcher = PtyInputDispatcher::spawn(move |failure| {
+            failure_tx.send(failure).unwrap();
+        })
+        .unwrap();
+
+        dispatcher.sender().enqueue_session_mutation("timed out mutation", true, || {
+            Err(crate::session::test_remote_timeout_error())
+        });
+
+        assert!(failure_rx.recv_timeout(Duration::from_millis(100)).is_err());
+    }
+
+    #[test]
     fn pty_write_failure_is_reported_with_its_surface() {
         let (failure_tx, failure_rx) = std::sync::mpsc::channel();
         let dispatcher = PtyInputDispatcher::spawn(move |failure| {
@@ -1254,10 +1272,10 @@ mod tests {
             Ok(())
         });
 
-        let first = failure_rx.recv_timeout(Duration::from_secs(1)).unwrap();
-        let second = failure_rx.recv_timeout(Duration::from_secs(1)).unwrap();
-        assert!(!first.lane_failed);
-        assert!(!second.lane_failed);
+        let canceled = failure_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert_eq!(canceled.label, "stale queued request");
+        assert!(!canceled.lane_failed);
+        assert!(failure_rx.try_recv().is_err());
         assert!(!stale_ran.load(std::sync::atomic::Ordering::Acquire));
 
         let recovery = recovered.clone();

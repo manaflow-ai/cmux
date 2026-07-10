@@ -614,7 +614,7 @@ impl SurfaceHandle {
         let desired = (cols.max(1), rows.max(1));
         match self {
             SurfaceHandle::Local(surface) => {
-                let _ = surface.resize(desired.0, desired.1);
+                let _ = surface.try_resize(desired.0, desired.1)?;
                 Ok(())
             }
             SurfaceHandle::Remote(surface, session) => {
@@ -629,7 +629,9 @@ impl SurfaceHandle {
                 }
                 Ok(())
             }
-            SurfaceHandle::RemoteBrowserUnsupported => Ok(()),
+            SurfaceHandle::RemoteBrowserUnsupported => {
+                anyhow::bail!("browser surface is unavailable")
+            }
         }
     }
 
@@ -651,7 +653,7 @@ impl SurfaceHandle {
         let desired = (cols.max(1), rows.max(1));
         match self {
             SurfaceHandle::Local(surface) => {
-                let _ = surface.resize(desired.0, desired.1);
+                let _ = surface.try_resize(desired.0, desired.1)?;
                 Ok(())
             }
             SurfaceHandle::Remote(surface, session) => {
@@ -666,7 +668,9 @@ impl SurfaceHandle {
                 surface.set_asserted_size(desired);
                 Ok(())
             }
-            SurfaceHandle::RemoteBrowserUnsupported => Ok(()),
+            SurfaceHandle::RemoteBrowserUnsupported => {
+                anyhow::bail!("browser surface is unavailable")
+            }
         }
     }
 

@@ -34,14 +34,12 @@ use crate::session::SurfaceHandle;
 /// blocked worker caps queued work at a few hundred events.
 const QUEUE_CAPACITY: usize = 512;
 
-#[derive(Clone)]
 pub struct BrowserInputEvent {
     pub surface_id: SurfaceId,
     pub surface: SurfaceHandle,
     pub kind: BrowserInputKind,
 }
 
-#[derive(Clone)]
 pub enum BrowserInputKind {
     Mouse {
         event_type: &'static str,
@@ -68,6 +66,7 @@ pub enum BrowserInputKind {
         cols: u16,
         rows: u16,
         reassert: bool,
+        _claim: Option<Box<dyn Send>>,
     },
 }
 
@@ -101,6 +100,11 @@ pub struct BrowserInputDispatcher {
     latest_resizes: Arc<Mutex<HashMap<(SurfaceId, u64), SequencedBrowserInputEvent>>>,
 }
 
+#[cfg(test)]
+pub(crate) struct BlockedBrowserInput {
+    _rx: Receiver<SequencedBrowserInputEvent>,
+}
+
 impl BrowserInputDispatcher {
     pub fn spawn() -> anyhow::Result<Self> {
         let (tx, rx) = sync_channel(QUEUE_CAPACITY);
@@ -112,6 +116,19 @@ impl BrowserInputDispatcher {
             .name("mux-browser-input".into())
             .spawn(move || worker(rx, worker_order, worker_resizes))?;
         Ok(BrowserInputDispatcher { tx, order, latest_resizes })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn blocked(capacity: usize) -> (Self, BlockedBrowserInput) {
+        let (tx, rx) = sync_channel(capacity);
+        (
+            BrowserInputDispatcher {
+                tx,
+                order: Arc::new(Mutex::new(BrowserEnqueueOrder::default())),
+                latest_resizes: Arc::new(Mutex::new(HashMap::new())),
+            },
+            BlockedBrowserInput { _rx: rx },
+        )
     }
 
     /// Queue an event without blocking. A full queue retains the latest
@@ -148,7 +165,7 @@ fn worker(
         let mut batch = batch.into_iter().map(|event| event.event).collect::<Vec<_>>();
         coalesce_browser_events(&mut batch);
         for event in batch {
-            dispatch(&event);
+            let _ = dispatch(&event);
         }
     }
 }
@@ -199,9 +216,9 @@ fn coalesce_browser_events(batch: &mut Vec<BrowserInputEvent>) {
     }
 }
 
-fn dispatch(event: &BrowserInputEvent) {
+fn dispatch(event: &BrowserInputEvent) -> anyhow::Result<()> {
     let surface = &event.surface;
-    let _ = match &event.kind {
+    match &event.kind {
         BrowserInputKind::Mouse { event_type, x, y, button, click_count } => {
             surface.browser_mouse_event(event_type, *x, *y, *button, *click_count)
         }
@@ -222,19 +239,28 @@ fn dispatch(event: &BrowserInputEvent) {
             *text,
         ),
         BrowserInputKind::InsertText(text) => surface.browser_insert_text(text),
-        BrowserInputKind::Resize { cols, rows, reassert } => {
+        BrowserInputKind::Resize { cols, rows, reassert, .. } => {
             if *reassert {
                 surface.reassert_size(*cols, *rows)
             } else {
                 surface.resize(*cols, *rows)
             }
         }
-    };
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    struct DropProbe(Arc<AtomicBool>);
+
+    impl Drop for DropProbe {
+        fn drop(&mut self) {
+            self.0.store(true, Ordering::Release);
+        }
+    }
 
     fn move_event(surface: SurfaceId, x: f64) -> BrowserInputEvent {
         BrowserInputEvent {
@@ -268,7 +294,24 @@ mod tests {
         BrowserInputEvent {
             surface_id: surface,
             surface: SurfaceHandle::RemoteBrowserUnsupported,
-            kind: BrowserInputKind::Resize { cols, rows: 24, reassert: false },
+            kind: BrowserInputKind::Resize { cols, rows: 24, reassert: false, _claim: None },
+        }
+    }
+
+    fn resize_event_with_probe(
+        surface: SurfaceId,
+        cols: u16,
+        dropped: Arc<AtomicBool>,
+    ) -> BrowserInputEvent {
+        BrowserInputEvent {
+            surface_id: surface,
+            surface: SurfaceHandle::RemoteBrowserUnsupported,
+            kind: BrowserInputKind::Resize {
+                cols,
+                rows: 24,
+                reassert: false,
+                _claim: Some(Box::new(DropProbe(dropped))),
+            },
         }
     }
 
@@ -367,6 +410,47 @@ mod tests {
         drop(rx);
         dispatcher.enqueue(resize_event(3, 156));
         assert!(latest_resizes.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn resize_claim_lives_through_queue_fallback_replacement_and_disconnect() {
+        let (tx, rx) = sync_channel(1);
+        let latest_resizes = Arc::new(Mutex::new(HashMap::new()));
+        let dispatcher = BrowserInputDispatcher {
+            tx,
+            order: Arc::new(Mutex::new(BrowserEnqueueOrder::default())),
+            latest_resizes: latest_resizes.clone(),
+        };
+        let accepted = Arc::new(AtomicBool::new(false));
+        dispatcher.enqueue(resize_event_with_probe(1, 80, accepted.clone()));
+        assert!(!accepted.load(Ordering::Acquire));
+        drop(rx.recv().unwrap());
+        assert!(accepted.load(Ordering::Acquire));
+
+        dispatcher.enqueue(click_event(1));
+        let replaced = Arc::new(AtomicBool::new(false));
+        let retained = Arc::new(AtomicBool::new(false));
+        dispatcher.enqueue(resize_event_with_probe(1, 100, replaced.clone()));
+        dispatcher.enqueue(resize_event_with_probe(1, 120, retained.clone()));
+        assert!(replaced.load(Ordering::Acquire));
+        assert!(!retained.load(Ordering::Acquire));
+        latest_resizes.lock().unwrap().clear();
+        assert!(retained.load(Ordering::Acquire));
+
+        drop(rx);
+        let disconnected = Arc::new(AtomicBool::new(false));
+        dispatcher.enqueue(resize_event_with_probe(1, 140, disconnected.clone()));
+        assert!(disconnected.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn resize_claim_drops_after_dispatch_failure() {
+        let dropped = Arc::new(AtomicBool::new(false));
+        let event = resize_event_with_probe(1, 80, dropped.clone());
+        assert!(dispatch(&event).is_err());
+        assert!(!dropped.load(Ordering::Acquire));
+        drop(event);
+        assert!(dropped.load(Ordering::Acquire));
     }
 
     #[test]

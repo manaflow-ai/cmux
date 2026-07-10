@@ -59,7 +59,7 @@ pub enum AppEvent {
     Input(Event),
     PtyOperationFailed(PtyOperationFailure),
     SessionMutationSettled(SessionMutationOutcome),
-    RemoteTreeUpdated(Result<TreeView, String>),
+    RemoteTreeUpdated { refresh_sequence: u64, result: Result<TreeView, String> },
     SidebarPluginUpdated { status: SidebarPluginSurface, relaunch: bool },
 }
 
@@ -110,12 +110,16 @@ pub enum SessionMutationOutcome {
     IdentityRefreshSucceeded {
         tree: TreeView,
         authoritative_generation: u64,
+        refresh_sequence: u64,
     },
     CommittedTreeStale {
         error: Option<String>,
         completion: Option<SessionCompletion>,
     },
-    IdentityRefreshFailed(String),
+    IdentityRefreshFailed {
+        error: String,
+        refresh_sequence: u64,
+    },
     MutationTimedOut(String),
     Failed(String),
     Canceled,
@@ -161,9 +165,15 @@ impl Drop for RemoteRefreshClaim {
 }
 
 struct SurfaceResizeClaim {
-    claims: Arc<Mutex<HashMap<SurfaceId, (u16, u16)>>>,
+    claims: Arc<Mutex<HashMap<SurfaceId, SurfaceResizeClaimState>>>,
     surface: SurfaceId,
+    token: u64,
+}
+
+#[derive(Clone, Copy)]
+struct SurfaceResizeClaimState {
     desired: (u16, u16),
+    token: u64,
 }
 
 enum SurfaceResizeDecision {
@@ -215,7 +225,7 @@ impl Drop for SidebarPluginSyncClaim {
 impl Drop for SurfaceResizeClaim {
     fn drop(&mut self) {
         let mut claims = self.claims.lock().unwrap();
-        if claims.get(&self.surface) == Some(&self.desired) {
+        if claims.get(&self.surface).is_some_and(|claim| claim.token == self.token) {
             claims.remove(&self.surface);
         }
     }
@@ -234,7 +244,9 @@ pub struct OrderedSession {
     committed_mutation_generation: Arc<AtomicU64>,
     remote_refresh_queued: Arc<AtomicBool>,
     remote_background_dirty: Arc<AtomicBool>,
-    surface_resize_claims: Arc<Mutex<HashMap<SurfaceId, (u16, u16)>>>,
+    remote_refresh_sequence: Arc<AtomicU64>,
+    surface_resize_claims: Arc<Mutex<HashMap<SurfaceId, SurfaceResizeClaimState>>>,
+    surface_resize_claim_sequence: Arc<AtomicU64>,
     config_generation: Arc<AtomicU64>,
     sidebar_plugin_sync: Arc<Mutex<SidebarPluginSyncState>>,
     exited_surfaces: Arc<Mutex<HashSet<SurfaceId>>>,
@@ -252,7 +264,9 @@ impl OrderedSession {
             committed_mutation_generation: Arc::new(AtomicU64::new(0)),
             remote_refresh_queued: Arc::new(AtomicBool::new(false)),
             remote_background_dirty: Arc::new(AtomicBool::new(false)),
+            remote_refresh_sequence: Arc::new(AtomicU64::new(0)),
             surface_resize_claims: Arc::new(Mutex::new(HashMap::new())),
+            surface_resize_claim_sequence: Arc::new(AtomicU64::new(0)),
             config_generation: Arc::new(AtomicU64::new(0)),
             sidebar_plugin_sync: Arc::new(Mutex::new(SidebarPluginSyncState::default())),
             exited_surfaces: Arc::new(Mutex::new(HashSet::new())),
@@ -281,7 +295,9 @@ impl OrderedSession {
     }
 
     fn forget_surface(&self, id: SurfaceId) {
-        self.exited_surfaces.lock().unwrap().insert(id);
+        if self.remote {
+            self.exited_surfaces.lock().unwrap().insert(id);
+        }
         self.inner.forget_surface(id);
     }
 
@@ -330,6 +346,20 @@ impl OrderedSession {
             && (!self.remote || !self.inner.remote_tree_is_stale())
     }
 
+    fn reconcile_exited_surfaces(&self, tree: &TreeView) {
+        if !self.remote {
+            return;
+        }
+        self.exited_surfaces.lock().unwrap().retain(|surface| {
+            tree.workspaces
+                .iter()
+                .flat_map(|workspace| workspace.screens.iter())
+                .flat_map(|screen| screen.panes.iter())
+                .flat_map(|pane| pane.tabs.iter())
+                .any(|tab| tab.surface == *surface)
+        });
+    }
+
     fn has_pending_mutations(&self) -> bool {
         self.pending_mutations.load(Ordering::Acquire) > 0
     }
@@ -353,25 +383,28 @@ impl OrderedSession {
         self.inner.invalidate_remote_tree();
         let session = self.inner.clone();
         let authoritative_generation = self.committed_mutation_generation.load(Ordering::Acquire);
+        let refresh_sequence = self.remote_refresh_sequence.fetch_add(1, Ordering::AcqRel) + 1;
         let pending = self.pending_mutation();
         let claim = RemoteRefreshClaim(self.remote_refresh_queued.clone());
         let spawn =
             std::thread::Builder::new().name("remote-tree-refresh".into()).spawn(move || {
                 let result = session.refresh_tree();
-                drop(claim);
                 match result {
                     Ok(tree) => {
                         pending.settle(SessionMutationOutcome::IdentityRefreshSucceeded {
                             tree,
                             authoritative_generation,
+                            refresh_sequence,
                         });
                     }
                     Err(error) => {
-                        pending.settle(SessionMutationOutcome::IdentityRefreshFailed(
-                            error.to_string(),
-                        ));
+                        pending.settle(SessionMutationOutcome::IdentityRefreshFailed {
+                            error: error.to_string(),
+                            refresh_sequence,
+                        });
                     }
                 }
+                drop(claim);
             });
         if let Err(error) = spawn {
             self.remote_refresh_queued.store(false, Ordering::Release);
@@ -398,16 +431,20 @@ impl OrderedSession {
         }
         let session = self.inner.clone();
         let events = self.events.clone();
+        let refresh_sequence = self.remote_refresh_sequence.fetch_add(1, Ordering::AcqRel) + 1;
         let claim = RemoteRefreshClaim(self.remote_refresh_queued.clone());
         let spawn =
             std::thread::Builder::new().name("remote-tree-refresh".into()).spawn(move || {
                 let result = session.refresh_tree().map_err(|error| error.to_string());
+                let _ = events.send(AppEvent::RemoteTreeUpdated { refresh_sequence, result });
                 drop(claim);
-                let _ = events.send(AppEvent::RemoteTreeUpdated(result));
             });
         if let Err(error) = spawn {
             self.remote_refresh_queued.store(false, Ordering::Release);
-            let _ = self.events.send(AppEvent::RemoteTreeUpdated(Err(error.to_string())));
+            let _ = self.events.send(AppEvent::RemoteTreeUpdated {
+                refresh_sequence,
+                result: Err(error.to_string()),
+            });
         }
     }
 
@@ -537,20 +574,19 @@ impl OrderedSession {
         desired: (u16, u16),
         surface_needs_resize: bool,
     ) -> SurfaceResizeDecision {
-        {
-            let mut claims = self.surface_resize_claims.lock().unwrap();
-            if claims.get(&surface_id) == Some(&desired) {
-                return SurfaceResizeDecision::AlreadyClaimed;
-            }
-            if !claims.contains_key(&surface_id) && !surface_needs_resize {
-                return SurfaceResizeDecision::Noop;
-            }
-            claims.insert(surface_id, desired);
+        let mut claims = self.surface_resize_claims.lock().unwrap();
+        if claims.get(&surface_id).is_some_and(|claim| claim.desired == desired) {
+            return SurfaceResizeDecision::AlreadyClaimed;
         }
+        if !claims.contains_key(&surface_id) && !surface_needs_resize {
+            return SurfaceResizeDecision::Noop;
+        }
+        let token = self.surface_resize_claim_sequence.fetch_add(1, Ordering::AcqRel) + 1;
+        claims.insert(surface_id, SurfaceResizeClaimState { desired, token });
         SurfaceResizeDecision::NeedsQueue(SurfaceResizeClaim {
             claims: self.surface_resize_claims.clone(),
             surface: surface_id,
-            desired,
+            token,
         })
     }
 
@@ -1171,6 +1207,7 @@ pub struct App {
     deferred_input: VecDeque<Event>,
     routing_refresh_pending: bool,
     routing_refresh_retries_remaining: u8,
+    last_applied_refresh_sequence: u64,
     pending_session_completions: VecDeque<SessionCompletion>,
     mux_titles: Arc<MuxTitleIngress>,
     drag: Option<Drag>,
@@ -1455,6 +1492,7 @@ pub fn run(
         deferred_input: VecDeque::new(),
         routing_refresh_pending: false,
         routing_refresh_retries_remaining: 0,
+        last_applied_refresh_sequence: 0,
         pending_session_completions: VecDeque::new(),
         mux_titles,
         drag: None,
@@ -1700,6 +1738,23 @@ impl App {
             }
         } else if background_dirty {
             self.session.refresh_remote_tree_background();
+        }
+    }
+
+    fn accept_refresh_sequence(&mut self, refresh_sequence: u64) -> bool {
+        if refresh_sequence <= self.last_applied_refresh_sequence {
+            return false;
+        }
+        self.last_applied_refresh_sequence = refresh_sequence;
+        true
+    }
+
+    fn complete_routing_after_stale_identity_result(&mut self) {
+        if !self.session.has_pending_mutations()
+            && !self.session.remote_tree_is_stale()
+            && !self.deferred_input.is_empty()
+        {
+            self.routing_refresh_pending = true;
         }
     }
 
@@ -2096,7 +2151,13 @@ impl App {
                     SessionMutationOutcome::IdentityRefreshSucceeded {
                         tree,
                         authoritative_generation,
+                        refresh_sequence,
                     } => {
+                        if !self.accept_refresh_sequence(refresh_sequence) {
+                            self.complete_routing_after_stale_identity_result();
+                            return Ok(RenderAction::None);
+                        }
+                        self.session.reconcile_exited_surfaces(&tree);
                         self.replace_tree(tree);
                         self.routing_refresh_retries_remaining = 0;
                         self.apply_session_completions_through(authoritative_generation);
@@ -2115,7 +2176,11 @@ impl App {
                         self.session.invalidate_remote_tree();
                         self.session.refresh_remote_tree_if_stale();
                     }
-                    SessionMutationOutcome::IdentityRefreshFailed(error) => {
+                    SessionMutationOutcome::IdentityRefreshFailed { error, refresh_sequence } => {
+                        if !self.accept_refresh_sequence(refresh_sequence) {
+                            self.complete_routing_after_stale_identity_result();
+                            return Ok(RenderAction::None);
+                        }
                         self.status_message = Some(format!(
                             "session changed, but its layout is still stale: {error}"
                         ));
@@ -2138,6 +2203,7 @@ impl App {
                     }
                     SessionMutationOutcome::Failed(error) => {
                         self.deferred_input.clear();
+                        self.prefix_armed = false;
                         self.pending_session_completions.clear();
                         self.status_message = Some(format!("session operation failed: {error}"));
                         return Ok(RenderAction::Draw);
@@ -2147,6 +2213,7 @@ impl App {
                             return Ok(RenderAction::None);
                         }
                         self.deferred_input.clear();
+                        self.prefix_armed = false;
                         self.pending_session_completions.clear();
                         self.status_message = Some("session operation was canceled".to_string());
                         return Ok(RenderAction::Draw);
@@ -2159,9 +2226,13 @@ impl App {
                 self.routing_refresh_pending = true;
                 Ok(RenderAction::Draw)
             }
-            AppEvent::RemoteTreeUpdated(result) => {
+            AppEvent::RemoteTreeUpdated { refresh_sequence, result } => {
+                if !self.accept_refresh_sequence(refresh_sequence) {
+                    return Ok(RenderAction::None);
+                }
                 match result {
                     Ok(tree) => {
+                        self.session.reconcile_exited_surfaces(&tree);
                         self.replace_tree(tree);
                         self.routing_refresh_retries_remaining = 0;
                     }
@@ -2419,10 +2490,16 @@ impl App {
         claim: Option<SurfaceResizeClaim>,
     ) {
         if surface.kind() == SurfaceKind::Browser {
+            let Some(claim) = claim else { return };
             self.browser_input.enqueue(BrowserInputEvent {
                 surface_id,
                 surface,
-                kind: BrowserInputKind::Resize { cols, rows, reassert },
+                kind: BrowserInputKind::Resize {
+                    cols,
+                    rows,
+                    reassert,
+                    _claim: Some(Box::new(claim)),
+                },
             });
         } else {
             let Some(claim) = claim else { return };
@@ -4956,7 +5033,7 @@ mod tests {
         SessionCompletion, SessionCompletionAction, SurfaceResizeDecision,
         browser_content_size_for_rect, browser_hover_forward_allowed, pane_parts_for_rect,
     };
-    use std::collections::{HashMap, VecDeque};
+    use std::collections::{HashMap, HashSet, VecDeque};
     use std::sync::atomic::Ordering;
     use std::sync::mpsc::Receiver;
     use std::sync::{Arc, Mutex};
@@ -4974,14 +5051,14 @@ mod tests {
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
 
-    use crate::browser_input::BrowserInputDispatcher;
+    use crate::browser_input::{BrowserInputDispatcher, BrowserInputEvent, BrowserInputKind};
     use crate::config::{ChromeTheme, Config, ScrollbarPosition};
     use crate::pty_input::{
         PtyInputBytes, PtyInputDispatcher, PtyInputEnqueueResult, PtyInputKind,
         PtyOperationDelivery, PtyOperationFailure,
     };
     use crate::session::tree::{PaneView, ScreenView, TabNotificationView, TabView, WorkspaceView};
-    use crate::session::{Session, SidebarPluginSurface, TreeView};
+    use crate::session::{Session, SidebarPluginSurface, SurfaceHandle, TreeView};
 
     #[test]
     fn browser_omnibar_reduces_content_rect_for_graphics_and_input() {
@@ -5420,6 +5497,7 @@ mod tests {
             super::SessionMutationOutcome::IdentityRefreshSucceeded {
                 tree: TreeView::default(),
                 authoritative_generation: 0,
+                refresh_sequence: 1,
             },
         ))
         .unwrap();
@@ -5428,7 +5506,7 @@ mod tests {
         assert!(!app.session.has_pending_mutations());
         assert!(matches!(
             events.recv_timeout(Duration::from_secs(1)).unwrap(),
-            AppEvent::RemoteTreeUpdated(Ok(_))
+            AppEvent::RemoteTreeUpdated { result: Ok(_), .. }
         ));
     }
 
@@ -5490,6 +5568,126 @@ mod tests {
             app.session.surface_resize_decision(7, (80, 24), false),
             SurfaceResizeDecision::Noop
         ));
+
+        let old_a = match app.session.surface_resize_decision(9, (80, 24), true) {
+            SurfaceResizeDecision::NeedsQueue(claim) => claim,
+            _ => panic!("first A must queue"),
+        };
+        let b = match app.session.surface_resize_decision(9, (100, 30), true) {
+            SurfaceResizeDecision::NeedsQueue(claim) => claim,
+            _ => panic!("B must replace A"),
+        };
+        let new_a = match app.session.surface_resize_decision(9, (80, 24), true) {
+            SurfaceResizeDecision::NeedsQueue(claim) => claim,
+            _ => panic!("new A must replace B"),
+        };
+        drop(old_a);
+        drop(b);
+        assert!(matches!(
+            app.session.surface_resize_decision(9, (80, 24), true),
+            SurfaceResizeDecision::AlreadyClaimed
+        ));
+        drop(new_a);
+    }
+
+    #[test]
+    fn browser_resize_claim_survives_queue_and_input_barrier_until_drop() {
+        let mux = Mux::new("browser-resize-claim-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let (dispatcher, blocked) = BrowserInputDispatcher::blocked(2);
+        app.browser_input = dispatcher;
+        let claim = match app.session.surface_resize_decision(7, (100, 30), true) {
+            SurfaceResizeDecision::NeedsQueue(claim) => claim,
+            _ => panic!("browser resize must queue"),
+        };
+        app.enqueue_surface_resize(
+            7,
+            SurfaceHandle::RemoteBrowserUnsupported,
+            100,
+            30,
+            false,
+            Some(claim),
+        );
+        app.browser_input.enqueue(BrowserInputEvent {
+            surface_id: 7,
+            surface: SurfaceHandle::RemoteBrowserUnsupported,
+            kind: BrowserInputKind::Mouse {
+                event_type: "mouseMoved",
+                x: 1.0,
+                y: 1.0,
+                button: Some("none"),
+                click_count: None,
+            },
+        });
+
+        assert!(matches!(
+            app.session.surface_resize_decision(7, (100, 30), true),
+            SurfaceResizeDecision::AlreadyClaimed
+        ));
+        drop(blocked);
+        assert!(matches!(
+            app.session.surface_resize_decision(7, (100, 30), true),
+            SurfaceResizeDecision::NeedsQueue(_)
+        ));
+    }
+
+    #[test]
+    fn refresh_sequences_are_monotonic_across_identity_and_background_paths() {
+        let mux = Mux::new("refresh-sequence-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let newer = notify_tree(22, false);
+        let older = notify_tree(11, false);
+        app.session.pending_mutations.store(1, Ordering::Release);
+        app.deferred_input
+            .push_back(Event::Key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)));
+
+        app.handle(AppEvent::RemoteTreeUpdated { refresh_sequence: 2, result: Ok(newer.clone()) })
+            .unwrap();
+        app.handle(AppEvent::SessionMutationSettled(
+            super::SessionMutationOutcome::IdentityRefreshSucceeded {
+                tree: older.clone(),
+                authoritative_generation: 0,
+                refresh_sequence: 1,
+            },
+        ))
+        .unwrap();
+        assert_eq!(app.tree.workspaces[0].screens[0].panes[0].tabs[0].surface, 22);
+        assert!(app.routing_refresh_pending);
+        assert_eq!(app.deferred_input.len(), 1);
+
+        app.routing_refresh_pending = false;
+        app.session.pending_mutations.store(1, Ordering::Release);
+        app.handle(AppEvent::SessionMutationSettled(
+            super::SessionMutationOutcome::IdentityRefreshSucceeded {
+                tree: newer,
+                authoritative_generation: 0,
+                refresh_sequence: 4,
+            },
+        ))
+        .unwrap();
+        app.handle(AppEvent::RemoteTreeUpdated { refresh_sequence: 3, result: Ok(older) }).unwrap();
+        assert_eq!(app.tree.workspaces[0].screens[0].panes[0].tabs[0].surface, 22);
+    }
+
+    #[test]
+    fn exited_surface_tombstones_are_remote_only_and_pruned_authoritatively() {
+        let mux = Mux::new("surface-tombstone-churn-test", SurfaceOptions::default());
+        let app = test_app(Session::Local(mux));
+        for surface in 1..=1_000 {
+            app.session.forget_surface(surface);
+        }
+        assert!(app.session.exited_surfaces.lock().unwrap().is_empty());
+
+        let mut app = app;
+        app.session.remote = true;
+        for surface in 1..=1_000 {
+            app.session.forget_surface(surface);
+        }
+        assert_eq!(app.session.exited_surfaces.lock().unwrap().len(), 1_000);
+        app.session.reconcile_exited_surfaces(&notify_tree(1_000, false));
+        assert_eq!(*app.session.exited_surfaces.lock().unwrap(), HashSet::from([1_000]));
+        app.session.reconcile_exited_surfaces(&TreeView::default());
+        assert!(app.session.exited_surfaces.lock().unwrap().is_empty());
     }
 
     #[test]
@@ -5706,7 +5904,8 @@ mod tests {
         });
         let tree = browser_completion_tree(surface, surface);
 
-        app.handle(AppEvent::RemoteTreeUpdated(Ok(tree.clone()))).unwrap();
+        app.handle(AppEvent::RemoteTreeUpdated { refresh_sequence: 1, result: Ok(tree.clone()) })
+            .unwrap();
         assert_eq!(app.pending_session_completions.len(), 1);
         assert!(app.omnibar.is_none());
 
@@ -5723,6 +5922,7 @@ mod tests {
             super::SessionMutationOutcome::IdentityRefreshSucceeded {
                 tree: tree.clone(),
                 authoritative_generation: 3,
+                refresh_sequence: 2,
             },
         ))
         .unwrap();
@@ -5734,6 +5934,7 @@ mod tests {
             super::SessionMutationOutcome::IdentityRefreshSucceeded {
                 tree,
                 authoritative_generation: 4,
+                refresh_sequence: 3,
             },
         ))
         .unwrap();
@@ -5758,6 +5959,7 @@ mod tests {
             super::SessionMutationOutcome::IdentityRefreshSucceeded {
                 tree: browser_completion_tree(created_surface, active_surface),
                 authoritative_generation: 4,
+                refresh_sequence: 1,
             },
         ))
         .unwrap();
@@ -5779,6 +5981,12 @@ mod tests {
         });
         started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
         app.handle(AppEvent::Input(Event::Key(KeyEvent::new(
+            KeyCode::Char('b'),
+            KeyModifiers::CONTROL,
+        ))))
+        .unwrap();
+        assert!(app.prefix_armed);
+        app.handle(AppEvent::Input(Event::Key(KeyEvent::new(
             KeyCode::Char('x'),
             KeyModifiers::NONE,
         ))))
@@ -5790,6 +5998,7 @@ mod tests {
         app.handle(settled).unwrap();
 
         assert!(app.deferred_input.is_empty());
+        assert!(!app.prefix_armed);
         assert_eq!(
             app.status_message.as_deref(),
             Some("session operation failed: selection rejected")
@@ -6314,6 +6523,7 @@ mod tests {
             deferred_input: VecDeque::new(),
             routing_refresh_pending: false,
             routing_refresh_retries_remaining: 0,
+            last_applied_refresh_sequence: 0,
             pending_session_completions: VecDeque::new(),
             mux_titles: Arc::new(MuxTitleIngress::default()),
             drag: None,

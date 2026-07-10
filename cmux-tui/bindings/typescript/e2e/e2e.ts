@@ -25,9 +25,10 @@ async function main(): Promise<void> {
     await client.renameSurface(created.surface, `${marker}-renamed`);
     const events = await client.subscribe();
     const title = `${marker}-title`;
-    await client.send(created.surface, { text: `printf '\\033]2;${title}\\007'; sleep 1\r` });
-    const titleChanged = await nextTitleChanged(events, created.surface, title, 1000);
+    await client.send(created.surface, { text: `printf '\\033]2;${title}\\007'; sleep 5\r` });
+    const titleChanged = await nextTitleChanged(events, created.surface, title, 3000);
     assert(titleChanged.title === title, `bad title event ${JSON.stringify(titleChanged)}`);
+    await client.send(created.surface, { text: "\x03" });
     await client.resizeSurface(created.surface, 100, 31);
     const resized = await nextSurfaceResized(events, created.surface, 1000);
     assert(resized.cols === 100 && resized.rows === 31, `bad resize event ${JSON.stringify(resized)}`);

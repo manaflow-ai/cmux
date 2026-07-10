@@ -31,9 +31,10 @@ def main() -> int:
         events = client.subscribe()
         try:
             title = f"{marker}_TITLE"
-            client.send(created.surface, text=f"printf '\\033]2;{title}\\007'; sleep 1\r")
-            title_changed = next_title_changed(events, created.surface, title, 1.0)
+            client.send(created.surface, text=f"printf '\\033]2;{title}\\007'; sleep 5\r")
+            title_changed = next_title_changed(events, created.surface, title, 3.0)
             assert title_changed.title == title, title_changed
+            client.send(created.surface, text="\x03")
             client.resize_surface(created.surface, 100, 31)
             resized = next_resized(events, created.surface, 1.0)
             assert (resized.cols, resized.rows) == (100, 31)
