@@ -66,7 +66,7 @@ final class CmuxFeatureFlags {
                     localized: "featureFlags.proUpgrade.description",
                     defaultValue: "Shows Pro upgrade entrypoints in the sidebar, Settings, command palette, and Help menu."
                 ),
-                defaultWhenUnavailable: Self.proUpgradeUIDefault
+                defaultWhenUnavailable: CmuxFeatureFlags.proUpgradeUIDefault
             ),
 
             // FLAG(key: mobile-connect-button-enabled-release, owner: lawrencecchen,
@@ -81,7 +81,7 @@ final class CmuxFeatureFlags {
                     localized: "featureFlags.mobileConnect.description",
                     defaultValue: "Shows the iPhone button that opens the Mobile Connect pairing window."
                 ),
-                defaultWhenUnavailable: Self.mobileConnectButtonDefault
+                defaultWhenUnavailable: CmuxFeatureFlags.mobileConnectButtonDefault
             ),
 
             // FLAG(key: cloud-vm-ui-enabled-release, owner: lawrencecchen,
@@ -98,7 +98,7 @@ final class CmuxFeatureFlags {
                     localized: "featureFlags.cloudVM.description",
                     defaultValue: "Shows Cloud VM entrypoints in the new-workspace dropdown and command palette."
                 ),
-                defaultWhenUnavailable: Self.cloudVMUIDefault
+                defaultWhenUnavailable: CmuxFeatureFlags.cloudVMUIDefault
             ),
 
             // FLAG(key: agent-chat-ui-enabled-release, owner: lawrencecchen,
@@ -113,7 +113,7 @@ final class CmuxFeatureFlags {
                     localized: "featureFlags.agentChat.description",
                     defaultValue: "Shows Agent Chat entrypoints in the new-workspace dropdown, command palette, and surface tab bar."
                 ),
-                defaultWhenUnavailable: Self.agentChatUIDefault
+                defaultWhenUnavailable: CmuxFeatureFlags.agentChatUIDefault
             ),
 
             // FLAG(key: sidebar-workspace-agent-spinner-experiment, owner: lawrencecchen,
@@ -130,7 +130,7 @@ final class CmuxFeatureFlags {
                     localized: "featureFlags.sidebarWorkspaceAgentSpinner.description",
                     defaultValue: "Shows a spinner in workspace rows while coding agents are running."
                 ),
-                defaultWhenUnavailable: Self.sidebarWorkspaceAgentSpinnerDefault
+                defaultWhenUnavailable: CmuxFeatureFlags.sidebarWorkspaceAgentSpinnerDefault
             ),
         ]
     }()
