@@ -14,6 +14,24 @@ import Testing
 /// visible workspace rather than the agent's own.
 @Suite(.serialized)
 struct CLICallerWorkspaceDefaultTests {
+    /// `workspace rename --title` omits the target by design. It must rename the
+    /// invoking terminal's workspace, matching the legacy `rename-workspace` alias.
+    @Test func workspaceRenameWithoutTargetDefaultsToCallerWorkspace() throws {
+        let (requests, result) = try runWorkspaceRename(
+            focusedWorkspaceId: Self.focusedWorkspaceId,
+            callerWorkspaceId: Self.callerWorkspaceId
+        )
+        #expect(result.status == 0, Comment(rawValue: result.stderr + result.stdout))
+
+        let methods = requests.compactMap { $0["method"] as? String }
+        #expect(methods == ["workspace.rename"], Comment(rawValue: methods.joined(separator: ",")))
+        #expect(!methods.contains("workspace.current"))
+
+        let params = try #require(requests.first?["params"] as? [String: Any])
+        #expect(params["workspace_id"] as? String == Self.callerWorkspaceId)
+        #expect(params["title"] as? String == "renamed")
+    }
+
     /// A blank `--workspace` from a caller pane must target the caller's workspace and
     /// must never consult `workspace.current` (the focused workspace).
     @Test func blankWorkspaceArgDefaultsToCallerWorkspace() throws {
@@ -123,6 +141,52 @@ struct CLICallerWorkspaceDefaultTests {
         let result = Self.runProcess(
             executablePath: try Self.bundledCLIPath(),
             arguments: ["mark-notification-read", "--workspace", workspaceArgument],
+            environment: cliEnvironment(socketPath: socketPath, callerWorkspaceId: callerWorkspaceId),
+            timeout: 5
+        )
+
+        #expect(handled.wait(timeout: .now() + 5) == .success)
+        #expect(state.errorsSnapshot().isEmpty, Comment(rawValue: state.errorsSnapshot().joined(separator: "\n")))
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+
+        return (try state.requestObjects(), result)
+    }
+
+    private func runWorkspaceRename(
+        focusedWorkspaceId: String,
+        callerWorkspaceId: String
+    ) throws -> ([[String: Any]], ProcessRunResult) {
+        let socketPath = Self.makeSocketPath("rename-ws")
+        let listenerFD = try Self.bindUnixSocket(at: socketPath)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let state = ServerState()
+        let handled = Self.startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = Self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return Self.malformedRequestResponse(raw: line)
+            }
+            switch method {
+            case "workspace.current":
+                return Self.v2Response(id: id, ok: true, result: ["workspace_id": focusedWorkspaceId])
+            case "workspace.rename":
+                return Self.v2Response(id: id, ok: true, result: ["workspace_id": callerWorkspaceId])
+            default:
+                return Self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected_method", "message": method]
+                )
+            }
+        }
+
+        let result = Self.runProcess(
+            executablePath: try Self.bundledCLIPath(),
+            arguments: ["workspace", "rename", "--title", "renamed"],
             environment: cliEnvironment(socketPath: socketPath, callerWorkspaceId: callerWorkspaceId),
             timeout: 5
         )
