@@ -1,6 +1,7 @@
 public import CmuxTerminalCore
 public import QuartzCore
 internal import Foundation
+internal import OSLog
 
 /// Lightweight instrumentation to detect whether Ghostty is actually requesting Metal drawables.
 /// This helps catch "frozen until refocus" regressions without relying on screenshots (which can
@@ -71,7 +72,7 @@ public final class GhosttyMetalLayer: CAMetalLayer {
         lock.lock()
         let renderDemand = renderDemand
         let frameReceiver = frameReceiver
-        let profilingMetadata = if profilingEnabled, let profilingIdentity {
+        let profilingMetadata: TerminalRendererProfilingMetadata? = if profilingEnabled, let profilingIdentity {
             TerminalRendererProfilingMetadata(
                 identity: profilingIdentity,
                 visible: profilingVisible,

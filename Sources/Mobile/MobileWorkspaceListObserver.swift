@@ -1,5 +1,5 @@
 import Combine
-internal import CmuxFoundation
+import CmuxFoundation
 import CmuxWorkspaces
 import Foundation
 import OSLog

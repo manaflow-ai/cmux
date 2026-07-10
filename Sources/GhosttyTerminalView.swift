@@ -4251,7 +4251,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     @discardableResult
     func forceRefreshSurface() -> Bool {
         updateRendererProfilingState(wakeReason: .explicitRefresh)
-        updateSurfaceSize()
+        return updateSurfaceSize()
     }
 
     private func nearlyEqual(_ lhs: CGFloat, _ rhs: CGFloat, epsilon: CGFloat = 0.0001) -> Bool {

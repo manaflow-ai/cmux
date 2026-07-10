@@ -1,5 +1,5 @@
 import AppKit
-internal import CmuxFoundation
+import CmuxFoundation
 import SwiftUI
 
 @MainActor
