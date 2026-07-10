@@ -548,6 +548,12 @@ final class FileExplorerStore {
     private(set) var rootStatusMessage: String? { didSet { signalChange() } }
     private(set) var workspaceRootIdentity: UUID? { didSet { signalChange() } }
     let storeDidChange = PassthroughSubject<Void, Never>()
+    /// Monotonic counter bumped by every `signalChange()`. The AppKit outline
+    /// coordinator records the last generation it rendered and skips its
+    /// expensive full-tree `refreshLoadedNodes` when the store has not changed
+    /// since, so `updateNSView` storms (e.g. a drag re-rendering the panel's
+    /// SwiftUI ancestor per mouse-move) do not each trigger an outline rebuild.
+    @ObservationIgnored private(set) var changeGeneration: UInt64 = 0
 
     var provider: FileExplorerProvider?
 
@@ -636,7 +642,7 @@ final class FileExplorerStore {
             )
         }
     }
-    private func signalChange() { storeDidChange.send() }
+    private func signalChange() { changeGeneration &+= 1; storeDidChange.send() }
 
     // didSet on workspaceRootIdentity signals the change.
     private func setWorkspaceRootIdentity(_ identity: UUID?) { guard workspaceRootIdentity != identity else { return }; workspaceRootIdentity = identity }

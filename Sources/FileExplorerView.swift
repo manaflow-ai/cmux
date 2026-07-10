@@ -84,7 +84,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
     // MARK: - Coordinator
 
     final class Coordinator: NSObject, NSOutlineViewDataSource, NSOutlineViewDelegate, NSMenuDelegate {
-        var store: FileExplorerStore { didSet { if store !== oldValue { lastRootNodeCount = -1; observeStore() } } } // Follow store swaps (Bonsplit reuses this coordinator across tool-panel switches): resubscribe and reset so the next reloadIfNeeded (updateNSView calls it) rebuilds; pre-migration the observed-object wrapper masked the stale subscription.
+        var store: FileExplorerStore { didSet { if store !== oldValue { lastRootNodeCount = -1; lastRenderedChangeGeneration = .max; observeStore() } } } // Follow store swaps (Bonsplit reuses this coordinator across tool-panel switches): resubscribe and reset so the next reloadIfNeeded (updateNSView calls it) rebuilds; pre-migration the observed-object wrapper masked the stale subscription.
         var state: FileExplorerState
         var onOpenFilePreview: (String) -> Void
         var placement: FileExplorerPanelPlacement
@@ -93,6 +93,11 @@ struct FileExplorerPanelView: NSViewRepresentable {
         weak var containerView: FileExplorerContainerView?
         weak var outlineView: NSOutlineView?
         private var lastRootNodeCount: Int = -1
+        // The store change-generation last rendered into the outline. Guards the
+        // expensive no-structural-change refresh so repeated reloadIfNeeded()
+        // calls with no intervening store mutation (updateNSView storms during a
+        // drag) are cheap. UInt64.max forces the first pass to apply.
+        private var lastRenderedChangeGeneration: UInt64 = .max
         private var observationCancellable: AnyCancellable?
         private var styleObserver: Any?
         private var isUpdatingOutlineProgrammatically = false
@@ -179,6 +184,17 @@ struct FileExplorerPanelView: NSViewRepresentable {
             )
 
             let newCount = store.rootNodes.count
+            let generation = store.changeGeneration
+            // Skip the outline mutation entirely when neither the root-node count
+            // nor the store's change-generation moved since the last render. This
+            // is the common case for updateNSView calls that fire for reasons
+            // unrelated to the file tree (a drag re-rendering the panel's SwiftUI
+            // ancestor per mouse-move), where refreshLoadedNodes would otherwise
+            // reload every directory node for nothing. Visibility was already
+            // synced above.
+            guard newCount != lastRootNodeCount || generation != lastRenderedChangeGeneration else {
+                return
+            }
             withProgrammaticOutlineUpdate {
                 if newCount != lastRootNodeCount {
                     lastRootNodeCount = newCount
@@ -190,6 +206,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
                 }
                 applyStoredSelection(in: outlineView, fallbackToFirstVisible: false, scroll: false)
             }
+            lastRenderedChangeGeneration = generation
         }
 
         private func restoreExpansionState(_ expandedPaths: Set<String>, in outlineView: NSOutlineView) {
