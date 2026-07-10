@@ -1,7 +1,7 @@
 import type { Adapter, CommandEntry, OptionChoice, OptionValue, SessionCtx, SessionOption } from "../types";
 import { readLines, tryParse, truncate } from "./lines";
 import { prettifyModelLabel } from "./model-label";
-import { agentModelCatalog } from "../catalog";
+import { agentModelCatalog, selectEnabledModel } from "../catalog";
 
 const PERMISSION_CHOICES: OptionChoice[] = [
   { value: "default", label: "Default" },
@@ -131,7 +131,7 @@ export const claudeAdapter: Adapter = {
   async listOptions(cwd) {
     const choices = await fetchClaudeModels(cwd);
     const st = {
-      model: defaultClaudeModel(),
+      model: enabledClaudeDefault(choices.choices),
       modelChoices: choices.choices,
       modelMeta: choices.meta,
       permissionMode: "acceptEdits",
@@ -156,9 +156,9 @@ function state(sess: SessionCtx): ClaudeState {
     st = {
       nextRequest: 1,
       pending: new Map(),
-      model: normalizeStartModel(stringOption(sess, "model", defaultClaudeModel())),
-      modelChoices: [{ value: defaultClaudeModel(), label: defaultClaudeModel() }],
-      modelMeta: new Map([[defaultClaudeModel(), { efforts: EFFORT_CHOICES, supportsFastMode: false }]]),
+      model: normalizeStartModel(stringOption(sess, "model", seededClaudeDefault(sess))),
+      modelChoices: [{ value: seededClaudeDefault(sess), label: seededClaudeDefault(sess) }],
+      modelMeta: new Map([[seededClaudeDefault(sess), { efforts: EFFORT_CHOICES, supportsFastMode: false }]]),
       permissionMode: stringOption(sess, "permissionMode", sess.autoApprove ? "acceptEdits" : "default"),
       thinking: stringOption(sess, "thinking", "0"),
       effort: stringOption(sess, "effort", "medium"),
@@ -183,6 +183,11 @@ function normalizeStartModel(value: string): string {
   if (value === "default") return defaultClaudeModel();
   const base = stripOneMillion(value).base;
   return isRemoteClaudeId(base) ? base : aliasClaudeModel(base);
+}
+
+function seededClaudeDefault(sess: SessionCtx): string {
+  const seeded = sess.seedOptions?.find((option) => option.id === "model");
+  return typeof seeded?.value === "string" && seeded.value ? seeded.value : defaultClaudeModel();
 }
 
 function isRemoteClaudeId(value: string): boolean {
@@ -212,7 +217,7 @@ function ensureProc(sess: SessionCtx): Bun.Subprocess<"pipe", "pipe", "pipe"> {
     "--verbose",
   ];
   const apiModel = resolveClaudeModelId(st);
-  args.push("--model", apiModel);
+  if (apiModel) args.push("--model", apiModel);
   const fork = sess.internal.claudeFork as { providerSessionId?: string } | undefined;
   if (fork?.providerSessionId) args.push("--resume", fork.providerSessionId, "--fork-session");
   if (st.permissionMode !== "default") args.push("--permission-mode", st.permissionMode);
@@ -393,6 +398,8 @@ async function refreshClaudeOptions(sess: SessionCtx) {
   const catalog = normalizeModelCatalog(res?.models, version);
   st.modelChoices = catalog.choices;
   st.modelMeta = catalog.meta;
+  const selected = st.modelChoices.find((choice) => choice.value === st.model);
+  if (!selected || selected.disabled) st.model = enabledClaudeDefault(st.modelChoices);
   normalizeContext(st);
   normalizeEffort(st);
   emitOptions(sess);
@@ -500,11 +507,7 @@ function normalizeModelCatalog(models: any, version: string | null): { choices: 
       ? { base: model.slug, extended }
       : undefined;
     const binary = rawByBase.get(model.slug);
-    meta.set(model.slug, {
-      efforts: binary?.meta.efforts ?? EFFORT_CHOICES,
-      supportsFastMode: model.fast ?? binary?.meta.supportsFastMode ?? false,
-      ...(context ? { context } : {}),
-    });
+    meta.set(model.slug, { efforts: binary?.meta.efforts ?? EFFORT_CHOICES, supportsFastMode: model.fast ?? binary?.meta.supportsFastMode ?? false, ...(context ? { context } : {}) });
   }
   for (const m of raw) {
     if (covered.has(m.base)) {
@@ -563,6 +566,10 @@ function aliasClaudeModel(value: string): string {
   if (lower === "sonnet") return "claude-sonnet-5";
   if (lower === "haiku") return "claude-haiku-4-5";
   return value;
+}
+
+function enabledClaudeDefault(choices: OptionChoice[]): string {
+  return selectEnabledModel(defaultClaudeModel(), choices.map((choice) => ({ id: choice.value, disabled: choice.disabled })));
 }
 
 function claudeUpgradeMessage(slug: string, label: string, min: string, version: string | null): string {

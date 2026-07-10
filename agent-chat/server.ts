@@ -279,22 +279,24 @@ async function applyAgentModelCatalog() {
   syncCatalogProviderDefs();
   const cwd = process.env.CMUX_AGENT_UI_CWD ?? DEFAULT_CWD;
   const providers = ["claude", "codex", "gemini"];
-  const options: Record<string, SessionOption[]> = {};
+  const options = new Map<string, SessionOption[]>();
   await Promise.all(providers.map(async (provider) => {
     optionCatalog.delete(provider);
     try {
-      options[provider] = await refreshCatalog(provider, cwd);
+      options.set(provider, await refreshCatalog(provider, cwd));
     } catch {
-      options[provider] = fallbackOptions(provider);
+      options.set(provider, fallbackOptions(provider));
     }
   }));
+  for (const [provider, providerOptions] of options) {
+    const payload = JSON.stringify({ kind: "options-list", provider, options: providerOptions });
+    for (const ws of allSockets) ws.send(payload);
+  }
   for (const sess of sessions.values()) {
     if (!providers.includes(sess.provider)) continue;
-    sess.seedOptions = options[sess.provider];
+    sess.seedOptions = options.get(sess.provider);
     sess.adapter.refreshOptions?.(sess).catch(() => {});
   }
-  const payload = JSON.stringify({ kind: "model-catalog", options });
-  for (const ws of allSockets) ws.send(payload);
 }
 
 function createSession(
@@ -635,19 +637,17 @@ function mergeRemoteModelOptions(provider: string, options: SessionOption[]): Se
   const choices: import("./types").OptionChoice[] = remote.models.map((entry) => {
     const reported = binary.get(entry.id);
     binary.delete(entry.id);
-    return {
-      ...reported,
-      value: entry.id,
-      label: entry.label,
-      description: entry.description ?? reported?.description,
-    };
+    return { ...reported, value: entry.id, label: entry.label, description: entry.description ?? reported?.description };
   });
   choices.push(...binary.values());
+  const current = typeof model?.value === "string" ? choices.find((choice) => choice.value === model.value && !choice.disabled) : undefined;
+  const preferred = choices.find((choice) => choice.value === remote.defaultModel && !choice.disabled);
+  const value = current?.value ?? preferred?.value ?? choices.find((choice) => !choice.disabled)?.value ?? "";
   const nextModel: SessionOption = {
-    ...(model ?? { id: "model", label: "Model", kind: "select" as const, value: remote.defaultModel }),
-    value: model?.value && choices.some((choice) => choice.value === model.value) ? model.value : remote.defaultModel,
+    ...(model ?? { id: "model", label: "Model", kind: "select" as const, value }),
+    value,
     choices,
-    disabled: false,
+    disabled: !choices.some((choice) => !choice.disabled),
   };
   return model ? options.map((option) => option === model ? nextModel : option) : [nextModel, ...options];
 }
@@ -952,9 +952,9 @@ async function changedFiles(cwd: string, timeoutMs = GIT_TIMEOUT_MS): Promise<Ch
   const deadline = makeDeadline(timeoutMs);
   if (!(await isGitRepo(cwd, remainingTimeout(deadline)))) return [];
   checkDeadline(deadline);
-  const status = await gitOutput(cwd, ["status", "--porcelain=v1"], 80_000, remainingTimeout(deadline)).catch(() => "");
+  const status = await gitOutput(cwd, ["status", "--porcelain=v1", "--", "."], 80_000, remainingTimeout(deadline)).catch(() => "");
   checkDeadline(deadline);
-  const numstat = await gitOutput(cwd, ["diff", "--numstat", "HEAD", "--"], 120_000, remainingTimeout(deadline)).catch(() => "");
+  const numstat = await gitOutput(cwd, ["diff", "--numstat", "HEAD", "--", "."], 120_000, remainingTimeout(deadline)).catch(() => "");
   const stats = new Map<string, { adds: number; dels: number }>();
   for (const line of numstat.split(/\r?\n/)) {
     const [adds, dels, ...rest] = line.split("\t");
@@ -1858,8 +1858,10 @@ function startServer() {
   agentModelCatalog.subscribe(() => {
     applyAgentModelCatalog().catch((err) => console.warn(`model catalog apply failed: ${String(err)}`));
   });
-  agentModelCatalog.refreshIfStale();
-  setInterval(() => agentModelCatalog.refreshIfStale(), 60_000);
+  agentModelCatalog.refreshIfStale().catch((err) => console.warn(`model catalog refresh failed: ${String(err)}`));
+  setInterval(() => {
+    agentModelCatalog.refreshIfStale().catch((err) => console.warn(`model catalog refresh failed: ${String(err)}`));
+  }, 60_000);
   startThemeWatcher();
   writeStateFile(server.port).catch((err) => console.error(`failed to write agent-chat state file: ${String(err)}`));
 

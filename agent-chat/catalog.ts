@@ -62,12 +62,18 @@ export function validateAgentModelCatalog(input: unknown): AgentModelCatalogPayl
 function validateProvider(input: unknown): AgentModelProviderCatalog | null {
   if (!input || typeof input !== "object" || Array.isArray(input)) return null;
   const raw = input as Record<string, unknown>;
-  if (typeof raw.defaultModel !== "string" || !raw.defaultModel || !Array.isArray(raw.models)) return null;
+  if (!Array.isArray(raw.models)) return null;
+  const seen = new Set<string>();
   const models = raw.models.flatMap((model) => {
     const parsed = validateModel(model);
-    return parsed ? [parsed] : [];
+    if (!parsed || seen.has(parsed.id)) return [];
+    seen.add(parsed.id);
+    return [parsed];
   });
-  return { defaultModel: raw.defaultModel, models: dedupeModels(models) };
+  if (!models.length) return null;
+  const requested = typeof raw.defaultModel === "string" ? raw.defaultModel : "";
+  const defaultModel = models.some((model) => model.id === requested) ? requested : models[0]!.id;
+  return { defaultModel, models };
 }
 
 function validateModel(input: unknown): AgentModelCatalogEntry | null {
@@ -77,20 +83,9 @@ function validateModel(input: unknown): AgentModelCatalogEntry | null {
   const out: AgentModelCatalogEntry = { id: raw.id, label: raw.label };
   if (typeof raw.description === "string") out.description = raw.description;
   if (typeof raw.contextWindow === "string" || typeof raw.contextWindow === "number") out.contextWindow = raw.contextWindow;
-  for (const key of ["supportsOneMillion", "fast", "deprecated"] as const) {
-    if (typeof raw[key] === "boolean") out[key] = raw[key];
-  }
+  for (const key of ["supportsOneMillion", "fast", "deprecated"] as const) if (typeof raw[key] === "boolean") out[key] = raw[key];
   if (typeof raw.minVersion === "string" && raw.minVersion) out.minVersion = raw.minVersion;
   return out;
-}
-
-function dedupeModels(models: AgentModelCatalogEntry[]): AgentModelCatalogEntry[] {
-  const seen = new Set<string>();
-  return models.filter((model) => {
-    if (seen.has(model.id)) return false;
-    seen.add(model.id);
-    return true;
-  });
 }
 
 export function mergeCatalogModels<T extends { id: string }>(
@@ -107,6 +102,11 @@ export function mergeCatalogModels<T extends { id: string }>(
     byId.set(model.id, existing ? { ...model, ...existing } : model);
   }
   return [...byId.values()];
+}
+
+export function selectEnabledModel<T extends { id: string; disabled?: boolean }>(defaultModel: string, models: T[]): string {
+  const preferred = models.find((model) => model.id === defaultModel && !model.disabled);
+  return preferred?.id ?? models.find((model) => !model.disabled)?.id ?? "";
 }
 
 export class AgentModelCatalogStore {
@@ -142,10 +142,7 @@ export class AgentModelCatalogStore {
     if (this.state) return this.now() - this.state.fetchedAt >= this.ttlMs;
     return this.lastAttemptAt === 0 || this.now() - this.lastAttemptAt >= this.ttlMs;
   }
-  refreshIfStale(): void {
-    if (this.isStale()) this.refresh().catch((err) => console.warn(`model catalog refresh failed: ${String(err)}`));
-  }
-
+  refreshIfStale(): Promise<boolean> { return this.isStale() ? this.refresh() : Promise.resolve(false); }
   async refresh(): Promise<boolean> {
     if (this.refreshing) return this.refreshing;
     const task = this.fetchAndStore().finally(() => {
@@ -180,13 +177,9 @@ export class AgentModelCatalogStore {
     try {
       const raw = JSON.parse(readFileSync(this.cacheFile, "utf8")) as Partial<PersistedCatalog>;
       const payload = validateAgentModelCatalog(raw.payload);
-      this.state = {
-        payload,
-        etag: typeof raw.etag === "string" ? raw.etag : undefined,
-        fetchedAt: typeof raw.fetchedAt === "number" ? raw.fetchedAt : 0,
-      };
+      this.state = { payload, etag: typeof raw.etag === "string" ? raw.etag : undefined, fetchedAt: typeof raw.fetchedAt === "number" ? raw.fetchedAt : 0 };
     } catch {
-      // A malformed cache never replaces the in-memory last-good payload.
+      // Ignore an invalid cache and retain the built-in offline fallback.
     }
   }
 

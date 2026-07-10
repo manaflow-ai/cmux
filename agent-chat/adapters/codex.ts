@@ -24,6 +24,7 @@ interface ModelInfo {
   serviceTiers: { id: string; name: string; description?: string }[];
   defaultServiceTier: string | null;
   isDefault?: boolean;
+  contextWindow?: string | number;
 }
 
 interface CodexState {
@@ -625,9 +626,12 @@ async function listModels(): Promise<ModelInfo[]> {
     for (const m of res.data ?? []) out.push(normalizeModel(m));
     cursor = res.nextCursor ?? null;
   } while (cursor);
-  const remote = agentModelCatalog.provider("codex");
-  if (!remote) return out;
-  const binary = new Map(out.map((model) => [model.value, model]));
+  return mergeCodexModels(out, agentModelCatalog.provider("codex"));
+}
+
+export function mergeCodexModels(binaryModels: ModelInfo[], remote = agentModelCatalog.provider("codex")): ModelInfo[] {
+  if (!remote) return binaryModels;
+  const binary = new Map(binaryModels.map((model) => [model.value, model]));
   const merged = remote.models.map((model) => {
     const reported = binary.get(model.id);
     binary.delete(model.id);
@@ -635,6 +639,7 @@ async function listModels(): Promise<ModelInfo[]> {
       value: model.id,
       label: model.label,
       description: model.description ?? reported?.description,
+      contextWindow: model.contextWindow ?? reported?.contextWindow,
       efforts: reported?.efforts ?? FALLBACK_EFFORTS,
       defaultEffort: reported?.defaultEffort ?? "medium",
       serviceTiers: reported?.serviceTiers ?? [],

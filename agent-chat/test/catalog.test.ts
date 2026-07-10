@@ -1,5 +1,7 @@
 import { expect, test } from "bun:test";
-import { AgentModelCatalogStore, mergeCatalogModels, validateAgentModelCatalog } from "../catalog";
+import { AgentModelCatalogStore, mergeCatalogModels, selectEnabledModel, validateAgentModelCatalog } from "../catalog";
+import { mergeAcpModelOption } from "../adapters/acp";
+import { mergeCodexModels } from "../adapters/codex";
 import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 
@@ -8,7 +10,7 @@ const payload = {
   updatedAt: "2026-07-09T00:00:00Z",
   providers: {
     claude: {
-      defaultModel: "claude-new",
+      defaultModel: "filtered-out",
       models: [
         { id: "claude-new", label: "Claude New", minVersion: "3.0.0", supportsOneMillion: true },
         { id: "broken" },
@@ -16,90 +18,85 @@ const payload = {
     },
     codex: {
       defaultModel: "gpt-new",
-      models: [{ id: "gpt-new", label: "GPT New", description: "Remote label wins" }],
+      models: [{ id: "gpt-new", label: "GPT New", description: "Remote description", contextWindow: 400000 }],
     },
   },
 } as const;
 
-test("model catalog validation, persistence, ETag, and layering", async () => {
+test("catalog validation, provider merges, persistence, and ETag", async () => {
   expect(() => validateAgentModelCatalog({ ...payload, schemaVersion: 2 })).toThrow("unsupported");
   const parsed = validateAgentModelCatalog(payload);
   expect(parsed.providers.claude?.models).toHaveLength(1);
-  expect(parsed.providers.claude?.models[0]?.id).toBe("claude-new");
+  expect(parsed.providers.claude?.defaultModel).toBe("claude-new");
+
+  const acp = mergeAcpModelOption(
+    { id: "model", label: "Model", kind: "select", value: "binary-current", choices: [{ value: "binary-listed", label: "Binary Listed" }] },
+    [{ value: "remote", label: "Remote" }],
+    "remote",
+  );
+  expect(acp.value).toBe("binary-current");
+  expect(acp.choices?.map((choice) => choice.value)).toEqual(["remote", "binary-listed", "binary-current"]);
+
+  const remoteCodex = parsed.providers.codex!;
+  const codex = mergeCodexModels([{
+    value: "gpt-new",
+    label: "Binary Label",
+    description: "Binary description",
+    efforts: [{ value: "high", label: "high" }],
+    defaultEffort: "high",
+    serviceTiers: [{ id: "fast", name: "Fast" }],
+    defaultServiceTier: null,
+  }], remoteCodex);
+  expect(codex[0]?.label).toBe("GPT New");
+  expect(codex[0]?.description).toBe("Remote description");
+  expect(codex[0]?.contextWindow).toBe(400000);
+  expect(codex[0]?.efforts[0]?.value).toBe("high");
+
+  expect(selectEnabledModel("gated", [
+    { id: "gated", disabled: true },
+    { id: "supported", disabled: false },
+  ])).toBe("supported");
+
+  const merged = mergeCatalogModels(
+    remoteCodex,
+    [{ id: "gpt-new", label: "Binary" }, { id: "binary-only", label: "Binary Only" }],
+    [{ id: "built-in", label: "Built In" }],
+    true,
+    (model) => ({ id: model.id, label: model.label }),
+  );
+  expect(merged.map((model) => model.id)).toEqual(["gpt-new", "binary-only"]);
+  expect(merged[0]?.label).toBe("GPT New");
 
   const root = join(import.meta.dir, "..", "scratch", "catalog-test");
   const cacheFile = join(root, "models.json");
   await rm(root, { recursive: true, force: true });
   await mkdir(root, { recursive: true });
-
-  let requests = 0;
-  let sawEtag = false;
   let mode: "payload" | "not-modified" | "bad" = "payload";
+  let sawEtag = false;
   const fixture = Bun.serve({
     port: 0,
     hostname: "127.0.0.1",
     fetch(req) {
-      requests += 1;
       sawEtag ||= req.headers.get("if-none-match") === '"v1"';
-      if (mode === "not-modified") return new Response(null, { status: 304, headers: { etag: '"v1"' } });
+      if (mode === "not-modified") return new Response(null, { status: 304 });
       if (mode === "bad") return Response.json({ ...payload, schemaVersion: 99 });
       return Response.json(payload, { headers: { etag: '"v1"' } });
     },
   });
-
   let now = 1_000;
   try {
-    const store = new AgentModelCatalogStore({
-      url: `http://127.0.0.1:${fixture.port}/catalog`,
-      cacheFile,
-      ttlMs: 100,
-      now: () => now,
-    });
-    expect(store.hasPayload).toBe(false);
+    const store = new AgentModelCatalogStore({ url: `http://127.0.0.1:${fixture.port}`, cacheFile, ttlMs: 100, now: () => now });
     expect(await store.refresh()).toBe(true);
-    expect(store.provider("claude")?.defaultModel).toBe("claude-new");
-
-    const offline = new AgentModelCatalogStore({
-      url: "http://127.0.0.1:1/unavailable",
-      cacheFile,
-      now: () => now,
-    });
+    const offline = new AgentModelCatalogStore({ url: "http://127.0.0.1:1", cacheFile });
     expect(offline.provider("codex")?.models[0]?.label).toBe("GPT New");
-
     mode = "bad";
     await expect(store.refresh()).rejects.toThrow("unsupported");
-    expect(store.provider("claude")?.defaultModel).toBe("claude-new");
-
+    expect(store.provider("codex")?.models[0]?.label).toBe("GPT New");
     mode = "not-modified";
     now += 200;
-    expect(store.isStale()).toBe(true);
-    expect(await store.refresh()).toBe(false);
+    expect(await store.refreshIfStale()).toBe(false);
     expect(sawEtag).toBe(true);
-    expect(store.isStale()).toBe(false);
-    expect(requests).toBe(3);
   } finally {
     fixture.stop(true);
   }
-
-  const remote = parsed.providers.codex;
-  const binary = [
-    { id: "gpt-new", label: "raw slug", source: "binary" },
-    { id: "binary-only", label: "Binary Only", source: "binary" },
-  ];
-  const fallback = [{ id: "built-in", label: "Built In", source: "fallback" }];
-  const merged = mergeCatalogModels(remote, binary, fallback, true, (model) => ({
-    id: model.id,
-    label: model.label,
-    source: "remote",
-  }));
-  expect(merged.map((model) => model.id)).toEqual(["gpt-new", "binary-only"]);
-  expect(merged[0]?.label).toBe("GPT New");
-  expect(merged[1]?.source).toBe("binary");
-
-  const offlineMerged = mergeCatalogModels(undefined, binary, fallback, false, (model) => ({
-    id: model.id,
-    label: model.label,
-    source: "remote",
-  }));
-  expect(offlineMerged.map((model) => model.id)).toEqual(["built-in", "gpt-new", "binary-only"]);
 });

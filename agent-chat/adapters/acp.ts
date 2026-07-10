@@ -63,6 +63,7 @@ export function makeAcpAdapter(def: ProviderDef): Adapter {
     },
     async refreshOptions(sess) {
       const st = await ensureAcp(sess, def);
+      ingestAcpOptions(st, {}, def, String(st.options.find((option) => option.id === "model")?.value ?? ""));
       emitAcpState(sess, st);
     },
     async listOptions(cwd) {
@@ -319,26 +320,31 @@ function ingestAcpOptions(st: AcpState, payload: any, def?: ProviderDef, spawnMo
     sources.set("model", "model");
   }
   if (def?.models?.length) {
-    const existing = options.get("model");
-    const reported = new Map((existing?.choices ?? []).map((choice) => [choice.value, choice]));
-    const choices = def.models.map((model) => {
-      const binary = reported.get(model.value);
-      reported.delete(model.value);
-      return { ...binary, ...model };
-    });
-    choices.push(...reported.values());
-    const value = String(spawnModel || st.options.find((o) => o.id === "model")?.value || def.defaultModel || def.models[0]?.value || "");
-    options.set("model", {
-      id: "model",
-      label: "Model",
-      kind: "select",
-      value,
-      choices,
-    });
+    options.set("model", mergeAcpModelOption(options.get("model"), def.models, def.defaultModel, spawnModel));
     sources.set("model", "spawnModel");
   }
   st.options = [...options.values()];
   st.sources = sources;
+}
+
+export function mergeAcpModelOption(
+  existing: SessionOption | undefined,
+  curated: OptionChoice[],
+  defaultModel?: string,
+  spawnModel?: string,
+): SessionOption {
+  const binary = new Map((existing?.choices ?? []).map((choice) => [choice.value, choice]));
+  const choices: OptionChoice[] = curated.map((choice) => {
+    const reported = binary.get(choice.value);
+    binary.delete(choice.value);
+    return { ...reported, ...choice };
+  });
+  choices.push(...binary.values());
+  const value = String(spawnModel || existing?.value || defaultModel || choices[0]?.value || "");
+  if (value && !choices.some((choice) => choice.value === value)) {
+    choices.push({ value, label: prettifyModelLabel(value), description: "Reported by the agent" });
+  }
+  return { id: "model", label: "Model", kind: "select", value, choices };
 }
 
 function configOption(opt: any): SessionOption | null {
