@@ -876,7 +876,7 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         return surfaceId ?? firstSurfaceIdViaCLI(forWorkspaceId: workspaceId)
     }
 
-    private func waitForCondition(timeout: TimeInterval, predicate: @escaping () -> Bool) -> Bool {
+    func waitForCondition(timeout: TimeInterval, predicate: @escaping () -> Bool) -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
         repeat {
             if predicate() { return true }
