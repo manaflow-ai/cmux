@@ -6998,20 +6998,30 @@ extension BrowserPanel {
         return true
     }
 
+    /// Shared mutation path for chromium DevTools visibility so toggle/show/console
+    /// entry points optimistically flip `chromiumDevToolsVisible` and roll back
+    /// together on failure, instead of each keeping its own copy.
+    private func setChromiumDevToolsVisible(_ visible: Bool) -> Bool {
+        guard let session = chromium?.session, !chromiumDisconnected else { return false }
+        chromiumDevToolsVisible = visible
+        Task {
+            do {
+                if visible {
+                    try await session.openDevTools(mode: .bottom)
+                } else {
+                    try await session.closeDevTools()
+                }
+            } catch {
+                chromiumDevToolsVisible = !visible
+            }
+        }
+        return true
+    }
+
     @discardableResult
     func toggleDeveloperTools() -> Bool {
         if engineKind == .chromium {
-            guard let session = chromium?.session, !chromiumDisconnected else { return false }
-            let opening = !chromiumDevToolsVisible
-            chromiumDevToolsVisible = opening
-            Task {
-                if opening {
-                    try? await session.openDevTools(mode: .bottom)
-                } else {
-                    try? await session.closeDevTools()
-                }
-            }
-            return true
+            return setChromiumDevToolsVisible(!chromiumDevToolsVisible)
         }
 #if DEBUG
         cmuxDebugLog(
@@ -7039,12 +7049,16 @@ extension BrowserPanel {
 
     @discardableResult
     func showDeveloperTools() -> Bool {
+        if engineKind == .chromium {
+            return chromiumDevToolsVisible ? true : setChromiumDevToolsVisible(true)
+        }
         return enqueueDeveloperToolsVisibilityTransition(to: true, source: "show")
     }
 
     @discardableResult
     func showDeveloperToolsConsole() -> Bool {
         guard showDeveloperTools() else { return false }
+        if engineKind == .chromium { return true }
         guard !isDeveloperToolsTransitionInFlight else { return true }
         guard let inspector = webView.cmuxInspectorObject() else { return true }
         // WebKit private inspector API differs by OS; try known console selectors.
