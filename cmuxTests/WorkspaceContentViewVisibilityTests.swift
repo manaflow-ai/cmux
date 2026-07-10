@@ -171,6 +171,47 @@ final class WorkspaceContentViewVisibilityTests {
     }
 
     @Test
+    @MainActor
+    func testSwitchingVisibleWorkspaceToCanvasKeepsPortalPresentationVisible() async throws {
+        _ = NSApplication.shared
+        let tabManager = TabManager()
+        defer { tabManager.tabs.forEach { $0.teardownAllPanels() } }
+        let notificationStore = TerminalNotificationStore.shared
+        let root = ContentView(updateViewModel: UpdateStateModel(), windowId: UUID())
+            .environmentObject(tabManager)
+            .environmentObject(notificationStore)
+            .environmentObject(notificationStore.sidebarUnread)
+            .environmentObject(SidebarState())
+            .environmentObject(SidebarSelectionState())
+            .environmentObject(FileExplorerState())
+            .environmentObject(CmuxConfigStore())
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 900, height: 640),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = MainWindowHostingView(rootView: root)
+        defer {
+            window.contentView = nil
+            window.close()
+        }
+
+        await Self.drainMainRunLoop(for: window)
+        let workspace = try #require(tabManager.selectedWorkspace)
+        #expect(workspace.portalPresentationVisible)
+
+        workspace.setLayoutMode(.canvas)
+        await Self.drainMainRunLoop(for: window)
+
+        #expect(workspace.layoutMode == .canvas)
+        #expect(
+            workspace.portalPresentationVisible,
+            "Replacing the Bonsplit subtree with Canvas must not report that the visible workspace disappeared"
+        )
+    }
+
+    @Test
     func testNonSelectedNonRetiringWorkspaceIsFullyHidden() {
         #expect(
             MountedWorkspacePresentation.resolve(
