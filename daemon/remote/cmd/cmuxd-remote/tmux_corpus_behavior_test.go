@@ -534,20 +534,20 @@ func TestTmuxCorpusExactAbsoluteResizeDoesNotRequirePaneMetrics(t *testing.T) {
 	if got := asInt(t, requests[0].Params["target_cells"], "cell target"); got != 3 {
 		t.Fatalf("target_cells = %v, want 3", got)
 	}
-	if got := asInt(t, requests[0].Params["target_pixels"], "cell fallback"); got != 3 {
-		t.Fatalf("target_pixels = %v, want 3", got)
+	if _, ok := requests[0].Params["target_pixels"]; ok {
+		t.Fatalf("cell resize unexpectedly sent target_pixels")
 	}
 	if got := asInt(t, requests[1].Params["target_percentage"], "percentage target"); got != 50 {
 		t.Fatalf("target_percentage = %v, want 50", got)
 	}
-	if got := asInt(t, requests[1].Params["target_pixels"], "percentage fallback"); got != 50 {
-		t.Fatalf("target_pixels = %v, want 50", got)
+	if _, ok := requests[1].Params["target_pixels"]; ok {
+		t.Fatalf("percentage resize unexpectedly sent target_pixels")
 	}
 	if got := asInt(t, requests[2].Params["amount_cells"], "relative cells"); got != 7 {
 		t.Fatalf("amount_cells = %v, want 7", got)
 	}
-	if got := asInt(t, requests[2].Params["amount"], "relative fallback"); got != 7 {
-		t.Fatalf("amount = %v, want 7", got)
+	if _, ok := requests[2].Params["amount"]; ok {
+		t.Fatalf("relative resize unexpectedly sent amount")
 	}
 }
 

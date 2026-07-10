@@ -24,15 +24,15 @@ extension CLITmuxCompatRemoteSplitTests {
     @Test func exactAbsoluteResizeDoesNotRequireLocalPaneMetrics() throws {
         let cells = try captureResize(arguments: ["-x", "3"], includeMetrics: false)
         #expect((cells["target_cells"] as? NSNumber)?.intValue == 3)
-        #expect((cells["target_pixels"] as? NSNumber)?.intValue == 3)
+        #expect(cells["target_pixels"] == nil)
 
         let percentage = try captureResize(arguments: ["-x", "50%"], includeMetrics: false)
         #expect((percentage["target_percentage"] as? NSNumber)?.intValue == 50)
-        #expect((percentage["target_pixels"] as? NSNumber)?.intValue == 50)
+        #expect(percentage["target_pixels"] == nil)
 
         let relative = try captureResize(arguments: ["-L", "7"], includeMetrics: false)
         #expect((relative["amount_cells"] as? NSNumber)?.intValue == 7)
-        #expect((relative["amount"] as? NSNumber)?.intValue == 7)
+        #expect(relative["amount"] == nil)
     }
 
     @Test func directionalResizeUsesPositionalAmountAndDefaultsToOneCell() throws {
