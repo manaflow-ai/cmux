@@ -94,6 +94,19 @@ export const env = createEnv({
     SUBROUTER_BASE_URL: z.string().url().optional(),
     SUBROUTER_ADMIN_TOKEN: z.string().min(1).optional(),
     SUBROUTER_TENANT_KEY_SECRET: z.string().min(1).optional(),
+    // Iroh trust broker. The Services API key deliberately has no TypeScript
+    // env entry: only the isolated Rust relay minter may hold it. These values
+    // are server-only and routes fail closed when an operation's key is absent.
+    CMUX_IROH_LAN_DISCOVERY_SECRET_B64: z.string().regex(/^[A-Za-z0-9+/]{43,}={0,2}$/).optional(),
+    CMUX_IROH_GRANT_SIGNING_KEY_P8: z.string().min(64).max(16_384).optional(),
+    CMUX_IROH_GRANT_SIGNING_KID: z.string().regex(/^[A-Za-z0-9._-]{1,64}$/).optional(),
+    CMUX_IROH_GRANT_VERIFY_KEYS_JSON: z.string().min(2).max(32_768).optional(),
+    CMUX_IROH_MINT_URL: z.string().url().optional(),
+    CMUX_IROH_MINT_HMAC_SECRET_B64: z.string().regex(/^[A-Za-z0-9+/]{43,}={0,2}$/).optional(),
+    CMUX_IROH_RATE_LIMIT_ID: requireVercelNonPreviewValue("CMUX_IROH_RATE_LIMIT_ID"),
+    CMUX_IROH_DEV_BINDING_OVERRIDE_ENABLED: z.enum(["0", "1"]).optional(),
+    CMUX_IROH_DEV_BINDING_OVERRIDE_USER_IDS: z.string().max(8_192).optional(),
+    CMUX_IROH_DEV_BINDING_OVERRIDE_ENVIRONMENTS: z.string().max(256).optional(),
   },
   client: {
     NEXT_PUBLIC_STACK_PROJECT_ID: z.string().min(1),
@@ -131,6 +144,16 @@ export const env = createEnv({
     SUBROUTER_BASE_URL: trimEnv(process.env.SUBROUTER_BASE_URL) ?? defaultSubrouterBaseUrl(),
     SUBROUTER_ADMIN_TOKEN: trimEnv(process.env.SUBROUTER_ADMIN_TOKEN),
     SUBROUTER_TENANT_KEY_SECRET: trimEnv(process.env.SUBROUTER_TENANT_KEY_SECRET),
+    CMUX_IROH_LAN_DISCOVERY_SECRET_B64: trimEnv(process.env.CMUX_IROH_LAN_DISCOVERY_SECRET_B64),
+    CMUX_IROH_GRANT_SIGNING_KEY_P8: trimEnv(process.env.CMUX_IROH_GRANT_SIGNING_KEY_P8),
+    CMUX_IROH_GRANT_SIGNING_KID: trimEnv(process.env.CMUX_IROH_GRANT_SIGNING_KID),
+    CMUX_IROH_GRANT_VERIFY_KEYS_JSON: trimEnv(process.env.CMUX_IROH_GRANT_VERIFY_KEYS_JSON),
+    CMUX_IROH_MINT_URL: trimEnv(process.env.CMUX_IROH_MINT_URL),
+    CMUX_IROH_MINT_HMAC_SECRET_B64: trimEnv(process.env.CMUX_IROH_MINT_HMAC_SECRET_B64),
+    CMUX_IROH_RATE_LIMIT_ID: trimEnv(process.env.CMUX_IROH_RATE_LIMIT_ID),
+    CMUX_IROH_DEV_BINDING_OVERRIDE_ENABLED: trimEnv(process.env.CMUX_IROH_DEV_BINDING_OVERRIDE_ENABLED),
+    CMUX_IROH_DEV_BINDING_OVERRIDE_USER_IDS: trimEnv(process.env.CMUX_IROH_DEV_BINDING_OVERRIDE_USER_IDS),
+    CMUX_IROH_DEV_BINDING_OVERRIDE_ENVIRONMENTS: trimEnv(process.env.CMUX_IROH_DEV_BINDING_OVERRIDE_ENVIRONMENTS),
     NEXT_PUBLIC_STACK_PROJECT_ID: stackEnv(
       process.env.NEXT_PUBLIC_STACK_PROJECT_ID,
       "00000000-0000-4000-8000-000000000000"

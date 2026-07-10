@@ -41,9 +41,22 @@ describe("client config env validation", () => {
       VERCEL: "1",
       VERCEL_ENV: "production",
       CMUX_CLIENT_CONFIG_RATE_LIMIT_ID: "client-config-rule",
+      CMUX_IROH_RATE_LIMIT_ID: "iroh-rule",
     });
 
     expect(result.exitCode).toBe(0);
+  });
+
+  test("requires the Iroh limiter id in explicit Vercel production deployments", () => {
+    const result = importEnv({
+      ...requiredEnv,
+      VERCEL: "1",
+      VERCEL_ENV: "production",
+      CMUX_CLIENT_CONFIG_RATE_LIMIT_ID: "client-config-rule",
+    });
+
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain("CMUX_IROH_RATE_LIMIT_ID is required");
   });
 });
 
