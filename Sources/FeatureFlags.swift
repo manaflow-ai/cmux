@@ -153,7 +153,7 @@ final class CmuxFeatureFlags {
                     localized: "featureFlags.sidebarAgentRows.description",
                     defaultValue: "Shows one row per agent pane in the sidebar with live state, replacing the single status pill."
                 ),
-                defaultWhenUnavailable: Self.sidebarAgentRowsDefault
+                defaultWhenUnavailable: CmuxFeatureFlags.sidebarAgentRowsDefault
             ),
         ]
     }()
