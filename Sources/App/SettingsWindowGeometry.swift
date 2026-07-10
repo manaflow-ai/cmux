@@ -5,6 +5,22 @@ import AppKit
 /// the Swift file-length budget) and kept as extensions so call sites and
 /// tests address one type.
 extension SettingsWindowPresenter {
+    /// Diagnostic-grade description of a window that failed to become
+    /// visible after ordering front, carried in `.failed` and the logs.
+    static func presentationFailureReason(
+        window: NSWindow,
+        attempt: Int,
+        reusedExisting: Bool
+    ) -> String {
+        """
+        window did not become visible after order front \
+        (attempt \(attempt)/\(maxPresentAttempts), reusedExisting=\(reusedExisting), \
+        appHidden=\(NSApp.isHidden), appActive=\(NSApp.isActive), \
+        miniaturized=\(window.isMiniaturized), screens=\(NSScreen.screens.count), \
+        frame=\(NSStringFromRect(window.frame)))
+        """
+    }
+
     /// Pure usability policy so the self-healing decision is unit-testable.
     static func unusableWindowReason(
         hasContent: Bool,

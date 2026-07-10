@@ -55,7 +55,7 @@ final class SettingsWindowPresenter: NSObject {
     /// `log show --predicate 'subsystem == "com.cmuxterm.app" && category == "Settings"'`.
     private nonisolated static let log = Logger(subsystem: "com.cmuxterm.app", category: "Settings")
 
-    private let windowFactory: @MainActor () -> NSWindow
+    private let windowFactory: @MainActor (SettingsWindowPresenter) -> NSWindow
     /// Strong while open: the presenter owns the window's lifetime. Cleared
     /// (and the window's identifier removed) in `settingsWindowWillClose` so
     /// a closed window can never absorb a future open request.
@@ -69,16 +69,22 @@ final class SettingsWindowPresenter: NSObject {
     /// targeted show and stay silent instead of navigating backwards.
     private var navigationDeliveryGeneration = 0
     /// Whether the current window's SwiftUI content has signaled (via the
-    /// host root's `onAppear`) that its navigation consumer is installed. An
-    /// `NSWindow` existing is not enough: posting before this is set would
-    /// drop the navigation on the floor.
+    /// host root's `onAppear`) that its navigation consumer is installed;
+    /// posting before then would drop the navigation on the floor.
     private var isContentReadyForNavigation = false
 
     override convenience init() {
-        self.init(windowFactory: { SettingsWindowFactory.makeSettingsWindow() })
+        // Content readiness reports back to the presenter instance that owns
+        // the window (never the singleton), so instance presenters — e.g.
+        // the real-factory regression tests — drain their own navigation.
+        self.init(windowFactory: { presenter in
+            SettingsWindowFactory.makeSettingsWindow(onContentAppear: { [weak presenter] in
+                presenter?.deliverPendingNavigationAfterContentAppears()
+            })
+        })
     }
 
-    init(windowFactory: @escaping @MainActor () -> NSWindow) {
+    init(windowFactory: @escaping @MainActor (SettingsWindowPresenter) -> NSWindow) {
         self.windowFactory = windowFactory
         super.init()
     }
@@ -93,10 +99,6 @@ final class SettingsWindowPresenter: NSObject {
         activateApp: Bool = true
     ) -> SettingsWindowShowResult {
         shared.show(navigationTarget: navigationTarget, activateApp: activateApp)
-    }
-
-    static func consumePendingNavigationTarget() -> SettingsNavigationTarget? {
-        shared.consumePendingNavigationTarget()
     }
 
     /// Presents the Settings window, creating it if needed. Synchronous: on
@@ -174,10 +176,24 @@ final class SettingsWindowPresenter: NSObject {
                 reusedExisting = false
             }
 
+            let wasMiniaturized = window.isMiniaturized
             orderFront(window, activateApp: activateApp)
 
             if window.isVisible {
                 deliverNavigation(reusedExistingWindow: reusedExisting)
+                return .presented
+            }
+            if wasMiniaturized && !window.isMiniaturized {
+                // Deminiaturizing from the Dock is asynchronous: the window
+                // reports `isVisible == false` on this run-loop turn, but
+                // AppKit owns its ordering-in once the unminiaturize
+                // animation completes. This is a successful presentation —
+                // falling through would demolish a healthy, about-to-appear
+                // window.
+                deliverNavigation(reusedExistingWindow: reusedExisting)
+                Self.log.notice(
+                    "settings.window.show deminiaturizing from the Dock; visibility follows the animation"
+                )
                 return .presented
             }
             if NSApp.isHidden && !activateApp {
@@ -205,6 +221,14 @@ final class SettingsWindowPresenter: NSObject {
         Self.log.fault(
             "settings.window.show FAILED after \(Self.maxPresentAttempts, privacy: .public) attempts: \(failureReason, privacy: .public)"
         )
+        // A failed request must not leak its target into a later open: an
+        // untargeted show deliberately preserves pending targets, so without
+        // this a later recovered open would navigate to a pane whose request
+        // already received `.failed`. Only this request's own target is
+        // cleared — a re-entrant show that set a different target supersedes.
+        if pendingNavigationTarget == navigationTarget {
+            pendingNavigationTarget = nil
+        }
         return .failed(reason: failureReason)
     }
 
@@ -268,7 +292,7 @@ final class SettingsWindowPresenter: NSObject {
     }
 
     private func makeConfiguredWindow() -> NSWindow {
-        let window = windowFactory()
+        let window = windowFactory(self)
         window.identifier = NSUserInterfaceItemIdentifier(Self.windowIdentifier)
         window.isReleasedWhenClosed = false
         window.isRestorable = false
@@ -334,20 +358,6 @@ final class SettingsWindowPresenter: NSObject {
         window.orderFrontRegardless()
     }
 
-    private static func presentationFailureReason(
-        window: NSWindow,
-        attempt: Int,
-        reusedExisting: Bool
-    ) -> String {
-        """
-        window did not become visible after order front \
-        (attempt \(attempt)/\(maxPresentAttempts), reusedExisting=\(reusedExisting), \
-        appHidden=\(NSApp.isHidden), appActive=\(NSApp.isActive), \
-        miniaturized=\(window.isMiniaturized), screens=\(NSScreen.screens.count), \
-        frame=\(NSStringFromRect(window.frame)))
-        """
-    }
-
     /// Ready live content receives the navigation immediately. Until the
     /// content signals readiness (a window can exist before its navigation
     /// consumer is installed — fresh creation, hidden app), the target stays
@@ -360,10 +370,6 @@ final class SettingsWindowPresenter: NSObject {
             navigationDeliveryGeneration &+= 1
             SettingsNavigationRequest.post(target)
         }
-    }
-
-    static func deliverPendingNavigationAfterContentAppears() {
-        shared.deliverPendingNavigationAfterContentAppears()
     }
 
     /// Marks the content ready and delivers any pending target. The post is
