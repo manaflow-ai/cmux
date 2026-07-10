@@ -18,6 +18,32 @@ import WebKit
 @MainActor
 @Observable
 final class BrowserWebExtensionSupport: NSObject, BrowserWebExtensionHosting {
+    private struct TabMetadataSnapshot: Equatable {
+        let title: String?
+        let url: URL?
+        let isLoading: Bool
+        let isMuted: Bool
+
+        @MainActor
+        init(panel: BrowserPanel) {
+            title = panel.webView.title
+            url = panel.webView.url
+            isLoading = panel.webView.isLoading
+            isMuted = panel.isMuted
+        }
+
+        func changedProperties(
+            comparedTo previous: TabMetadataSnapshot
+        ) -> WKWebExtension.TabChangedProperties {
+            var properties: WKWebExtension.TabChangedProperties = []
+            if title != previous.title { properties.insert(.title) }
+            if url != previous.url { properties.insert(.URL) }
+            if isLoading != previous.isLoading { properties.insert(.loading) }
+            if isMuted != previous.isMuted { properties.insert(.muted) }
+            return properties
+        }
+    }
+
     /// Fixed identifier so extension storage (e.g. the Bitwarden vault cache)
     /// persists across app launches.
     private static let controllerIdentifier = UUID(uuidString: "8C0FDE2B-6EFD-4E8C-9E70-8E7D0A4C51B7")!
@@ -53,6 +79,12 @@ final class BrowserWebExtensionSupport: NSObject, BrowserWebExtensionHosting {
     var loadErrorUpdateContinuations: [UUID: AsyncStream<[String: String]>.Continuation] = [:]
     @ObservationIgnored
     var tabAdapters: [UUID: BrowserWebExtensionTabAdapter] = [:]
+    @ObservationIgnored
+    private var tabMetadataSnapshotsByPanelID: [UUID: TabMetadataSnapshot] = [:]
+    @ObservationIgnored
+    private var pendingTabMetadataPanelIDs: Set<UUID> = []
+    @ObservationIgnored
+    private var tabMetadataFlushTask: Task<Void, Never>?
     @ObservationIgnored
     var actionSnapshotInvalidationsByPanelID: [UUID: BrowserWebExtensionActionSnapshotInvalidation] = [:]
     @ObservationIgnored
@@ -100,6 +132,7 @@ final class BrowserWebExtensionSupport: NSObject, BrowserWebExtensionHosting {
 
     deinit {
         settingsObservationTask?.cancel()
+        tabMetadataFlushTask?.cancel()
         if let browserAvailabilityObserverToken {
             NotificationCenter.default.removeObserver(browserAvailabilityObserverToken)
         }
@@ -199,6 +232,7 @@ final class BrowserWebExtensionSupport: NSObject, BrowserWebExtensionHosting {
         guard tabAdapters[panel.id] == nil else { return }
         let adapter = BrowserWebExtensionTabAdapter(panel: panel, support: self)
         tabAdapters[panel.id] = adapter
+        tabMetadataSnapshotsByPanelID[panel.id] = TabMetadataSnapshot(panel: panel)
         actionSnapshotInvalidationsByPanelID[panel.id] = BrowserWebExtensionActionSnapshotInvalidation()
         orderedPanelIDs.append(panel.id)
         if activePanelID == nil { activePanelID = panel.id }
@@ -208,6 +242,8 @@ final class BrowserWebExtensionSupport: NSObject, BrowserWebExtensionHosting {
 
     func unregister(panelID: UUID) {
         guard let adapter = tabAdapters.removeValue(forKey: panelID) else { return }
+        tabMetadataSnapshotsByPanelID.removeValue(forKey: panelID)
+        pendingTabMetadataPanelIDs.remove(panelID)
         orderedPanelIDs.removeAll { $0 == panelID }
         activePanelIDsByWindow = activePanelIDsByWindow.filter { $0.value != panelID }
         actionSnapshotInvalidationsByPanelID.removeValue(forKey: panelID)
@@ -275,9 +311,34 @@ final class BrowserWebExtensionSupport: NSObject, BrowserWebExtensionHosting {
     }
 
     func noteTabMetadataChanged(panelID: UUID) {
-        guard let adapter = tabAdapters[panelID] else { return }
-        controller.didChangeTabProperties([.title, .URL, .loading, .muted], for: adapter)
-        refreshActionSnapshots(for: panelID)
+        guard tabAdapters[panelID] != nil else { return }
+        pendingTabMetadataPanelIDs.insert(panelID)
+        guard tabMetadataFlushTask == nil else { return }
+        tabMetadataFlushTask = Task { @MainActor [weak self] in
+            await Task.yield()
+            guard !Task.isCancelled, let self else { return }
+            self.tabMetadataFlushTask = nil
+            self.flushPendingTabMetadataChanges()
+        }
+    }
+
+    private func flushPendingTabMetadataChanges() {
+        let panelIDs = pendingTabMetadataPanelIDs
+        pendingTabMetadataPanelIDs.removeAll()
+        for panelID in panelIDs {
+            guard let adapter = tabAdapters[panelID], let panel = adapter.panel else {
+                tabMetadataSnapshotsByPanelID.removeValue(forKey: panelID)
+                continue
+            }
+            let current = TabMetadataSnapshot(panel: panel)
+            guard let previous = tabMetadataSnapshotsByPanelID.updateValue(current, forKey: panelID) else {
+                continue
+            }
+            let properties = current.changedProperties(comparedTo: previous)
+            guard !properties.isEmpty else { continue }
+            controller.didChangeTabProperties(properties, for: adapter)
+            refreshActionSnapshots(for: panelID)
+        }
     }
 
     func tabAdapter(for panelID: UUID) -> BrowserWebExtensionTabAdapter? {

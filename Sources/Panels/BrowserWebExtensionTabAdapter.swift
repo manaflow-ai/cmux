@@ -43,6 +43,10 @@ final class BrowserWebExtensionTabAdapter: NSObject, WKWebExtensionTab {
         return !webView.isLoading
     }
 
+    func isMuted(for context: WKWebExtensionContext) -> Bool {
+        panel?.isMuted ?? false
+    }
+
     func isSelected(for context: WKWebExtensionContext) -> Bool {
         support?.activePanelID == panelID
     }

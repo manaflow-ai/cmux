@@ -3,6 +3,13 @@ import AppKit
 extension AppDelegate {
     /// Extension manifest commands run only after configured cmux shortcuts decline the event.
     func shouldOfferBrowserWebExtensionCommand(_ event: NSEvent) -> Bool {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        // Manifest keyboard commands on macOS require a primary modifier. Keep
+        // ordinary typing off the all-actions conflict scan in this hot path.
+        guard !flags.intersection([.command, .control, .option]).isEmpty else {
+            return false
+        }
+
         let shortcutContext = shortcutEventFocusContext(event).shortcutContext
         for action in KeyboardShortcutSettings.Action.allCases {
             guard action != .showHideAllWindows,
