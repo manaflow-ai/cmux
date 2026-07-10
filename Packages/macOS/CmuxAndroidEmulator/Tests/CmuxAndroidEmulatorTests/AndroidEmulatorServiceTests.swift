@@ -97,6 +97,22 @@ import Testing
         #expect(await commands.invocations.isEmpty)
     }
 
+    @Test func snapshotResolvesConnectedEmulatorNamesConcurrently() async throws {
+        let commands = ConcurrentNameQueryCommandRunner(installation: Self.installation)
+        let service = AndroidEmulatorService(
+            sdkLocator: StubSDKLocator(resolution: .available(Self.installation)),
+            commands: commands,
+            processLauncher: RecordingAndroidEmulatorLauncher()
+        )
+
+        let snapshotTask = Task { try await service.snapshot() }
+        try await Task.sleep(for: .milliseconds(100))
+        await commands.releaseNameQueries()
+        _ = try await snapshotTask.value
+
+        #expect(await commands.maximumConcurrentNameQueries == 2)
+    }
+
     private static let installation = AndroidSDKInstallation(
         rootURL: URL(fileURLWithPath: "/sdk", isDirectory: true),
         emulatorURL: URL(fileURLWithPath: "/sdk/emulator/emulator"),
@@ -172,5 +188,55 @@ private actor RecordingAndroidEmulatorLauncher: AndroidEmulatorProcessLaunching 
             avdName: avdName,
             sdkRootURL: sdkRootURL
         ))
+    }
+}
+
+private actor ConcurrentNameQueryCommandRunner: CommandRunning {
+    private let installation: AndroidSDKInstallation
+    private var nameQueriesReleased = false
+    private var releaseContinuations: [CheckedContinuation<Void, Never>] = []
+    private var activeNameQueries = 0
+    private(set) var maximumConcurrentNameQueries = 0
+
+    init(installation: AndroidSDKInstallation) {
+        self.installation = installation
+    }
+
+    func run(
+        directory: String,
+        executable: String,
+        arguments: [String],
+        timeout: TimeInterval?
+    ) async -> CommandResult {
+        _ = directory
+        _ = timeout
+        if executable == installation.emulatorURL.path {
+            return .success("Pixel_9_API_35\nTablet_API_35\n")
+        }
+        if arguments == ["devices"] {
+            return .success("List of devices attached\nemulator-5554\tdevice\nemulator-5556\tdevice\n")
+        }
+
+        activeNameQueries += 1
+        maximumConcurrentNameQueries = max(maximumConcurrentNameQueries, activeNameQueries)
+        if !nameQueriesReleased {
+            await withCheckedContinuation { continuation in
+                releaseContinuations.append(continuation)
+            }
+        }
+        activeNameQueries -= 1
+
+        let serial = arguments[1]
+        let avdName = serial == "emulator-5554" ? "Pixel_9_API_35" : "Tablet_API_35"
+        return .success("\(avdName)\nOK\n")
+    }
+
+    func releaseNameQueries() {
+        nameQueriesReleased = true
+        let continuations = releaseContinuations
+        releaseContinuations.removeAll()
+        for continuation in continuations {
+            continuation.resume()
+        }
     }
 }
