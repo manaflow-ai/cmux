@@ -4689,6 +4689,40 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
 
 @MainActor
 final class TerminalWindowPortalLifecycleTests: XCTestCase {
+    private final class LayoutCountingContainerView: NSView {
+        private(set) var layoutSubtreeCallCount = 0
+
+        override func layoutSubtreeIfNeeded() {
+            layoutSubtreeCallCount += 1
+            super.layoutSubtreeIfNeeded()
+        }
+
+        func resetLayoutSubtreeCallCount() {
+            layoutSubtreeCallCount = 0
+        }
+    }
+
+    private final class PortalTargetWindow: NSWindow {
+        private var reportedContentView: NSView?
+
+        override var contentView: NSView? {
+            get { reportedContentView ?? super.contentView }
+            set {
+                reportedContentView = nil
+                super.contentView = newValue
+            }
+        }
+
+        func installPortalTarget(container: NSView, reference: NSView) {
+            reportedContentView = nil
+            super.contentView = container
+            reference.frame = container.bounds
+            reference.autoresizingMask = [.width, .height]
+            container.addSubview(reference)
+            reportedContentView = reference
+        }
+    }
+
     private final class ContentViewCountingWindow: NSWindow {
         var contentViewReadCount = 0
 
@@ -4942,6 +4976,84 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
             baselineReads,
             "Repeated synchronize calls should reuse installed target instead of repeatedly reading window.contentView"
         )
+    }
+
+    func testExternalGeometrySyncDoesNotForceAncestorLayoutAndExplicitBatchLayoutsOnce() throws {
+#if DEBUG
+        let layoutRoot = LayoutCountingContainerView(
+            frame: NSRect(x: 0, y: 0, width: 520, height: 320)
+        )
+        let contentView = NSView(frame: layoutRoot.bounds)
+        let window = PortalTargetWindow(
+            contentRect: layoutRoot.frame,
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.installPortalTarget(container: layoutRoot, reference: contentView)
+        defer { window.orderOut(nil) }
+        XCTAssertTrue(window.contentView === contentView)
+        XCTAssertTrue(contentView.superview === layoutRoot)
+        XCTAssertTrue(layoutRoot.window === window)
+        let portal = WindowTerminalPortal(window: window, syncLayout: false)
+
+        let firstAnchor = NSView(frame: NSRect(x: 24, y: 24, width: 180, height: 140))
+        let secondAnchor = NSView(frame: NSRect(x: 224, y: 24, width: 180, height: 140))
+        contentView.addSubview(firstAnchor)
+        contentView.addSubview(secondAnchor)
+
+        let firstHosted = GhosttySurfaceScrollView(
+            surfaceView: GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 180, height: 140))
+        )
+        let secondHosted = GhosttySurfaceScrollView(
+            surfaceView: GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 180, height: 140))
+        )
+        portal.bind(
+            hostedView: firstHosted,
+            to: firstAnchor,
+            visibleInUI: true,
+            deferLayoutSynchronization: true
+        )
+        portal.bind(
+            hostedView: secondHosted,
+            to: secondAnchor,
+            visibleInUI: true,
+            deferLayoutSynchronization: true
+        )
+
+        drainMainQueue()
+        layoutRoot.resetLayoutSubtreeCallCount()
+        let originalFirstFrame = firstHosted.frame
+        firstAnchor.frame = NSRect(x: 44, y: 24, width: 150, height: 140)
+        NotificationCenter.default.post(name: NSWindow.didResizeNotification, object: window)
+        drainMainQueue()
+
+        XCTAssertEqual(
+            layoutRoot.layoutSubtreeCallCount,
+            0,
+            "External terminal geometry must not force the selected container root to layout"
+        )
+        XCTAssertGreaterThan(
+            firstHosted.frame.minX,
+            originalFirstFrame.minX + 1,
+            "External geometry sync should still apply a changed visible anchor frame"
+        )
+        XCTAssertLessThan(
+            firstHosted.frame.width,
+            originalFirstFrame.width - 1,
+            "External geometry sync should still resize the changed visible terminal"
+        )
+
+        layoutRoot.resetLayoutSubtreeCallCount()
+        portal.synchronizeHostedViewForAnchor(firstAnchor, syncLayout: true)
+        XCTAssertEqual(
+            layoutRoot.layoutSubtreeCallCount,
+            1,
+            "An explicit two-entry batch should lay out the selected container root exactly once"
+        )
+#else
+        throw XCTSkip("Debug-only regression test")
+#endif
     }
 
     func testTerminalViewAtWindowPointResolvesPortalHostedSurface() {

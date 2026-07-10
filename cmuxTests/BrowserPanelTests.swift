@@ -2881,6 +2881,40 @@ final class WindowBrowserSlotViewTests: XCTestCase {
 
 @MainActor
 final class BrowserWindowPortalLifecycleTests: XCTestCase {
+    private final class LayoutCountingContainerView: NSView {
+        private(set) var layoutSubtreeCallCount = 0
+
+        override func layoutSubtreeIfNeeded() {
+            layoutSubtreeCallCount += 1
+            super.layoutSubtreeIfNeeded()
+        }
+
+        func resetLayoutSubtreeCallCount() {
+            layoutSubtreeCallCount = 0
+        }
+    }
+
+    private final class PortalTargetWindow: NSWindow {
+        private var reportedContentView: NSView?
+
+        override var contentView: NSView? {
+            get { reportedContentView ?? super.contentView }
+            set {
+                reportedContentView = nil
+                super.contentView = newValue
+            }
+        }
+
+        func installPortalTarget(container: NSView, reference: NSView) {
+            reportedContentView = nil
+            super.contentView = container
+            reference.frame = container.bounds
+            reference.autoresizingMask = [.width, .height]
+            container.addSubview(reference)
+            reportedContentView = reference
+        }
+    }
+
     private final class TrackingPortalWebView: WKWebView {
         private(set) var displayIfNeededCount = 0
         private(set) var reattachRenderingStateCount = 0
@@ -2913,6 +2947,14 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
 
     private func advanceAnimations() {
         RunLoop.current.run(until: Date().addingTimeInterval(0.25))
+    }
+
+    private func drainMainQueue() {
+        let expectation = XCTestExpectation(description: "drain main queue")
+        DispatchQueue.main.async {
+            expectation.fulfill()
+        }
+        XCTWaiter().wait(for: [expectation], timeout: 1.0)
     }
 
     private func dropZoneOverlay(in slot: WindowBrowserSlotView, excluding webView: WKWebView) -> NSView? {
@@ -2952,6 +2994,106 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
             contentIndex,
             "Browser portal host must remain above content view so portal-hosted web views stay visible"
         )
+    }
+
+    func testExternalGeometrySyncConsumesCurrentFramesAndRefreshesOnlyChangedEntries() throws {
+#if DEBUG
+        let layoutRoot = LayoutCountingContainerView(
+            frame: NSRect(x: 0, y: 0, width: 520, height: 320)
+        )
+        let contentView = NSView(frame: layoutRoot.bounds)
+        let window = PortalTargetWindow(
+            contentRect: layoutRoot.frame,
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.installPortalTarget(container: layoutRoot, reference: contentView)
+        defer { window.orderOut(nil) }
+        XCTAssertTrue(window.contentView === contentView)
+        XCTAssertTrue(contentView.superview === layoutRoot)
+        XCTAssertTrue(layoutRoot.window === window)
+        realizeWindowLayout(window)
+
+        let portal = WindowBrowserPortal(window: window)
+        let firstAnchor = NSView(frame: NSRect(x: 24, y: 24, width: 180, height: 140))
+        let secondAnchor = NSView(frame: NSRect(x: 224, y: 24, width: 180, height: 140))
+        contentView.addSubview(firstAnchor)
+        contentView.addSubview(secondAnchor)
+
+        let firstWebView = TrackingPortalWebView(
+            frame: .zero,
+            configuration: WKWebViewConfiguration()
+        )
+        let secondWebView = TrackingPortalWebView(
+            frame: .zero,
+            configuration: WKWebViewConfiguration()
+        )
+        portal.bind(webView: firstWebView, to: firstAnchor, visibleInUI: true)
+        portal.bind(webView: secondWebView, to: secondAnchor, visibleInUI: true)
+        advanceAnimations()
+        drainMainQueue()
+
+        guard let firstSlot = firstWebView.superview as? WindowBrowserSlotView else {
+            XCTFail("Expected first browser slot")
+            return
+        }
+        layoutRoot.resetLayoutSubtreeCallCount()
+        let firstDisplayCountBeforeUnchangedSync = firstWebView.displayIfNeededCount
+        let secondDisplayCountBeforeUnchangedSync = secondWebView.displayIfNeededCount
+
+        NotificationCenter.default.post(name: NSWindow.didResizeNotification, object: window)
+        drainMainQueue()
+
+        XCTAssertEqual(
+            layoutRoot.layoutSubtreeCallCount,
+            0,
+            "An external geometry callback must not force the selected container root to layout"
+        )
+        XCTAssertEqual(
+            firstWebView.displayIfNeededCount,
+            firstDisplayCountBeforeUnchangedSync,
+            "Unchanged visible entries should not receive a redundant WebKit invalidation"
+        )
+        XCTAssertEqual(
+            secondWebView.displayIfNeededCount,
+            secondDisplayCountBeforeUnchangedSync,
+            "A multi-entry external sync should leave every unchanged WebKit entry untouched"
+        )
+
+        let originalFirstSlotFrame = firstSlot.frame
+        firstAnchor.frame = NSRect(x: 44, y: 24, width: 150, height: 140)
+        NotificationCenter.default.post(name: NSWindow.didResizeNotification, object: window)
+        drainMainQueue()
+
+        XCTAssertEqual(
+            layoutRoot.layoutSubtreeCallCount,
+            0,
+            "Applying changed external geometry must still avoid selected-root layout"
+        )
+        XCTAssertGreaterThan(
+            firstSlot.frame.minX,
+            originalFirstSlotFrame.minX + 1,
+            "External geometry sync should apply the changed visible browser position"
+        )
+        XCTAssertLessThan(
+            firstSlot.frame.width,
+            originalFirstSlotFrame.width - 1,
+            "External geometry sync should apply the changed visible browser width"
+        )
+        XCTAssertEqual(
+            firstWebView.displayIfNeededCount,
+            firstDisplayCountBeforeUnchangedSync + 1,
+            "A changed visible browser entry should invalidate WebKit geometry exactly once"
+        )
+        XCTAssertEqual(
+            secondWebView.displayIfNeededCount,
+            secondDisplayCountBeforeUnchangedSync,
+            "Changing one browser entry should not invalidate an unchanged sibling"
+        )
+#else
+        throw XCTSkip("Debug-only regression test")
+#endif
     }
 
     private func makeBrowserSearchOverlayConfiguration(panelId: UUID) -> BrowserPortalSearchOverlayConfiguration {

@@ -383,7 +383,7 @@ struct PortScannerSharedSnapshotTests {
     @Test
     func socketInfoReportsIPv4AndIPv6ListenersButExcludesNonListeners() {
         var ipv4Listener = socket_fdinfo()
-        ipv4Listener.psi.soi_kind = SOCKINFO_TCP
+        ipv4Listener.psi.soi_kind = Int32(SOCKINFO_TCP)
         ipv4Listener.psi.soi_protocol = IPPROTO_TCP
         ipv4Listener.psi.soi_proto.pri_tcp.tcpsi_state = TSI_S_LISTEN
         ipv4Listener.psi.soi_proto.pri_tcp.tcpsi_ini.insi_vflag = UInt8(INI_IPV4)
@@ -396,7 +396,7 @@ struct PortScannerSharedSnapshotTests {
         var connected = ipv4Listener
         connected.psi.soi_proto.pri_tcp.tcpsi_state = TSI_S_ESTABLISHED
         var nonTCP = ipv4Listener
-        nonTCP.psi.soi_kind = SOCKINFO_IN
+        nonTCP.psi.soi_kind = Int32(SOCKINFO_IN)
 
         #expect(PortScanner.listeningTCPPort(from: ipv4Listener) == 3_000)
         #expect(PortScanner.listeningTCPPort(from: ipv6Listener) == 9_229)
