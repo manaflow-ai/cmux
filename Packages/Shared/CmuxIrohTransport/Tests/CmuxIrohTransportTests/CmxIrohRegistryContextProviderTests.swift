@@ -59,9 +59,9 @@ struct CmxIrohRegistryContextProviderTests {
             activeNetworkProfiles: { [profile] },
             now: { fixture.now }
         )
-        let route = try fixture.route(hints: [managedRelay, tailscale])
+        let request = try fixture.request(hints: [managedRelay, tailscale])
 
-        let context = try await provider.context(for: route)
+        let context = try await provider.context(for: request)
 
         #expect(context.dialPlan.publicPaths == [managedRelay])
         #expect(context.dialPlan.privateFallbackPaths == [tailscale])
@@ -100,14 +100,14 @@ struct CmxIrohRegistryContextProviderTests {
             activeNetworkProfiles: { [] },
             now: { clock.value() }
         )
-        let route = try fixture.route(hints: [])
+        let request = try fixture.request(hints: [])
 
-        #expect(try await provider.context(for: route).credential.pairGrantToken == first.grant)
-        #expect(try await provider.context(for: route).credential.pairGrantToken == first.grant)
+        #expect(try await provider.context(for: request).credential.pairGrantToken == first.grant)
+        #expect(try await provider.context(for: request).credential.pairGrantToken == first.grant)
         #expect(await broker.pairGrantRequestCount() == 1)
 
         clock.set(refreshedAt)
-        #expect(try await provider.context(for: route).credential.pairGrantToken == second.grant)
+        #expect(try await provider.context(for: request).credential.pairGrantToken == second.grant)
         #expect(await broker.pairGrantRequestCount() == 2)
     }
 
@@ -136,7 +136,7 @@ struct CmxIrohRegistryContextProviderTests {
         )
 
         await #expect(throws: CmxIrohRegistryContextError.invalidGrantExpiry) {
-            try await provider.context(for: fixture.route(hints: []))
+            try await provider.context(for: fixture.request(hints: []))
         }
     }
 
@@ -159,7 +159,32 @@ struct CmxIrohRegistryContextProviderTests {
         )
 
         await #expect(throws: CmxIrohRegistryContextError.relayFleetMismatch) {
-            try await provider.context(for: fixture.route(hints: []))
+            try await provider.context(for: fixture.request(hints: []))
+        }
+        #expect(await broker.pairGrantRequestCount() == 0)
+    }
+
+    @Test
+    func routeEndpointCannotSubstituteAnotherDeviceBinding() async throws {
+        let fixture = try RegistryFixture()
+        let broker = TestIrohRegistryBroker(
+            discovery: try fixture.discovery(targetHints: []),
+            pairGrantResponses: []
+        )
+        let provider = CmxIrohRegistryContextProvider(
+            supervisor: try await fixture.activeSupervisor(),
+            broker: broker,
+            managedRelayURLs: [fixture.relayURL],
+            activeNetworkProfiles: { [] },
+            now: { fixture.now }
+        )
+        let substitutedRequest = try fixture.request(
+            hints: [],
+            expectedPeerDeviceID: "123e4567-e89b-42d3-a456-426614174099"
+        )
+
+        await #expect(throws: CmxIrohRegistryContextError.targetDeviceMismatch) {
+            try await provider.context(for: substitutedRequest)
         }
         #expect(await broker.pairGrantRequestCount() == 0)
     }
@@ -302,6 +327,17 @@ private struct RegistryFixture: Sendable {
             id: "iroh-primary",
             kind: .iroh,
             endpoint: .peer(identity: acceptor.endpointID, pathHints: hints)
+        )
+    }
+
+    func request(
+        hints: [CmxIrohPathHint],
+        expectedPeerDeviceID: String? = nil
+    ) throws -> CmxByteTransportRequest {
+        CmxByteTransportRequest(
+            route: try route(hints: hints),
+            expectedPeerDeviceID: expectedPeerDeviceID ?? acceptor.deviceID,
+            authorizationMode: .transportAdmission
         )
     }
 

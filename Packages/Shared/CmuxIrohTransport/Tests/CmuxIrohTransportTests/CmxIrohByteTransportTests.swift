@@ -39,7 +39,7 @@ struct CmxIrohByteTransportTests {
         let credential = try CmxIrohAdmissionCredential.pairGrant("e30.e30.AA")
         let contextProvider = TestIrohClientContextProvider(
             context: CmxIrohClientContext(
-                dialPlan: CmxIrohDialPlan(publicPaths: [], privateFallbackPaths: []),
+                dialPlan: try testIrohDialPlan(),
                 credential: credential
             )
         )
@@ -53,13 +53,18 @@ struct CmxIrohByteTransportTests {
             supervisor: supervisor,
             contextProvider: contextProvider
         )
-        let transport = try factory.makeTransport(for: route)
+        let request = CmxByteTransportRequest(
+            route: route,
+            expectedPeerDeviceID: "123e4567-e89b-42d3-a456-426614174004",
+            authorizationMode: .transportAdmission
+        )
+        let transport = try factory.makeTransport(for: request)
 
         try await transport.connect()
         try await transport.send(Data("request".utf8))
 
         #expect(try await transport.receive() == Data("response".utf8))
-        #expect(await contextProvider.routes() == [route])
+        #expect(await contextProvider.requests() == [request])
         let sent = await controlSend.observedSentBuffers()
         #expect(sent.count == 2)
         #expect(sent[1] == Data("request".utf8))
@@ -77,7 +82,7 @@ struct CmxIrohByteTransportTests {
         )
         let provider = TestIrohClientContextProvider(
             context: CmxIrohClientContext(
-                dialPlan: CmxIrohDialPlan(publicPaths: [], privateFallbackPaths: []),
+                dialPlan: try testIrohDialPlan(),
                 credential: try .pairGrant("e30.e30.AA")
             )
         )

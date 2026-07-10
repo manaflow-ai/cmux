@@ -437,6 +437,29 @@ private func profile(
     }
 }
 
+@Test func routeTransportFactoryPreservesPeerIntentForRequestAwareTransports() throws {
+    let factory = try CmxRouteTransportFactory([
+        CmxRouteTransportFactoryRegistration(
+            kind: .iroh,
+            factory: RequestTaggedTransportFactory()
+        ),
+    ])
+    let route = try CmxAttachRoute(
+        id: "iroh",
+        kind: .iroh,
+        endpoint: .peer(id: canonicalEndpointID, relayHint: nil, directAddrs: [], relayURL: nil)
+    )
+    let request = CmxByteTransportRequest(
+        route: route,
+        expectedPeerDeviceID: "mac-device-a",
+        authorizationMode: .transportAdmission
+    )
+
+    let transport = try factory.makeTransport(for: request)
+
+    #expect((transport as? TaggedTransport)?.tag == "mac-device-a:admission")
+}
+
 @Test func routeTransportFactoryRejectsUnsupportedRouteKind() throws {
     let factory = try CmxRouteTransportFactory([
         CmxRouteTransportFactoryRegistration(
@@ -460,6 +483,22 @@ private struct TaggedTransportFactory: CmxByteTransportFactory {
 
     func makeTransport(for route: CmxAttachRoute) throws -> any CmxByteTransport {
         TaggedTransport(tag: tag, route: route)
+    }
+}
+
+private struct RequestTaggedTransportFactory: CmxByteTransportFactory {
+    func makeTransport(for route: CmxAttachRoute) throws -> any CmxByteTransport {
+        TaggedTransport(tag: "route-only", route: route)
+    }
+
+    func makeTransport(
+        for request: CmxByteTransportRequest
+    ) throws -> any CmxByteTransport {
+        let mode = request.authorizationMode == .transportAdmission ? "admission" : "stack"
+        return TaggedTransport(
+            tag: "\(request.expectedPeerDeviceID ?? "missing"):\(mode)",
+            route: request.route
+        )
     }
 }
 

@@ -3,18 +3,18 @@ import CMUXMobileCore
 
 actor TestIrohClientContextProvider: CmxIrohClientContextProvider {
     private let clientContext: CmxIrohClientContext
-    private var observedRoutes: [CmxAttachRoute] = []
+    private var observedRequests: [CmxByteTransportRequest] = []
 
     init(context: CmxIrohClientContext) {
         clientContext = context
     }
 
-    func context(for route: CmxAttachRoute) -> CmxIrohClientContext {
-        observedRoutes.append(route)
+    func context(for request: CmxByteTransportRequest) -> CmxIrohClientContext {
+        observedRequests.append(request)
         return clientContext
     }
 
-    func routes() -> [CmxAttachRoute] {
-        observedRoutes
+    func requests() -> [CmxByteTransportRequest] {
+        observedRequests
     }
 }

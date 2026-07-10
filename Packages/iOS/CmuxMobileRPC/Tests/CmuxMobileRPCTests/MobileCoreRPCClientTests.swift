@@ -419,6 +419,59 @@ import Testing
         #expect(frame.hasAuth)
     }
 
+    @Test func admittedIrohRequestCarriesNoStackOrAttachCredential() async throws {
+        let identity = try CmxIrohPeerIdentity(
+            endpointID: String(repeating: "ab", count: 32)
+        )
+        let route = try CmxAttachRoute(
+            id: "iroh",
+            kind: .iroh,
+            endpoint: .peer(identity: identity, pathHints: [])
+        )
+        let transport = QueuedCancellationProbeTransport()
+        let capture = TransportRequestCapture()
+        let stackTokenRequested = AsyncFlag()
+        let runtime = TestMobileSyncRuntime(
+            transportFactory: IntentRecordingTransportFactory(
+                transport: transport,
+                capture: capture
+            ),
+            stackAccessTokenProvider: {
+                await stackTokenRequested.set()
+                return "must-not-cross-iroh"
+            }
+        )
+        let ticket = try CmxAttachTicket(
+            workspaceID: "",
+            terminalID: nil,
+            macDeviceID: "123e4567-e89b-42d3-a456-426614174004",
+            macDisplayName: "Mac",
+            routes: [route],
+            expiresAt: Date().addingTimeInterval(60),
+            authToken: "must-not-cross-iroh-either"
+        )
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: ticket,
+            allowsStackAuthFallback: true
+        )
+        let request = try MobileCoreRPCClient.requestData(method: "workspace.list")
+
+        let task = Task { try await client.sendRequest(request) }
+        let sent = try await transport.waitForSentRequestCount(1)
+
+        let frame = try #require(sent.first)
+        #expect(!frame.hasAuth)
+        let didRequestStackToken = await stackTokenRequested.isSet()
+        #expect(!didRequestStackToken)
+        #expect(capture.request()?.expectedPeerDeviceID == ticket.macDeviceID)
+        #expect(capture.request()?.authorizationMode == .transportAdmission)
+        task.cancel()
+        await transport.releaseFirstSend()
+        _ = try? await task.value
+    }
+
     @Test func workspaceMoveCarriesMacWideAttachTicketContext() async throws {
         let route = try hostPortRoute(kind: .tailscale, host: "100.64.0.5", port: 58465)
         let transport = QueuedCancellationProbeTransport()

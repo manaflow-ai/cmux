@@ -180,3 +180,36 @@ struct QueuedCancellationProbeTransportFactory: CmxByteTransportFactory {
         transport
     }
 }
+
+final class TransportRequestCapture: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: CmxByteTransportRequest?
+
+    func record(_ request: CmxByteTransportRequest) {
+        lock.lock()
+        value = request
+        lock.unlock()
+    }
+
+    func request() -> CmxByteTransportRequest? {
+        lock.lock()
+        defer { lock.unlock() }
+        return value
+    }
+}
+
+struct IntentRecordingTransportFactory: CmxByteTransportFactory {
+    let transport: QueuedCancellationProbeTransport
+    let capture: TransportRequestCapture
+
+    func makeTransport(for route: CmxAttachRoute) throws -> any CmxByteTransport {
+        transport
+    }
+
+    func makeTransport(
+        for request: CmxByteTransportRequest
+    ) throws -> any CmxByteTransport {
+        capture.record(request)
+        return transport
+    }
+}

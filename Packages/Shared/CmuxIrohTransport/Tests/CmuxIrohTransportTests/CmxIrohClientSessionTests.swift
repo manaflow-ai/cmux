@@ -33,7 +33,7 @@ struct CmxIrohClientSessionTests {
         let session = try CmxIrohClientSession(
             endpoint: endpoint,
             targetIdentity: remoteIdentity,
-            dialPlan: CmxIrohDialPlan(publicPaths: [publicHint], privateFallbackPaths: []),
+            dialPlan: try testIrohDialPlan(publicPaths: [publicHint]),
             credential: credential
         )
 
@@ -67,7 +67,7 @@ struct CmxIrohClientSessionTests {
         let session = try CmxIrohClientSession(
             endpoint: endpoint,
             targetIdentity: remoteIdentity,
-            dialPlan: CmxIrohDialPlan(
+            dialPlan: try testIrohDialPlan(
                 publicPaths: [publicHint],
                 privateFallbackPaths: [privateHint]
             ),
@@ -96,7 +96,7 @@ struct CmxIrohClientSessionTests {
         let session = try CmxIrohClientSession(
             endpoint: endpoint,
             targetIdentity: remoteIdentity,
-            dialPlan: CmxIrohDialPlan(publicPaths: [], privateFallbackPaths: []),
+            dialPlan: try testIrohDialPlan(),
             credential: credential
         )
 
@@ -120,7 +120,7 @@ struct CmxIrohClientSessionTests {
         let session = try CmxIrohClientSession(
             endpoint: endpoint,
             targetIdentity: remoteIdentity,
-            dialPlan: CmxIrohDialPlan(publicPaths: [], privateFallbackPaths: []),
+            dialPlan: try testIrohDialPlan(),
             credential: credential
         )
 
@@ -150,7 +150,7 @@ struct CmxIrohClientSessionTests {
         let session = try CmxIrohClientSession(
             endpoint: endpoint,
             targetIdentity: remoteIdentity,
-            dialPlan: CmxIrohDialPlan(publicPaths: [], privateFallbackPaths: []),
+            dialPlan: try testIrohDialPlan(),
             credential: credential
         )
         try await session.connect()
@@ -193,7 +193,7 @@ struct CmxIrohClientSessionTests {
         let session = try CmxIrohClientSession(
             endpoint: endpoint,
             targetIdentity: remoteIdentity,
-            dialPlan: CmxIrohDialPlan(publicPaths: [], privateFallbackPaths: []),
+            dialPlan: try testIrohDialPlan(),
             credential: credential
         )
         try await session.connect()
@@ -210,7 +210,7 @@ struct CmxIrohClientSessionTests {
         let session = try CmxIrohClientSession(
             endpoint: endpoint,
             targetIdentity: remoteIdentity,
-            dialPlan: CmxIrohDialPlan(publicPaths: [], privateFallbackPaths: []),
+            dialPlan: try testIrohDialPlan(),
             credential: credential
         )
         var started = await endpoint.startedEvents().makeAsyncIterator()
