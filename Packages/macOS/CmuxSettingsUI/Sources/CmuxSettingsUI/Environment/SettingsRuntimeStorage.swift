@@ -1,4 +1,4 @@
-import Foundation
+import CmuxSettings
 
 /// Immutable reference storage keeps `SettingsRuntime` cheap to copy through
 /// SwiftUI environment values while preserving its read-only public contract.
