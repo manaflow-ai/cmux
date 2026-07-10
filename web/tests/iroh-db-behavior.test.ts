@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import * as Effect from "effect/Effect";
 import postgres, { type Sql } from "postgres";
 import { closeCloudDbForTests } from "../db/client";
+import { accountDeletionUserHash } from "../services/account/deletionLock";
 import {
   IrohRepository,
   IrohRepositoryLive,
@@ -36,7 +37,8 @@ beforeEach(async () => {
       iroh_pair_grant_issuances,
       iroh_registration_challenges,
       iroh_endpoint_bindings,
-      iroh_account_security_states
+      iroh_account_security_states,
+      account_deletion_tombstones
     restart identity cascade
   `;
 });
@@ -47,6 +49,34 @@ afterAll(async () => {
 });
 
 describe("Iroh trust broker database behavior", () => {
+  dbTest("blocks new trust state once account deletion wins the account fence", async () => {
+    const userId = "user-deleting";
+    await requiredSql()`
+      insert into account_deletion_tombstones (user_id_hash, user_id, status, updated_at)
+      values (${accountDeletionUserHash(userId)}, ${userId}, 'pending', ${NOW})
+    `;
+
+    const exit = await Effect.runPromiseExit(requiredRepository().issueChallenge({
+      userId,
+      deviceUuid: randomUUID(),
+      appInstanceId: randomUUID(),
+      tag: "stable",
+      endpointId: "09".repeat(32),
+      identityGeneration: 1,
+      payloadSha256: "08".repeat(32),
+      nonceHash: "07".repeat(32),
+      now: NOW,
+      expiresAt: new Date(NOW.getTime() + 5 * 60 * 1_000),
+    }));
+
+    expect(exit._tag).toBe("Failure");
+    expect(String(exit)).toContain("account_deletion_in_progress");
+    const [{ total }] = await requiredSql()<Array<{ total: string }>>`
+      select count(*)::text as total from iroh_registration_challenges where user_id = ${userId}
+    `;
+    expect(total).toBe("0");
+  });
+
   dbTest("atomically consumes a challenge exactly once under concurrency", async () => {
     const repo = requiredRepository();
     const deviceId = randomUUID();

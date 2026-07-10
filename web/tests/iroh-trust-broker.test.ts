@@ -185,6 +185,30 @@ describe("Iroh discovery and grants", () => {
     }, NOW), "IrohNotFoundError");
   });
 
+  test("pair grants require an iOS initiator and revalidate both peers at commit", async () => {
+    const wrongPlatform = makeFixture();
+    const macInitiator = binding({ userId: USER_A, platform: "mac" });
+    const macAcceptor = binding({ userId: USER_A, platform: "mac", pairingEnabled: true });
+    wrongPlatform.repository.bindings.push(macInitiator, macAcceptor);
+    await expectEffectFailure(wrongPlatform.broker.issuePairGrant(USER_A, {
+      initiatorBindingId: macInitiator.id,
+      acceptorBindingId: macAcceptor.id,
+    }, NOW), "IrohForbiddenError");
+
+    const raced = makeFixture();
+    const iosInitiator = binding({ userId: USER_A, platform: "ios" });
+    const pairableMac = binding({ userId: USER_A, platform: "mac", pairingEnabled: true });
+    raced.repository.bindings.push(iosInitiator, pairableMac);
+    raced.repository.beforeRecordPairGrant = () => {
+      pairableMac.revokedAt = NOW;
+    };
+    await expectEffectFailure(raced.broker.issuePairGrant(USER_A, {
+      initiatorBindingId: iosInitiator.id,
+      acceptorBindingId: pairableMac.id,
+    }, NOW), "IrohNotFoundError");
+    expect(raced.repository.pairGrantAudits).toHaveLength(0);
+  });
+
   test("issues a short-lived opaque same-account attestation only for an owned active binding", async () => {
     const fixture = makeFixture();
     const active = binding({ userId: USER_A, platform: "ios", identityGeneration: 4 });
@@ -278,6 +302,21 @@ describe("Iroh relay quotas", () => {
     );
     expect(fixture.minter.calls).toBe(3);
   });
+
+  test("does not return a relay credential when the binding is revoked during mint", async () => {
+    const fixture = makeFixture();
+    const active = binding({ userId: USER_A });
+    fixture.repository.bindings.push(active);
+    fixture.minter.afterMint = () => {
+      active.revokedAt = NOW;
+    };
+
+    await expectEffectFailure(
+      fixture.broker.issueRelayToken(USER_A, { bindingId: active.id }, NOW),
+      "IrohNotFoundError",
+    );
+    expect(fixture.repository.relayIssuances[0]?.status).toBe("failed");
+  });
 });
 
 describe("developer binding override", () => {
@@ -310,6 +349,7 @@ class MemoryRepository implements IrohRepositoryShape {
     status: string;
   }> = [];
   private lanGenerations = new Map<string, number>();
+  beforeRecordPairGrant: (() => void) | undefined;
 
   issueChallenge(input: Parameters<IrohRepositoryShape["issueChallenge"]>[0]) {
     const challenge: IrohChallengeRecord = {
@@ -430,6 +470,7 @@ class MemoryRepository implements IrohRepositoryShape {
   }
 
   recordPairGrant(input: Parameters<IrohRepositoryShape["recordPairGrant"]>[0]) {
+    this.beforeRecordPairGrant?.();
     this.pairGrantAudits.push(input);
     return Effect.void;
   }
@@ -463,15 +504,18 @@ class MemoryRepository implements IrohRepositoryShape {
 
 class FakeMinter implements IrohRelayMinterShape {
   calls = 0;
+  afterMint: (() => void) | undefined;
   constructor(private readonly fail: boolean) {}
 
   mint(input: Parameters<IrohRelayMinterShape["mint"]>[0]) {
     this.calls += 1;
     if (this.fail) return Effect.fail(new IrohRelayMintError({ code: "test_failure" }));
-    return Effect.succeed({
+    const result = {
       token: `relay-token-${this.calls}-with-safe-length`,
       expiresAt: new Date(input.now.getTime() + IROH_RELAY_TOKEN_LIFETIME_SECONDS * 1_000),
-    });
+    };
+    this.afterMint?.();
+    return Effect.succeed(result);
   }
 }
 

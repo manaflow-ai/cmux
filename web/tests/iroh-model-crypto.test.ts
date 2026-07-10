@@ -114,6 +114,13 @@ describe("Iroh route wire contract", () => {
     }, NOW)).toThrow();
   });
 
+  test("rejects identity generations that overflow the Postgres integer contract", () => {
+    expect(() => parseRegistrationPayload({
+      ...registrationPayload(directHint({ value: "8.8.8.8:4433" })),
+      identityGeneration: 2_147_483_648,
+    }, NOW)).toThrow();
+  });
+
   test("accepts only endpoint-reported home relays from the separate fleet allowlist", () => {
     const relayHint = directHint({ kind: "relay_url", value: MANAGED_RELAY_URLS[0] });
     expect(parseRegistrationPayload(registrationPayload(relayHint), NOW).pathHints[0]?.value).toBe(MANAGED_RELAY_URLS[0]);
