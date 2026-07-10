@@ -80,7 +80,9 @@ final class WindowDecorationsController {
         ) { [weak self] event in
             guard let self else { return event }
             // AppKit delivers local event-monitor callbacks on the main thread.
-            return MainActor.assumeIsolated {
+            // assumeIsolated's result must be Sendable, so hand back a
+            // consume/pass decision instead of the non-Sendable NSEvent.
+            let consumed = MainActor.assumeIsolated {
             guard let target = self.minimalModeSidebarChromeEventTarget(for: event) else {
                 #if DEBUG
                 self.recordMinimalModeSidebarChromeMonitorForUITest(
@@ -92,7 +94,7 @@ final class WindowDecorationsController {
                 )
                 #endif
                 MinimalModeSidebarChromeHoverState.shared.clear()
-                return event
+                return false
             }
             let window = target.window
             let locationInWindow = target.locationInWindow
@@ -132,15 +134,16 @@ final class WindowDecorationsController {
                     window: window,
                     locationInWindow: locationInWindow
                 )
-                return nil
+                return true
             }
             if isHovering {
                 MinimalModeSidebarChromeHoverState.shared.setHovering(true, windowNumber: window.windowNumber)
             } else {
                 MinimalModeSidebarChromeHoverState.shared.clear()
             }
-            return event
+            return false
             }
+            return consumed ? nil : event
         }
     }
 

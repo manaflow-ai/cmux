@@ -563,10 +563,14 @@ final class FileExplorerStore {
     private(set) var expandedPaths: Set<String> = [] { didSet { signalChange() } }
 
     /// Stable navigation selection. The outline view mirrors this path after reloads.
-    private(set) var selectedPath: String? { didSet { signalChange() } }
+    // Selection is applied to the NSOutlineView synchronously by the
+    // coordinator paths that mutate it; before the Observation migration these
+    // fields sent no objectWillChange, and signaling here would schedule a
+    // full-tree reloadIfNeeded() sweep on every click/arrow-key selection.
+    private(set) var selectedPath: String?
 
     /// Stable multi-selection. `selectedPath` remains the keyboard/navigation anchor.
-    private(set) var selectedPaths: Set<String> = [] { didSet { signalChange() } }
+    private(set) var selectedPaths: Set<String> = []
 
     /// Folder path whose first child should be selected once its async load completes.
     private var pendingDescendIntoFirstChildPath: String?

@@ -265,8 +265,12 @@ struct DirectorySnapshot: Sendable {
     private static let agentOrderDefaultsKey = "sessionIndex.agentOrder"
     private static let directoryOrderDefaultsKey = "sessionIndex.directoryOrder"
     private var sectionsCacheRevision: UInt64 = 0
-    private var cachedSectionsRevision: UInt64?
-    private var cachedSections: [IndexSection] = []
+    // Derived memo of sectionsForCurrentGrouping(), written on cache miss
+    // from the view-body path. Untracked so filling the cache does not
+    // invalidate the very body computing it; `sectionsCacheRevision` above is
+    // the tracked invalidation signal.
+    @ObservationIgnored private var cachedSectionsRevision: UInt64?
+    @ObservationIgnored private var cachedSections: [IndexSection] = []
 
     init() {
         self.agentOrder = Self.loadAgentOrder()
