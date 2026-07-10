@@ -23084,17 +23084,20 @@ struct CMUXCLI {
                     client: client
                 )
             } else if hasDirectionalFlags {
-                let direction: String
-                if parsed.hasFlag("-L") {
-                    direction = "left"
-                } else if parsed.hasFlag("-U") {
-                    direction = "up"
-                } else if parsed.hasFlag("-D") {
-                    direction = "down"
-                } else {
-                    direction = "right"
+                let directionFlag = ["-L", "-U", "-D", "-R"]
+                    .first(where: parsed.hasFlag) ?? "-R"
+                let direction: String = switch directionFlag {
+                case "-L": "left"
+                case "-U": "up"
+                case "-D": "down"
+                default: "right"
                 }
-                let rawAmount = (parsed.positional.first ?? parsed.value("-x") ?? parsed.value("-y") ?? "1")
+                let firstPositional = parsed.positional.first
+                let attachedAmount = firstPositional.flatMap { raw in
+                    raw.hasPrefix(directionFlag) && raw.count > directionFlag.count
+                        ? String(raw.dropFirst(directionFlag.count)) : nil
+                }
+                let rawAmount = (attachedAmount ?? firstPositional ?? parsed.value("-x") ?? parsed.value("-y") ?? "1")
                     .replacingOccurrences(of: "%", with: "")
                 let amount = Int(rawAmount) ?? 1
                 try tmuxResizePaneByCells(

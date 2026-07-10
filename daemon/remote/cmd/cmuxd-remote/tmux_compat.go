@@ -1910,16 +1910,23 @@ func tmuxResizePane(rc *rpcContext, args []string) error {
 
 	if hasDirectional {
 		dir := "right"
+		directionFlag := "-R"
 		if p.hasFlag("-L") {
 			dir = "left"
+			directionFlag = "-L"
 		} else if p.hasFlag("-U") {
 			dir = "up"
+			directionFlag = "-U"
 		} else if p.hasFlag("-D") {
 			dir = "down"
+			directionFlag = "-D"
 		}
 		rawAmount := "1"
 		if len(p.positional) > 0 {
 			rawAmount = p.positional[0]
+			if strings.HasPrefix(rawAmount, directionFlag) && len(rawAmount) > len(directionFlag) {
+				rawAmount = strings.TrimPrefix(rawAmount, directionFlag)
+			}
 		} else {
 			rawAmount = firstNonEmpty(p.value("-x"), p.value("-y"), "1")
 		}
