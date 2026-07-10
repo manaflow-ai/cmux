@@ -163,6 +163,14 @@
       "codexJsonPlaceholder": "{\"accessToken\":\"...\",\"refreshToken\":\"...\",\"idToken\":\"...\",\"accountID\":\"...\"}",
       "anthropicKeyPlaceholder": "sk-ant-...",
       "openAiKeyPlaceholder": "sk-..."
+    },
+    "billing": {
+      "plan": {
+        "heading": "Dein persönlicher Tarif",
+        "free": "Kostenlos",
+        "pro": "Pro",
+        "loading": "Wird geladen…"
+      }
     }
   },
   "community": {

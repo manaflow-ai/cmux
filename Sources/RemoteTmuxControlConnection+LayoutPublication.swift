@@ -10,6 +10,26 @@ extension RemoteTmuxControlConnection {
         )
     }
 
+    /// Applies tmux's authoritative window name to every topology phase that
+    /// can later publish the window. Returns whether already-published state changed.
+    @discardableResult
+    func applyWindowName(windowId: Int, name: String) -> Bool {
+        var publishedChanged = false
+        if let window = windowsByID[windowId], window.name != name {
+            windowsByID[windowId] = window.replacingName(with: name)
+            publishedChanged = true
+        }
+        if var pending = pendingLayouts[windowId], pending.name != name {
+            pending.name = name
+            pendingLayouts[windowId] = pending
+        }
+        if let staged = initialBatchStaged[windowId], staged.name != name {
+            initialBatchStaged[windowId] = staged.replacingName(with: name)
+        }
+        return publishedChanged
+    }
+
+
     /// Window ids from a topology population that started with NO published
     /// windows (first attach, reconnect reseed into an empty table), still
     /// awaiting their rects reply. While non-nil, verified windows accumulate
@@ -24,7 +44,10 @@ extension RemoteTmuxControlConnection {
     ) {
         guard let node = RemoteTmuxRawLayoutParser.parse(layout) else { return }
         // Preserve any name tmux already reported (a %layout-change carries no name).
-        let existingName = windowsByID[windowId]?.name ?? pendingLayouts[windowId]?.name ?? ""
+        let existingName = windowsByID[windowId]?.name
+            ?? pendingLayouts[windowId]?.name
+            ?? initialBatchStaged[windowId]?.name
+            ?? ""
         let visibleNode = visibleLayout.flatMap { RemoteTmuxRawLayoutParser.parse($0) }
         stagePendingLayout(
             windowId: windowId,
