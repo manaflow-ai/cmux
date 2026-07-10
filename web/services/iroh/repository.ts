@@ -1,4 +1,4 @@
-import { and, asc, count, eq, gt, inArray, isNull, lte, or, sql } from "drizzle-orm";
+import { and, asc, count, eq, gt, inArray, isNull, lte, ne, or, sql } from "drizzle-orm";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -34,6 +34,7 @@ export const IROH_RETENTION_BATCH_SIZE = 500;
 export const IROH_RETENTION_MAX_ROWS = 10_000;
 export const IROH_RETENTION_MAX_DURATION_MS = 8_000;
 export const IROH_ACCOUNT_CHALLENGE_LIMIT = 120;
+export const IROH_RELAY_RESERVATION_LEASE_MS = 60 * 1_000;
 
 export type IrohRetentionCategory =
   | "revokedHints"
@@ -683,6 +684,22 @@ function makeLiveRepository(): IrohRepositoryShape {
           .limit(1);
         if (!binding) throw new IrohNotFoundError({ resource: "binding" });
 
+        const reservationCutoff = new Date(
+          input.now.getTime() - IROH_RELAY_RESERVATION_LEASE_MS,
+        );
+        await tx
+          .update(irohRelayTokenIssuances)
+          .set({
+            status: "expired",
+            completedAt: input.now,
+            failureCode: "reservation_expired",
+          })
+          .where(and(
+            eq(irohRelayTokenIssuances.userId, input.userId),
+            eq(irohRelayTokenIssuances.status, "pending"),
+            lte(irohRelayTokenIssuances.requestedAt, reservationCutoff),
+          ));
+
         const dayAgo = new Date(input.now.getTime() - 24 * 60 * 60 * 1_000);
         const tenMinutesAgo = new Date(input.now.getTime() - 10 * 60 * 1_000);
         const endpointRows = await tx
@@ -690,6 +707,7 @@ function makeLiveRepository(): IrohRepositoryShape {
           .from(irohRelayTokenIssuances)
           .where(and(
             eq(irohRelayTokenIssuances.bindingId, binding.id),
+            ne(irohRelayTokenIssuances.status, "expired"),
             gt(irohRelayTokenIssuances.requestedAt, dayAgo),
           ))
           .orderBy(asc(irohRelayTokenIssuances.requestedAt));
@@ -705,6 +723,7 @@ function makeLiveRepository(): IrohRepositoryShape {
           .from(irohRelayTokenIssuances)
           .where(and(
             eq(irohRelayTokenIssuances.userId, input.userId),
+            ne(irohRelayTokenIssuances.status, "expired"),
             gt(irohRelayTokenIssuances.requestedAt, dayAgo),
           ))
           .orderBy(asc(irohRelayTokenIssuances.requestedAt));

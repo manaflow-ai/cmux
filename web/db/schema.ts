@@ -781,7 +781,10 @@ export const irohRelayTokenIssuances = pgTable(
       .notNull()
       .references(() => irohEndpointBindings.id, { onDelete: "cascade" }),
     endpointIdHash: text("endpoint_id_hash").notNull(),
-    status: text("status").notNull().default("pending"),
+    status: text("status")
+      .$type<"pending" | "succeeded" | "failed" | "expired">()
+      .notNull()
+      .default("pending"),
     tokenHash: text("token_hash"),
     failureCode: text("failure_code"),
     requestedAt: timestamp("requested_at", { withTimezone: true }).notNull(),
@@ -790,7 +793,7 @@ export const irohRelayTokenIssuances = pgTable(
   },
   (table) => [
     check("iroh_relay_token_issuances_endpoint_hash_check", sql`${table.endpointIdHash} ~ '^[0-9a-f]{64}$'`),
-    check("iroh_relay_token_issuances_status_check", sql`${table.status} in ('pending', 'succeeded', 'failed')`),
+    check("iroh_relay_token_issuances_status_check", sql`${table.status} in ('pending', 'succeeded', 'failed', 'expired')`),
     index("iroh_relay_token_issuances_binding_requested_idx").on(table.bindingId, table.requestedAt),
     index("iroh_relay_token_issuances_user_requested_idx").on(table.userId, table.requestedAt, table.id),
     index("iroh_relay_token_issuances_requested_idx").on(table.requestedAt, table.id),

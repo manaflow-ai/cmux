@@ -30,7 +30,9 @@ challenges per device per ten minutes, 32 outstanding challenges per account,
 32 active bindings per account, eight active bindings per physical device, 60
 pair grants per account per hour, three relay mints per endpoint per ten
 minutes, 12 relay mints per endpoint per day, and 100 relay mints per account
-per day. The optional Vercel Firewall rule is defense in depth. A tagged-build
+per day. A relay reservation remains active for 60 seconds, then the next
+account-scoped reservation marks it expired before applying those quotas. The
+optional Vercel Firewall rule is defense in depth. A tagged-build
 device-limit override requires a server flag, an exact authenticated user-id
 allowlist match, and an exact deployment-environment allowlist match; it never
 raises the 32-binding account limit and records an audit marker on the binding.
