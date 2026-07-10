@@ -47,13 +47,8 @@ extension PullRequestPollService {
 
         defer {
             if needsFollowUpPass || workspacePullRequestFollowUpRequested {
-                let shouldBypassRepoCache = workspacePullRequestFollowUpShouldBypassRepoCache
                 workspacePullRequestFollowUpRequested = false
-                workspacePullRequestFollowUpShouldBypassRepoCache = false
-                refreshTrackedWorkspacePullRequestsIfNeeded(
-                    reason: "\(reason).followUp",
-                    allowCachedResultsOverride: shouldBypassRepoCache ? false : nil
-                )
+                refreshTrackedWorkspacePullRequestsIfNeeded(reason: "\(reason).followUp")
             }
         }
 
@@ -76,7 +71,7 @@ extension PullRequestPollService {
             }
 
             if rerunPending,
-               workspacePullRequestFollowUpShouldBypassRepoCache,
+               workspacePullRequestBypassRepoCacheKeys.contains(key),
                result.usedCachedRepoData {
                 continue
             }
@@ -251,6 +246,7 @@ extension PullRequestPollService {
         workspacePullRequestProbeStateByKey = workspacePullRequestProbeStateByKey.filter { validKeys.contains($0.key) }
         workspacePullRequestLastTerminalStateRefreshAtByKey = workspacePullRequestLastTerminalStateRefreshAtByKey.filter { validKeys.contains($0.key) }
         workspacePullRequestTransientFailureCountByKey = workspacePullRequestTransientFailureCountByKey.filter { validKeys.contains($0.key) }
+        workspacePullRequestBypassRepoCacheKeys.formIntersection(validKeys)
         let repoCacheCutoff = Date().addingTimeInterval(-Self.workspacePullRequestRepoCachePruneLifetime)
         workspacePullRequestRepoCacheBySlug = workspacePullRequestRepoCacheBySlug.filter {
             $0.value.fetchedAt >= repoCacheCutoff
@@ -263,6 +259,7 @@ extension PullRequestPollService {
         workspacePullRequestProbeStateByKey.removeValue(forKey: key)
         workspacePullRequestLastTerminalStateRefreshAtByKey.removeValue(forKey: key)
         workspacePullRequestTransientFailureCountByKey.removeValue(forKey: key)
+        workspacePullRequestBypassRepoCacheKeys.remove(key)
         updateWorkspacePullRequestPollTimer()
     }
 
@@ -277,6 +274,9 @@ extension PullRequestPollService {
         workspacePullRequestProbeStateByKey = workspacePullRequestProbeStateByKey.filter { $0.key.workspaceId != workspaceId }
         workspacePullRequestLastTerminalStateRefreshAtByKey = workspacePullRequestLastTerminalStateRefreshAtByKey.filter { $0.key.workspaceId != workspaceId }
         workspacePullRequestTransientFailureCountByKey = workspacePullRequestTransientFailureCountByKey.filter { $0.key.workspaceId != workspaceId }
+        workspacePullRequestBypassRepoCacheKeys = workspacePullRequestBypassRepoCacheKeys.filter {
+            $0.workspaceId != workspaceId
+        }
         updateWorkspacePullRequestPollTimer()
     }
 
@@ -305,9 +305,8 @@ extension PullRequestPollService {
         workspacePullRequestTransientFailureCountByKey.removeAll()
         workspacePullRequestRepoCacheBySlug.removeAll()
         workspacePullRequestScheduledRefreshReason = nil
-        workspacePullRequestScheduledRefreshShouldBypassRepoCache = false
+        workspacePullRequestBypassRepoCacheKeys.removeAll()
         workspacePullRequestFollowUpRequested = false
-        workspacePullRequestFollowUpShouldBypassRepoCache = false
         updateWorkspacePullRequestPollTimer()
     }
 
@@ -317,17 +316,14 @@ extension PullRequestPollService {
         for key: WorkspaceGitProbeKey,
         bypassRepoCache: Bool
     ) {
+        if bypassRepoCache {
+            workspacePullRequestBypassRepoCacheKeys.insert(key)
+        }
         guard case .inFlight(let rerunPending) = workspacePullRequestProbeStateByKey[key],
               !rerunPending else {
-            if bypassRepoCache {
-                workspacePullRequestFollowUpShouldBypassRepoCache = true
-            }
             return
         }
         workspacePullRequestProbeStateByKey[key] = .inFlight(rerunPending: true)
-        if bypassRepoCache {
-            workspacePullRequestFollowUpShouldBypassRepoCache = true
-        }
     }
 
     func workspacePullRequestProbeRerunPending(for key: WorkspaceGitProbeKey) -> Bool {

@@ -57,9 +57,8 @@ public final class PullRequestPollService: PullRequestProbing {
     var workspacePullRequestRefreshTask: Task<Void, Never>?
     var workspacePullRequestScheduledRefreshTask: Task<Void, Never>?
     var workspacePullRequestScheduledRefreshReason: String?
-    var workspacePullRequestScheduledRefreshShouldBypassRepoCache = false
+    var workspacePullRequestBypassRepoCacheKeys: Set<WorkspaceGitProbeKey> = []
     var workspacePullRequestFollowUpRequested = false
-    var workspacePullRequestFollowUpShouldBypassRepoCache = false
     var lastSidebarPullRequestPollingEnabled = false
 
     /// Creates the poll service.
@@ -163,18 +162,14 @@ public final class PullRequestPollService: PullRequestProbing {
         reason: String,
         allowCachedResultsOverride: Bool?
     ) {
-        let scheduledRefreshShouldBypassRepoCache: Bool = {
-            guard let scheduledTask = workspacePullRequestScheduledRefreshTask else { return false }
+        if let scheduledTask = workspacePullRequestScheduledRefreshTask {
             scheduledTask.cancel()
             workspacePullRequestScheduledRefreshTask = nil
             workspacePullRequestScheduledRefreshReason = nil
-            let shouldBypassRepoCache = workspacePullRequestScheduledRefreshShouldBypassRepoCache
-            workspacePullRequestScheduledRefreshShouldBypassRepoCache = false
-            return shouldBypassRepoCache
-        }()
-        let effectiveAllowCachedResultsOverride = scheduledRefreshShouldBypassRepoCache
-            ? false
-            : allowCachedResultsOverride
+        }
+        let requestShouldBypassRepoCache = allowCachedResultsOverride == false
+            || (allowCachedResultsOverride == nil
+                && !PullRequestProbeService.refreshAllowsRepoCache(reason: reason))
         guard let host else { return }
         guard !host.mobileHostHasRecentActivity(within: mobileHostDeferral.quietInterval) else {
             deferWorkspacePullRequestRefreshForMobileHost()
@@ -221,10 +216,14 @@ public final class PullRequestPollService: PullRequestProbing {
                     continue
                 }
 
+                if requestShouldBypassRepoCache {
+                    workspacePullRequestBypassRepoCacheKeys.insert(key)
+                }
+
                 if case .inFlight = workspacePullRequestProbeStateByKey[key] {
                     markWorkspacePullRequestProbeRerunPending(
                         for: key,
-                        bypassRepoCache: !PullRequestProbeService.refreshAllowsRepoCache(reason: reason)
+                        bypassRepoCache: requestShouldBypassRepoCache
                     )
                     continue
                 }
@@ -260,8 +259,13 @@ public final class PullRequestPollService: PullRequestProbing {
         }
 
         let cacheBySlug = workspacePullRequestRepoCacheBySlug
-        let allowCachedResults = effectiveAllowCachedResultsOverride
-            ?? PullRequestProbeService.refreshAllowsRepoCache(reason: reason)
+        let shouldBypassRepoCache = requestedKeys.contains {
+            workspacePullRequestBypassRepoCacheKeys.contains($0)
+        }
+        workspacePullRequestBypassRepoCacheKeys.subtract(requestedKeys)
+        let allowCachedResults = shouldBypassRepoCache
+            ? false
+            : (allowCachedResultsOverride ?? PullRequestProbeService.refreshAllowsRepoCache(reason: reason))
         let gitMetadataService = gitMetadataService
         let probeService = probeService
         let seeds = candidateSeeds
@@ -323,8 +327,8 @@ public final class PullRequestPollService: PullRequestProbing {
             return
         }
         let shouldBypassRepoCache = !PullRequestProbeService.refreshAllowsRepoCache(reason: reason)
-        if shouldBypassRepoCache, workspacePullRequestRefreshTask != nil {
-            workspacePullRequestFollowUpShouldBypassRepoCache = true
+        if shouldBypassRepoCache {
+            workspacePullRequestBypassRepoCacheKeys.insert(key)
         }
         if case .inFlight = workspacePullRequestProbeStateByKey[key] {
             markWorkspacePullRequestProbeRerunPending(
@@ -345,18 +349,14 @@ public final class PullRequestPollService: PullRequestProbing {
             return
         }
         scheduleWorkspacePullRequestPlanning(
-            reason: reason,
-            shouldBypassRepoCache: shouldBypassRepoCache
+            reason: reason
         )
     }
 
     private func scheduleWorkspacePullRequestPlanning(
-        reason: String,
-        shouldBypassRepoCache: Bool
+        reason: String
     ) {
         workspacePullRequestScheduledRefreshReason = reason
-        workspacePullRequestScheduledRefreshShouldBypassRepoCache =
-            workspacePullRequestScheduledRefreshShouldBypassRepoCache || shouldBypassRepoCache
         guard workspacePullRequestScheduledRefreshTask == nil else { return }
 
         // A task on the same actor starts after this synchronous event turn, so every
@@ -370,13 +370,7 @@ public final class PullRequestPollService: PullRequestProbing {
     private func runScheduledWorkspacePullRequestPlanning() {
         workspacePullRequestScheduledRefreshTask = nil
         let reason = workspacePullRequestScheduledRefreshReason ?? "scheduled"
-        let shouldBypassRepoCache = workspacePullRequestScheduledRefreshShouldBypassRepoCache
         workspacePullRequestScheduledRefreshReason = nil
-        workspacePullRequestScheduledRefreshShouldBypassRepoCache = false
-
-        refreshTrackedWorkspacePullRequestsIfNeeded(
-            reason: reason,
-            allowCachedResultsOverride: shouldBypassRepoCache ? false : nil
-        )
+        refreshTrackedWorkspacePullRequestsIfNeeded(reason: reason)
     }
 }
