@@ -43,6 +43,13 @@ struct ShellIntegrationSendTransportTests {
 
         let listener = try UnixLineListener(path: socketPath)
 
+        // Output goes to files, not pipes: an unread pipe can deadlock the
+        // child, and the file contents become the failure diagnostics.
+        let logURL = dir.appendingPathComponent("run.log")
+        FileManager.default.createFile(atPath: logURL.path, contents: nil)
+        let logHandle = try FileHandle(forWritingTo: logURL)
+        defer { try? logHandle.close() }
+
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/zsh")
         process.environment = [
@@ -52,14 +59,24 @@ struct ShellIntegrationSendTransportTests {
         ]
         process.arguments = [
             "-f", "-c",
-            "source '\(scriptFile.path)' >/dev/null 2>&1; _cmux_send 'transport probe'",
+            """
+            source '\(scriptFile.path)'
+            print -r -- "diag: usrbin_nc_executable=$([[ -x /usr/bin/nc ]] && echo 1 || echo 0)"
+            print -r -- "diag: path_nc=$(whence -p nc 2>/dev/null)"
+            _cmux_send 'transport probe'
+            print -r -- "diag: send_rc=$?"
+            """,
         ]
+        process.standardOutput = logHandle
+        process.standardError = logHandle
         try process.run()
         process.waitUntilExit()
 
+        let delivered = listener.waitForLine(timeout: 10)
+        let diagnostics = (try? String(contentsOf: logURL, encoding: .utf8)) ?? "<no log>"
         #expect(
-            listener.waitForLine(timeout: 10) == "transport probe",
-            "The shell integration's socket send must deliver its payload to the listener."
+            delivered == "transport probe",
+            "The shell integration's socket send must deliver its payload to the listener. exit=\(process.terminationStatus) log:\n\(diagnostics.suffix(1200))"
         )
     }
 }
