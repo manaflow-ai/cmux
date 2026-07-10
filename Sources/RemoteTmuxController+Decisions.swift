@@ -128,20 +128,6 @@ extension RemoteTmuxController {
         return command
     }
 
-    /// The tab manager `remote.tmux.mirror` should mirror into: the host's
-    /// dedicated mirror window when one is bound and still resolvable, else the
-    /// fallback (usually the key window).
-    static func mirrorTargetTabManager(
-        dedicatedWindowId: UUID?,
-        tabManagerForWindow: (UUID) -> TabManager?,
-        fallbackTabManager: () -> TabManager?
-    ) -> TabManager? {
-        if let dedicatedWindowId, let manager = tabManagerForWindow(dedicatedWindowId) {
-            return manager
-        }
-        return fallbackTabManager()
-    }
-
     /// Parses tmux's stable session id (`"$3"`) to its numeric id.
     ///
     /// Only non-negative, `$`-prefixed ASCII decimal ids are accepted; names and
@@ -184,7 +170,7 @@ extension RemoteTmuxController {
     /// Builds ``MirrorTabActivity`` from per-pane foreground states. Pure;
     /// `activePaneId` is checked first so a multi-pane window names the pane
     /// the user is looking at, then `paneOrder` (the window's layout order).
-    static func mirrorTabActivity(
+    nonisolated static func mirrorTabActivity(
         states: [Int: RemoteTmuxControlConnection.PaneForegroundState],
         paneOrder: [Int],
         activePaneId: Int?
@@ -200,29 +186,6 @@ extension RemoteTmuxController {
             break
         }
         return MirrorTabActivity(hasActiveCommand: hasActive, activeCommandName: name)
-    }
-
-    /// Decides how a remote session-end is reflected: close just the dead workspace,
-    /// or the whole dedicated window when it lost its last session.
-    ///
-    /// - Parameters:
-    ///   - dedicatedWindowId: the host's dedicated mirror window, or `nil` if the host
-    ///     still has other live sessions / was mirrored into a shared window.
-    ///   - dedicatedWindowOwnedByEndingHost: `true` only if every workspace in that
-    ///     window belongs to the ending host (else a moved-in local/other-host
-    ///     workspace would be discarded, so only the dead workspace closes).
-    ///   - otherMainWindowCount: OTHER open main windows; the dedicated window closes
-    ///     only when >=1 remains, so a disconnect never leaves zero windows.
-    /// - Returns: the action to apply.
-    nonisolated static func sessionEndAction(
-        dedicatedWindowId: UUID?,
-        dedicatedWindowOwnedByEndingHost: Bool,
-        otherMainWindowCount: Int
-    ) -> SessionEndAction {
-        if let dedicatedWindowId, dedicatedWindowOwnedByEndingHost, otherMainWindowCount >= 1 {
-            return .closeDedicatedWindow(dedicatedWindowId)
-        }
-        return .closeWorkspace
     }
 
     /// The `kill-session` target for a user-initiated mirror-workspace close, or

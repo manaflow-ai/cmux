@@ -29,8 +29,6 @@ extension Workspace {
             return SurfaceKind.project.rawValue
         case .extensionBrowser:
             return SurfaceKind.extensionBrowser.rawValue
-        case .workspaceTodo:
-            return SurfaceKind.todo.rawValue
         case .cloudVMLoading:
             return SurfaceKind.cloudVMLoading.rawValue
         }
