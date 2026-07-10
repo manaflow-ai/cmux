@@ -125,6 +125,38 @@ extension SimulatorPaneCoordinatorTests {
         #expect(coordinator.actionLog.map(\.action) == ["pad-action"])
     }
 
+    @Test("Discovery prunes action history for removed devices")
+    func actionHistoryPrunesRemovedDevices() async {
+        let phone = Self.device(id: "phone", family: .iPhone, state: .booted)
+        let pad = Self.device(id: "pad", family: .iPad, state: .shutdown)
+        let client = LocationLifecyclePaneClient(devices: [phone, pad])
+        let coordinator = SimulatorPaneCoordinator(client: client)
+        await coordinator.start()
+
+        coordinator.receive(.message(.actionLog(SimulatorActionLogEntry(
+            id: UUID(),
+            timestamp: Date(timeIntervalSince1970: 1),
+            action: "phone-action",
+            summary: "phone-action",
+            succeeded: true
+        ))))
+        coordinator.selectDevice(id: "pad")
+        coordinator.receive(.message(.actionLog(SimulatorActionLogEntry(
+            id: UUID(),
+            timestamp: Date(timeIntervalSince1970: 2),
+            action: "pad-action",
+            summary: "pad-action",
+            succeeded: true
+        ))))
+        await client.setDevices([phone])
+
+        await coordinator.reloadDevices()
+
+        #expect(coordinator.selectedDeviceID == "phone")
+        #expect(coordinator.actionLog.map(\.action) == ["phone-action"])
+        #expect(Set(coordinator.actionHistoryByDeviceID.keys) == ["phone"])
+    }
+
     @Test("Device unavailability clears stale rendering state")
     func deviceUnavailableClearsRenderingState() async {
         let client = SimulatorPaneClientSpy(devices: [
