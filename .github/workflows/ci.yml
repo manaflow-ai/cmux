@@ -1004,10 +1004,10 @@ jobs:
               ;;
             esac
 
-            if printf '%s\n' "$output" | grep -Eq "$expected_summary" \
-              && ! printf '%s\n' "$output" | grep -Eq 'with [1-9][0-9]* failures?' \
-              && printf '%s\n' "$output" | grep -Eq "$tolerated_diagnostics" \
-              && ! printf '%s\n' "$output" | grep -E '(^|[^a-zA-Z])error:' | grep -Ev "$tolerated_diagnostics"; then
+            if grep -Eq "$expected_summary" <<< "$output" \
+              && ! grep -Eq 'with [1-9][0-9]* failures?' <<< "$output" \
+              && grep -Eq "$tolerated_diagnostics" <<< "$output" \
+              && ! grep -E '(^|[^a-zA-Z])error:' <<< "$output" | grep -Ev "$tolerated_diagnostics"; then
               echo "Tolerated cosmetic SwiftPM runner diagnostic; all tests passed."
               return 0
             fi
