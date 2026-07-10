@@ -205,7 +205,6 @@ extension Workspace {
         var didMutateWorkspaceTitle = false
         var didMutateTitleDerivedAgent = false
         var didPruneStaleAgentRuntime = false
-        var didInvalidateRestoredAgentRun = false
 
         if !isRemoteTmuxMirror, panelTitles[panelId] != trimmed {
             panelTitles[panelId] = trimmed
@@ -222,22 +221,18 @@ extension Workspace {
                 didMutate = true
                 didPruneStaleAgentRuntime = true
             }
-            if invalidateObservedRestoredAgentSnapshotForPlainShellTitleIfNeeded(panelId: panelId) {
-                didMutate = true
-                didInvalidateRestoredAgentRun = true
-            }
         }
 
         // Update bonsplit tab title only when this panel's title changed, and
         // update the icon when the current agent signal changes.
-        if (didMutatePanelTitle || didMutateTitleDerivedAgent || didPruneStaleAgentRuntime || didInvalidateRestoredAgentRun),
+        if (didMutatePanelTitle || didMutateTitleDerivedAgent || didPruneStaleAgentRuntime),
            let tabId = surfaceIdFromPanelId(panelId),
            let panel = panels[panelId],
            let existing = bonsplitController.tab(tabId) {
             let baseTitle = panelTitles[panelId] ?? panel.displayTitle
             let resolvedTitle = resolvedPanelTitle(panelId: panelId, fallback: baseTitle)
             let titleUpdate: String? = isRemoteTmuxMirror || existing.title == resolvedTitle ? nil : resolvedTitle
-            let iconPayloadUpdate = didMutateTitleDerivedAgent || didPruneStaleAgentRuntime || didInvalidateRestoredAgentRun
+            let iconPayloadUpdate = didMutateTitleDerivedAgent || didPruneStaleAgentRuntime
                 ? terminalTabAgentIconPayload(forPanelId: panelId)
                 : nil
             bonsplitController.updateTab(
@@ -280,22 +275,6 @@ extension Workspace {
             title: title,
             in: &titleDerivedAgentStatusKeysByPanelId
         )
-    }
-
-    @discardableResult
-    func invalidateObservedRestoredAgentSnapshotForPlainShellTitleIfNeeded(panelId: UUID) -> Bool {
-        guard let restoredAgent = restoredAgentSnapshotsByPanelId[panelId],
-              titleDerivedAgentStatusKeysByPanelId[panelId] == nil,
-              agentPIDKeysByPanelId[panelId]?.isEmpty ?? true else {
-            return false
-        }
-        switch restoredAgentResumeStatesByPanelId[panelId] {
-        case .some(.observedAgentCommandRunning):
-            invalidateRestoredAgentSnapshot(panelId: panelId, restoredAgent: restoredAgent)
-            return true
-        case .some(.manualResumeAvailable), .some(.awaitingAutoResumeCommand), .some(.autoResumeCommandRunning), nil:
-            return false
-        }
     }
 
     func seedTitleDerivedTerminalAgentState(from detached: DetachedSurfaceTransfer) {
@@ -372,7 +351,11 @@ extension Workspace {
         // is recorded shows the generic terminal icon; fixing that means
         // carrying the registration into live agent state at the lifecycle
         // recording boundary (TerminalController), not loading config here.
-        let snapshot = restoredAgentSnapshotsByPanelId[panelId]
+        let snapshot = restoredAgentSnapshotsByPanelId[panelId].flatMap { snapshot in
+            restoredAgentResumeStatesByPanelId[panelId]?.allowsRestoredAgentTabIconFallback == true
+                ? snapshot
+                : nil
+        }
         let registration = snapshot?.registration
         return TerminalTabAgentIconResolver().assetName(
             liveAgents: liveAgents,
@@ -426,6 +409,17 @@ extension Workspace {
     }
 }
 
+extension Workspace.RestoredAgentResumeState {
+    var allowsRestoredAgentTabIconFallback: Bool {
+        switch self {
+        case .manualResumeAvailable, .awaitingAutoResumeCommand, .autoResumeCommandRunning:
+            return true
+        case .observedAgentCommandRunning:
+            return false
+        }
+    }
+}
+
 extension DockSplitStore {
     func updateTitleDerivedTerminalAgentStatusKey(forPanelId panelId: UUID, title: String) -> Bool {
         TerminalTabAgentIconResolver().updateTitleDerivedStatusKey(
@@ -441,13 +435,16 @@ extension DockSplitStore {
     /// state, dropping proven-exited agents, when the surface leaves the Dock.
     func terminalTabAgentIconAsset(forPanelId panelId: UUID) -> String? {
         let transfer = detachedSurfaceTransfersByPanelId[panelId]
-        let registration = transfer?.restorableAgent?.registration
+        let restorableAgent = transfer?.restorableAgentResumeState?.allowsRestoredAgentTabIconFallback == true
+            ? transfer?.restorableAgent
+            : nil
+        let registration = restorableAgent?.registration
         return TerminalTabAgentIconResolver().assetName(
             agentPIDKeys: transfer?.agentRuntime?.agentPIDKeys ?? [],
             processIdentities: transfer?.agentRuntime?.agentPIDProcessIdentities ?? [:],
             knownStatusKeys: transfer?.agentRuntime.map { Set($0.statusEntries.keys) } ?? [],
             titleDerivedStatusKey: titleDerivedAgentStatusKeysByPanelId[panelId],
-            restoredAgent: transfer?.restorableAgent.map(
+            restoredAgent: restorableAgent.map(
                 TerminalTabAgentIconResolver.RestoredAgent.init(snapshot:)
             ),
             registrationIconAssetName: { statusKey in

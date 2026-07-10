@@ -421,6 +421,7 @@ struct TerminalTabAgentIconTests {
         let panel = try #require(workspace.focusedTerminalPanel)
         let tabId = try #require(workspace.surfaceIdFromPanelId(panel.id))
         let snapshot = restoredAgentSnapshot(kind: kind)
+        let stalePIDKey = "\(kind.rawValue).old-session"
 
         workspace.seedSessionRestoredAgentIconState(
             panelId: panel.id,
@@ -429,6 +430,7 @@ struct TerminalTabAgentIconTests {
             willRunStartupInput: false
         )
         workspace.restoredAgentResumeStatesByPanelId[panel.id] = .observedAgentCommandRunning
+        workspace.recordAgentPID(key: stalePIDKey, pid: 0, panelId: panel.id, refreshPorts: false)
 
         #expect(workspace.terminalTabAgentIconAsset(forPanelId: panel.id) == expectedAsset)
         let observedPayload = workspace.terminalTabAgentIconPayload(forPanelId: panel.id)
@@ -437,8 +439,10 @@ struct TerminalTabAgentIconTests {
 
         #expect(workspace.updatePanelTitle(panelId: panel.id, title: "~/manaflow/cmuxterm-hq"))
 
-        #expect(workspace.restoredAgentSnapshotForTesting(panelId: panel.id) == nil)
-        #expect(workspace.restoredAgentResumeStatesByPanelId[panel.id] == nil)
+        #expect(workspace.restoredAgentSnapshotForTesting(panelId: panel.id)?.sessionId == snapshot.sessionId)
+        #expect(workspace.restoredAgentResumeStatesByPanelId[panel.id] == .observedAgentCommandRunning)
+        #expect(workspace.agentPIDs[stalePIDKey] == nil)
+        #expect(workspace.agentPIDKeysByPanelId[panel.id]?.contains(stalePIDKey) != true)
         #expect(workspace.terminalTabAgentIconAsset(forPanelId: panel.id) == nil)
         let clearedPayload = workspace.terminalTabAgentIconPayload(forPanelId: panel.id)
         #expect(workspace.bonsplitController.tab(tabId)?.iconImageData == clearedPayload.imageData)
