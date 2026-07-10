@@ -1,7 +1,7 @@
 public import CMUXMobileCore
 public import Foundation
 import Dispatch
-@preconcurrency import Network
+@preconcurrency public import Network
 
 /// Why a connection attempt failed, classified from the underlying `NWError`
 /// so the UI can give an accurate, actionable message instead of a generic one.
@@ -127,7 +127,7 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
     private var receiveBuffer: [Data] = []
     private var sendContinuation: (id: UUID, continuation: CheckedContinuation<Void, any Error>?)?
     private var cancelledOperationIDs: Set<UUID> = []
-    private var connectTimeoutTimer: DispatchSourceTimer?
+    private var connectTimeoutTimer: (any DispatchSourceTimer)?
     private var remoteDidClose = false
 
     /// Creates a transport for an explicit host and port.
@@ -194,6 +194,35 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
             maximumReceiveLength: maximumReceiveLength,
             connectTimeoutNanoseconds: connectTimeoutNanoseconds
         )
+    }
+
+    /// Creates a transport around an accepted connection that has not been started.
+    ///
+    /// The Mac host uses this initializer so accepted TCP sessions and Iroh
+    /// control streams share the same byte-transport contract and RPC framing.
+    public init(acceptedConnection: NWConnection) {
+        connection = acceptedConnection
+        callbackQueue = DispatchQueue(
+            label: "dev.cmux.mobile.accepted-network-byte-transport.\(UUID().uuidString)"
+        )
+        maximumReceiveLength = Self.defaultMaximumReceiveLength
+        connectTimeoutNanoseconds = Self.defaultConnectTimeoutNanoseconds
+    }
+
+    public init(
+        acceptedConnection: NWConnection,
+        maximumReceiveLength: Int,
+        connectTimeoutNanoseconds: UInt64 = CmxNetworkByteTransport.defaultConnectTimeoutNanoseconds
+    ) throws {
+        guard maximumReceiveLength > 0 else {
+            throw CmxNetworkByteTransportError.invalidMaximumReceiveLength(maximumReceiveLength)
+        }
+        connection = acceptedConnection
+        callbackQueue = DispatchQueue(
+            label: "dev.cmux.mobile.accepted-network-byte-transport.\(UUID().uuidString)"
+        )
+        self.maximumReceiveLength = maximumReceiveLength
+        self.connectTimeoutNanoseconds = max(1, connectTimeoutNanoseconds)
     }
 
     /// Opens the connection, awaiting `ready` or failing on error/timeout.

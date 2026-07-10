@@ -22,7 +22,10 @@ public struct CmxIrohAdmittedPeer: Equatable, Sendable {
         self.platform = platform
     }
 
-    init(peer: CmxIrohGrantPeer) {
+    /// Copies a peer tuple that a verifier has already authenticated.
+    /// Construction alone does not grant access; server admission also binds
+    /// this tuple to the live QUIC TLS identity before exposing it to the host.
+    public init(peer: CmxIrohGrantPeer) {
         self.init(
             bindingID: peer.bindingID,
             deviceID: peer.deviceID,
