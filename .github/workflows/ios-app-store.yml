@@ -200,7 +200,7 @@ jobs:
           {
             echo "### iOS App Store production"
             echo
-            echo "- lane: \`appstore\` (bundle id \`com.cmuxterm.app\`)"
+            echo "- lane: \`appstore\` (bundle id \`com.cmux.app\`)"
             echo "- signing: manual (CI-imported iOS distribution cert + App Store profile)"
             echo "- build number (CFBundleVersion): \`${FINAL_BUILD_NUMBER}\`"
             echo "- submit for review: \`${INPUT_SUBMIT_FOR_REVIEW}\`"

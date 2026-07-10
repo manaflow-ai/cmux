@@ -102,7 +102,7 @@ TestFlight behavior:
 
 The production App Store lane uses:
 
-  bundle id: com.cmuxterm.app
+  bundle id: com.cmux.app
   profile:   cmux App Store Distribution
   display:   cmux
 
@@ -330,7 +330,7 @@ case "$LANE" in
     PRODUCT_DISPLAY_NAME="${IOS_BETA_DISPLAY_NAME:-cmux BETA}"
     ;;
   appstore)
-    PRODUCT_BUNDLE_IDENTIFIER="${IOS_APPSTORE_BUNDLE_ID:-com.cmuxterm.app}"
+    PRODUCT_BUNDLE_IDENTIFIER="${IOS_APPSTORE_BUNDLE_ID:-com.cmux.app}"
     PROVISIONING_PROFILE_NAME="${IOS_APPSTORE_PROVISIONING_PROFILE_NAME:-cmux App Store Distribution}"
     PRODUCT_DISPLAY_NAME="${IOS_APPSTORE_DISPLAY_NAME:-cmux}"
     ;;
@@ -948,6 +948,16 @@ upload_app_store_with_asc() {
 
   (
     export "${asc_env[@]}"
+    local app_json app_bundle_identifier
+    app_json="$(asc apps view --id "$ASC_APP_ID" --output json)"
+    app_bundle_identifier="$(
+      python3 -c 'import json,sys; print(json.load(sys.stdin)["data"]["attributes"]["bundleId"])' \
+        <<< "$app_json"
+    )"
+    if [[ "$app_bundle_identifier" != "$PRODUCT_BUNDLE_IDENTIFIER" ]]; then
+      echo "error: App Store Connect app $ASC_APP_ID uses bundle id '$app_bundle_identifier', but the appstore lane built '$PRODUCT_BUNDLE_IDENTIFIER'" >&2
+      exit 1
+    fi
     asc builds upload \
       --app "$ASC_APP_ID" \
       --ipa "$IPA_PATH" \
