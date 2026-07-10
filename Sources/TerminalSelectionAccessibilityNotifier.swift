@@ -1,102 +1,77 @@
 import AppKit
-import os
 
-nonisolated final class TerminalSelectionAccessibilityIngressGate: @unchecked Sendable {
-    nonisolated enum DrainDecision: Equatable, Sendable {
-        case reschedule(TimeInterval)
-        case post
+/// Thread-safe, bounded ingress from Ghostty's renderer callback into the UI.
+/// `bufferingNewest(1)` keeps at most one undelivered event per surface, so a
+/// stalled main actor cannot accumulate one task per drag update.
+nonisolated final class TerminalSelectionAccessibilitySignal: Sendable {
+    let events: AsyncStream<Void>
+    private let continuation: AsyncStream<Void>.Continuation
+
+    nonisolated init() {
+        let (events, continuation) = AsyncStream.makeStream(
+            of: Void.self,
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        self.events = events
+        self.continuation = continuation
     }
 
-    private nonisolated struct State {
-        var hasPendingMainActorHop = false
-        var latestRequestTime: TimeInterval = 0
-    }
-
-    private nonisolated let state = OSAllocatedUnfairLock(initialState: State())
-
-    /// Records an event and returns whether the caller owns the one permitted
-    /// main-actor hop for the current burst.
-    nonisolated func registerRequest(at timestamp: TimeInterval) -> Bool {
-        state.withLock { state in
-            state.latestRequestTime = timestamp
-            guard !state.hasPendingMainActorHop else { return false }
-            state.hasPendingMainActorHop = true
+    /// Returns true when the event occupied the one buffer slot. False means
+    /// it replaced an older pending event or the surface has already stopped.
+    @discardableResult
+    nonisolated func request() -> Bool {
+        switch continuation.yield(()) {
+        case .enqueued:
             return true
+        case .dropped, .terminated:
+            return false
+        @unknown default:
+            return false
         }
     }
 
-    /// Keeps the hop claimed until the latest event has been quiet for the
-    /// debounce interval. Releasing only at `.post` prevents later events in
-    /// the same burst from creating more main-actor work.
-    nonisolated func drainDecision(
-        at timestamp: TimeInterval,
-        debounceInterval: TimeInterval
-    ) -> DrainDecision {
-        state.withLock { state in
-            let elapsed = max(0, timestamp - state.latestRequestTime)
-            let remaining = debounceInterval - elapsed
-            if remaining > 0 {
-                return .reschedule(remaining)
-            }
+    nonisolated func finish() {
+        continuation.finish()
+    }
 
-            state.hasPendingMainActorHop = false
-            return .post
-        }
+    deinit {
+        continuation.finish()
     }
 }
 
 @MainActor
 final class TerminalSelectionAccessibilityNotifier {
-    private static let debounceInterval: TimeInterval = 0.1
-
-    nonisolated let ingressGate = TerminalSelectionAccessibilityIngressGate()
     private var debounceTimer: Timer?
+    private var eventsTask: Task<Void, Never>?
     private weak var element: NSView?
 
-    nonisolated init() {}
-
-    func attach(element: NSView) {
+    init(element: NSView, events: AsyncStream<Void>) {
         self.element = element
-    }
-
-    /// Safe for Ghostty's renderer callback thread. A burst owns one pending
-    /// main-actor hop, regardless of how many selection events arrive before
-    /// the UI can process them.
-    nonisolated func request() {
-        let now = ProcessInfo.processInfo.systemUptime
-        guard ingressGate.registerRequest(at: now) else { return }
-
-        Task { @MainActor [weak self] in
-            self?.drainWhenQuiet()
-        }
-    }
-
-    private func drainWhenQuiet() {
-        debounceTimer?.invalidate()
-
-        switch ingressGate.drainDecision(
-            at: ProcessInfo.processInfo.systemUptime,
-            debounceInterval: Self.debounceInterval
-        ) {
-        case .post:
-            self.debounceTimer = nil
-            guard let element else { return }
-            NSAccessibility.post(element: element, notification: .selectedTextChanged)
-
-        case .reschedule(let delay):
-            let timer = Timer(timeInterval: delay, repeats: false) { [weak self] timer in
-                // This timer is registered only on RunLoop.main below.
-                MainActor.assumeIsolated {
-                    guard let self, self.debounceTimer === timer else { return }
-                    self.drainWhenQuiet()
-                }
+        eventsTask = Task { @MainActor [weak self] in
+            for await _ in events {
+                guard let self else { return }
+                self.schedule()
             }
-            debounceTimer = timer
-            RunLoop.main.add(timer, forMode: .common)
         }
+    }
+
+    private func schedule() {
+        debounceTimer?.invalidate()
+        let timer = Timer(timeInterval: 0.1, repeats: false) { [weak self] timer in
+            // This timer is registered only on RunLoop.main below.
+            MainActor.assumeIsolated {
+                guard let self, self.debounceTimer === timer else { return }
+                self.debounceTimer = nil
+                guard let element = self.element else { return }
+                NSAccessibility.post(element: element, notification: .selectedTextChanged)
+            }
+        }
+        debounceTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
     }
 
     deinit {
+        eventsTask?.cancel()
         debounceTimer?.invalidate()
     }
 }

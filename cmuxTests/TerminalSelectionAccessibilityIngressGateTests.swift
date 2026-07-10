@@ -1,35 +1,27 @@
 import Testing
 
 @Suite struct TerminalSelectionAccessibilityIngressGateTests {
-    @Test func burstClaimsOneMainActorHopUntilTheLatestEventIsQuiet() async {
-        let gate = TerminalSelectionAccessibilityIngressGate()
+    @Test func burstKeepsOnePendingEventUntilTheConsumerDrainsIt() async {
+        let signal = TerminalSelectionAccessibilitySignal()
 
-        let claimedHopCount = await withTaskGroup(of: Bool.self) { group in
+        let enqueuedCount = await withTaskGroup(of: Bool.self) { group in
             for _ in 0..<100 {
                 group.addTask {
-                    gate.registerRequest(at: 10)
+                    signal.request()
                 }
             }
 
             var count = 0
-            for await claimed in group where claimed {
+            for await enqueued in group where enqueued {
                 count += 1
             }
             return count
         }
 
-        #expect(claimedHopCount == 1)
-        #expect(gate.registerRequest(at: 11) == false)
-
-        switch gate.drainDecision(at: 11.05, debounceInterval: 0.1) {
-        case .reschedule(let delay):
-            #expect(abs(delay - 0.05) < 0.000_001)
-        case .post:
-            Issue.record("The newest request has not been quiet for the debounce interval")
-        }
-
-        #expect(gate.registerRequest(at: 12) == false)
-        #expect(gate.drainDecision(at: 12.2, debounceInterval: 0.1) == .post)
-        #expect(gate.registerRequest(at: 13))
+        #expect(enqueuedCount == 1)
+        var iterator = signal.events.makeAsyncIterator()
+        _ = await iterator.next()
+        #expect(signal.request())
+        signal.finish()
     }
 }
