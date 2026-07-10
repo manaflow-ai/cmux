@@ -13,6 +13,7 @@ import Foundation
 public struct SimulatorLengthPrefixedMessageChannel: Sendable {
     private let readFD: Int32
     private let writeFD: Int32
+    private let nonblockingWriter: SimulatorWorkerPipeWriter?
 
     /// The largest accepted frame, preventing a broken child from requesting
     /// an unbounded host allocation.
@@ -33,9 +34,25 @@ public struct SimulatorLengthPrefixedMessageChannel: Sendable {
     /// - Parameters:
     ///   - readFD: Descriptor used to receive frames.
     ///   - writeFD: Descriptor used to send frames.
-    ///   - nonblockingWrites: Whether a full peer pipe fails immediately
-    ///     instead of blocking its supervising actor.
+    ///   - nonblockingWrites: Whether writes use the bounded background writer
+    ///     instead of blocking the supervising actor.
     public init(readFD: Int32, writeFD: Int32, nonblockingWrites: Bool = false) {
+        self.init(
+            readFD: readFD,
+            writeFD: writeFD,
+            nonblockingWrites: nonblockingWrites,
+            writeDeadline: .seconds(1),
+            writeFailureHandler: {}
+        )
+    }
+
+    init(
+        readFD: Int32,
+        writeFD: Int32,
+        nonblockingWrites: Bool,
+        writeDeadline: Duration,
+        writeFailureHandler: @escaping @Sendable () -> Void
+    ) {
         self.readFD = readFD
         self.writeFD = writeFD
 #if canImport(Darwin)
@@ -43,10 +60,13 @@ public struct SimulatorLengthPrefixedMessageChannel: Sendable {
         _ = fcntl(writeFD, F_SETNOSIGPIPE, 1)
 #endif
         if nonblockingWrites {
-            let flags = fcntl(writeFD, F_GETFL)
-            if flags >= 0 {
-                _ = fcntl(writeFD, F_SETFL, flags | O_NONBLOCK)
-            }
+            nonblockingWriter = SimulatorWorkerPipeWriter(
+                writeFD: writeFD,
+                writeDeadline: writeDeadline,
+                failureHandler: writeFailureHandler
+            )
+        } else {
+            nonblockingWriter = nil
         }
     }
 
@@ -55,6 +75,10 @@ public struct SimulatorLengthPrefixedMessageChannel: Sendable {
     public func sendMessage(_ payload: Data) throws {
         guard payload.count <= Self.maximumFrameLength else {
             throw SimulatorChannelError.frameTooLarge
+        }
+        if let nonblockingWriter {
+            try nonblockingWriter.enqueue(payload)
+            return
         }
 
         let count = UInt32(payload.count)
@@ -68,6 +92,18 @@ public struct SimulatorLengthPrefixedMessageChannel: Sendable {
         if !payload.isEmpty {
             try writeAll(payload)
         }
+    }
+
+    func stopWriting() {
+        nonblockingWriter?.stop()
+    }
+
+    func finishWriting(_ completion: @escaping @Sendable () -> Void) {
+        guard let nonblockingWriter else {
+            completion()
+            return
+        }
+        nonblockingWriter.finish(completion)
     }
 
     /// Receives one complete payload, or `nil` after EOF, an invalid frame,

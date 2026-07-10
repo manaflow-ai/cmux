@@ -41,19 +41,53 @@ struct SimulatorLengthPrefixedMessageChannelTests {
         }
     }
 
-    @Test("A non-reading worker pipe fails instead of blocking the host actor")
-    func nonReadingPipeFailsImmediately() {
+    @Test("A non-reading worker poisons its bounded writer after one deadline")
+    func nonReadingPipePoisonsWriter() throws {
         var descriptors = [Int32](repeating: 0, count: 2)
         #expect(pipe(&descriptors) == 0)
         defer { descriptors.forEach { close($0) } }
+        let failure = DispatchSemaphore(value: 0)
         let channel = SimulatorLengthPrefixedMessageChannel(
             readFD: -1,
             writeFD: descriptors[1],
-            nonblockingWrites: true
+            nonblockingWrites: true,
+            writeDeadline: .milliseconds(20),
+            writeFailureHandler: { failure.signal() }
         )
 
+        try channel.sendMessage(Data(count: 1024 * 1024))
+        #expect(failure.wait(timeout: .now() + 1) == .success)
         #expect(throws: SimulatorChannelError.writeFailed) {
-            try channel.sendMessage(Data(count: 1024 * 1024))
+            try channel.sendMessage(Data("must not reuse a partial frame".utf8))
+        }
+        channel.stopWriting()
+    }
+
+    @Test("A writer deadline terminates its non-reading worker")
+    func writerDeadlineTerminatesWorker() async throws {
+        let connection = try SimulatorProcessWorkerLauncher(
+            terminationObservationTimeout: 0,
+            terminationGrace: .zero,
+            writeDeadline: .milliseconds(20)
+        ).launch(
+            executableURL: URL(fileURLWithPath: "/bin/sh"),
+            arguments: ["-c", "trap '' TERM; while :; do :; done"],
+            environment: [:]
+        )
+        defer { connection.terminate() }
+        let processIdentifier = try #require(connection.processIdentifier)
+
+        try connection.send(Data(count: 1024 * 1024))
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(2))
+        while kill(processIdentifier, 0) == 0, clock.now < deadline {
+            await Task.yield()
+        }
+
+        #expect(kill(processIdentifier, 0) == -1)
+        #expect(errno == ESRCH)
+        #expect(throws: SimulatorChannelError.writeFailed) {
+            try connection.send(Data("must not reach the terminated worker".utf8))
         }
     }
 
@@ -76,7 +110,9 @@ struct SimulatorLengthPrefixedMessageChannelTests {
             let payload = Data(repeating: 0x5a, count: 1024 * 1024)
 
             try host.sendMessage(payload)
+            host.finishWriting {}
             #expect(worker.receiveMessage() == payload)
+            host.stopWriting()
         }
     }
 

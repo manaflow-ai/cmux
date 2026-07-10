@@ -3,15 +3,18 @@ import Foundation
 struct SimulatorProcessWorkerLauncher: SimulatorWorkerLaunching {
     private let terminationObservationTimeout: TimeInterval
     private let terminationGrace: Duration
+    private let writeDeadline: Duration
     private let sleeper: any SimulatorWorkerSleeping
 
     init(
         terminationObservationTimeout: TimeInterval = 1,
         terminationGrace: Duration = .seconds(1),
+        writeDeadline: Duration = .seconds(1),
         sleeper: any SimulatorWorkerSleeping = ContinuousSimulatorWorkerSleeper()
     ) {
         self.terminationObservationTimeout = max(0, terminationObservationTimeout)
         self.terminationGrace = terminationGrace
+        self.writeDeadline = writeDeadline
         self.sleeper = sleeper
     }
 
@@ -33,11 +36,6 @@ struct SimulatorProcessWorkerLauncher: SimulatorWorkerLaunching {
         process.standardInput = stdin
         process.standardOutput = stdout
 
-        let channel = SimulatorLengthPrefixedMessageChannel(
-            readFD: stdout.fileHandleForReading.fileDescriptor,
-            writeFD: stdin.fileHandleForWriting.fileDescriptor,
-            nonblockingWrites: true
-        )
         let processBox = SimulatorWorkerProcessBox(
             process: process,
             stdin: stdin,
@@ -45,6 +43,16 @@ struct SimulatorProcessWorkerLauncher: SimulatorWorkerLaunching {
             terminationObservationTimeout: terminationObservationTimeout,
             terminationGrace: terminationGrace,
             sleeper: sleeper
+        )
+        let channel = SimulatorLengthPrefixedMessageChannel(
+            readFD: stdout.fileHandleForReading.fileDescriptor,
+            writeFD: stdin.fileHandleForWriting.fileDescriptor,
+            nonblockingWrites: true,
+            writeDeadline: writeDeadline,
+            writeFailureHandler: { [weak processBox] in
+                processBox?.closeInput()
+                processBox?.terminate()
+            }
         )
         let queue = SimulatorBoundedMessageQueue<Data>(
             limit: SimulatorLengthPrefixedMessageChannel.maximumBufferedFrameCount
@@ -54,6 +62,7 @@ struct SimulatorProcessWorkerLauncher: SimulatorWorkerLaunching {
         do {
             try process.run()
         } catch {
+            channel.stopWriting()
             processBox.launchFailed()
             queue.finish()
             throw error
@@ -90,8 +99,15 @@ struct SimulatorProcessWorkerLauncher: SimulatorWorkerLaunching {
             processIdentifier: process.processIdentifier,
             messages: queue.stream,
             send: { data in try channel.sendMessage(data) },
-            closeInput: { processBox.closeInput() },
-            terminate: { processBox.terminate() },
+            closeInput: {
+                channel.finishWriting {
+                    processBox.closeInput()
+                }
+            },
+            terminate: {
+                channel.stopWriting()
+                processBox.terminate()
+            },
             terminalFailure: { processBox.terminalFailure() }
         )
     }
