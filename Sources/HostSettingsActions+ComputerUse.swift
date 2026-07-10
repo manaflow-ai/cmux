@@ -111,17 +111,48 @@ extension HostSettingsActions {
 }
 
 extension TerminalController {
+    nonisolated func v2CuaMainActorResultCall(
+        id: Any?,
+        timeoutSeconds: TimeInterval,
+        _ work: @escaping @MainActor () async -> V2CallResult
+    ) -> String {
+        let semaphore = DispatchSemaphore(value: 0)
+        nonisolated(unsafe) var result: V2CallResult?
+        // Issue #4602 can saturate the cooperative pool during session-index scans;
+        // the main executor remains responsive and these CUA operations are main-actor isolated.
+        let task = Task { @MainActor in
+            result = await work()
+            semaphore.signal()
+        }
+        if semaphore.wait(timeout: .now() + timeoutSeconds) == .timedOut {
+            task.cancel()
+            return v2Error(
+                id: id,
+                code: "timeout",
+                message: "Request timed out after \(Int(timeoutSeconds)) seconds"
+            )
+        }
+        guard let result else {
+            return v2Error(
+                id: id,
+                code: "request_error",
+                message: "Request failed before returning a result"
+            )
+        }
+        return v2Result(id: id, result)
+    }
+
     nonisolated func v2CuaSocketWorkerResponse(method: String, id: Any?, params: [String: Any]) -> String {
         switch method {
         case "cua.status":
-            return v2AsyncResultCall(id: id, timeoutSeconds: 30) { await self.v2CuaStatusResult() }
+            return v2CuaMainActorResultCall(id: id, timeoutSeconds: 30) { await self.v2CuaStatusResult() }
         case "cua.ensure":
-            return v2AsyncResultCall(id: id, timeoutSeconds: 30) { await self.v2CuaEnsureResult() }
+            return v2CuaMainActorResultCall(id: id, timeoutSeconds: 30) { await self.v2CuaEnsureResult() }
         case "cua.grant":
-            return v2AsyncResultCall(id: id, timeoutSeconds: 30) { await self.v2CuaGrantResult(params: params) }
+            return v2CuaMainActorResultCall(id: id, timeoutSeconds: 30) { await self.v2CuaGrantResult(params: params) }
         case "cua.openSystemSettings":
-            return v2AsyncResultCall(id: id, timeoutSeconds: 30) {
-                await self.v2CuaOpenSystemSettingsResult(params: params)
+            return v2CuaMainActorResultCall(id: id, timeoutSeconds: 30) {
+                self.v2CuaOpenSystemSettingsResult(params: params)
             }
         default:
             preconditionFailure("Unsupported Computer Use socket method")
