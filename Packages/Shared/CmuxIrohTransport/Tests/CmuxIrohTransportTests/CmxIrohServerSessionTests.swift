@@ -31,7 +31,8 @@ struct CmxIrohServerSessionTests {
             authorizer: fixture.authorizer
         )
 
-        try await session.admit()
+        let admittedPeer = try await session.admit()
+        #expect(admittedPeer == fixture.admittedPeer)
         #expect(try await session.receiveControl() == Data("rpc".utf8))
         let inbound = try await session.acceptBidirectionalLane()
         #expect(inbound.lane == .terminal(resourceID: terminalID, cursor: nil))
@@ -125,14 +126,31 @@ struct CmxIrohServerSessionTests {
 
 private struct ServerFixture {
     let peerID: CmxIrohPeerIdentity
+    let admittedPeer: CmxIrohAdmittedPeer
     let authorizer: FixedAdmissionAuthorizer
     let headerCodec = try! CmxIrohStreamHeaderCodec()
     let controlSend = TestIrohSendStream()
     let controlStream: CmxIrohBidirectionalStream
 
     init(decision: CmxIrohAdmissionDecision) throws {
-        peerID = try CmxIrohPeerIdentity(endpointID: String(repeating: "a", count: 64))
-        authorizer = FixedAdmissionAuthorizer(decision: decision)
+        let peerID = try CmxIrohPeerIdentity(endpointID: String(repeating: "a", count: 64))
+        let admittedPeer = CmxIrohAdmittedPeer(
+            bindingID: "123e4567-e89b-42d3-a456-426614174001",
+            deviceID: "123e4567-e89b-42d3-a456-426614174002",
+            endpointID: peerID,
+            identityGeneration: 7,
+            platform: .ios
+        )
+        self.peerID = peerID
+        self.admittedPeer = admittedPeer
+        authorizer = FixedAdmissionAuthorizer(
+            authorization: switch decision {
+            case .accepted:
+                .accepted(admittedPeer)
+            case let .denied(code):
+                .denied(code: code)
+            }
+        )
         let credential = try CmxIrohAdmissionCredential.pairGrant("aa.bb.cc")
         let header = try headerCodec.encode(
             CmxIrohStreamHeader(lane: .control, credential: credential)
@@ -145,19 +163,19 @@ private struct ServerFixture {
 }
 
 private actor FixedAdmissionAuthorizer: CmxIrohAdmissionAuthorizing {
-    private let decision: CmxIrohAdmissionDecision
+    private let authorization: CmxIrohAdmissionAuthorization
     private var observedCalls = 0
 
-    init(decision: CmxIrohAdmissionDecision) {
-        self.decision = decision
+    init(authorization: CmxIrohAdmissionAuthorization) {
+        self.authorization = authorization
     }
 
     func authorize(
         credential _: CmxIrohAdmissionCredential,
         authenticatedPeerID _: CmxIrohPeerIdentity
-    ) -> CmxIrohAdmissionDecision {
+    ) -> CmxIrohAdmissionAuthorization {
         observedCalls += 1
-        return decision
+        return authorization
     }
 
     func callCount() -> Int { observedCalls }
