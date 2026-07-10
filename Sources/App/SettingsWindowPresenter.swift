@@ -2,325 +2,436 @@ import AppKit
 import CmuxTestSupport
 import os
 
+/// Outcome of a Settings show request. Every request ends in exactly one of
+/// these; "the request was accepted but nothing happened" is not
+/// representable (https://github.com/manaflow-ai/cmux/issues/7777, #7775).
+enum SettingsWindowShowResult: Equatable {
+    /// The Settings window is visible on screen (ordered in).
+    case presented
+    /// The window was ordered front while the app is hidden, so AppKit defers
+    /// actual visibility until the app unhides. This is the correct outcome
+    /// for non-activating CLI opens, which must not unhide the app
+    /// (socket focus policy).
+    case orderedWhileAppHidden
+    /// No window could be made visible. `reason` carries diagnostic-grade
+    /// window/app state for the failure log and the CLI error payload.
+    case failed(reason: String)
+}
+
+/// Single source of truth for the Settings window lifecycle: create, show,
+/// repair, and close-teardown (https://github.com/manaflow-ai/cmux/issues/7777).
+///
+/// The window is AppKit-owned: `show()` synchronously builds a fresh
+/// `NSWindow` (hosting the SwiftUI settings content via
+/// ``SettingsWindowFactory``) whenever no usable window exists, orders it
+/// front, and verifies visibility before returning. This is the same
+/// ownership model the main window (`AppDelegate.createMainWindow`) and
+/// `TaskManagerWindowController` use.
+///
+/// History: the previous design delegated creation to a SwiftUI single
+/// `Window` scene via `openWindow(id:)`, which has no failure callback and
+/// could wedge permanently (relaunch-while-open, scene mid-teardown), so the
+/// menu, ⌘, and CLI `settings open` all silently no-oped until the app was
+/// restarted (#5770, #4053, #7775). A deferred-verification retry (PR #5806)
+/// reduced but could not eliminate the class; synchronous AppKit construction
+/// removes it by design.
 @MainActor
-struct SettingsWindowPresenter {
-    static let windowID = "settings"
+final class SettingsWindowPresenter: NSObject {
     static let windowIdentifier = "cmux.settings"
     static let minimumSize = NSSize(width: 820, height: 540)
+    private static let frameAutosaveName = "cmux.settings"
     private static let visibleAreaInset: CGFloat = 18
-    private static let sharedPresenter = SettingsWindowPresenter()
+    /// One reuse-or-create pass plus one recreate-from-scratch pass. Creation
+    /// is synchronous, so more attempts cannot help: if two consecutive fresh
+    /// windows refuse to order in, AppKit itself is wedged and we fail loudly.
+    static let maxPresentAttempts = 2
+    /// Maximum re-entrant `show()` depth reached through close-triggered
+    /// observers before the presenter fails loudly instead of recursing.
+    static let maxReentrantShowDepth = 3
+
+    static let shared = SettingsWindowPresenter()
     /// Release-safe diagnostics so intermittent "Settings won't open" reports
-    /// (https://github.com/manaflow-ai/cmux/issues/5770) become attributable
-    /// from `log show --predicate 'subsystem == "com.cmuxterm.app" && category == "Settings"'`.
+    /// become attributable from
+    /// `log show --predicate 'subsystem == "com.cmuxterm.app" && category == "Settings"'`.
     private nonisolated static let log = Logger(subsystem: "com.cmuxterm.app", category: "Settings")
-    /// Number of times to re-request the SwiftUI window when an open request
-    /// produces no window. The single `Window` scene's `openWindow(id:)` can
-    /// silently no-op mid-teardown, which is the "nothing happens" symptom.
-    static let maxOpenAttempts = 2
 
-    private let openVerificationDelay: Duration
+    private let windowFactory: @MainActor () -> NSWindow
+    /// Strong while open: the presenter owns the window's lifetime. Cleared
+    /// (and the window's identifier removed) in `settingsWindowWillClose` so
+    /// a closed window can never absorb a future open request.
+    private var settingsWindow: NSWindow?
+    private var pendingNavigationTarget: SettingsNavigationTarget?
+    /// Current re-entrant depth of `performShow` (close-triggered observers
+    /// may re-enter). Bounded by `maxReentrantShowDepth`.
+    private var activeShowDepth = 0
+    /// Monotonic delivery token: bumped on every posted navigation so a
+    /// queued fresh-window delivery can detect it was superseded by a newer
+    /// targeted show and stay silent instead of navigating backwards.
+    private var navigationDeliveryGeneration = 0
+    /// Whether the current window's SwiftUI content has signaled (via the
+    /// host root's `onAppear`) that its navigation consumer is installed. An
+    /// `NSWindow` existing is not enough: posting before this is set would
+    /// drop the navigation on the floor.
+    private var isContentReadyForNavigation = false
 
-    private final class State: NSObject {
-        var openWindow: (@MainActor () -> Void)?
-        var parentWindowProvider: (@MainActor () -> NSWindow?)?
-        weak var settingsWindow: NSWindow?
-        var pendingNavigationTarget: SettingsNavigationTarget?
-        var pendingContentNavigationTarget: SettingsNavigationTarget?
-        var shouldOpenWhenConfigured = false
-        var shouldFocusWhenConfigured = false
-        var isOpeningSettingsWindow = false
-        var openVerificationTask: Task<Void, Never>?
+    override convenience init() {
+        self.init(windowFactory: { SettingsWindowFactory.makeSettingsWindow() })
+    }
 
-        deinit {
-            openVerificationTask?.cancel()
-            NotificationCenter.default.removeObserver(self)
+    init(windowFactory: @escaping @MainActor () -> NSWindow) {
+        self.windowFactory = windowFactory
+        super.init()
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+
+    @discardableResult
+    static func show(
+        navigationTarget: SettingsNavigationTarget? = nil,
+        activateApp: Bool = true
+    ) -> SettingsWindowShowResult {
+        shared.show(navigationTarget: navigationTarget, activateApp: activateApp)
+    }
+
+    static func consumePendingNavigationTarget() -> SettingsNavigationTarget? {
+        shared.consumePendingNavigationTarget()
+    }
+
+    /// Presents the Settings window, creating it if needed. Synchronous: on
+    /// return the window is visible (or ordered front under a hidden app), or
+    /// the failure has been logged loudly and is carried in the result.
+    @discardableResult
+    func show(
+        navigationTarget: SettingsNavigationTarget? = nil,
+        activateApp: Bool = true
+    ) -> SettingsWindowShowResult {
+#if DEBUG
+        cmuxDebugLog("settings.window.show path=appkitWindow")
+#endif
+        let result = performShow(navigationTarget: navigationTarget, activateApp: activateApp)
+#if DEBUG
+        // Recorded from the verified outcome, not the request, so UI-test
+        // captures cannot claim an open that never presented.
+        let presented: Bool
+        if case .failed = result {
+            presented = false
+        } else {
+            presented = true
+        }
+        _ = UITestCaptureSink().mutateJSONObjectIfConfigured(
+            envKey: "CMUX_UI_TEST_SETTINGS_OPEN_CAPTURE_PATH"
+        ) { payload in
+            payload["opened"] = presented
+            payload["target"] = navigationTarget?.rawValue ?? ""
+        }
+#endif
+        return result
+    }
+
+    private func performShow(
+        navigationTarget: SettingsNavigationTarget?,
+        activateApp: Bool
+    ) -> SettingsWindowShowResult {
+        // Only a targeted show may replace the pending target. An untargeted
+        // show expresses no pane preference and must not erase a still-
+        // undelivered targeted request (e.g. CLI `settings open account`
+        // followed by a menu open before the content appeared).
+        if let navigationTarget {
+            pendingNavigationTarget = navigationTarget
         }
 
-        @MainActor
-        @objc
-        func settingsWindowWillClose(_ notification: Notification) {
-            guard
-                let window = notification.object as? NSWindow,
-                settingsWindow === window
-            else { return }
-            NotificationCenter.default.removeObserver(
-                self,
-                name: NSWindow.willCloseNotification,
-                object: window
+        // `demolish` closes windows synchronously, and a foreign willClose
+        // observer may re-enter show() from inside that close (a supported
+        // pattern). The depth bound is the safety valve that keeps a
+        // pathological reopen-on-close observer combined with persistent
+        // presentation failure from recursing without limit.
+        activeShowDepth += 1
+        defer { activeShowDepth -= 1 }
+        if activeShowDepth > Self.maxReentrantShowDepth {
+            let reason = "re-entrant settings show exceeded depth \(Self.maxReentrantShowDepth) during teardown recovery"
+            Self.log.fault("settings.window.show \(reason, privacy: .public)")
+            return .failed(reason: reason)
+        }
+
+        var failureReason = "settings window was never presented"
+        for attempt in 1...Self.maxPresentAttempts {
+            let window: NSWindow
+            let reusedExisting: Bool
+            // Checked on every attempt, not just the first: attempt 1's
+            // demolish strips the failed window before closing it, so it can
+            // never be rediscovered here — but a re-entrant show() from that
+            // close may already have created a healthy replacement, which
+            // must be adopted instead of duplicated.
+            if let existing = usableExistingWindow() {
+                Self.logExistingWindowState(existing)
+                adopt(existing)
+                window = existing
+                reusedExisting = true
+            } else {
+                window = makeConfiguredWindow()
+                reusedExisting = false
+            }
+
+            orderFront(window, activateApp: activateApp)
+
+            if window.isVisible {
+                deliverNavigation(reusedExistingWindow: reusedExisting)
+                return .presented
+            }
+            if NSApp.isHidden && !activateApp {
+                // Ordering front succeeded as far as AppKit allows without
+                // unhiding the app; the window appears on unhide. Reused live
+                // content still receives the navigation now — its notification
+                // subscriptions outlive visibility, and the host root's
+                // onAppear consumer only runs for fresh windows.
+                deliverNavigation(reusedExistingWindow: reusedExisting)
+                Self.log.notice(
+                    "settings.window.show ordered front while app is hidden; deferring visibility to unhide"
+                )
+                return .orderedWhileAppHidden
+            }
+
+            failureReason = Self.presentationFailureReason(
+                window: window,
+                attempt: attempt,
+                reusedExisting: reusedExisting
             )
-            // Ordered-out live windows can still be re-fronted through the weak
-            // reference; closed windows must not be rediscovered from NSApp.
-            window.identifier = nil
-            settingsWindow = nil
-            isOpeningSettingsWindow = false
-            openVerificationTask?.cancel()
-            openVerificationTask = nil
+            Self.log.error("settings.window.show \(failureReason, privacy: .public)")
+            demolish(window)
         }
-    }
 
-    private let state: State
-
-    init(openVerificationDelay: Duration = .milliseconds(500)) {
-        self.openVerificationDelay = openVerificationDelay
-        state = State()
-    }
-
-    static func configure(
-        openWindow: @escaping @MainActor () -> Void,
-        parentWindowProvider: @escaping @MainActor () -> NSWindow? = { nil }
-    ) {
-        sharedPresenter.configure(
-            openWindow: openWindow,
-            parentWindowProvider: parentWindowProvider
+        Self.log.fault(
+            "settings.window.show FAILED after \(Self.maxPresentAttempts, privacy: .public) attempts: \(failureReason, privacy: .public)"
         )
+        return .failed(reason: failureReason)
     }
 
-    func configure(
-        openWindow: @escaping @MainActor () -> Void,
-        parentWindowProvider: @escaping @MainActor () -> NSWindow? = { nil }
-    ) {
-        state.openWindow = openWindow
-        state.parentWindowProvider = parentWindowProvider
-        if state.shouldOpenWhenConfigured {
-            state.shouldOpenWhenConfigured = false
-            requestOpen(using: openWindow)
+    func consumePendingNavigationTarget() -> SettingsNavigationTarget? {
+        let target = pendingNavigationTarget
+        pendingNavigationTarget = nil
+        return target
+    }
+
+    // MARK: - Window acquisition
+
+    /// The tracked (or identifier-scanned) settings window, provided it is in
+    /// a presentable state. Any unusable window — torn-down content, a
+    /// degenerate frame — is demolished on the spot so the caller creates a
+    /// fresh one instead of silently re-fronting a husk (issue #7777 goal:
+    /// self-healing open).
+    private func usableExistingWindow() -> NSWindow? {
+        let candidate = settingsWindow ?? NSApp.windows.first {
+            $0.identifier?.rawValue == Self.windowIdentifier
         }
-    }
-
-    static func configure(window: NSWindow) {
-        sharedPresenter.configure(window: window)
-    }
-
-    func configure(window: NSWindow) {
-        // Window materialization is the success signal for issue #5770's
-        // silent-open retry path; a slow SwiftUI scene must not be retried
-        // after it has produced a real window.
-        cancelOpenVerification()
-        let isNewSettingsWindow = state.settingsWindow !== window
-        let shouldFocusAfterConfiguration = isNewSettingsWindow && state.shouldFocusWhenConfigured
-        if shouldFocusAfterConfiguration {
-            state.shouldFocusWhenConfigured = false
+        guard let candidate else { return nil }
+        if let hostWindow = candidate as? SettingsHostWindow, hostWindow.isClosingSettingsWindow {
+            // Deterministic mid-close rejection: the dying window must not
+            // absorb this open request, regardless of whether the presenter's
+            // own willClose observer has run yet. It is already closing, so
+            // strip identity but do not close it again.
+            Self.log.notice("settings.window.show candidate is mid-close; building a fresh window")
+            strip(candidate)
+            return nil
         }
-        state.settingsWindow = window
-        state.isOpeningSettingsWindow = false
+        if let reason = Self.unusableWindowReason(
+            hasContent: candidate.contentViewController != nil || candidate.contentView != nil,
+            frame: candidate.frame,
+            minimumSize: Self.minimumSize
+        ) {
+            Self.log.error(
+                "settings.window.show existing window unusable (\(reason, privacy: .public)); tearing it down"
+            )
+            demolish(candidate)
+            return nil
+        }
+        return candidate
+    }
+
+    /// Tracks a window discovered by identifier scan (e.g. after presenter
+    /// state was lost) so close-teardown ownership is re-established.
+    private func adopt(_ window: NSWindow) {
+        guard settingsWindow !== window else { return }
+        NotificationCenter.default.removeObserver(
+            self,
+            name: NSWindow.willCloseNotification,
+            object: window
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(settingsWindowWillClose(_:)),
+            name: NSWindow.willCloseNotification,
+            object: window
+        )
+        settingsWindow = window
+    }
+
+    private func makeConfiguredWindow() -> NSWindow {
+        let window = windowFactory()
         window.identifier = NSUserInterfaceItemIdentifier(Self.windowIdentifier)
         window.isReleasedWhenClosed = false
         window.isRestorable = false
         window.minSize = Self.minimumSize
         window.contentMinSize = Self.minimumSize
         window.adoptCmuxPeerWindowLevel()
+        if !window.setFrameUsingName(Self.frameAutosaveName) {
+            window.center()
+        }
+        window.setFrameAutosaveName(Self.frameAutosaveName)
+        // A saved frame can be smaller than the current minimum (e.g. written
+        // by an older build); NSWindow.minSize constrains user resizes only,
+        // not programmatic restores.
+        var frame = window.frame
+        if frame.width < Self.minimumSize.width || frame.height < Self.minimumSize.height {
+            frame.size.width = max(frame.width, Self.minimumSize.width)
+            frame.size.height = max(frame.height, Self.minimumSize.height)
+            window.setFrame(frame, display: false)
+        }
         clampToVisibleAreaIfNeeded(window)
-        if isNewSettingsWindow {
-            observeClose(of: window)
-        }
-        if shouldFocusAfterConfiguration {
-            Task { @MainActor in
-                guard state.settingsWindow === window else { return }
-                focus(window)
-            }
-        }
-    }
-
-    static func show(
-        navigationTarget: SettingsNavigationTarget? = nil,
-        openWindowOverride: (@MainActor () -> Void)? = nil
-    ) {
-        sharedPresenter.show(
-            navigationTarget: navigationTarget,
-            openWindowOverride: openWindowOverride
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(settingsWindowWillClose(_:)),
+            name: NSWindow.willCloseNotification,
+            object: window
         )
+        settingsWindow = window
+        isContentReadyForNavigation = false
+        return window
     }
 
-    func show(
-        navigationTarget: SettingsNavigationTarget? = nil,
-        openWindowOverride: (@MainActor () -> Void)? = nil
-    ) {
-#if DEBUG
-        cmuxDebugLog("settings.window.show path=swiftuiWindow")
-        _ = UITestCaptureSink().mutateJSONObjectIfConfigured(
-            envKey: "CMUX_UI_TEST_SETTINGS_OPEN_CAPTURE_PATH"
-        ) { payload in
-            payload["opened"] = true
-            payload["target"] = navigationTarget?.rawValue ?? ""
-            payload["used_open_window_override"] = openWindowOverride != nil
-        }
-#endif
-        state.pendingNavigationTarget = navigationTarget
-        state.pendingContentNavigationTarget = navigationTarget
+    // MARK: - Presentation
 
-        if let window = existingWindow() {
-            recordMaterializedWindowIfNeeded(window)
-            Self.logExistingWindowState(window)
-            let shouldDeferNavigation = window.isMiniaturized
-            if !shouldDeferNavigation {
-                state.pendingNavigationTarget = nil
-                state.pendingContentNavigationTarget = nil
+    private func orderFront(_ window: NSWindow, activateApp: Bool) {
+        if window.isMiniaturized {
+            window.deminiaturize(nil)
+        }
+        window.adoptCmuxPeerWindowLevel()
+        clampToVisibleAreaIfNeeded(window)
+        guard activateApp else {
+            // Socket no-focus-steal contract (`settings.open --activate=false`):
+            // make the window visible without keying it, raising other cmux
+            // windows, or activating/unhiding the app.
+            window.orderFrontRegardless()
+            return
+        }
+        // Surface the preferred main window first so Settings opens layered
+        // above it — the standard "Settings in front of its app" presentation.
+        // Both windows are ordered front *as peers*, never via
+        // `addChildWindow`: a child window is pinned above its parent forever
+        // and can never recede when the user clicks the main window
+        // (https://github.com/manaflow-ai/cmux/issues/5081).
+        if let parentWindow = AppDelegate.shared?.preferredMainWindowForSettingsPresentation(),
+           parentWindow !== window {
+            if parentWindow.isMiniaturized {
+                parentWindow.deminiaturize(nil)
             }
-            focus(window)
-            if let navigationTarget, !shouldDeferNavigation {
-                SettingsNavigationRequest.post(navigationTarget)
-            }
-            return
+            parentWindow.orderFront(nil)
         }
-
-        if state.isOpeningSettingsWindow {
-            state.shouldFocusWhenConfigured = true
-            return
-        }
-
-        if let openWindowOverride {
-            // The override still funnels into SwiftUI's `openWindow(id:)`, which
-            // can hit the same mid-teardown no-op, so it gets the same retry/
-            // logging recovery as the configured opener (issue #5770).
-            Self.log.notice("settings.window.show no existing window; requesting via override")
-            requestOpen(using: openWindowOverride)
-            return
-        }
-
-        guard let openWindow = state.openWindow else {
-            state.shouldOpenWhenConfigured = true
-            state.shouldFocusWhenConfigured = true
-            return
-        }
-        Self.log.notice("settings.window.show no existing window; requesting new settings window")
-        requestOpen(using: openWindow)
+        NSApp.unhide(nil)
+        NSRunningApplication.current.activate(options: [.activateAllWindows])
+        window.makeKeyAndOrderFront(nil)
+        window.orderFrontRegardless()
     }
 
-    static func consumePendingNavigationTarget() -> SettingsNavigationTarget? {
-        sharedPresenter.consumePendingNavigationTarget()
-    }
-
-    func consumePendingNavigationTarget() -> SettingsNavigationTarget? {
-        let target = state.pendingNavigationTarget
-        state.pendingNavigationTarget = nil
-        return target
-    }
-
-    static func consumePendingContentNavigationTarget() -> SettingsNavigationTarget? {
-        sharedPresenter.consumePendingContentNavigationTarget()
-    }
-
-    func consumePendingContentNavigationTarget() -> SettingsNavigationTarget? {
-        let target = state.pendingContentNavigationTarget
-        state.pendingContentNavigationTarget = nil
-        return target
-    }
-
-    static func refocusIfVisible() {
-        sharedPresenter.refocusIfVisible()
-    }
-
-    func refocusIfVisible() {
-        guard let window = visibleExistingWindow() else { return }
-        focus(window)
-    }
-
-    private func existingWindow() -> NSWindow? {
-        if let settingsWindow = state.settingsWindow {
-            return settingsWindow
-        }
-        return NSApp.windows.first {
-            $0.identifier?.rawValue == Self.windowIdentifier
-        }
-    }
-
-    private func visibleExistingWindow() -> NSWindow? {
-        if let settingsWindow = state.settingsWindow,
-           settingsWindow.isVisible,
-           !settingsWindow.isMiniaturized {
-            return settingsWindow
-        }
-        return NSApp.windows.first {
-            $0.identifier?.rawValue == Self.windowIdentifier &&
-            $0.isVisible &&
-            !$0.isMiniaturized
-        }
-    }
-
-    /// Re-request the window when the previous request silently produced no
-    /// window. `openWindow(id:)` on a single `Window` scene can no-op while the
-    /// scene is mid-teardown, and there is no failure callback, so a deferred
-    /// check is the only way to notice the lost request (issue #5770 / #4053).
-    /// Success is event-driven: `configure(window:)` cancels the pending check
-    /// as soon as the scene materializes a window, so the timer below only ever
-    /// decides the failure case.
-    private func requestOpen(using opener: @escaping @MainActor () -> Void) {
-        state.shouldFocusWhenConfigured = true
-        state.isOpeningSettingsWindow = true
-        opener()
-        if state.isOpeningSettingsWindow {
-            scheduleOpenVerification(attempt: 1, opener: opener)
-        }
-    }
-
-    private func scheduleOpenVerification(
+    private static func presentationFailureReason(
+        window: NSWindow,
         attempt: Int,
-        opener: @escaping @MainActor () -> Void
-    ) {
-        guard state.openVerificationTask == nil else { return }
-        state.openVerificationTask = Task { @MainActor in
-            do {
-                // Intentional bounded deadline; `configure(window:)` cancels it on success.
-                try await ContinuousClock().sleep(for: openVerificationDelay)
-            } catch {
-                return
-            }
-            _ = resolveOpenVerification(attempt: attempt, opener: opener)
+        reusedExisting: Bool
+    ) -> String {
+        """
+        window did not become visible after order front \
+        (attempt \(attempt)/\(maxPresentAttempts), reusedExisting=\(reusedExisting), \
+        appHidden=\(NSApp.isHidden), appActive=\(NSApp.isActive), \
+        miniaturized=\(window.isMiniaturized), screens=\(NSScreen.screens.count), \
+        frame=\(NSStringFromRect(window.frame)))
+        """
+    }
+
+    /// Ready live content receives the navigation immediately. Until the
+    /// content signals readiness (a window can exist before its navigation
+    /// consumer is installed — fresh creation, hidden app), the target stays
+    /// pending and ``SettingsWindowHostRoot`` delivers it from `onAppear` via
+    /// `deliverPendingNavigationAfterContentAppears()`.
+    private func deliverNavigation(reusedExistingWindow: Bool) {
+        guard let target = pendingNavigationTarget else { return }
+        if reusedExistingWindow && isContentReadyForNavigation {
+            pendingNavigationTarget = nil
+            navigationDeliveryGeneration &+= 1
+            SettingsNavigationRequest.post(target)
         }
     }
 
-    @discardableResult
-    func resolveOpenVerification(
-        attempt: Int,
-        opener: @escaping @MainActor () -> Void
-    ) -> SettingsWindowOpenOutcome {
-        cancelOpenVerification()
-        let existingWindow = existingWindow()
-        let outcome = Self.openOutcome(windowExists: existingWindow != nil, attempt: attempt)
-        switch outcome {
-        case .materialized:
-            state.isOpeningSettingsWindow = false
-            if let existingWindow {
-                recordMaterializedWindowIfNeeded(existingWindow)
-            }
-        case .retry:
-            state.isOpeningSettingsWindow = true
-            Self.log.error(
-                "settings.window.open no window after attempt \(attempt, privacy: .public); retrying"
-            )
-            opener()
-            if state.isOpeningSettingsWindow {
-                scheduleOpenVerification(attempt: attempt + 1, opener: opener)
-            }
-        case .giveUp:
-            state.isOpeningSettingsWindow = false
-            Self.log.error(
-                "settings.window.open gave up after \(attempt, privacy: .public) attempts; no window materialized"
-            )
-        }
-        return outcome
+    static func deliverPendingNavigationAfterContentAppears() {
+        shared.deliverPendingNavigationAfterContentAppears()
     }
 
-    private func recordMaterializedWindowIfNeeded(_ window: NSWindow) {
-        cancelOpenVerification()
-        state.isOpeningSettingsWindow = false
-        if state.settingsWindow !== window {
-            state.settingsWindow = window
-            observeClose(of: window)
+    /// Marks the content ready and delivers any pending target. The post is
+    /// deferred one main-actor hop so the content's own restore navigation
+    /// (posted from a descendant `onAppear`) cannot clobber it, and it is
+    /// generation-guarded: a newer targeted `show()` that delivered in the
+    /// meantime supersedes this queued post instead of being overridden by it.
+    func deliverPendingNavigationAfterContentAppears() {
+        isContentReadyForNavigation = true
+        guard let target = pendingNavigationTarget else { return }
+        pendingNavigationTarget = nil
+        navigationDeliveryGeneration &+= 1
+        let generation = navigationDeliveryGeneration
+        Task { @MainActor in
+            guard self.navigationDeliveryGeneration == generation else { return }
+            SettingsNavigationRequest.post(target)
         }
     }
 
-    private func cancelOpenVerification() {
-        state.openVerificationTask?.cancel()
-        state.openVerificationTask = nil
+    // MARK: - Teardown
+
+    /// Fully retires a window that must never satisfy an open request again.
+    private func demolish(_ window: NSWindow) {
+        strip(window)
+        window.orderOut(nil)
+        window.close()
+        window.contentViewController = nil
+        window.contentView = nil
     }
 
-    static func openOutcome(windowExists: Bool, attempt: Int) -> SettingsWindowOpenOutcome {
-        if windowExists {
-            return .materialized
+    /// Removes the window's settings identity and the presenter's tracking,
+    /// without closing it (used for windows that are already mid-close).
+    private func strip(_ window: NSWindow) {
+        NotificationCenter.default.removeObserver(
+            self,
+            name: NSWindow.willCloseNotification,
+            object: window
+        )
+        window.identifier = nil
+        if settingsWindow === window {
+            settingsWindow = nil
+            isContentReadyForNavigation = false
         }
-        return attempt < maxOpenAttempts ? .retry : .giveUp
     }
+
+    @objc
+    private func settingsWindowWillClose(_ notification: Notification) {
+        guard
+            let window = notification.object as? NSWindow,
+            window === settingsWindow
+        else { return }
+        NotificationCenter.default.removeObserver(
+            self,
+            name: NSWindow.willCloseNotification,
+            object: window
+        )
+        // A closed window must never be rediscovered by an open request, and
+        // its SwiftUI tree must be released with it so it cannot linger
+        // half-alive (the #4964 blank-reopen / #5321 lingering-window
+        // classes). The next show() builds a fresh window from scratch.
+        window.identifier = nil
+        settingsWindow = nil
+        isContentReadyForNavigation = false
+        window.contentViewController = nil
+        window.contentView = nil
+    }
+
+    // MARK: - Diagnostics
 
     private static func logExistingWindowState(_ window: NSWindow) {
         log.notice(
@@ -335,49 +446,7 @@ struct SettingsWindowPresenter {
         )
     }
 
-    private func focus(_ window: NSWindow) {
-        performFocus(window)
-    }
-
-    private func performFocus(_ window: NSWindow) {
-        if window.isMiniaturized {
-            window.deminiaturize(nil)
-        }
-        window.adoptCmuxPeerWindowLevel()
-        clampToVisibleAreaIfNeeded(window)
-        // Surface the preferred main window first so Settings opens layered
-        // above it — the standard "Settings in front of its app" presentation
-        // a global hotkey or app activation expects. We do this by ordering
-        // both windows front *as peers*, never via `addChildWindow`: a child
-        // window is pinned above its parent forever and can never recede when
-        // the user clicks the main window (the bug in
-        // https://github.com/manaflow-ai/cmux/issues/5081). One-time front
-        // ordering gives the same initial layering while leaving normal
-        // click-to-raise window ordering fully intact afterwards.
-        if let parentWindow = state.parentWindowProvider?(), parentWindow !== window {
-            if parentWindow.isMiniaturized {
-                parentWindow.deminiaturize(nil)
-            }
-            parentWindow.orderFront(nil)
-        }
-        NSRunningApplication.current.activate(options: [.activateAllWindows])
-        window.makeKeyAndOrderFront(nil)
-        window.orderFrontRegardless()
-    }
-
-    private func observeClose(of window: NSWindow) {
-        NotificationCenter.default.removeObserver(
-            state,
-            name: NSWindow.willCloseNotification,
-            object: nil
-        )
-        NotificationCenter.default.addObserver(
-            state,
-            selector: #selector(State.settingsWindowWillClose(_:)),
-            name: NSWindow.willCloseNotification,
-            object: window
-        )
-    }
+    // MARK: - Multi-monitor recovery
 
     private func clampToVisibleAreaIfNeeded(_ window: NSWindow) {
         let screens = NSScreen.screens.map { (frame: $0.frame, visibleFrame: $0.visibleFrame) }
@@ -415,72 +484,4 @@ struct SettingsWindowPresenter {
         }
     }
 
-    /// Pure selection of the visible-screen frame the settings window should be
-    /// clamped into. When the window's saved frame is off every active screen
-    /// (e.g. restored onto a now-disconnected display in a multi-monitor setup)
-    /// it recovers onto the screen under the cursor, then the main/first screen.
-    /// Cursor hit-testing uses each screen's *full* frame: `visibleFrame`
-    /// excludes the menu bar and Dock strips, and the cursor sits exactly there
-    /// when Settings is opened from the menu bar, which would misroute the
-    /// recovery to the main screen. The returned rect is always a visible
-    /// frame. Factored out so multi-monitor recovery is unit-testable.
-    static func targetVisibleFrame(
-        windowFrame: NSRect,
-        screens: [(frame: NSRect, visibleFrame: NSRect)],
-        mouseLocation: NSPoint?,
-        fallbackVisibleFrame: NSRect?
-    ) -> NSRect? {
-        guard !screens.isEmpty else { return fallbackVisibleFrame }
-
-        // Prefer the screen the window already overlaps the most so a window
-        // that is mostly visible stays where the user put it.
-        var bestFrame: NSRect?
-        var bestArea: CGFloat = 0
-        for screen in screens {
-            let intersection = screen.visibleFrame.intersection(windowFrame)
-            let area = intersection.isNull ? 0 : intersection.width * intersection.height
-            if area > bestArea {
-                bestArea = area
-                bestFrame = screen.visibleFrame
-            }
-        }
-        if let bestFrame, bestArea > 0 {
-            return bestFrame
-        }
-
-        // The window is off every active screen. Recover onto the screen under
-        // the cursor when possible so Settings appears where the user is looking.
-        if let mouseLocation,
-           let mouseScreen = screens.first(where: { $0.frame.contains(mouseLocation) }) {
-            return mouseScreen.visibleFrame
-        }
-        return fallbackVisibleFrame ?? screens.first?.visibleFrame
-    }
-
-    /// Pure clamp geometry: fit `frame` within `visibleFrame` (honoring `inset`
-    /// and a minimum size). Factored out of `clampToVisibleAreaIfNeeded` so the
-    /// geometry is unit-testable independent of `NSWindow`/`NSScreen`.
-    static func clampedFrame(
-        _ frame: NSRect,
-        minimumSize: NSSize,
-        into visibleFrame: NSRect,
-        inset: CGFloat
-    ) -> NSRect {
-        var result = frame
-        let maxVisibleSize = NSSize(
-            width: max(minimumSize.width, visibleFrame.width - 2 * inset),
-            height: max(minimumSize.height, visibleFrame.height - 2 * inset)
-        )
-        result.size.width = min(result.size.width, maxVisibleSize.width)
-        result.size.height = min(result.size.height, maxVisibleSize.height)
-        let minX = visibleFrame.minX + inset
-        let minY = visibleFrame.minY + inset
-        let maxX = max(minX, visibleFrame.maxX - inset - result.width)
-        let maxY = max(minY, visibleFrame.maxY - inset - result.height)
-        result.origin = NSPoint(
-            x: min(max(result.origin.x, minX), maxX),
-            y: min(max(result.origin.y, minY), maxY)
-        )
-        return result
-    }
 }
