@@ -41,7 +41,7 @@ struct SurfacePipHostView: View {
             onAutoResumeAgentHibernation: {},
             onTriggerFlash: {}
         )
-        .background(Color(nsColor: appearance.backgroundColor))
+        .background(Color.clear)
         .onAppear {
             refreshAppearance(reason: "onAppear")
             onRequestFocus()

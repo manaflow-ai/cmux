@@ -13731,7 +13731,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
             return true
         }
-
         // The Close Tab shortcut must close the focused panel even if first-responder
         // momentarily lags on a browser NSTextView during split focus transitions.
         if matchConfiguredShortcut(event: event, action: .closeTab) {
@@ -13740,6 +13739,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return true
             }
             let routedManager = tabManagerForFocusedCloseShortcut(event: event)
+            if returnFocusedSurfacePipForCloseCommand(window: mainWindowForFocusedCloseShortcut(event: event)) { return true }
             // Browser popup windows primarily intercept the configured Close Tab shortcut
             // in BrowserPopupPanel. This AppDelegate path is a fallback for cases where
             // AppKit routes the event through the global shortcut handler first.

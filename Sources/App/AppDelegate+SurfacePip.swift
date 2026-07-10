@@ -102,6 +102,14 @@ extension AppDelegate {
         surfacePipController.panelId(for: NSApp.keyWindow)
     }
 
+    @discardableResult
+    func returnFocusedSurfacePipForCloseCommand(window: NSWindow?) -> Bool {
+        guard let panelId = surfacePipController.panelId(for: window ?? NSApp.keyWindow ?? NSApp.mainWindow) else {
+            return false
+        }
+        return surfacePipController.returnSurface(panelId: panelId)
+    }
+
     func sessionPipSurfaceSnapshots(includeScrollback: Bool) -> [SessionPipSurfaceSnapshot] {
         surfacePipController.snapshotsForSessionCapture().compactMap { entry in
             guard let panelSnapshot = sessionPanelSnapshot(forPipDetachedSurface: entry.detached, includeScrollback: includeScrollback) else {

@@ -488,7 +488,7 @@ final class WindowTerminalHostView: NSView {
 #endif
 }
 
-private final class SplitDividerOverlayView: NSView {
+final class SplitDividerOverlayView: NSView {
     private struct DividerSegment {
         let rect: NSRect
         let color: NSColor
@@ -637,10 +637,10 @@ final class WindowTerminalPortal: NSObject {
 #endif
 
     private weak var window: NSWindow?
-    private let hostView = WindowTerminalHostView(frame: .zero)
-    private let dividerOverlayView = SplitDividerOverlayView(frame: .zero)
+    let hostView = WindowTerminalHostView(frame: .zero)
+    let dividerOverlayView = SplitDividerOverlayView(frame: .zero)
     private let chromeComposition = AppWindowChromeComposition()
-    private weak var installedContainerView: NSView?
+    weak var installedContainerView: NSView?
     private weak var installedReferenceView: NSView?
     private var installConstraints: [NSLayoutConstraint] = []
     private var hasDeferredFullSyncScheduled = false
@@ -652,7 +652,7 @@ final class WindowTerminalPortal: NSObject {
     private var lastLoggedBonsplitContainerSignature: String?
 #endif
 
-    private struct Entry {
+    struct Entry {
         weak var hostedView: GhosttySurfaceScrollView?
         weak var anchorView: NSView?
         var visibleInUI: Bool
@@ -660,7 +660,7 @@ final class WindowTerminalPortal: NSObject {
         var transientRecoveryRetriesRemaining: Int
     }
 
-    private var entriesByHostedId: [ObjectIdentifier: Entry] = [:]
+    var entriesByHostedId: [ObjectIdentifier: Entry] = [:]
     private var hostedByAnchorId: [ObjectIdentifier: ObjectIdentifier] = [:]
 
     init(window: NSWindow, syncLayout: Bool = true) {
@@ -849,20 +849,6 @@ final class WindowTerminalPortal: NSObject {
         reconcileVisibleHostedViewsAfterGeometrySync(reason: "portal.externalGeometrySync")
     }
 
-    private func ensureDividerOverlayOnTop() {
-        if dividerOverlayView.superview !== hostView {
-            dividerOverlayView.frame = hostView.bounds
-            hostView.addSubview(dividerOverlayView, positioned: .above, relativeTo: nil)
-        } else if hostView.subviews.last !== dividerOverlayView {
-            hostView.addSubview(dividerOverlayView, positioned: .above, relativeTo: nil)
-        }
-
-        if !Self.rectApproximatelyEqual(dividerOverlayView.frame, hostView.bounds) {
-            dividerOverlayView.frame = hostView.bounds
-        }
-        dividerOverlayView.needsDisplay = true
-    }
-
     @discardableResult
     private func ensureInstalled(syncLayout: Bool = true) -> Bool {
         guard let window else { return false }
@@ -877,7 +863,7 @@ final class WindowTerminalPortal: NSObject {
             installConstraints.removeAll()
 
             hostView.removeFromSuperview()
-            if let browserHost {
+            if let browserHost, !hasRaisedVisibleEntries {
                 container.addSubview(hostView, positioned: .below, relativeTo: browserHost)
             } else {
                 container.addSubview(hostView, positioned: .above, relativeTo: reference)
@@ -892,7 +878,7 @@ final class WindowTerminalPortal: NSObject {
             NSLayoutConstraint.activate(installConstraints)
             installedContainerView = container
             installedReferenceView = reference
-        } else if let browserHost {
+        } else if let browserHost, !hasRaisedVisibleEntries {
             if !Self.isView(browserHost, above: hostView, in: container) {
                 container.addSubview(hostView, positioned: .below, relativeTo: browserHost)
             }
@@ -911,6 +897,7 @@ final class WindowTerminalPortal: NSObject {
             synchronizeLayoutHierarchy()
         }
         _ = synchronizeHostFrameToReference()
+        refreshHostPlacementForRaisedEntries()
         ensureDividerOverlayOnTop()
 
         return true
@@ -949,7 +936,7 @@ final class WindowTerminalPortal: NSObject {
         return false
     }
 
-    private static func rectApproximatelyEqual(_ lhs: NSRect, _ rhs: NSRect, epsilon: CGFloat = 0.01) -> Bool {
+    static func rectApproximatelyEqual(_ lhs: NSRect, _ rhs: NSRect, epsilon: CGFloat = 0.01) -> Bool {
         abs(lhs.origin.x - rhs.origin.x) <= epsilon &&
             abs(lhs.origin.y - rhs.origin.y) <= epsilon &&
             abs(lhs.size.width - rhs.size.width) <= epsilon &&
@@ -975,7 +962,7 @@ final class WindowTerminalPortal: NSObject {
         )
     }
 
-    private static func isView(_ view: NSView, above reference: NSView, in container: NSView) -> Bool {
+    static func isView(_ view: NSView, above reference: NSView, in container: NSView) -> Bool {
         guard let viewIndex = container.subviews.firstIndex(of: view),
               let referenceIndex = container.subviews.firstIndex(of: reference) else {
             return false
@@ -983,7 +970,7 @@ final class WindowTerminalPortal: NSObject {
         return viewIndex > referenceIndex
     }
 
-    private func preferredBrowserHost(in container: NSView) -> WindowBrowserHostView? {
+    func preferredBrowserHost(in container: NSView) -> WindowBrowserHostView? {
         container.subviews.last(where: { $0 is WindowBrowserHostView }) as? WindowBrowserHostView
     }
 
@@ -1107,6 +1094,8 @@ final class WindowTerminalPortal: NSObject {
         entry.visibleInUI = visibleInUI
         if !visibleInUI { entry.transientRecoveryRetriesRemaining = 0 }
         entriesByHostedId[hostedId] = entry
+        refreshHostPlacementForRaisedEntries()
+        refreshPortalZOrder()
         return needsReattach
     }
 
@@ -1160,6 +1149,7 @@ final class WindowTerminalPortal: NSObject {
             zPriority: zPriority,
             transientRecoveryRetriesRemaining: 0
         )
+        refreshHostPlacementForRaisedEntries()
 
         let didChangeAnchor: Bool = {
             guard let previousAnchor = previousEntry?.anchorView else { return true }

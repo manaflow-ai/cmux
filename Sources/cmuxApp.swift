@@ -1416,6 +1416,7 @@ struct cmuxApp: App {
     }
 
     private func closeTabOrWindow() {
+        if appDelegate.returnFocusedSurfacePipForCloseCommand(window: NSApp.keyWindow ?? NSApp.mainWindow) { return }
         activeTabManager.closeCurrentTabWithConfirmation()
     }
 
@@ -1475,7 +1476,6 @@ private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
     "cmux.pdfPreviewChromeDebug",
     "cmux.proBadgeDebug",
     "cmux.recentlyClosedHistory",
-    "cmux.surfacePip",
     "cmux.splitButtonLayoutDebug",
     "cmux.tabBarBackdropLab",
     "cmux.taskManager",
