@@ -269,6 +269,64 @@ import Testing
         #expect(panel.surface.debugInitialCommand() != nil)
     }
 
+    @Test func remoteStartupSafeLocalWorkingDirectoryIsSpawnOnlyUntilRemoteReport() throws {
+        let workspace = Workspace()
+        let paneId = try #require(workspace.bonsplitController.focusedPaneId)
+        let remoteCommand = "ssh seepine@192.168.5.20"
+        let trustedRemoteDirectory = "/home/seepine/cmux-trusted-\(UUID().uuidString)"
+
+        workspace.configureRemoteConnection(sshRemoteConfiguration(command: remoteCommand), autoConnect: false)
+
+        let panel = try #require(workspace.newTerminalSurface(inPane: paneId, focus: true))
+
+        #expect(panel.requestedWorkingDirectory == Workspace.safeLocalTerminalStartupWorkingDirectory())
+        #expect(workspace.isRemoteTerminalSurface(panel.id))
+        #expect(workspace.terminalRequestedWorkingDirectoryForLocalFallback(panelId: panel.id) == nil)
+        #expect(workspace.effectivePanelDirectory(panelId: panel.id) == nil)
+        #expect(workspace.resolvedWorkingDirectory() == nil)
+
+        let pendingSnapshot = try #require(
+            workspace.sessionSnapshot(includeScrollback: false).panels.first { $0.id == panel.id }
+        )
+        #expect(pendingSnapshot.directory == nil)
+        #expect(pendingSnapshot.terminal?.workingDirectory == nil)
+
+        #expect(workspace.updateRemotePanelDirectory(panelId: panel.id, directory: trustedRemoteDirectory))
+        #expect(workspace.effectivePanelDirectory(panelId: panel.id) == trustedRemoteDirectory)
+        #expect(workspace.resolvedWorkingDirectory() == trustedRemoteDirectory)
+
+        let reportedSnapshot = try #require(
+            workspace.sessionSnapshot(includeScrollback: false).panels.first { $0.id == panel.id }
+        )
+        #expect(reportedSnapshot.directory == trustedRemoteDirectory)
+        #expect(reportedSnapshot.terminal?.workingDirectory == trustedRemoteDirectory)
+    }
+
+    @Test func remoteStartupSplitSafeLocalWorkingDirectoryIsNotCapturedAsSessionDirectory() throws {
+        let workspace = Workspace()
+        let sourcePanelId = try #require(workspace.focusedPanelId)
+        let remoteCommand = "ssh seepine@192.168.5.20"
+
+        workspace.configureRemoteConnection(sshRemoteConfiguration(command: remoteCommand), autoConnect: false)
+
+        let panel = try #require(workspace.newTerminalSplit(
+            from: sourcePanelId,
+            orientation: .horizontal,
+            focus: true
+        ))
+
+        #expect(panel.requestedWorkingDirectory == Workspace.safeLocalTerminalStartupWorkingDirectory())
+        #expect(workspace.isRemoteTerminalSurface(panel.id))
+        #expect(workspace.terminalRequestedWorkingDirectoryForLocalFallback(panelId: panel.id) == nil)
+        #expect(workspace.effectivePanelDirectory(panelId: panel.id) == nil)
+
+        let snapshot = try #require(
+            workspace.sessionSnapshot(includeScrollback: false).panels.first { $0.id == panel.id }
+        )
+        #expect(snapshot.directory == nil)
+        #expect(snapshot.terminal?.workingDirectory == nil)
+    }
+
     @Test func explicitInitialCommandDoesNotUseRemotePanelDirectoryAsLocalFallback() throws {
         let workspace = Workspace()
         let paneId = try #require(workspace.bonsplitController.focusedPaneId)

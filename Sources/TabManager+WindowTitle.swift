@@ -99,7 +99,7 @@ extension TabManager {
         if let focusedPanelId = tab.focusedPanelId,
            tab.allowsLocalDirectoryFallback(panelId: focusedPanelId) {
             return trimmedWindowTitleDirectory(tab.reportedPanelDirectory(panelId: focusedPanelId))
-                ?? trimmedWindowTitleDirectory(tab.terminalPanel(for: focusedPanelId)?.requestedWorkingDirectory)
+                ?? trimmedWindowTitleDirectory(tab.terminalRequestedWorkingDirectoryForLocalFallback(panelId: focusedPanelId))
                 ?? (tab.isRemoteWorkspace ? "" : trimmedWindowTitleDirectory(tab.presentedCurrentDirectory) ?? "")
         }
         return trimmedWindowTitleDirectory(tab.presentedCurrentDirectory) ?? ""

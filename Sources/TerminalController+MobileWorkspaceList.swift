@@ -198,7 +198,7 @@ extension TerminalController {
             }
             let terminalDirectory = workspace.effectivePanelDirectory(
                 panelId: terminal.id,
-                localFallback: mobileNonEmpty(terminal.directory) ?? mobileNonEmpty(terminal.requestedWorkingDirectory)
+                localFallback: mobileNonEmpty(terminal.directory) ?? workspace.terminalRequestedWorkingDirectoryForLocalFallback(panelId: terminal.id)
             )
             return [
                 "id": terminal.id.uuidString,

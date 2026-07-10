@@ -2478,12 +2478,10 @@ struct TextBoxInputContainer: View {
            !directory.isEmpty {
             return directory
         }
-        if let directory = workspace.terminalPanel(for: surface.id)?
-            .requestedWorkingDirectory?
-            .trimmingCharacters(in: .whitespacesAndNewlines),
-           !directory.isEmpty {
+        if let directory = workspace.terminalRequestedWorkingDirectoryForLocalFallback(panelId: surface.id) {
             return directory
         }
+        if workspace.usesRemoteDirectoryProvenance { return nil }
         let directory = workspace.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
         return directory.isEmpty ? nil : directory
     }

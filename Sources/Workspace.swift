@@ -454,8 +454,8 @@ extension Workspace {
                !restorableDirectory.isEmpty {
                 return restorableDirectory
             }
-            if let terminalPanel = panel as? TerminalPanel,
-               let requestedDirectory = terminalPanel.requestedWorkingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
+            if panel is TerminalPanel,
+               let requestedDirectory = terminalRequestedWorkingDirectoryForLocalFallback(panelId: panelId)?.trimmingCharacters(in: .whitespacesAndNewlines),
                !requestedDirectory.isEmpty {
                 return requestedDirectory
             }
@@ -3825,10 +3825,14 @@ final class Workspace: Identifiable, ObservableObject {
     /// three-tier order); the tiers are spelled out here so the public entry point is
     /// self-contained.
     func resolvedWorkingDirectory() -> String? {
-        let candidates = [
-            focusedPanelId.flatMap { panelDirectories[$0] },
-            focusedPanelId.flatMap { terminalPanel(for: $0)?.requestedWorkingDirectory },
-            currentDirectory,
+        let candidates = focusedPanelId.map { panelId in
+            [
+                panelDirectories[panelId],
+                terminalRequestedWorkingDirectoryForLocalFallback(panelId: panelId),
+                usesRemoteDirectoryProvenance ? nil : currentDirectory,
+            ]
+        } ?? [
+            usesRemoteDirectoryProvenance ? nil : currentDirectory,
         ]
         for candidate in candidates {
             let trimmed = candidate?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -4365,7 +4369,7 @@ final class Workspace: Identifiable, ObservableObject {
         // Remote workspace directories are remote-host paths; no local per-directory config can apply.
         if usesRemoteDirectoryProvenance { return nil }
         if let panelId {
-            for candidate in [panelDirectories[panelId], terminalPanel(for: panelId)?.requestedWorkingDirectory] {
+            for candidate in [panelDirectories[panelId], terminalRequestedWorkingDirectoryForLocalFallback(panelId: panelId)] {
                 let trimmed = candidate?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                 if !trimmed.isEmpty { return trimmed }
             }
@@ -11221,7 +11225,7 @@ final class Workspace: Identifiable, ObservableObject {
         Self.firstNonEmptyPath([
             snapshot.workingDirectory,
             panelDirectories[panelId],
-            terminalPanel(for: panelId)?.requestedWorkingDirectory,
+            terminalRequestedWorkingDirectoryForLocalFallback(panelId: panelId),
             currentDirectory
         ])
     }
@@ -12701,7 +12705,7 @@ extension Workspace: BonsplitDelegate {
             }
 
             let paneDirectory = selectedTerminalPanel(inPane: pane).flatMap { terminal -> String? in
-                for candidate in [panelDirectories[terminal.id], terminal.requestedWorkingDirectory] {
+                for candidate in [panelDirectories[terminal.id], terminalRequestedWorkingDirectoryForLocalFallback(panelId: terminal.id)] {
                     let trimmed = candidate?.trimmingCharacters(in: .whitespacesAndNewlines)
                     if let trimmed, !trimmed.isEmpty {
                         return trimmed
