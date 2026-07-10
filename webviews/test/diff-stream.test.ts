@@ -142,6 +142,47 @@ test("streamPatch reuses incremental tree collections with revisioned flushes", 
   ]);
 });
 
+test("streamPatch grows batches after first paint for large diffs", async () => {
+  const dom = new JSDOM("<!doctype html><html><body></body></html>");
+  (globalThis as any).document = dom.window.document;
+  (globalThis as any).window = dom.window;
+  (globalThis as any).fetch = () => Promise.resolve({
+    ok: true,
+    text: () => Promise.resolve("patch"),
+  });
+  dom.window.document.hasFocus = () => false;
+  const files = Array.from({ length: 10_000 }, (_, index) => ({
+    name: `src/file-${index}.ts`,
+    type: "change",
+    hunks: [],
+  }));
+  const batches: any[][] = [];
+  let completedMetrics: any;
+
+  await streamPatch({
+    getCollapsed: () => false,
+    initialFileTreeRowCount: 32,
+    label: createDiffViewerLabelResolver(undefined),
+    onBatch: (batch) => batches.push(batch),
+    onComplete: (metrics) => {
+      completedMetrics = metrics;
+    },
+    onMetrics: () => {},
+    onRename: () => {},
+    onTreeSource: () => {},
+    parsePatchFiles: () => [{ files }],
+    patchURL: "/patch.diff",
+    processFile: (patchText) => ({ name: patchText, type: "change", hunks: [] }),
+  });
+
+  expect(batches[0]).toHaveLength(32);
+  expect(batches.flat()).toHaveLength(10_000);
+  expect(completedMetrics.fileCount).toBe(10_000);
+  expect(completedMetrics.flushCount).toBeLessThanOrEqual(8);
+  expect(completedMetrics.maxBatchSize).toBeGreaterThanOrEqual(2_048);
+  dom.window.close();
+});
+
 test("streamPatch replaces many repeated paths by stable file order", async () => {
   const dom = new JSDOM("<!doctype html><html><body></body></html>");
   (globalThis as any).document = dom.window.document;

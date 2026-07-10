@@ -891,7 +891,7 @@ function NavigationSelect({
   );
 }
 
-function JumpSelect({
+export function JumpSelect({
   items,
   label,
   onJump,
