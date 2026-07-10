@@ -271,7 +271,7 @@ struct RemoteTmuxMirrorCLIObservabilityTests {
     }
 
     @MainActor
-    private struct Harness {
+    struct Harness {
         let appDelegate: AppDelegate
         let windowID: UUID
         let workspace: Workspace
