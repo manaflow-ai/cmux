@@ -26,6 +26,9 @@ public struct ControlPaneResizeInputs: Sendable, Equatable {
     public let amount: Int
     /// Exact tmux cell delta accompanying `amount` from a compatibility adapter.
     public let amountCells: Int?
+    /// Whether the request carries native tmux adjustment semantics instead of
+    /// the public border-oriented `pane.resize` direction semantics.
+    public let tmuxCompatibility: Bool
 
     /// Creates the pane-resize inputs.
     ///
@@ -37,6 +40,7 @@ public struct ControlPaneResizeInputs: Sendable, Equatable {
     ///   - direction: The lowercased relative direction, if present.
     ///   - amount: The relative delta in native points.
     ///   - amountCells: The compatibility adapter's exact tmux cell delta.
+    ///   - tmuxCompatibility: Whether to preserve native tmux resize semantics.
     public init(
         paneID: UUID?,
         absoluteAxis: String?,
@@ -44,7 +48,8 @@ public struct ControlPaneResizeInputs: Sendable, Equatable {
         targetCells: Int?,
         direction: String?,
         amount: Int,
-        amountCells: Int?
+        amountCells: Int?,
+        tmuxCompatibility: Bool
     ) {
         self.paneID = paneID
         self.absoluteAxis = absoluteAxis
@@ -53,5 +58,6 @@ public struct ControlPaneResizeInputs: Sendable, Equatable {
         self.direction = direction
         self.amount = amount
         self.amountCells = amountCells
+        self.tmuxCompatibility = tmuxCompatibility
     }
 }

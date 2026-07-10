@@ -1850,9 +1850,19 @@ func tmuxResizePane(rc *rpcContext, args []string) error {
 	hasDirectional := p.hasFlag("-L") || p.hasFlag("-R") || p.hasFlag("-U") || p.hasFlag("-D")
 
 	if !hasDirectional {
-		if absWidthStr := p.value("-x"); absWidthStr != "" {
-			absWidth := parseInt(strings.ReplaceAll(absWidthStr, "%", ""))
-			// Get current width to compute delta
+		targetSize := p.value("-x")
+		axis := "horizontal"
+		cellSizeKey := "cell_width_px"
+		if targetSize == "" {
+			targetSize = p.value("-y")
+			axis = "vertical"
+			cellSizeKey = "cell_height_px"
+		}
+		if targetSize != "" {
+			targetCells := parseInt(strings.ReplaceAll(targetSize, "%", ""))
+			if targetCells <= 0 {
+				return fmt.Errorf("resize-pane size must be greater than zero")
+			}
 			panePayload, err := rc.call("pane.list", map[string]any{"workspace_id": wsId})
 			if err != nil {
 				return err
@@ -1864,24 +1874,17 @@ func tmuxResizePane(rc *rpcContext, args []string) error {
 					continue
 				}
 				if pid, _ := pane["id"].(string); pid == paneId {
-					cellW := intFromAnyGo(pane["cell_width_px"])
-					currentCols := intFromAnyGo(pane["columns"])
-					if cellW > 0 && currentCols >= 0 {
-						delta := absWidth - currentCols
-						if delta != 0 {
-							dir := "right"
-							if delta < 0 {
-								dir = "left"
-								delta = -delta
-							}
-							rc.call("pane.resize", map[string]any{
-								"workspace_id": wsId,
-								"pane_id":      paneId,
-								"direction":    dir,
-								"amount":       delta * cellW,
-								"amount_cells": delta,
-							})
-						}
+					cellSize := intFromAnyGo(pane[cellSizeKey])
+					if cellSize > 0 {
+						_, err := rc.call("pane.resize", map[string]any{
+							"workspace_id":  wsId,
+							"pane_id":       paneId,
+							"absolute_axis": axis,
+							"target_pixels": targetCells * cellSize,
+							"target_cells":  targetCells,
+							"tmux_compat":   true,
+						})
+						return err
 					}
 					break
 				}
@@ -1911,6 +1914,7 @@ func tmuxResizePane(rc *rpcContext, args []string) error {
 			"direction":    dir,
 			"amount":       amount,
 			"amount_cells": amount,
+			"tmux_compat":  true,
 		})
 		return err
 	}

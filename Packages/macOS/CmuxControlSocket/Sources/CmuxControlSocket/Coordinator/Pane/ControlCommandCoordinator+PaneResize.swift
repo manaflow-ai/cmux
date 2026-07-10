@@ -14,6 +14,7 @@ extension ControlCommandCoordinator {
         let directionRaw = (string(params, "direction") ?? "").lowercased()
         let amount = int(params, "amount") ?? 1
         let amountCells = int(params, "amount_cells").flatMap { $0 > 0 ? $0 : nil }
+        let tmuxCompatibility = bool(params, "tmux_compat") ?? false
         let directionValid = ["left", "right", "up", "down"].contains(directionRaw)
         let hasAbsoluteIntent = params.keys.contains("absolute_axis") || params.keys.contains("target_pixels")
         if hasAbsoluteIntent {
@@ -36,7 +37,8 @@ extension ControlCommandCoordinator {
             targetCells: targetCells,
             direction: directionValid ? directionRaw : nil,
             amount: amount,
-            amountCells: amountCells
+            amountCells: amountCells,
+            tmuxCompatibility: tmuxCompatibility
         )
         let resolution = context?.controlPaneResize(routing: routing, inputs: inputs)
             ?? .tabManagerUnavailable

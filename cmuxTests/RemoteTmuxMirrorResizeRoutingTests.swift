@@ -109,6 +109,7 @@ extension RemoteTmuxMirrorCLIObservabilityTests {
                     "absolute_axis": .string("vertical"),
                     "target_pixels": .double(targetPoints),
                     "target_cells": .int(7),
+                    "tmux_compat": .bool(true),
                 ]
             )
         )
@@ -159,9 +160,10 @@ extension RemoteTmuxMirrorCLIObservabilityTests {
                 params: [
                     "workspace_id": .string(harness.workspace.id.uuidString),
                     "pane_id": .string(firstPaneID.uuidString),
-                    "direction": .string("right"),
+                    "direction": .string("left"),
                     "amount": .int(160),
                     "amount_cells": .int(2),
+                    "tmux_compat": .bool(true),
                 ]
             )
         )
@@ -172,7 +174,7 @@ extension RemoteTmuxMirrorCLIObservabilityTests {
         let commands = try readControlCommands(harness)
         #expect(commands.contains("resize-pane -t @3.%11 -L 1\n"))
         #expect(!commands.contains("resize-pane -t @3.%22 -L"))
-        #expect(commands.contains("resize-pane -t @3.%11 -R 2\n"))
+        #expect(commands.contains("resize-pane -t @3.%11 -L 2\n"))
     }
 
     @Test func paneResizeRejectsAbsentRemoteSplitBordersAndAxes() throws {
@@ -221,7 +223,24 @@ extension RemoteTmuxMirrorCLIObservabilityTests {
             "pane_id": .string(paneID.uuidString),
             "absolute_axis": .string("vertical"),
         ]))
-        #expect(try readControlCommands(harness).isEmpty)
+        let tmuxCompatibleAxis = coordinator.handle(ControlRequest(
+            id: .int(3),
+            method: "pane.resize",
+            params: [
+                "workspace_id": .string(harness.workspace.id.uuidString),
+                "pane_id": .string(paneID.uuidString),
+                "absolute_axis": .string("vertical"),
+                "target_pixels": .double(68),
+                "target_cells": .int(4),
+                "tmux_compat": .bool(true),
+            ]
+        ))
+        guard case .ok? = tmuxCompatibleAxis else {
+            Issue.record("Native tmux absolute resize failed: \(String(describing: tmuxCompatibleAxis))")
+            return
+        }
+        let commands = try readControlCommands(harness)
+        #expect(commands == "resize-pane -t @3.%\(tmuxPaneID) -y 4\n")
     }
 
     private func readControlCommands(_ harness: Harness) throws -> String {

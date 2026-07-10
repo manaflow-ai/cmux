@@ -249,29 +249,39 @@ extension TerminalController {
                 defaultValue: "The remote tmux pane is not ready to resize; wait for it to become available and retry."
             )
         )
-        guard let metrics = location.mirror.nativeLayoutMetrics() else {
-            return unavailable
-        }
-        let splitTree = RemoteTmuxNativeSplitTree(layout: location.mirror.layout)
         if let axis = inputs.absoluteAxis, let targetPixels = inputs.targetPixels {
             guard targetPixels.isFinite else {
                 return unavailable
             }
             let orientation: SplitOrientation = axis == "horizontal" ? .horizontal : .vertical
-            guard let context = splitTree.paneResizeContext(
-                paneID: location.pane.tmuxPaneID,
-                orientation: orientation
-            ) else {
-                return unavailable
+            let context = inputs.tmuxCompatibility
+                ? nil
+                : RemoteTmuxNativeSplitTree(layout: location.mirror.layout)
+                    .paneResizeContext(
+                        paneID: location.pane.tmuxPaneID,
+                        orientation: orientation
+                    )
+            if !inputs.tmuxCompatibility {
+                guard let context else { return unavailable }
+                guard context.hasSplitAncestor else {
+                    return .noAbsoluteSplitAncestor(paneID: paneID, absoluteAxis: axis)
+                }
             }
-            guard context.hasSplitAncestor else {
-                return .noAbsoluteSplitAncestor(paneID: paneID, absoluteAxis: axis)
+            let targetCells: Int
+            if inputs.tmuxCompatibility, let exactCells = inputs.targetCells {
+                targetCells = exactCells
+            } else {
+                guard !inputs.tmuxCompatibility else { return unavailable }
+                guard let context,
+                      let metrics = location.mirror.nativeLayoutMetrics() else {
+                    return unavailable
+                }
+                targetCells = metrics.requestedTmuxSpan(
+                    pane: context.pane,
+                    orientation: orientation,
+                    outerExtent: CGFloat(targetPixels)
+                )
             }
-            let targetCells = inputs.targetCells ?? metrics.requestedTmuxSpan(
-                pane: context.pane,
-                orientation: orientation,
-                outerExtent: CGFloat(targetPixels)
-            )
             guard location.mirror.requestResizePane(
                 location.pane.tmuxPaneID,
                 absoluteAxis: axis,
@@ -295,6 +305,27 @@ extension TerminalController {
         let orientation: SplitOrientation = direction.splitOrientation == "horizontal"
             ? .horizontal
             : .vertical
+        if inputs.tmuxCompatibility {
+            guard let amountCells = inputs.amountCells else { return unavailable }
+            guard location.mirror.requestResizePane(
+                location.pane.tmuxPaneID,
+                direction: directionRaw,
+                amountCells: amountCells
+            ) else {
+                return unavailable
+            }
+            return .remoteRelativeResizeRequested(
+                windowID: v2ResolveWindowId(tabManager: tabManager),
+                workspaceID: workspace.id,
+                paneID: paneID,
+                direction: directionRaw,
+                amount: inputs.amount
+            )
+        }
+        guard let metrics = location.mirror.nativeLayoutMetrics() else {
+            return unavailable
+        }
+        let splitTree = RemoteTmuxNativeSplitTree(layout: location.mirror.layout)
         guard let context = splitTree.paneResizeContext(
             paneID: location.pane.tmuxPaneID,
             orientation: orientation

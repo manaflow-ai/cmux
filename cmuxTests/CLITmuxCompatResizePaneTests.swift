@@ -76,6 +76,7 @@ extension CLITmuxCompatRemoteSplitTests {
         #expect(params["absolute_axis"] as? String == "horizontal")
         #expect((params["target_pixels"] as? NSNumber)?.intValue == 48)
         #expect((params["target_cells"] as? NSNumber)?.intValue == 3)
+        #expect(params["tmux_compat"] as? Bool == true)
     }
 
     private final class ResizeCapture: @unchecked Sendable {

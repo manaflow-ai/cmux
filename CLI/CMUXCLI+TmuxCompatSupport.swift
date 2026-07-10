@@ -338,7 +338,8 @@ extension CMUXCLI {
             "pane_id": paneId,
             "absolute_axis": axis,
             "target_pixels": targetCells * cellSize,
-            "target_cells": targetCells
+            "target_cells": targetCells,
+            "tmux_compat": true
         ])
     }
 
