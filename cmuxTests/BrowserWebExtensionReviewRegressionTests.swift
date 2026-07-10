@@ -87,6 +87,56 @@ struct BrowserWebExtensionReviewRegressionTests {
 
     @MainActor
     @Test
+    func browserFocusModeOffersExtensionCommandDespiteConfiguredShortcut() throws {
+        let appDelegate = try #require(AppDelegate.shared)
+        let action = KeyboardShortcutSettings.Action.openBrowser
+        let hadPersistedShortcut = UserDefaults.standard.object(forKey: action.defaultsKey) != nil
+        let originalShortcut = KeyboardShortcutSettings.shortcut(for: action)
+        defer {
+            if hadPersistedShortcut {
+                KeyboardShortcutSettings.setShortcut(originalShortcut, for: action)
+            } else {
+                KeyboardShortcutSettings.resetShortcut(for: action)
+            }
+        }
+        let event = try #require(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.command, .shift],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: 0,
+            context: nil,
+            characters: "L",
+            charactersIgnoringModifiers: "l",
+            isARepeat: false,
+            keyCode: 37
+        ))
+
+        // With the default ⌘⇧L Open Browser binding, the extension command is
+        // declined outside focus mode but offered inside it, where the app-level
+        // monitor has already suspended configured cmux shortcuts.
+        KeyboardShortcutSettings.setShortcut(action.defaultShortcut, for: action)
+        #expect(!appDelegate.shouldOfferBrowserWebExtensionCommand(event, browserFocusModeActive: false))
+        #expect(appDelegate.shouldOfferBrowserWebExtensionCommand(event, browserFocusModeActive: true))
+
+        // Focus mode does not turn plain typing into extension commands.
+        let plainTypingEvent = try #require(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: 0,
+            context: nil,
+            characters: "a",
+            charactersIgnoringModifiers: "a",
+            isARepeat: false,
+            keyCode: 0
+        ))
+        #expect(!appDelegate.shouldOfferBrowserWebExtensionCommand(plainTypingEvent, browserFocusModeActive: true))
+    }
+
+    @MainActor
+    @Test
     @available(macOS 15.4, *)
     func unchangedMetadataDoesNotInvalidateExtensionActions() async throws {
         let support = BrowserWebExtensionSupport()

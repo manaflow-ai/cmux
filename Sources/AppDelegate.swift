@@ -16050,7 +16050,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return fr.isDescendant(of: panel.webView)
     }
 
-    private func browserFocusModePanelForShortcutEvent(_ event: NSEvent) -> BrowserPanel? {
+    func browserFocusModePanelForShortcutEvent(_ event: NSEvent) -> BrowserPanel? {
         // Resolve the panel from the web view that owns the responder chain (the
         // same resolver every other browser shortcut uses), not the selected pane:
         // context-menu / web-view-focus entrypoints can focus a WKWebView without
