@@ -9,6 +9,7 @@ final class TerminationResumeIndexCoordinator {
     )
 
     private var completed: ProcessDetectedResumeIndexes?
+    private var didComplete = false
     private var pendingLoad: PendingLoad?
 
     func load() async -> ProcessDetectedResumeIndexes? {
@@ -18,7 +19,7 @@ final class TerminationResumeIndexCoordinator {
     func load(
         coordinatedBy sharedIndex: SharedLiveAgentIndex
     ) async -> ProcessDetectedResumeIndexes? {
-        if let completed {
+        if didComplete {
             return completed
         }
 
@@ -39,6 +40,7 @@ final class TerminationResumeIndexCoordinator {
         let result = await pending.task.value
         if pendingLoad?.id == pending.id {
             completed = result
+            didComplete = true
             pendingLoad = nil
         }
         return completed ?? result
