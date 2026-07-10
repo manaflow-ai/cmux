@@ -6,12 +6,6 @@ import WebKit
 
 private var browserProxyConfigurationApplicationStateKey: UInt8 = 0
 
-func browserReplaySafeProxyRouteRecoveryRequest(_ request: URLRequest?) -> URLRequest? {
-    guard let request, request.httpBody == nil, request.httpBodyStream == nil else { return nil }
-    let method = request.httpMethod?.uppercased() ?? "GET"
-    return ["GET", "HEAD"].contains(method) ? request : nil
-}
-
 /// The semantic network route applied to a browser website data store.
 ///
 /// Application state is retained on the shared data store so equivalent
@@ -65,7 +59,13 @@ struct BrowserProxyConfigurationRoute {
 
     @MainActor
     @discardableResult
-    func apply(to websiteDataStore: WKWebsiteDataStore) -> Bool {
+    func apply(
+        to websiteDataStore: WKWebsiteDataStore,
+        networkProcessIdentifier: (() -> Int?)? = nil
+    ) -> Bool {
+        let currentNetworkProcessIdentifier = networkProcessIdentifier ?? {
+            BrowserWebKitNetworkProcessIdentifier.current(for: websiteDataStore)
+        }
         let state = applicationState(for: websiteDataStore)
         if isDirect {
             switch state {
@@ -74,16 +74,30 @@ struct BrowserProxyConfigurationRoute {
             case .pristineDirect, .explicit:
                 // WebKit clears only the live NetworkProcess configuration.
                 // It retains the last explicit payload and can restore it after
-                // that process relaunches, so navigation failures can reassert
-                // direct routing once without keeping ordinary calls hot.
+                // that process relaunches, so retain the process generation that
+                // received this clear and reapply only after it changes.
+                let identifier = currentNetworkProcessIdentifier()
                 websiteDataStore.proxyConfigurations = []
                 storeApplicationState(
-                    .directAfterExplicit(recoveryArmed: true),
+                    .directAfterExplicit(networkProcessIdentifier: identifier),
                     on: websiteDataStore
                 )
                 return true
-            case .directAfterExplicit:
-                return false
+            case .directAfterExplicit(let appliedIdentifier):
+                let currentIdentifier = currentNetworkProcessIdentifier()
+                if let appliedIdentifier,
+                   let currentIdentifier,
+                   appliedIdentifier == currentIdentifier {
+                    return false
+                }
+                // If the guarded selector is unavailable, correctness wins over
+                // coalescing for this uncommon post-explicit state.
+                websiteDataStore.proxyConfigurations = []
+                storeApplicationState(
+                    .directAfterExplicit(networkProcessIdentifier: currentIdentifier),
+                    on: websiteDataStore
+                )
+                return true
             }
         }
 
@@ -93,33 +107,6 @@ struct BrowserProxyConfigurationRoute {
         websiteDataStore.proxyConfigurations = configurations
         storeApplicationState(.explicit(identity: identity), on: websiteDataStore)
         return true
-    }
-
-    @MainActor
-    @discardableResult
-    func reassertAfterNavigationFailure(to websiteDataStore: WKWebsiteDataStore) -> Bool {
-        guard isDirect,
-              applicationState(for: websiteDataStore) == .directAfterExplicit(recoveryArmed: true) else {
-            return false
-        }
-        websiteDataStore.proxyConfigurations = []
-        storeApplicationState(
-            .directAfterExplicit(recoveryArmed: false),
-            on: websiteDataStore
-        )
-        return true
-    }
-
-    @MainActor
-    func noteSuccessfulNavigation(on websiteDataStore: WKWebsiteDataStore) {
-        guard isDirect,
-              applicationState(for: websiteDataStore) == .directAfterExplicit(recoveryArmed: false) else {
-            return
-        }
-        storeApplicationState(
-            .directAfterExplicit(recoveryArmed: true),
-            on: websiteDataStore
-        )
     }
 
     @MainActor
