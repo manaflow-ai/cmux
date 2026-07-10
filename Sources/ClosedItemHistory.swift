@@ -133,7 +133,11 @@ final class ClosedItemHistoryStore: ObservableObject {
     }
 
     var canReopen: Bool {
-        guard let newestRecord = orderedRestoreCandidates().first else { return false }
+        guard let newestRecord = records.enumerated().max(by: {
+            $0.element.closedAt == $1.element.closedAt
+                ? $0.offset < $1.offset
+                : $0.element.closedAt < $1.element.closedAt
+        })?.element else { return false }
         return !pendingEnrichmentRecordIDs.contains(newestRecord.id)
     }
 
