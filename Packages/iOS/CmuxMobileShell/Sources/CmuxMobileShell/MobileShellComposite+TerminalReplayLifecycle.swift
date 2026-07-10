@@ -302,6 +302,24 @@ extension MobileShellComposite {
         return true
     }
 
+    /// Request an authoritative replacement without racing another replay that
+    /// already owns this surface. An active barrier remains the sole lifecycle
+    /// owner; marking output as dropped makes its acknowledgement launch the
+    /// existing bounded follow-up replay. A surface without an owner gets a new
+    /// barrier before the request starts so live output cannot interleave with
+    /// the replacement.
+    func requestTerminalResync(surfaceID: String) {
+        guard hasTerminalOutputSink(surfaceID: surfaceID) else { return }
+        if terminalReplayBarrierTokensBySurfaceID[surfaceID] != nil {
+            terminalReplayBarrierDroppedOutputSurfaceIDs.insert(surfaceID)
+            terminalReplayBarrierDroppedOutputCountsBySurfaceID[surfaceID, default: 0] &+= 1
+            MobileDebugLog.anchormux("terminal.output.resync_deferred surface=\(surfaceID)")
+            return
+        }
+        let replayBarrierToken = beginTerminalReplayBarrier(surfaceID: surfaceID)
+        requestTerminalReplay(surfaceID: surfaceID, replayBarrierToken: replayBarrierToken)
+    }
+
     func markTerminalReplayInFlight(
         surfaceID: String,
         requestID: UUID,

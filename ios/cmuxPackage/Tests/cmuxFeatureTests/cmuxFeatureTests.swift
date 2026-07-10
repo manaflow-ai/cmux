@@ -2397,11 +2397,10 @@ struct TerminalStreamTests {
         supportsServerPushEvents: true
     )
     let store = CMUXMobileShellStore.preview(runtime: runtime)
-    let collector = TerminalOutputCollector()
 
     store.signIn()
     await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
-    collector.mount(store: store, surfaceID: terminalID)
+    var output = store.terminalOutputStream(surfaceID: terminalID).makeAsyncIterator()
     let oldGridText = try terminalRenderGridReplacementText(
         seq: 4,
         text: "old",
@@ -2414,22 +2413,28 @@ struct TerminalStreamTests {
     )
 
     _ = try await waitForRequestCount("mobile.terminal.replay", count: 1, router: router)
+    let oldChunk = try #require(await output.next())
+    #expect(String(data: oldChunk.data, encoding: .utf8) == oldGridText)
 
+    // Keep the cold replay unacknowledged while the input response reports a
+    // newer Mac sequence. The resync must remain owned by that replay barrier
+    // and run as its follow-up instead of racing it with a stale token.
     await store.submitTerminalRawInput(Data("x".utf8), surfaceID: terminalID)
+    let requestsBeforeAcknowledgement = await router.sentRequests()
+    #expect(requestsBeforeAcknowledgement.count { $0.method == "mobile.terminal.replay" } == 1)
+    store.terminalOutputDidProcess(
+        surfaceID: terminalID,
+        streamToken: oldChunk.streamToken
+    )
 
     _ = try await waitForRequestCount("mobile.terminal.replay", count: 2, router: router)
     _ = try await waitForRequestCount("mobile.events.subscribe", count: 2, router: router)
-    // The request-count waits only prove the second replay was REQUESTED; its
-    // response still has to round-trip and deliver. The slower CI iPad leg
-    // regularly needs more than the file's usual 200ms here.
-    for _ in 0..<4000 where !collector.lines.contains(currentGridText) {
-        try await Task.sleep(nanoseconds: 1_000_000)
-    }
-
-    #expect(collector.lines.last == currentGridText)
-    #expect(Set(collector.lines).isSubset(of: [oldGridText, currentGridText]))
-    #expect(collector.lines.count <= 2)
-    collector.unmount()
+    let currentChunk = try #require(await output.next())
+    #expect(String(data: currentChunk.data, encoding: .utf8) == currentGridText)
+    store.terminalOutputDidProcess(
+        surfaceID: terminalID,
+        streamToken: currentChunk.streamToken
+    )
 }
 
 @MainActor
