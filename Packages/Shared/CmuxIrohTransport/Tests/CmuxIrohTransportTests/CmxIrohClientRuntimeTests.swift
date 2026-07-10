@@ -134,6 +134,71 @@ struct CmxIrohClientRuntimeTests {
     }
 
     @Test
+    func foregroundTerminalBrokerFailureRevokesLocalPolicy() async throws {
+        let fixture = try ClientRuntimeTestFixture()
+        let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
+        let broker = TestIrohClientBroker(
+            binding: fixture.binding,
+            discovery: fixture.discovery,
+            relay: fixture.relayResponse()
+        )
+        let offlineStore = TestSecureCredentialStore()
+        let runtime = try CmxIrohClientRuntime(
+            factory: TestIrohEndpointFactory(endpoints: [endpoint]),
+            broker: broker,
+            configuration: fixture.configuration,
+            offlinePolicyCache: CmxIrohClientOfflinePolicyCache(
+                secureStore: offlineStore
+            ),
+            now: { fixture.now }
+        )
+        try await runtime.start()
+        let terminal = CmxIrohTrustBrokerClientError.rejected(
+            statusCode: 401,
+            code: "unauthorized"
+        )
+        await broker.setRegistrationError(terminal)
+
+        await #expect(throws: terminal) {
+            try await runtime.didBecomeActive()
+        }
+
+        #expect(await runtime.snapshot().state == .failed)
+        #expect(await endpoint.observedCloseCallCount() == 1)
+        #expect(await offlineStore.deleteAllCount() == 1)
+    }
+
+    @Test
+    func foregroundConnectivityFailureKeepsLastVerifiedPolicy() async throws {
+        let fixture = try ClientRuntimeTestFixture()
+        let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
+        let broker = TestIrohClientBroker(
+            binding: fixture.binding,
+            discovery: fixture.discovery,
+            relay: fixture.relayResponse()
+        )
+        let offlineStore = TestSecureCredentialStore()
+        let runtime = try CmxIrohClientRuntime(
+            factory: TestIrohEndpointFactory(endpoints: [endpoint]),
+            broker: broker,
+            configuration: fixture.configuration,
+            offlinePolicyCache: CmxIrohClientOfflinePolicyCache(
+                secureStore: offlineStore
+            ),
+            now: { fixture.now }
+        )
+        try await runtime.start()
+        await broker.setRegistrationError(CmxIrohTrustBrokerClientError.connectivity)
+
+        try await runtime.didBecomeActive()
+
+        #expect(await runtime.snapshot().state == .active)
+        #expect(await endpoint.observedCloseCallCount() == 0)
+        #expect(await offlineStore.deleteAllCount() == 0)
+        await runtime.stop()
+    }
+
+    @Test
     func signOutWipesLocallyBeforeBestEffortRemoteRevocation() async throws {
         let fixture = try ClientRuntimeTestFixture()
         let endpoint = TestIrohEndpoint(identity: fixture.endpointID)

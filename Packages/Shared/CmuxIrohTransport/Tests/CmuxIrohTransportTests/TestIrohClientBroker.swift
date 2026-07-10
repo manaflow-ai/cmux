@@ -5,7 +5,7 @@ actor TestIrohClientBroker: CmxIrohClientBrokerServing {
     private let discoveryResponse: CmxIrohDiscoveryResponse
     private let relayResponse: CmxIrohRelayTokenResponse
     private let revokeError: (any Error)?
-    private let registrationError: (any Error)?
+    private var registrationError: (any Error)?
     private var preparedRegistrations: [CmxIrohPreparedRegistration] = []
     private var revokedBindingIDs: [String] = []
 
@@ -62,5 +62,9 @@ actor TestIrohClientBroker: CmxIrohClientBrokerServing {
 
     func observedRevokedBindingIDs() -> [String] {
         revokedBindingIDs
+    }
+
+    func setRegistrationError(_ error: (any Error)?) {
+        registrationError = error
     }
 }
