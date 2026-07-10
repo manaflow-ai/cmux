@@ -1,6 +1,7 @@
 import CFNetwork
 import Foundation
 import Network
+import WebKit
 
 /// An explicit browser proxy mirrored from the macOS system proxy settings,
 /// with hostname exclusions so loopback and proxy-bypass-list hosts connect
@@ -267,6 +268,24 @@ struct BrowserSystemProxyMirror: Equatable {
 }
 
 extension BrowserSystemProxyMirror {
+    /// Applies an explicit proxy update only when WebKit's native routing must
+    /// change. Writing an empty array into a fresh data store is not a no-op:
+    /// WebKit rebuilds its networking session, interrupting connection reuse
+    /// and bypassing native direct-connection behavior. Existing explicit
+    /// configurations are still cleared when their
+    /// local-system or remote-workspace proxy disappears.
+    @discardableResult
+    static func applyProxyConfigurations(
+        _ desiredConfigurations: [ProxyConfiguration],
+        to websiteDataStore: WKWebsiteDataStore
+    ) -> Bool {
+        guard !desiredConfigurations.isEmpty || !websiteDataStore.proxyConfigurations.isEmpty else {
+            return false
+        }
+        websiteDataStore.proxyConfigurations = desiredConfigurations
+        return true
+    }
+
     /// Reads the live macOS proxy settings and builds the configurations a
     /// local-workspace `WKWebsiteDataStore` should use: the mirrored system
     /// proxy with loopback excluded, or empty — WebKit's system-proxy

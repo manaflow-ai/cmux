@@ -4392,8 +4392,12 @@ final class BrowserPanel: Panel, ObservableObject {
         guard let endpoint = remoteProxyEndpoint else {
             // Local panes mirror an active system proxy with loopback excluded
             // (#5888); remote panes keep [] while their endpoint is pending/lost.
-            store.proxyConfigurations = usesRemoteWorkspaceProxy
+            let desiredConfigurations = usesRemoteWorkspaceProxy
                 ? [] : BrowserSystemProxyMirror.currentProxyConfigurations()
+            BrowserSystemProxyMirror.applyProxyConfigurations(
+                desiredConfigurations,
+                to: store
+            )
             return
         }
 
@@ -4401,14 +4405,14 @@ final class BrowserPanel: Panel, ObservableObject {
         guard !host.isEmpty,
               endpoint.port > 0 && endpoint.port <= 65535,
               let nwPort = NWEndpoint.Port(rawValue: UInt16(endpoint.port)) else {
-            store.proxyConfigurations = []
+            BrowserSystemProxyMirror.applyProxyConfigurations([], to: store)
             return
         }
 
         let nwEndpoint = NWEndpoint.hostPort(host: NWEndpoint.Host(host), port: nwPort)
         let socks = ProxyConfiguration(socksv5Proxy: nwEndpoint)
         let connect = ProxyConfiguration(httpCONNECTProxy: nwEndpoint)
-        store.proxyConfigurations = [socks, connect]
+        BrowserSystemProxyMirror.applyProxyConfigurations([socks, connect], to: store)
     }
 
     private func beginDownloadActivity() {
