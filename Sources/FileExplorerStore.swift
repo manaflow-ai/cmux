@@ -670,7 +670,7 @@ final class FileExplorerStore {
 
     func refreshGitStatus() {
         guard !rootPath.isEmpty else {
-            gitStatusByPath = [:]
+            applyGitStatusIfChanged([:])
             return
         }
         let path = rootPath
@@ -686,7 +686,7 @@ final class FileExplorerStore {
                     identityFile: identity, sshOptions: opts
                 )
                 DispatchQueue.main.async { [weak self] in
-                    self?.gitStatusByPath = status
+                    self?.applyGitStatusIfChanged(status)
                 }
             }
         } else {
@@ -694,10 +694,17 @@ final class FileExplorerStore {
             DispatchQueue.global(qos: .utility).async {
                 let status = gitStatusProvider.fetchStatus(directory: path)
                 DispatchQueue.main.async { [weak self] in
-                    self?.gitStatusByPath = status
+                    self?.applyGitStatusIfChanged(status)
                 }
             }
         }
+    }
+
+    /// Every directory-watcher event reruns `git status`; an unchanged result
+    /// must not signal, or idle watcher noise rebuilds every visible outline row.
+    private func applyGitStatusIfChanged(_ status: [String: GitFileStatus]) {
+        guard gitStatusByPath != status else { return }
+        gitStatusByPath = status
     }
 
     func materializeRemoteFileForPreview(path: String) async throws -> URL {
@@ -779,7 +786,12 @@ final class FileExplorerStore {
 
     func expand(node: FileExplorerNode) {
         guard node.isDirectory else { return }
-        expandedPaths.insert(node.path)
+        // Insert only on real membership change: `Set.insert` of an existing
+        // member still fires `didSet`, and every `didSet` here signals a
+        // full outline refresh.
+        if !expandedPaths.contains(node.path) {
+            expandedPaths.insert(node.path)
+        }
         if node.children == nil, loadTasks[node.path] == nil, !loadingPaths.contains(node.path) {
             node.isLoading = true
             node.error = nil
@@ -794,11 +806,14 @@ final class FileExplorerStore {
     }
 
     func collapse(node: FileExplorerNode) {
-        expandedPaths.remove(node.path)
+        // No-op signals: the `didSet` on `expandedPaths` already signals, and
+        // removing an absent path must not refresh the outline at all.
+        if expandedPaths.contains(node.path) {
+            expandedPaths.remove(node.path)
+        }
         if pendingDescendIntoFirstChildPath == node.path {
             pendingDescendIntoFirstChildPath = nil
         }
-        signalChange()
     }
 
     func isExpanded(_ node: FileExplorerNode) -> Bool {

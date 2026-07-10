@@ -221,6 +221,41 @@ struct FileExplorerStoreTests {
         #expect(store.changeGeneration > afterLoad)
     }
 
+    /// Redundant expand/collapse (already-expanded, already-collapsed) must not
+    /// signal: the outline's programmatic reloads re-fire expand/collapse
+    /// delegate notifications, and a signal from a no-op write-back schedules
+    /// another reload — the idle full-outline refresh loop found while
+    /// dogfooding the Observation migration.
+    @Test
+    func testRedundantExpandCollapseDoNotBumpChangeGeneration() async throws {
+        let provider = MockFileExplorerProvider()
+        provider.listings["/home/user/project"] = .success([
+            FileExplorerEntry(name: "src", path: "/home/user/project/src", isDirectory: true)
+        ])
+        provider.listings["/home/user/project/src"] = .success([
+            FileExplorerEntry(name: "main.swift", path: "/home/user/project/src/main.swift", isDirectory: false)
+        ])
+
+        let store = FileExplorerStore()
+        store.setProviderForTesting(provider)
+        store.setRootPath("/home/user/project")
+        try await waitFor("root nodes loaded") { store.rootNodes.count == 1 }
+
+        store.expand(node: store.rootNodes[0])
+        try await waitFor("children loaded") { store.rootNodes[0].children?.count == 1 }
+        let expanded = store.changeGeneration
+
+        store.expand(node: store.rootNodes[0])
+        #expect(store.changeGeneration == expanded)
+
+        store.collapse(node: store.rootNodes[0])
+        let collapsed = store.changeGeneration
+        #expect(collapsed > expanded)
+
+        store.collapse(node: store.rootNodes[0])
+        #expect(store.changeGeneration == collapsed)
+    }
+
     @Test
     func testDisplayRootPathUsesTilde() {
         let provider = MockFileExplorerProvider(homePath: "/home/user")
