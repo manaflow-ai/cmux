@@ -43,9 +43,13 @@ actor CmxIrohPooledByteTransport: CmxByteTransport {
         }
     }
 
-    func close() {
+    func close() async {
         guard !closed else { return }
         closed = true
         session = nil
+        // The mobile RPC session owns control framing and may leave a cancelled
+        // read or partial frame behind. Never hand that stream to a replacement
+        // RPC owner; close the peer session so the next control transport redials.
+        await pool.invalidate(for: request)
     }
 }

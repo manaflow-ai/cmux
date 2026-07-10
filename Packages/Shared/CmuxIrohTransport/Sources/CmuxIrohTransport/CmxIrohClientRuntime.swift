@@ -34,7 +34,7 @@ public actor CmxIrohClientRuntime {
     private let broker: any CmxIrohClientBrokerServing
     private let configuration: CmxIrohClientRuntimeConfiguration
     private let protocolConfiguration: CmxIrohProtocolConfiguration
-    private let activeNetworkProfiles: @Sendable () async -> Set<CmxIrohNetworkProfileKey>
+    private let networkPathSnapshot: @Sendable () async throws -> CmxIrohNetworkPathSnapshot
     private let now: @Sendable () -> Date
     private let handleBinding: BindingHandler
     private let handleRelayCredential: RelayCredentialHandler
@@ -63,8 +63,8 @@ public actor CmxIrohClientRuntime {
     ///   - broker: The authenticated registration, discovery, grant, and relay client.
     ///   - configuration: Stable account-and-build-scoped endpoint inputs.
     ///   - protocolConfiguration: The cmux ALPN and stream framing configuration.
-    ///   - activeNetworkProfiles: Current opaque private-network profiles. The
-    ///     iOS app supplies an empty set until explicit profile hints ship.
+    ///   - networkPathSnapshot: A generation-aware view of positively identified
+    ///     private-network profiles. An empty profile set disables explicit hints.
     ///   - now: Wall-clock injection for route and relay validation.
     ///   - handleBinding: Persists the exact verified binding and discovery state.
     ///   - handleRelayCredential: Persists an installed relay credential.
@@ -75,8 +75,8 @@ public actor CmxIrohClientRuntime {
         broker: any CmxIrohClientBrokerServing,
         configuration: CmxIrohClientRuntimeConfiguration,
         protocolConfiguration: CmxIrohProtocolConfiguration = .cmuxMobileV1,
-        activeNetworkProfiles: @escaping @Sendable () async -> Set<CmxIrohNetworkProfileKey> = {
-            []
+        networkPathSnapshot: @escaping @Sendable () async throws -> CmxIrohNetworkPathSnapshot = {
+            CmxIrohNetworkPathSnapshot(generation: 1, activeNetworkProfiles: [])
         },
         now: @escaping @Sendable () -> Date = { Date() },
         handleBinding: @escaping BindingHandler = { _, _ in },
@@ -108,7 +108,7 @@ public actor CmxIrohClientRuntime {
         self.broker = broker
         self.configuration = configuration
         self.protocolConfiguration = protocolConfiguration
-        self.activeNetworkProfiles = activeNetworkProfiles
+        self.networkPathSnapshot = networkPathSnapshot
         self.now = now
         self.handleBinding = handleBinding
         self.handleRelayCredential = handleRelayCredential
@@ -356,7 +356,7 @@ public actor CmxIrohClientRuntime {
             broker: broker,
             localBindingExpectation: policy.expectation,
             managedRelayURLs: configuration.managedRelayURLs,
-            activeNetworkProfiles: activeNetworkProfiles,
+            networkPathSnapshot: networkPathSnapshot,
             now: now
         )
         await contextRouter.install(provider)

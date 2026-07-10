@@ -34,7 +34,6 @@ struct CmxIrohClientSessionPoolTests {
         let transport = try factory.makeTransport(for: fixture.request)
 
         try await transport.connect()
-        await transport.close()
         _ = try await pool.openBidirectionalLane(
             for: fixture.request,
             lane: .terminal(
@@ -56,8 +55,49 @@ struct CmxIrohClientSessionPoolTests {
         #expect(await terminalSend.observedPriorities() == [50])
         #expect(await artifactSend.observedPriorities() == [10])
         #expect(await connection.observedCloseCallCount() == 0)
-        await pool.deactivate()
+        await #expect(throws: CmxIrohClientSessionError.invalidOutgoingLane) {
+            _ = try await pool.openBidirectionalLane(
+                for: fixture.request,
+                lane: .control,
+                priority: 0
+            )
+        }
+        #expect(await connection.observedCloseCallCount() == 0)
+        await transport.close()
         #expect(await connection.observedCloseCallCount() == 1)
+    }
+
+    @Test
+    func replacementControlOwnerRedialsInsteadOfReusingFramingState() async throws {
+        let fixture = try PoolFixture()
+        let firstConnection = TestIrohConnection(
+            remoteIdentity: fixture.remoteIdentity,
+            bidirectionalStreams: [fixture.controlStream()]
+        )
+        let secondConnection = TestIrohConnection(
+            remoteIdentity: fixture.remoteIdentity,
+            bidirectionalStreams: [fixture.controlStream()]
+        )
+        let endpoint = TestDialingIrohEndpoint(
+            localIdentity: fixture.localIdentity,
+            dialResults: [
+                .connection(firstConnection),
+                .connection(secondConnection),
+            ]
+        )
+        let pool = try await fixture.pool(endpoint: endpoint, generation: 1)
+        let factory = CmxIrohByteTransportFactory(sessionPool: pool)
+        let first = try factory.makeTransport(for: fixture.request)
+        try await first.connect()
+
+        await first.close()
+        let replacement = try factory.makeTransport(for: fixture.request)
+        try await replacement.connect()
+
+        #expect(await firstConnection.observedCloseCallCount() == 1)
+        #expect(await endpoint.observedDialedAddresses().count == 2)
+        #expect(await secondConnection.observedCloseCallCount() == 0)
+        await replacement.close()
     }
 
     @Test

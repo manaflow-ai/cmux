@@ -27,6 +27,18 @@ public struct CmxIrohByteTransportFactory: CmxRouteAwareByteTransportFactory {
         }
     }
 
+    /// Creates a factory that waits for account-scoped runtime activation on connect.
+    ///
+    /// - Parameter deferredProvider: The process-owned runtime composition seam.
+    public init(deferredProvider: any CmxIrohDeferredTransportProviding) {
+        buildTransport = { request in
+            CmxIrohDeferredByteTransport(
+                request: request,
+                provider: deferredProvider
+            )
+        }
+    }
+
     init(sessionPool: CmxIrohClientSessionPool) {
         buildTransport = { request in
             CmxIrohPooledByteTransport(request: request, pool: sessionPool)
