@@ -404,6 +404,36 @@ struct CanvasPortalLifecycleTests {
         withExtendedLifetime(portalHost) {}
     }
 
+    @Test
+    @MainActor
+    func canvasDirectHostRestoresVisibilityWhenRenderingResumes() {
+        let panel = TerminalPanel(workspaceId: UUID())
+        defer { panel.surface.teardownSurface() }
+        let hostedView = panel.hostedView
+        let container = NSView(frame: CGRect(x: 0, y: 0, width: 400, height: 300))
+        let mount = CanvasPaneContentMount(
+            content: .terminal(panel),
+            panelId: panel.id,
+            container: container,
+            onFocusPanel: { _ in }
+        )
+        defer { mount.unmount() }
+        #expect(hostedView.debugPortalVisibleInUI)
+        #expect(!hostedView.isHidden)
+
+        hostedView.setVisibleInUI(false, refreshPolicy: .deferredToPortal)
+        #expect(!hostedView.debugPortalVisibleInUI)
+        #expect(hostedView.isHidden)
+
+        mount.setRendering(true)
+
+        #expect(
+            hostedView.debugPortalVisibleInUI,
+            "Canvas must restore a direct-hosted terminal after workspace or sidebar visibility returns"
+        )
+        #expect(!hostedView.isHidden)
+    }
+
     @MainActor
     private static func drainMainRunLoop(for window: NSWindow, iterations: Int = 20) async {
         for _ in 0..<iterations {
