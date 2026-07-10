@@ -369,10 +369,10 @@ final class SharedLiveAgentIndex {
         source.setCancelHandler { Darwin.close(fd) }
         source.resume()
         directoryWatchSource = source
-        if refreshTask == nil {
-            startReload()
-        } else {
+        if isForkAvailabilityRefreshInFlight {
             changePending = true
+        } else {
+            startReload()
         }
     }
 }
