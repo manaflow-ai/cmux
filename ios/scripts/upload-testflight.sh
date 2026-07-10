@@ -139,6 +139,10 @@ or:
   APPLE_APP_SPECIFIC_PASSWORD
   APPLE_PROVIDER_PUBLIC_ID
 
+With ASC API authentication, the appstore lane also requires ASC_APP_ID and the
+asc CLI so upload can target the numeric App Store Connect app record instead
+of relying on bundle-id lookup. Apple ID credentials keep using altool.
+
 Options:
   --lane <beta|appstore>    Distribution lane. beta is the existing TestFlight
                             path. appstore uploads the production App Store
@@ -581,9 +585,10 @@ if [[ -z "$ARCHIVE_PATH" ]]; then
   ARCHIVE_PATH="$OUT_DIR/cmux.xcarchive"
   if [[ "$SIGNING" == "automatic" ]]; then
     # Automatic signing must archive a signed app so Xcode has the requested
-    # Release entitlements to preserve during App Store Connect export. An
-    # unsigned archive exports with only the profile baseline and drops
-    # aps-environment, which the gate below correctly refuses to upload.
+    # Release entitlements to preserve during App Store Connect export. The
+    # iOS app target gets those entitlements from Config/Release.xcconfig; do
+    # not pass CODE_SIGN_ENTITLEMENTS here because command-line build settings
+    # apply to every SwiftPM target in the workspace.
     xcodebuild archive \
       -workspace "$WORKSPACE" \
       -scheme "$SCHEME" \
@@ -599,8 +604,6 @@ if [[ -z "$ARCHIVE_PATH" ]]; then
       CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
       ${MARKETING_VERSION_ARGS[@]+"${MARKETING_VERSION_ARGS[@]}"} \
       CODE_SIGN_STYLE=Automatic \
-      CODE_SIGN_ENTITLEMENTS="Config/cmux-release.entitlements" \
-      CODE_SIGN_IDENTITY="Apple Distribution" \
       CODE_SIGNING_ALLOWED=YES \
       CODE_SIGNING_REQUIRED=YES \
       | tee "$OUT_DIR/archive.log"
@@ -900,7 +903,78 @@ if [[ "$EXPORT_ONLY" -eq 1 ]]; then
   exit 0
 fi
 
-if [[ -n "${ASC_API_KEY_ID:-}" || -n "${ASC_API_ISSUER_ID:-}" || -n "${ASC_API_KEY_PATH:-}" ]]; then
+upload_app_store_with_asc() {
+  if [[ -z "${ASC_APP_ID:-}" ]]; then
+    echo "error: --lane appstore requires ASC_APP_ID so the upload targets the exact App Store Connect app record" >&2
+    exit 2
+  fi
+  if ! command -v asc >/dev/null 2>&1; then
+    echo "error: --lane appstore requires the asc CLI for app-id based upload (install with: brew install asc)" >&2
+    exit 2
+  fi
+
+  local asc_private_key_path="${ASC_API_KEY_PATH:-}"
+  local asc_private_key_b64="${ASC_API_KEY_P8_BASE64:-}"
+  if [[ -z "${ASC_API_KEY_ID:-}" || -z "${ASC_API_ISSUER_ID:-}" || ( -z "$asc_private_key_path" && -z "$asc_private_key_b64" ) ]]; then
+    echo "error: --lane appstore asc upload requires ASC_API_KEY_ID, ASC_API_ISSUER_ID, and ASC_API_KEY_PATH or ASC_API_KEY_P8_BASE64" >&2
+    exit 2
+  fi
+  if [[ -n "$asc_private_key_path" && ! -f "$asc_private_key_path" ]]; then
+    echo "error: ASC_API_KEY_PATH does not exist: $asc_private_key_path" >&2
+    exit 2
+  fi
+
+  local asc_home="$OUT_DIR/asc-home"
+  local asc_xdg_config="$OUT_DIR/asc-xdg-config"
+  local asc_xdg_cache="$OUT_DIR/asc-xdg-cache"
+  mkdir -p "$asc_home" "$asc_xdg_config" "$asc_xdg_cache"
+
+  local asc_env=(
+    "HOME=$asc_home"
+    "XDG_CONFIG_HOME=$asc_xdg_config"
+    "XDG_CACHE_HOME=$asc_xdg_cache"
+    "ASC_BYPASS_KEYCHAIN=1"
+    "ASC_STRICT_AUTH=true"
+    "ASC_NO_UPDATE=1"
+    "ASC_KEY_ID=$ASC_API_KEY_ID"
+    "ASC_ISSUER_ID=$ASC_API_ISSUER_ID"
+  )
+  if [[ -n "$asc_private_key_path" ]]; then
+    asc_env+=( "ASC_PRIVATE_KEY_PATH=$asc_private_key_path" )
+  fi
+  if [[ -n "$asc_private_key_b64" ]]; then
+    asc_env+=( "ASC_PRIVATE_KEY_B64=$asc_private_key_b64" )
+  fi
+
+  (
+    export "${asc_env[@]}"
+    asc builds upload \
+      --app "$ASC_APP_ID" \
+      --ipa "$IPA_PATH" \
+      --output json
+  ) | tee "$OUT_DIR/upload.log"
+}
+
+HAS_COMPLETE_ASC_UPLOAD_ENV=0
+if [[ -n "${ASC_APP_ID:-}" && -n "${ASC_API_KEY_ID:-}" && -n "${ASC_API_ISSUER_ID:-}" && ( -n "${ASC_API_KEY_PATH:-}" || -n "${ASC_API_KEY_P8_BASE64:-}" ) ]]; then
+  HAS_COMPLETE_ASC_UPLOAD_ENV=1
+fi
+
+HAS_ANY_ASC_UPLOAD_ENV=0
+if [[ -n "${ASC_APP_ID:-}" || -n "${ASC_API_KEY_ID:-}" || -n "${ASC_API_ISSUER_ID:-}" || -n "${ASC_API_KEY_PATH:-}" || -n "${ASC_API_KEY_P8_BASE64:-}" ]]; then
+  HAS_ANY_ASC_UPLOAD_ENV=1
+fi
+
+HAS_APPLE_ID_UPLOAD_ENV=0
+if [[ -n "${APPLE_ID:-}" || -n "${APPLE_APP_SPECIFIC_PASSWORD:-}" || -n "${APPLE_PROVIDER_PUBLIC_ID:-}" ]]; then
+  HAS_APPLE_ID_UPLOAD_ENV=1
+fi
+
+if [[ "$LANE" == "appstore" && "$HAS_COMPLETE_ASC_UPLOAD_ENV" -eq 1 ]]; then
+  upload_app_store_with_asc
+elif [[ "$LANE" == "appstore" && "$HAS_ANY_ASC_UPLOAD_ENV" -eq 1 && "$HAS_APPLE_ID_UPLOAD_ENV" -ne 1 ]]; then
+  upload_app_store_with_asc
+elif [[ "$LANE" != "appstore" && ( -n "${ASC_API_KEY_ID:-}" || -n "${ASC_API_ISSUER_ID:-}" || -n "${ASC_API_KEY_PATH:-}" ) ]]; then
   if [[ -z "${ASC_API_KEY_ID:-}" || -z "${ASC_API_ISSUER_ID:-}" || -z "${ASC_API_KEY_PATH:-}" ]]; then
     echo "error: ASC_API_KEY_ID, ASC_API_ISSUER_ID, and ASC_API_KEY_PATH must be set together" >&2
     exit 2
@@ -920,7 +994,7 @@ if [[ -n "${ASC_API_KEY_ID:-}" || -n "${ASC_API_ISSUER_ID:-}" || -n "${ASC_API_K
     --api-key "$ASC_API_KEY_ID" \
     --api-issuer "$ASC_API_ISSUER_ID" \
     | tee "$OUT_DIR/upload.log"
-elif [[ -n "${APPLE_ID:-}" || -n "${APPLE_APP_SPECIFIC_PASSWORD:-}" || -n "${APPLE_PROVIDER_PUBLIC_ID:-}" ]]; then
+elif [[ "$HAS_APPLE_ID_UPLOAD_ENV" -eq 1 ]]; then
   if [[ -z "${APPLE_ID:-}" || -z "${APPLE_APP_SPECIFIC_PASSWORD:-}" || -z "${APPLE_PROVIDER_PUBLIC_ID:-}" ]]; then
     echo "error: APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, and APPLE_PROVIDER_PUBLIC_ID must be set together" >&2
     exit 2

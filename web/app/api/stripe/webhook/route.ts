@@ -132,11 +132,12 @@ async function processStripeEvent(
       const expanded = await dependencies.stripe().checkout.sessions.retrieve(session.id, {
         expand: ["subscription", "customer"],
       });
-      await dependencies.recordCheckoutCompletion({
+      const result = await dependencies.recordCheckoutCompletion({
         session: expanded,
         subscription: expandedSubscription(expanded),
         customer: expandedCustomer(expanded),
       });
+      if (result && "skipped" in result) return { skipped: result.skipped };
       return { processed: "checkout.session.completed" };
     }
     case "customer.subscription.created":

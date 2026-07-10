@@ -232,11 +232,16 @@ extension DockSplitStore {
                 title: detached.cachedTitle ?? detached.panel.displayTitle
             )
         }
+        let restoredIconPayload: (imageData: Data?, assetName: String?) = {
+            guard detached.panel is TerminalPanel else { return (detached.iconImageData, nil) }
+            let payload = terminalTabAgentIconPayload(forPanelId: detached.panelId)
+            return (payload.imageData, payload.assetName)
+        }()
         guard let newTabId = bonsplitController.createTab(
             title: detached.title,
             icon: detached.icon,
-            iconImageData: detached.iconImageData,
-            iconAsset: terminalTabAgentIconAsset(forPanelId: detached.panelId),
+            iconImageData: restoredIconPayload.imageData,
+            iconAsset: restoredIconPayload.assetName,
             kind: kind,
             isDirty: panel.isDirty,
             isLoading: detached.isLoading,
@@ -266,6 +271,7 @@ extension DockSplitStore {
                 panel.focus()
             }
         }
+        scheduleDockPortalReconcile(reason: "dock.attachDetachedSurface")
         return detached.panelId
     }
 }

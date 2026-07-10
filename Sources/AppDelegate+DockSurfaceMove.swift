@@ -139,6 +139,7 @@ extension AppDelegate {
                 insertFirst: split.insertFirst
             )
         }
+        destinationDock.scheduleDockPortalReconcile(reason: "dock.moveSurfaceIntoDock")
 
         // The surface was attached into the Dock with focus, so record Dock focus
         // ownership. Without this, `rightSidebarOwnsInputFocus` stays false and the
@@ -212,6 +213,11 @@ extension AppDelegate {
                 insertFirst: splitTarget.insertFirst
             )
         }
+        destinationWorkspace.scheduleTerminalGeometryReconcile()
+        destinationWorkspace.reconcileBrowserPortalVisibilityForCurrentRenderedLayout(
+            reason: "dock.moveSurfaceToWorkspace"
+        )
+        sourceDock.scheduleDockPortalReconcile(reason: "dock.moveSurfaceToWorkspace.source")
 
         if focus {
             if focusWindow, let destinationWindowId = windowId(for: destinationManager) {
@@ -239,7 +245,7 @@ extension AppDelegate {
         guard let detached = sourceDock.detachSurface(panelId: panelId) else { return false }
         (detached.panel as? TerminalPanel)?.surface.setFocusPlacement(.workspace)
 
-        guard manager.addWorkspace(fromDetachedSurface: detached, select: focus) != nil else {
+        guard let destinationWorkspace = manager.addWorkspace(fromDetachedSurface: detached, select: focus) else {
             // Creation failed — roll the panel back into the Dock unchanged.
             (detached.panel as? TerminalPanel)?.surface.setFocusPlacement(.rightSidebarDock)
             if let rollbackPane = sourcePane ?? sourceDock.bonsplitController.allPaneIds.first {
@@ -247,6 +253,11 @@ extension AppDelegate {
             }
             return false
         }
+        destinationWorkspace.scheduleTerminalGeometryReconcile()
+        destinationWorkspace.reconcileBrowserPortalVisibilityForCurrentRenderedLayout(
+            reason: "dock.moveSurfaceToNewWorkspace"
+        )
+        sourceDock.scheduleDockPortalReconcile(reason: "dock.moveSurfaceToNewWorkspace.source")
 
         if focus, focusWindow, let destinationWindowId = windowId(for: manager) {
             _ = focusMainWindow(windowId: destinationWindowId)

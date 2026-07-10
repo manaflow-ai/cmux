@@ -1,14 +1,53 @@
 import Foundation
 
 extension RemoteTmuxControlConnection {
+    /// Drops tmux `#[...]` style tokens from an expanded format (tmux marks
+    /// the active pane by reversing its index; the dot carries that signal
+    /// here).
+    static func strippingStyleTokens(_ value: String) -> String {
+        value.replacingOccurrences(
+            of: "#\\[[^\\]]*\\]", with: "", options: .regularExpression
+        )
+    }
+
+    /// Applies tmux's authoritative window name to every topology phase that
+    /// can later publish the window. Returns whether already-published state changed.
+    @discardableResult
+    func applyWindowName(windowId: Int, name: String) -> Bool {
+        var publishedChanged = false
+        if let window = windowsByID[windowId], window.name != name {
+            windowsByID[windowId] = window.replacingName(with: name)
+            publishedChanged = true
+        }
+        if var pending = pendingLayouts[windowId], pending.name != name {
+            pending.name = name
+            pendingLayouts[windowId] = pending
+        }
+        if let staged = initialBatchStaged[windowId], staged.name != name {
+            initialBatchStaged[windowId] = staged.replacingName(with: name)
+        }
+        return publishedChanged
+    }
 
 
+    /// Window ids from a topology population that started with NO published
+    /// windows (first attach, reconnect reseed into an empty table), still
+    /// awaiting their rects reply. While non-nil, verified windows accumulate
+    /// in `initialBatchStaged` and flush to `windowsByID` in ONE atomic
+    /// publish when the set drains. Without the barrier, each window would
+    /// publish in rects-reply arrival order, and the mirror layer's tab
+    /// creation order — and with it which tab ends up selected and which
+    /// mirrors take their one-time size claim from a hidden, collapsed
+    /// container — would be a race between round trips.
     func applyLayout(
         windowId: Int, layout: String, visibleLayout: String? = nil, zoomed: Bool = false
     ) {
         guard let node = RemoteTmuxRawLayoutParser.parse(layout) else { return }
         // Preserve any name tmux already reported (a %layout-change carries no name).
-        let existingName = windowsByID[windowId]?.name ?? pendingLayouts[windowId]?.name ?? ""
+        let existingName = windowsByID[windowId]?.name
+            ?? pendingLayouts[windowId]?.name
+            ?? initialBatchStaged[windowId]?.name
+            ?? ""
         let visibleNode = visibleLayout.flatMap { RemoteTmuxRawLayoutParser.parse($0) }
         stagePendingLayout(
             windowId: windowId,
@@ -30,7 +69,7 @@ extension RemoteTmuxControlConnection {
         zoomed: Bool,
         name: String
     ) {
-        var pending = pendingLayouts[windowId] ?? PendingLayout(
+        var pending = pendingLayouts[windowId] ?? RemoteTmuxPendingLayout(
             node: node, visibleNode: visibleNode, zoomed: zoomed, name: name, generation: 0
         )
         pending.node = node

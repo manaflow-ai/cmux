@@ -966,7 +966,7 @@ struct ContentView: View {
     @FocusState private var isCommandPaletteSearchFocused: Bool
     @FocusState private var isCommandPaletteRenameFocused: Bool
     private let windowChrome = AppWindowChromeComposition()
-
+    private let sidebarResizerOcclusionResolver = SidebarResizerOcclusionResolver()
     private struct CommandPaletteRestoreFocusTarget {
         let workspaceId: UUID
         let panelId: UUID
@@ -1411,18 +1411,6 @@ struct ContentView: View {
         }
     }
 
-    private func dividerBandContains(pointInContent point: NSPoint, contentBounds: NSRect) -> Bool {
-        guard point.y >= contentBounds.minY, point.y <= contentBounds.maxY else { return false }
-        if sidebarState.isVisible,
-           SidebarResizeInteraction.Edge.leading.hitRange(dividerX: sidebarWidth).contains(point.x) {
-            return true
-        }
-
-        let rightDividerX = contentBounds.maxX - rightSidebarWidth
-        return rightSidebarVisible &&
-            SidebarResizeInteraction.Edge.trailing.hitRange(dividerX: rightDividerX).contains(point.x)
-    }
-
     private func updateSidebarResizerBandState(using _: NSEvent? = nil) {
         guard sidebarState.isVisible || rightSidebarVisible,
               let window = observedWindow,
@@ -1432,24 +1420,34 @@ struct ContentView: View {
             return
         }
 
-        // Use live global pointer location instead of per-event coordinates.
-        // Overlapping tracking areas (notably WKWebView) can deliver stale/jittery
-        // event locations during cursor updates, which causes visible cursor flicker.
+        // Use live pointer location; overlapping WKWebView tracking areas can report stale cursor-update locations.
         let pointInWindow = window.convertPoint(fromScreen: NSEvent.mouseLocation)
         let pointInContent = contentView.convert(pointInWindow, from: nil)
-        let isInDividerBand = dividerBandContains(pointInContent: pointInContent, contentBounds: contentView.bounds)
-        isResizerBandActive = isInDividerBand
+        let isInDividerBand = sidebarResizerOcclusionResolver.dividerBandContains(
+            point: pointInContent,
+            contentBounds: contentView.bounds,
+            isLeftSidebarVisible: sidebarState.isVisible,
+            leftDividerX: sidebarWidth,
+            isRightSidebarVisible: rightSidebarVisible,
+            rightDividerX: contentView.bounds.maxX - rightSidebarWidth
+        )
+        let mayActivate = sidebarResizerOcclusionResolver.bandMayActivate(
+            isDragging: isResizerDragging,
+            isInDividerBand: isInDividerBand,
+            screenPoint: NSEvent.mouseLocation,
+            observedWindowNumber: window.windowNumber
+        )
+        isResizerBandActive = mayActivate && isInDividerBand
 
-        if isInDividerBand || isResizerDragging {
+        if mayActivate {
             activateSidebarResizerCursor()
             startSidebarResizerCursorStabilizer()
-            // AppKit cursorUpdate handlers from overlapped portal/web views can run
-            // after our local monitor callback and temporarily reset the cursor.
-            // Re-assert on the next runloop turn to keep the resize cursor stable.
+            // Overlapped portal/web cursorUpdate handlers run later and can temporarily reset the cursor.
             DispatchQueue.main.async {
                 Self.fixedSidebarResizeCursor.set()
             }
         } else {
+            hoveredResizerHandles.removeAll()
             stopSidebarResizerCursorStabilizer()
             scheduleSidebarResizerCursorRelease()
         }
@@ -1536,6 +1534,8 @@ struct ContentView: View {
             .contentShape(Rectangle())
             .onHover { hovering in
                 if hovering {
+                    updateSidebarResizerBandState()
+                    guard isResizerBandActive || isResizerDragging else { return }
                     hoveredResizerHandles.insert(handle)
                     activateSidebarResizerCursor()
                 } else {
@@ -1942,7 +1942,7 @@ struct ContentView: View {
         return windowChrome.appearanceSnapshot(
             settings: WindowAppearanceUserSettingsSnapshot(
                 unifySurfaceBackdrops: sidebarMatchTerminalBackground,
-                colorScheme: AppearanceSettings.colorScheme(for: appearanceMode, fallback: colorScheme),
+                colorScheme: AppearanceSettings.effectiveColorScheme(for: appearanceMode, fallback: colorScheme),
                 sidebarMaterial: sidebarMaterial,
                 sidebarBlendMode: sidebarBlendMode,
                 sidebarState: sidebarStateSetting,
@@ -2644,7 +2644,7 @@ struct ContentView: View {
                 backgroundSource: source,
                 notificationPayloadHex: payloadHex
             )
-        })
+        }.onReceive(NotificationCenter.default.publisher(for: .systemAppearanceDidChange)) { _ in scheduleTitlebarThemeRefresh(reason: "systemAppearanceChanged") })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .ghosttyDidFocusTab)) { _ in
             sidebarSelectionState.selection = .tabs
@@ -6330,7 +6330,7 @@ struct ContentView: View {
                 when: { !$0.bool(CommandPaletteContextKeys.browserDisabled) }
             )
         )
-        contributions.append(Self.commandPaletteNewAgentChatContribution())
+        contributions.append(contentsOf: Self.commandPaletteNewAgentChatContributions())
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.newWindow",
@@ -10338,9 +10338,7 @@ struct VerticalTabsSidebar: View {
 
     struct WorkspaceListRenderContext {
         let tabs: [Workspace]
-        /// Stored snapshot of `tabs.map(\.id)` so per-row predicates that need
-        /// it (e.g. `SidebarTabDropIndicatorPredicate.topVisible`) don't pay
-        /// O(n) per row.
+        /// Stored `tabs.map(\.id)` snapshot so row predicates avoid O(n) work.
         let tabIds: [UUID]
         /// Drag-scope row ids shared by every visible row for this render pass.
         let sidebarReorderIds: [UUID]
@@ -10348,6 +10346,7 @@ struct VerticalTabsSidebar: View {
         let canCloseWorkspace: Bool
         let workspaceNumberShortcut: StoredShortcut
         let tabItemSettings: SidebarTabItemSettingsSnapshot
+        let showsAgentActivity: Bool
         let pinResolutionContext: WorkspaceActionDispatcher.PinResolutionContext
         let tabIndexById: [UUID: Int]
         let workspaceById: [UUID: Workspace]
@@ -10426,6 +10425,7 @@ struct VerticalTabsSidebar: View {
             canCloseWorkspace: canCloseWorkspace,
             workspaceNumberShortcut: workspaceNumberShortcut,
             tabItemSettings: tabItemSettings,
+            showsAgentActivity: showAgentActivity && CmuxFeatureFlags.shared.isSidebarWorkspaceAgentSpinnerEnabled,
             pinResolutionContext: pinResolutionContext,
             tabIndexById: tabIndexById,
             workspaceById: workspaceById,
@@ -12363,7 +12363,7 @@ struct VerticalTabsSidebar: View {
             accessibilityWorkspaceCount: renderContext.workspaceCount,
             unreadCount: liveUnreadCount,
             latestNotificationText: liveLatestNotificationText,
-            showsAgentActivity: showAgentActivity,
+            showsAgentActivity: renderContext.showsAgentActivity,
             rowSpacing: tabRowSpacing,
             setSelectionToTabs: { selection = .tabs },
             selectedTabIds: $selectedTabIds,
@@ -13651,6 +13651,11 @@ struct TabItemView: View, Equatable {
             maxDisplayedCharacters: Self.maxDisplayedTitleCharacters
         )
         let scaledUnreadBadgeSize = 16 * fontScale
+        let scaledLoadingSpinnerSize = max(10, 12 * fontScale)
+        let titleFirstLineCenter = GlobalFontMagnification.scaledSize(
+            scaledFontSize(12.5),
+            percent: globalFontMagnificationPercent
+        ) * 0.6
         let scaledCloseButtonHitSize = max(16, 16 * fontScale)
         let scaledCloseButtonWidth = max(
             SidebarTrailingAccessoryWidthPolicy().closeButtonWidth,
@@ -13669,9 +13674,9 @@ struct TabItemView: View, Equatable {
         let spinnerTooltip = SidebarWorkspaceLoadingTooltip.text(count: workspaceSnapshot.activeCodingAgentCount)
         let spinnerColor = usesInvertedActiveForeground ? selectedWorkspaceForegroundNSColor(opacity: 0.55) : .secondaryLabelColor
         let rowView = VStack(alignment: .leading, spacing: 4) {
-            HStack(alignment: .top, spacing: titleRowSpacing) {
+            HStack(alignment: .sidebarTitleFirstLineCenter, spacing: titleRowSpacing) {
                 if leadingSlotActive {
-                    SidebarWorkspaceLeadingStatusSlot(showsBadge: badgeOnLeading, showsSpinner: spinnerOnLeading, unreadCount: unreadCount, side: scaledUnreadBadgeSize, badgeFont: badgeFont, badgeFillColor: activeUnreadBadgeFillColor, badgeTextColor: activeUnreadBadgeTextColor, spinnerColor: spinnerColor, spinnerTooltip: spinnerTooltip)
+                    SidebarWorkspaceLeadingStatusSlot(showsBadge: badgeOnLeading, showsSpinner: spinnerOnLeading, unreadCount: unreadCount, side: badgeOnLeading ? scaledUnreadBadgeSize : scaledLoadingSpinnerSize, spinnerSide: scaledLoadingSpinnerSize, badgeFont: badgeFont, badgeFillColor: activeUnreadBadgeFillColor, badgeTextColor: activeUnreadBadgeTextColor, spinnerColor: spinnerColor, spinnerTooltip: spinnerTooltip)
                 }
 
                 if workspaceSnapshot.isPinned {
@@ -13684,38 +13689,11 @@ struct TabItemView: View, Equatable {
                 // background browser pane is surfaced on its workspace row,
                 // styled like the pin indicator. Audio is the must-have signal;
                 // mic/camera follow the macOS orange/green convention.
-                if workspaceSnapshot.mediaActivity.isPlayingAudio {
-                    let audioPlayingTooltip = String(
-                        localized: "sidebar.mediaActivity.audio.tooltip",
-                        defaultValue: "Playing audio"
-                    )
-                    CmuxSystemSymbolImage(magnified: "speaker.wave.2.fill", pointSize: scaledFontSize(9), weight: .semibold)
-                        .foregroundColor(activeSecondaryColor(0.8))
-                        .safeHelp(audioPlayingTooltip)
-                        .accessibilityLabel(audioPlayingTooltip)
-                }
-
-                if workspaceSnapshot.mediaActivity.isUsingMicrophone {
-                    let microphoneInUseTooltip = String(
-                        localized: "sidebar.mediaActivity.microphone.tooltip",
-                        defaultValue: "Microphone in use"
-                    )
-                    CmuxSystemSymbolImage(magnified: "mic.fill", pointSize: scaledFontSize(9), weight: .semibold)
-                        .foregroundColor(.orange)
-                        .safeHelp(microphoneInUseTooltip)
-                        .accessibilityLabel(microphoneInUseTooltip)
-                }
-
-                if workspaceSnapshot.mediaActivity.isUsingCamera {
-                    let cameraInUseTooltip = String(
-                        localized: "sidebar.mediaActivity.camera.tooltip",
-                        defaultValue: "Camera in use"
-                    )
-                    CmuxSystemSymbolImage(magnified: "video.fill", pointSize: scaledFontSize(9), weight: .semibold)
-                        .foregroundColor(.green)
-                        .safeHelp(cameraInUseTooltip)
-                        .accessibilityLabel(cameraInUseTooltip)
-                }
+                SidebarMediaActivityIndicators(
+                    mediaActivity: workspaceSnapshot.mediaActivity,
+                    symbolPointSize: scaledFontSize(9),
+                    audioColor: activeSecondaryColor(0.8)
+                )
 
                 if isEditing {
                     SidebarInlineRenameField(
@@ -13742,6 +13720,7 @@ struct TabItemView: View, Equatable {
                         onCancel: { isEditing = false }
                     )
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    .alignmentGuide(.sidebarTitleFirstLineCenter) { _ in titleFirstLineCenter }
                     .layoutPriority(1)
                 } else {
                     Text(displayedTitle)
@@ -13751,6 +13730,7 @@ struct TabItemView: View, Equatable {
                         .truncationMode(.tail)
                         .fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: .infinity, alignment: .leading)
+                        .alignmentGuide(.sidebarTitleFirstLineCenter) { _ in titleFirstLineCenter }
                         .layoutPriority(1)
                 }
 
@@ -13807,7 +13787,7 @@ struct TabItemView: View, Equatable {
             }
 
             if detailVisibility.showsLog, let latestLog = workspaceSnapshot.latestLog {
-                HStack(spacing: 4) {
+                HStack(alignment: .center, spacing: 4) {
                     CmuxSystemSymbolImage(magnified: logLevelIcon(latestLog.level), pointSize: scaledFontSize(8))
                         .foregroundColor(logLevelColor(latestLog.level, isActive: usesInvertedActiveForeground))
                     Text(latestLog.message)
@@ -13941,7 +13921,7 @@ struct TabItemView: View, Equatable {
                     ForEach(workspaceSnapshot.pullRequestRows) { pullRequest in
                         let pullRequestNumber = String(pullRequest.number)
                         let pullRequestTitle = "\(pullRequest.label) #\(pullRequestNumber)"
-                        let rowContent = HStack(spacing: 4) {
+                        let rowContent = HStack(alignment: .center, spacing: 4) {
                             PullRequestStatusIcon(
                                 status: pullRequest.status,
                                 color: pullRequestForegroundColor,
@@ -15456,7 +15436,7 @@ private struct SidebarMetadataEntryRow: View {
 
     @ViewBuilder
     private func rowContent(underlined: Bool) -> some View {
-        HStack(spacing: 4) {
+        HStack(alignment: .center, spacing: 4) {
             if let icon = iconView {
                 icon
                     .foregroundColor(foregroundColor.opacity(0.95))

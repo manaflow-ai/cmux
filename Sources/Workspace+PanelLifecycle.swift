@@ -153,8 +153,9 @@ extension Workspace {
                 didChange = true
             }
         }
-        if didChange, refreshPorts {
-            refreshTrackedAgentPorts()
+        if didChange {
+            if refreshPorts { refreshTrackedAgentPorts() }
+            AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: id)
         }
         return didChange
     }
@@ -175,8 +176,9 @@ extension Workspace {
                 didChange = true
             }
         }
-        if didChange, refreshPorts {
-            refreshTrackedAgentPorts()
+        if didChange {
+            if refreshPorts { refreshTrackedAgentPorts() }
+            AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: id, surfaceId: panelId)
         }
         return didChange
     }
@@ -188,9 +190,7 @@ extension Workspace {
         agentPIDPanelIdsByKey.removeAll()
         agentPIDKeysByPanelId.removeAll()
         syncTerminalTabAgentIconAssetsForAllTerminalPanels()
-        if hadAgentPIDs, refreshPorts {
-            refreshTrackedAgentPorts()
-        }
+        if hadAgentPIDs, refreshPorts { refreshTrackedAgentPorts() }
     }
 
     private func isRecordedAgentPIDLive(key: String, pid: pid_t) -> Bool {
@@ -465,6 +465,7 @@ extension Workspace {
         panelCustomTitles.removeValue(forKey: panelId)
         panelCustomTitleSources.removeValue(forKey: panelId)
         pinnedPanelIds.remove(panelId)
+        pinMutationTokensByPanelId.removeValue(forKey: panelId)
         manualUnreadPanelIds.remove(panelId)
         manualUnreadMarkedAt.removeValue(forKey: panelId)
         panelShellActivityStates.removeValue(forKey: panelId)

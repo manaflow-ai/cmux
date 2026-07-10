@@ -32,11 +32,14 @@ on:
         type: boolean
   schedule:
     # Every ~2h (at :17 to stay off the top-of-hour rush). The decide job skips a
-    # run only when the current main HEAD was already uploaded by a prior
-    # successful run (SHA compare, not a wall-clock window), so an iOS-affecting
-    # change reaches the TestFlight beta lane within ~2h of landing on main, and
-    # a failed or missed run retries the not-yet-uploaded commit instead of
-    # permanently stranding it. These uploads are external-eligible too, and reuse
+    # run when the current main HEAD was already uploaded by a prior successful
+    # run (SHA compare, not a wall-clock window), and also when main advanced but
+    # the diff since the last uploaded beta touches no iOS-affecting path (every
+    # upload notifies every TestFlight tester, so web-only / macOS-only merges
+    # must not ship a new beta). An iOS-affecting change still reaches the
+    # TestFlight beta lane within ~2h of landing on main, and a failed or missed
+    # run retries the not-yet-uploaded commit instead of permanently stranding
+    # it. These uploads are external-eligible too, and reuse
     # the checked-in iOS MARKETING_VERSION so external testers receive new builds
     # under the already-approved version until that version is intentionally bumped.
     #
@@ -224,10 +227,64 @@ jobs:
             if (!forceBuild && context.eventName === 'schedule') {
               needsBuild = lastUploadedSha !== context.sha;
             }
+
+            // Path gate: even when main advanced, a scheduled beta only ships if
+            // the range since the last uploaded beta touches something that can
+            // change the iOS IPA. Every TestFlight upload notifies every tester,
+            // so web-only / macOS-only / docs-only merges must not produce a new
+            // build. The path set mirrors test-ios.yml's should_run gate plus the
+            // inputs the archive actually consumes: the ghostty submodule pointer
+            // (GhosttyKit is linked into the app), the GhosttyKit provisioning
+            // scripts, the zig toolchain pin, and this workflow itself (archive /
+            // export settings live here). This gate FAILS OPEN (builds anyway) on
+            // any doubt - a compare-API error, a diverged range, a >=300-file
+            // diff where the API truncates the file list - because a spurious
+            // upload costs one notification while a wrong skip silently strands
+            // an iOS change out of beta.
+            const iosPathPattern = /^(ios\/|Packages\/Shared\/|Packages\/iOS\/|Sources\/Mobile\/|vendor\/stack-auth-swift-sdk-prerelease\/|ghostty$|scripts\/ensure-ghosttykit\.sh$|scripts\/ghosttykit-checksums\.txt$|scripts\/install-zig-ci\.sh$|\.github\/workflows\/ios-testflight\.yml$)/;
+            let iosPathsChanged = 'not-evaluated';
+            if (!forceBuild && context.eventName === 'schedule' && needsBuild && lastUploadedSha) {
+              try {
+                const compare = await github.rest.repos.compareCommitsWithBasehead({
+                  owner,
+                  repo,
+                  basehead: `${lastUploadedSha}...${context.sha}`,
+                });
+                const files = compare.data.files || [];
+                if (compare.data.status !== 'ahead') {
+                  core.warning(`compare status is '${compare.data.status}', not 'ahead'; assuming iOS paths changed`);
+                  iosPathsChanged = 'assumed (non-linear history)';
+                } else if (files.length >= 300) {
+                  // The compare API caps the files list at 300 entries.
+                  core.warning('diff since last upload has >=300 files (API truncates); assuming iOS paths changed');
+                  iosPathsChanged = 'assumed (diff too large)';
+                } else {
+                  const changed = files.some(
+                    (f) =>
+                      iosPathPattern.test(f.filename) ||
+                      (f.previous_filename && iosPathPattern.test(f.previous_filename))
+                  );
+                  iosPathsChanged = String(changed);
+                  if (!changed) {
+                    needsBuild = false;
+                    core.notice(`skipping TestFlight upload: ${files.length} changed file(s) since ${lastUploadedSha} touch no iOS-affecting path`);
+                  }
+                }
+              } catch (e) {
+                core.warning(`could not diff ${lastUploadedSha}...${context.sha}; assuming iOS paths changed: ${e.message}`);
+                iosPathsChanged = 'assumed (compare failed)';
+              }
+            }
+
+            // Retry a not-yet-complete external-group assignment whenever this
+            // run is NOT building: both when HEAD was already uploaded and when
+            // the path gate skipped a non-iOS range (the previously uploaded
+            // build is still the current beta and its assignment must not be
+            // stranded until the next iOS change lands).
             const shouldAssignOnly =
               !forceBuild &&
               context.eventName === 'schedule' &&
-              lastUploadedSha === context.sha &&
+              !needsBuild &&
               lastAssignmentRetrySupported &&
               !lastAssignmentSucceeded;
 
@@ -245,6 +302,7 @@ jobs:
                 [{ data: 'head sha', header: true }, context.sha],
                 [{ data: 'last uploaded sha (schedule only)', header: true }, String(lastUploadedSha)],
                 [{ data: 'last uploaded run id', header: true }, String(lastUploadedRunId)],
+                [{ data: 'ios paths changed since last upload', header: true }, iosPathsChanged],
                 [{ data: 'last external assignment succeeded', header: true }, String(lastAssignmentSucceeded)],
                 [{ data: 'should build', header: true }, String(shouldBuild)],
                 [{ data: 'should assign only', header: true }, String(shouldAssignOnly)],

@@ -25,6 +25,7 @@ import {
   type FaqItem,
   type SizeRow,
 } from "../../components/pricing-shared";
+import { CheckoutButton } from "../../components/checkout-navigation";
 
 // The Pro CTA destination is decided at runtime by the proCheckout PostHog
 // flag inside <ProCtaLink> (see app/lib/feature-flags.ts); the download
@@ -80,7 +81,7 @@ export default async function PricingPage({
       <SiteHeader />
 
       <main className="w-full max-w-6xl mx-auto px-6 py-16 sm:py-20">
-        {/* Post-checkout / billing states from /api/billing/checkout|confirm */}
+        {/* Post-checkout / billing states from /api/billing/checkout */}
         <Suspense fallback={null}>
           <ProWelcomeBanner />
         </Suspense>
@@ -117,15 +118,9 @@ export default async function PricingPage({
             {snapshot.isPro ? (
               <div className="space-y-2">
                 <DisabledButton>{t("currentPlan")}</DisabledButton>
-                {snapshot.billingManagement === "stripe" ? (
-                  <SecondaryLink href="/api/billing/portal">
-                    {t("manageBilling")}
-                  </SecondaryLink>
-                ) : (
-                  <p className="text-sm leading-6 text-muted">
-                    {t("billingExternal")}
-                  </p>
-                )}
+                <SecondaryLink href="/api/billing/portal">
+                  {t("manageBilling")}
+                </SecondaryLink>
               </div>
             ) : (
               <ProCtaLink checkoutHref={PRO_CHECKOUT_URL} fallbackHref={DOWNLOAD_CONFIRMATION_HREF}>
@@ -142,7 +137,7 @@ export default async function PricingPage({
             price={t("team.price")}
             period={t("perUserMonth")}
           >
-            <PrimaryLink href={TEAM_CHECKOUT_URL}>{t("team.cta")}</PrimaryLink>
+            <CheckoutButton href={TEAM_CHECKOUT_URL}>{t("team.cta")}</CheckoutButton>
             <p className="mt-5 text-sm font-medium">{t("team.featuresLead")}</p>
             <FeatureList items={teamFeatures} />
           </PlanCard>
@@ -201,9 +196,9 @@ export default async function PricingPage({
                 )
               ),
               team: (
-                <PrimaryLink href={TEAM_CHECKOUT_URL} size="compact">
+                <CheckoutButton href={TEAM_CHECKOUT_URL} size="compact">
                   {t("team.cta")}
-                </PrimaryLink>
+                </CheckoutButton>
               ),
               enterprise: (
                 <SecondaryLink href={ENTERPRISE_CTA_URL} size="compact">
@@ -277,7 +272,7 @@ export default async function PricingPage({
 
 async function currentPlanSnapshot(): Promise<{
   isPro: boolean;
-  billingManagement: "stripe" | "external" | "none";
+  billingManagement: "stripe" | "none";
 }> {
   if (!isStackConfigured()) {
     return { isPro: false, billingManagement: "none" };

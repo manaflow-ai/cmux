@@ -192,7 +192,7 @@ class TabManager: ObservableObject {
     // timing (objectWillChange + bridge publishers in willSet, selection
     // side effects in didSet).
     let workspaces = WorkspacesModel<Workspace>()
-    private var workspacesById: [UUID: Workspace] = [:]
+    private(set) var workspacesById: [UUID: Workspace] = [:]
 
     var tabs: [Workspace] {
         get { workspaces.tabs }
@@ -686,11 +686,7 @@ class TabManager: ObservableObject {
 
     private func sweepStaleAgentPIDs() {
         for tab in tabs {
-            if tab.clearStaleAgentPIDs() {
-                // Also clear stale notifications (e.g. "Doing well, thanks!")
-                // left behind when Claude was killed without SessionEnd firing.
-                AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: tab.id)
-            }
+            tab.clearStaleAgentPIDs()
         }
     }
 
@@ -3301,9 +3297,12 @@ class TabManager: ObservableObject {
     }
     func flushPendingPanelTitleUpdatesForWorkspaceSnapshot() { panelTitleUpdateCoalescer.flushNow() }
     private func updatePanelTitle(tabId: UUID, panelId: UUID, title: String, sourceSurface: TerminalSurface) {
-        guard let tab = workspacesById[tabId], let terminalPanel = tab.terminalPanel(for: panelId), terminalPanel.surface === sourceSurface else { return }
+        guard let tab = workspacesById[tabId],
+              let terminalPanel = tab.terminalPanel(for: panelId),
+              terminalPanel.surface === sourceSurface else { return }
         let previousDisplayTitle = resolvedWorkspaceDisplayTitle(for: tab).trimmingCharacters(in: .whitespacesAndNewlines)
         _ = tab.updatePanelTitle(panelId: panelId, title: title)
+        guard !tab.isRemoteTmuxMirror else { return }
         if tab.focusedPanelId == panelId {
             tab.applyProcessTitle(title)
             if selectedTabId == tabId {
@@ -3324,17 +3323,14 @@ class TabManager: ObservableObject {
     }
 
     func shouldScheduleRawTitleRefresh(forWorkspaceId workspaceId: UUID?) -> Bool { workspaceId == selectedTabId && !PanelTitleUpdateCoalescingSettings.isEnabled(settings: settings) }
-
     func focusedSurfaceTitleDidChange(tabId: UUID) {
         guard let tab = workspacesById[tabId],
+              !tab.isRemoteTmuxMirror,
               let focusedPanelId = tab.focusedPanelId,
               let title = tab.panelTitles[focusedPanelId] else { return }
         tab.applyProcessTitle(title)
-        if selectedTabId == tabId {
-            updateWindowTitle(for: tab)
-        }
+        if selectedTabId == tabId { updateWindowTitle(for: tab) }
     }
-
     func focusTab(
         _ tabId: UUID,
         surfaceId: UUID? = nil,
@@ -5782,24 +5778,6 @@ extension TabManager {
         hasher.combine(snapshot.submissionPath)
         hashOptionalString(snapshot.localPath, into: &hasher)
         hasher.combine(snapshot.cleanupLocalPathWhenDisposed)
-    }
-
-    nonisolated private static func hashNotifications(
-        _ notifications: [TerminalNotification],
-        into hasher: inout Hasher
-    ) {
-        hasher.combine(notifications.count)
-        for notification in notifications.sorted(by: { $0.id.uuidString < $1.id.uuidString }) {
-            hasher.combine(notification.id)
-            hasher.combine(notification.title)
-            hasher.combine(notification.subtitle)
-            hasher.combine(notification.body)
-            hasher.combine(notification.createdAt.timeIntervalSince1970)
-            hasher.combine(notification.isRead)
-            hasher.combine(notification.paneFlash)
-            hasher.combine(notification.panelId)
-            hasher.combine(notification.clickAction)
-        }
     }
 
     nonisolated private static func hashOptionalString(_ value: String?, into hasher: inout Hasher) {
