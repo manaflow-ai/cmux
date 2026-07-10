@@ -15,7 +15,6 @@ private struct CmxIrohPathHintValidator {
     else {
       return nil
     }
-
     if value.hasPrefix("[") {
       guard let closingBracket = value.firstIndex(of: "]"),
         value.index(after: closingBracket) < value.endIndex,
@@ -34,7 +33,6 @@ private struct CmxIrohPathHintValidator {
       }
       return addressIsAllowed
     }
-
     guard let separator = value.lastIndex(of: ":"),
       value[..<separator].contains(":") == false
     else {
@@ -52,15 +50,13 @@ private struct CmxIrohPathHintValidator {
 
   private func directSocketAddressIsGloballyRoutable(_ value: String) -> Bool {
     if value.hasPrefix("["),
-      let closingBracket = value.firstIndex(of: "]")
-    {
+      let closingBracket = value.firstIndex(of: "]") {
       let host = String(value[value.index(after: value.startIndex)..<closingBracket])
       guard let bytes = ipv6LiteralBytes(host) else {
         return false
       }
       return ipv6AddressIsGloballyRoutable(bytes)
     }
-
     guard let separator = value.lastIndex(of: ":"),
       let octets = canonicalIPv4Octets(String(value[..<separator]))
     else {
@@ -114,8 +110,7 @@ private struct CmxIrohPathHintValidator {
       || (first == 100 && (64...127).contains(second))
       || (first == 169 && second == 254)
       || (first == 172 && (16...31).contains(second))
-      || (first == 192 && second == 168)
-    {
+      || (first == 192 && second == 168) {
       return false
     }
     if (first == 192 && second == 0 && third == 0)
@@ -123,8 +118,7 @@ private struct CmxIrohPathHintValidator {
       || (first == 192 && second == 88 && third == 99)
       || (first == 198 && (second == 18 || second == 19))
       || (first == 198 && second == 51 && third == 100)
-      || (first == 203 && second == 0 && third == 113)
-    {
+      || (first == 203 && second == 0 && third == 113) {
       return false
     }
     return true
@@ -160,17 +154,14 @@ private struct CmxIrohPathHintValidator {
     // discovery must construct any scoped link-local address in-process.
     if bytes.count == 16,
       bytes[0] == 0xFE,
-      (bytes[1] & 0xC0) == 0x80
-    {
+      (bytes[1] & 0xC0) == 0x80 {
       return false
     }
     if bytes == [0xFD, 0x00, 0x0E, 0xC2]
       + Array(repeating: 0, count: 10)
-      + [0x02, 0x54]
-    {
+      + [0x02, 0x54] {
       return false
     }
-
     let ipv4MappedPrefix = Array(repeating: UInt8(0), count: 10) + [0xFF, 0xFF]
     if Array(bytes.prefix(12)) == ipv4MappedPrefix {
       return ipv4AddressIsAllowed(Array(bytes.suffix(4)))
@@ -190,8 +181,7 @@ private struct CmxIrohPathHintValidator {
     }
     if bytes[0] == 0x20,
       bytes[1] == 0x01,
-      bytes[2] <= 0x01 || (bytes[2] == 0x0D && bytes[3] == 0xB8)
-    {
+      bytes[2] <= 0x01 || (bytes[2] == 0x0D && bytes[3] == 0xB8) {
       return false
     }
     if bytes[0] == 0x20 && bytes[1] == 0x02 {
@@ -314,11 +304,9 @@ private struct CmxIrohPathHintValidator {
     let observedAt = hint.observedAt
     let expiresAt = hint.expiresAt
     let networkProfile = hint.networkProfile
-
     guard !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
       throw CmxIrohPathHintError.emptyValue
     }
-
     if requireSafeValueShape {
       switch kind {
       case .directAddress:
@@ -343,7 +331,6 @@ private struct CmxIrohPathHintValidator {
         }
       }
     }
-
     switch source {
     case .native:
       break
@@ -362,20 +349,17 @@ private struct CmxIrohPathHintValidator {
         )
       }
     }
-
     if kind == .relayIdentifier || kind == .relayURL {
       guard source == .native, privacyScope == .publicInternet else {
         throw CmxIrohPathHintError.relayHintRequiresNativePublicSource
       }
     }
-
     if privacyScope == .publicInternet {
       guard networkProfile == nil else {
         throw CmxIrohPathHintError.unexpectedPublicNetworkProfile
       }
       return
     }
-
     guard requireCurrentPrivateMetadata else {
       return
     }
