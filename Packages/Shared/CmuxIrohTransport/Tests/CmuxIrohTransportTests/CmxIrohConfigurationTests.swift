@@ -77,6 +77,9 @@ struct CmxIrohConfigurationTests {
         let ipv6 = try CmxIrohBindAddress(ipAddress: "::", port: 49_153)
         #expect(CmxIrohEndpointBindPolicy.required(ipv4).socketAddress == "0.0.0.0:49152")
         #expect(CmxIrohEndpointBindPolicy.required(ipv6).socketAddress == "[::]:49153")
+        #expect(CmxIrohEndpointBindPolicy.preferred(ipv4).socketAddress == "0.0.0.0:49152")
+        #expect(CmxIrohEndpointBindPolicy.preferred(ipv4).allowsEphemeralFallback)
+        #expect(!CmxIrohEndpointBindPolicy.required(ipv4).allowsEphemeralFallback)
     }
 
     @Test

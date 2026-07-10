@@ -87,6 +87,23 @@ struct CmxIrohLibEndpointTests {
         await endpoint.close()
     }
 
+    @Test
+    func preferredBindPortFallsBackWithoutKillingTheEndpoint() async throws {
+        let reservation = try reserveUDPPort()
+        defer { Darwin.close(reservation.descriptor) }
+        let policy = try CmxIrohEndpointBindPolicy.preferred(
+            CmxIrohBindAddress(ipAddress: "127.0.0.1", port: reservation.port)
+        )
+
+        let endpoint = try await makeEndpoint(
+            managedRelayURLs: [],
+            bindPolicy: policy
+        )
+
+        #expect(await endpoint.isHealthy())
+        await endpoint.close()
+    }
+
     private func reserveUDPPort() throws -> (descriptor: Int32, port: UInt16) {
         let descriptor = Darwin.socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)
         guard descriptor >= 0 else { throw currentPOSIXError() }
