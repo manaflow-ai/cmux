@@ -26,6 +26,7 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, SyncSender, TrySendError, sync_channel};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use cmux_tui_core::SurfaceId;
 
@@ -93,6 +94,33 @@ struct BrowserEnqueueOrder {
     barrier_epoch: u64,
 }
 
+#[derive(Clone, Copy)]
+struct FailedBrowserResize {
+    desired: (u16, u16),
+    attempts: u8,
+    retry_after: Instant,
+}
+
+fn next_failed_browser_resize(
+    previous: Option<FailedBrowserResize>,
+    desired: (u16, u16),
+) -> FailedBrowserResize {
+    let attempts = previous
+        .filter(|failure| failure.desired == desired)
+        .map_or(1, |failure| failure.attempts.saturating_add(1))
+        .min(6);
+    let delay_seconds = 1_u64 << u32::from(attempts.saturating_sub(1));
+    FailedBrowserResize {
+        desired,
+        attempts,
+        retry_after: Instant::now() + Duration::from_secs(delay_seconds.min(30)),
+    }
+}
+
+fn failed_browser_resize_blocks(failure: FailedBrowserResize, desired: (u16, u16)) -> bool {
+    failure.desired == desired && Instant::now() < failure.retry_after
+}
+
 impl BrowserInputKind {
     /// Mouse moves carry only a position; when several are queued for
     /// the same surface, only the newest matters.
@@ -116,7 +144,7 @@ pub struct BrowserInputDispatcher {
     tx: SyncSender<SequencedBrowserInputEvent>,
     order: Arc<Mutex<BrowserEnqueueOrder>>,
     latest_resizes: Arc<Mutex<HashMap<(SurfaceId, u64), SequencedBrowserInputEvent>>>,
-    failed_resizes: Arc<Mutex<HashMap<SurfaceId, (u16, u16)>>>,
+    failed_resizes: Arc<Mutex<HashMap<SurfaceId, FailedBrowserResize>>>,
     surface_lifetimes: Arc<Mutex<HashMap<SurfaceId, Arc<AtomicBool>>>>,
 }
 
@@ -194,7 +222,12 @@ impl BrowserInputDispatcher {
     }
 
     pub fn resize_failed(&self, surface_id: SurfaceId, desired: (u16, u16)) -> bool {
-        self.failed_resizes.lock().unwrap().get(&surface_id) == Some(&desired)
+        self.failed_resizes
+            .lock()
+            .unwrap()
+            .get(&surface_id)
+            .copied()
+            .is_some_and(|failure| failed_browser_resize_blocks(failure, desired))
     }
 
     pub fn forget_surface(&self, surface_id: SurfaceId) {
@@ -216,7 +249,7 @@ fn worker(
     rx: Receiver<SequencedBrowserInputEvent>,
     order: Arc<Mutex<BrowserEnqueueOrder>>,
     latest_resizes: Arc<Mutex<HashMap<(SurfaceId, u64), SequencedBrowserInputEvent>>>,
-    failed_resizes: Arc<Mutex<HashMap<SurfaceId, (u16, u16)>>>,
+    failed_resizes: Arc<Mutex<HashMap<SurfaceId, FailedBrowserResize>>>,
     on_resize_failure: Arc<dyn Fn(BrowserResizeFailure) + Send + Sync>,
 ) {
     while let Ok(event) = rx.recv() {
@@ -229,7 +262,12 @@ fn worker(
             }
             let desired = event.event.kind.resize_dimensions();
             if desired.is_some_and(|desired| {
-                failed_resizes.lock().unwrap().get(&event.event.surface_id) == Some(&desired)
+                failed_resizes
+                    .lock()
+                    .unwrap()
+                    .get(&event.event.surface_id)
+                    .copied()
+                    .is_some_and(|failure| failed_browser_resize_blocks(failure, desired))
             }) {
                 continue;
             }
@@ -243,7 +281,14 @@ fn worker(
                     failed_resizes.lock().unwrap().remove(&event.event.surface_id);
                 }
                 Err(error) => {
-                    failed_resizes.lock().unwrap().insert(event.event.surface_id, (cols, rows));
+                    let desired = (cols, rows);
+                    let mut failures = failed_resizes.lock().unwrap();
+                    let failure = next_failed_browser_resize(
+                        failures.get(&event.event.surface_id).copied(),
+                        desired,
+                    );
+                    failures.insert(event.event.surface_id, failure);
+                    drop(failures);
                     let failure = BrowserResizeFailure {
                         surface_id: event.event.surface_id,
                         cols,
@@ -570,7 +615,7 @@ mod tests {
         .unwrap();
 
         dispatcher.enqueue(resize_event(7, 100));
-        let failure = failure_rx.recv_timeout(std::time::Duration::from_secs(1)).unwrap();
+        let failure = failure_rx.recv_timeout(Duration::from_secs(1)).unwrap();
         assert_eq!((failure.surface_id, failure.cols, failure.rows), (7, 100, 24));
         assert!(dispatcher.resize_failed(7, (100, 24)));
 
@@ -578,6 +623,12 @@ mod tests {
         dispatcher.enqueue(resize_event_with_probe(7, 100, dropped.clone()));
         assert!(dropped.load(Ordering::Acquire));
         assert!(failure_rx.try_recv().is_err());
+
+        dispatcher.failed_resizes.lock().unwrap().get_mut(&7).unwrap().retry_after =
+            Instant::now() - Duration::from_millis(1);
+        dispatcher.enqueue(resize_event(7, 100));
+        failure_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert_eq!(dispatcher.failed_resizes.lock().unwrap().get(&7).unwrap().attempts, 2);
 
         dispatcher.forget_surface(7);
         assert!(!dispatcher.resize_failed(7, (100, 24)));
@@ -599,7 +650,14 @@ mod tests {
         dispatcher.enqueue(resize_event_with_probe(7, 80, queued.clone()));
         dispatcher.enqueue(click_event(8));
         dispatcher.enqueue(resize_event_with_probe(7, 100, fallback.clone()));
-        dispatcher.failed_resizes.lock().unwrap().insert(7, (80, 24));
+        dispatcher.failed_resizes.lock().unwrap().insert(
+            7,
+            FailedBrowserResize {
+                desired: (80, 24),
+                attempts: 1,
+                retry_after: Instant::now() + Duration::from_secs(1),
+            },
+        );
 
         dispatcher.forget_surface(7);
 
