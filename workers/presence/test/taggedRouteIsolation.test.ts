@@ -8,8 +8,9 @@ import type { SyncStorage } from "../src/syncStorage";
 
 const T0 = 1_750_000_000_000;
 const MAC_ID = "shared-physical-mac";
-const SCOPE_A = "ios:ZmVhdHVyZS1h";
-const SCOPE_B = "ios:ZmVhdHVyZS1i";
+const LEGACY_SCOPE_A = "ios:ZmVhdHVyZS1h";
+const SCOPE_A = "ios:v2:ZmVhdHVyZS1h";
+const SCOPE_B = "ios:v2:ZmVhdHVyZS1i";
 
 class FakeStorage implements SyncStorage {
   private map = new Map<string, unknown>();
@@ -59,6 +60,35 @@ function endpoint(snapshot: Awaited<ReturnType<typeof listBackupSnapshot>>): unk
 }
 
 describe("tagged paired-Mac route isolation", () => {
+  it("does not expose a legacy seeded scope through the versioned scope", async () => {
+    const storage = new FakeStorage();
+
+    await applyBackupOps(
+      storage,
+      "user-1",
+      [{ kind: "upsert", id: MAC_ID, record: record("100.64.0.9", 50900, T0) }],
+      T0,
+      LEGACY_SCOPE_A,
+    );
+
+    expect((await listBackupSnapshot(storage, "user-1", SCOPE_A)).records).toEqual([]);
+
+    await applyBackupOps(
+      storage,
+      "user-1",
+      [{ kind: "upsert", id: MAC_ID, record: record("100.64.0.1", 51001, T0 + 1) }],
+      T0 + 1,
+      SCOPE_A,
+    );
+
+    expect(endpoint(await listBackupSnapshot(storage, "user-1", LEGACY_SCOPE_A))).toEqual(
+      record("100.64.0.9", 50900, T0).routes[0],
+    );
+    expect(endpoint(await listBackupSnapshot(storage, "user-1", SCOPE_A))).toEqual(
+      record("100.64.0.1", 51001, T0 + 1).routes[0],
+    );
+  });
+
   it("keeps tags A and B isolated when B restarts on the same physical Mac", async () => {
     const storage = new FakeStorage();
 

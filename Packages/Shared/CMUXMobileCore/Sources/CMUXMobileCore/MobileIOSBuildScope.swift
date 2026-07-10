@@ -6,6 +6,8 @@ public import Foundation
 /// publisher partition. Stable and untagged builds have no scope, so they keep
 /// the legacy device-level behavior instead of manufacturing a tagged identity.
 public struct MobileIOSBuildScope: Sendable, Equatable {
+    private static let serializedScopeVersion = "v2"
+
     /// The canonical development tag shared by the iOS and Mac app instances.
     public let value: String
 
@@ -53,8 +55,12 @@ public struct MobileIOSBuildScope: Sendable, Equatable {
     }
 
     /// The paired-Mac backup client scope shared with the matching Mac build.
+    ///
+    /// The version is part of the storage namespace. The unversioned namespace
+    /// was populated from shared device-level data by older development builds,
+    /// so reading it would reintroduce cross-build routes after an upgrade.
     public var serializedScope: String {
-        "ios:\(storageComponent)"
+        "ios:\(Self.serializedScopeVersion):\(storageComponent)"
     }
 
     /// Presentation name for a Mac shown by this tagged iOS build.

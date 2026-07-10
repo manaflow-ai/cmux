@@ -56,6 +56,27 @@ import Testing
         #expect(try await feature.loadAll(stackUserID: "user-1", teamID: "team-a").first?.teamID == "team-a")
     }
 
+    @Test func versionedScopeDoesNotRestoreLegacyScopedRows() async throws {
+        let (inner, directory) = try makeInnerStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        try await inner.upsert(
+            macDeviceID: "legacy-mac",
+            displayName: "Legacy",
+            routes: [try route("10.0.0.9")],
+            markActive: true,
+            stackUserID: "user-1",
+            teamID: "team-a\u{1F}ios:ZmVhdHVyZQ",
+            now: Date(timeIntervalSince1970: 1)
+        )
+
+        let current = IOSBuildScopedPairedMacStore(
+            inner: inner,
+            scope: try #require(MobileIOSBuildScope("feature"))
+        )
+        #expect(try await current.loadAll(stackUserID: "user-1", teamID: "team-a").isEmpty)
+    }
+
     @Test func selectedTeamStillReadsTeamlessRowsInCurrentScope() async throws {
         let (inner, directory) = try makeInnerStore()
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -192,6 +213,6 @@ import Testing
         #expect(MobileIOSBuildScope.current(infoDictionary: ["CMUXDevTag": "feat"], bundleIdentifier: "dev.cmux.ios.other")?.value == "other")
         #expect(MobileIOSBuildScope.current(infoDictionary: ["CMUXDevTag": ""], bundleIdentifier: "dev.cmux.ios.agent")?.value == "agent")
         #expect(MobileIOSBuildScope.current(infoDictionary: ["CMUXDevTag": ""], bundleIdentifier: "dev.cmux.ios") == nil)
-        #expect(MobileIOSBuildScope("Feature Tag")?.serializedScope == "ios:RmVhdHVyZSBUYWc")
+        #expect(MobileIOSBuildScope("Feature Tag")?.serializedScope == "ios:v2:RmVhdHVyZSBUYWc")
     }
 }
