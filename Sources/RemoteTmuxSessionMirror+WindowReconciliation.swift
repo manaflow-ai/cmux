@@ -60,6 +60,7 @@ extension RemoteTmuxSessionMirror {
         mirror.apply(window: window)
         windowMirrorByWindowId[windowId] = mirror
         workspace.setRemoteTmuxWindowMirror(mirror, forPanelId: panelId)
+        panelIdByPane = panelIdByPane.filter { $0.value != panelId }
         if adoptedPanes.isEmpty, let panel = workspace.panels[panelId] as? TerminalPanel {
             panel.surface.onManualSizeApplied = nil
             panel.surface.onRuntimeReady = nil

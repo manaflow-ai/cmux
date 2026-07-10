@@ -205,22 +205,6 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
         let pendingPanes = Set(connection.pendingLayouts.values.flatMap { $0.node.paneIDsInOrder })
         reconcileControlPaneIdentities(livePaneIDs: livePanes.union(pendingPanes))
         windowIdByPane = connection.publishedWindowIdByPane
-        let previousPanelIdByPane = panelIdByPane
-        var nextPanelIdByPane: [Int: UUID] = [:]
-        for (windowId, panelId) in panelIdByWindow {
-            guard let firstPaneId = connection.windowsByID[windowId]?.paneIDsInOrder.first,
-                  windowIdByPane[firstPaneId] == windowId else { continue }
-            nextPanelIdByPane[firstPaneId] = panelId
-        }
-        panelIdByPane = nextPanelIdByPane
-        for (paneId, previousPanelId) in previousPanelIdByPane
-        where nextPanelIdByPane[paneId] != previousPanelId {
-            updateControlSurface(
-                tmuxPaneID: paneId,
-                surfaceID: nil,
-                windowID: windowIdByPanel[previousPanelId]
-            )
-        }
         for windowId in connection.windowOrder {
             guard let window = connection.windowsByID[windowId],
                   let firstPaneId = window.paneIDsInOrder.first else { continue }
