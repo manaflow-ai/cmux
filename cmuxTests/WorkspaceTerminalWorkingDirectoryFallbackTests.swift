@@ -350,6 +350,7 @@ import Testing
 
         #expect(panel.requestedWorkingDirectory == Workspace.safeLocalTerminalStartupWorkingDirectory())
         #expect(panel.surface.debugInitialCommand() == explicitCommand)
+        #expect(!workspace.isRemoteTerminalSurface(panel.id))
     }
 
     @Test func explicitSplitCommandDoesNotUseRemotePanelDirectoryAsLocalFallback() throws {
@@ -373,6 +374,7 @@ import Testing
 
         #expect(panel.requestedWorkingDirectory == Workspace.safeLocalTerminalStartupWorkingDirectory())
         #expect(panel.surface.debugInitialCommand() == explicitCommand)
+        #expect(!workspace.isRemoteTerminalSurface(panel.id))
     }
 
     @Test func explicitSplitCommandDoesNotUseRemoteRequestedWorkingDirectoryAsLocalFallback() throws {
@@ -400,6 +402,7 @@ import Testing
 
         #expect(panel.requestedWorkingDirectory == Workspace.safeLocalTerminalStartupWorkingDirectory())
         #expect(panel.surface.debugInitialCommand() == explicitCommand)
+        #expect(!workspace.isRemoteTerminalSurface(panel.id))
     }
 
     @Test func explicitWorkingDirectoryWinsOverRemoteStartupSplitFallback() throws {
