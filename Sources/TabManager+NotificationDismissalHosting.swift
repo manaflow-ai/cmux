@@ -88,6 +88,26 @@ extension TabManager: NotificationDismissalHosting {
         AppDelegate.shared?.notificationStore?.clearFocusedReadIndicator(forTabId: workspaceId, surfaceId: surfaceId)
     }
 
+    /// Notification hashing for session autosave extracted because
+    /// `TabManager.swift` sits at its file-length budget.
+    nonisolated static func hashNotifications(
+        _ notifications: [TerminalNotification],
+        into hasher: inout Hasher
+    ) {
+        hasher.combine(notifications.count)
+        for notification in notifications.sorted(by: { $0.id.uuidString < $1.id.uuidString }) {
+            hasher.combine(notification.id)
+            hasher.combine(notification.title)
+            hasher.combine(notification.subtitle)
+            hasher.combine(notification.body)
+            hasher.combine(notification.createdAt.timeIntervalSince1970)
+            hasher.combine(notification.isRead)
+            hasher.combine(notification.paneFlash)
+            hasher.combine(notification.panelId)
+            hasher.combine(notification.clickAction)
+        }
+    }
+
     func workspaceClearManualUnread(workspaceId: UUID, panelId: UUID) {
         tabs.first(where: { $0.id == workspaceId })?.clearManualUnread(panelId: panelId)
     }

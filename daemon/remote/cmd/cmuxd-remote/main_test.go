@@ -361,6 +361,16 @@ func TestRunStdioHelloAndPing(t *testing.T) {
 	if !sawPTYResizeNotificationCapability {
 		t.Fatalf("hello should advertise pty.resize.notification: %v", firstResult)
 	}
+	sawPTYInputSeqAckCapability := false
+	for _, capability := range capabilities {
+		if capability == "pty.input.seq_ack" {
+			sawPTYInputSeqAckCapability = true
+			break
+		}
+	}
+	if !sawPTYInputSeqAckCapability {
+		t.Fatalf("hello should advertise pty.input.seq_ack: %v", firstResult)
+	}
 
 	var second map[string]any
 	if err := json.Unmarshal([]byte(lines[1]), &second); err != nil {

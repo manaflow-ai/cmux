@@ -60,6 +60,7 @@ final class RemoteTmuxSessionMirror {
     private var defaultClosed = false
     private var panelIdByWindow: [Int: UUID] = [:]
     private var panelIdByPane: [Int: UUID] = [:]
+    private var windowIdByPane: [Int: Int] = [:]
     /// Last-known working directory per tmux pane, so switching the active pane of
     /// a multi-pane window can re-project that pane's directory onto the tab.
     private var cwdByPane: [Int: String] = [:]
@@ -68,6 +69,7 @@ final class RemoteTmuxSessionMirror {
     private var titleFilters: [Int: RemoteTmuxScreenTitleFilter] = [:]
     /// Per-window multi-pane renderers (present once a window has >1 pane).
     private var windowMirrorByWindowId: [Int: RemoteTmuxWindowMirror] = [:]
+    private var pendingExplicitFocusWindowId: Int?
     private var observerToken: RemoteTmuxControlConnection.ObserverToken?
 
     init(
@@ -165,11 +167,12 @@ final class RemoteTmuxSessionMirror {
             mirror.teardown()
         }
         windowMirrorByWindowId.removeAll()
+        windowIdByPane.removeAll()
     }
 
     /// The tmux window id (if any) whose layout currently contains `paneId`.
     private func windowIdContaining(pane paneId: Int) -> Int? {
-        connection.windowsByID.first(where: { $0.value.paneIDsInOrder.contains(paneId) })?.key
+        windowIdByPane[paneId]
     }
 
     /// Adds a tab for any window that doesn't yet have one, refreshes existing
@@ -178,9 +181,18 @@ final class RemoteTmuxSessionMirror {
     /// local tab(s) once at least one remote tab exists.
     func rebuild() {
         guard let workspace else { return }
+        workspace.performRemoteTmuxMirrorMutation {
+            rebuildTopology(in: workspace)
+        }
+        focusExplicitlyRequestedWindowIfAvailable()
+    }
+
+    private func rebuildTopology(in workspace: Workspace) {
+        windowIdByPane.removeAll(keepingCapacity: true)
         for windowId in connection.windowOrder {
             guard let window = connection.windowsByID[windowId],
                   let firstPaneId = window.paneIDsInOrder.first else { continue }
+            for paneId in window.paneIDsInOrder { windowIdByPane[paneId] = windowId }
             let title = Self.tabTitle(for: window)
             let panelId: UUID
             if let existing = panelIdByWindow[windowId] {
@@ -247,7 +259,7 @@ final class RemoteTmuxSessionMirror {
                 mirror.teardown()
                 windowMirrorByWindowId[windowId] = nil
             }
-            _ = workspace.closePanel(panelId, force: true)
+            _ = workspace.removeRemoteTmuxDisplayPane(panelId)
             panelIdByWindow[windowId] = nil
             panelIdByPane = panelIdByPane.filter { $0.value != panelId }
         }
@@ -269,10 +281,22 @@ final class RemoteTmuxSessionMirror {
         }
     }
 
-    /// Creates the in-tab multi-pane renderer the first time a window has more
-    /// than one pane, and reconciles it on subsequent layout changes. Once
-    /// created it persists for that window (rendering even a single pane), so the
-    /// tab never flips back and forth between the two render paths.
+    /// Applies explicit focus only after the corresponding mirror tab exists and
+    /// the focus-neutral topology transaction has completed.
+    func focusWindowWhenAvailable(_ windowId: Int) {
+        pendingExplicitFocusWindowId = windowId
+        focusExplicitlyRequestedWindowIfAvailable()
+    }
+
+    private func focusExplicitlyRequestedWindowIfAvailable() {
+        guard let windowId = pendingExplicitFocusWindowId,
+              let panelId = panelIdByWindow[windowId],
+              let workspace else { return }
+        pendingExplicitFocusWindowId = nil
+        workspace.focusPanel(panelId)
+    }
+
+    /// Creates or reconciles the in-tab multi-pane renderer.
     private func reconcileWindowMirror(
         windowId: Int,
         panelId: UUID,
@@ -281,6 +305,9 @@ final class RemoteTmuxSessionMirror {
     ) {
         if let mirror = windowMirrorByWindowId[windowId] {
             mirror.apply(window: window)
+            for paneId in window.paneIDsInOrder {
+                if let cwd = cwdByPane[paneId] { mirror.updatePaneCwd(paneId: paneId, path: cwd) }
+            }
             return
         }
         guard window.paneIDsInOrder.count > 1 else { return }
@@ -289,12 +316,18 @@ final class RemoteTmuxSessionMirror {
             panelId: panelId,
             connection: connection,
             layout: window.layout,
+            appearance: workspace.bonsplitController.configuration.appearance,
+            workspaceBonsplitController: workspace.bonsplitController,
             makePanel: { [weak workspace, weak connection] tmuxPaneId in
                 workspace?.makeRemoteTmuxPanePanel(onInput: { data in
                     Task { @MainActor in connection?.sendKeys(paneId: tmuxPaneId, data: data) }
                 })
             }
         )
+        mirror.onClosePaneRequest = { [weak workspace, weak mirror] tmuxPaneId in
+            guard let mirror else { return }
+            workspace?.requestRemoteTmuxPaneClose(windowMirror: mirror, tmuxPaneId: tmuxPaneId)
+        }
         // The window can already be zoomed when its first topology publish
         // arrives (attached to a session zoomed before connect): init seeds
         // only the base tree, so apply the full update to adopt
@@ -316,7 +349,7 @@ final class RemoteTmuxSessionMirror {
     private func closeDefaultTabsIfNeeded() {
         guard !defaultClosed, !panelIdByWindow.isEmpty, let workspace else { return }
         for panelId in defaultPanelIds where workspace.panels[panelId] != nil {
-            _ = workspace.closePanel(panelId, force: true)
+            _ = workspace.removeRemoteTmuxDisplayPane(panelId)
         }
         defaultClosed = true
     }
@@ -330,6 +363,9 @@ final class RemoteTmuxSessionMirror {
         let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         cwdByPane[paneId] = trimmed
+        if let windowId = windowIdContaining(pane: paneId) {
+            windowMirrorByWindowId[windowId]?.updatePaneCwd(paneId: paneId, path: trimmed)
+        }
         guard let panelId = tabPanelId(forPane: paneId) else { return }
         // Multi-pane window: only the active pane represents the tab.
         if let windowId = windowIdContaining(pane: paneId),
@@ -398,6 +434,7 @@ final class RemoteTmuxSessionMirror {
         if let windowId = windowIdContaining(pane: paneId),
            let mirror = windowMirrorByWindowId[windowId] {
             mirror.surface(forPane: paneId)?.setManualIONoReflow(noReflow)
+            mirror.updatePaneTitle(paneId)
             return
         }
         guard let workspace,

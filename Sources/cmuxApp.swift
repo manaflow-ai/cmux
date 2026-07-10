@@ -50,7 +50,7 @@ struct cmuxApp: App {
     /// hosted-browser sign-in flow). Constructed once at app launch and
     /// injected into AppDelegate and the auth-consuming services.
     private let authComposition: MacAuthComposition
-
+    private let resolvedIconAppearanceObserver = ResolvedIconAppearanceObserver()
     @StateObject private var tabManager: TabManager
     @StateObject private var notificationStore = TerminalNotificationStore.shared
     @StateObject var closedItemHistoryStore = ClosedItemHistoryStore.shared
@@ -66,7 +66,6 @@ struct cmuxApp: App {
     @StateObject var focusHistoryMenuInvalidator = FocusHistoryMenuInvalidator()
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @Environment(\.openWindow) private var openWindow
-
     private var browserToolbarAccessorySpacing: Int {
         BrowserToolbarAccessorySpacingDebugSettings.resolved(browserToolbarAccessorySpacingRaw)
     }
@@ -158,9 +157,8 @@ struct cmuxApp: App {
         _ = KeyboardShortcutSettings.settingsFileStore
         StartupBreadcrumbLog.append("app.init.keyboardShortcuts.loaded")
 
-        // Apply saved language preference before any UI loads
-        let languageSettingsStore = LanguageSettingsStore(defaults: .standard)
-        languageSettingsStore.applyLanguageOverride(languageSettingsStore.storedLanguage)
+        // Reconcile saved language preference before any UI loads
+        LanguageSettingsStore(defaults: .standard).reconcileLanguageOverrideAtLaunch()
         StartupBreadcrumbLog.append("app.init.language.applied")
         self.settingsRuntime = SettingsRuntime(
             catalog: settingsCatalog,
@@ -1140,6 +1138,7 @@ struct cmuxApp: App {
         appDelegate.scheduleInitialMainWindowBootstrap(debugSource: "swiftUIBootstrap")
         appDelegate.installReloadConfigurationMenuItemAction()
         applyAppearance()
+        resolvedIconAppearanceObserver.startObserving()
     }
 
     private var currentSocketMode: SocketControlMode {
@@ -4568,16 +4567,10 @@ enum AppIconSettings {
     }
 }
 
-protocol AppIconAppearanceObservation: AnyObject {
-    func invalidate()
-}
-
-extension NSKeyValueObservation: AppIconAppearanceObservation {}
-
 final class AppIconAppearanceObserver: NSObject {
     struct Environment {
         let isApplicationFinishedLaunching: () -> Bool
-        let startEffectiveAppearanceObservation: (@escaping () -> Void) -> AppIconAppearanceObservation?
+        let startEffectiveAppearanceObservation: (@escaping () -> Void) -> EffectiveAppearanceObservation?
         let addDidFinishLaunchingObserver: (@escaping () -> Void) -> NSObjectProtocol
         let removeObserver: (NSObjectProtocol) -> Void
         let currentAppearanceIsDark: () -> Bool?
@@ -4625,7 +4618,7 @@ final class AppIconAppearanceObserver: NSObject {
 
     static let shared = AppIconAppearanceObserver()
     private let environment: Environment
-    private var observation: AppIconAppearanceObservation?
+    private var observation: EffectiveAppearanceObservation?
     private var launchObserver: NSObjectProtocol?
     private var hasDeferredStartPending = false
     private var lastAppliedImageName: String?

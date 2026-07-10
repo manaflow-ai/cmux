@@ -82,7 +82,16 @@ private nonisolated let agentChatThemeSyncState = OSAllocatedUnfairLock(
 enum AgentChatThemeSync {
     private static let requestTimeout: TimeInterval = 1.5
 
+    @MainActor
+    static var isEnabled: Bool {
+        CmuxFeatureFlags.shared.isAgentChatUIEnabled
+    }
+
+    @MainActor
     static func start() {
+        // Observers install unconditionally (they're nearly free) so a
+        // runtime flag flip starts syncing without a relaunch; the actual
+        // pushes gate on the flag inside syncNow/scheduleDebouncedSync.
         let shouldInstall = agentChatThemeSyncState.withLock { state in
             guard !state.observersInstalled else { return false }
             state.observersInstalled = true
@@ -123,8 +132,10 @@ enum AgentChatThemeSync {
         }
     }
 
+    @MainActor
     static func syncNow(agentChat: CmuxAgentChatConfiguration) {
-        let url = themeURL(for: agentChat.url)
+        guard isEnabled else { return }
+        let url = themeURL(for: agentChat)
         Task { @MainActor in
             await postResolvedTheme(to: url)
         }
@@ -134,12 +145,17 @@ enum AgentChatThemeSync {
         agentChatThemeSyncState.withLock { state in
             state.debouncedTask?.cancel()
             state.debouncedTask = Task { @MainActor in
+                // The flag is MainActor state and this is called from
+                // nonisolated notification closures, so gate inside the hop.
+                guard isEnabled else { return }
                 let clock = ContinuousClock()
                 do {
                     try await clock.sleep(for: .milliseconds(300))
                 } catch {
                     return
                 }
+                // Re-check: the flag can flip off during the debounce window.
+                guard isEnabled else { return }
                 await postResolvedTheme(to: currentThemeURL())
             }
         }
@@ -169,9 +185,19 @@ enum AgentChatThemeSync {
     }
 
     @MainActor
+    static func themeURL(for agentChat: CmuxAgentChatConfiguration) -> URL {
+        if !agentChat.hasExplicitURL,
+           agentChat.startCommand != nil,
+           let session = AgentChatActionInFlightGate.ownedServerSession() {
+            return session.themeURL
+        }
+        return themeURL(for: agentChat.url)
+    }
+
+    @MainActor
     private static func currentThemeURL() -> URL {
         if let store = AppDelegate.shared?.mainWindowContexts.values.compactMap(\.cmuxConfigStore).first {
-            return themeURL(for: store.agentChat.url)
+            return themeURL(for: store.agentChat)
         }
         return themeURL(for: CmuxAgentChatConfiguration.default.url)
     }
@@ -200,9 +226,34 @@ enum AgentChatThemeSync {
                 )
             }
         } catch {
-            agentChatThemeSyncLogger.error(
-                "failed to sync theme: \(String(describing: error), privacy: .public)"
-            )
+            await handleThemePostFailure(error, url: url)
+        }
+    }
+
+    static func handleThemePostFailure(_ error: Error, url: URL) async {
+        agentChatThemeSyncLogger.error(
+            "failed to sync theme: \(String(describing: error), privacy: .public)"
+        )
+        guard shouldClearOwnedSessionAfterThemePostFailure(error) else { return }
+        await MainActor.run {
+            guard let session = AgentChatActionInFlightGate.ownedServerSession(),
+                  session.themeURL == url else { return }
+            AgentChatActionInFlightGate.clearOwnedServerSession(matching: session)
+        }
+    }
+
+    static func shouldClearOwnedSessionAfterThemePostFailure(_ error: Error) -> Bool {
+        guard let urlError = error as? URLError else { return false }
+        switch urlError.code {
+        case .cannotConnectToHost,
+             .cannotFindHost,
+             .dnsLookupFailed,
+             .networkConnectionLost,
+             .notConnectedToInternet,
+             .timedOut:
+            return true
+        default:
+            return false
         }
     }
 }
