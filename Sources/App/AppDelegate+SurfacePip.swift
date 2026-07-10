@@ -1,19 +1,6 @@
 import AppKit
 
 extension AppDelegate {
-    private enum SurfacePipAssociatedStorage {
-        static var controllerKey = 0
-    }
-
-    var surfacePipController: SurfacePipController {
-        if let controller = objc_getAssociatedObject(self, &SurfacePipAssociatedStorage.controllerKey) as? SurfacePipController {
-            return controller
-        }
-        let controller = SurfacePipController(appDelegate: self)
-        objc_setAssociatedObject(self, &SurfacePipAssociatedStorage.controllerKey, controller, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
-        return controller
-    }
-
     enum SurfacePipAction: String {
         case pop
         case `return`
@@ -49,8 +36,11 @@ extension AppDelegate {
     }
 
     @discardableResult
-    func toggleSurfacePipForCurrentContext() -> Bool {
-        surfacePipController.toggleForCurrentContext()
+    func toggleSurfacePipForCurrentContext(event: NSEvent? = nil) -> Bool {
+        let routedTabManager = event.flatMap { preferredMainWindowContextForShortcutRouting(event: $0)?.tabManager }
+        return surfacePipController.toggleForCurrentContext(
+            tabManager: routedTabManager ?? focusedSurfacePipTabManager()
+        )
     }
 
     @discardableResult
@@ -66,63 +56,45 @@ extension AppDelegate {
 
     func performSurfacePipAction(
         panelId: UUID?,
-        action: SurfacePipAction
+        action: SurfacePipAction,
+        tabManager routedTabManager: TabManager? = nil
     ) -> Result<SurfacePipActionState, SurfacePipActionError> {
         switch action {
         case .pop:
             let resolvedPanelId = panelId
                 ?? surfacePipController.panelId(for: NSApp.keyWindow)
-                ?? tabManager?.selectedWorkspace?.focusedPanelId
+                ?? focusedSurfacePipPanelId(tabManager: routedTabManager)
             guard let resolvedPanelId else { return .failure(.surfaceNotFound) }
-            guard !surfacePipController.isInPip(panelId: resolvedPanelId) else {
-                return .success(SurfacePipActionState(panelId: resolvedPanelId, isInPictureInPicture: true))
-            }
-            guard let source = workspaceContainingPanel(panelId: resolvedPanelId),
-                  let panel = source.workspace.panels[resolvedPanelId] else {
-                return .failure(.surfaceNotFound)
-            }
-            guard surfacePipController.canPopOut(panel: panel) else {
-                return .failure(.unsupportedSurfaceType)
-            }
-            guard surfacePipController.popOut(panelId: resolvedPanelId, from: source.workspace) else {
-                return .failure(.actionFailed)
-            }
-            return .success(SurfacePipActionState(panelId: resolvedPanelId, isInPictureInPicture: true))
+            return popSurfacePipAction(panelId: resolvedPanelId)
         case .return:
             let resolvedPanelId = panelId
                 ?? surfacePipController.panelId(for: NSApp.keyWindow)
                 ?? surfacePipController.mostRecentActivePanelId
             guard let resolvedPanelId else { return .failure(.surfaceNotFound) }
-            guard surfacePipController.isInPip(panelId: resolvedPanelId) else {
-                return .failure(.notInPictureInPicture)
-            }
-            guard surfacePipController.returnSurface(panelId: resolvedPanelId) else {
-                return .failure(.actionFailed)
-            }
-            return .success(SurfacePipActionState(panelId: resolvedPanelId, isInPictureInPicture: false))
+            return returnSurfacePipAction(panelId: resolvedPanelId)
         case .toggle:
-            let resolvedPanelId = panelId
-                ?? surfacePipController.panelId(for: NSApp.keyWindow)
-                ?? surfacePipController.mostRecentActivePanelId
-                ?? tabManager?.selectedWorkspace?.focusedPanelId
-            guard let resolvedPanelId else { return .failure(.surfaceNotFound) }
-            if surfacePipController.isInPip(panelId: resolvedPanelId) {
-                guard surfacePipController.returnSurface(panelId: resolvedPanelId) else {
-                    return .failure(.actionFailed)
+            if let panelId {
+                if surfacePipController.isInPip(panelId: panelId) {
+                    return returnSurfacePipAction(panelId: panelId)
                 }
-                return .success(SurfacePipActionState(panelId: resolvedPanelId, isInPictureInPicture: false))
+                return popSurfacePipAction(panelId: panelId)
             }
-            guard let source = workspaceContainingPanel(panelId: resolvedPanelId),
-                  let panel = source.workspace.panels[resolvedPanelId] else {
-                return .failure(.surfaceNotFound)
+            if let pipPanelId = surfacePipController.panelId(for: NSApp.keyWindow) {
+                return returnSurfacePipAction(panelId: pipPanelId)
             }
-            guard surfacePipController.canPopOut(panel: panel) else {
-                return .failure(.unsupportedSurfaceType)
+            if let focusedPanelId = focusedSurfacePipPanelId(tabManager: routedTabManager) {
+                let popResult = popSurfacePipAction(panelId: focusedPanelId)
+                if case .success = popResult {
+                    return popResult
+                }
+                if surfacePipController.mostRecentActivePanelId == nil {
+                    return popResult
+                }
             }
-            guard surfacePipController.popOut(panelId: resolvedPanelId, from: source.workspace) else {
-                return .failure(.actionFailed)
+            if let pipPanelId = surfacePipController.mostRecentActivePanelId {
+                return returnSurfacePipAction(panelId: pipPanelId)
             }
-            return .success(SurfacePipActionState(panelId: resolvedPanelId, isInPictureInPicture: true))
+            return .failure(.surfaceNotFound)
         }
     }
 
@@ -141,6 +113,49 @@ extension AppDelegate {
                 homeWorkspaceId: entry.homeWorkspaceId
             )
         }
+    }
+
+    private func focusedSurfacePipTabManager() -> TabManager? {
+        if let keyWindow = NSApp.keyWindow,
+           let context = contextForMainTerminalWindow(keyWindow) {
+            return context.tabManager
+        }
+        if let mainWindow = NSApp.mainWindow,
+           let context = contextForMainTerminalWindow(mainWindow) {
+            return context.tabManager
+        }
+        return tabManager
+    }
+
+    private func focusedSurfacePipPanelId(tabManager routedTabManager: TabManager?) -> UUID? {
+        (routedTabManager ?? focusedSurfacePipTabManager())?.selectedWorkspace?.focusedPanelId
+    }
+
+    private func popSurfacePipAction(panelId: UUID) -> Result<SurfacePipActionState, SurfacePipActionError> {
+        guard !surfacePipController.isInPip(panelId: panelId) else {
+            return .success(SurfacePipActionState(panelId: panelId, isInPictureInPicture: true))
+        }
+        guard let source = workspaceContainingPanel(panelId: panelId),
+              let panel = source.workspace.panels[panelId] else {
+            return .failure(.surfaceNotFound)
+        }
+        guard surfacePipController.canPopOut(panel: panel) else {
+            return .failure(.unsupportedSurfaceType)
+        }
+        guard surfacePipController.popOut(panelId: panelId, from: source.workspace) else {
+            return .failure(.actionFailed)
+        }
+        return .success(SurfacePipActionState(panelId: panelId, isInPictureInPicture: true))
+    }
+
+    private func returnSurfacePipAction(panelId: UUID) -> Result<SurfacePipActionState, SurfacePipActionError> {
+        guard surfacePipController.isInPip(panelId: panelId) else {
+            return .failure(.notInPictureInPicture)
+        }
+        guard surfacePipController.returnSurface(panelId: panelId) else {
+            return .failure(.actionFailed)
+        }
+        return .success(SurfacePipActionState(panelId: panelId, isInPictureInPicture: false))
     }
 
     private func sessionPanelSnapshot(

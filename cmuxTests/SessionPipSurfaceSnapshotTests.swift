@@ -47,7 +47,82 @@ final class SessionPipSurfaceSnapshotTests: XCTestCase {
         XCTAssertNil(decoded.pipSurfaces)
     }
 
+    func testRestoringPipSurfaceCreatesFallbackWindowWhenNoWindowsWereCaptured() throws {
+        let panelId = UUID()
+        let snapshot = AppSessionSnapshot(
+            version: SessionSnapshotSchema.currentVersion,
+            createdAt: Date().timeIntervalSince1970,
+            windows: [],
+            pipSurfaces: [
+                SessionPipSurfaceSnapshot(
+                    panel: Self.pipTerminalPanelSnapshot(id: panelId),
+                    frame: SessionRectSnapshot(x: 100, y: 120, width: 480, height: 320),
+                    homeWorkspaceId: UUID()
+                )
+            ]
+        )
+
+        let restored = snapshot.restoringPipSurfacesAsWorkspaceTabs()
+
+        XCTAssertEqual(restored.windows.count, 1)
+        XCTAssertEqual(restored.pipSurfaces?.first?.panel.id, panelId)
+        let workspace = try XCTUnwrap(restored.windows.first?.tabManager.workspaces.first)
+        XCTAssertTrue(workspace.panels.contains(where: { $0.id == panelId }))
+        XCTAssertEqual(workspace.focusedPanelId, panelId)
+    }
+
+    func testRestoringPipSurfaceWithPrunedHomeUsesFirstSurvivingSelectedWorkspace() throws {
+        let selectedWorkspaceId = UUID()
+        let unselectedWorkspaceId = UUID()
+        let prunedHomeWorkspaceId = UUID()
+        let panelId = UUID()
+        let firstWindow = Self.makeWindow(workspaceIds: [unselectedWorkspaceId, selectedWorkspaceId], selectedWorkspaceIndex: 1)
+        let fillerWindows = (1..<SessionPersistencePolicy.maxWindowsPerSnapshot).map { _ in
+            Self.makeWindow(workspaceIds: [UUID()], selectedWorkspaceIndex: 0)
+        }
+        let snapshot = AppSessionSnapshot(
+            version: SessionSnapshotSchema.currentVersion,
+            createdAt: Date().timeIntervalSince1970,
+            windows: [firstWindow] + fillerWindows,
+            pipSurfaces: [
+                SessionPipSurfaceSnapshot(
+                    panel: Self.pipTerminalPanelSnapshot(id: panelId),
+                    frame: SessionRectSnapshot(x: 100, y: 120, width: 480, height: 320),
+                    homeWorkspaceId: prunedHomeWorkspaceId
+                )
+            ]
+        )
+
+        let restored = snapshot.restoringPipSurfacesAsWorkspaceTabs()
+
+        let workspaces = try XCTUnwrap(restored.windows.first?.tabManager.workspaces)
+        XCTAssertFalse(workspaces[0].panels.contains(where: { $0.id == panelId }))
+        XCTAssertTrue(workspaces[1].panels.contains(where: { $0.id == panelId }))
+        XCTAssertEqual(restored.windows.count, SessionPersistencePolicy.maxWindowsPerSnapshot)
+    }
+
     private static func makeSnapshot(version: Int) -> AppSessionSnapshot {
+        AppSessionSnapshot(version: version, createdAt: Date().timeIntervalSince1970, windows: [
+            makeWindow(workspaceIds: [UUID()], selectedWorkspaceIndex: 0)
+        ])
+    }
+
+    private static func makeWindow(workspaceIds: [UUID], selectedWorkspaceIndex: Int?) -> SessionWindowSnapshot {
+        let workspaces = workspaceIds.map { makeWorkspace(workspaceId: $0) }
+        let tabManager = SessionTabManagerSnapshot(selectedWorkspaceIndex: selectedWorkspaceIndex, workspaces: workspaces)
+        return SessionWindowSnapshot(
+            frame: SessionRectSnapshot(x: 10, y: 20, width: 900, height: 700),
+            display: SessionDisplaySnapshot(
+                displayID: 42,
+                frame: SessionRectSnapshot(x: 0, y: 0, width: 1920, height: 1200),
+                visibleFrame: SessionRectSnapshot(x: 0, y: 25, width: 1920, height: 1175)
+            ),
+            tabManager: tabManager,
+            sidebar: SessionSidebarSnapshot(isVisible: true, selection: .tabs, width: 240)
+        )
+    }
+
+    private static func makeWorkspace(workspaceId: UUID) -> SessionWorkspaceSnapshot {
         let workspace = SessionWorkspaceSnapshot(
             processTitle: "Terminal",
             customTitle: "Restored",
@@ -62,19 +137,9 @@ final class SessionPipSurfaceSnapshotTests: XCTestCase {
             progress: nil,
             gitBranch: nil
         )
-
-        let tabManager = SessionTabManagerSnapshot(selectedWorkspaceIndex: 0, workspaces: [workspace])
-        let window = SessionWindowSnapshot(
-            frame: SessionRectSnapshot(x: 10, y: 20, width: 900, height: 700),
-            display: SessionDisplaySnapshot(
-                displayID: 42,
-                frame: SessionRectSnapshot(x: 0, y: 0, width: 1920, height: 1200),
-                visibleFrame: SessionRectSnapshot(x: 0, y: 25, width: 1920, height: 1175)
-            ),
-            tabManager: tabManager,
-            sidebar: SessionSidebarSnapshot(isVisible: true, selection: .tabs, width: 240)
-        )
-        return AppSessionSnapshot(version: version, createdAt: Date().timeIntervalSince1970, windows: [window])
+        var copy = workspace
+        copy.workspaceId = workspaceId
+        return copy
     }
 
     private static func pipTerminalPanelSnapshot(id: UUID) -> SessionPanelSnapshot {

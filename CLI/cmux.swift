@@ -6494,7 +6494,6 @@ struct CMUXCLI {
             throw CLIError(message: "Unsupported surface subcommand: \(subcommand)")
         }
     }
-
     private func runSurfacePipCommand(commandArgs: [String], client: SocketClient, jsonOutput: Bool, idFormat: CLIIDFormat, windowOverride: String?) throws {
         let (surfaceArg, rem0) = parseOption(commandArgs, name: "--surface")
         let (actionArg, rem1) = parseOption(rem0, name: "--action")
@@ -6508,15 +6507,15 @@ struct CMUXCLI {
         var params: [String: Any] = ["action": action]
         let winId = try normalizeWindowHandle(windowArg ?? windowOverride, client: client)
         if let winId { params["window_id"] = winId }
-        let surfaceId = try normalizeSurfaceHandle(surfaceArg, client: client, workspaceHandle: nil, windowHandle: winId)
-        if let surfaceId { params["surface_id"] = surfaceId }
+        let surfaceRaw = surfaceArg ?? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"]
+        guard let surfaceId = try normalizeSurfaceHandle(surfaceRaw, client: client, workspaceHandle: nil, windowHandle: winId) else { throw CLIError(message: "surface pip requires --surface or CMUX_SURFACE_ID") }
+        params["surface_id"] = surfaceId
         let payload = try client.sendV2(method: "surface.pip", params: params)
         let formattedSurface = formatTabHandle(payload, idFormat: idFormat) ?? "surface"
         let isInPip = (payload["in_picture_in_picture"] as? Bool) == true
         let fallback = isInPip ? "Popped out \(formattedSurface) into Picture in Picture" : "Returned \(formattedSurface) from Picture in Picture"
         printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: fallback)
     }
-
     private func runSurfaceResumeCommand(
         commandArgs: [String],
         client: SocketClient,
@@ -6543,13 +6542,11 @@ struct CMUXCLI {
             let (source, rem5) = parseOption(rem4, name: "--source")
             let (cwd, rem6) = parseOption(rem5, name: "--cwd")
             let (shellCommand, rem7) = parseOption(rem6, name: "--shell")
-
             if let name { params["name"] = name }
             if let kind { params["kind"] = kind }
             if let checkpoint = checkpointID ?? checkpoint { params["checkpoint_id"] = checkpoint }
             params["source"] = source ?? "cli"
             params["cwd"] = cwd ?? ProcessInfo.processInfo.environment["PWD"] ?? FileManager.default.currentDirectoryPath
-
             let commandText: String
             if let shellCommand {
                 if let unexpected = (rem7 + (splitRemaining.argv ?? [])).first {
@@ -16178,14 +16175,15 @@ struct CMUXCLI {
                    cmux surface resume show [--json] [flags]
                    cmux surface resume get [--json] [flags]
                    cmux surface resume clear [flags]
+                   cmux surface pip [--action <pop|return|toggle>] [--surface <id|ref|index>] [--window <id|ref|index>]
 
-            Attach restart command metadata to a terminal surface.
-            Public CLI bindings are stored for inspection and manual restore.
+            Attach restart command metadata to a terminal surface, or toggle Picture in Picture for a surface.
 
             Flags:
               --workspace <id|ref|index>   Workspace context (default: $CMUX_WORKSPACE_ID)
               --surface <id|ref|index>     Surface context (default: $CMUX_SURFACE_ID)
               --window <id|ref|index>      Window context for workspace and surface refs/indexes
+              --action <action>             Picture in Picture action: pop, return, or toggle
               --cwd <path>             Working directory for restore (default: $PWD)
               --name <name>            Display name for the binding
               --kind <kind>            Binding kind, for example agent or tmux
@@ -16197,6 +16195,7 @@ struct CMUXCLI {
               cmux surface resume set --kind tmux --shell "tmux attach -t work"
               cmux surface resume set --kind opencode --checkpoint ses_123 -- opencode --session ses_123
               cmux surface resume show --json
+              cmux surface pip --action toggle --surface surface:1
             """
         case "debug-terminals":
             return """
@@ -35190,6 +35189,7 @@ export default CMUXSessionRestore;
           reorder-surface --surface <id|ref|index> (--index <n> | --before <id|ref|index> | --after <id|ref|index>) [--workspace <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>]
           tab-action --action <name> [--tab <id|ref|index>] [--surface <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--title <text>] [--url <url>] [--focus <true|false>]
           surface resume <set|show|get|clear> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]
+          surface pip [--action <pop|return|toggle>] [--surface <id|ref|index>] [--window <id|ref|index>]
           rename-tab [--workspace <id|ref|index>] [--tab <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] <title>
           drag-surface-to-split --surface <id|ref|index> <left|right|up|down> [--workspace <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>]
           refresh-surfaces

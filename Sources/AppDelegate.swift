@@ -512,6 +512,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     var aboutTitlebarDebugStore: AboutTitlebarDebugStore { debugWindowsCoordinator.aboutTitlebarStore }
     /// Coordinates remote tmux (`ssh … tmux -CC`) mirroring; composition-root owned.
     let remoteTmuxController = RemoteTmuxController()
+    lazy var surfacePipController = SurfacePipController(appDelegate: self)
     private let systemAppearanceObserver = SystemAppearanceObserver()
     private static let reloadConfigurationMenuItemIdentifier = NSUserInterfaceItemIdentifier("com.cmux.reloadConfiguration")
     private static let cachedIsRunningUnderXCTest = detectRunningUnderXCTest(ProcessInfo.processInfo.environment)
@@ -4405,8 +4406,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         surfaceResumeBindingIndex suppliedSurfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
     ) -> (snapshot: AppSessionSnapshot?, removedCrashDiagnosticState: Bool) {
         let contexts = sortedMainWindowContextsForSessionSnapshot()
-
-        guard !contexts.isEmpty else { return (nil, false) }
+        let pipSurfaces = sessionPipSurfaceSnapshots(includeScrollback: includeScrollback)
+        guard !contexts.isEmpty || !pipSurfaces.isEmpty else { return (nil, false) }
         let restorableAgentIndex = suppliedRestorableAgentIndex ?? RestorableAgentSessionIndex.load()
 
         var windows: [SessionWindowSnapshot] = []
@@ -4443,8 +4444,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
 
-        guard !windows.isEmpty else { return (nil, removedCrashDiagnosticState) }
-        let pipSurfaces = sessionPipSurfaceSnapshots(includeScrollback: includeScrollback)
+        guard !windows.isEmpty || !pipSurfaces.isEmpty else { return (nil, removedCrashDiagnosticState) }
         let snapshot = AppSessionSnapshot(version: SessionSnapshotSchema.currentVersion, createdAt: createdAt, windows: windows, pipSurfaces: pipSurfaces.isEmpty ? nil : pipSurfaces).restoringPipSurfacesAsWorkspaceTabs()
         return (snapshot, removedCrashDiagnosticState)
     }
@@ -13981,7 +13981,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        if matchConfiguredShortcut(event: event, action: .toggleSurfacePip) { return toggleSurfacePipForCurrentContext() }
+        if matchConfiguredShortcut(event: event, action: .toggleSurfacePip) { return toggleSurfacePipForCurrentContext(event: event) }
 
         // Open browser: Cmd+Shift+L
         if matchConfiguredShortcut(event: event, action: .openBrowser) {

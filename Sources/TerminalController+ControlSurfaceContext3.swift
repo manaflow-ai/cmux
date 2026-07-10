@@ -36,18 +36,19 @@ extension TerminalController {
         if surfaceID == nil, routing.hasWindowIDParam, routing.windowID == nil {
             return .surfaceNotFound
         }
+        let routedTabManager = resolveTabManager(routing: routing)
         let resolvedSurfaceID: UUID?
         if let surfaceID {
             resolvedSurfaceID = surfaceID
-        } else if action == .pop || (action == .toggle && !app.hasActiveSurfacePipPanels()) {
-            guard let focusedPanelId = resolveTabManager(routing: routing)?.selectedWorkspace?.focusedPanelId else {
+        } else if action == .pop {
+            guard let focusedPanelId = routedTabManager?.selectedWorkspace?.focusedPanelId else {
                 return .surfaceNotFound
             }
             resolvedSurfaceID = focusedPanelId
         } else {
             resolvedSurfaceID = nil
         }
-        switch app.performSurfacePipAction(panelId: resolvedSurfaceID, action: action) {
+        switch app.performSurfacePipAction(panelId: resolvedSurfaceID, action: action, tabManager: routedTabManager) {
         case .success(let state):
             return .changed(
                 surfaceID: state.panelId,
