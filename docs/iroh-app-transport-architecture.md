@@ -16,6 +16,8 @@ The legacy Tailscale TCP transport remains during migration for released clients
 
 Each process owns one Iroh endpoint. A peer route contains one canonical 64-character lowercase hexadecimal EndpointID and separately attributed path hints.
 
+Production endpoints start from Iroh's `Minimal` preset and add the cmux relay fleet explicitly. They do not use the default n0 preset, public n0 DNS address lookup, or public n0 relays. The authenticated cmux device registry is the application-specific address lookup: an endpoint publishes its signed current `watch_addr` value, and same-account peers resolve a known EndpointID through that registry. This distinction is required because an EndpointID authenticates a peer but does not say where that peer is reachable.
+
 Dialing has two explicit phases:
 
 1. Try Iroh-native discovery, globally routable direct addresses, and the managed relay fleet.
@@ -72,6 +74,8 @@ Production endpoints use only these managed relays:
 - `https://usw1-1.relay.lawrence.cmux.iroh.link/`
 - `https://aps1-1.relay.lawrence.cmux.iroh.link/`
 
+The four URLs form the local endpoint's allowed relay fleet. They must not all be synthesized as addresses for every remote endpoint. A remote `EndpointAddr` contains only the remote endpoint's currently advertised home relay or relays, validated against the fleet allowlist. Iroh currently expects zero or one home relay in normal operation. Fleet configuration and remote reachability are separate wire fields.
+
 The Iroh Services project secret stays in a backend-only secret store. Apps receive an endpoint-bound RCAN containing only `relay:use`. Relay capabilities last 24 hours and refresh around 12 hours with jitter.
 
 Relay replacement must be behavior-tested before rollout. Iroh 1.0 caches the authentication token in an active relay actor, so updating a relay map entry alone may not refresh a live actor. The implementation must use an explicit fork API or make-before-break rotation and prove that EndpointID and active application streams survive refresh.
@@ -120,5 +124,7 @@ Before defaulting to Iroh, verification must cover:
 - stream fairness, cancellation, reconnect cursors, and artifact backpressure;
 - mobile energy use, relay byte use, and Low Data Mode behavior;
 - a final security and privacy pass over wire data, persistence, logs, and backend abuse limits.
+
+GitHub's hosted `macos-14-large` runner provides the required Intel Sonoma lane today, but GitHub began deprecating macOS 14 images on July 6, 2026 and plans to remove them on November 2, 2026. cmux must move this release gate to an Intel lab runner before that date rather than silently dropping macOS 14 coverage.
 
 Current regional capacity is provisional until fresh PostHog geography data is available. The stale sample suggests the existing US, EU, and AP coverage is reasonable, but Tokyo or Seoul may merit an additional relay after a current query.
