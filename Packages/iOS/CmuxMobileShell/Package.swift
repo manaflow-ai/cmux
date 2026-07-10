@@ -15,6 +15,8 @@ let package = Package(
         ),
     ],
     dependencies: [
+        .package(path: "../../Shared/CmuxAgentSync"),
+        .package(path: "../../Shared/CmuxAgentWire"),
         .package(path: "../../Shared/CMUXMobileCore"),
         .package(path: "../CmuxMobileDiagnostics"),
         .package(path: "../CmuxMobilePairedMac"),
@@ -28,6 +30,8 @@ let package = Package(
             name: "CmuxMobileShell",
             dependencies: [
                 "CMUXMobileCore",
+                "CmuxAgentSync",
+                "CmuxAgentWire",
                 "CmuxMobileDiagnostics",
                 "CmuxMobilePairedMac",
                 "CmuxMobileRPC",

@@ -1,4 +1,5 @@
 public import CMUXMobileCore
+public import CmuxAgentSync
 internal import CmuxMobileDiagnostics
 public import CmuxMobilePairedMac
 public import CmuxMobileRPC
@@ -652,6 +653,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// `public` so the DEV feedback-submit affordance can ``DiagnosticLog/export()``
     /// it.
     public let diagnosticLog: DiagnosticLog?
+    /// Agent GUI synchronization engine for the current foreground Mac.
+    public internal(set) var agentSyncEngine: AgentSyncEngine? = nil
+    @ObservationIgnored var agentGUIConnectionGeneration: UUID? = nil
+    @ObservationIgnored var agentGUIConnectionEventRelay: AgentGUIConnectionEventRelay? = nil
     var remoteClient: MobileCoreRPCClient? {
         didSet {
             if remoteClient == nil {
@@ -1461,6 +1466,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard remoteClient != nil || pairedMacStore != nil else { return }
         if connectionState == .connected, remoteClient != nil {
             markMacConnectionReconnecting()
+            if case .networkChange = trigger {
+                agentSyncEngine?.noteNetworkPathChanged()
+            }
             resyncTerminalOutput(reason: "networkRecovery.\(trigger)", restartEventStream: true)
             if multiMacAggregationEnabled, trigger.reschedulesSecondaryAggregation {
                 scheduleSecondaryAggregation()
@@ -2488,6 +2496,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         dropStalePreviousForeground(previousForegroundKey)
         connectionState = .connected
         markMacConnectionHealthy()
+        installAgentGUIEngine(client: sub.client, generation: generation)
         // Tear down the OLD foreground's terminal event listener before starting a
         // fresh one. `cancelRemoteOperationTasks()` above does NOT clear
         // `terminalEventListenerTask`/`terminalEventListenerID`, and
@@ -5045,6 +5054,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     syncSelectedTerminalForWorkspace()
                     connectionState = .connected
                     markMacConnectionHealthy()
+                    installAgentGUIEngine(client: client, generation: generation)
                     // Record this as the foreground entry in the per-Mac
                     // connection pool (P2). Anonymous (empty-id) tickets are not
                     // pooled, since a per-Mac key is required to aggregate. Keyed by
@@ -5260,6 +5270,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private func replaceRemoteClient(with newValue: MobileCoreRPCClient?) {
         let previous = remoteClient
         remoteClient = newValue
+        if previous !== newValue {
+            if newValue == nil {
+                clearAgentGUIEngine(reason: "disconnected")
+            } else if previous != nil {
+                resetAgentGUIEngine()
+            }
+        }
         if let previous, previous !== newValue {
             Task { await previous.disconnect() }
         }
@@ -5638,6 +5655,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         isRecoveringConnection = false
         connectionRecoveryFailed = false
         connectionRequiresReauth = false
+        noteAgentGUIConnectionHealthy()
     }
 
     private func markMacConnectionReconnecting() {
@@ -5648,6 +5666,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         macConnectionStatus = .reconnecting
         isRecoveringConnection = true
         connectionRecoveryFailed = false
+        noteAgentGUIConnectionReconnecting()
     }
 
     private func markMacConnectionUnavailable() {
@@ -5658,6 +5677,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         macConnectionStatus = .unavailable
         isRecoveringConnection = false
         connectionRecoveryFailed = true
+        noteAgentGUIConnectionUnavailable()
     }
 
     func markMacConnectionUnavailableIfNeeded(after error: any Error) {

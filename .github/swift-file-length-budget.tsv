@@ -255,3 +255,5 @@
 503	Sources/TerminalNotificationQueue.swift
 502	Sources/CmuxEventPublishing.swift
 500	Sources/KeyboardShortcutRecorder.swift
+633	Packages/Shared/CmuxAgentSync/Sources/CmuxAgentSync/Engine/AgentSyncEngine.swift
+740	Packages/Shared/CmuxAgentSync/Tests/CmuxAgentSyncTests/AgentSyncEngineTests.swift
