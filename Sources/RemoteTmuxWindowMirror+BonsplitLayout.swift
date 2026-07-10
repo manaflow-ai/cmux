@@ -41,18 +41,12 @@ extension RemoteTmuxWindowMirror {
         ).clientGrid(layout: layout, contentSize: contentSize)
     }
 
-    nonisolated static func paneTitle(command: String?, cwd: String?) -> String? {
-        let trimmedCommand = command?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if !trimmedCommand.isEmpty,
-           !RemoteTmuxPaneForegroundState.plainShellCommands.contains(trimmedCommand) {
-            return trimmedCommand
-        }
-        let trimmedCwd = cwd?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if !trimmedCwd.isEmpty {
-            let component = URL(fileURLWithPath: trimmedCwd).lastPathComponent
-            if !component.isEmpty { return component }
-        }
-        return nil
+    nonisolated static func windowPaneTitle(_ windowTitle: String, paneIndex: Int) -> String {
+        let trimmed = windowTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        let base = trimmed.isEmpty
+            ? String(localized: "remoteTmux.tab.window", defaultValue: "tmux window")
+            : trimmed
+        return paneIndex == 0 ? base : "\(base) [\(paneIndex)]"
     }
 
     nonisolated static func dividerFraction(

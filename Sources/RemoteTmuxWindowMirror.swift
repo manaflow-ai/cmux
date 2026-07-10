@@ -63,6 +63,9 @@ final class RemoteTmuxWindowMirror {
     private(set) var layoutStructureVersion = 0
     /// The tmux pane the user last focused (drives the focus overlay + splits).
     private(set) var activePaneId: Int?
+    /// Display title for this mirrored tmux window; every inner surface/tab title
+    /// derives from this tmux window name, never from pane-border labels.
+    private(set) var windowTitle = String(localized: "remoteTmux.tab.window", defaultValue: "tmux window")
 
     /// Only the visible tab's mirror writes after its initial claim. Hidden
     /// tabs stay mounted and still receive geometry callbacks, so default-hidden
@@ -168,6 +171,8 @@ final class RemoteTmuxWindowMirror {
     /// never creates or closes panels, and f's output is zoom-invariant.
     func apply(window: RemoteTmuxWindow) {
         let previousRenderedLayout = renderedLayout
+        let nextTitle = RemoteTmuxSessionMirror.tabTitle(for: window)
+        if windowTitle != nextTitle { windowTitle = nextTitle }
         let newVisible = window.zoomed ? window.visibleLayout : nil
         if visibleLayout != newVisible { visibleLayout = newVisible }
         if zoomed != window.zoomed { zoomed = window.zoomed }
