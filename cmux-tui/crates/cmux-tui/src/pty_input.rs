@@ -5,7 +5,7 @@
 //! motion is coalesced, and every accepted mouse press reserves its release
 //! capacity.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -235,16 +235,7 @@ impl PtyInputDispatcher {
     pub fn shutdown(&mut self, timeout: Duration) -> bool {
         let deadline = Instant::now() + timeout;
         let mut state = self.sender.queue.state.lock().unwrap();
-        let releases = state
-            .events
-            .drain(..)
-            .filter(|event| event.kind == PtyInputKind::Release)
-            .collect::<VecDeque<_>>();
-        state.queued_bytes = releases.iter().map(|event| event.bytes.len()).sum();
-        state.events = releases;
-        state.release_reservations.clear();
         state.closed = true;
-        state.shutdown_release_drain = true;
         self.sender.queue.changed.notify_all();
         while (!state.events.is_empty() || state.in_flight.is_some()) && Instant::now() < deadline {
             let remaining = deadline.saturating_duration_since(Instant::now());
@@ -252,7 +243,21 @@ impl PtyInputDispatcher {
             state = next;
         }
         let drained = state.events.is_empty() && state.in_flight.is_none();
+        let canceled = if drained {
+            Vec::new()
+        } else {
+            state.shutdown_release_drain = true;
+            let canceled = prune_to_recovery_releases(
+                &mut state,
+                "canceled after the shutdown drain timed out",
+            );
+            self.sender.queue.changed.notify_all();
+            canceled
+        };
         drop(state);
+        for failure in canceled {
+            (self.sender.on_failure)(failure);
+        }
         if drained && let Some(worker) = self.worker.take() {
             let _ = worker.join();
         }
@@ -537,29 +542,10 @@ fn worker(queue: Arc<SharedQueue>, on_failure: Arc<dyn Fn(PtyOperationFailure) +
             // work so one stalled request cannot multiply into minutes of
             // latency, but retain releases that may balance a press already
             // executed by the remote server.
-            let mut releases = VecDeque::new();
-            let queued = state.events.drain(..).collect::<Vec<_>>();
-            for event in queued {
-                if event.kind == PtyInputKind::Release {
-                    releases.push_back(event);
-                } else {
-                    if let Some(reservation_id) = event.reservation_id {
-                        state.release_reservations.outstanding.remove(&reservation_id);
-                    }
-                    canceled.push(PtyOperationFailure {
-                        surface_id: (event.kind != PtyInputKind::Mutation)
-                            .then_some(event.surface_id),
-                        kind: (event.kind != PtyInputKind::Mutation).then_some(event.kind),
-                        reservation_id: event.reservation_id,
-                        label: event.label,
-                        error: "canceled after a remote request timed out".into(),
-                        lane_failed: false,
-                        delivery: PtyOperationDelivery::KnownNotDelivered,
-                    });
-                }
-            }
-            state.queued_bytes = releases.iter().map(|event| event.bytes.len()).sum();
-            state.events = releases;
+            canceled.extend(prune_to_recovery_releases(
+                &mut state,
+                "canceled after a remote request timed out",
+            ));
         }
         state.in_flight = None;
         queue.changed.notify_all();
@@ -571,6 +557,45 @@ fn worker(queue: Arc<SharedQueue>, on_failure: Arc<dyn Fn(PtyOperationFailure) +
             on_failure(failure);
         }
     }
+}
+
+fn prune_to_recovery_releases(
+    state: &mut QueueState,
+    error: &'static str,
+) -> Vec<PtyOperationFailure> {
+    let canceled_press_reservations = state
+        .events
+        .iter()
+        .filter(|event| event.kind == PtyInputKind::Press)
+        .filter_map(|event| event.reservation_id)
+        .collect::<HashSet<_>>();
+    let mut releases = VecDeque::new();
+    let mut canceled = Vec::new();
+    for event in state.events.drain(..) {
+        let retain_release = event.kind == PtyInputKind::Release
+            && event.reservation_id.is_some_and(|id| !canceled_press_reservations.contains(&id));
+        if retain_release {
+            releases.push_back(event);
+            continue;
+        }
+        if event.kind == PtyInputKind::Press
+            && let Some(reservation_id) = event.reservation_id
+        {
+            state.release_reservations.outstanding.remove(&reservation_id);
+        }
+        canceled.push(PtyOperationFailure {
+            surface_id: (event.kind != PtyInputKind::Mutation).then_some(event.surface_id),
+            kind: (event.kind != PtyInputKind::Mutation).then_some(event.kind),
+            reservation_id: event.reservation_id,
+            label: event.label,
+            error: error.into(),
+            lane_failed: false,
+            delivery: PtyOperationDelivery::KnownNotDelivered,
+        });
+    }
+    state.queued_bytes = releases.iter().map(|event| event.bytes.len()).sum();
+    state.events = releases;
+    canceled
 }
 
 #[cfg(test)]
@@ -824,6 +849,7 @@ mod tests {
             state.events.push_back(event(1, 1, PtyInputKind::Motion));
             let released_flag = released.clone();
             let mut release = event(1, 2, PtyInputKind::Release);
+            release.reservation_id = Some(7);
             release.mutation = Some(Box::new(move || {
                 released_flag.store(true, std::sync::atomic::Ordering::Release);
                 Ok(())
@@ -872,6 +898,64 @@ mod tests {
         cancel_tx.send(()).unwrap();
         assert!(shutdown.join().unwrap());
         assert!(released.load(std::sync::atomic::Ordering::Acquire));
+    }
+
+    #[test]
+    fn shutdown_closes_enqueue_then_drains_accepted_fifo_work() {
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let (unblock_tx, unblock_rx) = std::sync::mpsc::channel();
+        let order = Arc::new(Mutex::new(Vec::new()));
+        let mut dispatcher = PtyInputDispatcher::spawn(|_| {}).unwrap();
+        let sender = dispatcher.sender();
+        let first_order = order.clone();
+        sender.enqueue_session_mutation("first", false, move || {
+            started_tx.send(()).unwrap();
+            unblock_rx.recv().unwrap();
+            first_order.lock().unwrap().push(1);
+            Ok(())
+        });
+        started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        let second_order = order.clone();
+        sender.enqueue_session_mutation("second", false, move || {
+            second_order.lock().unwrap().push(2);
+            Ok(())
+        });
+
+        let queue = dispatcher.sender.queue.clone();
+        let shutdown = std::thread::spawn(move || dispatcher.shutdown(Duration::from_secs(1)));
+        while !queue.state.lock().unwrap().closed {
+            std::thread::yield_now();
+        }
+        assert_eq!(
+            sender.enqueue(event(1, 3, PtyInputKind::Ordered)),
+            PtyInputEnqueueResult::Saturated
+        );
+        unblock_tx.send(()).unwrap();
+
+        assert!(shutdown.join().unwrap());
+        assert_eq!(*order.lock().unwrap(), vec![1, 2]);
+    }
+
+    #[test]
+    fn recovery_prune_drops_release_paired_with_a_canceled_queued_press() {
+        let mut state = QueueState::default();
+        let mut press = event(7, 1, PtyInputKind::Press);
+        press.reservation_id = Some(11);
+        let mut paired_release = event(7, 2, PtyInputKind::Release);
+        paired_release.reservation_id = Some(11);
+        let mut ambiguous_release = event(7, 3, PtyInputKind::Release);
+        ambiguous_release.reservation_id = Some(12);
+        state.events = VecDeque::from([press, paired_release, ambiguous_release]);
+        state.queued_bytes = 3;
+        state.release_reservations.outstanding.insert(11, 7);
+
+        let canceled = prune_to_recovery_releases(&mut state, "timed out");
+
+        assert_eq!(canceled.len(), 2);
+        assert_eq!(state.events.len(), 1);
+        assert_eq!(state.events[0].reservation_id, Some(12));
+        assert_eq!(state.queued_bytes, 1);
+        assert!(!state.release_reservations.outstanding.contains_key(&11));
     }
 
     #[test]

@@ -60,7 +60,7 @@ pub enum AppEvent {
     PtyOperationFailed(PtyOperationFailure),
     SessionMutationSettled(SessionMutationOutcome),
     RemoteTreeUpdated(Result<TreeView, String>),
-    SidebarPluginUpdated(SidebarPluginSurface),
+    SidebarPluginUpdated { status: SidebarPluginSurface, relaunch: bool },
 }
 
 #[derive(Default)]
@@ -459,6 +459,32 @@ impl OrderedSession {
         });
     }
 
+    fn enqueue_coalescing_session_mutation(
+        &self,
+        label: &'static str,
+        key: (&'static str, u64),
+        operation: impl FnOnce(Session) -> anyhow::Result<()> + Send + 'static,
+    ) {
+        let session = self.inner.clone();
+        let pending = self.pending_mutation();
+        let remote = self.remote;
+        let committed_mutation_generation = self.committed_mutation_generation.clone();
+        self.operations.enqueue_coalescing_mutation(label, key, remote, move || {
+            if let Err(error) = operation(session.clone()) {
+                if remote && is_remote_timeout(&error) {
+                    session.invalidate_remote_tree();
+                    pending.settle(SessionMutationOutcome::MutationTimedOut(error.to_string()));
+                } else {
+                    pending.settle(SessionMutationOutcome::Failed(error.to_string()));
+                }
+                return Err(error);
+            }
+            committed_mutation_generation.fetch_add(1, Ordering::AcqRel);
+            pending.settle(SessionMutationOutcome::Success { tree: None });
+            Ok(())
+        });
+    }
+
     fn resize_surface(
         &self,
         surface_id: SurfaceId,
@@ -468,21 +494,16 @@ impl OrderedSession {
         reassert: bool,
         claim: SurfaceResizeClaim,
     ) {
-        let pending = self.pending_mutation();
-        let committed_mutation_generation = self.committed_mutation_generation.clone();
-        self.operations.enqueue_coalescing_mutation(
+        self.enqueue_coalescing_session_mutation(
             "resize PTY surface",
             ("surface resize", surface_id),
-            self.remote,
-            move || {
+            move |_| {
                 let _claim = claim;
                 if reassert {
                     surface.reassert_size(cols, rows)?;
                 } else {
                     surface.resize(cols, rows)?;
                 }
-                committed_mutation_generation.fetch_add(1, Ordering::AcqRel);
-                pending.settle(SessionMutationOutcome::Success { tree: None });
                 Ok(())
             },
         );
@@ -551,22 +572,31 @@ impl OrderedSession {
         let events = self.events.clone();
         let pending = self.pending_mutation();
         let committed_mutation_generation = self.committed_mutation_generation.clone();
-        self.operations.enqueue_coalescing_mutation(
-            "sync sidebar plugin",
-            ("sidebar plugin", 0),
-            self.remote,
-            move || {
-                let mut claim = claim;
-                let status = session.sidebar_plugin(size, relaunch);
-                let _ = events.send(AppEvent::SidebarPluginUpdated(status));
-                committed_mutation_generation.fetch_add(1, Ordering::AcqRel);
-                if let Some(claim) = &mut claim {
-                    claim.mark_applied();
-                }
-                pending.settle(SessionMutationOutcome::Success { tree: None });
-                Ok(())
-            },
-        );
+        let operation = move || {
+            let mut claim = claim;
+            let status = session.sidebar_plugin(size, relaunch);
+            let _ = events.send(AppEvent::SidebarPluginUpdated { status, relaunch });
+            committed_mutation_generation.fetch_add(1, Ordering::AcqRel);
+            if let Some(claim) = &mut claim {
+                claim.mark_applied();
+            }
+            pending.settle(SessionMutationOutcome::Success { tree: None });
+            Ok(())
+        };
+        if relaunch {
+            self.operations.enqueue_session_mutation(
+                "relaunch sidebar plugin",
+                self.remote,
+                operation,
+            );
+        } else {
+            self.operations.enqueue_coalescing_mutation(
+                "sync sidebar plugin",
+                ("sidebar plugin", 0),
+                self.remote,
+                operation,
+            );
+        }
     }
 
     pub fn new_tab(&self, pane: Option<PaneId>, size: Option<(u16, u16)>) -> anyhow::Result<()> {
@@ -635,26 +665,14 @@ impl OrderedSession {
     }
 
     fn set_ratio_deferred(&self, pane: PaneId, dir: SplitDir, ratio: f32) {
-        let session = self.inner.clone();
         let direction = match dir {
             SplitDir::Right => "horizontal split ratio",
             SplitDir::Down => "vertical split ratio",
         };
-        let pending = self.pending_mutation();
-        let committed_mutation_generation = self.committed_mutation_generation.clone();
-        self.operations.enqueue_coalescing_mutation(
+        self.enqueue_coalescing_session_mutation(
             "resize pane split",
             (direction, pane),
-            self.remote,
-            move || {
-                if let Err(error) = session.set_ratio(pane, dir, ratio) {
-                    pending.settle(SessionMutationOutcome::Failed(error.to_string()));
-                    return Err(error);
-                }
-                committed_mutation_generation.fetch_add(1, Ordering::AcqRel);
-                pending.settle(SessionMutationOutcome::Success { tree: None });
-                Ok(())
-            },
+            move |session| session.set_ratio(pane, dir, ratio),
         );
     }
 
@@ -1085,6 +1103,7 @@ pub struct App {
     pub session_label: String,
     pub sidebar_visible: bool,
     pub sidebar_focused: bool,
+    pub sidebar_focus_pending: bool,
     /// Width of the sidebar in the current frame (0 when hidden).
     pub sidebar_width: u16,
     pub sidebar_plugin_surface: Option<SurfaceId>,
@@ -1379,6 +1398,7 @@ pub fn run(
         session_label,
         sidebar_visible: true,
         sidebar_focused: false,
+        sidebar_focus_pending: false,
         sidebar_width: 0,
         sidebar_plugin_surface: None,
         sidebar_plugin_error: None,
@@ -1744,7 +1764,7 @@ impl App {
             height: height.saturating_sub(1), // status bar
         };
         self.content_area = area;
-        self.sync_sidebar_plugin(false);
+        let _ = self.sync_sidebar_plugin(false);
         self.replace_tree(self.session.tree());
         let layout = self
             .tree
@@ -1824,28 +1844,40 @@ impl App {
         }
     }
 
-    fn sync_sidebar_plugin(&mut self, relaunch: bool) {
+    fn sync_sidebar_plugin(&mut self, relaunch: bool) -> bool {
         if self.config.sidebar.plugin.is_none() || self.sidebar_width < 3 || !self.sidebar_visible {
             self.sidebar_plugin_surface = None;
             self.sidebar_plugin_error = None;
             self.sidebar_plugin_retry_after_ms = None;
             self.sidebar_focused = false;
-            return;
+            self.sidebar_focus_pending = false;
+            return false;
         }
         let rect = self.sidebar_plugin_rect();
         if rect.width == 0 || rect.height == 0 {
-            return;
+            return false;
         }
         if relaunch && !self.prepare_pty_input_before_mutation() {
-            return;
+            return false;
         }
         self.session.sidebar_plugin((rect.width, rect.height), relaunch);
+        true
     }
 
-    fn apply_sidebar_plugin_status(&mut self, status: SidebarPluginSurface) {
+    fn apply_sidebar_plugin_status(&mut self, status: SidebarPluginSurface, relaunch: bool) {
         self.sidebar_plugin_surface = status.surface_id;
         self.sidebar_plugin_error = status.error;
         self.sidebar_plugin_retry_after_ms = status.retry_after_ms;
+        if self.sidebar_focus_pending && (self.sidebar_plugin_surface.is_some() || relaunch) {
+            self.sidebar_focus_pending = false;
+            if self.sidebar_plugin_surface.is_some() {
+                self.sidebar_focused = true;
+                self.menu = None;
+                self.prompt = None;
+                self.omnibar = None;
+                self.selection = None;
+            }
+        }
         if self.sidebar_focused && self.sidebar_plugin_surface.is_none() {
             self.sidebar_focused = false;
         }
@@ -1890,8 +1922,8 @@ impl App {
             AppEvent::MuxTitlesReady => {
                 Ok(if self.apply_mux_titles() { RenderAction::Paint } else { RenderAction::None })
             }
-            AppEvent::SidebarPluginUpdated(status) => {
-                self.apply_sidebar_plugin_status(status);
+            AppEvent::SidebarPluginUpdated { status, relaunch } => {
+                self.apply_sidebar_plugin_status(status, relaunch);
                 Ok(RenderAction::Draw)
             }
             AppEvent::Mux(MuxEvent::Empty) => {
@@ -1935,16 +1967,19 @@ impl App {
             }
             AppEvent::Mux(MuxEvent::SurfaceOutput(id)) => {
                 if self.sidebar_plugin_surface == Some(id) {
-                    return Ok(RenderAction::Draw);
+                    return Ok(RenderAction::Paint);
                 }
                 if self.frame_only_browser_update(id) {
                     Ok(RenderAction::Graphics)
                 } else {
-                    Ok(RenderAction::Draw)
+                    Ok(RenderAction::Paint)
                 }
             }
             AppEvent::Mux(_) => Ok(RenderAction::Draw),
             AppEvent::PtyOperationFailed(failure) => {
+                if failure.label == "relaunch sidebar plugin" {
+                    self.sidebar_focus_pending = false;
+                }
                 if failure.kind == Some(PtyInputKind::Motion)
                     && failure.delivery == PtyOperationDelivery::KnownNotDelivered
                 {
@@ -3016,19 +3051,26 @@ impl App {
     fn toggle_sidebar_focus(&mut self) {
         if self.sidebar_focused {
             self.sidebar_focused = false;
+            self.sidebar_focus_pending = false;
+            return;
+        }
+        if self.sidebar_focus_pending {
+            self.sidebar_focus_pending = false;
             return;
         }
         if self.config.sidebar.plugin.is_none() {
             return;
         }
         self.sidebar_visible = true;
-        self.sync_sidebar_plugin(true);
+        let requested = self.sync_sidebar_plugin(true);
         if self.sidebar_plugin_surface.is_some() {
             self.sidebar_focused = true;
             self.menu = None;
             self.prompt = None;
             self.omnibar = None;
             self.selection = None;
+        } else if requested {
+            self.sidebar_focus_pending = true;
         }
     }
 
@@ -4059,14 +4101,16 @@ impl App {
             && self.sidebar_plugin_rect().contains(x, y)
             && self.sidebar_visible
         {
-            self.sync_sidebar_plugin(true);
+            let requested = self.sync_sidebar_plugin(true);
             self.sidebar_focused = self.sidebar_plugin_surface.is_some();
+            self.sidebar_focus_pending = requested && self.sidebar_plugin_surface.is_none();
             return Ok(RenderAction::Draw);
         }
         // Any click outside the plugin rect returns keyboard focus to the
         // panes; otherwise typing would keep going to the plugin PTY after
         // the user clicked into a pane.
         self.sidebar_focused = false;
+        self.sidebar_focus_pending = false;
 
         if let Some(hit) = self.hit_at(x, y) {
             match hit {
@@ -4845,7 +4889,7 @@ mod tests {
     use std::time::Duration;
 
     use cmux_tui_core::{
-        BrowserStatus, Mux, Node, Rect, SplitDir, SurfaceId, SurfaceKind, SurfaceOptions,
+        BrowserStatus, Mux, MuxEvent, Node, Rect, SplitDir, SurfaceId, SurfaceKind, SurfaceOptions,
     };
     use crossterm::event::{
         Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
@@ -4863,7 +4907,7 @@ mod tests {
         PtyOperationDelivery, PtyOperationFailure,
     };
     use crate::session::tree::{PaneView, ScreenView, TabNotificationView, TabView, WorkspaceView};
-    use crate::session::{Session, TreeView};
+    use crate::session::{Session, SidebarPluginSurface, TreeView};
 
     #[test]
     fn browser_omnibar_reduces_content_rect_for_graphics_and_input() {
@@ -5382,7 +5426,7 @@ mod tests {
 
         let mut updates = 0;
         while let Ok(event) = events.recv_timeout(Duration::from_millis(100)) {
-            if matches!(event, AppEvent::SidebarPluginUpdated(_)) {
+            if matches!(event, AppEvent::SidebarPluginUpdated { .. }) {
                 updates += 1;
             }
             app.handle(event).unwrap();
@@ -5393,6 +5437,76 @@ mod tests {
         assert_eq!(updates, 1);
         assert!(!app.session.has_pending_mutations());
         assert_eq!(app.session.sidebar_plugin_sync.lock().unwrap().applied, Some(((24, 8), 0)));
+    }
+
+    #[test]
+    fn explicit_sidebar_relaunch_is_a_barrier_before_passive_sync() {
+        let mux = Mux::new("sidebar-plugin-relaunch-barrier-test", SurfaceOptions::default());
+        let (mut app, events) = test_app_with_events(Session::Local(mux));
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let (unblock_tx, unblock_rx) = std::sync::mpsc::channel();
+        app.session.operations.enqueue_session_mutation("blocker", false, move || {
+            started_tx.send(()).unwrap();
+            unblock_rx.recv().unwrap();
+            Ok(())
+        });
+        started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        app.session.sidebar_plugin((24, 8), true);
+        app.session.sidebar_plugin((24, 8), false);
+        unblock_tx.send(()).unwrap();
+
+        let mut updates = Vec::new();
+        while updates.len() < 2 {
+            let event = events.recv_timeout(Duration::from_secs(1)).unwrap();
+            if let AppEvent::SidebarPluginUpdated { relaunch, .. } = &event {
+                updates.push(*relaunch);
+            }
+            app.handle(event).unwrap();
+        }
+        assert_eq!(updates, vec![true, false]);
+    }
+
+    #[test]
+    fn pending_sidebar_focus_is_fulfilled_by_async_relaunch_success() {
+        let mux = Mux::new("sidebar-plugin-focus-intent-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.config.sidebar.plugin = Some(cmux_tui_core::SidebarPluginOptions {
+            command: vec!["unused".to_string()],
+            cwd: None,
+        });
+        app.sidebar_width = 12;
+        app.content_area.height = 8;
+
+        app.toggle_sidebar_focus();
+        assert!(app.sidebar_focus_pending);
+        assert!(!app.sidebar_focused);
+
+        app.handle(AppEvent::SidebarPluginUpdated {
+            status: SidebarPluginSurface {
+                surface_id: Some(42),
+                error: None,
+                retry_after_ms: None,
+            },
+            relaunch: true,
+        })
+        .unwrap();
+
+        assert!(!app.sidebar_focus_pending);
+        assert!(app.sidebar_focused);
+        assert_eq!(app.sidebar_plugin_surface, Some(42));
+    }
+
+    #[test]
+    fn surface_output_is_paint_only_and_preserves_the_topology_index() {
+        let mux = Mux::new("surface-output-paint-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.tab_locations.insert(77, [1, 2, 3, 4]);
+
+        let action = app.handle(AppEvent::Mux(MuxEvent::SurfaceOutput(77))).unwrap();
+
+        assert_eq!(action, RenderAction::Paint);
+        assert_eq!(app.tab_locations.get(&77), Some(&[1, 2, 3, 4]));
     }
 
     #[test]
@@ -5416,6 +5530,33 @@ mod tests {
                 .as_deref()
                 .is_some_and(|message| message.contains("may have committed"))
         );
+    }
+
+    #[test]
+    fn remote_coalesced_resize_timeouts_settle_as_ambiguous() {
+        let mux = Mux::new("coalesced-timeout-test", SurfaceOptions::default());
+        let (mut app, events) = test_app_with_events(Session::Local(mux));
+        app.session.remote = true;
+        app.deferred_input
+            .push_back(Event::Key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)));
+
+        for (label, key) in [
+            ("resize PTY surface", ("surface resize", 7)),
+            ("resize pane split", ("horizontal split ratio", 8)),
+        ] {
+            app.session.enqueue_coalescing_session_mutation(label, key, |_| {
+                Err(crate::session::test_remote_timeout_error())
+            });
+            let settled = events.recv_timeout(Duration::from_secs(1)).unwrap();
+            assert!(matches!(
+                settled,
+                AppEvent::SessionMutationSettled(super::SessionMutationOutcome::MutationTimedOut(
+                    _
+                ))
+            ));
+            app.handle(settled).unwrap();
+            assert_eq!(app.deferred_input.len(), 1);
+        }
     }
 
     #[test]
@@ -6013,6 +6154,7 @@ mod tests {
             session_label: "test".to_string(),
             sidebar_visible: true,
             sidebar_focused: false,
+            sidebar_focus_pending: false,
             sidebar_width: 0,
             sidebar_plugin_surface: None,
             sidebar_plugin_error: None,
