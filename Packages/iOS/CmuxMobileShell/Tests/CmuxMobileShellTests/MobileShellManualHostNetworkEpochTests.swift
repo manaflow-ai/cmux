@@ -112,6 +112,62 @@ import Testing
         await trustStore.releaseRemovals()
     }
 
+    @Test func secondBoundarySupersedesApprovalWaitingForTrustReset() async throws {
+        let trustStore = BlockingNetworkEpochTrustStore()
+        let store = MobileShellComposite(
+            identityProvider: StaticIdentityProvider(userID: "phone-user"),
+            manualHostTrustStore: trustStore
+        )
+        store.signIn()
+        store.invalidateManualHostTrustForNetworkBoundary()
+        await trustStore.waitUntilRemoveCount(1)
+        let route = try CmxAttachRoute(
+            id: "waiting-manual-host",
+            kind: .manualHost,
+            endpoint: .hostPort(host: "192.168.1.77", port: 58_465)
+        )
+        let firstAttemptID = store.beginPairingValidationAttempt()
+        store.queueManualHostTrustWarning(
+            route: route,
+            displayHost: "192.168.1.77",
+            pending: .manual(
+                attemptID: firstAttemptID,
+                name: "LAN Mac",
+                host: "192.168.1.77",
+                port: 58_465,
+                route: route,
+                pairedMacDeviceID: "manual-mac",
+                recordsPairingAttempt: false,
+                macSwitchAttemptID: nil,
+                ifStillCurrent: nil
+            )
+        )
+        let firstAuthScope = store.manualHostRPCAuthScope
+        let (approvalStarted, approvalStartedContinuation) =
+            AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        var approvalStartedIterator = approvalStarted.makeAsyncIterator()
+        let approval = Task { @MainActor in
+            approvalStartedContinuation.yield(())
+            return await store.acceptManualHostTrustWarning()
+        }
+        _ = await approvalStartedIterator.next()
+
+        store.invalidateManualHostTrustForNetworkBoundary()
+        let reissuedAttemptID = store.pendingManualHostTrust?.attemptID
+
+        #expect(store.manualHostRPCAuthScope != firstAuthScope)
+        #expect(reissuedAttemptID != nil)
+        #expect(reissuedAttemptID != firstAttemptID)
+        #expect(await trustStore.currentRemoveCount() == 1)
+        await trustStore.releaseRemovals()
+        let result = await approval.value
+
+        #expect(result == .superseded)
+        #expect(await trustStore.currentTrustCount() == 0)
+        #expect(store.manualHostTrustWarning?.endpoint == "192.168.1.77:58465")
+        store.cancelPairing()
+    }
+
     @Test func foregroundResumeDisconnectsActiveManualHostWithoutAPathEvent() async throws {
         let reachability = ControllablePathChangeReachability()
         let trustStore = NetworkEpochManualHostTrustStore()
