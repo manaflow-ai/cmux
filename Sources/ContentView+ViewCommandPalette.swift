@@ -26,6 +26,12 @@ extension ContentView {
                 subtitle: constant(String(localized: "command.sleepyMode.subtitle", defaultValue: "View")),
                 keywords: ["sleepy", "screensaver", "caffeinate", "keep awake", "do not sleep", "lock", "pets", "night"]
             ),
+            CommandPaletteCommandContribution(
+                commandId: "palette.openCefBrowser",
+                title: constant(String(localized: "command.openCefBrowser.title", defaultValue: "Chromium Browser (CEF)")),
+                subtitle: constant(String(localized: "command.closeWindow.subtitle", defaultValue: "Window")),
+                keywords: ["chromium", "cef", "chrome", "browser", "devtools", "extension", "profile"]
+            ),
         ]
     }
 
@@ -80,6 +86,9 @@ extension ContentView {
         }
         registry.register(commandId: "palette.sleepyMode") {
             SleepyModeController.shared.activate()
+        }
+        registry.register(commandId: "palette.openCefBrowser") {
+            CEFBrowserDebugWindowController.shared.show()
         }
     }
 }

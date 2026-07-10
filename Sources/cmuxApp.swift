@@ -530,6 +530,9 @@ struct cmuxApp: App {
 
                 Divider()
                 Menu("Debug Windows") {
+                    Button("Chromium Browser (CEF)…") {
+                        CEFBrowserDebugWindowController.shared.show()
+                    }
                     Button("Background Debug…") {
                         BackgroundDebugWindowController.shared.show()
                     }

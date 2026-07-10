@@ -91,6 +91,9 @@
       location = "container:Packages/macOS"
       name = "Packages (macOS)">
       <FileRef
+         location = "group:CEFKit">
+      </FileRef>
+      <FileRef
          location = "group:CMUXAgentLaunch">
       </FileRef>
       <FileRef
