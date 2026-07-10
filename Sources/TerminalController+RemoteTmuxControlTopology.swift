@@ -170,7 +170,8 @@ extension TerminalController {
         }
         guard let paneID else { return nil }
         let selectedTab = workspace.bonsplitController.selectedTab(inPane: paneID)
-        let surfaces = workspace.bonsplitController.tabs(inPane: paneID).compactMap { tab in
+        let surfaces = workspace.bonsplitController.tabs(inPane: paneID).compactMap {
+            tab -> ControlPaneSurfaceSummary? in
             guard let panelID = workspace.panelIdFromSurfaceId(tab.id),
                   workspace.remoteTmuxWindowMirror(forPanelId: panelID) == nil else {
                 return nil
