@@ -887,7 +887,7 @@ struct cmuxApp: App {
                 // The AppKit-hosted Settings window has no SwiftUI
                 // SidebarCommands; route the shared command to its split view
                 // whenever it is key.
-                if SettingsWindowPresenter.handleSidebarToggleIfSettingsWindowIsKey() { return }
+                if SettingsWindowPresenter.handleSidebarToggleIfSettingsWindowIsKey(keyWindow: NSApp.keyWindow) { return }
                 if AppDelegate.shared?.toggleSidebarInActiveMainWindow() != true {
                     sidebarState.toggle()
                 }

@@ -37,10 +37,10 @@ extension SettingsWindowPresenter {
     /// Routes the app's sidebar-toggle menu command (Toggle Left Sidebar) to
     /// the Settings split view when the Settings window is key. The AppKit-
     /// hosted window gets no SwiftUI `SidebarCommands`, so without this the
-    /// command would toggle a terminal window's sidebar instead.
-    static func handleSidebarToggleIfSettingsWindowIsKey(
-        keyWindow: NSWindow? = NSApp.keyWindow
-    ) -> Bool {
+    /// command would toggle a terminal window's sidebar instead. Callers pass
+    /// `NSApp.keyWindow`; a default argument would be evaluated outside the
+    /// main actor and warn under strict concurrency.
+    static func handleSidebarToggleIfSettingsWindowIsKey(keyWindow: NSWindow?) -> Bool {
         guard keyWindow?.identifier?.rawValue == windowIdentifier else { return false }
         NotificationCenter.default.post(name: SettingsWindowRoot.sidebarToggleRequestName, object: nil)
         return true

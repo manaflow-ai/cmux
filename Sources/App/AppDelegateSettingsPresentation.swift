@@ -9,8 +9,11 @@ extension AppDelegate {
     static func presentPreferencesWindow(
         navigationTarget: SettingsNavigationTarget? = nil,
         showFallbackSettingsWindow: (@MainActor (SettingsNavigationTarget?) -> Void)? = nil,
+        // The legacy body also passed .activateIgnoringOtherApps; the option
+        // is deprecated and documented as a no-op on macOS 14+ (this target's
+        // minimum), so dropping it is behavior-neutral.
         activateApplication: @MainActor () -> Void = {
-            NSRunningApplication.current.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
+            NSRunningApplication.current.activate(options: [.activateAllWindows])
         }
     ) {
 #if DEBUG
