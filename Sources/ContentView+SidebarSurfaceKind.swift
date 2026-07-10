@@ -1,4 +1,4 @@
-import CmuxSidebar
+import CmuxExtensionKit
 
 extension VerticalTabsSidebar {
     func cmuxSidebarSurfaceKind(for panelType: PanelType) -> CmuxSidebarSurfaceKind {
