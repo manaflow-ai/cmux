@@ -17,6 +17,9 @@ The minter project requires:
   parsed by `iroh-services` 1.0.0 and is never returned or logged.
 - `CMUX_IROH_MINT_HMAC_SECRET_B64`: 32 to 256 random bytes encoded as canonical
   standard base64. Generate a new 32-byte value with `openssl rand -base64 32`.
+- `CMUX_IROH_MINT_HMAC_PREVIOUS_SECRET_B64`: optional minter-only previous key
+  accepted during a bounded rotation overlap. It must differ from the current
+  key. The web project never receives this value.
 
 The web project requires the same `CMUX_IROH_MINT_HMAC_SECRET_B64` value and:
 
@@ -24,7 +27,19 @@ The web project requires the same `CMUX_IROH_MINT_HMAC_SECRET_B64` value and:
 
 Rotate any Iroh Services credential previously pasted into chat or logs before
 putting it in Vercel. A Services credential rotation affects only the minter.
-An HMAC rotation must update both projects together.
+
+Rotate the HMAC without an outage in this order:
+
+1. Deploy the minter with the new key in `CMUX_IROH_MINT_HMAC_SECRET_B64` and
+   the old key in `CMUX_IROH_MINT_HMAC_PREVIOUS_SECRET_B64`.
+2. Change the web project's `CMUX_IROH_MINT_HMAC_SECRET_B64` to the new key.
+3. Keep the previous key for at least five minutes, which covers the 30-second
+   request timestamp window and deployment propagation.
+4. Remove `CMUX_IROH_MINT_HMAC_PREVIOUS_SECRET_B64` from the minter.
+
+The overlap changes only which HMAC key authenticates the existing fixed
+method, path, timestamp, and body-hash transcript. It does not expand the
+minter route or RCAN capabilities.
 
 ## Wire contract
 

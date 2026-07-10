@@ -38,6 +38,7 @@ const MAX_TOKEN_BYTES: usize = 16 * 1_024;
 const CLOCK_SKEW_SECONDS: u64 = 30;
 const SERVICES_SECRET_ENV: &str = "IROH_SERVICES_API_SECRET";
 const HMAC_SECRET_ENV: &str = "CMUX_IROH_MINT_HMAC_SECRET_B64";
+const HMAC_PREVIOUS_SECRET_ENV: &str = "CMUX_IROH_MINT_HMAC_PREVIOUS_SECRET_B64";
 const TIMESTAMP_HEADER: HeaderName = HeaderName::from_static("x-cmux-iroh-timestamp");
 const SIGNATURE_HEADER: HeaderName = HeaderName::from_static("x-cmux-iroh-signature");
 
@@ -46,6 +47,7 @@ type HmacSha256 = Hmac<Sha256>;
 pub struct MinterConfig {
     issuer: SecretKey,
     hmac_secret: Zeroizing<Vec<u8>>,
+    hmac_previous_secret: Option<Zeroizing<Vec<u8>>>,
 }
 
 impl MinterConfig {
@@ -54,11 +56,23 @@ impl MinterConfig {
         let api_secret =
             ApiSecret::from_str(services_secret.as_str()).map_err(|_| ConfigurationError)?;
         let hmac_secret_text = Zeroizing::new(bounded_env(HMAC_SECRET_ENV, 512)?);
-        let hmac_secret = decode_hmac_secret(hmac_secret_text.as_str())?;
+        let hmac_secret = Zeroizing::new(decode_hmac_secret(hmac_secret_text.as_str())?);
+        let hmac_previous_secret = optional_bounded_env(HMAC_PREVIOUS_SECRET_ENV, 512)?
+            .map(Zeroizing::new)
+            .map(|value| decode_hmac_secret(value.as_str()))
+            .transpose()?
+            .map(Zeroizing::new);
+        if hmac_previous_secret
+            .as_ref()
+            .is_some_and(|previous| previous.as_slice() == hmac_secret.as_slice())
+        {
+            return Err(ConfigurationError);
+        }
 
         Ok(Self {
             issuer: api_secret.secret,
-            hmac_secret: Zeroizing::new(hmac_secret),
+            hmac_secret,
+            hmac_previous_secret,
         })
     }
 }
@@ -123,12 +137,7 @@ where
     let signature = decode_signature(signature_text).ok_or(RequestFailure::Authentication)?;
 
     let body = read_bounded_body(request.into_body()).await?;
-    verify_hmac(
-        config.hmac_secret.as_slice(),
-        &timestamp_text,
-        &body,
-        &signature,
-    )?;
+    verify_configured_hmac(config, &timestamp_text, &body, &signature)?;
 
     let input: MintRequest =
         serde_json::from_slice(&body).map_err(|_| RequestFailure::InvalidBody)?;
@@ -236,6 +245,25 @@ fn verify_hmac(
         .map_err(|_| RequestFailure::Authentication)
 }
 
+fn verify_configured_hmac(
+    config: &MinterConfig,
+    timestamp: &str,
+    body: &[u8],
+    signature: &[u8; 32],
+) -> Result<(), RequestFailure> {
+    let current_matches =
+        verify_hmac(config.hmac_secret.as_slice(), timestamp, body, signature).is_ok();
+    let previous_matches = config
+        .hmac_previous_secret
+        .as_ref()
+        .is_some_and(|secret| verify_hmac(secret.as_slice(), timestamp, body, signature).is_ok());
+    if current_matches || previous_matches {
+        Ok(())
+    } else {
+        Err(RequestFailure::Authentication)
+    }
+}
+
 fn parse_endpoint_id(value: &str) -> Result<EndpointId, RequestFailure> {
     if value.len() != 64
         || !value
@@ -328,6 +356,18 @@ fn bounded_env(name: &str, max_bytes: usize) -> Result<String, ConfigurationErro
         return Err(ConfigurationError);
     }
     Ok(value)
+}
+
+fn optional_bounded_env(
+    name: &str,
+    max_bytes: usize,
+) -> Result<Option<String>, ConfigurationError> {
+    match env::var(name) {
+        Ok(value) if !value.is_empty() && value.len() <= max_bytes => Ok(Some(value)),
+        Ok(_) => Err(ConfigurationError),
+        Err(env::VarError::NotPresent) => Ok(None),
+        Err(env::VarError::NotUnicode(_)) => Err(ConfigurationError),
+    }
 }
 
 fn unix_seconds(time: SystemTime) -> Option<u64> {
@@ -568,13 +608,26 @@ mod tests {
             Method::POST,
             MINT_PATH,
             timestamp,
-            body,
+            body.clone(),
             &PREVIOUS_HMAC_SECRET,
         );
 
         assert_eq!(
             handle_request(request, &config, now).await.status(),
             StatusCode::OK
+        );
+        let previous_after_overlap = signed_request_with_secret(
+            Method::POST,
+            MINT_PATH,
+            timestamp,
+            body,
+            &PREVIOUS_HMAC_SECRET,
+        );
+        assert_eq!(
+            handle_request(previous_after_overlap, &test_config(), now)
+                .await
+                .status(),
+            StatusCode::UNAUTHORIZED
         );
     }
 
@@ -763,6 +816,7 @@ mod tests {
         MinterConfig {
             issuer: SecretKey::from_bytes(&[0x11; 32]),
             hmac_secret: Zeroizing::new(TEST_HMAC_SECRET.to_vec()),
+            hmac_previous_secret: None,
         }
     }
 
