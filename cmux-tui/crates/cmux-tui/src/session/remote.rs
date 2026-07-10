@@ -1,7 +1,7 @@
 //! Remote session client: JSON-lines control socket plus locally
 //! mirrored surface terminals (VT replay + live stream).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
@@ -207,7 +207,9 @@ pub struct RemoteSession {
     pending: Mutex<HashMap<u64, Sender<Value>>>,
     next_id: AtomicU64,
     surfaces: Mutex<HashMap<SurfaceId, Arc<RemoteSurface>>>,
+    exited_surfaces: Mutex<HashSet<SurfaceId>>,
     tree: Mutex<TreeView>,
+    tree_refresh: Mutex<()>,
     tree_stale: AtomicBool,
     subscribers: Mutex<Vec<Sender<MuxEvent>>>,
     frame_logs: Mutex<HashMap<SurfaceId, Vec<String>>>,
@@ -228,7 +230,9 @@ impl RemoteSession {
             pending: Mutex::new(HashMap::new()),
             next_id: AtomicU64::new(1),
             surfaces: Mutex::new(HashMap::new()),
+            exited_surfaces: Mutex::new(HashSet::new()),
             tree: Mutex::new(TreeView::default()),
+            tree_refresh: Mutex::new(()),
             tree_stale: AtomicBool::new(true),
             subscribers: Mutex::new(Vec::new()),
             frame_logs: Mutex::new(HashMap::new()),
@@ -395,7 +399,6 @@ impl RemoteSession {
             }
             Some("title-changed") => {
                 if let Some(id) = surface_id() {
-                    self.tree_stale.store(true, Ordering::Release);
                     self.emit(MuxEvent::TitleChanged(id));
                 }
             }
@@ -405,7 +408,6 @@ impl RemoteSession {
                 }
             }
             Some("notification") => {
-                self.tree_stale.store(true, Ordering::Release);
                 self.emit(MuxEvent::TreeChanged);
             }
             Some("status") => {
@@ -527,6 +529,9 @@ impl RemoteSession {
         kind: SurfaceKind,
         size: Option<(u16, u16)>,
     ) -> Option<Arc<RemoteSurface>> {
+        if self.exited_surfaces.lock().unwrap().contains(&id) {
+            return None;
+        }
         if let Some(surface) = self.surfaces.lock().unwrap().get(&id) {
             return Some(surface.clone());
         }
@@ -557,6 +562,7 @@ impl RemoteSession {
 
     pub fn drop_surface(&self, id: SurfaceId) {
         self.surfaces.lock().unwrap().remove(&id);
+        self.exited_surfaces.lock().unwrap().insert(id);
     }
 
     pub fn surface_kind(&self, id: SurfaceId) -> SurfaceKind {
@@ -568,6 +574,7 @@ impl RemoteSession {
     }
 
     pub fn refresh_tree(&self) -> anyhow::Result<TreeView> {
+        let _refresh = self.tree_refresh.lock().unwrap();
         self.tree_stale.store(false, Ordering::Release);
         let data = match self.request(json!({"cmd": "list-workspaces"})) {
             Ok(data) => data,
@@ -596,6 +603,10 @@ impl RemoteSession {
 
     pub fn tree_is_stale(&self) -> bool {
         self.tree_stale.load(Ordering::Acquire)
+    }
+
+    pub fn clear_tree_stale(&self) {
+        self.tree_stale.store(false, Ordering::Release);
     }
 }
 

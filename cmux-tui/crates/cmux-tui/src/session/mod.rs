@@ -122,6 +122,12 @@ impl Session {
         }
     }
 
+    pub fn clear_remote_tree_stale(&self) {
+        if let Session::Remote(remote) = self {
+            remote.clear_tree_stale();
+        }
+    }
+
     pub fn refresh_tree(&self) -> anyhow::Result<TreeView> {
         match self {
             Session::Local(_) => Ok(self.tree()),

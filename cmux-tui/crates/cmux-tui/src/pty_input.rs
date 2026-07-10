@@ -292,11 +292,16 @@ fn enqueue_bounded(
     capacity: usize,
     max_bytes: usize,
 ) -> bool {
-    if event.coalesce_key.is_some()
-        && events.back().is_some_and(|previous| previous.coalesce_key == event.coalesce_key)
-    {
-        *events.back_mut().unwrap() = event;
-        return true;
+    if let Some(key) = event.coalesce_key {
+        for index in (0..events.len()).rev() {
+            if events[index].coalesce_key == Some(key) {
+                events[index] = event;
+                return true;
+            }
+            if events[index].coalesce_key.is_none() {
+                break;
+            }
+        }
     }
     if event.kind == PtyInputKind::Motion
         && events.back().is_some_and(|previous| {
@@ -542,6 +547,42 @@ mod tests {
         assert_eq!(events[0].bytes.as_slice(), &[1]);
         assert_eq!(events[1].kind, PtyInputKind::Mutation);
         assert_eq!(events[2].bytes.as_slice(), &[2]);
+    }
+
+    #[test]
+    fn coalescing_mutations_replace_by_key_across_adjacent_resize_work() {
+        let mut events = VecDeque::new();
+        let mut queued_bytes = 0;
+        let mut releases = 0;
+        for item in [
+            PtyInputEvent::mutation("resize one", Some(("resize", 1)), false, || Ok(())),
+            PtyInputEvent::mutation("resize two", Some(("resize", 2)), false, || Ok(())),
+            PtyInputEvent::mutation("resize one latest", Some(("resize", 1)), false, || Ok(())),
+        ] {
+            assert!(enqueue_bounded(&mut events, &mut queued_bytes, &mut releases, item, 8, 1024));
+        }
+
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[0].label, "resize one latest");
+        assert_eq!(events[1].label, "resize two");
+
+        assert!(enqueue_bounded(
+            &mut events,
+            &mut queued_bytes,
+            &mut releases,
+            event(1, 1, PtyInputKind::Ordered),
+            8,
+            1024,
+        ));
+        assert!(enqueue_bounded(
+            &mut events,
+            &mut queued_bytes,
+            &mut releases,
+            PtyInputEvent::mutation("resize after input", Some(("resize", 1)), false, || Ok(())),
+            8,
+            1024,
+        ));
+        assert_eq!(events.len(), 4);
     }
 
     #[test]

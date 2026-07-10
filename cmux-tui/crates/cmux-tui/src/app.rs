@@ -54,8 +54,18 @@ pub enum AppEvent {
     Mux(MuxEvent),
     Input(Event),
     PtyOperationFailed(PtyOperationFailure),
+    SessionMutationSettled(SessionMutationOutcome),
+    RemoteTreeUpdated(Result<TreeView, String>),
+}
+
+pub enum SessionMutationOutcome {
+    Success { tree: Option<TreeView>, completion: Option<SessionCompletion> },
+    Failed(String),
+    Canceled,
+}
+
+pub enum SessionCompletion {
     BrowserTabCreated { pane: Option<PaneId> },
-    SessionMutationSettled { tree: Option<Result<TreeView, String>> },
 }
 
 struct PendingSessionMutation {
@@ -64,8 +74,8 @@ struct PendingSessionMutation {
 }
 
 impl PendingSessionMutation {
-    fn settle(mut self, tree: Option<Result<TreeView, String>>) {
-        let _ = self.events.send(AppEvent::SessionMutationSettled { tree });
+    fn settle(mut self, outcome: SessionMutationOutcome) {
+        let _ = self.events.send(AppEvent::SessionMutationSettled(outcome));
         self.settled = true;
     }
 }
@@ -73,7 +83,9 @@ impl PendingSessionMutation {
 impl Drop for PendingSessionMutation {
     fn drop(&mut self) {
         if !self.settled {
-            let _ = self.events.send(AppEvent::SessionMutationSettled { tree: None });
+            let _ = self
+                .events
+                .send(AppEvent::SessionMutationSettled(SessionMutationOutcome::Canceled));
         }
     }
 }
@@ -97,6 +109,7 @@ pub struct OrderedSession {
     remote: bool,
     pending_mutations: Arc<AtomicUsize>,
     remote_refresh_queued: Arc<AtomicBool>,
+    remote_background_dirty: Arc<AtomicBool>,
 }
 
 impl OrderedSession {
@@ -109,6 +122,7 @@ impl OrderedSession {
             remote,
             pending_mutations: Arc::new(AtomicUsize::new(0)),
             remote_refresh_queued: Arc::new(AtomicBool::new(false)),
+            remote_background_dirty: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -142,11 +156,51 @@ impl OrderedSession {
         let pending = self.pending_mutation();
         let claim = RemoteRefreshClaim(self.remote_refresh_queued.clone());
         self.operations.enqueue_session_mutation("refresh remote tree", true, move || {
-            let tree = session.refresh_tree().map_err(|error| error.to_string());
+            let result = session.refresh_tree();
             drop(claim);
-            pending.settle(Some(tree));
-            Ok(())
+            match result {
+                Ok(tree) => {
+                    pending.settle(SessionMutationOutcome::Success {
+                        tree: Some(tree),
+                        completion: None,
+                    });
+                    Ok(())
+                }
+                Err(error) => {
+                    let message = error.to_string();
+                    session.clear_remote_tree_stale();
+                    pending.settle(SessionMutationOutcome::Failed(message));
+                    Err(error)
+                }
+            }
         });
+    }
+
+    fn refresh_remote_tree_background(&self) {
+        if !self.remote {
+            return;
+        }
+        if self.remote_refresh_queued.swap(true, Ordering::AcqRel) {
+            self.remote_background_dirty.store(true, Ordering::Release);
+            return;
+        }
+        let session = self.inner.clone();
+        let events = self.events.clone();
+        let claim = RemoteRefreshClaim(self.remote_refresh_queued.clone());
+        let spawn =
+            std::thread::Builder::new().name("remote-tree-refresh".into()).spawn(move || {
+                let result = session.refresh_tree().map_err(|error| error.to_string());
+                drop(claim);
+                let _ = events.send(AppEvent::RemoteTreeUpdated(result));
+            });
+        if let Err(error) = spawn {
+            self.remote_refresh_queued.store(false, Ordering::Release);
+            let _ = self.events.send(AppEvent::RemoteTreeUpdated(Err(error.to_string())));
+        }
+    }
+
+    fn take_background_refresh_dirty(&self) -> bool {
+        self.remote_background_dirty.swap(false, Ordering::AcqRel)
     }
 
     fn remote_tree_is_stale(&self) -> bool {
@@ -165,20 +219,29 @@ impl OrderedSession {
         &self,
         label: &'static str,
         operation: impl FnOnce(Session) -> anyhow::Result<()> + Send + 'static,
-        completion: Option<AppEvent>,
+        completion: Option<SessionCompletion>,
     ) {
         let session = self.inner.clone();
-        let events = self.events.clone();
         let pending = self.pending_mutation();
         self.operations.enqueue_session_mutation(label, self.remote, move || {
-            operation(session.clone())?;
-            session.invalidate_remote_tree();
-            let tree = session.refresh_tree().map_err(|error| error.to_string());
-            pending.settle(Some(tree));
-            if let Some(completion) = completion {
-                let _ = events.send(completion);
+            if let Err(error) = operation(session.clone()) {
+                pending.settle(SessionMutationOutcome::Failed(error.to_string()));
+                return Err(error);
             }
-            Ok(())
+            session.invalidate_remote_tree();
+            match session.refresh_tree() {
+                Ok(tree) => {
+                    pending
+                        .settle(SessionMutationOutcome::Success { tree: Some(tree), completion });
+                    Ok(())
+                }
+                Err(error) => {
+                    let message = error.to_string();
+                    session.clear_remote_tree_stale();
+                    pending.settle(SessionMutationOutcome::Failed(message));
+                    Err(error)
+                }
+            }
         });
     }
 
@@ -196,12 +259,12 @@ impl OrderedSession {
             ("surface resize", surface_id),
             self.remote,
             move || {
-                let _pending = pending;
                 if reassert {
                     surface.reassert_size(cols, rows)?;
                 } else {
                     surface.resize(cols, rows)?;
                 }
+                pending.settle(SessionMutationOutcome::Success { tree: None, completion: None });
                 Ok(())
             },
         );
@@ -221,7 +284,7 @@ impl OrderedSession {
         self.enqueue_with_completion(
             "create browser tab",
             move |session| session.new_browser_tab(url, pane, size),
-            Some(AppEvent::BrowserTabCreated { pane }),
+            Some(SessionCompletion::BrowserTabCreated { pane }),
         );
         Ok(())
     }
@@ -280,11 +343,26 @@ impl OrderedSession {
             (direction, pane),
             self.remote,
             move || {
-                session.set_ratio(pane, dir, ratio)?;
+                if let Err(error) = session.set_ratio(pane, dir, ratio) {
+                    pending.settle(SessionMutationOutcome::Failed(error.to_string()));
+                    return Err(error);
+                }
                 session.invalidate_remote_tree();
-                let tree = session.refresh_tree().map_err(|error| error.to_string());
-                pending.settle(Some(tree));
-                Ok(())
+                match session.refresh_tree() {
+                    Ok(tree) => {
+                        pending.settle(SessionMutationOutcome::Success {
+                            tree: Some(tree),
+                            completion: None,
+                        });
+                        Ok(())
+                    }
+                    Err(error) => {
+                        let message = error.to_string();
+                        session.clear_remote_tree_stale();
+                        pending.settle(SessionMutationOutcome::Failed(message));
+                        Err(error)
+                    }
+                }
             },
         );
     }
@@ -1318,21 +1396,26 @@ impl App {
 
     fn handle(&mut self, event: AppEvent) -> anyhow::Result<RenderAction> {
         match &event {
-            AppEvent::Mux(
-                MuxEvent::SurfaceExited(_)
-                | MuxEvent::TitleChanged(_)
-                | MuxEvent::Notification(_)
-                | MuxEvent::TreeChanged
-                | MuxEvent::LayoutChanged(_),
-            )
+            AppEvent::Mux(MuxEvent::SurfaceExited(_) | MuxEvent::LayoutChanged(_))
             | AppEvent::Input(Event::Key(_) | Event::Mouse(_) | Event::Paste(_)) => {
                 self.session.refresh_remote_tree_if_stale();
+            }
+            AppEvent::Mux(MuxEvent::TitleChanged(_) | MuxEvent::Notification(_)) => {
+                self.session.refresh_remote_tree_background();
+            }
+            AppEvent::Mux(MuxEvent::TreeChanged) => {
+                if self.session.remote_tree_is_stale() {
+                    self.session.refresh_remote_tree_if_stale();
+                } else {
+                    self.session.refresh_remote_tree_background();
+                }
             }
             _ => {}
         }
         let event = match event {
             AppEvent::Input(input @ (Event::Key(_) | Event::Mouse(_) | Event::Paste(_)))
-                if self.session.has_pending_mutations()
+                if (self.session.has_pending_mutations()
+                    || self.session.remote_tree_is_stale())
                     && !self.input_can_update_pending_mutation(&input) =>
             {
                 return Ok(self.defer_input(input));
@@ -1401,29 +1484,36 @@ impl App {
                 self.status_message = Some(format!("{} failed: {}", failure.label, failure.error));
                 Ok(RenderAction::Draw)
             }
-            AppEvent::BrowserTabCreated { pane } => {
-                self.tree = self.session.tree();
-                if let Some(pane) = pane.or_else(|| self.active_pane()) {
-                    self.focus_omnibar_with_buffer(pane, String::new(), false);
-                }
-                Ok(RenderAction::Draw)
-            }
-            AppEvent::SessionMutationSettled { tree } => {
+            AppEvent::SessionMutationSettled(outcome) => {
                 self.session.settle_pending_mutation();
-                let mut refresh_failed = false;
-                if let Some(tree) = tree {
-                    match tree {
-                        Ok(tree) => self.tree = tree,
-                        Err(error) => {
-                            refresh_failed = true;
-                            self.status_message =
-                                Some(format!("refresh remote tree failed: {error}"));
+                match outcome {
+                    SessionMutationOutcome::Success { tree, completion } => {
+                        if let Some(tree) = tree {
+                            self.tree = tree;
+                        }
+                        if let Some(SessionCompletion::BrowserTabCreated { pane }) = completion
+                            && let Some(pane) = pane.or_else(|| self.active_pane())
+                        {
+                            self.focus_omnibar_with_buffer(pane, String::new(), false);
                         }
                     }
+                    SessionMutationOutcome::Failed(error) => {
+                        self.session.inner.clear_remote_tree_stale();
+                        self.deferred_input.clear();
+                        self.status_message = Some(format!("session operation failed: {error}"));
+                        return Ok(RenderAction::Draw);
+                    }
+                    SessionMutationOutcome::Canceled => {
+                        if self.session.has_pending_mutations() {
+                            return Ok(RenderAction::None);
+                        }
+                        self.session.inner.clear_remote_tree_stale();
+                        self.deferred_input.clear();
+                        self.status_message = Some("session operation was canceled".to_string());
+                        return Ok(RenderAction::Draw);
+                    }
                 }
-                if !refresh_failed {
-                    self.session.refresh_remote_tree_if_stale();
-                }
+                self.session.refresh_remote_tree_if_stale();
                 if self.session.has_pending_mutations() || self.session.remote_tree_is_stale() {
                     return Ok(RenderAction::Draw);
                 }
@@ -1433,6 +1523,21 @@ impl App {
                     action = action.merge(self.handle(AppEvent::Input(input))?);
                 }
                 Ok(action)
+            }
+            AppEvent::RemoteTreeUpdated(result) => {
+                match result {
+                    Ok(tree) => self.tree = tree,
+                    Err(error) => {
+                        self.status_message = Some(format!("refresh remote tree failed: {error}"));
+                    }
+                }
+                if self.session.remote_tree_is_stale() {
+                    let _ = self.session.take_background_refresh_dirty();
+                    self.session.refresh_remote_tree_if_stale();
+                } else if self.session.take_background_refresh_dirty() {
+                    self.session.refresh_remote_tree_background();
+                }
+                Ok(RenderAction::Draw)
             }
             AppEvent::Input(Event::Key(key)) => {
                 if key.kind != KeyEventKind::Release {
@@ -1488,6 +1593,13 @@ impl App {
     }
 
     fn input_can_update_pending_mutation(&self, input: &Event) -> bool {
+        if let Event::Key(key) = input
+            && (self.config.keys.prefix.matches(key)
+                || self.config.keys.modeless_action_for(key) == Some(Action::Detach)
+                || (self.prefix_armed && self.config.keys.action_for(key) == Some(Action::Detach)))
+        {
+            return true;
+        }
         matches!(
             (input, &self.drag),
             (
@@ -4290,10 +4402,40 @@ mod tests {
         assert_eq!(app.deferred_input.len(), 1);
         release_tx.send(()).unwrap();
         let settled = events.recv_timeout(Duration::from_secs(1)).unwrap();
-        assert!(matches!(settled, AppEvent::SessionMutationSettled { .. }));
+        assert!(matches!(settled, AppEvent::SessionMutationSettled(_)));
         app.handle(settled).unwrap();
         assert!(app.deferred_input.is_empty());
         assert!(!app.session.has_pending_mutations());
+    }
+
+    #[test]
+    fn failed_mutation_discards_input_deferred_for_its_destination() {
+        let mux = Mux::new("failed-mutation-input-test", SurfaceOptions::default());
+        let (mut app, events) = test_app_with_events(Session::Local(mux));
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        app.session.enqueue("failing selection", move |_| {
+            started_tx.send(()).unwrap();
+            release_rx.recv().unwrap();
+            anyhow::bail!("selection rejected")
+        });
+        started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        app.handle(AppEvent::Input(Event::Key(KeyEvent::new(
+            KeyCode::Char('x'),
+            KeyModifiers::NONE,
+        ))))
+        .unwrap();
+        assert_eq!(app.deferred_input.len(), 1);
+
+        release_tx.send(()).unwrap();
+        let settled = events.recv_timeout(Duration::from_secs(1)).unwrap();
+        app.handle(settled).unwrap();
+
+        assert!(app.deferred_input.is_empty());
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("session operation failed: selection rejected")
+        );
     }
 
     #[test]
