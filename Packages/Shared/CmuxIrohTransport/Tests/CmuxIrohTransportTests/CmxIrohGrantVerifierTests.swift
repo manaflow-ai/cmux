@@ -20,6 +20,14 @@ struct CmxIrohGrantVerifierTests {
         )
         #expect(claims.initiator.platform == .ios)
         #expect(claims.acceptor.platform == .mac)
+        let liveClaims = try CmxIrohGrantVerifier().verifyPairGrant(
+            token,
+            keys: fixture.keySet,
+            authenticatedInitiatorID: fixture.initiator.endpointID,
+            acceptor: fixture.acceptor,
+            now: fixture.now
+        )
+        #expect(liveClaims.initiator == fixture.initiator)
 
         let otherAcceptor = CmxIrohGrantPeer(
             bindingID: fixture.acceptor.bindingID,
@@ -35,6 +43,15 @@ struct CmxIrohGrantVerifierTests {
                 keys: fixture.keySet,
                 initiator: fixture.initiator,
                 acceptor: otherAcceptor,
+                now: fixture.now
+            )
+        }
+        #expect(throws: CmxIrohGrantVerifierError.identityMismatch) {
+            try CmxIrohGrantVerifier().verifyPairGrant(
+                token,
+                keys: fixture.keySet,
+                authenticatedInitiatorID: fixture.acceptor.endpointID,
+                acceptor: fixture.acceptor,
                 now: fixture.now
             )
         }

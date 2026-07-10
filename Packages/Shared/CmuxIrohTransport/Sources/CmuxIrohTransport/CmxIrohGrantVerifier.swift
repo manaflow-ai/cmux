@@ -32,6 +32,35 @@ public struct CmxIrohGrantVerifier: Sendable {
         acceptor: CmxIrohGrantPeer,
         now: Date
     ) throws -> CmxIrohPairGrantClaims {
+        let claims = try verifiedPairClaims(token, keys: keys, now: now)
+        guard claims.initiator == initiator, claims.acceptor == acceptor else {
+            throw CmxIrohGrantVerifierError.identityMismatch
+        }
+        return claims
+    }
+
+    /// Verifies a grant against the TLS initiator and the Mac's exact local binding.
+    public func verifyPairGrant(
+        _ token: String,
+        keys: CmxIrohGrantVerificationKeySet,
+        authenticatedInitiatorID: CmxIrohPeerIdentity,
+        acceptor: CmxIrohGrantPeer,
+        now: Date
+    ) throws -> CmxIrohPairGrantClaims {
+        let claims = try verifiedPairClaims(token, keys: keys, now: now)
+        guard claims.initiator.endpointID == authenticatedInitiatorID,
+              claims.initiator.platform == .ios,
+              claims.acceptor == acceptor else {
+            throw CmxIrohGrantVerifierError.identityMismatch
+        }
+        return claims
+    }
+
+    private func verifiedPairClaims(
+        _ token: String,
+        keys: CmxIrohGrantVerificationKeySet,
+        now: Date
+    ) throws -> CmxIrohPairGrantClaims {
         let payload = try verifiedPayload(token, type: Self.pairType, keys: keys)
         try Self.requireExactKeys(
             payload,
@@ -61,9 +90,6 @@ public struct CmxIrohGrantVerifier: Sendable {
         }
         guard claims.expiresAt > nowSeconds else {
             throw CmxIrohGrantVerifierError.expired
-        }
-        guard claims.initiator == initiator, claims.acceptor == acceptor else {
-            throw CmxIrohGrantVerifierError.identityMismatch
         }
         return claims
     }
