@@ -435,8 +435,7 @@ describe("device registry route", () => {
       "my-mac.local",
       "my-mac.tailnet.ts.net",
       "MY-MAC.TS.NET",
-      // Malformed .ts.net strings that pass a naive suffix check but are not
-      // dialable bare hosts.
+      // MagicDNS never crosses this persistence boundary, valid or malformed.
       "bad host.ts.net",
       "https://mac.ts.net",
       "mac.ts.net:51001",
@@ -448,6 +447,10 @@ describe("device registry route", () => {
       "0100.64.1.2",
       "100.064.1.2",
       "100.64.01.2",
+      "100.100.100.100",
+      "100.100.0.1",
+      "100.115.92.1",
+      "fd7a:115c:a1e0::53",
     ]) {
       expect(hostIsTailscaleAttachable(host)).toBe(false);
     }

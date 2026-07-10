@@ -178,7 +178,7 @@ export async function POST(request: Request): Promise<Response> {
   }
   // For a user-initiated manual remote, enforce the full attach-route schema on
   // the server (non-empty array; every entry a `tailscale` host:port with a
-  // 1-65535 port and a Tailscale-attachable host). This is the server-side
+  // 1-65535 port and a numeric Tailscale peer host). This is the server-side
   // mirror of the CLI/app check, so a direct authenticated API caller cannot
   // register a remote that lists but cannot connect (empty routes, port 0, wrong
   // kind, or a non-Tailscale host). Scoped to the manual path: the Mac's own

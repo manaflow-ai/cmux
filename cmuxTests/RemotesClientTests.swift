@@ -151,6 +151,9 @@ import CMUXMobileCore
         "-leading.ts.net:51001", // leading hyphen label
         "0100.64.1.2:51001",    // leading-zero octet (octal under inet_aton)
         "100.064.1.2:51001",    // leading-zero octet
+        "100.100.100.100:51001", // Tailscale local service, not a peer
+        "100.115.92.1:51001",   // Tailscale reserved test range
+        "[fd7a:115c:a1e0::53]:51001", // MagicDNS service, not a peer
     ])
     func rejectsNonTailscaleHostsAsNotAttachable(_ token: String) throws {
         let spec = try RemoteRouteSpec.parse(token)

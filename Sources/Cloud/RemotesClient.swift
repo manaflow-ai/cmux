@@ -17,6 +17,10 @@ enum RemotesClientError: Error, CustomStringConvertible, Equatable {
     case httpStatus(Int, String)
     case malformedResponse(String)
     case backendUnreachable(url: String, detail: String)
+    case tailscaleStatusUnavailable
+    case tailscalePeerNotFound(host: String)
+    case tailscalePeerAmbiguous(host: String)
+    case tailscalePeerInvalid(host: String)
 
     var description: String {
         switch self {
@@ -34,9 +38,8 @@ enum RemotesClientError: Error, CustomStringConvertible, Equatable {
         case let .notAttachable(host):
             return """
                 '\(host)' is not attachable from the iOS app. A signed-in phone can only authenticate to a \
-                registry route over Tailscale, so the host must be a Tailscale address: a 100.64.x.x-100.127.x.x \
-                (CGNAT) IP or a *.ts.net MagicDNS name. A plain LAN IP, hostname, or Tailscale IPv6 address would \
-                show in the device list but fail to connect. Run `tailscale ip -4` on the Mac for its 100.x address.
+                registry route over Tailscale, so the stored host must be a numeric Tailscale IPv4 or IPv6 peer \
+                address. A plain LAN IP or hostname would show in the device list but fail to connect.
                 """
         case .noRoutes:
             return "At least one --route host:port is required. Example: cmux remotes add my-mac --route 100.64.1.2:51001"
@@ -50,6 +53,14 @@ enum RemotesClientError: Error, CustomStringConvertible, Equatable {
             return "The device registry returned an unexpected response: \(message)"
         case let .backendUnreachable(url, detail):
             return "Could not reach the cmux backend at \(url): \(detail)"
+        case .tailscaleStatusUnavailable:
+            return "Could not read the local Tailscale peer map. Start Tailscale, sign in, and retry."
+        case let .tailscalePeerNotFound(host):
+            return "Tailscale has no peer whose exact MagicDNS name is '\(host)'. Check `tailscale status`, then retry."
+        case let .tailscalePeerAmbiguous(host):
+            return "Tailscale reported more than one peer for '\(host)'. Refusing to choose a transport target."
+        case let .tailscalePeerInvalid(host):
+            return "Tailscale's peer record for '\(host)' did not contain only numeric Tailscale peer addresses."
         }
     }
 }
@@ -77,10 +88,19 @@ actor RemotesClient {
 
     private let session: URLSession
     private let auth: AuthCoordinator
+    private let tailscaleStatusProvider: any TailscaleStatusProviding
+    private let tailscalePeerResolver: CmxTailscaleStatusPeerResolver
 
-    init(session: URLSession = .shared, auth: AuthCoordinator) {
+    init(
+        session: URLSession = .shared,
+        auth: AuthCoordinator,
+        tailscaleStatusProvider: any TailscaleStatusProviding = SystemTailscaleStatusProvider(),
+        tailscalePeerResolver: CmxTailscaleStatusPeerResolver = CmxTailscaleStatusPeerResolver()
+    ) {
         self.session = session
         self.auth = auth
+        self.tailscaleStatusProvider = tailscaleStatusProvider
+        self.tailscalePeerResolver = tailscalePeerResolver
     }
 
     // MARK: - Public operations
@@ -135,12 +155,14 @@ actor RemotesClient {
         guard !name.isEmpty else { throw RemotesClientError.emptyName }
         guard !routeStrings.isEmpty else { throw RemotesClientError.noRoutes }
 
-        let specs = try routeStrings.map { try RemoteRouteSpec.parse($0) }
-        // Await the auth bootstrap/token path FIRST. `currentTokens()` waits for
-        // launch session restore; on a refresh-token-only start `currentUser` is
-        // nil until then, so reading the owner id before this could mint an
-        // unsalted (name-only) device id and break per-user idempotency. After
-        // this await `currentUser` reflects the restored session.
+        let requestedSpecs = try routeStrings.map { try RemoteRouteSpec.parse($0) }
+        let specs = try await resolvedTailscaleSpecs(requestedSpecs)
+        // Await the auth bootstrap/token path before reading the owner id.
+        // `currentTokens()` waits for launch session restore; on a
+        // refresh-token-only start `currentUser` is nil until then. Reading the
+        // owner id earlier could mint an unsalted (name-only) device id and
+        // break per-user idempotency. After this await `currentUser` reflects
+        // the restored session.
         do {
             _ = try await auth.currentTokens()
         } catch AuthError.networkError {
@@ -186,6 +208,60 @@ actor RemotesClient {
         let (data, http) = try await request("POST", path: "/api/devices", jsonBody: body)
         try ensureOK(http, data: data)
         return deviceId
+    }
+
+    /// Replaces each MagicDNS input with one numeric address from the exact
+    /// authenticated local Tailscale peer record. All names in one add request
+    /// share one bounded status snapshot so no route can observe a different
+    /// control-plane generation during request shaping.
+    private func resolvedTailscaleSpecs(
+        _ specs: [RemoteRouteSpec]
+    ) async throws -> [RemoteRouteSpec] {
+        if let invalid = specs.first(where: {
+            !$0.isTailscaleAttachable && !$0.isTailscaleMagicDNSInput
+        }) {
+            throw RemotesClientError.notAttachable(host: invalid.host)
+        }
+        let magicDNSSpecs = specs.filter(\.isTailscaleMagicDNSInput)
+        let statusJSON: Data?
+        if magicDNSSpecs.isEmpty {
+            statusJSON = nil
+        } else {
+            do {
+                statusJSON = try await tailscaleStatusProvider.statusJSON()
+            } catch {
+                throw RemotesClientError.tailscaleStatusUnavailable
+            }
+        }
+
+        return try specs.map { spec in
+            if spec.isTailscaleAttachable {
+                return spec
+            }
+            guard spec.isTailscaleMagicDNSInput, let statusJSON else {
+                throw RemotesClientError.notAttachable(host: spec.host)
+            }
+            do {
+                let record = try tailscalePeerResolver.resolve(
+                    magicDNSName: spec.host,
+                    statusJSON: statusJSON
+                )
+                return RemoteRouteSpec(
+                    host: record.preferredAddress.value,
+                    port: spec.port
+                )
+            } catch let error as CmxTailscaleStatusPeerResolutionError {
+                switch error {
+                case .peerNotFound:
+                    throw RemotesClientError.tailscalePeerNotFound(host: spec.host)
+                case .ambiguousPeer:
+                    throw RemotesClientError.tailscalePeerAmbiguous(host: spec.host)
+                case .invalidMagicDNSName, .localDeviceNotAllowed,
+                     .missingPeerAddresses, .invalidPeerAddress, .malformedStatus:
+                    throw RemotesClientError.tailscalePeerInvalid(host: spec.host)
+                }
+            }
+        }
     }
 
     /// The fixed instance tag for every manual remote, so re-adding the same
@@ -411,7 +487,7 @@ actor RemotesClient {
         case "loopback_route_rejected":
             return "The device registry rejected a loopback route. Use the Mac's Tailscale address, not localhost."
         case "non_attachable_route_rejected":
-            return "The device registry rejected a non-Tailscale route. Use a 100.64.x.x-100.127.x.x (CGNAT) IP or a *.ts.net name; a phone can only attach over Tailscale."
+            return "The device registry rejected a non-Tailscale route. Store a numeric Tailscale IPv4 or IPv6 peer address; MagicDNS must be resolved by `cmux remotes add` first."
         case "device_not_owned":
             return "That remote is owned by another team member and cannot be modified from this account."
         case "too_many_devices":
