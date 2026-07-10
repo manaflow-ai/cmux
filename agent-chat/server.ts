@@ -16,7 +16,7 @@ import { codexAdapter } from "./adapters/codex";
 import { piAdapter } from "./adapters/pi";
 import { makeAcpAdapter } from "./adapters/acp";
 import { pickAccentColor, resolveGhosttyTheme, resolveGhosttyThemeAsync, type GhosttyTheme } from "./theme";
-import { agentModelCatalog } from "./catalog";
+import { agentModelCatalog, type AgentModelProviderCatalog } from "./catalog";
 import { existsSync, readFileSync, statSync, watch, type FSWatcher } from "node:fs";
 import { mkdir, readdir, rename, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -285,7 +285,7 @@ async function applyAgentModelCatalog() {
     try {
       options.set(provider, await refreshCatalog(provider, cwd));
     } catch {
-      options.set(provider, fallbackOptions(provider));
+      options.set(provider, mergeRemoteModelOptions(provider, fallbackOptions(provider)));
     }
   }));
   for (const [provider, providerOptions] of options) {
@@ -629,8 +629,7 @@ function fallbackOptions(provider: string): SessionOption[] {
   return adapters.get(provider)?.capabilities?.options ?? [];
 }
 
-function mergeRemoteModelOptions(provider: string, options: SessionOption[]): SessionOption[] {
-  const remote = agentModelCatalog.provider(provider);
+function mergeRemoteModelOptions(provider: string, options: SessionOption[], remote = agentModelCatalog.provider(provider)): SessionOption[] {
   if (!remote) return options;
   const model = options.find((option) => option.id === "model" && option.kind === "select");
   const binary = new Map((model?.choices ?? []).map((choice) => [choice.value, choice]));
@@ -650,6 +649,10 @@ function mergeRemoteModelOptions(provider: string, options: SessionOption[]): Se
     disabled: !choices.some((choice) => !choice.disabled),
   };
   return model ? options.map((option) => option === model ? nextModel : option) : [nextModel, ...options];
+}
+
+export function mergeRemoteModelOptionsForTest(provider: string, options: SessionOption[], remote: AgentModelProviderCatalog): SessionOption[] {
+  return mergeRemoteModelOptions(provider, options, remote);
 }
 
 function shouldRefreshCatalog(provider: string): boolean {

@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { AgentModelCatalogStore, mergeCatalogModels, selectEnabledModel, validateAgentModelCatalog } from "../catalog";
 import { mergeAcpModelOption } from "../adapters/acp";
 import { mergeCodexModels } from "../adapters/codex";
+import { mergeRemoteModelOptionsForTest } from "../server";
 import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 
@@ -18,7 +19,19 @@ const payload = {
     },
     codex: {
       defaultModel: "gpt-new",
-      models: [{ id: "gpt-new", label: "GPT New", description: "Remote description", contextWindow: 400000 }],
+      models: [{
+        id: "gpt-new",
+        label: "GPT New",
+        description: "Remote description",
+        contextWindow: 400000,
+        efforts: [
+          { value: "none", label: "none" },
+          { value: "xhigh", label: "Extra high", description: "Remote effort" },
+        ],
+        defaultEffort: "xhigh",
+        serviceTiers: [{ id: "priority", name: "Priority", description: "Remote tier" }],
+        defaultServiceTier: "priority",
+      }],
     },
   },
 } as const;
@@ -50,7 +63,23 @@ test("catalog validation, provider merges, persistence, and ETag", async () => {
   expect(codex[0]?.label).toBe("GPT New");
   expect(codex[0]?.description).toBe("Remote description");
   expect(codex[0]?.contextWindow).toBe(400000);
-  expect(codex[0]?.efforts[0]?.value).toBe("high");
+  expect(codex[0]?.efforts.map((effort) => effort.value)).toEqual(["xhigh"]);
+  expect(codex[0]?.defaultEffort).toBe("xhigh");
+  expect(codex[0]?.serviceTiers[0]?.id).toBe("priority");
+  expect(codex[0]?.defaultServiceTier).toBe("priority");
+
+  const remoteOnly = mergeCodexModels([], remoteCodex)[0]!;
+  expect(remoteOnly.efforts.map((effort) => effort.value)).toEqual(["xhigh"]);
+  expect(remoteOnly.defaultEffort).toBe("xhigh");
+  expect(remoteOnly.serviceTiers[0]?.name).toBe("Priority");
+
+  const catchOptions = mergeRemoteModelOptionsForTest("codex", [
+    { id: "model", label: "Model", kind: "select", value: "", choices: [] },
+    { id: "effort", label: "Effort", kind: "select", value: "medium", choices: [{ value: "medium", label: "medium" }] },
+  ], remoteCodex);
+  const catchModel = catchOptions.find((option) => option.id === "model");
+  expect(catchModel?.value).toBe("gpt-new");
+  expect(catchModel?.choices?.map((choice) => choice.value)).toContain("gpt-new");
 
   expect(selectEnabledModel("gated", [
     { id: "gated", disabled: true },

@@ -12,6 +12,22 @@ export interface AgentModelCatalogEntry {
   fast?: boolean;
   minVersion?: string;
   deprecated?: boolean;
+  efforts?: AgentModelChoice[];
+  defaultEffort?: string;
+  serviceTiers?: AgentModelServiceTier[];
+  defaultServiceTier?: string | null;
+}
+
+export interface AgentModelChoice {
+  value: string;
+  label: string;
+  description?: string;
+}
+
+export interface AgentModelServiceTier {
+  id: string;
+  name: string;
+  description?: string;
 }
 
 export interface AgentModelProviderCatalog {
@@ -85,6 +101,30 @@ function validateModel(input: unknown): AgentModelCatalogEntry | null {
   if (typeof raw.contextWindow === "string" || typeof raw.contextWindow === "number") out.contextWindow = raw.contextWindow;
   for (const key of ["supportsOneMillion", "fast", "deprecated"] as const) if (typeof raw[key] === "boolean") out[key] = raw[key];
   if (typeof raw.minVersion === "string" && raw.minVersion) out.minVersion = raw.minVersion;
+  if (Array.isArray(raw.efforts)) {
+    const efforts = raw.efforts.flatMap((effort) => {
+      if (!effort || typeof effort !== "object" || Array.isArray(effort)) return [];
+      const item = effort as Record<string, unknown>;
+      if (typeof item.value !== "string" || !item.value || typeof item.label !== "string" || !item.label) return [];
+      return [{ value: item.value, label: item.label, ...(typeof item.description === "string" ? { description: item.description } : {}) }];
+    });
+    if (efforts.length) {
+      out.efforts = efforts;
+      const requested = typeof raw.defaultEffort === "string" ? raw.defaultEffort : "";
+      out.defaultEffort = efforts.some((effort) => effort.value === requested) ? requested : efforts[0]!.value;
+    }
+  }
+  if (Array.isArray(raw.serviceTiers)) {
+    const serviceTiers = raw.serviceTiers.flatMap((tier) => {
+      if (!tier || typeof tier !== "object" || Array.isArray(tier)) return [];
+      const item = tier as Record<string, unknown>;
+      if (typeof item.id !== "string" || !item.id || typeof item.name !== "string" || !item.name) return [];
+      return [{ id: item.id, name: item.name, ...(typeof item.description === "string" ? { description: item.description } : {}) }];
+    });
+    if (serviceTiers.length) out.serviceTiers = serviceTiers;
+    if (raw.defaultServiceTier === null) out.defaultServiceTier = null;
+    else if (typeof raw.defaultServiceTier === "string" && serviceTiers.some((tier) => tier.id === raw.defaultServiceTier)) out.defaultServiceTier = raw.defaultServiceTier;
+  }
   return out;
 }
 

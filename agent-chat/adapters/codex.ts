@@ -635,15 +635,21 @@ export function mergeCodexModels(binaryModels: ModelInfo[], remote = agentModelC
   const merged = remote.models.map((model) => {
     const reported = binary.get(model.id);
     binary.delete(model.id);
+    const remoteEfforts = (model.efforts ?? [])
+      .map((effort) => ({ value: effort.value, label: effort.label, description: effort.description }))
+      .filter((effort) => !isOffLike(effort.value));
+    const efforts = remoteEfforts.length ? remoteEfforts : reported?.efforts ?? FALLBACK_EFFORTS;
+    const requestedEffort = model.defaultEffort ?? reported?.defaultEffort ?? "";
+    const defaultEffort = efforts.some((effort) => effort.value === requestedEffort) ? requestedEffort : efforts[0]?.value ?? "medium";
     return {
       value: model.id,
       label: model.label,
       description: model.description ?? reported?.description,
       contextWindow: model.contextWindow ?? reported?.contextWindow,
-      efforts: reported?.efforts ?? FALLBACK_EFFORTS,
-      defaultEffort: reported?.defaultEffort ?? "medium",
-      serviceTiers: reported?.serviceTiers ?? [],
-      defaultServiceTier: reported?.defaultServiceTier ?? null,
+      efforts,
+      defaultEffort,
+      serviceTiers: model.serviceTiers ?? reported?.serviceTiers ?? [],
+      defaultServiceTier: model.defaultServiceTier !== undefined ? model.defaultServiceTier : reported?.defaultServiceTier ?? null,
       isDefault: model.id === remote.defaultModel,
     };
   });
