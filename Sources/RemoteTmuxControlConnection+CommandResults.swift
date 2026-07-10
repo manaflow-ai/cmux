@@ -74,9 +74,9 @@ extension RemoteTmuxControlConnection {
             // optimistic order would make the follow-up `listWindowOrder`
             // verification compare the server order against itself — reporting
             // success for a reorder that never reached the desired order.
-            let shouldApplyWindowOrder = requestGeneration == windowReorderGeneration
-                && windowReorderVerificationGeneration == nil
             let completesReorderRecovery = windowReorderRecoveryGeneration == requestGeneration
+            let shouldApplyWindowOrder = requestGeneration == windowReorderGeneration
+                && (windowReorderVerificationGeneration == nil || completesReorderRecovery)
             var order: [Int] = []
             var next: [Int: RemoteTmuxWindow] = [:]
             for line in lines {
@@ -169,6 +169,20 @@ extension RemoteTmuxControlConnection {
                     : decoding.windowOrder(order, applyingReorder: optimisticLiveOrder)
                 if completesReorderRecovery {
                     windowReorderRecoveryGeneration = nil
+                    // The batch that escalated here is judged against the
+                    // recovered authoritative order rather than failed outright:
+                    // the escalation cause (membership change mid-batch) says
+                    // nothing about whether the swaps landed. Compare only the
+                    // windows the batch actually ordered, so a window that
+                    // appeared or closed mid-flight doesn't fail a reorder tmux
+                    // in fact applied (and e.g. roll back pin state for it).
+                    if let generation = windowReorderVerificationGeneration {
+                        let desiredSet = Set(optimisticLiveOrder)
+                        finishWindowReorderVerification(
+                            generation: generation,
+                            succeeded: order.filter { desiredSet.contains($0) } == optimisticLiveOrder
+                        )
+                    }
                 }
                 // Publish removals/order/names; geometry rides each window's
                 // rects reply.
@@ -302,8 +316,11 @@ extension RemoteTmuxControlConnection {
     }
 
     /// Escalates a failed order-only verification to blocking full recovery.
+    /// The pending verification is NOT failed here: escalation means the cheap
+    /// check was inconclusive (membership changed, malformed reply), so the
+    /// batch is resolved against the recovery's authoritative order instead.
+    /// A recovery that itself fails reconnects, which fails the verification.
     func requestFullWindowOrderRecovery() {
-        failPendingWindowReorderVerifications()
         windowReorderRecoveryGeneration = windowReorderGeneration
         requestWindows()
     }

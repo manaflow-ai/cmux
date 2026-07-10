@@ -208,6 +208,52 @@ import Testing
         #expect(connection.windowOrder == [2, 1, 3])
     }
 
+    @Test func recoveryEscalationVerifiesAgainstAuthoritativeOrder() {
+        let (connection, writer, pipe) = attachedConnection()
+        defer { writer.close(); try? pipe.fileHandleForReading.close() }
+        publishWindows(connection, order: [1, 2, 3])
+        var verification: Bool?
+
+        #expect(connection.sendWindowReorder(
+            ["swap-window -d -s @1 -t @2"],
+            verification: { verification = $0 }
+        ))
+        connection.applyWindowReorder([2, 1, 3])
+        reply(connection, lines: [])
+        // A window added mid-batch makes the cheap order check inconclusive;
+        // the batch must stay pending instead of being failed outright.
+        reply(connection, lines: windowOrderLines([2, 1, 3, 4]))
+        #expect(verification == nil)
+
+        // Recovery shows tmux holding the desired relative order (plus the
+        // new window), so the batch verifies as applied — pin state survives.
+        reply(connection, lines: windowLines([2, 1, 3, 4]))
+        #expect(verification == true)
+        #expect(connection.windowOrder == [2, 1, 3, 4])
+        #expect(connection.sendWindowReorder(["swap-window -d -s @2 -t @1"]))
+    }
+
+    @Test func recoveryEscalationFailsVerificationWhenOrderDidNotLand() {
+        let (connection, writer, pipe) = attachedConnection()
+        defer { writer.close(); try? pipe.fileHandleForReading.close() }
+        publishWindows(connection, order: [1, 2, 3])
+        var verification: Bool?
+
+        #expect(connection.sendWindowReorder(
+            ["swap-window -d -s @1 -t @2"],
+            verification: { verification = $0 }
+        ))
+        connection.applyWindowReorder([2, 1, 3])
+        reply(connection, lines: [])
+        reply(connection, lines: windowOrderLines([2, 1, 3, 4]))
+        #expect(verification == nil)
+
+        // Recovery shows the batch's windows NOT in the desired order.
+        reply(connection, lines: windowLines([1, 2, 3, 4]))
+        #expect(verification == false)
+        #expect(connection.windowOrder == [1, 2, 3, 4])
+    }
+
     @Test func matchingOrderCompletesVerificationSuccessfully() {
         let (connection, writer, pipe) = attachedConnection()
         defer { writer.close(); try? pipe.fileHandleForReading.close() }
