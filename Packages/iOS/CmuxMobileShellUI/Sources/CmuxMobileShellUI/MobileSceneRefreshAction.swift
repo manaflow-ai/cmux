@@ -5,8 +5,8 @@ enum MobileSceneRefreshAction: Equatable {
     case enterBackground
     case resumeForeground
 
-    static func forScenePhase(_ phase: ScenePhase) -> Self {
-        switch phase {
+    init(scenePhase: ScenePhase) {
+        self = switch scenePhase {
         case .active: .resumeForeground
         case .background: .enterBackground
         case .inactive: .none

@@ -3,9 +3,9 @@
 actor SendAuthorizationInvocationRecorder {
     private var count = 0
 
-    func authorize() -> MobileRPCAuthScope.SendLease {
+    func authorize() -> MobileRPCSendLease {
         count += 1
-        return MobileRPCAuthScope.SendLease()
+        return MobileRPCSendLease()
     }
 
     func invocationCount() -> Int {

@@ -51,11 +51,3 @@ public struct MobileManualHostTrustScope: Equatable, Hashable, Sendable {
         ].joined(separator: "|")
     }
 }
-
-private extension String {
-    var mobileManualHostTrustStorageEscaped: String {
-        self
-            .replacing("%", with: "%25")
-            .replacing("|", with: "%7C")
-    }
-}

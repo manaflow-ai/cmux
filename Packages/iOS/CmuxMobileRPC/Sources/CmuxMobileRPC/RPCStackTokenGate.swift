@@ -2,20 +2,8 @@ import Foundation
 
 /// Deduplicates Stack access-token acquisition across mobile RPC clients owned by the same shell.
 public actor RPCStackTokenGate {
-    private enum ScopeKey: Hashable, Sendable {
-        case unscoped
-        case scoped(MobileRPCAuthScope)
-    }
-
-    private struct CurrentTokenTask {
-        let id: UUID
-        let task: Task<String, any Error>
-        var waiters: Int
-        var timedOutUntil: UInt64?
-    }
-
-    private var currentByScope: [ScopeKey: CurrentTokenTask] = [:]
-    private var abandonedByScope: [ScopeKey: [UUID: Task<String, any Error>]] = [:]
+    private var currentByScope: [RPCStackTokenScopeKey: RPCStackTokenTaskState] = [:]
+    private var abandonedByScope: [RPCStackTokenScopeKey: [UUID: Task<String, any Error>]] = [:]
     private let taskTimeout = RPCTaskTimeout()
     private let timedOutResetNanoseconds: UInt64
 
@@ -29,7 +17,7 @@ public actor RPCStackTokenGate {
         timeoutNanoseconds: UInt64,
         provider: @escaping @Sendable () async throws -> String
     ) async throws -> String {
-        let scopeKey = scope.map(ScopeKey.scoped) ?? .unscoped
+        let scopeKey = scope.map(RPCStackTokenScopeKey.scoped) ?? .unscoped
         let id: UUID
         let task: Task<String, any Error>
         if let existing = currentByScope[scopeKey], let timedOutUntil = existing.timedOutUntil {
@@ -50,7 +38,7 @@ public actor RPCStackTokenGate {
         } else {
             id = UUID()
             task = Task { try await provider() }
-            currentByScope[scopeKey] = CurrentTokenTask(
+            currentByScope[scopeKey] = RPCStackTokenTaskState(
                 id: id,
                 task: task,
                 waiters: 1,
@@ -82,20 +70,20 @@ public actor RPCStackTokenGate {
     /// disturbing requests from another signed-in scope.
     public func invalidate(scope: MobileRPCAuthScope) {
         scope.revoke()
-        let scopeKey = ScopeKey.scoped(scope)
+        let scopeKey = RPCStackTokenScopeKey.scoped(scope)
         currentByScope.removeValue(forKey: scopeKey)?.task.cancel()
         let abandoned = abandonedByScope.removeValue(forKey: scopeKey)?.values ?? [:].values
         for task in abandoned { task.cancel() }
     }
 
-    private func timeoutWaiter(scopeKey: ScopeKey, id: UUID) {
+    private func timeoutWaiter(scopeKey: RPCStackTokenScopeKey, id: UUID) {
         guard var current = currentByScope[scopeKey], current.id == id else { return }
         current.waiters -= 1
         guard current.waiters <= 0 else {
             currentByScope[scopeKey] = current
             return
         }
-        currentByScope[scopeKey] = CurrentTokenTask(
+        currentByScope[scopeKey] = RPCStackTokenTaskState(
             id: id,
             task: current.task,
             waiters: 0,
@@ -104,14 +92,14 @@ public actor RPCStackTokenGate {
         current.task.cancel()
     }
 
-    private func cancelWaiter(scopeKey: ScopeKey, id: UUID) {
+    private func cancelWaiter(scopeKey: RPCStackTokenScopeKey, id: UUID) {
         guard var current = currentByScope[scopeKey], current.id == id else { return }
         current.waiters -= 1
         guard current.waiters <= 0 else {
             currentByScope[scopeKey] = current
             return
         }
-        currentByScope[scopeKey] = CurrentTokenTask(
+        currentByScope[scopeKey] = RPCStackTokenTaskState(
             id: id,
             task: current.task,
             waiters: 0,
@@ -120,7 +108,7 @@ public actor RPCStackTokenGate {
         current.task.cancel()
     }
 
-    private func clear(scopeKey: ScopeKey, id: UUID) {
+    private func clear(scopeKey: RPCStackTokenScopeKey, id: UUID) {
         if currentByScope[scopeKey]?.id == id {
             currentByScope[scopeKey] = nil
         }

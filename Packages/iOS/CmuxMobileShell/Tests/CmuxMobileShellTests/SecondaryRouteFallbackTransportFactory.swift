@@ -1,10 +1,7 @@
 import CMUXMobileCore
+import Foundation
 
 struct SecondaryRouteFallbackTransportFactory: CmxByteTransportFactory {
-    enum Failure: Error {
-        case unreachablePreferredRoute
-    }
-
     let router: LivenessHostRouter
     let box: TransportBox
     let attempts: RouteAttemptRecorder
@@ -12,7 +9,7 @@ struct SecondaryRouteFallbackTransportFactory: CmxByteTransportFactory {
     func makeTransport(for route: CmxAttachRoute) throws -> any CmxByteTransport {
         attempts.record(route.kind)
         guard route.kind != .tailscale else {
-            throw Failure.unreachablePreferredRoute
+            throw URLError(.cannotConnectToHost)
         }
         let transport = LivenessTransport(router: router)
         box.set(transport)

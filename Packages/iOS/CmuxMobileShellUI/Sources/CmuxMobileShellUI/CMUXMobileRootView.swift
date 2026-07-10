@@ -142,7 +142,7 @@ struct CMUXMobileRootView: View {
             store.currentTeamDidChange()
         }
         .onChange(of: scenePhase) { _, phase in
-            switch MobileSceneRefreshAction.forScenePhase(phase) {
+            switch MobileSceneRefreshAction(scenePhase: phase) {
             case .none:
                 return
             case .enterBackground:

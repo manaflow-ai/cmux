@@ -378,7 +378,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         try await validateAuthScope()
     }
 
-    private func authorizeTokenBearingSend() async throws -> MobileRPCAuthScope.SendLease {
+    private func authorizeTokenBearingSend() async throws -> MobileRPCSendLease {
         try await validateTokenBearingRequestBeforeEnqueue()
         guard let lease = authScope.beginSend() else {
             throw CancellationError()

@@ -4,8 +4,8 @@ import Testing
 
 @Suite struct MobileSceneRefreshActionTests {
     @Test func inactiveInterruptionDoesNotBecomeBackgroundTransition() {
-        #expect(MobileSceneRefreshAction.forScenePhase(.inactive) == .none)
-        #expect(MobileSceneRefreshAction.forScenePhase(.background) == .enterBackground)
-        #expect(MobileSceneRefreshAction.forScenePhase(.active) == .resumeForeground)
+        #expect(MobileSceneRefreshAction(scenePhase: .inactive) == .none)
+        #expect(MobileSceneRefreshAction(scenePhase: .background) == .enterBackground)
+        #expect(MobileSceneRefreshAction(scenePhase: .active) == .resumeForeground)
     }
 }

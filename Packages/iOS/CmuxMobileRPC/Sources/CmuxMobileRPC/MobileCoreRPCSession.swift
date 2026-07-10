@@ -4,7 +4,7 @@ actor MobileCoreRPCSession {
     typealias TransportFactory = @Sendable () throws -> any CmxByteTransport
     typealias ConnectedCandidateHook = @Sendable (_ candidate: any CmxByteTransport) async -> Void
     typealias PreEnqueueValidator = @Sendable () async throws -> Void
-    typealias SendAuthorizer = @Sendable () async throws -> MobileRPCAuthScope.SendLease
+    typealias SendAuthorizer = @Sendable () async throws -> MobileRPCSendLease
     typealias PendingContinuation = CheckedContinuation<Result<Data, any Error>, Never>
     typealias ConnectingTask = (id: UUID, lease: MobileRPCConnectAttemptLease?, task: Task<any CmxByteTransport, any Error>, waiters: Set<UUID>, completed: Bool)
     static let defaultAbandonedConnectCleanupTimeoutNanoseconds: UInt64 = 1_000_000_000

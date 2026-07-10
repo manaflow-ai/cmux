@@ -7,12 +7,10 @@ import os
 /// or manual-host network trust epoch changes. Token acquisition and transport enqueue use
 /// it as a non-secret key so requests from different auth epochs never share an
 /// in-flight credential task.
-// `rawValue` is immutable and the only mutable field is accessed exclusively
-// through `isRevokedLock`, so cross-task references cannot race.
+///
+/// `rawValue` is immutable and the only mutable field is accessed exclusively
+/// through `isRevokedLock`, so the unchecked sendability has no cross-task race.
 public final class MobileRPCAuthScope: @unchecked Sendable, Hashable {
-    /// A one-send capability acquired at the writer's authorization linearization point.
-    struct SendLease: Sendable {}
-
     private let rawValue: UUID
     // lint:allow lock - scope revocation and writer admission must be synchronous;
     // an actor hop would recreate the authorization TOCTOU this flag closes.
@@ -29,17 +27,19 @@ public final class MobileRPCAuthScope: @unchecked Sendable, Hashable {
     }
 
     /// Acquires authorization for one send if revocation has not linearized first.
-    func beginSend() -> SendLease? {
+    func beginSend() -> MobileRPCSendLease? {
         isRevokedLock.withLock { isRevoked in
             guard !isRevoked else { return nil }
-            return SendLease()
+            return MobileRPCSendLease()
         }
     }
 
+    /// Returns whether two scopes represent the same authorization epoch.
     public static func == (lhs: MobileRPCAuthScope, rhs: MobileRPCAuthScope) -> Bool {
         lhs.rawValue == rhs.rawValue
     }
 
+    /// Hashes the authorization epoch identity into the supplied hasher.
     public func hash(into hasher: inout Hasher) {
         hasher.combine(rawValue)
     }

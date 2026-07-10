@@ -3,7 +3,10 @@ import CmuxMobileShellModel
 actor BlockingNetworkEpochTrustStore: MobileManualHostTrustStoring {
     private var removeCount = 0
     private var trustCount = 0
-    private var removeWaiters: [CheckedContinuation<Void, Never>] = []
+    private var removeWaiters: [(
+        expected: Int,
+        continuation: CheckedContinuation<Void, Never>
+    )] = []
     private var releaseWaiters: [CheckedContinuation<Void, Never>] = []
 
     func isTrusted(_ scope: MobileManualHostTrustScope) async -> Bool {
@@ -18,15 +21,15 @@ actor BlockingNetworkEpochTrustStore: MobileManualHostTrustStoring {
 
     func removeAll() async {
         removeCount += 1
-        let waiters = removeWaiters
-        removeWaiters.removeAll()
-        for waiter in waiters { waiter.resume() }
+        let readyWaiters = removeWaiters.filter { $0.expected <= removeCount }
+        removeWaiters.removeAll { $0.expected <= removeCount }
+        for waiter in readyWaiters { waiter.continuation.resume() }
         await withCheckedContinuation { releaseWaiters.append($0) }
     }
 
     func waitUntilRemoveCount(_ expected: Int) async {
         if removeCount >= expected { return }
-        await withCheckedContinuation { removeWaiters.append($0) }
+        await withCheckedContinuation { removeWaiters.append((expected, $0)) }
     }
 
     func currentRemoveCount() -> Int {

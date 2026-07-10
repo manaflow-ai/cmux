@@ -18,7 +18,10 @@ public protocol MobileManualHostTrustStoring: Sendable {
     func removeAll() async
 }
 
+/// Default behavior for trust stores that do not expire approvals themselves.
 public extension MobileManualHostTrustStoring {
+    /// Returns no expiry when the store does not own an expiration policy.
+    /// - Parameter scope: The approved scope to inspect.
     func expirationDate(for scope: MobileManualHostTrustScope) async -> Date? {
         _ = scope
         return nil
