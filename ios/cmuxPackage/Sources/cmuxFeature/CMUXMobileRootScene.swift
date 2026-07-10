@@ -143,13 +143,14 @@ public struct CMUXMobileRootScene: View {
     /// service is failure-tolerant, so a missing API base URL or a registry
     /// outage simply means reconnect falls back to local paired-Mac routes.
     @MainActor
-    private func makeDeviceRegistry() -> DeviceRegistryService? {
+    private func makeDeviceRegistry(buildScope: MobileIOSBuildScope?) -> DeviceRegistryService? {
         let baseURL = auth.config.apiBaseURL
         guard !baseURL.isEmpty else { return nil }
         let coordinator = auth.coordinator
         return DeviceRegistryService(
             apiBaseURL: baseURL,
             deviceID: DeviceRegistryService.deviceID(),
+            buildScope: buildScope,
             tokenSource: DeviceRegistryService.TokenSource(
                 accessToken: { try? await coordinator.accessToken() },
                 refreshToken: { await coordinator.refreshToken() }
@@ -187,11 +188,11 @@ public struct CMUXMobileRootScene: View {
     /// boundaries must hold even when backup is off.
     @MainActor
     private func makeBackedUpPairedMacStore(
-        restoreBoundary: PairedMacRestoreBoundary
+        restoreBoundary: PairedMacRestoreBoundary,
+        buildScope: MobileIOSBuildScope?
     ) -> (any MobilePairedMacStoring)? {
         guard let store = pairedMacStore else { return nil }
         let coordinator = auth.coordinator
-        let buildScope = MobileIOSBuildScope.current()
         let buildScopedStore: any MobilePairedMacStoring
         if let buildScope {
             buildScopedStore = IOSBuildScopedPairedMacStore(inner: store, scope: buildScope)
@@ -263,13 +264,17 @@ public struct CMUXMobileRootScene: View {
     @MainActor
     private func makeStore() -> CMUXMobileShellStore {
         let coordinator = auth.coordinator
+        let buildScope = MobileIOSBuildScope.current()
         let identityProvider = AuthCoordinatorIdentityProvider(
             coordinator: auth.coordinator,
             isDevelopmentAuthEnvironment: auth.authEnvironment == .development
         )
-        let deviceRegistry = makeDeviceRegistry()
+        let deviceRegistry = makeDeviceRegistry(buildScope: buildScope)
         let restoreBoundary = PairedMacRestoreBoundary()
-        let backedUpPairedMacStore = makeBackedUpPairedMacStore(restoreBoundary: restoreBoundary)
+        let backedUpPairedMacStore = makeBackedUpPairedMacStore(
+            restoreBoundary: restoreBoundary,
+            buildScope: buildScope
+        )
         let forgottenMacStore = UserDefaultsPairedMacForgottenStore()
         let feedbackEmailSubmitter = MobileFeedbackEmailClient(apiBaseURL: auth.config.apiBaseURL)
         let feedbackStampProvider: @MainActor () -> MobileFeedbackStamp = {
@@ -279,6 +284,7 @@ public struct CMUXMobileRootScene: View {
         return CMUXMobileShellStore(
             runtime: runtime,
             pairedMacStore: backedUpPairedMacStore,
+            iosBuildScope: buildScope,
             pairedMacRestoreBoundary: restoreBoundary,
             deviceRegistry: deviceRegistry,
             presence: makePresenceClient(),
@@ -296,6 +302,7 @@ public struct CMUXMobileRootScene: View {
         return CMUXMobileShellStore(
             runtime: runtime,
             pairedMacStore: backedUpPairedMacStore,
+            iosBuildScope: buildScope,
             pairedMacRestoreBoundary: restoreBoundary,
             deviceRegistry: deviceRegistry,
             presence: makePresenceClient(),

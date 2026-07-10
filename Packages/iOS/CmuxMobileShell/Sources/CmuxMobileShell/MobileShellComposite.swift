@@ -590,6 +590,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     let runtime: (any MobileSyncRuntime)?
     let pairedMacStore: (any MobilePairedMacStoring)?
+    /// The development-build instance allowed to own this store's reconnect
+    /// routes. `nil` keeps stable builds on the sole-instance fallback policy.
+    let iosBuildScope: MobileIOSBuildScope?
     private let pairedMacRestoreBoundary: PairedMacRestoreBoundary?
     /// Best-effort, team-scoped lookup of fresher attach routes from the device
     /// registry. Optional and failure-tolerant: when `nil` or unreachable,
@@ -682,7 +685,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Tail of the serialized paired-Mac store write chain; see
     /// ``performSerializedPairedMacWrite(ifStillCurrent:_:)``.
     private var pairedMacWriteChain: Task<Void, Never>?
-    private var pushedRouteSyncTask: Task<Void, Never>?
+    var pushedRouteSyncTask: Task<Void, Never>?
     /// The in-flight `mobile.events.subscribe` (reason `start`) ack for the
     /// current listener generation. It runs concurrently with the consumer
     /// loop (the ack is a server-side enable handshake, not a delivery
@@ -890,6 +893,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         pairingCode: String = "",
         workspaces: [MobileWorkspacePreview] = [],
         pairedMacStore: (any MobilePairedMacStoring)? = nil,
+        iosBuildScope: MobileIOSBuildScope? = nil,
         pairedMacRestoreBoundary: PairedMacRestoreBoundary? = nil,
         deviceRegistry: (any DeviceRegistryRefreshing)? = nil,
         presence: (any PresenceSubscribing)? = nil,
@@ -914,6 +918,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.draftStore = draftStore
         self.groupCollapseStore = groupCollapseStore
         self.pairedMacStore = pairedMacStore
+        self.iosBuildScope = iosBuildScope
         self.pairedMacRestoreBoundary = pairedMacRestoreBoundary
         self.deviceRegistry = deviceRegistry
         self.presence = presence
@@ -1421,7 +1426,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var recoveryTask: Task<Void, Never>?
     private var lastReconnectStackUserID: String?
 
-    private enum RecoveryTrigger: CustomStringConvertible {
+    enum RecoveryTrigger: CustomStringConvertible {
         case networkChange
         case manual
         case presencePush
@@ -1467,7 +1472,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// resync re-subscribes and requests a render-grid replay to repaint.
     /// Otherwise the connection dropped, so reconnect once; on failure the UI
     /// shows Retry and the next network change re-attempts automatically.
-    private func recoverMobileConnection(trigger: RecoveryTrigger) {
+    func recoverMobileConnection(trigger: RecoveryTrigger) {
         guard remoteClient != nil || pairedMacStore != nil else { return }
         if connectionState == .connected, remoteClient != nil {
             markMacConnectionReconnecting()
@@ -2144,138 +2149,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
-    func waitForPushedRouteSyncForTesting() async {
-        await pushedRouteSyncTask?.value
-    }
-
-    /// Write presence-pushed attach routes through to the local paired-Mac
-    /// store (the same merge the registry refresh uses), so the next reconnect
-    /// dials the host's fresh port/IP without a registry round trip — and kick
-    /// a reconnect when the phone is sitting disconnected from that very Mac.
-    ///
-    /// Presence only updates Macs the user already paired; it never creates a
-    /// pairing. A live, healthy connection is never torn down here: if the
-    /// route the live session uses disappeared, the transport notices on its
-    /// own and the next reconnect picks up the stored fresh routes.
-    private func syncPushedRoutes(from instance: PresenceInstance, scope: MobileShellScopeSnapshot) {
-        syncPushedRoutes(from: [instance], scope: scope)
-    }
-
-    /// Batch form: one sequential task for the whole delivery (a snapshot can
-    /// carry several online instances, including multiple tags on one Mac),
-    /// so route upserts apply in deterministic order and the reconnect kick
-    /// fires at most once per delivery instead of once per instance.
-    private func syncPushedRoutes(from instances: [PresenceInstance], scope: MobileShellScopeSnapshot) {
-        let candidates = instances.filter { $0.platform.lowercased() != "ios" }
-        guard !candidates.isEmpty else { return }
-        // Every await below suspends the main actor, so keep carrying the
-        // account/team scope captured for the subscription that delivered this
-        // frame and re-check it before each route mutation. A stale frame from a
-        // previous account or team must never write routes into, or kick
-        // reconnects for, the next scope.
-        // Serialized on the paired-Mac write chain: a (re)subscribe delivers
-        // a snapshot immediately followed by online/routes events for the
-        // same device, and two concurrent deliveries would race their
-        // pairedMacStore upserts and could each kick a reconnect. The chain
-        // appends synchronously on the main actor, so deliveries execute
-        // strictly in arrival order.
-        let task = Task { @MainActor [weak self] in
-            guard let self else { return }
-            await self.performSerializedPairedMacWrite(ifStillCurrent: nil) {
-                [weak self] in
-                guard let self else { return }
-                guard await self.isScopeCurrent(scope) else { return }
-                if self.pairedMacsForIdentityMatching.isEmpty {
-                    // A presence frame can land before the first paired-Mac
-                    // load (snapshot arrives fast on launch); resolve the
-                    // pairing list before deciding these devices are unknown.
-                    await self.loadPairedMacs()
-                }
-                guard await self.isScopeCurrent(scope) else { return }
-                var onlineDeviceIds: Set<String> = []
-                for instance in candidates {
-                    guard await self.isScopeCurrent(scope) else { return }
-                    if instance.online { onlineDeviceIds.insert(instance.deviceId) }
-                    await self.applyPushedRoutes(from: instance, scope: scope)
-                }
-                guard await self.isScopeCurrent(scope) else { return }
-                // The Mac this phone wants is online and we are not
-                // connected: reconnect now instead of waiting for the user to
-                // pull Retry. Unambiguous pushes were persisted above, so the
-                // reconnect dials fresh routes; under the multi-instance
-                // ambiguity guard the stored last-known-good routes are
-                // deliberately kept and the reconnect uses those, the same
-                // outcome a manual Retry would have.
-                let knownMacs = self.pairedMacsForIdentityMatching
-                if self.connectionState != .connected,
-                   let activeMacID = self.pairedMacs.first(where: { $0.isActive })?.macDeviceID,
-                   !onlineDeviceIds.isDisjoint(with: Self.macDeviceIDsForLogicalPairedMac(
-                        activeMacID,
-                        in: knownMacs,
-                        supportedKinds: self.runtime?.supportedRouteKinds ?? [],
-                        preferNonLoopback: Self.prefersNonLoopbackRoutes
-                   )) {
-                    self.recoverMobileConnection(trigger: .presencePush)
-                }
-            }
-        }
-        pushedRouteSyncTask = task
-    }
-
-    /// Per-instance store/registry write-through for the batch sync above.
-    private func applyPushedRoutes(from instance: PresenceInstance, scope: MobileShellScopeSnapshot) async {
-        // `nil` means the host did not announce routes on this record
-        // ("unchanged" on the wire); an explicit `[]` is a live clear.
-        guard let routes = instance.routes else { return }
-        guard await isScopeCurrent(scope) else { return }
-        let deviceId = instance.deviceId
-        guard await !isForgottenMacDeviceID(deviceId, scope: scope) else { return }
-        let knownMacs = pairedMacsForIdentityMatching
-        guard knownMacs.contains(where: { $0.macDeviceID == deviceId }) else {
-            return
-        }
-        // Mirror the in-memory registry tree's Connect affordances first, so
-        // an explicit empty set drops stale endpoints from the tree instead
-        // of leaving a Connect affordance pointing at routes the host no
-        // longer advertises.
-        if let deviceIndex = registryDevices.firstIndex(where: { $0.deviceId == deviceId }),
-           let instanceIndex = registryDevices[deviceIndex].instances
-               .firstIndex(where: { $0.tag == instance.tag }) {
-            registryDevices[deviceIndex].instances[instanceIndex].routes = routes
-        }
-        // The paired-Mac store keeps last-known-good reconnect routes. The store
-        // is device-level (no tag), so substitution must stay unambiguous and
-        // scoped to the stored id that emitted the presence frame.
-        guard !routes.isEmpty,
-              let sole = presenceMap.soleRouteAdvertisingInstance(deviceId: deviceId),
-              sole.tag == instance.tag,
-              let mac = knownMacs.first(where: { $0.macDeviceID == deviceId }),
-              let updated = DeviceRegistryService.selectReconnectRoutes(
-                local: mac.routes,
-                registry: routes
-              ),
-              let pairedMacStore,
-              await isScopeCurrent(scope) else { return }
-        do {
-            try await pairedMacStore.upsert(
-                macDeviceID: mac.macDeviceID,
-                displayName: mac.displayName,
-                routes: updated,
-                markActive: mac.isActive,
-                stackUserID: scope.userID,
-                teamID: scope.teamID,
-                now: Date()
-            )
-            guard await isScopeCurrent(scope) else { return }
-            if await removeStoredPairedMacIfForgotten(mac.macDeviceID, scope: scope) { return }
-            await loadPairedMacs()
-        } catch {
-            mobileShellLog.debug(
-                "presence route upsert failed: \(String(describing: error), privacy: .public)"
-            )
-        }
-    }
-
     /// Connect the live session to a specific registry app instance (a tag on a
     /// device) using that instance's advertised routes.
     ///
@@ -2298,6 +2171,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         device: RegistryDevice,
         instance: RegistryAppInstance
     ) async {
+        if let iosBuildScope, instance.tag != iosBuildScope.value { return }
         let supportedKinds = runtime?.supportedRouteKinds ?? []
         let candidateRoutes = Self.reconnectHostPortRoutes(
             instance.routes,
@@ -2843,7 +2717,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     /// Runs one paired-Mac store mutation on the serialized write chain.
-    private func performSerializedPairedMacWrite(
+    func performSerializedPairedMacWrite(
         ifStillCurrent: (() -> Bool)?,
         _ operation: @escaping @MainActor () async -> Void
     ) async {

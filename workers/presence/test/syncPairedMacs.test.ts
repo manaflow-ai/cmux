@@ -8,7 +8,6 @@ import { describe, expect, it } from "bun:test";
 import {
   applyBackupOps,
   listBackupSnapshot,
-  listBackupSnapshotWithUnscopedFallback,
   listLiveBackup,
   MAX_BACKUP_OPS,
   MAX_CLIENT_SCOPE_LENGTH,
@@ -413,150 +412,11 @@ describe("applyBackupOps", () => {
     const res = await gcTombstones(storage, collection, T0 + 1_000_000_000, 0);
     expect(res.collected).toBe(1);
     const scopedRes = await gcTombstones(storage, scopedCollection, T0 + 1_000_000_000, 0);
-    expect(scopedRes.collected).toBe(2);
+    expect(scopedRes.collected).toBe(1);
     expect(await listTombstonedCollections(storage, `${PAIRED_MACS_COLLECTION}:`)).not.toContain(collection);
     expect(await listTombstonedCollections(storage, PAIRED_MACS_COLLECTION_TOMBSTONE_PREFIXES[1] ?? "")).not.toContain(
       scopedCollection,
     );
-  });
-
-  it("scoped restore falls back to unscoped Mac seed only until the scoped collection exists", async () => {
-    const storage = new FakeStorage();
-    await applyBackupOps(
-      storage,
-      "user-1",
-      [{ kind: "upsert", id: "mac-seed", record: record("mac-seed", "192.168.1.50", 22) }],
-      T0,
-    );
-
-    const emptyScoped = await listBackupSnapshotWithUnscopedFallback(storage, "user-1", "ios:dev");
-    expect(emptyScoped.records.map((r) => r.macDeviceID)).toEqual(["mac-seed"]);
-
-    await applyBackupOps(
-      storage,
-      "user-1",
-      [
-        {
-          kind: "upsert",
-          id: "scoped-mac",
-          record: { ...record("scoped-mac", "192.168.1.51", 22), lastSeenAt: T0 + 1000 },
-        },
-      ],
-      T0 + 1000,
-      "ios:dev",
-    );
-    const nonEmptyScoped = await listBackupSnapshotWithUnscopedFallback(storage, "user-1", "ios:dev");
-    expect(nonEmptyScoped.records.map((r) => r.macDeviceID)).toEqual(["scoped-mac", "mac-seed"]);
-
-    await applyBackupOps(storage, "user-1", [{ kind: "delete", id: "scoped-mac" }], T0 + 2000, "ios:dev");
-    const tombstonedScoped = await listBackupSnapshotWithUnscopedFallback(storage, "user-1", "ios:dev");
-    expect(tombstonedScoped.records.map((r) => r.macDeviceID)).toEqual(["mac-seed"]);
-    expect(tombstonedScoped.deletedMacDeviceIDs).toEqual(["scoped-mac"]);
-  });
-
-  it("first scoped write seeds untouched unscoped backup rows", async () => {
-    const storage = new FakeStorage();
-    await applyBackupOps(
-      storage,
-      "user-1",
-      [
-        { kind: "upsert", id: "mac-a", record: record("mac-a", "192.168.1.50", 22) },
-        {
-          kind: "upsert",
-          id: "mac-b",
-          record: { ...record("mac-b", "192.168.1.51", 22), lastSeenAt: T0 + 1 },
-        },
-      ],
-      T0,
-    );
-
-    await applyBackupOps(
-      storage,
-      "user-1",
-      [
-        {
-          kind: "upsert",
-          id: "mac-a",
-          record: { ...record("mac-a", "192.168.1.99", 22), lastSeenAt: T0 + 2 },
-        },
-      ],
-      T0 + 2,
-      "ios:dev",
-    );
-
-    const scoped = await listBackupSnapshotWithUnscopedFallback(storage, "user-1", "ios:dev");
-    expect(scoped.records.map((r) => r.macDeviceID)).toEqual(["mac-a", "mac-b"]);
-    expect(scoped.records.find((r) => r.macDeviceID === "mac-a")?.routes).toEqual(
-      record("mac-a", "192.168.1.99", 22).routes,
-    );
-    expect(scoped.records.find((r) => r.macDeviceID === "mac-b")?.routes).toEqual(
-      record("mac-b", "192.168.1.51", 22).routes,
-    );
-  });
-
-  it("scoped restore merges newer unscoped route self-publishes", async () => {
-    const storage = new FakeStorage();
-    await applyBackupOps(
-      storage,
-      "user-1",
-      [{ kind: "upsert", id: "mac-a", record: { ...record("mac-a", "10.0.0.1", 22), lastSeenAt: T0 } }],
-      T0,
-    );
-    await applyBackupOps(
-      storage,
-      "user-1",
-      [
-        {
-          kind: "upsert",
-          id: "mac-a",
-          record: { ...record("mac-a", "10.0.0.1", 22), customName: "Desk", isActive: false, lastSeenAt: T0 + 1000 },
-        },
-      ],
-      T0 + 1000,
-      "ios:dev",
-    );
-    await applyBackupOps(
-      storage,
-      "user-1",
-      [{ kind: "upsert", id: "mac-a", record: { ...record("mac-a", "10.0.0.2", 2222), lastSeenAt: T0 + 2000 } }],
-      T0 + 2000,
-    );
-
-    const refreshed = await listBackupSnapshotWithUnscopedFallback(storage, "user-1", "ios:dev");
-    expect(refreshed.records).toHaveLength(1);
-    expect(refreshed.records[0]?.routes).toEqual(record("mac-a", "10.0.0.2", 2222).routes);
-    expect(refreshed.records[0]?.customName).toBe("Desk");
-    expect(refreshed.records[0]?.isActive).toBe(false);
-
-    await applyBackupOps(storage, "user-1", [{ kind: "delete", id: "mac-a" }], T0 + 3000, "ios:dev");
-    const deleted = await listBackupSnapshotWithUnscopedFallback(storage, "user-1", "ios:dev");
-    expect(deleted.records).toEqual([]);
-    expect(deleted.deletedMacDeviceIDs).toEqual(["mac-a"]);
-  });
-
-  it("scoped delete of an unscoped fallback seed blocks future fallback restores", async () => {
-    const storage = new FakeStorage();
-    await applyBackupOps(
-      storage,
-      "user-1",
-      [{ kind: "upsert", id: "mac-seed", record: record("mac-seed", "192.168.1.50", 22) }],
-      T0,
-    );
-
-    expect(
-      (await listBackupSnapshotWithUnscopedFallback(storage, "user-1", "ios:dev")).records.map((r) => r.macDeviceID),
-    ).toEqual(["mac-seed"]);
-
-    const deltas = await applyBackupOps(storage, "user-1", [{ kind: "delete", id: "mac-seed" }], T0 + 1000, "ios:dev");
-    expect(deltas).toHaveLength(1);
-    const afterDelete = await listBackupSnapshotWithUnscopedFallback(storage, "user-1", "ios:dev");
-    expect(afterDelete.records).toEqual([]);
-    expect(afterDelete.deletedMacDeviceIDs).toEqual(["mac-seed"]);
-
-    await gcTombstones(storage, pairedMacsCollection("user-1", "ios:dev"), T0 + 1_000_000_000, 0);
-    const afterGc = await listBackupSnapshotWithUnscopedFallback(storage, "user-1", "ios:dev");
-    expect(afterGc.records).toEqual([]);
-    expect(afterGc.deletedMacDeviceIDs).toEqual([]);
   });
 
   it("listLiveBackup returns live records newest-first and excludes tombstones, scoped per user", async () => {

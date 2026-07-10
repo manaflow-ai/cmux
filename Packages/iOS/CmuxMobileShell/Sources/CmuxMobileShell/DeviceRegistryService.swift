@@ -40,6 +40,7 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
 
     private let apiBaseURL: String
     private let deviceID: String
+    private let buildScope: MobileIOSBuildScope?
     private let tokenSource: TokenSource
     private let teamIDProvider: @Sendable () async -> String?
     private let session: URLSession
@@ -48,6 +49,8 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
     /// - Parameters:
     ///   - apiBaseURL: The cmux web API base URL (no trailing slash).
     ///   - deviceID: This iOS device's registry id (``deviceID(defaults:)``).
+    ///   - buildScope: The tagged Mac instance allowed to supply reconnect
+    ///     routes. `nil` retains stable's sole-instance policy.
     ///   - tokenSource: Supplies the Stack access/refresh tokens.
     ///   - teamIDProvider: Supplies the team id to scope to, or `nil` to let the
     ///     server use the Stack-selected team.
@@ -57,6 +60,7 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
     public init(
         apiBaseURL: String,
         deviceID: String,
+        buildScope: MobileIOSBuildScope? = nil,
         tokenSource: TokenSource,
         teamIDProvider: @escaping @Sendable () async -> String? = { nil },
         session: sending URLSession = .shared,
@@ -64,6 +68,7 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
     ) {
         self.apiBaseURL = apiBaseURL
         self.deviceID = deviceID
+        self.buildScope = buildScope
         self.tokenSource = tokenSource
         self.teamIDProvider = teamIDProvider
         self.session = session
@@ -152,7 +157,11 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
             deviceRegistryLog.debug("freshRoutes request failed: \(String(describing: error), privacy: .public)")
             return nil
         }
-        return Self.routes(forMacDeviceID: macDeviceID, in: data)
+        return Self.routes(
+            forMacDeviceID: macDeviceID,
+            buildScope: buildScope,
+            in: data
+        )
     }
 
     public func listDevices() async -> DeviceRegistryListOutcome {
@@ -269,10 +278,10 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
         return .distantPast
     }
 
-    /// Decode the `/api/devices` list response and return the routes for the
-    /// device whose id matches `macDeviceID`, preferring its most recently seen
-    /// app instance. Returns `nil` when the device or routes are absent so the
-    /// caller falls back to local routes.
+    /// Decode the `/api/devices` list response and return authoritative routes
+    /// for the matching device. A tagged build selects its exact Mac tag;
+    /// unscoped builds require one sole route-advertising instance. Returns
+    /// `nil` when that ownership cannot be proven.
     ///
     /// Each route is decoded *failably* and individually: a malformed or
     /// unknown-kind route from any instance (even another Mac's) is skipped
@@ -280,7 +289,11 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
     /// from disabling registry refresh for every Mac, and makes old clients
     /// forward-compatible when a newer build advertises a route kind they cannot
     /// decode.
-    static func routes(forMacDeviceID macDeviceID: String, in data: Data) -> [CmxAttachRoute]? {
+    static func routes(
+        forMacDeviceID macDeviceID: String,
+        buildScope: MobileIOSBuildScope? = nil,
+        in data: Data
+    ) -> [CmxAttachRoute]? {
         // Decode each route element through an optional wrapper so a single bad
         // element decodes to `nil` and is dropped, never throwing for the array.
         struct FailableRoute: Decodable {
@@ -290,6 +303,7 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
             }
         }
         struct Instance: Decodable {
+            let tag: String?
             let routes: [FailableRoute]
         }
         struct Device: Decodable {
@@ -306,14 +320,21 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
         guard let device = decoded.devices.first(where: { $0.deviceId.lowercased() == target }) else {
             return nil
         }
-        // A Mac may run multiple tagged app instances (stable + a debug build).
-        // The phone's stored routes have no tag to match against in P1, so only
-        // substitute routes when exactly one instance is advertising any (the
-        // single-build common case). With zero or 2+ candidate instances, return
-        // nil and let reconnect fall back to the locally persisted routes, rather
-        // than risk connecting a stable phone to a different tagged build's
-        // workspaces. Tag-aware matching is a follow-up (see key-pinning phase).
-        let nonEmpty = device.instances
+        let candidates: [Instance]
+        if let buildScope {
+            // A tagged iOS build owns exactly the same-tag Mac instance. Another
+            // tag becoming the device's sole live instance must not redirect its
+            // persisted reconnect route.
+            candidates = device.instances.filter {
+                $0.tag?.trimmingCharacters(in: .whitespacesAndNewlines) == buildScope.value
+            }
+        } else {
+            // Stable/unscoped storage has no tag ownership to prove. Keep the
+            // existing safe fallback: accept routes only when one instance on
+            // the physical Mac advertises any.
+            candidates = device.instances
+        }
+        let nonEmpty = candidates
             .map { $0.routes.compactMap(\.value) }
             .filter { !$0.isEmpty }
         return nonEmpty.count == 1 ? nonEmpty[0] : nil

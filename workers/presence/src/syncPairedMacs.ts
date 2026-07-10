@@ -309,34 +309,6 @@ export function relabelSnapshot<P>(page: SyncSnapshotFrame<P>): SyncSnapshotFram
   return { ...page, collection: PAIRED_MACS_COLLECTION };
 }
 
-async function seedScopedBackupFromUnscopedIfNeeded(
-  storage: SyncStorage,
-  userId: string,
-  scopedCollection: string,
-  nowMs: number,
-): Promise<void> {
-  const scopedHead = await storage.get<number>(`${SYNC_HEAD_PREFIX}${scopedCollection}`);
-  if (scopedHead !== undefined) return;
-
-  const unscopedRecords = await listRecords<PairedMacBackupRecord>(storage, pairedMacsCollection(userId));
-  const ordered = [...unscopedRecords].sort((a, b) => a.rev - b.rev);
-  for (const stored of ordered) {
-    if (stored.deleted) {
-      await tombstoneRecord(storage, scopedCollection, stored.id, nowMs, { createIfMissing: true });
-      continue;
-    }
-    await upsertRecord<PairedMacBackupRecord>(
-      storage,
-      scopedCollection,
-      stored.id,
-      stored.payload,
-      nowMs,
-      pairedMacShapeEqual,
-      (record) => record.lastSeenAt,
-    );
-  }
-}
-
 /** Count the live (non-tombstone) backup records a user currently has, to
  * enforce the per-user cap on NEW ids. */
 /** Apply a batch of backup ops for one user against their physical collection,
@@ -356,9 +328,6 @@ export async function applyBackupOps(
   if (scope && !(await hasScopedCollectionCapacity(storage, userId, collection))) {
     throw new PairedMacBackupApplyError("too_many_client_scopes");
   }
-  if (scope) {
-    await seedScopedBackupFromUnscopedIfNeeded(storage, userId, collection, nowMs);
-  }
   // One listing gives both the live count (cap on visible Macs) AND the total
   // record count (live + RETAINED tombstones). Capping the total bounds storage
   // against create/delete churn: a delete keeps a tombstone for the GC retention
@@ -376,24 +345,9 @@ export async function applyBackupOps(
   for (const op of ops) {
     if (op.kind === "delete") {
       const existing = await readRecord<PairedMacBackupRecord>(storage, collection, op.id);
-      let res = await tombstoneRecord(storage, collection, op.id, nowMs);
-      if (
-        res.delta === null &&
-        scope &&
-        existing === undefined &&
-        totalCount < MAX_PAIRED_MAC_RECORDS_PER_USER
-      ) {
-        const fallback = await readRecord<PairedMacBackupRecord>(storage, pairedMacsCollection(userId), op.id);
-        if (fallback !== undefined && !fallback.deleted) {
-          res = await tombstoneRecord(storage, collection, op.id, nowMs, { createIfMissing: true });
-          if (res.delta !== null) totalCount += 1;
-        }
-      }
+      const res = await tombstoneRecord(storage, collection, op.id, nowMs);
       if (res.delta !== null) {
         if (existing !== undefined && !existing.deleted) liveCount = Math.max(0, liveCount - 1);
-        // Normal tombstoning replaces a live record in place. A scoped fallback
-        // delete can create a tombstone slot above to make the scoped collection
-        // authoritative against the legacy unscoped seed.
         deltas.push(relabelDelta(res.delta));
       }
       continue;
@@ -518,50 +472,6 @@ export async function listBackupSnapshot(
     .map((r) => r.id)
     .sort();
   return { records, deletedMacDeviceIDs };
-}
-
-function recordWithFreshUnscopedRoutes(
-  scoped: PairedMacBackupRecord,
-  unscoped: PairedMacBackupRecord,
-): PairedMacBackupRecord {
-  if ((unscoped.lastSeenAt ?? 0) <= (scoped.lastSeenAt ?? 0)) return scoped;
-  return {
-    ...scoped,
-    displayName: unscoped.displayName,
-    routes: unscoped.routes,
-    lastSeenAt: unscoped.lastSeenAt,
-  };
-}
-
-/** Restore a scoped tagged iOS build, falling back to the legacy unscoped Mac
- * self-publish seed before the scoped collection exists. After scoped state
- * exists, scoped tombstones stay authoritative while newer unscoped live route
- * self-publishes are merged so reconnects keep dialing fresh Mac endpoints. */
-export async function listBackupSnapshotWithUnscopedFallback(
-  storage: SyncStorage,
-  userId: string,
-  clientScope?: string | null,
-): Promise<PairedMacBackupSnapshot> {
-  const scoped = await listBackupSnapshot(storage, userId, clientScope);
-  if (!normalizeClientScope(clientScope)) return scoped;
-  const unscoped = await listBackupSnapshot(storage, userId);
-  const scopedHead = await storage.get<number>(`${SYNC_HEAD_PREFIX}${pairedMacsCollection(userId, clientScope)}`);
-  if (scoped.records.length === 0 && scoped.deletedMacDeviceIDs.length === 0 && scopedHead === undefined) {
-    return unscoped;
-  }
-  const deleted = new Set(scoped.deletedMacDeviceIDs);
-  const recordsByID = new Map(scoped.records.map((record) => [record.macDeviceID, record]));
-  for (const record of unscoped.records) {
-    if (deleted.has(record.macDeviceID)) continue;
-    const existing = recordsByID.get(record.macDeviceID);
-    if (existing !== undefined) {
-      recordsByID.set(record.macDeviceID, recordWithFreshUnscopedRoutes(existing, record));
-    }
-  }
-  return {
-    records: [...recordsByID.values()].sort((a, b) => (b?.lastSeenAt ?? 0) - (a?.lastSeenAt ?? 0)),
-    deletedMacDeviceIDs: scoped.deletedMacDeviceIDs,
-  };
 }
 
 /** Re-export so the DO can build an empty delta if it ever needs to. */
