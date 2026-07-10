@@ -33,7 +33,7 @@ Path migration may move an established connection between relay and direct reach
 
 [Upstream issue 4247](https://github.com/n0-computer/iroh/issues/4247) documents asymmetric and relay-biased path selection even when a faster local direct path exists. cmux measures the selected route class and private-path outcomes. Tests distinguish cmux-supplied hints from Iroh-discovered candidates instead of asserting that private addresses cannot affect the first connection, which Iroh 1.0 cannot guarantee.
 
-[Upstream issue 4390](https://github.com/n0-computer/iroh/issues/4390) can multiply `pending_open_paths` without bound when at least two connections encounter persistent path-open failures, including failures from unreachable overlay hints. Rollout is blocked until the pinned Iroh core contains a reviewed deduplication and hard-cap fix. The fork must expose enough test control to exhaust path IDs deterministically and prove bounded queue and process-memory growth across multiple connections.
+[Upstream issue 4390](https://github.com/n0-computer/iroh/issues/4390) can multiply `pending_open_paths` without bound when at least two connections encounter persistent path-open failures, including failures from unreachable overlay hints. The pinned cmux fork carries deduplication and a hard cap, with deterministic tests that exhaust path IDs across multiple connections. Releasing an FFI artifact that pins that exact audited core revision remains a rollout gate.
 
 Private hints expire within one hour. They use literal IP and port values, never hostnames, URLs, CIDRs, or userinfo. A hint is usable only when its provider and profile match the locally active provider profile. This prevents overlapping private address spaces from substituting one another.
 
@@ -47,9 +47,9 @@ iOS normally permits one active packet-tunnel VPN. cmux never starts a competing
 
 The Mac exposes a stable configurable UDP listen port, or a small documented port range, for Iroh direct paths. This lets Tailscale ACLs and corporate firewalls allowlist cmux. An ephemeral-only UDP listener is insufficient for managed private-network deployments. Relay fallback remains available where UDP is blocked.
 
-Bonjour supplies local reachability, not trust. A known EndpointID authenticates a discovered peer. First-time offline pairing requires a QR or one-time local proof. Serialized IPv6 link-local addresses are rejected because an interface scope is local to the receiving device.
+Bonjour supplies local reachability, not trust. A known EndpointID authenticates a discovered peer. First-time offline pairing requires a QR or one-time local proof. Serialized IPv6 link-local addresses are rejected because an interface scope is local to the receiving device. An IPv6-link-local-only LAN therefore requires relay reachability or a future scope-aware Iroh API; cmux does not strip a scope and risk dialing the wrong interface.
 
-Bonjour must not advertise a stable EndpointID, account identifier, email, device name, or private-network profile. Same-account devices use a rotating opaque rendezvous alias derived from a backend-issued local-discovery secret and a bounded time epoch. Revocation rotates that secret. A first-time offline QR carries a separate one-use rendezvous value. The service record supplies only the alias, protocol version, and port; the phone obtains the EndpointID from its authenticated registry or QR proof before dialing.
+Bonjour must not advertise a stable EndpointID, account identifier, email, device name, build tag, or private-network profile. Same-account devices use a rotating opaque rendezvous alias and opaque SRV hostname derived from a backend-issued local-discovery secret and a bounded time epoch. Revocation rotates that secret. A first-time offline QR carries a separate one-use rendezvous value. The TXT record contains only its version, epoch, and interface-local numeric Iroh addresses. The phone obtains the EndpointID from its authenticated registry or QR proof before dialing, verifies the alias against that exact binding, rejects off-link addresses, then still requires Iroh TLS and a signed pair grant.
 
 Offline LAN discovery is opt-in. The iOS target must declare its cmux Bonjour service in `NSBonjourServices`, retain a localized local-network usage reason, and request access only when the user enables or invokes LAN discovery.
 
@@ -60,6 +60,8 @@ Iroh's TLS handshake proves possession of the EndpointID key. A cmux pair grant 
 The backend issues an Ed25519-signed grant bound to both device IDs, both EndpointIDs, both endpoint generations, the ALPN, scope, issuance time, expiry, and a unique grant ID. The Mac verifies the grant locally after the QUIC handshake. Pairing-disabled and revoked devices fail locally even if a relay token remains valid.
 
 Pair grants last seven days and refresh daily or when less than 72 hours remain. This permits offline reconnect while bounding the window in which a disconnected revoked phone can reuse a cached grant. The Mac's local pairing-disabled and device-revocation state takes precedence immediately.
+
+The iOS offline cache is device-only and scoped to the exact Stack account, app instance, local EndpointID and generation, relay fleet, target binding, rendezvous generation, verification key set, and signed grant expiry. It is consulted only for broker connectivity failures. Authentication, TLS, HTTP, decoding, contract, relay-fleet, ambiguity, and substitution failures fail closed. Sign-out, account switch, reinstall, and identity rotation delete it. A device that stays offline cannot learn a new remote revocation until its seven-day grant expires, so the grant lifetime is the deliberate maximum disconnected-revocation window.
 
 Stack bearer and refresh tokens never cross an Iroh connection. Route hints never appear in grant claims. The discovery registry is scoped to the authenticated personal account, not the currently selected Stack team.
 
@@ -119,7 +121,7 @@ The official Swift FFI exposes raw QUIC connections, bidirectional and unidirect
 
 Private and local path hints may travel only through an authenticated same-account channel. They are excluded from identity-only pairing QR payloads, public host status, logs, support bundles, public discovery, and cloud backup. Public host status returns zero attach routes. Persisted routes prune expired hints. Logs use classifications or keyed hashes, never full EndpointIDs, relay tokens, grants, or private addresses.
 
-Pairing QR encoding requires an explicit disclosure mode. `irohIdentityOnly` keeps only the Iroh EndpointID and removes every path hint, host/port route, and URL route. Production QR call sites use `legacyPrivateNetworkCompatibility` only as a migration exception while released clients still require Tailscale routes; they must flip to `irohIdentityOnly` once the supported client baseline can dial Iroh.
+Pairing QR encoding requires an explicit disclosure mode. `irohIdentityOnly` keeps only the Iroh EndpointID and removes every path hint, host/port route, token, and URL route. It is the production default whenever an Iroh route exists. The Mac can separately generate a user-invoked `legacyPrivateNetworkCompatibility` QR for released clients that still require Tailscale or another private-network address. If Iroh is unavailable, the compatibility QR remains the only supported path; loopback alone is never considered pairable.
 
 Application-layer reachability can bypass DNS filters or network-layer allowlists. Managed deployments need an MDM/configuration policy that can disable Iroh, restrict it to approved relay URLs, or require the legacy private-network path. cmux does not disguise relay traffic or create an alternate way around an administrator's access policy.
 
@@ -141,6 +143,7 @@ Before defaulting to Iroh, verification must cover:
 - measured direct, relay, and private-fallback path selection, including asymmetric traffic, classification of cmux-supplied versus Iroh-discovered candidates, and stale-profile cancellation before explicit fallback;
 - the pinned Iroh core's `pending_open_paths` deduplication and hard cap, plus an adversarial multi-connection test with failing overlay hints that asserts bounded queue and memory growth;
 - custom-home-relay failure and rolling-restart soaks with bounded reachability and stream-recovery telemetry;
+- regional relay instance loss and capacity exhaustion, because one relay per region is currently one regional failure domain even though other regions can recover reachability;
 - a long-running Router soak with tracing enabled and idle adversarial connections, guarding against the span accumulation in [upstream issue 3963](https://github.com/n0-computer/iroh/issues/3963);
 - same-account grant success plus cross-account, swapped-peer, revoked, expired, and replay denial;
 - offline cached-grant reconnect and explicit first-time offline pairing;
