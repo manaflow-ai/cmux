@@ -5,6 +5,7 @@ import {
   pricingActionClassName,
   type PricingActionSize,
 } from "../../components/pricing-shared";
+import { CheckoutSpinner, useCheckoutRedirect } from "../../components/checkout-navigation";
 import {
   isClientConfigFlagEnabled,
   useClientConfigFlag,
@@ -40,19 +41,26 @@ export function ProCtaLink({
         flagEnabled,
         FEATURE_FLAGS.proCheckout.defaultWhenUnavailable,
       ));
+  const href = checkout ? checkoutHref : fallbackHref;
+  const { pending, start } = useCheckoutRedirect();
   return (
     <a
-      href={checkout ? checkoutHref : fallbackHref}
-      onClick={() =>
-        posthog.capture("cmuxterm_pro_cta_clicked", {
-          location,
-          checkout,
-        })
-      }
+      href={href}
+      onClick={(event) => {
+        posthog.capture("cmuxterm_pro_cta_clicked", { location, checkout });
+        // Only the checkout href is intercepted for the spinner; the download
+        // fallback navigates normally.
+        start(href, event);
+      }}
+      aria-busy={pending}
       className={pricingActionClassName("primary", size)}
-      style={{ color: "var(--background)", textDecoration: "none" }}
+      style={{
+        color: "var(--background)",
+        textDecoration: "none",
+        pointerEvents: pending ? "none" : undefined,
+      }}
     >
-      {children}
+      {pending ? <CheckoutSpinner /> : children}
     </a>
   );
 }

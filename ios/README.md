@@ -157,7 +157,7 @@ ios/scripts/validate-app-store-release.sh --app "$ASC_APP_ID" --version "$VERSIO
 
 Defaults:
 
-- Bundle ID: `com.cmuxterm.app`
+- Bundle ID: `com.cmux.app`
 - Display name: `cmux`
 - Provisioning profile: `cmux App Store Distribution`
 - Entitlements: `Config/cmux-release.entitlements`
@@ -174,4 +174,4 @@ and submits for review only when `submit_for_review` is set.
 Additional production workflow requirements:
 
 - Repository variable `IOS_APPSTORE_APP_ID`
-- Secret `IOS_APPSTORE_PROVISIONING_PROFILE_BASE64` (base64-encoded App Store profile for `com.cmuxterm.app`, with `aps-environment=production`)
+- Secret `IOS_APPSTORE_PROVISIONING_PROFILE_BASE64` (base64-encoded App Store profile for `com.cmux.app`, with `aps-environment=production`)
