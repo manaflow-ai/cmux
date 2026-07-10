@@ -25,6 +25,7 @@ import {
   type FaqItem,
   type SizeRow,
 } from "../../components/pricing-shared";
+import { CheckoutButton } from "../../components/checkout-navigation";
 
 // The Pro CTA destination is decided at runtime by the proCheckout PostHog
 // flag inside <ProCtaLink> (see app/lib/feature-flags.ts); the download
@@ -136,7 +137,7 @@ export default async function PricingPage({
             price={t("team.price")}
             period={t("perUserMonth")}
           >
-            <PrimaryLink href={TEAM_CHECKOUT_URL}>{t("team.cta")}</PrimaryLink>
+            <CheckoutButton href={TEAM_CHECKOUT_URL}>{t("team.cta")}</CheckoutButton>
             <p className="mt-5 text-sm font-medium">{t("team.featuresLead")}</p>
             <FeatureList items={teamFeatures} />
           </PlanCard>
@@ -195,9 +196,9 @@ export default async function PricingPage({
                 )
               ),
               team: (
-                <PrimaryLink href={TEAM_CHECKOUT_URL} size="compact">
+                <CheckoutButton href={TEAM_CHECKOUT_URL} size="compact">
                   {t("team.cta")}
-                </PrimaryLink>
+                </CheckoutButton>
               ),
               enterprise: (
                 <SecondaryLink href={ENTERPRISE_CTA_URL} size="compact">
