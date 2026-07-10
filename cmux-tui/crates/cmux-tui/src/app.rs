@@ -3571,11 +3571,10 @@ mod tests {
             .unwrap();
         assert!(matches!(app.drag, Some(Drag::PtyMouse { button: MouseButton::Right, .. })));
         assert_eq!(app.encode_buf, b"\x1b[<2;5;3M");
-        app.handle_mouse(event(MouseEventKind::Up(MouseButton::Left), KeyModifiers::NONE)).unwrap();
-        assert!(matches!(app.drag, Some(Drag::PtyMouse { button: MouseButton::Right, .. })));
-        assert_eq!(app.encode_buf, b"\x1b[<2;5;3M");
-        app.handle_mouse(event(MouseEventKind::Up(MouseButton::Right), KeyModifiers::NONE))
+        app.handle_mouse(event(MouseEventKind::Drag(MouseButton::Left), KeyModifiers::NONE))
             .unwrap();
+        assert_eq!(app.encode_buf, b"\x1b[<34;5;3M");
+        app.handle_mouse(event(MouseEventKind::Up(MouseButton::Left), KeyModifiers::NONE)).unwrap();
         assert_eq!(app.encode_buf, b"\x1b[<2;5;3m");
         assert!(app.drag.is_none());
 
