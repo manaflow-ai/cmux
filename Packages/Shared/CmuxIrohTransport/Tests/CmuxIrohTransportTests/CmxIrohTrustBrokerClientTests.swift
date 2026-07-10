@@ -58,6 +58,29 @@ struct CmxIrohTrustBrokerClientTests {
     }
 
     @Test
+    func revokeUsesTheBrokerDeleteRoute() async throws {
+        let transport = RecordingBrokerTransport(responses: [
+            .json(
+                status: 200,
+                body: #"{"revoked":true,"lan_rendezvous_rotated":true}"#
+            ),
+        ])
+        let client = try makeClient(transport: transport)
+        let bindingID = "123e4567-e89b-42d3-a456-426614174010"
+
+        try await client.revoke(bindingID: bindingID)
+
+        let captured = try #require(await transport.requests().first)
+        #expect(captured.url?.path == "/api/devices/iroh")
+        #expect(captured.httpMethod == "DELETE")
+        let body = try #require(captured.httpBody)
+        let object = try #require(
+            JSONSerialization.jsonObject(with: body) as? [String: Any]
+        )
+        #expect(object["bindingId"] as? String == bindingID)
+    }
+
+    @Test
     func discoveryDecodesBrokerISO8601PathHintDates() async throws {
         let transport = RecordingBrokerTransport(responses: [
             .json(status: 200, body: Self.discoveryResponse),
