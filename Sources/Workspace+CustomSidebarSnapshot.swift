@@ -1,6 +1,8 @@
 import CmuxSidebar
 import Foundation
 
+struct SessionCustomSidebarPanelSnapshot: Codable, Sendable { var name: String }
+
 extension Workspace {
     /// Projects live workspace state into the custom-sidebar interpreter input snapshot.
     func customSidebarWorkspaceSnapshot(

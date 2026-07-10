@@ -4379,11 +4379,8 @@ struct CMUXCLI {
 
         case "simulator":
             try runSimulatorNamespace(
-                commandArgs: commandArgs,
-                client: client,
-                jsonOutput: jsonOutput,
-                idFormat: idFormat,
-                windowOverride: windowId
+                commandArgs: commandArgs, client: client, jsonOutput: jsonOutput,
+                idFormat: idFormat, windowOverride: windowId
             )
 
         case "workspace":
@@ -19138,18 +19135,6 @@ struct CMUXCLI {
 
     func isUUID(_ value: String) -> Bool {
         return UUID(uuidString: value) != nil
-    }
-
-    func jsonString(_ object: Any) -> String {
-        var options: JSONSerialization.WritingOptions = [.prettyPrinted]
-        options.insert(.sortedKeys)
-        options.insert(.withoutEscapingSlashes)
-        guard JSONSerialization.isValidJSONObject(object),
-              let data = try? JSONSerialization.data(withJSONObject: object, options: options),
-              let output = String(data: data, encoding: .utf8) else {
-            return "{}"
-        }
-        return output
     }
 
     private func parseRPCParams(_ args: [String]) throws -> [String: Any] {

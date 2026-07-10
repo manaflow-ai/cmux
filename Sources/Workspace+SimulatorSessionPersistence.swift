@@ -2,6 +2,12 @@ import Bonsplit
 import CmuxWorkspaces
 import Foundation
 
+struct SessionSimulatorPanelSnapshot: Codable, Sendable {
+    var deviceUDID: String?
+    var runtimeIdentifier: String?
+    var deviceTypeIdentifier: String?
+}
+
 extension Workspace {
     func simulatorSessionSnapshot(for panel: any Panel) -> SessionSimulatorPanelSnapshot? {
         guard let simulatorPanel = panel as? SimulatorPanel else { return nil }

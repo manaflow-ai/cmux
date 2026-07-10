@@ -1594,12 +1594,6 @@ struct SessionMarkdownPanelSnapshot: Codable, Sendable {
 struct SessionFilePreviewPanelSnapshot: Codable, Sendable {
     var filePath: String
 }
-struct SessionCustomSidebarPanelSnapshot: Codable, Sendable { var name: String }
-struct SessionSimulatorPanelSnapshot: Codable, Sendable {
-    var deviceUDID: String?
-    var runtimeIdentifier: String?
-    var deviceTypeIdentifier: String?
-}
 struct SessionProjectPanelSnapshot: Codable, Sendable {
     var projectPath: String
     var selectedNodePath: String?
