@@ -271,6 +271,16 @@ import Testing
         #expect(merged.count == 2)
     }
 
+    // The branch dials at most one host/port candidate plus one iroh peer per
+    // Mac (``reconnectRouteCandidates`` = single host/port + iroh fallback), so
+    // the stale->good fall-through it actually performs is host/port -> iroh:
+    // a Mac whose stored host/port route went stale (moved to the iroh-only
+    // cmuxRelay lane) still connects over its stored iroh peer instead of the
+    // whole Mac being skipped after one dead host/port dial. These two tests
+    // use that real vehicle (loopback host/port `stale` + iroh peer `good`)
+    // rather than two loopback routes, which the branch intentionally collapses
+    // to a single dial candidate (loopback = the sole XCUITest mock host).
+
     @Test func reconnectActiveMacFallsThroughStaleRouteToGoodRouteInOneAttempt() async throws {
         let clock = TestClock()
         let router = LivenessHostRouter()
@@ -283,12 +293,12 @@ import Testing
         let store = try await makeReconnectStore(
             routes: [
                 try loopbackRoute(id: "stale", port: 51000),
-                try loopbackRoute(id: "good", port: 51001),
+                try irohRoute(id: "good", endpointID: "good-node"),
             ],
             runtime: LivenessTestRuntime(
                 transportFactory: factory,
                 now: { clock.now },
-                supportedRouteKinds: [.debugLoopback]
+                supportedRouteKinds: [.debugLoopback, .iroh]
             )
         )
 
@@ -296,7 +306,10 @@ import Testing
 
         #expect(connected)
         #expect(store.connectionState == .connected)
-        #expect(factory.attemptedPorts() == [51000, 51001, 51001])
+        // Stale host/port dialed once (its ticket mint fails fast), then the
+        // iroh peer connects: minted once, attached once. Proves the single
+        // reconnect call fell through the dead host/port route to the good peer.
+        #expect(factory.attemptedRoutes() == ["51000", "iroh:good-node", "iroh:good-node"])
     }
 
     @Test func supersededReconnectGenerationAbortsRouteIteration() async throws {
@@ -312,12 +325,12 @@ import Testing
         let store = try await makeReconnectStore(
             routes: [
                 try loopbackRoute(id: "stale", port: 51000),
-                try loopbackRoute(id: "good", port: 51001),
+                try irohRoute(id: "good", endpointID: "good-node"),
             ],
             runtime: LivenessTestRuntime(
                 transportFactory: factory,
                 now: { clock.now },
-                supportedRouteKinds: [.debugLoopback]
+                supportedRouteKinds: [.debugLoopback, .iroh]
             )
         )
 
@@ -325,7 +338,7 @@ import Testing
             await store.reconnectActiveMacIfAvailable(stackUserID: "user-1")
         }
         let firstRouteReached = try await pollUntil {
-            factory.attemptedPorts() == [51000]
+            factory.attemptedRoutes() == ["51000"]
         }
         #expect(firstRouteReached)
 
@@ -336,9 +349,14 @@ import Testing
         factory.releaseHeldConnect()
         let firstConnected = await first.value
 
+        // The first attempt is held on the stale host/port dial; the second
+        // reconnect bumps the generation and completes the host/port -> iroh
+        // fall-through. When the first's held dial finally fails it sees the
+        // superseded generation and aborts instead of also iterating to the
+        // iroh peer, so the good peer is dialed only by the winning attempt.
         #expect(!firstConnected)
         #expect(secondConnected)
-        #expect(factory.attemptedPorts() == [51000, 51001, 51001])
+        #expect(factory.attemptedRoutes() == ["51000", "iroh:good-node", "iroh:good-node"])
     }
 
     private func loopbackRoute(id: String, port: Int) throws -> CmxAttachRoute {
@@ -347,6 +365,20 @@ import Testing
             kind: .debugLoopback,
             endpoint: .hostPort(host: "127.0.0.1", port: port),
             priority: port
+        )
+    }
+
+    private func irohRoute(id: String, endpointID: String) throws -> CmxAttachRoute {
+        try CmxAttachRoute(
+            id: id,
+            kind: .iroh,
+            endpoint: .peer(
+                id: endpointID,
+                relayHint: nil,
+                directAddrs: ["192.168.1.20:52186"],
+                relayURL: nil
+            ),
+            priority: 51001
         )
     }
 
@@ -397,7 +429,7 @@ private final class RouteRecordingTransportFactory: CmxByteTransportFactory, @un
     private let failingPorts: Set<Int>
     private let holdFirstFailingPort: Int?
     private let lock = NSLock()
-    private var attempts: [Int] = []
+    private var attempts: [String] = []
     private var heldConnectConsumed = false
     private var heldConnectReleased = false
     private var heldConnectWaiters: [CheckedContinuation<Void, Never>] = []
@@ -415,12 +447,26 @@ private final class RouteRecordingTransportFactory: CmxByteTransportFactory, @un
     }
 
     func makeTransport(for route: CmxAttachRoute) throws -> any CmxByteTransport {
-        guard case let .hostPort(_, port) = route.endpoint else {
-            throw RouteRecordingTransportError.routeFailed
+        // Record every dial (host/port or iroh peer). Host/port dials key on
+        // their port so `failingPorts`/`holdFirstFailingPort` can target the
+        // stale route; iroh peer dials never fail here (they are the good
+        // fall-through route) and key on their endpoint id.
+        let port: Int?
+        let key: String
+        switch route.endpoint {
+        case let .hostPort(_, hostPort):
+            port = hostPort
+            key = String(hostPort)
+        case let .peer(id, _, _, _):
+            port = nil
+            key = "iroh:\(id)"
+        case .url:
+            port = nil
+            key = "url"
         }
         let shouldHold = lock.withLock {
-            attempts.append(port)
-            if port == holdFirstFailingPort, !heldConnectConsumed {
+            attempts.append(key)
+            if let port, port == holdFirstFailingPort, !heldConnectConsumed {
                 heldConnectConsumed = true
                 return true
             }
@@ -429,7 +475,7 @@ private final class RouteRecordingTransportFactory: CmxByteTransportFactory, @un
         if shouldHold {
             return HeldFailingConnectTransport(factory: self)
         }
-        if failingPorts.contains(port) {
+        if let port, failingPorts.contains(port) {
             throw RouteRecordingTransportError.routeFailed
         }
         let transport = LivenessTransport(router: router)
@@ -437,7 +483,7 @@ private final class RouteRecordingTransportFactory: CmxByteTransportFactory, @un
         return transport
     }
 
-    func attemptedPorts() -> [Int] {
+    func attemptedRoutes() -> [String] {
         lock.withLock { attempts }
     }
 
