@@ -50,6 +50,30 @@ import Testing
         #expect(dismissCount == 1)
     }
 
+    @MainActor
+    @Test func cancelAfterCompletedFailureClearsStoreAttemptBeforeDismiss() {
+        var cancelPairingCount = 0
+        var dismissCount = 0
+        let view = PairingView(
+            pairingCode: .constant(""),
+            connectionError: "Could not connect",
+            connectionErrorGuidance: nil,
+            versionWarning: nil,
+            manualHostTrustWarning: nil,
+            connectPairingCode: {},
+            acceptVersionWarning: {},
+            acceptManualHostTrustWarning: {},
+            connectManualHost: { _, _, _ in },
+            cancelPairing: { cancelPairingCount += 1 },
+            cancel: { dismissCount += 1 }
+        )
+
+        view.cancelAndDismiss()
+
+        #expect(cancelPairingCount == 1)
+        #expect(dismissCount == 1)
+    }
+
     private func warning() -> MobileManualHostTrustWarning {
         let scope = MobileManualHostTrustScope(
             host: "192.168.1.77",
