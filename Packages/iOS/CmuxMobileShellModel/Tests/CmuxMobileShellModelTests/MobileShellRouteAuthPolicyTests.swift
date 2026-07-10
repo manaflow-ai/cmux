@@ -84,8 +84,8 @@ import Testing
             for: "[::1]",
             allowsDebugLoopback: false
         ) == .manualHost)
-        #expect(MobileShellRouteAuthPolicy().manualRouteKind(for: "100.71.210.41") == .tailscale)
-        #expect(MobileShellRouteAuthPolicy().manualRouteKind(for: "work-mac.tailnet.ts.net") == .tailscale)
+        #expect(MobileShellRouteAuthPolicy().manualRouteKind(for: "100.71.210.41") == .manualHost)
+        #expect(MobileShellRouteAuthPolicy().manualRouteKind(for: "work-mac.tailnet.ts.net") == .manualHost)
         #expect(MobileShellRouteAuthPolicy().manualRouteKind(for: "127.attacker.example") == .manualHost)
         #expect(MobileShellRouteAuthPolicy().manualRouteKind(for: "https://bad.example") == nil)
 
@@ -125,8 +125,8 @@ import Testing
             "0x7f.0.0.1",
             allowsDebugLoopback: false
         ))
-        #expect(!MobileShellRouteAuthPolicy().manualHostNeedsTrustWarning("100.71.210.41"))
-        #expect(!MobileShellRouteAuthPolicy().manualHostNeedsTrustWarning("work-mac.tailnet.ts.net"))
+        #expect(MobileShellRouteAuthPolicy().manualHostNeedsTrustWarning("100.71.210.41"))
+        #expect(MobileShellRouteAuthPolicy().manualHostNeedsTrustWarning("work-mac.tailnet.ts.net"))
         #expect(MobileShellRouteAuthPolicy().manualHostNeedsTrustWarning("192.168.1.77"))
         #expect(MobileShellRouteAuthPolicy().manualHostNeedsTrustWarning("devbox.local"))
     }

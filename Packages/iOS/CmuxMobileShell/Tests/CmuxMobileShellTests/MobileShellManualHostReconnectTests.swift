@@ -7,6 +7,36 @@ import Testing
 
 @MainActor
 @Suite struct MobileShellManualHostReconnectTests {
+    @Test(arguments: ["100.64.0.5", "copied-manual.tailnet.ts.net"])
+    func tailscaleLookingManualEntryStillRequiresApproval(host: String) async {
+        let router = LivenessHostRouter()
+        let runtime = LivenessTestRuntime(
+            transportFactory: LivenessTransportFactory(router: router, box: TransportBox()),
+            now: { Date() },
+            supportedRouteKinds: [.manualHost, .tailscale],
+            supportsServerPushEvents: false
+        )
+        let store = MobileShellComposite(
+            runtime: runtime,
+            workspaces: [],
+            identityProvider: StaticIdentityProvider(userID: "phone-user"),
+            reachability: AlwaysOnlineReachability(),
+            manualHostTrustStore: InMemoryMobileManualHostTrustStore()
+        )
+        store.signIn()
+
+        let result = await store.connectManualHost(
+            name: "Copied Manual Mac",
+            host: host,
+            port: CmxMobileDefaults.defaultHostPort
+        )
+
+        #expect(result == .needsUserApproval)
+        #expect(store.manualHostTrustWarning?.endpoint == "\(host):58465")
+        #expect(await router.count(of: "mobile.attach_ticket.create") == 0)
+        #expect(await router.count(of: "workspace.list") == 0)
+    }
+
     @Test func activeManualHostReconnectWaitsForApprovalInsteadOfSwitchingMacs() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

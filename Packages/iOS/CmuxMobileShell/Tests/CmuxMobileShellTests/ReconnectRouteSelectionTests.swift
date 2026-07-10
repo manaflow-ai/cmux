@@ -2,6 +2,7 @@ import CMUXMobileCore
 import CmuxMobilePairedMac
 import CmuxMobileRPC
 import CmuxMobileShellModel
+import CmuxMobileTransport
 import Foundation
 import Testing
 @testable import CmuxMobileShell
@@ -97,6 +98,18 @@ import Testing
 
         #expect(route.kind == .manualHost)
         #expect(route.endpoint == .hostPort(host: "192.168.1.77", port: 50906))
+    }
+
+    @Test func verifiedTailscaleSourcePreservesRouteKind() throws {
+        let source = try tailscale()
+        let route = try MobileShellRouteSelection().manualHostRoute(
+            host: "100.82.214.112",
+            port: 50906,
+            preserving: source
+        )
+
+        #expect(route == source)
+        #expect(route.kind == .tailscale)
     }
 
     @Test func invalidManualHostCannotConstructRoute() {
@@ -319,7 +332,7 @@ import Testing
         #expect(factory.attemptedPorts() == [51000, 51001, 51001])
     }
 
-    private func loopbackRoute(id: String, port: Int) throws -> CmxAttachRoute {
+    func loopbackRoute(id: String, port: Int) throws -> CmxAttachRoute {
         try CmxAttachRoute(
             id: id,
             kind: .debugLoopback,
@@ -328,9 +341,10 @@ import Testing
         )
     }
 
-    private func makeReconnectStore(
+    func makeReconnectStore(
         routes: [CmxAttachRoute],
-        runtime: any MobileSyncRuntime
+        runtime: any MobileSyncRuntime,
+        reachability: any ReachabilityProviding = AlwaysOnlineReachability()
     ) async throws -> MobileShellComposite {
         let (pairedStore, _) = try makePairedMacStore()
         try await pairedStore.upsert(
@@ -347,7 +361,7 @@ import Testing
             isSignedIn: true,
             pairedMacStore: pairedStore,
             identityProvider: StaticIdentityProvider(userID: "user-1"),
-            reachability: AlwaysOnlineReachability(),
+            reachability: reachability,
             pairingHintDefaults: UserDefaults(suiteName: "reconnect-routes-\(UUID().uuidString)")!
         )
         await store.loadPairedMacs()
@@ -369,7 +383,7 @@ private enum RouteRecordingTransportError: Error {
     case routeFailed
 }
 
-private final class RouteRecordingTransportFactory: CmxByteTransportFactory, @unchecked Sendable {
+final class RouteRecordingTransportFactory: CmxByteTransportFactory, @unchecked Sendable {
     private let router: LivenessHostRouter
     private let box: TransportBox
     private let failingPorts: Set<Int>
