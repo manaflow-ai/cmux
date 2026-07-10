@@ -18,10 +18,6 @@ enum CmuxSocketEventMapper {
             return false
         }
         guard method != "events.stream" else { return true }
-        guard let mapping = domainEventMapping(forV2Method: method) else {
-            return true
-        }
-
         let responseObject: [String: Any]
         if let responseData = response.data(using: .utf8),
            let parsed = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any] {
@@ -36,6 +32,9 @@ enum CmuxSocketEventMapper {
 
         let params = request["params"] as? [String: Any] ?? [:]
         let result = responseObject["result"] as? [String: Any] ?? [:]
+        guard let mapping = domainEventMapping(forV2Method: method, result: result) else {
+            return true
+        }
         publishResult(
             name: mapping.name,
             category: mapping.category,
@@ -58,7 +57,10 @@ enum CmuxSocketEventMapper {
         case redactedNotification
     }
 
-    private static func domainEventMapping(forV2Method method: String) -> DomainEventMapping? {
+    private static func domainEventMapping(
+        forV2Method method: String,
+        result: [String: Any]
+    ) -> DomainEventMapping? {
         switch method {
         case "workspace.rename":
             return DomainEventMapping(name: "workspace.renamed", category: "workspace", params: .unchanged)
@@ -79,7 +81,10 @@ enum CmuxSocketEventMapper {
         case "surface.send_key":
             return DomainEventMapping(name: "surface.key_sent", category: "surface", params: .unchanged)
         case "pane.resize":
-            return DomainEventMapping(name: "pane.resized", category: "pane", params: .unchanged)
+            let name = result["remote"] as? Bool == true
+                ? "pane.resize_requested"
+                : "pane.resized"
+            return DomainEventMapping(name: name, category: "pane", params: .unchanged)
         case "pane.swap":
             return DomainEventMapping(name: "pane.swapped", category: "pane", params: .unchanged)
         case "pane.break":
