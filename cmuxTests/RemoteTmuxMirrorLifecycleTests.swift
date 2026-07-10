@@ -1,4 +1,5 @@
 import AppKit
+import CmuxControlSocket
 import Foundation
 import Testing
 
@@ -17,6 +18,10 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct RemoteTmuxMirrorLifecycleTests {
+    private final class CloseVetoDelegate: NSObject, NSWindowDelegate {
+        func windowShouldClose(_ sender: NSWindow) -> Bool { false }
+    }
+
     private let ignoreInput: @Sendable (Data) -> Void = { _ in }
 
     private func mirror(
@@ -82,6 +87,138 @@ struct RemoteTmuxMirrorLifecycleTests {
         #expect(!beta.exited)
     }
 
+    @Test func nonInteractiveWindowCloseCommitsEvenWhenInteractiveCloseIsVetoed() throws {
+        _ = NSApplication.shared
+        let appDelegate = try #require(AppDelegate.shared)
+        let manager = TabManager()
+        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(windowId.uuidString)")
+        manager.window = window
+        let veto = CloseVetoDelegate()
+        window.delegate = veto
+        var didClose = false
+        let closeObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.willCloseNotification,
+            object: window,
+            queue: nil
+        ) { _ in
+            didClose = true
+        }
+        defer {
+            NotificationCenter.default.removeObserver(closeObserver)
+            window.delegate = nil
+            if !didClose { window.close() }
+            manager.window = nil
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+        }
+
+        #expect(appDelegate.closeMainWindow(windowId: windowId))
+        #expect(didClose)
+    }
+
+    @Test func nonInteractiveCloseRemovesLastDeadMirrorAndItsWindow() throws {
+        _ = NSApplication.shared
+        let appDelegate = try #require(AppDelegate.shared)
+        let manager = TabManager()
+        let localWorkspace = try #require(manager.selectedWorkspace)
+        let host = RemoteTmuxHost(destination: "user@host")
+        let connection = RemoteTmuxControlConnection(host: host, sessionName: "dev")
+        appDelegate.remoteTmuxController.cacheConnection(connection)
+        #expect(try appDelegate.remoteTmuxController.mirrorSession(
+            host: host,
+            sessionName: "dev",
+            into: manager
+        ))
+        let mirrorWorkspace = try #require(manager.tabs.first { $0.isRemoteTmuxMirror })
+        manager.closeWorkspace(localWorkspace)
+        #expect(manager.tabs.map(\.id) == [mirrorWorkspace.id])
+        connection.stop()
+
+        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(windowId.uuidString)")
+        manager.window = window
+        var didClose = false
+        let closeObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.willCloseNotification,
+            object: window,
+            queue: nil
+        ) { _ in
+            didClose = true
+        }
+        defer {
+            NotificationCenter.default.removeObserver(closeObserver)
+            if !didClose { window.close() }
+            manager.window = nil
+            if appDelegate.remoteTmuxController.sessionMirror(host: host, sessionName: "dev") != nil {
+                appDelegate.remoteTmuxController.detach(host: host, sessionName: "dev")
+            }
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+        }
+
+        let resolution = TerminalController.shared.controlCloseWorkspace(
+            routing: ControlRoutingSelectors(
+                hasWindowIDParam: true,
+                windowID: windowId,
+                groupID: nil,
+                workspaceID: mirrorWorkspace.id,
+                surfaceID: nil,
+                paneID: nil
+            ),
+            workspaceID: mirrorWorkspace.id
+        )
+
+        #expect(resolution == .resolved(windowID: windowId))
+        #expect(didClose)
+        #expect(appDelegate.remoteTmuxController.sessionMirror(host: host, sessionName: "dev") == nil)
+    }
+
+    @Test func processExitDrainsFinalPipeBytesBeforeFinishingStream() async throws {
+        let pipe = Pipe()
+        let reader = RemoteTmuxProcessOutputReader(
+            label: "remote-tmux-process-output-reader-test",
+            maxPendingChunks: 8,
+            maxPendingBytes: 4096,
+            onOverflow: { Issue.record("process output reader overflowed") }
+        )
+        reader.attach(to: pipe.fileHandleForReading)
+        let capture = Task {
+            var data = Data()
+            for await chunk in reader.stream {
+                data.append(chunk)
+                reader.release(chunk)
+            }
+            return data
+        }
+        defer {
+            reader.close()
+            try? pipe.fileHandleForWriting.close()
+            try? pipe.fileHandleForReading.close()
+        }
+
+        let terminalError = Data("no server running on /private/tmp/tmux-501/default\n".utf8)
+        try pipe.fileHandleForWriting.write(contentsOf: terminalError)
+        // Model the Process termination callback winning the race against the
+        // DispatchSource readability callback. The writer deliberately remains
+        // open: processDidExit must drain the bytes already in the pipe itself.
+        reader.processDidExit()
+
+        #expect(await capture.value == terminalError)
+    }
+
     @Test func backgroundDisplayPaneCreationPreservesSelectedSurface() throws {
         let workspace = Workspace()
         defer { workspace.teardownAllPanels() }
@@ -113,6 +250,7 @@ struct RemoteTmuxMirrorLifecycleTests {
             backing: .buffered,
             defer: false
         )
+        window.isReleasedWhenClosed = false
         manager.window = window
         defer {
             manager.window = nil
