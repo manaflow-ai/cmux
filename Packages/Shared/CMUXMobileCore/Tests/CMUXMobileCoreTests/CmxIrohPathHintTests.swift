@@ -3,6 +3,7 @@ import Testing
 @testable import CMUXMobileCore
 
 private let canonicalEndpointID = String(repeating: "a", count: 64)
+private let canonicalNetworkProfileID = String(repeating: "b", count: 64)
 
 private func profile(
     _ source: CmxIrohPathHintSource,
@@ -23,6 +24,70 @@ private func profile(
         #expect(throws: CmxIrohPeerIdentityError.nonCanonicalEndpointID) {
             _ = try CmxIrohPeerIdentity(endpointID: invalid)
         }
+    }
+}
+
+@Test func networkProfileIDRequiresOpaqueCanonicalLowercaseHex() throws {
+    #expect(
+        (try CmxIrohNetworkProfileKey(
+            source: .tailscale,
+            profileID: canonicalNetworkProfileID
+        )).profileID == canonicalNetworkProfileID
+    )
+
+    for invalid in [
+        "production",
+        String(repeating: "a", count: 63),
+        String(repeating: "a", count: 65),
+        String(repeating: "A", count: 64),
+        String(repeating: "g", count: 64),
+    ] {
+        #expect(throws: CmxIrohNetworkProfileKeyError.invalidProfileID) {
+            _ = try CmxIrohNetworkProfileKey(source: .tailscale, profileID: invalid)
+        }
+    }
+}
+
+@Test func nativePathHintsCannotAuthorizePrivateOrLocalNetworks() throws {
+    let now = Date(timeIntervalSince1970: 2_000_000_000)
+
+    for scope in [CmxIrohPathHintPrivacyScope.localNetwork, .privateNetwork] {
+        #expect(throws: CmxIrohPathHintError.incompatiblePrivacyScope(
+            source: .native,
+            scope: scope
+        )) {
+            _ = try CmxIrohPathHint(
+                kind: .directAddress,
+                value: "10.0.0.4:49152",
+                source: .native,
+                privacyScope: scope,
+                observedAt: now,
+                expiresAt: now.addingTimeInterval(60),
+                networkProfile: try CmxIrohNetworkProfileKey(
+                    source: .native,
+                    profileID: canonicalNetworkProfileID
+                )
+            )
+        }
+    }
+}
+
+@Test func serializedIPv4LinkLocalHintsAreNotDialable() throws {
+    let now = Date(timeIntervalSince1970: 2_000_000_000)
+
+    #expect(throws: CmxIrohPathHintError.forbiddenDirectAddress) {
+        _ = try CmxIrohPathHint(
+            kind: .directAddress,
+            value: "169.254.42.7:49152",
+            source: .lan,
+            privacyScope: .localNetwork,
+            observedAt: now,
+            expiresAt: now.addingTimeInterval(60),
+            networkProfile: try CmxIrohNetworkProfileKey(
+                source: .lan,
+                profileID: canonicalNetworkProfileID
+            )
+        )
     }
 }
 @Test func attachTicketChoosesFirstSupportedRouteByPriority() throws {
