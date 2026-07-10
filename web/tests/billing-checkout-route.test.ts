@@ -215,6 +215,35 @@ describe("billing checkout route", () => {
     });
   });
 
+  test("format=json returns the Stripe URL as JSON instead of a 302", async () => {
+    stripeConfigured = true;
+    userResponses = [null, anonymousUser];
+
+    const response = await GET(
+      new NextRequest("https://cmux.test/api/billing/checkout?format=json"),
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      url: "https://checkout.stripe.com/c/session",
+    });
+    expect(createdStripeSessions).toHaveLength(1);
+  });
+
+  test("format=json returns the redirect destination as JSON when Stripe is unconfigured", async () => {
+    stripeConfigured = false;
+
+    const response = await GET(
+      new NextRequest("https://cmux.test/api/billing/checkout?format=json"),
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      url: "https://cmux.test/pricing?billing=unavailable",
+    });
+    expect(createStripeSession).not.toHaveBeenCalled();
+  });
+
   test("uses yearly Stripe price when interval is year", async () => {
     stripeConfigured = true;
     userResponses = [signedInUser];
