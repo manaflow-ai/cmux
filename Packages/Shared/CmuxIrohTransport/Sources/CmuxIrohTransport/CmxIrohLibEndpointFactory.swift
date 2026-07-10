@@ -8,6 +8,32 @@ public struct CmxIrohLibEndpointFactory: CmxIrohEndpointFactory {
     public func bind(
         configuration: CmxIrohEndpointConfiguration
     ) async throws -> any CmxIrohEndpoint {
+        let driver: Endpoint
+        do {
+            driver = try await bindDriver(
+                configuration: configuration,
+                socketAddress: configuration.bindPolicy.socketAddress
+            )
+        } catch where configuration.bindPolicy.allowsEphemeralFallback {
+            driver = try await bindDriver(
+                configuration: configuration,
+                socketAddress: nil
+            )
+        }
+        let identity = try CmxIrohLibIdentity.peerIdentity(driver.id())
+        let endpoint = CmxIrohLibEndpoint(
+            driver: driver,
+            identity: identity,
+            configuration: configuration
+        )
+        await endpoint.startMonitoring()
+        return endpoint
+    }
+
+    private func bindDriver(
+        configuration: CmxIrohEndpointConfiguration,
+        socketAddress: String?
+    ) async throws -> Endpoint {
         let relayMap = RelayMap.empty()
         let now = Date()
         for relay in configuration.relays {
@@ -18,19 +44,11 @@ public struct CmxIrohLibEndpointFactory: CmxIrohEndpointFactory {
         }
         let options = EndpointOptions(
             preset: presetMinimal(),
-            bindAddr: configuration.bindPolicy.socketAddress,
+            bindAddr: socketAddress,
             secretKey: configuration.secretKey.bytes,
             alpns: configuration.alpns,
             relayMode: RelayMode.custom(map: relayMap)
         )
-        let driver = try await Endpoint.bind(options: options)
-        let identity = try CmxIrohLibIdentity.peerIdentity(driver.id())
-        let endpoint = CmxIrohLibEndpoint(
-            driver: driver,
-            identity: identity,
-            configuration: configuration
-        )
-        await endpoint.startMonitoring()
-        return endpoint
+        return try await Endpoint.bind(options: options)
     }
 }
