@@ -336,7 +336,8 @@ jobs:
 
   diff-sidecar-check:
     needs: changes
-    if: ${{ needs.changes.outputs.macos == 'true' }}
+    # Generated protocol and streaming benchmarks also cover webview-only diffs.
+    if: ${{ needs.changes.outputs.macos == 'true' || needs.changes.outputs.web == 'true' }}
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
     steps:

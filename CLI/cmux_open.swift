@@ -7497,14 +7497,16 @@ extension CMUXCLI {
             "baseOptions": baseOptions.map(\.jsonObject),
             "generatedAt": ISO8601DateFormatter().string(from: Date())
         ]
-        // The generated file is local even when the viewer is served by the
-        // loopback sidecar. The React adapter enables this transport only for an
-        // HTTP(S) document and falls back to custom-scheme routes after restore.
-        payload["transport"] = [
-            "kind": "fetch",
-            "endpoint": "/__cmux_diff_rpc",
-            "protocolVersion": 1,
-        ]
+        // The legacy cmux server remains a development fallback when the bundled
+        // sidecar is missing. It has only the GET picker routes, so advertise
+        // typed Fetch RPC only when the selected server is the Rust sidecar.
+        if diffViewerUsesTypedSidecar(runtime: runtime) {
+            payload["transport"] = [
+                "kind": "fetch",
+                "endpoint": "/__cmux_diff_rpc",
+                "protocolVersion": 1,
+            ]
+        }
         if let statusMessage {
             payload["statusMessage"] = statusMessage
             payload["statusIsError"] = statusIsError
@@ -7557,6 +7559,15 @@ extension CMUXCLI {
         </html>
         """
         try html.write(to: viewerURL, atomically: true, encoding: .utf8)
+    }
+
+    private func diffViewerUsesTypedSidecar(runtime: URL?) -> Bool {
+        guard let selected = diffViewerServerExecutableURL(for: runtime),
+              let legacy = diffViewerExecutableURL(for: runtime) else {
+            return false
+        }
+        return selected.standardizedFileURL.resolvingSymlinksInPath().path
+            != legacy.standardizedFileURL.resolvingSymlinksInPath().path
     }
 
     private func diffViewerPrepaintStyle(appearance: DiffViewerAppearance) -> String {
