@@ -42,6 +42,25 @@ extension TabManager {
         return tab.title
     }
 
+    func resolvedWorkspaceDisplayTitle(forWorkspaceId workspaceId: UUID) -> String? {
+        guard let workspace = workspacesById[workspaceId] else { return nil }
+        return resolvedWorkspaceDisplayTitle(for: workspace)
+    }
+
+    func resolvedWorkspaceDisplayTitles(for workspaceIds: Set<UUID>) -> [UUID: String] {
+        guard !workspaceIds.isEmpty else { return [:] }
+        let groupNamesByAnchorId = Dictionary(
+            workspaceGroups.map { ($0.anchorWorkspaceId, $0.name) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        var titles: [UUID: String] = [:]
+        titles.reserveCapacity(workspaceIds.count)
+        for workspace in tabs where workspaceIds.contains(workspace.id) {
+            titles[workspace.id] = groupNamesByAnchorId[workspace.id] ?? workspace.title
+        }
+        return titles
+    }
+
     private func windowTitle(for tab: Workspace?) -> String {
         let defaultTitle = defaultWindowTitle(for: tab)
         guard let windowId, let template = WindowTitleTemplate.configured() else { return defaultTitle }

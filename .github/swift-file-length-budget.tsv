@@ -32,7 +32,7 @@
 3673	cmuxTests/TabManagerSessionSnapshotTests.swift
 3668	cmuxTests/CLIGenericHookPersistenceTests.swift
 3314	Sources/CmuxConfig.swift
-2949	Sources/Update/UpdateTitlebarAccessory.swift
+2882	Sources/Update/UpdateTitlebarAccessory.swift
 2876	cmuxTests/CMUXOpenCommandTests.swift
 2875	Sources/SessionIndexView.swift
 2581	Sources/KeyboardShortcutSettings.swift

@@ -361,23 +361,30 @@ extension AppDelegate {
     }
 
     /// One-pass `tabId -> workspace title` index across every window context.
-    /// Notification lists call this once per render and look up each row's title
-    /// in O(1), instead of scanning the tab list per notification row, which was
-    /// O(notifications × tabs). Resolution mirrors `tabTitle(for:)`: window
-    /// contexts win, then the active `tabManager` covers any tab not yet present
-    /// in a context. See https://github.com/manaflow-ai/cmux/issues/5794.
-    func tabTitlesByTabId() -> [UUID: String] {
+    /// Callers can limit the projection to the workspace ids they render, keeping
+    /// notification lists O(tabs + groups) rather than O(notifications × tabs).
+    /// Window contexts win, then the active `tabManager` fills any missing ids.
+    /// See https://github.com/manaflow-ai/cmux/issues/5794.
+    func tabTitlesByTabId(for requestedTabIds: Set<UUID>? = nil) -> [UUID: String] {
         var titles: [UUID: String] = [:]
-        for context in mainWindowContexts.values {
-            let manager = context.tabManager
+
+        func appendTitles(from manager: TabManager) {
+            if let requestedTabIds {
+                let unresolvedIds = requestedTabIds.subtracting(titles.keys)
+                titles.merge(manager.resolvedWorkspaceDisplayTitles(for: unresolvedIds)) { current, _ in current }
+                return
+            }
             for tab in manager.tabs where titles[tab.id] == nil {
                 titles[tab.id] = manager.resolvedWorkspaceDisplayTitle(for: tab)
             }
         }
+
+        for context in mainWindowContexts.values {
+            appendTitles(from: context.tabManager)
+            if let requestedTabIds, titles.count == requestedTabIds.count { return titles }
+        }
         if let activeTabs = tabManager {
-            for tab in activeTabs.tabs where titles[tab.id] == nil {
-                titles[tab.id] = activeTabs.resolvedWorkspaceDisplayTitle(for: tab)
-            }
+            appendTitles(from: activeTabs)
         }
         return titles
     }
