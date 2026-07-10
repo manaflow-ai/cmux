@@ -94,13 +94,31 @@ final class SettingsWindowPresenter: NSObject {
     ) -> SettingsWindowShowResult {
 #if DEBUG
         cmuxDebugLog("settings.window.show path=appkitWindow")
+#endif
+        let result = performShow(navigationTarget: navigationTarget, activateApp: activateApp)
+#if DEBUG
+        // Recorded from the verified outcome, not the request, so UI-test
+        // captures cannot claim an open that never presented.
+        let presented: Bool
+        if case .failed = result {
+            presented = false
+        } else {
+            presented = true
+        }
         _ = UITestCaptureSink().mutateJSONObjectIfConfigured(
             envKey: "CMUX_UI_TEST_SETTINGS_OPEN_CAPTURE_PATH"
         ) { payload in
-            payload["opened"] = true
+            payload["opened"] = presented
             payload["target"] = navigationTarget?.rawValue ?? ""
         }
 #endif
+        return result
+    }
+
+    private func performShow(
+        navigationTarget: SettingsNavigationTarget?,
+        activateApp: Bool
+    ) -> SettingsWindowShowResult {
         pendingNavigationTarget = navigationTarget
 
         var failureReason = "settings window was never presented"
@@ -125,7 +143,11 @@ final class SettingsWindowPresenter: NSObject {
             }
             if NSApp.isHidden && !activateApp {
                 // Ordering front succeeded as far as AppKit allows without
-                // unhiding the app; the window appears on unhide.
+                // unhiding the app; the window appears on unhide. Reused live
+                // content still receives the navigation now — its notification
+                // subscriptions outlive visibility, and the host root's
+                // onAppear consumer only runs for fresh windows.
+                deliverNavigation(reusedExistingWindow: reusedExisting)
                 Self.log.notice(
                     "settings.window.show ordered front while app is hidden; deferring visibility to unhide"
                 )

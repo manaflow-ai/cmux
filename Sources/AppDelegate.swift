@@ -9206,9 +9206,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     @MainActor
     static func presentPreferencesWindow(
         navigationTarget: SettingsNavigationTarget? = nil,
-        showFallbackSettingsWindow: @MainActor (SettingsNavigationTarget?) -> Void = { target in
-            SettingsWindowPresenter.show(navigationTarget: target)
-        },
+        showFallbackSettingsWindow: (@MainActor (SettingsNavigationTarget?) -> Void)? = nil,
         activateApplication: @MainActor () -> Void = {
             NSRunningApplication.current.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
         }
@@ -9216,7 +9214,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
         cmuxDebugLog("settings.open.present path=appkitWindow")
 #endif
-        showFallbackSettingsWindow(navigationTarget)
+        if let showFallbackSettingsWindow {
+            showFallbackSettingsWindow(navigationTarget)
+        } else if case .failed = SettingsWindowPresenter.show(navigationTarget: navigationTarget) {
+            // The presenter already logged the loud failure diagnostics;
+            // surface the failed menu/⌘, action instead of silently activating.
+            NSSound.beep()
+            return
+        }
         activateApplication()
 #if DEBUG
         cmuxDebugLog("settings.open.present activate=1")
