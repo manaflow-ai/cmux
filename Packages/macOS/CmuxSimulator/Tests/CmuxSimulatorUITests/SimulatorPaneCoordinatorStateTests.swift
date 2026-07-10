@@ -93,6 +93,38 @@ extension SimulatorPaneCoordinatorTests {
         #expect(coordinator.actionLog.last?.action == "worker-25")
     }
 
+    @Test("Action history is preserved separately for each selected device")
+    func actionHistoryIsDeviceScoped() async {
+        let client = SimulatorPaneClientSpy(devices: [
+            Self.device(id: "phone", family: .iPhone, state: .booted),
+            Self.device(id: "pad", family: .iPad, state: .shutdown),
+        ])
+        let coordinator = SimulatorPaneCoordinator(client: client)
+        await coordinator.start()
+
+        coordinator.receive(.message(.actionLog(SimulatorActionLogEntry(
+            id: UUID(),
+            timestamp: Date(timeIntervalSince1970: 1),
+            action: "phone-action",
+            summary: "phone-action",
+            succeeded: true
+        ))))
+        coordinator.selectDevice(id: "pad")
+        coordinator.receive(.message(.actionLog(SimulatorActionLogEntry(
+            id: UUID(),
+            timestamp: Date(timeIntervalSince1970: 2),
+            action: "pad-action",
+            summary: "pad-action",
+            succeeded: true
+        ))))
+
+        coordinator.selectDevice(id: "phone")
+        #expect(coordinator.actionLog.map(\.action) == ["phone-action"])
+
+        coordinator.selectDevice(id: "pad")
+        #expect(coordinator.actionLog.map(\.action) == ["pad-action"])
+    }
+
     @Test("Device unavailability clears stale rendering state")
     func deviceUnavailableClearsRenderingState() async {
         let client = SimulatorPaneClientSpy(devices: [
