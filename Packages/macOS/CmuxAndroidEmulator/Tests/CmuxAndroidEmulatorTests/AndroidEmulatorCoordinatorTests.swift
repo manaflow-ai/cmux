@@ -43,7 +43,7 @@ import Testing
         )
         let coordinator = AndroidEmulatorCoordinator(service: service)
 
-        await coordinator.stop(serial: "emulator-5554")
+        await coordinator.stop(avdName: "Pixel_9_API_35", serial: "emulator-5554")
 
         #expect(coordinator.stoppingSerials.isEmpty)
         #expect(coordinator.actionError == .stopNotConfirmed(serial: "emulator-5554"))
@@ -56,7 +56,9 @@ import Testing
         )
         let coordinator = AndroidEmulatorCoordinator(service: service)
 
-        let stopTask = Task { await coordinator.stop(serial: "emulator-5554") }
+        let stopTask = Task {
+            await coordinator.stop(avdName: "Pixel_9_API_35", serial: "emulator-5554")
+        }
         await service.waitUntilStopStarted()
         await coordinator.refresh()
 
@@ -135,7 +137,8 @@ private actor StubAndroidEmulatorService: AndroidEmulatorServicing {
         }
     }
 
-    func stop(serial: String) async throws {
+    func stop(avdName: String, serial: String) async throws {
+        _ = avdName
         _ = serial
         if let stopError { throw stopError }
         stopStarted = true

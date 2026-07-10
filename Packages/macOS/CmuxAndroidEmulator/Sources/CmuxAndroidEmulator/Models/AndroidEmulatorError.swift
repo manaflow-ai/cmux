@@ -26,4 +26,7 @@ public enum AndroidEmulatorError: Error, Sendable, Equatable {
 
     /// A stopped emulator remained visible to Android Debug Bridge after the confirmation deadline.
     case stopNotConfirmed(serial: String)
+
+    /// A reusable emulator serial now belongs to a different AVD than the selected row.
+    case avdIdentityChanged(expected: String, actual: String)
 }

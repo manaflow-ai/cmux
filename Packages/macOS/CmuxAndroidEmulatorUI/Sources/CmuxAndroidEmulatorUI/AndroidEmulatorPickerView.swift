@@ -145,7 +145,7 @@ public struct AndroidEmulatorPickerView: View {
                             Task { await coordinator.launch(avdName: device.name) }
                         },
                         onStop: { serial in
-                            Task { await coordinator.stop(serial: serial) }
+                            Task { await coordinator.stop(avdName: device.name, serial: serial) }
                         }
                     )
                 }
@@ -304,6 +304,13 @@ public struct AndroidEmulatorPickerView: View {
                 bundle: .module
             )
             return String(format: format, serial)
+        case .avdIdentityChanged(let expected, let actual):
+            let format = String(
+                localized: "androidEmulator.error.avdIdentityChanged.detail",
+                defaultValue: "The emulator changed from AVD “%@” to “%@”. Refresh before stopping it.",
+                bundle: .module
+            )
+            return String(format: format, expected, actual)
         }
     }
 }

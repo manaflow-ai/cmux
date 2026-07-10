@@ -8,6 +8,7 @@ public actor AndroidEmulatorService: AndroidEmulatorServicing {
     private let sdkLocator: any AndroidSDKLocating
     private let commands: any CommandRunning
     private let processLauncher: any AndroidEmulatorProcessLaunching
+    private var reservedConsolePorts: Set<Int> = []
 
     /// Creates an Android emulator service from injected machine boundaries.
     ///
@@ -42,7 +43,7 @@ public actor AndroidEmulatorService: AndroidEmulatorServicing {
         let devicesResult = await commands.run(
             directory: installation.rootURL.path,
             executable: adbURL.path,
-            arguments: ["devices"],
+            arguments: ["devices", "-l"],
             timeout: 5
         )
         guard Self.succeeded(devicesResult) else {
@@ -137,9 +138,14 @@ public actor AndroidEmulatorService: AndroidEmulatorServicing {
         guard Self.succeeded(devicesResult) else {
             throw AndroidEmulatorError.commandFailed(tool: "adb", detail: Self.failureDetail(devicesResult))
         }
-        guard let consolePort = Self.firstAvailableConsolePort(devicesResult.stdout ?? "") else {
+        guard let consolePort = Self.firstAvailableConsolePort(
+            devicesResult.stdout ?? "",
+            excluding: reservedConsolePorts
+        ) else {
             throw AndroidEmulatorError.launchFailed(detail: "No Android emulator console port is available.")
         }
+        reservedConsolePorts.insert(consolePort)
+        defer { reservedConsolePorts.remove(consolePort) }
 
         let processID = try await processLauncher.launch(
             executableURL: installation.emulatorURL,
@@ -171,8 +177,8 @@ public actor AndroidEmulatorService: AndroidEmulatorServicing {
         }
     }
 
-    /// Stops a running emulator through its installed Android Debug Bridge.
-    public func stop(serial: String) async throws {
+    /// Stops a running emulator after revalidating its AVD name and transport identity.
+    public func stop(avdName: String, serial: String) async throws {
         guard serial.hasPrefix("emulator-"),
               serial.dropFirst("emulator-".count).allSatisfy(\.isNumber) else {
             throw AndroidEmulatorError.invalidEmulatorSerial(serial)
@@ -182,10 +188,37 @@ public actor AndroidEmulatorService: AndroidEmulatorServicing {
         guard let adbURL = installation.adbURL else {
             throw AndroidEmulatorError.adbMissing(sdkPath: installation.rootURL.path)
         }
+
+        let devicesResult = await commands.run(
+            directory: installation.rootURL.path,
+            executable: adbURL.path,
+            arguments: ["devices", "-l"],
+            timeout: 5
+        )
+        guard Self.succeeded(devicesResult),
+              let connected = Self.parseConnectedEmulators(devicesResult.stdout ?? "")
+                .first(where: { $0.serial == serial }),
+              let transportID = connected.transportID else {
+            throw AndroidEmulatorError.stopNotConfirmed(serial: serial)
+        }
+
+        let nameResult = await commands.run(
+            directory: installation.rootURL.path,
+            executable: adbURL.path,
+            arguments: ["-t", transportID, "emu", "avd", "name"],
+            timeout: 3
+        )
+        guard Self.succeeded(nameResult), let currentAVDName = Self.parseAVDName(nameResult.stdout ?? "") else {
+            throw AndroidEmulatorError.commandFailed(tool: "adb", detail: Self.failureDetail(nameResult))
+        }
+        guard currentAVDName == avdName else {
+            throw AndroidEmulatorError.avdIdentityChanged(expected: avdName, actual: currentAVDName)
+        }
+
         let result = await commands.run(
             directory: installation.rootURL.path,
             executable: adbURL.path,
-            arguments: ["-s", serial, "emu", "kill"],
+            arguments: ["-t", transportID, "emu", "kill"],
             timeout: 5
         )
         guard Self.consoleCommandSucceeded(result) else {
@@ -195,18 +228,20 @@ public actor AndroidEmulatorService: AndroidEmulatorServicing {
         let disconnectResult = await commands.run(
             directory: installation.rootURL.path,
             executable: adbURL.path,
-            arguments: ["-s", serial, "wait-for-disconnect"],
+            arguments: ["-t", transportID, "wait-for-disconnect"],
             timeout: 15
         )
         guard Self.succeeded(disconnectResult) else {
-            let devicesResult = await commands.run(
+            let refreshedDevicesResult = await commands.run(
                 directory: installation.rootURL.path,
                 executable: adbURL.path,
-                arguments: ["devices"],
+                arguments: ["devices", "-l"],
                 timeout: 5
             )
-            let connectedSerials = Set(Self.parseConnectedEmulators(devicesResult.stdout ?? "").map(\.serial))
-            guard Self.succeeded(devicesResult), !connectedSerials.contains(serial) else {
+            let connectedTransportIDs = Set(
+                Self.parseConnectedEmulators(refreshedDevicesResult.stdout ?? "").compactMap(\.transportID)
+            )
+            guard Self.succeeded(refreshedDevicesResult), !connectedTransportIDs.contains(transportID) else {
                 throw AndroidEmulatorError.stopNotConfirmed(serial: serial)
             }
             return
@@ -246,13 +281,19 @@ public actor AndroidEmulatorService: AndroidEmulatorServicing {
             .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
     }
 
-    static func parseConnectedEmulators(_ output: String) -> [(serial: String, connectionState: String)] {
+    static func parseConnectedEmulators(
+        _ output: String
+    ) -> [(serial: String, connectionState: String, transportID: String?)] {
         output
             .split(whereSeparator: \.isNewline)
-            .compactMap { line -> (String, String)? in
+            .compactMap { line -> (String, String, String?)? in
                 let fields = line.split(whereSeparator: \.isWhitespace).map(String.init)
                 guard fields.count >= 2, fields[0].hasPrefix("emulator-") else { return nil }
-                return (fields[0], fields[1])
+                let transportID = fields
+                    .dropFirst(2)
+                    .first(where: { $0.hasPrefix("transport_id:") })?
+                    .dropFirst("transport_id:".count)
+                return (fields[0], fields[1], transportID.map(String.init))
             }
     }
 
@@ -270,14 +311,20 @@ public actor AndroidEmulatorService: AndroidEmulatorServicing {
         return name
     }
 
-    private static func firstAvailableConsolePort(_ devicesOutput: String) -> Int? {
+    private static func firstAvailableConsolePort(
+        _ devicesOutput: String,
+        excluding reservedConsolePorts: Set<Int>
+    ) -> Int? {
         let occupiedSerials = Set(parseConnectedEmulators(devicesOutput).map(\.serial))
         return stride(from: 5554, through: 5682, by: 2)
-            .first { !occupiedSerials.contains("emulator-\($0)") }
+            .first {
+                !reservedConsolePorts.contains($0)
+                    && !occupiedSerials.contains("emulator-\($0)")
+            }
     }
 
     private static func resolveConnectedEmulator(
-        _ connected: (serial: String, connectionState: String),
+        _ connected: (serial: String, connectionState: String, transportID: String?),
         installation: AndroidSDKInstallation,
         adbURL: URL,
         commands: any CommandRunning

@@ -13,8 +13,8 @@ import Testing
             ): .success("Tablet_API_35\nPixel_9_API_35\nPixel_9_API_35\n"),
             StubCommand(
                 executable: installation.adbURL!.path,
-                arguments: ["devices"]
-            ): .success("List of devices attached\nemulator-5554\tdevice\nphysical-1\tdevice\n"),
+                arguments: ["devices", "-l"]
+            ): .success("List of devices attached\nemulator-5554\tdevice transport_id:42\nphysical-1\tdevice\n"),
             StubCommand(
                 executable: installation.adbURL!.path,
                 arguments: ["-s", "emulator-5554", "emu", "avd", "name"]
@@ -105,8 +105,8 @@ import Testing
             ): .success("Pixel_9_API_35\n"),
             StubCommand(
                 executable: installation.adbURL!.path,
-                arguments: ["devices"]
-            ): .success("List of devices attached\nemulator-5554\tdevice\n"),
+                arguments: ["devices", "-l"]
+            ): .success("List of devices attached\nemulator-5554\tdevice transport_id:42\n"),
             StubCommand(
                 executable: installation.adbURL!.path,
                 arguments: ["-s", "emulator-5554", "emu", "avd", "name"]
@@ -160,6 +160,27 @@ import Testing
         #expect(await launcher.terminatedProcessIDs == [RecordingAndroidEmulatorLauncher.processID])
     }
 
+    @Test func concurrentLaunchesReserveDistinctConsolePorts() async {
+        let commands = ConcurrentLaunchCommandRunner(installation: Self.installation)
+        let launcher = RecordingAndroidEmulatorLauncher()
+        let service = AndroidEmulatorService(
+            sdkLocator: StubSDKLocator(resolution: .available(Self.installation)),
+            commands: commands,
+            processLauncher: launcher
+        )
+
+        let pixelLaunch = Task { try? await service.launch(avdName: "Pixel_9_API_35") }
+        let tabletLaunch = Task { try? await service.launch(avdName: "Tablet_API_35") }
+        await commands.waitUntilBothLaunchesAwaitConfirmation()
+
+        let requests = await launcher.requests
+        #expect(Set(requests.map(\.consolePort)) == [5554, 5556])
+
+        await commands.releaseConfirmations()
+        await pixelLaunch.value
+        await tabletLaunch.value
+    }
+
     @Test func stopRejectsPhysicalDeviceSerialBeforeRunningADB() async {
         let commands = StubCommandRunner(results: [:])
         let service = AndroidEmulatorService(
@@ -169,7 +190,7 @@ import Testing
         )
 
         await #expect(throws: AndroidEmulatorError.invalidEmulatorSerial("R58M123")) {
-            try await service.stop(serial: "R58M123")
+            try await service.stop(avdName: "Pixel_9_API_35", serial: "R58M123")
         }
         #expect(await commands.invocations.isEmpty)
     }
@@ -179,7 +200,15 @@ import Testing
         let commands = StubCommandRunner(results: [
             StubCommand(
                 executable: installation.adbURL!.path,
-                arguments: ["-s", "emulator-5554", "emu", "kill"]
+                arguments: ["devices", "-l"]
+            ): .success("List of devices attached\nemulator-5554\tdevice transport_id:42\n"),
+            StubCommand(
+                executable: installation.adbURL!.path,
+                arguments: ["-t", "42", "emu", "avd", "name"]
+            ): .success("Pixel_9_API_35\nOK\n"),
+            StubCommand(
+                executable: installation.adbURL!.path,
+                arguments: ["-t", "42", "emu", "kill"]
             ): .success("KO: emulator refused to stop\nOK\n"),
         ])
         let service = AndroidEmulatorService(
@@ -189,10 +218,38 @@ import Testing
         )
 
         await #expect(throws: AndroidEmulatorError.self) {
-            try await service.stop(serial: "emulator-5554")
+            try await service.stop(avdName: "Pixel_9_API_35", serial: "emulator-5554")
         }
 
-        #expect(await commands.invocations.count == 1)
+        #expect(await commands.invocations.count == 3)
+    }
+
+    @Test func stopRejectsReusedSerialOwnedByDifferentAVD() async {
+        let installation = Self.installation
+        let commands = StubCommandRunner(results: [
+            StubCommand(
+                executable: installation.adbURL!.path,
+                arguments: ["devices", "-l"]
+            ): .success("List of devices attached\nemulator-5554\tdevice transport_id:77\n"),
+            StubCommand(
+                executable: installation.adbURL!.path,
+                arguments: ["-t", "77", "emu", "avd", "name"]
+            ): .success("Tablet_API_35\nOK\n"),
+        ])
+        let service = AndroidEmulatorService(
+            sdkLocator: StubSDKLocator(resolution: .available(installation)),
+            commands: commands,
+            processLauncher: RecordingAndroidEmulatorLauncher()
+        )
+
+        await #expect(throws: AndroidEmulatorError.avdIdentityChanged(
+            expected: "Pixel_9_API_35",
+            actual: "Tablet_API_35"
+        )) {
+            try await service.stop(avdName: "Pixel_9_API_35", serial: "emulator-5554")
+        }
+
+        #expect(await commands.invocations.count == 2)
     }
 
     @Test func snapshotResolvesConnectedEmulatorNamesConcurrently() async throws {
@@ -222,8 +279,8 @@ import Testing
             ): .success("Pixel_9_API_35\nTablet_API_35\n"),
             StubCommand(
                 executable: installation.adbURL!.path,
-                arguments: ["devices"]
-            ): .success("List of devices attached\nemulator-5554\toffline\n"),
+                arguments: ["devices", "-l"]
+            ): .success("List of devices attached\nemulator-5554\toffline transport_id:42\n"),
             StubCommand(
                 executable: installation.adbURL!.path,
                 arguments: ["-s", "emulator-5554", "emu", "avd", "name"]
@@ -384,9 +441,9 @@ private actor ConcurrentNameQueryCommandRunner: CommandRunning {
         if executable == installation.emulatorURL.path {
             return .success((0..<6).map { "Device_\($0)" }.joined(separator: "\n") + "\n")
         }
-        if arguments == ["devices"] {
+        if arguments == ["devices", "-l"] {
             let devices = (0..<6)
-                .map { "emulator-\(5554 + ($0 * 2))\tdevice" }
+                .map { "emulator-\(5554 + ($0 * 2))\tdevice transport_id:\($0 + 1)" }
                 .joined(separator: "\n")
             return .success("List of devices attached\n\(devices)\n")
         }
@@ -423,5 +480,67 @@ private actor ConcurrentNameQueryCommandRunner: CommandRunning {
         }
         nameQueryCountContinuation?.finish()
         nameQueryCountContinuation = nil
+    }
+}
+
+private actor ConcurrentLaunchCommandRunner: CommandRunning {
+    private let installation: AndroidSDKInstallation
+    private var waitingConfirmationCount = 0
+    private var waitCountContinuation: CheckedContinuation<Void, Never>?
+    private var releaseContinuations: [CheckedContinuation<Void, Never>] = []
+
+    init(installation: AndroidSDKInstallation) {
+        self.installation = installation
+    }
+
+    func run(
+        directory: String,
+        executable: String,
+        arguments: [String],
+        timeout: TimeInterval?
+    ) async -> CommandResult {
+        _ = directory
+        _ = timeout
+        if executable == installation.emulatorURL.path {
+            return .success("Pixel_9_API_35\nTablet_API_35\n")
+        }
+        if arguments == ["devices"] {
+            return .success("List of devices attached\n")
+        }
+        if arguments.last == "wait-for-device" {
+            waitingConfirmationCount += 1
+            if waitingConfirmationCount == 2 {
+                waitCountContinuation?.resume()
+                waitCountContinuation = nil
+            }
+            await withCheckedContinuation { releaseContinuations.append($0) }
+            return CommandResult(
+                stdout: nil,
+                stderr: nil,
+                exitStatus: nil,
+                timedOut: true,
+                executionError: nil
+            )
+        }
+        return CommandResult(
+            stdout: nil,
+            stderr: "unexpected command",
+            exitStatus: 127,
+            timedOut: false,
+            executionError: nil
+        )
+    }
+
+    func waitUntilBothLaunchesAwaitConfirmation() async {
+        if waitingConfirmationCount == 2 { return }
+        await withCheckedContinuation { waitCountContinuation = $0 }
+    }
+
+    func releaseConfirmations() {
+        let continuations = releaseContinuations
+        releaseContinuations.removeAll()
+        for continuation in continuations {
+            continuation.resume()
+        }
     }
 }

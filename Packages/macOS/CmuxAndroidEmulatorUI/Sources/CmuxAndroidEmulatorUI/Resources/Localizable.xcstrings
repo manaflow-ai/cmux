@@ -57,6 +57,13 @@
         "ja": { "stringUnit": { "state": "translated", "value": "AVD「%@」は利用できなくなりました。一覧を更新してください。" } }
       }
     },
+    "androidEmulator.error.avdIdentityChanged.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The emulator changed from AVD “%@” to “%@”. Refresh before stopping it." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "エミュレータがAVD「%@」から「%@」に変わりました。停止する前に更新してください。" } }
+      }
+    },
     "androidEmulator.error.command.detail": {
       "extractionState": "manual",
       "localizations": {
