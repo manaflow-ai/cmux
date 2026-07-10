@@ -374,6 +374,33 @@ import Testing
         #expect(panel.surface.debugInitialCommand() == explicitCommand)
     }
 
+    @Test func explicitSplitCommandDoesNotUseRemoteRequestedWorkingDirectoryAsLocalFallback() throws {
+        let workspace = Workspace()
+        let paneId = try #require(workspace.bonsplitController.focusedPaneId)
+        let remoteDirectory = "/home/seepine/cmux-remote-requested-\(UUID().uuidString)"
+        let remoteCommand = "ssh seepine@192.168.5.20"
+        let explicitCommand = "/tmp/cmux-local-requested-split-\(UUID().uuidString).sh"
+
+        workspace.configureRemoteConnection(sshRemoteConfiguration(command: remoteCommand), autoConnect: false)
+        let remotePanel = try #require(workspace.newTerminalSurface(
+            inPane: paneId,
+            focus: true,
+            workingDirectory: remoteDirectory
+        ))
+        #expect(workspace.isRemoteTerminalSurface(remotePanel.id))
+        #expect(remotePanel.requestedWorkingDirectory == remoteDirectory)
+
+        let panel = try #require(workspace.newTerminalSplit(
+            from: remotePanel.id,
+            orientation: .horizontal,
+            focus: false,
+            initialCommand: explicitCommand
+        ))
+
+        #expect(panel.requestedWorkingDirectory == Workspace.safeLocalTerminalStartupWorkingDirectory())
+        #expect(panel.surface.debugInitialCommand() == explicitCommand)
+    }
+
     @Test func explicitWorkingDirectoryWinsOverRemoteStartupSplitFallback() throws {
         let workspace = Workspace()
         let sourcePanelId = try #require(workspace.focusedPanelId)
@@ -416,67 +443,35 @@ import Testing
     @Test func inheritedRuntimeWorkingDirectoryRequiresPromptIdleSource() {
         let inheritedDirectory = "/tmp/cmux-inherited-runtime-\(UUID().uuidString)"
 
-        #expect(Workspace.terminalStartupInheritedWorkingDirectoryCandidate(
-            inheritedDirectory,
-            shellActivityState: .promptIdle,
-            isRemoteTerminalSurface: false,
-            isRestoreGuarded: false,
-            isAgentResumePendingOrRunning: false
-        ) == inheritedDirectory)
-        #expect(Workspace.terminalStartupInheritedWorkingDirectoryCandidate(
-            inheritedDirectory,
-            shellActivityState: .commandRunning,
-            isRemoteTerminalSurface: false,
-            isRestoreGuarded: false,
-            isAgentResumePendingOrRunning: false
-        ) == nil)
-        #expect(Workspace.terminalStartupInheritedWorkingDirectoryCandidate(
-            inheritedDirectory,
-            shellActivityState: .unknown,
-            isRemoteTerminalSurface: false,
-            isRestoreGuarded: false,
-            isAgentResumePendingOrRunning: false
-        ) == nil)
-        #expect(Workspace.terminalStartupInheritedWorkingDirectoryCandidate(
-            inheritedDirectory,
-            shellActivityState: nil,
-            isRemoteTerminalSurface: false,
-            isRestoreGuarded: false,
-            isAgentResumePendingOrRunning: false
-        ) == nil)
+        #expect(startupCandidate(inheritedDirectory, state: .promptIdle) == inheritedDirectory)
+        #expect(startupCandidate(inheritedDirectory, state: .commandRunning) == nil)
+        #expect(startupCandidate(inheritedDirectory, state: .unknown) == nil)
+        #expect(startupCandidate(inheritedDirectory, state: nil) == nil)
     }
 
     @Test func inheritedRuntimeWorkingDirectorySkipsRemoteRestoreAndAutoResumeSources() {
         let inheritedDirectory = "/tmp/cmux-inherited-runtime-\(UUID().uuidString)"
 
-        #expect(Workspace.terminalStartupInheritedWorkingDirectoryCandidate(
-            inheritedDirectory,
-            shellActivityState: .promptIdle,
-            isRemoteTerminalSurface: true,
-            isRestoreGuarded: false,
-            isAgentResumePendingOrRunning: false
-        ) == nil)
-        #expect(Workspace.terminalStartupInheritedWorkingDirectoryCandidate(
-            inheritedDirectory,
-            shellActivityState: .promptIdle,
-            isRemoteTerminalSurface: false,
-            isRestoreGuarded: true,
-            isAgentResumePendingOrRunning: false
-        ) == nil)
-        #expect(Workspace.terminalStartupInheritedWorkingDirectoryCandidate(
-            inheritedDirectory,
-            shellActivityState: .promptIdle,
-            isRemoteTerminalSurface: false,
-            isRestoreGuarded: false,
-            isAgentResumePendingOrRunning: true
-        ) == nil)
-        #expect(Workspace.terminalStartupInheritedWorkingDirectoryCandidate(
-            " \n\t",
-            shellActivityState: .promptIdle,
-            isRemoteTerminalSurface: false,
-            isRestoreGuarded: false,
-            isAgentResumePendingOrRunning: false
-        ) == nil)
+        #expect(startupCandidate(inheritedDirectory, state: .promptIdle, remote: true) == nil)
+        #expect(startupCandidate(inheritedDirectory, state: .promptIdle, restore: true) == nil)
+        #expect(startupCandidate(inheritedDirectory, state: .promptIdle, resume: true) == nil)
+        #expect(startupCandidate(" \n\t", state: .promptIdle) == nil)
+    }
+
+    private func startupCandidate(
+        _ directory: String?,
+        state: PanelShellActivityState?,
+        remote: Bool = false,
+        restore: Bool = false,
+        resume: Bool = false
+    ) -> String? {
+        Workspace.terminalStartupInheritedWorkingDirectoryCandidate(
+            directory,
+            shellActivityState: state,
+            isRemoteTerminalSurface: remote,
+            isRestoreGuarded: restore,
+            isAgentResumePendingOrRunning: resume
+        )
     }
 
     private func sshRemoteConfiguration(command: String) -> WorkspaceRemoteConfiguration {

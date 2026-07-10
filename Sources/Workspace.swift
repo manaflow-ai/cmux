@@ -6763,7 +6763,7 @@ final class Workspace: Identifiable, ObservableObject {
             terminalStartupCandidateWorkingDirectory(inheritedWorkingDirectory, sourcePanelId: sourcePanelId),
             panelDirectoryForTerminalStartup(sourcePanelId: sourcePanelId),
             liveForegroundWorkingDirectoryForTerminalStartup(sourcePanelId: sourcePanelId),
-            sourcePanelId.flatMap { terminalPanel(for: $0)?.requestedWorkingDirectory },
+            terminalRequestedWorkingDirectoryForLocalFallback(panelId: sourcePanelId),
             currentDirectoryForTerminalStartup(sourcePanelId: sourcePanelId),
         ].lazy.compactMap(Self.normalizedTerminalWorkingDirectory).first
     }
