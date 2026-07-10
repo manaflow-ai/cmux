@@ -136,16 +136,21 @@ extension AgentHibernationController {
                 if let snapshot {
                     // An armed monitor for this transcript (a prior hibernation's,
                     // or one stored earlier in this batch) hands off here: quiesce
-                    // it only now that this request is otherwise committed.
-                    let stillQualifies = await cancelPostTeardownRestoreTaskForReplacement(
-                        transcriptPath: snapshot.transcriptPath,
-                        ifStillQualifies: {
-                            self.confirmedTeardownStillQualifies(
-                                request,
-                                index: postSnapshotIndex,
-                                runtimeObservation: runtimeObservationProvider?(record)
-                            )
-                        }
+                    // it only now that this request is otherwise committed. A process
+                    // can appear while that older task drains, so capture one ordered
+                    // successor index before the final synchronous commit checks.
+                    await cancelPostTeardownRestoreTaskForReplacement(
+                        transcriptPath: snapshot.transcriptPath
+                    )
+                    let postQuiescenceSequence = markPostSnapshotValidationPoint()
+                    let postQuiescenceIndex = await sharedPostSnapshotValidationIndexTask(
+                        minimumStartSequence: postQuiescenceSequence,
+                        loader: postSnapshotIndexLoader
+                    ).value
+                    let stillQualifies = self.confirmedTeardownStillQualifies(
+                        request,
+                        index: postQuiescenceIndex,
+                        runtimeObservation: runtimeObservationProvider?(record)
                     )
                     // Nothing may suspend after these checks and before SIGTERM.
                     guard AgentHibernationTranscriptGuard.liveFileVersionStillMatches(snapshot) else {
@@ -454,15 +459,6 @@ extension AgentHibernationController {
         entry.cancellationState.restoresSnapshotOnCancellation = false
         entry.task.cancel()
         await entry.task.value
-    }
-
-    func cancelPostTeardownRestoreTaskForReplacement(
-        transcriptPath: String,
-        ifStillQualifies: @escaping @MainActor () -> Bool
-    ) async -> Bool {
-        guard ifStillQualifies() else { return false }
-        await cancelPostTeardownRestoreTaskForReplacement(transcriptPath: transcriptPath)
-        return ifStillQualifies()
     }
 
     func cancelPostTeardownRestoreTasks() {

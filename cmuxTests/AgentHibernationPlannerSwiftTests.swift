@@ -116,57 +116,6 @@ struct AgentHibernationPlannerSwiftTests {
 
     @MainActor
     @Test
-    func replacementRechecksEligibilityAfterOlderMonitorStops() async {
-        let controller = AgentHibernationController.shared
-        defer { resetSharedHibernationState(controller) }
-
-        let monitorReady = DispatchSemaphore(value: 0)
-        let cancellationObserved = DispatchSemaphore(value: 0)
-        let releaseMonitor = DispatchSemaphore(value: 0)
-        let transcriptPath = "/tmp/cmux-hibernation-cancellation-barrier-\(UUID().uuidString).jsonl"
-        let requestID = UUID()
-        let monitorTask = Task.detached {
-            await withTaskCancellationHandler {
-                monitorReady.signal()
-                releaseMonitor.wait()
-            } onCancel: {
-                cancellationObserved.signal()
-            }
-        }
-        defer {
-            releaseMonitor.signal()
-            monitorTask.cancel()
-            controller.clearPostTeardownRestoreTask(
-                transcriptPath: transcriptPath,
-                requestID: requestID
-            )
-        }
-
-        #expect(await Self.wait(for: monitorReady))
-        #expect(controller.storePostTeardownRestoreTask(
-            monitorTask,
-            transcriptPath: transcriptPath,
-            requestID: requestID,
-            cancellationState: AgentHibernationController.PostTeardownRestoreCancellationState()
-        ))
-
-        var stillEligible = true
-        let replacementTask = Task { @MainActor in
-            await controller.cancelPostTeardownRestoreTaskForReplacement(
-                transcriptPath: transcriptPath,
-                ifStillQualifies: { stillEligible }
-            )
-        }
-
-        #expect(await Self.wait(for: cancellationObserved))
-        stillEligible = false
-        releaseMonitor.signal()
-
-        #expect(await replacementTask.value == false)
-    }
-
-    @MainActor
-    @Test
     func teardownRecordRejectsPanelMovedToAnotherWorkspace() throws {
         let source = Workspace()
         let panelId = try #require(source.focusedPanelId)
