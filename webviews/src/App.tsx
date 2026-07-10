@@ -33,6 +33,7 @@ import type {
 import { useCommentsBootstrap } from "./comments/useCommentsBootstrap";
 import { resolveDiffFileLanguage, resolveDiffPreloadLanguages } from "./diff-language";
 import { fileName, type DiffItem, type FileTreeSource, type StreamMetrics, streamPatch } from "./diff-stream";
+import { DiffHeaderMetadata } from "./diff-metadata";
 import { applyPierreFileTreeGitStatus, planPierreFileTreeRefresh, selectPierreFileTreePath } from "./file-tree-refresh";
 import { Icon, type IconName } from "./icons";
 import { createDiffViewerLabelResolver, shouldAssertMissingLabels } from "./labels";
@@ -387,6 +388,9 @@ export function App({ config, initialStatus }: ConfigProps) {
                 containerRef={viewerContainerRef}
                 items={state.items}
                 options={renderedCodeViewOptions}
+                renderHeaderMetadata={(item) => (
+                  <DiffHeaderMetadata fileDiff={(item as DiffItem).fileDiff} label={label} />
+                )}
                 renderAnnotation={(annotation, item) =>
                   renderCommentAnnotation(annotation as CommentAnnotation, item as DiffItem)}
               />

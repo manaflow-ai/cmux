@@ -1,6 +1,7 @@
 const DEFAULT_DIFF_VIEWER_LABELS = {
   additions: "Additions",
   bars: "Bars",
+  binaryFile: "Binary file",
   branchBase: "Branch base",
   branchPickerCurrent: "current",
   branchPickerBasePrefix: "Base:",
@@ -46,6 +47,7 @@ const DEFAULT_DIFF_VIEWER_LABELS = {
   jumpToFile: "Jump to file",
   loadingDiff: "Loading diff...",
   loadingRenderer: "Loading renderer...",
+  modeChange: "Mode {old} → {new}",
   noFileDiffs: "No file diffs found in patch input.",
   none: "None",
   openSourceURL: "Open source URL",
