@@ -39,6 +39,26 @@ final class GhosttyTerminalViewVisibilityPolicyTests: XCTestCase {
     }
 
     @MainActor
+    func testPortalMutationSchedulerOriginalDrainIncludesFollowUpScheduledDuringCommit() async {
+        let scheduler = TerminalPortalMutationScheduler()
+        var committedValues: [Int] = []
+
+        let drain = scheduler.schedule {
+            committedValues.append(1)
+            scheduler.schedule {
+                committedValues.append(2)
+            }
+        }
+
+        await drain.value
+        XCTAssertEqual(
+            committedValues,
+            [1, 2],
+            "A commit-triggered update must stay on the live drain instead of replacing it"
+        )
+    }
+
+    @MainActor
     func testPortalMutationSchedulerCancelInvalidatesPendingCommit() async {
         let scheduler = TerminalPortalMutationScheduler()
         var didCommit = false

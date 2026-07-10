@@ -21,6 +21,126 @@ import UserNotifications
 #endif
 
 @MainActor
+final class TerminalPortalHostAuthorityTests: XCTestCase {
+    private func makeSurface() -> TerminalSurface {
+        TerminalSurface(
+            tabId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+    }
+
+    func testOlderHostCannotStealLeaseAfterNewHostBinds() {
+        let surface = makeSurface()
+        let oldHost = NSView()
+        let newHost = NSView()
+        let oldPane = PaneID()
+        let newPane = PaneID()
+        let usableBounds = CGRect(x: 0, y: 0, width: 400, height: 300)
+
+        XCTAssertTrue(surface.claimPortalHost(
+            hostId: ObjectIdentifier(oldHost),
+            paneId: oldPane,
+            instanceSerial: 1,
+            inWindow: true,
+            bounds: usableBounds,
+            reason: "test.old.initial"
+        ))
+        XCTAssertTrue(surface.claimPortalHost(
+            hostId: ObjectIdentifier(newHost),
+            paneId: newPane,
+            instanceSerial: 2,
+            inWindow: true,
+            bounds: usableBounds,
+            reason: "test.new.bind"
+        ))
+
+        XCTAssertFalse(surface.claimPortalHost(
+            hostId: ObjectIdentifier(oldHost),
+            paneId: oldPane,
+            instanceSerial: 1,
+            inWindow: true,
+            bounds: usableBounds,
+            reason: "test.old.delayed"
+        ))
+        XCTAssertEqual(
+            surface.debugPortalHostLease().hostId,
+            String(describing: ObjectIdentifier(newHost))
+        )
+    }
+
+    func testDetachedHostCannotReplaceLiveHost() {
+        let surface = makeSurface()
+        let oldHost = NSView()
+        let newHost = NSView()
+        let oldPane = PaneID()
+        let newPane = PaneID()
+        let usableBounds = CGRect(x: 0, y: 0, width: 400, height: 300)
+
+        XCTAssertTrue(surface.claimPortalHost(
+            hostId: ObjectIdentifier(oldHost),
+            paneId: oldPane,
+            instanceSerial: 1,
+            inWindow: true,
+            bounds: usableBounds,
+            reason: "test.old.initial"
+        ))
+        XCTAssertFalse(surface.claimPortalHost(
+            hostId: ObjectIdentifier(newHost),
+            paneId: newPane,
+            instanceSerial: 2,
+            inWindow: false,
+            bounds: usableBounds,
+            reason: "test.new.detached"
+        ))
+        XCTAssertEqual(
+            surface.debugPortalHostLease().hostId,
+            String(describing: ObjectIdentifier(oldHost))
+        )
+    }
+
+    func testOlderHostCannotReclaimAfterNewHostLeaseReleases() {
+        let surface = makeSurface()
+        let oldHost = NSView()
+        let newHost = NSView()
+        let oldPane = PaneID()
+        let newPane = PaneID()
+        let usableBounds = CGRect(x: 0, y: 0, width: 400, height: 300)
+
+        XCTAssertTrue(surface.claimPortalHost(
+            hostId: ObjectIdentifier(oldHost),
+            paneId: oldPane,
+            instanceSerial: 1,
+            inWindow: true,
+            bounds: usableBounds,
+            reason: "test.old.initial"
+        ))
+        XCTAssertTrue(surface.claimPortalHost(
+            hostId: ObjectIdentifier(newHost),
+            paneId: newPane,
+            instanceSerial: 2,
+            inWindow: true,
+            bounds: usableBounds,
+            reason: "test.new.bind"
+        ))
+        surface.releasePortalHostIfOwned(
+            hostId: ObjectIdentifier(newHost),
+            reason: "test.new.release"
+        )
+
+        XCTAssertFalse(surface.claimPortalHost(
+            hostId: ObjectIdentifier(oldHost),
+            paneId: oldPane,
+            instanceSerial: 1,
+            inWindow: true,
+            bounds: usableBounds,
+            reason: "test.old.afterRelease"
+        ))
+    }
+}
+
+@MainActor
 final class GhosttyPasteboardHelperTests: XCTestCase {
     private func make1x1PNG(color: NSColor) throws -> Data {
         let image = NSImage(size: NSSize(width: 1, height: 1))
