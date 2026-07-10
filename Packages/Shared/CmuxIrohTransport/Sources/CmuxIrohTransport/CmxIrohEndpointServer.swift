@@ -7,8 +7,11 @@ public actor CmxIrohEndpointServer {
         _ runtimeGeneration: UInt64
     ) async throws -> Void
 
-    private enum AdmissionError: Error {
-        case timedOut
+    private struct PendingAdmission {
+        let generation: UInt64
+        let connection: any CmxIrohConnection
+        let handlerTask: Task<Void, Never>
+        let deadlineTask: Task<Void, Never>
     }
 
     private let supervisor: CmxIrohEndpointSupervisor
@@ -18,7 +21,7 @@ public actor CmxIrohEndpointServer {
     private let handler: ConnectionHandler
     private var eventTask: Task<Void, Never>?
     private var acceptTask: Task<Void, Never>?
-    private var pendingAdmissions: [UUID: Task<Void, Never>] = [:]
+    private var pendingAdmissions: [UUID: PendingAdmission] = [:]
     private var currentGeneration: UInt64?
 
     public init(
@@ -51,15 +54,22 @@ public actor CmxIrohEndpointServer {
     }
 
     /// Cancels accepts and pending admissions without deactivating the shared endpoint.
-    public func stop() {
+    public func stop() async {
         eventTask?.cancel()
         eventTask = nil
         acceptTask?.cancel()
         acceptTask = nil
         currentGeneration = nil
-        let tasks = pendingAdmissions.values
+        let admissions = pendingAdmissions.values
         pendingAdmissions.removeAll()
-        for task in tasks { task.cancel() }
+        for admission in admissions {
+            admission.handlerTask.cancel()
+            admission.deadlineTask.cancel()
+            await admission.connection.close(
+                errorCode: 1,
+                reason: "server_stopped"
+            )
+        }
     }
 
     /// Whether `generation` is still the endpoint accepted by this server.
@@ -73,12 +83,17 @@ public actor CmxIrohEndpointServer {
             acceptTask?.cancel()
             acceptTask = nil
             currentGeneration = nil
+            await cancelAdmissions(exceptGeneration: nil, reason: "endpoint_inactive")
             return
         }
         guard currentGeneration != snapshot.runtimeGeneration || acceptTask == nil else {
             return
         }
         acceptTask?.cancel()
+        await cancelAdmissions(
+            exceptGeneration: snapshot.runtimeGeneration,
+            reason: "stale_generation"
+        )
         guard let endpoint = try? await supervisor.activeEndpoint() else { return }
         currentGeneration = snapshot.runtimeGeneration
         let generation = snapshot.runtimeGeneration
@@ -120,30 +135,67 @@ public actor CmxIrohEndpointServer {
         }
         let id = UUID()
         let handler = handler
+        let handlerTask = Task { [weak self] in
+            do {
+                try await handler(connection, generation)
+                await self?.finishAdmission(id, error: nil)
+            } catch {
+                await self?.finishAdmission(id, error: error)
+            }
+        }
         let clock = clock
         let deadline = clock.now().addingTimeInterval(admissionTimeout)
-        pendingAdmissions[id] = Task { [weak self] in
+        let deadlineTask = Task { [weak self] in
             do {
-                try await withThrowingTaskGroup(of: Void.self) { group in
-                    group.addTask {
-                        try await handler(connection, generation)
-                    }
-                    group.addTask {
-                        try await clock.sleep(until: deadline)
-                        try Task.checkCancellation()
-                        throw AdmissionError.timedOut
-                    }
-                    _ = try await group.next()
-                    group.cancelAll()
-                }
-            } catch {
-                await connection.close(errorCode: 1, reason: "admission_failed")
-            }
-            await self?.finishAdmission(id)
+                try await clock.sleep(until: deadline)
+                try Task.checkCancellation()
+                await self?.timeOutAdmission(id)
+            } catch {}
+        }
+        pendingAdmissions[id] = PendingAdmission(
+            generation: generation,
+            connection: connection,
+            handlerTask: handlerTask,
+            deadlineTask: deadlineTask
+        )
+    }
+
+    private func finishAdmission(_ id: UUID, error: (any Error)?) async {
+        guard let admission = pendingAdmissions.removeValue(forKey: id) else {
+            return
+        }
+        admission.deadlineTask.cancel()
+        if error != nil {
+            await admission.connection.close(
+                errorCode: 1,
+                reason: "admission_failed"
+            )
         }
     }
 
-    private func finishAdmission(_ id: UUID) {
-        pendingAdmissions[id] = nil
+    private func timeOutAdmission(_ id: UUID) async {
+        guard let admission = pendingAdmissions.removeValue(forKey: id) else {
+            return
+        }
+        admission.handlerTask.cancel()
+        await admission.connection.close(
+            errorCode: 1,
+            reason: "admission_timeout"
+        )
+    }
+
+    private func cancelAdmissions(
+        exceptGeneration retainedGeneration: UInt64?,
+        reason: String
+    ) async {
+        let stale = pendingAdmissions.filter { _, admission in
+            admission.generation != retainedGeneration
+        }
+        for id in stale.keys { pendingAdmissions[id] = nil }
+        for admission in stale.values {
+            admission.handlerTask.cancel()
+            admission.deadlineTask.cancel()
+            await admission.connection.close(errorCode: 1, reason: reason)
+        }
     }
 }
