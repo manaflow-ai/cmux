@@ -4231,8 +4231,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         includeScrollback: Bool,
         removeWhenEmpty: Bool = false
     ) -> Bool {
-        let plan = TerminationResumeIndexCoordinator.savePlan(
-            for: terminationResumeIndexCoordinator.current()
+        let plan = TerminationResumeIndexSavePlan.resolve(
+            terminationResumeIndexCoordinator.current()
         )
         if plan.usesCoreSnapshotFallback {
             StartupBreadcrumbLog.append("session.save.degraded", fields: [

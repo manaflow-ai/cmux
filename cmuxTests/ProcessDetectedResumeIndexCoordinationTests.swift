@@ -190,7 +190,7 @@ struct ProcessDetectedResumeIndexCoordinationTests {
         let workspace = try #require(manager.selectedWorkspace)
         let panelId = try #require(workspace.focusedPanelId)
 
-        let plan = TerminationResumeIndexCoordinator.savePlan(for: nil)
+        let plan = TerminationResumeIndexSavePlan.resolve(nil)
         let snapshot = try #require(app.debugBuildSessionSnapshotForTesting(
             includeScrollback: false,
             surfaceResumeBindingIndex: plan.resumeIndexes.surfaceResumeBindingIndex

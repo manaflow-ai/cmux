@@ -3,11 +3,6 @@ import Foundation
 /// Owns the one fresh process-index result used throughout a confirmed termination.
 @MainActor
 final class TerminationResumeIndexCoordinator {
-    struct SavePlan {
-        let resumeIndexes: ProcessDetectedResumeIndexes
-        let usesCoreSnapshotFallback: Bool
-    }
-
     private typealias PendingLoad = (
         id: UUID,
         task: Task<ProcessDetectedResumeIndexes?, Never>
@@ -52,20 +47,6 @@ final class TerminationResumeIndexCoordinator {
         completed ?? sharedIndex.currentResumeIndexesSchedulingRefresh()
     }
 
-    static func savePlan(
-        for resumeIndexes: ProcessDetectedResumeIndexes?
-    ) -> SavePlan {
-        if let resumeIndexes {
-            return SavePlan(resumeIndexes: resumeIndexes, usesCoreSnapshotFallback: false)
-        }
-        return SavePlan(
-            resumeIndexes: ProcessDetectedResumeIndexes(
-                restorableAgentIndex: .empty,
-                surfaceResumeBindingIndex: .empty
-            ),
-            usesCoreSnapshotFallback: true
-        )
-    }
 }
 
 extension AppDelegate {
