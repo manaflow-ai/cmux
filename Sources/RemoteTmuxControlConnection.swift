@@ -48,6 +48,7 @@ final class RemoteTmuxControlConnection {
     private(set) var sessionId: Int?
     var windowsByID: [Int: RemoteTmuxWindow] = [:]
     var windowOrder: [Int] = []
+    var publishedWindowIdByPane: [Int: Int] = [:]
     var activePaneByWindow: [Int: Int] = [:]
     var paneOutputByteCounts: [Int: Int] = [:]
     var totalOutputBytes = 0
@@ -733,6 +734,7 @@ final class RemoteTmuxControlConnection {
                 }
             }
             activePaneByWindow[id] = nil
+            removePublishedPaneOwnership(windowId: id)
             windowsByID[id] = nil
             windowTitleRowsVisible[id] = nil
             windowOrder.removeAll { $0 == id }

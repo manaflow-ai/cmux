@@ -18,7 +18,7 @@ extension RemoteTmuxWindowMirror {
         return sendControlCommand("send-keys -t %\(tmuxPaneID) \(key)") ? .sent : .rejected
     }
 
-    private static func tmuxKeyName(_ raw: String) -> String? {
+    static func tmuxKeyName(_ raw: String) -> String? {
         let normalized = raw.lowercased().replacingOccurrences(of: "+", with: "-")
         let aliases: [String: String] = [
             "enter": "Enter", "return": "Enter", "tab": "Tab",

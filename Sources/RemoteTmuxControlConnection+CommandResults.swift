@@ -124,6 +124,7 @@ extension RemoteTmuxControlConnection {
                 // only by its rects reply. Verified entries for surviving
                 // windows stay as-is until then.
                 windowsByID = windowsByID.filter { liveIDs.contains($0.key) }
+                prunePublishedPaneOwnership(liveWindowIds: liveIDs)
                 pendingLayouts = pendingLayouts.filter { liveIDs.contains($0.key) }
                 // A population that starts from an empty table (first attach,
                 // reconnect reseed after every window closed) publishes

@@ -17,9 +17,9 @@ import Testing
 
         let originalPanel = try #require(harness.singlePanePanel(tmuxPaneID: 11))
         let originalSurfaceID = originalPanel.id
-        let originalPaneID = try #require(
-            harness.workspace.paneId(forPanelId: originalSurfaceID)
-        )
+        let originalPaneID = PaneID(id: try #require(
+            harness.controlPaneID(surfaceID: originalSurfaceID)
+        ))
 
         try harness.publishLayout(
             "abcd,80x24,0,0[80x12,0,0,11,80x11,0,13,22]",
@@ -175,10 +175,64 @@ import Testing
         #expect(addedControlID != editorControlID)
         #expect(addedControlID != logsControlID)
     }
+
+    @Test(
+        "cross-window pane moves preserve identity in either publication order",
+        arguments: [false, true]
+    )
+    func crossWindowPaneMovesPreserveIdentity(destinationFirst: Bool) throws {
+        let harness = try Harness(
+            initialWindowLines: [
+                "@1 f92f,80x24,0,0[80x12,0,0,11,80x11,0,13,22] "
+                    + "f92f,80x24,0,0[80x12,0,0,11,80x11,0,13,22] [] editor",
+                "@2 abcd,80x24,0,0,44 abcd,80x24,0,0,44 [] logs",
+            ],
+            initialRectsByWindow: [
+                1: ["%11 0 0 80 12 1 off :zsh", "%22 0 13 80 11 0 off :zsh"],
+                2: ["%44 0 0 80 24 1 off :zsh"],
+            ]
+        )
+        defer { harness.tearDown() }
+
+        let sourceMirror = try #require(harness.windowMirror(windowID: 1))
+        let oldSurfaceID = try #require(sourceMirror.panel(forPane: 22)?.id)
+        let stablePaneID = try #require(harness.controlPaneID(surfaceID: oldSurfaceID))
+        weak var oldPanel = sourceMirror.panel(forPane: 22)
+
+        let source = Harness.LayoutUpdate(
+            windowID: 1,
+            layout: "beef,80x24,0,0,11",
+            rects: ["%11 0 0 80 24 1 off :zsh"]
+        )
+        let destination = Harness.LayoutUpdate(
+            windowID: 2,
+            layout: "cafe,80x24,0,0[80x12,0,0,44,80x11,0,13,22]",
+            rects: ["%44 0 0 80 12 1 off :zsh", "%22 0 13 80 11 0 off :zsh"]
+        )
+        try harness.publishLayouts(destinationFirst ? [destination, source] : [source, destination])
+
+        let destinationMirror = try #require(harness.windowMirror(windowID: 2))
+        let newSurfaceID = try #require(destinationMirror.panel(forPane: 22)?.id)
+        #expect(newSurfaceID != oldSurfaceID)
+        #expect(harness.controlPaneID(surfaceID: oldSurfaceID) == nil)
+        #expect(harness.controlPaneID(surfaceID: newSurfaceID) == stablePaneID)
+        #expect(harness.sessionMirror.controlPaneID(forPane: 22)?.id == stablePaneID)
+        #expect(oldPanel == nil)
+        let paneIDs = TerminalController.shared
+            .controlPaneList(workspace: harness.workspace, tabManager: harness.manager)
+            .panes.map(\.paneID)
+        #expect(Set(paneIDs).count == paneIDs.count)
+    }
 }
 
 @MainActor
 private final class Harness {
+    struct LayoutUpdate {
+        let windowID: Int
+        let layout: String
+        let rects: [String]
+    }
+
     let connection: RemoteTmuxControlConnection
     let writer: RemoteTmuxControlPipeWriter
     let pipe: Pipe
@@ -280,6 +334,28 @@ private final class Harness {
         connection.handleMessageForTesting(
             .commandResult(commandNumber: 0, lines: rects, isError: false)
         )
+    }
+
+    func publishLayouts(_ updates: [LayoutUpdate]) throws {
+        drainCommandsBeforeLayout()
+        var parser = RemoteTmuxControlStreamParser()
+        for update in updates {
+            let line = "%layout-change @\(update.windowID) \(update.layout) \(update.layout) *\r\n"
+            let message = try #require(parser.feed(Data(line.utf8)).only)
+            connection.handleMessageForTesting(message)
+        }
+        let rectsByWindow = Dictionary(uniqueKeysWithValues: updates.map { ($0.windowID, $0.rects) })
+        while let first = connection.pendingCommandKindsForTesting.first {
+            let lines: [String]
+            if case .paneRects(let windowID, _) = first {
+                lines = rectsByWindow[windowID] ?? []
+            } else {
+                lines = []
+            }
+            connection.handleMessageForTesting(
+                .commandResult(commandNumber: 0, lines: lines, isError: false)
+            )
+        }
     }
 
     func tearDown() {

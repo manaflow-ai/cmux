@@ -320,7 +320,7 @@ struct RemoteTmuxMirrorCLIObservabilityTests {
         #expect(TerminalController.shared.v2ResolveHandleRef(paneRef) == paneID)
         #expect(TerminalController.shared.v2ResolveHandleRef(surfaceRef) == surfaceID)
 
-        harness.mirror.teardown()
+        harness.teardownMirror()
 
         #expect(TerminalController.shared.v2ResolveHandleRef(paneRef) == nil)
         #expect(TerminalController.shared.v2ResolveHandleRef(surfaceRef) == nil)
@@ -334,6 +334,7 @@ struct RemoteTmuxMirrorCLIObservabilityTests {
         let outerPanelID: UUID
         let nonMirrorPanelID: UUID?
         let peerSurfaceID: UUID?
+        let controlPaneIDs: [Int: PaneID]
         let mirror: RemoteTmuxWindowMirror
 
         init(
@@ -379,17 +380,14 @@ struct RemoteTmuxMirrorCLIObservabilityTests {
                     RemoteTmuxLayoutNode(width: 39, height: 24, x: 41, y: 0, content: .pane(22)),
                 ])
             )
+            let paneIDs = [11: PaneID(), 22: PaneID()]
+            controlPaneIDs = paneIDs
             mirror = RemoteTmuxWindowMirror(
                 windowId: 3,
                 panelId: outerPanelID,
                 connection: connection,
                 layout: layout,
-                onControlPaneRemoved: { paneID, surfaceID in
-                    TerminalController.shared.cleanupSurfaceState(
-                        surfaceIds: [surfaceID],
-                        paneIds: [paneID.id]
-                    )
-                },
+                controlPaneID: { [paneIDs] in paneIDs[$0] },
                 makePanel: { [workspace] _ in
                     workspace.makeRemoteTmuxPanePanel(onInput: { _ in })
                 }
@@ -415,12 +413,20 @@ struct RemoteTmuxMirrorCLIObservabilityTests {
         func tearDown() {
             workspace.setRemoteTmuxWindowMirror(nil, forPanelId: outerPanelID)
             workspace.isRemoteTmuxMirror = false
-            mirror.teardown()
+            teardownMirror()
             let identifier = "cmux.main.\(windowID.uuidString)"
             if let window = NSApp.windows.first(where: { $0.identifier?.rawValue == identifier }) {
                 window.performClose(nil)
                 RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
             }
+        }
+
+        func teardownMirror() {
+            TerminalController.shared.cleanupSurfaceState(
+                surfaceIds: mirror.controlPanes().map(\.panel.id),
+                paneIds: controlPaneIDs.values.map(\.id)
+            )
+            mirror.teardown()
         }
     }
 }

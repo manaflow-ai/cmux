@@ -258,7 +258,7 @@ extension TerminalController: ControlPaneContext {
         }
 
         if panelType == .terminal {
-            let remoteTarget: Workspace.RemoteTmuxControlPaneLocation?
+            let remoteTarget: RemoteTmuxControlPaneLocation?
             if let requestedSurfaceID = inputs.requestedSourceSurfaceID {
                 switch ws.remoteTmuxControlSurfaceTarget(surfaceID: requestedSurfaceID) {
                 case .pane(let location):
@@ -281,10 +281,7 @@ extension TerminalController: ControlPaneContext {
                     initialDividerPosition: initialDividerPosition
                 )
                 guard unsupported.isEmpty else { return .mirrorUnsupportedOptions(unsupported) }
-                guard remoteTarget.mirror.requestSplit(
-                    fromPane: remoteTarget.pane.tmuxPaneID,
-                    vertical: orientation == .vertical
-                ) else {
+                guard remoteTarget.requestSplit(vertical: orientation == .vertical) else {
                     return .createFailed
                 }
                 v2MaybeFocusWindow(for: tabManager)
