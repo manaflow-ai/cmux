@@ -86,11 +86,14 @@ extension Workspace {
             let baseTitle = panelTitles[panelId] ?? panel.displayTitle
             let resolvedTitle = resolvedPanelTitle(panelId: panelId, fallback: baseTitle)
             let titleUpdate: String? = existing.title == resolvedTitle ? nil : resolvedTitle
-            bonsplitController.updateTab(
-                tabId,
-                title: titleUpdate,
-                hasCustomTitle: panelCustomTitles[panelId] != nil
-            )
+            let hasCustomTitle = panelCustomTitles[panelId] != nil
+            if titleUpdate != nil || existing.hasCustomTitle != hasCustomTitle {
+                bonsplitController.updateTab(
+                    tabId,
+                    title: titleUpdate,
+                    hasCustomTitle: hasCustomTitle
+                )
+            }
         }
 
         if !isRemoteTmuxMirror, panels.count == 1, customTitle == nil {

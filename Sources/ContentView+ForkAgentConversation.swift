@@ -158,7 +158,7 @@ extension ContentView {
         supportedRemoteContextsByPanelKey: [String: Bool] = [:],
         fallbackSnapshot: SessionRestorableAgentSnapshot?,
         isRemoteTerminal: Bool = false,
-        allowsAgentContinuation: Bool = true
+        allowsAgentContinuation: Bool
     ) -> Bool {
         guard allowsAgentContinuation else { return false }
         let panelKey = commandPaletteForkableAgentPanelKey(
@@ -190,7 +190,7 @@ extension ContentView {
         snapshotFingerprintsByPanelKey: [String: String],
         fallbackSnapshot: SessionRestorableAgentSnapshot?,
         cachedSnapshot: SessionRestorableAgentSnapshot?,
-        allowsAgentContinuation: Bool = true
+        allowsAgentContinuation: Bool
     ) -> SessionRestorableAgentSnapshot? {
         commandPaletteImmediateForkExecutionSnapshotSelection(
             workspaceId: workspaceId,
@@ -214,7 +214,7 @@ extension ContentView {
         snapshotFingerprintsByPanelKey: [String: String],
         fallbackSnapshot: SessionRestorableAgentSnapshot?,
         cachedSnapshot: SessionRestorableAgentSnapshot?,
-        allowsAgentContinuation: Bool = true
+        allowsAgentContinuation: Bool
     ) -> CommandPaletteForkSnapshotSelection? {
         guard allowsAgentContinuation else { return nil }
         let panelKey = commandPaletteForkableAgentPanelKey(
