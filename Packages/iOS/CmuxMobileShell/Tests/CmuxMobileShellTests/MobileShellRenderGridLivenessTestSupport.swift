@@ -467,6 +467,7 @@ actor LivenessTransport: CmxByteTransport {
     }
 
     func send(_ data: Data) async throws {
+        guard !isClosed else { throw MobileShellConnectionError.connectionClosed }
         var buffer = data
         let payloads = try MobileSyncFrameCodec.decodeFrames(from: &buffer)
         for payload in payloads {

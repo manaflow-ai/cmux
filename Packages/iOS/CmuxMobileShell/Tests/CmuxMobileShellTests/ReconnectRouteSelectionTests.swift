@@ -243,6 +243,37 @@ import Testing
         #expect(store.activeRoute?.kind == .iroh)
     }
 
+    @Test func foregroundResumeRedialsDeadIrohSessionBeforeUserAction() async throws {
+        let clock = TestClock()
+        let router = LivenessHostRouter()
+        let box = TransportBox()
+        let store = try await makeReconnectStore(
+            routes: [try iroh()],
+            runtime: LivenessTestRuntime(
+                transportFactory: LivenessTransportFactory(router: router, box: box),
+                now: { clock.now },
+                supportedRouteKinds: [.iroh]
+            )
+        )
+        #expect(await store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
+        let firstTransport = try #require(box.get())
+        await firstTransport.close()
+
+        store.suspendForegroundRefresh()
+        clock.advance(by: 61)
+        store.resumeForegroundRefresh()
+
+        let recovered = try await pollUntil(attempts: 100) {
+            guard let current = box.get() else { return false }
+            let workspaceListCount = await router.count(of: "mobile.workspace.list")
+            return current !== firstTransport
+                && store.connectionState == .connected
+                && workspaceListCount >= 2
+        }
+        #expect(recovered)
+        #expect(store.activeRoute?.kind == .iroh)
+    }
+
     private func magicDNS(_ port: Int = 50906) throws -> CmxAttachRoute {
         // A MagicDNS hostname route, advertised BEFORE the IP route by priority.
         try CmxAttachRoute(
