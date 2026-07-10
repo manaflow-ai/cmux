@@ -3,7 +3,7 @@ import Foundation
 import XCTest
 
 final class CMUXOpenCommandTests: XCTestCase {
-    private struct ProcessRunResult {
+    struct ProcessRunResult {
         let status: Int32
         let stdout: String
         let stderr: String
@@ -2289,88 +2289,6 @@ final class CMUXOpenCommandTests: XCTestCase {
         return (html, patch, params, result.stdout)
     }
 
-    private func openTypedDiffSession(payload: [String: Any], cliPath: String) throws -> String {
-        let source = try XCTUnwrap(payload["sessionSource"] as? [String: Any])
-        let token = try XCTUnwrap(payload["capabilityToken"] as? String)
-        let sidecarURL = URL(fileURLWithPath: cliPath)
-            .deletingLastPathComponent()
-            .appendingPathComponent("cmux-diff-sidecar", isDirectory: false)
-        let rootURL = URL(fileURLWithPath: "/tmp/cmux-diff-viewer-\(Darwin.getuid())", isDirectory: true)
-        let request: [String: Any] = [
-            "id": "xctest-session",
-            "version": 1,
-            "method": "sessionOpen",
-            "params": ["source": source, "capabilityToken": token],
-        ]
-        let requestData = try JSONSerialization.data(withJSONObject: request)
-        let result = runProcess(
-            executablePath: sidecarURL.path,
-            arguments: ["rpc", "--root", rootURL.path, "--cmux", cliPath],
-            environment: ProcessInfo.processInfo.environment,
-            timeout: 15,
-            stdinText: String(decoding: requestData, as: UTF8.self)
-        )
-        XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertEqual(result.status, 0, result.stderr)
-        let response = try XCTUnwrap(
-            JSONSerialization.jsonObject(with: Data(result.stdout.utf8)) as? [String: Any]
-        )
-        if let error = response["error"] as? [String: Any],
-           error["code"] as? String == "emptyDiff" {
-            return ""
-        }
-        let opened = try XCTUnwrap(response["result"] as? [String: Any])
-        XCTAssertEqual(opened["type"] as? String, "sessionOpened")
-        let value = try XCTUnwrap(opened["value"] as? [String: Any])
-        let patchRef = try XCTUnwrap(value["patch"] as? [String: Any])
-        let patchID = try XCTUnwrap(patchRef["id"] as? String)
-        let patchURL = try XCTUnwrap(URL(string: patchID))
-        let patch = try String(
-            contentsOf: rootURL.appendingPathComponent(patchURL.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))),
-            encoding: .utf8
-        )
-        if let sessionID = value["sessionId"] as? String {
-            let close: [String: Any] = [
-                "id": "xctest-session-close",
-                "version": 1,
-                "method": "sessionClose",
-                "params": ["sessionId": sessionID, "capabilityToken": token],
-            ]
-            if let closeData = try? JSONSerialization.data(withJSONObject: close) {
-                _ = runProcess(
-                    executablePath: sidecarURL.path,
-                    arguments: ["rpc", "--root", rootURL.path, "--cmux", cliPath],
-                    environment: ProcessInfo.processInfo.environment,
-                    timeout: 15,
-                    stdinText: String(decoding: closeData, as: UTF8.self)
-                )
-            }
-        }
-        return patch
-    }
-
-    private func resolvedDiffViewerHTMLFileURL(_ fileURL: URL, from params: [String: Any]) throws -> URL {
-        var current = fileURL
-        for _ in 0..<4 {
-            let html = try String(contentsOf: current, encoding: .utf8)
-            guard let redirectURL = Self.diffViewerRedirectURL(from: html) else {
-                return current
-            }
-            current = try diffViewerHTMLFileURL(for: redirectURL, from: params)
-        }
-        return current
-    }
-
-    private static func diffViewerRedirectURL(from html: String) -> String? {
-        let marker = "data-cmux-diff-redirect=\""
-        guard let start = html.range(of: marker)?.upperBound else { return nil }
-        let tail = html[start...]
-        guard let end = tail.firstIndex(of: "\"") else { return nil }
-        return String(tail[..<end])
-            .replacingOccurrences(of: "&amp;", with: "&")
-            .replacingOccurrences(of: "&quot;", with: "\"")
-    }
-
     private func diffViewerHTMLFileURL(from params: [String: Any]) throws -> URL {
         let rawURL = try XCTUnwrap(params["url"] as? String)
         return try diffViewerHTMLFileURL(for: rawURL, from: params)
@@ -2405,7 +2323,7 @@ final class CMUXOpenCommandTests: XCTestCase {
         return URL(fileURLWithPath: filePath, isDirectory: false)
     }
 
-    private func diffViewerHTMLFileURL(for rawURL: String, from params: [String: Any]) throws -> URL {
+    func diffViewerHTMLFileURL(for rawURL: String, from params: [String: Any]) throws -> URL {
         let viewerURL = try XCTUnwrap(URL(string: rawURL))
         if viewerURL.scheme == "http" {
             XCTAssertEqual(viewerURL.host, "127.0.0.1")
@@ -2651,7 +2569,7 @@ final class CMUXOpenCommandTests: XCTestCase {
         )
     }
 
-    private func runProcess(
+    func runProcess(
         executablePath: String,
         arguments: [String],
         environment: [String: String],

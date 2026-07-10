@@ -181,7 +181,7 @@ extension CMUXCLI {
         var message: String
     }
 
-    private struct DiffSourceContext {
+    struct DiffSourceContext {
         var workspaceId: String?
         var surfaceId: String?
         var sessionId: String?
@@ -671,7 +671,7 @@ extension CMUXCLI {
         }
     }
 
-    private enum DiffSource: CaseIterable, Equatable {
+    enum DiffSource: CaseIterable, Equatable {
         case unstaged
         case staged
         case branch
@@ -740,24 +740,6 @@ extension CMUXCLI {
             case .branch: return CMUXDiffViewerLocalization.string("diffViewer.empty.branch", defaultValue: "No branch changes to diff.")
             case .lastTurn: return CMUXDiffViewerLocalization.string("diffViewer.empty.lastTurn", defaultValue: "No last-turn changes to diff.")
             }
-        }
-    }
-
-    private func diffSessionSourcePayload(
-        source: DiffSource,
-        context: DiffSourceContext
-    ) -> [String: Any]? {
-        guard let repoRoot = context.repoRoot else { return nil }
-        switch source {
-        case .unstaged:
-            return ["kind": "unstaged", "repoRoot": repoRoot]
-        case .staged:
-            return ["kind": "staged", "repoRoot": repoRoot]
-        case .branch:
-            guard let baseRef = context.branchBaseRef, !baseRef.isEmpty else { return nil }
-            return ["kind": "branch", "repoRoot": repoRoot, "baseRef": baseRef]
-        case .lastTurn:
-            return nil
         }
     }
 
@@ -7810,89 +7792,6 @@ extension CMUXCLI {
             return false
         }
         return targetDate >= sourceDate
-    }
-
-    private func diffViewerBundledAssetDirectory(runtime: URL? = nil) throws -> URL {
-        let candidates = diffViewerBundledAssetDirectoryCandidates(runtime: runtime)
-        if let directory = candidates.first {
-            return directory
-        }
-        throw CLIError(message: "Bundled diff viewer assets not found")
-    }
-
-    private func diffViewerBundledAssetDirectoryCandidates(runtime: URL? = nil) -> [URL] {
-        let fileManager = FileManager.default
-        var candidates: [URL] = []
-        var seen: Set<String> = []
-
-        func appendIfExisting(_ url: URL?) {
-            guard let url else { return }
-            let standardized = url.standardizedFileURL
-            guard seen.insert(standardized.path).inserted else { return }
-            var isDirectory: ObjCBool = false
-            guard fileManager.fileExists(atPath: standardized.path, isDirectory: &isDirectory),
-                  isDirectory.boolValue else {
-                return
-            }
-            let diffsAsset = standardized.appendingPathComponent("diffs.mjs", isDirectory: false)
-            let treesAsset = standardized.appendingPathComponent("trees.mjs", isDirectory: false)
-            guard fileManager.fileExists(atPath: diffsAsset.path),
-                  fileManager.fileExists(atPath: treesAsset.path) else {
-                return
-            }
-            candidates.append(standardized)
-        }
-
-        if let executableURL = diffViewerExecutableURL(for: runtime) {
-            let execDir = executableURL.deletingLastPathComponent().standardizedFileURL
-            for relativePath in [
-                "markdown-viewer/diff-viewer",
-                "../markdown-viewer/diff-viewer",
-                "../../Resources/markdown-viewer/diff-viewer",
-                "../../../Contents/Resources/markdown-viewer/diff-viewer"
-            ] {
-                appendIfExisting(execDir.appendingPathComponent(relativePath, isDirectory: true).standardizedFileURL)
-            }
-
-            var current = execDir
-            for _ in 0..<6 {
-                if current.pathExtension == "app" {
-                    appendIfExisting(
-                        current
-                            .appendingPathComponent("Contents", isDirectory: true)
-                            .appendingPathComponent("Resources", isDirectory: true)
-                            .appendingPathComponent("markdown-viewer", isDirectory: true)
-                            .appendingPathComponent("diff-viewer", isDirectory: true)
-                    )
-                    break
-                }
-                let projectMarker = current.appendingPathComponent("cmux.xcodeproj/project.pbxproj", isDirectory: false)
-                let repoAssetDirectory = current
-                    .appendingPathComponent("Resources", isDirectory: true)
-                    .appendingPathComponent("markdown-viewer", isDirectory: true)
-                    .appendingPathComponent("diff-viewer", isDirectory: true)
-                if fileManager.fileExists(atPath: projectMarker.path) {
-                    appendIfExisting(repoAssetDirectory)
-                    break
-                }
-                current = current.deletingLastPathComponent().standardizedFileURL
-            }
-        }
-
-        appendIfExisting(
-            Bundle.main.resourceURL?
-                .appendingPathComponent("markdown-viewer", isDirectory: true)
-                .appendingPathComponent("diff-viewer", isDirectory: true)
-        )
-
-        let devRelative = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("Resources", isDirectory: true)
-            .appendingPathComponent("markdown-viewer", isDirectory: true)
-            .appendingPathComponent("diff-viewer", isDirectory: true)
-        appendIfExisting(devRelative)
-        return candidates
     }
 
     private func jsonScriptLiteral(_ object: [String: Any]) throws -> String {

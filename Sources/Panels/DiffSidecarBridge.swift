@@ -44,6 +44,11 @@ final class DiffSidecarBridge: NSObject, WKScriptMessageHandlerWithReply {
         )
     }
 
+    static func installViewerBridges(on userContentController: WKUserContentController) {
+        DiffCommentsBridge.installIfNeeded(on: userContentController)
+        installIfNeeded(on: userContentController)
+    }
+
     func userContentController(
         _ userContentController: WKUserContentController,
         didReceive message: WKScriptMessage,

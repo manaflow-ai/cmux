@@ -288,3 +288,17 @@ extension BrowserPanel {
         return true
     }
 }
+
+extension CmuxDiffViewerURLSchemeHandler {
+    func allowsNavigation(to url: URL) -> Bool {
+        guard url.scheme == Self.scheme,
+              url.user == nil,
+              url.password == nil,
+              url.port == nil,
+              url.query == nil,
+              url.fragment == nil else {
+            return false
+        }
+        return registeredFile(for: url) != nil
+    }
+}
