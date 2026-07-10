@@ -20,7 +20,7 @@ struct CmxIrohHostRuntimeTests {
             factory: factory,
             broker: broker,
             configuration: fixture.configuration,
-            handleTransport: { transport, _, _ in await transport.close() },
+            handleTransport: { session, _ in await session.close() },
             handleDeactivation: { bindingID in
                 await deactivations.record(bindingID)
             }
@@ -65,7 +65,7 @@ struct CmxIrohHostRuntimeTests {
             configuration: fixture.configuration(
                 bindPolicy: .required(bindAddress)
             ),
-            handleTransport: { transport, _, _ in await transport.close() }
+            handleTransport: { session, _ in await session.close() }
         )
 
         try await runtime.start()
@@ -95,7 +95,7 @@ struct CmxIrohHostRuntimeTests {
             broker: broker,
             configuration: fixture.configuration(cachedHostPolicy: cachedPolicy),
             now: { cachedFixture.now },
-            handleTransport: { transport, _, _ in await transport.close() },
+            handleTransport: { session, _ in await session.close() },
             handleBinding: { _, _, _ in await bindings.record() }
         )
 
@@ -131,7 +131,7 @@ struct CmxIrohHostRuntimeTests {
                 cachedHostPolicy: try cachedFixture.policy()
             ),
             now: { cachedFixture.now },
-            handleTransport: { transport, _, _ in await transport.close() }
+            handleTransport: { session, _ in await session.close() }
         )
 
         do {
@@ -172,7 +172,7 @@ struct CmxIrohHostRuntimeTests {
                 cachedHostPolicy: try cachedFixture.policy()
             ),
             now: { cachedFixture.now },
-            handleTransport: { transport, _, _ in await transport.close() },
+            handleTransport: { session, _ in await session.close() },
             handleBinding: { _, _, _ in await bindings.record() }
         )
 
@@ -203,7 +203,7 @@ struct CmxIrohHostRuntimeTests {
                 )
             ),
             now: { cachedFixture.now },
-            handleTransport: { transport, _, _ in await transport.close() }
+            handleTransport: { session, _ in await session.close() }
         )
 
         await #expect(throws: CmxIrohGrantVerifierError.invalidSignature) {
@@ -236,7 +236,7 @@ struct CmxIrohHostRuntimeTests {
                 cachedHostPolicy: try cachedFixture.policy()
             ),
             now: { cachedFixture.now },
-            handleTransport: { transport, _, _ in await transport.close() }
+            handleTransport: { session, _ in await session.close() }
         )
 
         await #expect(throws: CmxIrohHostRuntimeError.invalidLocalBinding) {
@@ -268,7 +268,7 @@ struct CmxIrohHostRuntimeTests {
                 cachedHostPolicy: try cachedFixture.policy()
             ),
             now: { cachedFixture.now },
-            handleTransport: { transport, _, _ in await transport.close() }
+            handleTransport: { session, _ in await session.close() }
         )
 
         await #expect(throws: CmxIrohHostRuntimeError.routeContractMismatch) {
@@ -300,7 +300,7 @@ struct CmxIrohHostRuntimeTests {
                 cachedHostPolicy: try cachedFixture.policy()
             ),
             now: { cachedFixture.now },
-            handleTransport: { transport, _, _ in await transport.close() }
+            handleTransport: { session, _ in await session.close() }
         )
 
         await #expect(throws: CmxIrohHostRuntimeError.invalidLocalBinding) {

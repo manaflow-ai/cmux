@@ -315,10 +315,10 @@ final class MobileHostIrohRuntime {
             factory: CmxIrohLibEndpointFactory(),
             broker: broker,
             configuration: configuration,
-            handleTransport: { transport, peer, isCurrent in
+            handleTransport: { session, isCurrent in
                 await MobileHostService.acceptTransport(
-                    transport,
-                    authorization: .irohAdmission(peer),
+                    session.controlTransport,
+                    authorization: .irohAdmission(session.peer),
                     isCurrent: isCurrent
                 )
             },

@@ -169,6 +169,59 @@ struct CmxIrohServerSessionTests {
         #expect(buffers.last == Data("event".utf8))
         #expect(await laneSend.observedPriorities() == [42])
     }
+
+    @Test
+    func admittedHostValueKeepsControlAndIndependentLanesReachable() async throws {
+        let fixture = try ServerFixture(decision: .accepted)
+        let terminalID = try CmxIrohResourceID("terminal-1")
+        let terminalReceive = TestIrohReceiveStream(
+            buffer: try fixture.headerCodec.encode(
+                CmxIrohStreamHeader(
+                    lane: .terminal(resourceID: terminalID, cursor: nil)
+                )
+            ) + Data("terminal".utf8)
+        )
+        let eventSend = TestIrohSendStream()
+        let connection = TestIrohConnection(
+            remoteIdentity: fixture.peerID,
+            bidirectionalStreams: [
+                fixture.controlStream,
+                CmxIrohBidirectionalStream(
+                    receiveStream: terminalReceive,
+                    sendStream: TestIrohSendStream()
+                ),
+                CmxIrohBidirectionalStream(
+                    receiveStream: TestIrohReceiveStream(buffer: Data()),
+                    sendStream: eventSend
+                ),
+            ]
+        )
+        let server = try CmxIrohServerSession(
+            connection: connection,
+            authorizer: fixture.authorizer
+        )
+        let peer = try await server.admit()
+        let admitted = CmxIrohAdmittedServerSession(peer: peer, session: server)
+
+        try await admitted.controlTransport.connect()
+        #expect(try await admitted.controlTransport.receive() == Data("rpc".utf8))
+        let terminal = try await admitted.acceptBidirectionalLane()
+        #expect(terminal.lane == .terminal(resourceID: terminalID, cursor: nil))
+        #expect(
+            try await terminal.stream.receiveStream.receive(maximumByteCount: 64)
+                == Data("terminal".utf8)
+        )
+        let events = try await admitted.openSendLane(
+            .serverEvents(cursor: 9),
+            priority: 50
+        )
+        try await events.send(Data("event".utf8))
+        #expect(await eventSend.observedPriorities() == [50])
+        #expect(await eventSend.observedSentBuffers().count == 2)
+
+        await admitted.close()
+        #expect(await connection.observedCloseCallCount() == 1)
+    }
 }
 
 private struct ServerFixture {

@@ -1,12 +1,10 @@
-public import CMUXMobileCore
 public import Foundation
 
 /// Owns one account-scoped Mac endpoint, broker binding, relay rotation, and accept loop.
 public actor CmxIrohHostRuntime {
     public typealias CurrentGeneration = @Sendable () async -> Bool
     public typealias TransportHandler = @Sendable (
-        _ transport: any CmxByteTransport,
-        _ peer: CmxIrohAdmittedPeer,
+        _ session: CmxIrohAdmittedServerSession,
         _ isCurrent: @escaping CurrentGeneration
     ) async -> Void
     public typealias BindingHandler = @Sendable (
@@ -511,14 +509,16 @@ public actor CmxIrohHostRuntime {
             await session.close()
             throw CmxIrohHostRuntimeError.superseded
         }
-        let transport = CmxIrohServerByteTransport(session: session)
         let isCurrent: CurrentGeneration = { [weak self] in
             await self?.isCurrent(
                 revision: revision,
                 runtimeGeneration: runtimeGeneration
             ) ?? false
         }
-        await handleTransport(transport, peer, isCurrent)
+        await handleTransport(
+            CmxIrohAdmittedServerSession(peer: peer, session: session),
+            isCurrent
+        )
     }
 
     private func isCurrent(revision: UInt64, runtimeGeneration: UInt64) async -> Bool {
