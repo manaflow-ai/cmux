@@ -136,6 +136,9 @@ jobs:
       - name: Validate external TestFlight group assignment helper
         run: python3 tests/test_ios_testflight_external_distribution.py
 
+      - name: Validate final iOS App Store IPA identity gate
+        run: python3 tests/test_ios_app_store_identity.py
+
       - name: Validate cmux scheme test configuration
         run: ./tests/test_ci_scheme_testaction_debug.sh
 
