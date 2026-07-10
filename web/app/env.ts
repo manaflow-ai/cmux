@@ -21,8 +21,11 @@ const isVercelNonPreviewDeployment =
   process.env.VERCEL === "1" &&
   typeof process.env.VERCEL_ENV === "string" &&
   process.env.VERCEL_ENV !== "preview";
-const requireVercelNonPreviewValue = (name: string): z.ZodType<string | undefined> =>
-  z.string().min(1).optional().superRefine((value, context) => {
+const requireVercelNonPreviewValue = (
+  name: string,
+  schema: z.ZodString = z.string().min(1),
+): z.ZodType<string | undefined> =>
+  schema.optional().superRefine((value, context) => {
     if (isVercelNonPreviewDeployment && !value) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
@@ -97,13 +100,34 @@ export const env = createEnv({
     // Iroh trust broker. The Services API key deliberately has no TypeScript
     // env entry: only the isolated Rust relay minter may hold it. These values
     // are server-only and routes fail closed when an operation's key is absent.
-    CMUX_IROH_LAN_DISCOVERY_SECRET_B64: z.string().max(512).regex(/^[A-Za-z0-9+/]{43,}={0,2}$/).optional(),
-    CMUX_IROH_ACCOUNT_SUBJECT_SECRET_B64: z.string().max(512).regex(/^[A-Za-z0-9+/]{43,}={0,2}$/).optional(),
-    CMUX_IROH_GRANT_SIGNING_KEY_P8: z.string().min(64).max(16_384).optional(),
-    CMUX_IROH_GRANT_SIGNING_KID: z.string().regex(/^[A-Za-z0-9._-]{1,64}$/).optional(),
-    CMUX_IROH_GRANT_VERIFICATION_KEYS_JSON: z.string().min(2).max(32_768).optional(),
-    CMUX_IROH_MINT_URL: z.string().url().optional(),
-    CMUX_IROH_MINT_HMAC_SECRET_B64: z.string().max(512).regex(/^[A-Za-z0-9+/]{43,}={0,2}$/).optional(),
+    CMUX_IROH_LAN_DISCOVERY_SECRET_B64: requireVercelNonPreviewValue(
+      "CMUX_IROH_LAN_DISCOVERY_SECRET_B64",
+      z.string().max(512).regex(/^[A-Za-z0-9+/]{43,}={0,2}$/),
+    ),
+    CMUX_IROH_ACCOUNT_SUBJECT_SECRET_B64: requireVercelNonPreviewValue(
+      "CMUX_IROH_ACCOUNT_SUBJECT_SECRET_B64",
+      z.string().max(512).regex(/^[A-Za-z0-9+/]{43,}={0,2}$/),
+    ),
+    CMUX_IROH_GRANT_SIGNING_KEY_P8: requireVercelNonPreviewValue(
+      "CMUX_IROH_GRANT_SIGNING_KEY_P8",
+      z.string().min(64).max(16_384),
+    ),
+    CMUX_IROH_GRANT_SIGNING_KID: requireVercelNonPreviewValue(
+      "CMUX_IROH_GRANT_SIGNING_KID",
+      z.string().regex(/^[A-Za-z0-9._-]{1,64}$/),
+    ),
+    CMUX_IROH_GRANT_VERIFICATION_KEYS_JSON: requireVercelNonPreviewValue(
+      "CMUX_IROH_GRANT_VERIFICATION_KEYS_JSON",
+      z.string().min(2).max(32_768),
+    ),
+    CMUX_IROH_MINT_URL: requireVercelNonPreviewValue(
+      "CMUX_IROH_MINT_URL",
+      z.string().url(),
+    ),
+    CMUX_IROH_MINT_HMAC_SECRET_B64: requireVercelNonPreviewValue(
+      "CMUX_IROH_MINT_HMAC_SECRET_B64",
+      z.string().max(512).regex(/^[A-Za-z0-9+/]{43,}={0,2}$/),
+    ),
     CMUX_IROH_RATE_LIMIT_ID: requireVercelNonPreviewValue("CMUX_IROH_RATE_LIMIT_ID"),
     CMUX_IROH_DEV_BINDING_OVERRIDE_ENABLED: z.enum(["0", "1"]).optional(),
     CMUX_IROH_DEV_BINDING_OVERRIDE_USER_IDS: z.string().max(8_192).optional(),

@@ -530,6 +530,13 @@ function validatePairGrantClaims(
   if (value.initiator.platform !== "ios" || value.acceptor.platform !== "mac") {
     throw new IrohForbiddenError({ code: "invalid_pair_grant_platforms" });
   }
+  if (
+    value.initiator.bindingId === value.acceptor.bindingId ||
+    value.initiator.deviceId === value.acceptor.deviceId ||
+    value.initiator.endpointId === value.acceptor.endpointId
+  ) {
+    throw new IrohForbiddenError({ code: "pair_grant_peers_not_distinct" });
+  }
   if (expected.initiator && !samePeer(value.initiator, expected.initiator)) {
     throw new IrohForbiddenError({ code: "pair_grant_initiator_mismatch" });
   }

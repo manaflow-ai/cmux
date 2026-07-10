@@ -1,6 +1,11 @@
 import { timingSafeEqual } from "node:crypto";
 import * as Effect from "effect/Effect";
-import { IrohRepository, IrohRepositoryLive } from "../../../../../services/iroh/repository";
+import {
+  IROH_RETENTION_MAX_DURATION_MS,
+  IROH_RETENTION_MAX_ROWS,
+  IrohRepository,
+  IrohRepositoryLive,
+} from "../../../../../services/iroh/repository";
 import { jsonResponse } from "../../../../../services/vms/routeHelpers";
 
 export const runtime = "nodejs";
@@ -28,13 +33,26 @@ async function handle(request: Request): Promise<Response> {
   }
 
   try {
-    await Effect.runPromise(
+    const startedAt = Date.now();
+    const retention = await Effect.runPromise(
       Effect.gen(function* () {
         const repository = yield* IrohRepository;
-        yield* repository.pruneExpiredStateGlobally({ now: new Date() });
+        return yield* repository.pruneExpiredStateGlobally({
+          now: new Date(),
+          maxRows: IROH_RETENTION_MAX_ROWS,
+          maxDurationMs: IROH_RETENTION_MAX_DURATION_MS,
+        });
       }).pipe(Effect.provide(IrohRepositoryLive)),
     );
-    return jsonResponse({ ok: true });
+    console.info("iroh retention cleanup completed", {
+      rows_processed: retention.rowsProcessed,
+      batches: retention.batches,
+      backlog: retention.backlog,
+      budget_exhausted: retention.budgetExhausted,
+      by_category: retention.byCategory,
+      duration_ms: Date.now() - startedAt,
+    });
+    return jsonResponse({ ok: true, retention });
   } catch {
     console.error("iroh retention cleanup failed", { failure: "database" });
     return jsonResponse({ error: "iroh_retention_failed" }, 500);

@@ -31,6 +31,26 @@ import {
 } from "./model";
 
 export const IROH_RETENTION_BATCH_SIZE = 500;
+export const IROH_RETENTION_MAX_ROWS = 10_000;
+export const IROH_RETENTION_MAX_DURATION_MS = 8_000;
+export const IROH_ACCOUNT_CHALLENGE_LIMIT = 120;
+
+export type IrohRetentionCategory =
+  | "revokedHints"
+  | "expiredHints"
+  | "expiredChallenges"
+  | "consumedChallenges"
+  | "relayAudits"
+  | "pairGrantAudits"
+  | "revokedBindings";
+
+export type IrohRetentionResult = {
+  readonly rowsProcessed: number;
+  readonly batches: number;
+  readonly backlog: boolean;
+  readonly budgetExhausted: "rows" | "time" | null;
+  readonly byCategory: Readonly<Record<IrohRetentionCategory, number>>;
+};
 
 export type IrohBindingRecord = typeof irohEndpointBindings.$inferSelect;
 export type IrohChallengeRecord = typeof irohRegistrationChallenges.$inferSelect;
@@ -90,6 +110,16 @@ export type IrohRepositoryShape = {
   }) => Effect.Effect<void, RepositoryError>;
   readonly pruneExpiredStateGlobally: (input: {
     readonly now: Date;
+    readonly maxRows?: number;
+    readonly maxDurationMs?: number;
+  }) => Effect.Effect<IrohRetentionResult, RepositoryError>;
+  readonly finalizeEndpointAttestation: (input: {
+    readonly userId: string;
+    readonly bindingId: string;
+    readonly deviceId: string;
+    readonly endpointId: string;
+    readonly identityGeneration: number;
+    readonly platform: "mac" | "ios";
   }) => Effect.Effect<void, RepositoryError>;
   readonly recordPairGrant: (input: {
     readonly userId: string;
@@ -143,6 +173,19 @@ function makeLiveRepository(): IrohRepositoryShape {
         await assertIrohUserMutationAllowed(tx, input.userId);
         await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`iroh:challenge:${input.userId}`}, 0))`);
         const tenMinutesAgo = new Date(input.now.getTime() - 10 * 60 * 1_000);
+        const [recentForAccount] = await tx
+          .select({ total: count() })
+          .from(irohRegistrationChallenges)
+          .where(and(
+            eq(irohRegistrationChallenges.userId, input.userId),
+            gt(irohRegistrationChallenges.createdAt, tenMinutesAgo),
+          ));
+        if ((recentForAccount?.total ?? 0) >= IROH_ACCOUNT_CHALLENGE_LIMIT) {
+          throw new IrohQuotaExceededError({
+            code: "challenge_account_rate_limited",
+            retryAfterSeconds: 600,
+          });
+        }
         const [recentForDevice] = await tx
           .select({ total: count() })
           .from(irohRegistrationChallenges)
@@ -530,148 +573,34 @@ function makeLiveRepository(): IrohRepositoryShape {
       });
     }),
 
-    pruneExpiredStateGlobally: (input) => repositoryEffect("prune_expired_state_globally", async () => {
-      const challengeRetentionCutoff = new Date(input.now.getTime() - 24 * 60 * 60 * 1_000);
-      const auditRetentionCutoff = new Date(input.now.getTime() - 30 * 24 * 60 * 60 * 1_000);
+    pruneExpiredStateGlobally: (input) => repositoryEffect(
+      "prune_expired_state_globally",
+      () => drainIrohRetention(input),
+    ),
+
+    finalizeEndpointAttestation: (input) => repositoryEffect("finalize_endpoint_attestation", async () => {
       await cloudDb().transaction(async (tx) => {
-        await tx.execute(sql`
-          with candidates as materialized (
-            select id
-            from iroh_endpoint_bindings
-            where revoked_at is not null
-              and path_hints_next_expiry is not null
-            order by revoked_at, id
-            limit ${IROH_RETENTION_BATCH_SIZE}
-            for update skip locked
-          )
-          update iroh_endpoint_bindings as binding
-          set path_hints = '[]'::jsonb,
-              path_hints_next_expiry = null,
-              updated_at = ${input.now.toISOString()}::timestamptz
-          from candidates
-          where binding.id = candidates.id
-        `);
-        await tx
-          .execute(sql`
-            with candidates as materialized (
-              select id
-              from iroh_endpoint_bindings
-              where revoked_at is null
-                and path_hints_next_expiry <= ${input.now.toISOString()}::timestamptz
-              order by path_hints_next_expiry, id
-              limit ${IROH_RETENTION_BATCH_SIZE}
-              for update skip locked
-            ), retained as (
-              select
-                binding.id,
-                coalesce(
-                  jsonb_agg(entry.hint order by entry.ordinality) filter (
-                    where case
-                      when jsonb_typeof(entry.hint) = 'object'
-                        and jsonb_typeof(entry.hint -> 'expires_at') = 'string'
-                        and (entry.hint ->> 'expires_at') ~ '^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$'
-                      then (entry.hint ->> 'expires_at')::timestamptz > ${input.now.toISOString()}::timestamptz
-                      else false
-                    end
-                  ),
-                  '[]'::jsonb
-                ) as path_hints
-              from candidates
-              join iroh_endpoint_bindings as binding on binding.id = candidates.id
-              left join lateral jsonb_array_elements(binding.path_hints)
-                with ordinality as entry(hint, ordinality) on true
-              group by binding.id
-            ), normalized as (
-              select
-                retained.id,
-                retained.path_hints,
-                (
-                  select min((hint ->> 'expires_at')::timestamptz)
-                  from jsonb_array_elements(retained.path_hints) as hints(hint)
-                ) as next_expiry
-              from retained
-            )
-            update iroh_endpoint_bindings as binding
-            set path_hints = normalized.path_hints,
-                path_hints_next_expiry = normalized.next_expiry,
-                updated_at = ${input.now.toISOString()}::timestamptz
-            from normalized
-            where binding.id = normalized.id
-          `);
-        await tx.execute(sql`
-          with candidates as materialized (
-            select id
-            from iroh_registration_challenges
-            where expires_at < ${challengeRetentionCutoff.toISOString()}::timestamptz
-            order by expires_at, id
-            limit ${IROH_RETENTION_BATCH_SIZE}
-            for update skip locked
-          )
-          delete from iroh_registration_challenges as challenge
-          using candidates
-          where challenge.id = candidates.id
-        `);
-        await tx.execute(sql`
-          with candidates as materialized (
-            select id
-            from iroh_registration_challenges
-            where consumed_at < ${challengeRetentionCutoff.toISOString()}::timestamptz
-            order by consumed_at, id
-            limit ${IROH_RETENTION_BATCH_SIZE}
-            for update skip locked
-          )
-          delete from iroh_registration_challenges as challenge
-          using candidates
-          where challenge.id = candidates.id
-        `);
-        await tx.execute(sql`
-          with candidates as materialized (
-            select id
-            from iroh_relay_token_issuances
-            where requested_at < ${auditRetentionCutoff.toISOString()}::timestamptz
-            order by requested_at, id
-            limit ${IROH_RETENTION_BATCH_SIZE}
-            for update skip locked
-          )
-          delete from iroh_relay_token_issuances as issuance
-          using candidates
-          where issuance.id = candidates.id
-        `);
-        await tx.execute(sql`
-          with candidates as materialized (
-            select id
-            from iroh_pair_grant_issuances
-            where expires_at < ${auditRetentionCutoff.toISOString()}::timestamptz
-            order by expires_at, id
-            limit ${IROH_RETENTION_BATCH_SIZE}
-            for update skip locked
-          )
-          delete from iroh_pair_grant_issuances as issuance
-          using candidates
-          where issuance.id = candidates.id
-        `);
-        await tx.execute(sql`
-          with candidates as materialized (
-            select binding.id
-            from iroh_endpoint_bindings as binding
-            where binding.revoked_at < ${auditRetentionCutoff.toISOString()}::timestamptz
-            and not exists (
-              select 1 from iroh_pair_grant_issuances as pair_grant
-              where pair_grant.initiator_binding_id = binding.id
-                or pair_grant.acceptor_binding_id = binding.id
-            )
-            and not exists (
-              select 1 from iroh_relay_token_issuances as issuance
-              where issuance.binding_id = binding.id
-            )
-            order by binding.revoked_at, binding.id
-            limit ${IROH_RETENTION_BATCH_SIZE}
-            for update skip locked
-          )
-          delete from iroh_endpoint_bindings as binding
-          using candidates
-          where binding.id = candidates.id
-        `);
+        await assertIrohUserMutationAllowed(tx, input.userId);
+        await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`iroh:binding:${input.userId}`}, 0))`);
+        const [binding] = await tx
+          .select()
+          .from(irohEndpointBindings)
+          .where(and(
+            eq(irohEndpointBindings.id, input.bindingId),
+            eq(irohEndpointBindings.userId, input.userId),
+            isNull(irohEndpointBindings.revokedAt),
+          ))
+          .for("update")
+          .limit(1);
+        if (!binding) throw new IrohNotFoundError({ resource: "binding" });
+        if (
+          binding.deviceUuid !== input.deviceId ||
+          binding.endpointId !== input.endpointId ||
+          binding.identityGeneration !== input.identityGeneration ||
+          binding.platform !== input.platform
+        ) {
+          throw new IrohConflictError({ code: "binding_changed_during_attestation" });
+        }
       });
     }),
 
@@ -698,6 +627,9 @@ function makeLiveRepository(): IrohRepositoryShape {
           !bindingMatchesGrantPeer(acceptor, input.acceptor)
         ) {
           throw new IrohConflictError({ code: "binding_changed_during_grant" });
+        }
+        if (initiator.deviceUuid === acceptor.deviceUuid) {
+          throw new IrohForbiddenError({ code: "pair_grant_same_device" });
         }
         if (initiator.platform !== "ios" || acceptor.platform !== "mac" || !acceptor.pairingEnabled) {
           throw new IrohForbiddenError({ code: "target_not_pairable" });
@@ -868,6 +800,333 @@ function makeLiveRepository(): IrohRepositoryShape {
       });
     }),
   };
+}
+
+type RetentionBatchOperation = {
+  readonly category: IrohRetentionCategory;
+  readonly run: (limit: number) => Promise<number>;
+};
+
+async function drainIrohRetention(input: {
+  readonly now: Date;
+  readonly maxRows?: number;
+  readonly maxDurationMs?: number;
+}): Promise<IrohRetentionResult> {
+  const maxRows = retentionBudget(
+    input.maxRows,
+    IROH_RETENTION_MAX_ROWS,
+    100_000,
+    "maxRows",
+  );
+  const maxDurationMs = retentionBudget(
+    input.maxDurationMs,
+    IROH_RETENTION_MAX_DURATION_MS,
+    30_000,
+    "maxDurationMs",
+  );
+  const challengeRetentionCutoff = new Date(input.now.getTime() - 24 * 60 * 60 * 1_000);
+  const auditRetentionCutoff = new Date(input.now.getTime() - 30 * 24 * 60 * 60 * 1_000);
+  const nowIso = input.now.toISOString();
+  const challengeCutoffIso = challengeRetentionCutoff.toISOString();
+  const auditCutoffIso = auditRetentionCutoff.toISOString();
+  const operations: readonly RetentionBatchOperation[] = [
+    {
+      category: "revokedHints",
+      run: (limit) => runRetentionBatch(async (tx) => await tx.execute(sql`
+        with candidates as materialized (
+          select id
+          from iroh_endpoint_bindings
+          where revoked_at is not null
+            and path_hints_next_expiry is not null
+          order by revoked_at, id
+          limit ${limit}
+          for update skip locked
+        ), changed as (
+          update iroh_endpoint_bindings as binding
+          set path_hints = '[]'::jsonb,
+              path_hints_next_expiry = null,
+              updated_at = ${nowIso}::timestamptz
+          from candidates
+          where binding.id = candidates.id
+          returning binding.id
+        )
+        select count(*)::int as affected from changed
+      `)),
+    },
+    {
+      category: "expiredHints",
+      run: (limit) => runRetentionBatch(async (tx) => await tx.execute(sql`
+        with candidates as materialized (
+          select id
+          from iroh_endpoint_bindings
+          where revoked_at is null
+            and path_hints_next_expiry <= ${nowIso}::timestamptz
+          order by path_hints_next_expiry, id
+          limit ${limit}
+          for update skip locked
+        ), retained as (
+          select
+            binding.id,
+            coalesce(
+              jsonb_agg(entry.hint order by entry.ordinality) filter (
+                where case
+                  when jsonb_typeof(entry.hint) = 'object'
+                    and jsonb_typeof(entry.hint -> 'expires_at') = 'string'
+                    and (entry.hint ->> 'expires_at') ~ '^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$'
+                  then (entry.hint ->> 'expires_at')::timestamptz > ${nowIso}::timestamptz
+                  else false
+                end
+              ),
+              '[]'::jsonb
+            ) as path_hints
+          from candidates
+          join iroh_endpoint_bindings as binding on binding.id = candidates.id
+          left join lateral jsonb_array_elements(binding.path_hints)
+            with ordinality as entry(hint, ordinality) on true
+          group by binding.id
+        ), normalized as (
+          select
+            retained.id,
+            retained.path_hints,
+            (
+              select min((hint ->> 'expires_at')::timestamptz)
+              from jsonb_array_elements(retained.path_hints) as hints(hint)
+            ) as next_expiry
+          from retained
+        ), changed as (
+          update iroh_endpoint_bindings as binding
+          set path_hints = normalized.path_hints,
+              path_hints_next_expiry = normalized.next_expiry,
+              updated_at = ${nowIso}::timestamptz
+          from normalized
+          where binding.id = normalized.id
+          returning binding.id
+        )
+        select count(*)::int as affected from changed
+      `)),
+    },
+    {
+      category: "expiredChallenges",
+      run: (limit) => runRetentionBatch(async (tx) => await tx.execute(sql`
+        with candidates as materialized (
+          select id
+          from iroh_registration_challenges
+          where expires_at < ${challengeCutoffIso}::timestamptz
+          order by expires_at, id
+          limit ${limit}
+          for update skip locked
+        ), changed as (
+          delete from iroh_registration_challenges as challenge
+          using candidates
+          where challenge.id = candidates.id
+          returning challenge.id
+        )
+        select count(*)::int as affected from changed
+      `)),
+    },
+    {
+      category: "consumedChallenges",
+      run: (limit) => runRetentionBatch(async (tx) => await tx.execute(sql`
+        with candidates as materialized (
+          select id
+          from iroh_registration_challenges
+          where consumed_at < ${challengeCutoffIso}::timestamptz
+          order by consumed_at, id
+          limit ${limit}
+          for update skip locked
+        ), changed as (
+          delete from iroh_registration_challenges as challenge
+          using candidates
+          where challenge.id = candidates.id
+          returning challenge.id
+        )
+        select count(*)::int as affected from changed
+      `)),
+    },
+    {
+      category: "relayAudits",
+      run: (limit) => runRetentionBatch(async (tx) => await tx.execute(sql`
+        with candidates as materialized (
+          select id
+          from iroh_relay_token_issuances
+          where requested_at < ${auditCutoffIso}::timestamptz
+          order by requested_at, id
+          limit ${limit}
+          for update skip locked
+        ), changed as (
+          delete from iroh_relay_token_issuances as issuance
+          using candidates
+          where issuance.id = candidates.id
+          returning issuance.id
+        )
+        select count(*)::int as affected from changed
+      `)),
+    },
+    {
+      category: "pairGrantAudits",
+      run: (limit) => runRetentionBatch(async (tx) => await tx.execute(sql`
+        with candidates as materialized (
+          select id
+          from iroh_pair_grant_issuances
+          where expires_at < ${auditCutoffIso}::timestamptz
+          order by expires_at, id
+          limit ${limit}
+          for update skip locked
+        ), changed as (
+          delete from iroh_pair_grant_issuances as issuance
+          using candidates
+          where issuance.id = candidates.id
+          returning issuance.id
+        )
+        select count(*)::int as affected from changed
+      `)),
+    },
+    {
+      category: "revokedBindings",
+      run: (limit) => runRetentionBatch(async (tx) => await tx.execute(sql`
+        with candidates as materialized (
+          select binding.id
+          from iroh_endpoint_bindings as binding
+          where binding.revoked_at < ${auditCutoffIso}::timestamptz
+            and not exists (
+              select 1 from iroh_pair_grant_issuances as pair_grant
+              where pair_grant.initiator_binding_id = binding.id
+                or pair_grant.acceptor_binding_id = binding.id
+            )
+            and not exists (
+              select 1 from iroh_relay_token_issuances as issuance
+              where issuance.binding_id = binding.id
+            )
+          order by binding.revoked_at, binding.id
+          limit ${limit}
+          for update skip locked
+        ), changed as (
+          delete from iroh_endpoint_bindings as binding
+          using candidates
+          where binding.id = candidates.id
+          returning binding.id
+        )
+        select count(*)::int as affected from changed
+      `)),
+    },
+  ];
+  const byCategory: Record<IrohRetentionCategory, number> = {
+    revokedHints: 0,
+    expiredHints: 0,
+    expiredChallenges: 0,
+    consumedChallenges: 0,
+    relayAudits: 0,
+    pairGrantAudits: 0,
+    revokedBindings: 0,
+  };
+  const deadline = Date.now() + maxDurationMs;
+  const activeOperations = [...operations];
+  let rowsProcessed = 0;
+  let batches = 0;
+  let operationIndex = 0;
+
+  while (activeOperations.length > 0 && rowsProcessed < maxRows && Date.now() < deadline) {
+    const operation = activeOperations[operationIndex]!;
+    const limit = Math.min(IROH_RETENTION_BATCH_SIZE, maxRows - rowsProcessed);
+    const affected = await operation.run(limit);
+    batches += 1;
+    rowsProcessed += affected;
+    byCategory[operation.category] += affected;
+    if (affected < limit) {
+      activeOperations.splice(operationIndex, 1);
+      if (operationIndex >= activeOperations.length) operationIndex = 0;
+    } else {
+      operationIndex = (operationIndex + 1) % activeOperations.length;
+    }
+  }
+
+  const budgetExhausted = rowsProcessed >= maxRows
+    ? "rows"
+    : Date.now() >= deadline
+      ? "time"
+      : null;
+  const backlog = budgetExhausted === "time"
+    ? true
+    : await irohRetentionBacklogExists(input.now, challengeRetentionCutoff, auditRetentionCutoff);
+  return { rowsProcessed, batches, backlog, budgetExhausted, byCategory };
+}
+
+async function runRetentionBatch(
+  execute: (tx: CloudDbTransaction) => Promise<unknown>,
+): Promise<number> {
+  return await cloudDb().transaction(async (tx) => {
+    const result = await execute(tx);
+    const [row] = databaseRows(result);
+    const affected = Number(row?.affected ?? 0);
+    if (!Number.isSafeInteger(affected) || affected < 0 || affected > IROH_RETENTION_BATCH_SIZE) {
+      throw new Error("invalid Iroh retention batch result");
+    }
+    return affected;
+  });
+}
+
+async function irohRetentionBacklogExists(
+  now: Date,
+  challengeRetentionCutoff: Date,
+  auditRetentionCutoff: Date,
+): Promise<boolean> {
+  const result = await cloudDb().execute(sql`
+    select (
+      exists (
+        select 1 from iroh_endpoint_bindings
+        where revoked_at is not null and path_hints_next_expiry is not null
+      ) or exists (
+        select 1 from iroh_endpoint_bindings
+        where revoked_at is null and path_hints_next_expiry <= ${now.toISOString()}::timestamptz
+      ) or exists (
+        select 1 from iroh_registration_challenges
+        where expires_at < ${challengeRetentionCutoff.toISOString()}::timestamptz
+      ) or exists (
+        select 1 from iroh_registration_challenges
+        where consumed_at < ${challengeRetentionCutoff.toISOString()}::timestamptz
+      ) or exists (
+        select 1 from iroh_relay_token_issuances
+        where requested_at < ${auditRetentionCutoff.toISOString()}::timestamptz
+      ) or exists (
+        select 1 from iroh_pair_grant_issuances
+        where expires_at < ${auditRetentionCutoff.toISOString()}::timestamptz
+      ) or exists (
+        select 1
+        from iroh_endpoint_bindings as binding
+        where binding.revoked_at < ${auditRetentionCutoff.toISOString()}::timestamptz
+          and not exists (
+            select 1 from iroh_pair_grant_issuances as pair_grant
+            where pair_grant.initiator_binding_id = binding.id
+              or pair_grant.acceptor_binding_id = binding.id
+          )
+          and not exists (
+            select 1 from iroh_relay_token_issuances as issuance
+            where issuance.binding_id = binding.id
+          )
+      )
+    ) as backlog
+  `);
+  const [row] = databaseRows(result);
+  return row?.backlog === true;
+}
+
+function databaseRows(result: unknown): readonly Record<string, unknown>[] {
+  if (Array.isArray(result)) return result as readonly Record<string, unknown>[];
+  const rows = (result as { readonly rows?: unknown } | null)?.rows;
+  return Array.isArray(rows) ? rows as readonly Record<string, unknown>[] : [];
+}
+
+function retentionBudget(
+  value: number | undefined,
+  fallback: number,
+  maximum: number,
+  name: string,
+): number {
+  const resolved = value ?? fallback;
+  if (!Number.isSafeInteger(resolved) || resolved < 1 || resolved > maximum) {
+    throw new Error(`invalid Iroh retention ${name}`);
+  }
+  return resolved;
 }
 
 function repositoryEffect<A>(

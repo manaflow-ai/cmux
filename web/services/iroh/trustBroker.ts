@@ -259,6 +259,9 @@ export function makeIrohTrustBroker(
       if (initiator.platform !== "ios" || acceptor.platform !== "mac" || !acceptor.pairingEnabled) {
         return yield* Effect.fail(new IrohForbiddenError({ code: "target_not_pairable" }));
       }
+      if (initiator.deviceUuid === acceptor.deviceUuid) {
+        return yield* Effect.fail(new IrohForbiddenError({ code: "pair_grant_same_device" }));
+      }
       const issuedAtSeconds = Math.floor(now.getTime() / 1_000);
       const claims: PairGrantClaims = {
         jti: randomUUID(),
@@ -343,6 +346,14 @@ export function makeIrohTrustBroker(
           nowSeconds: issuedAtSeconds,
         },
       ));
+      yield* repository.finalizeEndpointAttestation({
+        userId,
+        bindingId: binding.id,
+        deviceId: binding.deviceUuid,
+        endpointId: binding.endpointId,
+        identityGeneration: binding.identityGeneration,
+        platform,
+      });
       return {
         attestation_version: IROH_ENDPOINT_ATTESTATION_VERSION,
         attestation,

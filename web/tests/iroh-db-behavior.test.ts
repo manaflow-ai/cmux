@@ -173,6 +173,14 @@ describe("Iroh trust broker database behavior", () => {
       repository.revokeBinding({ userId, bindingId: macId, now: NOW }),
       repository.accountLanGeneration({ userId, now: NOW }),
       repository.pruneExpiredState({ userId, now: NOW }),
+      repository.finalizeEndpointAttestation({
+        userId,
+        bindingId: ios.bindingId,
+        deviceId: ios.deviceId,
+        endpointId: ios.endpointId,
+        identityGeneration: ios.identityGeneration,
+        platform: ios.platform,
+      }),
       repository.recordPairGrant({
         userId,
         jti: randomUUID(),
@@ -305,7 +313,7 @@ describe("Iroh trust broker database behavior", () => {
         ${new Date(NOW.getTime() - 60_000)}, ${new Date(NOW.getTime() + 60_000)}, ${NOW}
       from generate_series(1, 119) as values(value)
     `;
-    const issue = (suffix: string) => Effect.runPromise(requiredRepository().issueChallenge({
+    const issue = (suffix: string) => Effect.runPromiseExit(requiredRepository().issueChallenge({
       userId,
       deviceUuid: randomUUID(),
       appInstanceId: randomUUID(),
@@ -318,10 +326,14 @@ describe("Iroh trust broker database behavior", () => {
       expiresAt: new Date(NOW.getTime() + 5 * 60 * 1_000),
     }));
 
-    const results = await Promise.allSettled([issue("4"), issue("5")]);
-    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
-    expect(results.filter((result) => result.status === "rejected")).toHaveLength(1);
-    expect(results.find((result) => result.status === "rejected")?.reason).toMatchObject({
+    const results = await Promise.all([issue("4"), issue("5")]);
+    expect(results.filter((result) => result._tag === "Success")).toHaveLength(1);
+    expect(results.filter((result) => result._tag === "Failure")).toHaveLength(1);
+    const failure = results.find((result) => result._tag === "Failure");
+    const causeError = failure?._tag === "Failure"
+      ? (failure.cause as unknown as { error?: unknown }).error
+      : undefined;
+    expect(causeError).toMatchObject({
       _tag: "IrohQuotaExceededError",
       code: "challenge_account_rate_limited",
     });

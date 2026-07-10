@@ -675,6 +675,11 @@ export const irohEndpointBindings = pgTable(
     index("iroh_endpoint_bindings_user_device_active_idx")
       .on(table.userId, table.deviceUuid)
       .where(sql`${table.revokedAt} is null`),
+    index("iroh_endpoint_bindings_user_idx")
+      .on(table.userId),
+    index("iroh_endpoint_bindings_user_revoked_idx")
+      .on(table.userId, table.revokedAt, table.id)
+      .where(sql`${table.revokedAt} is not null`),
     index("iroh_endpoint_bindings_revoked_idx")
       .on(table.revokedAt)
       .where(sql`${table.revokedAt} is not null`),
@@ -756,6 +761,7 @@ export const irohPairGrantIssuances = pgTable(
   (table) => [
     uniqueIndex("iroh_pair_grant_issuances_jti_unique").on(table.jti),
     index("iroh_pair_grant_issuances_user_issued_idx").on(table.userId, table.issuedAt),
+    index("iroh_pair_grant_issuances_initiator_idx").on(table.initiatorBindingId, table.expiresAt),
     index("iroh_pair_grant_issuances_acceptor_expires_idx").on(table.acceptorBindingId, table.expiresAt),
     index("iroh_pair_grant_issuances_expires_idx").on(table.expiresAt, table.id),
     index("iroh_pair_grant_issuances_user_expires_idx").on(table.userId, table.expiresAt, table.id),

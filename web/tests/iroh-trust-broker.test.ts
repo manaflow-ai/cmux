@@ -503,7 +503,21 @@ class MemoryRepository implements IrohRepositoryShape {
           return typeof expiry === "string" && new Date(expiry) > input.now;
         });
     }
-    return Effect.void;
+    return Effect.succeed({
+      rowsProcessed: 0,
+      batches: 0,
+      backlog: false,
+      budgetExhausted: null,
+      byCategory: {
+        revokedHints: 0,
+        expiredHints: 0,
+        expiredChallenges: 0,
+        consumedChallenges: 0,
+        relayAudits: 0,
+        pairGrantAudits: 0,
+        revokedBindings: 0,
+      },
+    });
   }
 
   recordPairGrant(input: Parameters<IrohRepositoryShape["recordPairGrant"]>[0]) {
@@ -706,7 +720,7 @@ function binding(overrides: Partial<MutableBinding> = {}): MutableBinding {
     tag: "stable",
     platform: "mac",
     displayName: null,
-    endpointId: "55".repeat(32),
+    endpointId: randomUUID().replaceAll("-", "").repeat(2),
     identityGeneration: 1,
     pairingEnabled: true,
     capabilities: [],
