@@ -1,6 +1,14 @@
 import CMUXMobileCore
 public import CmuxMobileShellModel
 
+private struct ManualHostReapproval {
+    let name: String
+    let host: String
+    let port: Int
+    let route: CmxAttachRoute
+    let pairedMacDeviceID: String?
+}
+
 @MainActor
 extension MobileShellComposite {
     func clearManualHostTrustWarning() {
@@ -111,12 +119,19 @@ extension MobileShellComposite {
     /// - Returns: The resumed result, or `.superseded` when the warning is no longer current.
     @discardableResult
     public func acceptManualHostTrustWarning() async -> MobilePairingURLConnectionResult {
+        guard let approvalAttemptID = pendingManualHostTrust?.attemptID else {
+            clearManualHostTrustWarning()
+            return .superseded
+        }
         if let resetTask = manualHostTrustResetTask {
             await resetTask.value
         }
         guard let warning = manualHostTrustWarning,
-              let pending = pendingManualHostTrust else {
-            clearManualHostTrustWarning()
+              let pending = pendingManualHostTrust,
+              pending.attemptID == approvalAttemptID else {
+            if pendingManualHostTrust?.attemptID == approvalAttemptID {
+                clearManualHostTrustWarning()
+            }
             return .superseded
         }
         guard isPendingManualHostTrustCurrent(pending) else {
@@ -200,29 +215,66 @@ extension MobileShellComposite {
     /// - Returns: Whether an active manual-host connection was queued for reapproval.
     @discardableResult
     func invalidateManualHostTrustForNetworkBoundary() -> Bool {
+        let reapproval = reissuableManualHostApproval()
         revokeSecondaryManualHostSubscriptions()
-        guard manualHostTrustResetTask == nil else {
-            // Preserve the approval queued by the first boundary while its
-            // durable trust reset is still in flight.
-            return pendingManualHostTrust != nil
-        }
-
         rotateManualHostRPCAuthScope()
         invalidatePairingAttempt()
         clearSupersededManualHostTrustWarning()
 
-        manualHostTrustResetGeneration &+= 1
-        let resetGeneration = manualHostTrustResetGeneration
-        let trustStore = manualHostTrustStore
-        manualHostTrustResetTask = Task { @MainActor [weak self] in
-            await trustStore.removeAll()
-            guard let self,
-                  self.manualHostTrustResetGeneration == resetGeneration else { return }
-            self.manualHostTrustResetTask = nil
+        if manualHostTrustResetTask == nil {
+            manualHostTrustResetGeneration &+= 1
+            let resetGeneration = manualHostTrustResetGeneration
+            let trustStore = manualHostTrustStore
+            manualHostTrustResetTask = Task { @MainActor [weak self] in
+                await trustStore.removeAll()
+                guard let self,
+                      self.manualHostTrustResetGeneration == resetGeneration else { return }
+                self.manualHostTrustResetTask = nil
+            }
+        }
+
+        if let reapproval {
+            let attemptID = beginPairingValidationAttempt()
+            queueManualHostTrustWarning(
+                route: reapproval.route,
+                displayHost: reapproval.host,
+                pending: .manual(
+                    attemptID: attemptID,
+                    name: reapproval.name,
+                    host: reapproval.host,
+                    port: reapproval.port,
+                    route: reapproval.route,
+                    pairedMacDeviceID: reapproval.pairedMacDeviceID,
+                    recordsPairingAttempt: false,
+                    macSwitchAttemptID: nil,
+                    ifStillCurrent: nil
+                )
+            )
+            return true
         }
 
         guard remoteClient != nil else { return false }
         return queueForegroundManualHostReapproval(route: activeRoute)
+    }
+
+    private func reissuableManualHostApproval() -> ManualHostReapproval? {
+        guard manualHostTrustWarning != nil,
+              case let .manual(
+                  _, name, host, port, route, pairedMacDeviceID,
+                  recordsPairingAttempt, macSwitchAttemptID, ifStillCurrent
+              )? = pendingManualHostTrust,
+              !recordsPairingAttempt,
+              macSwitchAttemptID == nil,
+              ifStillCurrent == nil else {
+            return nil
+        }
+        return ManualHostReapproval(
+            name: name,
+            host: host,
+            port: port,
+            route: route,
+            pairedMacDeviceID: pairedMacDeviceID
+        )
     }
 
     private func revokeSecondaryManualHostSubscriptions() {
