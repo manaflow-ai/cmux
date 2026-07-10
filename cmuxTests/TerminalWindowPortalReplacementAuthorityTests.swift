@@ -430,11 +430,16 @@ extension TerminalWindowPortalLifecycleTests {
 
     @MainActor
     func testBulkSynchronizationPreparesOnceIndependentOfEntryCount() {
+        let window = NSWindow(
+            contentRect: .zero, styleMask: [], backing: .buffered, defer: false
+        )
+        defer { window.orderOut(nil) }
+        let portal = WindowTerminalPortal(window: window)
         for entryCount in [0, 1, 100] {
             var preparationCount = 0
             var synchronizedEntries: [Int] = []
 
-            TerminalPortalBulkSynchronization.run(
+            portal.runBulkSynchronization(
                 prepare: { preparationCount += 1 },
                 entries: { Array(0..<entryCount) },
                 synchronize: { synchronizedEntries.append($0) }
