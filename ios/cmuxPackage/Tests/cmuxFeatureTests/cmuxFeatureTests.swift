@@ -2376,6 +2376,7 @@ struct TerminalStreamTests {
 
 @MainActor
 @Test func terminalInputResyncsOutputWhenMacSequenceIsAhead() async throws {
+    let terminalID = "live-terminal-resync-ahead"
     let route = try CmxAttachRoute(
         id: "debug_loopback",
         kind: .debugLoopback,
@@ -2383,13 +2384,13 @@ struct TerminalStreamTests {
     )
     let ticket = try CmxAttachTicket(
         workspaceID: "live-workspace",
-        terminalID: "live-terminal",
+        terminalID: terminalID,
         macDeviceID: "test-mac",
         macDisplayName: "Test Mac",
         routes: [route],
         expiresAt: Date().addingTimeInterval(60)
     )
-    let router = TerminalOutputSelfHealingRouter()
+    let router = TerminalOutputSelfHealingRouter(terminalID: terminalID)
     let runtime = testRuntime(
         supportedRouteKinds: [.debugLoopback],
         transportFactory: RequestAwareTransportFactory(router: router),
@@ -2400,13 +2401,21 @@ struct TerminalStreamTests {
 
     store.signIn()
     await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
-    collector.mount(store: store, surfaceID: "live-terminal")
-    let oldGridText = try terminalRenderGridReplacementText(seq: 4, text: "old")
-    let currentGridText = try terminalRenderGridReplacementText(seq: 12, text: "current")
+    collector.mount(store: store, surfaceID: terminalID)
+    let oldGridText = try terminalRenderGridReplacementText(
+        seq: 4,
+        text: "old",
+        surfaceID: terminalID
+    )
+    let currentGridText = try terminalRenderGridReplacementText(
+        seq: 12,
+        text: "current",
+        surfaceID: terminalID
+    )
 
     _ = try await waitForRequestCount("mobile.terminal.replay", count: 1, router: router)
 
-    await store.submitTerminalRawInput(Data("x".utf8), surfaceID: "live-terminal")
+    await store.submitTerminalRawInput(Data("x".utf8), surfaceID: terminalID)
 
     _ = try await waitForRequestCount("mobile.terminal.replay", count: 2, router: router)
     _ = try await waitForRequestCount("mobile.events.subscribe", count: 2, router: router)
@@ -2883,9 +2892,13 @@ private func rpcWorkspaceListFrame(
     )
 }
 
-private func terminalRenderGridReplacementText(seq: UInt64, text: String) throws -> String {
+private func terminalRenderGridReplacementText(
+    seq: UInt64,
+    text: String,
+    surfaceID: String = "live-terminal"
+) throws -> String {
     let frame = try MobileTerminalRenderGridFrame.fromPlainRows(
-        surfaceID: "live-terminal",
+        surfaceID: surfaceID,
         stateSeq: seq,
         columns: 16,
         rows: 4,
@@ -2976,11 +2989,12 @@ private func rpcTerminalReplayFrame(
     rawText: String,
     snapshotText: String? = nil,
     renderGridText: String? = nil,
-    renderGridStyled: Bool = false
+    renderGridStyled: Bool = false,
+    surfaceID: String = "live-terminal"
 ) throws -> Data {
     var result: [String: Any] = [
         "workspace_id": "live-workspace",
-        "surface_id": "live-terminal",
+        "surface_id": surfaceID,
         "seq": NSNumber(value: seq),
         "data_b64": Data(rawText.utf8).base64EncodedString(),
         "columns": 16,
@@ -2995,7 +3009,7 @@ private func rpcTerminalReplayFrame(
             try terminalRenderGridStyledFrame(seq: seq, text: renderGridText)
         } else {
             try MobileTerminalRenderGridFrame.fromPlainRows(
-                surfaceID: "live-terminal",
+                surfaceID: surfaceID,
                 stateSeq: seq,
                 columns: 16,
                 rows: 4,
@@ -3419,11 +3433,13 @@ private actor RemoteCreateWorkspaceRouter: RequestAwareTransportRouter {
 
 private actor TerminalOutputSelfHealingRouter: RequestAwareTransportRouter {
     private let renderGrid: Bool
+    private let terminalID: String
     private var requests: [RecordedRPCRequest] = []
     private var replayCount = 0
 
-    init(renderGrid: Bool = false) {
+    init(renderGrid: Bool = false, terminalID: String = "live-terminal") {
         self.renderGrid = renderGrid
+        self.terminalID = terminalID
     }
 
     func record(_ request: RecordedRPCRequest) {
@@ -3440,7 +3456,7 @@ private actor TerminalOutputSelfHealingRouter: RequestAwareTransportRouter {
             return try rpcWorkspaceListFrame(
                 workspaceID: "live-workspace",
                 title: "Live Workspace",
-                terminalID: "live-terminal"
+                terminalID: terminalID
             )
         case "mobile.host.status":
             return try rpcHostStatusFrame(renderGrid: renderGrid)
@@ -3453,20 +3469,22 @@ private actor TerminalOutputSelfHealingRouter: RequestAwareTransportRouter {
                     seq: 4,
                     rawText: "stale-old-tail",
                     snapshotText: "old",
-                    renderGridText: "old"
+                    renderGridText: "old",
+                    surfaceID: terminalID
                 )
             }
             return try rpcTerminalReplayFrame(
                 seq: 12,
                 rawText: "stale-current-tail",
                 snapshotText: "current",
-                renderGridText: "current"
+                renderGridText: "current",
+                surfaceID: terminalID
             )
         case "terminal.input":
             return try rpcResultFrame(
                 result: [
                     "workspace_id": "live-workspace",
-                    "surface_id": "live-terminal",
+                    "surface_id": terminalID,
                     "queued": false,
                     "terminal_seq": 12,
                 ]
