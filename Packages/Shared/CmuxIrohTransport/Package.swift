@@ -25,6 +25,9 @@ let package = Package(
                 .swiftLanguageMode(.v6),
                 .enableUpcomingFeature("ExistentialAny"),
                 .enableUpcomingFeature("InternalImportsByDefault"),
+            ],
+            linkerSettings: [
+                .linkedFramework("Security"),
             ]
         ),
         .testTarget(
