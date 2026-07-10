@@ -665,6 +665,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     weak var notificationStore: TerminalNotificationStore?
     weak var sidebarState: SidebarState?
 
+    /// App-wide web-extension host, retained strongly here: threading it through
+    /// the weak `tabManager` dropped it whenever the SwiftUI-owned manager was
+    /// not alive (windows then built hostless panels with no extension support).
+    var browserWebExtensionHost: (any BrowserWebExtensionHosting)?
+
     /// Notification jump/open navigation, extracted into `CmuxNotifications`.
     /// `AppDelegate` is the composition root: it conforms to every seam (see
     /// `AppDelegate+NotificationNavSeams.swift`) and injects itself. Built lazily
@@ -2036,13 +2041,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         notificationStore: TerminalNotificationStore,
         sidebarState: SidebarState,
         settingsRuntime: SettingsRuntime,
-        auth: MacAuthComposition
+        auth: MacAuthComposition,
+        browserWebExtensionHost: (any BrowserWebExtensionHosting)? = nil
     ) {
         self.tabManager = tabManager
         self.settingsRuntime = settingsRuntime
         self.notificationStore = notificationStore
         self.sidebarState = sidebarState
         self.auth = auth
+        if let browserWebExtensionHost { self.browserWebExtensionHost = browserWebExtensionHost }
         VMClient.bootstrap(auth: auth.coordinator)
         RemotesClient.bootstrap(auth: auth.coordinator)
         AIAccountsClient.bootstrap(auth: auth.coordinator)
@@ -8631,7 +8638,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             initialWorkingDirectory: initialWorkingDirectory,
             initialTerminalInput: initialTerminalInput,
             autoWelcomeIfNeeded: initialTerminalInput == nil,
-            browserWebExtensionHost: self.tabManager?.browserWebExtensionHost
+            browserWebExtensionHost: browserWebExtensionHost ?? self.tabManager?.browserWebExtensionHost
         )
         tabManager.windowId = windowId
         if let sessionWindowSnapshot {

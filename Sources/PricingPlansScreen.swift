@@ -32,7 +32,7 @@ enum ProUpgradePresenter {
         BrowserPrewarmedWebViewPool.shared.prewarm(
             url: appPricingURLForCurrentAppearance(),
             profileID: BrowserPanel.resolvedProfileID(requested: nil),
-            browserWebExtensionHost: AppDelegate.shared?.tabManager?.browserWebExtensionHost
+            browserWebExtensionHost: AppDelegate.shared?.browserWebExtensionHost
         )
     }
 

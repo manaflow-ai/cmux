@@ -225,7 +225,8 @@ struct cmuxApp: App {
             notificationStore: notificationStore,
             sidebarState: sidebarState,
             settingsRuntime: settingsRuntime,
-            auth: authComposition
+            auth: authComposition,
+            browserWebExtensionHost: browserWebExtensionHost
         )
         StartupBreadcrumbLog.append("app.init.delegate.configured")
     }

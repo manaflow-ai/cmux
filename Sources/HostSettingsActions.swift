@@ -39,7 +39,7 @@ final class HostSettingsActions: SettingsHostActions {
 
     func browserWebExtensionLoadErrorUpdates() -> AsyncStream<[String: String]> {
         guard #available(macOS 15.4, *),
-              let support = AppDelegate.shared?.tabManager?.browserWebExtensionHost
+              let support = AppDelegate.shared?.browserWebExtensionHost
                 as? BrowserWebExtensionSupport else {
             return AsyncStream { $0.finish() }
         }
