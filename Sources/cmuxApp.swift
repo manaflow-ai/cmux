@@ -1459,7 +1459,6 @@ private struct MainWindowBootstrapView: View {
             })
     }
 }
-
 private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
     "cmux.settings",
     "cmux.about",
@@ -1476,6 +1475,7 @@ private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
     "cmux.pdfPreviewChromeDebug",
     "cmux.proBadgeDebug",
     "cmux.recentlyClosedHistory",
+    "cmux.surfacePip",
     "cmux.splitButtonLayoutDebug",
     "cmux.tabBarBackdropLab",
     "cmux.taskManager",

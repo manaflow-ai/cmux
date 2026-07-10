@@ -3405,8 +3405,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard let snapshot = SessionPersistencePolicy.pruningCmuxCrashDiagnosticWindows(from: snapshot).snapshot else {
             return false
         }
+        let restoreSnapshot = snapshot.restoringPipSurfacesAsWorkspaceTabs()
         let snapshotWindows = Array(
-            snapshot.windows.prefix(SessionPersistencePolicy.maxWindowsPerSnapshot)
+            restoreSnapshot.windows.prefix(SessionPersistencePolicy.maxWindowsPerSnapshot)
         )
         guard !snapshotWindows.isEmpty else { return false }
 
@@ -4443,11 +4444,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         guard !windows.isEmpty else { return (nil, removedCrashDiagnosticState) }
-        let snapshot = AppSessionSnapshot(
-            version: SessionSnapshotSchema.currentVersion,
-            createdAt: createdAt,
-            windows: windows
-        )
+        let pipSurfaces = sessionPipSurfaceSnapshots(includeScrollback: includeScrollback)
+        let snapshot = AppSessionSnapshot(version: SessionSnapshotSchema.currentVersion, createdAt: createdAt, windows: windows, pipSurfaces: pipSurfaces.isEmpty ? nil : pipSurfaces).restoringPipSurfacesAsWorkspaceTabs()
         return (snapshot, removedCrashDiagnosticState)
     }
 
@@ -13982,6 +13980,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             tabManager?.newSurface()
             return true
         }
+
+        if matchConfiguredShortcut(event: event, action: .toggleSurfacePip) { return toggleSurfacePipForCurrentContext() }
 
         // Open browser: Cmd+Shift+L
         if matchConfiguredShortcut(event: event, action: .openBrowser) {

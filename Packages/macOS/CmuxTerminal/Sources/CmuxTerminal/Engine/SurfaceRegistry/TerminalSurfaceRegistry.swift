@@ -128,7 +128,7 @@ public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable
         var rightSidebarDockSurfaceCount = 0
         for object in objects {
             switch surfaceFocusPlacements[object.id] {
-            case .workspace:
+            case .workspace, .pictureInPicture:
                 workspaceSurfaceCount += 1
             case .rightSidebarDock:
                 rightSidebarDockSurfaceCount += 1

@@ -2,6 +2,7 @@ import AppKit
 
 extension GhosttyNSView {
     func appendMoveCurrentSurfaceMoveMenuItems(to menu: NSMenu) {
+        appendSurfacePipContextMenuItem(to: menu)
         let canMoveToNewWorkspace = canMoveCurrentSurfaceToNewWorkspace()
         let workspaceTargets = currentSurfaceWorkspaceMoveTargets()
         guard canMoveToNewWorkspace || !workspaceTargets.isEmpty else { return }

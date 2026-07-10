@@ -2,6 +2,22 @@
 
 Global app preferences live in `~/.config/cmux/cmux.json`.
 
+## `shortcuts.bindings`
+
+All cmux-owned keyboard shortcuts can be changed in **Settings > Keyboard Shortcuts** or in `shortcuts.bindings`. A binding can be a single shortcut string, a two-step chord array, or an empty string/null to unbind the action.
+
+```json
+{
+  "shortcuts": {
+    "bindings": {
+      "toggleSurfacePip": "ctrl+cmd+p"
+    }
+  }
+}
+```
+
+- `toggleSurfacePip`: pops the focused terminal or browser surface into Picture in Picture, or returns the PiP surface when its floating panel is focused. Default: `ctrl+cmd+p`.
+
 ## `paneBorderColor` and `activePaneBorderColor`
 
 Customize split-workspace pane boundaries controlled by cmux.

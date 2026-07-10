@@ -5,6 +5,8 @@ import Foundation
 final class FakeSurfaceControlCommandContext: ControlCommandContext {
     var paneCreateResolution: ControlPaneCreateResolution = .tabManagerUnavailable
     var createResolution: ControlSurfaceCreateResolution = .tabManagerUnavailable
+    var pipResolution: ControlSurfacePipResolution = .surfaceNotFound
+    var pipRequest: (routing: ControlRoutingSelectors, surfaceID: UUID?, actionRawValue: String)?
     var reportPWDResolution: ControlSurfaceReportPWDResolution = .recorded(surfaceID: UUID())
     var reportedPWD: (workspaceID: UUID, requestedSurfaceID: UUID?, path: String)?
 
@@ -34,6 +36,15 @@ final class FakeSurfaceControlCommandContext: ControlCommandContext {
         inputs: ControlSurfaceCreateInputs
     ) -> ControlSurfaceCreateResolution {
         createResolution
+    }
+
+    func controlSurfacePip(
+        routing: ControlRoutingSelectors,
+        surfaceID: UUID?,
+        actionRawValue: String
+    ) -> ControlSurfacePipResolution {
+        pipRequest = (routing, surfaceID, actionRawValue)
+        return pipResolution
     }
 
     func controlSurfaceReportPWD(

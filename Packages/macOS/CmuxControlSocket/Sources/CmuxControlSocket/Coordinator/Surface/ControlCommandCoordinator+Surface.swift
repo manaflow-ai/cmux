@@ -34,6 +34,7 @@ extension ControlCommandCoordinator {
             return surfaceCreate(request.params)
         case "surface.close":
             return surfaceClose(request.params)
+        case "surface.pip": return surfacePip(request.params)
         case "surface.move":
             return surfaceMove(request.params)
         case "surface.reorder":

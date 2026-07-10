@@ -16,7 +16,6 @@ enum KeyboardShortcutSettings {
     #if DEBUG
     static var shortcutLookupObserver: ((Action) -> Void)?
     #endif
-
     static var publicShortcutActions: [Action] {
         Action.allCases.filter(\.isPublicShortcutAction)
     }
@@ -115,12 +114,11 @@ enum KeyboardShortcutSettings {
         case groupSelectedWorkspaces
         case toggleFocusedWorkspaceGroupCollapsed
         case reopenClosedBrowserPanel
-        case newSurface
+        case newSurface, toggleSurfacePip
         case toggleTerminalCopyMode
         case focusTextBoxInput, cycleTextBoxSubmitAction, attachTextBoxFile
         case sendCtrlFToTerminal
         case clearScreenKeepScrollback
-
         // Panes / splits
         case focusLeft
         case focusRight
@@ -239,6 +237,7 @@ enum KeyboardShortcutSettings {
             case .toggleFocusedWorkspaceGroupCollapsed: return String(localized: "shortcut.toggleFocusedWorkspaceGroupCollapsed.label", defaultValue: "Toggle Focused Workspace's Group Collapse")
             case .reopenClosedBrowserPanel: return String(localized: "menu.history.reopenLastClosed", defaultValue: "Reopen Last Closed")
             case .newSurface: return String(localized: "shortcut.newSurface.label", defaultValue: "New Surface")
+            case .toggleSurfacePip: return String(localized: "shortcut.toggleSurfacePip.label", defaultValue: "Toggle Surface Picture in Picture")
             case .toggleTerminalCopyMode: return String(localized: "shortcut.toggleTerminalCopyMode.label", defaultValue: "Toggle Terminal Copy Mode")
             case .focusTextBoxInput: return String(localized: "shortcut.focusTextBoxInput.label", defaultValue: "Focus TextBox Input")
             case .cycleTextBoxSubmitAction: return String(localized: "shortcut.cycleTextBoxSubmitAction.label", defaultValue: "Cycle TextBox Submit Action")
@@ -477,6 +476,7 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "1", command: false, shift: false, option: false, control: true)
             case .newSurface:
                 return StoredShortcut(key: "t", command: true, shift: false, option: false, control: false)
+            case .toggleSurfacePip: return StoredShortcut(key: "p", command: true, shift: false, option: false, control: true)
             case .toggleTerminalCopyMode:
                 return StoredShortcut(key: "m", command: true, shift: true, option: false, control: false)
             case .focusTextBoxInput: return StoredShortcut(key: "a", command: true, shift: true, option: false, control: false)

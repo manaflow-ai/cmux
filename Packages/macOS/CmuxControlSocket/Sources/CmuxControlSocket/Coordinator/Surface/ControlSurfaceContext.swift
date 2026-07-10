@@ -114,6 +114,22 @@ public protocol ControlSurfaceContext: AnyObject {
         surfaceID: UUID?
     ) -> ControlSurfaceCloseResolution
 
+    /// Pops a surface into, returns it from, or toggles picture-in-picture.
+    ///
+    /// Runs on the main actor because it creates/destroys AppKit auxiliary
+    /// windows and reparents live portal-backed terminal/browser surfaces.
+    ///
+    /// - Parameters:
+    ///   - routing: The routing selectors.
+    ///   - surfaceID: The explicit `surface_id`, or `nil` for the focused/key PiP surface.
+    ///   - actionRawValue: One of `pop`, `return`, or `toggle`.
+    /// - Returns: The PiP mutation resolution.
+    func controlSurfacePip(
+        routing: ControlRoutingSelectors,
+        surfaceID: UUID?,
+        actionRawValue: String
+    ) -> ControlSurfacePipResolution
+
     // MARK: - move / reorder
 
     /// Moves a surface for `surface.move`, delegating to the shared
@@ -359,4 +375,17 @@ public protocol ControlSurfaceContext: AnyObject {
     ///
     /// - Returns: The bridged payload, or `nil` when unavailable.
     func controlDebugTerminals() -> JSONValue?
+}
+
+public extension ControlSurfaceContext {
+    func controlSurfacePip(
+        routing: ControlRoutingSelectors,
+        surfaceID: UUID?,
+        actionRawValue: String
+    ) -> ControlSurfacePipResolution {
+        _ = routing
+        _ = surfaceID
+        _ = actionRawValue
+        return .surfaceNotFound
+    }
 }
