@@ -94,6 +94,17 @@ check_build_lag_deriveddata_cache_path() {
 
 check_e2e_runner_fallbacks() {
   if ! awk '
+    /^on:$/ { in_on=1; next }
+    in_on && /^[^[:space:]]/ { in_on=0 }
+    in_on && /^  workflow_dispatch:$/ { saw_dispatch=1; next }
+    in_on && /^  [A-Za-z0-9_-]+:/ { saw_other_trigger=1 }
+    END { exit !(saw_dispatch && !saw_other_trigger) }
+  ' "$E2E_FILE"; then
+    echo "FAIL: test-e2e.yml must remain workflow_dispatch-only before it may expose the self-hosted Tart canary"
+    exit 1
+  fi
+
+  if ! awk '
     /^run-name:/ {
       saw_run_name=1
       if ($0 ~ /inputs\.test_filter/ && ($0 ~ /inputs\.runner/ || $0 ~ /depot-macos-latest/) && ($0 ~ /inputs\.ref/ || $0 ~ /github\.ref_name/)) {
@@ -112,12 +123,24 @@ check_e2e_runner_fallbacks() {
     exit 1
   fi
 
-  for label in depot-macos-latest depot-macos-14 tart-canary; do
+  for label in depot-macos-latest depot-macos-14; do
     if ! grep -Eq "^[[:space:]]+- ${label}$" "$E2E_FILE"; then
       echo "FAIL: test-e2e.yml must expose runner option ${label}"
       exit 1
     fi
   done
+
+  if ! awk '
+    /^      runner:$/ { in_runner=1; next }
+    in_runner && /^      [A-Za-z0-9_-]+:/ { in_runner=0; in_options=0 }
+    in_runner && /^        options:$/ { in_options=1; next }
+    in_options && /^        [A-Za-z0-9_-]+:/ { in_options=0 }
+    in_options && /^          - tart-canary$/ { tart_options++ }
+    END { exit !(tart_options == 1) }
+  ' "$E2E_FILE"; then
+    echo "FAIL: test-e2e.yml must expose tart-canary exactly once under workflow_dispatch.inputs.runner.options"
+    exit 1
+  fi
 
   if ! grep -Fq 'RUNNER_CONTEXT_NAME: ${{ runner.name }}' "$E2E_FILE"; then
     echo "FAIL: test-e2e.yml must inspect the actual runner name for Depot runs"
@@ -854,6 +877,15 @@ check_no_self_hosted_fleet_runners() {
     fi
   done
 
+  local e2e_tart_option_line
+  e2e_tart_option_line="$(awk '
+    /^      runner:$/ { in_runner=1; next }
+    in_runner && /^      [A-Za-z0-9_-]+:/ { in_runner=0; in_options=0 }
+    in_runner && /^        options:$/ { in_options=1; next }
+    in_options && /^        [A-Za-z0-9_-]+:/ { in_options=0 }
+    in_options && /^          - tart-canary$/ { print FNR }
+  ' "$E2E_FILE")"
+
   local hits="" line content
   # Inspect runner-selection lines only: runs-on:, matrix `os:`, and scalar list
   # items (`  - <label>`, which covers dispatch runner dropdowns and multi-line
@@ -865,7 +897,7 @@ check_no_self_hosted_fleet_runners() {
     content="${line#*:*:}"
     printf '%s\n' "$content" | grep -Eq "($forbidden)" || continue
     printf '%s\n' "$content" | grep -Eq "($allowed)" && continue
-    if [[ "$line" == "$E2E_FILE:"* ]] && [[ "$content" =~ ^[[:space:]]*-[[:space:]]+tart-canary[[:space:]]*$ ]]; then
+    if [[ -n "$e2e_tart_option_line" ]] && [[ "$line" == "$E2E_FILE:$e2e_tart_option_line:"* ]]; then
       continue
     fi
     hits+="$line"$'\n'
