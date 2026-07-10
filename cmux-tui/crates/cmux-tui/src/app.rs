@@ -64,8 +64,12 @@ pub enum AppEvent {
     Mux(MuxEvent),
     MuxTitlesReady,
     MuxSubscriptionRecovered {
+        recovery_generation: u64,
         routing_generation: u64,
         result: Result<TreeView, String>,
+    },
+    MuxRecoveryComplete {
+        recovery_generation: u64,
     },
     Input(Event),
     BrowserResizeFailed(BrowserResizeFailure),
@@ -92,47 +96,74 @@ fn forward_mux_events(
     event_source: Session,
     mut session_events: cmux_tui_core::MuxEventReceiver,
     routing_mutation_committed: Arc<AtomicU64>,
-    mux_recovery_pending: Arc<AtomicBool>,
+    mux_recovery_generation: Arc<AtomicU64>,
     tx: SyncSender<AppEvent>,
     mux_titles: Arc<MuxTitleIngress>,
 ) {
+    let mut next_recovery_generation = 0_u64;
     loop {
         while let Ok(event) = session_events.recv() {
-            match event {
-                MuxEvent::TitleChanged { surface, title } => {
-                    if mux_titles.push(surface, title) && tx.send(AppEvent::MuxTitlesReady).is_err()
-                    {
-                        return;
-                    }
-                    continue;
-                }
-                MuxEvent::SurfaceExited(surface) => mux_titles.remove(surface),
-                _ => {}
-            }
-            let terminal = matches!(event, MuxEvent::Empty);
-            if tx.send(AppEvent::Mux(event)).is_err() {
-                return;
-            }
-            if terminal {
+            if !forward_mux_event(event, &tx, &mux_titles) {
                 return;
             }
         }
         if !session_events.overflowed() {
             return;
         }
-        mux_recovery_pending.store(true, Ordering::Release);
+        next_recovery_generation = next_recovery_generation.wrapping_add(1).max(1);
+        let recovery_generation = next_recovery_generation;
+        mux_recovery_generation.store(recovery_generation, Ordering::Release);
         // Subscribe before fetching the authoritative tree so events emitted
         // during recovery are retained by the new mailbox.
         session_events = event_source.events();
         let routing_generation = routing_mutation_committed.load(Ordering::Acquire);
         let recovered = event_source.refresh_tree().map_err(|error| error.to_string());
+        let recovery_succeeded = recovered.is_ok();
         if tx
-            .send(AppEvent::MuxSubscriptionRecovered { routing_generation, result: recovered })
+            .send(AppEvent::MuxSubscriptionRecovered {
+                recovery_generation,
+                routing_generation,
+                result: recovered,
+            })
             .is_err()
         {
             return;
         }
+        if !recovery_succeeded {
+            continue;
+        }
+        for event in session_events.try_iter() {
+            if !forward_mux_event(event, &tx, &mux_titles) {
+                return;
+            }
+        }
+        if session_events.overflowed() {
+            continue;
+        }
+        // A prior title wake may precede the authoritative snapshot. Queue a
+        // post-snapshot wake so retained title changes cannot be overwritten.
+        if tx.send(AppEvent::MuxTitlesReady).is_err()
+            || tx.send(AppEvent::MuxRecoveryComplete { recovery_generation }).is_err()
+        {
+            return;
+        }
     }
+}
+
+fn forward_mux_event(
+    event: MuxEvent,
+    tx: &SyncSender<AppEvent>,
+    mux_titles: &MuxTitleIngress,
+) -> bool {
+    match event {
+        MuxEvent::TitleChanged { surface, title } => {
+            return !mux_titles.push(surface, title) || tx.send(AppEvent::MuxTitlesReady).is_ok();
+        }
+        MuxEvent::SurfaceExited(surface) => mux_titles.remove(surface),
+        _ => {}
+    }
+    let terminal = matches!(event, MuxEvent::Empty);
+    tx.send(AppEvent::Mux(event)).is_ok() && !terminal
 }
 
 #[derive(Default)]
@@ -392,6 +423,10 @@ struct SidebarPluginSyncClaim {
     state: Arc<Mutex<SidebarPluginSyncState>>,
     desired: ((u16, u16), u64, u64),
     applied: bool,
+}
+
+fn sidebar_plugin_status_settles_passive_claim(status: &SidebarPluginSurface) -> bool {
+    (status.surface_id.is_some() && status.error.is_none()) || status.retry_after_ms.is_none()
 }
 
 impl SidebarPluginSyncClaim {
@@ -1014,10 +1049,10 @@ impl OrderedSession {
         let operation = move || {
             let mut claim = claim;
             let status = session.sidebar_plugin(size, relaunch);
-            let synchronized = status.surface_id.is_some() && status.error.is_none();
+            let settles_passive_claim = sidebar_plugin_status_settles_passive_claim(&status);
             let _ = events.send(AppEvent::SidebarPluginUpdated { status, relaunch });
             committed_mutation_generation.fetch_add(1, Ordering::AcqRel);
-            if synchronized && let Some(claim) = &mut claim {
+            if settles_passive_claim && let Some(claim) = &mut claim {
                 claim.mark_applied();
             }
             pending.settle(SessionMutationOutcome::Success { tree: None });
@@ -1607,7 +1642,7 @@ pub struct App {
     pending_session_completions: VecDeque<SessionCompletion>,
     mux_titles: Arc<MuxTitleIngress>,
     pty_failures: Arc<PtyFailureIngress>,
-    mux_recovery_pending: Arc<AtomicBool>,
+    mux_recovery_generation: Arc<AtomicU64>,
     drag: Option<Drag>,
     encoder: KeyEncoder,
     mouse_encoder: MouseEncoder,
@@ -1777,13 +1812,13 @@ pub fn run(
     let session = OrderedSession::new(session, pty_input.sender(), tx.clone());
     let stdout_lock = Arc::new(Mutex::new(()));
     let mux_titles = Arc::new(MuxTitleIngress::default());
-    let mux_recovery_pending = Arc::new(AtomicBool::new(false));
+    let mux_recovery_generation = Arc::new(AtomicU64::new(0));
 
     // Session events → app channel.
     let event_source = session.inner.clone();
     let session_events = event_source.events();
     let routing_mutation_committed = session.routing_mutation_committed.clone();
-    let mux_recovery_barrier = mux_recovery_pending.clone();
+    let mux_recovery_sequence = mux_recovery_generation.clone();
     std::thread::Builder::new().name("mux-events".into()).spawn({
         let tx = tx.clone();
         let mux_titles = mux_titles.clone();
@@ -1792,7 +1827,7 @@ pub fn run(
                 event_source,
                 session_events,
                 routing_mutation_committed,
-                mux_recovery_barrier,
+                mux_recovery_sequence,
                 tx,
                 mux_titles,
             );
@@ -1900,7 +1935,7 @@ pub fn run(
         pending_session_completions: VecDeque::new(),
         mux_titles,
         pty_failures,
-        mux_recovery_pending,
+        mux_recovery_generation,
         drag: None,
         encoder,
         mouse_encoder,
@@ -2428,6 +2463,9 @@ impl App {
     fn reload_config(&mut self) {
         let mut config = crate::config::load();
         config.apply_chrome_defaults(self.chrome);
+        self.sidebar_plugin_error = None;
+        self.sidebar_plugin_retry_after_ms = None;
+        self.sidebar_plugin_retry_at = None;
         self.session.apply_config(config.clone());
         self.config = config;
     }
@@ -2562,7 +2600,9 @@ impl App {
         if rect.width == 0 || rect.height == 0 {
             return false;
         }
-        if !relaunch && self.sidebar_plugin_retry_at.is_some() {
+        let terminal_failure =
+            self.sidebar_plugin_error.is_some() && self.sidebar_plugin_retry_after_ms.is_none();
+        if !relaunch && (self.sidebar_plugin_retry_at.is_some() || terminal_failure) {
             return false;
         }
         if relaunch && !self.prepare_pty_input_before_mutation() {
@@ -2663,7 +2703,7 @@ impl App {
             AppEvent::Input(input @ (Event::Key(_) | Event::Mouse(_) | Event::Paste(_)))
                 if (self.session.has_pending_mutations()
                     || self.session.remote_tree_is_stale()
-                    || self.mux_recovery_pending.load(Ordering::Acquire)
+                    || self.mux_recovery_generation.load(Ordering::Acquire) != 0
                     || self.routing_refresh_pending)
                     && !self.input_can_update_pending_mutation(&input) =>
             {
@@ -2675,12 +2715,18 @@ impl App {
             AppEvent::MuxTitlesReady => {
                 Ok(if self.apply_mux_titles() { RenderAction::Paint } else { RenderAction::None })
             }
-            AppEvent::MuxSubscriptionRecovered { routing_generation, result } => {
+            AppEvent::MuxSubscriptionRecovered {
+                recovery_generation,
+                routing_generation,
+                result,
+            } => {
+                if recovery_generation != self.mux_recovery_generation.load(Ordering::Acquire) {
+                    return Ok(RenderAction::None);
+                }
                 match result {
                     Ok(tree) => {
                         let empty = tree.workspaces.is_empty();
                         self.replace_authoritative_tree(tree, routing_generation);
-                        self.mux_recovery_pending.store(false, Ordering::Release);
                         if empty {
                             self.quit = true;
                             return Ok(RenderAction::None);
@@ -2690,10 +2736,41 @@ impl App {
                         );
                     }
                     Err(error) => {
-                        self.status_message =
-                            Some(format!("Mux event backlog overflowed; recovery failed: {error}"));
+                        if self
+                            .mux_recovery_generation
+                            .compare_exchange(
+                                recovery_generation,
+                                0,
+                                Ordering::AcqRel,
+                                Ordering::Acquire,
+                            )
+                            .is_err()
+                        {
+                            return Ok(RenderAction::None);
+                        }
+                        self.deferred_input.clear();
+                        self.prefix_armed = false;
+                        self.session.invalidate_remote_tree();
+                        self.session.refresh_remote_tree_if_stale();
+                        self.status_message = Some(format!(
+                            "Mux event backlog recovery failed; queued input was discarded while retrying: {error}"
+                        ));
                     }
                 }
+                Ok(RenderAction::Draw)
+            }
+            AppEvent::MuxRecoveryComplete { recovery_generation } => {
+                if recovery_generation != self.mux_recovery_generation.load(Ordering::Acquire) {
+                    return Ok(RenderAction::None);
+                }
+                if self
+                    .mux_recovery_generation
+                    .compare_exchange(recovery_generation, 0, Ordering::AcqRel, Ordering::Acquire)
+                    .is_err()
+                {
+                    return Ok(RenderAction::None);
+                }
+                self.routing_refresh_pending = true;
                 Ok(RenderAction::Draw)
             }
             AppEvent::SidebarPluginUpdated { status, relaunch } => {
@@ -5784,9 +5861,9 @@ mod tests {
     use super::{
         App, AppEvent, DeferredInput, Drag, MuxTitleIngress, OrderedSession, PaneArea,
         PendingSessionMutation, PendingSessionMutationState, PtyFailureIngress, RenderAction,
-        SessionCompletion, SessionCompletionAction, SurfaceResizeDecision,
-        browser_content_size_for_rect, browser_hover_forward_allowed, forward_mux_events,
-        pane_parts_for_rect,
+        SessionCompletion, SessionCompletionAction, SidebarPluginSyncClaim, SidebarPluginSyncState,
+        SurfaceResizeDecision, browser_content_size_for_rect, browser_hover_forward_allowed,
+        forward_mux_events, pane_parts_for_rect, sidebar_plugin_status_settles_passive_claim,
     };
     use std::collections::{HashMap, HashSet, VecDeque};
     use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -6492,14 +6569,14 @@ mod tests {
         let (tx, rx) = std::sync::mpsc::sync_channel(1);
         let titles = Arc::new(MuxTitleIngress::default());
         let routing_generation = Arc::new(AtomicU64::new(0));
-        let recovery_pending = Arc::new(AtomicBool::new(false));
-        let forwarder_recovery_pending = recovery_pending.clone();
+        let recovery_generation = Arc::new(AtomicU64::new(0));
+        let forwarder_recovery_generation = recovery_generation.clone();
         let forwarder = std::thread::spawn(move || {
             forward_mux_events(
                 event_source,
                 session_events,
                 routing_generation,
-                forwarder_recovery_pending,
+                forwarder_recovery_generation,
                 tx,
                 titles,
             );
@@ -6518,7 +6595,15 @@ mod tests {
             }
         }
         assert!(recovered);
-        assert!(recovery_pending.load(Ordering::Acquire));
+        assert_eq!(recovery_generation.load(Ordering::Acquire), 1);
+        assert!(matches!(
+            rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+            AppEvent::MuxTitlesReady
+        ));
+        assert!(matches!(
+            rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+            AppEvent::MuxRecoveryComplete { recovery_generation: 1 }
+        ));
 
         mux.emit(MuxEvent::Bell(9_999));
         assert!(matches!(
@@ -6540,17 +6625,56 @@ mod tests {
         mux.new_workspace(None, None).unwrap();
         let mut app = test_app(Session::Local(mux));
         app.replace_tree(app.session.tree());
-        app.mux_recovery_pending.store(true, Ordering::Release);
+        app.mux_recovery_generation.store(1, Ordering::Release);
 
         app.handle(AppEvent::Input(Event::Paste("queued".to_string()))).unwrap();
         assert_eq!(app.deferred_input.len(), 1);
 
         app.handle(AppEvent::MuxSubscriptionRecovered {
+            recovery_generation: 1,
             routing_generation: 0,
             result: Ok(app.session.tree()),
         })
         .unwrap();
-        assert!(!app.mux_recovery_pending.load(Ordering::Acquire));
+        assert_eq!(app.mux_recovery_generation.load(Ordering::Acquire), 1);
+        assert_eq!(app.deferred_input.len(), 1);
+
+        app.handle(AppEvent::MuxRecoveryComplete { recovery_generation: 1 }).unwrap();
+        assert_eq!(app.mux_recovery_generation.load(Ordering::Acquire), 0);
+        assert!(app.routing_refresh_pending);
+    }
+
+    #[test]
+    fn failed_mux_recovery_releases_barrier_and_discards_ambiguous_input() {
+        let mux = Mux::new("mux-recovery-failure-test", SurfaceOptions::default());
+        mux.new_workspace(None, None).unwrap();
+        let mut app = test_app(Session::Local(mux));
+        app.replace_tree(app.session.tree());
+        app.mux_recovery_generation.store(1, Ordering::Release);
+        app.handle(AppEvent::Input(Event::Paste("queued".to_string()))).unwrap();
+
+        app.handle(AppEvent::MuxSubscriptionRecovered {
+            recovery_generation: 1,
+            routing_generation: 0,
+            result: Err("refresh failed".to_string()),
+        })
+        .unwrap();
+
+        assert_eq!(app.mux_recovery_generation.load(Ordering::Acquire), 0);
+        assert!(app.deferred_input.is_empty());
+        assert!(app.status_message.as_deref().unwrap().contains("discarded"));
+    }
+
+    #[test]
+    fn stale_mux_recovery_completion_cannot_release_a_newer_barrier() {
+        let mux = Mux::new("stale-mux-recovery-completion-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.mux_recovery_generation.store(2, Ordering::Release);
+
+        app.handle(AppEvent::MuxRecoveryComplete { recovery_generation: 1 }).unwrap();
+
+        assert_eq!(app.mux_recovery_generation.load(Ordering::Acquire), 2);
+        assert!(!app.routing_refresh_pending);
     }
 
     #[test]
@@ -7032,6 +7156,45 @@ mod tests {
         assert!(app.sidebar_plugin_retry_at.is_none());
         assert!(app.session.has_pending_mutations());
         assert!(app.session.sidebar_plugin_sync.lock().unwrap().applied.is_none());
+    }
+
+    #[test]
+    fn terminal_sidebar_failure_settles_passive_sync_claim() {
+        let desired = ((24, 8), 0, 0);
+        let state = Arc::new(Mutex::new(SidebarPluginSyncState {
+            epoch: 0,
+            claimed: Some(desired),
+            applied: None,
+        }));
+        let mut claim = SidebarPluginSyncClaim { state: state.clone(), desired, applied: false };
+        let status = SidebarPluginSurface {
+            surface_id: None,
+            error: Some("terminal failure".to_string()),
+            retry_after_ms: None,
+        };
+
+        assert!(sidebar_plugin_status_settles_passive_claim(&status));
+        claim.mark_applied();
+        drop(claim);
+
+        let state = state.lock().unwrap();
+        assert_eq!(state.applied, Some(desired));
+        assert!(state.claimed.is_none());
+        drop(state);
+
+        let mux = Mux::new("terminal-sidebar-failure-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.config.sidebar.plugin = Some(cmux_tui_core::SidebarPluginOptions {
+            command: vec!["unused".to_string()],
+            cwd: None,
+        });
+        app.sidebar_visible = true;
+        app.sidebar_width = 12;
+        app.content_area.height = 8;
+        app.apply_sidebar_plugin_status(status, false);
+
+        assert!(!app.sync_sidebar_plugin(false));
+        assert!(!app.session.has_pending_mutations());
     }
 
     #[test]
@@ -7863,7 +8026,7 @@ mod tests {
             pending_session_completions: VecDeque::new(),
             mux_titles: Arc::new(MuxTitleIngress::default()),
             pty_failures: Arc::new(PtyFailureIngress::default()),
-            mux_recovery_pending: Arc::new(AtomicBool::new(false)),
+            mux_recovery_generation: Arc::new(AtomicU64::new(0)),
             drag: None,
             encoder: KeyEncoder::new().unwrap(),
             mouse_encoder: MouseEncoder::new().unwrap(),

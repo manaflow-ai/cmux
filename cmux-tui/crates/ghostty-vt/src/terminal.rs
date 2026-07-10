@@ -65,9 +65,99 @@ pub struct Callbacks {
     pub on_bell: Option<NotifyFn>,
 }
 
+#[derive(Default)]
+enum MouseModeScan {
+    #[default]
+    Ground,
+    Escape,
+    Csi {
+        private: bool,
+        at_start: bool,
+        parameter: u16,
+        has_parameter: bool,
+        has_mouse_mode: bool,
+    },
+}
+
+impl MouseModeScan {
+    fn feed(&mut self, data: &[u8]) -> bool {
+        let mut changed = false;
+        for &byte in data {
+            let state = std::mem::take(self);
+            *self = match state {
+                Self::Ground => match byte {
+                    0x1b => Self::Escape,
+                    0x9b => Self::csi(),
+                    _ => Self::Ground,
+                },
+                Self::Escape => match byte {
+                    b'[' => Self::csi(),
+                    0x1b => Self::Escape,
+                    _ => Self::Ground,
+                },
+                Self::Csi {
+                    mut private,
+                    mut at_start,
+                    mut parameter,
+                    mut has_parameter,
+                    mut has_mouse_mode,
+                } => match byte {
+                    b'?' if at_start => {
+                        private = true;
+                        at_start = false;
+                        Self::Csi { private, at_start, parameter, has_parameter, has_mouse_mode }
+                    }
+                    b'0'..=b'9' => {
+                        at_start = false;
+                        has_parameter = true;
+                        parameter =
+                            parameter.saturating_mul(10).saturating_add(u16::from(byte - b'0'));
+                        Self::Csi { private, at_start, parameter, has_parameter, has_mouse_mode }
+                    }
+                    b';' => {
+                        has_mouse_mode |=
+                            private && has_parameter && Self::is_mouse_mode(parameter);
+                        at_start = false;
+                        parameter = 0;
+                        has_parameter = false;
+                        Self::Csi { private, at_start, parameter, has_parameter, has_mouse_mode }
+                    }
+                    0x40..=0x7e => {
+                        has_mouse_mode |=
+                            private && has_parameter && Self::is_mouse_mode(parameter);
+                        if has_mouse_mode && matches!(byte, b'h' | b'l') {
+                            changed = true;
+                        }
+                        Self::Ground
+                    }
+                    0x1b => Self::Escape,
+                    _ => Self::Ground,
+                },
+            };
+        }
+        changed
+    }
+
+    fn csi() -> Self {
+        Self::Csi {
+            private: false,
+            at_start: true,
+            parameter: 0,
+            has_parameter: false,
+            has_mouse_mode: false,
+        }
+    }
+
+    fn is_mouse_mode(mode: u16) -> bool {
+        matches!(mode, 9 | 1000 | 1002 | 1003 | 1005 | 1006 | 1015 | 1016)
+    }
+}
+
 /// A terminal instance: VT parser plus full screen/scrollback state.
 pub struct Terminal {
     raw: sys::GhosttyTerminal,
+    mouse_mode_revision: u64,
+    mouse_mode_scan: MouseModeScan,
     // Heap-pinned so the userdata pointer stays valid for the terminal's
     // lifetime.
     callbacks: Box<Callbacks>,
@@ -114,7 +204,12 @@ impl Terminal {
             sys::GhosttyTerminalOptions { cols: cols.max(1), rows: rows.max(1), max_scrollback };
         check(unsafe { sys::ghostty_terminal_new(ptr::null(), &mut raw, opts) })?;
 
-        let mut term = Terminal { raw, callbacks: Box::new(callbacks) };
+        let mut term = Terminal {
+            raw,
+            mouse_mode_revision: 0,
+            mouse_mode_scan: MouseModeScan::default(),
+            callbacks: Box::new(callbacks),
+        };
         let userdata = &mut *term.callbacks as *mut Callbacks as *mut c_void;
         unsafe {
             sys::ghostty_terminal_set(raw, sys::GHOSTTY_TERMINAL_OPT_USERDATA, userdata);
@@ -141,10 +236,17 @@ impl Terminal {
         self.raw
     }
 
+    pub(crate) fn mouse_mode_revision(&self) -> u64 {
+        self.mouse_mode_revision
+    }
+
     /// Feed VT-encoded bytes (pty output) into the terminal.
     pub fn vt_write(&mut self, data: &[u8]) {
         if data.is_empty() {
             return;
+        }
+        if self.mouse_mode_scan.feed(data) {
+            self.mouse_mode_revision = self.mouse_mode_revision.wrapping_add(1);
         }
         unsafe { sys::ghostty_terminal_vt_write(self.raw, data.as_ptr(), data.len()) }
     }
@@ -480,5 +582,20 @@ impl Drop for Terminal {
             sys::ghostty_terminal_set(self.raw, sys::GHOSTTY_TERMINAL_OPT_BELL, ptr::null());
             sys::ghostty_terminal_free(self.raw);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::MouseModeScan;
+
+    #[test]
+    fn mouse_mode_scan_tracks_split_private_mode_sequences() {
+        let mut scan = MouseModeScan::default();
+
+        assert!(!scan.feed(b"\x1b[?10"));
+        assert!(scan.feed(b"00;1006h"));
+        assert!(!scan.feed(b"ordinary output\x1b[31m"));
+        assert!(scan.feed(b"\x9b?1002l"));
     }
 }

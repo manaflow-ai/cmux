@@ -44,7 +44,7 @@ pub struct MouseInput {
 pub struct MouseEncoder {
     encoder: sys::GhosttyMouseEncoder,
     event: sys::GhosttyMouseEvent,
-    terminal_state: Option<(usize, [bool; 8])>,
+    terminal_state: Option<(usize, u64)>,
     size: Option<((u32, u32), (u32, u32))>,
 }
 
@@ -70,10 +70,7 @@ impl MouseEncoder {
     }
 
     pub fn sync_from_terminal(&mut self, terminal: &Terminal) {
-        let state = (
-            terminal.raw() as usize,
-            [9, 1000, 1002, 1003, 1005, 1006, 1015, 1016].map(|mode| terminal.mode(mode, false)),
-        );
+        let state = (terminal.raw() as usize, terminal.mouse_mode_revision());
         if self.terminal_state == Some(state) {
             return;
         }
@@ -287,6 +284,27 @@ mod tests {
         event.cell_size = (4, 8);
         encoder.encode(event, &mut out).unwrap();
         assert_eq!(out, b"\x1b[<35;10;6M");
+    }
+
+    #[test]
+    fn reasserted_mouse_mode_resynchronizes_last_set_precedence() {
+        let mut terminal = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+        terminal.vt_write(b"\x1b[?1000h\x1b[?1002h\x1b[?1006h");
+        let mut encoder = MouseEncoder::new().unwrap();
+        encoder.sync_from_terminal(&terminal);
+        let mut event = input(MouseAction::Motion, Some(MouseButton::Left));
+        event.any_button_pressed = true;
+        let mut out = Vec::new();
+
+        encoder.encode(event, &mut out).unwrap();
+        assert!(!out.is_empty(), "button tracking must report drag motion");
+
+        terminal.vt_write(b"\x1b[?1000h");
+        encoder.sync_from_terminal(&terminal);
+        out.clear();
+        encoder.encode(event, &mut out).unwrap();
+
+        assert!(out.is_empty(), "reasserted normal tracking must suppress motion");
     }
 
     #[test]
