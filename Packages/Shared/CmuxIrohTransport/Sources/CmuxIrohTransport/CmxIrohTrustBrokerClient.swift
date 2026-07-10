@@ -148,8 +148,8 @@ public actor CmxIrohTrustBrokerClient {
 
     public func revoke(bindingID: String) async throws {
         let response: RevokeResponse = try await send(
-            path: "api/devices/iroh/revoke",
-            method: "POST",
+            path: "api/devices/iroh",
+            method: "DELETE",
             body: BindingRequest(bindingId: bindingID)
         )
         guard response.revoked, response.lanRendezvousRotated else {
