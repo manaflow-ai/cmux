@@ -19,6 +19,15 @@ extension AgentHibernationController {
         let generation: UInt64
     }
 
+    struct ConfirmedTeardownRuntimeObservation: Sendable {
+        let hasLiveSurface: Bool
+        let fingerprint: String?
+    }
+
+    typealias ConfirmedTeardownRuntimeObservationProvider = @MainActor @Sendable (
+        AgentHibernationRecord
+    ) -> ConfirmedTeardownRuntimeObservation
+
     /// Runs the transcript snapshot off the main actor, then resumes teardown on the
     /// main actor only if the pane still qualifies. The snapshot MUST complete before
     /// SIGTERM / pty-close can trigger Claude's interrupted-exit transcript rewrite,
@@ -29,7 +38,8 @@ extension AgentHibernationController {
         _ requests: [ConfirmedTeardownRequest],
         postSnapshotIndexLoader: @escaping @Sendable () async -> RestorableAgentSessionIndex = {
             await SharedLiveAgentIndex.shared.scopedIndexCapturedAfterRequest()
-        }
+        },
+        runtimeObservationProvider: ConfirmedTeardownRuntimeObservationProvider? = nil
     ) -> Task<Void, Never> {
         guard !requests.isEmpty else { return Task {} }
         return Task { @MainActor in
@@ -99,7 +109,11 @@ extension AgentHibernationController {
                 // scrollback change, visibility/protection change, hibernation disable,
                 // hibernation, or surface loss during the hop aborts; the regular 30s
                 // tick will re-arm if still idle.
-                guard confirmedTeardownStillQualifies(request, index: postSnapshotIndex) else {
+                guard confirmedTeardownStillQualifies(
+                    request,
+                    index: postSnapshotIndex,
+                    runtimeObservation: runtimeObservationProvider?(record)
+                ) else {
                     continue
                 }
 
@@ -126,7 +140,11 @@ extension AgentHibernationController {
                     let stillQualifies = await cancelPostTeardownRestoreTaskForReplacement(
                         transcriptPath: snapshot.transcriptPath,
                         ifStillQualifies: {
-                            self.confirmedTeardownStillQualifies(request, index: postSnapshotIndex)
+                            self.confirmedTeardownStillQualifies(
+                                request,
+                                index: postSnapshotIndex,
+                                runtimeObservation: runtimeObservationProvider?(record)
+                            )
                         }
                     )
                     // Nothing may suspend after these checks and before SIGTERM.
@@ -282,9 +300,14 @@ extension AgentHibernationController {
 
     func confirmedTeardownStillQualifies(
         _ request: ConfirmedTeardownRequest,
-        index: RestorableAgentSessionIndex
+        index: RestorableAgentSessionIndex,
+        runtimeObservation: ConfirmedTeardownRuntimeObservation? = nil
     ) -> Bool {
         let record = request.record
+        let runtimeObservation = runtimeObservation ?? ConfirmedTeardownRuntimeObservation(
+            hasLiveSurface: record.terminalPanel.surface.hasLiveSurface,
+            fingerprint: hibernationFingerprint(for: record)
+        )
         let currentAgent = record.workspace.restorableAgentForHibernation(
             panelId: record.key.panelId,
             index: index
@@ -300,7 +323,7 @@ extension AgentHibernationController {
               TabManager.restorableAgentSnapshotFingerprint(currentAgent) ==
                   TabManager.restorableAgentSnapshotFingerprint(record.agent),
               !record.terminalPanel.isAgentHibernated,
-              record.terminalPanel.surface.hasLiveSurface,
+              runtimeObservation.hasLiveSurface,
               AppDelegate.shared?.agentHibernationPanelIsProtected(
                   workspace: record.workspace,
                   panelId: record.key.panelId
@@ -310,7 +333,7 @@ extension AgentHibernationController {
                   (lifecycleChangeByPanel[record.key] ?? 0),
               teardownValidationGeneration == request.generation,
               (teardownValidationEpochByPanel[record.key] ?? 0) == request.epoch,
-              let currentFingerprint = hibernationFingerprint(for: record),
+              let currentFingerprint = runtimeObservation.fingerprint,
               currentFingerprint == request.confirmationFingerprint,
               currentEffectiveLastActivityAt <= request.effectiveLastActivityAt else {
             return false
