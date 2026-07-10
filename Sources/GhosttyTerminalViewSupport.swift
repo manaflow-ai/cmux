@@ -82,17 +82,6 @@ extension GhosttySurfaceScrollView {
     }
 }
 
-extension GhosttyApp {
-    static func usesHostLayerBackground(for config: ghostty_config_t) -> Bool {
-        let key = "custom-shader"
-        var customShaderCount: UInt32 = 0
-        guard ghostty_config_get(config, &customShaderCount, key, UInt(key.utf8.count)) else {
-            return true
-        }
-        return customShaderCount == 0
-    }
-}
-
 func shouldAllowEnsureFocusWindowActivation(
     activeTabManager: TabManager?,
     targetTabManager: TabManager,
