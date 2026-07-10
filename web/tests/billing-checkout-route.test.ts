@@ -169,6 +169,25 @@ describe("billing checkout route", () => {
     });
   });
 
+  test("blocks direct checkout requests from the iOS App Store distribution", async () => {
+    stripeConfigured = true;
+    userResponses = [null, anonymousUser];
+
+    const response = await GET(
+      new NextRequest(
+        "https://cmux.test/api/billing/checkout?plan=pro&cmux_distribution=appstore&cmux_scheme=cmux",
+      ),
+    );
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe(
+      "https://cmux.test/app-pricing?cmux_app=1&cmux_distribution=appstore&billing=unavailable&cmux_scheme=cmux",
+    );
+    expect(getUser).not.toHaveBeenCalled();
+    expect(createStripeSession).not.toHaveBeenCalled();
+    expect(anonymousUser.createCheckoutUrl).not.toHaveBeenCalled();
+  });
+
   test("keeps signed-in checkout on the existing Stack user", async () => {
     userResponses = [signedInUser];
 
@@ -183,6 +202,23 @@ describe("billing checkout route", () => {
       productId: "pro",
       returnUrl: "https://cmux.test/api/billing/confirm",
     });
+  });
+
+  test("blocks Stack checkout while account deletion is in progress", async () => {
+    userResponses = [{
+      ...signedInUser,
+      clientReadOnlyMetadata: { cmuxAccountDeleting: true },
+    }];
+
+    const response = await GET(
+      new NextRequest("https://cmux.test/api/billing/checkout"),
+    );
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe(
+      "https://cmux.test/pricing?billing=account_deletion_in_progress",
+    );
+    expect(signedInUser.createCheckoutUrl).not.toHaveBeenCalled();
   });
 
   test("syncs metadata when Stack says Pro checkout is already granted and products confirm it", async () => {
@@ -351,6 +387,27 @@ describe("billing checkout route", () => {
         "https://cmux.test/api/billing/complete?session_id={CHECKOUT_SESSION_ID}&cmux_scheme=cmux",
       cancel_url: "https://cmux.test/pricing?billing=cancelled",
     });
+  });
+
+  test("blocks Stripe team checkout while account deletion is in progress", async () => {
+    stripeConfigured = true;
+    userResponses = [{
+      ...signedInUser,
+      selectedTeam: teamCustomer,
+      clientReadOnlyMetadata: { cmuxAccountDeleting: true },
+    }];
+
+    const response = await GET(
+      new NextRequest("https://cmux.test/api/billing/checkout?plan=team"),
+    );
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe(
+      "https://cmux.test/pricing?billing=account_deletion_in_progress",
+    );
+    expect(createStripeCustomer).not.toHaveBeenCalled();
+    expect(createStripeSession).not.toHaveBeenCalled();
+    expect(teamCustomer.createCheckoutUrl).not.toHaveBeenCalled();
   });
 
   test("rejects unknown checkout plans", async () => {

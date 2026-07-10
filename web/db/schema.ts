@@ -79,6 +79,25 @@ export const cloudVms = pgTable(
   ],
 );
 
+export const accountDeletionTombstones = pgTable(
+  "account_deletion_tombstones",
+  {
+    userIdHash: text("user_id_hash").primaryKey(),
+    userId: text("user_id"),
+    status: text("status").$type<"pending" | "in_progress" | "stack_delete_pending" | "stack_delete_in_progress" | "completed" | "cleanup_incomplete" | "failed">().notNull().default("pending"),
+    attemptCount: integer("attempt_count").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    errorMessage: text("error_message"),
+  },
+  (table) => [
+    index("account_deletion_tombstones_status_updated_idx").on(table.status, table.updatedAt),
+    index("account_deletion_tombstones_user_idx").on(table.userId),
+  ],
+);
+
 export const cloudVmLeases = pgTable(
   "cloud_vm_leases",
   {
@@ -101,6 +120,9 @@ export const cloudVmLeases = pgTable(
   (table) => [
     index("cloud_vm_leases_vm_kind_idx").on(table.vmId, table.kind),
     index("cloud_vm_leases_identity_idx").on(table.providerIdentityHandle),
+    index("cloud_vm_leases_identity_cleanup_idx")
+      .on(table.expiresAt, table.createdAt, table.id)
+      .where(sql`${table.providerIdentityHandle} is not null and ${table.revokedAt} is null`),
     index("cloud_vm_leases_user_expires_idx").on(table.userId, table.expiresAt),
     uniqueIndex("cloud_vm_leases_token_hash_unique").on(table.tokenHash),
   ],
@@ -424,7 +446,9 @@ export const vaultUploadGrants = pgTable(
     id: uuid("id").defaultRandom().primaryKey(),
     userId: text("user_id").notNull(),
     objectKey: text("object_key").notNull(),
+    uploadObjectKey: text("upload_object_key").notNull(),
     compressedSizeBytes: bigint("compressed_size_bytes", { mode: "number" }).notNull(),
+    reservationToken: uuid("reservation_token").defaultRandom().notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
   },
@@ -432,6 +456,23 @@ export const vaultUploadGrants = pgTable(
     uniqueIndex("vault_upload_grants_object_key_unique").on(table.objectKey),
     index("vault_upload_grants_user_idx").on(table.userId),
     index("vault_upload_grants_expires_idx").on(table.expiresAt),
+  ],
+);
+
+export const vaultUploadTombstones = pgTable(
+  "vault_upload_tombstones",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: text("user_id").notNull(),
+    objectKey: text("object_key").notNull(),
+    uploadObjectKey: text("upload_object_key").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    index("vault_upload_tombstones_user_idx").on(table.userId),
+    index("vault_upload_tombstones_expires_idx").on(table.expiresAt),
+    uniqueIndex("vault_upload_tombstones_upload_object_key_unique").on(table.uploadObjectKey),
   ],
 );
 

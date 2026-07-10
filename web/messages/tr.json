@@ -3462,6 +3462,9 @@
       "faqA4": "Evet. cmux, macOS için ücretsiz ve açık kaynaktır."
     }
   },
+  "pricing": {
+    "billingUnavailable": "Faturalandırma şu anda kullanılamıyor. Lütfen daha sonra tekrar deneyin."
+  },
   "platforms": {
     "macos": "macOS",
     "ios": "iOS",

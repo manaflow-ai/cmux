@@ -1,15 +1,12 @@
 import AppKit
-import CmuxSidebar
-import CmuxWorkspaces
-import SwiftUI
 import Testing
-
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
 #elseif canImport(cmux)
 @testable import cmux
 #endif
 
+/// Sidebar row interaction tests extracted from the primary sidebar snapshot refresh test file, which sits at its file-length budget.
 @Suite struct SidebarWorkspaceRowInteractionStateTests {
     @Test func appKitMenuTrackingEndClearsStaleContextMenuVisibility() {
         var state = SidebarWorkspaceRowInteractionState()

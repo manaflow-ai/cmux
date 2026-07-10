@@ -3,7 +3,6 @@ import CmuxSidebar
 import CmuxWorkspaces
 import SwiftUI
 import Testing
-
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
 #elseif canImport(cmux)
@@ -55,7 +54,6 @@ import Testing
         #expect(decision.pendingWorkspaceSnapshot == next)
         #expect(decision.hasDeferredWorkspaceObservationInvalidation)
     }
-
     @Test func contextMenuImmediateOnlyChangeDoesNotCreateDeferredFlush() {
         let current = Self.snapshot(
             title: "old",
@@ -83,7 +81,6 @@ import Testing
         #expect(decision.pendingWorkspaceSnapshot == nil)
         #expect(!decision.hasDeferredWorkspaceObservationInvalidation)
     }
-
     @Test func contextMenuMediaActivityChangeUpdatesDisplayedGlyphImmediately() {
         let current = Self.snapshot(
             remoteConnectionStatusText: "Connected",
@@ -112,7 +109,6 @@ import Testing
         #expect(decision.pendingWorkspaceSnapshot == next)
         #expect(decision.hasDeferredWorkspaceObservationInvalidation)
     }
-
     @Test func closedContextMenuStoresNextAndClearsPending() {
         let current = Self.snapshot(title: "old", isPinned: false)
         let next = Self.snapshot(title: "new", isPinned: true)
@@ -129,7 +125,7 @@ import Testing
         #expect(!decision.hasDeferredWorkspaceObservationInvalidation)
     }
 
-    private static func snapshot(
+    static func snapshot(
         presentationKey: SidebarWorkspaceSnapshotBuilder.PresentationKey? = nil,
         title: String = "workspace",
         customDescription: String? = nil,
@@ -140,7 +136,8 @@ import Testing
         agentStatusRows: [SidebarAgentStatusRow] = [],
         listeningPorts: [Int] = [],
         finderDirectoryPath: String? = nil,
-        mediaActivity: BrowserMediaActivity = BrowserMediaActivity()
+        mediaActivity: BrowserMediaActivity = BrowserMediaActivity(),
+        activeCodingAgentCount: Int = 0
     ) -> SidebarWorkspaceSnapshotBuilder.Snapshot {
         SidebarWorkspaceSnapshotBuilder.Snapshot(
             presentationKey: presentationKey ?? Self.presentationKey(),
@@ -159,6 +156,7 @@ import Testing
             metadataBlocks: [],
             latestLog: nil,
             progress: nil,
+            activeCodingAgentCount: activeCodingAgentCount,
             compactGitBranchSummaryText: nil,
             compactDirectoryCandidates: [],
             compactBranchDirectoryCandidates: [],
@@ -167,11 +165,18 @@ import Testing
             pullRequestRows: [],
             listeningPorts: listeningPorts,
             finderDirectoryPath: finderDirectoryPath,
-            mediaActivity: mediaActivity
+            mediaActivity: mediaActivity,
+            taskStatus: nil,
+            taskStatusHasOverride: false,
+            taskStatusInferred: nil,
+            checklistItems: [],
+            checklistCompletedCount: 0,
+            checklistTotalCount: 0,
+            checklistFirstUncheckedText: nil
         )
     }
 
-    private static func agentStatusRow(value: String) -> SidebarAgentStatusRow {
+    static func agentStatusRow(value: String) -> SidebarAgentStatusRow {
         SidebarAgentStatusRow(
             panelId: UUID(),
             statusKey: "claude_code",
@@ -187,11 +192,12 @@ import Testing
         )
     }
 
-    private static func presentationKey(
+    static func presentationKey(
         showsWorkspaceDescription: Bool = true,
         usesVerticalBranchLayout: Bool = true,
         showsGitBranch: Bool = true,
         usesViewportAwarePath: Bool = false,
+        showsAgentActivity: Bool = true,
         visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility = SidebarWorkspaceAuxiliaryDetailVisibility(
             showsMetadata: true,
             showsLog: true,
@@ -206,7 +212,97 @@ import Testing
             usesVerticalBranchLayout: usesVerticalBranchLayout,
             showsGitBranch: showsGitBranch,
             usesViewportAwarePath: usesViewportAwarePath,
+            showsAgentActivity: showsAgentActivity,
             visibleAuxiliaryDetails: visibleAuxiliaryDetails
+        )
+    }
+}
+
+@Suite struct SidebarSelectedWorkspaceScrollPolicyTests {
+    @Test func skipsScrollWhenSelectedWorkspaceIdIsNil() {
+        #expect(!SidebarSelectedWorkspaceScrollPolicy.shouldScrollSelectedWorkspace(
+            selectedWorkspaceId: nil as String?,
+            oldWorkspaceIds: ["a"],
+            newWorkspaceIds: ["a"]
+        ))
+    }
+
+    @Test func requestsScrollWhenSelectedWorkspaceFirstAppears() {
+        #expect(SidebarSelectedWorkspaceScrollPolicy.shouldScrollSelectedWorkspace(
+            selectedWorkspaceId: "b",
+            oldWorkspaceIds: ["a"],
+            newWorkspaceIds: ["a", "b"]
+        ))
+    }
+
+    @Test func requestsScrollWhenSelectedWorkspaceMovesToTop() {
+        #expect(SidebarSelectedWorkspaceScrollPolicy.shouldScrollSelectedWorkspace(
+            selectedWorkspaceId: "c",
+            oldWorkspaceIds: ["a", "b", "c"],
+            newWorkspaceIds: ["c", "a", "b"]
+        ))
+    }
+
+    @Test func requestsScrollWhenAnotherReorderShiftsSelectedWorkspaceIndex() {
+        #expect(SidebarSelectedWorkspaceScrollPolicy.shouldScrollSelectedWorkspace(
+            selectedWorkspaceId: "b",
+            oldWorkspaceIds: ["a", "b", "c"],
+            newWorkspaceIds: ["c", "a", "b"]
+        ))
+    }
+
+    @Test func skipsScrollWhenWorkspaceBeforeSelectedWorkspaceCloses() {
+        #expect(!SidebarSelectedWorkspaceScrollPolicy.shouldScrollSelectedWorkspace(selectedWorkspaceId: "d", oldWorkspaceIds: ["a", "b", "c", "d"], newWorkspaceIds: ["a", "c", "d"]))
+    }
+    @Test func skipsScrollWhenReorderLeavesSelectedWorkspaceIndexUnchanged() {
+        #expect(!SidebarSelectedWorkspaceScrollPolicy.shouldScrollSelectedWorkspace(
+            selectedWorkspaceId: "a",
+            oldWorkspaceIds: ["a", "b", "c"],
+            newWorkspaceIds: ["a", "c", "b"]
+        ))
+    }
+
+    @Test func skipsScrollWhenSelectedWorkspaceIsMissing() {
+        #expect(!SidebarSelectedWorkspaceScrollPolicy.shouldScrollSelectedWorkspace(
+            selectedWorkspaceId: "b",
+            oldWorkspaceIds: ["a", "b"],
+            newWorkspaceIds: ["a", "c"]
+        ))
+    }
+
+    @Test func scrollTargetIsSelfWithoutGroup() {
+        let workspaceId = UUID()
+        #expect(SidebarSelectedWorkspaceScrollPolicy.scrollTargetWorkspaceId(
+            selectedWorkspaceId: workspaceId,
+            group: nil
+        ) == workspaceId)
+    }
+
+    @Test func scrollTargetIsSelfInExpandedGroup() {
+        let workspaceId = UUID()
+        #expect(SidebarSelectedWorkspaceScrollPolicy.scrollTargetWorkspaceId(
+            selectedWorkspaceId: workspaceId,
+            group: makeGroup(isCollapsed: false, anchorWorkspaceId: UUID())
+        ) == workspaceId)
+    }
+
+    @Test func scrollTargetIsGroupAnchorWhenGroupIsCollapsed() {
+        let anchorId = UUID()
+        #expect(SidebarSelectedWorkspaceScrollPolicy.scrollTargetWorkspaceId(
+            selectedWorkspaceId: UUID(),
+            group: makeGroup(isCollapsed: true, anchorWorkspaceId: anchorId)
+        ) == anchorId)
+    }
+
+    private func makeGroup(isCollapsed: Bool, anchorWorkspaceId: UUID) -> WorkspaceGroup {
+        WorkspaceGroup(
+            id: UUID(),
+            name: "group",
+            isCollapsed: isCollapsed,
+            isPinned: false,
+            anchorWorkspaceId: anchorWorkspaceId,
+            customColor: nil,
+            iconSymbol: nil
         )
     }
 }

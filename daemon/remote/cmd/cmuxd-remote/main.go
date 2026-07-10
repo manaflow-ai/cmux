@@ -81,6 +81,7 @@ type rpcEvent struct {
 	DataBase64      string `json:"data_base64,omitempty"`
 	Message         string `json:"message,omitempty"`
 	Error           string `json:"error,omitempty"`
+	Seq             uint64 `json:"seq,omitempty"`
 }
 
 type rpcFrameWriter interface {
@@ -1322,6 +1323,7 @@ func (s *rpcServer) handleRequest(req rpcRequest) rpcResponse {
 					"pty.session.persistent_daemon",
 					"pty.write.notification",
 					"pty.resize.notification",
+					"pty.input.seq_ack",
 					"cli.bridge",
 				},
 			},
@@ -1437,7 +1439,8 @@ func (s *rpcServer) handleNotificationResponse(req rpcRequest, resp rpcResponse)
 		Error:           detail,
 		Message:         detail,
 	})
-	if req.Method == "pty.write" && resp.Error != nil && resp.Error.Code == "pty_input_queue_full" && s.ptyHub != nil {
+	if req.Method == "pty.write" && resp.Error != nil && s.ptyHub != nil &&
+		(resp.Error.Code == "pty_input_queue_full" || resp.Error.Code == "pty_input_seq_gap") {
 		s.ptyHub.detachByID(sessionID, attachmentID, attachmentToken)
 	}
 	return err
@@ -1975,6 +1978,7 @@ func (s *rpcServer) handlePTYAttach(req rpcRequest) rpcResponse {
 	}
 	command, _ := getStringParam(req.Params, "command")
 	requireExisting, _ := getBoolParam(req.Params, "require_existing")
+	inputSeqAck, _ := getBoolParam(req.Params, "input_seq_ack")
 
 	hub := s.ptyHub
 	if hub == nil {
@@ -1996,6 +2000,7 @@ func (s *rpcServer) handlePTYAttach(req rpcRequest) rpcResponse {
 		command,
 		attachmentToken,
 		requireExisting,
+		inputSeqAck,
 	)
 	if err != nil {
 		return rpcResponse{
@@ -2060,8 +2065,37 @@ func (s *rpcServer) handlePTYWrite(req rpcRequest) rpcResponse {
 		}
 	}
 	writeStatus := wsPTYInputWriteNotFound
+	var seq uint64
+	var hasSeq bool
+	if _, provided := req.Params["seq"]; provided {
+		parsedSeq, ok := getIntParam(req.Params, "seq")
+		if !ok || parsedSeq < 0 {
+			return rpcResponse{
+				ID: req.ID,
+				OK: false,
+				Error: &rpcError{
+					Code:    "invalid_params",
+					Message: "seq must be a non-negative integer",
+				},
+			}
+		}
+		seq = uint64(parsedSeq)
+		hasSeq = true
+	}
+	writeResult := wsPTYInputWriteResult{status: wsPTYInputWriteNotFound}
 	if s.ptyHub != nil {
-		writeStatus = s.ptyHub.writeInputByID(sessionID, attachmentID, attachmentToken, payload)
+		writeResult = s.ptyHub.writeInputByIDWithSeq(sessionID, attachmentID, attachmentToken, payload, seq, hasSeq)
+		writeStatus = writeResult.status
+	}
+	if writeStatus == wsPTYInputWriteSeqGap {
+		return rpcResponse{
+			ID: req.ID,
+			OK: false,
+			Error: &rpcError{
+				Code:    "pty_input_seq_gap",
+				Message: fmt.Sprintf("PTY input sequence gap: got %d, want %d", writeResult.got, writeResult.want),
+			},
+		}
 	}
 	if writeStatus == wsPTYInputWriteQueueFull {
 		return rpcResponse{

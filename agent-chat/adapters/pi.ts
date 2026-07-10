@@ -16,6 +16,8 @@ interface PiState {
   sessionFile?: string;
   commands: CommandEntry[];
   initialApplied: boolean;
+  activeTurn: boolean;
+  activeGeneration?: number;
 }
 
 export const piAdapter: Adapter = {
@@ -26,10 +28,16 @@ export const piAdapter: Adapter = {
       { id: "thinking", label: "Thinking", kind: "select", value: "minimal", role: "effort", choices: THINKING_CHOICES },
     ],
   },
-  async send(sess, prompt) {
+  async send(sess, prompt, generation?: number) {
     const proc = ensureProc(sess);
+    const st = state(sess);
     await applyInitialOptions(sess);
-    proc.stdin.write(JSON.stringify({ type: sess.status === "running" ? "steer" : "prompt", message: prompt }) + "\n");
+    const type = st.activeTurn ? "steer" : "prompt";
+    if (type === "prompt") {
+      st.activeTurn = true;
+      st.activeGeneration = generation;
+    }
+    proc.stdin.write(JSON.stringify({ type, message: prompt }) + "\n");
     proc.stdin.flush();
     sess.setStatus("running");
   },
@@ -87,6 +95,8 @@ function state(sess: SessionCtx): PiState {
       sessionFile: typeof sess.internal.piSessionFile === "string" ? sess.internal.piSessionFile : undefined,
       commands: [],
       initialApplied: false,
+      activeTurn: false,
+      activeGeneration: undefined,
     };
     sess.internal.pi = st;
   }
@@ -115,9 +125,12 @@ function ensureProc(sess: SessionCtx): Bun.Subprocess<"pipe", "pipe", "pipe"> {
     if (st.proc === proc) {
       st.proc = undefined;
       rejectPending(st, "pi process exited");
-      if (sess.status === "running") {
+      if (st.activeTurn) {
+        const generation = st.activeGeneration;
+        st.activeTurn = false;
+        st.activeGeneration = undefined;
         sess.emit({ kind: "error", message: "pi process exited mid-turn" });
-        sess.emit({ kind: "done" });
+        sess.emit({ kind: "done", generation } as any);
       }
       sess.setStatus("idle");
     }
@@ -245,6 +258,19 @@ function isOffLike(value: string): boolean {
   return /^(off|none)$/i.test(value);
 }
 
+function finishTurn(sess: SessionCtx) {
+  const st = state(sess);
+  if (!st.activeTurn) {
+    sess.setStatus("idle");
+    return;
+  }
+  const generation = st.activeGeneration;
+  st.activeTurn = false;
+  st.activeGeneration = undefined;
+  sess.emit({ kind: "done", generation } as any);
+  sess.setStatus("idle");
+}
+
 function handleLine(sess: SessionCtx, line: string) {
   const ev = tryParse(line);
   if (!ev) return;
@@ -319,14 +345,26 @@ function handleLine(sess: SessionCtx, line: string) {
       });
       break;
     case "agent_end":
-      sess.emit({ kind: "done" });
-      sess.setStatus("idle");
+      finishTurn(sess);
       break;
     case "error":
       sess.emit({ kind: "error", message: truncate(ev.message ?? JSON.stringify(ev), 400) });
+      finishTurn(sess);
       break;
   }
 }
+
+export function piHandleLineForTest(sess: SessionCtx, line: string) {
+  handleLine(sess, line);
+}
+
+export function piNextSendTypeForTest(sess: SessionCtx): "prompt" | "steer" {
+  return state(sess).activeTurn ? "steer" : "prompt";
+}
+
+(piAdapter as any).attributionMode = (sess: SessionCtx) => (
+  piNextSendTypeForTest(sess) === "steer" ? "current-turn" : "new-turn"
+);
 
 function normalizeModels(models: any): OptionChoice[] {
   if (!Array.isArray(models)) return [];

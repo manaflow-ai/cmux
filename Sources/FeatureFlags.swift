@@ -40,6 +40,13 @@ final class CmuxFeatureFlags {
     private static let mobileConnectButtonDefault = true
 
     #if DEBUG
+    private static let cloudVMUIDefault = true
+    #else
+    private static let cloudVMUIDefault = false
+    #endif
+    private static let agentChatUIDefault = false
+
+    #if DEBUG
     private static let sidebarAgentRowsDefault = true
     #else
     private static let sidebarAgentRowsDefault = false
@@ -82,6 +89,38 @@ final class CmuxFeatureFlags {
                 defaultWhenUnavailable: Self.mobileConnectButtonDefault
             ),
 
+            // FLAG(key: cloud-vm-ui-enabled-release, owner: lawrencecchen,
+            //      reviewBy: 2026-10-01, defaultWhenUnavailable: false)
+            // Shows the Cloud VM entrypoints: the new-workspace dropdown section
+            // (Open/Fork/Checkpoint/Restore/Advanced), the caret's direct Cloud
+            // VM menu, and the command-palette Cloud VM commands. Release builds
+            // hide them until the PostHog flag is enabled; DEBUG keeps them
+            // visible for dogfood.
+            CmuxFeatureFlagDefinition(
+                key: "cloud-vm-ui-enabled-release",
+                title: String(localized: "featureFlags.cloudVM.title", defaultValue: "Cloud VM UI"),
+                flagDescription: String(
+                    localized: "featureFlags.cloudVM.description",
+                    defaultValue: "Shows Cloud VM entrypoints in the new-workspace dropdown and command palette."
+                ),
+                defaultWhenUnavailable: Self.cloudVMUIDefault
+            ),
+
+            // FLAG(key: agent-chat-ui-enabled-release, owner: lawrencecchen,
+            //      reviewBy: 2026-10-01, defaultWhenUnavailable: false)
+            // Shows the Agent Chat entrypoints: the new-workspace dropdown item,
+            // command-palette command, surface-tab-bar button, and shared action
+            // executor. Hidden by default until the sidecar UX is ready to ship.
+            CmuxFeatureFlagDefinition(
+                key: "agent-chat-ui-enabled-release",
+                title: String(localized: "featureFlags.agentChat.title", defaultValue: "Agent Chat UI"),
+                flagDescription: String(
+                    localized: "featureFlags.agentChat.description",
+                    defaultValue: "Shows Agent Chat entrypoints in the new-workspace dropdown, command palette, and surface tab bar."
+                ),
+                defaultWhenUnavailable: Self.agentChatUIDefault
+            ),
+
             // FLAG(key: sidebar-agent-rows-enabled-release, owner: lawrencecchen,
             //      reviewBy: 2026-10-01, defaultWhenUnavailable: false)
             // Per-agent sidebar rows: one row per agent pane inside the
@@ -109,8 +148,16 @@ final class CmuxFeatureFlags {
         effectiveValue(for: Self.allFlags[1])
     }
 
-    var isSidebarAgentRowsEnabled: Bool {
+    var isCloudVMUIEnabled: Bool {
         effectiveValue(for: Self.allFlags[2])
+    }
+
+    var isAgentChatUIEnabled: Bool {
+        effectiveValue(for: Self.allFlags[3])
+    }
+
+    var isSidebarAgentRowsEnabled: Bool {
+        effectiveValue(for: Self.allFlags[4])
     }
 
     @ObservationIgnored
