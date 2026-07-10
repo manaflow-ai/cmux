@@ -6,9 +6,10 @@ struct ProcessDetectedResumeIndexes: Sendable {
 
     static func load(
         homeDirectory: String = NSHomeDirectory(),
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        snapshotStore: CmuxTopProcessSnapshotStore = .shared
     ) async -> ProcessDetectedResumeIndexes {
-        let processSnapshot = await CmuxTopProcessSnapshotStore.shared.snapshot(
+        let processSnapshot = await snapshotStore.snapshot(
             requirements: [.processDetails, .cmuxScope],
             maximumAge: 5,
             consumer: .processDetectedResume
@@ -22,16 +23,16 @@ struct ProcessDetectedResumeIndexes: Sendable {
         }.value
     }
 
+    /// Termination-only fallback. App shutdown must persist the final restorable
+    /// state before returning to AppKit, so this one raw capture cannot await the
+    /// actor; the compatibility seam records it in the shared proof metrics.
     static func loadSynchronously(
         homeDirectory: String = NSHomeDirectory(),
-        fileManager: FileManager = .default,
-        maximumSnapshotAge: TimeInterval? = nil
+        fileManager: FileManager = .default
     ) -> ProcessDetectedResumeIndexes {
-        let processSnapshot = if let maximumSnapshotAge {
-            CmuxTopProcessSnapshot.captureCached(includeProcessDetails: true, maximumAge: maximumSnapshotAge)
-        } else {
-            CmuxTopProcessSnapshot.capture(includeProcessDetails: true)
-        }
+        let processSnapshot = CmuxTopProcessSnapshot.captureSynchronouslyForCompatibility(
+            includeProcessDetails: true
+        )
         return loadSynchronously(
             homeDirectory: homeDirectory,
             fileManager: fileManager,

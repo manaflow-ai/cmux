@@ -4,7 +4,7 @@ import Foundation
 /// Resolves the shell command to save for each live terminal when capturing a
 /// workspace action: the tty's foreground process argv, cleaned so re-running
 /// it starts a fresh session (known agent resume flags stripped).
-enum TerminalForegroundCommandCapture {
+nonisolated enum TerminalForegroundCommandCapture {
     /// Maximum UTF-8 byte length for a command replayed by typing it into a fresh shell.
     ///
     /// Workspace layout replay writes the command plus a newline into a just-spawned
@@ -17,14 +17,14 @@ enum TerminalForegroundCommandCapture {
     /// comes from the workspace-owned panel→tty mapping — never from the
     /// child process's ambient CMUX_* environment, which any foreground
     /// process can override or carry stale.
-    static func liveCommands(forTTYDevices ttyDevices: Set<Int64>) -> [Int64: String] {
+    static func liveCommands(
+        forTTYDevices ttyDevices: Set<Int64>,
+        processSnapshot: CmuxTopProcessSnapshot,
+        commandLineArguments: (Int32) -> [String]? = TerminalSSHSessionDetector.commandLineArguments(forPID:)
+    ) -> [Int64: String] {
         guard !ttyDevices.isEmpty else { return [:] }
-        let processes = CmuxTopProcessSnapshot.allProcesses(
-            includeProcessDetails: true,
-            includeCMUXScope: false
-        )
         var bestByTTY: [Int64: CmuxTopProcessInfo] = [:]
-        for process in processes {
+        for process in processSnapshot.processesByPID.values {
             guard let ttyDevice = process.ttyDevice,
                   ttyDevices.contains(ttyDevice),
                   let processGroupID = process.processGroupID,
@@ -42,7 +42,7 @@ enum TerminalForegroundCommandCapture {
 
         var commands: [Int64: String] = [:]
         for (ttyDevice, process) in bestByTTY {
-            guard let argv = TerminalSSHSessionDetector.commandLineArguments(forPID: Int32(process.pid)),
+            guard let argv = commandLineArguments(Int32(process.pid)),
                   let command = commandLine(fromArgv: argv),
                   !command.isEmpty else { continue }
             commands[ttyDevice] = command

@@ -201,79 +201,60 @@ actor CmuxTopProcessSnapshotStore {
     }
 }
 
-private nonisolated struct CmuxTopProcessSnapshotCacheState {
-    var snapshot: CmuxTopProcessSnapshot?
-    var includeProcessDetails = false
-    var includeCMUXScope = true
-}
-
-// Synchronous compatibility for one-shot call sites. Periodic consumers use
-// CmuxTopProcessSnapshotStore so capture is deduplicated without blocking them.
-private nonisolated let cmuxTopProcessSnapshotCache = OSAllocatedUnfairLock(
-    initialState: CmuxTopProcessSnapshotCacheState()
+#if DEBUG
+// Actor-owned generations start at one. Keep synchronous compatibility captures
+// in a separate namespace while feeding the same aggregate in-flight counters.
+private nonisolated let cmuxTopSynchronousCaptureGeneration = OSAllocatedUnfairLock(
+    initialState: UInt64(0)
 )
+#endif
 
 nonisolated extension CmuxTopProcessSnapshot {
-    static func captureCached(
+    /// Measured escape hatch for lifecycle and compatibility code that cannot await
+    /// ``CmuxTopProcessSnapshotStore``. Live and periodic consumers must use the actor.
+#if DEBUG
+    static func captureSynchronouslyForCompatibility(
         includeProcessDetails: Bool = false,
         includeCMUXScope: Bool = true,
-        maximumAge: TimeInterval
+        metrics: ProcessPerformanceMetrics = .shared,
+        captureBody: (Bool, Bool) -> CmuxTopProcessSnapshot = { includeProcessDetails, includeCMUXScope in
+            CmuxTopProcessSnapshot.capture(
+                includeProcessDetails: includeProcessDetails,
+                includeCMUXScope: includeCMUXScope
+            )
+        }
     ) -> CmuxTopProcessSnapshot {
-        let now = Date()
-        if let cached = cmuxTopProcessSnapshotCache.withLock({ state -> CmuxTopProcessSnapshot? in
-            guard let snapshot = state.snapshot,
-                  Self.cachedSnapshotDetailsSatisfy(
-                      state.includeProcessDetails,
-                      requested: includeProcessDetails
-                  ),
-                  Self.cachedSnapshotCMUXScopeSatisfies(
-                      state.includeCMUXScope,
-                      requested: includeCMUXScope
-                  ),
-                  now.timeIntervalSince(snapshot.sampledAt) <= maximumAge else {
-                return nil
-            }
-            return snapshot
-        }) {
-            return cached
+        let generation = cmuxTopSynchronousCaptureGeneration.withLock { counter in
+            counter &+= 1
+            return (UInt64(1) << 63) | counter
         }
-
-        let snapshot = capture(
-            includeProcessDetails: includeProcessDetails,
-            includeCMUXScope: includeCMUXScope
+        var requirements = CmuxTopProcessSnapshotRequirements.basic
+        if includeProcessDetails { requirements.insert(.processDetails) }
+        if includeCMUXScope { requirements.insert(.cmuxScope) }
+        let token = metrics.processSnapshotCaptureStarted(
+            generation: generation,
+            requirementsRawValue: requirements.rawValue
         )
-        return cmuxTopProcessSnapshotCache.withLock { state in
-            let storeTime = Date()
-            if let cached = state.snapshot,
-               Self.cachedSnapshotDetailsSatisfy(
-                   state.includeProcessDetails,
-                   requested: includeProcessDetails
-               ),
-               Self.cachedSnapshotCMUXScopeSatisfies(
-                   state.includeCMUXScope,
-                   requested: includeCMUXScope
-               ),
-               storeTime.timeIntervalSince(cached.sampledAt) <= maximumAge {
-                return cached
-            }
-            state.snapshot = snapshot
-            state.includeProcessDetails = includeProcessDetails
-            state.includeCMUXScope = includeCMUXScope
-            return snapshot
+        let snapshot = captureBody(includeProcessDetails, includeCMUXScope)
+        metrics.processSnapshotCaptureCompleted(
+            token,
+            generation: generation,
+            processCount: snapshot.processesByPID.count
+        )
+        return snapshot
+    }
+#else
+    static func captureSynchronouslyForCompatibility(
+        includeProcessDetails: Bool = false,
+        includeCMUXScope: Bool = true,
+        captureBody: (Bool, Bool) -> CmuxTopProcessSnapshot = { includeProcessDetails, includeCMUXScope in
+            CmuxTopProcessSnapshot.capture(
+                includeProcessDetails: includeProcessDetails,
+                includeCMUXScope: includeCMUXScope
+            )
         }
+    ) -> CmuxTopProcessSnapshot {
+        captureBody(includeProcessDetails, includeCMUXScope)
     }
-
-    private static func cachedSnapshotDetailsSatisfy(
-        _ cachedIncludesProcessDetails: Bool,
-        requested: Bool
-    ) -> Bool {
-        cachedIncludesProcessDetails || !requested
-    }
-
-    private static func cachedSnapshotCMUXScopeSatisfies(
-        _ cachedIncludesCMUXScope: Bool,
-        requested: Bool
-    ) -> Bool {
-        cachedIncludesCMUXScope || !requested
-    }
+#endif
 }

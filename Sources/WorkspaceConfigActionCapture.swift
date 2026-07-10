@@ -79,26 +79,30 @@ struct WorkspaceConfigActionSnapshot {
 }
 
 extension Workspace {
+    func configCaptureTTYDeviceByPanelID() -> [UUID: Int64] {
+        var ttyDeviceByPanelID: [UUID: Int64] = [:]
+        for (panelID, ttyName) in surfaceTTYNames {
+            if let device = CmuxTopProcessSnapshot.deviceIdentifier(forTTYName: ttyName) {
+                ttyDeviceByPanelID[panelID] = device
+            }
+        }
+        return ttyDeviceByPanelID
+    }
+
     /// Captures the live split tree, per-panel directories, browser URLs, and
     /// detected agent CLIs into a `CmuxWorkspaceDefinition` that
     /// `applyCustomLayout` can recreate.
-    func captureConfigActionSnapshot() -> WorkspaceConfigActionSnapshot {
+    func captureConfigActionSnapshot(
+        ttyDeviceByPanelID: [UUID: Int64],
+        liveCommandsByTTY: [Int64: String]
+    ) -> WorkspaceConfigActionSnapshot {
         var skippedPanelCount = 0
         let workspaceCwd = Self.configCaptureAbbreviatedPath(currentDirectory)
         // Panel identity comes from the workspace's own tty registry; the
         // foreground scan is joined on tty device ids, never on the child
         // process's spoofable CMUX_* environment.
-        var ttyDeviceByPanelId: [UUID: Int64] = [:]
-        for (panelId, ttyName) in surfaceTTYNames {
-            if let device = CmuxTopProcessSnapshot.deviceIdentifier(forTTYName: ttyName) {
-                ttyDeviceByPanelId[panelId] = device
-            }
-        }
-        let liveCommandsByTTY = TerminalForegroundCommandCapture.liveCommands(
-            forTTYDevices: Set(ttyDeviceByPanelId.values)
-        )
         var liveCommands: [UUID: String] = [:]
-        for (panelId, device) in ttyDeviceByPanelId {
+        for (panelId, device) in ttyDeviceByPanelID {
             if let command = liveCommandsByTTY[device] {
                 liveCommands[panelId] = command
             }

@@ -31,20 +31,6 @@ extension AgentLaunchCommandSnapshot {
 extension RestorableAgentSessionIndex {
     static func processDetectedSnapshots(
         registry: CmuxVaultAgentRegistry,
-        fileManager: FileManager
-    ) -> [PanelKey: ProcessDetectedSnapshotEntry] {
-        let capturedAt = Date().timeIntervalSince1970
-        let processSnapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: true)
-        return processDetectedSnapshots(
-            registry: registry,
-            fileManager: fileManager,
-            processSnapshot: processSnapshot,
-            capturedAt: capturedAt
-        )
-    }
-
-    static func processDetectedSnapshots(
-        registry: CmuxVaultAgentRegistry,
         fileManager: FileManager,
         processSnapshot: CmuxTopProcessSnapshot,
         capturedAt: TimeInterval,
@@ -614,19 +600,6 @@ extension RestorableAgentSessionIndex {
 }
 
 extension SurfaceResumeBindingIndex {
-    static func processDetectedTmuxBindings(
-        fileManager: FileManager
-    ) -> [PanelKey: (binding: SurfaceResumeBindingSnapshot, updatedAt: TimeInterval)] {
-        _ = fileManager
-        let capturedAt = Date().timeIntervalSince1970
-        let processSnapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: true)
-        return processDetectedTmuxBindings(
-            fileManager: fileManager,
-            processSnapshot: processSnapshot,
-            capturedAt: capturedAt
-        )
-    }
-
     static func processDetectedTmuxBindings(
         fileManager: FileManager,
         processSnapshot: CmuxTopProcessSnapshot,

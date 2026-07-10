@@ -162,7 +162,7 @@ extension AgentChatSessionRegistry {
         observeLastStartedAt = Date()
         let id = UUID()
         let scanTask = Task.detached {
-            Self.scanObservedAgentSessions(onlySurfaceIDs: scope.surfaceIDs)
+            await Self.scanObservedAgentSessions(onlySurfaceIDs: scope.surfaceIDs)
         }
         let task = Task { @MainActor [weak self] in
             let observed = await withTaskCancellationHandler {
@@ -185,11 +185,12 @@ extension AgentChatSessionRegistry {
     /// surface, identity resolved without hooks.
     private nonisolated static func scanObservedAgentSessions(
         onlySurfaceIDs surfaceIDs: Set<UUID>? = nil
-    ) -> [ObservedAgentSession] {
+    ) async -> [ObservedAgentSession] {
         guard !Task.isCancelled else { return [] }
-        let snapshot = CmuxTopProcessSnapshot.capture(
-            includeProcessDetails: true,
-            includeCMUXScope: true
+        let snapshot = await CmuxTopProcessSnapshotStore.shared.snapshot(
+            requirements: [.processDetails, .cmuxScope],
+            maximumAge: 1,
+            consumer: .sharedLiveAgentIndex
         )
         guard !Task.isCancelled else { return [] }
         return scanObservedAgentSessions(

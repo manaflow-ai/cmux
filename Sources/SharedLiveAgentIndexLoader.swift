@@ -22,9 +22,7 @@ struct SharedLiveAgentIndexLoader {
         homeDirectory: String = NSHomeDirectory(),
         fileManager: FileManager = .default,
         registry: CmuxVaultAgentRegistry? = nil,
-        processSnapshotProvider: @escaping () -> CmuxTopProcessSnapshot = {
-            CmuxTopProcessSnapshot.capture(includeProcessDetails: true)
-        },
+        processSnapshotProvider: @escaping () -> CmuxTopProcessSnapshot,
         capturedAtProvider: @escaping () -> TimeInterval = {
             Date().timeIntervalSince1970
         },

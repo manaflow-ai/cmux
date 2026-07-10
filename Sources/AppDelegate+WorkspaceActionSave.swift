@@ -186,7 +186,42 @@ extension AppDelegate {
         cmuxConfigStore: CmuxConfigStore,
         window: NSWindow
     ) {
-        let snapshot = workspace.captureConfigActionSnapshot()
+        let ttyDeviceByPanelID = workspace.configCaptureTTYDeviceByPanelID()
+        Task { @MainActor [weak self, weak workspace, weak window] in
+            let processSnapshot = await CmuxTopProcessSnapshotStore.shared.snapshot(
+                requirements: .processDetails,
+                maximumAge: 1,
+                consumer: .unspecified
+            )
+            let liveCommandsByTTY = await Task.detached(priority: .userInitiated) {
+                TerminalForegroundCommandCapture.liveCommands(
+                    forTTYDevices: Set(ttyDeviceByPanelID.values),
+                    processSnapshot: processSnapshot
+                )
+            }.value
+            guard !Task.isCancelled,
+                  let self,
+                  let workspace,
+                  let window else { return }
+            let snapshot = workspace.captureConfigActionSnapshot(
+                ttyDeviceByPanelID: ttyDeviceByPanelID,
+                liveCommandsByTTY: liveCommandsByTTY
+            )
+            self.presentSaveWorkspaceActionDialog(
+                snapshot: snapshot,
+                workspace: workspace,
+                cmuxConfigStore: cmuxConfigStore,
+                window: window
+            )
+        }
+    }
+
+    private func presentSaveWorkspaceActionDialog(
+        snapshot: WorkspaceConfigActionSnapshot,
+        workspace: Workspace,
+        cmuxConfigStore: CmuxConfigStore,
+        window: NSWindow
+    ) {
         let globalConfigPath = cmuxConfigStore.globalConfigPath
         if !snapshot.oversizedCommands.isEmpty {
             presentWorkspaceCommandTooLongAlert(for: window)

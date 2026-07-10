@@ -1351,9 +1351,13 @@ class TerminalController {
         case "system.capabilities":
             return v2Ok(id: request.id, result: v2Capabilities())
         case "system.top":
-            return v2Result(id: request.id, v2SystemTop(params: request.params))
+            return v2AsyncResultCall(id: request.id, timeoutSeconds: 30) {
+                await self.v2SystemTop(params: request.params)
+            }
         case "system.memory":
-            return v2Result(id: request.id, v2SystemMemory(params: request.params))
+            return v2AsyncResultCall(id: request.id, timeoutSeconds: 30) {
+                await self.v2SystemMemory(params: request.params)
+            }
         case "surface.read_text":
             return v2Result(id: request.id, v2SurfaceReadText(params: request.params))
         case "workspace.env":
@@ -2845,7 +2849,7 @@ class TerminalController {
         )
     }
 
-    private nonisolated func v2SystemTop(params: [String: Any]) -> V2CallResult {
+    private nonisolated func v2SystemTop(params: [String: Any]) async -> V2CallResult {
         let base = v2MainSync {
             self.v2RefreshKnownRefs()
             return self.v2SystemTopBasePayload(params: params)
@@ -2856,7 +2860,14 @@ class TerminalController {
               var windowNodes = payload.removeValue(forKey: "windows") as? [[String: Any]] else {
             return .err(code: "internal_error", message: "Invalid system.top payload", data: nil)
         }
-        let processSnapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: includeProcesses)
+        let requirements: CmuxTopProcessSnapshotRequirements = includeProcesses
+            ? [.processDetails, .cmuxScope]
+            : .cmuxScope
+        let processSnapshot = await CmuxTopProcessSnapshotStore.shared.snapshot(
+            requirements: requirements,
+            maximumAge: 1,
+            consumer: .systemTop
+        )
         let browserPIDOccurrences = v2TopBrowserPIDOccurrences(in: windowNodes)
         let totalPIDs = v2AnnotateTopWindows(
             &windowNodes,
@@ -2879,7 +2890,7 @@ class TerminalController {
         return .ok(payload)
     }
 
-    private nonisolated func v2SystemMemory(params: [String: Any]) -> V2CallResult {
+    private nonisolated func v2SystemMemory(params: [String: Any]) async -> V2CallResult {
         var baseParams = params
         baseParams["include_processes"] = false
         let base = v2MainSync {
@@ -2932,9 +2943,10 @@ class TerminalController {
             return .err(code: "invalid_params", message: "\(invalidLimitKey) must be an integer from 1 to 100", data: nil)
         }
         let topGroupLimit = topGroupLimitValue ?? groupLimitValue ?? 12
-        let processSnapshot = CmuxTopProcessSnapshot.captureCached(
-            includeProcessDetails: true,
-            maximumAge: 2
+        let processSnapshot = await CmuxTopProcessSnapshotStore.shared.snapshot(
+            requirements: [.processDetails, .cmuxScope],
+            maximumAge: 2,
+            consumer: .systemTop
         )
         let browserPIDOccurrences = v2TopBrowserPIDOccurrences(in: windowNodes)
         _ = v2AnnotateTopWindows(
