@@ -123,4 +123,46 @@ struct SimulatorToolOperationSchedulingTests {
         }
         #expect(coordinator.toolOperationTasks.isEmpty)
     }
+
+    @Test("A cancellation-blind timed-out lane terminates the isolated worker after grace")
+    @MainActor
+    func cancellationBlindTimeoutTerminatesWorker() async throws {
+        let fixture = try ToolOutputFixture()
+        let terminator = ToolOperationTerminationProbe()
+        let coordinator = SimulatorWorkerCoordinator(
+            channel: fixture.worker,
+            toolOperationSleeper: ImmediateHIDSleeper(),
+            toolOperationCancellationGrace: .milliseconds(1),
+            toolOperationTerminator: { terminator.terminate() }
+        )
+        let gate = ToolOperationGate()
+        let request = UUID()
+        coordinator.enqueueToolOperation(
+            lane: .camera,
+            requestIdentifier: request,
+            timeout: .seconds(1)
+        ) { _, _ in
+            await gate.run()
+        }
+        await gate.waitUntilStarted()
+
+        guard case let .requestFailure(requestID, failure) = try await fixture.receiveAsync() else {
+            Issue.record("Expected the timed-out operation failure")
+            return
+        }
+        #expect(requestID == request)
+        #expect(failure.code == "worker_operation_timed_out")
+        for _ in 0..<1_000 where terminator.count == 0 { await Task.yield() }
+        #expect(terminator.count == 1)
+
+        await gate.release()
+        await coordinator.cancelToolOperations()
+    }
+}
+
+@MainActor
+private final class ToolOperationTerminationProbe {
+    private(set) var count = 0
+
+    func terminate() { count += 1 }
 }
