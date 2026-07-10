@@ -124,6 +124,7 @@ struct PullRequestPollServiceBatchBypassTests {
                 }
                 && service.workspacePullRequestNextPollAtByKey[tailKey] == .distantPast
         })
+        #expect(service.workspacePullRequestBypassRepoCacheKeys == [tailKey])
 
         await clock.waitForSleeper()
         await clock.resumeNext()
@@ -134,5 +135,35 @@ struct PullRequestPollServiceBatchBypassTests {
 
         let tailPanel = try #require(host.workspaces.last?.state.panels[tailKey.panelId])
         #expect(tailPanel.badge == nil)
+        #expect(service.workspacePullRequestBypassRepoCacheKeys.isEmpty)
+    }
+
+    @Test
+    func resetClearsPendingCacheBypassBeforePlanning() {
+        let host = RecordingSidebarGitHost()
+        host.pollingEnabled = true
+        let (workspaceId, panelId) = host.addWorkspace(panelDirectory: nil)
+        host.workspaces[0].state.panels[panelId]?.branch =
+            SidebarPanelGitBranch(branch: "feature/x", isDirty: false)
+        let service = PullRequestPollService(
+            gitMetadataService: GitMetadataService(),
+            probeService: PullRequestProbeService(commandRunner: ForbiddenCommandRunner()),
+            clock: ManualGitPollClock()
+        )
+        service.attach(host: host)
+
+        service.scheduleWorkspacePullRequestRefresh(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            reason: "localGitProbe"
+        )
+        #expect(service.workspacePullRequestBypassRepoCacheKeys == [
+            WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: panelId),
+        ])
+
+        service.resetWorkspacePullRequestRefreshState()
+
+        #expect(service.workspacePullRequestBypassRepoCacheKeys.isEmpty)
+        #expect(service.workspacePullRequestScheduledRefreshTask == nil)
     }
 }
