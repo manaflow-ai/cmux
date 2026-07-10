@@ -7,8 +7,15 @@ extension WorkspaceListView {
         pendingWorkspaceMoveCount > 0
     }
 
+    /// Pipelining bound: with reorder enabled during pending moves, a slow or
+    /// offline Mac must not let the send chain grow without limit. Normal
+    /// round-trips never approach this, so drags are unaffected until the
+    /// host is genuinely unresponsive.
+    static let maxPipelinedWorkspaceMoves = 8
+
     var enablesWorkspaceReorder: Bool {
         moveWorkspace != nil
+            && pendingWorkspaceMoveCount < Self.maxPipelinedWorkspaceMoves
             && canRenderGroupsForSelection
             && trimmedQuery.isEmpty
             && filter.readState == .all
@@ -85,12 +92,19 @@ extension WorkspaceListView {
             // Chain on the prior send: the intent was computed against the
             // prior move's predicted order, so the host must apply them in
             // the same order or the snapshot diverges and drops optimism.
-            await previousMove?.value
+            // A rejected predecessor already rolled the list back to the
+            // authoritative order, so an intent based on its prediction must
+            // not be sent at all.
+            if let previousMove, await previousMove.value == false {
+                pendingWorkspaceMoveCount -= 1
+                return false
+            }
             let accepted = await moveWorkspace?(workspace.id, intent.groupID, intent.beforeWorkspaceID, intent.movesGroup) ?? false
             pendingWorkspaceMoveCount -= 1
             if !accepted {
                 syncOptimisticWorkspaceOrder(moveDidFail: true)
             }
+            return accepted
         }
     }
 
@@ -129,13 +143,17 @@ extension WorkspaceListView {
         pendingWorkspaceMoveCount += 1
         let previousMove = pendingWorkspaceMoveTask
         pendingWorkspaceMoveTask = Task { @MainActor in
-            // Same ordering contract as moveFlatRows.
-            await previousMove?.value
+            // Same ordering and predecessor-failure contract as moveFlatRows.
+            if let previousMove, await previousMove.value == false {
+                pendingWorkspaceMoveCount -= 1
+                return false
+            }
             let accepted = await moveWorkspace?(movedWorkspaceID, intent.groupID, intent.beforeWorkspaceID, intent.movesGroup) ?? false
             pendingWorkspaceMoveCount -= 1
             if !accepted {
                 syncOptimisticWorkspaceOrder(moveDidFail: true)
             }
+            return accepted
         }
     }
 }

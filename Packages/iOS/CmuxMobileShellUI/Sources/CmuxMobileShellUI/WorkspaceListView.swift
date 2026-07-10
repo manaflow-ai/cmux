@@ -130,7 +130,7 @@ struct WorkspaceListView: View {
     /// applies them in UI order and the authoritative snapshot converges on
     /// the predicted optimistic order instead of racing it.
     @State var pendingWorkspaceMoveCount = 0
-    @State var pendingWorkspaceMoveTask: Task<Void, Never>?
+    @State var pendingWorkspaceMoveTask: Task<Bool, Never>?
 
     var trimmedQuery: String {
         searchText.trimmingCharacters(in: .whitespacesAndNewlines)
