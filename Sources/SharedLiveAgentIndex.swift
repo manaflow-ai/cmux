@@ -116,6 +116,14 @@ final class SharedLiveAgentIndex {
         return index
     }
 
+    /// Returns the cached index after awaiting any stale refresh this call schedules.
+    func indexRefreshingIfNeeded() async -> RestorableAgentSessionIndex? {
+        scheduleRefreshIfStale()
+        let inFlight = forkAvailabilityRefreshTask ?? refreshTask
+        await inFlight?.value
+        return index
+    }
+
     /// Returns one shared off-main reload for an interactive fork probe.
     func refreshedIndex(workspaceId: UUID, panelId: UUID) async -> RestorableAgentSessionIndex {
         await refreshForkAvailabilityNow(workspaceId: workspaceId, panelId: panelId)

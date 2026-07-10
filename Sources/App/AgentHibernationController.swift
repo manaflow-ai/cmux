@@ -137,9 +137,11 @@ final class AgentHibernationController {
             let now = Date()
             Task { @MainActor in
                 guard AgentHibernationTrackingGate.isEnabled() else { return }
+                guard let index = await SharedLiveAgentIndex.shared.indexRefreshingIfNeeded() else { return }
+                // Settings can change while the shared load is in flight.
+                guard AgentHibernationTrackingGate.isEnabled() else { return }
                 let settings = AgentHibernationSettings.values()
-                guard settings.enabled,
-                      let index = SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh() else { return }
+                guard settings.enabled else { return }
                 AgentHibernationController.shared.evaluate(index: index, settings: settings, now: now)
             }
         }
