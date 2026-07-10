@@ -308,7 +308,11 @@ extension MobileShellComposite {
     /// existing bounded follow-up replay. A surface without an owner gets a new
     /// barrier before the request starts so live output cannot interleave with
     /// the replacement.
-    func requestTerminalResync(surfaceID: String) {
+    func requestTerminalResync(surfaceID: String, deferBehindActiveReplay: Bool) {
+        guard deferBehindActiveReplay else {
+            requestTerminalReplay(surfaceID: surfaceID)
+            return
+        }
         guard hasTerminalOutputSink(surfaceID: surfaceID) else { return }
         if terminalReplayBarrierTokensBySurfaceID[surfaceID] != nil {
             terminalReplayBarrierDroppedOutputSurfaceIDs.insert(surfaceID)
