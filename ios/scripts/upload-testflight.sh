@@ -581,9 +581,10 @@ if [[ -z "$ARCHIVE_PATH" ]]; then
   ARCHIVE_PATH="$OUT_DIR/cmux.xcarchive"
   if [[ "$SIGNING" == "automatic" ]]; then
     # Automatic signing must archive a signed app so Xcode has the requested
-    # Release entitlements to preserve during App Store Connect export. An
-    # unsigned archive exports with only the profile baseline and drops
-    # aps-environment, which the gate below correctly refuses to upload.
+    # Release entitlements to preserve during App Store Connect export. The
+    # iOS app target gets those entitlements from Config/Release.xcconfig; do
+    # not pass CODE_SIGN_ENTITLEMENTS here because command-line build settings
+    # apply to every SwiftPM target in the workspace.
     xcodebuild archive \
       -workspace "$WORKSPACE" \
       -scheme "$SCHEME" \
@@ -599,8 +600,6 @@ if [[ -z "$ARCHIVE_PATH" ]]; then
       CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
       ${MARKETING_VERSION_ARGS[@]+"${MARKETING_VERSION_ARGS[@]}"} \
       CODE_SIGN_STYLE=Automatic \
-      CODE_SIGN_ENTITLEMENTS="Config/cmux-release.entitlements" \
-      CODE_SIGN_IDENTITY="Apple Distribution" \
       CODE_SIGNING_ALLOWED=YES \
       CODE_SIGNING_REQUIRED=YES \
       | tee "$OUT_DIR/archive.log"
