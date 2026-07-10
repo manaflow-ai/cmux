@@ -155,3 +155,55 @@ import Testing
         ])
     }
 }
+
+@Suite struct TerminalRendererTraceIntegrityTests {
+    @Test func profilingAloneDoesNotRequestRenderedFrameDelivery() {
+        #expect(!TerminalRenderedFrameDeliveryPolicy.shouldEnqueue(
+            renderDemandActive: false,
+            profilingEnabled: true
+        ))
+        #expect(TerminalRenderedFrameDeliveryPolicy.shouldEnqueue(
+            renderDemandActive: true,
+            profilingEnabled: true
+        ))
+        #expect(TerminalRenderedFrameDeliveryPolicy.shouldEnqueue(
+            renderDemandActive: true,
+            profilingEnabled: false
+        ))
+    }
+
+    @Test func rendererStateSnapshotsNeverDropOrTearDuringConcurrentUpdates() async {
+        let store = TerminalRendererProfilingStateStore(visible: true, focused: false)
+        let readerCount = 8
+        let readsPerReader = 5_000
+
+        let observedReadCount = await withTaskGroup(of: Int.self, returning: Int.self) { group in
+            group.addTask {
+                for index in 0..<readsPerReader {
+                    let visible = index.isMultiple(of: 2)
+                    store.update(visible: visible, focused: !visible)
+                }
+                return 0
+            }
+            for _ in 0..<readerCount {
+                group.addTask {
+                    var reads = 0
+                    for _ in 0..<readsPerReader {
+                        let snapshot = store.snapshot()
+                        #expect(snapshot.visible != snapshot.focused)
+                        reads += 1
+                    }
+                    return reads
+                }
+            }
+
+            var total = 0
+            for await count in group {
+                total += count
+            }
+            return total
+        }
+
+        #expect(observedReadCount == readerCount * readsPerReader)
+    }
+}
