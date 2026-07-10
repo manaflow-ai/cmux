@@ -3,6 +3,7 @@ import { JSDOM } from "jsdom";
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { BranchBasePicker, buildFlatRows, toCurrentOriginRelative, type BranchPickerPayload } from "../src/BranchBasePicker";
+import type { DiffTransport } from "../src/diff/transport";
 import { createDiffViewerLabelResolver } from "../src/labels";
 
 // Behavior coverage for the render cap (huge refs lists must not render every
@@ -223,6 +224,53 @@ test("selecting the active base closes without regenerating the same URL", async
 
   expect(navigated).toEqual([]);
   expect(document.querySelector(".base-picker-popover")).toBeNull();
+});
+
+test("a failed branch regeneration leaves cached refs available for retry", async () => {
+  dom = createDom();
+  installDomGlobals(dom);
+  let changeAttempts = 0;
+  const transport: DiffTransport = {
+    request(command) {
+      if (command.method === "branchList") {
+        return Promise.resolve({
+          type: "branches",
+          value: {
+            groups: [{ id: "suggested", label: "Suggested", rows: [{ ref: "develop", label: "develop" }] }],
+          },
+        });
+      }
+      changeAttempts += 1;
+      return Promise.reject(new Error("temporary sidecar failure"));
+    },
+    subscribe: () => () => {},
+    openResource: () => Promise.reject(new Error("unused")),
+    close: () => {},
+  };
+  const picker: BranchPickerPayload = {
+    ...pickerPayload(0),
+    groupId: "1234567890-group",
+    capabilityToken: "0123456789abcdef",
+  };
+  const container = document.getElementById("root");
+  root = createRoot(container!);
+  flushSync(() => {
+    root?.render(<BranchBasePicker label={label} onNavigate={() => {}} picker={picker} transport={transport} />);
+  });
+
+  document.querySelector<HTMLButtonElement>(".base-picker-button")?.click();
+  await waitFor(() => rowCount() === 1);
+  flushSync(() => {
+    document.querySelector<HTMLElement>(".base-picker-row")?.dispatchEvent(
+      new dom!.window.MouseEvent("mousedown", { bubbles: true, cancelable: true }),
+    );
+  });
+  await waitFor(() => changeAttempts === 1);
+  await waitFor(() => document.querySelector<HTMLButtonElement>(".base-picker-button")?.disabled === false);
+
+  document.querySelector<HTMLButtonElement>(".base-picker-button")?.click();
+  await waitFor(() => rowCount() === 1);
+  expect(document.querySelector(".base-picker-error")).toBeNull();
 });
 
 function createDom(): JSDOM {

@@ -3,13 +3,14 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use axum::body::Body;
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Path as AxumPath, Query, State};
 use axum::http::header::{
-    CACHE_CONTROL, CONNECTION, CONTENT_LENGTH, CONTENT_TYPE, LOCATION, REFERRER_POLICY,
+    CACHE_CONTROL, CONNECTION, CONTENT_LENGTH, CONTENT_TYPE, HOST, LOCATION, ORIGIN,
+    REFERRER_POLICY,
 };
 use axum::http::{HeaderMap, HeaderValue, Method, StatusCode};
 use axum::response::{IntoResponse, Response};
@@ -17,9 +18,10 @@ use axum::routing::{any, get, post};
 use axum::{Json, Router};
 use futures_util::StreamExt;
 use notify::{RecursiveMode, Watcher};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
+use tokio::sync::{RwLock, Semaphore};
 use tokio_util::io::ReaderStream;
 
 use crate::manifest::{AllowedFile, Manifest, split_resource_path, valid_token};
@@ -40,7 +42,35 @@ pub struct ServerConfig {
 struct AppState {
     config: Arc<ServerConfig>,
     client: reqwest::Client,
+    port: u16,
+    manifests: Arc<RwLock<HashMap<String, CachedManifest>>>,
+    child_processes: Arc<Semaphore>,
 }
+
+#[derive(Clone)]
+struct CachedManifest {
+    fingerprint: ManifestFingerprint,
+    files: Arc<HashMap<String, AllowedFile>>,
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+struct ManifestFingerprint {
+    byte_length: u64,
+    modified: Option<SystemTime>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct BranchSessionAuthorization {
+    token: String,
+    #[serde(rename = "groupID")]
+    group_id: String,
+    allowed_repo_roots: Vec<String>,
+}
+
+const MAX_CACHED_MANIFESTS: usize = 64;
+const MAX_CONCURRENT_CHILD_PROCESSES: usize = 4;
+const CHILD_PROCESS_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -75,6 +105,9 @@ pub async fn run(config: ServerConfig) -> Result<(), String> {
             .timeout(Duration::from_secs(120))
             .build()
             .map_err(|error| error.to_string())?,
+        port,
+        manifests: Arc::new(RwLock::new(HashMap::new())),
+        child_processes: Arc::new(Semaphore::new(MAX_CONCURRENT_CHILD_PROCESSES)),
     };
     let app = Router::new()
         .route("/__cmux_diff_viewer_healthz", get(health))
@@ -163,13 +196,25 @@ async fn health(method: Method) -> Response {
 
 async fn rpc(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(request): Json<DiffRequest>,
-) -> Json<DiffResponse> {
-    Json(handle_protocol_request(request, Some(&state)).await)
+) -> Response {
+    if !trusted_browser_request(&headers, state.port) {
+        return not_found(false);
+    }
+    Json(handle_protocol_request(request, Some(&state)).await).into_response()
 }
 
-async fn websocket(State(state): State<AppState>, ws: WebSocketUpgrade) -> impl IntoResponse {
+async fn websocket(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    ws: WebSocketUpgrade,
+) -> Response {
+    if !trusted_browser_request(&headers, state.port) {
+        return not_found(false);
+    }
     ws.on_upgrade(move |socket| handle_websocket(socket, state))
+        .into_response()
 }
 
 async fn handle_websocket(mut socket: WebSocket, state: AppState) {
@@ -262,8 +307,12 @@ async fn handle_protocol_request(request: DiffRequest, state: Option<&AppState>)
 
 async fn branch_refs(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Query(query): Query<HashMap<String, String>>,
 ) -> Response {
+    if !trusted_browser_request(&headers, state.port) {
+        return not_found(false);
+    }
     let Some(repo) = query.get("repo") else {
         return not_found(false);
     };
@@ -290,9 +339,12 @@ async fn load_branch_refs(
     token: &str,
     base: Option<&str>,
 ) -> Result<BranchListResult, ()> {
-    if !valid_token(token) {
+    if !authorize_repo_for_token(state, token, repo).await {
         return Err(());
     }
+    let Ok(_permit) = state.child_processes.try_acquire() else {
+        return Err(());
+    };
     let mut command = Command::new(&state.config.cmux_executable);
     command
         .arg("__diff-viewer-refs")
@@ -301,12 +353,13 @@ async fn load_branch_refs(
         .arg("--token")
         .arg(token)
         .stdin(Stdio::null())
-        .stderr(Stdio::null());
+        .stderr(Stdio::null())
+        .kill_on_drop(true);
     if let Some(base) = base {
         command.arg("--base").arg(base);
     }
-    match command.output().await {
-        Ok(output) if output.status.success() => {
+    match tokio::time::timeout(CHILD_PROCESS_TIMEOUT, command.output()).await {
+        Ok(Ok(output)) if output.status.success() => {
             serde_json::from_slice(&output.stdout).map_err(|_| ())
         }
         _ => Err(()),
@@ -315,8 +368,12 @@ async fn load_branch_refs(
 
 async fn branch_change(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Query(query): Query<HashMap<String, String>>,
 ) -> Response {
+    if !trusted_browser_request(&headers, state.port) {
+        return not_found(false);
+    }
     let (Some(group), Some(repo), Some(base), Some(token)) = (
         query.get("group"),
         query.get("repo"),
@@ -338,10 +395,14 @@ async fn change_branch(
     base: &str,
     token: &str,
 ) -> Result<String, ()> {
-    if !valid_token(token) {
+    if !authorize_branch_change(state, token, group, repo).await {
         return Err(());
     }
-    let output = Command::new(&state.config.cmux_executable)
+    let Ok(_permit) = state.child_processes.try_acquire() else {
+        return Err(());
+    };
+    let mut command = Command::new(&state.config.cmux_executable);
+    command
         .arg("__diff-viewer-branch")
         .arg("--group")
         .arg(group)
@@ -353,9 +414,10 @@ async fn change_branch(
         .arg(token)
         .stdin(Stdio::null())
         .stderr(Stdio::null())
-        .output()
-        .await;
-    let Ok(output) = output else { return Err(()) };
+        .kill_on_drop(true);
+    let Ok(Ok(output)) = tokio::time::timeout(CHILD_PROCESS_TIMEOUT, command.output()).await else {
+        return Err(());
+    };
     if !output.status.success() {
         return Err(());
     }
@@ -365,20 +427,12 @@ async fn change_branch(
     };
     Ok(format!(
         "http://127.0.0.1:{}/{token}/{path}#cmux-diff-viewer",
-        server_port(state).await
+        server_port(state)
     ))
 }
 
-async fn server_port(state: &AppState) -> u16 {
-    let path = state.config.root.join(".server.json");
-    let Ok(bytes) = tokio::fs::read(path).await else {
-        return 0;
-    };
-    serde_json::from_slice::<serde_json::Value>(&bytes)
-        .ok()
-        .and_then(|value| value.get("port")?.as_u64())
-        .and_then(|port| u16::try_from(port).ok())
-        .unwrap_or(0)
+fn server_port(state: &AppState) -> u16 {
+    state.port
 }
 
 async fn wait_for_resource(
@@ -482,9 +536,111 @@ async fn resolve_allowed_file(
 ) -> Option<(String, AllowedFile)> {
     let normalized = format!("/{}", resource_path.trim_start_matches('/'));
     let (token, request_path) = split_resource_path(&normalized)?;
+    let path = state.config.root.join(format!(".manifest-{token}.json"));
+    let metadata = tokio::fs::metadata(path).await.ok()?;
+    let fingerprint = ManifestFingerprint {
+        byte_length: metadata.len(),
+        modified: metadata.modified().ok(),
+    };
+    if let Some(cached) = state.manifests.read().await.get(token)
+        && cached.fingerprint == fingerprint
+    {
+        let file = cached.files.get(&request_path)?.clone();
+        return Some((token.to_owned(), file));
+    }
+
     let manifest = Manifest::load(&state.config.root, token).await.ok()?;
-    let file = manifest.files_by_path().ok()?.remove(&request_path)?;
+    let files = Arc::new(manifest.files_by_path().ok()?);
+    let file = files.get(&request_path)?.clone();
+    let mut manifests = state.manifests.write().await;
+    if manifests.len() >= MAX_CACHED_MANIFESTS && !manifests.contains_key(token) {
+        manifests.clear();
+    }
+    manifests.insert(token.to_owned(), CachedManifest { fingerprint, files });
     Some((token.to_owned(), file))
+}
+
+fn trusted_browser_request(headers: &HeaderMap, port: u16) -> bool {
+    let expected_host = format!("127.0.0.1:{port}");
+    let expected_origin = format!("http://127.0.0.1:{port}");
+    let host_matches = headers
+        .get(HOST)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|host| host == expected_host);
+    host_matches
+        && (headers
+            .get(ORIGIN)
+            .and_then(|value| value.to_str().ok())
+            .is_some_and(|origin| origin == expected_origin)
+            || headers
+                .get("sec-fetch-site")
+                .and_then(|value| value.to_str().ok())
+                .is_some_and(|site| site.eq_ignore_ascii_case("same-origin")))
+}
+
+async fn authorize_repo_for_token(state: &AppState, token: &str, repo: &str) -> bool {
+    if !valid_token(token) {
+        return false;
+    }
+    let Ok(canonical_repo) = tokio::fs::canonicalize(repo).await else {
+        return false;
+    };
+    let Ok(mut entries) = tokio::fs::read_dir(&state.config.root).await else {
+        return false;
+    };
+    while let Ok(Some(entry)) = entries.next_entry().await {
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if !name.starts_with(".branch-session-") || !name.ends_with(".json") {
+            continue;
+        }
+        let Ok(session) = read_branch_session(&entry.path()).await else {
+            continue;
+        };
+        if session.token == token && session_allows_repo(&session, &canonical_repo).await {
+            return true;
+        }
+    }
+    false
+}
+
+async fn authorize_branch_change(state: &AppState, token: &str, group: &str, repo: &str) -> bool {
+    if !valid_token(token) || !valid_token(group) {
+        return false;
+    }
+    let Ok(canonical_repo) = tokio::fs::canonicalize(repo).await else {
+        return false;
+    };
+    let path = state
+        .config
+        .root
+        .join(format!(".branch-session-{group}.json"));
+    let Ok(session) = read_branch_session(&path).await else {
+        return false;
+    };
+    session.token == token
+        && session.group_id == group
+        && session_allows_repo(&session, &canonical_repo).await
+}
+
+async fn read_branch_session(path: &Path) -> Result<BranchSessionAuthorization, ()> {
+    let bytes = tokio::fs::read(path).await.map_err(|_| ())?;
+    if bytes.len() > 1024 * 1024 {
+        return Err(());
+    }
+    serde_json::from_slice(&bytes).map_err(|_| ())
+}
+
+async fn session_allows_repo(session: &BranchSessionAuthorization, canonical_repo: &Path) -> bool {
+    for allowed in &session.allowed_repo_roots {
+        if tokio::fs::canonicalize(allowed)
+            .await
+            .is_ok_and(|path| path == canonical_repo)
+        {
+            return true;
+        }
+    }
+    false
 }
 
 async fn resource_response(state: &AppState, file: AllowedFile, head: bool) -> Response {

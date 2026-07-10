@@ -232,7 +232,9 @@ export function BranchBasePicker({
       }).catch((error) => {
         console.warn("cmux diff branch picker regeneration failed", error);
         setGeneratingRef(null);
-        setLoadState("error");
+        // Refs are already loaded. Keep the cached rows usable so a transient
+        // regeneration failure can be retried by reopening the picker.
+        setLoadState("idle");
       });
       return;
     }
