@@ -1,55 +1,140 @@
+import CmuxWorkspaces
 import Foundation
 
 extension Workspace {
     func allowsAgentContinuation(forPanelId panelId: UUID) -> Bool {
-        guard restoredAgentResumeStatesByPanelId[panelId] == .completedAgentExit else {
-            return true
-        }
-        guard let indexedSnapshot = SharedLiveAgentIndex.shared.index?.snapshot(
-            workspaceId: id,
-            panelId: panelId
-        ) else {
-            return false
-        }
-        return !completedRestoredAgentMatches(panelId: panelId, candidate: indexedSnapshot)
+        restoredAgentResumeStatesByPanelId[panelId] != .completedAgentExit ||
+            restoredAgentSnapshotForContinuation(panelId: panelId) != nil
     }
 
     func restoredAgentSnapshotForContinuation(
         panelId: UUID
     ) -> SessionRestorableAgentSnapshot? {
-        guard let snapshot = restoredAgentSnapshotsByPanelId[panelId],
-              !completedRestoredAgentMatches(panelId: panelId, candidate: snapshot) else {
-            return nil
-        }
-        return snapshot
+        restoredAgentLifecycle.continuationSnapshot(
+            panelId: panelId,
+            observation: SharedLiveAgentIndex.shared.index?.entry(
+                workspaceId: id,
+                panelId: panelId
+            ),
+            shellState: panelShellActivityStates[panelId],
+            currentProcessIdentity: Self.agentPIDProcessIdentity(pid:)
+        )
     }
 
     func reconcileCompletedRestoredAgent(
         panelId: UUID,
-        candidate: SessionRestorableAgentSnapshot
+        observation: RestorableAgentSessionIndex.Entry
     ) {
-        guard restoredAgentResumeStatesByPanelId[panelId] == .completedAgentExit,
-              !completedRestoredAgentMatches(panelId: panelId, candidate: candidate) else {
-            return
-        }
-        restoredAgentSnapshotsByPanelId[panelId] = candidate
-        restoredAgentResumeStatesByPanelId[panelId] = restoredAgentResumeStateForAcceptedSnapshot(
-            panelId: panelId
+        restoredAgentLifecycle.reconcileCompletedAgent(
+            panelId: panelId,
+            observation: observation,
+            shellState: panelShellActivityStates[panelId],
+            currentProcessIdentity: Self.agentPIDProcessIdentity(pid:)
         )
-        invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: panelId)
     }
 
-    private func completedRestoredAgentMatches(
+    func markRestoredAgentCompleted(
         panelId: UUID,
-        candidate: SessionRestorableAgentSnapshot
-    ) -> Bool {
-        guard restoredAgentResumeStatesByPanelId[panelId] == .completedAgentExit else {
-            return false
+        snapshot: SessionRestorableAgentSnapshot
+    ) {
+        let runtimeProcessIdentities = Set((agentPIDKeysByPanelId[panelId] ?? []).compactMap {
+            agentPIDProcessIdentitiesByKey[$0]
+        })
+        restoredAgentLifecycle.markCompleted(
+            panelId: panelId,
+            snapshot: snapshot,
+            observation: SharedLiveAgentIndex.shared.index?.entry(
+                workspaceId: id,
+                panelId: panelId
+            ),
+            runtimeProcessIdentities: runtimeProcessIdentities
+        )
+    }
+
+    func restoredAgentResumeStateForAcceptedSnapshot(panelId: UUID) -> RestoredAgentResumeState {
+        panelShellActivityStates[panelId] == .commandRunning
+            ? .observedAgentCommandRunning
+            : .manualResumeAvailable
+    }
+
+    func updateRestoredAgentResumeState(
+        panelId: UUID,
+        restoredAgent: SessionRestorableAgentSnapshot,
+        shellState: PanelShellActivityState
+    ) {
+        switch shellState {
+        case .commandRunning:
+            switch restoredAgentResumeStatesByPanelId[panelId] {
+            case .some(.awaitingAutoResumeCommand):
+                restoredAgentResumeStatesByPanelId[panelId] = .autoResumeCommandRunning
+            case .some(.autoResumeCommandRunning), .some(.observedAgentCommandRunning),
+                 .some(.completedAgentExit):
+                break
+            case .some(.manualResumeAvailable), nil:
+                invalidateRestoredAgentSnapshot(panelId: panelId, restoredAgent: restoredAgent)
+            }
+        case .promptIdle:
+            switch restoredAgentResumeStatesByPanelId[panelId] {
+            case .some(.autoResumeCommandRunning), .some(.observedAgentCommandRunning):
+                markRestoredAgentCompleted(panelId: panelId, snapshot: restoredAgent)
+                restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
+                clearRestoredAgentResumeBinding(panelId: panelId, restoredAgent: restoredAgent)
+            case .some(.awaitingAutoResumeCommand), .some(.manualResumeAvailable), .some(.completedAgentExit), nil:
+                break
+            }
+        case .unknown:
+            break
         }
-        guard let completed = restoredAgentSnapshotsByPanelId[panelId] else {
-            return true
+    }
+
+    func updateBindingOnlyRestoredAgentResumeState(
+        panelId: UUID,
+        shellState: PanelShellActivityState
+    ) {
+        switch (shellState, restoredAgentResumeStatesByPanelId[panelId]) {
+        case (.commandRunning, .some(.awaitingAutoResumeCommand)):
+            restoredAgentResumeStatesByPanelId[panelId] = .autoResumeCommandRunning
+        case (.promptIdle, .some(.autoResumeCommandRunning)),
+             (.promptIdle, .some(.observedAgentCommandRunning)):
+            restoredAgentResumeStatesByPanelId.removeValue(forKey: panelId)
+            restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
+            if surfaceResumeBindingsByPanelId[panelId]?.isAgentHookBinding == true {
+                surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
+            }
+        default:
+            break
         }
-        return completed.kind == candidate.kind && completed.sessionId == candidate.sessionId
+    }
+
+    private func invalidateRestoredAgentSnapshot(
+        panelId: UUID,
+        restoredAgent: SessionRestorableAgentSnapshot
+    ) {
+        let fingerprint = TabManager.restorableAgentSnapshotFingerprint(restoredAgent)
+        invalidatedRestoredAgentFingerprintsByPanelId[panelId] = fingerprint
+        clearRestoredAgentResumeBinding(panelId: panelId, restoredAgent: restoredAgent)
+        clearRestoredAgentSnapshot(panelId: panelId)
+#if DEBUG
+        cmuxDebugLog(
+            "session.restore.agent.invalidate panel=\(panelId.uuidString.prefix(5)) " +
+            "kind=\(restoredAgent.kind.rawValue) session=\(restoredAgent.sessionId.prefix(8))"
+        )
+#endif
+    }
+
+    private func clearRestoredAgentResumeBinding(
+        panelId: UUID,
+        restoredAgent: SessionRestorableAgentSnapshot
+    ) {
+        guard let binding = surfaceResumeBindingsByPanelId[panelId],
+              binding.source == "agent-hook" else {
+            return
+        }
+        let checkpointId = binding.checkpointId?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard checkpointId == nil || checkpointId == restoredAgent.sessionId else {
+            return
+        }
+        surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
     }
 
     func seedSessionRestoredAgentState(

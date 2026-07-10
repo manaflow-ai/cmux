@@ -48,7 +48,12 @@ extension Workspace {
         ) else {
             return nil
         }
-        reconcileCompletedRestoredAgent(panelId: panelId, candidate: snapshot)
+        if let observation = SharedLiveAgentIndex.shared.index?.entry(
+            workspaceId: id,
+            panelId: panelId
+        ) {
+            reconcileCompletedRestoredAgent(panelId: panelId, observation: observation)
+        }
         return allowsAgentContinuation(forPanelId: panelId) ? snapshot : nil
     }
 }

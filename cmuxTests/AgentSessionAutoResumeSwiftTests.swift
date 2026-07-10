@@ -869,68 +869,6 @@ struct AgentSessionAutoResumeSwiftTests {
         }
     }
 
-    @MainActor
-    @Test func differentAgentSessionSupersedesCompletedRestoredAgent() throws {
-        let workspace = Workspace()
-        let panelId = try #require(workspace.focusedPanelId)
-        let completedSessionId = "completed-restored-agent"
-        workspace.restoredAgentSnapshotsByPanelId[panelId] = SessionRestorableAgentSnapshot(
-            kind: .claude,
-            sessionId: completedSessionId,
-            workingDirectory: "/tmp/completed-restored-agent",
-            launchCommand: AgentLaunchCommandSnapshot(
-                launcher: "claude",
-                executablePath: "/usr/local/bin/claude",
-                arguments: ["/usr/local/bin/claude", "--resume", completedSessionId],
-                workingDirectory: "/tmp/completed-restored-agent",
-                capturedAt: 1_777_777_777,
-                source: "test"
-            )
-        )
-        workspace.restoredAgentResumeStatesByPanelId[panelId] = .observedAgentCommandRunning
-        workspace.updatePanelShellActivityState(panelId: panelId, state: .promptIdle)
-        workspace.updatePanelShellActivityState(panelId: panelId, state: .commandRunning)
-        try #require(workspace.restoredAgentResumeStatesByPanelId[panelId] == .completedAgentExit)
-
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-completed-agent-superseded-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        let configDir = root.appendingPathComponent("claude-config", isDirectory: true)
-        let workingDirectory = root.appendingPathComponent("repo", isDirectory: true)
-        try FileManager.default.createDirectory(at: workingDirectory, withIntermediateDirectories: true)
-        let newSessionId = "new-agent-session"
-        let transcriptURL = configDir
-            .appendingPathComponent("projects", isDirectory: true)
-            .appendingPathComponent(expectedClaudeProjectDirName(workingDirectory.path), isDirectory: true)
-            .appendingPathComponent("\(newSessionId).jsonl", isDirectory: false)
-        try writeClaudeTranscript(sessionId: newSessionId, transcriptURL: transcriptURL)
-        try writeClaudeHookStore(
-            root: root,
-            sessions: [
-                newSessionId: claudeHookRecord(
-                    sessionId: newSessionId,
-                    workspaceId: workspace.id,
-                    panelId: panelId,
-                    recordedCwd: workingDirectory.path,
-                    launchCwd: workingDirectory.path,
-                    configDir: configDir.path,
-                    transcriptPath: transcriptURL.path,
-                    updatedAt: 1_888_888_888
-                ),
-            ]
-        )
-        let newAgentIndex = RestorableAgentSessionIndex.load(homeDirectory: root.path)
-
-        let snapshot = workspace.sessionSnapshot(
-            includeScrollback: false,
-            restorableAgentIndex: newAgentIndex
-        )
-
-        #expect(snapshot.panels.first?.terminal?.agent?.sessionId == newSessionId)
-        #expect(workspace.restoredAgentResumeStatesByPanelId[panelId] == .observedAgentCommandRunning)
-        #expect(workspace.allowsAgentContinuation(forPanelId: panelId))
-    }
-
     /// Direct coverage for the libproc read behind the #7155 rescue: the test
     /// runner's own pid resolves to its real working directory, and an invalid
     /// pid resolves to nil instead of trapping.
