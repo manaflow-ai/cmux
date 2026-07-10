@@ -207,6 +207,46 @@ import Testing
         #expect(factory.attemptedPorts() == [51000, 51001, 51001])
     }
 
+    @Test func connectionPoolRecordsFallbackRouteThatActuallyConnected() async throws {
+        let clock = TestClock()
+        let router = LivenessHostRouter()
+        let box = TransportBox()
+        let factory = RouteRecordingTransportFactory(
+            router: router,
+            box: box,
+            failingPorts: [51000]
+        )
+        let runtime = LivenessTestRuntime(
+            transportFactory: factory,
+            now: { clock.now },
+            supportedRouteKinds: [.debugLoopback]
+        )
+        let store = MobileShellComposite(
+            runtime: runtime,
+            isSignedIn: true,
+            reachability: AlwaysOnlineReachability(),
+            pairingHintDefaults: UserDefaults(suiteName: "pairing-pool-route-\(UUID().uuidString)")!
+        )
+        let ticket = try CmxAttachTicket(
+            workspaceID: "live-workspace",
+            terminalID: "live-terminal",
+            macDeviceID: "test-mac",
+            macDisplayName: "Test Mac",
+            macPairingCompatibilityVersion: CmxMobileDefaults.pairingCompatibilityVersion,
+            routes: [
+                try loopbackRoute(id: "stale", port: 51000),
+                try loopbackRoute(id: "good", port: 51001),
+            ],
+            expiresAt: clock.now.addingTimeInterval(3600)
+        )
+
+        let result = await store.connectPairingURLResult(try attachURL(for: ticket))
+
+        #expect(result == .connected)
+        #expect(store.activeRoute?.id == "good")
+        #expect(store.pooledRouteForTesting(macDeviceID: "test-mac")?.id == "good")
+    }
+
     @Test func supersededReconnectGenerationAbortsRouteIteration() async throws {
         let clock = TestClock()
         let router = LivenessHostRouter()
