@@ -15,7 +15,7 @@ struct HostPolicyCacheTestFixture {
         signingKey = Curve25519.Signing.PrivateKey()
         let alternateKey = Curve25519.Signing.PrivateKey()
         keySet = Self.keySet(id: "current", key: signingKey)
-        alternateKeySet = Self.keySet(id: "alternate", key: alternateKey)
+        alternateKeySet = Self.keySet(id: "current", key: alternateKey)
         binding = try CmxIrohBrokerBindingMetadata(
             bindingID: "123e4567-e89b-42d3-a456-426614174010",
             deviceID: "123e4567-e89b-42d3-a456-426614174011",
