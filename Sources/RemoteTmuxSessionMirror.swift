@@ -343,8 +343,11 @@ final class RemoteTmuxSessionMirror {
         mirror.apply(window: window)
         windowMirrorByWindowId[windowId] = mirror
         workspace.setRemoteTmuxWindowMirror(mirror, forPanelId: panelId)
+        if adoptedPanes.isEmpty, let panel = workspace.panels[panelId] as? TerminalPanel {
+            panel.surface.onManualSizeApplied = nil
+            panel.surface.onRuntimeReady = nil
+        }
     }
-
     private func closeDefaultTabsIfNeeded() {
         guard !defaultClosed, !panelIdByWindow.isEmpty, let workspace else { return }
         for panelId in defaultPanelIds where workspace.panels[panelId] != nil {
