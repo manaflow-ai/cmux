@@ -1,3 +1,4 @@
+public import CMUXMobileCore
 public import Foundation
 
 /// The phone's live presence state: every known app instance keyed by

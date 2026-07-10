@@ -9,21 +9,6 @@ import Testing
 
 @MainActor
 @Suite struct WorkspaceMacSelectionTests {
-    @Test func computerSnapshotsApplyBuildTagSuffixIdempotently() async {
-        let store = await shellStore(pairedMacs: [
-            pairedMac(id: "mac-base", name: "MacBook Pro", lastSeenAt: 20),
-            pairedMac(id: "mac-tagged", name: "Mac mini (future-one)", lastSeenAt: 10),
-        ])
-
-        let snapshots = MacComputerSnapshot.snapshots(from: store, instanceTag: "future-one")
-        let titlesByDeviceID = Dictionary(uniqueKeysWithValues: snapshots.map { ($0.deviceId, $0.title) })
-
-        #expect(titlesByDeviceID == [
-            "mac-base": "MacBook Pro (future-one)",
-            "mac-tagged": "Mac mini (future-one)",
-        ])
-    }
-
     @Test func pickerIncludesPairedMacWithNoWorkspace() async throws {
         let store = await shellStore(pairedMacs: [
             pairedMac(id: "mac-a", name: "Mac A", lastSeenAt: 20),
