@@ -1,4 +1,5 @@
 import CryptoKit
+public import CMUXMobileCore
 public import Foundation
 
 /// Verifies broker Ed25519 credentials before they can authorize an Iroh stream.
@@ -74,6 +75,38 @@ public struct CmxIrohGrantVerifier: Sendable {
         expected: CmxIrohEndpointExpectation,
         now: Date
     ) throws -> CmxIrohEndpointAttestationClaims {
+        let claims = try verifiedEndpointClaims(token, keys: keys, now: now)
+        guard claims.bindingID == expected.bindingID,
+              claims.deviceID == expected.deviceID,
+              claims.endpointID == expected.endpointID,
+              claims.identityGeneration == expected.identityGeneration,
+              claims.platform == expected.platform else {
+            throw CmxIrohGrantVerifierError.identityMismatch
+        }
+        return claims
+    }
+
+    /// Verifies a peer attestation when the signed tuple is authoritative and TLS pins its EndpointID.
+    public func verifyEndpointAttestation(
+        _ token: String,
+        keys: CmxIrohGrantVerificationKeySet,
+        authenticatedEndpointID: CmxIrohPeerIdentity,
+        requiredPlatform: CmxIrohPlatform,
+        now: Date
+    ) throws -> CmxIrohEndpointAttestationClaims {
+        let claims = try verifiedEndpointClaims(token, keys: keys, now: now)
+        guard claims.endpointID == authenticatedEndpointID,
+              claims.platform == requiredPlatform else {
+            throw CmxIrohGrantVerifierError.identityMismatch
+        }
+        return claims
+    }
+
+    private func verifiedEndpointClaims(
+        _ token: String,
+        keys: CmxIrohGrantVerificationKeySet,
+        now: Date
+    ) throws -> CmxIrohEndpointAttestationClaims {
         let payload = try verifiedPayload(token, type: Self.attestationType, keys: keys)
         try Self.requireExactKeys(
             payload,
@@ -109,13 +142,6 @@ public struct CmxIrohGrantVerifier: Sendable {
         }
         guard claims.expiresAt > nowSeconds else {
             throw CmxIrohGrantVerifierError.expired
-        }
-        guard claims.bindingID == expected.bindingID,
-              claims.deviceID == expected.deviceID,
-              claims.endpointID == expected.endpointID,
-              claims.identityGeneration == expected.identityGeneration,
-              claims.platform == expected.platform else {
-            throw CmxIrohGrantVerifierError.identityMismatch
         }
         return claims
     }
