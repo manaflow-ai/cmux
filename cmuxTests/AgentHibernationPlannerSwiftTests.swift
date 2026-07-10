@@ -295,6 +295,51 @@ struct AgentHibernationPlannerSwiftTests {
 
     @MainActor
     @Test
+    func postSnapshotValidationQueuesReplacementBehindOlderLoad() async {
+        let controller = AgentHibernationController.shared
+        defer { resetSharedHibernationState(controller) }
+        let olderLoadStarted = DispatchSemaphore(value: 0)
+        let releaseOlderLoad = DispatchSemaphore(value: 0)
+        let replacementLoadStarted = DispatchSemaphore(value: 0)
+        defer { releaseOlderLoad.signal() }
+        let olderTask = Task.detached { () -> RestorableAgentSessionIndex in
+            olderLoadStarted.signal()
+            releaseOlderLoad.wait()
+            return .empty
+        }
+        #expect(await Self.wait(for: olderLoadStarted))
+        controller.postSnapshotValidationIndexSequence = 1
+        controller.postSnapshotValidationIndexTask = AgentHibernationController.PostSnapshotValidationIndexTask(
+            requestID: UUID(),
+            startSequence: 1,
+            task: olderTask
+        )
+        controller.postSnapshotValidationIndexSequence = 2
+
+        let replacementTask = controller.sharedPostSnapshotValidationIndexTask(
+            minimumStartSequence: 2,
+            loader: {
+                replacementLoadStarted.signal()
+                return .empty
+            }
+        )
+        let replacementStartedBeforeOlderLoadFinished = await Self.wait(
+            for: replacementLoadStarted,
+            timeout: 0.2
+        )
+        #expect(
+            !replacementStartedBeforeOlderLoadFinished,
+            "A newer validation boundary must serialize behind an older full index load instead of adding CPU fanout."
+        )
+        #expect(!olderTask.isCancelled)
+
+        releaseOlderLoad.signal()
+        #expect(await Self.wait(for: replacementLoadStarted))
+        _ = await replacementTask.value
+    }
+
+    @MainActor
+    @Test
     func postSnapshotValidationReusesTaskForSameBatchBoundary() {
         let controller = AgentHibernationController.shared
         defer { resetSharedHibernationState(controller) }
@@ -392,5 +437,14 @@ struct AgentHibernationPlannerSwiftTests {
         controller.postSnapshotValidationIndexTask?.task.cancel()
         controller.postSnapshotValidationIndexSequence = 0
         controller.postSnapshotValidationIndexTask = nil
+    }
+
+    nonisolated private static func wait(
+        for semaphore: DispatchSemaphore,
+        timeout: TimeInterval = 10
+    ) async -> Bool {
+        await Task.detached {
+            semaphore.wait(timeout: .now() + timeout) == .success
+        }.value
     }
 }
