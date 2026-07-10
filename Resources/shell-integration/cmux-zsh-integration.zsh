@@ -1,11 +1,12 @@
 # cmux shell integration for zsh
 # Injected automatically — do not source manually
 
-# Prefer zsh/net/unix for socket sends (no fork, ~0.2ms per send vs ~3ms
-# for fork+exec of ncat/socat/nc).  Falls back to external tools if the
-# module is unavailable.
+# Prefer the zsocket builtin for socket sends (no fork, ~0.2ms per send vs
+# ~3ms for fork+exec of ncat/socat/nc).  zsocket lives in zsh/net/socket;
+# zsh/net/unix does not exist, so loading it left this fast path permanently
+# disabled.  Falls back to external tools if the module is unavailable.
 typeset -g _CMUX_HAS_ZSOCKET=0
-if zmodload zsh/net/unix 2>/dev/null; then
+if zmodload zsh/net/socket 2>/dev/null; then
     _CMUX_HAS_ZSOCKET=1
 fi
 
