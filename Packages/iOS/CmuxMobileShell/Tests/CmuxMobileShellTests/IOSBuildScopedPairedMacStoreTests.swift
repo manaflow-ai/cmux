@@ -215,4 +215,12 @@ import Testing
         #expect(MobileIOSBuildScope.current(infoDictionary: ["CMUXDevTag": ""], bundleIdentifier: "dev.cmux.ios") == nil)
         #expect(MobileIOSBuildScope("Feature Tag")?.serializedScope == "ios:v2:RmVhdHVyZSBUYWc")
     }
+
+    @Test func authChannelResolvesPairedMacInstanceWithoutChangingIOSScope() throws {
+        let scope = try #require(MobileIOSBuildScope("future-one"))
+
+        #expect(scope.pairedMacInstanceTag(isDevelopmentAuthEnvironment: true) == "future-one")
+        #expect(scope.pairedMacInstanceTag(isDevelopmentAuthEnvironment: false) == "default")
+        #expect(scope.serializedScope == "ios:v2:ZnV0dXJlLW9uZQ")
+    }
 }

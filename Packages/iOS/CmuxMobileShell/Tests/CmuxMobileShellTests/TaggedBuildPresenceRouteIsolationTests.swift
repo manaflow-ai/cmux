@@ -130,6 +130,63 @@ import Testing
         #expect(try await storedRoutes(in: pairedStore) == [restartedB])
     }
 
+    @Test func productionAuthTaggedBuildUsesDefaultMacForRoutesAndRecovery() async throws {
+        let original = try route(id: "original", host: "100.64.0.1", port: 50_000)
+        let defaultRoute = try route(id: "stable", host: "100.64.0.2", port: 51_001)
+        let routeB = try route(id: "b", host: "100.64.0.3", port: 51_002)
+        let pairedStore = DelayedTeamPairedMacStore(
+            recordsByTeam: ["team-a": [pairedMac(routes: [original], isActive: true)]],
+            blockedTeams: []
+        )
+        let buildScope = try #require(MobileIOSBuildScope("future-one"))
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            iosBuildScope: buildScope,
+            pairedMacInstanceTag: "default",
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { "team-a" },
+            reachability: AlwaysOnlineReachability()
+        )
+        await store.loadPairedMacs()
+        store.registryDevices = [RegistryDevice(
+            deviceId: "shared-physical-mac",
+            platform: "mac",
+            displayName: "Studio",
+            lastSeenAt: Date(timeIntervalSince1970: 1),
+            instances: [
+                RegistryAppInstance(
+                    tag: "default",
+                    routes: [original],
+                    lastSeenAt: Date(timeIntervalSince1970: 1)
+                ),
+                RegistryAppInstance(
+                    tag: "feature-b",
+                    routes: [original],
+                    lastSeenAt: Date(timeIntervalSince1970: 1)
+                ),
+            ]
+        )]
+        let accountScope = MobileShellScopeSnapshot(userID: "user-1", teamID: "team-a", generation: 0)
+
+        store.applyPresenceUpdate(
+            snapshot([
+                instance(tag: "default", routes: [defaultRoute]),
+                instance(tag: "feature-b", routes: [routeB]),
+            ]),
+            scope: accountScope
+        )
+        await store.pushedRouteSyncTask?.value
+
+        #expect(store.pairedMacInstanceTag == "default")
+        #expect(await pairedStore.currentUpsertCount() == 1)
+        #expect(try await storedRoutes(in: pairedStore) == [defaultRoute])
+        let recoveryRan = try await pollUntil(attempts: 50) {
+            store.connectionRecoveryFailed
+        }
+        #expect(recoveryRan)
+    }
+
     @Test func explicitEmptyRoutesClearRegistryWithoutErasingPersistedRoutes() async throws {
         let original = try route(id: "original", host: "100.64.0.1", port: 50_000)
         let advertised = try route(id: "advertised", host: "100.64.0.2", port: 51_001)

@@ -20,7 +20,7 @@ extension MobileShellComposite {
     func syncPushedRoutes(from instances: [PresenceInstance], scope: MobileShellScopeSnapshot) {
         let hostInstances = instances.filter { $0.platform.lowercased() != "ios" }
         guard !hostInstances.isEmpty else { return }
-        let recoveryTag = iosBuildScope?.value
+        let recoveryTag = pairedMacInstanceTag
         let task = Task { @MainActor [weak self] in
             guard let self else { return }
             await self.performSerializedPairedMacWrite(ifStillCurrent: nil) { [weak self] in
@@ -70,7 +70,7 @@ extension MobileShellComposite {
         guard !routes.isEmpty,
               presenceMap.reconnectRouteAuthority(
                   deviceId: deviceId,
-                  buildScope: iosBuildScope
+                  pairedMacInstanceTag: pairedMacInstanceTag
               )?.tag == instance.tag,
               let mac = knownMacs.first(where: { $0.macDeviceID == deviceId }),
               let updated = DeviceRegistryService.selectReconnectRoutes(

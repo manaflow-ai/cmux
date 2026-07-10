@@ -1,14 +1,16 @@
 public import Foundation
 
-/// Identifies one tagged iOS development build and its matching Mac instance.
+/// Identifies one tagged iOS development build.
 ///
-/// The canonical tag owns both the iOS saved-Mac partition and the Mac backup
-/// publisher partition. Stable and untagged builds have no scope, so they keep
-/// the legacy device-level behavior instead of manufacturing a tagged identity.
+/// The canonical tag owns the iOS saved-Mac and backup partitions. The Mac app
+/// instance used for route authority is resolved separately because a tagged
+/// `--prod-auth` iOS build pairs with a stable/beta Mac whose tag is `default`.
+/// Stable and untagged iOS builds have no scope, so they keep the legacy
+/// device-level behavior instead of manufacturing a tagged identity.
 public struct MobileIOSBuildScope: Sendable, Equatable {
     private static let serializedScopeVersion = "v2"
 
-    /// The canonical development tag shared by the iOS and Mac app instances.
+    /// The canonical iOS development tag.
     public let value: String
 
     /// Creates a tagged-build scope, or returns `nil` for stable/untagged input.
@@ -61,6 +63,21 @@ public struct MobileIOSBuildScope: Sendable, Equatable {
     /// so reading it would reintroduce cross-build routes after an upgrade.
     public var serializedScope: String {
         "ios:\(Self.serializedScopeVersion):\(storageComponent)"
+    }
+
+    /// The Mac app-instance tag expected on the resolved auth channel.
+    ///
+    /// Normal development-auth builds pair with the same tagged Mac build. The
+    /// supported `ios/scripts/reload.sh --prod-auth` flow instead pairs this
+    /// tagged iOS app with a beta/stable Mac, whose registry/presence tag is
+    /// `default`. This route-authority identity is intentionally separate from
+    /// the iOS storage/display scope above.
+    ///
+    /// - Parameter isDevelopmentAuthEnvironment: Whether the iOS app uses the
+    ///   development auth/presence channel.
+    /// - Returns: The exact Mac app-instance tag allowed to supply routes.
+    public func pairedMacInstanceTag(isDevelopmentAuthEnvironment: Bool) -> String {
+        isDevelopmentAuthEnvironment ? value : "default"
     }
 
     /// Presentation name for a Mac shown by this tagged iOS build.

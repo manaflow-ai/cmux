@@ -590,9 +590,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     let runtime: (any MobileSyncRuntime)?
     let pairedMacStore: (any MobilePairedMacStoring)?
-    /// The development-build instance allowed to own this store's reconnect
-    /// routes. `nil` keeps stable builds on the sole-instance fallback policy.
-    let iosBuildScope: MobileIOSBuildScope?
+    /// Exact Mac route-authority tag (`default` for tagged `--prod-auth` iOS).
+    public let pairedMacInstanceTag: String?
     private let pairedMacRestoreBoundary: PairedMacRestoreBoundary?
     /// Best-effort, team-scoped lookup of fresher attach routes from the device
     /// registry. Optional and failure-tolerant: when `nil` or unreachable,
@@ -894,6 +893,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         workspaces: [MobileWorkspacePreview] = [],
         pairedMacStore: (any MobilePairedMacStoring)? = nil,
         iosBuildScope: MobileIOSBuildScope? = nil,
+        pairedMacInstanceTag: String? = nil,
         pairedMacRestoreBoundary: PairedMacRestoreBoundary? = nil,
         deviceRegistry: (any DeviceRegistryRefreshing)? = nil,
         presence: (any PresenceSubscribing)? = nil,
@@ -918,7 +918,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.draftStore = draftStore
         self.groupCollapseStore = groupCollapseStore
         self.pairedMacStore = pairedMacStore
-        self.iosBuildScope = iosBuildScope
+        self.pairedMacInstanceTag = pairedMacInstanceTag ?? iosBuildScope?.value
         self.pairedMacRestoreBoundary = pairedMacRestoreBoundary
         self.deviceRegistry = deviceRegistry
         self.presence = presence
@@ -2171,7 +2171,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         device: RegistryDevice,
         instance: RegistryAppInstance
     ) async {
-        if let iosBuildScope, instance.tag != iosBuildScope.value { return }
+        if let pairedMacInstanceTag, instance.tag != pairedMacInstanceTag { return }
         let supportedKinds = runtime?.supportedRouteKinds ?? []
         let candidateRoutes = Self.reconnectHostPortRoutes(
             instance.routes,

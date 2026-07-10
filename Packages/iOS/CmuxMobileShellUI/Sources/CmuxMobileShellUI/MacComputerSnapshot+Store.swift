@@ -15,16 +15,22 @@ extension MacComputerSnapshot {
     @MainActor
     static func snapshots(
         from store: CMUXMobileShellStore,
-        instanceTag: String? = MobileIOSBuildScope.current()?.value
+        instanceTag: String? = nil
     ) -> [MacComputerSnapshot] {
         let colorIndex = store.machineColorIndex
-        let buildScope = MobileIOSBuildScope(instanceTag)
+        // The iOS tag remains the display suffix/storage partition, while the
+        // Mac tag can be `default` for a tagged `--prod-auth` iOS build.
+        let buildScope = MobileIOSBuildScope.current() ?? MobileIOSBuildScope(instanceTag)
+        let presenceInstanceTag = instanceTag ?? store.pairedMacInstanceTag
         // The PHONE's own per-Mac connection (foreground or live secondary) — the
         // source of truth for the dot, distinct from presence.
         let connectionStatuses = store.macConnectionStatuses
         var snapshots = store.displayPairedMacs.map { mac in
             let aliases = store.pairedMacAliasIDs(for: mac.macDeviceID)
-            let summary = store.presenceSummary(for: mac.macDeviceID, instanceTag: instanceTag)
+            let summary = store.presenceSummary(
+                for: mac.macDeviceID,
+                instanceTag: presenceInstanceTag
+            )
             let presence: DeviceTreePresence? = summary
                 .map { $0.online ? .online : .offline(lastSeenAt: $0.lastSeenAt) }
             return MacComputerSnapshot(

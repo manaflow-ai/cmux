@@ -79,15 +79,16 @@ public struct PresenceMap: Equatable, Sendable {
 
     /// The instance allowed to replace persisted reconnect routes.
     ///
-    /// Tagged iOS builds accept routes only from the Mac instance with the
-    /// identical tag. Stable and unscoped builds retain the conservative legacy
-    /// rule: exactly one online instance on the device may advertise routes.
+    /// Scoped clients accept routes only from the exact Mac app instance
+    /// resolved at composition. Stable and unscoped builds retain the
+    /// conservative legacy rule: exactly one online instance on the device may
+    /// advertise routes.
     public func reconnectRouteAuthority(
         deviceId: String,
-        buildScope: MobileIOSBuildScope?
+        pairedMacInstanceTag: String?
     ) -> PresenceInstance? {
-        if let buildScope {
-            guard let instance = instance(deviceId: deviceId, tag: buildScope.value),
+        if let pairedMacInstanceTag {
+            guard let instance = instance(deviceId: deviceId, tag: pairedMacInstanceTag),
                   instance.online,
                   !(instance.routes ?? []).isEmpty else {
                 return nil

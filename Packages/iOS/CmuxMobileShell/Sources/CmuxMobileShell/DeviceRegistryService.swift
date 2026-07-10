@@ -40,7 +40,7 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
 
     private let apiBaseURL: String
     private let deviceID: String
-    private let buildScope: MobileIOSBuildScope?
+    private let pairedMacInstanceTag: String?
     private let tokenSource: TokenSource
     private let teamIDProvider: @Sendable () async -> String?
     private let session: URLSession
@@ -49,8 +49,8 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
     /// - Parameters:
     ///   - apiBaseURL: The cmux web API base URL (no trailing slash).
     ///   - deviceID: This iOS device's registry id (``deviceID(defaults:)``).
-    ///   - buildScope: The tagged Mac instance allowed to supply reconnect
-    ///     routes. `nil` retains stable's sole-instance policy.
+    ///   - pairedMacInstanceTag: The exact Mac app instance allowed to supply
+    ///     reconnect routes. `nil` retains stable's sole-instance policy.
     ///   - tokenSource: Supplies the Stack access/refresh tokens.
     ///   - teamIDProvider: Supplies the team id to scope to, or `nil` to let the
     ///     server use the Stack-selected team.
@@ -60,7 +60,7 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
     public init(
         apiBaseURL: String,
         deviceID: String,
-        buildScope: MobileIOSBuildScope? = nil,
+        pairedMacInstanceTag: String? = nil,
         tokenSource: TokenSource,
         teamIDProvider: @escaping @Sendable () async -> String? = { nil },
         session: sending URLSession = .shared,
@@ -68,7 +68,7 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
     ) {
         self.apiBaseURL = apiBaseURL
         self.deviceID = deviceID
-        self.buildScope = buildScope
+        self.pairedMacInstanceTag = pairedMacInstanceTag
         self.tokenSource = tokenSource
         self.teamIDProvider = teamIDProvider
         self.session = session
@@ -159,7 +159,7 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
         }
         return Self.routes(
             forMacDeviceID: macDeviceID,
-            buildScope: buildScope,
+            pairedMacInstanceTag: pairedMacInstanceTag,
             in: data
         )
     }
@@ -279,9 +279,9 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
     }
 
     /// Decode the `/api/devices` list response and return authoritative routes
-    /// for the matching device. A tagged build selects its exact Mac tag;
-    /// unscoped builds require one sole route-advertising instance. Returns
-    /// `nil` when that ownership cannot be proven.
+    /// for the matching device. A scoped client selects its resolved Mac
+    /// app-instance tag; unscoped builds require one sole route-advertising
+    /// instance. Returns `nil` when that ownership cannot be proven.
     ///
     /// Each route is decoded *failably* and individually: a malformed or
     /// unknown-kind route from any instance (even another Mac's) is skipped
@@ -291,7 +291,7 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
     /// decode.
     static func routes(
         forMacDeviceID macDeviceID: String,
-        buildScope: MobileIOSBuildScope? = nil,
+        pairedMacInstanceTag: String? = nil,
         in data: Data
     ) -> [CmxAttachRoute]? {
         // Decode each route element through an optional wrapper so a single bad
@@ -321,12 +321,12 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
             return nil
         }
         let candidates: [Instance]
-        if let buildScope {
-            // A tagged iOS build owns exactly the same-tag Mac instance. Another
-            // tag becoming the device's sole live instance must not redirect its
-            // persisted reconnect route.
+        if let pairedMacInstanceTag {
+            // Route authority is an exact Mac-instance identity resolved at app
+            // composition. Another tag becoming the device's sole live instance
+            // must not redirect this build's persisted reconnect route.
             candidates = device.instances.filter {
-                $0.tag?.trimmingCharacters(in: .whitespacesAndNewlines) == buildScope.value
+                $0.tag?.trimmingCharacters(in: .whitespacesAndNewlines) == pairedMacInstanceTag
             }
         } else {
             // Stable/unscoped storage has no tag ownership to prove. Keep the
