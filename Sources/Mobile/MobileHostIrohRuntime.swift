@@ -68,6 +68,7 @@ final class MobileHostIrohRuntime {
     private let appInstances = CmxIrohAppInstanceRepository()
     private let identities = CmxIrohIdentityRepository()
     private let brokerCredentials = CmxIrohBrokerCredentialRepository()
+    private let hostPolicies = CmxIrohHostPolicyCache()
     private let authObserver = MobileHostIrohAuthObserver()
 
     private weak var auth: AuthCoordinator?
@@ -185,6 +186,13 @@ final class MobileHostIrohRuntime {
         }
 
         if eraseAccountState {
+            do {
+                try await hostPolicies.deactivate()
+            } catch {
+                mobileHostIrohLog.error(
+                    "Iroh offline policy deletion failed: \(String(describing: error), privacy: .private)"
+                )
+            }
             try? await brokerCredentials.deactivate()
             try? await identities.deactivate()
             await appInstances.deactivate()
@@ -223,13 +231,15 @@ final class MobileHostIrohRuntime {
             accountID: accountID,
             appInstanceID: appInstanceID
         )
-        let derivedEndpointID = identity.peerIdentity
+        guard let derivedEndpointID = identity.peerIdentity else {
+            throw CmxIrohHostRuntimeError.invalidLocalBinding
+        }
         let bindingMatches = cachedBinding.map {
             $0.deviceID == deviceID
                 && $0.appInstanceID == appInstanceID
                 && $0.tag == tag
                 && $0.platform == .mac
-                && derivedEndpointID == .some($0.endpointID)
+                && derivedEndpointID == $0.endpointID
                 && $0.identityGeneration == identity.generation
         } ?? false
         let cachedRelay: CmxIrohRelayTokenResponse?
@@ -243,6 +253,31 @@ final class MobileHostIrohRuntime {
             )
         } else {
             cachedRelay = nil
+        }
+        let policyExpectation = try CmxIrohHostPolicyExpectation(
+            accountID: accountID,
+            deviceID: deviceID,
+            appInstanceID: appInstanceID,
+            tag: tag,
+            endpointID: derivedEndpointID,
+            identityGeneration: identity.generation,
+            pairingEnabled: true,
+            capabilities: Self.capabilities
+        )
+        let cachedHostPolicy: CmxIrohCachedHostPolicy?
+        do {
+            cachedHostPolicy = try await hostPolicies.load(
+                for: policyExpectation,
+                now: Date()
+            )
+        } catch {
+            cachedHostPolicy = nil
+            mobileHostIrohLog.error(
+                "Iroh offline policy load failed: \(String(describing: error), privacy: .private)"
+            )
+        }
+        if let cachedHostPolicy {
+            lastKnownBindingID = cachedHostPolicy.binding.bindingID
         }
 
         let broker = try CmxIrohTrustBrokerClient(
@@ -268,10 +303,13 @@ final class MobileHostIrohRuntime {
             identity: identity,
             pairingEnabled: true,
             capabilities: Self.capabilities,
+            bindPolicy: .ephemeral,
             managedRelayURLs: Self.managedRelayURLs,
-            cachedRelayCredential: cachedRelay
+            cachedRelayCredential: cachedRelay,
+            cachedHostPolicy: cachedHostPolicy
         )
         let credentialRepository = brokerCredentials
+        let hostPolicyCache = hostPolicies
         let managedRelayURLs = Self.managedRelayURLs
         let hostRuntime = CmxIrohHostRuntime(
             factory: CmxIrohLibEndpointFactory(),
@@ -284,13 +322,37 @@ final class MobileHostIrohRuntime {
                     isCurrent: isCurrent
                 )
             },
-            handleBinding: { [weak self] registration, _, _ in
+            handleBinding: { [weak self] registration, discovery, attestation in
                 let binding = registration.binding
                 let metadata = CmxIrohBrokerBindingMetadata(binding: binding)
                 try? await credentialRepository.saveBinding(
                     metadata,
                     accountID: accountID
                 )
+                if let attestation,
+                   let discovered = discovery.bindings.first(where: {
+                       $0.bindingID == binding.bindingID
+                   }) {
+                    do {
+                        let policy = try CmxIrohCachedHostPolicy(
+                            binding: discovered,
+                            grantVerificationKeys: discovery.grantVerificationKeys,
+                            endpointAttestation: attestation
+                        )
+                        try await hostPolicyCache.save(
+                            policy,
+                            for: policyExpectation,
+                            now: Date()
+                        )
+                    } catch {
+                        try? await hostPolicyCache.delete(for: policyExpectation)
+                        mobileHostIrohLog.error(
+                            "Iroh offline policy cache rejected: \(String(describing: error), privacy: .private)"
+                        )
+                    }
+                } else if cachedHostPolicy?.binding != metadata {
+                    try? await hostPolicyCache.delete(for: policyExpectation)
+                }
                 await MainActor.run {
                     guard let self, revision == self.lifecycleRevision else { return }
                     self.lastKnownBindingID = binding.bindingID
@@ -311,7 +373,7 @@ final class MobileHostIrohRuntime {
                 try? await credentialRepository.saveRelayCredential(
                     response,
                     accountID: accountID,
-                    binding: CmxIrohBrokerBindingMetadata(binding: binding),
+                    binding: binding,
                     expectedRelayFleet: managedRelayURLs,
                     now: Date()
                 )
