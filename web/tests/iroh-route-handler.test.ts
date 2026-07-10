@@ -35,6 +35,63 @@ describe("Iroh route boundary", () => {
     expect(called).toBe(false);
   });
 
+  test("fails closed when the firewall check rejects", async () => {
+    let brokerCalled = false;
+    const dependencies = {
+      verify: async () => USER,
+      broker: broker({
+        discover: () => {
+          brokerCalled = true;
+          return Effect.succeed({ bindings: [] });
+        },
+      }),
+      firewall: {
+        id: "iroh-test-rule",
+        check: async () => {
+          throw new Error("firewall unavailable");
+        },
+      },
+    };
+
+    const response = await handleIrohRoute(
+      new Request("https://cmux.test/api/devices/iroh"),
+      "discover",
+      dependencies,
+    );
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: "iroh_service_unavailable" });
+    expect(brokerCalled).toBe(false);
+  });
+
+  test("bounds a firewall check that never settles", async () => {
+    let brokerCalled = false;
+    const dependencies = {
+      verify: async () => USER,
+      broker: broker({
+        discover: () => {
+          brokerCalled = true;
+          return Effect.succeed({ bindings: [] });
+        },
+      }),
+      firewall: {
+        id: "iroh-test-rule",
+        timeoutMs: 10,
+        check: () => new Promise<never>(() => {}),
+      },
+    };
+
+    const response = await handleIrohRoute(
+      new Request("https://cmux.test/api/devices/iroh"),
+      "discover",
+      dependencies,
+    );
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: "iroh_service_unavailable" });
+    expect(brokerCalled).toBe(false);
+  });
+
   test("authenticates before reading an oversized body", async () => {
     let called = false;
     const response = await handleIrohRoute(new Request("https://cmux.test/api/devices/iroh/challenge", {
