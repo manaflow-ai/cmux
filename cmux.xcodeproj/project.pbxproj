@@ -375,6 +375,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C10D51700000000000000002 /* ClosedItemHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10D51700000000000000001 /* ClosedItemHistory.swift */; };
 		F73320000000000000000003 /* ClosedItemHistoryAgentEnrichment.swift in Sources */ = {isa = PBXBuildFile; fileRef = F73320000000000000000004 /* ClosedItemHistoryAgentEnrichment.swift */; };
 		F73320000000000000000008 /* ClosedItemHistoryAgentEnrichmentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F73320000000000000000007 /* ClosedItemHistoryAgentEnrichmentTests.swift */; };
+		C1A5E2000000000000000001 /* ClosedItemHistoryCoordinatorLifetimeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A5E2000000000000000002 /* ClosedItemHistoryCoordinatorLifetimeTests.swift */; };
 		F7332000000000000000000A /* ClosedItemHistoryMenuItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = F73320000000000000000009 /* ClosedItemHistoryMenuItem.swift */; };
 		C1A5E0000000000000000001 /* ClosedItemHistoryMenuProjection.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A5E0000000000000000002 /* ClosedItemHistoryMenuProjection.swift */; };
 		C1A5E1000000000000000001 /* ClosedItemHistoryMenuProjectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A5E1000000000000000002 /* ClosedItemHistoryMenuProjectionTests.swift */; };
@@ -2172,6 +2173,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C10D51700000000000000001 /* ClosedItemHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClosedItemHistory.swift; sourceTree = "<group>"; };
 		F73320000000000000000004 /* ClosedItemHistoryAgentEnrichment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClosedItemHistoryAgentEnrichment.swift; sourceTree = "<group>"; };
 		F73320000000000000000007 /* ClosedItemHistoryAgentEnrichmentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClosedItemHistoryAgentEnrichmentTests.swift; sourceTree = "<group>"; };
+		C1A5E2000000000000000002 /* ClosedItemHistoryCoordinatorLifetimeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClosedItemHistoryCoordinatorLifetimeTests.swift; sourceTree = "<group>"; };
 		F73320000000000000000009 /* ClosedItemHistoryMenuItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClosedItemHistoryMenuItem.swift; sourceTree = "<group>"; };
 		C1A5E0000000000000000002 /* ClosedItemHistoryMenuProjection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClosedItemHistoryMenuProjection.swift; sourceTree = "<group>"; };
 		C1A5E1000000000000000002 /* ClosedItemHistoryMenuProjectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClosedItemHistoryMenuProjectionTests.swift; sourceTree = "<group>"; };
@@ -5048,6 +5050,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				F73320000000000000000007 /* ClosedItemHistoryAgentEnrichmentTests.swift */,
 				F7332000000000000000000F /* ClosedItemHistoryPendingEnrichmentTests.swift */,
 				C1A5E1000000000000000002 /* ClosedItemHistoryMenuProjectionTests.swift */,
+				C1A5E2000000000000000002 /* ClosedItemHistoryCoordinatorLifetimeTests.swift */,
 				D7332C030000000000000002 /* SharedLiveAgentIndexScopedRefreshTests.swift */,
 				D7332C0B0000000000000002 /* ProcessDetectedResumeIndexCoordinationTests.swift */,
 				F0ACC0DE0000000000000006 /* WorkspaceForkConversationContextMenuTests.swift */,
@@ -7069,6 +7072,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 					773600000000000000000001 /* CLIWindowCommandMockServer.swift in Sources */,
 					773600000000000000000003 /* CLIWindowHandleRoutingTests.swift in Sources */,
 				F73320000000000000000008 /* ClosedItemHistoryAgentEnrichmentTests.swift in Sources */,
+				C1A5E2000000000000000001 /* ClosedItemHistoryCoordinatorLifetimeTests.swift in Sources */,
 				C1A5E1000000000000000001 /* ClosedItemHistoryMenuProjectionTests.swift in Sources */,
 				F73320000000000000000010 /* ClosedItemHistoryPendingEnrichmentTests.swift in Sources */,
 				7375A0037375A0037375A003 /* ClosedMainWindowRoutingTests.swift in Sources */,
