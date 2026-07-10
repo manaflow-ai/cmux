@@ -106,7 +106,7 @@ extension RemoteTmuxSessionMirror {
     func sendKey(
         toPane tmuxPaneID: Int,
         name: String
-    ) -> RemoteTmuxWindowMirror.ControlKeySendResult {
+    ) -> RemoteTmuxControlKeySendResult {
         guard controlPaneIdByPane[tmuxPaneID] != nil else { return .rejected }
         guard let key = RemoteTmuxWindowMirror.tmuxKeyName(name) else { return .unknownKey }
         return connection.send("send-keys -t %\(tmuxPaneID) \(key)") ? .sent : .rejected

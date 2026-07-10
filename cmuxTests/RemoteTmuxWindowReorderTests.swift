@@ -127,7 +127,9 @@ import Testing
         #expect(connection.pendingCommandKindsForTesting == [.listWindowOrder(reorderGeneration: 1)])
         reply(connection, lines: windowOrderLines([1, 2]))
 
-        #expect(connection.pendingCommandKindsForTesting == [.listWindows(reorderGeneration: 1)])
+        #expect(connection.pendingCommandKindsForTesting == [
+            .listWindows(reorderGeneration: 1, retainedPaneIDs: [])
+        ])
         #expect(!connection.sendWindowReorder(["swap-window -d -s @1 -t @2"]))
     }
 
@@ -140,7 +142,9 @@ import Testing
         reply(connection, lines: [])
         reply(connection, lines: ["garbled order"])
 
-        #expect(connection.pendingCommandKindsForTesting == [.listWindows(reorderGeneration: 1)])
+        #expect(connection.pendingCommandKindsForTesting == [
+            .listWindows(reorderGeneration: 1, retainedPaneIDs: [])
+        ])
         #expect(!connection.sendWindowReorder(["swap-window -d -s @1 -t @2"]))
     }
 
@@ -153,10 +157,14 @@ import Testing
         #expect(connection.sendWindowReorder(["swap-window -d -s @1 -t @2"]))
         connection.applyWindowReorder([2, 1])
         reply(connection, lines: ["can't find window: @2"], isError: true)
-        #expect(connection.pendingCommandKindsForTesting == [.listWindows(reorderGeneration: 1)])
+        #expect(connection.pendingCommandKindsForTesting == [
+            .listWindows(reorderGeneration: 1, retainedPaneIDs: [])
+        ])
 
         #expect(!connection.sendWindowReorder(["swap-window -d -s @2 -t @1"]))
-        #expect(connection.pendingCommandKindsForTesting == [.listWindows(reorderGeneration: 1)])
+        #expect(connection.pendingCommandKindsForTesting == [
+            .listWindows(reorderGeneration: 1, retainedPaneIDs: [])
+        ])
         #expect(connection.windowOrder == [2, 1])
         reply(connection, lines: windowLines([2, 3, 1]))
 
@@ -171,7 +179,9 @@ import Testing
         publishSinglePaneWindow(connection)
         #expect(connection.sendWindowReorder(["swap-window -d -s @1 -t @2"]))
         reply(connection, lines: ["can't find window: @2"], isError: true)
-        #expect(connection.pendingCommandKindsForTesting == [.listWindows(reorderGeneration: 1)])
+        #expect(connection.pendingCommandKindsForTesting == [
+            .listWindows(reorderGeneration: 1, retainedPaneIDs: [])
+        ])
 
         reply(
             connection,
@@ -206,6 +216,29 @@ import Testing
         reply(connection, lines: windowOrderLines([2, 1, 3]))
         #expect(verification == true)
         #expect(connection.windowOrder == [2, 1, 3])
+    }
+
+    @Test func overlappingWindowClosesReleaseOnlyTheirOwnRetainedPaneIDs() {
+        let (connection, writer, pipe) = attachedConnection()
+        defer { writer.close(); try? pipe.fileHandleForReading.close() }
+        publishWindows(connection, order: [1, 2, 3])
+
+        connection.handleMessageForTesting(.windowClose(windowId: 1))
+        connection.handleMessageForTesting(.windowClose(windowId: 2))
+        #expect(connection.pendingCommandKindsForTesting == [
+            .listWindows(reorderGeneration: 0, retainedPaneIDs: [10]),
+            .listWindows(reorderGeneration: 0, retainedPaneIDs: [10, 20]),
+        ])
+
+        // The first close's snapshot must not release pane 20, whose own close
+        // and authoritative refresh overlapped the earlier request.
+        reply(connection, lines: windowLines([2, 3]))
+        #expect(connection.paneIDsRetainedUntilWindowList == [20])
+        #expect(connection.pendingCommandKindsForTesting.first ==
+            .listWindows(reorderGeneration: 0, retainedPaneIDs: [10, 20]))
+
+        reply(connection, lines: windowLines([3]))
+        #expect(connection.paneIDsRetainedUntilWindowList.isEmpty)
     }
 
     @Test func recoveryEscalationVerifiesAgainstAuthoritativeOrder() {

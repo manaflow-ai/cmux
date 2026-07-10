@@ -1051,6 +1051,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		47390CF61FE52509FE53FE75 /* RemoteTmuxControlConnection+Sizing.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05663199C0335662D0736AFA /* RemoteTmuxControlConnection+Sizing.swift */; };
 		1A8D46CE776340BB6BC49FC2 /* RemoteTmuxControlConnection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 602197314BF2C4CC53565BBC /* RemoteTmuxControlConnection.swift */; };
 		42FBA382CDEAEC146FA5A895 /* RemoteTmuxControlConnectionSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2587F4E278EFECB84E2ED34B /* RemoteTmuxControlConnectionSnapshot.swift */; };
+		7833C0057833C0057833C005 /* RemoteTmuxControlKeySendResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7833D0057833D0057833D005 /* RemoteTmuxControlKeySendResult.swift */; };
 		740600000000000000000002 /* RemoteTmuxController+Attach.swift in Sources */ = {isa = PBXBuildFile; fileRef = 740600000000000000000001 /* RemoteTmuxController+Attach.swift */; };
 		736200000000000000000002 /* RemoteTmuxController+Decisions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 736200000000000000000001 /* RemoteTmuxController+Decisions.swift */; };
 		F67BABC493A488943ED1DB90 /* RemoteTmuxController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50FE16F529BD6FBA4FBDECFC /* RemoteTmuxController.swift */; };
@@ -2755,6 +2756,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		05663199C0335662D0736AFA /* RemoteTmuxControlConnection+Sizing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RemoteTmuxControlConnection+Sizing.swift"; sourceTree = "<group>"; };
 		602197314BF2C4CC53565BBC /* RemoteTmuxControlConnection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxControlConnection.swift; sourceTree = "<group>"; };
 		2587F4E278EFECB84E2ED34B /* RemoteTmuxControlConnectionSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxControlConnectionSnapshot.swift; sourceTree = "<group>"; };
+		7833D0057833D0057833D005 /* RemoteTmuxControlKeySendResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxControlKeySendResult.swift; sourceTree = "<group>"; };
 		740600000000000000000001 /* RemoteTmuxController+Attach.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RemoteTmuxController+Attach.swift"; sourceTree = "<group>"; };
 		736200000000000000000001 /* RemoteTmuxController+Decisions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RemoteTmuxController+Decisions.swift"; sourceTree = "<group>"; };
 		50FE16F529BD6FBA4FBDECFC /* RemoteTmuxController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxController.swift; sourceTree = "<group>"; };
@@ -4505,6 +4507,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 					7F023A000000000000007023 /* RemoteTmuxSessionMirror+Helpers.swift */,
 					7833D0037833D0037833D003 /* RemoteTmuxControlPaneLocation.swift */,
 					7833D0047833D0047833D004 /* RemoteTmuxControlPaneMutationOwner.swift */,
+					7833D0057833D0057833D005 /* RemoteTmuxControlKeySendResult.swift */,
 					7833D0017833D0017833D001 /* RemoteTmuxSessionMirror+ControlTopology.swift */,
 					7833D0027833D0027833D002 /* RemoteTmuxSessionMirror+WindowReconciliation.swift */,
 					602197314BF2C4CC53565BBC /* RemoteTmuxControlConnection.swift */,
@@ -6251,6 +6254,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				47390CF61FE52509FE53FE75 /* RemoteTmuxControlConnection+Sizing.swift in Sources */,
 				1A8D46CE776340BB6BC49FC2 /* RemoteTmuxControlConnection.swift in Sources */,
 				42FBA382CDEAEC146FA5A895 /* RemoteTmuxControlConnectionSnapshot.swift in Sources */,
+				7833C0057833C0057833C005 /* RemoteTmuxControlKeySendResult.swift in Sources */,
 				740600000000000000000002 /* RemoteTmuxController+Attach.swift in Sources */,
 				736200000000000000000002 /* RemoteTmuxController+Decisions.swift in Sources */,
 				F67BABC493A488943ED1DB90 /* RemoteTmuxController.swift in Sources */,

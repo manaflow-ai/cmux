@@ -41,7 +41,7 @@ extension RemoteTmuxControlConnection {
             if case let .windowReorder(isLast) = kind {
                 completeWindowReorderCommand(isLast: isLast, failed: true)
             }
-            if case let .listWindows(requestGeneration) = kind,
+            if case let .listWindows(requestGeneration, _) = kind,
                windowReorderRecoveryGeneration == requestGeneration {
                 restartAfterWindowReorderRecoveryFailure()
             }
@@ -67,7 +67,7 @@ extension RemoteTmuxControlConnection {
             completion(windowId)
         case let .paneRects(windowId, generation):
             handlePaneRectsReply(windowId: windowId, generation: generation, lines: lines)
-        case let .listWindows(requestGeneration):
+        case let .listWindows(requestGeneration, retainedPaneIDs):
             // A pending order verification owns the window-order ledger: an
             // incidental topology refetch (e.g. a %window-add landing mid-batch)
             // shares the current generation tag, and letting it replace the
@@ -151,9 +151,10 @@ extension RemoteTmuxControlConnection {
                         zoomed: window.zoomed, name: window.name
                     )
                 }
-                // The complete snapshot decides whether panes from a recently
-                // closed window moved elsewhere or were actually destroyed.
-                paneIDsRetainedUntilWindowList.removeAll()
+                // This complete snapshot decides only the close gaps already
+                // represented when its request was sent. A later overlapping
+                // close remains retained for its own snapshot.
+                paneIDsRetainedUntilWindowList.subtract(retainedPaneIDs)
                 // Per-window sizing state must not outlive the topology: a
                 // stale pin would be replayed by the reconnect reseed, and a
                 // pending debounce could fire at a dead @id.

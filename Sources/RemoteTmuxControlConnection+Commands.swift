@@ -52,7 +52,10 @@ extension RemoteTmuxControlConnection {
     func requestWindows() {
         sendInternal(
             "list-windows -F \"#{window_id} #{window_layout} #{window_visible_layout} [#{window_flags}] #{window_name}\"",
-            kind: .listWindows(reorderGeneration: windowReorderGeneration)
+            kind: .listWindows(
+                reorderGeneration: windowReorderGeneration,
+                retainedPaneIDs: paneIDsRetainedUntilWindowList
+            )
         )
     }
 

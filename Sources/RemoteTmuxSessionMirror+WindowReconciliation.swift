@@ -21,11 +21,10 @@ extension RemoteTmuxSessionMirror {
             return
         }
         guard window.paneIDsInOrder.count > 1 else { return }
-        let adoptedPanes: [RemoteTmuxWindowMirror.AdoptedPane] = panelIdByPane.compactMap {
-            tmuxPaneId, mappedPanelId in
+        let adoptedPanes: [RemoteTmuxWindowMirror.AdoptedPane] = window.paneIDsInOrder.compactMap {
+            tmuxPaneId in
             guard !displayPanelWasCreated,
-                  mappedPanelId == panelId,
-                  window.paneIDsInOrder.contains(tmuxPaneId),
+                  panelIdByPane[tmuxPaneId] == panelId,
                   let panel = workspace.panels[panelId] as? TerminalPanel else { return nil }
             return (tmuxPaneId, panel)
         }
@@ -60,7 +59,12 @@ extension RemoteTmuxSessionMirror {
         mirror.apply(window: window)
         windowMirrorByWindowId[windowId] = mirror
         workspace.setRemoteTmuxWindowMirror(mirror, forPanelId: panelId)
-        panelIdByPane = panelIdByPane.filter { $0.value != panelId }
+        for adoptedPane in adoptedPanes {
+            panelIdByPane[adoptedPane.tmuxPaneId] = nil
+        }
+        if displayPanelWasCreated, let firstPaneID = window.paneIDsInOrder.first {
+            panelIdByPane[firstPaneID] = nil
+        }
         if adoptedPanes.isEmpty, let panel = workspace.panels[panelId] as? TerminalPanel {
             panel.surface.onManualSizeApplied = nil
             panel.surface.onRuntimeReady = nil

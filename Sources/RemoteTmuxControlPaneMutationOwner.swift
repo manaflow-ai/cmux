@@ -9,7 +9,7 @@ protocol RemoteTmuxControlPaneMutationOwner: AnyObject {
     func sendKey(
         toPane tmuxPaneID: Int,
         name: String
-    ) -> RemoteTmuxWindowMirror.ControlKeySendResult
+    ) -> RemoteTmuxControlKeySendResult
     func requestSplit(fromPane tmuxPaneID: Int, vertical: Bool) -> Bool
     func requestRespawnPane(
         _ tmuxPaneID: Int,

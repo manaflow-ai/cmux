@@ -17,7 +17,7 @@ struct RemoteTmuxControlPaneLocation {
         owner.sendInput(toPane: pane.tmuxPaneID, text: text)
     }
 
-    func sendKey(_ name: String) -> RemoteTmuxWindowMirror.ControlKeySendResult {
+    func sendKey(_ name: String) -> RemoteTmuxControlKeySendResult {
         owner.sendKey(toPane: pane.tmuxPaneID, name: name)
     }
 
