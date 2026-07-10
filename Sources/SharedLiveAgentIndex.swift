@@ -6,20 +6,47 @@ import Foundation
 final class SharedLiveAgentIndex {
     static let shared = SharedLiveAgentIndex()
 
+    private typealias LoadResult = SharedLiveAgentIndexLoader.LoadResult
+    private typealias PanelKey = RestorableAgentSessionIndex.PanelKey
+
+    private enum RefreshFreshness: Equatable {
+        case joinCurrentGeneration
+        case captureAfterRequest
+    }
+
+    private enum RefreshPublication: Equatable {
+        case scoped
+        case workspace
+
+        mutating func include(_ other: Self) {
+            if other == .workspace {
+                self = .workspace
+            }
+        }
+    }
+
+    private struct RefreshGeneration {
+        enum Phase: Equatable {
+            case queued
+            case capturing
+        }
+
+        let id: UUID
+        var phase: Phase
+        var publication: RefreshPublication
+        var validationPanelsByPanelID: [UUID: PanelKey]
+    }
+
     private(set) var index: RestorableAgentSessionIndex?
     private var loadedAt: Date?
     private var liveAgentProcessFingerprint: Set<String> = []
-    private var refreshTask: Task<Void, Never>?
-    private var forkAvailabilityRefreshTask: Task<Void, Never>?
-    private var forkAvailabilityRefreshRequestID: UUID?
-    private var forkAvailabilityRefreshHasStartedLoading = false
-    private var forkAvailabilityRefreshValidationPanelsByRequestID: [
-        UUID: Set<RestorableAgentSessionIndex.PanelKey>
-    ] = [:]
-    private var validatedForkPanelProbeCompletedAt: [RestorableAgentSessionIndex.PanelKey: Date] = [:]
-    private var validatedForkPanels = Set<RestorableAgentSessionIndex.PanelKey>()
-    private var validatedMissingForkPanels: [RestorableAgentSessionIndex.PanelKey: Date] = [:]
-    private var pendingForkValidationPanels = Set<RestorableAgentSessionIndex.PanelKey>()
+    private var refreshGenerationsByID: [UUID: RefreshGeneration] = [:]
+    private var refreshTasksByID: [UUID: Task<LoadResult?, Never>] = [:]
+    private var refreshTailID: UUID?
+    private var pendingForkValidationGenerationByPanelID: [UUID: UUID] = [:]
+    private var validatedForkPanelProbeCompletedAt: [PanelKey: Date] = [:]
+    private var validatedForkPanels = Set<PanelKey>()
+    private var validatedMissingForkPanels: [PanelKey: Date] = [:]
     private var processScopeFingerprint: Set<String> = []
     private var changePending = false
     private var deferredReloadTimer: DispatchSourceTimer?
@@ -55,8 +82,9 @@ final class SharedLiveAgentIndex {
     }
 
     deinit {
-        refreshTask?.cancel()
-        forkAvailabilityRefreshTask?.cancel()
+        for task in refreshTasksByID.values {
+            task.cancel()
+        }
         deferredReloadTimer?.cancel()
         directoryWatchSource?.cancel()
     }
@@ -69,7 +97,10 @@ final class SharedLiveAgentIndex {
 
     /// Read the cached snapshot for the Fork Conversation context menu. Never blocks.
     func snapshotForForkConversationCandidate(workspaceId: UUID, panelId: UUID) -> SessionRestorableAgentSnapshot? {
-        let panelKey = RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId)
+        let panelKey = PanelKey(workspaceId: workspaceId, panelId: panelId)
+        guard pendingForkValidationGenerationByPanelID[panelKey.panelId] == nil else {
+            return nil
+        }
         guard let index,
               validatedForkPanelKey(for: panelKey) != nil else {
             return nil
@@ -79,8 +110,9 @@ final class SharedLiveAgentIndex {
 
     /// Read the cached snapshot for an enabled Fork Conversation action. Never blocks.
     func snapshotForForkAvailability(workspaceId: UUID, panelId: UUID) -> SessionRestorableAgentSnapshot? {
-        let panelKey = RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId)
-        guard let validationKey = validatedForkPanelKey(for: panelKey),
+        let panelKey = PanelKey(workspaceId: workspaceId, panelId: panelId)
+        guard pendingForkValidationGenerationByPanelID[panelKey.panelId] == nil,
+              let validationKey = validatedForkPanelKey(for: panelKey),
               hasFreshForkAvailabilityProbe(for: validationKey),
               let index else {
             return nil
@@ -89,8 +121,14 @@ final class SharedLiveAgentIndex {
     }
 
     func prepareForkAvailabilityProbe(workspaceId: UUID, panelId: UUID) -> Bool {
-        let panelKey = RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId)
+        let panelKey = PanelKey(workspaceId: workspaceId, panelId: panelId)
+        guard pendingForkValidationGenerationByPanelID[panelKey.panelId] == nil else {
+            return false
+        }
         scheduleRefreshIfStale(validating: panelKey)
+        guard pendingForkValidationGenerationByPanelID[panelKey.panelId] == nil else {
+            return false
+        }
         guard let index else {
             requestForkAvailabilityRefresh(validating: panelKey)
             return false
@@ -122,146 +160,169 @@ final class SharedLiveAgentIndex {
 
     /// Returns the cached index after awaiting any stale refresh this call schedules.
     func indexRefreshingIfNeeded() async -> RestorableAgentSessionIndex? {
-        scheduleRefreshIfStale()
-        let inFlight = forkAvailabilityRefreshTask ?? refreshTask
-        await inFlight?.value
-        return index
+        guard let task = refreshTaskIfStale() else {
+            return index
+        }
+        return await task.value?.index ?? index
     }
 
-    /// Returns one shared off-main reload for an interactive fork probe.
-    func refreshedIndex(workspaceId: UUID, panelId: UUID) async -> RestorableAgentSessionIndex {
-        await refreshForkAvailabilityNow(workspaceId: workspaceId, panelId: panelId)
-        return index ?? .empty
-    }
-
-    func scheduleRefreshIfStale(validating panelKey: RestorableAgentSessionIndex.PanelKey? = nil) {
+    /// Returns a fresh shared result without publishing it to process-wide UI state.
+    func refreshedIndexForScopedProbe() async -> RestorableAgentSessionIndex {
         ensureWatchingHookStoreDirectory()
-        guard refreshTask == nil, forkAvailabilityRefreshTask == nil else {
-            if let panelKey {
-                pendingForkValidationPanels.insert(panelKey)
-            }
-            return
-        }
-        if let loadedAt, dateProvider().timeIntervalSince(loadedAt) < Self.cacheTTL {
-            return
-        }
-        if let panelKey {
-            pendingForkValidationPanels.insert(panelKey)
-        }
-        startReload()
+        let task = requestRefresh(
+            freshness: .captureAfterRequest,
+            publication: .scoped,
+            validating: nil
+        )
+        return await task.value?.index ?? .empty
+    }
+
+    func scheduleRefreshIfStale(
+        validating panelKey: RestorableAgentSessionIndex.PanelKey? = nil
+    ) {
+        _ = refreshTaskIfStale(validating: panelKey)
     }
 
     func refreshForkAvailabilityNow(workspaceId: UUID? = nil, panelId: UUID? = nil) async {
-        var panelKey: RestorableAgentSessionIndex.PanelKey?
+        ensureWatchingHookStoreDirectory()
+        var panelKey: PanelKey?
         if let workspaceId, let panelId {
-            let key = RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId)
-            panelKey = key
-            pendingForkValidationPanels.insert(key)
+            panelKey = PanelKey(workspaceId: workspaceId, panelId: panelId)
         }
-        await forkAvailabilityRefreshTaskForCurrentState(validating: panelKey).value
-        // A caller can join after the loader produced its index but before the
-        // task cleared. Apply any panel added in that narrow window from the
-        // completed shared result instead of launching another full scan.
-        applyPendingForkValidations()
+        let task = requestRefresh(
+            freshness: .captureAfterRequest,
+            publication: .workspace,
+            validating: panelKey
+        )
+        _ = await task.value
     }
 
-    private func requestForkAvailabilityRefresh(validating panelKey: RestorableAgentSessionIndex.PanelKey) {
-        pendingForkValidationPanels.insert(panelKey)
-        _ = forkAvailabilityRefreshTaskForCurrentState(validating: panelKey)
+    private func refreshTaskIfStale(validating panelKey: PanelKey? = nil) -> Task<LoadResult?, Never>? {
+        ensureWatchingHookStoreDirectory()
+        if let loadedAt, dateProvider().timeIntervalSince(loadedAt) < Self.cacheTTL {
+            return nil
+        }
+        return requestRefresh(
+            freshness: panelKey == nil ? .joinCurrentGeneration : .captureAfterRequest,
+            publication: .workspace,
+            validating: panelKey
+        )
     }
 
-    private func forkAvailabilityRefreshTaskForCurrentState(
-        validating panelKey: RestorableAgentSessionIndex.PanelKey? = nil
-    ) -> Task<Void, Never> {
-        if let forkAvailabilityRefreshTask,
-           !forkAvailabilityRefreshHasStartedLoading,
-           let requestID = forkAvailabilityRefreshRequestID {
+    private func requestForkAvailabilityRefresh(validating panelKey: PanelKey) {
+        ensureWatchingHookStoreDirectory()
+        _ = requestRefresh(
+            freshness: .captureAfterRequest,
+            publication: .workspace,
+            validating: panelKey
+        )
+    }
+
+    private func requestRefresh(
+        freshness: RefreshFreshness,
+        publication: RefreshPublication,
+        validating panelKey: PanelKey?
+    ) -> Task<LoadResult?, Never> {
+        if let refreshTailID,
+           var generation = refreshGenerationsByID[refreshTailID],
+           let task = refreshTasksByID[refreshTailID],
+           freshness == .joinCurrentGeneration || generation.phase == .queued {
+            generation.publication.include(publication)
             if let panelKey {
-                forkAvailabilityRefreshValidationPanelsByRequestID[requestID, default: []].insert(panelKey)
+                generation.validationPanelsByPanelID[panelKey.panelId] = panelKey
+                pendingForkValidationGenerationByPanelID[panelKey.panelId] = generation.id
             }
-            return forkAvailabilityRefreshTask
+            refreshGenerationsByID[refreshTailID] = generation
+            return task
         }
-        // Once a loader starts, late probes share one queued generation whose
-        // process capture begins after every probe that joined it.
-        let predecessor = forkAvailabilityRefreshTask ?? refreshTask
-        let requestID = UUID()
+
+        let predecessor = refreshTailID.flatMap { refreshTasksByID[$0] }
+        let generationID = UUID()
+        var validationPanelsByPanelID: [UUID: PanelKey] = [:]
         if let panelKey {
-            forkAvailabilityRefreshValidationPanelsByRequestID[requestID] = [panelKey]
+            validationPanelsByPanelID[panelKey.panelId] = panelKey
+            pendingForkValidationGenerationByPanelID[panelKey.panelId] = generationID
         }
-        let task = Task { @MainActor [weak self] in
+
+        refreshGenerationsByID[generationID] = RefreshGeneration(
+            id: generationID,
+            phase: .queued,
+            publication: publication,
+            validationPanelsByPanelID: validationPanelsByPanelID
+        )
+        let task = Task { @MainActor [weak self] () -> LoadResult? in
             _ = await predecessor?.value
-            guard let self else { return }
-            guard !Task.isCancelled else { return }
-            if self.forkAvailabilityRefreshRequestID == requestID {
-                self.forkAvailabilityRefreshHasStartedLoading = true
-            }
-            // The predecessor may have consumed these keys against pre-request state.
-            self.pendingForkValidationPanels.formUnion(
-                self.forkAvailabilityRefreshValidationPanelsByRequestID[requestID] ?? []
-            )
-            await self.reload(forcePublish: true)
-            self.forkAvailabilityRefreshValidationPanelsByRequestID.removeValue(forKey: requestID)
-            if self.forkAvailabilityRefreshRequestID == requestID {
-                self.forkAvailabilityRefreshTask = nil
-                self.forkAvailabilityRefreshRequestID = nil
-                self.forkAvailabilityRefreshHasStartedLoading = false
-            }
-            NotificationCenter.default.post(name: .sharedLiveAgentIndexDidChange, object: self)
-            if self.changePending {
-                self.changePending = false
-                self.handleHookStoreChange()
-            }
+            guard let self, !Task.isCancelled else { return nil }
+            guard var generation = self.refreshGenerationsByID[generationID] else { return nil }
+            generation.phase = .capturing
+            self.refreshGenerationsByID[generationID] = generation
+
+            let indexLoader = self.indexLoader
+            let result = await Task.detached(priority: .utility) {
+                indexLoader()
+            }.value
+            guard !Task.isCancelled else { return result }
+            self.completeRefresh(generationID: generationID, result: result)
+            return result
         }
-        forkAvailabilityRefreshTask = task
-        forkAvailabilityRefreshRequestID = requestID
-        forkAvailabilityRefreshHasStartedLoading = false
+        refreshTasksByID[generationID] = task
+        refreshTailID = generationID
         return task
     }
 
-    private func startReload() {
+    private func startBackgroundRefresh() {
         deferredReloadTimer?.cancel()
         deferredReloadTimer = nil
-        refreshTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            await self.reload(forcePublish: true)
-            self.refreshTask = nil
+        _ = requestRefresh(
+            freshness: .joinCurrentGeneration,
+            publication: .workspace,
+            validating: nil
+        )
+    }
+
+    private func completeRefresh(generationID: UUID, result: LoadResult) {
+        guard let generation = refreshGenerationsByID.removeValue(forKey: generationID) else {
+            return
+        }
+        refreshTasksByID.removeValue(forKey: generationID)
+        if refreshTailID == generationID {
+            refreshTailID = nil
+        }
+
+        if generation.publication == .workspace {
+            applyReloadedResult(
+                result,
+                validationPanelsByPanelID: generation.validationPanelsByPanelID,
+                generationID: generationID
+            )
             NotificationCenter.default.post(name: .sharedLiveAgentIndexDidChange, object: self)
-            if self.changePending {
-                self.changePending = false
-                self.handleHookStoreChange()
-            }
+        }
+
+        if refreshTailID == nil, changePending {
+            changePending = false
+            handleHookStoreChange()
         }
     }
 
-    private func reload(forcePublish: Bool) async {
-        let indexLoader = self.indexLoader
-        let result = await Task.detached(priority: .utility) {
-            indexLoader()
-        }.value
-        guard !Task.isCancelled else { return }
+    private func applyReloadedResult(
+        _ result: LoadResult,
+        validationPanelsByPanelID: [UUID: PanelKey],
+        generationID: UUID
+    ) {
         let loadedAt = dateProvider()
-        let hasPendingForkValidations = !pendingForkValidationPanels.isEmpty
-        if forcePublish
-            || hasPendingForkValidations
-            || result.liveAgentProcessFingerprint != liveAgentProcessFingerprint
-            || result.processScopeFingerprint != processScopeFingerprint {
-            applyReloadedIndex(
-                result.index,
-                loadedAt: loadedAt,
-                liveAgentProcessFingerprint: result.liveAgentProcessFingerprint,
-                processScopeFingerprint: result.processScopeFingerprint,
-                forkValidatedPanels: result.forkValidatedPanels
-            )
-        } else {
-            self.loadedAt = loadedAt
-            self.processScopeFingerprint = result.processScopeFingerprint
-            self.validatedForkPanels = result.forkValidatedPanels
-            self.validatedForkPanelProbeCompletedAt = forkPanelProbeTimestamps(
-                for: result.forkValidatedPanels,
-                completedAt: loadedAt
-            )
-        }
-        applyPendingForkValidations()
+        applyReloadedIndex(
+            result.index,
+            loadedAt: loadedAt,
+            liveAgentProcessFingerprint: result.liveAgentProcessFingerprint,
+            processScopeFingerprint: result.processScopeFingerprint,
+            forkValidatedPanels: result.forkValidatedPanels
+        )
+        applyForkValidations(
+            validationPanelsByPanelID,
+            from: result.index,
+            generationID: generationID,
+            completedAt: loadedAt
+        )
     }
 
     private func applyReloadedIndex(
@@ -283,55 +344,52 @@ final class SharedLiveAgentIndex {
         self.processScopeFingerprint = processScopeFingerprint
     }
 
-    private func applyPendingForkValidations() {
-        guard let index else {
-            pendingForkValidationPanels.removeAll()
-            return
-        }
-        let now = dateProvider()
-        for panelKey in pendingForkValidationPanels {
-            if index.snapshot(workspaceId: panelKey.workspaceId, panelId: panelKey.panelId) == nil {
-                validatedMissingForkPanels[panelKey] = now
+    private func applyForkValidations(
+        _ validationPanelsByPanelID: [UUID: PanelKey],
+        from loadedIndex: RestorableAgentSessionIndex,
+        generationID: UUID,
+        completedAt: Date
+    ) {
+        for (panelID, panelKey) in validationPanelsByPanelID
+        where pendingForkValidationGenerationByPanelID[panelID] == generationID {
+            if loadedIndex.snapshot(workspaceId: panelKey.workspaceId, panelId: panelKey.panelId) == nil {
+                validatedMissingForkPanels[panelKey] = completedAt
             } else if let validationKey = validatedForkPanelKey(for: panelKey) {
-                validatedForkPanelProbeCompletedAt[validationKey] = now
+                validatedForkPanelProbeCompletedAt[validationKey] = completedAt
             }
+            pendingForkValidationGenerationByPanelID.removeValue(forKey: panelID)
         }
-        pendingForkValidationPanels.removeAll()
     }
 
     private func forkPanelProbeTimestamps(
-        for panelKeys: Set<RestorableAgentSessionIndex.PanelKey>,
+        for panelKeys: Set<PanelKey>,
         completedAt: Date
-    ) -> [RestorableAgentSessionIndex.PanelKey: Date] {
+    ) -> [PanelKey: Date] {
         Dictionary(uniqueKeysWithValues: panelKeys.map { ($0, completedAt) })
     }
 
-    private func hasFreshForkAvailabilityProbe(for panelKey: RestorableAgentSessionIndex.PanelKey) -> Bool {
+    private func hasFreshForkAvailabilityProbe(for panelKey: PanelKey) -> Bool {
         guard let completedAt = validatedForkPanelProbeCompletedAt[panelKey] else { return false }
         return dateProvider().timeIntervalSince(completedAt) < Self.forkAvailabilityProbeTTL
     }
 
     private func validatedForkPanelKey(
-        for panelKey: RestorableAgentSessionIndex.PanelKey
-    ) -> RestorableAgentSessionIndex.PanelKey? {
+        for panelKey: PanelKey
+    ) -> PanelKey? {
         if validatedForkPanels.contains(panelKey) {
             return panelKey
         }
         return validatedForkPanels.first { $0.panelId == panelKey.panelId }
     }
 
-    private var isForkAvailabilityRefreshInFlight: Bool {
-        refreshTask != nil || forkAvailabilityRefreshTask != nil
-    }
-
     private func handleHookStoreChange() {
-        if refreshTask != nil || forkAvailabilityRefreshTask != nil {
+        if refreshTailID != nil {
             changePending = true
             return
         }
         let elapsed = loadedAt.map { dateProvider().timeIntervalSince($0) } ?? .infinity
         if elapsed >= Self.minEventReloadInterval {
-            startReload()
+            startBackgroundRefresh()
         } else if deferredReloadTimer == nil {
             // DispatchSourceTimer coalesces hook-store event bursts without Task.sleep in runtime code.
             let timer = DispatchSource.makeTimerSource(queue: watchQueue)
@@ -369,11 +427,6 @@ final class SharedLiveAgentIndex {
         source.setCancelHandler { Darwin.close(fd) }
         source.resume()
         directoryWatchSource = source
-        if isForkAvailabilityRefreshInFlight {
-            changePending = true
-        } else {
-            startReload()
-        }
     }
 }
 
