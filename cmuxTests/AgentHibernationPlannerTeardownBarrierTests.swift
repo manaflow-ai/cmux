@@ -11,6 +11,99 @@ import Testing
 extension AgentHibernationPlannerSwiftTests {
     @MainActor
     @Test
+    func unavailablePostSnapshotIndexAbortsConfirmedTeardown() async throws {
+        let controller = AgentHibernationController.shared
+        let wasEnabled = AgentHibernationTrackingGate.isEnabled()
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = previousAppDelegate ?? AppDelegate()
+        let releaseLoad = DispatchSemaphore(value: 0)
+        defer {
+            releaseLoad.signal()
+            if previousAppDelegate == nil, AppDelegate.shared === appDelegate {
+                AppDelegate.shared = nil
+            }
+            AgentHibernationTrackingGate.setEnabled(wasEnabled)
+            resetSharedHibernationState(controller)
+        }
+
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+        let panel = try #require(workspace.panels[panelId] as? TerminalPanel)
+        let panelKey = AgentHibernationPanelKey(workspaceId: workspace.id, panelId: panelId)
+        let agent = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "codex-timeout-before-teardown",
+            workingDirectory: "/tmp/cmux-agent-hibernation-timeout",
+            launchCommand: nil
+        )
+        workspace.setRestoredAgentSnapshotForTesting(agent, panelId: panelId)
+        workspace.setAgentLifecycle(key: "codex.timeout-before-teardown", panelId: panelId, lifecycle: .idle)
+
+        let timeoutWaiter = HibernationGenerationTimeoutWaiter()
+        let loadStarted = DispatchSemaphore(value: 0)
+        let sharedIndex = SharedLiveAgentIndex(
+            indexLoader: {
+                loadStarted.signal()
+                releaseLoad.wait()
+                return (
+                    index: .empty,
+                    surfaceResumeBindingIndex: .empty,
+                    liveAgentProcessFingerprint: [],
+                    processScopeFingerprint: [],
+                    forkValidatedPanels: []
+                )
+            },
+            generationTimeoutWaiter: { await timeoutWaiter.wait() },
+            hookStoreDirectoryProvider: { FileManager.default.temporaryDirectory.path }
+        )
+
+        AgentHibernationTrackingGate.setEnabled(true)
+        let confirmationFingerprint = "headless-runtime-fingerprint"
+        let request = AgentHibernationController.ConfirmedTeardownRequest(
+            record: AgentHibernationRecord(
+                key: panelKey,
+                workspace: workspace,
+                terminalPanel: panel,
+                agent: agent,
+                lifecycle: .idle,
+                hasUnconfirmedTerminalInput: false,
+                lastActivityAt: 0,
+                isProtected: false,
+                hasLiveProcess: false,
+                processIDs: []
+            ),
+            confirmationFingerprint: confirmationFingerprint,
+            effectiveLastActivityAt: Date().timeIntervalSince1970 + 60,
+            requestID: UUID(),
+            epoch: controller.teardownValidationEpochByPanel[panelKey] ?? 0,
+            generation: controller.teardownValidationGeneration
+        )
+
+        let teardownTask = controller.beginConfirmedTeardowns(
+            [request],
+            postSnapshotIndexLoader: {
+                await sharedIndex.scopedIndexCapturedAfterRequest()
+            },
+            runtimeObservationProvider: { _ in
+                AgentHibernationController.ConfirmedTeardownRuntimeObservation(
+                    hasLiveSurface: true,
+                    fingerprint: confirmationFingerprint
+                )
+            }
+        )
+        #expect(await Self.wait(for: loadStarted))
+        await timeoutWaiter.waitUntilPending()
+        await timeoutWaiter.fire()
+        await teardownTask.value
+
+        #expect(
+            !panel.isAgentHibernated,
+            "An unavailable post-snapshot process scan must fail closed instead of hibernating the pane."
+        )
+    }
+
+    @MainActor
+    @Test
     func pendingEvaluationDiscardsLaterTimerTicks() async throws {
         let controller = AgentHibernationController.shared
         defer { controller.cancelEvaluationTask() }
@@ -381,5 +474,31 @@ extension AgentHibernationPlannerSwiftTests {
             processArgumentsProvider: { _ in nil },
             processIdentityProvider: { _ in nil }
         )
+    }
+}
+
+private actor HibernationGenerationTimeoutWaiter {
+    private var pending: CheckedContinuation<Bool, Never>?
+    private var readyWaiters: [CheckedContinuation<Void, Never>] = []
+
+    func wait() async -> Bool {
+        await withCheckedContinuation { continuation in
+            pending = continuation
+            let waiters = readyWaiters
+            readyWaiters.removeAll(keepingCapacity: false)
+            waiters.forEach { $0.resume() }
+        }
+    }
+
+    func waitUntilPending() async {
+        guard pending == nil else { return }
+        await withCheckedContinuation { continuation in
+            readyWaiters.append(continuation)
+        }
+    }
+
+    func fire() {
+        pending?.resume(returning: true)
+        pending = nil
     }
 }
