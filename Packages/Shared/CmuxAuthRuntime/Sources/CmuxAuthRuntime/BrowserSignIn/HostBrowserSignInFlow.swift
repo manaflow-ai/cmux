@@ -9,13 +9,11 @@ import os
 public final class HostBrowserSignInFlow {
     /// Whether a browser sign-in attempt (popup + completion) is in flight.
     public private(set) var isSigningIn = false
-
-    /// Whether the in-flight popup has waited long enough for the UI to offer
-    /// the default-browser fallback instead of an indefinite spinner.
+    /// Whether sign-in progress should be visible and disable UI entrypoints.
+    public private(set) var isPresentingSignIn = false
+    /// Whether the UI should offer the default-browser fallback.
     public private(set) var signInIsSlow = false
-
-    /// Display-safe failure from the most recent hosted-browser sign-in
-    /// attempt. `nil` for a fresh attempt and for deliberate cancellation.
+    /// Display-safe failure from the most recent hosted-browser sign-in attempt.
     public private(set) var lastFailure: AuthError?
 
     private let coordinator: AuthCoordinator
@@ -65,22 +63,25 @@ public final class HostBrowserSignInFlow {
     }
 
     /// Start a browser sign-in without awaiting the result (Settings button).
-    /// Cancels any previous attempt's popup first.
+    /// Reuses a handed-off attempt; otherwise cancels the previous popup.
     public func beginSignIn() {
         log.log("auth.browser.beginSignIn signedIn=\(coordinator.isAuthenticated) signingIn=\(isSigningIn)")
+        if activeAttemptID != nil, !isPresentingSignIn {
+            isPresentingSignIn = true
+            signInIsSlow = true
+            return
+        }
         _ = startAttempt()
     }
 
-    /// The hosted sign-in URL for manual fallback when the browser handoff does
-    /// not return to the native app.
+    /// The hosted sign-in URL for a manual fallback.
     public var manualSignInURL: URL {
         let state = makeCallbackState()
         pendingManualCallbackState = state
         return makeSignInURL(state)
     }
 
-    /// Sign-in URL for the active attempt, reused by the default-browser fallback
-    /// so the callback still routes to this in-flight attempt.
+    /// Sign-in URL for the active attempt's default-browser fallback.
     public var activeAttemptSignInURL: URL? {
         guard let activeCallbackState else { return nil }
         pendingFallbackCallbackState = activeCallbackState
@@ -138,8 +139,7 @@ public final class HostBrowserSignInFlow {
         return false
     }
 
-    /// Sign out, cancelling any in-flight browser attempt so a late callback
-    /// can't resurrect the session.
+    /// Sign out and prevent a late callback from resurrecting the session.
     public func signOut() async {
         log.log("auth.browser.signOut.begin signingIn=\(isSigningIn) activeAttempt=\(activeAttemptID.map(String.init) ?? "nil") generation=\(signOutGeneration)")
         signOutGeneration &+= 1
@@ -206,15 +206,13 @@ public final class HostBrowserSignInFlow {
         let callbackState = manualCallbackState ?? makeCallbackState()
         activeAttemptID = attemptID
         activeCallbackState = callbackState
-        // The manual fallback URL (`auth.sign_in_url` / the printed CLI link)
-        // shares this attempt's state; the user may complete it out-of-band
-        // after the popup ends (e.g. the system popup auto-dismissed). Retain it
-        // as an accepted fallback — like `activeAttemptSignInURL` — so the late
-        // callback completes sign-in instead of being rejected (#6158).
+        // The CLI's manual fallback shares this attempt's state so a late
+        // callback remains valid after the popup ends (#6158).
         if let manualCallbackState {
             pendingFallbackCallbackState = manualCallbackState
         }
         isSigningIn = true
+        isPresentingSignIn = true
         log.log("auth.browser.attempt.start id=\(attemptID) generation=\(signOutGeneration) state=\(redactedAuthState(callbackState))")
         scheduleAttemptTimeout(attemptID)
         scheduleSlowSignInHint(attemptID)
@@ -260,7 +258,7 @@ public final class HostBrowserSignInFlow {
                     }
                     // Stop the UI spinner while the socket waiter remains parked for Safari's AppDelegate callback.
                     self.pendingFallbackCallbackState = self.activeCallbackState
-                    self.isSigningIn = false
+                    self.isPresentingSignIn = false
                     self.cancelSlowSignInHint()
                     return
                 }
@@ -300,6 +298,7 @@ public final class HostBrowserSignInFlow {
         activeCallbackState = nil
         activeSession = nil
         isSigningIn = false
+        isPresentingSignIn = false
     }
 
     private func cancelActiveAttempt() {
@@ -318,6 +317,7 @@ public final class HostBrowserSignInFlow {
         activeSession?.cancel()
         activeSession = nil
         isSigningIn = false
+        isPresentingSignIn = false
     }
 
     private func scheduleAttemptTimeout(_ attemptID: UInt64) {
