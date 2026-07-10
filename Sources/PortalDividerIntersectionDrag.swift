@@ -11,10 +11,27 @@ import AppKit
 final class PortalDividerIntersectionDragController {
     private struct AxisDrag {
         weak var splitView: NSSplitView?
+        weak var window: NSWindow?
         let dividerIndex: Int
         let initialPosition: CGFloat
         let initialPointer: CGFloat
         let isVertical: Bool
+
+        /// The captured divider identity is only valid while the split view
+        /// stays in its original window with the same orientation and enough
+        /// arranged subviews. A pane close or Bonsplit reconfiguration between
+        /// drag samples would otherwise feed `setPosition` (and the delegate's
+        /// constrain calls) a stale index — an AppKit range exception — or
+        /// resize a different divider than the one grabbed.
+        var resolvedSplitView: NSSplitView? {
+            guard let splitView, let window,
+                  splitView.window === window,
+                  splitView.isVertical == isVertical,
+                  dividerIndex + 1 < splitView.arrangedSubviews.count else {
+                return nil
+            }
+            return splitView
+        }
     }
 
     private var axes: [AxisDrag] = []
@@ -38,6 +55,7 @@ final class PortalDividerIntersectionDragController {
             let pointer = splitView.convert(windowPoint, from: nil)
             nextAxes.append(AxisDrag(
                 splitView: splitView,
+                window: splitView.window,
                 dividerIndex: region.dividerIndex,
                 initialPosition: region.isVertical ? dividerRect.origin.x : dividerRect.origin.y,
                 initialPointer: region.isVertical ? pointer.x : pointer.y,
@@ -59,7 +77,9 @@ final class PortalDividerIntersectionDragController {
     func update(windowPoint: NSPoint) {
         guard isActive else { return }
         for axis in axes {
-            guard let splitView = axis.splitView, splitView.window != nil else {
+            // Resizing the first axis can synchronously reconfigure the tree,
+            // so revalidate each axis immediately before applying it.
+            guard let splitView = axis.resolvedSplitView else {
                 end()
                 return
             }
@@ -89,7 +109,7 @@ final class PortalDividerIntersectionDragController {
     /// interactive-drag state against the current pointer/button state.
     private func reassertCurrentPositions() {
         for axis in axes {
-            guard let splitView = axis.splitView, splitView.window != nil,
+            guard let splitView = axis.resolvedSplitView,
                   let dividerRect = PortalSplitDividerRegion.dividerRect(
                       in: splitView,
                       dividerIndex: axis.dividerIndex

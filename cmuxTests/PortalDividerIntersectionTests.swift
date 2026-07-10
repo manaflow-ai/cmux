@@ -182,6 +182,45 @@ import Testing
         #expect(intersection == nil)
     }
 
+    @Test func allAxesCursorResolvesWithoutPrivateSelectors() {
+        // Regression: the four-way cursor was resolved via the private
+        // `_moveCursor` class method, which is a tombstone on macOS 15 —
+        // `responds(to:)` returns true but calling it raises
+        // `doesNotRecognizeSelector` and crashes the app on first hover.
+        let cursor = PortalDividerCursorKind.both.cursor
+        #expect(cursor.image.size.width > 0)
+        #expect(cursor.image.size.height > 0)
+    }
+
+    @Test func updateEndsDragWhenDividerIdentityGoesStale() {
+        let window = NSWindow(
+            contentRect: Self.contentBounds,
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        let (outer, inner) = makeNestedSplits()
+        inner.addArrangedSubview(NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300)))
+        inner.addArrangedSubview(NSView(frame: NSRect(x: 401, y: 0, width: 399, height: 300)))
+        window.contentView?.addSubview(outer)
+
+        let horizontal = region(outer, rect: horizontalDividerRect, isVertical: false)
+        let vertical = region(inner, rect: verticalDividerRect, isVertical: true)
+        let controller = PortalDividerIntersectionDragController()
+        #expect(controller.begin(atWindowPoint: cornerPoint, regions: [horizontal, vertical]))
+
+        // A pane close between drag samples invalidates the captured divider
+        // index; the next update must cancel the gesture instead of calling
+        // setPosition with a stale index (AppKit range exception).
+        let removed = inner.arrangedSubviews[1]
+        inner.removeArrangedSubview(removed)
+        removed.removeFromSuperview()
+        controller.update(windowPoint: NSPoint(x: 420, y: 280))
+
+        #expect(!controller.isActive)
+    }
+
     @Test func clampHonorsDelegateConstraints() {
         let splitView = NSSplitView(frame: Self.contentBounds)
         splitView.isVertical = true

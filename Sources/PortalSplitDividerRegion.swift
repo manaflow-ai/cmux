@@ -43,17 +43,56 @@ enum PortalDividerCursorKind: Equatable {
         }
     }
 
-    /// AppKit ships no public four-way resize cursor; resolve the private
-    /// move cursor by selector and degrade to crosshair (same pattern as
-    /// CanvasPaneView's diagonal window-resize cursors).
+    /// AppKit ships no public four-way resize cursor, and the private
+    /// `_moveCursor` cannot be resolved by selector: on macOS 15 the class
+    /// method exists (`responds(to:)` is true) but its implementation is a
+    /// tombstone that raises `doesNotRecognizeSelector`, crashing the app the
+    /// moment the cursor is first used. Render the standard four-way arrows
+    /// symbol into a cursor instead (white halo behind a dark glyph so it
+    /// stays visible on any background), degrading to crosshair only if the
+    /// symbol is unavailable.
     private static let allAxesCursor: NSCursor = {
-        let selector = Selector(("_moveCursor"))
-        if NSCursor.responds(to: selector),
-           let cursor = NSCursor.perform(selector)?.takeUnretainedValue() as? NSCursor {
-            return cursor
+        guard let halo = tintedAllAxesSymbol(pointSize: 15, weight: .black, color: .white),
+              let glyph = tintedAllAxesSymbol(pointSize: 13, weight: .semibold, color: .black) else {
+            return .crosshair
         }
-        return .crosshair
+        let size = NSSize(
+            width: max(halo.size.width, glyph.size.width) + 2,
+            height: max(halo.size.height, glyph.size.height) + 2
+        )
+        let image = NSImage(size: size, flipped: false) { rect in
+            for layer in [halo, glyph] {
+                layer.draw(in: NSRect(
+                    x: rect.midX - layer.size.width / 2,
+                    y: rect.midY - layer.size.height / 2,
+                    width: layer.size.width,
+                    height: layer.size.height
+                ))
+            }
+            return true
+        }
+        return NSCursor(image: image, hotSpot: NSPoint(x: size.width / 2, y: size.height / 2))
     }()
+
+    private static func tintedAllAxesSymbol(
+        pointSize: CGFloat,
+        weight: NSFont.Weight,
+        color: NSColor
+    ) -> NSImage? {
+        guard let symbol = NSImage(
+            systemSymbolName: "arrow.up.and.down.and.arrow.left.and.right",
+            accessibilityDescription: nil
+        )?.withSymbolConfiguration(.init(pointSize: pointSize, weight: weight)) else {
+            return nil
+        }
+        let image = NSImage(size: symbol.size, flipped: false) { rect in
+            symbol.draw(in: rect)
+            color.set()
+            rect.fill(using: .sourceAtop)
+            return true
+        }
+        return image
+    }
 }
 
 /// A point where a vertical and a horizontal divider's hit bands overlap.
