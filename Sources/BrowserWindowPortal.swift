@@ -2395,7 +2395,14 @@ final class WindowBrowserPortal: NSObject {
             webKitSubview.displayIfNeeded()
         }
         containerView.displayIfNeeded()
-        (containerView.window ?? webView.window ?? hostView.window)?.displayIfNeeded()
+        // Geometry-only refreshes run from AppKit's resize notifications. A
+        // window-wide display here can satisfy an unrelated ancestor's
+        // `needsLayout`, feeding the geometry consumer back into the layout
+        // producer. Full presentation recovery still flushes the window after
+        // WebKit rendering state is reattached.
+        if reattachRenderingState {
+            (containerView.window ?? webView.window ?? hostView.window)?.displayIfNeeded()
+        }
 #if DEBUG
         cmuxDebugLog(
             "\(reattachRenderingState ? "browser.portal.refresh" : "browser.portal.invalidate") " +
