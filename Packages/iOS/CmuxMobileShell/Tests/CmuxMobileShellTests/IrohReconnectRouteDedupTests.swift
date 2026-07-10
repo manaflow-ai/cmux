@@ -3,6 +3,11 @@ import Foundation
 import Testing
 @testable import CmuxMobileShell
 
+private func opaqueProfileID(_ label: String) -> String {
+    let hex = label.utf8.map { String(format: "%02x", $0) }.joined()
+    return String((hex + String(repeating: "0", count: 64)).prefix(64))
+}
+
 @MainActor
 @Suite struct IrohReconnectRouteDedupTests {
     @Test func reconnectDedupKeepsOverlappingAddressesFromDifferentProfiles() throws {
@@ -26,7 +31,7 @@ import Testing
                             expiresAt: now.addingTimeInterval(300),
                             networkProfile: CmxIrohNetworkProfileKey(
                                 source: .customVPN,
-                                profileID: profileID
+                                profileID: opaqueProfileID(profileID)
                             )
                         ),
                     ]
@@ -47,7 +52,10 @@ import Testing
             Issue.record("Expected an Iroh peer route")
             return
         }
-        #expect(pathHints.compactMap(\.networkProfile?.profileID) == ["site-a", "site-b"])
+        #expect(pathHints.compactMap(\.networkProfile?.profileID) == [
+            opaqueProfileID("site-a"),
+            opaqueProfileID("site-b"),
+        ])
     }
 
     @Test func reconnectDedupReplacesStaleFreshnessForSameIrohPath() throws {
@@ -71,7 +79,7 @@ import Testing
                             expiresAt: observedAt.addingTimeInterval(300),
                             networkProfile: CmxIrohNetworkProfileKey(
                                 source: .customVPN,
-                                profileID: "site-a"
+                                profileID: opaqueProfileID("site-a")
                             )
                         ),
                     ]
@@ -104,7 +112,7 @@ import Testing
             expiresAt: now.addingTimeInterval(300),
             networkProfile: CmxIrohNetworkProfileKey(
                 source: .customVPN,
-                profileID: "site-a"
+                profileID: opaqueProfileID("site-a")
             )
         )
         let relayHint = try CmxIrohPathHint(
@@ -153,7 +161,7 @@ import Testing
             expiresAt: now.addingTimeInterval(-60),
             networkProfile: CmxIrohNetworkProfileKey(
                 source: .customVPN,
-                profileID: "site-a"
+                profileID: opaqueProfileID("site-a")
             )
         )
         let fresh = try CmxAttachRoute(
@@ -196,7 +204,7 @@ import Testing
             expiresAt: now.addingTimeInterval(300),
             networkProfile: CmxIrohNetworkProfileKey(
                 source: .customVPN,
-                profileID: "site-a"
+                profileID: opaqueProfileID("site-a")
             )
         )
         let fresh = try CmxAttachRoute(
@@ -244,7 +252,7 @@ import Testing
             expiresAt: now.addingTimeInterval(300),
             networkProfile: CmxIrohNetworkProfileKey(
                 source: .customVPN,
-                profileID: "site-a"
+                profileID: opaqueProfileID("site-a")
             )
         )
         let fresh = try CmxAttachRoute(

@@ -111,7 +111,7 @@ private func legacyDecoder() -> JSONDecoder {
                         expiresAt: wholeSecondFutureExpiry(),
                         networkProfile: CmxIrohNetworkProfileKey(
                             source: .lan,
-                            profileID: "studio"
+                            profileID: String(repeating: "b", count: 64)
                         )
                     ),
                     try CmxIrohPathHint(

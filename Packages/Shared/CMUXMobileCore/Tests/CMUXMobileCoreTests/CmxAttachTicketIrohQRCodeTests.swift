@@ -36,7 +36,7 @@ private func compactIrohQRHostPortRoute() throws -> CmxAttachRoute {
                     expiresAt: compactIrohQRExpiry(),
                     networkProfile: CmxIrohNetworkProfileKey(
                         source: .tailscale,
-                        profileID: "production"
+                        profileID: String(repeating: "a", count: 64)
                     )
                 ),
                 CmxIrohPathHint(

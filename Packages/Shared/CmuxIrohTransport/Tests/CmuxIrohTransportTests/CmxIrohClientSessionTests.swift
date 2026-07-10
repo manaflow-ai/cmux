@@ -260,7 +260,7 @@ struct CmxIrohClientSessionTests {
             expiresAt: observedAt.addingTimeInterval(30 * 60),
             networkProfile: CmxIrohNetworkProfileKey(
                 source: .tailscale,
-                profileID: "tailnet-a"
+                profileID: String(repeating: "a", count: 64)
             )
         )
     }

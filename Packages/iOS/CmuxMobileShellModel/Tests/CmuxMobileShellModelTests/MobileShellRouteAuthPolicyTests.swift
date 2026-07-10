@@ -73,7 +73,7 @@ import Testing
                         expiresAt: Date(timeIntervalSince1970: 2_000_000_000),
                         networkProfile: CmxIrohNetworkProfileKey(
                             source: .tailscale,
-                            profileID: "production"
+                            profileID: String(repeating: "a", count: 64)
                         )
                     ),
                 ]

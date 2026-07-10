@@ -19,7 +19,7 @@ import Testing
         expiresAt: now.addingTimeInterval(-60),
         networkProfile: CmxIrohNetworkProfileKey(
             source: .tailscale,
-            profileID: "production"
+            profileID: String(repeating: "a", count: 64)
         )
     )
     let route = try CmxAttachRoute(

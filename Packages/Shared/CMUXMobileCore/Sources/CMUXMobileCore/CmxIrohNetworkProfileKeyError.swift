@@ -1,6 +1,5 @@
 /// Validation failures for provider-qualified network profiles.
 public enum CmxIrohNetworkProfileKeyError: Error, Equatable, Sendable {
-    /// The provider-local identifier was empty, too long, or contained unsafe
-    /// wire characters.
+    /// The identifier was not a canonical lowercase-hex 32-byte digest.
     case invalidProfileID
 }

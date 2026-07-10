@@ -8,7 +8,9 @@ private func profile(
     _ source: CmxIrohPathHintSource,
     _ profileID: String = "default"
 ) throws -> CmxIrohNetworkProfileKey {
-    try CmxIrohNetworkProfileKey(source: source, profileID: profileID)
+    let hex = profileID.utf8.map { String(format: "%02x", $0) }.joined()
+    let opaqueID = String((hex + String(repeating: "0", count: 64)).prefix(64))
+    return try CmxIrohNetworkProfileKey(source: source, profileID: opaqueID)
 }
 @Test func attachTicketUsesDebugLoopbackBeforeTailscaleWhenBothAreSupported() throws {
     let loopback = try CmxAttachRoute(

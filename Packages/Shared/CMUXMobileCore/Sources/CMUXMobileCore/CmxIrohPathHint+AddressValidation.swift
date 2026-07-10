@@ -93,7 +93,10 @@ private struct CmxIrohPathHintValidator {
     if octets[0] == 0 || octets[0] == 127 || (224...255).contains(octets[0]) {
       return false
     }
-    if octets == [169, 254, 169, 254] {
+    // IPv4 link-local addresses need an interface scope just like IPv6
+    // link-local addresses. This wire type cannot carry one, so no 169.254/16
+    // address is safely dialable after serialization.
+    if octets[0] == 169 && octets[1] == 254 {
       return false
     }
     return true
@@ -331,9 +334,23 @@ private struct CmxIrohPathHintValidator {
         }
       }
     }
+    if kind == .relayIdentifier || kind == .relayURL {
+      guard source == .native, privacyScope == .publicInternet else {
+        throw CmxIrohPathHintError.relayHintRequiresNativePublicSource
+      }
+    }
     switch source {
     case .native:
-      break
+      let isInertLegacyPrivateHint = !requireCurrentPrivateMetadata
+        && observedAt == nil
+        && expiresAt == nil
+        && networkProfile == nil
+      guard privacyScope == .publicInternet || isInertLegacyPrivateHint else {
+        throw CmxIrohPathHintError.incompatiblePrivacyScope(
+          source: source,
+          scope: privacyScope
+        )
+      }
     case .lan:
       guard privacyScope == .localNetwork else {
         throw CmxIrohPathHintError.incompatiblePrivacyScope(
@@ -347,11 +364,6 @@ private struct CmxIrohPathHintValidator {
           source: source,
           scope: privacyScope
         )
-      }
-    }
-    if kind == .relayIdentifier || kind == .relayURL {
-      guard source == .native, privacyScope == .publicInternet else {
-        throw CmxIrohPathHintError.relayHintRequiresNativePublicSource
       }
     }
     if privacyScope == .publicInternet {

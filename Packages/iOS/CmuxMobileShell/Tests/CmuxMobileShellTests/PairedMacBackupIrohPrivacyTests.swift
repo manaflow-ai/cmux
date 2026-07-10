@@ -38,7 +38,7 @@ private let irohBackupRouteDisclosureDate = Date(timeIntervalSince1970: 2_000_00
                         expiresAt: now.addingTimeInterval(300),
                         networkProfile: CmxIrohNetworkProfileKey(
                             source: .tailscale,
-                            profileID: "production"
+                            profileID: String(repeating: "a", count: 64)
                         )
                     ),
                     try CmxIrohPathHint(

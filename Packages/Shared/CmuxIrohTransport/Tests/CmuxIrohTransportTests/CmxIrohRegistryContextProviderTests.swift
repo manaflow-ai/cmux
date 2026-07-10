@@ -4,6 +4,10 @@ import Foundation
 import Testing
 @testable import CmuxIrohTransport
 
+private func opaqueProfileID(_ label: String) -> String {
+    SHA256.hash(data: Data(label.utf8)).map { String(format: "%02x", $0) }.joined()
+}
+
 @Suite
 struct CmxIrohRegistryContextProviderTests {
     @Test
@@ -11,7 +15,7 @@ struct CmxIrohRegistryContextProviderTests {
         let fixture = try RegistryFixture()
         let profile = try CmxIrohNetworkProfileKey(
             source: .tailscale,
-            profileID: "tailnet-a"
+            profileID: opaqueProfileID("tailnet-a")
         )
         let managedRelay = try CmxIrohPathHint(
             kind: .relayURL,
@@ -38,7 +42,7 @@ struct CmxIrohRegistryContextProviderTests {
                 expiresAt: fixture.now.addingTimeInterval(30 * 60),
                 networkProfile: CmxIrohNetworkProfileKey(
                     source: .customVPN,
-                    profileID: "inactive-\($0)"
+                    profileID: opaqueProfileID("inactive-\($0)")
                 )
             )
         }

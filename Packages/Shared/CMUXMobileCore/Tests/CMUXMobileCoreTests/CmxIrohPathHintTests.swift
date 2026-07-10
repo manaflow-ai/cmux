@@ -9,7 +9,9 @@ private func profile(
     _ source: CmxIrohPathHintSource,
     _ profileID: String = "default"
 ) throws -> CmxIrohNetworkProfileKey {
-    try CmxIrohNetworkProfileKey(source: source, profileID: profileID)
+    let hex = profileID.utf8.map { String(format: "%02x", $0) }.joined()
+    let opaqueID = String((hex + String(repeating: "0", count: 64)).prefix(64))
+    return try CmxIrohNetworkProfileKey(source: source, profileID: opaqueID)
 }
 
 @Test func irohEndpointIDRequiresCanonicalLowercaseHex() throws {
@@ -209,7 +211,10 @@ private func profile(
             privacyScope: .localNetwork
         )
     }
-    #expect(throws: CmxIrohPathHintError.missingPrivateHintObservation) {
+    #expect(throws: CmxIrohPathHintError.incompatiblePrivacyScope(
+        source: .native,
+        scope: .privateNetwork
+    )) {
         _ = try CmxIrohPathHint(
             kind: .directAddress,
             value: "10.0.0.4:49152",
@@ -369,16 +374,17 @@ private func profile(
         }
     }
 
-    let legitimateLinkLocal = try CmxIrohPathHint(
-        kind: .directAddress,
-        value: "169.254.42.7:49152",
-        source: .lan,
-        privacyScope: .localNetwork,
-        observedAt: expiry.addingTimeInterval(-60),
-        expiresAt: expiry,
-        networkProfile: profile(.lan)
-    )
-    #expect(legitimateLinkLocal.value == "169.254.42.7:49152")
+    #expect(throws: CmxIrohPathHintError.forbiddenDirectAddress) {
+        _ = try CmxIrohPathHint(
+            kind: .directAddress,
+            value: "169.254.42.7:49152",
+            source: .lan,
+            privacyScope: .localNetwork,
+            observedAt: expiry.addingTimeInterval(-60),
+            expiresAt: expiry,
+            networkProfile: profile(.lan)
+        )
+    }
 }
 
 @Test func publicDirectPathHintsRequireGloballyRoutableAddresses() throws {
@@ -402,7 +408,6 @@ private func profile(
         "172.16.0.4:49152",
         "192.168.1.4:49152",
         "100.64.1.4:49152",
-        "169.254.42.7:49152",
         "192.0.2.4:49152",
         "198.18.0.4:49152",
         "198.51.100.4:49152",
@@ -430,15 +435,6 @@ private func profile(
         observedAt: expiry.addingTimeInterval(-60),
         expiresAt: expiry,
         networkProfile: profile(.customVPN)
-    )
-    _ = try CmxIrohPathHint(
-        kind: .directAddress,
-        value: "169.254.42.7:49152",
-        source: .lan,
-        privacyScope: .localNetwork,
-        observedAt: expiry.addingTimeInterval(-60),
-        expiresAt: expiry,
-        networkProfile: profile(.lan)
     )
     _ = try CmxIrohPathHint(
         kind: .directAddress,
