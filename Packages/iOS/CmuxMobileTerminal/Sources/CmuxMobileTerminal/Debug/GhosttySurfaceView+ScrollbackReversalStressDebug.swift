@@ -4,6 +4,11 @@ import Foundation
 import GhosttyKit
 
 extension GhosttySurfaceView {
+    var debugScrollbarAtBottomForTesting: Bool {
+        guard let snapshot = debugLastScrollbar else { return false }
+        return snapshot.total > snapshot.len && snapshot.offset >= max(0, snapshot.total - snapshot.len - 1)
+    }
+
     /// Sets the accessibility-visible scrollback reversal stress phase.
     public func setScrollbackReversalStressPhase(_ phase: String) {
         debugScrollbackReversalStressPhase = phase
@@ -16,11 +21,11 @@ extension GhosttySurfaceView {
 
     /// Sends Ghostty's scroll-to-bottom action for the scrollback reversal stress harness.
     public func scrollToBottomForScrollbackReversalStress() {
-        guard let surface else { return }
+        guard let state = localScrollbackScrollState() else { return }
         let action = "scroll_to_bottom"
-        outputQueue.async {
+        state.queue.async {
             action.withCString { pointer in
-                _ = ghostty_surface_binding_action(surface, pointer, UInt(action.utf8.count))
+                _ = ghostty_surface_binding_action(state.surface, pointer, UInt(action.utf8.count))
             }
         }
     }

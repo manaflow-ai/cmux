@@ -643,10 +643,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         ].joined(separator: ";")
     }
 
-    private var debugScrollbarAtBottomForTesting: Bool {
-        guard let snapshot = debugLastScrollbar else { return false }
-        return snapshot.total > snapshot.len && snapshot.offset >= max(0, snapshot.total - snapshot.len - 1)
-    }
     #endif
     private let snapshotFallbackView: UITextView = {
         let view = UITextView()
@@ -2850,29 +2846,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
         let traitScale = traitCollection.displayScale
         return traitScale > 0 ? traitScale : 2
-    }
-
-    func localScrollbackScrollState() -> (
-        surface: ghostty_surface_t,
-        generation: UInt64,
-        scale: Double,
-        queue: GhosttySurfaceWorkQueue
-    )? {
-        guard let surface, !isDismantled else { return nil }
-        return (
-            surface,
-            surfaceGeneration,
-            Double(max(preferredScreenScale, 1)),
-            outputQueue
-        )
-    }
-
-    func requestDrawAfterLocalScrollbackScroll(generation: UInt64) {
-        guard surface != nil,
-              surfaceGeneration == generation else {
-            return
-        }
-        drawForWakeup()
     }
 
     private func sendText(_ text: String) {
