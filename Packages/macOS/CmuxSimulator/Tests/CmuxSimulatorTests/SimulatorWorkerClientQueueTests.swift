@@ -65,4 +65,23 @@ extension SimulatorWorkerClientTests {
         #expect(!endpoint.inboundMessages().contains(request))
         await client.stop()
     }
+
+    @Test("A command that launches recovery waits behind the replacement attachment")
+    func commandThatLaunchesRecoveryWaitsForStreaming() async throws {
+        let launcher = TestWorkerLauncher()
+        let client = makeClient(launcher: launcher)
+        try await client.sendRequired(.attach(udid: "DEVICE", geometry: nil))
+        let first = try #require(launcher.endpoint(at: 0))
+        first.emit(.status(.streaming))
+        for _ in 0..<100 { await Task.yield() }
+        await client.discardWorker(intentional: true, clearReplayState: false)
+
+        let key = SimulatorWorkerInbound.key(SimulatorKeyEvent(usage: 4, phase: .down))
+        try await client.sendRequired(key)
+        let replacement = try #require(launcher.endpoint(at: 1))
+
+        #expect(replacement.inboundMessages() == [.attach(udid: "DEVICE", geometry: nil)])
+        #expect(!replacement.inboundMessages().contains(key))
+        await client.stop()
+    }
 }
