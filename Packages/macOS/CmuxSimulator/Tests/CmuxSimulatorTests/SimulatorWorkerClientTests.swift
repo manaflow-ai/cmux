@@ -158,6 +158,33 @@ struct SimulatorWorkerClientTests {
         #expect(endpoint.inboundMessages().contains(.shutdown))
     }
 
+    @Test("Activation skips bootstatus for a device already reported booted")
+    func activatesAlreadyBootedDeviceWithoutWaitingAgain() async throws {
+        let launcher = TestWorkerLauncher()
+        launcher.setResponder { message in
+            guard case .attach = message else { return nil }
+            return .status(.streaming)
+        }
+        let control = TestSimulatorControl(devices: [SimulatorDevice(
+            id: "DEVICE",
+            name: "iPhone 17 Pro",
+            runtimeIdentifier: "com.apple.CoreSimulator.SimRuntime.iOS-26-5",
+            runtimeName: "iOS 26.5",
+            deviceTypeIdentifier: "com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro",
+            family: .iPhone,
+            state: .booted,
+            isAvailable: true,
+            lastBootedAt: nil
+        )])
+        let client = makeClient(launcher: launcher, control: control)
+
+        try await client.activateDevice(id: "DEVICE", geometry: nil)
+
+        #expect(await control.bootDeviceIDs == ["DEVICE"])
+        #expect(await control.waitDeviceIDs.isEmpty)
+        await client.stop()
+    }
+
     @Test("Camera configuration is rejected before host-side private loading")
     func rejectsUnavailableCameraAdapter() async {
         let client = makeClient(launcher: TestWorkerLauncher())
