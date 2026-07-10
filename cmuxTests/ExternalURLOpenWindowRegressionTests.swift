@@ -57,7 +57,12 @@ final class ExternalURLOpenWindowRegressionTests: XCTestCase {
         var slice = 0
         while Date() < hardDeadline {
             RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.02))
-            for window in NSApp.windows where !baseline.contains(ObjectIdentifier(window)) {
+            // Only windows actually shown on screen violate the invariant —
+            // the regression is a visible flash. Offscreen helper windows
+            // AppKit creates incidentally (popover hosts, input panels) are
+            // not the bootstrap-scene window this test pins.
+            for window in NSApp.windows
+            where !baseline.contains(ObjectIdentifier(window)) && window.isVisible {
                 newWindowDescriptions[ObjectIdentifier(window)] =
                     "windowNumber=\(window.windowNumber) " +
                     "identifier=\(window.identifier?.rawValue ?? "nil") " +
