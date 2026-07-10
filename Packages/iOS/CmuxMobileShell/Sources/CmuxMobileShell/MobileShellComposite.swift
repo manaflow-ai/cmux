@@ -241,9 +241,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     var workspacesByMac: [String: MacWorkspaceState] = [:] {
         didSet { recomputeDerivedWorkspaceState() }
     }
-    private let workspaceAggregation = MobileWorkspaceAggregation()
-    /// In-memory automatic color slots assigned once per real Mac for this shell instance.
-    private var stableMacColorSlots: [String: Int] = [:]
+    let workspaceAggregation = MobileWorkspaceAggregation(); var stableMacColorSlots: [String: Int] = [:]  // see MobileShellComposite+MacSwitchState.swift
     /// The flat aggregated workspace list the UI renders. A materialized
     /// derivation of ``workspacesByMac``: only ``recomputeDerivedWorkspaceState``
     /// assigns it, so it is never independently mutated.
@@ -3860,16 +3858,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// The key the foreground Mac's state lives under in ``workspacesByMac``.
     private var foregroundMacKey: String { foregroundMacDeviceID ?? Self.foregroundAnonymousKey }
 
-    private func updateStableMacColorSlots() {
-        let updated = workspaceAggregation.machineColorIndex(
-            existingAssignments: stableMacColorSlots,
-            adding: Array(workspacesByMac.keys.filter { !$0.isEmpty && $0 != Self.foregroundAnonymousKey })
-        )
-        if updated != stableMacColorSlots {
-            stableMacColorSlots = updated
-        }
-    }
-
     private func updateForegroundWorkspaceActionCapabilities() {
         guard var state = workspacesByMac[foregroundMacKey] else { return }
         state.actionCapabilities = Self.workspaceActionCapabilities(
@@ -3880,11 +3868,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     /// Recompute the derived ``workspaces`` / ``workspaceGroups`` from the per-Mac
-    /// source of truth. Also assigns any newly seen real Mac a stable in-memory
-    /// color slot before deriving previews.
+    /// source of truth. Pure and cheap; the only place those two are assigned,
+    /// called on any ``workspacesByMac`` or foreground change.
     private func recomputeDerivedWorkspaceState() {
-        updateStableMacColorSlots()
-        let previousSelection = selectedWorkspaceID.flatMap { id in
+        updateStableMacColorSlots(); let previousSelection = selectedWorkspaceID.flatMap { id in
             workspaces.first { $0.id == id }
         }
         let foregroundKey: String?
@@ -3896,9 +3883,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             foregroundKey = nil
         }
         var derived = workspaceAggregation.derivedWorkspaces(
-            statesByMac: workspacesByMac,
-            foregroundMacDeviceID: foregroundKey,
-            machineColorIndex: stableMacColorSlots)
+            statesByMac: workspacesByMac, foregroundMacDeviceID: foregroundKey, machineColorIndex: stableMacColorSlots)
         // Stamp per-Mac user color/icon overrides from pairedMacs so every
         // workspace avatar matches its computer's customization (same place the
         // aggregation already assigned the automatic color index).
