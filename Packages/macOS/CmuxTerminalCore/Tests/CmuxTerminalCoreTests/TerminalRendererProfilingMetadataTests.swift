@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 import Testing
 @testable import CmuxTerminalCore
 
@@ -47,5 +48,37 @@ import Testing
         #expect(Set(metadata.details.split(separator: " ").map { $0.split(separator: "=")[0] }) == [
             "workspace", "surface", "visible", "focused", "wake", "coalesced", "dirty_rows", "full_redraw",
         ])
+    }
+}
+
+@Suite struct TerminalRendererProfilingSignpostsTests {
+    @Test func disabledSignposterDoesNotEvaluateMetadata() {
+        let signposts = TerminalRendererProfilingSignposts(
+            signposter: OSSignposter(logHandle: .disabled)
+        )
+        var evaluationCount = 0
+
+        func metadata() -> TerminalRendererProfilingMetadata {
+            evaluationCount += 1
+            return TerminalRendererProfilingMetadata(
+                identity: TerminalRendererProfilingIdentity(
+                    workspaceId: UUID(),
+                    surfaceId: UUID()
+                ),
+                visible: true,
+                focused: true,
+                wakeReason: .terminalOutput,
+                coalescedUpdateCount: 1,
+                dirtyRowCount: nil,
+                fullRedraw: nil
+            )
+        }
+
+        #expect(!signposts.isEnabled)
+        #expect(signposts.beginFrame(metadata()) == nil)
+        #expect(signposts.beginUpdate(metadata()) == nil)
+        signposts.endFrame(nil, metadata())
+        signposts.endUpdate(nil, metadata())
+        #expect(evaluationCount == 0)
     }
 }
