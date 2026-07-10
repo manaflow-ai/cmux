@@ -323,3 +323,93 @@ final class WorkspaceContentViewVisibilityTests {
         )
     }
 }
+
+@Suite("Canvas portal lifecycle", .serialized)
+struct CanvasPortalLifecycleTests {
+    @Test
+    @MainActor
+    func switchingVisibleWorkspaceToCanvasKeepsPortalPresentationVisible() async throws {
+        _ = NSApplication.shared
+        let tabManager = TabManager()
+        defer { tabManager.tabs.forEach { $0.teardownAllPanels() } }
+        let notificationStore = TerminalNotificationStore.shared
+        let root = ContentView(updateViewModel: UpdateStateModel(), windowId: UUID())
+            .environmentObject(tabManager)
+            .environmentObject(notificationStore)
+            .environmentObject(notificationStore.sidebarUnread)
+            .environmentObject(SidebarState())
+            .environmentObject(SidebarSelectionState())
+            .environmentObject(FileExplorerState())
+            .environmentObject(CmuxConfigStore())
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 900, height: 640),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = MainWindowHostingView(rootView: root)
+        defer {
+            window.contentView = nil
+            window.close()
+        }
+
+        await Self.drainMainRunLoop(for: window)
+        let workspace = try #require(tabManager.selectedWorkspace)
+        #expect(workspace.portalPresentationVisible)
+
+        workspace.setLayoutMode(.canvas)
+        await Self.drainMainRunLoop(for: window)
+
+        #expect(workspace.layoutMode == .canvas)
+        #expect(
+            workspace.portalPresentationVisible,
+            "Replacing the Bonsplit subtree with Canvas must not report that the visible workspace disappeared"
+        )
+    }
+
+    @Test
+    @MainActor
+    func canvasDirectHostReplacesEveryPortalOwnedCallback() {
+        let panel = TerminalPanel(workspaceId: UUID())
+        defer { panel.surface.teardownSurface() }
+        let hostedView = panel.hostedView
+        let portalHost = NSView()
+        var portalFocusCount = 0
+        var portalFlashCount = 0
+        var canvasFocusCount = 0
+        hostedView.setPortalHostHandlers(
+            ownerHostId: ObjectIdentifier(portalHost),
+            focusHandler: { portalFocusCount += 1 },
+            triggerFlashHandler: { portalFlashCount += 1 }
+        )
+
+        let container = NSView(frame: CGRect(x: 0, y: 0, width: 400, height: 300))
+        let mount = CanvasPaneContentMount(
+            content: .terminal(panel),
+            panelId: panel.id,
+            container: container,
+            onFocusPanel: { _ in canvasFocusCount += 1 }
+        )
+        defer { mount.unmount() }
+
+        hostedView.surfaceView.onFocus?()
+        hostedView.surfaceView.onTriggerFlash?()
+
+        #expect(portalFocusCount == 0)
+        #expect(canvasFocusCount == 1)
+        #expect(
+            portalFlashCount == 0,
+            "Canvas direct hosting must not retain the replaced portal host's flash callback"
+        )
+        withExtendedLifetime(portalHost) {}
+    }
+
+    @MainActor
+    private static func drainMainRunLoop(for window: NSWindow, iterations: Int = 20) async {
+        for _ in 0..<iterations {
+            window.contentView?.layoutSubtreeIfNeeded()
+            _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.001))
+            await Task.yield()
+        }
+    }
+}
