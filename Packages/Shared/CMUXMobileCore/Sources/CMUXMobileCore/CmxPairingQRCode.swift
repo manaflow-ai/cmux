@@ -1,8 +1,12 @@
 import Foundation
 
 /// The minimal pairing-QR grammar: expected Mac account/build metadata plus
-/// plain `host:port` routes in the URL query.
+/// phone-reachable routes in the URL query.
 ///
+/// v3:
+/// `cmux-ios://attach?v=3&ub=<stack-user-id>&pc=<compat>&av=<version>&ab=<build>&i=<iroh-peer-id>&u=<relay-url>&d=<direct-addr>[&d=<direct-addr>...][&r=<host>:<port>...]`
+///
+/// v2 legacy:
 /// `cmux-ios://attach?v=2&ub=<stack-user-id>&pc=<compat>&av=<version>&ab=<build>&r=<host>:<port>[&r=<host>:<port>...]`
 ///
 /// A pairing QR needs to tell the phone where to dial and which non-secret
@@ -17,10 +21,9 @@ import Foundation
 /// - **No display name, no device id.** Both arrive post-handshake from
 ///   `mobile.host.status`; the decoder leaves `macDeviceID` empty and the
 ///   shell adopts the host-reported identity once connected.
-/// - **No loopback, ever.** Routes are Tailscale `host:port` only: the
-///   encoder drops a DEBUG Mac's dev loopback route instead of encoding it,
-///   the Mac refuses to mint a QR without a Tailscale route (it shows the
-///   set-up-Tailscale guidance instead), and the decoder rejects loopback
+/// - **No loopback, ever.** The encoder drops a DEBUG Mac's dev loopback route
+///   instead of encoding it, the Mac refuses to mint a QR without either an
+///   iroh peer route or a Tailscale route, and the decoder rejects loopback
 ///   hosts outright, so a scanned code can never point a phone at itself.
 ///   Loopback pairing for the simulator/dev flows uses the injected attach
 ///   URL path, not a QR. Dropping loopback is also the pairing-latency fix:
@@ -40,8 +43,11 @@ import Foundation
 public struct CmxPairingQRCode: Sendable {
     /// The grammar version carried in the URL's `v` query item. Distinct from
     /// ``CmxAttachTicket/currentVersion`` (the ticket *structure* version):
-    /// `v=1` URLs carry a base64 JSON `payload`, `v=2` URLs carry bare routes.
-    public static let version = 2
+    /// `v=1` URLs carry a base64 JSON `payload`, `v=2` URLs carry bare
+    /// Tailscale routes, and `v=3` URLs can carry an iroh peer route plus
+    /// Tailscale fallback routes.
+    public static let version = 3
+    private static let legacyTailscaleOnlyVersion = 2
 
     /// Defensive cap on routes accepted from a scanned code. The Mac's route
     /// resolver emits at most a couple (MagicDNS name + Tailscale IP); a QR
@@ -53,12 +59,13 @@ public struct CmxPairingQRCode: Sendable {
     /// site; every instance speaks the same grammar version.
     public init() {}
 
-    /// Encode `ticket` as a v2 pairing URL, or `nil` when the ticket does not
+    /// Encode `ticket` as a v3 pairing URL, or `nil` when the ticket does not
     /// qualify (see ``canEncode(_:)``); callers fall back to the compact v1
     /// payload so every ticket still has an attach URL.
     ///
-    /// Only the ticket's Tailscale routes are encoded: a DEBUG Mac's dev
-    /// loopback route is dropped, never written into a scannable code.
+    /// The ticket's iroh peer route and Tailscale fallback routes are encoded:
+    /// a DEBUG Mac's dev loopback route is dropped, never written into a
+    /// scannable code.
     public func encode(_ ticket: CmxAttachTicket) -> String? {
         guard let routes = encodableRoutes(of: ticket) else {
             return nil
@@ -76,7 +83,19 @@ public struct CmxPairingQRCode: Sendable {
         if let build = normalizedNonEmpty(ticket.macAppBuild) {
             items.append("ab=\(percentEncodeQueryValue(build))")
         }
-        let routeItems = routes.map { route -> String in
+        if let irohRoute = routes.iroh {
+            guard case let .peer(peerID, _, directAddrs, relayURL) = irohRoute.endpoint else {
+                return nil
+            }
+            items.append("i=\(percentEncodeQueryValue(peerID))")
+            if let relayURL = normalizedNonEmpty(relayURL) {
+                items.append("u=\(percentEncodeQueryValue(relayURL))")
+            }
+            for directAddr in directAddrs.compactMap({ normalizedNonEmpty($0) }) {
+                items.append("d=\(percentEncodeQueryValue(directAddr))")
+            }
+        }
+        let routeItems = routes.tailscale.map { route -> String in
             guard case let .hostPort(host, port) = route.endpoint else {
                 // Unreachable: `encodableRoutes` admits host/port endpoints only.
                 return ""
@@ -97,33 +116,47 @@ public struct CmxPairingQRCode: Sendable {
         encodableRoutes(of: ticket) != nil
     }
 
-    /// The route subsequence a v2 pairing URL would carry for `ticket`, or
+    /// The route subsequence a v3 pairing URL would carry for `ticket`, or
     /// `nil` when the ticket is not expressible in the minimal grammar.
     ///
-    /// Expressible means: an unscoped pairing ticket whose Tailscale routes
-    /// are exactly the canonical `host:port` sequence the decoder
-    /// resynthesizes (ids `tailscale`, `tailscale_2`, ... and priorities 10,
-    /// 20, ...), with no loopback host and no host that needs escaping.
-    /// The only routes this grammar may silently drop are loopback ones (a
-    /// DEBUG Mac's dev loopback route), which no phone may ever dial anyway.
-    /// Anything else (workspace-scoped tickets, custom route ids, no
-    /// Tailscale route at all, or a non-Tailscale fallback route such as an
-    /// iroh peer that the bare `host:port` grammar cannot express) keeps the
-    /// compact v1 payload so the mapping stays lossless.
-    private func encodableRoutes(of ticket: CmxAttachTicket) -> [CmxAttachRoute]? {
+    /// Expressible means: an unscoped pairing ticket with at most one canonical
+    /// iroh peer route plus canonical Tailscale `host:port` fallbacks (ids
+    /// `tailscale`, `tailscale_2`, ... and priorities 10, 20, ...), with no
+    /// loopback host and no host that needs escaping. The only routes this
+    /// grammar may silently drop are loopback ones (a DEBUG Mac's dev loopback
+    /// route), which no phone may ever dial anyway.
+    private func encodableRoutes(of ticket: CmxAttachTicket) -> EncodableRoutes? {
         guard ticket.version == CmxAttachTicket.currentVersion,
               ticket.workspaceID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               ticket.terminalID?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false else {
             return nil
         }
-        guard ticket.routes.allSatisfy({ $0.kind == .tailscale || CmxLoopbackHost().matches($0) }) else {
+        guard ticket.routes.allSatisfy({
+            $0.kind == .tailscale || $0.kind == .iroh || CmxLoopbackHost().matches($0)
+        }) else {
             return nil
         }
-        let routes = ticket.routes.filter { $0.kind == .tailscale }
-        guard !routes.isEmpty, routes.count <= Self.maximumRouteCount else {
+        let irohRoutes = ticket.routes.filter { $0.kind == .iroh }
+        guard irohRoutes.count <= 1 else {
             return nil
         }
-        for (index, route) in routes.enumerated() {
+        let irohRoute = irohRoutes.first
+        if let irohRoute {
+            guard irohRoute.id == CmxAttachTransportKind.iroh.rawValue,
+                  irohRoute.priority == irohRoutePriority,
+                  case let .peer(peerID, _, directAddrs, relayURL) = irohRoute.endpoint,
+                  normalizedNonEmpty(peerID) != nil,
+                  directAddrs.allSatisfy({ normalizedNonEmpty($0) != nil }),
+                  relayURL == nil || normalizedNonEmpty(relayURL) != nil else {
+                return nil
+            }
+        }
+        let tailscaleRoutes = ticket.routes.filter { $0.kind == .tailscale }
+        guard (irohRoute == nil ? tailscaleRoutes.count : tailscaleRoutes.count + 1) > 0,
+              tailscaleRoutes.count + (irohRoute == nil ? 0 : 1) <= Self.maximumRouteCount else {
+            return nil
+        }
+        for (index, route) in tailscaleRoutes.enumerated() {
             guard route.id == synthesizedRouteID(index: index),
                   route.priority == synthesizedRoutePriority(index: index),
                   case let .hostPort(host, _) = route.endpoint,
@@ -132,13 +165,18 @@ public struct CmxPairingQRCode: Sendable {
                 return nil
             }
         }
-        return routes
+        return EncodableRoutes(iroh: irohRoute, tailscale: tailscaleRoutes)
     }
 
     /// Whether `components` (an already-parsed `cmux-ios://attach` URL) speaks
-    /// this grammar. v1 URLs carry the base64 `payload` item instead.
+    /// a supported pairing-code grammar. v1 URLs carry the base64 `payload`
+    /// item instead.
     public func isPairingCodeURL(_ components: URLComponents) -> Bool {
-        components.queryItems?.first(where: { $0.name == "v" })?.value == "\(Self.version)"
+        guard let rawVersion = components.queryItems?.first(where: { $0.name == "v" })?.value,
+              let version = Int(rawVersion) else {
+            return false
+        }
+        return version == Self.legacyTailscaleOnlyVersion || version == Self.version
     }
 
     /// The integer grammar version declared by an attach URL's `v` query item,
@@ -152,7 +190,7 @@ public struct CmxPairingQRCode: Sendable {
         return Int(raw)
     }
 
-    /// Whether `rawValue` is a v2 pairing URL. String-level convenience for
+    /// Whether `rawValue` is a supported pairing URL. String-level convenience for
     /// callers that hold the encoded URL (the Mac's pairing window asserting
     /// the code it is about to display speaks the minimal grammar).
     public func isPairingCodeURLString(_ rawValue: String) -> Bool {
@@ -165,11 +203,11 @@ public struct CmxPairingQRCode: Sendable {
         return isPairingCodeURL(components)
     }
 
-    /// Decode a v2 pairing URL into a validated ``CmxAttachTicket``.
+    /// Decode a supported pairing URL into a validated ``CmxAttachTicket``.
     ///
     /// The ticket comes back unscoped with an empty `macDeviceID`; the shell
     /// recovers the Mac's identity post-handshake from `mobile.host.status`.
-    /// - Parameter components: The parsed `cmux-ios://attach?v=2&...` URL.
+    /// - Parameter components: The parsed `cmux-ios://attach?v=<version>&...` URL.
     /// - Throws: ``MobileSyncPairingPayloadError/invalidURL`` for malformed
     ///   input and ``MobileSyncPairingPayloadError/loopbackRouteRejected``
     ///   when any route names a loopback host (a scanned code must never
@@ -178,6 +216,26 @@ public struct CmxPairingQRCode: Sendable {
         guard isPairingCodeURL(components) else {
             throw MobileSyncPairingPayloadError.invalidURL
         }
+        let version = Self.attachURLVersion(components)
+        switch version {
+        case .some(Self.legacyTailscaleOnlyVersion):
+            return try decodeLegacyTailscaleOnly(components)
+        case .some(Self.version):
+            return try decodeCurrent(components)
+        default:
+            throw MobileSyncPairingPayloadError.invalidURL
+        }
+    }
+}
+private extension CmxPairingQRCode {
+    struct EncodableRoutes {
+        let iroh: CmxAttachRoute?
+        let tailscale: [CmxAttachRoute]
+    }
+
+    var irohRoutePriority: Int { 5 }
+
+    func decodeLegacyTailscaleOnly(_ components: URLComponents) throws -> CmxAttachTicket {
         let rawRoutes = (components.queryItems ?? [])
             .filter { $0.name == "r" }
             .compactMap(\.value)
@@ -213,8 +271,69 @@ public struct CmxPairingQRCode: Sendable {
         try ticket.validate()
         return ticket
     }
-}
-private extension CmxPairingQRCode {
+
+    func decodeCurrent(_ components: URLComponents) throws -> CmxAttachTicket {
+        let queryItems = components.queryItems ?? []
+        let rawRoutes = queryItems
+            .filter { $0.name == "r" }
+            .compactMap(\.value)
+        let peerID = queryValue(named: "i", in: components)
+        let routeCount = rawRoutes.count + (peerID == nil ? 0 : 1)
+        guard routeCount > 0, routeCount <= Self.maximumRouteCount else {
+            throw MobileSyncPairingPayloadError.invalidURL
+        }
+
+        var routes: [CmxAttachRoute] = []
+        if let peerID {
+            let directAddrs = queryItems
+                .filter { $0.name == "d" }
+                .compactMap { normalizedNonEmpty($0.value) }
+            let relayURL = queryValue(named: "u", in: components)
+            routes.append(try CmxAttachRoute(
+                id: CmxAttachTransportKind.iroh.rawValue,
+                kind: .iroh,
+                endpoint: .peer(
+                    id: peerID,
+                    relayHint: nil,
+                    directAddrs: directAddrs,
+                    relayURL: relayURL
+                ),
+                priority: irohRoutePriority
+            ))
+        }
+
+        let tailscaleRoutes = try rawRoutes.enumerated().map { index, rawRoute -> CmxAttachRoute in
+            let (host, port) = try parseHostPort(rawRoute)
+            guard !CmxLoopbackHost().matches(host) else {
+                throw MobileSyncPairingPayloadError.loopbackRouteRejected
+            }
+            return try CmxAttachRoute(
+                id: synthesizedRouteID(index: index),
+                kind: .tailscale,
+                endpoint: .hostPort(host: host, port: port),
+                priority: synthesizedRoutePriority(index: index)
+            )
+        }
+        routes.append(contentsOf: tailscaleRoutes)
+
+        let ticket = try CmxAttachTicket(
+            workspaceID: "",
+            terminalID: nil,
+            macDeviceID: "",
+            macDisplayName: nil,
+            macUserEmail: queryValue(named: "e", in: components),
+            macUserID: queryValue(named: "ub", in: components),
+            macPairingCompatibilityVersion: queryInt(named: "pc", in: components) ?? 0,
+            macAppVersion: queryValue(named: "av", in: components),
+            macAppBuild: queryValue(named: "ab", in: components),
+            routes: routes,
+            expiresAt: nil,
+            authToken: nil
+        )
+        try ticket.validate()
+        return ticket
+    }
+
     /// The route id the Mac's route resolver mints for the route at `index`
     /// (`tailscale` for the first, `tailscale_N` after).
     func synthesizedRouteID(index: Int) -> String {

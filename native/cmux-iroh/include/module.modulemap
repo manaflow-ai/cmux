@@ -1,0 +1,4 @@
+module CmuxIrohFFI {
+  header "cmux_iroh_ffi.h"
+  export *
+}

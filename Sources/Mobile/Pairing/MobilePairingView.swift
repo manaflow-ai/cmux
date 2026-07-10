@@ -9,7 +9,7 @@ import SwiftUI
 /// Walks the user through the two requirements (signed in to cmux, Tailscale
 /// reachable) and then shows a scannable QR code with step-by-step
 /// instructions. Pairing is gated on sign-in because authorization is a Stack
-/// same-account check; Tailscale is what gives the iPhone a route to this Mac.
+/// same-account check; iroh or Tailscale gives the iPhone a route to this Mac.
 struct MobilePairingView: View {
     @State private var model = MobilePairingModel()
     /// The manual-entry value that was just copied (the host or the port
@@ -27,6 +27,13 @@ struct MobilePairingView: View {
     private static let tailscaleDownloadURL = URL(string: "https://tailscale.com/download")!
     /// Where a Mac user goes to get cmux for iPhone while the beta is invite-only.
     private static let iphoneAppURL = URL(string: "https://github.com/manaflow-ai/cmux#founders-edition")!
+
+    private enum RouteAvailability: Equatable {
+        case iroh
+        case tailscale
+        case missing
+        case unknown
+    }
 
     var body: some View {
         ScrollView {
@@ -67,7 +74,7 @@ struct MobilePairingView: View {
     private var requirements: some View {
         VStack(alignment: .leading, spacing: 12) {
             signInRow
-            tailscaleRow
+            routeRow
         }
     }
 
@@ -81,13 +88,13 @@ struct MobilePairingView: View {
         }
     }
 
-    private var tailscaleRow: some View {
-        let reachable = tailscaleReachable
+    private var routeRow: some View {
+        let availability = routeAvailability
         return requirementRow(
-            title: String(localized: "mobile.pairing.req.tailscale.title", defaultValue: "Tailscale"),
-            subtitle: tailscaleSubtitle(reachable: reachable)
+            title: String(localized: "mobile.pairing.req.route.title", defaultValue: "Connection route"),
+            subtitle: routeSubtitle(availability: availability)
         ) {
-            if reachable != true {
+            if availability == .missing {
                 Link(
                     String(localized: "mobile.pairing.req.tailscale.get", defaultValue: "Get Tailscale"),
                     destination: Self.tailscaleDownloadURL
@@ -97,24 +104,29 @@ struct MobilePairingView: View {
         }
     }
 
-    /// `true` reachable, `false` not detected, `nil` not yet known.
-    private var tailscaleReachable: Bool? {
+    private var routeAvailability: RouteAvailability {
         switch model.state {
-        case let .ready(ready): return ready.reachableViaTailscale
-        case let .connected(ready): return ready.reachableViaTailscale
-        case .needsTailscale: return false
-        default: return nil
+        case let .ready(ready), let .connected(ready):
+            if ready.hasIrohRoute { return .iroh }
+            if ready.reachableViaTailscale { return .tailscale }
+            return .missing
+        case .noReachableRoute:
+            return .missing
+        default:
+            return .unknown
         }
     }
 
-    private func tailscaleSubtitle(reachable: Bool?) -> String {
-        switch reachable {
-        case .some(true):
+    private func routeSubtitle(availability: RouteAvailability) -> String {
+        switch availability {
+        case .iroh:
+            return String(localized: "mobile.pairing.req.route.iroh", defaultValue: "Reachable over Iroh. Tailscale is optional.")
+        case .tailscale:
             return String(localized: "mobile.pairing.req.tailscale.reachable", defaultValue: "Reachable over Tailscale.")
-        case .some(false):
-            return String(localized: "mobile.pairing.req.tailscale.missing", defaultValue: "Not detected. Install Tailscale on this Mac and your iPhone, signed in to the same account.")
-        case .none:
-            return String(localized: "mobile.pairing.req.tailscale.hint", defaultValue: "Your Mac and iPhone both need Tailscale to connect over the internet.")
+        case .missing:
+            return String(localized: "mobile.pairing.req.route.missing", defaultValue: "No Iroh endpoint or Tailscale route is available.")
+        case .unknown:
+            return String(localized: "mobile.pairing.req.route.hint", defaultValue: "cmux will use Iroh when available, with Tailscale as a fallback.")
         }
     }
 
@@ -151,8 +163,8 @@ struct MobilePairingView: View {
                 Text(String(localized: "mobile.pairing.preparing", defaultValue: "Preparing a pairing code…"))
                     .foregroundStyle(.secondary)
             }
-        case .needsTailscale:
-            needsTailscaleContent
+        case .noReachableRoute:
+            noReachableRouteContent
         case let .failed(message):
             failure(message: message)
         case let .ready(ready):
@@ -162,12 +174,12 @@ struct MobilePairingView: View {
         }
     }
 
-    private var needsTailscaleContent: some View {
+    private var noReachableRouteContent: some View {
         VStack(spacing: 12) {
             Image(systemName: "network.slash")
                 .cmuxFont(size: 28)
                 .foregroundStyle(.orange)
-            Text(String(localized: "mobile.pairing.needsTailscale.body", defaultValue: "This Mac has no Tailscale address, so your iPhone can't reach it. Install Tailscale on this Mac and your iPhone (same account), then refresh."))
+            Text(String(localized: "mobile.pairing.noReachableRoute.body", defaultValue: "This Mac has no Iroh endpoint or Tailscale route available, so your iPhone can't reach it. Refresh or set up Tailscale on both devices."))
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)

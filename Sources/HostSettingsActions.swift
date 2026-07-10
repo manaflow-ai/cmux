@@ -293,15 +293,29 @@ final class HostSettingsActions: SettingsHostActions {
     /// Maps the host's ``MobileHostServiceStatus`` into the settings package's
     /// Foundation-only ``MobilePairingStatusSnapshot``. Static so the status
     /// stream's forwarding task does not retain this host bridge.
-    private static func mobilePairingSnapshot(from status: MobileHostServiceStatus) -> MobilePairingStatusSnapshot {
+    static func mobilePairingSnapshot(from status: MobileHostServiceStatus) -> MobilePairingStatusSnapshot {
         let routes = status.routes.compactMap { route -> MobilePairingRoute? in
-            guard case let .hostPort(host, port) = route.endpoint else { return nil }
-            return MobilePairingRoute(
-                id: route.id,
-                kindLabel: routeKindLabel(route.kind),
-                host: host,
-                port: port
-            )
+            switch route.endpoint {
+            case let .hostPort(host, port):
+                return MobilePairingRoute(
+                    id: route.id,
+                    kindLabel: routeKindLabel(route.kind),
+                    host: host,
+                    port: port
+                )
+            case let .peer(endpointID, _, _, relayURL):
+                var endpoint = MobileHostIrohRoute.shortEndpointID(endpointID)
+                if let relayHost = MobileHostIrohRoute.relayHost(relayURL) {
+                    endpoint += " - \(relayHost)"
+                }
+                return MobilePairingRoute(
+                    id: route.id,
+                    kindLabel: routeKindLabel(route.kind),
+                    endpoint: endpoint
+                )
+            case .url:
+                return nil
+            }
         }
         return MobilePairingStatusSnapshot(
             isRunning: status.isRunning,

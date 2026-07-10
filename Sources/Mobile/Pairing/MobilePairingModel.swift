@@ -29,9 +29,9 @@ final class MobilePairingModel {
         /// A phone has attached to the listener; show a paired/success state
         /// instead of the QR + spinner.
         case connected(Ready)
-        /// The listener is up but there is no route a phone can reach (no
-        /// Tailscale address on this Mac), so no ticket can be minted yet.
-        case needsTailscale
+        /// The listener is up but there is no route a phone can reach, so no
+        /// ticket can be minted yet.
+        case noReachableRoute
         /// The listener could not be started or no ticket could be minted.
         case failed(String)
     }
@@ -43,8 +43,10 @@ final class MobilePairingModel {
         /// The Mac's display name, shown above the code.
         let macName: String
         /// Reachable Tailscale `host:port` routes. Empty when Tailscale is not
-        /// detected, in which case a real iPhone cannot reach this Mac.
+        /// detected. Iroh-only pairing can still be reachable with this empty.
         let tailscaleLines: [String]
+        /// Whether the QR includes an iroh peer route.
+        let hasIrohRoute: Bool
         /// The best route for manual phone entry, behind the "Copy IP" and
         /// "Copy Port" buttons. `nil` when no phone-dialable route exists.
         let manualEntry: CmxManualPairingEntry?
@@ -124,13 +126,12 @@ final class MobilePairingModel {
             )
             return
         }
-        // No route a phone can reach: a real iPhone needs a Tailscale address
-        // on this Mac. A DEBUG build's dev loopback route does not count — a
-        // QR pointing at 127.0.0.1 would make the phone dial itself, so the
-        // window shows the set-up-Tailscale guidance instead of a weak code.
+        // No route a phone can reach. A DEBUG build's dev loopback route does
+        // not count — a QR pointing at 127.0.0.1 would make the phone dial
+        // itself, so the window shows route guidance instead of a weak code.
         // (Simulator/dev pairing uses the injected attach URL path, not the QR.)
         guard status.routes.contains(where: Self.isPhoneReachableRoute) else {
-            state = .needsTailscale
+            state = .noReachableRoute
             return
         }
         do {
@@ -149,12 +150,12 @@ final class MobilePairingModel {
                 )
                 return
             }
-            // Only the minimal v2 grammar (Tailscale routes only, no loopback,
-            // no token) may ever be displayed as a scannable code. If the mint
-            // raced a Tailscale route loss and fell back to the v1 payload,
-            // show the Tailscale guidance rather than a weak QR.
+            // Only the minimal pairing grammar (phone-reachable routes, no
+            // loopback, no token) may ever be displayed as a scannable code.
+            // If the mint raced a route loss and fell back to the v1 payload,
+            // show route guidance rather than a weak QR.
             guard CmxPairingQRCode().isPairingCodeURLString(attachURL) else {
-                state = .needsTailscale
+                state = .noReachableRoute
                 return
             }
             state = .ready(
@@ -162,12 +163,13 @@ final class MobilePairingModel {
                     attachURL: attachURL,
                     macName: Self.macDisplayName,
                     tailscaleLines: Self.tailscaleLines(status.routes),
+                    hasIrohRoute: Self.hasIrohRoute(status.routes),
                     manualEntry: CmxManualPairingEntry.best(in: status.routes)
                 )
             )
             observeConnections()
         } catch MobileAttachTicketStoreError.noRoutes, MobileAttachTicketStoreError.routeUnavailable {
-            state = .needsTailscale
+            state = .noReachableRoute
         } catch {
             state = .failed(
                 String(
@@ -257,11 +259,18 @@ final class MobilePairingModel {
     }
 
     /// Whether `route` is one a physical iPhone can actually dial: a
-    /// Tailscale route that does not point back at this Mac. The dev loopback
-    /// route a DEBUG build always carries must not count as reachability, or
-    /// the pairing window would happily display a QR no phone can use.
-    private static func isPhoneReachableRoute(_ route: CmxAttachRoute) -> Bool {
-        route.kind == .tailscale && !CmxLoopbackHost().matches(route)
+    /// non-loopback Tailscale host/port or an iroh peer route. The dev
+    /// loopback route a DEBUG build always carries must not count as
+    /// reachability, or the pairing window would display a QR no phone can use.
+    static func isPhoneReachableRoute(_ route: CmxAttachRoute) -> Bool {
+        if route.kind == .tailscale {
+            return !CmxLoopbackHost().matches(route)
+        }
+        if route.kind == .iroh,
+           case let .peer(peerID, _, _, _) = route.endpoint {
+            return !peerID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+        return false
     }
 
     private static func tailscaleLines(_ routes: [CmxAttachRoute]) -> [String] {
@@ -271,6 +280,12 @@ final class MobilePairingModel {
                 return nil
             }
             return "\(host):\(port)"
+        }
+    }
+
+    private static func hasIrohRoute(_ routes: [CmxAttachRoute]) -> Bool {
+        routes.contains { route in
+            route.kind == .iroh && Self.isPhoneReachableRoute(route)
         }
     }
 }

@@ -380,10 +380,16 @@ final class MobileHostService {
     private let callbackQueue = DispatchQueue(label: "dev.cmux.mobile.host-listener")
     private let routeResolver = MobileRouteResolver()
     private let ticketStore = MobileAttachTicketStore()
+    private let irohFFIClient: any MobileHostIrohFFIClient
+    private let irohSecretKeyProvider: MobileHostIrohSecretKeyProvider
     private var listener: NWListener?
     private var listenerGeneration = UUID()
     private var listenerUsesEphemeralFallback = false
     private var listenerPort: Int?
+    private var irohEndpoint: MobileHostIrohEndpointReference?
+    private var irohEndpointGeneration = UUID()
+    private var irohAcceptTask: Task<Void, Never>?
+    private var irohRoute: CmxAttachRoute?
     /// The preferred port the active start-sequence targeted (regardless of an
     /// ephemeral fallback). Used to decide whether a settings change needs a
     /// restart. `nil` while stopped.
@@ -406,7 +412,17 @@ final class MobileHostService {
     private var debugAcceptedStackAuthToken: String?
     #endif
 
-    private init() {}
+    private init(
+        irohFFIClient: any MobileHostIrohFFIClient = MobileHostIrohSystemFFIClient(),
+        irohSecretKeyProvider: MobileHostIrohSecretKeyProvider? = nil
+    ) {
+        let resolvedIrohFFIClient = irohFFIClient
+        self.irohFFIClient = resolvedIrohFFIClient
+        self.irohSecretKeyProvider = irohSecretKeyProvider ?? MobileHostIrohSecretKeyProvider(
+            store: MobileHostIrohKeychainSecretStore(),
+            generate: { try resolvedIrohFFIClient.generateSecretKey() }
+        )
+    }
 
     /// Inject the auth dependency. Call once at the composition root.
     func configure(auth: AuthCoordinator) {
@@ -722,7 +738,7 @@ final class MobileHostService {
                 self?.updatePublicStatusRoutes(port: port, generation: generation, tailscaleHosts: hosts)
             }
         })
-        MobileHostPublicStatusCache.update(routes: routeResolver.routes(port: port).routes)
+        MobileHostPublicStatusCache.update(routes: resolvedRoutes(port: port))
         startNetworkPathMonitorIfNeeded()
         drainReadinessWaiters()
     }
@@ -739,9 +755,11 @@ final class MobileHostService {
             return
         }
         guard listener == nil else {
+            startIrohEndpointIfNeeded()
             return
         }
 
+        startIrohEndpointIfNeeded()
         startListener(usePreferredPort: true)
     }
 
@@ -759,7 +777,7 @@ final class MobileHostService {
         listenerPort = port
         appliedPreferredPort = port
         lastErrorDescription = nil
-        MobileHostPublicStatusCache.update(routes: routeResolver.routes(port: port).routes)
+        MobileHostPublicStatusCache.update(routes: resolvedRoutes(port: port))
         mobileHostLog.info("mobile host listener disabled; publishing XCTest routes without binding")
     }
     #endif
@@ -819,8 +837,144 @@ final class MobileHostService {
         return try NWListener(using: parameters, on: .any)
     }
 
+    private func startIrohEndpointIfNeeded() {
+        guard MobileHostIrohFlag.resolved().isEnabled else {
+            return
+        }
+        guard irohEndpoint == nil else {
+            return
+        }
+        do {
+            let secretKey = try irohSecretKeyProvider.secretKey()
+            let endpoint = try irohFFIClient.bindEndpoint(
+                secretKey: secretKey,
+                enableRelay: true,
+                acceptConnections: true
+            )
+            let generation = UUID()
+            irohEndpoint = endpoint
+            irohEndpointGeneration = generation
+            irohRoute = route(forIrohEndpoint: endpoint) ?? irohRoute
+            startIrohAcceptLoop(endpoint: endpoint, generation: generation)
+            if listenerPort == nil {
+                MobileHostPublicStatusCache.update(routes: resolvedRoutesForCurrentHost())
+            }
+            if let endpointID = irohFFIClient.endpointID(endpoint) {
+                mobileHostLog.info("mobile host iroh endpoint ready \(endpointID, privacy: .public)")
+            } else {
+                mobileHostLog.info("mobile host iroh endpoint ready")
+            }
+        } catch {
+            irohEndpoint = nil
+            irohRoute = nil
+            mobileHostLog.error("mobile host iroh endpoint failed to bind: \(String(describing: error), privacy: .public)")
+        }
+    }
+
+    private func stopIrohEndpoint() {
+        irohAcceptTask?.cancel()
+        irohAcceptTask = nil
+        irohEndpointGeneration = UUID()
+        let endpoint = irohEndpoint
+        irohEndpoint = nil
+        irohRoute = nil
+        if let endpoint {
+            irohFFIClient.close(endpoint: endpoint)
+        }
+    }
+
+    private func startIrohAcceptLoop(
+        endpoint: MobileHostIrohEndpointReference,
+        generation: UUID
+    ) {
+        let ffiClient = irohFFIClient
+        irohAcceptTask?.cancel()
+        irohAcceptTask = Task.detached(priority: .userInitiated) {
+            while !Task.isCancelled {
+                do {
+                    let connection = try ffiClient.accept(
+                        endpoint: endpoint,
+                        timeoutMilliseconds: 500
+                    )
+                    MobileHostRequestActivity.beginConnection()
+                    let byteConnection = MobileHostIrohConnectionAdapter(
+                        connection: connection,
+                        ffiClient: ffiClient
+                    )
+                    Self.acceptByteConnectionOffMain(
+                        byteConnection,
+                        canAccept: {
+                            await MobileHostService.shared.canAcceptIrohConnection(generation: generation)
+                        }
+                    )
+                } catch let failure as MobileHostIrohFailure {
+                    switch failure.kind {
+                    case .timedOut:
+                        continue
+                    case .endpointClosed:
+                        return
+                    default:
+                        mobileHostLog.error("mobile host iroh accept failed: \(failure.message, privacy: .public)")
+                    }
+                } catch {
+                    mobileHostLog.error("mobile host iroh accept failed: \(String(describing: error), privacy: .public)")
+                }
+            }
+        }
+    }
+
+    private func route(forIrohEndpoint endpoint: MobileHostIrohEndpointReference) -> CmxAttachRoute? {
+        guard let json = irohFFIClient.routeJSON(endpoint),
+              let route = MobileHostIrohRoute.route(from: json) else {
+            return nil
+        }
+        return route
+    }
+
+    private func currentIrohRoute() -> CmxAttachRoute? {
+        guard let endpoint = irohEndpoint else {
+            irohRoute = nil
+            return nil
+        }
+        if let route = route(forIrohEndpoint: endpoint) {
+            irohRoute = route
+            return route
+        }
+        return irohRoute
+    }
+
+    private func resolvedRoutes(port: Int) -> [CmxAttachRoute] {
+        routeResolver.routes(
+            port: port,
+            irohRoute: currentIrohRoute()
+        ).routes
+    }
+
+    private func resolvedRoutes(port: Int, tailscaleHosts: [String]) -> [CmxAttachRoute] {
+        routeResolver.routes(
+            port: port,
+            irohRoute: currentIrohRoute(),
+            tailscaleHosts: tailscaleHosts
+        ).routes
+    }
+
+    private func resolvedRoutesForCurrentHost() -> [CmxAttachRoute] {
+        if let listenerPort {
+            return resolvedRoutes(port: listenerPort)
+        }
+        return irohOnlyRoutes()
+    }
+
+    private func irohOnlyRoutes() -> [CmxAttachRoute] {
+        guard let route = currentIrohRoute().flatMap(MobileHostIrohRoute.normalized) else {
+            return []
+        }
+        return [route]
+    }
+
     func stop() {
         stopNetworkPathMonitor()
+        stopIrohEndpoint()
         listenerGeneration = UUID()
         listenerUsesEphemeralFallback = false
         listener?.stateUpdateHandler = nil
@@ -844,8 +998,7 @@ final class MobileHostService {
     }
 
     func statusSnapshot() -> MobileHostServiceStatus {
-        let routes = listenerPort.map { routeResolver.routes(port: $0).routes } ?? []
-        return makeStatus(routes: routes)
+        makeStatus(routes: resolvedRoutesForCurrentHost())
     }
 
     /// Emits the current ``MobileHostServiceStatus`` immediately, then a fresh
@@ -931,7 +1084,9 @@ final class MobileHostService {
     }
 
     private func makeStatus(routes: [CmxAttachRoute]) -> MobileHostServiceStatus {
-        let isRunning = listener != nil && listenerPort != nil
+        let listenerReady = listener != nil && listenerPort != nil
+        let hasIrohRoute = routes.contains { $0.kind == .iroh }
+        let isRunning = listenerReady || hasIrohRoute
         return MobileHostServiceStatus(
             isRunning: isRunning,
             port: listenerPort,
@@ -964,7 +1119,7 @@ final class MobileHostService {
             ?? Self.configuredPort(defaults: defaults)
         switch Self.syncDecision(
             enabled: Self.isListeningEnabled(defaults: defaults),
-            listenerRunning: listener != nil,
+            listenerRunning: listener != nil || irohEndpoint != nil,
             desiredPort: desiredPort,
             appliedPort: appliedPreferredPort
         ) {
@@ -1013,10 +1168,32 @@ final class MobileHostService {
             }
             #endif
 
+            Self.acceptByteConnectionOffMain(
+                MobileHostNWConnectionAdapter(connection: connection),
+                canAccept: {
+                    await MobileHostService.shared.canAcceptConnection(generation: generation)
+                }
+            )
+        }
+    }
+
+    nonisolated private static func acceptByteConnectionOffMain(
+        _ byteConnection: any MobileHostByteConnection,
+        canAccept: @escaping @Sendable () async -> Bool
+    ) {
+        Task.detached(priority: .userInitiated) {
+            let canAccept = await canAccept()
+            guard canAccept else {
+                mobileHostLog.info("mobile host rejected stale listener connection")
+                byteConnection.close()
+                MobileHostRequestActivity.endConnection()
+                return
+            }
+
             let id = UUID()
             let session = MobileHostConnection(
                 id: id,
-                connection: MobileHostNWConnectionAdapter(connection: connection),
+                connection: byteConnection,
                 authorizeRequest: { request in
                     if !Self.requiresAuthorization(method: request.method) {
                         return nil
@@ -1051,7 +1228,7 @@ final class MobileHostService {
                 limit: Self.maximumActiveConnectionCount
             ) else {
                 mobileHostLog.error("mobile host rejected connection because active connection limit was reached")
-                connection.cancel()
+                byteConnection.close()
                 MobileHostRequestActivity.endConnection()
                 return
             }
@@ -1063,19 +1240,18 @@ final class MobileHostService {
         listener != nil && generation == listenerGeneration
     }
 
+    private func canAcceptIrohConnection(generation: UUID) -> Bool {
+        irohEndpoint != nil && generation == irohEndpointGeneration
+    }
+
     func createAttachTicket(
         workspaceID: String,
         terminalID: String?,
         ttl: TimeInterval,
         routeID: String? = nil,
         routeKind: String? = nil
-    ) async throws -> [String: Any] {
-        let routes: [CmxAttachRoute]
-        if let listenerPort {
-            routes = routeResolver.routes(port: listenerPort).routes
-        } else {
-            routes = []
-        }
+        ) async throws -> [String: Any] {
+        let routes = resolvedRoutesForCurrentHost()
         let selectedRoutes = try Self.filteredRoutes(
             routes,
             routeID: routeID,
@@ -1121,50 +1297,6 @@ final class MobileHostService {
             throw MobileAttachTicketStoreError.routeUnavailable
         }
         return filtered
-    }
-
-    private func accept(_ connection: NWConnection, generation: UUID) {
-        guard listener != nil, generation == listenerGeneration else {
-            connection.cancel()
-            MobileHostRequestActivity.endConnection()
-            return
-        }
-        guard activeConnections.count < Self.maximumActiveConnectionCount else {
-            mobileHostLog.error("mobile host rejected connection because active connection limit was reached")
-            connection.cancel()
-            MobileHostRequestActivity.endConnection()
-            return
-        }
-
-        let id = UUID()
-        let session = MobileHostConnection(
-            id: id,
-            connection: MobileHostNWConnectionAdapter(connection: connection),
-            authorizeRequest: { request in
-                await MobileHostService.shared.authorizationError(for: request)
-            },
-            onAuthorizedRequest: { request in
-                if let clientID = Self.clientID(from: request.params) {
-                    await MobileHostService.shared.recordClientID(clientID, for: id)
-                }
-            },
-            handleRequest: { request in
-                if request.method == "mobile.host.status" {
-                    return await MobileHostService.networkStatusResult(for: request)
-                }
-                let result = await TerminalController.shared.mobileHostHandleRPC(request)
-                await MobileHostService.shared.recordCreatedResourcesIfNeeded(
-                    request: request,
-                    result: result
-                )
-                return result
-            },
-            onClose: { id in
-                await MobileHostService.shared.removeConnection(id: id)
-            }
-        )
-        activeConnections[id] = session
-        Task { await session.start() }
     }
 
     /// Whether an incoming connection's remote peer is on the loopback interface.
@@ -1543,9 +1675,9 @@ final class MobileHostService {
                         )
                     }
                 })
-                MobileHostPublicStatusCache.update(routes: routeResolver.routes(port: listenerPort).routes)
+                MobileHostPublicStatusCache.update(routes: resolvedRoutes(port: listenerPort))
             } else {
-                MobileHostPublicStatusCache.update(routes: [])
+                MobileHostPublicStatusCache.update(routes: irohOnlyRoutes())
             }
             mobileHostLog.info("mobile host listener ready on port \(self.listenerPort ?? 0)")
             drainReadinessWaiters()
@@ -1556,7 +1688,7 @@ final class MobileHostService {
             listener = nil
             listenerUsesEphemeralFallback = false
             listenerPort = nil
-            MobileHostPublicStatusCache.update(routes: [])
+            MobileHostPublicStatusCache.update(routes: irohOnlyRoutes())
             drainReadinessWaiters()
         case let .waiting(error):
             // A preferred-port bind blocked by another listener surfaces as
@@ -1567,11 +1699,11 @@ final class MobileHostService {
                 handleListenerBindFailure(error: error, context: "in use (waiting)")
             } else {
                 listenerPort = nil
-                MobileHostPublicStatusCache.update(routes: [])
+                MobileHostPublicStatusCache.update(routes: irohOnlyRoutes())
             }
         case .setup:
             listenerPort = nil
-            MobileHostPublicStatusCache.update(routes: [])
+            MobileHostPublicStatusCache.update(routes: irohOnlyRoutes())
         @unknown default:
             break
         }
@@ -1582,7 +1714,7 @@ final class MobileHostService {
     /// Shared by the `.failed` and `.waiting(addressUnavailable)` paths.
     private func handleListenerBindFailure(error: NWError, context: String) {
         lastErrorDescription = String(describing: error)
-        MobileHostPublicStatusCache.update(routes: [])
+        MobileHostPublicStatusCache.update(routes: irohOnlyRoutes())
         let shouldRetryWithEphemeralPort = !listenerUsesEphemeralFallback
         listener?.stateUpdateHandler = nil
         listener?.newConnectionHandler = nil
@@ -1611,7 +1743,7 @@ final class MobileHostService {
             return
         }
         MobileHostPublicStatusCache.update(
-            routes: routeResolver.routes(port: port, tailscaleHosts: tailscaleHosts).routes
+            routes: resolvedRoutes(port: port, tailscaleHosts: tailscaleHosts)
         )
     }
 
@@ -1647,7 +1779,10 @@ final class MobileHostService {
         guard let port = listenerPort else {
             // Mid-bind (no port yet): the `.ready` handler publishes against the
             // current path when the bind completes, and the invalidation above
-            // guarantees it resolves freshly.
+            // guarantees it resolves freshly. A live iroh endpoint can still
+            // publish refreshed relay/direct-address hints without a host:port
+            // route.
+            MobileHostPublicStatusCache.update(routes: irohOnlyRoutes())
             return
         }
         let generation = listenerGeneration
@@ -1658,7 +1793,7 @@ final class MobileHostService {
                 self?.updatePublicStatusRoutes(port: port, generation: generation, tailscaleHosts: hosts)
             }
         })
-        MobileHostPublicStatusCache.update(routes: routeResolver.routes(port: port).routes)
+        MobileHostPublicStatusCache.update(routes: resolvedRoutes(port: port))
     }
 }
 
@@ -1666,6 +1801,7 @@ final class MobileHostService {
 #if DEBUG
 extension MobileHostService {
     func debugResetMobileLifecycleStateForTesting() {
+        stopIrohEndpoint()
         listenerGeneration = UUID()
         listenerUsesEphemeralFallback = false
         listenerPort = nil
@@ -1986,6 +2122,28 @@ actor MobileHostConnection {
         self.onAuthorizedRequest = onAuthorizedRequest
         self.handleRequest = handleRequest
         self.onClose = onClose
+    }
+
+    init(
+        id: UUID,
+        connection: NWConnection,
+        firstFrameTimeoutNanoseconds: UInt64 = MobileHostConnection.defaultFirstFrameTimeoutNanoseconds,
+        idleTimeoutNanoseconds: UInt64 = MobileHostConnection.defaultIdleTimeoutNanoseconds,
+        authorizeRequest: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult?,
+        onAuthorizedRequest: @escaping @Sendable (MobileHostRPCRequest) async -> Void,
+        handleRequest: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult,
+        onClose: @escaping @Sendable (UUID) async -> Void
+    ) {
+        self.init(
+            id: id,
+            connection: MobileHostNWConnectionAdapter(connection: connection),
+            firstFrameTimeoutNanoseconds: firstFrameTimeoutNanoseconds,
+            idleTimeoutNanoseconds: idleTimeoutNanoseconds,
+            authorizeRequest: authorizeRequest,
+            onAuthorizedRequest: onAuthorizedRequest,
+            handleRequest: handleRequest,
+            onClose: onClose
+        )
     }
 
     func start() {

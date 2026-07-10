@@ -2,8 +2,8 @@ import Foundation
 import Testing
 @testable import CMUXMobileCore
 
-/// Coverage for the minimal v2 pairing-QR grammar: bare Tailscale
-/// `host:port` routes in the URL query, nothing else.
+/// Coverage for the minimal pairing-QR grammar: iroh peer routes plus
+/// Tailscale `host:port` fallbacks in the URL query, nothing secret.
 @Suite struct CmxPairingQRCodeTests {
     private func tailscaleRoute(
         index: Int,
@@ -32,6 +32,24 @@ import Testing
         )
     }
 
+    private func irohRoute(
+        peerID: String = "peer-abcdef123456",
+        relayURL: String? = "https://relay.example.com",
+        directAddrs: [String] = ["192.0.2.10:443"]
+    ) throws -> CmxAttachRoute {
+        try CmxAttachRoute(
+            id: "iroh",
+            kind: .iroh,
+            endpoint: .peer(
+                id: peerID,
+                relayHint: nil,
+                directAddrs: directAddrs,
+                relayURL: relayURL
+            ),
+            priority: 5
+        )
+    }
+
     private func components(_ url: String) throws -> URLComponents {
         let parsed = try #require(URL(string: url))
         return try #require(URLComponents(url: parsed, resolvingAgainstBaseURL: false))
@@ -45,7 +63,7 @@ import Testing
         // The scheme is channel-specific: a release Mac emits cmux-ios, a dev
         // Mac emits cmux-ios-dev, so the system camera routes each channel's QR
         // to its build. The rest of the URL is identical across channels.
-        #expect(url == "\(CmxPairingURLScheme.current)://attach?v=2&r=100.64.0.5:58465")
+        #expect(url == "\(CmxPairingURLScheme.current)://attach?v=3&r=100.64.0.5:58465")
 
         let decoded = try CmxPairingQRCode().decode(try components(url))
         #expect(decoded.routes == ticket.routes)
@@ -73,6 +91,30 @@ import Testing
         // route preference is preserved without encoding either field.
         #expect(decoded.routes.map(\.id) == ["tailscale", "tailscale_2"])
         #expect(decoded.routes.map(\.priority) == [10, 20])
+    }
+
+    @Test func decodesLegacyV2TailscaleOnlyRoutes() throws {
+        let url = "\(CmxPairingURLScheme.current)://attach?v=2&r=100.64.0.5:58465"
+        let decoded = try CmxPairingQRCode().decode(try components(url))
+        #expect(decoded.routes == [
+            try tailscaleRoute(index: 0, host: "100.64.0.5"),
+        ])
+    }
+
+    @Test func roundTripsIrohPreferredWithTailscaleFallback() throws {
+        let iroh = try irohRoute()
+        let tailscale = try tailscaleRoute(index: 0, host: "100.64.0.5")
+        let ticket = try pairingTicket(routes: [iroh, tailscale])
+        let url = try #require(CmxPairingQRCode().encode(ticket))
+        #expect(url.contains("v=3"))
+        #expect(url.contains("i=peer-abcdef123456"))
+        #expect(url.contains("u=https://relay.example.com"))
+        #expect(url.contains("d=192.0.2.10:443"))
+        #expect(url.contains("r=100.64.0.5:58465"))
+
+        let decoded = try CmxPairingQRCode().decode(try components(url))
+        #expect(decoded.routes == [iroh, tailscale])
+        #expect(decoded.preferredRoute(supportedKinds: [.iroh, .tailscale])?.kind == .iroh)
     }
 
     @Test func roundTripsUserIDAndBuildMetadataWithoutExposingEmail() throws {
@@ -134,7 +176,7 @@ import Testing
         let ticket = try pairingTicket(routes: [loopback, tailscale])
 
         let url = try #require(CmxPairingQRCode().encode(ticket))
-        #expect(url == "\(CmxPairingURLScheme.current)://attach?v=2&r=100.64.0.5:58465")
+        #expect(url == "\(CmxPairingURLScheme.current)://attach?v=3&r=100.64.0.5:58465")
         let decoded = try CmxPairingQRCode().decode(try components(url))
         #expect(decoded.routes == [tailscale])
     }
@@ -191,11 +233,9 @@ import Testing
         ])
         #expect(CmxPairingQRCode().encode(loopbackTailscale) == nil)
 
-        // A non-Tailscale fallback route the bare host:port grammar cannot
-        // express (an iroh peer) must NOT be silently dropped: the ticket
-        // keeps the lossless compact payload instead. Only loopback routes,
-        // which no phone may ever dial, are droppable.
-        let withIrohFallback = try pairingTicket(routes: [
+        // A non-canonical iroh priority would not round-trip to the Mac's
+        // preferred route ordering, so it keeps the lossless compact payload.
+        let nonCanonicalIroh = try pairingTicket(routes: [
             tailscale,
             try CmxAttachRoute(
                 id: "iroh",
@@ -204,8 +244,8 @@ import Testing
                 priority: 20
             ),
         ])
-        #expect(CmxPairingQRCode().encode(withIrohFallback) == nil)
-        #expect(!CmxPairingQRCode().canEncode(withIrohFallback))
+        #expect(CmxPairingQRCode().encode(nonCanonicalIroh) == nil)
+        #expect(!CmxPairingQRCode().canEncode(nonCanonicalIroh))
     }
 
     @Test(arguments: [
@@ -230,7 +270,7 @@ import Testing
     ])
     func decodeRejectsLoopbackHosts(host: String) throws {
         let encodedHost = host.contains(":") ? "[\(host)]" : host
-        let url = "cmux-ios://attach?v=2&r=\(encodedHost):58465"
+        let url = "cmux-ios://attach?v=3&r=\(encodedHost):58465"
         #expect(throws: MobileSyncPairingPayloadError.loopbackRouteRejected) {
             try CmxPairingQRCode().decode(try components(url))
         }
@@ -238,7 +278,7 @@ import Testing
 
     @Test func decodeRejectsLoopbackEvenWhenARealRouteIsPresent() throws {
         // Hostile half-and-half codes fail closed, not "dial the good half".
-        let url = "cmux-ios://attach?v=2&r=100.64.0.5:58465&r=127.0.0.1:58465"
+        let url = "cmux-ios://attach?v=3&i=peer-1&r=100.64.0.5:58465&r=127.0.0.1:58465"
         #expect(throws: MobileSyncPairingPayloadError.loopbackRouteRejected) {
             try CmxPairingQRCode().decode(try components(url))
         }
@@ -246,13 +286,13 @@ import Testing
 
     @Test func decodeRejectsMalformedRoutes() throws {
         let malformed = [
-            "cmux-ios://attach?v=2",
-            "cmux-ios://attach?v=2&r=",
-            "cmux-ios://attach?v=2&r=hostonly",
-            "cmux-ios://attach?v=2&r=host:0",
-            "cmux-ios://attach?v=2&r=host:99999",
-            "cmux-ios://attach?v=2&r=host:not-a-port",
-            "cmux-ios://attach?v=2&r=[::1:58465",
+            "cmux-ios://attach?v=3",
+            "cmux-ios://attach?v=3&r=",
+            "cmux-ios://attach?v=3&r=hostonly",
+            "cmux-ios://attach?v=3&r=host:0",
+            "cmux-ios://attach?v=3&r=host:99999",
+            "cmux-ios://attach?v=3&r=host:not-a-port",
+            "cmux-ios://attach?v=3&r=[::1:58465",
         ]
         for url in malformed {
             #expect(throws: (any Error).self, "\(url) should not decode") {
@@ -266,11 +306,19 @@ import Testing
             .map { "r=100.64.0.\($0 + 1):58465" }
             .joined(separator: "&")
         #expect(throws: MobileSyncPairingPayloadError.invalidURL) {
-            try CmxPairingQRCode().decode(try components("cmux-ios://attach?v=2&\(routes)"))
+            try CmxPairingQRCode().decode(try components("cmux-ios://attach?v=3&\(routes)"))
+        }
+
+        let fallbackRoutes = (0..<CmxPairingQRCode.maximumRouteCount)
+            .map { "r=100.64.0.\($0 + 1):58465" }
+            .joined(separator: "&")
+        #expect(throws: MobileSyncPairingPayloadError.invalidURL) {
+            try CmxPairingQRCode().decode(try components("cmux-ios://attach?v=3&i=peer-1&\(fallbackRoutes)"))
         }
     }
 
     @Test func versionedURLDetectionDistinguishesGrammars() throws {
+        #expect(CmxPairingQRCode().isPairingCodeURLString("cmux-ios://attach?v=3&i=peer-1"))
         #expect(CmxPairingQRCode().isPairingCodeURLString("cmux-ios://attach?v=2&r=100.64.0.5:58465"))
         #expect(!CmxPairingQRCode().isPairingCodeURLString("cmux-ios://attach?v=1&payload=abc"))
         #expect(!CmxPairingQRCode().isPairingCodeURLString("cmux-ios://pair?v=1&payload=abc"))
@@ -281,7 +329,7 @@ import Testing
     @Test func decodedTicketStillPairsLongAfterMint() throws {
         // The grammar has no expiry field at all, so a code that sat on the
         // Mac's screen for 10+ minutes still validates and is never expired.
-        let url = "cmux-ios://attach?v=2&r=100.64.0.5:58465"
+        let url = "cmux-ios://attach?v=3&i=peer-1&r=100.64.0.5:58465"
         let decoded = try CmxPairingQRCode().decode(try components(url))
         #expect(decoded.expiresAt == nil)
         #expect(!decoded.isExpired(at: Date.distantFuture))

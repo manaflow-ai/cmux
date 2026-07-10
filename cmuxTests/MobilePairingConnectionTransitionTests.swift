@@ -16,6 +16,7 @@ struct MobilePairingConnectionTransitionTests {
             attachURL: "cmux-ios://attach?ticket=abc",
             macName: "Test Mac",
             tailscaleLines: ["100.64.0.1:7777"],
+            hasIrohRoute: false,
             manualEntry: CmxManualPairingEntry(host: "100.64.0.1", port: 7777)
         )
     }
@@ -102,5 +103,49 @@ struct MobilePairingConnectionTransitionTests {
             baselineConnectionCount: 0
         )
         #expect(next == .signedOut)
+    }
+
+    @Test("Iroh-only routes are reachable for QR pairing")
+    func irohOnlyRouteIsReachableForPairing() throws {
+        let route = try CmxAttachRoute(
+            id: "iroh",
+            kind: .iroh,
+            endpoint: .peer(
+                id: "peer-abcdef",
+                relayHint: nil,
+                directAddrs: [],
+                relayURL: "https://relay.example.com"
+            ),
+            priority: 5
+        )
+        #expect(MobilePairingModel.isPhoneReachableRoute(route))
+
+        let ticket = try CmxAttachTicket(
+            workspaceID: "",
+            terminalID: nil,
+            macDeviceID: "mac",
+            macDisplayName: nil,
+            routes: [route]
+        )
+        let url = try #require(CmxPairingQRCode().encode(ticket))
+        #expect(CmxPairingQRCode().isPairingCodeURLString(url))
+    }
+
+    @Test("Loopback-only routes leave pairing in the no-route guidance path")
+    func loopbackOnlyRouteIsNotReachableForPairing() throws {
+        let route = try CmxAttachRoute(
+            id: "debug_loopback",
+            kind: .debugLoopback,
+            endpoint: .hostPort(host: "127.0.0.1", port: 58465)
+        )
+        #expect(!MobilePairingModel.isPhoneReachableRoute(route))
+        let ticket = try CmxAttachTicket(
+            workspaceID: "",
+            terminalID: nil,
+            macDeviceID: "mac",
+            macDisplayName: nil,
+            routes: [route]
+        )
+        #expect(CmxPairingQRCode().encode(ticket) == nil)
     }
 }

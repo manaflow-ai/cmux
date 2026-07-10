@@ -215,6 +215,77 @@ struct MobileHostAuthorizationTests {
         }
         #expect(snapshot.routes.filter { $0.kind == .debugLoopback }.count == 1)
     }
+
+    @Test func testMobileRouteResolverMintsIrohAheadOfTailscale() throws {
+        let resolver = MobileRouteResolver()
+        let irohRoute = try CmxAttachRoute(
+            id: "iroh",
+            kind: .iroh,
+            endpoint: .peer(
+                id: "peer-abcdef",
+                relayHint: nil,
+                directAddrs: ["192.0.2.10:443"],
+                relayURL: "https://relay.example.com"
+            ),
+            priority: 5
+        )
+        let snapshot = resolver.routes(
+            port: 61234,
+            irohRoute: irohRoute,
+            tailscaleHosts: ["100.71.210.41"]
+        )
+
+        let iroh = try #require(snapshot.routes.first { $0.kind == .iroh })
+        #expect(iroh.priority == 5)
+        #expect(snapshot.routes.first { $0.kind == .tailscale }?.priority == 10)
+        #expect(snapshot.routes.filter { $0.kind == .iroh }.count == 1)
+        let preferred = snapshot.routes
+            .filter { $0.kind == .iroh || $0.kind == .tailscale }
+            .sorted { $0.priority < $1.priority }
+            .first
+        #expect(preferred?.kind == .iroh)
+    }
+
+    @Test func testMobileRouteResolverOmitsIrohWhenNoEndpointRouteIsAvailable() throws {
+        let resolver = MobileRouteResolver()
+        let snapshot = resolver.routes(
+            port: 61234,
+            irohRoute: nil,
+            tailscaleHosts: ["100.71.210.41"]
+        )
+        #expect(snapshot.routes.contains { $0.kind == .tailscale })
+        #expect(!snapshot.routes.contains { $0.kind == .iroh })
+    }
+
+    @Test func testMobilePairingSnapshotShowsPeerRoutes() throws {
+        let status = MobileHostServiceStatus(
+            isRunning: true,
+            port: 61234,
+            configuredPort: 61234,
+            usesEphemeralFallback: false,
+            routes: [
+                try CmxAttachRoute(
+                    id: "iroh",
+                    kind: .iroh,
+                    endpoint: .peer(
+                        id: "peer-abcdef1234567890",
+                        relayHint: nil,
+                        directAddrs: [],
+                        relayURL: "https://relay.example.com/path"
+                    ),
+                    priority: 5
+                ),
+            ],
+            activeConnectionCount: 0,
+            lastErrorDescription: nil
+        )
+
+        let snapshot = HostSettingsActions.mobilePairingSnapshot(from: status)
+        let route = try #require(snapshot.routes.first)
+        #expect(route.kindLabel == String(localized: "settings.mobile.route.iroh", defaultValue: "Iroh"))
+        #expect(route.endpoint == "peer-abcdef1 - relay.example.com")
+    }
+
     @Test func testMobileRouteResolverAwaitsMagicDNSForPublicStatusRoutes() async throws {
         let resolver = MobileRouteResolver()
         let snapshot = await resolver.routesResolvingTailscaleDNS(

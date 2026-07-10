@@ -867,6 +867,12 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C7A50B000000000000000016 /* MobileHostBuildIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A50B000000000000000015 /* MobileHostBuildIdentity.swift */; };
 		C1F00410C1F00410C1F00410 /* MobileHostByteConnection.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1F00411C1F00411C1F00411 /* MobileHostByteConnection.swift */; };
 		B8B056D80000000000000001 /* MobileHostIdentityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8B056D80000000000000002 /* MobileHostIdentityTests.swift */; };
+		C1F00426C1F00426C1F00426 /* MobileHostIrohConnectionAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1F00427C1F00427C1F00427 /* MobileHostIrohConnectionAdapter.swift */; };
+		C1F00420C1F00420C1F00420 /* MobileHostIrohFFI.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1F00421C1F00421C1F00421 /* MobileHostIrohFFI.swift */; };
+		C1F00428C1F00428C1F00428 /* MobileHostIrohFlag.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1F00429C1F00429C1F00429 /* MobileHostIrohFlag.swift */; };
+		C1F00424C1F00424C1F00424 /* MobileHostIrohRoute.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1F00425C1F00425C1F00425 /* MobileHostIrohRoute.swift */; };
+		C1F00422C1F00422C1F00422 /* MobileHostIrohSecretKeyStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1F00423C1F00423C1F00423 /* MobileHostIrohSecretKeyStore.swift */; };
+		C1F0042AC1F0042AC1F0042A /* MobileHostIrohSecretKeyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1F0042BC1F0042BC1F0042B /* MobileHostIrohSecretKeyTests.swift */; };
 		DE71CE000000000000000008 /* MobileHostNetworkPathMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE71CE000000000000000007 /* MobileHostNetworkPathMonitor.swift */; };
 		DE71CE000000000000000006 /* MobileHostNetworkPathRefreshTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE71CE000000000000000005 /* MobileHostNetworkPathRefreshTests.swift */; };
 		C1F00412C1F00412C1F00412 /* MobileHostNWConnectionAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1F00413C1F00413C1F00413 /* MobileHostNWConnectionAdapter.swift */; };
@@ -2512,6 +2518,12 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C7A50B000000000000000015 /* MobileHostBuildIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileHostBuildIdentity.swift; sourceTree = "<group>"; };
 		C1F00411C1F00411C1F00411 /* MobileHostByteConnection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileHostByteConnection.swift; sourceTree = "<group>"; };
 		B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostIdentityTests.swift; sourceTree = "<group>"; };
+		C1F00427C1F00427C1F00427 /* MobileHostIrohConnectionAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileHostIrohConnectionAdapter.swift; sourceTree = "<group>"; };
+		C1F00421C1F00421C1F00421 /* MobileHostIrohFFI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileHostIrohFFI.swift; sourceTree = "<group>"; };
+		C1F00429C1F00429C1F00429 /* MobileHostIrohFlag.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileHostIrohFlag.swift; sourceTree = "<group>"; };
+		C1F00425C1F00425C1F00425 /* MobileHostIrohRoute.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileHostIrohRoute.swift; sourceTree = "<group>"; };
+		C1F00423C1F00423C1F00423 /* MobileHostIrohSecretKeyStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileHostIrohSecretKeyStore.swift; sourceTree = "<group>"; };
+		C1F0042BC1F0042BC1F0042B /* MobileHostIrohSecretKeyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileHostIrohSecretKeyTests.swift; sourceTree = "<group>"; };
 		DE71CE000000000000000007 /* MobileHostNetworkPathMonitor.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostNetworkPathMonitor.swift; sourceTree = "<group>"; };
 		DE71CE000000000000000005 /* MobileHostNetworkPathRefreshTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileHostNetworkPathRefreshTests.swift; sourceTree = "<group>"; };
 		C1F00413C1F00413C1F00413 /* MobileHostNWConnectionAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileHostNWConnectionAdapter.swift; sourceTree = "<group>"; };
@@ -3489,6 +3501,11 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				8D6D2AC715764ECC1F6B26A2 /* MobileAttachTicketStore.swift */,
 				47BDC06F004C02A52B05E4A0 /* MobileHostRPC.swift */,
 				C1F00411C1F00411C1F00411 /* MobileHostByteConnection.swift */,
+				C1F00427C1F00427C1F00427 /* MobileHostIrohConnectionAdapter.swift */,
+				C1F00421C1F00421C1F00421 /* MobileHostIrohFFI.swift */,
+				C1F00429C1F00429C1F00429 /* MobileHostIrohFlag.swift */,
+				C1F00425C1F00425C1F00425 /* MobileHostIrohRoute.swift */,
+				C1F00423C1F00423C1F00423 /* MobileHostIrohSecretKeyStore.swift */,
 				C1F00413C1F00413C1F00413 /* MobileHostNWConnectionAdapter.swift */,
 				7ACA497A6831165EA879C642 /* MobileHostService.swift */,
 				C0DE00000000000000000C8C /* MobileHostService+TicketAuthorization.swift */,
@@ -5020,6 +5037,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				FE002010 /* FileExplorerDoubleClickActionTests.swift */,
 				FE002003 /* FileSearchRipgrepParserTests.swift */,
 				9BD519CFE74530A46DF0925D /* MobileHostAuthorizationTests.swift */,
+				C1F0042BC1F0042BC1F0042B /* MobileHostIrohSecretKeyTests.swift */,
 				C0DE73840000000000000002 /* MobileHostWorkspaceTicketAuthorizationTests.swift */,
 				B8B056D80000000000000002 /* MobileHostIdentityTests.swift */,
 				5E2701030000000000000002 /* SentryEventScrubberTests.swift */,
@@ -5940,6 +5958,11 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C0DEA7710000000000000009 /* MobileConnectTitlebarAccessory.swift in Sources */,
 				C7A50B000000000000000016 /* MobileHostBuildIdentity.swift in Sources */,
 				C1F00410C1F00410C1F00410 /* MobileHostByteConnection.swift in Sources */,
+				C1F00426C1F00426C1F00426 /* MobileHostIrohConnectionAdapter.swift in Sources */,
+				C1F00420C1F00420C1F00420 /* MobileHostIrohFFI.swift in Sources */,
+				C1F00428C1F00428C1F00428 /* MobileHostIrohFlag.swift in Sources */,
+				C1F00424C1F00424C1F00424 /* MobileHostIrohRoute.swift in Sources */,
+				C1F00422C1F00422C1F00422 /* MobileHostIrohSecretKeyStore.swift in Sources */,
 				DE71CE000000000000000008 /* MobileHostNetworkPathMonitor.swift in Sources */,
 				C1F00412C1F00412C1F00412 /* MobileHostNWConnectionAdapter.swift in Sources */,
 				4E673EDE464BF3AB80E94C1D /* MobileHostRPC.swift in Sources */,
@@ -6833,6 +6856,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 					C0DE70520000000000000002 /* MenuBarProfilingLauncherTests.swift in Sources */,
 				6AA2F2E8BEB19ED6B8E125DB /* MobileHostAuthorizationTests.swift in Sources */,
 				B8B056D80000000000000001 /* MobileHostIdentityTests.swift in Sources */,
+				C1F0042AC1F0042AC1F0042A /* MobileHostIrohSecretKeyTests.swift in Sources */,
 				DE71CE000000000000000006 /* MobileHostNetworkPathRefreshTests.swift in Sources */,
 				C0DE10510000000000000001 /* MobileHostServiceSettingsTests.swift in Sources */,
 				4C1A7E10B2D34F56A8C90013 /* MobileHostStatusVerificationLimiterTests.swift in Sources */,
@@ -7153,6 +7177,10 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				DEVELOPMENT_TEAM = "";
 				ENABLE_HARDENED_RUNTIME = NO;
 				GENERATE_INFOPLIST_FILE = NO;
+				HEADER_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/native/cmux-iroh/include",
+				);
 				INFOPLIST_FILE = Resources/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -7187,6 +7215,10 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				SPARKLE_PUBLIC_KEY = "avjcgKibf1FTvhIjLBxhd+0HSpsXU4D0IGlVk8cgqRc=";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_ENABLE_BATCH_MODE = NO;
+				SWIFT_INCLUDE_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/native/cmux-iroh/include",
+				);
 				SWIFT_OBJC_BRIDGING_HEADER = "cmux-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;
 			};
@@ -7205,6 +7237,10 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				DEVELOPMENT_TEAM = "";
 				ENABLE_HARDENED_RUNTIME = NO;
 				GENERATE_INFOPLIST_FILE = NO;
+				HEADER_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/native/cmux-iroh/include",
+				);
 				INFOPLIST_FILE = Resources/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -7235,6 +7271,10 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				PRODUCT_NAME = cmux;
 				SPARKLE_PUBLIC_KEY = "avjcgKibf1FTvhIjLBxhd+0HSpsXU4D0IGlVk8cgqRc=";
 				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_INCLUDE_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/native/cmux-iroh/include",
+				);
 				SWIFT_OBJC_BRIDGING_HEADER = "cmux-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;
 			};
@@ -7352,12 +7392,20 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 97;
 				GENERATE_INFOPLIST_FILE = YES;
+				HEADER_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/native/cmux-iroh/include",
+				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MARKETING_VERSION = 0.64.17;
 				ONLY_ACTIVE_ARCH = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = com.cmuxterm.apptests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_INCLUDE_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/native/cmux-iroh/include",
+				);
 				SWIFT_VERSION = 5.0;
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/cmux DEV.app/Contents/MacOS/cmux DEV";
 				TEST_TARGET_NAME = cmux;
@@ -7371,11 +7419,19 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 97;
 				GENERATE_INFOPLIST_FILE = YES;
+				HEADER_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/native/cmux-iroh/include",
+				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MARKETING_VERSION = 0.64.17;
 				ONLY_ACTIVE_ARCH = NO;
 				PRODUCT_BUNDLE_IDENTIFIER = com.cmuxterm.apptests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_INCLUDE_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/native/cmux-iroh/include",
+				);
 				SWIFT_VERSION = 5.0;
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/cmux.app/Contents/MacOS/cmux";
 				TEST_TARGET_NAME = cmux;

@@ -24,6 +24,8 @@ public struct MobilePairingRoute: Sendable, Equatable, Identifiable {
     /// The TCP port the phone connects to.
     public let port: Int
 
+    private let displayEndpoint: String?
+
     /// Creates a pairing-route descriptor.
     ///
     /// - Parameters:
@@ -36,6 +38,21 @@ public struct MobilePairingRoute: Sendable, Equatable, Identifiable {
         self.kindLabel = kindLabel
         self.host = host
         self.port = port
+        self.displayEndpoint = nil
+    }
+
+    /// Creates a preformatted pairing-route descriptor for non-host endpoints.
+    ///
+    /// - Parameters:
+    ///   - id: Stable identifier used as the list identity.
+    ///   - kindLabel: Localized transport label.
+    ///   - endpoint: Endpoint display string supplied by the host.
+    public init(id: String, kindLabel: String, endpoint: String) {
+        self.id = id
+        self.kindLabel = kindLabel
+        self.host = endpoint
+        self.port = 0
+        self.displayEndpoint = endpoint
     }
 
     /// The `host:port` pair as a single display string (e.g. `100.64.0.1:58465`).
@@ -43,6 +60,9 @@ public struct MobilePairingRoute: Sendable, Equatable, Identifiable {
     /// IPv6 literals are wrapped in brackets per RFC 3986 (`[fe80::1]:58465`) so
     /// the port colon isn't ambiguous with the address colons.
     public var endpoint: String {
+        if let displayEndpoint {
+            return displayEndpoint
+        }
         let isIPv6Literal = host.contains(":")
         return isIPv6Literal ? "[\(host)]:\(port)" : "\(host):\(port)"
     }
