@@ -31,6 +31,33 @@ import CmuxGit
         return predicate()
     }
 
+    @Test func consecutiveFallbackRoundsUseDistinctSnapshotAuthority() throws {
+        let directory = "/tmp/repo"
+        let host = RecordingSidebarGitHost()
+        let service = makeService(
+            host: host,
+            reader: GatedMetadataReader(metadata: .repository(branch: "feature/x")),
+            clock: ManualGitPollClock()
+        )
+
+        service.markWorkspaceGitSnapshotCacheEligible(directory: directory)
+
+        let firstRound = try #require(
+            service.trackedPathEventGenerationForSnapshot(
+                directory: directory,
+                reason: "fallbackTimer"
+            )
+        )
+        let secondRound = try #require(
+            service.trackedPathEventGenerationForSnapshot(
+                directory: directory,
+                reason: "fallbackTimer"
+            )
+        )
+
+        #expect(firstRound != secondRound)
+    }
+
     @Test(.timeLimit(.minutes(1)))
     func fallbackRefreshReusesCurrentTrackedSnapshotCacheGeneration() async throws {
         let directory = "/tmp/repo"
