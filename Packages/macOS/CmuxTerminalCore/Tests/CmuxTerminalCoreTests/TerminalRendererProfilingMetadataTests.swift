@@ -1,4 +1,5 @@
 import Foundation
+import GhosttyKit
 import OSLog
 import Testing
 @testable import CmuxTerminalCore
