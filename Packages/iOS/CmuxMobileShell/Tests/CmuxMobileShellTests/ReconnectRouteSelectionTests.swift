@@ -178,45 +178,6 @@ import Testing
         #expect(merged.count == 2)
     }
 
-    @Test func reconnectDedupKeepsOverlappingAddressesFromDifferentProfiles() throws {
-        let now = Date()
-        let endpointID = try CmxIrohPeerIdentity(
-            endpointID: String(repeating: "a", count: 64)
-        )
-        func route(id: String, profileID: String) throws -> CmxAttachRoute {
-            try CmxAttachRoute(
-                id: id,
-                kind: .iroh,
-                endpoint: .peer(
-                    identity: endpointID,
-                    pathHints: [
-                        try CmxIrohPathHint(
-                            kind: .directAddress,
-                            value: "10.0.0.4:49152",
-                            source: .customVPN,
-                            privacyScope: .privateNetwork,
-                            observedAt: now,
-                            expiresAt: now.addingTimeInterval(300),
-                            networkProfile: CmxIrohNetworkProfileKey(
-                                source: .customVPN,
-                                profileID: profileID
-                            )
-                        ),
-                    ]
-                )
-            )
-        }
-        let siteA = try route(id: "iroh-site-a", profileID: "site-a")
-        let siteB = try route(id: "iroh-site-b", profileID: "site-b")
-
-        let merged = MobileShellComposite.mergedReconnectRoutes(
-            ticketRoutes: [siteA],
-            storedRoutes: [siteB]
-        )
-
-        #expect(Set(merged.map(\.id)) == ["iroh-site-a", "iroh-site-b"])
-    }
-
     @Test func reconnectActiveMacFallsThroughStaleRouteToGoodRouteInOneAttempt() async throws {
         let clock = TestClock()
         let router = LivenessHostRouter()

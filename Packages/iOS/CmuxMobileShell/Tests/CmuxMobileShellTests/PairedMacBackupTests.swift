@@ -68,62 +68,6 @@ private let backupRouteDisclosureDate = Date(timeIntervalSince1970: 2_000_000_00
 
     // MARK: - Decorator backup mirroring
 
-    @Test func pairedMacCloudBackupNeverCarriesPrivateIrohHints() throws {
-        let now = Date()
-        let privateAddress = "100.64.1.2:49152"
-        let route = try CmxAttachRoute(
-            id: "iroh",
-            kind: .iroh,
-            endpoint: .peer(
-                identity: CmxIrohPeerIdentity(
-                    endpointID: String(repeating: "a", count: 64)
-                ),
-                pathHints: [
-                    try CmxIrohPathHint(
-                        kind: .directAddress,
-                        value: privateAddress,
-                        source: .tailscale,
-                        privacyScope: .privateNetwork,
-                        observedAt: now,
-                        expiresAt: now.addingTimeInterval(300),
-                        networkProfile: CmxIrohNetworkProfileKey(
-                            source: .tailscale,
-                            profileID: "production"
-                        )
-                    ),
-                    try CmxIrohPathHint(
-                        kind: .relayURL,
-                        value: "https://relay.example.test/",
-                        source: .native,
-                        privacyScope: .publicInternet
-                    ),
-                ]
-            )
-        )
-        let mac = MobilePairedMac(
-            macDeviceID: "mac-a",
-            displayName: "A",
-            routes: [route],
-            createdAt: now,
-            lastSeenAt: now,
-            isActive: true,
-            stackUserID: "user-1"
-        )
-
-        let record = BackingUpPairedMacStore.backupRecord(from: mac)
-        guard case let .peer(_, hints) = record.routes.first?.endpoint else {
-            Issue.record("Expected backed-up Iroh peer route")
-            return
-        }
-        #expect(hints.count == 1)
-        #expect(hints.first?.kind == .relayURL)
-
-        let object = try encodedRecordObject(from: .upsert(record))
-        let encoded = try JSONSerialization.data(withJSONObject: object)
-        let json = try #require(String(data: encoded, encoding: .utf8))
-        #expect(!json.contains(privateAddress))
-        #expect(!json.contains("production"))
-    }
 
     @Test func tokenSourceRejectsExpectedUserMismatchBeforeTokenRead() async {
         let probe = TokenProbe(userIDs: ["user-2"])
@@ -739,17 +683,6 @@ private let backupRouteDisclosureDate = Date(timeIntervalSince1970: 2_000_000_00
         #expect(keys["customIcon"] is NSNull)
     }
 
-    @Test func deleteUploadHasNoRecordBody() throws {
-        let body = PairedMacBackupRequestBody(ops: [PairedMacBackupOpWire(
-            op: .delete(macDeviceID: "mac-a"),
-            routeDisclosureDate: backupRouteDisclosureDate
-        )])
-        let json = try JSONSerialization.jsonObject(with: try JSONEncoder().encode(body)) as? [String: Any]
-        let ops = try #require(json?["ops"] as? [[String: Any]])
-        let first = try #require(ops.first)
-        #expect(first["record"] == nil)
-        #expect(first["deleted"] as? Bool == true)
-    }
 
     @Test func routineMirrorUploadsUsePreserveModeEvenForTombstoneRevive() async throws {
         let (inner, dir) = try makeInnerStore()

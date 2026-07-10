@@ -179,6 +179,8 @@ extension MobileShellComposite {
             case let .hostPort(host, port):
                 return "host:\(host)\u{1F}\(port)"
             case let .peer(identity, pathHints):
+                // Freshness is route state, not endpoint identity. The fresh
+                // ticket route is inserted first and replaces this stored path.
                 let hintKey = pathHints.map { hint in
                     let profileKey = hint.networkProfile.map {
                         "\($0.source.rawValue):\($0.profileID)"
@@ -189,10 +191,10 @@ extension MobileShellComposite {
                         hint.source.rawValue,
                         hint.privacyScope.rawValue,
                         profileKey,
-                        hint.observedAt?.timeIntervalSince1970.description ?? "",
-                        hint.expiresAt?.timeIntervalSince1970.description ?? "",
                     ].joined(separator: ":")
-                }.joined(separator: ",")
+                }
+                .sorted()
+                .joined(separator: ",")
                 return "peer:\(identity.endpointID)\u{1F}\(hintKey)"
             case let .url(url):
                 return "url:\(url)"
