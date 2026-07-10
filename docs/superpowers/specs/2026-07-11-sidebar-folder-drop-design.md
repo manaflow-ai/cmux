@@ -30,67 +30,87 @@ run side-by-side with the released Cmux.
 
 ## Approach (A: native drop into the internal workspace API)
 
-Add a native macOS drag destination to the sidebar root view that accepts file
-URLs, filters to directories, and calls Cmux's existing new-workspace path with
-the dropped folder as the working directory.
+Handle the folder drop inside the existing window-level Finder drop overlay,
+`FileDropOverlayView`, gated by a sidebar-region check, and call Cmux's existing
+new-workspace path with the dropped folder as the working directory.
 
-Cmux already solves both halves of this, so the work is wiring, not invention:
+**Why the window overlay and not a sidebar-embedded view (confirmed by code
+exploration):** `FileDropOverlayView` is a transparent NSView installed on the
+window theme frame above the whole content hierarchy. Its `hitTest` captures
+every Finder file-URL drag across the entire window, sidebar strip included,
+with no region filtering (`Sources/FileDropOverlayView.swift:115-146`). AppKit
+only delivers dragging-destination messages to the view `hitTest` returns, so a
+separate NSView embedded in the sidebar would never receive a file-URL drag. It
+would be dead code. The feature therefore extends `FileDropOverlayView`.
 
-- **File-drop precedent to mirror:** `Sources/FileDropOverlayView.swift`,
-  `Sources/FileDropOverlayViewHitTesting.swift`,
-  `Sources/TerminalPaneDropTargetView.swift`,
-  `Sources/BrowserPaneDropTargetView.swift`. These show the codebase's
-  established pattern for accepting external file URLs on a view. The sidebar
-  drop target follows the same pattern.
-- **New-workspace-with-cwd precedent:** `TabManager.openWorkspace(
-  fromSavedLayout:cwdOverride:focus:)` (in
-  `Sources/TabManager+SavedLayouts.swift`) and
-  `TabManager.addWorkspace(...)` (in
-  `Sources/TabManager+DetachedWorkspace.swift`) already create workspaces and
-  already accept a working-directory override. The drop handler calls the same
-  entry point the normal "new workspace" action uses, passing the dropped
-  folder as the cwd. Exact signature to confirm during implementation via a
-  code-exploration pass; the plan pins it down before code is written.
+Cmux already provides the two building blocks, so the work is wiring:
+
+- **New-workspace-with-cwd (existing, verified):**
+  `TabManager.addWorkspace(workingDirectory: url.path)` is `@MainActor`, returns
+  `Workspace`, and is exactly what the command-palette "Open Folder" handler
+  already calls (`Sources/ContentView.swift:7573`, after a directory-only
+  `NSOpenPanel`). This is the canonical call for "open a folder as a new
+  workspace." The drop handler calls it once per dropped directory.
+- **File-URL reading (existing, verified):**
+  `PasteboardFileURLReader.fileURLs(from: sender.draggingPasteboard) -> [URL]`
+  (`Sources/TerminalImageTransfer.swift:35-78`).
 
 ### Why not Approach B (shell out to the control socket/CLI)
 
 Rejected. Spawning a subprocess on every drop is clunky, depends on the `cmux`
-CLI being on PATH, and is slower than an in-process call. Kept only as a
-fallback if the internal new-workspace entry point turns out to be
-unreachable cleanly from the sidebar view (not expected).
+CLI being on PATH, and is slower than an in-process call.
 
 ## Architecture
 
-New, self-contained unit inside the sidebar layer (main app `Sources/`,
-alongside the existing sidebar drop files), with one clear job.
+Three new units plus a surgical change to the existing overlay.
 
-1. **Sidebar folder-drop target (new).** A view/overlay attached to the sidebar
-   root that registers for file-URL drags.
-   - On drag-enter/updated: inspect the dragged URLs. If at least one is a
-     directory, show the accept highlight and report a "copy"/"link" operation.
-     If none are directories, reject (no highlight, no drop).
-   - On perform-drop: collect the dropped URLs, keep only directories, and for
-     each call the new-workspace handler with that directory as cwd.
-   - Does not interfere with the sidebar's internal reorder drag, which uses a
-     different, app-internal drag type. Folder drops carry file URLs; reorder
-     drags carry the internal workspace-id type. The target only claims the
-     file-URL type.
+1. **`SidebarDropRegionRegistry` (new).** Mirrors the codebase's existing
+   `MinimalModeTitlebarControlHitRegionRegistry` (`WindowDragHandleView.swift`).
+   Holds weak references to registered sidebar-probe NSViews and answers
+   `containsWindowPoint(_ windowPoint: NSPoint, in window: NSWindow) -> Bool` by
+   converting a registered probe's bounds to window coordinates. Keeps
+   everything in AppKit window space (same space as
+   `NSDraggingInfo.draggingLocation`), so no SwiftUI-global coordinate flips.
 
-2. **Folder-filter helper (new, pure).** A tiny pure function:
-   input = list of dragged URLs, output = list of existing directory URLs
-   (deduped, order preserved). This is the unit-testable core and holds the
-   folders-only rule. No AppKit, no I/O beyond a directory-exists check that is
-   injected so tests can stub it.
+2. **`SidebarDropRegionProbe` (new).** A tiny `NSViewRepresentable` whose backing
+   NSView spans the sidebar and registers/unregisters itself with the registry
+   on move-to-window. Mounted as a `.background` of the sidebar container in
+   `ContentView`. Being inside the sidebar means its frame *is* the sidebar
+   region. Handles width, visibility and resize automatically via layout.
 
-3. **New-workspace call (existing).** The drop target calls the existing
-   `TabManager` new-workspace path with `cwdOverride` set. No new creation
-   logic.
+3. **`DirectoryDropFilter` (new, pure).** `directories(among urls: [URL],
+   isDirectory: (URL) -> Bool) -> [URL]` keeps existing directories, deduped by
+   path, order preserved. The `isDirectory` predicate is injected (default:
+   `FileManager.fileExists(atPath:isDirectory:)`) so the rule is unit-testable
+   with no filesystem. This is the folders-only rule.
+
+4. **`FileDropOverlayView` change (existing, surgical).** Add one private helper
+   that classifies a drag: `.openFolders([URL])` when the drop point is over the
+   sidebar and at least one URL is a directory; `.rejectOverSidebar` when over
+   the sidebar with no directories; `nil` when not over the sidebar. Wire it into
+   the three NSDraggingDestination lifecycle methods:
+   - `draggingEntered`/`draggingUpdated` (via `updateDragTarget`): return `.copy`
+     for `.openFolders`, `.none` for `.rejectOverSidebar`, else existing
+     behavior. Returning `.copy` here is mandatory or AppKit never delivers the
+     drop.
+   - `prepareForDragOperation`: `true` for `.openFolders`, `false` for
+     `.rejectOverSidebar`, else existing.
+   - `performDragOperation`: for `.openFolders`, call a new
+     `onFoldersDroppedOnSidebar: (([URL]) -> Bool)?` closure (set in
+     `configureFileDropOverlay`, capturing `tabManager`, opening one workspace
+     per folder) and return its result; `.rejectOverSidebar` returns `true`
+     (consumed, no-op); else existing behavior.
+
+   The `.rejectOverSidebar` branch is what stops a file dropped on the sidebar
+   from falling through and pasting its path into the focused terminal.
 
 ## Data flow
 
-Finder drag → sidebar drop target receives `[URL]` → folder-filter helper keeps
-directories only → for each directory, `TabManager` new-workspace(cwdOverride:
-dir) → new tab appears in sidebar, focused on the last dropped folder.
+Finder drag over sidebar → `FileDropOverlayView` lifecycle methods →
+classify via `SidebarDropRegionRegistry.containsWindowPoint` +
+`DirectoryDropFilter` → `.openFolders(dirs)` → `onFoldersDroppedOnSidebar`
+closure → `tabManager.addWorkspace(workingDirectory:)` per dir → new tab(s)
+appear, last dropped folder focused.
 
 ## Error handling (fail loud, no silent fallbacks)
 
