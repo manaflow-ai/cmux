@@ -1,3 +1,4 @@
+public import CMUXMobileCore
 import Foundation
 
 /// Owns Iroh endpoint generations and recreates unexpectedly stopped drivers.
@@ -183,14 +184,53 @@ public actor CmxIrohEndpointSupervisor {
     /// - Parameter relays: The complete new relay credential set.
     /// - Throws: A fleet validation or endpoint update error.
     public func replaceRelays(_ relays: [CmxIrohRelayConfiguration]) async throws {
+        try await replaceRelays(
+            relays,
+            expectedIdentity: Optional<CmxIrohPeerIdentity>.none
+        )
+    }
+
+    /// Installs relay credentials only on the active endpoint identity that requested them.
+    ///
+    /// A lifecycle transition during the update leaves the next generation's
+    /// configuration unchanged. This prevents a delayed token response for an
+    /// old binding from being committed to a replacement endpoint.
+    public func replaceRelays(
+        _ relays: [CmxIrohRelayConfiguration],
+        expectedIdentity: CmxIrohPeerIdentity
+    ) async throws {
+        try await replaceRelays(relays, expectedIdentity: Optional(expectedIdentity))
+    }
+
+    private func replaceRelays(
+        _ relays: [CmxIrohRelayConfiguration],
+        expectedIdentity: CmxIrohPeerIdentity?
+    ) async throws {
         let candidateConfiguration = try CmxIrohEndpointConfiguration(
             secretKey: configuration.secretKey,
             alpns: configuration.alpns,
             managedRelayURLs: configuration.managedRelayURLs,
             relays: relays
         )
-        if let endpoint {
-            try await endpoint.replaceRelays(relays)
+        guard let endpoint else {
+            guard expectedIdentity == nil else {
+                throw CmxIrohEndpointSupervisorError.inactive
+            }
+            configuration = candidateConfiguration
+            return
+        }
+        let revision = lifecycleRevision
+        if let expectedIdentity {
+            let actualIdentity = await endpoint.identity()
+            guard lifecycleRevision == revision,
+                  snapshot.state == .active,
+                  actualIdentity == expectedIdentity else {
+                throw CmxIrohEndpointSupervisorError.superseded
+            }
+        }
+        try await endpoint.replaceRelays(relays)
+        guard lifecycleRevision == revision, snapshot.state == .active else {
+            throw CmxIrohEndpointSupervisorError.superseded
         }
         configuration = candidateConfiguration
     }
