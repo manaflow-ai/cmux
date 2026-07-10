@@ -82,7 +82,6 @@ export default async function Image({
   const { locale } = await params;
   const tagline = openGraphImageTagline(locale);
   const localeFont = localeFonts[locale];
-  const taglineDirection = locale === "ar" ? "rtl" : "ltr";
   const [logoData, screenshotData, geistRegular, geistSemiBold, localeFontData] =
     await Promise.all([
       readFile(join(process.cwd(), "public", "logo.png")),
@@ -134,6 +133,8 @@ export default async function Image({
   }
   const taglineFontFamily =
     localeFont && localeFontData ? `${localeFont.name}, Geist` : "Geist";
+  const renderedTagline = localeFont && !localeFontData ? openGraphImageTagline("en") : tagline;
+  const taglineDirection = locale === "ar" && localeFontData ? "rtl" : "ltr";
 
   return new ImageResponse(
     (
@@ -225,7 +226,7 @@ export default async function Image({
                     lineHeight: 1,
                   }}
                 >
-                  {tagline}
+                  {renderedTagline}
                 </div>
               </div>
             </div>
