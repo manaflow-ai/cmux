@@ -374,9 +374,11 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C10D51700000000000000002 /* ClosedItemHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10D51700000000000000001 /* ClosedItemHistory.swift */; };
 		F73320000000000000000003 /* ClosedItemHistoryAgentEnrichment.swift in Sources */ = {isa = PBXBuildFile; fileRef = F73320000000000000000004 /* ClosedItemHistoryAgentEnrichment.swift */; };
 		F73320000000000000000008 /* ClosedItemHistoryAgentEnrichmentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F73320000000000000000007 /* ClosedItemHistoryAgentEnrichmentTests.swift */; };
-		F7332000000000000000000A /* ClosedItemHistoryMenuModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = F73320000000000000000009 /* ClosedItemHistoryMenuModels.swift */; };
+		F7332000000000000000000A /* ClosedItemHistoryMenuItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = F73320000000000000000009 /* ClosedItemHistoryMenuItem.swift */; };
+		F73320000000000000000012 /* ClosedItemHistoryMenuSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = F73320000000000000000011 /* ClosedItemHistoryMenuSnapshot.swift */; };
 		F73320000000000000000010 /* ClosedItemHistoryPendingEnrichmentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7332000000000000000000F /* ClosedItemHistoryPendingEnrichmentTests.swift */; };
 		7375A0037375A0037375A003 /* ClosedMainWindowRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7375A0047375A0047375A004 /* ClosedMainWindowRoutingTests.swift */; };
+		F73320000000000000000014 /* ClosedWindowRestoreValidation.swift in Sources */ = {isa = PBXBuildFile; fileRef = F73320000000000000000013 /* ClosedWindowRestoreValidation.swift */; };
 		B9000025A1B2C3D4E5F60719 /* CloseWindowConfirmDialogUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000026A1B2C3D4E5F60719 /* CloseWindowConfirmDialogUITests.swift */; };
 		B9000023A1B2C3D4E5F60719 /* CloseWorkspaceCmdDUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000022A1B2C3D4E5F60719 /* CloseWorkspaceCmdDUITests.swift */; };
 		B900001AA1B2C3D4E5F60719 /* CloseWorkspaceConfirmDialogUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000019A1B2C3D4E5F60719 /* CloseWorkspaceConfirmDialogUITests.swift */; };
@@ -1247,6 +1249,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		F7332000000000000000000C /* SharedLiveAgentIndex+RefreshCoordination.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7332000000000000000000B /* SharedLiveAgentIndex+RefreshCoordination.swift */; };
 		D7332C060000000000000001 /* SharedLiveAgentIndex+RefreshFreshness.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7332C060000000000000002 /* SharedLiveAgentIndex+RefreshFreshness.swift */; };
 		D7332C080000000000000001 /* SharedLiveAgentIndex+RefreshGeneration.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7332C080000000000000002 /* SharedLiveAgentIndex+RefreshGeneration.swift */; };
+		F73320000000000000000016 /* SharedLiveAgentIndex+RefreshOutcome.swift in Sources */ = {isa = PBXBuildFile; fileRef = F73320000000000000000015 /* SharedLiveAgentIndex+RefreshOutcome.swift */; };
 		D7332C070000000000000001 /* SharedLiveAgentIndex+RefreshPublication.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7332C070000000000000002 /* SharedLiveAgentIndex+RefreshPublication.swift */; };
 		F0ACC0DE0000000000000011 /* SharedLiveAgentIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0ACC0DE0000000000000012 /* SharedLiveAgentIndex.swift */; };
 		F0ACC0DF0000000000000001 /* SharedLiveAgentIndexAgentLivenessTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0ACC0DF0000000000000002 /* SharedLiveAgentIndexAgentLivenessTests.swift */; };
@@ -2162,9 +2165,11 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C10D51700000000000000001 /* ClosedItemHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClosedItemHistory.swift; sourceTree = "<group>"; };
 		F73320000000000000000004 /* ClosedItemHistoryAgentEnrichment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClosedItemHistoryAgentEnrichment.swift; sourceTree = "<group>"; };
 		F73320000000000000000007 /* ClosedItemHistoryAgentEnrichmentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClosedItemHistoryAgentEnrichmentTests.swift; sourceTree = "<group>"; };
-		F73320000000000000000009 /* ClosedItemHistoryMenuModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClosedItemHistoryMenuModels.swift; sourceTree = "<group>"; };
+		F73320000000000000000009 /* ClosedItemHistoryMenuItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClosedItemHistoryMenuItem.swift; sourceTree = "<group>"; };
+		F73320000000000000000011 /* ClosedItemHistoryMenuSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClosedItemHistoryMenuSnapshot.swift; sourceTree = "<group>"; };
 		F7332000000000000000000F /* ClosedItemHistoryPendingEnrichmentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClosedItemHistoryPendingEnrichmentTests.swift; sourceTree = "<group>"; };
 		7375A0047375A0047375A004 /* ClosedMainWindowRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClosedMainWindowRoutingTests.swift; sourceTree = "<group>"; };
+		F73320000000000000000013 /* ClosedWindowRestoreValidation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClosedWindowRestoreValidation.swift; sourceTree = "<group>"; };
 		B9000026A1B2C3D4E5F60719 /* CloseWindowConfirmDialogUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloseWindowConfirmDialogUITests.swift; sourceTree = "<group>"; };
 		B9000022A1B2C3D4E5F60719 /* CloseWorkspaceCmdDUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloseWorkspaceCmdDUITests.swift; sourceTree = "<group>"; };
 		B9000019A1B2C3D4E5F60719 /* CloseWorkspaceConfirmDialogUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloseWorkspaceConfirmDialogUITests.swift; sourceTree = "<group>"; };
@@ -2971,6 +2976,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		F7332000000000000000000B /* SharedLiveAgentIndex+RefreshCoordination.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SharedLiveAgentIndex+RefreshCoordination.swift"; sourceTree = "<group>"; };
 		D7332C060000000000000002 /* SharedLiveAgentIndex+RefreshFreshness.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SharedLiveAgentIndex+RefreshFreshness.swift"; sourceTree = "<group>"; };
 		D7332C080000000000000002 /* SharedLiveAgentIndex+RefreshGeneration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SharedLiveAgentIndex+RefreshGeneration.swift"; sourceTree = "<group>"; };
+		F73320000000000000000015 /* SharedLiveAgentIndex+RefreshOutcome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SharedLiveAgentIndex+RefreshOutcome.swift"; sourceTree = "<group>"; };
 		D7332C070000000000000002 /* SharedLiveAgentIndex+RefreshPublication.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SharedLiveAgentIndex+RefreshPublication.swift"; sourceTree = "<group>"; };
 		F0ACC0DE0000000000000012 /* SharedLiveAgentIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedLiveAgentIndex.swift; sourceTree = "<group>"; };
 		F0ACC0DF0000000000000002 /* SharedLiveAgentIndexAgentLivenessTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedLiveAgentIndexAgentLivenessTests.swift; sourceTree = "<group>"; };
@@ -4011,7 +4017,9 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				F0C05170000000000000001 /* FocusHistory.swift */,
 				C0DEFB100000000000000002 /* FocusSurfaceBroadcaster.swift */,
 				C10D51700000000000000001 /* ClosedItemHistory.swift */,
-				F73320000000000000000009 /* ClosedItemHistoryMenuModels.swift */,
+				F73320000000000000000009 /* ClosedItemHistoryMenuItem.swift */,
+				F73320000000000000000011 /* ClosedItemHistoryMenuSnapshot.swift */,
+				F73320000000000000000013 /* ClosedWindowRestoreValidation.swift */,
 				F73320000000000000000004 /* ClosedItemHistoryAgentEnrichment.swift */,
 				D1FFC0DE000000000000D001 /* DiffCommentSubmissionPool.swift */,
 				D1FFC0DE000000000000A001 /* DiffCommentStore.swift */,
@@ -4619,6 +4627,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A5001661 /* RestorableAgentSession.swift */,
 				F0ACC0DE0000000000000012 /* SharedLiveAgentIndex.swift */,
 				F7332000000000000000000B /* SharedLiveAgentIndex+RefreshCoordination.swift */,
+				F73320000000000000000015 /* SharedLiveAgentIndex+RefreshOutcome.swift */,
 				D7332C060000000000000002 /* SharedLiveAgentIndex+RefreshFreshness.swift */,
 				D7332C070000000000000002 /* SharedLiveAgentIndex+RefreshPublication.swift */,
 				D7332C080000000000000002 /* SharedLiveAgentIndex+RefreshGeneration.swift */,
@@ -5946,7 +5955,9 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C46790000000000000000003 /* CLIForwardingLaunchRouter.swift in Sources */,
 				C10D51700000000000000002 /* ClosedItemHistory.swift in Sources */,
 				F73320000000000000000003 /* ClosedItemHistoryAgentEnrichment.swift in Sources */,
-				F7332000000000000000000A /* ClosedItemHistoryMenuModels.swift in Sources */,
+				F7332000000000000000000A /* ClosedItemHistoryMenuItem.swift in Sources */,
+				F73320000000000000000012 /* ClosedItemHistoryMenuSnapshot.swift in Sources */,
+				F73320000000000000000014 /* ClosedWindowRestoreValidation.swift in Sources */,
 				C10D00010000000000000001 /* CloudVMActionLauncher.swift in Sources */,
 				A5001654 /* CmuxActionTrust.swift in Sources */,
 				C0DE43000000000000000001 /* CmuxAgentChatConfig.swift in Sources */,
@@ -6435,6 +6446,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				F7332000000000000000000C /* SharedLiveAgentIndex+RefreshCoordination.swift in Sources */,
 				D7332C060000000000000001 /* SharedLiveAgentIndex+RefreshFreshness.swift in Sources */,
 				D7332C080000000000000001 /* SharedLiveAgentIndex+RefreshGeneration.swift in Sources */,
+				F73320000000000000000016 /* SharedLiveAgentIndex+RefreshOutcome.swift in Sources */,
 				D7332C070000000000000001 /* SharedLiveAgentIndex+RefreshPublication.swift in Sources */,
 				F0ACC0DE0000000000000011 /* SharedLiveAgentIndex.swift in Sources */,
 				F0ACC0DE0000000000000007 /* SharedLiveAgentIndexLoader.swift in Sources */,

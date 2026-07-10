@@ -10,18 +10,6 @@ final class SharedLiveAgentIndex {
     typealias PanelKey = RestorableAgentSessionIndex.PanelKey
     typealias GenerationTimeoutWaiter = @Sendable () async -> Bool
 
-    enum RefreshOutcome {
-        case result(LoadResult)
-        case unavailable
-
-        var loadResult: LoadResult? {
-            switch self {
-            case .result(let result): result
-            case .unavailable: nil
-            }
-        }
-    }
-
     private(set) var index: RestorableAgentSessionIndex?
     private var loadedAt: Date?
     var latestCompletedLoadResult: LoadResult?
