@@ -441,6 +441,16 @@ enum DiffViewerBridges {
         DiffCommentsBridge.installIfNeeded(on: userContentController)
         DiffSidecarBridge.installIfNeeded(on: userContentController)
     }
+
+    static func allowsNavigation(to url: URL) -> Bool {
+        guard url.scheme == CmuxDiffViewerURLSchemeHandler.scheme,
+              url.user == nil,
+              url.password == nil,
+              url.port == nil,
+              url.query == nil,
+              url.fragment == nil else { return false }
+        return CmuxDiffViewerURLSchemeHandler.shared.registeredFile(for: url) != nil
+    }
 }
 
 extension BrowserPanel {
@@ -453,6 +463,7 @@ extension BrowserPanel {
         guard expectedURL.map(hasCurrentURL) != false else { return false }
         if let internalURL = URL(string: url),
            internalURL.scheme == CmuxDiffViewerURLSchemeHandler.scheme {
+            guard DiffViewerBridges.allowsNavigation(to: internalURL) else { return false }
             navigate(to: internalURL)
         } else {
             navigateSmart(url)

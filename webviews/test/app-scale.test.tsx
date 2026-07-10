@@ -17,12 +17,17 @@ test("large diff navigation keeps the rendered DOM bounded", () => {
       items={items}
       label={createDiffViewerLabelResolver(undefined)}
       onJump={() => {}}
+      onOpenSearch={() => {}}
+      searchOpen={false}
       selectedItemId=""
     />,
   );
   const dom = new JSDOM(markup);
   expect(dom.window.document.querySelectorAll("option")).toHaveLength(0);
-  expect(dom.window.document.querySelector('[aria-label="Jump to file"]')).toBeTruthy();
+  const searchButton = dom.window.document.querySelector('[aria-label="Jump to file"]');
+  expect(searchButton?.tagName).toBe("BUTTON");
+  expect(searchButton?.getAttribute("aria-controls")).toBe("files-sidebar");
+  expect(searchButton?.getAttribute("aria-expanded")).toBe("false");
   expect(dom.window.document.querySelectorAll("*").length).toBeLessThan(10);
   dom.window.close();
 
@@ -34,6 +39,7 @@ test("large diff navigation keeps the rendered DOM bounded", () => {
     onOpenSearch: () => {
       openedSearch = true;
     },
+    searchOpen: false,
     selectedItemId: "",
   }) as any;
   control.props.onClick();

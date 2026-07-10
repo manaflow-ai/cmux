@@ -176,7 +176,9 @@ test("streamPatch grows batches after first paint for large diffs", async () => 
   });
 
   expect(batches[0]).toHaveLength(32);
-  expect(batches.flat()).toHaveLength(10_000);
+  const renderedItems = batches.flat();
+  expect(renderedItems).toHaveLength(10_000);
+  expect(renderedItems.map((item) => item.id)).toEqual(files.map((file) => file.name));
   expect(completedMetrics.fileCount).toBe(10_000);
   expect(completedMetrics.flushCount).toBeLessThanOrEqual(8);
   expect(completedMetrics.maxBatchSize).toBeGreaterThanOrEqual(2_048);

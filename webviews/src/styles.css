@@ -949,6 +949,13 @@ body[data-loading="false"]:not([data-status-only="true"]) #loading-layer {
   #files-sidebar {
     display: none;
   }
+  #app[data-file-search-open="true"] #files-sidebar {
+    display: flex;
+    position: absolute;
+    inset: 0;
+    z-index: 45;
+    border-left: 0;
+  }
 }
 @media (prefers-reduced-motion: reduce) {
   #files-sidebar {

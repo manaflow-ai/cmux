@@ -717,7 +717,6 @@ final class BrowserPanelDiffViewerSchemeTests: XCTestCase {
         let indexURL = rootURL.appendingPathComponent("index.html", isDirectory: false)
         try FileManager.default.createDirectory(at: assetURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: rootURL) }
-
         try """
         export const marker = "module-ok";
         """.write(to: assetURL, atomically: true, encoding: .utf8)
@@ -758,16 +757,17 @@ final class BrowserPanelDiffViewerSchemeTests: XCTestCase {
                 .init(requestPath: "/index.patch", fileURL: patchURL, mimeType: "text/x-diff"),
             ]
         )
-
         let allowedURL = try XCTUnwrap(URL(string: "\(CmuxDiffViewerURLSchemeHandler.scheme)://\(token)/index.html"))
         let allowedPatchURL = try XCTUnwrap(URL(string: "\(CmuxDiffViewerURLSchemeHandler.scheme)://\(token)/index.patch"))
-        let blockedURL = try XCTUnwrap(URL(string: "\(CmuxDiffViewerURLSchemeHandler.scheme)://\(token)/not-allowed.html"))
-        let queryURL = try XCTUnwrap(URL(string: "\(CmuxDiffViewerURLSchemeHandler.scheme)://\(token)/index.html?copy=1"))
+        let rejectedURLs = try ["\(CmuxDiffViewerURLSchemeHandler.scheme)://\(token)/not-allowed.html", "\(CmuxDiffViewerURLSchemeHandler.scheme)://\(token)/index.html?copy=1", "\(CmuxDiffViewerURLSchemeHandler.scheme)://\(token)/index.html#route", "\(CmuxDiffViewerURLSchemeHandler.scheme)://user@\(token)/index.html", "\(CmuxDiffViewerURLSchemeHandler.scheme)://\(token):42/index.html"].map { try XCTUnwrap(URL(string: $0)) }
         XCTAssertNotNil(CmuxDiffViewerURLSchemeHandler.shared.registeredFile(for: allowedURL))
         XCTAssertNotNil(CmuxDiffViewerURLSchemeHandler.shared.registeredFile(for: allowedPatchURL))
-        XCTAssertNil(CmuxDiffViewerURLSchemeHandler.shared.registeredFile(for: blockedURL))
-        XCTAssertNil(CmuxDiffViewerURLSchemeHandler.shared.registeredFile(for: queryURL))
-
+        XCTAssertNil(CmuxDiffViewerURLSchemeHandler.shared.registeredFile(for: rejectedURLs[0]))
+        XCTAssertNil(CmuxDiffViewerURLSchemeHandler.shared.registeredFile(for: rejectedURLs[1]))
+        XCTAssertTrue(DiffViewerBridges.allowsNavigation(to: allowedURL))
+        for rejectedURL in rejectedURLs {
+            XCTAssertFalse(DiffViewerBridges.allowsNavigation(to: rejectedURL))
+        }
         let config = WKWebViewConfiguration()
         let contentController = WKUserContentController()
         let moduleLoaded = expectation(description: "module evaluated")

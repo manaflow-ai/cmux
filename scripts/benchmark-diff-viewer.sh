@@ -19,5 +19,6 @@ cargo run \
 (
   cd "${ROOT}/webviews"
   CMUX_DIFF_BENCH_ITERATIONS="${CMUX_DIFF_WEB_BENCH_ITERATIONS:-5}" \
+    CMUX_DIFF_BENCH_RENDER_APP="${CMUX_DIFF_BENCH_RENDER_APP:-1}" \
     bun run benchmark
 )

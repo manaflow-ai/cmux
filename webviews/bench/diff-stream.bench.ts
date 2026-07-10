@@ -64,6 +64,9 @@ for (let index = 0; index < iterations; index += 1) {
   if (includeAppRender && appMetrics.itemCount !== fileCount) {
     throw new Error(`app render received ${appMetrics.itemCount} files, expected ${fileCount}`);
   }
+  if (includeAppRender && appMetrics.maxJumpOptionCount > 501) {
+    throw new Error(`app render created ${appMetrics.maxJumpOptionCount} jump options, expected at most 501`);
+  }
   lastAppMetrics = appMetrics;
   samples.push(performance.now() - started);
 }
@@ -139,6 +142,7 @@ function createAppRenderMetrics() {
         label,
         onJump: () => {},
         onOpenSearch: () => {},
+        searchOpen: false,
         selectedItemId: items[0]?.id ?? "",
       }));
       renderMs += performance.now() - startedAt;

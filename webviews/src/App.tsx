@@ -340,7 +340,7 @@ export function App({ config, initialStatus }: ConfigProps) {
   };
 
   return (
-    <div id="app">
+    <div id="app" data-file-search-open={state.fileSearchOpen}>
       <Toolbar
         config={config}
         transport={transport}
@@ -620,6 +620,7 @@ function Toolbar({
           label={label}
           onJump={onJump}
           onOpenSearch={() => dispatch({ type: "set-file-search-open", open: true })}
+          searchOpen={state.fileSearchOpen}
           selectedItemId={state.activeItemId}
         />
       </div>
@@ -899,12 +900,14 @@ export function JumpSelect({
   label,
   onJump,
   onOpenSearch,
+  searchOpen,
   selectedItemId,
 }: {
   items: DiffItem[];
   label: DiffViewerLabelResolver;
   onJump: (itemId: string) => void;
-  onOpenSearch?: () => void;
+  onOpenSearch: () => void;
+  searchOpen: boolean;
   selectedItemId: string;
 }) {
   if (items.length === 0) {
@@ -915,6 +918,8 @@ export function JumpSelect({
       <button
         id="jump-search-button"
         type="button"
+        aria-controls="files-sidebar"
+        aria-expanded={searchOpen}
         aria-label={label("jumpToFile")}
         title={label("jumpToFile")}
         onClick={onOpenSearch}
