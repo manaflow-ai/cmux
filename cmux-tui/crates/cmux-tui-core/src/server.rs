@@ -1431,7 +1431,7 @@ fn handle_command(mux: &Arc<Mux>, cmd: Command, writer: &LineWriter) -> anyhow::
                             "surface": surface_id,
                             "cols": cols,
                             "rows": rows,
-                            "data": base64::engine::general_purpose::STANDARD.encode(replay),
+                            "replay": base64::engine::general_purpose::STANDARD.encode(replay),
                         }),
                     };
                     if writer.send(&value).is_err() {

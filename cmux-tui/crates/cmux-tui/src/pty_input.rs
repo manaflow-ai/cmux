@@ -320,7 +320,7 @@ impl PtyInputSender {
         remote: bool,
         operation: impl FnOnce() -> anyhow::Result<()> + Send + 'static,
     ) {
-        self.enqueue_mutation_with_key(label, None, remote, operation);
+        let _ = self.enqueue_mutation_with_key(label, None, remote, operation);
     }
 
     pub fn enqueue_coalescing_mutation(
@@ -329,8 +329,8 @@ impl PtyInputSender {
         key: (&'static str, u64),
         remote: bool,
         operation: impl FnOnce() -> anyhow::Result<()> + Send + 'static,
-    ) {
-        self.enqueue_mutation_with_key(label, Some(key), remote, operation);
+    ) -> PtyInputEnqueueResult {
+        self.enqueue_mutation_with_key(label, Some(key), remote, operation)
     }
 
     fn enqueue_mutation_with_key(
@@ -339,7 +339,7 @@ impl PtyInputSender {
         key: Option<(&'static str, u64)>,
         remote: bool,
         operation: impl FnOnce() -> anyhow::Result<()> + Send + 'static,
-    ) {
+    ) -> PtyInputEnqueueResult {
         let result = self.enqueue(PtyInputEvent::mutation(label, key, remote, operation));
         if result != PtyInputEnqueueResult::Accepted {
             (self.on_failure)(PtyOperationFailure {
@@ -358,6 +358,7 @@ impl PtyInputSender {
                 delivery: PtyOperationDelivery::KnownNotDelivered,
             });
         }
+        result
     }
 }
 

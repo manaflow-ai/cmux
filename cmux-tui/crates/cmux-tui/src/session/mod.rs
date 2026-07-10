@@ -254,22 +254,26 @@ impl Session {
     /// Like [`Session::surface`], but passes the render size for remote
     /// mirrors created on first use (the server surface is resized before
     /// the attach replay, so the replay arrives at final geometry).
-    pub fn surface_sized(&self, id: SurfaceId, size: Option<(u16, u16)>) -> Option<SurfaceHandle> {
+    pub fn try_surface_sized(
+        &self,
+        id: SurfaceId,
+        size: Option<(u16, u16)>,
+    ) -> anyhow::Result<Option<SurfaceHandle>> {
         match self {
-            Session::Local(mux) => mux.surface(id).map(SurfaceHandle::Local),
+            Session::Local(mux) => Ok(mux.surface(id).map(SurfaceHandle::Local)),
             Session::Remote(remote) => {
                 if remote.surface_kind(id) == SurfaceKind::Browser {
                     if remote.supports_browser_attach() {
-                        remote
-                            .ensure_surface(id, size)
-                            .map(|surface| SurfaceHandle::Remote(surface, remote.clone()))
+                        remote.try_ensure_surface(id, size).map(|surface| {
+                            surface.map(|surface| SurfaceHandle::Remote(surface, remote.clone()))
+                        })
                     } else {
-                        Some(SurfaceHandle::RemoteBrowserUnsupported)
+                        Ok(Some(SurfaceHandle::RemoteBrowserUnsupported))
                     }
                 } else {
-                    remote
-                        .ensure_surface(id, size)
-                        .map(|surface| SurfaceHandle::Remote(surface, remote.clone()))
+                    remote.try_ensure_surface(id, size).map(|surface| {
+                        surface.map(|surface| SurfaceHandle::Remote(surface, remote.clone()))
+                    })
                 }
             }
         }

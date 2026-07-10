@@ -625,16 +625,16 @@ impl RemoteSession {
     /// provided, the caller's immediately following `resize` sends the
     /// server resize after the attach tap is installed, so the resize
     /// marker and any shell WINCH redraw bytes stay ordered in-stream.
-    pub fn ensure_surface(
+    pub fn try_ensure_surface(
         self: &Arc<Self>,
         id: SurfaceId,
         size: Option<(u16, u16)>,
-    ) -> Option<Arc<RemoteSurface>> {
+    ) -> anyhow::Result<Option<Arc<RemoteSurface>>> {
         let kind = {
             let tree = self.tree.lock().unwrap();
             tree.view.surface_kind(id)
         };
-        self.ensure_surface_with_kind(id, kind, size)
+        self.try_ensure_surface_with_kind(id, kind, size)
     }
 
     pub fn ensure_surface_with_kind(
@@ -643,18 +643,27 @@ impl RemoteSession {
         kind: SurfaceKind,
         size: Option<(u16, u16)>,
     ) -> Option<Arc<RemoteSurface>> {
+        self.try_ensure_surface_with_kind(id, kind, size).ok().flatten()
+    }
+
+    pub fn try_ensure_surface_with_kind(
+        self: &Arc<Self>,
+        id: SurfaceId,
+        kind: SurfaceKind,
+        size: Option<(u16, u16)>,
+    ) -> anyhow::Result<Option<Arc<RemoteSurface>>> {
         if self.exited_surfaces.lock().unwrap().contains(&id) {
-            return None;
+            return Ok(None);
         }
         if let Some(surface) = self.surfaces.lock().unwrap().get(&id) {
-            return Some(surface.clone());
+            return Ok(Some(surface.clone()));
         }
         let source = {
             let tree = self.tree.lock().unwrap();
             browser_source_from_tree(&tree.view, id)
         };
         let (cols, rows) = size.unwrap_or((80, 24));
-        let term = Terminal::new(cols, rows, 10_000, Callbacks::default()).ok()?;
+        let term = Terminal::new(cols, rows, 10_000, Callbacks::default())?;
         let surface = Arc::new(RemoteSurface {
             id,
             kind,
@@ -667,11 +676,11 @@ impl RemoteSession {
         surface.update_browser_source(source);
         self.surfaces.lock().unwrap().insert(id, surface.clone());
         // The vt-state event that follows fills the mirror.
-        if self.request(json!({"cmd": "attach-surface", "surface": id})).is_err() {
+        if let Err(error) = self.request(json!({"cmd": "attach-surface", "surface": id})) {
             self.surfaces.lock().unwrap().remove(&id);
-            return None;
+            return Err(error);
         }
-        Some(surface)
+        Ok(Some(surface))
     }
 
     pub fn drop_surface(&self, id: SurfaceId) {

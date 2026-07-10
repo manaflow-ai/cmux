@@ -123,6 +123,11 @@ pub enum SessionMutationOutcome {
         error: String,
         refresh_sequence: u64,
     },
+    SurfaceSyncFailed {
+        surface: SurfaceId,
+        operation: &'static str,
+        error: String,
+    },
     MutationTimedOut(String),
     Failed(String),
     Canceled,
@@ -182,6 +187,7 @@ struct SurfaceResizeClaimState {
 enum SurfaceResizeDecision {
     Noop,
     AlreadyClaimed,
+    Failed,
     NeedsQueue(SurfaceResizeClaim),
 }
 
@@ -250,6 +256,8 @@ pub struct OrderedSession {
     remote_refresh_sequence: Arc<AtomicU64>,
     surface_resize_claims: Arc<Mutex<HashMap<SurfaceId, SurfaceResizeClaimState>>>,
     surface_resize_claim_sequence: Arc<AtomicU64>,
+    surface_attach_failures: Arc<Mutex<HashSet<SurfaceId>>>,
+    surface_resize_failures: Arc<Mutex<HashMap<SurfaceId, (u16, u16)>>>,
     config_generation: Arc<AtomicU64>,
     sidebar_plugin_sync: Arc<Mutex<SidebarPluginSyncState>>,
     exited_surfaces: Arc<Mutex<HashSet<SurfaceId>>>,
@@ -270,6 +278,8 @@ impl OrderedSession {
             remote_refresh_sequence: Arc::new(AtomicU64::new(0)),
             surface_resize_claims: Arc::new(Mutex::new(HashMap::new())),
             surface_resize_claim_sequence: Arc::new(AtomicU64::new(0)),
+            surface_attach_failures: Arc::new(Mutex::new(HashSet::new())),
+            surface_resize_failures: Arc::new(Mutex::new(HashMap::new())),
             config_generation: Arc::new(AtomicU64::new(0)),
             sidebar_plugin_sync: Arc::new(Mutex::new(SidebarPluginSyncState::default())),
             exited_surfaces: Arc::new(Mutex::new(HashSet::new())),
@@ -301,11 +311,18 @@ impl OrderedSession {
         if self.remote {
             self.exited_surfaces.lock().unwrap().insert(id);
         }
+        self.surface_attach_failures.lock().unwrap().remove(&id);
+        self.surface_resize_failures.lock().unwrap().remove(&id);
         self.inner.forget_surface(id);
     }
 
     fn invalidate_remote_tree(&self) {
         self.inner.invalidate_remote_tree();
+    }
+
+    fn clear_surface_sync_failures(&self) {
+        self.surface_attach_failures.lock().unwrap().clear();
+        self.surface_resize_failures.lock().unwrap().clear();
     }
 
     fn begin_shutdown(&self) {
@@ -318,9 +335,11 @@ impl OrderedSession {
         }
         let session = self.inner.clone();
         let exited_surfaces = self.exited_surfaces.clone();
+        let attach_failures = self.surface_attach_failures.clone();
+        let enqueue_failures = attach_failures.clone();
         let remote = self.remote;
         let pending = self.pending_mutation();
-        self.operations.enqueue_coalescing_mutation(
+        let enqueue_result = self.operations.enqueue_coalescing_mutation(
             "attach surface",
             ("attach surface", id),
             self.remote,
@@ -331,21 +350,40 @@ impl OrderedSession {
                     pending.settle(SessionMutationOutcome::Success { tree: None });
                     return Ok(());
                 }
-                if session.surface_sized(id, size).is_none() {
-                    pending.settle(SessionMutationOutcome::Failed(format!(
-                        "surface {id} is unavailable"
-                    )));
-                    anyhow::bail!("surface {id} is unavailable");
+                match session.try_surface_sized(id, size) {
+                    Ok(Some(_)) => {
+                        attach_failures.lock().unwrap().remove(&id);
+                        pending.settle(SessionMutationOutcome::Success { tree: None });
+                    }
+                    Ok(None) => {
+                        attach_failures.lock().unwrap().insert(id);
+                        pending.settle(SessionMutationOutcome::SurfaceSyncFailed {
+                            surface: id,
+                            operation: "attach",
+                            error: format!("surface {id} is unavailable"),
+                        });
+                    }
+                    Err(error) => {
+                        attach_failures.lock().unwrap().insert(id);
+                        pending.settle(SessionMutationOutcome::SurfaceSyncFailed {
+                            surface: id,
+                            operation: "attach",
+                            error: error.to_string(),
+                        });
+                    }
                 }
-                pending.settle(SessionMutationOutcome::Success { tree: None });
                 Ok(())
             },
         );
+        if enqueue_result != PtyInputEnqueueResult::Accepted {
+            enqueue_failures.lock().unwrap().insert(id);
+        }
     }
 
     fn can_attach_surface(&self, id: SurfaceId) -> bool {
         self.inner.cached_surface(id).is_none()
             && !self.exited_surfaces.lock().unwrap().contains(&id)
+            && !self.surface_attach_failures.lock().unwrap().contains(&id)
             && (!self.remote || !self.inner.remote_tree_is_stale())
     }
 
@@ -556,19 +594,42 @@ impl OrderedSession {
         reassert: bool,
         claim: SurfaceResizeClaim,
     ) {
-        self.enqueue_coalescing_session_mutation(
+        let pending = self.pending_mutation();
+        let failures = self.surface_resize_failures.clone();
+        let enqueue_failures = failures.clone();
+        let committed_mutation_generation = self.committed_mutation_generation.clone();
+        let enqueue_result = self.operations.enqueue_coalescing_mutation(
             "resize PTY surface",
             ("surface resize", surface_id),
-            move |_| {
+            self.remote,
+            move || {
                 let _claim = claim;
-                if reassert {
-                    surface.reassert_size(cols, rows)?;
+                let result = if reassert {
+                    surface.reassert_size(cols, rows)
                 } else {
-                    surface.resize(cols, rows)?;
+                    surface.resize(cols, rows)
+                };
+                match result {
+                    Ok(()) => {
+                        failures.lock().unwrap().remove(&surface_id);
+                        committed_mutation_generation.fetch_add(1, Ordering::AcqRel);
+                        pending.settle(SessionMutationOutcome::Success { tree: None });
+                    }
+                    Err(error) => {
+                        failures.lock().unwrap().insert(surface_id, (cols, rows));
+                        pending.settle(SessionMutationOutcome::SurfaceSyncFailed {
+                            surface: surface_id,
+                            operation: "resize",
+                            error: error.to_string(),
+                        });
+                    }
                 }
                 Ok(())
             },
         );
+        if enqueue_result != PtyInputEnqueueResult::Accepted {
+            enqueue_failures.lock().unwrap().insert(surface_id, (cols, rows));
+        }
     }
 
     fn surface_resize_decision(
@@ -577,6 +638,12 @@ impl OrderedSession {
         desired: (u16, u16),
         surface_needs_resize: bool,
     ) -> SurfaceResizeDecision {
+        let mut failures = self.surface_resize_failures.lock().unwrap();
+        if failures.get(&surface_id) == Some(&desired) {
+            return SurfaceResizeDecision::Failed;
+        }
+        failures.remove(&surface_id);
+        drop(failures);
         let mut claims = self.surface_resize_claims.lock().unwrap();
         if claims.get(&surface_id).is_some_and(|claim| claim.desired == desired) {
             return SurfaceResizeDecision::AlreadyClaimed;
@@ -2047,6 +2114,14 @@ impl App {
             }
             _ => {}
         }
+        if matches!(
+            &event,
+            AppEvent::Mux(
+                MuxEvent::TreeChanged | MuxEvent::LayoutChanged(_) | MuxEvent::SurfaceExited(_)
+            )
+        ) {
+            self.session.clear_surface_sync_failures();
+        }
         let event = match event {
             AppEvent::Input(input @ (Event::Key(_) | Event::Mouse(_) | Event::Paste(_)))
                 if (self.session.has_pending_mutations()
@@ -2162,6 +2237,7 @@ impl App {
                         authoritative_generation,
                         completion,
                     } => {
+                        self.session.clear_surface_sync_failures();
                         self.replace_tree(tree);
                         self.routing_refresh_retries_remaining = 0;
                         if let Some(completion) = completion {
@@ -2175,9 +2251,11 @@ impl App {
                         refresh_sequence,
                     } => {
                         if !self.accept_refresh_sequence(refresh_sequence) {
+                            self.apply_session_completions_through(authoritative_generation);
                             self.complete_routing_after_stale_identity_result();
                             return Ok(RenderAction::None);
                         }
+                        self.session.clear_surface_sync_failures();
                         self.session.reconcile_exited_surfaces(&tree);
                         self.replace_tree(tree);
                         self.routing_refresh_retries_remaining = 0;
@@ -2212,6 +2290,11 @@ impl App {
                         }
                         self.complete_remote_tree_refresh(refresh_stale);
                         return Ok(RenderAction::Draw);
+                    }
+                    SessionMutationOutcome::SurfaceSyncFailed { surface, operation, error } => {
+                        self.status_message = Some(format!(
+                            "surface {surface} {operation} failed; waiting for a lifecycle change: {error}"
+                        ));
                     }
                     SessionMutationOutcome::MutationTimedOut(error) => {
                         self.status_message = Some(format!(
@@ -2255,6 +2338,7 @@ impl App {
                     Ok(tree) => {
                         self.session.reconcile_exited_surfaces(&tree);
                         self.replace_tree(tree);
+                        self.routing_refresh_pending = true;
                         self.routing_refresh_retries_remaining = 0;
                     }
                     Err(error) => {
@@ -2438,7 +2522,7 @@ impl App {
                                 let _ = surface.reassert_size(rect.width, rect.height);
                             }
                         }
-                        SurfaceResizeDecision::AlreadyClaimed => {}
+                        SurfaceResizeDecision::AlreadyClaimed | SurfaceResizeDecision::Failed => {}
                         SurfaceResizeDecision::NeedsQueue(claim)
                             if self.prepare_pty_input_before_mutation() =>
                         {
@@ -2484,7 +2568,7 @@ impl App {
                             let _ = surface.reassert_size(area.content.width, area.content.height);
                         }
                     }
-                    SurfaceResizeDecision::AlreadyClaimed => {}
+                    SurfaceResizeDecision::AlreadyClaimed | SurfaceResizeDecision::Failed => {}
                     SurfaceResizeDecision::NeedsQueue(claim)
                         if self.prepare_pty_input_before_mutation() =>
                     {
@@ -5667,6 +5751,61 @@ mod tests {
     }
 
     #[test]
+    fn failed_surface_sync_is_bounded_until_lifecycle_recovery() {
+        let mux = Mux::new("surface-sync-failure-test", SurfaceOptions::default());
+        let (mut app, events) = test_app_with_events(Session::Local(mux));
+
+        app.session.attach_surface(77, Some((80, 24)));
+        let settled = events.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(matches!(
+            settled,
+            AppEvent::SessionMutationSettled(super::SessionMutationOutcome::SurfaceSyncFailed {
+                surface: 77,
+                operation: "attach",
+                ..
+            })
+        ));
+        app.handle(settled).unwrap();
+        assert!(!app.session.can_attach_surface(77));
+        app.session.attach_surface(77, Some((80, 24)));
+        assert!(events.try_recv().is_err());
+
+        let claim = match app.session.surface_resize_decision(88, (100, 30), true) {
+            SurfaceResizeDecision::NeedsQueue(claim) => claim,
+            _ => panic!("first resize must queue"),
+        };
+        app.session.resize_surface(
+            88,
+            SurfaceHandle::RemoteBrowserUnsupported,
+            100,
+            30,
+            false,
+            claim,
+        );
+        let settled = events.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(matches!(
+            settled,
+            AppEvent::SessionMutationSettled(super::SessionMutationOutcome::SurfaceSyncFailed {
+                surface: 88,
+                operation: "resize",
+                ..
+            })
+        ));
+        app.handle(settled).unwrap();
+        assert!(matches!(
+            app.session.surface_resize_decision(88, (100, 30), true),
+            SurfaceResizeDecision::Failed
+        ));
+
+        app.session.clear_surface_sync_failures();
+        assert!(app.session.can_attach_surface(77));
+        assert!(matches!(
+            app.session.surface_resize_decision(88, (100, 30), true),
+            SurfaceResizeDecision::NeedsQueue(_)
+        ));
+    }
+
+    #[test]
     fn refresh_sequences_are_monotonic_across_identity_and_background_paths() {
         let mux = Mux::new("refresh-sequence-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
@@ -5702,6 +5841,53 @@ mod tests {
         .unwrap();
         app.handle(AppEvent::RemoteTreeUpdated { refresh_sequence: 3, result: Ok(older) }).unwrap();
         assert_eq!(app.tree.workspaces[0].screens[0].panes[0].tabs[0].surface, 22);
+    }
+
+    #[test]
+    fn stale_identity_refresh_retires_completion_against_newer_tree() {
+        let mux = Mux::new("stale-identity-completion-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let surface = 41;
+        let tree = browser_completion_tree(surface, surface);
+        app.pane_areas.push(browser_completion_area(surface));
+        app.pending_session_completions.push_back(SessionCompletion {
+            mutation_generation: 4,
+            action: SessionCompletionAction::BrowserTabCreated { surface },
+        });
+
+        app.handle(AppEvent::RemoteTreeUpdated { refresh_sequence: 2, result: Ok(tree.clone()) })
+            .unwrap();
+        app.session.pending_mutations.store(1, Ordering::Release);
+        app.handle(AppEvent::SessionMutationSettled(
+            super::SessionMutationOutcome::IdentityRefreshSucceeded {
+                tree,
+                authoritative_generation: 4,
+                refresh_sequence: 1,
+            },
+        ))
+        .unwrap();
+
+        assert!(app.pending_session_completions.is_empty());
+        assert_eq!(app.omnibar.as_ref().map(|state| state.surface), Some(surface));
+    }
+
+    #[test]
+    fn background_tree_snapshot_sets_input_routing_barrier() {
+        let mux = Mux::new("background-routing-barrier-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.handle(AppEvent::RemoteTreeUpdated {
+            refresh_sequence: 1,
+            result: Ok(notify_tree(22, false)),
+        })
+        .unwrap();
+
+        assert!(app.routing_refresh_pending);
+        app.handle(AppEvent::Input(Event::Key(KeyEvent::new(
+            KeyCode::Char('x'),
+            KeyModifiers::NONE,
+        ))))
+        .unwrap();
+        assert_eq!(app.deferred_input.len(), 1);
     }
 
     #[test]

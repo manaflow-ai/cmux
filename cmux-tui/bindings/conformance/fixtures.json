@@ -230,6 +230,44 @@
       ]
     },
     {
+      "name": "attach-resize-carries-replay",
+      "steps": [
+        {
+          "type": "command",
+          "request": { "id": 1, "cmd": "new-workspace", "name": "conf-attach-resize", "cols": 80, "rows": 24 },
+          "expect": { "id": 1, "ok": true },
+          "match": "partial",
+          "bind": { "surface0": "data.surface" }
+        },
+        {
+          "type": "stream",
+          "name": "attach",
+          "request": { "cmd": "attach-surface", "surface": "$surface0" },
+          "expect": { "ok": true },
+          "match": "partial"
+        },
+        {
+          "type": "command",
+          "request": { "id": 2, "cmd": "resize-surface", "surface": "$surface0", "cols": 100, "rows": 31 },
+          "expect": { "id": 2, "ok": true },
+          "match": "partial"
+        },
+        {
+          "type": "expect_events",
+          "stream": "attach",
+          "expect": [
+            {
+              "event": "resized",
+              "surface": "$surface0",
+              "cols": 100,
+              "rows": 31,
+              "replay": { "__match__": "nonempty-string" }
+            }
+          ]
+        }
+      ]
+    },
+    {
       "name": "send-read-screen-round-trip",
       "steps": [
         {
