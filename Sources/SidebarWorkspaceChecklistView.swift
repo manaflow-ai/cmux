@@ -116,6 +116,12 @@ struct SidebarWorkspaceChecklistSection: View {
             // which point `summaryLine` above is the small status preview.
             if !presentsPopover, isExpanded || totalCount == 0 {
                 expandedList
+            } else if presentsPopover, totalCount == 0 {
+                // A fully-empty VStack collapses to a degenerate (often
+                // zero-window) frame, which breaks the popover anchor below
+                // — keep a minimal, invisible placeholder so the anchor
+                // view always has real bounds and a window to show against.
+                Color.clear.frame(height: 1)
             }
         }
         // The popover anchor is hosted here (not on `summaryLine` alone) so
