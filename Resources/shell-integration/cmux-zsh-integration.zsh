@@ -55,15 +55,14 @@ _cmux_send() {
     fi
 }
 
-# Fire-and-forget send: synchronous when zsocket is available (fast, no fork),
-# backgrounded otherwise.
+# Fire-and-forget send, always detached from the interactive shell. zsocket
+# still avoids the ncat/socat/nc exec inside the subshell, but the connect and
+# write must not run in the foreground: zsocket has no timeout, so a wedged
+# cmux listener (hung app, full backlog, post-wake socket) would otherwise
+# block every precmd/preexec hook and freeze the user's prompt.
 _cmux_send_bg() {
-    if (( _CMUX_HAS_ZSOCKET )); then
-        _cmux_send "$1"
-    else
-        _cmux_zsh_job_table_saturated && return 0
-        { _cmux_send "$1" } >/dev/null 2>&1 &!
-    fi
+    _cmux_zsh_job_table_saturated && return 0
+    { _cmux_send "$1" } >/dev/null 2>&1 &!
 }
 
 _cmux_socket_is_unix() {
