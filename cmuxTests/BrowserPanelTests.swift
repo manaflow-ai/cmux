@@ -764,9 +764,9 @@ final class BrowserPanelDiffViewerSchemeTests: XCTestCase {
         XCTAssertNotNil(CmuxDiffViewerURLSchemeHandler.shared.registeredFile(for: allowedPatchURL))
         XCTAssertNil(CmuxDiffViewerURLSchemeHandler.shared.registeredFile(for: rejectedURLs[0]))
         XCTAssertNil(CmuxDiffViewerURLSchemeHandler.shared.registeredFile(for: rejectedURLs[1]))
-        XCTAssertTrue(DiffViewerBridges.allowsNavigation(to: allowedURL))
+        XCTAssertTrue(CmuxDiffViewerURLSchemeHandler.shared.allowsNavigation(to: allowedURL))
         for rejectedURL in rejectedURLs {
-            XCTAssertFalse(DiffViewerBridges.allowsNavigation(to: rejectedURL))
+            XCTAssertFalse(CmuxDiffViewerURLSchemeHandler.shared.allowsNavigation(to: rejectedURL))
         }
         let config = WKWebViewConfiguration()
         let contentController = WKUserContentController()
