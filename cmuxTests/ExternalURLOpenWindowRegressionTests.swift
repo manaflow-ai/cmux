@@ -135,7 +135,9 @@ final class ExternalURLOpenWindowRegressionTests: XCTestCase {
                 return current
             }
         }
-        return snapshot
+        // Deadline hit without a quiet second: baseline the freshest window
+        // set so nothing already on screen is misread as URL-open fallout.
+        return NSApp.windows
     }
 
     /// Whether this process has logged an `auth.openURLs.received` line
