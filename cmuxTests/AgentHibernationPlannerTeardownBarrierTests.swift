@@ -294,11 +294,15 @@ extension AgentHibernationPlannerSwiftTests {
 
         let metadataStub = #"{"type":"last-prompt","prompt":"interrupted rewrite"}"# + "\n"
         try metadataStub.write(to: transcriptURL, atomically: true, encoding: .utf8)
-        try await Task.sleep(for: .seconds(5))
         #expect(
-            try String(contentsOf: transcriptURL, encoding: .utf8) == metadataStub,
+            !(await Self.waitForTranscriptRestore(
+                at: transcriptURL,
+                containing: "keep this turn",
+                timeout: .seconds(5)
+            )),
             "The re-armed monitor must wait for the newly detected process before restoring."
         )
+        #expect(try String(contentsOf: transcriptURL, encoding: .utf8) == metadataStub)
 
         scopedChild.terminate()
         #expect(await Self.wait(for: childExited))
