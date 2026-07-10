@@ -6,7 +6,7 @@ extension CLITmuxCompatRemoteSplitTests {
     @Test func absoluteResizeCarriesExactTmuxCellTarget() throws {
         let params = try captureResize(arguments: ["-x", "3"])
         #expect(params["absolute_axis"] as? String == "horizontal")
-        #expect((params["target_pixels"] as? NSNumber)?.intValue == 24)
+        #expect((params["target_pixels"] as? NSNumber)?.intValue == 36)
         #expect((params["target_cells"] as? NSNumber)?.intValue == 3)
         #expect(params["target_percentage"] == nil)
         #expect(params["tmux_compat"] as? Bool == true)
@@ -115,6 +115,7 @@ extension CLITmuxCompatRemoteSplitTests {
                         pane["cell_width_points"] = 8
                         pane["cell_height_points"] = 17
                     }
+                    pane["pixel_frame"] = ["x": 0, "y": 0, "width": 652, "height": 438]
                     result["panes"] = [pane]
                     result["container_frame"] = ["width": 640, "height": 816]
                 }

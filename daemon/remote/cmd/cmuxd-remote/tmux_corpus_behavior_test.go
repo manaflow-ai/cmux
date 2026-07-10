@@ -167,6 +167,7 @@ func (r *tmuxCorpusRPCRecorder) serveConn(conn net.Conn) {
 				pane["cell_width_points"] = 4
 				pane["cell_height_points"] = 8
 			}
+			pane["pixel_frame"] = map[string]any{"x": 0, "y": 0, "width": 332, "height": 222}
 			result["container_frame"] = map[string]any{"width": 640, "height": 384}
 		}
 		resp["result"] = result
@@ -476,8 +477,8 @@ func TestTmuxCorpusResizePaneDispatchesAbsoluteAndDirectionalResize(t *testing.T
 	if got := resizeRequests[0].Params["absolute_axis"]; got != "horizontal" {
 		t.Fatalf("absolute resize axis = %v, want horizontal", got)
 	}
-	if got := asInt(t, resizeRequests[0].Params["target_pixels"], "absolute resize pixels"); got != 400 {
-		t.Fatalf("absolute resize pixels = %v, want 400", got)
+	if got := asInt(t, resizeRequests[0].Params["target_pixels"], "absolute resize pixels"); got != 412 {
+		t.Fatalf("absolute resize pixels = %v, want 412", got)
 	}
 	if got := asInt(t, resizeRequests[0].Params["target_cells"], "absolute resize cells"); got != 100 {
 		t.Fatalf("absolute resize cells = %v, want 100", got)
