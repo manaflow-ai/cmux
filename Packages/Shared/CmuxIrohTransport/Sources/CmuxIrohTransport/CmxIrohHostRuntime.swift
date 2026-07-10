@@ -329,6 +329,10 @@ public actor CmxIrohHostRuntime {
         relayBootstrap: CmxIrohRelayTokenResponse?,
         allowFallback: Bool
     ) throws -> ResolvedPolicy {
+        if let confirmedBinding, let localBinding,
+           CmxIrohBrokerBindingMetadata(binding: confirmedBinding) != localBinding {
+            throw CmxIrohHostRuntimeError.invalidLocalBinding
+        }
         guard allowFallback, Self.isConnectivityFailure(error),
               let cached = configuration.cachedHostPolicy else {
             throw error
