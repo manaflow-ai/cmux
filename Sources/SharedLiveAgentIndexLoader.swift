@@ -58,7 +58,7 @@ struct SharedLiveAgentIndexLoader {
 #if DEBUG
         let loadMetricsToken = ProcessPerformanceMetrics.shared.operationStarted(
             .restorableLoad,
-            inputCount: processSnapshot.processes.count
+            inputCount: processSnapshot.processesByPID.count
         )
 #endif
         let detectedSnapshots = RestorableAgentSessionIndex.processDetectedSnapshots(

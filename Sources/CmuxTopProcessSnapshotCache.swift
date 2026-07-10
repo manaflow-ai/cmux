@@ -182,7 +182,7 @@ actor CmuxTopProcessSnapshotStore {
         metrics.processSnapshotCaptureCompleted(
             completed.metricsToken,
             generation: completed.id,
-            processCount: snapshot.processes.count
+            processCount: snapshot.processesByPID.count
         )
 #endif
     }

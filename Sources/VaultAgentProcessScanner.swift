@@ -55,7 +55,7 @@ extension RestorableAgentSessionIndex {
 #if DEBUG
         let filterMetricsToken = ProcessPerformanceMetrics.shared.operationStarted(
             .vaultFilter,
-            inputCount: processSnapshot.processes.count
+            inputCount: processSnapshot.processesByPID.count
         )
 #endif
         // KERN_PROCARGS2 argv/env decoding is the expensive unit of this scan; memoize so
