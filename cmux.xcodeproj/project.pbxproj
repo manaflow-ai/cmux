@@ -505,6 +505,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		D36090020000000000000005 /* CmuxMainWindowFullScreenCapabilityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36090020000000000000006 /* CmuxMainWindowFullScreenCapabilityTests.swift */; };
 		799F1BEF876006EEB8CD1035 /* CMUXMobileCore in Frameworks */ = {isa = PBXBuildFile; productRef = EFB18E3B3099DFE2ECA3C263 /* CMUXMobileCore */; };
 		EFB18E3C0000000000000001 /* CMUXMobileCore in Frameworks */ = {isa = PBXBuildFile; productRef = EFB18E3B3099DFE2ECA3C263 /* CMUXMobileCore */; };
+		C0DE77000000000000000001 /* CmuxMobileTransport in Frameworks */ = {isa = PBXBuildFile; productRef = C0DE77000000000000000003 /* CmuxMobileTransport */; };
 		CA1F0A01CA1F0A01CA1F0A01 /* CmuxModalAlertPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA1F0A02CA1F0A02CA1F0A02 /* CmuxModalAlertPresentation.swift */; };
 		C54860110000000000000001 /* CmuxNavigationResolution.swift in Sources */ = {isa = PBXBuildFile; fileRef = C54860110000000000000002 /* CmuxNavigationResolution.swift */; };
 		C54860120000000000000001 /* CmuxNavigationSurfaceDescriptor.swift in Sources */ = {isa = PBXBuildFile; fileRef = C54860120000000000000002 /* CmuxNavigationSurfaceDescriptor.swift */; };
@@ -3423,6 +3424,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				CF00F00000000000000000A3 /* CmuxFoundation in Frameworks */,
 				C617000000000000000000A3 /* CmuxGit in Frameworks */,
 				799F1BEF876006EEB8CD1035 /* CMUXMobileCore in Frameworks */,
+				C0DE77000000000000000001 /* CmuxMobileTransport in Frameworks */,
 				E3B7A30000000000000000D3 /* CmuxNotifications in Frameworks */,
 				E3B7A30000000000000000F3 /* CmuxPanes in Frameworks */,
 				A5C0DE0000000000000000A3 /* CMUXProjectModel in Frameworks */,
@@ -5306,6 +5308,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				CC0DE30000000000000000A2 /* CmuxRemoteSession */,
 				A8BD195031FC4B82B4354297 /* StackAuth */,
 				EFB18E3B3099DFE2ECA3C263 /* CMUXMobileCore */,
+				C0DE77000000000000000003 /* CmuxMobileTransport */,
 			);
 			productName = cmux;
 			productReference = A5001000 /* cmux.app */;
@@ -5487,6 +5490,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				CC0DE30000000000000000A1 /* XCLocalSwiftPackageReference "CmuxRemoteSession" */,
 				28B798BB9086C8E6B60C3355 /* XCLocalSwiftPackageReference "stack-auth-swift-sdk-prerelease" */,
 				0C69E6A5FA9B0513E68DF443 /* XCLocalSwiftPackageReference "CMUXMobileCore" */,
+				C0DE77000000000000000002 /* XCLocalSwiftPackageReference "CmuxMobileTransport" */,
 			);
 			productRefGroup = A5001042 /* Products */;
 			projectDirPath = "";
@@ -7696,6 +7700,10 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/Shared/CMUXMobileCore;
 		};
+		C0DE77000000000000000002 /* XCLocalSwiftPackageReference "CmuxMobileTransport" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/Shared/CmuxMobileTransport;
+		};
 		28B798BB9086C8E6B60C3355 /* XCLocalSwiftPackageReference "stack-auth-swift-sdk-prerelease" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = "vendor/stack-auth-swift-sdk-prerelease";
@@ -8162,6 +8170,11 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			isa = XCSwiftPackageProductDependency;
 			package = 0C69E6A5FA9B0513E68DF443 /* XCLocalSwiftPackageReference "CMUXMobileCore" */;
 			productName = CMUXMobileCore;
+		};
+		C0DE77000000000000000003 /* CmuxMobileTransport */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C0DE77000000000000000002 /* XCLocalSwiftPackageReference "CmuxMobileTransport" */;
+			productName = CmuxMobileTransport;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
