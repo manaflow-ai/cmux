@@ -179,3 +179,29 @@ extension CmxAttachRoute {
         )
     }
 }
+
+extension CmxAttachTicket {
+    /// Returns a ticket whose routes are safe for an authenticated transport.
+    ///
+    /// Pairing QR and public-status payloads intentionally have different
+    /// field-level disclosure rules, so they must not use this copy operation.
+    public func authenticatedDisclosure(at now: Date) throws -> Self {
+        try Self(
+            version: version,
+            workspaceID: workspaceID,
+            terminalID: terminalID,
+            macDeviceID: macDeviceID,
+            macDisplayName: macDisplayName,
+            macUserEmail: macUserEmail,
+            macUserID: macUserID,
+            macPairingCompatibilityVersion: macPairingCompatibilityVersion,
+            macAppVersion: macAppVersion,
+            macAppBuild: macAppBuild,
+            routes: routes.compactMap {
+                $0.disclosed(for: .authenticated, at: now)
+            },
+            expiresAt: expiresAt,
+            authToken: authToken
+        )
+    }
+}
