@@ -109,13 +109,11 @@ final class WindowTerminalHostView: NSView {
     }
 
     override func cursorUpdate(with event: NSEvent) {
-        let point = convert(event.locationInWindow, from: nil)
-        updateDividerCursor(at: point)
+        updateDividerCursor(at: convert(event.locationInWindow, from: nil))
     }
 
     override func mouseMoved(with event: NSEvent) {
-        let point = convert(event.locationInWindow, from: nil)
-        updateDividerCursor(at: point)
+        updateDividerCursor(at: convert(event.locationInWindow, from: nil))
     }
 
     override func mouseExited(with event: NSEvent) {
@@ -153,17 +151,8 @@ final class WindowTerminalHostView: NSView {
             }
 
             if let kind = splitDividerCursorKind(at: point) {
-                // Hover events reach hit testing even when this window is occluded.
-                if dividerCursorOcclusion.mayAssertDividerCursorDuringHitTest(in: window) {
-                    activeDividerCursorKind = kind
-                    kind.cursor.set()
-                } else {
-                    clearActiveDividerCursor(restoreArrow: false)
-                }
-                TerminalWindowPortalRegistry.noteSplitDividerInteraction(
-                    in: window,
-                    event: currentEvent
-                )
+                assertDividerCursor(kind)
+                TerminalWindowPortalRegistry.noteSplitDividerInteraction(in: window, event: currentEvent)
                 return nil
             }
 
@@ -346,12 +335,18 @@ final class WindowTerminalHostView: NSView {
             clearActiveDividerCursor(restoreArrow: true)
             return
         }
-        guard dividerCursorOcclusion.mayAssertDividerCursor(in: window) else {
+        assertDividerCursor(nextKind)
+    }
+
+    // A registry-latched divider drag owned by this window bypasses occlusion; a pressed button alone is not ownership.
+    private func assertDividerCursor(_ kind: DividerCursorKind) {
+        guard TerminalWindowPortalRegistry.isSplitDividerDragActive(in: window)
+            || dividerCursorOcclusion.mayAssertDividerCursor(in: window) else {
             clearActiveDividerCursor(restoreArrow: false)
             return
         }
-        activeDividerCursorKind = nextKind
-        nextKind.cursor.set()
+        activeDividerCursorKind = kind
+        kind.cursor.set()
     }
 
     private func clearActiveDividerCursor(restoreArrow: Bool) {
@@ -1863,6 +1858,11 @@ enum TerminalWindowPortalRegistry {
         }
 
         return false
+    }
+
+    fileprivate static func isSplitDividerDragActive(in window: NSWindow?) -> Bool {
+        guard let window, isCurrentEventSplitDividerDrag() else { return false }
+        return activeSplitDividerDragWindowId == ObjectIdentifier(window)
     }
 
     private static func clearActiveSplitDividerDrag() {
