@@ -22,10 +22,10 @@ The prepared Mac must:
 - Expose a safe workspace named `App Review`.
 - Keep a terminal ready for harmless commands such as `echo app-review-ok`,
   `pwd`, and `date`.
-    - Have a reachable pairing route live before submission. For the manual Add
-      Computer form, provide Tailscale install/sign-in instructions and
-      credentials in App Store Connect so the reviewer can join the same tailnet
-      as the prepared Mac.
+- Have a reachable pairing route live before submission. For the manual Add
+  Computer form, provide Tailscale install/sign-in instructions and credentials
+  in App Store Connect so the reviewer can join the same tailnet as the
+  prepared Mac.
 - Restrict the network path to the prepared Mac only. Use a dedicated Tailscale
   tailnet, ACL, firewall rule, or tunnel that exposes only the cmux mobile host
   port needed for review, not the rest of Manaflow's network.
