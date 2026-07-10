@@ -200,13 +200,19 @@ extension MobileShellComposite {
     /// - Returns: Whether an active manual-host connection was queued for reapproval.
     @discardableResult
     func invalidateManualHostTrustForNetworkBoundary() -> Bool {
+        revokeSecondaryManualHostSubscriptions()
+        guard manualHostTrustResetTask == nil else {
+            // Preserve the approval queued by the first boundary while its
+            // durable trust reset is still in flight.
+            return pendingManualHostTrust != nil
+        }
+
         rotateManualHostRPCAuthScope()
         invalidatePairingAttempt()
         clearSupersededManualHostTrustWarning()
 
         manualHostTrustResetGeneration &+= 1
         let resetGeneration = manualHostTrustResetGeneration
-        manualHostTrustResetTask?.cancel()
         let trustStore = manualHostTrustStore
         manualHostTrustResetTask = Task { @MainActor [weak self] in
             await trustStore.removeAll()
@@ -217,5 +223,18 @@ extension MobileShellComposite {
 
         guard remoteClient != nil else { return false }
         return queueForegroundManualHostReapproval(route: activeRoute)
+    }
+
+    private func revokeSecondaryManualHostSubscriptions() {
+        for (macDeviceID, subscription) in secondaryMacSubscriptions
+        where subscription.route.kind == .manualHost {
+            subscription.cancel()
+            secondaryMacSubscriptions[macDeviceID] = nil
+            removeSecondaryConnectionFromPool(macDeviceID: macDeviceID)
+            if var state = workspacesByMac[macDeviceID] {
+                state.status = .unavailable
+                workspacesByMac[macDeviceID] = state
+            }
+        }
     }
 }

@@ -303,6 +303,7 @@ struct PairingView: View {
         let shouldCancelStoreAttempt = pairingTask != nil
             || versionWarning != nil
             || manualHostTrustWarning != nil
+            || connectionError != nil
         pairingTask?.cancel()
         pairingTaskID = nil
         pairingTask = nil

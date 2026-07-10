@@ -1464,17 +1464,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
-    /// Begin observing meaningful network path changes (Wi-Fi<->cellular,
-    /// offline->online) so a live terminal recovers when the network moves out
-    /// from under it. Idempotent; only the first call arms the observation.
+    /// Begin observing every post-initial network path callback so a live
+    /// terminal recovers and plaintext trust is revoked when the network moves
+    /// out from under it. Idempotent; only the first call arms the observation.
     func startObservingNetworkPathChanges() {
         guard !networkPathObservationStarted else { return }
         networkPathObservationStarted = true
         let reachability = reachability
         networkPathObservationTask = Task { @MainActor [weak self] in
-            // Each yield marks a meaningful path change (offline->online or a
-            // primary-interface switch while online); recover the live
-            // connection so a moving network repaints instead of going stale.
+            // Every post-initial callback is a security boundary. Public NWPath
+            // attributes can look identical across two different Wi-Fi LANs.
             for await _ in reachability.pathChanges() {
                 guard let self, !Task.isCancelled else { return }
                 if self.invalidateManualHostTrustForNetworkBoundary() {
@@ -1500,6 +1499,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private func recoverMobileConnection(trigger: RecoveryTrigger) {
         guard remoteClient != nil || pairedMacStore != nil else { return }
         if connectionState == .connected, remoteClient != nil {
+            guard !isRecoveringConnection else { return }
             markMacConnectionReconnecting()
             resyncTerminalOutput(reason: "networkRecovery.\(trigger)", restartEventStream: true)
             if multiMacAggregationEnabled, trigger.reschedulesSecondaryAggregation {

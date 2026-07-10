@@ -94,7 +94,9 @@ public actor ReachabilityService: ReachabilityProviding {
     /// - Returns: An `AsyncStream` removed from the registry when its consumer
     ///   stops iterating or the task is cancelled.
     public nonisolated func pathChanges() -> AsyncStream<Void> {
-        AsyncStream { continuation in
+        // Recovery only needs the newest pending security boundary; bounding
+        // the stream prevents callback bursts from queuing unbounded work.
+        AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
             let registration = Task { await self.register(continuation) }
             continuation.onTermination = { _ in
                 registration.cancel()
