@@ -113,6 +113,47 @@ final class WorkspaceContentViewVisibilityTests {
     }
 
     @Test
+    @MainActor
+    func testSidebarSelectionUpdatesHostedTerminalPortalVisibility() async throws {
+        _ = NSApplication.shared
+        let tabManager = TabManager()
+        defer { tabManager.tabs.forEach { $0.teardownAllPanels() } }
+        let notificationStore = TerminalNotificationStore.shared
+        let sidebarSelectionState = SidebarSelectionState(selection: .tabs)
+        let root = ContentView(updateViewModel: UpdateStateModel(), windowId: UUID())
+            .environmentObject(tabManager)
+            .environmentObject(notificationStore)
+            .environmentObject(notificationStore.sidebarUnread)
+            .environmentObject(SidebarState())
+            .environmentObject(sidebarSelectionState)
+            .environmentObject(FileExplorerState())
+            .environmentObject(CmuxConfigStore())
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 900, height: 640),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = MainWindowHostingView(rootView: root)
+        defer {
+            window.contentView = nil
+            window.close()
+        }
+
+        await Self.drainMainRunLoop(for: window)
+        let panel = try #require(tabManager.selectedWorkspace?.focusedTerminalPanel)
+        #expect(panel.hostedView.debugPortalVisibleInUI)
+
+        sidebarSelectionState.selection = .notifications
+        await Self.drainMainRunLoop(for: window)
+        #expect(!panel.hostedView.debugPortalVisibleInUI)
+
+        sidebarSelectionState.selection = .tabs
+        await Self.drainMainRunLoop(for: window)
+        #expect(panel.hostedView.debugPortalVisibleInUI)
+    }
+
+    @Test
     func testNonSelectedNonRetiringWorkspaceIsFullyHidden() {
         #expect(
             MountedWorkspacePresentation.resolve(

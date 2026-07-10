@@ -8383,16 +8383,6 @@ final class GhosttySurfaceScrollView: NSView {
         )
     }
 
-    func prepareOwnedPortalHostForTransientReattach(hostId: ObjectIdentifier, reason: String) {
-        guard let terminalSurface = surfaceView.terminalSurface,
-              terminalSurface.isPortalHostOwner(hostId: hostId) else { return }
-        TerminalWindowPortalRegistry.prepareForTransientReattach(hostedView: self)
-        terminalSurface.preparePortalHostReplacementIfOwned(
-            hostId: hostId,
-            reason: reason
-        )
-    }
-
     func cancelPendingPortalHostRetry(hostId: ObjectIdentifier) {
         surfaceView.terminalSurface?.cancelPendingPortalHostRetry(hostId: hostId)
     }
@@ -12094,35 +12084,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
         TerminalWindowPortalRegistry.synchronizeForAnchor(host, syncLayout: false)
     }
 
-    private static func schedulePortalMutation(
-        host: TerminalPortalHostContainerView,
-        hostedView: GhosttySurfaceScrollView,
-        terminalSurface: TerminalSurface,
-        coordinator: Coordinator,
-        snapshot: TerminalPortalMutationSnapshot,
-        reason: String
-    ) {
-        guard coordinator.attachGeneration == snapshot.attachGeneration else { return }
-        coordinator.portalMutationScheduler.schedule {
-            @MainActor [weak host, weak hostedView, weak terminalSurface, weak coordinator] in
-            guard let host, let hostedView, let terminalSurface, let coordinator else { return }
-            guard coordinator.attachGeneration == snapshot.attachGeneration else { return }
-            guard terminalSurface.canAcceptPortalBinding(
-                expectedSurfaceId: snapshot.expectedSurfaceId,
-                expectedGeneration: snapshot.expectedSurfaceGeneration
-            ) else { return }
-            Self.applyPortalMutation(
-                host: host,
-                hostedView: hostedView,
-                terminalSurface: terminalSurface,
-                coordinator: coordinator,
-                snapshot: snapshot,
-                reason: reason
-            )
-        }
-    }
-
-    private static func applyPortalMutation(
+    static func applyPortalMutation(
         host: TerminalPortalHostContainerView,
         hostedView: GhosttySurfaceScrollView,
         terminalSurface: TerminalSurface,
@@ -12192,10 +12154,12 @@ struct GhosttyTerminalView: NSViewRepresentable {
             expectedGeneration: snapshot.expectedSurfaceGeneration
         ) else { return }
         hostedView.attachSurface(terminalSurface)
-        hostedView.setPortalHostHandlers(
-            ownerHostId: hostId,
-            focusHandler: { snapshot.onFocus?(snapshot.expectedSurfaceId) },
-            triggerFlashHandler: snapshot.onTriggerFlash
+        installPortalHostHandlers(
+            host: host,
+            hostedView: hostedView,
+            terminalSurface: terminalSurface,
+            coordinator: coordinator,
+            snapshot: snapshot
         )
         hostedView.setPaneDropContext(TerminalPaneDropContext(
             workspaceId: terminalSurface.tabId,
@@ -12469,6 +12433,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
             host.onDidMoveToWindow = nil
             host.onGeometryChanged = nil
             let hostId = ObjectIdentifier(host)
+            hostedView?.unregisterTransientPortalHostCandidate(hostId: hostId)
             hostedView?.cancelPendingPortalHostRetry(hostId: hostId)
             switch portalPresentation {
             case .detached, .hidden:

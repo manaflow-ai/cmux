@@ -72,8 +72,13 @@ extension TerminalWindowPortalLifecycleTests {
         let pane = try XCTUnwrap(store.bonsplitController.allPaneIds.first)
         let panelId = try XCTUnwrap(store.newSurface(kind: .terminal, inPane: pane, focus: true))
         let panel = try XCTUnwrap(store.panels[panelId] as? TerminalPanel)
-        let portal = WindowTerminalPortal(window: window)
-        portal.bind(hostedView: panel.hostedView, to: anchor, visibleInUI: false)
+        TerminalWindowPortalRegistry.bind(
+            hostedView: panel.hostedView,
+            to: anchor,
+            visibleInUI: false,
+            expectedSurfaceId: panel.surface.id,
+            expectedGeneration: panel.surface.portalBindingGeneration()
+        )
         drainMainQueue()
         realizeWindowLayout(window)
         XCTAssertNotNil(panel.surface.surface)
@@ -95,6 +100,13 @@ extension TerminalWindowPortalLifecycleTests {
             panel.surface.debugForceRefreshCount(),
             0,
             "Dock activation must leave redraw to its scheduled portal reconcile"
+        )
+        drainMainQueue()
+        drainMainQueue()
+        XCTAssertEqual(
+            panel.surface.debugForceRefreshCount(),
+            1,
+            "The portal must perform exactly one deferred Dock reveal refresh"
         )
     }
 
@@ -120,8 +132,13 @@ extension TerminalWindowPortalLifecycleTests {
         let pane = try XCTUnwrap(store.bonsplitController.allPaneIds.first)
         let panelId = try XCTUnwrap(store.newSurface(kind: .terminal, inPane: pane, focus: true))
         let panel = try XCTUnwrap(store.panels[panelId] as? TerminalPanel)
-        let portal = WindowTerminalPortal(window: window)
-        portal.bind(hostedView: panel.hostedView, to: anchor, visibleInUI: false)
+        TerminalWindowPortalRegistry.bind(
+            hostedView: panel.hostedView,
+            to: anchor,
+            visibleInUI: false,
+            expectedSurfaceId: panel.surface.id,
+            expectedGeneration: panel.surface.portalBindingGeneration()
+        )
         drainMainQueue()
         realizeWindowLayout(window)
         XCTAssertNotNil(panel.surface.surface)
@@ -136,6 +153,13 @@ extension TerminalWindowPortalLifecycleTests {
             panel.surface.debugForceRefreshCount(),
             0,
             "Dock activation must leave text-box focus redraw to its scheduled portal reconcile"
+        )
+        drainMainQueue()
+        drainMainQueue()
+        XCTAssertEqual(
+            panel.surface.debugForceRefreshCount(),
+            1,
+            "The portal must perform exactly one deferred text-box reveal refresh"
         )
     }
 
@@ -303,7 +327,7 @@ extension TerminalWindowPortalLifecycleTests {
     }
 
     @MainActor
-    func testTransientReattachDistinguishesAnnouncedAndOrphanedNilAnchors() throws {
+    func testTransientReattachDistinguishesAnnouncedAndOrphanedNilAnchors() async throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 520, height: 340),
             styleMask: [.titled, .closable],
@@ -330,12 +354,33 @@ extension TerminalWindowPortalLifecycleTests {
         let transientAnchor = NSView(frame: NSRect(x: 20, y: 20, width: 360, height: 240))
         contentView.addSubview(transientAnchor)
         portal.bind(hostedView: surface.hostedView, to: transientAnchor, visibleInUI: true)
-        portal.prepareEntryForTransientReattach(forHostedId: hostedId)
+        let ownerHost = NSView()
+        XCTAssertTrue(surface.claimPortalHost(
+            hostId: ObjectIdentifier(ownerHost),
+            paneId: PaneID(),
+            ownershipGeneration: 7,
+            inWindow: true,
+            bounds: CGRect(x: 0, y: 0, width: 360, height: 240),
+            reason: "test.transient.owner"
+        ))
+        let recoveryGeneration = try XCTUnwrap(surface.preparePortalHostReplacementIfOwned(
+            hostId: ObjectIdentifier(ownerHost),
+            reason: "test.transient.prepare"
+        ))
+        portal.prepareEntryForTransientReattach(
+            forHostedId: hostedId,
+            ownershipGeneration: recoveryGeneration
+        )
         entry = try XCTUnwrap(portal.entriesByHostedId[hostedId])
         entry.anchorView = nil
         portal.entriesByHostedId[hostedId] = entry
         portal.pruneDeadEntries()
         XCTAssertEqual(portal.debugEntryCount(), 1)
+
+        await Task.yield()
+        await Task.yield()
+        XCTAssertEqual(portal.debugEntryCount(), 0)
+        XCTAssertTrue(surface.hostedView.isHidden)
     }
 
     @MainActor

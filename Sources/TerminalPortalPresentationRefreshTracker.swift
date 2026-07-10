@@ -31,11 +31,119 @@ extension WindowTerminalPortal {
         entriesByHostedId[hostedId] = entry
     }
 
-    /// Preserves a still-live detached anchor only for an explicitly announced host rebuild.
-    func prepareEntryForTransientReattach(forHostedId hostedId: ObjectIdentifier) {
+    /// Preserves a detached anchor only while one authoritative replacement is in flight.
+    func prepareEntryForTransientReattach(
+        forHostedId hostedId: ObjectIdentifier,
+        ownershipGeneration: UInt64
+    ) {
         guard var entry = entriesByHostedId[hostedId] else { return }
-        entry.allowsTransientAnchorRecovery = true
+        transientRecoveryExpiryTasksByHostedId.removeValue(forKey: hostedId)?.cancel()
+        entry.transientAnchorRecoveryGeneration = ownershipGeneration
         entriesByHostedId[hostedId] = entry
+        reconcileTransientRecoveryExpiry(forHostedId: hostedId)
+    }
+
+    func updateTransientReattachCandidate(
+        forHostedId hostedId: ObjectIdentifier,
+        hostId: ObjectIdentifier,
+        ownershipGeneration: UInt64,
+        isUsable: Bool
+    ) {
+        let wasUsableCandidate = transientReattachCandidatesByHostedId[hostedId]?[hostId] != nil
+        if isUsable {
+            transientReattachCandidatesByHostedId[hostedId, default: [:]][hostId] = ownershipGeneration
+        } else {
+            transientReattachCandidatesByHostedId[hostedId]?.removeValue(forKey: hostId)
+        }
+
+        guard let entry = entriesByHostedId[hostedId],
+              let recoveryGeneration = entry.transientAnchorRecoveryGeneration else { return }
+        if ownershipGeneration > recoveryGeneration {
+            clearTransientAnchorRecovery(forHostedId: hostedId, clearCandidates: false)
+            pruneDeadEntries()
+            return
+        }
+        let hasUsableCandidate = transientReattachCandidatesByHostedId[hostedId]?.values.contains(
+            recoveryGeneration
+        ) == true
+        if hasUsableCandidate {
+            transientRecoveryExpiryTasksByHostedId.removeValue(forKey: hostedId)?.cancel()
+        } else if wasUsableCandidate {
+            clearTransientAnchorRecovery(forHostedId: hostedId, clearCandidates: false)
+            pruneDeadEntries()
+        } else {
+            reconcileTransientRecoveryExpiry(forHostedId: hostedId)
+        }
+    }
+
+    func unregisterTransientReattachCandidate(
+        forHostedId hostedId: ObjectIdentifier,
+        hostId: ObjectIdentifier,
+        ownershipGeneration: UInt64? = nil
+    ) {
+        if let ownershipGeneration {
+            guard transientReattachCandidatesByHostedId[hostedId]?[hostId] == ownershipGeneration else {
+                return
+            }
+        }
+        transientReattachCandidatesByHostedId[hostedId]?.removeValue(forKey: hostId)
+        if transientReattachCandidatesByHostedId[hostedId]?.isEmpty == true {
+            transientReattachCandidatesByHostedId.removeValue(forKey: hostedId)
+        }
+        guard let recoveryGeneration = entriesByHostedId[hostedId]?.transientAnchorRecoveryGeneration else {
+            return
+        }
+        let hasUsableCandidate = transientReattachCandidatesByHostedId[hostedId]?.values.contains(
+            recoveryGeneration
+        ) == true
+        guard !hasUsableCandidate else { return }
+        clearTransientAnchorRecovery(forHostedId: hostedId, clearCandidates: false)
+        pruneDeadEntries()
+    }
+
+    func clearTransientAnchorRecovery(
+        forHostedId hostedId: ObjectIdentifier,
+        clearCandidates: Bool
+    ) {
+        transientRecoveryExpiryTasksByHostedId.removeValue(forKey: hostedId)?.cancel()
+        if clearCandidates {
+            transientReattachCandidatesByHostedId.removeValue(forKey: hostedId)
+        }
+        guard var entry = entriesByHostedId[hostedId] else { return }
+        entry.transientAnchorRecoveryGeneration = nil
+        entriesByHostedId[hostedId] = entry
+    }
+
+    private func transientAnchorRecoveryIsAuthoritative(_ entry: Entry) -> Bool {
+        guard let ownershipGeneration = entry.transientAnchorRecoveryGeneration,
+              let terminalSurface = entry.hostedView?.surfaceView.terminalSurface else { return false }
+        return terminalSurface.isPortalHostReplacementPending(
+            ownershipGeneration: ownershipGeneration
+        )
+    }
+
+    private func reconcileTransientRecoveryExpiry(forHostedId hostedId: ObjectIdentifier) {
+        guard let entry = entriesByHostedId[hostedId],
+              let recoveryGeneration = entry.transientAnchorRecoveryGeneration else { return }
+        let hasUsableCandidate = transientReattachCandidatesByHostedId[hostedId]?.values.contains(
+            recoveryGeneration
+        ) == true
+        if hasUsableCandidate {
+            transientRecoveryExpiryTasksByHostedId.removeValue(forKey: hostedId)?.cancel()
+            return
+        }
+        guard transientRecoveryExpiryTasksByHostedId[hostedId] == nil else { return }
+
+        transientRecoveryExpiryTasksByHostedId[hostedId] = Task { @MainActor [weak self] in
+            await Task.yield()
+            guard !Task.isCancelled, let self,
+                  entriesByHostedId[hostedId]?.transientAnchorRecoveryGeneration == recoveryGeneration else {
+                return
+            }
+            transientRecoveryExpiryTasksByHostedId.removeValue(forKey: hostedId)
+            clearTransientAnchorRecovery(forHostedId: hostedId, clearCandidates: false)
+            pruneDeadEntries()
+        }
     }
 
     func requestPresentationRefresh(forHostedId hostedId: ObjectIdentifier) {
@@ -78,18 +186,16 @@ extension WindowTerminalPortal {
         )
     }
 
-    func synchronizeHostedViewForAnchor(_ anchorView: NSView, syncLayout: Bool = true) {
+    @discardableResult
+    func synchronizeHostedViewForAnchor(
+        _ anchorView: NSView,
+        syncLayout: Bool = true
+    ) -> Task<Void, Never> {
         // A no-layout synchronization runs from representable/AppKit callbacks.
         // It may update geometry, but forcing display there would re-enter the
-        // view update that requested it. The queued full sync owns presentation.
+        // view update that requested it. Keep this callback scoped to its anchor;
+        // the queued portal-owned pass coalesces reconciliation for all entries.
         let allowPresentationRefresh = syncLayout
-        guard ensureInstalled(syncLayout: syncLayout) else { return }
-        if syncLayout {
-            synchronizeLayoutHierarchy()
-        } else {
-            _ = synchronizeHostFrameToReference()
-        }
-        pruneDeadEntries()
         let anchorId = ObjectIdentifier(anchorView)
         let primaryHostedId = hostedByAnchorId[anchorId]
         if let primaryHostedId {
@@ -99,18 +205,7 @@ extension WindowTerminalPortal {
                 allowPresentationRefresh: allowPresentationRefresh
             )
         }
-
-        // One anchor can miss a geometry callback during structural churn.
-        synchronizeAllHostedViews(
-            excluding: primaryHostedId,
-            syncLayout: syncLayout,
-            allowPresentationRefresh: allowPresentationRefresh
-        )
-        reconcileVisibleHostedViewsAfterGeometrySync(
-            reason: "portal.anchorGeometrySync",
-            allowPresentationRefresh: allowPresentationRefresh
-        )
-        scheduleDeferredFullSynchronizeAll()
+        return scheduleDeferredFullSynchronizeAll()
     }
 
     func reconcileVisibleHostedViewsAfterGeometrySync(
@@ -133,9 +228,14 @@ extension WindowTerminalPortal {
         }
     }
 
-    func scheduleDeferredFullSynchronizeAll() {
+    @discardableResult
+    func scheduleDeferredFullSynchronizeAll() -> Task<Void, Never> {
         fullSynchronizationScheduler.schedule { [weak self] in
-            self?.synchronizeAllHostedViews(excluding: nil)
+            guard let self else { return }
+#if DEBUG
+            debugDeferredFullSynchronizationPassCount += 1
+#endif
+            synchronizeAllHostedViews(excluding: nil)
         }
     }
 
@@ -159,5 +259,72 @@ extension WindowTerminalPortal {
                 allowPresentationRefresh: allowPresentationRefresh
             )
         }
+    }
+}
+
+extension TerminalWindowPortalRegistry {
+    static func hideHostedView(_ hostedView: GhosttySurfaceScrollView) {
+        let hostedId = ObjectIdentifier(hostedView)
+        mappedPortal(for: hostedView)?.hideEntry(forHostedId: hostedId)
+    }
+
+    /// Update visibleInUI on an existing portal entry without rebinding.
+    @discardableResult
+    static func updateEntryVisibility(
+        for hostedView: GhosttySurfaceScrollView,
+        visibleInUI: Bool
+    ) -> Bool {
+        let hostedId = ObjectIdentifier(hostedView)
+        guard let portal = mappedPortal(for: hostedView) else { return visibleInUI }
+        return portal.updateEntryVisibility(forHostedId: hostedId, visibleInUI: visibleInUI)
+    }
+
+    /// Updates portal stacking state without changing whether the entry is visible.
+    static func updateEntryPriority(for hostedView: GhosttySurfaceScrollView, zPriority: Int) {
+        let hostedId = ObjectIdentifier(hostedView)
+        guard let portal = mappedPortal(for: hostedView) else { return }
+        portal.updateEntryPriority(forHostedId: hostedId, zPriority: zPriority)
+    }
+
+    static func prepareForTransientReattach(
+        hostedView: GhosttySurfaceScrollView,
+        ownershipGeneration: UInt64
+    ) {
+        let hostedId = ObjectIdentifier(hostedView)
+        guard let portal = mappedPortal(for: hostedView) else { return }
+        portal.prepareEntryForTransientReattach(
+            forHostedId: hostedId,
+            ownershipGeneration: ownershipGeneration
+        )
+    }
+
+    static func updateTransientReattachCandidate(
+        hostedView: GhosttySurfaceScrollView,
+        hostId: ObjectIdentifier,
+        ownershipGeneration: UInt64,
+        isUsable: Bool
+    ) {
+        let hostedId = ObjectIdentifier(hostedView)
+        guard let portal = mappedPortal(for: hostedView) else { return }
+        portal.updateTransientReattachCandidate(
+            forHostedId: hostedId,
+            hostId: hostId,
+            ownershipGeneration: ownershipGeneration,
+            isUsable: isUsable
+        )
+    }
+
+    static func unregisterTransientReattachCandidate(
+        hostedView: GhosttySurfaceScrollView,
+        hostId: ObjectIdentifier,
+        ownershipGeneration: UInt64? = nil
+    ) {
+        let hostedId = ObjectIdentifier(hostedView)
+        guard let portal = mappedPortal(for: hostedView) else { return }
+        portal.unregisterTransientReattachCandidate(
+            forHostedId: hostedId,
+            hostId: hostId,
+            ownershipGeneration: ownershipGeneration
+        )
     }
 }
