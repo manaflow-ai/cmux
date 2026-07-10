@@ -396,7 +396,7 @@ struct RemoteTmuxMirrorTargetingTests {
             "@1 f92f,80x24,0,0,0 f92f,80x24,0,0,0 [] editor",
             "@2 abcd,120x40,0,0{60x40,0,0,4,59x40,61,0[59x20,61,0,5,59x19,61,21,8]} abcd,120x40,0,0{60x40,0,0,4,59x40,61,0[59x20,61,0,5,59x19,61,21,8]} [] logs",
         ])
-        try harness.publishPaneRects([
+        try harness.drainThroughPaneRects([
             1: ["%0 0 0 80 24 1 off :0 \"cmuxs-Mac-mini.local\""],
             2: [
                 "%4 0 0 60 40 1 off :0 \"cmuxs-Mac-mini.local\"",
@@ -411,7 +411,7 @@ struct RemoteTmuxMirrorTargetingTests {
         let harness = try MirrorTitleHarness()
         defer { harness.tearDown() }
         harness.publishListWindows(["@1 f92f,80x24,0,0,0 f92f,80x24,0,0,0 [] editor"])
-        try harness.publishPaneRects([1: ["%0 0 0 80 24 1 off :0 \"cmuxs-Mac-mini.local\""]])
+        try harness.drainThroughPaneRects([1: ["%0 0 0 80 24 1 off :0 \"cmuxs-Mac-mini.local\""]])
         #expect(try harness.surfaceTitles() == ["editor"])
     }
 
@@ -419,13 +419,13 @@ struct RemoteTmuxMirrorTargetingTests {
         let harness = try MirrorTitleHarness()
         defer { harness.tearDown() }
         harness.publishListWindows(["@2 f92f,80x24,0,0,4 f92f,80x24,0,0,4 [] logs"])
-        try harness.publishPaneRects([2: ["%4 0 0 80 24 1 off :0 \"cmuxs-Mac-mini.local\""]])
+        try harness.drainThroughPaneRects([2: ["%4 0 0 80 24 1 off :0 \"cmuxs-Mac-mini.local\""]])
         #expect(try harness.surfaceTitles() == ["logs"])
 
         harness.connection.handleMessageForTesting(.layoutChange(
             windowId: 2, layout: "abcd,120x40,0,0{60x40,0,0,4,59x40,61,0,5}", visibleLayout: nil, zoomed: false
         ))
-        try harness.publishPaneRects([2: [
+        try harness.drainThroughPaneRects([2: [
             "%4 0 0 60 40 1 off :0 \"cmuxs-Mac-mini.local\"",
             "%5 61 0 59 40 0 off :1 \"cmuxs-Mac-mini.local\"",
         ]])
@@ -471,10 +471,10 @@ struct RemoteTmuxMirrorTargetingTests {
             connection.handleMessageForTesting(.commandResult(commandNumber: 1, lines: lines, isError: false))
         }
 
-        func publishPaneRects(_ linesByWindow: [Int: [String]]) throws {
+        func drainThroughPaneRects(_ linesByWindow: [Int: [String]]) throws {
             while let kind = connection.pendingCommandKindsForTesting.first {
-                guard case let .paneRects(windowId, _) = kind else { return }
-                let lines = try #require(linesByWindow[windowId])
+                let lines: [String]
+                if case let .paneRects(windowId, _) = kind { lines = try #require(linesByWindow[windowId]) } else { lines = [] }
                 connection.handleMessageForTesting(.commandResult(commandNumber: 2, lines: lines, isError: false))
             }
         }
