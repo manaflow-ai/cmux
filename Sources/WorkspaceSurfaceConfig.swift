@@ -71,4 +71,18 @@ extension Workspace {
         }
         return template
     }
+
+    nonisolated static func terminalStartupInheritedWorkingDirectoryCandidate(
+        _ inheritedWorkingDirectory: String?,
+        shellActivityState: PanelShellActivityState?,
+        isRemoteTerminalSurface: Bool,
+        isRestoreGuarded: Bool,
+        isAgentResumePendingOrRunning: Bool
+    ) -> String? {
+        guard shellActivityState == .promptIdle,
+              !isRemoteTerminalSurface,
+              !isRestoreGuarded,
+              !isAgentResumePendingOrRunning else { return nil }
+        return normalizedTerminalWorkingDirectory(inheritedWorkingDirectory)
+    }
 }

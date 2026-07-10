@@ -6737,7 +6737,7 @@ final class Workspace: Identifiable, ObservableObject {
         lastTerminalConfigInheritanceFontPoints
     }
 
-    nonisolated private static func normalizedTerminalWorkingDirectory(_ workingDirectory: String?) -> String? {
+    nonisolated static func normalizedTerminalWorkingDirectory(_ workingDirectory: String?) -> String? {
         let trimmed = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return trimmed.isEmpty ? nil : trimmed
     }
@@ -6745,8 +6745,7 @@ final class Workspace: Identifiable, ObservableObject {
     private func resolvedTerminalStartupWorkingDirectory(
         requestedWorkingDirectory: String?,
         sourcePanelId: UUID?,
-        inheritedWorkingDirectory: String? = nil,
-        inheritedWorkingDirectoryRequiresPromptIdle: Bool = false
+        inheritedWorkingDirectory: String? = nil
     ) -> String? {
         if let requested = Self.normalizedTerminalWorkingDirectory(requestedWorkingDirectory) {
             return requested
@@ -6756,7 +6755,7 @@ final class Workspace: Identifiable, ObservableObject {
             return rescued
         }
         return [
-            inheritedWorkingDirectoryForTerminalStartup(sourcePanelId: sourcePanelId, inheritedWorkingDirectory: inheritedWorkingDirectory, requiresPromptIdle: inheritedWorkingDirectoryRequiresPromptIdle),
+            inheritedWorkingDirectoryForTerminalStartup(sourcePanelId: sourcePanelId, inheritedWorkingDirectory: inheritedWorkingDirectory),
             sourcePanelId.flatMap { panelDirectories[$0] },
             sourcePanelId.flatMap { terminalPanel(for: $0)?.requestedWorkingDirectory },
             currentDirectory,
@@ -6765,19 +6764,17 @@ final class Workspace: Identifiable, ObservableObject {
 
     private func inheritedWorkingDirectoryForTerminalStartup(
         sourcePanelId: UUID?,
-        inheritedWorkingDirectory: String?,
-        requiresPromptIdle: Bool = false
+        inheritedWorkingDirectory: String?
     ) -> String? {
-        guard let inherited = Self.normalizedTerminalWorkingDirectory(inheritedWorkingDirectory),
-              let sourcePanelId,
-              restoredGuardedWorkingDirectoriesByPanelId[sourcePanelId] == nil,
-              restoredAgentResumeStatesByPanelId[sourcePanelId] != .awaitingAutoResumeCommand,
-              restoredAgentResumeStatesByPanelId[sourcePanelId] != .autoResumeCommandRunning,
-              !isRemoteTerminalSurface(sourcePanelId),
-              let terminalPanel = terminalPanel(for: sourcePanelId),
-              !((terminalPanel.surface.initialCommand != nil || terminalPanel.surface.tmuxStartCommand != nil || requiresPromptIdle) &&
-                  panelShellActivityStates[sourcePanelId] != .promptIdle) else { return nil }
-        return inherited
+        guard let sourcePanelId else { return nil }
+        return Self.terminalStartupInheritedWorkingDirectoryCandidate(
+            inheritedWorkingDirectory,
+            shellActivityState: panelShellActivityStates[sourcePanelId],
+            isRemoteTerminalSurface: isRemoteTerminalSurface(sourcePanelId),
+            isRestoreGuarded: restoredGuardedWorkingDirectoriesByPanelId[sourcePanelId] != nil,
+            isAgentResumePendingOrRunning: restoredAgentResumeStatesByPanelId[sourcePanelId] == .awaitingAutoResumeCommand ||
+                restoredAgentResumeStatesByPanelId[sourcePanelId] == .autoResumeCommandRunning
+        )
     }
 
     /// Foreground-process cwd provider; nil uses libproc on the live foreground pid.
@@ -7167,8 +7164,7 @@ final class Workspace: Identifiable, ObservableObject {
             ? Self.normalizedTerminalWorkingDirectory(workingDirectory)
             : resolvedTerminalStartupWorkingDirectory(
                 requestedWorkingDirectory: workingDirectory, sourcePanelId: panelId,
-                inheritedWorkingDirectory: splitInheritedWorkingDirectory,
-                inheritedWorkingDirectoryRequiresPromptIdle: splitLiveWorkingDirectory != nil
+                inheritedWorkingDirectory: splitInheritedWorkingDirectory
             )
         inheritedConfig = Self.terminalStartupConfigTemplate(inheritedConfig, clearWorkingDirectory: true)
         let newPanel = TerminalPanel(
@@ -7454,8 +7450,7 @@ final class Workspace: Identifiable, ObservableObject {
         let requestedWorkingDirectory = shouldInheritWorkingDirectoryFallback
             ? resolvedTerminalStartupWorkingDirectory(
                 requestedWorkingDirectory: workingDirectory, sourcePanelId: fallbackSourcePanelId,
-                inheritedWorkingDirectory: inheritedWorkingDirectory,
-                inheritedWorkingDirectoryRequiresPromptIdle: fallbackLiveWorkingDirectory != nil
+                inheritedWorkingDirectory: inheritedWorkingDirectory
             )
             : workingDirectory
         if shouldInheritWorkingDirectoryFallback {
