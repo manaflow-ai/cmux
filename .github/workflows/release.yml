@@ -190,19 +190,7 @@ jobs:
       - name: Install build deps
         if: steps.guard_release_assets.outputs.skip_all != 'true'
         run: |
-          export PATH="$HOME/.cargo/bin:$PATH"
-          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
-          if ! command -v rustup >/dev/null 2>&1; then
-            export HOMEBREW_NO_AUTO_UPDATE=1
-            export HOMEBREW_NO_INSTALL_CLEANUP=1
-            export HOMEBREW_NO_ENV_HINTS=1
-            brew install rustup-init
-            rustup-init -y --profile minimal --default-toolchain stable
-          fi
-          if ! rustup show active-toolchain >/dev/null 2>&1; then
-            rustup default stable
-          fi
-          rustup target add aarch64-apple-darwin x86_64-apple-darwin
+          ./scripts/install-rust-ci.sh
           CMUX_NODE_BIN="$(command -v node)"
           export npm_config_prefix="$RUNNER_TEMP/npm-global"
           mkdir -p "$npm_config_prefix"
@@ -220,6 +208,11 @@ jobs:
         if: steps.guard_release_assets.outputs.skip_all != 'true'
         run: |
           ./scripts/download-prebuilt-ghosttykit.sh
+
+      - name: Provision cmux-iroh FFI
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        run: |
+          ./scripts/ensure-cmux-iroh.sh
 
       - name: Cache Swift packages
         if: steps.guard_release_assets.outputs.skip_all != 'true'

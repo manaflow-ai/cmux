@@ -690,6 +690,8 @@ EOF
 
 echo "==> iOS reload starting (tag: $TAG)"
 
+"$IOS_DIR/../scripts/ensure-cmux-iroh.sh"
+
 if [[ "$RELOAD_SIMULATOR" -eq 1 ]]; then
   reload_simulator
 fi

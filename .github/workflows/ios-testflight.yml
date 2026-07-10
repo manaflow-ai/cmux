@@ -366,6 +366,12 @@ jobs:
           # a local-path binaryTarget, so it must exist before package resolve.
           ./scripts/ensure-ghosttykit.sh
 
+      - name: Provision cmux-iroh FFI
+        run: |
+          ./scripts/install-rust-ci.sh
+          export PATH="$HOME/.cargo/bin:$PATH"
+          ./scripts/ensure-cmux-iroh.sh
+
       - name: Materialize App Store Connect API key
         env:
           ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}

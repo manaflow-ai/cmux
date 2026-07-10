@@ -83,6 +83,10 @@ jobs:
       - name: Install zig
         run: ./scripts/install-zig-ci.sh
 
+      - name: Install Rust (macOS)
+        if: ${{ inputs.platform == 'macos' }}
+        run: ./scripts/install-rust-ci.sh
+
       - name: Provision GhosttyKit (macOS)
         if: ${{ inputs.platform == 'macos' }}
         run: ./scripts/download-prebuilt-ghosttykit.sh || ./scripts/ensure-ghosttykit.sh
@@ -107,13 +111,12 @@ jobs:
           mkdir -p artifact
           ( cd "$(dirname "$app_path")" && ditto -c -k --sequesterRsrc --keepParent "$(basename "$app_path")" "$GITHUB_WORKSPACE/artifact/app.zip" )
 
-      # iOS links the CmuxIrohFFI xcframework (gitignored, built from the Rust
-      # crate under Native/cmux-iroh). The macOS path builds it via
+      # iOS links the CmuxIrohFFI xcframework directly from the Xcode project
+      # (gitignored, built from the Rust crate under native/cmux-iroh). The macOS path builds it via
       # reload.sh -> ensure-cmux-iroh.sh; the iOS archive below runs xcodebuild
-      # directly, so provision it here or SwiftPM fails with "local binary target
-      # 'CmuxIrohFFIBinary' ... does not contain a binary artifact". Guarded so
-      # source refs that predate the crate are a no-op (scripts come from
-      # inputs.ref, not this workflow's ref). install-rust-ci.sh is idempotent.
+      # directly, so provision it here before Xcode resolves framework references.
+      # Guarded so source refs that predate the crate are a no-op (scripts come
+      # from inputs.ref, not this workflow's ref). install-rust-ci.sh is idempotent.
       - name: Provision cmux-iroh FFI (iOS)
         if: ${{ inputs.platform == 'ios' }}
         run: |

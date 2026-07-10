@@ -578,6 +578,7 @@ if [[ -n "${ASC_API_KEY_ID:-}" && -n "${ASC_API_ISSUER_ID:-}" && -n "${ASC_API_K
 fi
 
 if [[ -z "$ARCHIVE_PATH" ]]; then
+  "$IOS_DIR/../scripts/ensure-cmux-iroh.sh"
   ARCHIVE_PATH="$OUT_DIR/cmux.xcarchive"
   if [[ "$SIGNING" == "automatic" ]]; then
     # Automatic signing must archive a signed app so Xcode has the requested

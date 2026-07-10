@@ -23,6 +23,10 @@ ios/Config/AppStoreConnect.local.plist
 GhosttyKit.xcframework
 GhosttyKit.xcframework.bak-*/
 
+# CmuxIrohFFI binary (built from native/cmux-iroh via scripts/ensure-cmux-iroh.sh)
+CmuxIrohFFI.xcframework
+CmuxIrohFFI.xcframework.bak-*/
+
 # Release artifacts
 cmux-*.zip
 cmux-macos.dmg

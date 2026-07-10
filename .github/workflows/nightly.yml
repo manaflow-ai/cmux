@@ -190,6 +190,11 @@ jobs:
         run: |
           ./scripts/download-prebuilt-ghosttykit.sh
 
+      - name: Provision cmux-iroh FFI
+        if: needs.decide.outputs.should_publish != 'true' || steps.current_head_prebuild.outputs.still_current == 'true'
+        run: |
+          ./scripts/ensure-cmux-iroh.sh
+
       - name: Cache Swift packages
         if: needs.decide.outputs.should_publish != 'true' || steps.current_head_prebuild.outputs.still_current == 'true'
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5

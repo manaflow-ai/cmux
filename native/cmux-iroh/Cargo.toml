@@ -1,0 +1,20 @@
+[package]
+name = "cmux-iroh-ffi"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.91"
+publish = false
+
+[lib]
+name = "cmux_iroh_ffi"
+crate-type = ["staticlib"]
+
+[dependencies]
+iroh = "=1.0.2"
+serde_json = "1.0"
+tokio = { version = "1.48", features = ["rt-multi-thread", "sync", "time"] }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true

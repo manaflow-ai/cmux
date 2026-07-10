@@ -189,6 +189,10 @@ jobs:
         run: |
           ./scripts/install-rust-ci.sh
 
+      - name: Provision cmux-iroh FFI
+        run: |
+          ./scripts/ensure-cmux-iroh.sh
+
       - name: Install Bun for Feed sidebar tests
         if: ${{ steps.filter.outputs.target == 'cmuxUITests' && (steps.filter.outputs.filter == 'FeedSidebarUITests' || startsWith(steps.filter.outputs.filter, 'FeedSidebarUITests/')) }}
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2

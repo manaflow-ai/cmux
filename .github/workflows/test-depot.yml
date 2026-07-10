@@ -90,6 +90,10 @@ jobs:
         run: |
           ./scripts/install-rust-ci.sh
 
+      - name: Provision cmux-iroh FFI
+        run: |
+          ./scripts/ensure-cmux-iroh.sh
+
       - name: Create virtual display
         run: |
           set -euo pipefail

@@ -21,6 +21,10 @@ if ! rustup show active-toolchain >/dev/null 2>&1; then
   rustup default stable
 fi
 
-rustup target add aarch64-apple-darwin x86_64-apple-darwin
+rustup target add \
+  aarch64-apple-darwin \
+  x86_64-apple-darwin \
+  aarch64-apple-ios \
+  aarch64-apple-ios-sim
 cargo --version
 rustc --version
