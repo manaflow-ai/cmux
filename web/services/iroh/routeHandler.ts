@@ -176,7 +176,7 @@ function expectedErrorResponse(error: ReturnType<typeof irohExpectedError> & obj
   if (tag === "IrohConfigurationError" || tag === "IrohRelayMintError") {
     return jsonResponse({ error: "iroh_service_unavailable" }, 503);
   }
-  return jsonResponse({ error: "iroh_database_unavailable" }, 503);
+  return jsonResponse({ error: "iroh_service_unavailable" }, 503);
 }
 
 function irohJsonResponse(

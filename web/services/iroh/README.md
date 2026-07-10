@@ -58,3 +58,15 @@ Registration stores the earliest path-hint expiry in
 bounded 500-row `FOR UPDATE SKIP LOCKED` batches for hints, challenges, audit
 rows, and revoked bindings. Concurrent cron workers can cooperate without a
 full-table JSON scan.
+
+The `20260710113000_iroh_relay_reservation_expiry` migration adds the
+expanded status constraint with `NOT VALID` so its `ACCESS EXCLUSIVE` lock is
+released without scanning existing rows. Drizzle 1.0 applies all pending
+Postgres migrations in one transaction, so constraint validation must ship in
+a later deployment after this migration is recorded. That follow-up migration
+must run:
+
+```sql
+ALTER TABLE "iroh_relay_token_issuances"
+  VALIDATE CONSTRAINT "iroh_relay_token_issuances_status_check";
+```
