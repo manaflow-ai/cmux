@@ -16,12 +16,16 @@ struct AltScreenNoticeButton: View {
         .accessibilityLabel(buttonAccessibilityLabel)
         .accessibilityIdentifier("MobileTerminalAltScreenNoticeButton")
         .popover(isPresented: $isPresentingExplanation) {
-            ScrollView {
+            ViewThatFits(in: .vertical) {
                 popoverContent
+
+                ScrollView {
+                    popoverContent
+                }
+                .scrollBounceBehavior(.basedOnSize)
             }
-            .scrollBounceBehavior(.basedOnSize)
-            .frame(width: 340, height: 260)
-            .presentationSizing(.fitted)
+            .frame(width: AltScreenNoticePresentationSizing.width)
+            .presentationSizing(AltScreenNoticePresentationSizing())
             .presentationCompactAdaptation(.popover)
         }
     }
@@ -85,5 +89,22 @@ struct AltScreenNoticeButton: View {
     private func dismissFromPopover() {
         dismissNotice()
         isPresentingExplanation = false
+    }
+}
+
+/// Fits the native popover to content measured at its final wrapping width.
+/// The system can still clamp the proposal on compact-height screens, where
+/// `ViewThatFits` selects the scrollable fallback above.
+private struct AltScreenNoticePresentationSizing: PresentationSizing {
+    static let width: CGFloat = 340
+
+    func proposedSize(
+        for root: PresentationSizingRoot,
+        context _: PresentationSizingContext
+    ) -> ProposedViewSize {
+        let contentSize = root.sizeThatFits(
+            ProposedViewSize(width: Self.width, height: nil)
+        )
+        return ProposedViewSize(width: Self.width, height: contentSize.height)
     }
 }
