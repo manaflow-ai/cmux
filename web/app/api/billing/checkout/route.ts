@@ -25,7 +25,23 @@ type CheckoutStackServerApp = StackServerApp<true>;
 
 // One-click upgrade entrypoint. Signed-out visitors become anonymous Stack
 // users first, then go straight to Stripe Checkout.
-export async function GET(request: NextRequest) {
+//
+// Default: a browser navigation that 302s to Stripe (works with no JS).
+// With `?format=json`: run the same logic, then hand the client the resolved
+// destination as `{ url }` so a button can show a spinner and redirect itself
+// instead of flashing this route's blank page. The url is whatever we would
+// have redirected to — the Stripe Checkout URL on success, or a /pricing state
+// URL otherwise — so the client just navigates to it either way.
+export async function GET(request: NextRequest): Promise<NextResponse> {
+  const response = await resolveCheckout(request);
+  if (request.nextUrl.searchParams.get("format") !== "json") return response;
+  const location = response.headers.get("location");
+  return NextResponse.json({
+    url: location ?? new URL("/pricing?billing=error", request.url).toString(),
+  });
+}
+
+async function resolveCheckout(request: NextRequest): Promise<NextResponse> {
   if (
     isAppStoreDistributionMode({
       cmux_distribution: request.nextUrl.searchParams.get("cmux_distribution"),
