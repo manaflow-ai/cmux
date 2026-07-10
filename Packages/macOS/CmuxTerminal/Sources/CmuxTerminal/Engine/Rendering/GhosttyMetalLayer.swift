@@ -128,10 +128,12 @@ public final class GhosttyMetalLayer: CAMetalLayer {
             }
         }
 
-        guard TerminalRenderedFrameDeliveryPolicy.shouldEnqueue(
-            renderDemandActive: renderDemand?.isActive == true,
-            profilingEnabled: profilingEnabled
-        ) else { return drawable }
+        let deliveryPolicy = TerminalRenderedFrameDeliveryPolicy(
+            renderDemandActive: renderDemand?.isActive == true
+        )
+        guard deliveryPolicy.shouldEnqueue(profilingEnabled: profilingEnabled) else {
+            return drawable
+        }
         if let frameReceiver {
             // Hop to the main actor exactly like the legacy
             // DispatchQueue.main.async dispatch (the main-actor executor is

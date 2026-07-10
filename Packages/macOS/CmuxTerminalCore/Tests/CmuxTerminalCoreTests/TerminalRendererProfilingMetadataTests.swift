@@ -159,18 +159,12 @@ import Testing
 
 @Suite struct TerminalRendererTraceIntegrityTests {
     @Test func profilingAloneDoesNotRequestRenderedFrameDelivery() {
-        #expect(!TerminalRenderedFrameDeliveryPolicy.shouldEnqueue(
-            renderDemandActive: false,
-            profilingEnabled: true
-        ))
-        #expect(TerminalRenderedFrameDeliveryPolicy.shouldEnqueue(
-            renderDemandActive: true,
-            profilingEnabled: true
-        ))
-        #expect(TerminalRenderedFrameDeliveryPolicy.shouldEnqueue(
-            renderDemandActive: true,
-            profilingEnabled: false
-        ))
+        let inactivePolicy = TerminalRenderedFrameDeliveryPolicy(renderDemandActive: false)
+        let activePolicy = TerminalRenderedFrameDeliveryPolicy(renderDemandActive: true)
+
+        #expect(!inactivePolicy.shouldEnqueue(profilingEnabled: true))
+        #expect(activePolicy.shouldEnqueue(profilingEnabled: true))
+        #expect(activePolicy.shouldEnqueue(profilingEnabled: false))
     }
 
     @Test func rendererStateSnapshotsNeverDropOrTearDuringConcurrentUpdates() async {

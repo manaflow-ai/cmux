@@ -22,12 +22,16 @@ public protocol TerminalRenderedFrameReceiving: AnyObject, Sendable {
 /// the renderer thread. It must not create frame-delivery demand of its own,
 /// because doing so adds one main-actor task and one coalescing flush per
 /// drawable to the workload being measured.
-public enum TerminalRenderedFrameDeliveryPolicy {
+public struct TerminalRenderedFrameDeliveryPolicy: Sendable {
+    private let renderDemandActive: Bool
+
     @inline(__always)
-    public static func shouldEnqueue(
-        renderDemandActive: Bool,
-        profilingEnabled _: Bool
-    ) -> Bool {
+    public init(renderDemandActive: Bool) {
+        self.renderDemandActive = renderDemandActive
+    }
+
+    @inline(__always)
+    public func shouldEnqueue(profilingEnabled _: Bool) -> Bool {
         return renderDemandActive
     }
 }
