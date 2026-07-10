@@ -13,10 +13,6 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
   return {
     title,
     description,
-    keywords: [
-      "cmux", "terminal", "macOS", "notifications", "AI coding agents",
-      "keyboard shortcuts", "developer tools", "workflow",
-    ],
     openGraph: {
       ...openGraphDefaults(locale, "article"),
       title,
@@ -24,7 +20,7 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
       url: alternates.canonical,
       publishedTime: "2026-03-04T00:00:00Z",
     },
-    twitter: twitterSummary(title, description),
+    twitter: twitterSummary(locale, title, description),
     alternates,
   };
 }

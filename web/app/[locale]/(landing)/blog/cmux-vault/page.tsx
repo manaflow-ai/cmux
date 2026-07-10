@@ -30,7 +30,7 @@ export async function generateMetadata({
       publishedTime: "2026-05-22T00:00:00Z",
       modifiedTime: "2026-07-03T00:00:00Z",
     },
-    twitter: twitterSummary(title, description),
+    twitter: twitterSummary(locale, title, description),
     alternates,
   };
 }

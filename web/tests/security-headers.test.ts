@@ -20,7 +20,7 @@ describe("production security headers", () => {
     });
   });
 
-  test("caches public marketing pages at the edge", () => {
+  test("caches only explicit-locale public marketing pages at the edge", () => {
     const docsRoute = securityHeaderRules.find(
       (rule) => rule.source === "/docs/:path*",
     );
@@ -31,13 +31,13 @@ describe("production security headers", () => {
       (rule) => rule.source === "/dashboard/:path*",
     );
 
-    expect(docsRoute?.headers).toEqual([
+    expect(docsRoute).toBeUndefined();
+    expect(localizedDocsRoute?.headers).toEqual([
       {
         key: "Cache-Control",
         value: "public, s-maxage=86400, stale-while-revalidate=604800",
       },
     ]);
-    expect(localizedDocsRoute?.headers).toEqual(docsRoute?.headers);
     expect(dashboardRoute).toBeUndefined();
   });
 });

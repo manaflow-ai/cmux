@@ -1,7 +1,7 @@
 import { locales } from "./routing";
 
 const BASE = "https://cmux.com";
-const DEFAULT_OG_IMAGE = `${BASE}/opengraph-image`;
+const DEFAULT_OG_IMAGE_PATH = "/opengraph-image";
 
 const shortDescriptionSuffixes: Record<string, string> = {
   en: "Built for AI coding agents on macOS.",
@@ -72,6 +72,10 @@ const openGraphImageTaglines: Record<string, string> = {
   uk: "Термінал для багатозадачності",
 };
 
+const OPEN_GRAPH_IMAGE_RENDER_SCALE = 2;
+const OPEN_GRAPH_IMAGE_WIDTH = 1200 * OPEN_GRAPH_IMAGE_RENDER_SCALE;
+const OPEN_GRAPH_IMAGE_HEIGHT = 630 * OPEN_GRAPH_IMAGE_RENDER_SCALE;
+
 export function openGraphImageAlt(locale: string) {
   return openGraphImageAlts[locale] ?? openGraphImageAlts.en;
 }
@@ -82,9 +86,9 @@ export function openGraphImageTagline(locale: string) {
 
 export function openGraphImage(locale: string) {
   return {
-    url: DEFAULT_OG_IMAGE,
-    width: 1200,
-    height: 630,
+    url: canonicalUrl(locale, DEFAULT_OG_IMAGE_PATH),
+    width: OPEN_GRAPH_IMAGE_WIDTH,
+    height: OPEN_GRAPH_IMAGE_HEIGHT,
     alt: openGraphImageAlt(locale),
   };
 }
@@ -98,8 +102,6 @@ export function hasLocalizedSeoCopy(locale: string) {
     Object.hasOwn(openGraphImageTaglines, locale)
   );
 }
-
-export const defaultOpenGraphImageUrl = DEFAULT_OG_IMAGE;
 
 export function seoDescription(locale: string, description: string) {
   const trimmed = description.trim();
@@ -125,12 +127,16 @@ export function openGraphDefaults(
   };
 }
 
-export function twitterSummary(title: string, description: string) {
+export function twitterSummary(
+  locale: string,
+  title: string,
+  description: string,
+) {
   return {
     card: "summary_large_image" as const,
     title,
     description,
-    images: [DEFAULT_OG_IMAGE],
+    images: [canonicalUrl(locale, DEFAULT_OG_IMAGE_PATH)],
   };
 }
 

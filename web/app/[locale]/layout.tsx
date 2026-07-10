@@ -18,7 +18,6 @@ import { Providers } from "./providers";
 import { DevPanel } from "./components/spacing-control";
 import { ThemeBootstrapScript } from "./theme-bootstrap-script";
 import { darkThemeColor, lightThemeColor } from "./theme-colors";
-import { DOWNLOAD_URL } from "../lib/download";
 
 const themeBootstrapScript = `(function(){try{var t=localStorage.getItem("theme");var light=t==="light"||(t==="system"&&window.matchMedia("(prefers-color-scheme:light)").matches);if(!light)document.documentElement.classList.add("dark");document.querySelectorAll('meta[name="theme-color"]').forEach(function(m){m.content=light?"${lightThemeColor}":"${darkThemeColor}"})}catch(e){}})()`;
 
@@ -71,27 +70,13 @@ export async function generateMetadata({
   return {
     title,
     description,
-    keywords: [
-      "terminal",
-      "macOS",
-      "coding agents",
-      "Claude Code",
-      "Codex",
-      "OpenCode",
-      "Gemini CLI",
-      "Kiro",
-      "Aider",
-      "Ghostty",
-      "AI",
-      "terminal for AI agents",
-    ],
     openGraph: {
       ...openGraphDefaults(locale, "website"),
       title,
       description: ogDescription,
       url: alternates.canonical,
     },
-    twitter: twitterSummary(title, ogDescription),
+    twitter: twitterSummary(locale, title, ogDescription),
     alternates,
     metadataBase: new URL("https://cmux.com"),
   };
@@ -144,10 +129,6 @@ export default async function LocaleLayout({
       logo: "https://cmux.com/logo.png",
     },
     image: defaultOpenGraphImage.url,
-    potentialAction: {
-      "@type": "ReadAction",
-      target: DOWNLOAD_URL,
-    },
   };
   const organizationJsonLdScript = JSON.stringify(organizationJsonLd).replace(
     /</g,

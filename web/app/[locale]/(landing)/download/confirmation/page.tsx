@@ -23,7 +23,7 @@ export async function generateMetadata({
       description,
       url: alternates.canonical,
     },
-    twitter: twitterSummary(title, description),
+    twitter: twitterSummary(locale, title, description),
     // Confirmation pages are per-click, not content to index.
     robots: { index: false, follow: true },
   };

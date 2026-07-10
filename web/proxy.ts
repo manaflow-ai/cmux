@@ -107,6 +107,11 @@ export default function middleware(request: NextRequest) {
     url.pathname = "/docs/remote-tmux";
     return NextResponse.redirect(url, 301);
   }
+  if (pathname === "/docs/remote-tmux" || pathname === "/docs/remote-tmux/") {
+    const url = request.nextUrl.clone();
+    url.pathname = "/en/docs/remote-tmux";
+    return NextResponse.rewrite(url);
+  }
 
   const response = intlMiddleware(request);
   if (featureWorkflowDocRequest) {

@@ -21,12 +21,12 @@ export async function generateMetadata({
     description,
     alternates,
     openGraph: {
-      ...openGraphDefaults(locale, "website"),
+      ...openGraphDefaults(locale, "article"),
       title,
       description,
       url: alternates.canonical,
     },
-    twitter: twitterSummary(title, description),
+    twitter: twitterSummary(locale, title, description),
   };
 }
 

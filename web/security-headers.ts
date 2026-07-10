@@ -19,17 +19,6 @@ const localePrefix =
   ":locale(ja|zh-CN|zh-TW|ko|de|es|fr|it|da|pl|ru|bs|ar|no|pt-BR|th|tr|km|uk)";
 
 const publicMarketingSources = [
-  "/docs/:path*",
-  "/blog/:path*",
-  "/agents/:path*",
-  "/guides",
-  "/compare/:path*",
-  "/best-terminal-for-mac",
-  "/built-on-ghostty",
-  "/community",
-  "/nightly",
-  "/assets",
-  "/wall-of-love",
   `/${localePrefix}/docs/:path*`,
   `/${localePrefix}/blog/:path*`,
   `/${localePrefix}/agents/:path*`,

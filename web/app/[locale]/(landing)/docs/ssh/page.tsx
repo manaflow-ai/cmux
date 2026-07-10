@@ -15,12 +15,12 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
     description,
     alternates,
     openGraph: {
-      ...openGraphDefaults(locale, "website"),
+      ...openGraphDefaults(locale, "article"),
       title,
       description,
       url: alternates.canonical,
     },
-    twitter: twitterSummary(title, description),
+    twitter: twitterSummary(locale, title, description),
   };
 }
 

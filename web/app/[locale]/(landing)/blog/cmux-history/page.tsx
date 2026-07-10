@@ -18,22 +18,6 @@ export async function generateMetadata({
   return {
     title,
     description,
-    keywords: [
-      "cmux",
-      "history",
-      "reopen closed terminal",
-      "restore closed tab",
-      "reopen terminal tab",
-      "reopen closed workspace",
-      "terminal history",
-      "Cmd+Shift+T",
-      "focus history",
-      "Claude Code",
-      "Codex",
-      "OpenCode",
-      "macOS",
-      "AI coding agents",
-    ],
     openGraph: {
       ...openGraphDefaults(locale, "article"),
       title,
@@ -41,7 +25,7 @@ export async function generateMetadata({
       url: alternates.canonical,
       publishedTime: "2026-06-02T00:00:00Z",
     },
-    twitter: twitterSummary(title, description),
+    twitter: twitterSummary(locale, title, description),
     alternates,
   };
 }

@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { NextRequest } from "next/server";
+import middleware from "../proxy";
 import {
   buildAlternates,
   canonicalUrl,
@@ -41,18 +43,21 @@ describe("SEO metadata helpers", () => {
       images: [
         {
           url: "https://cmux.com/opengraph-image",
-          width: 1200,
-          height: 630,
+          width: 2400,
+          height: 1260,
           alt: "cmux - The terminal built for multitasking",
         },
       ],
     });
-    expect(twitterSummary("Title", "Description")).toEqual({
+    expect(twitterSummary("en", "Title", "Description")).toEqual({
       card: "summary_large_image",
       title: "Title",
       description: "Description",
       images: ["https://cmux.com/opengraph-image"],
     });
+    expect(twitterSummary("ja", "Title", "Description").images).toEqual([
+      "https://cmux.com/ja/opengraph-image",
+    ]);
   });
 
   test("has localized SEO fallback copy for every configured locale", () => {
@@ -66,3 +71,33 @@ describe("SEO metadata helpers", () => {
     }
   });
 });
+
+describe("SEO middleware", () => {
+  test("serves the English remote tmux docs without locale redirect loops", () => {
+    const unsupportedLocale = middleware(
+      requestFor("/de/docs/remote-tmux", { "accept-language": "de" }),
+    );
+    expect(unsupportedLocale.status).toBe(301);
+    expect(unsupportedLocale.headers.get("location")).toBe(
+      "https://cmux.com/docs/remote-tmux",
+    );
+
+    const canonicalEnglish = middleware(
+      requestFor("/docs/remote-tmux", { "accept-language": "de" }),
+    );
+    expect(canonicalEnglish.status).toBe(200);
+    expect(canonicalEnglish.headers.get("x-middleware-rewrite")).toBe(
+      "https://cmux.com/en/docs/remote-tmux",
+    );
+    expect(canonicalEnglish.headers.get("location")).toBeNull();
+  });
+});
+
+function requestFor(pathname: string, headers: Record<string, string> = {}) {
+  return new NextRequest(`https://cmux.com${pathname}`, {
+    headers: {
+      host: "cmux.com",
+      ...headers,
+    },
+  });
+}

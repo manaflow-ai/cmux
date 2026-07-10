@@ -48,7 +48,7 @@ export async function generateMetadata({
       description,
       url: alternates.canonical,
     },
-    twitter: twitterSummary(title, description),
+    twitter: twitterSummary(locale, title, description),
   };
 }
 

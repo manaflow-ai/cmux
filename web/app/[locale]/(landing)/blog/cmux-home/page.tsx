@@ -16,21 +16,6 @@ export async function generateMetadata({
   return {
     title,
     description,
-    keywords: [
-      "cmux",
-      "cmux home",
-      "git worktrees",
-      "terminal",
-      "macOS",
-      "CLI",
-      "composable",
-      "customizable",
-      "developer tools",
-      "AI coding agents",
-      "Claude Code",
-      "Codex",
-      "workflow",
-    ],
     openGraph: {
       ...openGraphDefaults(locale, "article"),
       title,
@@ -38,7 +23,7 @@ export async function generateMetadata({
       url: alternates.canonical,
       publishedTime: "2026-06-23T00:00:00Z",
     },
-    twitter: twitterSummary(title, description),
+    twitter: twitterSummary(locale, title, description),
     alternates,
   };
 }
