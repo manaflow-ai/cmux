@@ -36,7 +36,9 @@ use ratatui::backend::CrosstermBackend;
 use crate::browser_input::{BrowserInputDispatcher, BrowserInputEvent, BrowserInputKind};
 use crate::config::{Action, Config, ScrollbarPosition};
 use crate::keys;
-use crate::pty_input::{PtyInputDispatcher, PtyInputEnqueueResult, PtyInputEvent, PtyInputKind};
+use crate::pty_input::{
+    PtyInputBytes, PtyInputDispatcher, PtyInputEnqueueResult, PtyInputEvent, PtyInputKind,
+};
 use crate::session::{Session, SurfaceHandle, TreeView};
 use crate::ui::graphics::GraphicPlacement;
 use crate::ui::graphics_writer::GraphicsWriter;
@@ -987,7 +989,7 @@ impl App {
             }
             AppEvent::Mux(MuxEvent::SurfaceExited(id)) => {
                 if matches!(&self.drag, Some(Drag::PtyMouse { surface, .. }) if *surface == id) {
-                    self.cancel_pty_release_reservation(id);
+                    self.cancel_pty_release_reservation();
                     self.drag = None;
                 }
                 self.render_states.remove(&id);
@@ -1933,12 +1935,12 @@ impl App {
             bytes.extend_from_slice(b"\x1b[200~");
             bytes.extend_from_slice(text.as_bytes());
             bytes.extend_from_slice(b"\x1b[201~");
-            let _ = self.write_pty_bytes(surface_id, surface, bytes, PtyInputKind::Ordered);
+            let _ = self.write_pty_bytes(surface_id, surface, bytes.into(), PtyInputKind::Ordered);
         } else {
             let _ = self.write_pty_bytes(
                 surface_id,
                 surface,
-                text.as_bytes().to_vec(),
+                PtyInputBytes::from_slice(text.as_bytes()),
                 PtyInputKind::Ordered,
             );
         }
@@ -1955,12 +1957,12 @@ impl App {
             bytes.extend_from_slice(b"\x1b[200~");
             bytes.extend_from_slice(text.as_bytes());
             bytes.extend_from_slice(b"\x1b[201~");
-            let _ = self.write_pty_bytes(surface_id, surface, bytes, PtyInputKind::Ordered);
+            let _ = self.write_pty_bytes(surface_id, surface, bytes.into(), PtyInputKind::Ordered);
         } else {
             let _ = self.write_pty_bytes(
                 surface_id,
                 surface,
-                text.as_bytes().to_vec(),
+                PtyInputBytes::from_slice(text.as_bytes()),
                 PtyInputKind::Ordered,
             );
         }
@@ -2234,15 +2236,14 @@ impl App {
         &mut self,
         x: u16,
         y: u16,
-        reported_button: MouseButton,
+        _reported_button: MouseButton,
         modifiers: KeyModifiers,
     ) -> bool {
         let Some(Drag::PtyMouse { surface, content, button: active_button, .. }) = self.drag else {
             return false;
         };
-        if reported_button != active_button {
-            return true;
-        }
+        // Some host protocols report a drag as left regardless of the
+        // pressed button. This TUI owns one active button, so it is authoritative.
         if self.menu.is_some() || self.prompt.is_some() {
             self.cancel_pty_mouse_drag();
             return true;
@@ -2269,17 +2270,16 @@ impl App {
         &mut self,
         x: u16,
         y: u16,
-        reported_button: MouseButton,
+        _reported_button: MouseButton,
         modifiers: KeyModifiers,
     ) -> bool {
         let Some(Drag::PtyMouse { surface, content, button: active_button, .. }) = self.drag else {
             return false;
         };
-        if reported_button != active_button {
-            return true;
-        }
+        // Xterm SGR releases carry no button identity and crossterm exposes
+        // them as left. Release the one button this TUI accepted.
         if !self.pty_mouse_tracking(surface) {
-            self.cancel_pty_release_reservation(surface);
+            self.cancel_pty_release_reservation();
             self.drag = None;
             return true;
         }
@@ -2306,7 +2306,7 @@ impl App {
             return;
         };
         if !self.pty_mouse_tracking(surface) {
-            self.cancel_pty_release_reservation(surface);
+            self.cancel_pty_release_reservation();
             self.drag = None;
             return;
         }
@@ -2401,7 +2401,7 @@ impl App {
             return false;
         }
         if self.encode_buf.is_empty() {
-            if action == MouseAction::Release && matches!(&surface, SurfaceHandle::Remote(_, _)) {
+            if action == MouseAction::Release {
                 self.pty_input.cancel_release_reservation();
             }
             return true;
@@ -2432,38 +2432,26 @@ impl App {
         surface: SurfaceHandle,
         kind: PtyInputKind,
     ) -> bool {
-        if matches!(&surface, SurfaceHandle::Remote(_, _)) {
-            // The worker outlives this event-loop turn and must own the
-            // encoded bytes. Local writes can borrow the reusable buffer.
-            self.write_pty_bytes(surface_id, surface, self.encode_buf.clone(), kind)
-        } else {
-            surface.write_bytes(&self.encode_buf);
-            true
-        }
+        let bytes = PtyInputBytes::from_slice(&self.encode_buf);
+        self.write_pty_bytes(surface_id, surface, bytes, kind)
     }
 
     fn write_pty_bytes(
         &mut self,
         surface_id: SurfaceId,
         surface: SurfaceHandle,
-        bytes: Vec<u8>,
+        bytes: PtyInputBytes,
         kind: PtyInputKind,
     ) -> bool {
-        if matches!(&surface, SurfaceHandle::Remote(_, _)) {
-            let result = self.pty_input.enqueue(PtyInputEvent { surface_id, surface, bytes, kind });
-            self.handle_pty_enqueue_result(result)
-        } else {
-            surface.write_bytes(&bytes);
-            true
-        }
+        let result = self.pty_input.enqueue(PtyInputEvent { surface_id, surface, bytes, kind });
+        self.handle_pty_enqueue_result(result)
     }
 
     fn handle_pty_enqueue_result(&mut self, result: PtyInputEnqueueResult) -> bool {
         match result {
             PtyInputEnqueueResult::Accepted => true,
             PtyInputEnqueueResult::Oversized => {
-                self.status_message =
-                    Some("Input exceeds the 4 MiB remote buffer limit".to_string());
+                self.status_message = Some("Input exceeds the 4 MiB PTY buffer limit".to_string());
                 false
             }
             PtyInputEnqueueResult::Saturated => {
@@ -2481,10 +2469,8 @@ impl App {
         self.pane_areas.iter().find(|area| area.surface == surface).map(|area| area.content)
     }
 
-    fn cancel_pty_release_reservation(&self, surface: SurfaceId) {
-        if matches!(self.session.surface(surface), Some(SurfaceHandle::Remote(_, _))) {
-            self.pty_input.cancel_release_reservation();
-        }
+    fn cancel_pty_release_reservation(&self) {
+        self.pty_input.cancel_release_reservation();
     }
 
     fn pty_mouse_tracking(&self, surface_id: SurfaceId) -> bool {
@@ -3286,7 +3272,12 @@ impl App {
             // Alt-screen apps without mouse support get arrow keys
             // (the usual alternate-scroll behavior).
             let seq: &[u8] = if down { b"\x1b[B\x1b[B\x1b[B" } else { b"\x1b[A\x1b[A\x1b[A" };
-            let _ = self.write_pty_bytes(surface_id, surface, seq.to_vec(), PtyInputKind::Ordered);
+            let _ = self.write_pty_bytes(
+                surface_id,
+                surface,
+                PtyInputBytes::from_slice(seq),
+                PtyInputKind::Ordered,
+            );
         } else {
             let _ = surface.scroll_delta(if down { 3 } else { -3 });
         }
@@ -3625,10 +3616,7 @@ mod tests {
         let mut app = test_app(Session::Local(mux));
 
         assert!(!app.handle_pty_enqueue_result(PtyInputEnqueueResult::Oversized));
-        assert_eq!(
-            app.status_message.as_deref(),
-            Some("Input exceeds the 4 MiB remote buffer limit")
-        );
+        assert_eq!(app.status_message.as_deref(), Some("Input exceeds the 4 MiB PTY buffer limit"));
         assert!(!app.quit);
     }
 

@@ -1,9 +1,9 @@
-//! Ordered, off-loop PTY input forwarding for remote sessions.
+//! Ordered, off-loop PTY input forwarding.
 //!
-//! Remote `write_bytes` waits for a control-socket response. All remote PTY
-//! bytes use one lane so mouse and keyboard input stay ordered without
-//! blocking the UI. Consecutive byte-stream writes are batched, motion is
-//! coalesced, and every accepted mouse press reserves its release capacity.
+//! All PTY bytes use one lane so local writer locks and remote control-socket
+//! responses cannot block the UI. Consecutive byte-stream writes are batched,
+//! motion is coalesced, and every accepted mouse press reserves its release
+//! capacity.
 
 use std::collections::VecDeque;
 use std::sync::{Arc, Condvar, Mutex};
@@ -11,12 +11,15 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use cmux_tui_core::SurfaceId;
+use smallvec::SmallVec;
 
 use crate::session::SurfaceHandle;
 
 const QUEUE_CAPACITY: usize = 512;
 const MAX_QUEUED_BYTES: usize = 4 * 1024 * 1024;
 const RESERVED_RELEASE_BYTES: usize = 64;
+
+pub type PtyInputBytes = SmallVec<[u8; 64]>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PtyInputKind {
@@ -36,7 +39,7 @@ pub enum PtyInputEnqueueResult {
 pub struct PtyInputEvent {
     pub surface_id: SurfaceId,
     pub surface: SurfaceHandle,
-    pub bytes: Vec<u8>,
+    pub bytes: PtyInputBytes,
     pub kind: PtyInputKind,
 }
 
@@ -153,7 +156,7 @@ fn enqueue_bounded(
     events: &mut VecDeque<PtyInputEvent>,
     queued_bytes: &mut usize,
     release_reservations: &mut usize,
-    mut event: PtyInputEvent,
+    event: PtyInputEvent,
     capacity: usize,
     max_bytes: usize,
 ) -> bool {
@@ -212,7 +215,7 @@ fn enqueue_bounded(
 
     if merge_stream {
         *queued_bytes += event.bytes.len();
-        events.back_mut().unwrap().bytes.append(&mut event.bytes);
+        events.back_mut().unwrap().bytes.extend_from_slice(&event.bytes);
     } else {
         *queued_bytes += event.bytes.len();
         events.push_back(event);
@@ -250,7 +253,7 @@ mod tests {
         PtyInputEvent {
             surface_id,
             surface: SurfaceHandle::RemoteBrowserUnsupported,
-            bytes: vec![bytes],
+            bytes: SmallVec::from_slice(&[bytes]),
             kind,
         }
     }
@@ -277,7 +280,7 @@ mod tests {
             1024,
         ));
         assert_eq!(events.len(), 1);
-        assert_eq!(events[0].bytes, vec![2]);
+        assert_eq!(events[0].bytes.as_slice(), &[2]);
     }
 
     #[test]
@@ -294,9 +297,10 @@ mod tests {
             assert!(enqueue_bounded(&mut events, &mut queued_bytes, &mut releases, item, 8, 1024,));
         }
         assert_eq!(events.len(), 3);
-        assert_eq!(events[0].bytes, vec![1, 2]);
-        assert_eq!(events[1].bytes, vec![3]);
-        assert_eq!(events[2].bytes, vec![4]);
+        assert_eq!(events[0].bytes.as_slice(), &[1, 2]);
+        assert!(!events[0].bytes.spilled());
+        assert_eq!(events[1].bytes.as_slice(), &[3]);
+        assert_eq!(events[2].bytes.as_slice(), &[4]);
     }
 
     #[test]
@@ -339,7 +343,7 @@ mod tests {
         ));
         assert_eq!(releases, 0);
         assert_eq!(events.len(), 3);
-        assert_eq!(events.back().unwrap().bytes, vec![4]);
+        assert_eq!(events.back().unwrap().bytes.as_slice(), &[4]);
     }
 
     #[test]
@@ -348,10 +352,10 @@ mod tests {
         let mut queued_bytes = 0;
         let mut releases = 0;
         let mut first = event(1, 1, PtyInputKind::Ordered);
-        first.bytes = vec![1; 8];
+        first.bytes = vec![1; 8].into();
         assert!(enqueue_bounded(&mut events, &mut queued_bytes, &mut releases, first, 8, 10,));
         let mut overflow = event(1, 2, PtyInputKind::Ordered);
-        overflow.bytes = vec![2; 3];
+        overflow.bytes = vec![2; 3].into();
         assert!(!enqueue_bounded(&mut events, &mut queued_bytes, &mut releases, overflow, 8, 10,));
         assert_eq!(queued_bytes, 8);
     }
@@ -392,7 +396,7 @@ mod tests {
     fn oversized_input_is_distinguished_from_queue_saturation() {
         let dispatcher = PtyInputDispatcher::spawn().unwrap();
         let mut oversized = event(1, 1, PtyInputKind::Ordered);
-        oversized.bytes = vec![1; MAX_QUEUED_BYTES + 1];
+        oversized.bytes = vec![1; MAX_QUEUED_BYTES + 1].into();
 
         assert_eq!(dispatcher.enqueue(oversized), PtyInputEnqueueResult::Oversized);
     }
