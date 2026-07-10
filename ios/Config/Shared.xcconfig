@@ -44,6 +44,10 @@ CMUX_PRESENCE_BASE_URL =
 // with MobileAuthComposition.authEnvironmentInfoPlistKey.
 CMUX_IOS_AUTH_ENV =
 
+// Tagged reloads bake the matching macOS tag's isolated web origin here.
+// Empty normal builds retain AuthConfig's channel default.
+CMUX_API_BASE_URL =
+
 // ==========================================
 // Platform Configuration
 // ==========================================
