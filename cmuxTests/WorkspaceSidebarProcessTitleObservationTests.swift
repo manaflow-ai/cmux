@@ -153,6 +153,26 @@ struct WorkspaceSidebarProcessTitleObservationTests {
         withExtendedLifetime(observationStream) {}
     }
 
+    @Test func changeBeforeSubscriptionReplaysToNewObserver() {
+        let scheduler = ManualProcessTitleSettleScheduler()
+        let model = WorkspaceSidebarProcessTitleObservationModel(schedule: scheduler.schedule(delay:action:))
+        let workspace = Workspace(sidebarProcessTitleObservation: model)
+
+        // A row's onAppear snapshot and its .task stream subscription are not
+        // atomic: a title change landing in that gap has no observers and must
+        // not be lost, or a row whose title never changes again stays stale.
+        workspace.applyProcessTitle("Agent title")
+        #expect(scheduler.scheduledActionCount == 0)
+        #expect(model.changeGeneration == 0)
+
+        let observationStream = model.changes()
+        #expect(
+            model.changeGeneration == 1,
+            "Subscribing after an unobserved title change must replay one refresh."
+        )
+        withExtendedLifetime(observationStream) {}
+    }
+
     @Test func customTitleCancelsPendingProcessTitleRefresh() {
         let scheduler = ManualProcessTitleSettleScheduler()
         let model = WorkspaceSidebarProcessTitleObservationModel(schedule: scheduler.schedule(delay:action:))
