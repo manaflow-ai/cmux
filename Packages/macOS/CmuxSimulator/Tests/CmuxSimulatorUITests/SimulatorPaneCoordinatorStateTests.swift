@@ -79,7 +79,7 @@ extension SimulatorPaneCoordinatorTests {
         #expect(coordinator.actionLog.first?.succeeded == true)
 
         for index in 0..<525 {
-            await client.emit(.message(.actionLog(SimulatorActionLogEntry(
+            coordinator.receive(.message(.actionLog(SimulatorActionLogEntry(
                 id: UUID(),
                 timestamp: Date(timeIntervalSince1970: TimeInterval(index)),
                 action: "worker-\(index)",
@@ -87,9 +87,9 @@ extension SimulatorPaneCoordinatorTests {
                 succeeded: true
             ))))
         }
-        await eventually { coordinator.actionLog.first?.action == "worker-524" }
 
         #expect(coordinator.actionLog.count == 500)
+        #expect(coordinator.actionLog.first?.action == "worker-524")
         #expect(coordinator.actionLog.last?.action == "worker-25")
     }
 
