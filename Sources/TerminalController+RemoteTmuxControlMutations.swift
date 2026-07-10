@@ -31,7 +31,7 @@ extension TerminalController {
         workspace: Workspace,
         tabManager: TabManager
     ) -> Bool {
-        guard location.mirror.focus(pane: location.pane.tmuxPaneID) else { return false }
+        guard location.mirror.controlFocus(pane: location.pane.tmuxPaneID) else { return false }
         if let windowID = v2ResolveWindowId(tabManager: tabManager) {
             _ = AppDelegate.shared?.focusMainWindow(windowId: windowID)
             setActiveTabManager(tabManager)

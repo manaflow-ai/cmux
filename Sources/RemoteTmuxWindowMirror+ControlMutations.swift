@@ -53,9 +53,10 @@ extension RemoteTmuxWindowMirror {
     }
 
     /// Requests pane selection. The next tmux publication remains authoritative
-    /// even after the writer accepts this command.
+    /// even after the writer accepts this command. Distinct from the UI's
+    /// fire-and-forget `focus(pane:)`.
     @discardableResult
-    func focus(pane tmuxPaneID: Int) -> Bool {
+    func controlFocus(pane tmuxPaneID: Int) -> Bool {
         sendControlCommand("select-pane -t @\(windowId).%\(tmuxPaneID)")
     }
 

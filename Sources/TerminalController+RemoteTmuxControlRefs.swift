@@ -1,7 +1,16 @@
+import Bonsplit
 import Foundation
 
 @MainActor
 extension TerminalController {
+    /// Drops a projected pane's control refs when it leaves mirror topology.
+    /// Installed as `RemoteTmuxWindowMirror.onControlPaneRemoved`.
+    static func remoteTmuxControlPaneRemovalHandler() -> (PaneID, UUID) -> Void {
+        { [weak controller = TerminalController.shared] paneID, surfaceID in
+            controller?.cleanupSurfaceState(surfaceIds: [surfaceID], paneIds: [paneID.id])
+        }
+    }
+
     func v2RefreshRemoteTmuxAwarePaneAndSurfaceRefs(workspace: Workspace) {
         for paneID in workspace.bonsplitController.allPaneIds {
             let panelIDs = workspace.bonsplitController.tabs(inPane: paneID).compactMap {
