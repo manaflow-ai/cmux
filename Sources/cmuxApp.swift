@@ -187,7 +187,11 @@ struct cmuxApp: App {
         KeyboardShortcutSettings.settingsFileStore.applyDeferredManagedDefaultSideEffects()
         StartupBreadcrumbLog.append("app.init.keyboardShortcuts.sideEffectsApplied")
         StartupBreadcrumbLog.append("app.init.tabManager.begin")
-        _tabManager = StateObject(wrappedValue: TabManager())
+        let browserWebExtensionHost = Self.makeBrowserWebExtensionHostAtLaunch(
+            jsonStore: settingsRuntime.jsonStore,
+            catalog: settingsCatalog
+        )
+        _tabManager = StateObject(wrappedValue: TabManager(browserWebExtensionHost: browserWebExtensionHost))
         StartupBreadcrumbLog.append("app.init.tabManager.complete")
         // Migrate legacy and old-format socket mode values to the new enum.
         if let stored = defaults.string(forKey: SocketControlSettings.appStorageKey) {
@@ -224,6 +228,18 @@ struct cmuxApp: App {
             auth: authComposition
         )
         StartupBreadcrumbLog.append("app.init.delegate.configured")
+    }
+
+    @MainActor
+    private static func makeBrowserWebExtensionHostAtLaunch(
+        jsonStore: JSONConfigStore,
+        catalog: SettingCatalog
+    ) -> (any BrowserWebExtensionHosting)? {
+        guard #available(macOS 15.4, *) else { return nil }
+        let support = BrowserWebExtensionSupport()
+        support.configure(jsonStore: jsonStore, catalog: catalog)
+        StartupBreadcrumbLog.append("app.init.browserWebExtensions.configured")
+        return support
     }
 
     private static func terminateForMissingLaunchTag() -> Never {
@@ -1443,48 +1459,6 @@ private struct MainWindowBootstrapView: View {
                 }
             })
     }
-}
-
-private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
-    "cmux.settings",
-    "cmux.about",
-    "cmux.licenses",
-    "cmux.browser-popup",
-    "cmux.browserProfilePopoverDebug",
-    "cmux.configEditor",
-    "cmux.defaultTerminalRegistrationError",
-    "cmux.feedButtonStyleDebug",
-    "cmux.feedPreview",
-    "cmux.feedTextEditorDebug",
-    "cmux.fileExplorerStyleDebug",
-    "cmux.folderDragIcon",
-    "cmux.pdfPreviewChromeDebug",
-    "cmux.proBadgeDebug",
-    "cmux.recentlyClosedHistory",
-    "cmux.splitButtonLayoutDebug",
-    "cmux.tabBarBackdropLab",
-    "cmux.taskManager",
-    "cmux.aboutTitlebarDebug",
-    "cmux.debugWindowControls",
-    "cmux.browserImportHintDebug",
-    "cmux.extensionSidebarInspector",
-    "cmux.sidebarDebug",
-    "cmux.menubarDebug",
-    "cmux.spinnerGallery",
-    "cmux.backgroundDebug",
-    "cmux.startupAppearanceDebug",
-    "cmux.bonsplitTabBarDebug",
-    "cmux.titlebarLayoutDebug",
-    "cmux.devWindowDisplay",
-    "cmux.mobilePairingWindow",
-]
-
-/// Returns whether the given window should handle the standard close shortcut
-/// as a standalone auxiliary window instead of routing it through workspace or
-/// panel-close behavior.
-func cmuxWindowShouldOwnCloseShortcut(_ window: NSWindow?) -> Bool {
-    guard let identifier = window?.identifier?.rawValue else { return false }
-    return cmuxAuxiliaryWindowIdentifiers.contains(identifier)
 }
 
 private enum DebugWindowConfigSnapshot {

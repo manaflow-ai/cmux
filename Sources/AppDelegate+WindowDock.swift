@@ -11,7 +11,8 @@ extension AppDelegate.MainWindowContext {
             workspaceId: windowId,
             scope: .global,
             baseDirectoryProvider: { nil },
-            remoteBrowserSettingsProvider: { .local }
+            remoteBrowserSettingsProvider: { .local },
+            browserWebExtensionHost: tabManager.browserWebExtensionHost
         )
         windowDock = store
         return store

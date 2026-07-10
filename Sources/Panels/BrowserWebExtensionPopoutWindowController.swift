@@ -1,0 +1,201 @@
+import AppKit
+import WebKit
+
+/// Hosts a `windows.create({type: "popup"})` window opened by a web extension —
+/// e.g. Bitwarden's passkey-confirmation, unlock, and 2FA popouts.
+///
+/// The controller is both the `WKWebExtensionWindow` and the owner of the native
+/// `NSWindow` + extension-page `WKWebView`; its single tab is a nested adapter.
+@available(macOS 15.4, *)
+@MainActor
+final class BrowserWebExtensionPopoutWindowController: NSObject, WKWebExtensionWindow, NSWindowDelegate {
+    private static let defaultSize = CGSize(width: 400, height: 600)
+
+    let window: NSWindow
+    let webView: WKWebView
+    private(set) lazy var tab = Tab(controller: self)
+    private weak var support: BrowserWebExtensionSupport?
+    private(set) weak var extensionContext: WKWebExtensionContext?
+
+    init(
+        configuration: WKWebExtension.WindowConfiguration,
+        context: WKWebExtensionContext,
+        support: BrowserWebExtensionSupport
+    ) {
+        self.support = support
+        self.extensionContext = context
+
+        let webViewConfiguration = context.webViewConfiguration ?? WKWebViewConfiguration()
+        webView = WKWebView(frame: .zero, configuration: webViewConfiguration)
+#if DEBUG
+        webView.isInspectable = true
+#endif
+
+        let requestedFrame = configuration.frame
+        let hasUsableOrigin = requestedFrame.origin.x.isFinite && requestedFrame.origin.y.isFinite
+        let width = requestedFrame.width.isFinite && requestedFrame.width >= 50 ? requestedFrame.width : Self.defaultSize.width
+        let height = requestedFrame.height.isFinite && requestedFrame.height >= 50 ? requestedFrame.height : Self.defaultSize.height
+        let frame = CGRect(
+            origin: hasUsableOrigin ? requestedFrame.origin : .zero,
+            size: CGSize(width: width, height: height)
+        )
+        let usesFallbackFrame = !hasUsableOrigin
+            || !requestedFrame.width.isFinite
+            || !requestedFrame.height.isFinite
+            || requestedFrame.width < 50
+            || requestedFrame.height < 50
+        window = NSWindow(
+            contentRect: frame,
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        // Standalone closable window: the stable identifier opts it into the
+        // shared close-shortcut routing (cmuxWindowShouldOwnCloseShortcut).
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.webExtensionPopout")
+        window.isReleasedWhenClosed = false
+        window.level = .floating
+        window.contentView = webView
+        if usesFallbackFrame {
+            window.center()
+        }
+
+        super.init()
+        window.delegate = self
+        window.title = context.webExtension.displayName ?? String(
+            localized: "browser.webExtension.action.help",
+            defaultValue: "Extension"
+        )
+
+        if let url = configuration.tabURLs.first,
+           support.canOpenExtensionPopupURL(url, for: context) {
+            webView.load(URLRequest(url: url))
+        }
+        if configuration.shouldBeFocused {
+            NSApp.activate()
+            window.makeKeyAndOrderFront(nil)
+        } else {
+            window.orderFront(nil)
+        }
+    }
+
+    var isKeyWindow: Bool {
+        window.isKeyWindow
+    }
+
+    func closeFromExtensionOrUser() {
+        guard window.delegate === self else { return }
+        window.delegate = nil
+        support?.popoutDidClose(self)
+        window.close()
+    }
+
+    // MARK: - NSWindowDelegate
+
+    func windowWillClose(_ notification: Notification) {
+        window.delegate = nil
+        support?.popoutDidClose(self)
+    }
+
+    // MARK: - WKWebExtensionWindow
+
+    func tabs(for context: WKWebExtensionContext) -> [any WKWebExtensionTab] {
+        [tab]
+    }
+
+    func activeTab(for context: WKWebExtensionContext) -> (any WKWebExtensionTab)? {
+        tab
+    }
+
+    func windowType(for context: WKWebExtensionContext) -> WKWebExtension.WindowType {
+        .popup
+    }
+
+    func windowState(for context: WKWebExtensionContext) -> WKWebExtension.WindowState {
+        .normal
+    }
+
+    func isPrivate(for context: WKWebExtensionContext) -> Bool {
+        false
+    }
+
+    func frame(for context: WKWebExtensionContext) -> CGRect {
+        window.frame
+    }
+
+    func screenFrame(for context: WKWebExtensionContext) -> CGRect {
+        window.screen?.frame ?? NSScreen.main?.frame ?? .null
+    }
+
+    func focus(for context: WKWebExtensionContext, completionHandler: @escaping (Error?) -> Void) {
+        NSApp.activate()
+        window.makeKeyAndOrderFront(nil)
+        completionHandler(nil)
+    }
+
+    func close(for context: WKWebExtensionContext, completionHandler: @escaping (Error?) -> Void) {
+        closeFromExtensionOrUser()
+        completionHandler(nil)
+    }
+
+    func canLoadExtensionRequestedURL(_ url: URL) -> Bool {
+        guard let extensionContext else { return false }
+        return support?.canOpenExtensionPopupURL(url, for: extensionContext) == true
+    }
+
+    // MARK: - Tab
+
+    /// The popout window's single extension-page tab.
+    @MainActor
+    final class Tab: NSObject, WKWebExtensionTab {
+        private weak var controller: BrowserWebExtensionPopoutWindowController?
+
+        init(controller: BrowserWebExtensionPopoutWindowController) {
+            self.controller = controller
+        }
+
+        func window(for context: WKWebExtensionContext) -> (any WKWebExtensionWindow)? {
+            controller
+        }
+
+        func indexInWindow(for context: WKWebExtensionContext) -> Int {
+            0
+        }
+
+        func webView(for context: WKWebExtensionContext) -> WKWebView? {
+            controller?.webView
+        }
+
+        func url(for context: WKWebExtensionContext) -> URL? {
+            controller?.webView.url
+        }
+
+        func title(for context: WKWebExtensionContext) -> String? {
+            controller?.webView.title
+        }
+
+        func isSelected(for context: WKWebExtensionContext) -> Bool {
+            true
+        }
+
+        func isLoadingComplete(for context: WKWebExtensionContext) -> Bool {
+            guard let webView = controller?.webView else { return true }
+            return !webView.isLoading
+        }
+
+        func loadURL(_ url: URL, for context: WKWebExtensionContext, completionHandler: @escaping (Error?) -> Void) {
+            guard let controller,
+                  controller.canLoadExtensionRequestedURL(url) else {
+                completionHandler(NSError(domain: "cmux.webExtension.popup", code: 1))
+                return
+            }
+            controller.webView.load(URLRequest(url: url))
+            completionHandler(nil)
+        }
+
+        func close(for context: WKWebExtensionContext, completionHandler: @escaping (Error?) -> Void) {
+            controller?.closeFromExtensionOrUser()
+            completionHandler(nil)
+        }
+    }
+}

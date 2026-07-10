@@ -51,12 +51,6 @@ struct BrowserImageCopyPasteboardPayload {
     let sourceURL: URL?
 }
 
-enum BrowserFocusModeKeyDecision: Equatable {
-    case inactive
-    case forwardToWebView
-    case consume
-}
-
 enum BrowserImageCopyPasteboardBuilder {
     private static let pngPasteboardType = NSPasteboard.PasteboardType(UTType.png.identifier)
     private static let tiffPasteboardType = NSPasteboard.PasteboardType(UTType.tiff.identifier)
@@ -665,32 +659,19 @@ final class CmuxWebView: WKWebView {
 #endif
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         let normalizedFlags = flags.subtracting([.numericPad, .function, .capsLock])
-        if let decision = AppDelegate.shared?.handleBrowserFocusModeKeyEvent(
-            event,
-            webView: self,
-            source: "web.performKeyEquivalent"
-        ), decision != .inactive {
-            switch decision {
-            case .inactive:
-                break
-            case .forwardToWebView:
-                let isReturnKey = event.keyCode == 36 || event.keyCode == 76
-                if (normalizedFlags.isEmpty && event.keyCode == 53) ||
-                    (isReturnKey && !normalizedFlags.contains(.command)) {
-                    forwardKeyDownToWebKit(event)
-                    return finish(true)
-                }
-                let result = super.performKeyEquivalent(with: event)
-                // While focus mode is active, the page gets the shortcut once and cmux/main-menu
-                // fallback must not see unhandled command equivalents.
-                return finish(result || normalizedFlags.contains(.command))
-            case .consume:
-                return finish(true)
-            }
+        if let focusModeHandled = performBrowserFocusModeKeyEquivalent(
+            with: event,
+            normalizedFlags: normalizedFlags
+        ) {
+            return finish(focusModeHandled)
         }
 
         if event.keyCode == 36 || event.keyCode == 76 {
             return finish(AppDelegate.shared?.handleBrowserSurfaceKeyEquivalent(event) == true)
+        }
+
+        if cmuxPerformBrowserWebExtensionCommandKeyEquivalent(event) {
+            return finish(true)
         }
 
         // Menu/app shortcut routing is only needed for Command equivalents

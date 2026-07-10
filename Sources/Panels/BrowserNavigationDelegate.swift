@@ -19,6 +19,7 @@ import WebKit
     var presentAlert: BrowserAlertPresenter = browserPresentAlert
     var shouldBlockInsecureHTTPNavigation: ((URL) -> Bool)?
     var shouldBlockInsecureHTTPSubframeDownload: ((URL) -> Bool)?
+    var shouldBlockWebExtensionNavigation: ((URL) -> Bool)?; var shouldRouteWebExtensionNavigationInCurrentTab: ((URL) -> Bool)?
     var handleBlockedInsecureHTTPNavigation: ((URLRequest, BrowserInsecureHTTPNavigationIntent) -> Void)?
     var handleDroppedFileNavigation: (([URL]) -> Bool)?
     var currentRestoreAttemptID: (() -> UUID?)?
@@ -294,6 +295,12 @@ import WebKit
 #endif
 
         if let url = navigationAction.request.url,
+           shouldBlockWebExtensionNavigation?(url) == true {
+            clearAttemptedRequest(discardPendingBypasses: true)
+            decisionHandler(.cancel); return
+        }
+
+        if let url = navigationAction.request.url,
            shouldOpenCheckoutInSystemBrowser(navigationAction, url: url) {
             clearAttemptedRequest(discardPendingBypasses: true)
             let reportTerminalCancellation = terminalPolicyCancellationReporter?(navigationAction, webView) ?? {}
@@ -345,6 +352,14 @@ import WebKit
             )
             decisionHandler(.cancel)
             return
+        }
+
+        if let url = navigationAction.request.url,
+           shouldRouteWebExtensionNavigationInCurrentTab?(url) == true,
+           shouldRouteWebExtensionNavigationAsCurrentTab(navigationAction, shouldOpenInNewTab: shouldOpenInNewTab) {
+            clearAttemptedRequest(discardPendingBypasses: true)
+            requestNavigation?(navigationAction.request, .currentTab)
+            decisionHandler(.cancel); return
         }
 
         if navigationAction.shouldPerformDownload {

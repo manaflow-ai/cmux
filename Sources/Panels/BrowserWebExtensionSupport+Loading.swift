@@ -1,0 +1,355 @@
+import CmuxSettings
+import CryptoKit
+import Foundation
+import WebKit
+
+@available(macOS 15.4, *)
+extension BrowserWebExtensionSupport {
+    var loadedRecordsInOrder: [BrowserWebExtensionLoadedRecord] {
+        loadedEntryIDsInOrder.compactMap { loadedByEntryID[$0] }
+    }
+
+    func apply(entries: [BrowserWebExtensionEntry]) async {
+        await apply(entries: entries, generation: settingsLoadGeneration)
+    }
+
+    func apply(entries: [BrowserWebExtensionEntry], generation: Int) async {
+        guard canApplyWebExtensionLoad(generation: generation) else { return }
+        let planner = BrowserWebExtensionReconciliationPlanner()
+        let plan = planner.plan(
+            settingsEntries: entries,
+            environmentPaths: Self.environmentExtensionPaths(),
+            loadedEntries: loadedByEntryID.values.map {
+                BrowserWebExtensionReconciliationPlanner.LoadedEntry(
+                    id: $0.entryID,
+                    standardizedPath: $0.standardizedPath
+                )
+            }
+        )
+
+        var failedUnloadEntries: [BrowserWebExtensionEntry] = []
+        for entry in plan.unloadEntries {
+            if let failedEntry = unload(
+                entryID: entry.id,
+                preservePermissionState: entry.preservePermissionState
+            ) {
+                failedUnloadEntries.append(failedEntry)
+            }
+        }
+
+        if !failedUnloadEntries.isEmpty {
+            guard canApplyWebExtensionLoad(generation: generation) else { return }
+            await rollbackSettingsAfterFailedUnloads(
+                failedEntries: failedUnloadEntries,
+                planner: planner
+            )
+            rebuildActionSnapshots()
+            return
+        }
+
+        guard canApplyWebExtensionLoad(generation: generation) else { return }
+        for entry in plan.loadEntries where loadedByEntryID[entry.id] == nil {
+            await load(entry: entry, generation: generation)
+        }
+
+        guard canApplyWebExtensionLoad(generation: generation) else { return }
+        rebuildActionSnapshots()
+    }
+
+    func canApplyWebExtensionLoad(generation: Int) -> Bool {
+        generation == settingsLoadGeneration &&
+            !Task.isCancelled &&
+            BrowserAvailabilitySettings.isEnabled()
+    }
+
+    func context(forActionID actionID: String) -> WKWebExtensionContext? {
+        loadedByEntryID[actionID]?.context
+    }
+
+    func actionSnapshots(for panelID: UUID) -> [BrowserWebExtensionActionSnapshot] {
+        _ = actionSnapshotRevision
+        _ = actionSnapshotInvalidationsByPanelID[panelID]?.revision
+        let tabAdapter = tabAdapters[panelID]
+        return actionSnapshotIDs.compactMap { entryID in
+            guard let record = loadedByEntryID[entryID] else { return nil }
+            return actionSnapshot(for: record, tabAdapter: tabAdapter)
+        }
+    }
+
+    func rebuildActionSnapshots() {
+        actionSnapshotIDs = loadedRecordsInOrder.map(\.entryID)
+        refreshAllActionSnapshots()
+    }
+
+    func refreshActionSnapshot(for context: WKWebExtensionContext) {
+        guard actionSnapshotIDs.contains(where: { loadedByEntryID[$0]?.context === context }) else {
+            rebuildActionSnapshots()
+            return
+        }
+        refreshAllActionSnapshots()
+    }
+
+    func refreshActionSnapshot(for action: WKWebExtension.Action, context: WKWebExtensionContext) {
+        if let adapter = action.associatedTab as? BrowserWebExtensionTabAdapter,
+           let panelID = adapter.panel?.id,
+           tabAdapters[panelID] === adapter {
+            refreshActionSnapshots(for: panelID)
+            return
+        }
+        refreshActionSnapshot(for: context)
+    }
+
+    func refreshAllActionSnapshots() {
+        actionSnapshotRevision &+= 1
+    }
+
+    func refreshActionSnapshots(for panelID: UUID?) {
+        guard let panelID,
+              let invalidation = actionSnapshotInvalidationsByPanelID[panelID] else { return }
+        invalidation.refresh()
+    }
+
+    func extensionPagePanels(usingContextIdentifier contextIdentifier: ObjectIdentifier) -> [BrowserPanel] {
+        tabAdapters.values.compactMap(\.panel).filter {
+            $0.webExtensionPageContextIdentifier == contextIdentifier
+        }
+    }
+
+    private func actionSnapshot(
+        for record: BrowserWebExtensionLoadedRecord,
+        tabAdapter: BrowserWebExtensionTabAdapter?
+    ) -> BrowserWebExtensionActionSnapshot {
+        let action = record.context.action(for: tabAdapter)
+        return BrowserWebExtensionActionSnapshot(
+            id: record.entryID,
+            displayName: action?.label ?? record.context.webExtension.displayName ?? String(
+                localized: "browser.webExtension.action.help",
+                defaultValue: "Extension"
+            ),
+            icon: action?.icon(for: CGSize(width: 32, height: 32))
+                ?? record.context.webExtension.icon(for: CGSize(width: 32, height: 32)),
+            isEnabled: action?.isEnabled ?? true,
+            badgeText: action?.badgeText ?? "",
+            hasUnreadBadgeText: action?.hasUnreadBadgeText ?? false
+        )
+    }
+
+    @discardableResult
+    private func unload(
+        entryID: String,
+        preservePermissionState: Bool = true
+    ) -> BrowserWebExtensionEntry? {
+        guard let record = loadedByEntryID[entryID] else { return nil }
+        let extensionPagePanels = extensionPagePanels(
+            usingContextIdentifier: ObjectIdentifier(record.context)
+        )
+        if preservePermissionState {
+            persistPermissionState(
+                entryID: entryID,
+                standardizedPath: record.standardizedPath,
+                context: record.context
+            )
+        }
+        do {
+            try controller.unload(record.context)
+        } catch {
+            recordLoadError(entryID: entryID)
+#if DEBUG
+            cmuxDebugLog(BrowserWebExtensionDiagnostics.failure(operation: .unload, error: error))
+#endif
+            return record.entry
+        }
+
+        removePermissionStateObservers(entryID: entryID)
+        if !preservePermissionState {
+            removePermissionState(entryID: entryID, standardizedPath: record.standardizedPath)
+        }
+        loadedByEntryID[entryID] = nil
+        loadedEntryIDsInOrder.removeAll { $0 == entryID }
+        loadErrorsByEntryID.removeValue(forKey: entryID)
+        refreshLoadErrors()
+
+        for panel in extensionPagePanels {
+            closeOpenedBrowserTab(panel)
+        }
+
+        let closingPopouts = popouts.filter { $0.extensionContext === record.context }
+        for popout in closingPopouts {
+            popout.closeFromExtensionOrUser()
+        }
+#if DEBUG
+        cmuxDebugLog(BrowserWebExtensionDiagnostics.success(operation: .unload))
+#endif
+        return nil
+    }
+
+    @discardableResult
+    func unloadAllWebExtensions() -> Bool {
+        var didUnloadEveryExtension = true
+        for entryID in Array(loadedEntryIDsInOrder) {
+            if unload(entryID: entryID) != nil {
+                didUnloadEveryExtension = false
+            }
+        }
+        rebuildActionSnapshots()
+        return didUnloadEveryExtension
+    }
+
+    func loadErrorUpdates() -> AsyncStream<[String: String]> {
+        let id = UUID()
+        let (stream, continuation) = AsyncStream<[String: String]>.makeStream(
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        loadErrorUpdateContinuations[id] = continuation
+        continuation.yield(loadErrorsByEntryID)
+        continuation.onTermination = { [weak self] _ in
+            Task { @MainActor in
+                self?.loadErrorUpdateContinuations.removeValue(forKey: id)
+            }
+        }
+        return stream
+    }
+
+    private func load(entry: BrowserWebExtensionEntry, generation: Int) async {
+        do {
+            let webExtension = try await makeWebExtension(for: entry)
+            guard canApplyWebExtensionLoad(generation: generation) else { return }
+            let standardizedPath = BrowserWebExtensionReconciliationPlanner.standardizedResourceRootPath(for: entry)
+            let context = try load(webExtension, entryID: entry.id, standardizedPath: standardizedPath)
+            loadedByEntryID[entry.id] = BrowserWebExtensionLoadedRecord(
+                entry: entry,
+                standardizedPath: standardizedPath,
+                context: context
+            )
+            if !loadedEntryIDsInOrder.contains(entry.id) {
+                loadedEntryIDsInOrder.append(entry.id)
+            }
+            loadErrorsByEntryID.removeValue(forKey: entry.id)
+            refreshLoadErrors()
+#if DEBUG
+            cmuxDebugLog(BrowserWebExtensionDiagnostics.success(operation: .load))
+#endif
+        } catch {
+            guard canApplyWebExtensionLoad(generation: generation) else { return }
+            recordLoadError(entryID: entry.id)
+#if DEBUG
+            cmuxDebugLog(BrowserWebExtensionDiagnostics.failure(operation: .load, error: error))
+#endif
+        }
+    }
+
+    private func rollbackSettingsAfterFailedUnloads(
+        failedEntries: [BrowserWebExtensionEntry],
+        planner: BrowserWebExtensionReconciliationPlanner
+    ) async {
+        guard let settingsStore, let settingsKey else { return }
+        let settingsEntries = await settingsStore.value(for: settingsKey)
+        let restoredEntries = planner.rollbackEntriesAfterFailedUnloads(
+            settingsEntries: settingsEntries,
+            failedEntries: failedEntries
+        )
+        guard restoredEntries != settingsEntries else { return }
+        do {
+            try await settingsStore.set(restoredEntries, for: settingsKey)
+        } catch {
+            for entry in failedEntries {
+                recordLoadError(entryID: entry.id)
+            }
+#if DEBUG
+            cmuxDebugLog(BrowserWebExtensionDiagnostics.failure(operation: .rollbackSettings, error: error))
+#endif
+        }
+    }
+
+
+    private func makeWebExtension(for entry: BrowserWebExtensionEntry) async throws -> WKWebExtension {
+        let url = URL(fileURLWithPath: entry.path)
+        if entry.kind == .safariAppExtension, url.pathExtension == "appex" {
+            if let bundle = Bundle(url: url) {
+                return try await WKWebExtension(appExtensionBundle: bundle)
+            }
+            let resources = url.appendingPathComponent("Contents/Resources", isDirectory: true)
+            return try await WKWebExtension(resourceBaseURL: resources)
+        }
+        return try await WKWebExtension(resourceBaseURL: url)
+    }
+
+    @discardableResult
+    private func load(
+        _ webExtension: WKWebExtension,
+        entryID: String,
+        standardizedPath: String
+    ) throws -> WKWebExtensionContext {
+        let context = WKWebExtensionContext(for: webExtension)
+        configureStableContextIdentity(context, entryID: entryID, standardizedPath: standardizedPath)
+#if DEBUG
+        context.isInspectable = true
+#endif
+        restorePermissionState(for: context, entryID: entryID, standardizedPath: standardizedPath)
+        installPermissionStateObservers(
+            for: context,
+            entryID: entryID,
+            standardizedPath: standardizedPath
+        )
+        do {
+            try controller.load(context)
+        } catch {
+            removePermissionStateObservers(entryID: entryID)
+            throw error
+        }
+        return context
+    }
+
+    private func configureStableContextIdentity(
+        _ context: WKWebExtensionContext,
+        entryID: String,
+        standardizedPath: String
+    ) {
+        let identifier = stableContextIdentifier(entryID: entryID, standardizedPath: standardizedPath)
+        context.uniqueIdentifier = identifier
+        context.baseURL = URL(string: "webkit-extension://\(identifier)/")!
+    }
+
+    private func stableContextIdentifier(entryID: String, standardizedPath: String) -> String {
+        let identity = "\(entryID)\n\(standardizedPath)"
+        let digest = SHA256.hash(data: Data(identity.utf8))
+        let hexDigits = Array("0123456789abcdef".utf8)
+        let hexBytes = digest.flatMap { byte in
+            [hexDigits[Int(byte >> 4)], hexDigits[Int(byte & 0x0f)]]
+        }
+        return "cmux-\(String(decoding: hexBytes, as: UTF8.self))"
+    }
+
+    func recordLoadError(entryID: String) {
+        loadErrorsByEntryID[entryID] = BrowserWebExtensionDiagnostics.genericFailureMessage
+        refreshLoadErrors()
+    }
+
+    private func refreshLoadErrors() {
+        loadErrors = loadErrorsByEntryID
+            .sorted { $0.key < $1.key }
+            .map(\.value)
+        for continuation in loadErrorUpdateContinuations.values {
+            continuation.yield(loadErrorsByEntryID)
+        }
+    }
+}
+
+enum BrowserWebExtensionDiagnostics {
+    static let genericFailureMessage = "Web extension failed"
+    enum Operation: String {
+        case load
+        case unload
+        case action
+        case rollbackSettings
+    }
+
+    static func success(operation: Operation) -> String {
+        "browser.webext operation=\(operation.rawValue) result=success"
+    }
+
+    static func failure(operation: Operation, error: Error) -> String {
+        "browser.webext operation=\(operation.rawValue) result=failure " +
+            "errorType=\(String(describing: type(of: error)))"
+    }
+}

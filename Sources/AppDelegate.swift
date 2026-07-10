@@ -8630,7 +8630,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             initialWorkspaceTitle: initialWorkspaceTitle,
             initialWorkingDirectory: initialWorkingDirectory,
             initialTerminalInput: initialTerminalInput,
-            autoWelcomeIfNeeded: initialTerminalInput == nil
+            autoWelcomeIfNeeded: initialTerminalInput == nil,
+            browserWebExtensionHost: self.tabManager?.browserWebExtensionHost
         )
         tabManager.windowId = windowId
         if let sessionWindowSnapshot {
@@ -8649,7 +8650,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
             restoredSessionSnapshotHandler?(restoredPanelIdsByWorkspaceIndex, tabManager)
         }
-
         let sidebarWidth = sessionWindowSnapshot?.sidebar.width
             .map { SessionPersistencePolicy.sanitizedSidebarWidth($0) }
             ?? SessionPersistencePolicy.defaultSidebarWidth
@@ -15087,19 +15087,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return false
     }
 
-    private func matchConfiguredShortcut(event: NSEvent, shortcut: StoredShortcut) -> Bool {
-        guard !shortcut.isUnbound else { return false }
-        if let prefix = activeConfiguredShortcutChordPrefixForCurrentEvent {
-            guard let secondStroke = shortcut.secondStroke,
-                  shortcut.firstStroke == prefix else {
-                return false
-            }
-            return matchShortcutStroke(event: event, stroke: secondStroke)
-        }
-        guard !shortcut.hasChord else { return false }
-        return matchShortcutStroke(event: event, stroke: shortcut.firstStroke)
-    }
-
     func matchConfiguredShortcut(event: NSEvent, action: KeyboardShortcutSettings.Action) -> Bool {
         if !shortcutWhenClauseAllows(action: action, event: event) { return false }
         return matchConfiguredShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: action))
@@ -15130,7 +15117,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
-    private func numberedConfiguredShortcutDigit(
+    func numberedConfiguredShortcutDigit(
         event: NSEvent,
         action: KeyboardShortcutSettings.Action
     ) -> Int? {
@@ -16063,7 +16050,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return fr.isDescendant(of: panel.webView)
     }
 
-    private func browserFocusModePanelForShortcutEvent(_ event: NSEvent) -> BrowserPanel? {
+    func browserFocusModePanelForShortcutEvent(_ event: NSEvent) -> BrowserPanel? {
         // Resolve the panel from the web view that owns the responder chain (the
         // same resolver every other browser shortcut uses), not the selected pane:
         // context-menu / web-view-focus entrypoints can focus a WKWebView without
@@ -16534,6 +16521,9 @@ private extension NSApplication {
             let responder = event.window?.firstResponder
                 ?? AppDelegate.shared?.shortcutRoutingKeyWindow?.firstResponder
                 ?? mainWindow?.firstResponder
+            if cmuxRouteWebExtensionCommandForStaleMenuShortcut(event, responder: responder) {
+                return
+            }
             if let ghosttyView = cmuxOwningGhosttyView(for: responder) {
                 ghosttyView.keyDown(with: event)
 #if DEBUG

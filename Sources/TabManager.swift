@@ -391,6 +391,7 @@ class TabManager: ObservableObject {
     /// Typed synchronous settings access (CmuxSettings).
     private let settings: any SettingsWriting
     private let settingsCatalog = SettingCatalog()
+    let browserWebExtensionHost: (any BrowserWebExtensionHosting)?
 
     @Published private(set) var focusHistoryRevision: UInt64 = 0 {
         didSet {
@@ -469,9 +470,11 @@ class TabManager: ObservableObject {
         gitProbeLimiter: WorkspaceGitMetadataProbeLimiter? = nil,
         panelTitleUpdateCoalescer: NotificationBurstCoalescer? = nil,
         settings: any SettingsWriting = UserDefaultsSettingsClient(defaults: .standard),
+        browserWebExtensionHost: (any BrowserWebExtensionHosting)? = nil,
         closeTabWarningDefaults: UserDefaults = .standard
     ) {
         self.settings = settings
+        self.browserWebExtensionHost = browserWebExtensionHost
         self.panelTitleUpdateCoalescer = panelTitleUpdateCoalescer ?? NotificationBurstCoalescer()
         self.closeTabWarningDefaults = closeTabWarningDefaults
         workspaceReordering = WorkspaceReorderCoordinator(model: workspaces)
@@ -950,6 +953,7 @@ class TabManager: ObservableObject {
             initialBrowserTransparentBackground: initialBrowserTransparentBackground,
             workspaceEnvironment: workspaceEnvironment,
             allowTextBoxFocusDefault: allowTextBoxFocusDefault,
+            browserWebExtensionHost: browserWebExtensionHost,
             closeTabWarningDefaults: closeTabWarningDefaults
         )
     }
@@ -5981,6 +5985,7 @@ extension TabManager {
                 title: workspaceSnapshot.processTitle,
                 workingDirectory: workspaceSnapshot.currentDirectory,
                 portOrdinal: ordinal,
+                browserWebExtensionHost: browserWebExtensionHost,
                 closeTabWarningDefaults: closeTabWarningDefaults
             )
             workspace.owningTabManager = self
@@ -5994,7 +5999,12 @@ extension TabManager {
         if newTabs.isEmpty {
             let ordinal = Self.nextPortOrdinal
             Self.nextPortOrdinal += 1
-            let fallback = Workspace(title: "Terminal 1", portOrdinal: ordinal, closeTabWarningDefaults: closeTabWarningDefaults)
+            let fallback = Workspace(
+                title: "Terminal 1",
+                portOrdinal: ordinal,
+                browserWebExtensionHost: browserWebExtensionHost,
+                closeTabWarningDefaults: closeTabWarningDefaults
+            )
             fallback.owningTabManager = self
             wireClosedBrowserTracking(for: fallback)
             newTabs.append(fallback)
@@ -6153,48 +6163,6 @@ extension TabManager: WorkspaceGroupHosting {}
 // Workspace satisfies the CmuxWorkspaces tab seam with its existing
 // id/groupId/isPinned storage.
 extension Workspace: WorkspaceTabRepresenting {}
-
-extension Notification.Name {
-    // The sidebar multi-selection sync events moved to CmuxSidebar as typed
-    // SidebarMultiSelectionShouldCollapseEvent / DidHideEvent (same names).
-    static let commandPaletteToggleRequested = Notification.Name("cmux.commandPaletteToggleRequested")
-    static let commandPaletteRequested = Notification.Name("cmux.commandPaletteRequested")
-    static let commandPaletteSwitcherRequested = Notification.Name("cmux.commandPaletteSwitcherRequested")
-    static let commandPaletteSubmitRequested = Notification.Name("cmux.commandPaletteSubmitRequested")
-    static let commandPaletteDismissRequested = Notification.Name("cmux.commandPaletteDismissRequested")
-    static let commandPaletteRenameTabRequested = Notification.Name("cmux.commandPaletteRenameTabRequested")
-    static let commandPaletteRenameWorkspaceRequested = Notification.Name("cmux.commandPaletteRenameWorkspaceRequested")
-    static let commandPaletteEditWorkspaceDescriptionRequested = Notification.Name("cmux.commandPaletteEditWorkspaceDescriptionRequested")
-    static let commandPaletteMoveSelection = Notification.Name("cmux.commandPaletteMoveSelection")
-    static let commandPaletteRenameInputInteractionRequested = Notification.Name("cmux.commandPaletteRenameInputInteractionRequested")
-    static let commandPaletteRenameInputDeleteBackwardRequested = Notification.Name("cmux.commandPaletteRenameInputDeleteBackwardRequested")
-    static let feedbackComposerRequested = Notification.Name("cmux.feedbackComposerRequested")
-    static let ghosttyDidSetTitle = Notification.Name("ghosttyDidSetTitle")
-    static let ghosttyDidFocusTab = Notification.Name("ghosttyDidFocusTab")
-    static let ghosttyDidFocusSurface = Notification.Name("ghosttyDidFocusSurface")
-    static let ghosttyDidBecomeFirstResponderSurface = Notification.Name("ghosttyDidBecomeFirstResponderSurface")
-    static let browserDidBecomeFirstResponderWebView = Notification.Name("browserDidBecomeFirstResponderWebView")
-    static let browserFocusAddressBar = Notification.Name("browserFocusAddressBar")
-    static let browserMoveOmnibarSelection = Notification.Name("browserMoveOmnibarSelection")
-    static let browserDidExitAddressBar = Notification.Name("browserDidExitAddressBar")
-    static let browserDidFocusAddressBar = Notification.Name("browserDidFocusAddressBar")
-    static let browserDidBlurAddressBar = Notification.Name("browserDidBlurAddressBar")
-    static let browserFocusModeStateDidChange = Notification.Name("cmux.browserFocusModeStateDidChange")
-    static let webViewDidReceiveClick = Notification.Name("webViewDidReceiveClick")
-    static let terminalPortalVisibilityDidChange = Notification.Name("cmux.terminalPortalVisibilityDidChange")
-    static let browserPortalRegistryDidChange = Notification.Name("cmux.browserPortalRegistryDidChange")
-    static let workspaceOrderDidChange = Notification.Name("cmux.workspaceOrderDidChange")
-    static let workspacePaneGeometryDidChange = Notification.Name("cmux.workspacePaneGeometryDidChange")
-    /// Posted when an existing workspace group's `name` changes (rename). The
-    /// imperatively-cached window-chrome surfaces (custom title bar in
-    /// `ContentView`, toolbar command label in `WindowToolbarController`) read
-    /// a grouped anchor's displayed name from `group.name` and refresh on this.
-    static let workspaceGroupNameDidChange = Notification.Name("cmux.workspaceGroupNameDidChange")
-    /// Posted after TabManager has applied a terminal title to workspace state.
-    static let workspaceTitleDidChange = Notification.Name("cmux.workspaceTitleDidChange")
-    static let workspaceCurrentDirectoryDidChange = Notification.Name("cmux.workspaceCurrentDirectoryDidChange")
-    static let tabManagerFocusHistoryRevisionDidChange = Notification.Name("cmux.tabManagerFocusHistoryRevisionDidChange")
-}
 
 enum BrowserFirstResponderNotificationUserInfoKey {
     static let pointerInitiated = "pointerInitiated"

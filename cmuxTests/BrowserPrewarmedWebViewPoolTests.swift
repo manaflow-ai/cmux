@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 import WebKit
@@ -25,9 +26,10 @@ private final class PrewarmPoolHarness {
         var recordRequest: (@MainActor (URLRequest) -> Void)!
         let dataStore = dataStore
         pool = BrowserPrewarmedWebViewPool(
-            makeWebView: { _ in
+            makeWebView: { _, browserWebExtensionHost in
                 let configuration = WKWebViewConfiguration()
                 configuration.websiteDataStore = dataStore
+                browserWebExtensionHost?.attach(to: configuration)
                 let webView = CmuxWebView(frame: .zero, configuration: configuration)
                 recordWebView(webView)
                 return webView
@@ -40,6 +42,29 @@ private final class PrewarmPoolHarness {
         recordWebView = { [weak self] in self?.madeWebViews.append($0) }
         recordRequest = { [weak self] in self?.loadedRequests.append($0) }
     }
+}
+
+@MainActor
+private final class PrewarmTestWebExtensionHost: BrowserWebExtensionHosting {
+    private(set) var attachedConfigurationCount = 0
+
+    func attach(to configuration: WKWebViewConfiguration) {
+        attachedConfigurationCount += 1
+    }
+
+    func webViewConfiguration(forNavigatingTo url: URL) -> BrowserWebExtensionNavigationConfiguration? {
+        nil
+    }
+
+    func register(panel: BrowserPanel) {}
+
+    func unregister(panelID: UUID) {}
+
+    func noteActivated(panelID: UUID) {}
+
+    func noteTabMetadataChanged(panelID: UUID) {}
+
+    func performCommand(for event: NSEvent) -> Bool { false }
 }
 
 private let pricingURL = URL(string: "https://cmux.com/app-pricing?appearance=dark")!
@@ -173,6 +198,59 @@ struct BrowserPrewarmedWebViewPoolTests {
 
         #expect(claimed == nil)
         #expect(!harness.pool.hasEntry(url: pricingURL, profileID: profileID))
+    }
+
+    @Test func prewarmEntriesAreScopedToWebExtensionHost() {
+        let harness = PrewarmPoolHarness()
+        let firstHost = PrewarmTestWebExtensionHost()
+        let secondHost = PrewarmTestWebExtensionHost()
+        harness.pool.prewarm(
+            url: pricingURL,
+            profileID: profileID,
+            browserWebExtensionHost: firstHost
+        )
+
+        #expect(firstHost.attachedConfigurationCount == 1)
+        #expect(harness.pool.hasEntry(
+            url: pricingURL,
+            profileID: profileID,
+            browserWebExtensionHost: firstHost
+        ))
+        #expect(!harness.pool.hasEntry(
+            url: pricingURL,
+            profileID: profileID,
+            browserWebExtensionHost: secondHost
+        ))
+
+        harness.pool.prewarm(
+            url: pricingURL,
+            profileID: profileID,
+            browserWebExtensionHost: secondHost
+        )
+        #expect(secondHost.attachedConfigurationCount == 1)
+        #expect(harness.madeWebViews.count == 2)
+        harness.pool.webView(harness.madeWebViews[1], didFinish: nil)
+
+        let mismatch = harness.pool.claim(
+            url: pricingURL,
+            profileID: profileID,
+            websiteDataStore: harness.dataStore,
+            browserWebExtensionHost: firstHost
+        )
+        #expect(mismatch == nil)
+        #expect(harness.pool.hasEntry(
+            url: pricingURL,
+            profileID: profileID,
+            browserWebExtensionHost: secondHost
+        ))
+
+        let match = harness.pool.claim(
+            url: pricingURL,
+            profileID: profileID,
+            websiteDataStore: harness.dataStore,
+            browserWebExtensionHost: secondHost
+        )
+        #expect(match === harness.madeWebViews[1])
     }
 
     @Test func provisionalLoadFailureDiscardsEntry() {

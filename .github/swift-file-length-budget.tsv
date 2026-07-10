@@ -98,7 +98,7 @@
 982	Packages/Shared/CmuxAgentChat/Tests/CmuxAgentChatTests/ChatConversationStoreTests.swift
 951	Packages/macOS/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Workspace/ControlCommandCoordinator+Workspace.swift
 951	Sources/App/TerminalDirectoryOpenSupport.swift
-948	Sources/App/ShortcutRoutingSupport.swift
+966	Sources/App/ShortcutRoutingSupport.swift
 947	Sources/TerminalNotificationPolicy.swift
 945	Sources/SessionIndexRegisteredAgents.swift
 944	Sources/CommandPalette/CommandPaletteSettingsToggle.swift
@@ -205,7 +205,7 @@
 576	Packages/Shared/CMUXMobileCore/Sources/CMUXMobileCore/MobileTerminalRenderGrid.swift
 575	Packages/macOS/CmuxWorkspaces/Sources/CmuxWorkspaces/Coordinators/WorkspaceGroupCoordinator.swift
 572	Sources/Feed/FeedTextEditorDebugWindowController.swift
-567	Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/BrowserSection.swift
+581	Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/BrowserSection.swift
 567	Packages/macOS/CmuxTerminalCore/Sources/CmuxTerminalCore/ConfigDiscovery/GhosttyConfigDiscovery.swift
 562	cmuxTests/AgentExecutableResolverTests.swift
 561	cmuxTests/GhosttyConfigPathResolverTests.swift

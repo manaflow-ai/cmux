@@ -63,6 +63,27 @@ func browserNavigationShouldFallbackNilTargetToNewTab(
     navigationType != .other
 }
 
+extension BrowserNavigationDelegate {
+    func shouldRouteWebExtensionNavigationAsCurrentTab(
+        targetFrameIsMainFrame: Bool?,
+        shouldOpenInNewTab: Bool,
+        navigationType _: WKNavigationType
+    ) -> Bool {
+        targetFrameIsMainFrame == true && !shouldOpenInNewTab
+    }
+
+    func shouldRouteWebExtensionNavigationAsCurrentTab(
+        _ navigationAction: WKNavigationAction,
+        shouldOpenInNewTab: Bool
+    ) -> Bool {
+        shouldRouteWebExtensionNavigationAsCurrentTab(
+            targetFrameIsMainFrame: navigationAction.targetFrame?.isMainFrame,
+            shouldOpenInNewTab: shouldOpenInNewTab,
+            navigationType: navigationAction.navigationType
+        )
+    }
+}
+
 func browserNavigationHasSimpleUserActivation(
     currentEventType: NSEvent.EventType? = NSApp.currentEvent?.type
 ) -> Bool {
