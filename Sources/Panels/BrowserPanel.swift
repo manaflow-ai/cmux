@@ -674,7 +674,7 @@ extension BrowserEngineSettings {
     }
 
     @MainActor
-    private static func postFallbackNotificationIfNeeded(workspaceId: UUID) {
+    static func postFallbackNotificationIfNeeded(workspaceId: UUID) {
         guard !didNotifyFallback else { return }
         didNotifyFallback = true
         TerminalNotificationStore.shared.addNotification(
@@ -2810,12 +2810,18 @@ final class BrowserPanel: Panel, ObservableObject {
     @Published private(set) var historyStore: BrowserHistoryStore
 
     /// Engine backing this surface, resolved at creation and persisted with the session.
-    private(set) var engineKind: BrowserSurfaceEngineKind = .webkit
+    /// `@Published` so a runtime-start failure can flip `.chromium → .webkit` and
+    /// re-render `BrowserPanelView` onto the WebKit render path.
+    @Published private(set) var engineKind: BrowserSurfaceEngineKind = .webkit
 
     /// Live Chromium engine state; non-nil once the surface acquires a session.
     /// Stays non-nil (with `chromiumDisconnected == true`) after a process crash
     /// so the omnibar can offer Reload to restart it.
     @Published private(set) var chromium: BrowserPanelChromiumState?
+
+    /// Guards against a redundant async `acquireSession` while one is already
+    /// in flight (`chromium` is only assigned post-await).
+    private var chromiumActivationInProgress = false
 
     /// True after the Chromium browser process ended; reload restarts a fresh session.
     @Published private(set) var chromiumDisconnected: Bool = false
@@ -5847,7 +5853,12 @@ final class BrowserPanel: Panel, ObservableObject {
     /// state into the omnibar-feeding properties. Idempotent; a no-op on
     /// `.webkit` surfaces or once a session already exists.
     func activateChromiumIfNeeded() {
-        guard engineKind == .chromium, chromium == nil else { return }
+        // `chromium` is only assigned after the async `acquireSession` completes,
+        // so the `chromium == nil` guard alone lets a second `updateNSView` in the
+        // same window spawn a redundant Content Shell. This synchronous flag closes
+        // that window.
+        guard engineKind == .chromium, chromium == nil, !chromiumActivationInProgress else { return }
+        chromiumActivationInProgress = true
         let initialURL = pendingInitialChromiumURL ?? blankURLString
         let requestedProfileID = profileID
         Task { @MainActor in
@@ -5856,6 +5867,7 @@ final class BrowserPanel: Panel, ObservableObject {
                     initialURL: initialURL,
                     profileID: requestedProfileID
                 )
+                self.chromiumActivationInProgress = false
                 guard self.engineKind == .chromium, self.chromium == nil else {
                     session.close()
                     return
@@ -5871,8 +5883,20 @@ final class BrowserPanel: Panel, ObservableObject {
 #if DEBUG
                 cmuxDebugLog("browser.chromium.activate.failed panel=\(self.id.uuidString.prefix(5)) error=\(error)")
 #endif
-                // Runtime failed after creation-time availability check: degrade to WebKit.
+                self.chromiumActivationInProgress = false
+                // Runtime failed after creation-time availability check: degrade to
+                // WebKit. The dormant WKWebView was never navigated (chromium init
+                // early-returns before navigate), so drive it to the pending URL now;
+                // flipping @Published engineKind re-renders onto the WebKit path.
                 self.engineKind = .webkit
+                let fallbackURLString = self.pendingInitialChromiumURL
+                    ?? self.currentURL?.absoluteString
+                    ?? self.blankURLString
+                self.pendingInitialChromiumURL = nil
+                if let fallbackURL = URL(string: fallbackURLString) {
+                    self.navigate(to: fallbackURL)
+                }
+                BrowserEngineSettings.postFallbackNotificationIfNeeded(workspaceId: self.workspaceId)
             }
         }
     }
@@ -7601,6 +7625,7 @@ extension BrowserPanel {
     }
 
     func findNext() {
+        if engineKind == .chromium { return }
         Task { @MainActor [weak self] in
             guard let self else { return }
             self.applyFindMatchCount(await self.findService.next())
@@ -7608,6 +7633,7 @@ extension BrowserPanel {
     }
 
     func findPrevious() {
+        if engineKind == .chromium { return }
         Task { @MainActor [weak self] in
             guard let self else { return }
             self.applyFindMatchCount(await self.findService.previous())

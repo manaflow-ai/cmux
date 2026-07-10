@@ -7876,6 +7876,21 @@ struct WebViewRepresentable: NSViewRepresentable {
             showDisconnectedBanner: panel.chromiumDisconnected,
             bannerText: panel.chromiumDisconnectedBannerText
         )
+        // Route keyboard focus to the freshly-mounted Chromium surface, matching the
+        // WebKit content-focus gate (shouldFocusWebView && current pane owner &&
+        // attached) and honoring the same suppression flags. Never steals focus for
+        // a background or non-selected tab.
+        let isCurrentPaneOwner = currentPaneDropContext()?.paneId.id == paneId.id
+        if shouldFocusWebView,
+           isPanelFocused,
+           isCurrentPaneOwner,
+           shouldAttachWebView,
+           !panel.shouldSuppressWebViewFocus(),
+           let chromiumView = panel.chromium?.webView,
+           let window = chromiumView.window,
+           !Self.responderChainContains(window.firstResponder, target: chromiumView) {
+            window.makeFirstResponder(chromiumView)
+        }
     }
 
     private static func applyFocus(
