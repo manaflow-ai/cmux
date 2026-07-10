@@ -19,7 +19,19 @@ ALLOWED_IGNORED_PREFIXES = (
 XCODE_PACKAGE_RESOLVED = (
     "cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
 )
+IOS_XCODE_PACKAGE_RESOLVED = (
+    "ios/cmux.xcworkspace/xcshareddata/swiftpm/Package.resolved"
+)
+XCODE_PACKAGE_RESOLVED_FILES = (
+    XCODE_PACKAGE_RESOLVED,
+    IOS_XCODE_PACKAGE_RESOLVED,
+)
 XCODE_PROJECT_FILE = "cmux.xcodeproj/project.pbxproj"
+IOS_XCODE_PROJECT_FILE = "ios/cmux-ios.xcodeproj/project.pbxproj"
+XCODE_PACKAGE_RESOLVED_BY_PROJECT_FILE = {
+    XCODE_PROJECT_FILE: XCODE_PACKAGE_RESOLVED,
+    IOS_XCODE_PROJECT_FILE: IOS_XCODE_PACKAGE_RESOLVED,
+}
 XCODE_PACKAGE_REFERENCE_TOKENS = (
     "XCRemoteSwiftPackageReference",
     "repositoryURL",
@@ -230,29 +242,35 @@ def file_text_at(ref: str, path: str) -> str:
         return ""
 
 
-def xcode_package_reference_changed(
+def xcode_package_reference_changes(
     merge_base: str | None,
     changed_files: set[str],
-) -> bool:
-    if merge_base is None or XCODE_PROJECT_FILE not in changed_files:
-        return False
-    diff = git_stdout(
-        "diff",
-        "--unified=0",
-        f"{merge_base}..HEAD",
-        "--",
-        XCODE_PROJECT_FILE,
-    )
-    for line in diff.splitlines():
-        if not line.startswith(("+", "-")) or line.startswith(("+++", "---")):
+) -> list[tuple[str, str]]:
+    if merge_base is None:
+        return []
+    changed_projects: list[tuple[str, str]] = []
+    project_lockfiles = XCODE_PACKAGE_RESOLVED_BY_PROJECT_FILE.items()
+    for project_file, package_resolved in project_lockfiles:
+        if project_file not in changed_files:
             continue
-        if any(token in line for token in XCODE_PACKAGE_REFERENCE_TOKENS):
-            return True
-    return False
+        diff = git_stdout(
+            "diff",
+            "--unified=0",
+            f"{merge_base}..HEAD",
+            "--",
+            project_file,
+        )
+        for line in diff.splitlines():
+            if not line.startswith(("+", "-")) or line.startswith(("+++", "---")):
+                continue
+            if any(token in line for token in XCODE_PACKAGE_REFERENCE_TOKENS):
+                changed_projects.append((project_file, package_resolved))
+                break
+    return changed_projects
 
 
 def is_expected_lockfile_path(lockfile: str, roots: set[str]) -> bool:
-    if lockfile == XCODE_PACKAGE_RESOLVED:
+    if lockfile in XCODE_PACKAGE_RESOLVED_FILES:
         return True
     if has_skipped_part(lockfile):
         return False
@@ -328,13 +346,15 @@ def main() -> int:
             ):
                 changed_dependency_roots.add(root)
 
-    if (
-        xcode_package_reference_changed(merge_base, changed_files)
-        and XCODE_PACKAGE_RESOLVED not in changed_files
+    for project_file, package_resolved in xcode_package_reference_changes(
+        merge_base,
+        changed_files,
     ):
+        if package_resolved in changed_files:
+            continue
         errors.append(
-            f"{XCODE_PROJECT_FILE} changed SwiftPM package references without "
-            f"matching Xcode Package.resolved diff: {XCODE_PACKAGE_RESOLVED}"
+            f"{project_file} changed SwiftPM package references without "
+            f"matching Xcode Package.resolved diff: {package_resolved}"
         )
 
     for gitignore in sorted(Path(".").rglob(".gitignore")):
