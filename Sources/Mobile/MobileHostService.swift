@@ -2337,7 +2337,11 @@ actor MobileHostConnection {
             }
             receiveBuffer.append(data)
             do {
-                let frames = try MobileSyncFrameCodec.decodeFrames(from: &receiveBuffer)
+                let frames = try MobileSyncFrameCodec.decodeFrames(
+                    from: &receiveBuffer,
+                    maximumDecodedFrameCount: responseWorkQuota
+                        .maximumConcurrentRequestCount
+                )
                 if !frames.isEmpty {
                     didDecodeFirstFrame = true
                     firstFrameTimeoutTask?.cancel()

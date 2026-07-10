@@ -9,6 +9,10 @@ actor MobileCoreRPCSession {
     typealias ConnectingTask = (id: UUID, lease: MobileRPCConnectAttemptLease?, task: Task<any CmxByteTransport, any Error>, waiters: Set<UUID>, completed: Bool)
     static let defaultAbandonedConnectCleanupTimeoutNanoseconds: UInt64 = 1_000_000_000
     static let defaultLateAbandonedConnectCloseTimeoutNanoseconds: UInt64 = 5_000_000_000
+    private static let maximumReceiveBufferByteCount =
+        MobileSyncFrameCodec.defaultMaximumFrameByteCount
+        + MobileSyncFrameCodec.headerByteCount
+    private static let maximumDecodedFrameCountPerRead = 256
 
     struct EventSubscription {
         let id: UUID
@@ -486,10 +490,17 @@ actor MobileCoreRPCSession {
                 }
                 continue
             }
+            guard chunk.count <= Self.maximumReceiveBufferByteCount - buffer.count else {
+                await tearDown(error: .invalidResponse)
+                return
+            }
             buffer.append(chunk)
             let frames: [Data]
             do {
-                frames = try MobileSyncFrameCodec.decodeFrames(from: &buffer)
+                frames = try MobileSyncFrameCodec.decodeFrames(
+                    from: &buffer,
+                    maximumDecodedFrameCount: Self.maximumDecodedFrameCountPerRead
+                )
             } catch {
                 await tearDown(error: .invalidResponse)
                 return
@@ -520,12 +531,16 @@ actor MobileCoreRPCSession {
             for try await chunk in stream {
                 try Task.checkCancellation()
                 guard !chunk.isEmpty else { continue }
-                buffer.append(chunk)
-                let frames = try MobileSyncFrameCodec.decodeFrames(from: &buffer)
-                guard buffer.count <= MobileSyncFrameCodec.defaultMaximumFrameByteCount
-                        + MobileSyncFrameCodec.headerByteCount else {
-                    throw MobileSyncFrameCodecError.frameTooLarge(buffer.count)
+                guard chunk.count <= Self.maximumReceiveBufferByteCount - buffer.count else {
+                    throw MobileSyncFrameCodecError.frameTooLarge(
+                        buffer.count + chunk.count
+                    )
                 }
+                buffer.append(chunk)
+                let frames = try MobileSyncFrameCodec.decodeFrames(
+                    from: &buffer,
+                    maximumDecodedFrameCount: Self.maximumDecodedFrameCountPerRead
+                )
                 for frame in frames {
                     dispatch(frame: frame)
                 }
