@@ -111,6 +111,10 @@ public actor CmxIrohClientOfflinePolicyCache {
 
     private let secureStore: any CmxIrohSecureCredentialStoring
     private let verifier: CmxIrohGrantVerifier
+    private var lifecycleEpoch: UInt64 = 0
+    private var deactivationCount = 0
+    private var activeStorageMutationCount = 0
+    private var storageMutationDrainWaiters: [CheckedContinuation<Void, Never>] = []
 
     public init(
         secureStore: any CmxIrohSecureCredentialStoring = CmxIrohKeychainCredentialStore(
@@ -131,6 +135,7 @@ public actor CmxIrohClientOfflinePolicyCache {
         for expectation: CmxIrohClientOfflinePolicyExpectation,
         now: Date
     ) async throws {
+        let epoch = try beginOperation()
         try validateDiscovery(discovery, for: expectation)
         guard expectation.localBindingExpectation.matches(localBinding),
               discovery.bindings.filter({
@@ -154,7 +159,9 @@ public actor CmxIrohClientOfflinePolicyCache {
         )
 
         var retained: [CmxIrohStoredClientPolicyTarget] = []
-        if let data = try await secureStore.read(account: Self.storageAccount),
+        let storedData = try await secureStore.read(account: Self.storageAccount)
+        try requireCurrent(epoch)
+        if let data = storedData,
            let record = try? JSONDecoder().decode(CmxIrohStoredClientPolicyRecord.self, from: data),
            record.version == CmxIrohStoredClientPolicyRecord.currentVersion,
            record.scopeDigest == Self.scopeDigest(for: expectation),
@@ -201,11 +208,11 @@ public actor CmxIrohClientOfflinePolicyCache {
             lanRendezvous: discovery.lanRendezvous,
             targets: merged
         )
-        try await secureStore.write(
+        try await writeStoredRecord(
             JSONEncoder().encode(record),
-            account: Self.storageAccount,
-            accessibility: .afterFirstUnlockThisDeviceOnly
+            epoch: epoch
         )
+        try requireCurrent(epoch)
     }
 
     /// Loads authority for exactly the requested, already-known Mac tuple.
@@ -216,18 +223,23 @@ public actor CmxIrohClientOfflinePolicyCache {
         confirmedDiscovery: CmxIrohDiscoveryResponse?,
         now: Date
     ) async throws -> CmxIrohCachedClientPolicy? {
+        let epoch = try beginOperation()
         guard request.route.kind == .iroh,
               request.authorizationMode == .transportAdmission,
               let expectedDeviceID = request.expectedPeerDeviceID,
               case let .peer(expectedEndpointID, _) = request.route.endpoint else {
+            try requireCurrent(epoch)
             return nil
         }
         guard var record = try await loadRecord(
             for: expectation,
-            confirmedLocalBinding: localBinding
+            confirmedLocalBinding: localBinding,
+            epoch: epoch
         ) else {
+            try requireCurrent(epoch)
             return nil
         }
+        try requireCurrent(epoch)
 
         let authority: (
             local: CmxIrohBrokerBinding,
@@ -242,7 +254,8 @@ public actor CmxIrohClientOfflinePolicyCache {
                     && Self.sameAuthority($0, localBinding)
             }
             guard localMatches.count == 1, let confirmedLocal = localMatches.first else {
-                try await secureStore.delete(account: Self.storageAccount)
+                try await deleteStoredRecord(epoch: epoch)
+                try requireCurrent(epoch)
                 return nil
             }
             authority = (
@@ -270,14 +283,17 @@ public actor CmxIrohClientOfflinePolicyCache {
             now: now
         )
         if record.targets.count != originalCount || confirmedDiscovery != nil {
-            try await persistOrDelete(record)
+            try await persistOrDelete(record, epoch: epoch)
+            try requireCurrent(epoch)
         }
         guard let stored = record.targets.first(where: {
             $0.binding.deviceID == expectedDeviceID
                 && $0.binding.endpointID == expectedEndpointID
         }) else {
+            try requireCurrent(epoch)
             return nil
         }
+        try requireCurrent(epoch)
         return CmxIrohCachedClientPolicy(
             localBinding: record.localBinding,
             targetBinding: stored.binding,
@@ -293,12 +309,16 @@ public actor CmxIrohClientOfflinePolicyCache {
         confirmedLocalBinding: CmxIrohBrokerBinding?,
         now: Date
     ) async throws -> CmxIrohClientOfflineBootstrap? {
+        let epoch = try beginOperation()
         guard var record = try await loadRecord(
             for: expectation,
-            confirmedLocalBinding: confirmedLocalBinding
+            confirmedLocalBinding: confirmedLocalBinding,
+            epoch: epoch
         ) else {
+            try requireCurrent(epoch)
             return nil
         }
+        try requireCurrent(epoch)
         let local = confirmedLocalBinding ?? record.localBinding
         record = try reverifiedRecord(
             record,
@@ -308,8 +328,13 @@ public actor CmxIrohClientOfflinePolicyCache {
             lanRendezvous: record.lanRendezvous,
             now: now
         )
-        try await persistOrDelete(record)
-        guard !record.targets.isEmpty else { return nil }
+        try await persistOrDelete(record, epoch: epoch)
+        try requireCurrent(epoch)
+        guard !record.targets.isEmpty else {
+            try requireCurrent(epoch)
+            return nil
+        }
+        try requireCurrent(epoch)
         return CmxIrohClientOfflineBootstrap(
             localBinding: record.localBinding,
             targetBindings: record.targets.map(\.binding),
@@ -319,14 +344,22 @@ public actor CmxIrohClientOfflinePolicyCache {
 
     /// Removes every active-account client policy during account/app teardown.
     public func deactivate() async throws {
+        lifecycleEpoch &+= 1
+        deactivationCount += 1
+        defer { deactivationCount -= 1 }
+        await waitForStorageMutationsToDrain()
         try await secureStore.deleteAll()
     }
 
     private func loadRecord(
         for expectation: CmxIrohClientOfflinePolicyExpectation,
-        confirmedLocalBinding: CmxIrohBrokerBinding?
+        confirmedLocalBinding: CmxIrohBrokerBinding?,
+        epoch: UInt64
     ) async throws -> CmxIrohStoredClientPolicyRecord? {
-        guard let data = try await secureStore.read(account: Self.storageAccount) else {
+        let storedData = try await secureStore.read(account: Self.storageAccount)
+        try requireCurrent(epoch)
+        guard let data = storedData else {
+            try requireCurrent(epoch)
             return nil
         }
         do {
@@ -343,9 +376,11 @@ public actor CmxIrohClientOfflinePolicyCache {
                   }) ?? true else {
                 throw CmxIrohClientOfflinePolicyCacheError.policyMismatch
             }
+            try requireCurrent(epoch)
             return record
         } catch {
-            try await secureStore.delete(account: Self.storageAccount)
+            try await deleteStoredRecord(epoch: epoch)
+            try requireCurrent(epoch)
             return nil
         }
     }
@@ -388,16 +423,71 @@ public actor CmxIrohClientOfflinePolicyCache {
         )
     }
 
-    private func persistOrDelete(_ record: CmxIrohStoredClientPolicyRecord) async throws {
+    private func persistOrDelete(
+        _ record: CmxIrohStoredClientPolicyRecord,
+        epoch: UInt64
+    ) async throws {
+        try requireCurrent(epoch)
         guard !record.targets.isEmpty else {
-            try await secureStore.delete(account: Self.storageAccount)
+            try await deleteStoredRecord(epoch: epoch)
+            try requireCurrent(epoch)
             return
         }
-        try await secureStore.write(
+        try await writeStoredRecord(
             JSONEncoder().encode(record),
+            epoch: epoch
+        )
+        try requireCurrent(epoch)
+    }
+
+    private func beginOperation() throws -> UInt64 {
+        try Task.checkCancellation()
+        guard deactivationCount == 0 else { throw CancellationError() }
+        return lifecycleEpoch
+    }
+
+    private func requireCurrent(_ epoch: UInt64) throws {
+        guard deactivationCount == 0, lifecycleEpoch == epoch else {
+            throw CancellationError()
+        }
+        try Task.checkCancellation()
+    }
+
+    private func writeStoredRecord(_ data: Data, epoch: UInt64) async throws {
+        try requireCurrent(epoch)
+        activeStorageMutationCount += 1
+        defer { finishStorageMutation() }
+        try await secureStore.write(
+            data,
             account: Self.storageAccount,
             accessibility: .afterFirstUnlockThisDeviceOnly
         )
+        try requireCurrent(epoch)
+    }
+
+    private func deleteStoredRecord(epoch: UInt64) async throws {
+        try requireCurrent(epoch)
+        activeStorageMutationCount += 1
+        defer { finishStorageMutation() }
+        try await secureStore.delete(account: Self.storageAccount)
+        try requireCurrent(epoch)
+    }
+
+    private func finishStorageMutation() {
+        activeStorageMutationCount -= 1
+        guard activeStorageMutationCount == 0 else { return }
+        let waiters = storageMutationDrainWaiters
+        storageMutationDrainWaiters.removeAll(keepingCapacity: false)
+        for waiter in waiters {
+            waiter.resume()
+        }
+    }
+
+    private func waitForStorageMutationsToDrain() async {
+        guard activeStorageMutationCount > 0 else { return }
+        await withCheckedContinuation { continuation in
+            storageMutationDrainWaiters.append(continuation)
+        }
     }
 
     private func validateDiscovery(
