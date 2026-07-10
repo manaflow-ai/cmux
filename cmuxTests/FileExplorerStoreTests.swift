@@ -186,6 +186,41 @@ struct FileExplorerStoreTests {
         #expect(!(store.rootNodes[1].isDirectory))
     }
 
+    /// Pins the contract behind the coordinator's outline-refresh gate: every
+    /// store mutation that should refresh the outline bumps `changeGeneration`
+    /// (including in-place `FileExplorerNode` child loads, where no stored
+    /// property's `didSet` fires), while selection stays un-signaled because
+    /// the outline applies it through direct coordinator paths. An un-signaled
+    /// mutation added later would freeze the outline until an unrelated change.
+    @Test
+    func testStoreMutationsBumpChangeGenerationButSelectionDoesNot() async throws {
+        let provider = MockFileExplorerProvider()
+        provider.listings["/home/user/project"] = .success([
+            FileExplorerEntry(name: "src", path: "/home/user/project/src", isDirectory: true),
+            FileExplorerEntry(name: "README.md", path: "/home/user/project/README.md", isDirectory: false),
+        ])
+        provider.listings["/home/user/project/src"] = .success([
+            FileExplorerEntry(name: "main.swift", path: "/home/user/project/src/main.swift", isDirectory: false),
+        ])
+
+        let store = FileExplorerStore()
+        store.setProviderForTesting(provider)
+        store.setRootPath("/home/user/project")
+        try await waitFor("root nodes loaded") { store.rootNodes.count == 2 }
+
+        let afterLoad = store.changeGeneration
+        #expect(afterLoad > 0)
+
+        // Root load auto-selects the first node ("src"); pick the other node so
+        // this exercises a real selection change, not the same-value early-out.
+        store.select(node: store.rootNodes[1])
+        #expect(store.changeGeneration == afterLoad)
+
+        store.expand(node: store.rootNodes[0])
+        try await waitFor("children loaded in place") { store.rootNodes[0].children?.count == 1 }
+        #expect(store.changeGeneration > afterLoad)
+    }
+
     @Test
     func testDisplayRootPathUsesTilde() {
         let provider = MockFileExplorerProvider(homePath: "/home/user")
