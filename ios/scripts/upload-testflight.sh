@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+PLISTBUDDY="${PLISTBUDDY:-/usr/libexec/PlistBuddy}"
+
 # Verify a built/exported IPA's single .app is strictly signed AND carries
 # aps-environment == "production" in its actual code signature. A config-level
 # entitlement only delivers push if it survives into the SIGNED binary; only
@@ -40,14 +42,14 @@ verify_ipa_aps_environment_production() {
   fi
   # PlistBuddy exits non-zero when a key is absent; tolerate that read and then
   # require exact entitlement values so the error explains the missing capability.
-  aps="$(/usr/libexec/PlistBuddy -c 'Print :aps-environment' "$ent" 2>/dev/null || true)"
+  aps="$("$PLISTBUDDY" -c 'Print :aps-environment' "$ent" 2>/dev/null || true)"
   if [[ "$aps" != "production" ]]; then
     echo "error: signed app aps-environment is '${aps:-<absent>}', expected 'production' (push would silently fail): $app" >&2
     plutil -p "$ent" >&2 || true
     rm -rf "$workdir"
     return 1
   fi
-  apple_sign_in="$(/usr/libexec/PlistBuddy -c 'Print :com.apple.developer.applesignin:0' "$ent" 2>/dev/null || true)"
+  apple_sign_in="$("$PLISTBUDDY" -c 'Print :com.apple.developer.applesignin:0' "$ent" 2>/dev/null || true)"
   if [[ "$apple_sign_in" != "Default" ]]; then
     echo "error: signed app com.apple.developer.applesignin is '${apple_sign_in:-<absent>}', expected 'Default' (Sign in with Apple would fail): $app" >&2
     plutil -p "$ent" >&2 || true
@@ -78,7 +80,7 @@ verify_ipa_bundle_identity() {
     return 1
   fi
 
-  plist_bundle_id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Info.plist" 2>/dev/null || true)"
+  plist_bundle_id="$("$PLISTBUDDY" -c 'Print :CFBundleIdentifier' "$app/Info.plist" 2>/dev/null || true)"
   if [[ "$plist_bundle_id" != "$expected_bundle_id" ]]; then
     echo "error: signed IPA CFBundleIdentifier is '${plist_bundle_id:-<absent>}', expected '$expected_bundle_id': $app" >&2
     rm -rf "$workdir"
@@ -91,7 +93,7 @@ verify_ipa_bundle_identity() {
     rm -rf "$workdir"
     return 1
   fi
-  profile_app_id="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' "$profile_plist" 2>/dev/null || true)"
+  profile_app_id="$("$PLISTBUDDY" -c 'Print :Entitlements:application-identifier' "$profile_plist" 2>/dev/null || true)"
   if [[ "$profile_app_id" != "$expected_app_id" ]]; then
     echo "error: signed IPA provisioning profile application-identifier is '${profile_app_id:-<absent>}', expected '$expected_app_id': $app" >&2
     rm -rf "$workdir"
@@ -104,7 +106,7 @@ verify_ipa_bundle_identity() {
     rm -rf "$workdir"
     return 1
   fi
-  ent_app_id="$(/usr/libexec/PlistBuddy -c 'Print :application-identifier' "$ent" 2>/dev/null || true)"
+  ent_app_id="$("$PLISTBUDDY" -c 'Print :application-identifier' "$ent" 2>/dev/null || true)"
   if [[ "$ent_app_id" != "$expected_app_id" ]]; then
     echo "error: signed IPA entitlement application-identifier is '${ent_app_id:-<absent>}', expected '$expected_app_id': $app" >&2
     plutil -p "$ent" >&2 || true
@@ -506,9 +508,9 @@ fi
 # BUILD_NUMBER, and OUT_DIR is derived from BUILD_NUMBER.
 LOCAL_ASC_CONFIG="$IOS_DIR/Config/AppStoreConnect.local.plist"
 if [[ -f "$LOCAL_ASC_CONFIG" ]]; then
-  ASC_API_KEY_ID="${ASC_API_KEY_ID:-$(/usr/libexec/PlistBuddy -c 'Print :ASC_API_KEY_ID' "$LOCAL_ASC_CONFIG" 2>/dev/null || true)}"
-  ASC_API_ISSUER_ID="${ASC_API_ISSUER_ID:-$(/usr/libexec/PlistBuddy -c 'Print :ASC_API_ISSUER_ID' "$LOCAL_ASC_CONFIG" 2>/dev/null || true)}"
-  ASC_API_KEY_PATH="${ASC_API_KEY_PATH:-$(/usr/libexec/PlistBuddy -c 'Print :ASC_API_KEY_PATH' "$LOCAL_ASC_CONFIG" 2>/dev/null || true)}"
+  ASC_API_KEY_ID="${ASC_API_KEY_ID:-$("$PLISTBUDDY" -c 'Print :ASC_API_KEY_ID' "$LOCAL_ASC_CONFIG" 2>/dev/null || true)}"
+  ASC_API_ISSUER_ID="${ASC_API_ISSUER_ID:-$("$PLISTBUDDY" -c 'Print :ASC_API_ISSUER_ID' "$LOCAL_ASC_CONFIG" 2>/dev/null || true)}"
+  ASC_API_KEY_PATH="${ASC_API_KEY_PATH:-$("$PLISTBUDDY" -c 'Print :ASC_API_KEY_PATH' "$LOCAL_ASC_CONFIG" 2>/dev/null || true)}"
 fi
 
 # Monotonic build-number guard (defense in depth). TestFlight only offers a build
@@ -548,7 +550,7 @@ if [[ -n "$ARCHIVE_PATH" ]]; then
   # PlistBuddy prints "File Doesn't Exist..." to stdout (and exits non-zero) when
   # the archive or key is missing, so require a NUMERIC result rather than just
   # non-empty output; otherwise the error text would be mistaken for a version.
-  ARCHIVE_BUILD_NUMBER="$(/usr/libexec/PlistBuddy -c 'Print :ApplicationProperties:CFBundleVersion' "$ARCHIVE_PATH/Info.plist" 2>/dev/null || true)"
+  ARCHIVE_BUILD_NUMBER="$("$PLISTBUDDY" -c 'Print :ApplicationProperties:CFBundleVersion' "$ARCHIVE_PATH/Info.plist" 2>/dev/null || true)"
   if [[ "$ARCHIVE_BUILD_NUMBER" =~ ^[0-9]+$ ]]; then
     GUARD_BUILD_NUMBER="$ARCHIVE_BUILD_NUMBER"
   elif [[ "$EXPORT_ONLY" -eq 1 ]]; then
@@ -694,14 +696,14 @@ else
   fi
 fi
 
-ARCHIVE_BUNDLE_IDENTIFIER="$(/usr/libexec/PlistBuddy -c 'Print :ApplicationProperties:CFBundleIdentifier' "$ARCHIVE_PATH/Info.plist" 2>/dev/null || true)"
+ARCHIVE_BUNDLE_IDENTIFIER="$("$PLISTBUDDY" -c 'Print :ApplicationProperties:CFBundleIdentifier' "$ARCHIVE_PATH/Info.plist" 2>/dev/null || true)"
 if [[ -n "$ARCHIVE_BUNDLE_IDENTIFIER" && "$ARCHIVE_BUNDLE_IDENTIFIER" != "$PRODUCT_BUNDLE_IDENTIFIER" ]]; then
   echo "error: archive bundle id is '$ARCHIVE_BUNDLE_IDENTIFIER' but lane '$LANE' requires '$PRODUCT_BUNDLE_IDENTIFIER'. Re-archive for the selected lane." >&2
   exit 1
 fi
 ARCHIVE_APP="$(find "$ARCHIVE_PATH/Products/Applications" -maxdepth 1 -name '*.app' -type d 2>/dev/null | head -n 1 || true)"
 if [[ -n "$ARCHIVE_APP" && -d "$ARCHIVE_APP" ]]; then
-  ARCHIVE_APP_BUNDLE_IDENTIFIER="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$ARCHIVE_APP/Info.plist" 2>/dev/null || true)"
+  ARCHIVE_APP_BUNDLE_IDENTIFIER="$("$PLISTBUDDY" -c 'Print :CFBundleIdentifier' "$ARCHIVE_APP/Info.plist" 2>/dev/null || true)"
   if [[ -n "$ARCHIVE_APP_BUNDLE_IDENTIFIER" && "$ARCHIVE_APP_BUNDLE_IDENTIFIER" != "$PRODUCT_BUNDLE_IDENTIFIER" ]]; then
     echo "error: archive app CFBundleIdentifier is '$ARCHIVE_APP_BUNDLE_IDENTIFIER' but lane '$LANE' requires '$PRODUCT_BUNDLE_IDENTIFIER'. Re-archive for the selected lane." >&2
     exit 1
@@ -718,7 +720,7 @@ fi
 # changelog, and --auto-version intentionally stamps a version the changelog would
 # not match.
 if [[ "$LANE" == "beta" && "$EXPORT_ONLY" -ne 1 && "$SKIP_NOTES" -ne 1 && "$RANGE_NOTES_MODE" -ne 1 ]]; then
-  ARCHIVE_MARKETING_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :ApplicationProperties:CFBundleShortVersionString' "$ARCHIVE_PATH/Info.plist" 2>/dev/null || true)"
+  ARCHIVE_MARKETING_VERSION="$("$PLISTBUDDY" -c 'Print :ApplicationProperties:CFBundleShortVersionString' "$ARCHIVE_PATH/Info.plist" 2>/dev/null || true)"
   if [[ "$ARCHIVE_MARKETING_VERSION" =~ ^[0-9]+(\.[0-9]+){1,2}$ ]]; then
     if ! "$SCRIPT_DIR/set-testflight-notes.sh" --validate-only \
         --audience "$NOTES_AUDIENCE" --expect-marketing-version "$ARCHIVE_MARKETING_VERSION"; then
@@ -763,8 +765,8 @@ else
   # provisioning profile to already be present in the local keychain.
   plutil -insert signingStyle -string manual "$EXPORT_OPTIONS"
   plutil -insert signingCertificate -string "Apple Distribution" "$EXPORT_OPTIONS"
-  /usr/libexec/PlistBuddy -c "Add :provisioningProfiles dict" "$EXPORT_OPTIONS"
-  /usr/libexec/PlistBuddy -c "Add :provisioningProfiles:$PRODUCT_BUNDLE_IDENTIFIER string $PROVISIONING_PROFILE_NAME" "$EXPORT_OPTIONS"
+  "$PLISTBUDDY" -c "Add :provisioningProfiles dict" "$EXPORT_OPTIONS"
+  "$PLISTBUDDY" -c "Add :provisioningProfiles:$PRODUCT_BUNDLE_IDENTIFIER string $PROVISIONING_PROFILE_NAME" "$EXPORT_OPTIONS"
 fi
 
 xcodebuild -exportArchive \
@@ -874,8 +876,8 @@ if [[ "$SIGNING" == "manual" ]]; then
   # OS versions, and a stray non-zero would kill the script under `set -e`. The
   # exit code is non-load-bearing anyway: a genuinely failed merge produces no
   # aps-environment and is caught by the hard gate below with a clear error.
-  /usr/libexec/PlistBuddy -c "Merge $PROFILE_ENTITLEMENTS" "$MERGED_ENTITLEMENTS" >/dev/null || true
-  /usr/libexec/PlistBuddy -c "Merge $RELEASE_ENTITLEMENTS" "$MERGED_ENTITLEMENTS" >/dev/null || true
+  "$PLISTBUDDY" -c "Merge $PROFILE_ENTITLEMENTS" "$MERGED_ENTITLEMENTS" >/dev/null || true
+  "$PLISTBUDDY" -c "Merge $RELEASE_ENTITLEMENTS" "$MERGED_ENTITLEMENTS" >/dev/null || true
   # Intersect against the profile: ASC rejects the upload (error 90163, "bundle
   # contains a key not in the provisioning profile") for ANY signed key the
   # profile does not authorize. Baseline keys are authorized by construction
@@ -1118,7 +1120,7 @@ else
   # release is broken. The binary is already on TestFlight; the notes can be
   # re-applied later. NOTES_AUDIENCE was set early. Re-read the archived marketing
   # version so the mutation still carries the version-match guard.
-  NOTES_MARKETING_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :ApplicationProperties:CFBundleShortVersionString' "$ARCHIVE_PATH/Info.plist" 2>/dev/null || true)"
+  NOTES_MARKETING_VERSION="$("$PLISTBUDDY" -c 'Print :ApplicationProperties:CFBundleShortVersionString' "$ARCHIVE_PATH/Info.plist" 2>/dev/null || true)"
   # In range-notes mode the notes come from the commit range (not the changelog),
   # so pass them via --notes and skip the changelog version-match
   # (--expect-marketing-version validates the changelog top, which we are not

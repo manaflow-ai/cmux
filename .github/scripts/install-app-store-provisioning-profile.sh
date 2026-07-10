@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+PLISTBUDDY="${PLISTBUDDY:-/usr/libexec/PlistBuddy}"
+
 die() {
   printf 'install-app-store-provisioning-profile: %s\n' "$*" >&2
   exit 1
@@ -36,7 +38,7 @@ validate_profile() {
   fi
 
   local app_id
-  app_id="$(/usr/libexec/PlistBuddy -c "Print :Entitlements:application-identifier" "$plist_path" 2>/dev/null || true)"
+  app_id="$("$PLISTBUDDY" -c "Print :Entitlements:application-identifier" "$plist_path" 2>/dev/null || true)"
   if [ "$app_id" != "$EXPECTED_APP_ID" ]; then
     if [ "$strict" = "true" ]; then
       die "$label targets unexpected app ID: ${app_id:-<absent>} (expected $EXPECTED_APP_ID)"
@@ -46,7 +48,7 @@ validate_profile() {
   fi
 
   local aps_environment
-  aps_environment="$(/usr/libexec/PlistBuddy -c "Print :Entitlements:aps-environment" "$plist_path" 2>/dev/null || true)"
+  aps_environment="$("$PLISTBUDDY" -c "Print :Entitlements:aps-environment" "$plist_path" 2>/dev/null || true)"
   if [ "$aps_environment" != "production" ]; then
     if [ "$strict" = "true" ]; then
       die "$label aps-environment is '${aps_environment:-<absent>}', expected 'production'"
@@ -56,7 +58,7 @@ validate_profile() {
   fi
 
   local apple_sign_in
-  apple_sign_in="$(/usr/libexec/PlistBuddy -c "Print :Entitlements:com.apple.developer.applesignin:0" "$plist_path" 2>/dev/null || true)"
+  apple_sign_in="$("$PLISTBUDDY" -c "Print :Entitlements:com.apple.developer.applesignin:0" "$plist_path" 2>/dev/null || true)"
   if [ "$apple_sign_in" != "Default" ]; then
     if [ "$strict" = "true" ]; then
       die "$label com.apple.developer.applesignin is '${apple_sign_in:-<absent>}', expected 'Default'"
@@ -65,8 +67,8 @@ validate_profile() {
     return 1
   fi
 
-  RESOLVED_PROFILE_NAME="$(/usr/libexec/PlistBuddy -c "Print :Name" "$plist_path")"
-  RESOLVED_PROFILE_UUID="$(/usr/libexec/PlistBuddy -c "Print :UUID" "$plist_path")"
+  RESOLVED_PROFILE_NAME="$("$PLISTBUDDY" -c "Print :Name" "$plist_path")"
+  RESOLVED_PROFILE_UUID="$("$PLISTBUDDY" -c "Print :UUID" "$plist_path")"
   return 0
 }
 

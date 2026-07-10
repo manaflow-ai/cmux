@@ -76,6 +76,159 @@ ENTITLEMENTS = PROFILE["Entitlements"]
 """
 
     _write_executable(
+        fakebin / "PlistBuddy",
+        """#!/usr/bin/env python3
+import plistlib
+import sys
+from pathlib import Path
+
+
+def load(path):
+    p = Path(path)
+    if not p.exists() or p.stat().st_size == 0:
+        return {}
+    return plistlib.loads(p.read_bytes())
+
+
+def save(path, value):
+    Path(path).write_bytes(plistlib.dumps(value, fmt=plistlib.FMT_XML))
+
+
+def parts(path):
+    return [part for part in path.split(":") if part]
+
+
+def get(root, path):
+    current = root
+    for part in parts(path):
+        if isinstance(current, list):
+            current = current[int(part)]
+        else:
+            current = current[part]
+    return current
+
+
+def set_value(root, path, value):
+    keys = parts(path)
+    current = root
+    for key in keys[:-1]:
+        current = current.setdefault(key, {})
+    current[keys[-1]] = value
+
+
+args = sys.argv[1:]
+if args[:1] != ["-c"] or len(args) < 3:
+    raise SystemExit(1)
+
+command = args[1]
+plist_path = args[2]
+plist = load(plist_path)
+
+if command.startswith("Print "):
+    value = get(plist, command.removeprefix("Print ").strip())
+    if isinstance(value, (dict, list)):
+        sys.stdout.buffer.write(plistlib.dumps(value, fmt=plistlib.FMT_XML))
+    else:
+        print(value)
+    raise SystemExit(0)
+
+if command.startswith("Add "):
+    _, key_path, value_type, raw_value = (command.split(" ", 3) + [""])[:4]
+    if value_type == "dict":
+        value = {}
+    elif value_type == "string":
+        value = raw_value
+    else:
+        raise SystemExit(1)
+    set_value(plist, key_path, value)
+    save(plist_path, plist)
+    raise SystemExit(0)
+
+if command.startswith("Merge "):
+    source = load(command.removeprefix("Merge ").strip())
+    if isinstance(source, dict) and isinstance(plist, dict):
+        for key, value in source.items():
+            plist.setdefault(key, value)
+    save(plist_path, plist)
+    raise SystemExit(0)
+
+raise SystemExit(1)
+""",
+    )
+
+    _write_executable(
+        fakebin / "plutil",
+        """#!/usr/bin/env python3
+import json
+import plistlib
+import sys
+from pathlib import Path
+
+
+def read_plist(path):
+    if path == "-":
+        data = sys.stdin.buffer.read()
+    else:
+        data = Path(path).read_bytes()
+    if not data:
+        return {}
+    return plistlib.loads(data)
+
+
+def write_plist(path, value):
+    Path(path).write_bytes(plistlib.dumps(value, fmt=plistlib.FMT_XML))
+
+
+def set_value(root, key, value):
+    parts = key.split(".")
+    current = root
+    for part in parts[:-1]:
+        current = current.setdefault(part, {})
+    current[parts[-1]] = value
+
+
+args = sys.argv[1:]
+if args[:2] == ["-create", "xml1"] and len(args) == 3:
+    write_plist(args[2], {})
+    raise SystemExit(0)
+
+if args[:1] == ["-insert"] and len(args) >= 5:
+    key = args[1]
+    kind = args[2]
+    value_arg = args[3]
+    plist_path = args[4]
+    plist = read_plist(plist_path)
+    if kind == "-string":
+        value = value_arg
+    elif kind == "-bool":
+        value = value_arg.upper() in {"YES", "TRUE", "1"}
+    else:
+        raise SystemExit(1)
+    set_value(plist, key, value)
+    write_plist(plist_path, plist)
+    raise SystemExit(0)
+
+if args[:1] == ["-extract"]:
+    key = args[1]
+    output = args[args.index("-o") + 1]
+    source = args[-1]
+    value = read_plist(source)[key]
+    write_plist(output, value)
+    raise SystemExit(0)
+
+if args[:1] == ["-lint"] and len(args) == 2:
+    read_plist(args[1])
+    raise SystemExit(0)
+
+if args[:1] == ["-p"] and len(args) == 2:
+    print(json.dumps(read_plist(args[1]), sort_keys=True))
+    raise SystemExit(0)
+
+raise SystemExit(1)
+""",
+    )
+
+    _write_executable(
         fakebin / "xcodebuild",
         f"""#!/usr/bin/env python3
 import json
@@ -222,6 +375,7 @@ def _base_env(tmp: Path, fakebin: Path) -> dict[str, str]:
     env["CMUX_FAKE_EXPORT_OPTIONS_COPY"] = str(tmp / "ExportOptions.plist")
     env["CMUX_FAKE_ASC_LOG"] = str(tmp / "asc.jsonl")
     env["IOS_DISTRIBUTION_IDENTITY"] = IDENTITY
+    env["PLISTBUDDY"] = str(fakebin / "PlistBuddy")
     return env
 
 
