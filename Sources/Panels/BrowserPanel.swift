@@ -4388,31 +4388,13 @@ final class BrowserPanel: Panel, ObservableObject {
     private func applyProxyConfigurationIfAvailable() {
         guard #available(macOS 14.0, *) else { return }
 
-        let store = webView.configuration.websiteDataStore
-        guard let endpoint = remoteProxyEndpoint else {
-            // Local panes mirror an active system proxy with loopback excluded
-            // (#5888); remote panes keep [] while their endpoint is pending/lost.
-            let desiredConfigurations = usesRemoteWorkspaceProxy
-                ? [] : BrowserSystemProxyMirror.currentProxyConfigurations()
-            BrowserSystemProxyMirror.applyProxyConfigurations(
-                desiredConfigurations,
-                to: store
-            )
-            return
+        let route: BrowserProxyConfigurationRoute
+        if let endpoint = remoteProxyEndpoint {
+            route = .remoteWorkspace(host: endpoint.host, port: endpoint.port)
+        } else {
+            route = usesRemoteWorkspaceProxy ? .direct : .currentSystem
         }
-
-        let host = endpoint.host.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !host.isEmpty,
-              endpoint.port > 0 && endpoint.port <= 65535,
-              let nwPort = NWEndpoint.Port(rawValue: UInt16(endpoint.port)) else {
-            BrowserSystemProxyMirror.applyProxyConfigurations([], to: store)
-            return
-        }
-
-        let nwEndpoint = NWEndpoint.hostPort(host: NWEndpoint.Host(host), port: nwPort)
-        let socks = ProxyConfiguration(socksv5Proxy: nwEndpoint)
-        let connect = ProxyConfiguration(httpCONNECTProxy: nwEndpoint)
-        BrowserSystemProxyMirror.applyProxyConfigurations([socks, connect], to: store)
+        route.apply(to: webView.configuration.websiteDataStore)
     }
 
     private func beginDownloadActivity() {

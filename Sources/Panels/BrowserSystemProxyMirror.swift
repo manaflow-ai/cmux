@@ -268,39 +268,6 @@ struct BrowserSystemProxyMirror: Equatable {
 }
 
 extension BrowserSystemProxyMirror {
-    /// Applies an explicit proxy update only when WebKit's native routing must
-    /// change. Writing an empty array into a fresh data store is not a no-op:
-    /// WebKit rebuilds its networking session, interrupting connection reuse
-    /// and bypassing native direct-connection behavior. Existing explicit
-    /// configurations are still cleared when their
-    /// local-system or remote-workspace proxy disappears.
-    @discardableResult
-    static func applyProxyConfigurations(
-        _ desiredConfigurations: [ProxyConfiguration],
-        to websiteDataStore: WKWebsiteDataStore
-    ) -> Bool {
-        guard !desiredConfigurations.isEmpty || !websiteDataStore.proxyConfigurations.isEmpty else {
-            return false
-        }
-        websiteDataStore.proxyConfigurations = desiredConfigurations
-        return true
-    }
-
-    /// Reads the live macOS proxy settings and builds the configurations a
-    /// local-workspace `WKWebsiteDataStore` should use: the mirrored system
-    /// proxy with loopback excluded, or empty — WebKit's system-proxy
-    /// fallback, unchanged behavior — when no faithful mirror exists.
-    static func currentProxyConfigurations() -> [ProxyConfiguration] {
-        guard let rawSettings = CFNetworkCopySystemProxySettings()?.takeRetainedValue() else {
-            return []
-        }
-        guard let settings = rawSettings as NSDictionary as? [String: Any],
-              let mirror = BrowserSystemProxyMirror(systemProxySettings: settings) else {
-            return []
-        }
-        return mirror.proxyConfigurations()
-    }
-
     /// Builds the Network.framework configurations to set on a
     /// `WKWebsiteDataStore`.
     ///

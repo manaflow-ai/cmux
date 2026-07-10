@@ -446,45 +446,53 @@ import WebKit
     }
 
     @Test("Direct browser networking is left untouched when no explicit proxy is configured")
+    @MainActor
     func directNetworkingDoesNotRewriteAnEmptyProxyConfiguration() {
         let store = WKWebsiteDataStore.nonPersistent()
-
-        let didMutate = BrowserSystemProxyMirror.applyProxyConfigurations([], to: store)
-
+        let didMutate = BrowserProxyConfigurationRoute.direct.apply(to: store)
         #expect(!didMutate)
         #expect(store.proxyConfigurations.isEmpty)
     }
 
     @Test("An explicit proxy is installed for remote and mirrored-system routing")
+    @MainActor
     func explicitProxyConfigurationIsInstalled() throws {
         let store = WKWebsiteDataStore.nonPersistent()
         let mirror = try #require(
             BrowserSystemProxyMirror(systemProxySettings: socksProxySettings())
         )
-
-        let didMutate = BrowserSystemProxyMirror.applyProxyConfigurations(
-            mirror.proxyConfigurations(),
-            to: store
-        )
-
+        let didMutate = BrowserProxyConfigurationRoute.mirroredSystem(mirror).apply(to: store)
         #expect(didMutate)
         #expect(store.proxyConfigurations.count == 1)
     }
 
     @Test("A removed explicit proxy is cleared from its website data store")
+    @MainActor
     func removedProxyConfigurationIsCleared() throws {
         let store = WKWebsiteDataStore.nonPersistent()
         let mirror = try #require(
             BrowserSystemProxyMirror(systemProxySettings: socksProxySettings())
         )
-        _ = BrowserSystemProxyMirror.applyProxyConfigurations(
-            mirror.proxyConfigurations(),
-            to: store
-        )
-
-        let didMutate = BrowserSystemProxyMirror.applyProxyConfigurations([], to: store)
-
+        _ = BrowserProxyConfigurationRoute.mirroredSystem(mirror).apply(to: store)
+        let didMutate = BrowserProxyConfigurationRoute.direct.apply(to: store)
         #expect(didMutate)
         #expect(store.proxyConfigurations.isEmpty)
+    }
+
+    @Test("An unchanged remote proxy route does not rewrite a shared website data store")
+    @MainActor
+    func unchangedRemoteProxyRouteDoesNotRewriteSharedStore() {
+        let store = WKWebsiteDataStore.nonPersistent()
+        #expect(
+            BrowserProxyConfigurationRoute.remoteWorkspace(host: "127.0.0.1", port: 1080)
+                .apply(to: store)
+        )
+
+        let didMutate = BrowserProxyConfigurationRoute
+            .remoteWorkspace(host: "127.0.0.1", port: 1080)
+            .apply(to: store)
+
+        #expect(!didMutate)
+        #expect(store.proxyConfigurations.count == 2)
     }
 }
