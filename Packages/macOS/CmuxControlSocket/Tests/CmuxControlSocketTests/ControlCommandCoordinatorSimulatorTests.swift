@@ -116,7 +116,8 @@ struct ControlCommandCoordinatorSimulatorTests {
         receipt.complete(.released)
         context.webResolution = .started(surfaceID: UUID(), timeoutSeconds: 1, receipt: receipt)
 
-        for json in ["[]", "{", String(repeating: "x", count: 1_048_577)] {
+        for json in ["[]", "{", #"{"id":null}"#, #"{"id":true}"#,
+                     String(repeating: "x", count: 1_048_577)] {
             guard case let .err(code, _, _) = coordinator.handleSocketWorkerV2(
                 request("simulator.web_inspector.send", ["json": .string(json)]),
                 context: context
@@ -285,6 +286,22 @@ struct ControlCommandCoordinatorSimulatorTests {
             )
             #expect(context.lastOperation == .hardwareButton(expected))
         }
+    }
+
+    @Test("Core Animation diagnostic names are case insensitive")
+    func coreAnimationDiagnosticNames() {
+        let context = FakeSimulatorControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+        let receipt = ControlSimulatorOperationReceipt()
+        receipt.complete(.success(.object([:])))
+        context.operationResolution = .started(
+            surfaceID: UUID(), timeoutSeconds: 1, receipt: receipt
+        )
+
+        _ = coordinator.handleSocketWorkerV2(request("simulator.core_animation", [
+            "diagnostic": .string("Blended"), "enabled": .bool(true),
+        ]), context: context)
+        #expect(context.lastOperation == .coreAnimation(diagnostic: "blended", enabled: true))
     }
 
     @Test("Permission methods route bounded canonical operations")

@@ -273,7 +273,7 @@ struct SimulatorPanelIntegrationTests {
     func buttonCLIParsing() {
         let cli = CMUXCLI(args: [])
         #expect(cli.simulatorButtonName("Home") == "home")
-        #expect(cli.simulatorButtonName("SideButton") == "sideButton")
+        #expect(cli.simulatorButtonName("SideButton") == "sideButton" && cli.simulatorCADiagnosticName("Blended") == "blended")
     }
 
     @Test("Simulator permission CLI normalizes the full serve-sim command shape")
