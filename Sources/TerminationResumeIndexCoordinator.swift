@@ -51,6 +51,11 @@ final class TerminationResumeIndexCoordinator {
         return completed
     }
 
+    func resolution() -> TerminationResumeIndexAuthority {
+        guard didComplete else { return .pending }
+        return .completed(completed)
+    }
+
 }
 
 extension AppDelegate {

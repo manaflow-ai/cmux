@@ -10,8 +10,16 @@ public protocol UpdateActionDelegate: AnyObject {
     /// through its normal entry point.
     func updaterRequestsRetryCheckForUpdates()
 
+    /// Prepare bounded host state needed by the imminent relaunch before Sparkle receives
+    /// permission to install.
+    func updaterPreparesToRelaunchApplication() async
+
     /// Sparkle is about to relaunch the app to finish installing. The host should persist
     /// session state, stop its terminal/runtime, and invalidate restorable state so the
     /// relaunched instance starts cleanly.
     func updaterWillRelaunchApplication()
+}
+
+public extension UpdateActionDelegate {
+    func updaterPreparesToRelaunchApplication() async {}
 }

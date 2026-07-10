@@ -330,7 +330,7 @@ struct ProcessDetectedResumeIndexCoordinationTests {
             panelId: panelId
         ))
 
-        let plan = TerminationResumeIndexSavePlan.resolve(nil)
+        let plan = TerminationResumeIndexSavePlan.resolve(.completed(nil))
         #expect(
             plan.restorableAgentIndex != nil,
             "Core snapshot fallback must suppress the snapshot builder's cold refresh."

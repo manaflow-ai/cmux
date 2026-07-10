@@ -2023,7 +2023,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         _ = saveSessionSnapshotIncludingProcessDetectedIndexes(
             includeScrollback: true,
             removeWhenEmpty: false,
-            resolvedResumeIndexes: resumeIndexes
+            resolvedResumeIndexAuthority: .completed(resumeIndexes)
         )
         ClosedItemHistoryStore.shared.flushPendingSaves()
     }
@@ -4246,10 +4246,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func saveSessionSnapshotIncludingProcessDetectedIndexes(
         includeScrollback: Bool,
         removeWhenEmpty: Bool = false,
-        resolvedResumeIndexes: ProcessDetectedResumeIndexes? = nil
+        resolvedResumeIndexAuthority: TerminationResumeIndexAuthority? = nil
     ) -> Bool {
         let plan = TerminationResumeIndexSavePlan.resolve(
-            resolvedResumeIndexes ?? terminationResumeIndexCoordinator.current(),
+            resolvedResumeIndexAuthority ?? terminationResumeIndexCoordinator.resolution(),
             cachedResumeIndexes: { SharedLiveAgentIndex.shared.cachedResumeIndexes() }
         )
         if plan.usesCoreSnapshotFallback {

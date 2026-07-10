@@ -1,15 +1,27 @@
 import Foundation
 
+nonisolated enum TerminationResumeIndexAuthority: Sendable {
+    case pending
+    case completed(ProcessDetectedResumeIndexes?)
+}
+
 nonisolated struct TerminationResumeIndexSavePlan {
     let restorableAgentIndex: RestorableAgentSessionIndex?
     let surfaceResumeBindingIndex: SurfaceResumeBindingIndex?
     let usesCoreSnapshotFallback: Bool
 
     static func resolve(
-        _ resumeIndexes: ProcessDetectedResumeIndexes?,
+        _ authority: TerminationResumeIndexAuthority,
         cachedResumeIndexes: () -> ProcessDetectedResumeIndexes? = { nil }
     ) -> TerminationResumeIndexSavePlan {
-        if let resumeIndexes = resumeIndexes ?? cachedResumeIndexes() {
+        let resumeIndexes: ProcessDetectedResumeIndexes?
+        switch authority {
+        case .pending:
+            resumeIndexes = cachedResumeIndexes()
+        case .completed(let completedIndexes):
+            resumeIndexes = completedIndexes ?? cachedResumeIndexes()
+        }
+        if let resumeIndexes {
             return TerminationResumeIndexSavePlan(
                 restorableAgentIndex: resumeIndexes.restorableAgentIndex,
                 surfaceResumeBindingIndex: resumeIndexes.surfaceResumeBindingIndex,
