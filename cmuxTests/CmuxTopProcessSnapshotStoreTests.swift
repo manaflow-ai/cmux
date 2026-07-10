@@ -159,6 +159,143 @@ struct CmuxTopProcessSnapshotStoreTests {
         )
 #endif
     }
+
+    @Test
+    func staleCompletionCannotClearNewInFlightCaptureOrCache() async {
+        let capturer = ControlledProcessSnapshotCapturer()
+        let clock = SnapshotCompletionBarrierClock(
+            now: Date(timeIntervalSince1970: 100),
+            blockedReadNumbers: [3, 4]
+        )
+        let completions = SnapshotTaskCompletionCounter()
+        let store = CmuxTopProcessSnapshotStore(
+            now: { await clock.read() },
+            capture: { requirements in
+                await capturer.capture(requirements: requirements)
+            }
+        )
+
+        let first = Task {
+            let snapshot = await store.snapshot(requirements: .basic, maximumAge: 0)
+            await completions.record()
+            return snapshot
+        }
+        await capturer.waitForCallCount(1)
+        let second = Task {
+            let snapshot = await store.snapshot(requirements: .basic, maximumAge: 0)
+            await completions.record()
+            return snapshot
+        }
+
+        await capturer.releaseNext()
+        await clock.waitForReadCount(4)
+        await clock.resumeRead(3)
+        await completions.waitForCount(1)
+
+        await clock.advance(by: 1)
+        let refreshed = Task {
+            await store.snapshot(requirements: .basic, maximumAge: 0)
+        }
+        await capturer.waitForCallCount(2)
+
+        await clock.resumeRead(4)
+        await completions.waitForCount(2)
+        await clock.advance(by: 1)
+        let joined = Task {
+            await store.snapshot(requirements: .basic, maximumAge: 0)
+        }
+        await clock.waitForReadCount(6)
+        for _ in 0..<10_000 {
+            if await capturer.callCount() >= 3 { break }
+            await Task.yield()
+        }
+
+        await capturer.releaseAll()
+        let refreshedSnapshot = await refreshed.value
+        let joinedSnapshot = await joined.value
+        let cachedSnapshot = await store.snapshot(requirements: .basic, maximumAge: 10)
+        _ = await first.value
+        _ = await second.value
+
+        #expect(refreshedSnapshot === joinedSnapshot)
+        #expect(cachedSnapshot === refreshedSnapshot)
+        #expect(await capturer.callCount() == 2)
+        #expect(await capturer.maximumConcurrentCaptures() == 1)
+    }
+
+#if DEBUG
+    @Test
+    func cacheReuseFromBeforeResetDoesNotEnterNewMetricsEpoch() async {
+        let metricsStore = ProcessPerformanceMetrics()
+        let capturer = ControlledProcessSnapshotCapturer(autoRelease: true)
+        let clock = ProcessSnapshotTestClock(now: Date(timeIntervalSince1970: 100))
+        let store = CmuxTopProcessSnapshotStore(
+            now: { await clock.read() },
+            capture: { requirements in
+                await capturer.capture(requirements: requirements)
+            },
+            metrics: metricsStore
+        )
+
+        let captured = await store.snapshot(
+            requirements: .basic,
+            maximumAge: 10,
+            consumer: .portScannerPanel
+        )
+        metricsStore.reset()
+        let reused = await store.snapshot(
+            requirements: .basic,
+            maximumAge: 10,
+            consumer: .portScannerPanel
+        )
+
+        let metrics = metricsStore.snapshot()
+        #expect(captured === reused)
+        #expect(metrics.processSnapshots.captureStarted == 0)
+        #expect(metrics.processSnapshots.captureCompleted == 0)
+        #expect(metrics.consumerGenerationReuse.isEmpty)
+    }
+
+    @Test
+    func inFlightReuseFromBeforeResetDoesNotEnterNewMetricsEpoch() async {
+        let metricsStore = ProcessPerformanceMetrics()
+        let capturer = ControlledProcessSnapshotCapturer()
+        let clock = ProcessSnapshotTestClock(now: Date(timeIntervalSince1970: 100))
+        let store = CmuxTopProcessSnapshotStore(
+            now: { await clock.read() },
+            capture: { requirements in
+                await capturer.capture(requirements: requirements)
+            },
+            metrics: metricsStore
+        )
+
+        let first = Task {
+            await store.snapshot(
+                requirements: .basic,
+                maximumAge: 10,
+                consumer: .portScannerPanel
+            )
+        }
+        await capturer.waitForCallCount(1)
+        metricsStore.reset()
+        let reused = Task {
+            await store.snapshot(
+                requirements: .basic,
+                maximumAge: 10,
+                consumer: .portScannerPanel
+            )
+        }
+        await capturer.releaseNext()
+
+        let firstSnapshot = await first.value
+        let reusedSnapshot = await reused.value
+        #expect(firstSnapshot === reusedSnapshot)
+        let metrics = metricsStore.snapshot()
+        #expect(metrics.processSnapshots.captureStarted == 0)
+        #expect(metrics.processSnapshots.captureCompleted == 0)
+        #expect(metrics.consumerGenerationReuse.isEmpty)
+    }
+#endif
 }
 
 @Suite
@@ -209,6 +346,33 @@ struct PortScannerSharedSnapshotTests {
         #expect(expanded[30] == [firstWorkspace])
         #expect(expanded[90] == [detachedWorkspace])
         #expect(expanded[91] == [detachedWorkspace])
+    }
+
+    @Test
+    func descendantLookupDoesNotMixLiveChildrenIntoCapturedGeneration() throws {
+        let childInput = Pipe()
+        let liveChild = Process()
+        liveChild.executableURL = URL(fileURLWithPath: "/bin/cat")
+        liveChild.standardInput = childInput
+        liveChild.standardOutput = FileHandle.nullDevice
+        liveChild.standardError = FileHandle.nullDevice
+        try liveChild.run()
+        defer {
+            if liveChild.isRunning {
+                liveChild.terminate()
+            }
+            liveChild.waitUntilExit()
+        }
+
+        let rootPID = Int(Darwin.getpid())
+        let capturedChildPID = 999_999
+        let snapshot = processSnapshot([
+            process(pid: rootPID, parentPID: 1),
+            process(pid: capturedChildPID, parentPID: rootPID)
+        ])
+
+        #expect(liveChild.isRunning)
+        #expect(snapshot.descendantPIDs(rootPID: rootPID) == [capturedChildPID])
     }
 
     @Test
@@ -501,6 +665,68 @@ struct PortScanSnapshotStoreTests {
 #endif
     }
 
+    @Test
+    func staleCompletionCannotClearNewInFlightCaptureOrCache() async {
+        let capturer = ControlledPortScanCapturer(resultIncludesCaptureOrdinal: true)
+        let clock = SnapshotCompletionBarrierClock(
+            now: Date(timeIntervalSince1970: 100),
+            blockedReadNumbers: [3, 4]
+        )
+        let completions = SnapshotTaskCompletionCounter()
+        let store = PortScanSnapshotStore(
+            now: { await clock.read() },
+            capture: { pids in await capturer.capture(pids: pids) }
+        )
+
+        let first = Task {
+            let snapshot = await store.snapshot(pids: [10], maximumAge: 0)
+            await completions.record()
+            return snapshot
+        }
+        await capturer.waitForCallCount(1)
+        let second = Task {
+            let snapshot = await store.snapshot(pids: [10], maximumAge: 0)
+            await completions.record()
+            return snapshot
+        }
+
+        await capturer.releaseNext()
+        await clock.waitForReadCount(4)
+        await clock.resumeRead(3)
+        await completions.waitForCount(1)
+
+        await clock.advance(by: 1)
+        let refreshed = Task {
+            await store.snapshot(pids: [20], maximumAge: 0)
+        }
+        await capturer.waitForCallCount(2)
+
+        await clock.resumeRead(4)
+        await completions.waitForCount(2)
+        await clock.advance(by: 1)
+        let joined = Task {
+            await store.snapshot(pids: [20], maximumAge: 0)
+        }
+        await clock.waitForReadCount(6)
+        for _ in 0..<10_000 {
+            if await capturer.callCount() >= 3 { break }
+            await Task.yield()
+        }
+
+        await capturer.releaseAll()
+        let refreshedSnapshot = await refreshed.value
+        let joinedSnapshot = await joined.value
+        let cachedSnapshot = await store.snapshot(pids: [20], maximumAge: 10)
+        _ = await first.value
+        _ = await second.value
+
+        #expect(refreshedSnapshot == [20: [20_020]])
+        #expect(joinedSnapshot == refreshedSnapshot)
+        #expect(cachedSnapshot == refreshedSnapshot)
+        #expect(await capturer.callCount() == 2)
+        #expect(await capturer.maximumConcurrentCaptures() == 1)
+    }
+
     private func waitForMetrics(
         _ predicate: @escaping @Sendable () -> Bool
     ) async -> Bool {
@@ -594,6 +820,14 @@ private actor ControlledProcessSnapshotCapturer {
         releases.removeFirst().resume()
     }
 
+    func releaseAll() {
+        let pending = releases
+        releases.removeAll(keepingCapacity: true)
+        for continuation in pending {
+            continuation.resume()
+        }
+    }
+
     func callCount() -> Int {
         requirements.count
     }
@@ -633,18 +867,24 @@ private actor ProcessSnapshotTestClock {
 
 private actor ControlledPortScanCapturer {
     private let autoRelease: Bool
+    private let resultIncludesCaptureOrdinal: Bool
     private var requests: [Set<Int>] = []
     private var activeCaptures = 0
     private var maximumActiveCaptures = 0
     private var releases: [CheckedContinuation<Void, Never>] = []
     private var callCountWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
 
-    init(autoRelease: Bool = false) {
+    init(
+        autoRelease: Bool = false,
+        resultIncludesCaptureOrdinal: Bool = false
+    ) {
         self.autoRelease = autoRelease
+        self.resultIncludesCaptureOrdinal = resultIncludesCaptureOrdinal
     }
 
     func capture(pids: Set<Int>) async -> [Int: Set<Int>] {
         requests.append(pids)
+        let captureOrdinal = requests.count
         activeCaptures += 1
         maximumActiveCaptures = max(maximumActiveCaptures, activeCaptures)
         resumeSatisfiedCallCountWaiters()
@@ -654,7 +894,8 @@ private actor ControlledPortScanCapturer {
             }
         }
         activeCaptures -= 1
-        return Dictionary(uniqueKeysWithValues: pids.map { ($0, [$0 + 1_000]) })
+        let portOffset = resultIncludesCaptureOrdinal ? captureOrdinal * 10_000 : 1_000
+        return Dictionary(uniqueKeysWithValues: pids.map { ($0, [$0 + portOffset]) })
     }
 
     func waitForCallCount(_ count: Int) async {
@@ -667,6 +908,14 @@ private actor ControlledPortScanCapturer {
     func releaseNext() {
         guard !releases.isEmpty else { return }
         releases.removeFirst().resume()
+    }
+
+    func releaseAll() {
+        let pending = releases
+        releases.removeAll(keepingCapacity: true)
+        for continuation in pending {
+            continuation.resume()
+        }
     }
 
     func callCount() -> Int {
@@ -718,5 +967,79 @@ private actor PortScanTestClock {
 
     func advance(by interval: TimeInterval) {
         now = now.addingTimeInterval(interval)
+    }
+}
+
+private actor SnapshotCompletionBarrierClock {
+    private let blockedReadNumbers: Set<Int>
+    private var now: Date
+    private var readCount = 0
+    private var blockedReads: [Int: (Date, CheckedContinuation<Date, Never>)] = [:]
+    private var readCountWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
+
+    init(now: Date, blockedReadNumbers: Set<Int>) {
+        self.now = now
+        self.blockedReadNumbers = blockedReadNumbers
+    }
+
+    func read() async -> Date {
+        readCount += 1
+        let readNumber = readCount
+        let value = now
+        if blockedReadNumbers.contains(readNumber) {
+            return await withCheckedContinuation { continuation in
+                blockedReads[readNumber] = (value, continuation)
+                resumeSatisfiedReadCountWaiters()
+            }
+        }
+        resumeSatisfiedReadCountWaiters()
+        return value
+    }
+
+    func waitForReadCount(_ count: Int) async {
+        guard readCount < count else { return }
+        await withCheckedContinuation { continuation in
+            readCountWaiters.append((count, continuation))
+        }
+    }
+
+    func resumeRead(_ readNumber: Int) {
+        guard let (value, continuation) = blockedReads.removeValue(forKey: readNumber) else {
+            return
+        }
+        continuation.resume(returning: value)
+    }
+
+    func advance(by interval: TimeInterval) {
+        now = now.addingTimeInterval(interval)
+    }
+
+    private func resumeSatisfiedReadCountWaiters() {
+        let satisfied = readCountWaiters.filter { readCount >= $0.count }
+        readCountWaiters.removeAll { readCount >= $0.count }
+        for waiter in satisfied {
+            waiter.continuation.resume()
+        }
+    }
+}
+
+private actor SnapshotTaskCompletionCounter {
+    private var count = 0
+    private var waiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
+
+    func record() {
+        count += 1
+        let satisfied = waiters.filter { count >= $0.count }
+        waiters.removeAll { count >= $0.count }
+        for waiter in satisfied {
+            waiter.continuation.resume()
+        }
+    }
+
+    func waitForCount(_ count: Int) async {
+        guard self.count < count else { return }
+        await withCheckedContinuation { continuation in
+            waiters.append((count, continuation))
+        }
     }
 }
