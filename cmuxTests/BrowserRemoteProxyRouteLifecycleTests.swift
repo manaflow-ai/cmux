@@ -49,4 +49,33 @@ import Testing
         #expect(panel.webView === discardedWebView)
         #expect(panel.hiddenWebViewDiscardManager.isDiscardedForMemory)
     }
+
+    @Test
+    func testRemoteProxyLossDoesNotReplayAProvisionalPostAsGet() throws {
+        let remoteWorkspaceId = UUID()
+        let panel = BrowserPanel(
+            workspaceId: remoteWorkspaceId,
+            isRemoteWorkspace: true,
+            remoteWebsiteDataStoreIdentifier: remoteWorkspaceId
+        )
+        panel.setRemoteProxyEndpoint(BrowserProxyEndpoint(host: "127.0.0.1", port: 9876))
+        var request = URLRequest(url: try #require(URL(string: "https://example.com/submit")))
+        request.httpMethod = "POST"
+        request.httpBody = Data("payload".utf8)
+        panel.navigationDelegate?.recordAttemptedRequest(request)
+        panel.shouldRenderWebView = true
+        panel.isMainFrameProvisionalNavigationActive = true
+
+        panel.setRemoteProxyEndpoint(nil)
+
+        #expect(panel.hasRecoverableWebContentTermination)
+        #expect(!panel.hasPendingRemoteNavigation)
+        #expect(panel.webView.url == nil)
+
+        panel.setRemoteProxyEndpoint(BrowserProxyEndpoint(host: "127.0.0.1", port: 9877))
+
+        #expect(panel.hasRecoverableWebContentTermination)
+        #expect(!panel.hasPendingRemoteNavigation)
+        #expect(panel.webView.url == nil)
+    }
 }
