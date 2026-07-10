@@ -87,7 +87,7 @@ struct RemotePTYLifecycleRegistry: Sendable {
     mutating func requestIntentionalClose(
         sessionID: String
     ) -> [RemotePTYLifecycleKey: RemotePTYSessionLifecycle] {
-        let normalizedSessionID = RemotePTYLifecycleKey.normalizedSessionID(sessionID)
+        let normalizedSessionID = sessionID.trimmingCharacters(in: .whitespacesAndNewlines)
         var previous: [RemotePTYLifecycleKey: RemotePTYSessionLifecycle] = [:]
         for key in generationOrder where key.sessionID == normalizedSessionID {
             guard var generation = generations[key] else { continue }

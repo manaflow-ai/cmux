@@ -81,7 +81,7 @@ extension RemoteDaemonProxyTunnel {
                 ])
             }
             let previous = ptyLifecycleRegistry.requestIntentionalClose(sessionID: sessionID)
-            let normalizedSessionID = RemotePTYLifecycleKey.normalizedSessionID(sessionID)
+            let normalizedSessionID = sessionID.trimmingCharacters(in: .whitespacesAndNewlines)
             let matchingServers = ptyBridgeServers.values.filter {
                 $0.lifecycleKey.sessionID == normalizedSessionID
             }
