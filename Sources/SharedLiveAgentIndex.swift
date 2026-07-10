@@ -65,7 +65,11 @@ final class SharedLiveAgentIndex {
         },
         generationTimeoutWaiter: @escaping @Sendable () async -> Bool = {
             do {
-                try await ContinuousClock().sleep(for: .seconds(5))
+                try await ContinuousClock().sleep(
+                    for: .seconds(
+                        ConfirmedTerminationDeadlineBudget.production.processIndexCaptureSeconds
+                    )
+                )
                 return true
             } catch {
                 return false

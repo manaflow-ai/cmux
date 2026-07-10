@@ -1,6 +1,30 @@
 import Darwin
 import Foundation
 
+nonisolated struct ConfirmedTerminationDeadlineBudget: Sendable {
+    static let production = ConfirmedTerminationDeadlineBudget()
+
+    let processIndexCaptureSeconds: TimeInterval
+    let markedRemoteTmuxKillSeconds: TimeInterval
+    let appTeardownReserveSeconds: TimeInterval
+
+    init(
+        processIndexCaptureSeconds: TimeInterval = 5,
+        markedRemoteTmuxKillSeconds: TimeInterval = 3.5,
+        appTeardownReserveSeconds: TimeInterval = 1
+    ) {
+        self.processIndexCaptureSeconds = processIndexCaptureSeconds
+        self.markedRemoteTmuxKillSeconds = markedRemoteTmuxKillSeconds
+        self.appTeardownReserveSeconds = appTeardownReserveSeconds
+    }
+
+    var minimumHardDeadline: TimeInterval {
+        processIndexCaptureSeconds
+        + markedRemoteTmuxKillSeconds
+        + appTeardownReserveSeconds
+    }
+}
+
 /// Hard deadline on AppKit's application-termination sequence.
 ///
 /// `-[NSApplication terminate:]` synchronously posts `NSApplicationWillTerminate`
