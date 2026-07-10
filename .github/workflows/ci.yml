@@ -853,8 +853,7 @@ jobs:
       - name: Select helper Xcode
         run: |
           set -euo pipefail
-          CMUX_CI_XCODE_APP="$CMUX_CI_HELPER_XCODE_APP" \
-            CMUX_CI_REQUIRED_MACOS_SDK_MAJOR=15 \
+          CMUX_CI_XCODE_APP="${CMUX_CI_HELPER_XCODE_APP:-$CMUX_CI_XCODE_APP}" \
             ./scripts/select-ci-xcode.sh
 
       - name: Install zig
@@ -870,6 +869,7 @@ jobs:
       - name: Build universal Ghostty CLI helper
         run: |
           set -euo pipefail
+          required_sdk_major="${CMUX_CI_REQUIRED_MACOS_SDK_MAJOR:?}"
           mkdir -p ghostty-cli-helper
           ./scripts/build-ghostty-cli-helper.sh --universal --output ghostty-cli-helper/ghostty
           lipo ghostty-cli-helper/ghostty -verify_arch arm64 x86_64
@@ -878,7 +878,7 @@ jobs:
             lipo ghostty-cli-helper/ghostty -thin "$arch" -output "$thin"
             HELPER_SDK_VERSION="$(otool -l "$thin" | awk '/LC_BUILD_VERSION/ { in_version=1; next } in_version && /sdk / { print $2; exit }')"
             echo "Ghostty helper $arch SDK version: $HELPER_SDK_VERSION"
-            [[ "$HELPER_SDK_VERSION" == 15.* ]]
+            [[ "${HELPER_SDK_VERSION%%.*}" == "$required_sdk_major" ]]
           done
 
       - name: Upload universal Ghostty CLI helper
