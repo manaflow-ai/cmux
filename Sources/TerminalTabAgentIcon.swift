@@ -205,6 +205,7 @@ extension Workspace {
         var didMutateWorkspaceTitle = false
         var didMutateTitleDerivedAgent = false
         var didPruneStaleAgentRuntime = false
+        var didInvalidateRestoredAgentRun = false
 
         if !isRemoteTmuxMirror, panelTitles[panelId] != trimmed {
             panelTitles[panelId] = trimmed
@@ -221,18 +222,22 @@ extension Workspace {
                 didMutate = true
                 didPruneStaleAgentRuntime = true
             }
+            if invalidateRunningRestoredAgentSnapshotForPlainShellTitleIfNeeded(panelId: panelId) {
+                didMutate = true
+                didInvalidateRestoredAgentRun = true
+            }
         }
 
         // Update bonsplit tab title only when this panel's title changed, and
         // update the icon when the current agent signal changes.
-        if (didMutatePanelTitle || didMutateTitleDerivedAgent || didPruneStaleAgentRuntime),
+        if (didMutatePanelTitle || didMutateTitleDerivedAgent || didPruneStaleAgentRuntime || didInvalidateRestoredAgentRun),
            let tabId = surfaceIdFromPanelId(panelId),
            let panel = panels[panelId],
            let existing = bonsplitController.tab(tabId) {
             let baseTitle = panelTitles[panelId] ?? panel.displayTitle
             let resolvedTitle = resolvedPanelTitle(panelId: panelId, fallback: baseTitle)
             let titleUpdate: String? = isRemoteTmuxMirror || existing.title == resolvedTitle ? nil : resolvedTitle
-            let iconPayloadUpdate = didMutateTitleDerivedAgent || didPruneStaleAgentRuntime
+            let iconPayloadUpdate = didMutateTitleDerivedAgent || didPruneStaleAgentRuntime || didInvalidateRestoredAgentRun
                 ? terminalTabAgentIconPayload(forPanelId: panelId)
                 : nil
             bonsplitController.updateTab(
@@ -275,6 +280,22 @@ extension Workspace {
             title: title,
             in: &titleDerivedAgentStatusKeysByPanelId
         )
+    }
+
+    @discardableResult
+    func invalidateRunningRestoredAgentSnapshotForPlainShellTitleIfNeeded(panelId: UUID) -> Bool {
+        guard let restoredAgent = restoredAgentSnapshotsByPanelId[panelId],
+              titleDerivedAgentStatusKeysByPanelId[panelId] == nil,
+              agentPIDKeysByPanelId[panelId]?.isEmpty ?? true else {
+            return false
+        }
+        switch restoredAgentResumeStatesByPanelId[panelId] {
+        case .some(.autoResumeCommandRunning), .some(.observedAgentCommandRunning):
+            invalidateRestoredAgentSnapshot(panelId: panelId, restoredAgent: restoredAgent)
+            return true
+        case .some(.manualResumeAvailable), .some(.awaitingAutoResumeCommand), nil:
+            return false
+        }
     }
 
     func seedTitleDerivedTerminalAgentState(from detached: DetachedSurfaceTransfer) {

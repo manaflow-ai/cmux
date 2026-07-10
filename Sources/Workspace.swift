@@ -4640,7 +4640,7 @@ final class Workspace: Identifiable, ObservableObject {
         }
     }
 
-    private func invalidateRestoredAgentSnapshot(
+    func invalidateRestoredAgentSnapshot(
         panelId: UUID,
         restoredAgent: SessionRestorableAgentSnapshot
     ) {
