@@ -104,6 +104,19 @@ impl PtyInputDispatcher {
         self.queue.changed.notify_all();
     }
 
+    /// Wait until every input accepted before this call has completed.
+    /// This is an ordering barrier for infrequent surface/session mutations.
+    pub fn flush(&self, timeout: Duration) -> bool {
+        let deadline = Instant::now() + timeout;
+        let mut state = self.queue.state.lock().unwrap();
+        while (!state.events.is_empty() || state.in_flight) && Instant::now() < deadline {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            let (next, _) = self.queue.changed.wait_timeout(state, remaining).unwrap();
+            state = next;
+        }
+        state.events.is_empty() && !state.in_flight
+    }
+
     /// Stop accepting work and discard queued bytes after an explicit input
     /// saturation disconnect. The in-flight request is allowed to return.
     pub fn abort(&self) {
@@ -393,20 +406,27 @@ mod tests {
     }
 
     #[test]
-    fn flush_waits_until_prior_input_completes() {
+    fn accepted_input_completes_before_following_mutation() {
         let queue = Arc::new(SharedQueue::default());
         queue.state.lock().unwrap().in_flight = true;
         let dispatcher = Arc::new(PtyInputDispatcher { queue: queue.clone(), worker: None });
+        let mutated = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let (started_tx, started_rx) = std::sync::mpsc::channel();
         let (done_tx, done_rx) = std::sync::mpsc::channel();
-        let flush_dispatcher = dispatcher.clone();
+        let flush_dispatcher = dispatcher;
+        let mutation = mutated.clone();
         let flush_thread = std::thread::spawn(move || {
             started_tx.send(()).unwrap();
-            done_tx.send(flush_dispatcher.flush(Duration::from_secs(1))).unwrap();
+            let flushed = flush_dispatcher.flush(Duration::from_secs(1));
+            if flushed {
+                mutation.store(true, std::sync::atomic::Ordering::Release);
+            }
+            done_tx.send(flushed).unwrap();
         });
 
         started_rx.recv().unwrap();
         assert_eq!(done_rx.try_recv(), Err(std::sync::mpsc::TryRecvError::Empty));
+        assert!(!mutated.load(std::sync::atomic::Ordering::Acquire));
         {
             let mut state = queue.state.lock().unwrap();
             state.in_flight = false;
@@ -414,6 +434,7 @@ mod tests {
         }
 
         assert!(done_rx.recv_timeout(Duration::from_secs(1)).unwrap());
+        assert!(mutated.load(std::sync::atomic::Ordering::Acquire));
         flush_thread.join().unwrap();
     }
 

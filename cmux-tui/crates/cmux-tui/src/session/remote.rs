@@ -182,6 +182,10 @@ pub struct RemoteSession {
 }
 
 impl RemoteSession {
+    pub(super) fn has_surface(&self, id: SurfaceId) -> bool {
+        self.surfaces.lock().unwrap().contains_key(&id)
+    }
+
     pub fn connect(path: &Path) -> anyhow::Result<Arc<Self>> {
         let stream = transport::connect(path).map_err(|e| {
             anyhow::anyhow!("cannot connect to session socket {}: {e}", path.display())

@@ -582,6 +582,8 @@ pub fn run(session: Session, session_label: String) -> anyhow::Result<()> {
     session.ensure_initial(initial_size)?;
     let encoder = KeyEncoder::new()?;
     let mouse_encoder = MouseEncoder::new()?;
+    let browser_input = BrowserInputDispatcher::spawn()?;
+    let pty_input = PtyInputDispatcher::spawn()?;
     let stdout_lock = Arc::new(Mutex::new(()));
 
     let (tx, rx) = channel::<AppEvent>();
@@ -684,8 +686,8 @@ pub fn run(session: Session, session_label: String) -> anyhow::Result<()> {
         cell_pixels,
         pointer_shape: false,
         last_browser_hover: None,
-        browser_input: BrowserInputDispatcher::spawn()?,
-        pty_input: PtyInputDispatcher::spawn()?,
+        browser_input,
+        pty_input,
         drag: None,
         encoder,
         mouse_encoder,
@@ -865,6 +867,9 @@ impl App {
     fn refresh_cell_pixels(&mut self, query_fallback: bool) {
         let next = crate::ui::graphics::detect_cell_pixels(query_fallback);
         if self.cell_pixels != next {
+            if !self.flush_pty_input_before_mutation() {
+                return;
+            }
             self.cell_pixels = next;
             self.session.set_cell_pixel_size(next.0, next.1);
         }
@@ -918,7 +923,7 @@ impl App {
             .unwrap_or_default();
 
         self.pane_areas.clear();
-        let Some(screen) = self.tree.active_screen() else { return };
+        let Some(screen) = self.tree.active_screen().cloned() else { return };
         for (pane_id, rect) in layout.panes {
             let Some(pane) = screen.pane(pane_id) else { continue };
             let Some(surface_id) = pane.active_surface() else { continue };
@@ -944,7 +949,14 @@ impl App {
             // server-side resize, so no post-attach reflow artifacts).
             let size = Some((content.width, content.height));
             for tab in &pane.tabs {
-                if let Some(surface) = self.session.surface_sized(tab.surface, size) {
+                if !self.session.has_surface(tab.surface) && !self.flush_pty_input_before_mutation()
+                {
+                    return;
+                }
+                if let Some(surface) = self.session.surface_sized(tab.surface, size)
+                    && surface.resize_needed(content.width, content.height, false)
+                    && self.flush_pty_input_before_mutation()
+                {
                     surface.resize(content.width, content.height);
                 }
             }
@@ -970,6 +982,9 @@ impl App {
         }
         let rect = self.sidebar_plugin_rect();
         if rect.width == 0 || rect.height == 0 {
+            return;
+        }
+        if relaunch && !self.flush_pty_input_before_mutation() {
             return;
         }
         let status = self.session.sidebar_plugin((rect.width, rect.height), relaunch);
@@ -1107,7 +1122,7 @@ impl App {
         self.tree.active_screen().map(|screen| screen.id)
     }
 
-    fn reassert_visible_surface_sizes(&self) {
+    fn reassert_visible_surface_sizes(&mut self) {
         if self.config.sidebar.plugin.is_some()
             && self.sidebar_visible
             && self.sidebar_width >= 3
@@ -1115,18 +1130,28 @@ impl App {
         {
             let rect = self.sidebar_plugin_rect();
             if rect.width > 0 && rect.height > 0 {
-                surface.reassert_size(rect.width, rect.height);
+                let needs_barrier = surface.resize_needed(rect.width, rect.height, true);
+                if !needs_barrier || self.flush_pty_input_before_mutation() {
+                    surface.reassert_size(rect.width, rect.height);
+                }
             }
         }
-        for area in &self.pane_areas {
+        for area in self.pane_areas.clone() {
             if area.content.width == 0 || area.content.height == 0 {
                 continue;
+            }
+            if !self.session.has_surface(area.surface) && !self.flush_pty_input_before_mutation() {
+                return;
             }
             if let Some(surface) = self
                 .session
                 .surface_sized(area.surface, Some((area.content.width, area.content.height)))
             {
-                surface.reassert_size(area.content.width, area.content.height);
+                let needs_barrier =
+                    surface.resize_needed(area.content.width, area.content.height, true);
+                if !needs_barrier || self.flush_pty_input_before_mutation() {
+                    surface.reassert_size(area.content.width, area.content.height);
+                }
             }
         }
     }
@@ -1193,6 +1218,9 @@ impl App {
 
     fn split_pane(&mut self, pane: PaneId, dir: SplitDir) -> anyhow::Result<()> {
         let hint = self.split_size_hint(pane, dir);
+        if !self.flush_pty_input_before_mutation() {
+            return Ok(());
+        }
         self.session.split(pane, dir, hint)
     }
 
@@ -1206,10 +1234,16 @@ impl App {
     }
 
     fn new_workspace(&mut self) -> anyhow::Result<()> {
+        if !self.flush_pty_input_before_mutation() {
+            return Ok(());
+        }
         self.session.new_workspace(self.size_of_rect(self.content_area))
     }
 
     fn new_screen(&mut self) -> anyhow::Result<()> {
+        if !self.flush_pty_input_before_mutation() {
+            return Ok(());
+        }
         self.session.new_screen(self.size_of_rect(self.content_area))
     }
 
@@ -1252,6 +1286,9 @@ impl App {
     fn commit_prompt(&mut self) {
         let Some(prompt) = self.take_prompt() else { return };
         let input = prompt.input.as_str().to_string();
+        if !self.flush_pty_input_before_mutation() {
+            return;
+        }
         match prompt.target {
             PromptTarget::Workspace(id) => {
                 if !input.is_empty() {
@@ -1345,6 +1382,9 @@ impl App {
                     return Ok(RenderAction::Draw);
                 }
                 let url = cmux_tui_core::normalize_url(input);
+                if !self.flush_pty_input_before_mutation() {
+                    return Ok(RenderAction::None);
+                }
                 match self.session.surface(state.surface) {
                     Some(handle) => {
                         self.status_message =
@@ -1420,6 +1460,9 @@ impl App {
     /// Execute one bound action. Shared by the (configurable) prefix keys
     /// and any future command surface.
     fn run_action(&mut self, action: Action) -> anyhow::Result<RenderAction> {
+        if action_requires_pty_input_barrier(action) && !self.flush_pty_input_before_mutation() {
+            return Ok(RenderAction::None);
+        }
         let pane = self.active_pane();
         match action {
             Action::NewTab => {
@@ -1573,6 +1616,9 @@ impl App {
     }
 
     fn create_browser_tab_for_edit(&mut self, pane: Option<PaneId>) -> anyhow::Result<()> {
+        if !self.flush_pty_input_before_mutation() {
+            return Ok(());
+        }
         self.session.new_browser_tab(
             "about:blank".to_string(),
             pane,
@@ -1670,6 +1716,10 @@ impl App {
     }
 
     fn activate_menu(&mut self, action: MenuAction) -> anyhow::Result<()> {
+        if menu_action_requires_pty_input_barrier(action) && !self.flush_pty_input_before_mutation()
+        {
+            return Ok(());
+        }
         match action {
             MenuAction::RenameWorkspace(id) => {
                 let buffer = self
@@ -1755,14 +1805,14 @@ impl App {
         Ok(())
     }
 
-    fn move_focus(&self, dx: i32, dy: i32) {
+    fn move_focus(&mut self, dx: i32, dy: i32) {
         let Some(active) = self.active_pane() else { return };
         // Re-derive the layout geometry from the frame's pane areas.
         let layout = cmux_tui_core::LayoutResult {
             panes: self.pane_areas.iter().map(|a| (a.pane, a.rect)).collect(),
         };
         if let Some(next) = layout.neighbor(active, dx, dy) {
-            self.session.focus_pane(next);
+            self.focus_pane_after_input(next);
         }
     }
 
@@ -1785,15 +1835,17 @@ impl App {
         panes.get(next).copied()
     }
 
-    fn focus_next_pane(&self) {
+    fn focus_next_pane(&mut self) {
         if let Some(next) = self.adjacent_pane_by_order(1) {
-            self.session.focus_pane(next);
+            self.focus_pane_after_input(next);
         }
     }
 
-    fn swap_pane_by_order(&self, delta: isize) {
+    fn swap_pane_by_order(&mut self, delta: isize) {
         let Some(active) = self.active_pane() else { return };
-        if let Some(target) = self.adjacent_pane_by_order(delta) {
+        if let Some(target) = self.adjacent_pane_by_order(delta)
+            && self.flush_pty_input_before_mutation()
+        {
             self.session.swap_pane(active, target);
         }
     }
@@ -2206,7 +2258,7 @@ impl App {
         }
 
         if self.active_pane() != Some(area.pane) {
-            self.session.focus_pane(area.pane);
+            self.focus_pane_after_input(area.pane);
         }
         self.sidebar_focused = false;
         self.selection = None;
@@ -2465,6 +2517,26 @@ impl App {
         }
     }
 
+    fn flush_pty_input_before_mutation(&mut self) -> bool {
+        self.cancel_pty_mouse_drag();
+        if self.quit || matches!(self.drag, Some(Drag::PtyMouse { .. })) {
+            return false;
+        }
+        if self.pty_input.flush(Duration::from_secs(3)) {
+            return true;
+        }
+        self.pty_input.abort();
+        self.status_message = Some("PTY input did not finish before the session mutation".into());
+        self.quit = true;
+        false
+    }
+
+    fn focus_pane_after_input(&mut self, pane: PaneId) {
+        if self.flush_pty_input_before_mutation() {
+            self.session.focus_pane(pane);
+        }
+    }
+
     fn current_pty_content(&self, surface: SurfaceId) -> Option<Rect> {
         self.pane_areas.iter().find(|area| area.surface == surface).map(|area| area.content)
     }
@@ -2680,7 +2752,7 @@ impl App {
         }
 
         if let Some((pane, hit)) = self.omnibar_hit_at(x, y) {
-            self.session.focus_pane(pane);
+            self.focus_pane_after_input(pane);
             if let Some(state) = &self.omnibar {
                 if state.pane == pane {
                     return Ok(RenderAction::Draw);
@@ -2741,7 +2813,9 @@ impl App {
                 }
                 Hit::NewWorkspace => self.new_workspace()?,
                 Hit::ScreenEntry { index, .. } => {
-                    self.session.select_screen(Some(index), None);
+                    if self.flush_pty_input_before_mutation() {
+                        self.session.select_screen(Some(index), None);
+                    }
                 }
                 Hit::NewScreen => self.new_screen()?,
                 Hit::Tab { pane, index } => {
@@ -2755,8 +2829,10 @@ impl App {
                     }
                 }
                 Hit::NewTab { pane } => {
-                    self.session.focus_pane(pane);
-                    self.session.new_tab(Some(pane), None)?;
+                    self.focus_pane_after_input(pane);
+                    if self.flush_pty_input_before_mutation() {
+                        self.session.new_tab(Some(pane), None)?;
+                    }
                 }
                 Hit::Scrollbar { surface, track } => {
                     self.start_scrollbar_drag(surface, track, y);
@@ -2774,7 +2850,7 @@ impl App {
             if area.content.contains(x, y) {
                 if self.surface_kind(area.surface) == SurfaceKind::Browser {
                     if self.active_pane() != Some(area.pane) {
-                        self.session.focus_pane(area.pane);
+                        self.focus_pane_after_input(area.pane);
                     }
                     self.send_browser_mouse(
                         area.surface,
@@ -2789,7 +2865,7 @@ impl App {
                     return Ok(RenderAction::Draw);
                 } else {
                     if self.active_pane() != Some(area.pane) {
-                        self.session.focus_pane(area.pane);
+                        self.focus_pane_after_input(area.pane);
                     }
                     // Begin a text selection; it becomes visible once the
                     // mouse moves to a second cell.
@@ -2804,7 +2880,7 @@ impl App {
                     });
                 }
             } else if self.active_pane() != Some(area.pane) {
-                self.session.focus_pane(area.pane);
+                self.focus_pane_after_input(area.pane);
             }
             return Ok(RenderAction::Draw);
         }
@@ -2906,28 +2982,36 @@ impl App {
         if let Some(Drag::TabArm { surface, .. }) = self.drag {
             self.drag = None;
             if let Some((pane, index)) = self.tab_location(surface) {
-                self.session.focus_pane(pane);
-                self.session.select_tab(Some(pane), Some(index), None);
+                self.focus_pane_after_input(pane);
+                if self.flush_pty_input_before_mutation() {
+                    self.session.select_tab(Some(pane), Some(index), None);
+                }
             }
             return Ok(RenderAction::Draw);
         }
         if let Some(Drag::Tab { surface, .. }) = self.drag {
             self.drag = None;
-            if let Some((pane, index)) = self.tab_drop_target_at(x, y) {
+            if let Some((pane, index)) = self.tab_drop_target_at(x, y)
+                && self.flush_pty_input_before_mutation()
+            {
                 self.session.move_tab(surface, pane, index);
             }
             return Ok(RenderAction::Draw);
         }
         if let Some(Drag::WorkspaceArm { workspace, .. }) = self.drag {
             self.drag = None;
-            if let Some(index) = self.workspace_index(workspace) {
+            if let Some(index) = self.workspace_index(workspace)
+                && self.flush_pty_input_before_mutation()
+            {
                 self.session.select_workspace(Some(index), None);
             }
             return Ok(RenderAction::Draw);
         }
         if let Some(Drag::Workspace { workspace, .. }) = self.drag {
             self.drag = None;
-            if let Some(index) = self.workspace_drop_target_at(x, y) {
+            if let Some(index) = self.workspace_drop_target_at(x, y)
+                && self.flush_pty_input_before_mutation()
+            {
                 self.session.move_workspace(workspace, index);
             }
             return Ok(RenderAction::Draw);
@@ -3124,7 +3208,13 @@ impl App {
                 1.0,
             ),
         };
-        self.session.set_ratio(target.set_pane, dir, (current + delta * sign).clamp(0.05, 0.95));
+        if self.flush_pty_input_before_mutation() {
+            self.session.set_ratio(
+                target.set_pane,
+                dir,
+                (current + delta * sign).clamp(0.05, 0.95),
+            );
+        }
     }
 
     fn resize_split(&mut self, pane: PaneId, edge: PaneEdge, x: u16, y: u16) {
@@ -3153,7 +3243,9 @@ impl App {
             return;
         }
         let ratio = (coord.saturating_sub(start) as f32 / extent as f32).clamp(0.05, 0.95);
-        self.session.set_ratio(target.set_pane, dir, ratio);
+        if self.flush_pty_input_before_mutation() {
+            self.session.set_ratio(target.set_pane, dir, ratio);
+        }
     }
 
     fn open_context_menu(&mut self, x: u16, y: u16) {
@@ -3224,7 +3316,7 @@ impl App {
         }
         let Some(area) = self.pane_area_at(x, y).copied() else { return Ok(RenderAction::None) };
         if self.active_pane() != Some(area.pane) {
-            self.session.focus_pane(area.pane);
+            self.focus_pane_after_input(area.pane);
         }
         // Wheel over the tab bar scrolls the tabs, not the terminal.
         if area.bar.is_some_and(|bar| bar.contains(x, y)) {
@@ -3298,7 +3390,7 @@ impl App {
             return Ok(RenderAction::None);
         };
         if self.active_pane() != Some(area.pane) {
-            self.session.focus_pane(area.pane);
+            self.focus_pane_after_input(area.pane);
         }
         if area.content.contains(x, y)
             && self.forward_pty_mouse_at(
@@ -3390,6 +3482,32 @@ fn browser_only_action(action: Action) -> bool {
             | Action::BrowserForward
             | Action::BrowserReload
             | Action::BrowserEditUrl
+    )
+}
+
+fn action_requires_pty_input_barrier(action: Action) -> bool {
+    !matches!(
+        action,
+        Action::RenameTab
+            | Action::RenameScreen
+            | Action::RenameWorkspace
+            | Action::ScrollUp
+            | Action::ScrollDown
+            | Action::BrowserEditUrl
+    )
+}
+
+fn menu_action_requires_pty_input_barrier(action: MenuAction) -> bool {
+    !matches!(
+        action,
+        MenuAction::RenameWorkspace(_)
+            | MenuAction::CopyWorkspaceId(_)
+            | MenuAction::RenameScreen(_)
+            | MenuAction::BrowserEditUrl(_)
+            | MenuAction::BrowserCopyUrl(_)
+            | MenuAction::RenameTab(_)
+            | MenuAction::CopyTabId(_)
+            | MenuAction::CopyPaneId(_)
     )
 }
 

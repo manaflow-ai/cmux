@@ -170,6 +170,13 @@ impl Session {
         self.surface_sized(id, None)
     }
 
+    pub fn has_surface(&self, id: SurfaceId) -> bool {
+        match self {
+            Session::Local(mux) => mux.surface(id).is_some(),
+            Session::Remote(remote) => remote.has_surface(id),
+        }
+    }
+
     /// Like [`Session::surface`], but passes the render size for remote
     /// mirrors created on first use (the server surface is resized before
     /// the attach replay, so the replay arrives at final geometry).
@@ -502,6 +509,20 @@ impl SurfaceHandle {
                 }
             }
             SurfaceHandle::RemoteBrowserUnsupported => {}
+        }
+    }
+
+    pub fn resize_needed(&self, cols: u16, rows: u16, user_interaction: bool) -> bool {
+        let desired = (cols.max(1), rows.max(1));
+        match self {
+            SurfaceHandle::Local(surface) => surface.size() != desired,
+            SurfaceHandle::Remote(surface, _) => resize_action(
+                desired,
+                surface.asserted_size(),
+                surface.server_size(),
+                user_interaction,
+            ),
+            SurfaceHandle::RemoteBrowserUnsupported => false,
         }
     }
 
