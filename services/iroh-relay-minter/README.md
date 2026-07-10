@@ -85,3 +85,14 @@ cargo fmt --check
 cargo clippy --all-targets --locked -- -D warnings
 cargo test --locked
 ```
+
+For authenticated local dogfood, the example server binds only to loopback and
+uses the same request handler as the Vercel function:
+
+```sh
+CMUX_IROH_MINT_DEV_PORT=9460 cargo run --locked --example loopback
+```
+
+It still requires `IROH_SERVICES_API_SECRET` and
+`CMUX_IROH_MINT_HMAC_SECRET_B64` in the process environment. Do not use a
+credential copied through chat for a deployed environment; rotate it first.

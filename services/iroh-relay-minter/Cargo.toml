@@ -34,6 +34,8 @@ zeroize = "1.8.1"
 
 [dev-dependencies]
 futures-util = "0.3.31"
+hyper-util = { version = "0.1.17", features = ["server", "http1", "tokio"] }
+tokio = { version = "1.47.1", features = ["net"] }
 
 [profile.release]
 codegen-units = 1
