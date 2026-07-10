@@ -1,3 +1,4 @@
+import CmuxSettings
 import Foundation
 import Testing
 #if canImport(cmux_DEV)
@@ -9,6 +10,92 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct MobileHostIdentityTests {
+    @Test func taggedDebugBuildSuffixesPairingDisplayName() throws {
+        let suiteName = "mobile-host-display-name-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let key = SettingCatalog().mobile.iOSPairingDisplayName.userDefaultsKey
+        defaults.set("Desk Mac", forKey: key)
+
+        let previousTag = ProcessInfo.processInfo.environment["CMUX_TAG"]
+        setenv("CMUX_TAG", "future-one", 1)
+        defer {
+            if let previousTag {
+                setenv("CMUX_TAG", previousTag, 1)
+            } else {
+                unsetenv("CMUX_TAG")
+            }
+        }
+
+        #expect(MobileHostIdentity.baseDisplayName(defaults: defaults) == "Desk Mac")
+        #if DEBUG
+        #expect(MobileHostIdentity.instanceDisplayName(defaults: defaults) == "Desk Mac (future-one)")
+        #else
+        #expect(MobileHostIdentity.instanceDisplayName(defaults: defaults) == "Desk Mac")
+        #endif
+    }
+
+    @Test func taggedDisplayNameUsesOverrideWithoutDuplicatingSuffix() throws {
+        let suiteName = "mobile-host-display-name-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let key = SettingCatalog().mobile.iOSPairingDisplayName.userDefaultsKey
+        defaults.set("Desk Mac (future-one)", forKey: key)
+
+        #expect(MobileHostIdentity.instanceDisplayName(
+            defaults: defaults,
+            hostName: "System Mac",
+            buildTag: " future-one "
+        ) == "Desk Mac (future-one)")
+    }
+
+    @Test func untaggedDisplayNameFallsBackToSystemName() throws {
+        let suiteName = "mobile-host-display-name-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        #expect(MobileHostIdentity.instanceDisplayName(
+            defaults: defaults,
+            hostName: " System Mac ",
+            buildTag: "default"
+        ) == "System Mac")
+    }
+
+    @Test func taggedDisplayNamePreservesSuffixWithinCloudLimit() throws {
+        let suiteName = "mobile-host-display-name-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let key = SettingCatalog().mobile.iOSPairingDisplayName.userDefaultsKey
+        defaults.set(String(repeating: "A", count: 128), forKey: key)
+
+        let displayName = try #require(MobileHostIdentity.instanceDisplayName(
+            defaults: defaults,
+            hostName: nil,
+            buildTag: "future-one"
+        ))
+
+        #expect(displayName.utf16.count == 128)
+        #expect(displayName.hasSuffix(" (future-one)"))
+    }
+
+    @Test func taggedDisplayNameDoesNotSplitExtendedCharactersAtCloudLimit() throws {
+        let suiteName = "mobile-host-display-name-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let key = SettingCatalog().mobile.iOSPairingDisplayName.userDefaultsKey
+        defaults.set(String(repeating: "👩🏽‍💻", count: 40), forKey: key)
+
+        let displayName = try #require(MobileHostIdentity.instanceDisplayName(
+            defaults: defaults,
+            hostName: nil,
+            buildTag: "future-one"
+        ))
+
+        #expect(displayName.utf16.count <= 128)
+        #expect(displayName.hasSuffix(" (future-one)"))
+        #expect(displayName.hasPrefix("👩🏽‍💻"))
+    }
+
     @Test func prefersSharedIDAcrossBundleDefaults() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)

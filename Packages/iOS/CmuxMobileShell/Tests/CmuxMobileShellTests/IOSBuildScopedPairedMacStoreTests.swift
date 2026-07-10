@@ -5,6 +5,13 @@ import Testing
 @testable import CmuxMobileShell
 
 @Suite struct IOSBuildScopedPairedMacStoreTests {
+    @Test func buildScopeDecoratesComputerNamesIdempotently() throws {
+        let scope = try #require(MobileIOSBuildScope("future-one"))
+
+        #expect(scope.computerDisplayName("MacBook Pro") == "MacBook Pro (future-one)")
+        #expect(scope.computerDisplayName("MacBook Pro (future-one)") == "MacBook Pro (future-one)")
+    }
+
     private func makeInnerStore() throws -> (MobilePairedMacStore, URL) {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
