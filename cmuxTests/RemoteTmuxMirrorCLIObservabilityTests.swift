@@ -122,6 +122,40 @@ struct RemoteTmuxMirrorCLIObservabilityTests {
         #expect(current.surfaceTypeRawValue == PanelType.terminal.rawValue)
     }
 
+    @Test func defaultTriggerFlashProjectsTheActiveInnerPane() throws {
+        do {
+            let harness = try Harness()
+            defer { harness.tearDown() }
+            let activeTmuxPaneID = try #require(harness.mirror.paneIDsInOrder.last)
+            let activeSurfaceID = try #require(harness.mirror.panel(forPane: activeTmuxPaneID)?.id)
+
+            let flash = TerminalController.shared.controlSurfaceTriggerFlash(
+                routing: harness.routing(),
+                surfaceID: nil
+            )
+            switch flash {
+            case .flashed(_, let workspaceID, let surfaceID):
+                #expect(workspaceID == harness.workspace.id)
+                #expect(surfaceID == activeSurfaceID)
+            default:
+                Issue.record("Default flash did not project the focused mirror: \(flash)")
+            }
+        }
+
+        do {
+            // Without an authoritative active pane the default target fails
+            // closed instead of flashing the stale wrapper panel.
+            let harness = try Harness(activeTmuxPaneID: nil)
+            defer { harness.tearDown() }
+
+            let flash = TerminalController.shared.controlSurfaceTriggerFlash(
+                routing: harness.routing(),
+                surfaceID: nil
+            )
+            #expect(flash == .surfaceNotFound(harness.outerPanelID))
+        }
+    }
+
     @Test func explicitOuterPaneCannotCrossIntoProjectedMirrorPane() throws {
         let harness = try Harness(addPeerSurface: true)
         defer { harness.tearDown() }
