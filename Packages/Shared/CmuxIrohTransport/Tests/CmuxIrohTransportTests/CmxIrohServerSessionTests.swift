@@ -66,6 +66,53 @@ struct CmxIrohServerSessionTests {
     }
 
     @Test
+    func acceptedContextMustMatchTheTLSAuthenticatedPeer() async throws {
+        let fixture = try ServerFixture(decision: .accepted)
+        let substitutedPeer = try CmxIrohPeerIdentity(
+            endpointID: String(repeating: "b", count: 64)
+        )
+        let connection = TestIrohConnection(
+            remoteIdentity: substitutedPeer,
+            bidirectionalStreams: [fixture.controlStream]
+        )
+        let session = try CmxIrohServerSession(
+            connection: connection,
+            authorizer: fixture.authorizer
+        )
+
+        await #expect(throws: CmxIrohServerSessionError.admissionDenied(code: 1)) {
+            try await session.admit()
+        }
+        let ack = try #require(await fixture.controlSend.observedSentBuffers().first)
+        #expect(try CmxIrohAdmissionAckCodec().decodePrefix(ack) == .denied(code: 1))
+        #expect(await connection.observedCloseCallCount() == 1)
+    }
+
+    @Test
+    func admittedControlUsesTheSharedByteTransportContract() async throws {
+        let fixture = try ServerFixture(decision: .accepted)
+        let connection = TestIrohConnection(
+            remoteIdentity: fixture.peerID,
+            bidirectionalStreams: [fixture.controlStream]
+        )
+        let session = try CmxIrohServerSession(
+            connection: connection,
+            authorizer: fixture.authorizer
+        )
+        _ = try await session.admit()
+        let transport = CmxIrohServerByteTransport(session: session)
+
+        try await transport.connect()
+        #expect(try await transport.receive() == Data("rpc".utf8))
+        try await transport.send(Data("response".utf8))
+        await transport.close()
+
+        let buffers = await fixture.controlSend.observedSentBuffers()
+        #expect(buffers.last == Data("response".utf8))
+        #expect(await connection.observedCloseCallCount() == 1)
+    }
+
+    @Test
     func nonControlFirstStreamFailsBeforeAuthorization() async throws {
         let fixture = try ServerFixture(decision: .accepted)
         let terminalHeader = try fixture.headerCodec.encode(
@@ -143,14 +190,13 @@ private struct ServerFixture {
         )
         self.peerID = peerID
         self.admittedPeer = admittedPeer
-        authorizer = FixedAdmissionAuthorizer(
-            authorization: switch decision {
-            case .accepted:
-                .accepted(admittedPeer)
-            case let .denied(code):
-                .denied(code: code)
-            }
-        )
+        let authorization: CmxIrohAdmissionAuthorization = switch decision {
+        case .accepted:
+            .accepted(admittedPeer)
+        case let .denied(code):
+            .denied(code: code)
+        }
+        authorizer = FixedAdmissionAuthorizer(authorization: authorization)
         let credential = try CmxIrohAdmissionCredential.pairGrant("aa.bb.cc")
         let header = try headerCodec.encode(
             CmxIrohStreamHeader(lane: .control, credential: credential)

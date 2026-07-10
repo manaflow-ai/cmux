@@ -48,7 +48,7 @@ public actor CmxIrohAdmissionController: CmxIrohAdmissionAuthorizing {
     public func authorize(
         credential: CmxIrohAdmissionCredential,
         authenticatedPeerID: CmxIrohPeerIdentity
-    ) async -> CmxIrohAdmissionDecision {
+    ) async -> CmxIrohAdmissionAuthorization {
         guard pairingEnabled,
               acceptor.platform == .mac,
               !revokedBindingIDs.contains(acceptor.bindingID) else {
@@ -70,14 +70,15 @@ public actor CmxIrohAdmissionController: CmxIrohAdmissionAuthorizing {
                 guard !revokedBindingIDs.contains(claims.initiator.bindingID) else {
                     return .denied(code: 1)
                 }
+                return .accepted(CmxIrohAdmittedPeer(peer: claims.initiator))
             case .offlinePairing:
-                _ = try await offlineSessions.verifyAndConsume(
+                let pair = try await offlineSessions.verifyAndConsume(
                     credential: credential,
                     authenticatedPeerID: authenticatedPeerID,
                     now: now()
                 )
+                return .accepted(CmxIrohAdmittedPeer(attestation: pair.initiator))
             }
-            return .accepted
         } catch {
             return .denied(code: 1)
         }

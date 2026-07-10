@@ -5,5 +5,5 @@ public protocol CmxIrohAdmissionAuthorizing: Sendable {
     func authorize(
         credential: CmxIrohAdmissionCredential,
         authenticatedPeerID: CmxIrohPeerIdentity
-    ) async -> CmxIrohAdmissionDecision
+    ) async -> CmxIrohAdmissionAuthorization
 }

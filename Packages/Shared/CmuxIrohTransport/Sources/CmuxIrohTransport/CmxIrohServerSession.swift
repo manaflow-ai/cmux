@@ -8,6 +8,7 @@ public actor CmxIrohServerSession {
     private let admissionCodec = CmxIrohAdmissionAckCodec()
     private var controlStream: CmxIrohBidirectionalStream?
     private var controlReceiveBuffer = Data()
+    private var admittedPeer: CmxIrohAdmittedPeer?
     private var admitted = false
     private var closed = false
 
@@ -22,7 +23,8 @@ public actor CmxIrohServerSession {
     }
 
     /// Accepts exactly one credential-bearing control stream before any other lane.
-    public func admit() async throws {
+    @discardableResult
+    public func admit() async throws -> CmxIrohAdmittedPeer {
         guard !closed else { throw CmxIrohServerSessionError.alreadyClosed }
         guard !admitted, controlStream == nil else {
             throw CmxIrohServerSessionError.alreadyAdmitted
@@ -35,16 +37,30 @@ public actor CmxIrohServerSession {
                 throw CmxIrohServerSessionError.invalidFirstLane
             }
             let peerID = await connection.remoteIdentity()
-            let decision = await authorizer.authorize(
+            let authorization = await authorizer.authorize(
                 credential: credential,
                 authenticatedPeerID: peerID
             )
-            try await stream.sendStream.send(admissionCodec.encode(decision))
-            switch decision {
+            let checkedAuthorization: CmxIrohAdmissionAuthorization
+            switch authorization {
+            case let .accepted(peer)
+                where peer.endpointID == peerID && peer.platform == .ios:
+                checkedAuthorization = .accepted(peer)
             case .accepted:
+                checkedAuthorization = .denied(code: 1)
+            case .denied:
+                checkedAuthorization = authorization
+            }
+            try await stream.sendStream.send(
+                admissionCodec.encode(checkedAuthorization.wireDecision)
+            )
+            switch checkedAuthorization {
+            case let .accepted(peer):
                 admitted = true
+                admittedPeer = peer
                 controlStream = stream
                 controlReceiveBuffer = decoded.trailingBytes
+                return peer
             case let .denied(code):
                 await stream.sendStream.reset(errorCode: 1)
                 await stream.receiveStream.stop(errorCode: 1)
@@ -81,6 +97,13 @@ public actor CmxIrohServerSession {
 
     public func sendControl(_ data: Data) async throws {
         try await admittedControlStream().sendStream.send(data)
+    }
+
+    /// Returns the exact binding retained when this control stream was admitted.
+    public func admittedPeerContext() throws -> CmxIrohAdmittedPeer {
+        try requireAdmitted()
+        guard let admittedPeer else { throw CmxIrohServerSessionError.notAdmitted }
+        return admittedPeer
     }
 
     /// Accepts a client-created terminal or artifact bidirectional lane.
@@ -148,6 +171,7 @@ public actor CmxIrohServerSession {
         }
         await connection.close(errorCode: 0, reason: "server_closed")
         self.controlStream = nil
+        admittedPeer = nil
         controlReceiveBuffer.removeAll(keepingCapacity: false)
     }
 
