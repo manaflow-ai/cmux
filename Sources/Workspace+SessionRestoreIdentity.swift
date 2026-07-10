@@ -48,11 +48,11 @@ extension Workspace {
         fields["binding"] = resumeBinding == nil ? "missing" : "found"
         fields["approved"] = approvedBinding == nil ? "0" : "1"
         fields["launch"] = sessionRestoreLaunchKind(bindingLaunch: bindingLaunch, agentLaunch: agentLaunch)
-        fields["resumeCommandIssued"] = sessionRestoreHasCommandLaunch(
+        fields["resumeCommandPlanned"] = sessionRestoreHasPlannedCommandLaunch(
             bindingLaunch: bindingLaunch,
             agentLaunch: agentLaunch
         ) ? "1" : "0"
-        fields["startup"] = sessionRestoreStartupKind(command: startupCommand, input: startupInput)
+        fields["startupPlan"] = sessionRestoreStartupKind(command: startupCommand, input: startupInput)
         if let resumeBinding {
             fields["bindingKind"] = resumeBinding.kind ?? ""
             fields["bindingSource"] = resumeBinding.source ?? ""
@@ -74,7 +74,8 @@ extension Workspace {
         fields["restoredPanelId"] = restoredPanelId?.uuidString ?? ""
         fields["storedBinding"] = storedBinding == nil ? "0" : "1"
         fields["startup"] = sessionRestoreStartupKind(command: startupCommand, input: startupInput)
-        fields["startupCommandIssued"] = startupCommand == nil ? "0" : "1"
+        let didCreatePanel = restoredPanelId != nil
+        fields["startupCommandIssued"] = didCreatePanel && startupCommand != nil ? "1" : "0"
         StartupBreadcrumbLog.append("app.init.sessionRestore.panel.outcome", fields: fields)
     }
 
@@ -100,7 +101,7 @@ extension Workspace {
         return "none"
     }
 
-    private func sessionRestoreHasCommandLaunch(
+    private func sessionRestoreHasPlannedCommandLaunch(
         bindingLaunch: SurfaceResumeStartupLaunch?,
         agentLaunch: SurfaceResumeStartupLaunch?
     ) -> Bool {

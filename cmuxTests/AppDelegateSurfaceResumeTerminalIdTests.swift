@@ -122,6 +122,25 @@ final class AppDelegateSurfaceResumeTerminalIdTests: XCTestCase {
         XCTAssertEqual(setResult["surface_id"] as? String, splitPanel.id.uuidString)
         XCTAssertNil(workspace.surfaceResumeBinding(panelId: focusedPanel.id))
         XCTAssertEqual(workspace.surfaceResumeBinding(panelId: splitPanel.id)?.command, "codex resume stable-target")
+
+        let getResult = try v2Result(method: "surface.resume.get", params: [
+            "window_id": windowId.uuidString,
+            "workspace_id": workspace.id.uuidString,
+            "surface_id": splitPanel.stableSurfaceId.uuidString,
+        ])
+        XCTAssertEqual(getResult["surface_id"] as? String, splitPanel.id.uuidString)
+        let getBinding = try XCTUnwrap(getResult["resume_binding"] as? [String: Any])
+        XCTAssertEqual(getBinding["checkpoint_id"] as? String, "stable-target")
+
+        let clearResult = try v2Result(method: "surface.resume.clear", params: [
+            "window_id": windowId.uuidString,
+            "workspace_id": workspace.id.uuidString,
+            "surface_id": splitPanel.stableSurfaceId.uuidString,
+            "checkpoint_id": "stable-target",
+        ])
+        XCTAssertEqual(clearResult["surface_id"] as? String, splitPanel.id.uuidString)
+        XCTAssertEqual(clearResult["cleared"] as? Bool, true)
+        XCTAssertNil(workspace.surfaceResumeBinding(panelId: splitPanel.id))
     }
 
     private func makeMainWindow(id: UUID) -> NSWindow {
