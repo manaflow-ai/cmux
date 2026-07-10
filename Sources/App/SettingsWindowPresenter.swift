@@ -159,6 +159,7 @@ final class SettingsWindowPresenter: NSObject {
         }
 
         var failureReason = "settings window was never presented"
+        var didUnhideForVerification = false
         for attempt in 1...Self.maxPresentAttempts {
             let window: NSWindow
             let reusedExisting: Bool
@@ -182,9 +183,12 @@ final class SettingsWindowPresenter: NSObject {
             if activateApp && !window.isVisible && NSApp.isHidden {
                 // The app being hidden can be exactly what visibility is
                 // waiting on; unhiding here is the requested activation
-                // doing its job, not a pre-verification focus steal.
+                // doing its job, not a pre-verification focus steal. If the
+                // presentation still fails, the failure exit re-hides the
+                // app so the gamble leaves focus untouched.
                 activateAndSurface(window)
                 didActivate = true
+                didUnhideForVerification = true
             }
 
             if window.isVisible {
@@ -230,6 +234,12 @@ final class SettingsWindowPresenter: NSObject {
         if pendingNavigationTarget == navigationTarget {
             pendingNavigationTarget = nil
         }
+        if didUnhideForVerification {
+            // The unhide above was a verification gamble that did not pay
+            // off; restore the hidden state so a failed presentation leaves
+            // app focus exactly as the caller found it.
+            NSApp.hide(nil)
+        }
         return .failed(reason: failureReason)
     }
 
@@ -258,19 +268,6 @@ final class SettingsWindowPresenter: NSObject {
             // strip identity but do not close it again.
             Self.log.notice("settings.window.show candidate is mid-close; building a fresh window")
             strip(candidate)
-            return nil
-        }
-        if candidate.isMiniaturized {
-            // A Dock-miniaturized window cannot become visible synchronously
-            // (deminiaturization animates over subsequent run-loop turns), so
-            // it can never satisfy the verified visible-on-return contract.
-            // Replace it with a fresh window presented immediately — the
-            // factory path restores the saved frame — instead of returning a
-            // pending animation as success or demolishing it as a failure.
-            Self.log.notice(
-                "settings.window.show candidate is miniaturized; replacing it with a fresh window"
-            )
-            demolish(candidate)
             return nil
         }
         if let reason = Self.unusableWindowReason(
@@ -345,6 +342,18 @@ final class SettingsWindowPresenter: NSObject {
     /// effect. This alone satisfies the socket no-focus-steal contract
     /// (`settings.open --activate=false`).
     private func orderFrontWithoutActivation(_ window: NSWindow) {
+        if window.isMiniaturized {
+            // Reusing (not replacing) a Dock-miniaturized window preserves
+            // its SwiftUI tree and any unsaved Settings edits. Empirically
+            // (macOS 26 probe): `deminiaturize` alone leaves `isVisible`
+            // false until a later run-loop turn, but following it with
+            // `orderFrontRegardless()` below commits visibility on the SAME
+            // turn — so the verified visible-on-return contract still holds.
+            // If an OS version ever breaks that, the attempt loop falls back
+            // to replacing the window with a fresh visible one; never a
+            // silent no-op.
+            window.deminiaturize(nil)
+        }
         window.adoptCmuxPeerWindowLevel()
         clampToVisibleAreaIfNeeded(window)
         window.orderFrontRegardless()
