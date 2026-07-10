@@ -27,6 +27,10 @@ Private hints never enter the first Iroh address set. Iroh treats supplied IP pa
 
 Path migration may move an established connection between relay and direct reachability without reopening application streams. cmux treats this as one connection and does not assume Iroh stripes bandwidth across paths.
 
+[Upstream issue 4247](https://github.com/n0-computer/iroh/issues/4247) documents asymmetric and relay-biased path selection even when a faster local direct path exists. cmux therefore measures the selected route class and private-path outcomes, preserves the explicit public-first/private-fallback attempt boundary, and behavior-tests that private hints cannot affect the first attempt.
+
+[Upstream issue 4390](https://github.com/n0-computer/iroh/issues/4390) can multiply `pending_open_paths` without bound when at least two connections encounter persistent path-open failures, including failures from unreachable overlay hints. Rollout is blocked until the pinned Iroh core contains a reviewed deduplication and hard-cap fix. The fork must expose enough test control to exhaust path IDs deterministically and prove bounded queue and process-memory growth across multiple connections.
+
 Private hints expire within one hour. They use literal IP and port values, never hostnames, URLs, CIDRs, or userinfo. A hint is usable only when its provider and profile match the locally active provider profile. This prevents overlapping private address spaces from substituting one another.
 
 The wire profile identifier is an opaque random value qualified by provider. Human network names remain local UI metadata and never enter discovery, logs, or grants.
@@ -63,6 +67,8 @@ Identity generation and runtime generation are separate values. Identity generat
 
 iOS cannot keep a normal endpoint alive indefinitely in the background. On background transition it closes the endpoint and cancels generation-owned work. On foreground it recreates the endpoint from the same secret, preserving EndpointID, then redials and resumes streams from application cursors. Every async result is generation-checked so an old endpoint cannot mutate new state.
 
+[Upstream issue 4289](https://github.com/n0-computer/iroh/issues/4289) shows that a failed UDP rebind after iOS resume can silently terminate the EndpointDriver without surfacing an API error. cmux requires an endpoint-health watchdog. A terminal health failure recreates the endpoint from the same key and identity generation while advancing the runtime generation, then resumes application streams from their cursors.
+
 The fork must expose cancellation for an in-progress connect. Closing a QUIC connection unblocks established stream reads, but it does not reliably cancel the current FFI handshake bridge.
 
 ## Relay fleet
@@ -76,9 +82,11 @@ Production endpoints use only these managed relays:
 
 The four URLs form the local endpoint's allowed relay fleet. They must not all be synthesized as addresses for every remote endpoint. A remote `EndpointAddr` contains only the remote endpoint's currently advertised home relay or relays, validated against the fleet allowlist. Iroh currently expects zero or one home relay in normal operation. Fleet configuration and remote reachability are separate wire fields.
 
-The Iroh Services project secret stays in a backend-only secret store. Apps receive an endpoint-bound RCAN containing only `relay:use`. Relay capabilities last 24 hours and refresh around 12 hours with jitter.
+The Iroh Services project secret stays in a backend-only secret store. Apps receive an endpoint-bound RCAN containing only `relay:use`. Relay capabilities last 24 hours and refresh around 12 hours with jitter. The RCAN minter is a separately deployed Rust service and project, so the TypeScript trust broker cannot read `IROH_SERVICES_API_SECRET`; only a shared HMAC crosses that boundary. The API key pasted during planning must be rotated before deployment.
 
 Relay replacement must be behavior-tested before rollout. Iroh 1.0 caches the authentication token in an active relay actor, so updating a relay map entry alone may not refresh a live actor. The implementation must use an explicit fork API or make-before-break rotation and prove that EndpointID and active application streams survive refresh.
+
+[Upstream issue 4319](https://github.com/n0-computer/iroh/issues/4319) reports roughly 30 seconds of lost reachability after a custom home relay fails even when another relay is configured. Relay failover and rolling restarts require a soak and telemetry gate that measures inbound-reachability gaps, stream survival, and recovery latency. cmux does not claim relay high availability until those bounds pass.
 
 No n0 public DNS discovery or development relay enters the production preset. Relay URL syntax validation is separate from the runtime allowlist above.
 
@@ -101,7 +109,9 @@ The official Swift FFI exposes raw QUIC connections, bidirectional and unidirect
 
 ## Disclosure and persistence
 
-Private and local path hints may travel only through an authenticated same-account channel. They are excluded from pairing QR payloads, public host status, logs, support bundles, public discovery, and cloud backup. Persisted routes prune expired hints. Logs use classifications or keyed hashes, never full EndpointIDs, relay tokens, grants, or private addresses.
+Private and local path hints may travel only through an authenticated same-account channel. They are excluded from identity-only pairing QR payloads, public host status, logs, support bundles, public discovery, and cloud backup. Public host status returns zero attach routes. Persisted routes prune expired hints. Logs use classifications or keyed hashes, never full EndpointIDs, relay tokens, grants, or private addresses.
+
+Pairing QR encoding requires an explicit disclosure mode. `irohIdentityOnly` keeps only the Iroh EndpointID and removes every path hint, host/port route, and URL route. Production QR call sites use `legacyPrivateNetworkCompatibility` only as a migration exception while released clients still require Tailscale routes; they must flip to `irohIdentityOnly` once the supported client baseline can dial Iroh.
 
 Application-layer reachability can bypass DNS filters or network-layer allowlists. Managed deployments need an MDM/configuration policy that can disable Iroh, restrict it to approved relay URLs, or require the legacy private-network path. cmux does not disguise relay traffic or create an alternate way around an administrator's access policy.
 
@@ -119,6 +129,11 @@ Before defaulting to Iroh, verification must cover:
 - TCP-only firewalls, blocked UDP, captive portals, constrained paths, and expensive cellular paths;
 - relay token denial, expiry, refresh, and long-lived stream preservation;
 - background and foreground endpoint recreation with stable EndpointID;
+- a deterministic failed-rebind/network-resume test that proves the health watchdog detects terminal driver failure and recreates the endpoint from the same key and identity generation with a new runtime generation;
+- measured direct, relay, and private-fallback path selection, including asymmetric traffic and a regression test that private hints never enter the public attempt;
+- the pinned Iroh core's `pending_open_paths` deduplication and hard cap, plus an adversarial multi-connection test with failing overlay hints that asserts bounded queue and memory growth;
+- custom-home-relay failure and rolling-restart soaks with bounded reachability and stream-recovery telemetry;
+- a long-running Router soak with tracing enabled and idle adversarial connections, guarding against the span accumulation in [upstream issue 3963](https://github.com/n0-computer/iroh/issues/3963);
 - same-account grant success plus cross-account, swapped-peer, revoked, expired, and replay denial;
 - offline cached-grant reconnect and explicit first-time offline pairing;
 - stream fairness, cancellation, reconnect cursors, and artifact backpressure;

@@ -98,14 +98,18 @@ final class MacPairedMacBackupPublisher {
             + "/v1/sync/paired-macs"
         guard let url = comps.url else { return }
 
-        let nowMs = Date().timeIntervalSince1970 * 1000.0
+        let disclosureDate = Date()
+        let nowMs = disclosureDate.timeIntervalSince1970 * 1000.0
+        let cloudSafeRoutes = routes.compactMap {
+            $0.disclosed(for: .pairedMacCloudBackup, at: disclosureDate)
+        }
         let body = MacPairedMacBackupBody(ops: [
             MacPairedMacBackupOpWire(
                 macDeviceID: MobileHostIdentity.deviceID(),
                 record: MacPairedMacBackupRecordWire(
                     macDeviceID: MobileHostIdentity.deviceID(),
                     displayName: MobileHostIdentity.displayName(),
-                    routes: routes,
+                    routes: cloudSafeRoutes,
                     createdAt: nowMs,
                     lastSeenAt: nowMs,
                     // Mark active so a fresh dev iOS build auto-targets the

@@ -1,5 +1,25 @@
 import Foundation
 
+/// The private-route disclosure policy for a scannable attach payload.
+///
+/// Callers must choose explicitly so adding a route to a ticket cannot silently
+/// add it to a QR code. The legacy mode exists only while released clients still
+/// require Tailscale host routes during the Iroh migration.
+public enum CmxPairingRouteDisclosureMode: Equatable, Sendable {
+    /// Encode only Iroh EndpointIDs. All Iroh hints and every host/port or URL
+    /// route are removed.
+    case irohIdentityOnly
+    /// Preserve the pre-Iroh compact route grammar for released clients.
+    /// This may disclose private-network routes and must not become a default.
+    case legacyPrivateNetworkCompatibility
+}
+
+/// Failures while applying a pairing-route disclosure policy.
+public enum CmxAttachTicketCompactCoderError: Error, Equatable, Sendable {
+    /// The selected disclosure mode removed every route from the payload.
+    case noRoutesForDisclosureMode(CmxPairingRouteDisclosureMode)
+}
+
 /// Codes ``CmxAttachTicket`` to and from the compact wire form used by the
 /// pairing QR payload.
 ///
@@ -49,11 +69,19 @@ public struct CmxAttachTicketCompactCoder: Sendable {
     /// Any `authToken`, `macDisplayName`, and `expiresAt` on the ticket are
     /// intentionally not encoded: the token never authorizes anything on the
     /// host (Stack auth is the sole gate), the name is read post-handshake
-    /// from `mobile.host.status`, and a pairing QR never expires.
-    public func encode(_ ticket: CmxAttachTicket) throws -> Data {
+    /// from `mobile.host.status`, and a pairing QR never expires. Callers must
+    /// explicitly select identity-only disclosure or the temporary released-
+    /// client compatibility mode.
+    public func encode(
+        _ ticket: CmxAttachTicket,
+        routeDisclosureMode: CmxPairingRouteDisclosureMode
+    ) throws -> Data {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
-        return try encoder.encode(CompactAttachTicket(ticket))
+        return try encoder.encode(CompactAttachTicket(
+            ticket,
+            routeDisclosureMode: routeDisclosureMode
+        ))
     }
 
     /// Decode a compact JSON payload into a validated ``CmxAttachTicket``.

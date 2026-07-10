@@ -368,10 +368,6 @@ final class MobileRouteResolver: @unchecked Sendable {
 }
 
 extension CmxAttachRoute {
-    var mobileHostJSONObject: [String: Any] {
-        mobileHostJSONObject(at: Date())
-    }
-
     func mobileHostJSONObject(at now: Date) -> [String: Any] {
         var endpointPayload: [String: Any] = [:]
         switch endpoint {

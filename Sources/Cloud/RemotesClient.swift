@@ -174,7 +174,10 @@ actor RemotesClient {
             "displayName": name,
             "manual": true,
             "tag": Self.manualInstanceTag,
-            "routes": attachRoutes.map(\.mobileHostJSONObject),
+            "routes": attachRoutes.mobileHostJSONObjects(
+                for: .authenticated,
+                at: Date()
+            ),
         ]
         if let tag = rawTag?.trimmingCharacters(in: .whitespacesAndNewlines), !tag.isEmpty {
             body["instanceLabels"] = ["tag": tag]

@@ -7,6 +7,8 @@ import Foundation
 /// grammar revision that still carry `e` (expiry) and `n` (display name)
 /// decode here with both intentionally dropped: a pairing QR never expires,
 /// and the Mac's name is read post-handshake from `mobile.host.status`.
+/// New Iroh pairing payloads disclose only EndpointID identity. The explicit
+/// compatibility mode temporarily retains released clients' legacy routes.
 struct CompactAttachTicket: Codable {
     let v: Int
     let w: String?
@@ -18,7 +20,19 @@ struct CompactAttachTicket: Codable {
     let ab: String?
     let r: [CompactAttachRoute]
 
-    init(_ ticket: CmxAttachTicket) {
+    init(
+        _ ticket: CmxAttachTicket,
+        routeDisclosureMode: CmxPairingRouteDisclosureMode
+    ) throws {
+        let disclosedRoutes = Self.disclosedRoutes(
+            ticket.routes,
+            mode: routeDisclosureMode
+        )
+        guard !disclosedRoutes.isEmpty else {
+            throw CmxAttachTicketCompactCoderError.noRoutesForDisclosureMode(
+                routeDisclosureMode
+            )
+        }
         v = ticket.version
         w = Self.normalizedNonEmpty(ticket.workspaceID)
         t = Self.normalizedNonEmpty(ticket.terminalID)
@@ -27,7 +41,7 @@ struct CompactAttachTicket: Codable {
         pc = ticket.macPairingCompatibilityVersion
         av = Self.normalizedNonEmpty(ticket.macAppVersion)
         ab = Self.normalizedNonEmpty(ticket.macAppBuild)
-        r = Self.compactedRoutes(ticket.routes)
+        r = Self.compactedRoutes(disclosedRoutes)
     }
 
     func ticket() throws -> CmxAttachTicket {
@@ -57,6 +71,29 @@ struct CompactAttachTicket: Codable {
 }
 
 private extension CompactAttachTicket {
+    static func disclosedRoutes(
+        _ routes: [CmxAttachRoute],
+        mode: CmxPairingRouteDisclosureMode
+    ) -> [CmxAttachRoute] {
+        switch mode {
+        case .irohIdentityOnly:
+            return routes.compactMap { route in
+                guard route.kind == .iroh,
+                      case let .peer(identity, _) = route.endpoint else {
+                    return nil
+                }
+                return try? CmxAttachRoute(
+                    id: route.id,
+                    kind: route.kind,
+                    endpoint: .peer(identity: identity, pathHints: []),
+                    priority: route.priority
+                )
+            }
+        case .legacyPrivateNetworkCompatibility:
+            return routes
+        }
+    }
+
     /// Encode routes, omitting each route id the decoder can resynthesize
     /// (`kind` for the first route of a kind, `kind_N` for the Nth; exactly
     /// the ids the Mac's route resolver mints). Ids that differ are kept, so

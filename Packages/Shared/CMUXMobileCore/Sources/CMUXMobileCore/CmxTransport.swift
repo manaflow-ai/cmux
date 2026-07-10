@@ -20,7 +20,7 @@ public struct CmxIrohDialPlan: Equatable, Sendable {
     /// Active-profile private/LAN paths used only after the first attempt fails.
     public let privateFallbackPaths: [CmxIrohPathHint]
 
-    public init(
+    init(
         publicPaths: [CmxIrohPathHint],
         privateFallbackPaths: [CmxIrohPathHint]
     ) {
@@ -103,17 +103,31 @@ extension CmxAttachEndpoint {
     /// attempted on the wrong network.
     /// - Parameters:
     ///   - now: The time against which hint expiry is checked.
+    ///   - managedRelayURLs: The exact relay URLs configured by cmux. Relay
+    ///     hints outside this set and legacy relay identifiers are excluded.
     ///   - activeNetworkProfiles: Locally verified provider-qualified profiles.
     /// - Returns: A two-phase plan for peer endpoints, otherwise `nil`.
     public func irohDialPlan(
         at now: Date,
+        managedRelayURLs: Set<String>,
         activeNetworkProfiles: Set<CmxIrohNetworkProfileKey> = []
     ) -> CmxIrohDialPlan? {
         guard case let .peer(_, pathHints) = self else {
             return nil
         }
         let publicPaths = pathHints.filter { hint in
-            hint.privacyScope == .publicInternet && hint.isUsable(at: now)
+            guard hint.privacyScope == .publicInternet,
+                  hint.isUsable(at: now) else {
+                return false
+            }
+            switch hint.kind {
+            case .directAddress:
+                return true
+            case .relayURL:
+                return managedRelayURLs.contains(hint.value)
+            case .relayIdentifier:
+                return false
+            }
         }
         let privateFallbackPaths = pathHints.filter { hint in
             guard hint.privacyScope != .publicInternet,
@@ -144,9 +158,9 @@ extension CmxAttachEndpoint {
         switch disclosure {
         case .authenticated:
             disclosedHints = pathHints.filter { $0.isUsable(at: now) }
-        case .publicStatus, .pairedMacCloudBackup:
+        case .pairedMacCloudBackup:
             disclosedHints = pathHints.compactMap { $0.publicDisclosure(at: now) }
-        case .pairingQRCode:
+        case .publicStatus, .pairingQRCode:
             disclosedHints = []
         }
         return .peer(identity: identity, pathHints: disclosedHints)
@@ -216,21 +230,30 @@ extension CmxAttachEndpoint: Codable {
         case let .peer(identity, pathHints):
             try container.encode(EndpointType.peer, forKey: .type)
             try container.encode(identity.endpointID, forKey: .id)
-            let currentPathHints = pathHints.filter { $0.isUsable(at: Date()) }
-            if !currentPathHints.isEmpty {
-                try container.encode(currentPathHints, forKey: .pathHints)
+            // Encoding is deterministic: wall-clock freshness is applied by
+            // the caller's disclosure/persistence boundary. Structurally
+            // unsafe inert legacy values are never re-emitted.
+            let wireSafePathHints = pathHints.filter(\.isSafeForCurrentWireFormat)
+            if !wireSafePathHints.isEmpty {
+                try container.encode(wireSafePathHints, forKey: .pathHints)
             }
 
-            let relayHint = currentPathHints.first {
+            // Legacy fields cannot represent observation or expiry metadata.
+            // Downgrade only timeless safe hints, otherwise an expired/future
+            // path would be promoted indefinitely for an older consumer.
+            let legacySafePathHints = wireSafePathHints.filter {
+                $0.observedAt == nil && $0.expiresAt == nil
+            }
+            let relayHint = legacySafePathHints.first {
                 $0.kind == .relayIdentifier
             }?.value
             // Legacy `direct_addrs` cannot carry expiry, privacy, or network
             // profile. Emitting private fallbacks there would silently promote
             // them for old clients, so only public primary addresses downgrade.
-            let directAddrs = currentPathHints
+            let directAddrs = legacySafePathHints
                 .filter { $0.kind == .directAddress && $0.use == .primary }
                 .map(\.value)
-            let relayURL = currentPathHints.first {
+            let relayURL = legacySafePathHints.first {
                 $0.kind == .relayURL
             }?.value
             try container.encodeIfPresent(relayHint, forKey: .relayHint)
@@ -339,16 +362,14 @@ public struct CmxAttachRoute: Codable, Equatable, Sendable {
 
     /// Returns the route shape permitted at a serialization boundary.
     ///
-    /// Unauthenticated status exposes only Iroh routes with public hints. URL
-    /// and host/port transports have no privacy classification, so they remain
-    /// authenticated-only. Pairing QR and paired-Mac cloud backup keep the
-    /// route identity but remove Iroh hints according to their stricter
-    /// disclosure policies.
+    /// Unauthenticated status exposes no attach routes. Pairing QR and
+    /// paired-Mac cloud backup keep only the route data permitted by their
+    /// stricter disclosure policies.
     public func disclosed(
         for disclosure: CmxAttachRouteDisclosure,
         at now: Date
     ) -> Self? {
-        if disclosure == .publicStatus, kind != .iroh {
+        if disclosure == .publicStatus {
             return nil
         }
         return try? Self(

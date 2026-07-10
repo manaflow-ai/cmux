@@ -359,7 +359,13 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
                 binding: [.text(macDeviceID), .text(ownerKey)]
             )
             for route in routes {
-                let encoded = try Self.encodeRoute(route)
+                guard let persistedRoute = route.disclosed(
+                    for: .authenticated,
+                    at: now
+                ) else {
+                    continue
+                }
+                let encoded = try Self.encodeRoute(persistedRoute)
                 try exec("""
                     INSERT INTO mac_routes (mac_device_id, owner_key, route_id, kind, endpoint_json, priority)
                     VALUES (?, ?, ?, ?, ?, ?);

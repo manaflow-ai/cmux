@@ -6,6 +6,7 @@ import Foundation
 struct PairedMacBackupRecordWire: Encodable {
     let record: PairedMacBackupRecord
     let includesCustomizations: Bool
+    let routeDisclosureDate: Date
 
     func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: PairedMacBackupRecord.CodingKeys.self)
@@ -13,7 +14,7 @@ struct PairedMacBackupRecordWire: Encodable {
         try c.encodeIfPresent(record.displayName, forKey: .displayName)
         try c.encode(
             record.routes.compactMap {
-                $0.disclosed(for: .pairedMacCloudBackup, at: Date())
+                $0.disclosed(for: .pairedMacCloudBackup, at: routeDisclosureDate)
             },
             forKey: .routes
         )

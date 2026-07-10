@@ -62,11 +62,15 @@ final class MobileAttachTicketStore {
         return ticket
     }
 
-    func payload(for ticket: CmxAttachTicket) throws -> [String: Any] {
+    func payload(for ticket: CmxAttachTicket, now: Date = Date()) throws -> [String: Any] {
+        let disclosedTicket = try Self.authenticatedDisclosure(of: ticket, at: now)
         var payload: [String: Any] = [
-            "ticket": try Self.jsonObject(ticket),
-            "attach_url": try attachURL(for: ticket).absoluteString,
-            "routes": ticket.routes.map(\.mobileHostJSONObject)
+            "ticket": try Self.jsonObject(disclosedTicket),
+            "attach_url": try attachURL(for: disclosedTicket).absoluteString,
+            "routes": disclosedTicket.routes.mobileHostJSONObjects(
+                for: .authenticated,
+                at: now
+            )
         ]
         // `expires_at` describes the minted attach token's lifetime (tickets
         // from `createTicket` always carry one). The QR payload itself encodes
@@ -75,6 +79,29 @@ final class MobileAttachTicketStore {
             payload["expires_at"] = ISO8601DateFormatter().string(from: expiresAt)
         }
         return payload
+    }
+
+    private static func authenticatedDisclosure(
+        of ticket: CmxAttachTicket,
+        at now: Date
+    ) throws -> CmxAttachTicket {
+        try CmxAttachTicket(
+            version: ticket.version,
+            workspaceID: ticket.workspaceID,
+            terminalID: ticket.terminalID,
+            macDeviceID: ticket.macDeviceID,
+            macDisplayName: ticket.macDisplayName,
+            macUserEmail: ticket.macUserEmail,
+            macUserID: ticket.macUserID,
+            macPairingCompatibilityVersion: ticket.macPairingCompatibilityVersion,
+            macAppVersion: ticket.macAppVersion,
+            macAppBuild: ticket.macAppBuild,
+            routes: ticket.routes.compactMap {
+                $0.disclosed(for: .authenticated, at: now)
+            },
+            expiresAt: ticket.expiresAt,
+            authToken: ticket.authToken
+        )
     }
 
     func validTicket(authToken: String?, now: Date = Date()) -> CmxAttachTicket? {
@@ -139,14 +166,23 @@ final class MobileAttachTicketStore {
         // dev loopback route is dropped outright (a scanned code must never
         // point a phone at itself). The much shorter plain-text URL also
         // drops the QR several versions, so the code scans faster.
-        if let pairingURL = CmxPairingQRCode().encode(ticket), let url = URL(string: pairingURL) {
+        // Migration exception: released iOS clients still require Tailscale
+        // host routes in pairing codes. This explicit mode must flip to
+        // `.irohIdentityOnly` when Iroh-capable clients become the baseline.
+        if let pairingURL = CmxPairingQRCode().encode(
+            ticket,
+            routeDisclosureMode: .legacyPrivateNetworkCompatibility
+        ), let url = URL(string: pairingURL) {
             return url
         }
         // Fallback for tickets the minimal grammar cannot express (workspace-
         // scoped, custom routes, loopback-only dev tickets): the compact
         // short-key v1 payload. The full ticket (including the token) still
         // rides in `payload(for:)["ticket"]` for RPC consumers.
-        let data = try CmxAttachTicketCompactCoder().encode(ticket)
+        let data = try CmxAttachTicketCompactCoder().encode(
+            ticket,
+            routeDisclosureMode: .legacyPrivateNetworkCompatibility
+        )
         let payload = Self.base64URLEncode(data)
         // Channel-specific scheme (see ``CmxPairingURLScheme``): the v1 fallback
         // QR must open the matching iOS channel just like the v2 path in

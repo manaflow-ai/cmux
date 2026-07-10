@@ -252,12 +252,13 @@ struct MobileHostServiceStatus {
     let lastErrorDescription: String?
 
     var payload: [String: Any] {
-        [
+        let now = Date()
+        return [
             "is_running": isRunning,
             "port": port ?? NSNull(),
             "configured_port": configuredPort,
             "uses_ephemeral_fallback": usesEphemeralFallback,
-            "routes": routes.map(\.mobileHostJSONObject),
+            "routes": routes.mobileHostJSONObjects(for: .authenticated, at: now),
             "active_connection_count": activeConnectionCount,
             "last_error": lastErrorDescription ?? NSNull()
         ]
@@ -296,12 +297,10 @@ final class MobileHostService {
     /// The single shape every public `mobile.host.status` reply uses (the
     /// public-status cache, the network status gate, and
     /// `TerminalController`'s no-private-metadata branch), so the fields
-    /// cannot drift. Identity-free: routes, fidelity, and capabilities are a
-    /// reachability probe any peer may ask for. Private host routes and Iroh
-    /// private/local hints are removed at this boundary. The Mac's account
-    /// identity (`mac_device_id`, `mac_display_name`) is never on this
-    /// unauthenticated surface; a public Iroh route may still disclose its
-    /// cryptographic EndpointID and public hints for reachability.
+    /// cannot drift. Identity-free status carries no routes: a caller already
+    /// reached the Mac to ask for status, while route discovery belongs to the
+    /// authenticated registry. The Mac's account and cryptographic identities
+    /// are never on this unauthenticated surface.
     nonisolated static func publicStatusPayload(
         routes: [CmxAttachRoute],
         now: Date = Date()

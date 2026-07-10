@@ -115,11 +115,15 @@ final class DeviceRegistryClient {
         comps.path = (comps.path.hasSuffix("/") ? String(comps.path.dropLast()) : comps.path) + "/api/devices"
         guard let url = comps.url else { return }
 
+        let disclosureDate = Date()
         var bodyDict: [String: Any] = [
             "deviceId": MobileHostIdentity.deviceID(),
             "platform": "mac",
             "tag": tag,
-            "routes": routes.map(\.mobileHostJSONObject),
+            "routes": routes.mobileHostJSONObjects(
+                for: .authenticated,
+                at: disclosureDate
+            ),
         ]
         if let displayName = MobileHostIdentity.displayName(), !displayName.isEmpty {
             bodyDict["displayName"] = displayName
