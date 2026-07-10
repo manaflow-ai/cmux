@@ -5512,6 +5512,7 @@ struct WebViewRepresentable: NSViewRepresentable {
         private var hostedInspectorDividerDrag: HostedInspectorDividerDragState?
         private var cachedHostedInspectorDividerHit: CachedHostedInspectorDividerHit?
         private var lastSyncedHostedInspectorDragExtent: Int?
+        private let hostedInspectorDragFrameSilencer = HostedInspectorDragFrameNotificationSilencer()
         private var preferredHostedInspectorWidth: CGFloat?
         private var preferredHostedInspectorWidthFraction: CGFloat?
         private var preferredHostedInspectorHeight: CGFloat?
@@ -6437,6 +6438,7 @@ struct WebViewRepresentable: NSViewRepresentable {
             lastSyncedHostedInspectorDragExtent = nil
             hostedInspectorReapplyWorkItem?.cancel()
             isHostedInspectorDividerDragActive = true
+            hostedInspectorDragFrameSilencer.begin(hostedInspectorHit.pageView)
             hostedInspectorDividerDrag = HostedInspectorDividerDragState(
                 containerView: hostedInspectorHit.containerView,
                 pageView: hostedInspectorHit.pageView,
@@ -6522,6 +6524,7 @@ struct WebViewRepresentable: NSViewRepresentable {
             hostedInspectorDividerDrag = nil
             cachedHostedInspectorDividerHit = nil
             isHostedInspectorDividerDragActive = false
+            hostedInspectorDragFrameSilencer.end()
             updateDividerCursor(at: convert(event.locationInWindow, from: nil))
             if let finalDragState {
                 let finalExtent = finalDragState.dockSide.inspectorExtent(
@@ -6925,6 +6928,10 @@ struct WebViewRepresentable: NSViewRepresentable {
                 dockSide: hit.dockSide,
                 in: hit.containerView.bounds
             ) else {
+                // A stored extent for the other dock axis (e.g. side-dock width
+                // after redocking to bottom) must not block adopting the current
+                // layout as this axis's preference.
+                captureHostedInspectorPreferredWidthFromCurrentLayout(reason: "\(reason).captureOtherAxis")
                 return
             }
             let currentInspectorExtent = hit.dockSide.inspectorExtent(

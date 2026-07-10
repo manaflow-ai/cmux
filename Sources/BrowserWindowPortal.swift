@@ -123,6 +123,7 @@ final class WindowBrowserHostView: NSView {
     private var hostedInspectorDividerDrag: HostedInspectorDividerDragState?
     private var cachedHostedInspectorDividerHit: CachedHostedInspectorDividerHit?
     private var lastSyncedHostedInspectorDragExtent: Int?
+    private let hostedInspectorDragFrameSilencer = HostedInspectorDragFrameNotificationSilencer()
     private var lastHostedInspectorLayoutBoundsSize: NSSize?
 
     deinit {
@@ -411,6 +412,7 @@ final class WindowBrowserHostView: NSView {
         lastSyncedHostedInspectorDragExtent = nil
 
         hostedInspectorHit.slotView.isHostedInspectorDividerDragActive = true
+        hostedInspectorDragFrameSilencer.begin(hostedInspectorHit.pageView)
         hostedInspectorDividerDrag = HostedInspectorDividerDragState(
             slotView: hostedInspectorHit.slotView,
             containerView: hostedInspectorHit.containerView,
@@ -440,6 +442,7 @@ final class WindowBrowserHostView: NSView {
         guard dragState.slotView.window === window else {
             dragState.slotView.isHostedInspectorDividerDragActive = false
             hostedInspectorDividerDrag = nil
+            hostedInspectorDragFrameSilencer.end()
             super.mouseDragged(with: event)
             return
         }
@@ -508,6 +511,7 @@ final class WindowBrowserHostView: NSView {
     override func mouseUp(with event: NSEvent) {
         if let dragState = hostedInspectorDividerDrag {
             dragState.slotView.isHostedInspectorDividerDragActive = false
+            hostedInspectorDragFrameSilencer.end()
             let finalExtent = dragState.dockSide.inspectorExtent(
                 inspectorFrame: dragState.inspectorView.frame,
                 in: dragState.containerView.bounds

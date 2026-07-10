@@ -32,6 +32,32 @@ struct HostedInspectorMinimumSizePolicy: Equatable {
     }
 }
 
+/// WebKit's WebInspectorUIProxy observes the inspected webview's frame-change
+/// notifications and asynchronously re-applies its stored attachment size.
+/// During a cmux divider drag that stored size is stale, so every one of our
+/// per-event frame writes triggered a reset to the pre-drag layout (verified
+/// via the browser.portal.manualInspectorDrag debug log: oldPageFrame kept
+/// reverting between events). Silence the inspected view's frame notifications
+/// for exactly the drag's duration so cmux is the only layout writer.
+@MainActor
+final class HostedInspectorDragFrameNotificationSilencer {
+    private var restore: (() -> Void)?
+
+    func begin(_ inspectedView: NSView) {
+        end()
+        let postedFrameChangedNotifications = inspectedView.postsFrameChangedNotifications
+        inspectedView.postsFrameChangedNotifications = false
+        restore = { [weak inspectedView] in
+            inspectedView?.postsFrameChangedNotifications = postedFrameChangedNotifications
+        }
+    }
+
+    func end() {
+        restore?()
+        restore = nil
+    }
+}
+
 enum HostedInspectorDockSide {
     case leading
     case trailing

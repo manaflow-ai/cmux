@@ -130,14 +130,11 @@ struct HostedInspectorDockControlScriptTests {
         let context = try makeDockControlContext(dockConfiguration: "bottom")
         context.evaluateScript(
             """
+            var dockedResizer = { style: {} };
             var document = {
                 getElementById: function(id) {
-                    return id === "docked-resizer" ? { style: {} } : null;
+                    return id === "docked-resizer" ? dockedResizer : null;
                 }
-            };
-            var dockedResizer = document.getElementById("docked-resizer");
-            document.getElementById = function(id) {
-                return id === "docked-resizer" ? dockedResizer : null;
             };
             """
         )
