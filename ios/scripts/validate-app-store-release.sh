@@ -4,7 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 IOS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-APP="${ASC_APP_ID:-${IOS_APPSTORE_APP_ID:-${IOS_APPSTORE_BUNDLE_ID:-com.cmuxterm.app}}}"
+APP="${ASC_APP_ID:-${IOS_APPSTORE_APP_ID:-${IOS_APPSTORE_BUNDLE_ID:-com.cmux.app}}}"
 VERSION=""
 BUILD_NUMBER=""
 BUILD_ID=""

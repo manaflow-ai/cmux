@@ -58,6 +58,64 @@ verify_ipa_aps_environment_production() {
   return 0
 }
 
+verify_ipa_bundle_identity() {
+  local ipa="$1"
+  local expected_bundle_id="$2"
+  local team_id="$3"
+  local expected_app_id="$team_id.$expected_bundle_id"
+  local workdir app plist_bundle_id profile_plist profile_app_id ent ent_app_id
+
+  workdir="$(mktemp -d)"
+  if ! ( cd "$workdir" && unzip -q "$ipa" ); then
+    echo "error: could not unzip IPA to verify bundle identity: $ipa" >&2
+    rm -rf "$workdir"
+    return 1
+  fi
+  app="$(find "$workdir/Payload" -maxdepth 1 -name '*.app' -type d 2>/dev/null | head -n 1)"
+  if [[ -z "$app" || ! -d "$app" ]]; then
+    echo "error: IPA has no Payload/*.app to verify bundle identity: $ipa" >&2
+    rm -rf "$workdir"
+    return 1
+  fi
+
+  plist_bundle_id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Info.plist" 2>/dev/null || true)"
+  if [[ "$plist_bundle_id" != "$expected_bundle_id" ]]; then
+    echo "error: signed IPA CFBundleIdentifier is '${plist_bundle_id:-<absent>}', expected '$expected_bundle_id': $app" >&2
+    rm -rf "$workdir"
+    return 1
+  fi
+
+  profile_plist="$workdir/profile.plist"
+  if ! security cms -D -i "$app/embedded.mobileprovision" > "$profile_plist"; then
+    echo "error: could not decode embedded.mobileprovision from signed IPA: $app" >&2
+    rm -rf "$workdir"
+    return 1
+  fi
+  profile_app_id="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' "$profile_plist" 2>/dev/null || true)"
+  if [[ "$profile_app_id" != "$expected_app_id" ]]; then
+    echo "error: signed IPA provisioning profile application-identifier is '${profile_app_id:-<absent>}', expected '$expected_app_id': $app" >&2
+    rm -rf "$workdir"
+    return 1
+  fi
+
+  ent="$workdir/signed-entitlements.plist"
+  if ! codesign -d --entitlements :- --xml "$app" > "$ent" 2>/dev/null; then
+    echo "error: could not read signed IPA entitlements: $app" >&2
+    rm -rf "$workdir"
+    return 1
+  fi
+  ent_app_id="$(/usr/libexec/PlistBuddy -c 'Print :application-identifier' "$ent" 2>/dev/null || true)"
+  if [[ "$ent_app_id" != "$expected_app_id" ]]; then
+    echo "error: signed IPA entitlement application-identifier is '${ent_app_id:-<absent>}', expected '$expected_app_id': $app" >&2
+    plutil -p "$ent" >&2 || true
+    rm -rf "$workdir"
+    return 1
+  fi
+
+  rm -rf "$workdir"
+  return 0
+}
+
 verify_app_store_ipa_has_no_external_purchase_links() {
   local ipa="$1"
   local workdir app matches
@@ -102,7 +160,7 @@ TestFlight behavior:
 
 The production App Store lane uses:
 
-  bundle id: com.cmuxterm.app
+  bundle id: com.cmux.app
   profile:   cmux App Store Distribution
   display:   cmux
 
@@ -330,7 +388,7 @@ case "$LANE" in
     PRODUCT_DISPLAY_NAME="${IOS_BETA_DISPLAY_NAME:-cmux BETA}"
     ;;
   appstore)
-    PRODUCT_BUNDLE_IDENTIFIER="${IOS_APPSTORE_BUNDLE_ID:-com.cmuxterm.app}"
+    PRODUCT_BUNDLE_IDENTIFIER="${IOS_APPSTORE_BUNDLE_ID:-com.cmux.app}"
     PROVISIONING_PROFILE_NAME="${IOS_APPSTORE_PROVISIONING_PROFILE_NAME:-cmux App Store Distribution}"
     PRODUCT_DISPLAY_NAME="${IOS_APPSTORE_DISPLAY_NAME:-cmux}"
     ;;
@@ -641,6 +699,14 @@ if [[ -n "$ARCHIVE_BUNDLE_IDENTIFIER" && "$ARCHIVE_BUNDLE_IDENTIFIER" != "$PRODU
   echo "error: archive bundle id is '$ARCHIVE_BUNDLE_IDENTIFIER' but lane '$LANE' requires '$PRODUCT_BUNDLE_IDENTIFIER'. Re-archive for the selected lane." >&2
   exit 1
 fi
+ARCHIVE_APP="$(find "$ARCHIVE_PATH/Products/Applications" -maxdepth 1 -name '*.app' -type d 2>/dev/null | head -n 1 || true)"
+if [[ -n "$ARCHIVE_APP" && -d "$ARCHIVE_APP" ]]; then
+  ARCHIVE_APP_BUNDLE_IDENTIFIER="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$ARCHIVE_APP/Info.plist" 2>/dev/null || true)"
+  if [[ -n "$ARCHIVE_APP_BUNDLE_IDENTIFIER" && "$ARCHIVE_APP_BUNDLE_IDENTIFIER" != "$PRODUCT_BUNDLE_IDENTIFIER" ]]; then
+    echo "error: archive app CFBundleIdentifier is '$ARCHIVE_APP_BUNDLE_IDENTIFIER' but lane '$LANE' requires '$PRODUCT_BUNDLE_IDENTIFIER'. Re-archive for the selected lane." >&2
+    exit 1
+  fi
+fi
 
 # Now that the archive exists, its marketing version (CFBundleShortVersionString)
 # is the version testers will see. Re-run the notes preflight WITH that version so
@@ -891,6 +957,12 @@ else
 fi
 
 echo "IPA_PATH=$IPA_PATH"
+
+if ! verify_ipa_bundle_identity "$IPA_PATH" "$PRODUCT_BUNDLE_IDENTIFIER" "$DEVELOPMENT_TEAM"; then
+  echo "error: signed IPA bundle identity does not match lane '$LANE'; refusing to upload" >&2
+  exit 1
+fi
+echo "signed IPA bundle identity verified: $PRODUCT_BUNDLE_IDENTIFIER"
 
 if [[ "$LANE" == "appstore" ]]; then
   if ! verify_app_store_ipa_has_no_external_purchase_links "$IPA_PATH"; then

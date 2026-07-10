@@ -11,7 +11,7 @@ note() {
 }
 
 TEAM_ID="${IOS_APPSTORE_TEAM_ID:-7WLXT3NR37}"
-BUNDLE_IDENTIFIER="${IOS_APPSTORE_BUNDLE_IDENTIFIER:-com.cmuxterm.app}"
+BUNDLE_IDENTIFIER="${IOS_APPSTORE_BUNDLE_IDENTIFIER:-com.cmux.app}"
 EXPECTED_APP_ID="${TEAM_ID}.${BUNDLE_IDENTIFIER}"
 KEYCHAIN_NAME="${IOS_APPSTORE_KEYCHAIN_NAME:-ios-app-store.keychain}"
 TMP_ROOT="${RUNNER_TEMP:-${TMPDIR:-/tmp}}"
@@ -230,7 +230,7 @@ download_profile_from_asc() {
   fi
 
   profile_suffix="${cert_serial: -8}"
-  profile_name="cmuxterm App Store CI $profile_suffix"
+  profile_name="cmux App Store CI $profile_suffix"
   asc profiles list --profile-type IOS_APP_STORE --paginate --output json > "$profiles_json"
   profile_id="$(json_profile_id_by_name "$profiles_json" "$profile_name" || true)"
   if [ -z "$profile_id" ]; then
