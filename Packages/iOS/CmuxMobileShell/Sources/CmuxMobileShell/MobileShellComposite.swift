@@ -5096,7 +5096,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         connections[resolvedForegroundMacID] = MacConnection(
                             macDeviceID: resolvedForegroundMacID,
                             ticket: ticket,
-                            route: firstRoute,
+                            route: route,
                             client: client,
                             generation: generation
                         )
