@@ -137,6 +137,12 @@ jobs:
           export DEVELOPER_DIR="$XCODE_DIR"
           xcodebuild -version
 
+      - name: Provision cmux-iroh FFI
+        run: |
+          ./scripts/install-rust-ci.sh
+          export PATH="$HOME/.cargo/bin:$PATH"
+          ./scripts/ensure-cmux-iroh.sh
+
       - name: Run CMUXMobileCore package tests
         run: |
           swift test --package-path Packages/Shared/CMUXMobileCore
