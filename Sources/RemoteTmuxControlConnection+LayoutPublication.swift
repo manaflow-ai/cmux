@@ -1,8 +1,24 @@
 import Foundation
 
 extension RemoteTmuxControlConnection {
+    /// Drops tmux `#[...]` style tokens from an expanded format (tmux marks
+    /// the active pane by reversing its index; the dot carries that signal
+    /// here).
+    static func strippingStyleTokens(_ value: String) -> String {
+        value.replacingOccurrences(
+            of: "#\\[[^\\]]*\\]", with: "", options: .regularExpression
+        )
+    }
 
-
+    /// Window ids from a topology population that started with NO published
+    /// windows (first attach, reconnect reseed into an empty table), still
+    /// awaiting their rects reply. While non-nil, verified windows accumulate
+    /// in `initialBatchStaged` and flush to `windowsByID` in ONE atomic
+    /// publish when the set drains. Without the barrier, each window would
+    /// publish in rects-reply arrival order, and the mirror layer's tab
+    /// creation order — and with it which tab ends up selected and which
+    /// mirrors take their one-time size claim from a hidden, collapsed
+    /// container — would be a race between round trips.
     func applyLayout(
         windowId: Int, layout: String, visibleLayout: String? = nil, zoomed: Bool = false
     ) {
@@ -30,7 +46,7 @@ extension RemoteTmuxControlConnection {
         zoomed: Bool,
         name: String
     ) {
-        var pending = pendingLayouts[windowId] ?? PendingLayout(
+        var pending = pendingLayouts[windowId] ?? RemoteTmuxPendingLayout(
             node: node, visibleNode: visibleNode, zoomed: zoomed, name: name, generation: 0
         )
         pending.node = node

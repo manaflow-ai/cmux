@@ -1,6 +1,6 @@
 import Foundation
 
-struct RemoteTmuxPaneForegroundState: Equatable, Sendable {
+nonisolated struct RemoteTmuxPaneForegroundState: Equatable, Sendable {
     /// Field separator inside the reflow subscription value
     /// (`#{alternate_on}|#{pane_current_command}`). A pipe never appears in a tmux
     /// `alternate_on` flag (0/1) and is not part of a process's `comm` name.
