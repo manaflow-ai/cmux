@@ -50,7 +50,10 @@ struct CmxIrohOnlineAdmissionRegistryTests {
             await registry.authorizeOfflinePair(pair).lease
         )
         let closeRecorder = OnlineAdmissionCloseRecorder()
-        _ = await registry.monitor(lease) { await closeRecorder.close() }
+        await registry.monitor(
+            lease,
+            connection: fixture.connection()
+        ) { await closeRecorder.close() }
         await clock.waitUntilSleeping()
 
         #expect(clock.sleepingDeadlines() == [fixture.now.addingTimeInterval(20)])
@@ -159,7 +162,10 @@ struct CmxIrohOnlineAdmissionRegistryTests {
             ).lease
         )
         let closeRecorder = OnlineAdmissionCloseRecorder()
-        _ = await registry.monitor(lease) { await closeRecorder.close() }
+        await registry.monitor(
+            lease,
+            connection: fixture.connection()
+        ) { await closeRecorder.close() }
         await clock.waitUntilSleeping()
 
         #expect(clock.sleepingDeadlines() == [fixture.now.addingTimeInterval(30)])
@@ -315,7 +321,10 @@ struct CmxIrohOnlineAdmissionRegistryTests {
             ).lease
         )
         let closeRecorder = OnlineAdmissionCloseRecorder()
-        _ = await registry.monitor(lease) { await closeRecorder.close() }
+        await registry.monitor(
+            lease,
+            connection: fixture.connection()
+        ) { await closeRecorder.close() }
         await clock.waitUntilSleeping()
         await broker.suspend()
 
@@ -474,7 +483,7 @@ struct CmxIrohOnlineAdmissionRegistryTests {
             ).lease
         )
         let closeRecorder = OnlineAdmissionCloseRecorder()
-        _ = await registry.monitor(lease) {
+        await registry.monitor(lease, connection: fixture.connection()) {
             await closeRecorder.close()
         }
         await clock.waitUntilSleeping()
@@ -511,7 +520,7 @@ struct CmxIrohOnlineAdmissionRegistryTests {
             ).lease
         )
         let closeRecorder = OnlineAdmissionCloseRecorder()
-        _ = await registry.monitor(lease) {
+        await registry.monitor(lease, connection: fixture.connection()) {
             await closeRecorder.close()
         }
         await clock.waitUntilSleeping()
@@ -542,7 +551,7 @@ struct CmxIrohOnlineAdmissionRegistryTests {
         )
         let closeRecorder = OnlineAdmissionCloseRecorder()
 
-        _ = await registry.monitor(lease, connection: connection) {
+        await registry.monitor(lease, connection: connection) {
             await closeRecorder.close()
             await connection.close(errorCode: 1, reason: "lease_invalidated")
         }
@@ -570,7 +579,7 @@ struct CmxIrohOnlineAdmissionRegistryTests {
             ).lease
         )
         let closeRecorder = OnlineAdmissionCloseRecorder()
-        _ = await registry.monitor(lease) {
+        await registry.monitor(lease, connection: fixture.connection()) {
             await closeRecorder.close()
         }
 
@@ -600,7 +609,7 @@ struct CmxIrohOnlineAdmissionRegistryTests {
             ).lease
         )
         let closeRecorder = OnlineAdmissionCloseRecorder()
-        _ = await registry.monitor(lease) {
+        await registry.monitor(lease, connection: fixture.connection()) {
             await closeRecorder.close()
         }
         await clock.waitUntilSleeping()
@@ -845,6 +854,13 @@ private struct OnlineAdmissionFixture {
             acceptor: acceptor,
             managedRelayURLs: [relayURL],
             clock: clock ?? FixedOnlineAdmissionClock(now: now)
+        )
+    }
+
+    func connection() -> TestIrohConnection {
+        TestIrohConnection(
+            remoteIdentity: initiator.endpointID,
+            bidirectionalStreams: []
         )
     }
 

@@ -576,21 +576,18 @@ public actor CmxIrohHostRuntime {
                 runtimeGeneration: runtimeGeneration
             ) ?? false
         }
-        let monitorID: UUID?
         if let onlineLease, let onlineAdmissionRegistry {
-            monitorID = await onlineAdmissionRegistry.monitor(onlineLease) {
+            await onlineAdmissionRegistry.monitor(
+                onlineLease,
+                connection: connection
+            ) {
                 await session.close()
             }
-        } else {
-            monitorID = nil
         }
         await handleTransport(
             CmxIrohAdmittedServerSession(peer: peer, session: session),
             isCurrent
         )
-        if let monitorID {
-            await onlineAdmissionRegistry?.stopMonitoring(monitorID)
-        }
     }
 
     private func isCurrent(revision: UInt64, runtimeGeneration: UInt64) async -> Bool {

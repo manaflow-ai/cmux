@@ -28,6 +28,7 @@ actor TestIrohConnection: CmxIrohConnection {
     private var natTraversalActivationCount = 0
     private var natTraversalAuthorized = false
     private var closeCalls: [(code: UInt64, reason: String)] = []
+    private var closeWaiters: [CheckedContinuation<Void, Never>] = []
     private let closeStream: AsyncStream<(code: UInt64, reason: String)>
     private let closeContinuation: AsyncStream<(code: UInt64, reason: String)>.Continuation
 
@@ -93,8 +94,19 @@ actor TestIrohConnection: CmxIrohConnection {
     }
 
     func close(errorCode: UInt64, reason: String) {
+        let firstClose = closeCalls.isEmpty
         closeCalls.append((errorCode, reason))
         closeContinuation.yield((errorCode, reason))
+        if firstClose {
+            let waiters = closeWaiters
+            closeWaiters.removeAll()
+            for waiter in waiters { waiter.resume() }
+        }
+    }
+
+    func waitUntilClosed() async {
+        if !closeCalls.isEmpty { return }
+        await withCheckedContinuation { closeWaiters.append($0) }
     }
 
     func authorizeNatTraversal() async throws {

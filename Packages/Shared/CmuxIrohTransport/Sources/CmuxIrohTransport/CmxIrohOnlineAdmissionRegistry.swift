@@ -18,7 +18,8 @@ public actor CmxIrohOnlineAdmissionRegistry {
     private struct Monitor {
         let lease: CmxIrohOnlineAdmissionLease
         let onInvalidated: InvalidationHandler
-        let task: Task<Void, Never>
+        let task: Task<Void, Never>?
+        let connectionLifetimeTask: Task<Void, Never>?
     }
 
     private enum Revalidation {
@@ -145,23 +146,41 @@ public actor CmxIrohOnlineAdmissionRegistry {
         }
     }
 
-    /// Starts an idle-safe lease monitor. Only the supplied session callback is invalidated.
-    @discardableResult
+    /// Starts an idle-safe lease monitor owned by the exact live connection.
+    ///
+    /// Normal connection close removes the monitor. Revocation, terminal broker
+    /// failure, or lease expiry invokes only the supplied session callback.
     public func monitor(
         _ lease: CmxIrohOnlineAdmissionLease,
+        connection: any CmxIrohConnection,
         onInvalidated: @escaping InvalidationHandler
-    ) -> UUID {
+    ) {
         let id = UUID()
+        monitors[id] = Monitor(
+            lease: lease,
+            onInvalidated: onInvalidated,
+            task: nil,
+            connectionLifetimeTask: nil
+        )
         let task = Task { [weak self] in
             guard let self else { return }
             await self.monitorLoop(id: id, lease: lease, onInvalidated: onInvalidated)
         }
-        monitors[id] = Monitor(
-            lease: lease,
-            onInvalidated: onInvalidated,
-            task: task
-        )
-        return id
+        let connectionLifetimeTask = Task { [weak self] in
+            await connection.waitUntilClosed()
+            await self?.connectionClosed(id: id)
+        }
+        if let monitor = monitors[id] {
+            monitors[id] = Monitor(
+                lease: monitor.lease,
+                onInvalidated: monitor.onInvalidated,
+                task: task,
+                connectionLifetimeTask: connectionLifetimeTask
+            )
+        } else {
+            task.cancel()
+            connectionLifetimeTask.cancel()
+        }
     }
 
     /// Applies local revoke state immediately to new and already-admitted sessions.
@@ -171,16 +190,14 @@ public actor CmxIrohOnlineAdmissionRegistry {
         await invalidateDeniedMonitors()
     }
 
-    /// Stops monitoring a session that has already closed normally.
-    public func stopMonitoring(_ id: UUID) {
-        monitors.removeValue(forKey: id)?.task.cancel()
-    }
-
     /// Cancels all lease timers without changing endpoint ownership.
     public func stop() {
         let active = monitors.values
         monitors.removeAll()
-        for monitor in active { monitor.task.cancel() }
+        for monitor in active {
+            monitor.task?.cancel()
+            monitor.connectionLifetimeTask?.cancel()
+        }
         refresh?.task.cancel()
         refresh = nil
     }
@@ -401,14 +418,23 @@ public actor CmxIrohOnlineAdmissionRegistry {
         id: UUID,
         onInvalidated: @escaping InvalidationHandler
     ) async {
-        guard monitors.removeValue(forKey: id) != nil else { return }
+        guard let monitor = monitors.removeValue(forKey: id) else { return }
+        monitor.connectionLifetimeTask?.cancel()
         await onInvalidated()
+    }
+
+    private func connectionClosed(id: UUID) {
+        guard let monitor = monitors.removeValue(forKey: id) else { return }
+        monitor.task?.cancel()
     }
 
     private func invalidateDeniedMonitors() async {
         let denied = monitors.filter { isDenied($0.value.lease) }
         for id in denied.keys { monitors[id] = nil }
-        for monitor in denied.values { monitor.task.cancel() }
+        for monitor in denied.values {
+            monitor.task?.cancel()
+            monitor.connectionLifetimeTask?.cancel()
+        }
         for monitor in denied.values { await monitor.onInvalidated() }
     }
 

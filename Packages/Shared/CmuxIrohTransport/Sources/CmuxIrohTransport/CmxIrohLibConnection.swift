@@ -47,6 +47,10 @@ struct CmxIrohLibConnection: CmxIrohConnection {
         CmxIrohLibReceiveStream(driver: try await driver.acceptUni())
     }
 
+    func waitUntilClosed() async {
+        _ = await driver.closed()
+    }
+
     func close(errorCode: UInt64, reason: String) async {
         let code = Int64(exactly: errorCode) ?? Int64.max
         try? driver.close(

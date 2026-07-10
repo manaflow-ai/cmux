@@ -44,6 +44,12 @@ public protocol CmxIrohConnection: Sendable {
     /// - Throws: A transport error or `CancellationError`.
     func acceptReceiveStream() async throws -> any CmxIrohReceiveStream
 
+    /// Suspends until this exact QUIC connection has closed.
+    ///
+    /// Session-scoped policy monitors use this signal to retain revocation
+    /// enforcement for the complete connection lifetime.
+    func waitUntilClosed() async
+
     /// Closes the complete connection and all child streams.
     ///
     /// - Parameters:
