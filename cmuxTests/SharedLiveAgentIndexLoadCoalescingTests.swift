@@ -64,7 +64,7 @@ struct SharedLiveAgentIndexLoadCoalescingTests {
     }
 
     @Test
-    func concurrentForkAvailabilityRefreshesShareOneCompleteIndexLoad() async {
+    func lateForkAvailabilityRefreshesShareOneSuccessorLoad() async {
         let firstLoadStarted = DispatchSemaphore(value: 0)
         let releaseFirstLoad = DispatchSemaphore(value: 0)
         defer {
@@ -75,6 +75,16 @@ struct SharedLiveAgentIndexLoadCoalescingTests {
         let hookDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-shared-index-concurrent-refresh-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: hookDirectory) }
+        let firstWorkspaceId = UUID()
+        let firstPanelId = UUID()
+        let lateWorkspaceId = UUID()
+        let latePanelId = UUID()
+        let lateSessionId = "late-interactive-session"
+        let lateIndex = Self.index(
+            workspaceId: lateWorkspaceId,
+            panelId: latePanelId,
+            sessionId: lateSessionId
+        )
         let sharedIndex = SharedLiveAgentIndex(
             indexLoader: {
                 let invocation = loadCount.withLock { count in
@@ -84,16 +94,20 @@ struct SharedLiveAgentIndexLoadCoalescingTests {
                 if invocation == 1 {
                     firstLoadStarted.signal()
                     releaseFirstLoad.wait()
+                    return Self.emptyLoadResult
                 }
-                return Self.emptyLoadResult
+                return (
+                    index: lateIndex,
+                    liveAgentProcessFingerprint: [],
+                    processScopeFingerprint: [],
+                    forkValidatedPanels: []
+                )
             },
             hookStoreDirectoryProvider: { hookDirectory.path }
         )
-        let workspaceId = UUID()
-        let panelId = UUID()
 
         let firstRefresh = Task { @MainActor in
-            await sharedIndex.refreshForkAvailabilityNow(workspaceId: workspaceId, panelId: panelId)
+            await sharedIndex.refreshForkAvailabilityNow(workspaceId: firstWorkspaceId, panelId: firstPanelId)
         }
         #expect(await Self.wait(for: firstLoadStarted))
 
@@ -102,14 +116,28 @@ struct SharedLiveAgentIndexLoadCoalescingTests {
             Task { @MainActor in
                 secondRefreshReachedSuspension.signal()
             }
-            await sharedIndex.refreshForkAvailabilityNow(workspaceId: workspaceId, panelId: panelId)
+            await sharedIndex.refreshForkAvailabilityNow(workspaceId: lateWorkspaceId, panelId: latePanelId)
+            return sharedIndex.index?.snapshot(workspaceId: lateWorkspaceId, panelId: latePanelId)
         }
         #expect(await Self.wait(for: secondRefreshReachedSuspension))
 
+        let thirdRefreshReachedSuspension = DispatchSemaphore(value: 0)
+        let thirdRefresh = Task { @MainActor in
+            Task { @MainActor in
+                thirdRefreshReachedSuspension.signal()
+            }
+            await sharedIndex.refreshForkAvailabilityNow(workspaceId: lateWorkspaceId, panelId: latePanelId)
+            return sharedIndex.index?.snapshot(workspaceId: lateWorkspaceId, panelId: latePanelId)
+        }
+        #expect(await Self.wait(for: thirdRefreshReachedSuspension))
+
         releaseFirstLoad.signal()
         await firstRefresh.value
-        await secondRefresh.value
-        #expect(loadCount.withLock { $0 } == 1)
+        let secondSnapshot = await secondRefresh.value
+        let thirdSnapshot = await thirdRefresh.value
+        #expect(secondSnapshot?.sessionId == lateSessionId)
+        #expect(thirdSnapshot?.sessionId == lateSessionId)
+        #expect(loadCount.withLock { $0 } == 2)
     }
 
     @Test
