@@ -1809,6 +1809,20 @@ final class BrowserThemeSettingsTests: XCTestCase {
     }
 
     func testModeMigratesLegacyForcedDarkModeFlag() {
+        // `BrowserPanel.bootstrapBrowserDefaultsIfNeeded()` registers a
+        // process-wide fallback for the mode key, and NSRegistrationDomain is
+        // shared by every `UserDefaults` instance, including isolated suites.
+        // Once any earlier test creates a `BrowserPanel`, `mode(defaults:)`
+        // sees the registered value and the legacy-flag migration branch
+        // becomes unreachable. Drop that registered fallback for the duration
+        // of this test so it is order-independent, then restore it.
+        let standard = UserDefaults.standard
+        let registration = standard.volatileDomain(forName: UserDefaults.registrationDomain)
+        var scrubbed = registration
+        scrubbed.removeValue(forKey: BrowserThemeSettings.modeKey)
+        standard.setVolatileDomain(scrubbed, forName: UserDefaults.registrationDomain)
+        defer { standard.setVolatileDomain(registration, forName: UserDefaults.registrationDomain) }
+
         let defaults = makeIsolatedDefaults()
         defaults.set(true, forKey: BrowserThemeSettings.legacyForcedDarkModeEnabledKey)
         XCTAssertEqual(BrowserThemeSettings.mode(defaults: defaults), .dark)
