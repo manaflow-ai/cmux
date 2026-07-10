@@ -1,4 +1,5 @@
 import Foundation
+import CmuxCore
 import Testing
 
 #if canImport(cmux_DEV)
@@ -139,12 +140,12 @@ import Testing
         #expect(panel.requestedWorkingDirectory == explicitDirectory)
     }
 
-    @Test func startupCommandSuppressesFallbackWorkingDirectoryInheritance() throws {
+    @Test func explicitInitialCommandInheritsFallbackWorkingDirectory() throws {
         let workspace = Workspace()
         let sourcePanelId = try #require(workspace.focusedPanelId)
         let paneId = try #require(workspace.bonsplitController.focusedPaneId)
         let liveDirectory = "/tmp/cmux-live-\(UUID().uuidString)"
-        let startupCommand = "/tmp/cmux-command-\(UUID().uuidString).sh"
+        let initialCommand = "/tmp/cmux-command-\(UUID().uuidString).sh"
 
         workspace.panelShellActivityStates[sourcePanelId] = .promptIdle
         workspace.foregroundProcessWorkingDirectoryProvider = { panelId in
@@ -154,13 +155,37 @@ import Testing
         let panel = try #require(workspace.newTerminalSurface(
             inPane: paneId,
             focus: false,
-            initialCommand: startupCommand,
+            initialCommand: initialCommand,
+            inheritWorkingDirectoryFallback: true,
+            workingDirectoryFallbackSourcePanelId: sourcePanelId
+        ))
+
+        #expect(panel.requestedWorkingDirectory == liveDirectory)
+        #expect(panel.surface.debugInitialCommand() == initialCommand)
+    }
+
+    @Test func remoteStartupCommandSuppressesFallbackWorkingDirectoryInheritance() throws {
+        let workspace = Workspace()
+        let sourcePanelId = try #require(workspace.focusedPanelId)
+        let paneId = try #require(workspace.bonsplitController.focusedPaneId)
+        let liveDirectory = "/tmp/cmux-live-\(UUID().uuidString)"
+        let remoteCommand = "ssh seepine@192.168.5.20"
+
+        workspace.configureRemoteConnection(sshRemoteConfiguration(command: remoteCommand), autoConnect: false)
+        workspace.panelShellActivityStates[sourcePanelId] = .promptIdle
+        workspace.foregroundProcessWorkingDirectoryProvider = { panelId in
+            panelId == sourcePanelId ? liveDirectory : nil
+        }
+
+        let panel = try #require(workspace.newTerminalSurface(
+            inPane: paneId,
+            focus: false,
             inheritWorkingDirectoryFallback: true,
             workingDirectoryFallbackSourcePanelId: sourcePanelId
         ))
 
         #expect(panel.requestedWorkingDirectory == nil)
-        #expect(panel.surface.debugInitialCommand() == startupCommand)
+        #expect(panel.surface.debugInitialCommand() != nil)
     }
 
     @Test func startupCommandConfigTemplateClearsInheritedWorkingDirectory() throws {
@@ -179,5 +204,20 @@ import Testing
         #expect(sanitized.workingDirectory == nil)
         #expect(sanitized.fontSize == inheritedConfig.fontSize)
         #expect(sanitized.environmentVariables == inheritedConfig.environmentVariables)
+    }
+
+    private func sshRemoteConfiguration(command: String) -> WorkspaceRemoteConfiguration {
+        WorkspaceRemoteConfiguration(
+            destination: "seepine@192.168.5.20",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: 64007,
+            relayID: "relay-\(UUID().uuidString)",
+            relayToken: String(repeating: "a", count: 64),
+            localSocketPath: "/tmp/cmux-cwd-inheritance-\(UUID().uuidString).sock",
+            terminalStartupCommand: command
+        )
     }
 }

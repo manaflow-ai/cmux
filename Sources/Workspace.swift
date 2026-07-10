@@ -7134,6 +7134,7 @@ final class Workspace: Identifiable, ObservableObject {
         let remoteTerminalStartupCommand = suppressWorkspaceRemoteStartupCommand ? nil : remoteTerminalStartupCommand()
         let startupCommand = explicitInitialCommand ?? remoteTerminalStartupCommand
         let remoteStartupCommandForEnvironment = explicitInitialCommand == nil ? remoteTerminalStartupCommand : nil
+        let isRemoteStartupCommand = remoteStartupCommandForEnvironment != nil
         let newPanelID = UUID()
         let requestedRemotePTYSessionID = normalizedRemotePTYSessionID(remotePTYSessionID)
         let effectiveRemotePTYSessionID = requestedRemotePTYSessionID
@@ -7151,7 +7152,7 @@ final class Workspace: Identifiable, ObservableObject {
         // Hold remote-command panes open after exit so startup errors remain visible
         // instead of Ghostty respawning a local login shell.
         if startupCommand != nil {
-            inheritedConfig = Self.terminalStartupConfigTemplate(inheritedConfig, waitAfterCommand: true, clearWorkingDirectory: true)
+            inheritedConfig = Self.terminalStartupConfigTemplate(inheritedConfig, waitAfterCommand: true, clearWorkingDirectory: isRemoteStartupCommand)
         }
 #if DEBUG
         dlog(
@@ -7163,7 +7164,7 @@ final class Workspace: Identifiable, ObservableObject {
 
         let splitWorkingDirectory = resolvedTerminalStartupWorkingDirectory(
             requestedWorkingDirectory: workingDirectory, sourcePanelId: panelId,
-            inheritedWorkingDirectory: startupCommand == nil && inheritedConfigSourcePanelId == panelId ? inheritedConfig?.workingDirectory : nil
+            inheritedWorkingDirectory: !isRemoteStartupCommand && inheritedConfigSourcePanelId == panelId ? inheritedConfig?.workingDirectory : nil
         )
         inheritedConfig = Self.terminalStartupConfigTemplate(inheritedConfig, clearWorkingDirectory: true)
 
@@ -7419,6 +7420,7 @@ final class Workspace: Identifiable, ObservableObject {
         let remoteTerminalStartupCommand = suppressWorkspaceRemoteStartupCommand ? nil : remoteTerminalStartupCommand()
         let startupCommand = explicitInitialCommand ?? remoteTerminalStartupCommand
         let remoteStartupCommandForEnvironment = explicitInitialCommand == nil ? remoteTerminalStartupCommand : nil
+        let isRemoteStartupCommand = remoteStartupCommandForEnvironment != nil
         let newPanelID = restoredSurfaceId ?? UUID()
         let requestedRemotePTYSessionID = normalizedRemotePTYSessionID(remotePTYSessionID)
         let effectiveRemotePTYSessionID = requestedRemotePTYSessionID
@@ -7435,7 +7437,7 @@ final class Workspace: Identifiable, ObservableObject {
         )
         let fallbackSourcePanelId = workingDirectoryFallbackSourcePanelId
             ?? bonsplitController.selectedTab(inPane: paneId).map(\.id).flatMap(panelIdFromSurfaceId)
-        let shouldInheritWorkingDirectoryFallback = inheritWorkingDirectoryFallback && startupCommand == nil
+        let shouldInheritWorkingDirectoryFallback = inheritWorkingDirectoryFallback && !isRemoteStartupCommand
         var inheritedConfigSourcePanelId: UUID?
         var inheritedConfig = inheritedTerminalConfig(inPane: paneId, sourcePanelId: { inheritedConfigSourcePanelId = $0 })
         let fallbackLiveWorkingDirectory = shouldInheritWorkingDirectoryFallback && inheritedConfigSourcePanelId != fallbackSourcePanelId
@@ -7445,7 +7447,7 @@ final class Workspace: Identifiable, ObservableObject {
             ? inheritedConfig?.workingDirectory
             : fallbackLiveWorkingDirectory
         if startupCommand != nil {
-            inheritedConfig = Self.terminalStartupConfigTemplate(inheritedConfig, waitAfterCommand: true, clearWorkingDirectory: true)
+            inheritedConfig = Self.terminalStartupConfigTemplate(inheritedConfig, waitAfterCommand: true, clearWorkingDirectory: isRemoteStartupCommand)
         }
         let requestedWorkingDirectory = shouldInheritWorkingDirectoryFallback
             ? resolvedTerminalStartupWorkingDirectory(
