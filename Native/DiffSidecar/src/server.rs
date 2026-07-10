@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::fs::OpenOptions;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -16,6 +17,7 @@ use axum::http::{HeaderMap, HeaderValue, Method, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{any, get, post};
 use axum::{Json, Router};
+use fs2::FileExt;
 use futures_util::StreamExt;
 use notify::{RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
@@ -28,8 +30,8 @@ use crate::manifest::{
     AllowedFile, Manifest, split_resource_path, valid_request_path, valid_token,
 };
 use crate::protocol::{
-    BranchListResult, DiffCommand, DiffRequest, DiffResponse, DiffResult, NavigationResult,
-    handshake,
+    BranchListResult, DiffCommand, DiffRequest, DiffResourceRef, DiffResponse, DiffResult,
+    DiffSource, NavigationResult, OpenSessionRequest, SessionOpened, SessionRequest, handshake,
 };
 use crate::{HTTP_PROTOCOL_VERSION, PROTOCOL_VERSION, health_response};
 
@@ -78,6 +80,8 @@ const RPC_STDIN_READ_TIMEOUT: Duration = Duration::from_secs(10);
 const UNTRUSTED_RPC_REQUEST_ID: &str = "__cmux_untrusted_request__";
 const MAX_CONCURRENT_CHILD_PROCESSES: usize = 4;
 const BRANCH_LIST_CHILD_TIMEOUT: Duration = Duration::from_secs(30);
+const SESSION_GIT_TIMEOUT: Duration = Duration::from_secs(60);
+const MAX_SESSION_PATCH_BYTES: u64 = 512 * 1024 * 1024;
 // Branch regeneration runs Git commands with 60-second deadlines, then writes
 // the page, patch, assets, and manifest. Keep the outer safety deadline above
 // that complete contract while still releasing a stuck child eventually.
@@ -358,6 +362,37 @@ async fn handle_protocol_request(request: DiffRequest, state: Option<&AppState>)
     }
     match request.command {
         DiffCommand::ProtocolHandshake => handshake(request.id),
+        DiffCommand::SessionOpen(params) => {
+            let Some(state) = state else {
+                return DiffResponse::failure(request.id, "hostUnavailable", "Host unavailable");
+            };
+            match open_session(state, params).await {
+                Ok(value) => DiffResponse::success(request.id, DiffResult::SessionOpened(value)),
+                Err(SessionOpenError::Unauthorized) => DiffResponse::failure(
+                    request.id,
+                    "notAllowed",
+                    "Diff session is not authorized",
+                ),
+                Err(SessionOpenError::Empty) => {
+                    DiffResponse::failure(request.id, "emptyDiff", "No changes to diff")
+                }
+                Err(SessionOpenError::Failed) => DiffResponse::failure(
+                    request.id,
+                    "sessionOpenFailed",
+                    "Could not generate the diff",
+                ),
+            }
+        }
+        DiffCommand::SessionClose(params) => {
+            let Some(state) = state else {
+                return DiffResponse::failure(request.id, "hostUnavailable", "Host unavailable");
+            };
+            if close_session(state, &params).await {
+                DiffResponse::success(request.id, DiffResult::SessionClosed)
+            } else {
+                DiffResponse::failure(request.id, "notAllowed", "Diff session is not authorized")
+            }
+        }
         DiffCommand::BranchList(params) => {
             let Some(state) = state else {
                 return DiffResponse::failure(request.id, "hostUnavailable", "Host unavailable");
@@ -400,11 +435,316 @@ async fn handle_protocol_request(request: DiffRequest, state: Option<&AppState>)
                 ),
             }
         }
-        _ => DiffResponse::failure(
-            request.id,
-            "unsupportedMethod",
-            "This protocol method is not enabled by the current host",
-        ),
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum SessionOpenError {
+    Unauthorized,
+    Empty,
+    Failed,
+}
+
+async fn open_session(
+    state: &AppState,
+    params: OpenSessionRequest,
+) -> Result<SessionOpened, SessionOpenError> {
+    if !valid_token(&params.capability_token) {
+        return Err(SessionOpenError::Unauthorized);
+    }
+    if let DiffSource::Patch { path } = &params.source {
+        let request_path = if path.starts_with('/') {
+            path.clone()
+        } else {
+            format!("/{path}")
+        };
+        let (_, resource) =
+            resolve_allowed_file(state, &format!("{}{request_path}", params.capability_token))
+                .await
+                .ok_or(SessionOpenError::Unauthorized)?;
+        let length = if resource.remote_url.is_none() {
+            tokio::fs::metadata(&resource.file_path)
+                .await
+                .ok()
+                .map(|metadata| metadata.len())
+        } else {
+            None
+        };
+        return Ok(SessionOpened {
+            session_id: uuid::Uuid::new_v4().to_string(),
+            patch: DiffResourceRef {
+                id: resource_url(state, &params.capability_token, &request_path),
+                media_type: "text/x-diff".to_owned(),
+                byte_length: length,
+                revision: 1,
+            },
+        });
+    }
+
+    let repo = match &params.source {
+        DiffSource::Unstaged { repo_root }
+        | DiffSource::Staged { repo_root }
+        | DiffSource::Branch { repo_root, .. } => repo_root,
+        DiffSource::Patch { .. } => unreachable!(),
+    };
+    if !authorize_repo_for_token(state, &params.capability_token, repo).await {
+        return Err(SessionOpenError::Unauthorized);
+    }
+    let canonical_repo = tokio::fs::canonicalize(repo)
+        .await
+        .map_err(|_| SessionOpenError::Unauthorized)?;
+    let session_id = uuid::Uuid::new_v4().to_string();
+    let file_name = format!("diff-session-{session_id}.patch");
+    let request_path = format!("/{file_name}");
+    let final_path = state.config.root.join(&file_name);
+    let temporary_path = state.config.root.join(format!(".{file_name}.tmp"));
+
+    run_git_patch(&params.source, &canonical_repo, &temporary_path).await?;
+    tokio::fs::rename(&temporary_path, &final_path)
+        .await
+        .map_err(|_| SessionOpenError::Failed)?;
+    let metadata = tokio::fs::metadata(&final_path)
+        .await
+        .map_err(|_| SessionOpenError::Failed)?;
+    if metadata.len() == 0 {
+        let _ = tokio::fs::remove_file(&final_path).await;
+        return Err(SessionOpenError::Empty);
+    }
+    if metadata.len() > MAX_SESSION_PATCH_BYTES {
+        let _ = tokio::fs::remove_file(&final_path).await;
+        return Err(SessionOpenError::Failed);
+    }
+    let allowed = AllowedFile {
+        request_path: request_path.clone(),
+        file_path: final_path.to_string_lossy().into_owned(),
+        mime_type: "text/x-diff".to_owned(),
+        remote_url: None,
+    };
+    if append_manifest_file(
+        state.config.root.clone(),
+        params.capability_token.clone(),
+        allowed,
+    )
+    .await
+    .is_err()
+    {
+        let _ = tokio::fs::remove_file(&final_path).await;
+        return Err(SessionOpenError::Failed);
+    }
+
+    Ok(SessionOpened {
+        session_id,
+        patch: DiffResourceRef {
+            id: resource_url(state, &params.capability_token, &request_path),
+            media_type: "text/x-diff".to_owned(),
+            byte_length: Some(metadata.len()),
+            revision: 1,
+        },
+    })
+}
+
+async fn run_git_patch(
+    source: &DiffSource,
+    repo: &Path,
+    output_path: &Path,
+) -> Result<(), SessionOpenError> {
+    let mut arguments = vec![
+        "-C".to_owned(),
+        repo.to_string_lossy().into_owned(),
+        "diff".to_owned(),
+        "--no-ext-diff".to_owned(),
+        "--no-color".to_owned(),
+        "--binary".to_owned(),
+    ];
+    match source {
+        DiffSource::Unstaged { .. } => arguments.push("--".to_owned()),
+        DiffSource::Staged { .. } => {
+            arguments.push("--cached".to_owned());
+            arguments.push("--".to_owned());
+        }
+        DiffSource::Branch { base_ref, .. } => {
+            let base_commit = git_single_line(
+                repo,
+                &[
+                    "rev-parse",
+                    "--verify",
+                    "--end-of-options",
+                    &format!("{base_ref}^{{commit}}"),
+                ],
+            )
+            .await?;
+            let merge_base = git_single_line(repo, &["merge-base", "HEAD", &base_commit]).await?;
+            arguments.push(merge_base);
+            arguments.push("--".to_owned());
+        }
+        DiffSource::Patch { .. } => return Err(SessionOpenError::Failed),
+    }
+
+    let output = std::fs::File::create(output_path).map_err(|_| SessionOpenError::Failed)?;
+    let mut command = Command::new("/usr/bin/git");
+    command
+        .args(arguments)
+        .stdin(Stdio::null())
+        .stdout(Stdio::from(output))
+        .stderr(Stdio::null())
+        .kill_on_drop(true);
+    let mut child = command.spawn().map_err(|_| SessionOpenError::Failed)?;
+    let Ok(Ok(status)) = tokio::time::timeout(SESSION_GIT_TIMEOUT, child.wait()).await else {
+        let _ = child.kill().await;
+        let _ = tokio::fs::remove_file(output_path).await;
+        return Err(SessionOpenError::Failed);
+    };
+    if !status.success() {
+        let _ = tokio::fs::remove_file(output_path).await;
+        return Err(SessionOpenError::Failed);
+    }
+    Ok(())
+}
+
+async fn git_single_line(repo: &Path, arguments: &[&str]) -> Result<String, SessionOpenError> {
+    let mut command = Command::new("/usr/bin/git");
+    command
+        .arg("-C")
+        .arg(repo)
+        .args(arguments)
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .kill_on_drop(true);
+    let output = tokio::time::timeout(SESSION_GIT_TIMEOUT, command.output())
+        .await
+        .map_err(|_| SessionOpenError::Failed)?
+        .map_err(|_| SessionOpenError::Failed)?;
+    if !output.status.success() || output.stdout.len() > 4096 {
+        return Err(SessionOpenError::Failed);
+    }
+    let line = String::from_utf8(output.stdout)
+        .map_err(|_| SessionOpenError::Failed)?
+        .trim()
+        .to_owned();
+    if line.is_empty() || line.contains(['\r', '\n']) {
+        return Err(SessionOpenError::Failed);
+    }
+    Ok(line)
+}
+
+async fn append_manifest_file(
+    root: PathBuf,
+    token: String,
+    file: AllowedFile,
+) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || {
+        mutate_manifest(&root, &token, |manifest| {
+            manifest
+                .files
+                .retain(|entry| entry.request_path != file.request_path);
+            manifest.files.push(file);
+            Ok(())
+        })
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+async fn close_session(state: &AppState, params: &SessionRequest) -> bool {
+    if !valid_token(&params.capability_token)
+        || uuid::Uuid::parse_str(&params.session_id).is_err()
+        || !has_session_token(state, &params.capability_token).await
+    {
+        return false;
+    }
+    let request_path = format!("/diff-session-{}.patch", params.session_id);
+    let file_path = state.config.root.join(request_path.trim_start_matches('/'));
+    let root = state.config.root.clone();
+    let token = params.capability_token.clone();
+    let removed = tokio::task::spawn_blocking(move || {
+        mutate_manifest(&root, &token, |manifest| {
+            let original = manifest.files.len();
+            manifest
+                .files
+                .retain(|entry| entry.request_path != request_path);
+            Ok(original != manifest.files.len())
+        })
+    })
+    .await
+    .ok()
+    .and_then(Result::ok)
+    .unwrap_or(false);
+    if removed {
+        let _ = tokio::fs::remove_file(file_path).await;
+    }
+    removed
+}
+
+fn mutate_manifest<T>(
+    root: &Path,
+    token: &str,
+    update: impl FnOnce(&mut Manifest) -> Result<T, String>,
+) -> Result<T, String> {
+    let lock_path = root.join(format!(".manifest-{token}.lock"));
+    let lock = OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .read(true)
+        .write(true)
+        .open(lock_path)
+        .map_err(|error| error.to_string())?;
+    FileExt::lock_exclusive(&lock).map_err(|error| error.to_string())?;
+    let manifest_path = root.join(format!(".manifest-{token}.json"));
+    let bytes = std::fs::read(&manifest_path).map_err(|error| error.to_string())?;
+    let mut manifest: Manifest =
+        serde_json::from_slice(&bytes).map_err(|error| error.to_string())?;
+    if manifest.token != token {
+        return Err("manifest token mismatch".to_owned());
+    }
+    manifest.files_by_path()?;
+    let value = update(&mut manifest)?;
+    if manifest.files.is_empty() || manifest.files.len() > 4096 {
+        return Err("invalid manifest size".to_owned());
+    }
+    manifest.files_by_path()?;
+    let temporary = root.join(format!(".manifest-{token}-{}.tmp", uuid::Uuid::new_v4()));
+    std::fs::write(
+        &temporary,
+        serde_json::to_vec_pretty(&manifest).map_err(|error| error.to_string())?,
+    )
+    .map_err(|error| error.to_string())?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&temporary, std::fs::Permissions::from_mode(0o600))
+            .map_err(|error| error.to_string())?;
+    }
+    std::fs::rename(temporary, manifest_path).map_err(|error| error.to_string())?;
+    Ok(value)
+}
+
+async fn has_session_token(state: &AppState, token: &str) -> bool {
+    let Ok(mut entries) = tokio::fs::read_dir(&state.config.root).await else {
+        return false;
+    };
+    while let Ok(Some(entry)) = entries.next_entry().await {
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if !name.starts_with(".branch-session-") || !name.ends_with(".json") {
+            continue;
+        }
+        let Ok(bytes) = tokio::fs::read(entry.path()).await else {
+            continue;
+        };
+        if serde_json::from_slice::<BranchSessionAuthorization>(&bytes)
+            .is_ok_and(|session| session.token == token)
+        {
+            return true;
+        }
+    }
+    false
+}
+
+fn resource_url(state: &AppState, token: &str, request_path: &str) -> String {
+    if state.port == 0 {
+        format!("cmux-diff-viewer://{token}{request_path}")
+    } else {
+        format!("http://127.0.0.1:{}/{token}{request_path}", state.port)
     }
 }
 

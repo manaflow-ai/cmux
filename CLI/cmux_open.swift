@@ -295,6 +295,12 @@ extension CMUXCLI {
         var files: [URL]
     }
 
+    private struct DiffViewerSharedPayload {
+        var labels: [String: Any]
+        var shortcuts: [String: Any]
+        var generatedAt: String
+    }
+
     private struct DiffViewerAllowedFile: Codable {
         var requestPath: String
         var filePath: String
@@ -734,6 +740,24 @@ extension CMUXCLI {
             case .branch: return CMUXDiffViewerLocalization.string("diffViewer.empty.branch", defaultValue: "No branch changes to diff.")
             case .lastTurn: return CMUXDiffViewerLocalization.string("diffViewer.empty.lastTurn", defaultValue: "No last-turn changes to diff.")
             }
+        }
+    }
+
+    private func diffSessionSourcePayload(
+        source: DiffSource,
+        context: DiffSourceContext
+    ) -> [String: Any]? {
+        guard let repoRoot = context.repoRoot else { return nil }
+        switch source {
+        case .unstaged:
+            return ["kind": "unstaged", "repoRoot": repoRoot]
+        case .staged:
+            return ["kind": "staged", "repoRoot": repoRoot]
+        case .branch:
+            guard let baseRef = context.branchBaseRef, !baseRef.isEmpty else { return nil }
+            return ["kind": "branch", "repoRoot": repoRoot, "baseRef": baseRef]
+        case .lastTurn:
+            return nil
         }
     }
 
@@ -4099,10 +4123,9 @@ extension CMUXCLI {
                         target: target,
                         extraAllowedPageURL: openingFileURL
                     )
-                    var finalized = completed
-
-                    var completedPageURLs = Set<URL>()
-                    do {
+                    if !diffViewerUsesTypedSidecar(runtime: target.runtime) {
+                        var finalized = completed
+                        var completedPageURLs = Set<URL>()
                         if let selectedCompletion = try completeDeferredDiffViewerSelectedSource(
                             completed.deferredSourceSet,
                             selectedURL: completed.fileURL
@@ -4113,29 +4136,28 @@ extension CMUXCLI {
                             finalized.input = selectedCompletion.input
                             finalized.title = titleOverride ?? selectedCompletion.input.defaultTitle
                         }
-                    } catch {
-                        try? writeDiffViewerRedirectHTML(
+                        try writeDiffViewerRedirectHTML(
                             to: openingFileURL,
-                            title: title,
-                            targetURL: completed.url,
+                            title: finalized.title,
+                            targetURL: finalized.url,
                             appearance: appearance,
                             runtime: target.runtime
                         )
-                        throw error
+                        _ = try completeDeferredDiffViewerSources(
+                            completed.deferredSourceSet,
+                            selectedURL: completed.fileURL,
+                            completedPageURLs: completedPageURLs
+                        )
+                        return finalized
                     }
                     try writeDiffViewerRedirectHTML(
                         to: openingFileURL,
-                        title: finalized.title,
-                        targetURL: finalized.url,
+                        title: completed.title,
+                        targetURL: completed.url,
                         appearance: appearance,
                         runtime: target.runtime
                     )
-                    _ = try completeDeferredDiffViewerSources(
-                        completed.deferredSourceSet,
-                        selectedURL: completed.fileURL,
-                        completedPageURLs: completedPageURLs
-                    )
-                    return finalized
+                    return completed
                 } catch {
                     let message = diffViewerErrorMessage(error)
                     try? writeDiffViewerStatusHTML(
@@ -4273,6 +4295,18 @@ extension CMUXCLI {
               let selectedURL = urls[selectedSource] else {
             throw CLIError(message: "Failed to write diff viewer")
         }
+        // All source/repo/base shells share one immutable asset set. Resolving
+        // it once avoids re-hashing the multi-megabyte web bundle for every
+        // lazy page descriptor (44 pages in a typical super-repo workspace).
+        let sharedAssets = try ensureDiffViewerAssets(
+            nextTo: selectedFileURL,
+            runtime: target.runtime
+        )
+        let sharedPayload = DiffViewerSharedPayload(
+            labels: DiffViewerLabels.localized().jsonObject,
+            shortcuts: diffViewerShortcutPayload(),
+            generatedAt: ISO8601DateFormatter().string(from: Date())
+        )
         let repoCandidates = gitDiffViewerRepoOptions(selectedRepoRoot: repoRoot, context: context)
         let repoFileURLsBySource: [DiffSource: [String: URL]] = Dictionary(uniqueKeysWithValues: DiffSource.allCases.map { source in
             let fileURLsByRepo = Dictionary(uniqueKeysWithValues: repoCandidates.enumerated().map { index, option in
@@ -4357,48 +4391,44 @@ extension CMUXCLI {
         // (refsURL/regenerateURLTemplate) drives endpoints that read that session
         // file; if the write failed those endpoints 404, so omit the payload and
         // let the page fall back to the legacy base `<select>`.
-        var selectedBranchBase: DiffBranchBase?
-        var sessionPersisted = false
-        if branchBaseForOptions != nil {
-            // Reuse the exact DiffBranchBase that drove `selectedContext` (and thus
-            // the rendered diff) so the picker's `currentRef` is byte-identical to
-            // the base the diff was computed against, never a separately-resolved
-            // ref. Falls back to a fresh smart resolve only if the cache missed.
-            selectedBranchBase = smartBranchBase(in: repoRoot)
+        var selectedBranchBase = branchBaseForOptions.flatMap { _ in
+            smartBranchBase(in: repoRoot)
                 ?? (try? resolvedDiffBranchBase(explicitBranchBaseRef, in: repoRoot))
-            // Invert repoFileURLsBySource ([DiffSource: [repoRoot: URL]]) into
-            // [repoRoot: [DiffSource.slug: basename]] so the regenerate endpoint
-            // can rebuild the source/repo switchers from the already-written
-            // sibling pages. Basenames are origin/port independent.
-            var repoSourceFiles: [String: [String: String]] = [:]
-            for (source, fileURLsByRepo) in repoFileURLsBySource {
-                for (repo, fileURL) in fileURLsByRepo {
-                    repoSourceFiles[repo, default: [:]][source.slug] = fileURL.lastPathComponent
-                }
+        }
+        var sessionPersisted = false
+        // Invert repoFileURLsBySource ([DiffSource: [repoRoot: URL]]) into
+        // [repoRoot: [DiffSource.slug: basename]] so the regenerate endpoint
+        // can rebuild the source/repo switchers from the already-written sibling
+        // pages. The same descriptor authorizes typed Rust sessions for every
+        // source, even when no branch base exists.
+        var repoSourceFiles: [String: [String: String]] = [:]
+        for (source, fileURLsByRepo) in repoFileURLsBySource {
+            for (repo, fileURL) in fileURLsByRepo {
+                repoSourceFiles[repo, default: [:]][source.slug] = fileURL.lastPathComponent
             }
-            let session = DiffViewerBranchSession(
-                token: mapper.token,
-                groupID: groupID,
-                repoRoot: repoRoot,
-                allowedRepoRoots: repoCandidates.map(\.repoRoot),
-                layout: layout,
-                layoutSource: layoutSource,
-                appearance: appearance,
-                titleOverride: titleOverride,
-                workspaceId: selectedContext.workspaceId,
-                surfaceId: selectedContext.surfaceId,
-                repoSourceFiles: repoSourceFiles
-            )
-            do {
-                try writeDiffViewerBranchSession(session, rootDirectory: directory)
-                sessionPersisted = true
-            } catch {
-                // Persistence failed: drop the picker base so neither the inline
-                // branchPicker payload nor the deferred-page branchPickerBase is
-                // embedded, and the page falls back to the legacy base <select>.
-                selectedBranchBase = nil
+        }
+        let session = DiffViewerBranchSession(
+            token: mapper.token,
+            groupID: groupID,
+            repoRoot: repoRoot,
+            allowedRepoRoots: repoCandidates.map(\.repoRoot),
+            layout: layout,
+            layoutSource: layoutSource,
+            appearance: appearance,
+            titleOverride: titleOverride,
+            workspaceId: selectedContext.workspaceId,
+            surfaceId: selectedContext.surfaceId,
+            repoSourceFiles: repoSourceFiles
+        )
+        do {
+            try writeDiffViewerBranchSession(session, rootDirectory: directory)
+            sessionPersisted = true
+        } catch {
+            if diffViewerUsesTypedSidecar(runtime: target.runtime) {
+                throw error
             }
-        } else {
+            // Legacy hosts can still render the selected page without a session,
+            // but cannot advertise the branch picker.
             selectedBranchBase = nil
         }
         func branchPicker(forBase base: DiffBranchBase?, repoRoot pickerRepoRoot: String = repoRoot) -> [String: Any]? {
@@ -4419,6 +4449,7 @@ extension CMUXCLI {
                 title: titleOverride ?? selectedSource.title,
                 sourceLabel: "git \(selectedSource.slug)",
                 message: diffViewerLoadingDiffMessage(selectedSource.menuLabel),
+                emptyMessage: selectedSource.emptyMessage,
                 isError: false,
                 pollForReplacement: true,
                 layout: layout,
@@ -4430,6 +4461,10 @@ extension CMUXCLI {
                 repoRoot: repoRoot,
                 branchBaseRef: selectedSource == .branch ? selectedContext.branchBaseRef : nil,
                 branchPicker: selectedSource == .branch ? branchPicker(forBase: selectedBranchBase) : nil,
+                sessionSource: diffSessionSourcePayload(source: selectedSource, context: selectedContext),
+                capabilityToken: mapper.token,
+                assets: sharedAssets,
+                sharedPayload: sharedPayload,
                 runtime: target.runtime
             )
             let sourceFallbacks = Dictionary(uniqueKeysWithValues: DiffSource.allCases.compactMap { source -> (DiffSource, DiffViewerDeferredSourceFallback)? in
@@ -4489,6 +4524,7 @@ extension CMUXCLI {
                     title: source.title,
                     sourceLabel: "git \(source.slug)",
                     message: diffViewerLoadingDiffMessage(source.menuLabel),
+                    emptyMessage: source.emptyMessage,
                     isError: false,
                     pollForReplacement: true,
                     layout: layout,
@@ -4500,6 +4536,10 @@ extension CMUXCLI {
                     repoRoot: repoRoot,
                     branchBaseRef: source == .branch ? pageContext.branchBaseRef : nil,
                     branchPicker: source == .branch ? branchPicker(forBase: selectedBranchBase) : nil,
+                    sessionSource: diffSessionSourcePayload(source: source, context: pageContext),
+                    capabilityToken: mapper.token,
+                    assets: sharedAssets,
+                    sharedPayload: sharedPayload,
                     runtime: target.runtime
                 )
                 deferredPages.append(
@@ -4534,7 +4574,20 @@ extension CMUXCLI {
                 // `deferredDiffViewerBranchPicker` returned nil (no picker). The
                 // base is resolved in `option.repoRoot`, and `smartBranchBase`
                 // caches per repoRoot so each repo's `gh` lookup runs at most once.
-                let repoSmartBase: DiffBranchBase? = source == .branch ? smartBranchBase(in: option.repoRoot) : nil
+                let repoSmartBase: DiffBranchBase?
+                if source != .branch {
+                    repoSmartBase = nil
+                } else if let explicitBranchBaseRef {
+                    // Rust validates the explicit ref when this repo is selected.
+                    // Avoid probing every sibling repo while writing lazy shells.
+                    repoSmartBase = DiffBranchBase(
+                        ref: explicitBranchBaseRef,
+                        reason: DiffBranchBaseReason.manual,
+                        confidence: "high"
+                    )
+                } else {
+                    repoSmartBase = smartBranchBase(in: option.repoRoot)
+                }
                 let repoBranchBaseRef: String?
                 if source == .branch {
                     repoBranchBaseRef = repoSmartBase?.ref
@@ -4566,6 +4619,7 @@ extension CMUXCLI {
                     title: option.label,
                     sourceLabel: "git \(source.slug)",
                     message: diffViewerLoadingDiffMessage(option.label),
+                    emptyMessage: source.emptyMessage,
                     isError: false,
                     pollForReplacement: true,
                     layout: layout,
@@ -4577,6 +4631,10 @@ extension CMUXCLI {
                     repoRoot: option.repoRoot,
                     branchBaseRef: source == .branch ? repoBranchBaseRef : nil,
                     branchPicker: source == .branch ? branchPicker(forBase: repoPickerBase, repoRoot: option.repoRoot) : nil,
+                    sessionSource: diffSessionSourcePayload(source: source, context: pageContext),
+                    capabilityToken: mapper.token,
+                    assets: sharedAssets,
+                    sharedPayload: sharedPayload,
                     runtime: target.runtime
                 )
                 deferredPages.append(
@@ -4615,6 +4673,7 @@ extension CMUXCLI {
                 title: option.label,
                 sourceLabel: "git \(DiffSource.branch.slug)",
                 message: diffViewerLoadingDiffMessage(option.label),
+                emptyMessage: DiffSource.branch.emptyMessage,
                 isError: false,
                 pollForReplacement: true,
                 layout: layout,
@@ -4630,6 +4689,10 @@ extension CMUXCLI {
                 repoRoot: repoRoot,
                 branchBaseRef: option.ref,
                 branchPicker: branchPicker(forBase: optionBase),
+                sessionSource: diffSessionSourcePayload(source: .branch, context: pageContext),
+                capabilityToken: mapper.token,
+                assets: sharedAssets,
+                sharedPayload: sharedPayload,
                 runtime: target.runtime
             )
             deferredPages.append(
@@ -4668,6 +4731,8 @@ extension CMUXCLI {
                 repoRoot: repoRoot,
                 branchBaseRef: selectedSource == .branch ? selectedContext.branchBaseRef : nil,
                 branchPicker: selectedSource == .branch ? branchPicker(forBase: selectedBranchBase) : nil,
+                assets: sharedAssets,
+                sharedPayload: sharedPayload,
                 runtime: target.runtime
             )
         } else if let selectedEmptyMessage {
@@ -4689,14 +4754,15 @@ extension CMUXCLI {
                 repoRoot: repoRoot,
                 branchBaseRef: selectedSource == .branch ? selectedContext.branchBaseRef : nil,
                 branchPicker: selectedSource == .branch ? branchPicker(forBase: selectedBranchBase) : nil,
+                assets: sharedAssets,
+                sharedPayload: sharedPayload,
                 runtime: target.runtime
             )
         }
-        let assets = try ensureDiffViewerAssets(nextTo: selectedFileURL, runtime: target.runtime)
         let pageURLs = [selectedFileURL] + deferredPages.map(\.url)
         var allowedFiles = try diffViewerAllowedFiles(
             pageURLs: pageURLs,
-            assets: assets,
+            assets: sharedAssets,
             mapper: mapper
         )
         if let extraAllowedPageURL {
@@ -4744,17 +4810,20 @@ extension CMUXCLI {
             if let completeDeferred = viewer.completeDeferred {
                 return try completeDeferred()
             }
-            let selectedCompletion = try completeDeferredDiffViewerSources(
-                viewer.deferredSourceSet,
-                selectedURL: viewer.fileURL
-            )
-            guard let selectedCompletion else { return viewer }
-            var finalized = viewer
-            finalized.fileURL = selectedCompletion.fileURL
-            finalized.url = selectedCompletion.viewerURL
-            finalized.input = selectedCompletion.input
-            finalized.title = selectedCompletion.input.defaultTitle
-            return finalized
+            if !diffViewerUsesTypedSidecar(runtime: viewer.deferredSourceSet?.runtime) {
+                let selectedCompletion = try completeDeferredDiffViewerSources(
+                    viewer.deferredSourceSet,
+                    selectedURL: viewer.fileURL
+                )
+                guard let selectedCompletion else { return viewer }
+                var finalized = viewer
+                finalized.fileURL = selectedCompletion.fileURL
+                finalized.url = selectedCompletion.viewerURL
+                finalized.input = selectedCompletion.input
+                finalized.title = selectedCompletion.input.defaultTitle
+                return finalized
+            }
+            return viewer
         } catch {
             throw diffViewerCommandError(error)
         }
@@ -7319,6 +7388,7 @@ extension CMUXCLI {
         title: String,
         sourceLabel: String,
         message: String,
+        emptyMessage: String? = nil,
         isError: Bool,
         pollForReplacement: Bool,
         layout: String,
@@ -7330,6 +7400,10 @@ extension CMUXCLI {
         repoRoot: String? = nil,
         branchBaseRef: String? = nil,
         branchPicker: [String: Any]? = nil,
+        sessionSource: [String: Any]? = nil,
+        capabilityToken: String? = nil,
+        assets: DiffViewerAssets? = nil,
+        sharedPayload: DiffViewerSharedPayload? = nil,
         runtime: URL? = nil
     ) throws {
         try writeDiffViewerHTML(
@@ -7347,6 +7421,11 @@ extension CMUXCLI {
             repoRoot: repoRoot,
             branchBaseRef: branchBaseRef,
             branchPicker: branchPicker,
+            sessionSource: sessionSource,
+            capabilityToken: capabilityToken,
+            assets: assets,
+            sharedPayload: sharedPayload,
+            emptyMessage: emptyMessage,
             statusMessage: message,
             statusIsError: isError,
             pollForReplacement: pollForReplacement,
@@ -7405,6 +7484,11 @@ extension CMUXCLI {
         repoRoot: String? = nil,
         branchBaseRef: String? = nil,
         branchPicker: [String: Any]? = nil,
+        sessionSource: [String: Any]? = nil,
+        capabilityToken: String? = nil,
+        assets preparedAssets: DiffViewerAssets? = nil,
+        sharedPayload preparedSharedPayload: DiffViewerSharedPayload? = nil,
+        emptyMessage: String? = nil,
         statusMessage: String? = nil,
         statusIsError: Bool = false,
         pollForReplacement: Bool = false,
@@ -7415,7 +7499,11 @@ extension CMUXCLI {
         } else if remotePatchURL == nil {
             try writeDiffViewerPatchSidecar(patch, for: viewerURL)
         }
-        let labels = DiffViewerLabels.localized()
+        let sharedPayload = preparedSharedPayload ?? DiffViewerSharedPayload(
+            labels: DiffViewerLabels.localized().jsonObject,
+            shortcuts: diffViewerShortcutPayload(),
+            generatedAt: ISO8601DateFormatter().string(from: Date())
+        )
         var payload: [String: Any] = [
             "patchURL": diffViewerPatchURLString(for: viewerURL),
             "title": title,
@@ -7423,12 +7511,12 @@ extension CMUXCLI {
             "layout": layout,
             "layoutSource": layoutSource,
             "appearance": appearance.jsonObject,
-            "labels": labels.jsonObject,
-            "shortcuts": diffViewerShortcutPayload(),
+            "labels": sharedPayload.labels,
+            "shortcuts": sharedPayload.shortcuts,
             "sourceOptions": sourceOptions.map(\.jsonObject),
             "repoOptions": repoOptions.map(\.jsonObject),
             "baseOptions": baseOptions.map(\.jsonObject),
-            "generatedAt": ISO8601DateFormatter().string(from: Date())
+            "generatedAt": sharedPayload.generatedAt
         ]
         // Browser-hosted builds can select Fetch or WebSocket with the same
         // generated protocol. The macOS app uses its reply-capable WebKit bridge,
@@ -7445,6 +7533,9 @@ extension CMUXCLI {
             payload["statusMessage"] = statusMessage
             payload["statusIsError"] = statusIsError
         }
+        if let emptyMessage {
+            payload["emptyMessage"] = emptyMessage
+        }
         if pollForReplacement {
             payload["pendingReplacement"] = true
         }
@@ -7460,7 +7551,11 @@ extension CMUXCLI {
         if let branchPicker {
             payload["branchPicker"] = branchPicker
         }
-        let assets = try ensureDiffViewerAssets(nextTo: viewerURL, runtime: runtime)
+        if let sessionSource, let capabilityToken {
+            payload["sessionSource"] = sessionSource
+            payload["capabilityToken"] = capabilityToken
+        }
+        let assets = try preparedAssets ?? ensureDiffViewerAssets(nextTo: viewerURL, runtime: runtime)
         let config: [String: Any] = [
             "payload": payload,
             "assets": [

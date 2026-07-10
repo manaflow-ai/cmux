@@ -50,8 +50,8 @@ import { useToolbarWidth } from "./useToolbarWidth";
 import type { DiffViewerLabelResolver } from "./labels";
 import type { DiffViewerStatus } from "./status";
 import type { DiffViewerConfig } from "./types";
-import { createDiffTransport, type DiffTransport } from "./diff/transport";
-import type { DiffTransportConfig } from "./diff/generated/protocol";
+import { createDiffTransport, DiffTransportError, type DiffTransport } from "./diff/transport";
+import type { DiffSource, DiffTransportConfig } from "./diff/generated/protocol";
 import { createDiffWorkerPoolOptions } from "./worker-pool";
 
 type ConfigProps = {
@@ -244,6 +244,7 @@ export function App({ config, initialStatus }: ConfigProps) {
   });
   const appearance = resolveDiffViewerAppearance(payload.appearance);
   const transport = useDiffTransport(payload.transport);
+  const [activePatchURL, setActivePatchURL] = useState<string | undefined>(payload.patchURL);
   const [state, dispatch] = useReducer(reducer, initialAppState(config, initialStatus));
   const latestState = useSyncedRef(state);
   const codeViewRef = useRef<CodeViewHandle<any> | null>(null);
@@ -265,8 +266,8 @@ export function App({ config, initialStatus }: ConfigProps) {
   renderedCodeViewOptions.onGutterUtilityClick = comments.onGutterUtilityClick as any;
 
   usePageDataAttributes(state);
-  usePendingReplacement(payload, label, dispatch);
-  useRenderDiff(config, label, dispatch, latestState);
+  usePendingReplacement(payload, label, dispatch, transport);
+  useRenderDiff(config, transport, label, dispatch, latestState, setActivePatchURL);
   useCommentsBootstrap(bridgeAvailable ? repoRoot : null, comments.onLoaded);
   useKeyboardShortcuts(payload.shortcuts ?? {}, viewerContainerRef, dispatch);
   useOptionsDismiss(state.optionsOpen, dispatch);
@@ -348,7 +349,7 @@ export function App({ config, initialStatus }: ConfigProps) {
         label={label}
         onCopyGitApply={async () => {
           try {
-            const message = await copyGitApplyCommand(payload.patchURL, label, copyFallbackRef.current);
+            const message = await copyGitApplyCommand(activePatchURL, label, copyFallbackRef.current);
             dispatch({ type: "set-copy-feedback", message });
           } catch {
             dispatch({ type: "set-copy-feedback", message: label("copyFailedGitApplyCommand") });
@@ -1386,13 +1387,15 @@ function usePierreFileTreeSelection(model: ReturnType<typeof useFileTree>["model
 
 function useRenderDiff(
   config: DiffViewerConfig,
+  transport: DiffTransport | null,
   label: DiffViewerLabelResolver,
   dispatch: React.Dispatch<AppAction>,
   latestState: React.MutableRefObject<AppState>,
+  onPatchURL: (url: string) => void,
 ) {
   const started = useRef(false);
   useEffect(() => {
-    if (started.current || isStatusOnlyPayload(config.payload)) {
+    if (started.current || isStatusOnlyPayload(config.payload, transport)) {
       return;
     }
     started.current = true;
@@ -1404,42 +1407,108 @@ function useRenderDiff(
     if (appearance.themes.dark.name) {
       registerCustomTheme(appearance.themes.dark.name, () => Promise.resolve(shikiThemeFromGhostty(appearance.themes.dark, appearance)));
     }
-    const streamedItems: DiffItem[] = [];
-    dispatch({ type: "set-status", status: createDiffViewerStatus(label("parsingDiff"), { loading: true }) });
-    streamPatch({
-      getCollapsed: () => latestState.current.options.collapsed,
-      initialFileTreeRowCount: getInitialFileTreeRowCount(),
-      label,
-      onBatch: (items) => {
-        streamedItems.push(...items);
-        dispatch({ type: "append-items", items });
-      },
-      onComplete: (metrics) => {
-        dispatch({ type: "set-metrics", metrics });
-        const items = streamedItems;
-        if (items.length === 0) {
-          dispatch({ type: "set-status", status: createDiffViewerStatus(label("noFileDiffs"), { error: true, loading: false, statusOnly: true }) });
+    let cancelled = false;
+    let openedSessionId: string | null = null;
+    void (async () => {
+      try {
+        let patchURL = payload.patchURL as string | undefined;
+        const session = diffSessionRequest(payload, transport);
+        if (session) {
+          const result = await transport!.request({ method: "sessionOpen", params: session });
+          if (result.type !== "sessionOpened") {
+            throw new DiffTransportError("invalidResponse", "Diff transport did not open a session");
+          }
+          openedSessionId = result.value.sessionId;
+          if (cancelled) {
+            await transport!.request({
+              method: "sessionClose",
+              params: { sessionId: openedSessionId, capabilityToken: String(payload.capabilityToken ?? "") },
+            }).catch(() => {});
+            openedSessionId = null;
+            return;
+          }
+          patchURL = result.value.patch.id;
+        }
+        if (cancelled || !patchURL) {
           return;
         }
-        const themes = Array.from(new Set([appearance.theme?.light, appearance.theme?.dark].filter(Boolean)));
-        const langs = Array.from(new Set(items.flatMap((item) => {
-          const diff = item.fileDiff ?? {};
-          return resolveDiffPreloadLanguages(fileName(diff, ""), diff.lang, diff, getFiletypeFromFileName);
-        })));
-        preloadHighlighter({ themes, langs: langs.length > 0 ? langs : ["text"] })
-          .catch((error) => console.warn("cmux diff highlighter preload failed", error));
-      },
-      onMetrics: (metrics) => dispatch({ type: "set-metrics", metrics }),
-      onRename: (rename) => dispatch({ type: "rename-item", oldId: rename.oldId, newId: rename.newId }),
-      onTreeSource: (source) => dispatch({ type: "set-tree-source", source }),
-      parsePatchFiles,
-      patchURL: payload.patchURL,
-      processFile,
-    }).catch((error) => {
-      console.error("cmux diff viewer render failed", error);
-      dispatch({ type: "set-status", status: createDiffViewerStatus(label("renderFailed"), { error: true, loading: false, statusOnly: true }) });
-    });
-  }, [config, dispatch, label, latestState]);
+        onPatchURL(patchURL);
+        const streamedItems: DiffItem[] = [];
+        dispatch({ type: "set-status", status: createDiffViewerStatus(label("parsingDiff"), { loading: true }) });
+        await streamPatch({
+          getCollapsed: () => latestState.current.options.collapsed,
+          initialFileTreeRowCount: getInitialFileTreeRowCount(),
+          label,
+          onBatch: (items) => {
+            streamedItems.push(...items);
+            dispatch({ type: "append-items", items });
+          },
+          onComplete: (metrics) => {
+            dispatch({ type: "set-metrics", metrics });
+            const items = streamedItems;
+            if (items.length === 0) {
+              const emptyMessage = typeof payload.emptyMessage === "string" ? payload.emptyMessage : label("noFileDiffs");
+              dispatch({ type: "set-status", status: createDiffViewerStatus(emptyMessage, { error: false, loading: false, statusOnly: true }) });
+              return;
+            }
+            const themes = Array.from(new Set([appearance.theme?.light, appearance.theme?.dark].filter(Boolean)));
+            const langs = Array.from(new Set(items.flatMap((item) => {
+              const diff = item.fileDiff ?? {};
+              return resolveDiffPreloadLanguages(fileName(diff, ""), diff.lang, diff, getFiletypeFromFileName);
+            })));
+            preloadHighlighter({ themes, langs: langs.length > 0 ? langs : ["text"] })
+              .catch((error) => console.warn("cmux diff highlighter preload failed", error));
+          },
+          onMetrics: (metrics) => dispatch({ type: "set-metrics", metrics }),
+          onRename: (rename) => dispatch({ type: "rename-item", oldId: rename.oldId, newId: rename.newId }),
+          onTreeSource: (source) => dispatch({ type: "set-tree-source", source }),
+          parsePatchFiles,
+          patchURL,
+          processFile,
+        });
+      } catch (error) {
+        if (cancelled) {
+          return;
+        }
+        const empty = error instanceof DiffTransportError && error.code === "emptyDiff";
+        if (!empty) {
+          console.error("cmux diff viewer render failed", error);
+        }
+        const emptyMessage = typeof payload.emptyMessage === "string" ? payload.emptyMessage : label("noFileDiffs");
+        dispatch({
+          type: "set-status",
+          status: createDiffViewerStatus(empty ? emptyMessage : label("renderFailed"), {
+            error: !empty,
+            loading: false,
+            statusOnly: true,
+          }),
+        });
+      }
+    })();
+    return () => {
+      cancelled = true;
+      if (openedSessionId && transport) {
+        void transport.request({
+          method: "sessionClose",
+          params: { sessionId: openedSessionId, capabilityToken: String(payload.capabilityToken ?? "") },
+        }).catch(() => {});
+      }
+    };
+  }, [config, dispatch, label, latestState, onPatchURL, transport]);
+}
+
+function diffSessionRequest(payload: any, transport: DiffTransport | null): {
+  source: DiffSource;
+  capabilityToken: string;
+} | null {
+  if (!transport || payload?.pendingReplacement !== true || typeof payload?.capabilityToken !== "string") {
+    return null;
+  }
+  const source = payload.sessionSource as DiffSource | undefined;
+  if (!source || typeof source !== "object" || typeof source.kind !== "string") {
+    return null;
+  }
+  return { source, capabilityToken: payload.capabilityToken };
 }
 
 function resolveDiffItemLanguage(item: DiffItem): void {
@@ -1469,12 +1538,19 @@ function mergeLanguages(current: string[], next: string[]): string[] {
   return Array.from(languages);
 }
 
-function isStatusOnlyPayload(payload: any): boolean {
-  return payload?.pendingReplacement === true ||
-    (typeof payload?.statusMessage === "string" && payload.statusMessage.length > 0);
+function isStatusOnlyPayload(payload: any, transport: DiffTransport | null = null): boolean {
+  if (payload?.pendingReplacement === true) {
+    return diffSessionRequest(payload, transport) == null;
+  }
+  return typeof payload?.statusMessage === "string" && payload.statusMessage.length > 0;
 }
 
-function usePendingReplacement(payload: any, label: DiffViewerLabelResolver, dispatch: React.Dispatch<AppAction>) {
+function usePendingReplacement(
+  payload: any,
+  label: DiffViewerLabelResolver,
+  dispatch: React.Dispatch<AppAction>,
+  transport: DiffTransport | null,
+) {
   const started = useRef(false);
   useEffect(() => {
     if (started.current) {
@@ -1486,6 +1562,9 @@ function usePendingReplacement(payload: any, label: DiffViewerLabelResolver, dis
         type: "set-status",
         status: createDiffViewerStatus(payload.statusMessage ?? label("loadingDiff"), { loading: true, pending: true }),
       });
+      if (diffSessionRequest(payload, transport)) {
+        return;
+      }
       // The native host replaces the file and navigates this surface when Git
       // generation completes. Custom-scheme resources never use an HTTP wait
       // endpoint, so keep the loading state until that navigation arrives.
@@ -1519,7 +1598,7 @@ function usePendingReplacement(payload: any, label: DiffViewerLabelResolver, dis
         }),
       });
     }
-  }, [dispatch, label, payload]);
+  }, [dispatch, label, payload, transport]);
 }
 
 function usePageDataAttributes(state: AppState) {

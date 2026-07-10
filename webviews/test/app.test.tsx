@@ -10,7 +10,7 @@ type FetchMock = (input: RequestInfo | URL, init?: RequestInit) => Promise<Respo
 let root: Root | null = null;
 let dom: JSDOM | null = null;
 const originalGlobals = new Map<string, any>();
-for (const key of ["window", "document", "navigator", "Element", "Node", "HTMLElement", "HTMLStyleElement", "customElements", "fetch"]) {
+for (const key of ["window", "document", "navigator", "Element", "Node", "HTMLElement", "HTMLStyleElement", "customElements", "fetch", "requestAnimationFrame", "cancelAnimationFrame"]) {
   originalGlobals.set(key, (globalThis as any)[key]);
 }
 
@@ -82,6 +82,112 @@ test("custom-scheme pending pages wait for native navigation without HTTP pollin
   expect(dom.window.document.getElementById("status-text")?.textContent).toBe("Loading diff");
   expect(fetched).toBe(false);
   expect(dom.window.document.documentElement.dataset.cmuxDiffWait).toBeUndefined();
+});
+
+test("custom-scheme pending pages stream exactly one typed Rust session", async () => {
+  dom = createDom("cmux-diff-viewer://0123456789abcdef/branch.html");
+  const requests: any[] = [];
+  const fetched: string[] = [];
+  installDomGlobals(dom, (input) => {
+    fetched.push(String(input));
+    return new Response("", { status: 200 });
+  });
+  (dom.window as any).webkit = {
+    messageHandlers: {
+      cmuxDiff: {
+        async postMessage(request: any) {
+          requests.push(request);
+          if (request.method === "sessionClose") {
+            return { id: request.id, version: 1, result: { type: "sessionClosed" }, error: null };
+          }
+          return {
+            id: request.id,
+            version: 1,
+            result: {
+              type: "sessionOpened",
+              value: {
+                sessionId: "01234567-89ab-cdef-0123-456789abcdef",
+                patch: {
+                  id: "cmux-diff-viewer://0123456789abcdef/diff-session.patch",
+                  mediaType: "text/x-diff",
+                  byteLength: 128,
+                  revision: 1,
+                },
+              },
+            },
+            error: null,
+          };
+        },
+      },
+    },
+  };
+
+  renderApp(
+    <App
+      config={{
+        payload: {
+          capabilityToken: "0123456789abcdef",
+          pendingReplacement: true,
+          sessionSource: { kind: "branch", repoRoot: "/tmp/repo", baseRef: "main" },
+          statusMessage: "Loading diff",
+          title: "Diff",
+          transport: { kind: "webKit", endpoint: "cmuxDiff", protocolVersion: 1 },
+        },
+      }}
+      initialStatus={createDiffViewerStatus("Loading diff", { loading: true, pending: true })}
+    />,
+  );
+
+  await waitFor(() => dom?.window.document.body.dataset.streamFileCount === "0");
+  expect(requests.filter((request) => request.method === "sessionOpen")).toHaveLength(1);
+  expect(requests[0].params.source).toEqual({ kind: "branch", repoRoot: "/tmp/repo", baseRef: "main" });
+  expect(fetched).toEqual(["cmux-diff-viewer://0123456789abcdef/diff-session.patch"]);
+  flushSync(() => root?.unmount());
+  root = null;
+  await waitFor(() => requests.some((request) => request.method === "sessionClose"));
+  expect(requests.filter((request) => request.method === "sessionClose")).toHaveLength(1);
+});
+
+test("typed Rust empty diffs keep the localized source-specific message", async () => {
+  dom = createDom("cmux-diff-viewer://0123456789abcdef/unstaged.html");
+  let fetched = false;
+  installDomGlobals(dom, () => {
+    fetched = true;
+    return new Response("", { status: 200 });
+  });
+  (dom.window as any).webkit = {
+    messageHandlers: {
+      cmuxDiff: {
+        async postMessage(request: any) {
+          return {
+            id: request.id,
+            version: 1,
+            result: null,
+            error: { code: "emptyDiff", message: "No changes to diff" },
+          };
+        },
+      },
+    },
+  };
+
+  renderApp(
+    <App
+      config={{
+        payload: {
+          capabilityToken: "0123456789abcdef",
+          emptyMessage: "No unstaged changes to diff.",
+          pendingReplacement: true,
+          sessionSource: { kind: "unstaged", repoRoot: "/tmp/repo" },
+          statusMessage: "Loading diff",
+          transport: { kind: "webKit", endpoint: "cmuxDiff", protocolVersion: 1 },
+        },
+      }}
+      initialStatus={createDiffViewerStatus("Loading diff", { loading: true, pending: true })}
+    />,
+  );
+
+  await waitFor(() => dom?.window.document.getElementById("status-text")?.textContent === "No unstaged changes to diff.");
+  expect(fetched).toBe(false);
 });
 
 test("App still starts diff rendering when statusMessage is an empty string", async () => {
@@ -237,6 +343,8 @@ function installDomGlobals(nextDom: JSDOM, fetchImpl: FetchMock): void {
   (globalThis as any).HTMLStyleElement = nextDom.window.HTMLStyleElement;
   (globalThis as any).customElements = nextDom.window.customElements;
   (globalThis as any).fetch = fetchImpl;
+  (globalThis as any).requestAnimationFrame = (callback: FrameRequestCallback) => setTimeout(() => callback(performance.now()), 0);
+  (globalThis as any).cancelAnimationFrame = (handle: number) => clearTimeout(handle);
 }
 
 function renderApp(element: React.ReactNode): void {

@@ -54,10 +54,17 @@ fn run_stdio_rpc(input: &[u8]) -> Output {
             .expect("secure root permissions");
     }
 
+    let output = run_stdio_rpc_in_root(input, &root);
+    assert!(!root.join(".server.json").exists());
+    let _ = std::fs::remove_dir_all(root);
+    output
+}
+
+fn run_stdio_rpc_in_root(input: &[u8], root: &Path) -> Output {
     let mut child = Command::new(env!("CARGO_BIN_EXE_cmux-diff-sidecar"))
         .arg("rpc")
         .arg("--root")
-        .arg(&root)
+        .arg(root)
         .arg("--cmux")
         .arg(env!("CARGO_BIN_EXE_diff-sidecar-test-host"))
         .stdin(Stdio::piped())
@@ -71,10 +78,7 @@ fn run_stdio_rpc(input: &[u8]) -> Output {
         .expect("sidecar stdin")
         .write_all(input)
         .expect("write request");
-    let output = child.wait_with_output().expect("wait for sidecar");
-    assert!(!root.join(".server.json").exists());
-    let _ = std::fs::remove_dir_all(root);
-    output
+    child.wait_with_output().expect("wait for sidecar")
 }
 
 fn assert_rpc_failure(output: &Output, code: &str) {
@@ -84,6 +88,167 @@ fn assert_rpc_failure(output: &Output, code: &str) {
     assert_eq!(response["version"], 1);
     assert!(response["result"].is_null());
     assert_eq!(response["error"]["code"], code);
+}
+
+#[test]
+fn rpc_git_sessions_match_git_without_starting_a_server() {
+    let root = std::env::temp_dir().join(format!(
+        "cmux-diff-sidecar-session-test-{}-{}",
+        std::process::id(),
+        uuid::Uuid::new_v4()
+    ));
+    let repo = root.join("repo");
+    std::fs::create_dir_all(&repo).expect("create repo");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o700))
+            .expect("secure root permissions");
+    }
+    run_git(&repo, &["init"]);
+    run_git(&repo, &["config", "user.name", "cmux tests"]);
+    run_git(&repo, &["config", "user.email", "cmux@example.invalid"]);
+    std::fs::write(repo.join("story.txt"), b"one\n").expect("write initial file");
+    run_git(&repo, &["add", "story.txt"]);
+    run_git(&repo, &["commit", "-m", "initial"]);
+    std::fs::write(repo.join("story.txt"), b"one\ntwo\n").expect("write changed file");
+
+    let token = "0123456789abcdef";
+    let shell = root.join("viewer.html");
+    std::fs::write(&shell, b"<!doctype html>").expect("write shell");
+    std::fs::write(
+        root.join(format!(".manifest-{token}.json")),
+        serde_json::to_vec(&serde_json::json!({
+            "token": token,
+            "files": [{
+                "request_path": "/viewer.html",
+                "file_path": shell,
+                "mime_type": "text/html"
+            }]
+        }))
+        .expect("encode manifest"),
+    )
+    .expect("write manifest");
+    std::fs::write(
+        root.join(".branch-session-session-test.json"),
+        serde_json::to_vec(&serde_json::json!({
+            "token": token,
+            "groupID": "session-test",
+            "allowedRepoRoots": [&repo]
+        }))
+        .expect("encode session"),
+    )
+    .expect("write session");
+
+    assert_session_matches_git(
+        &root,
+        &repo,
+        token,
+        &serde_json::json!({"kind": "unstaged", "repoRoot": repo}),
+        &["diff", "--no-ext-diff", "--no-color", "--binary", "--"],
+    );
+    run_git(&repo, &["add", "story.txt"]);
+    assert_session_matches_git(
+        &root,
+        &repo,
+        token,
+        &serde_json::json!({"kind": "staged", "repoRoot": repo}),
+        &[
+            "diff",
+            "--no-ext-diff",
+            "--no-color",
+            "--binary",
+            "--cached",
+            "--",
+        ],
+    );
+    assert_session_matches_git(
+        &root,
+        &repo,
+        token,
+        &serde_json::json!({"kind": "branch", "repoRoot": repo, "baseRef": "HEAD"}),
+        &[
+            "diff",
+            "--no-ext-diff",
+            "--no-color",
+            "--binary",
+            "HEAD",
+            "--",
+        ],
+    );
+    assert!(!root.join(".server.json").exists());
+    let _ = std::fs::remove_dir_all(root);
+}
+
+fn assert_session_matches_git(
+    root: &Path,
+    repo: &Path,
+    token: &str,
+    source: &serde_json::Value,
+    git_arguments: &[&str],
+) {
+    let request = serde_json::to_vec(&serde_json::json!({
+        "id": "open-session",
+        "version": 1,
+        "method": "sessionOpen",
+        "params": {"source": source, "capabilityToken": token}
+    }))
+    .expect("encode request");
+    let output = run_stdio_rpc_in_root(&request, root);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let response: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("decode response");
+    assert_eq!(response["result"]["type"], "sessionOpened", "{response}");
+    let session_id = response["result"]["value"]["sessionId"]
+        .as_str()
+        .expect("session id");
+    let id = response["result"]["value"]["patch"]["id"]
+        .as_str()
+        .expect("patch id");
+    assert!(id.starts_with(&format!("cmux-diff-viewer://{token}/diff-session-")));
+    let request_path = id.split_once(token).expect("token in id").1;
+    let generated = std::fs::read(root.join(request_path.trim_start_matches('/')))
+        .expect("read generated patch");
+    let expected = Command::new("/usr/bin/git")
+        .arg("-C")
+        .arg(repo)
+        .args(git_arguments)
+        .output()
+        .expect("run expected git");
+    assert!(expected.status.success());
+    assert_eq!(generated, expected.stdout);
+
+    let close = serde_json::to_vec(&serde_json::json!({
+        "id": "close-session",
+        "version": 1,
+        "method": "sessionClose",
+        "params": {"sessionId": session_id, "capabilityToken": token}
+    }))
+    .expect("encode close request");
+    let close_output = run_stdio_rpc_in_root(&close, root);
+    assert!(close_output.status.success());
+    let close_response: serde_json::Value =
+        serde_json::from_slice(&close_output.stdout).expect("decode close response");
+    assert_eq!(close_response["result"]["type"], "sessionClosed");
+    assert!(!root.join(request_path.trim_start_matches('/')).exists());
+}
+
+fn run_git(repo: &Path, arguments: &[&str]) {
+    let output = Command::new("/usr/bin/git")
+        .arg("-C")
+        .arg(repo)
+        .args(arguments)
+        .output()
+        .expect("run git");
+    assert!(
+        output.status.success(),
+        "git failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
 }
 
 #[test]
