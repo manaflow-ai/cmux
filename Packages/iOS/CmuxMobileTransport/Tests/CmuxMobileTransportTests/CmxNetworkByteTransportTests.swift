@@ -58,6 +58,32 @@ import Testing
     }
 }
 
+@Test func acceptedNetworkTransportUsesTheSharedByteContract() async throws {
+    let listener = try AcceptedConnectionListener()
+    let port = try await listener.start()
+    defer { listener.stop() }
+    let client = try CmxNetworkByteTransport(host: "127.0.0.1", port: Int(port))
+    let clientConnect = Task { try await client.connect() }
+    let acceptedConnection = try await listener.nextConnection()
+    let server = CmxNetworkByteTransport(acceptedConnection: acceptedConnection)
+
+    do {
+        try await server.connect()
+        try await clientConnect.value
+        try await client.send(Data("request".utf8))
+        #expect(try await server.receive() == Data("request".utf8))
+        try await server.send(Data("response".utf8))
+        #expect(try await client.receive() == Data("response".utf8))
+    } catch {
+        clientConnect.cancel()
+        await client.close()
+        await server.close()
+        throw error
+    }
+    await client.close()
+    await server.close()
+}
+
 @Test func networkTransportCloseCompletesInFlightReceiveWithEndOfStream() async throws {
     let server = try NetworkEchoServer(response: Data("unused".utf8))
     let port = try await server.start()
@@ -233,6 +259,95 @@ private final class NetworkEchoServer: @unchecked Sendable {
                 return
             }
             self.receiveRequest(on: connection)
+        }
+    }
+}
+
+private final class AcceptedConnectionListener: @unchecked Sendable {
+    private let listener: NWListener
+    private let queue = DispatchQueue(label: "dev.cmux.mobile.accepted-connection-listener")
+    private var readyContinuation: CheckedContinuation<UInt16, any Error>?
+    private var connectionContinuation: CheckedContinuation<NWConnection, any Error>?
+    private var pendingConnection: NWConnection?
+
+    init() throws {
+        listener = try NWListener(using: .tcp, on: .any)
+    }
+
+    func start() async throws -> UInt16 {
+        try await withCheckedThrowingContinuation { continuation in
+            queue.async {
+                self.readyContinuation = continuation
+                self.listener.stateUpdateHandler = { [weak self] state in
+                    self?.handleState(state)
+                }
+                self.listener.newConnectionHandler = { [weak self] connection in
+                    self?.accept(connection)
+                }
+                self.listener.start(queue: self.queue)
+            }
+        }
+    }
+
+    func nextConnection() async throws -> NWConnection {
+        try await withCheckedThrowingContinuation { continuation in
+            queue.async {
+                if let pendingConnection = self.pendingConnection {
+                    self.pendingConnection = nil
+                    continuation.resume(returning: pendingConnection)
+                } else {
+                    self.connectionContinuation = continuation
+                }
+            }
+        }
+    }
+
+    func stop() {
+        queue.async {
+            self.listener.cancel()
+            self.pendingConnection?.cancel()
+            self.pendingConnection = nil
+            self.connectionContinuation?.resume(throwing: CancellationError())
+            self.connectionContinuation = nil
+        }
+    }
+
+    private func accept(_ connection: NWConnection) {
+        if let continuation = connectionContinuation {
+            connectionContinuation = nil
+            continuation.resume(returning: connection)
+        } else {
+            pendingConnection?.cancel()
+            pendingConnection = connection
+        }
+    }
+
+    private func handleState(_ state: NWListener.State) {
+        switch state {
+        case .ready:
+            guard let port = listener.port?.rawValue else {
+                readyContinuation?.resume(
+                    throwing: CmxNetworkByteTransportError.invalidPort(0)
+                )
+                readyContinuation = nil
+                return
+            }
+            readyContinuation?.resume(returning: port)
+            readyContinuation = nil
+        case let .failed(error):
+            readyContinuation?.resume(throwing: error)
+            readyContinuation = nil
+            connectionContinuation?.resume(throwing: error)
+            connectionContinuation = nil
+        case .cancelled:
+            readyContinuation?.resume(throwing: CancellationError())
+            readyContinuation = nil
+            connectionContinuation?.resume(throwing: CancellationError())
+            connectionContinuation = nil
+        case .setup, .waiting:
+            break
+        @unknown default:
+            break
         }
     }
 }

@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxIrohTransport
 import Foundation
 @preconcurrency import Network
 import Testing
@@ -81,6 +82,72 @@ struct MobileHostAuthorizationTests {
         let result = await MobileHostService.shared.debugAuthorizationError(for: request)
         #expect(result == nil)
     }
+    @Test func testIrohAdmissionReplacesPerRequestStackAuthorization() async throws {
+        let recorder = MobileHostAuthorizationInvocationRecorder()
+        let request = MobileHostRPCRequest(
+            id: "workspace-list",
+            method: "workspace.list",
+            params: [:],
+            auth: nil
+        )
+        let admitted = await MobileHostService.connectionAuthorizationError(
+            for: request,
+            authorization: try irohAdmissionContext(),
+            stackAuthorization: { _ in
+                await recorder.record()
+                return .failure(MobileHostRPCError(
+                    code: "unauthorized",
+                    message: "Stack should not run"
+                ))
+            }
+        )
+        #expect(admitted == nil)
+        #expect(await recorder.count() == 0)
+
+        let tcp = await MobileHostService.connectionAuthorizationError(
+            for: request,
+            authorization: .stackBearer,
+            stackAuthorization: { _ in
+                await recorder.record()
+                return .failure(MobileHostRPCError(
+                    code: "unauthorized",
+                    message: "Missing Stack bearer"
+                ))
+            }
+        )
+        guard case let .failure(error) = tcp else {
+            return #expect(Bool(false), "Tokenless TCP must retain Stack authorization")
+        }
+        #expect(error.code == "unauthorized")
+        #expect(await recorder.count() == 1)
+    }
+    @Test func testIrohAdmittedStatusIncludesIdentityWhileTCPPublicStatusDoesNot() async throws {
+        let request = MobileHostRPCRequest(
+            id: "host-status",
+            method: "mobile.host.status",
+            params: [:],
+            auth: nil
+        )
+        let admitted = await MobileHostService.connectionStatusResult(
+            for: request,
+            authorization: try irohAdmissionContext(),
+            stackStatus: { _ in .ok(["routes": []]) }
+        )
+        guard case let .ok(admittedPayload as [String: Any]) = admitted else {
+            return #expect(Bool(false), "Admitted Iroh status must return an object")
+        }
+        #expect(admittedPayload["mac_device_id"] is String)
+
+        let tcp = await MobileHostService.connectionStatusResult(
+            for: request,
+            authorization: .stackBearer,
+            stackStatus: { _ in .ok(["routes": []]) }
+        )
+        guard case let .ok(tcpPayload as [String: Any]) = tcp else {
+            return #expect(Bool(false), "TCP status must return an object")
+        }
+        #expect(tcpPayload["mac_device_id"] == nil)
+    }
     #if DEBUG
     @Test func testDebugStackAuthTokenPolicyRequiresConfiguredToken() {
         #expect(MobileHostDevStackAuthPolicy.normalizedToken("   ") == nil)
@@ -145,6 +212,21 @@ struct MobileHostAuthorizationTests {
         }
     }
     #endif
+
+    private func irohAdmissionContext() throws -> MobileHostConnectionAuthorizationContext {
+        let endpointID = try CmxIrohPeerIdentity(
+            endpointID: String(repeating: "a", count: 64)
+        )
+        let peer = CmxIrohGrantPeer(
+            bindingID: "123e4567-e89b-42d3-a456-426614174001",
+            deviceID: "123e4567-e89b-42d3-a456-426614174002",
+            tag: "ios-test",
+            platform: .ios,
+            endpointID: endpointID,
+            identityGeneration: 1
+        )
+        return .irohAdmission(CmxIrohAdmittedPeer(peer: peer))
+    }
     @Test func testMobileHostRPCRejectsInvalidParamsShape() {
         let data = Data(#"{"id":"bad-params","method":"workspace.list","params":[]}"#.utf8)
         let result = MobileHostRPCEnvelope.decodeRequest(data)
@@ -1220,6 +1302,11 @@ private actor MobileHostConnectionCloseRecorder {
     func recordedIDs() -> [UUID] {
         ids
     }
+}
+private actor MobileHostAuthorizationInvocationRecorder {
+    private var invocations = 0
+    func record() { invocations += 1 }
+    func count() -> Int { invocations }
 }
 private actor MobileHostConnectionRequestRecorder {
     private var methods: [String] = []
