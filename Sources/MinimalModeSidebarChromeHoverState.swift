@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import Observation
 
 // Shared "which window's minimal-mode sidebar chrome is hovered" state.
 // Written by the local event monitor in `WindowDecorationsController` and the
