@@ -20,6 +20,21 @@ const USER: AuthedUser = {
 };
 
 describe("Iroh route boundary", () => {
+  test("requires authentication before returning the public verification-key set", async () => {
+    let called = false;
+    const response = await handleIrohRoute(new Request("https://cmux.test/api/devices/iroh"), "discover", {
+      verify: async () => null,
+      broker: broker({
+        discover: () => {
+          called = true;
+          return Effect.succeed({ grant_verification_keys: { version: 1, keys: [] } });
+        },
+      }),
+    });
+    expect(response.status).toBe(401);
+    expect(called).toBe(false);
+  });
+
   test("authenticates before reading an oversized body", async () => {
     let called = false;
     const response = await handleIrohRoute(new Request("https://cmux.test/api/devices/iroh/challenge", {
@@ -152,6 +167,7 @@ function broker(overrides: Partial<IrohTrustBrokerShape> = {}): IrohTrustBrokerS
     issueChallenge: unavailable,
     register: unavailable,
     discover: unavailable,
+    issueEndpointAttestation: unavailable,
     revoke: unavailable,
     issuePairGrant: unavailable,
     issueRelayToken: unavailable,

@@ -22,7 +22,12 @@ export class IrohQuotaExceededError extends Data.TaggedError("IrohQuotaExceededE
 }> {}
 
 export class IrohConfigurationError extends Data.TaggedError("IrohConfigurationError")<{
-  readonly component: "grant_signing" | "grant_verification" | "lan_discovery" | "relay_minter";
+  readonly component:
+    | "grant_signing"
+    | "grant_verification"
+    | "account_subject"
+    | "lan_discovery"
+    | "relay_minter";
 }> {}
 
 export class IrohDatabaseError extends Data.TaggedError("IrohDatabaseError")<{

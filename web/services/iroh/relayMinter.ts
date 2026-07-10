@@ -7,6 +7,7 @@ import { IrohTrustBrokerConfig } from "./config";
 import { IROH_RELAY_TOKEN_LIFETIME_SECONDS, endpointId } from "./model";
 
 const MAX_MINTER_RESPONSE_BYTES = 32 * 1_024;
+export const IROH_RELAY_MINTER_PATH = "/api/relay-token";
 
 export type IrohRelayMintResult = {
   readonly token: string;
@@ -43,7 +44,7 @@ function mintWithIsolatedService(
   return Effect.tryPromise({
     try: async () => {
       endpointId(input.endpointId);
-      const url = configuredUrl(config.relayMinterUrl);
+      const url = parseMinterUrl(config.relayMinterUrl);
       const secret = parseMinterHmacSecret(config.relayMinterHmacSecretBase64);
       const body = JSON.stringify({
         endpointId: input.endpointId,
@@ -67,7 +68,12 @@ function mintWithIsolatedService(
       });
       if (!response.ok) throw new IrohRelayMintError({ code: "minter_rejected" });
       const raw = await readBoundedMinterJson(response);
-      if (typeof raw.token !== "string" || raw.token.length < 16 || raw.token.length > 16_384) {
+      if (
+        typeof raw.token !== "string" ||
+        raw.token.length < 16 ||
+        raw.token.length > 16_384 ||
+        !/^[a-z2-7]+$/.test(raw.token)
+      ) {
         throw new IrohRelayMintError({ code: "invalid_minter_response" });
       }
       if (typeof raw.expiresAt !== "string") throw new IrohRelayMintError({ code: "invalid_minter_response" });
@@ -98,6 +104,12 @@ function mintWithIsolatedService(
 export async function readBoundedMinterJson(
   response: Response,
 ): Promise<{ token?: unknown; expiresAt?: unknown }> {
+  if (
+    response.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase() !==
+    "application/json"
+  ) {
+    throw new IrohRelayMintError({ code: "invalid_minter_response" });
+  }
   const contentLength = response.headers.get("content-length");
   if (contentLength) {
     const parsed = Number(contentLength);
@@ -129,24 +141,40 @@ export async function readBoundedMinterJson(
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
     throw new IrohRelayMintError({ code: "invalid_minter_response" });
   }
-  return parsed as { token?: unknown; expiresAt?: unknown };
+  const object = parsed as Record<string, unknown>;
+  const keys = Object.keys(object);
+  if (keys.length !== 2 || !keys.includes("token") || !keys.includes("expiresAt")) {
+    throw new IrohRelayMintError({ code: "invalid_minter_response" });
+  }
+  return object;
 }
 
-function configuredUrl(value: string | undefined): URL {
+export function parseMinterUrl(value: string | undefined): URL {
   if (!value) throw new IrohConfigurationError({ component: "relay_minter" });
   const url = new URL(value);
-  if (url.protocol !== "https:" || url.username || url.password || url.search || url.hash) {
+  if (
+    url.protocol !== "https:" ||
+    url.username ||
+    url.password ||
+    url.pathname !== IROH_RELAY_MINTER_PATH ||
+    url.search ||
+    url.hash
+  ) {
     throw new IrohConfigurationError({ component: "relay_minter" });
   }
   return url;
 }
 
 export function parseMinterHmacSecret(value: string | undefined): Buffer {
-  if (!value) throw new IrohConfigurationError({ component: "relay_minter" });
+  if (!value || value.length > 512) throw new IrohConfigurationError({ component: "relay_minter" });
   const decoded = Buffer.from(value, "base64");
-  const canonicalInput = value.replace(/=+$/, "");
-  const canonicalDecoded = decoded.toString("base64").replace(/=+$/, "");
-  if (decoded.byteLength < 32 || canonicalInput !== canonicalDecoded) {
+  const canonicalPadded = decoded.toString("base64");
+  const canonicalUnpadded = canonicalPadded.replace(/=+$/, "");
+  if (
+    decoded.byteLength < 32 ||
+    decoded.byteLength > 256 ||
+    (value !== canonicalPadded && value !== canonicalUnpadded)
+  ) {
     throw new IrohConfigurationError({ component: "relay_minter" });
   }
   return decoded;

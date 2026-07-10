@@ -5,7 +5,11 @@ import {
   deviceLimitOverrideAllowed,
   type IrohTrustBrokerConfigShape,
 } from "../services/iroh/config";
-import { registrationTranscript } from "../services/iroh/crypto";
+import {
+  parseVerificationKeys,
+  registrationTranscript,
+  verifyEndpointAttestation,
+} from "../services/iroh/crypto";
 import {
   IrohConflictError,
   IrohForbiddenError,
@@ -128,7 +132,7 @@ describe("Iroh discovery and grants", () => {
     expect(discovered.bindings).toEqual([]);
   });
 
-  test("returns the relay fleet separately and prunes expired hints from storage", async () => {
+  test("returns the relay fleet and authenticated current/previous public keys", async () => {
     const fixture = makeFixture();
     fixture.repository.bindings.push(binding({
       userId: USER_A,
@@ -145,10 +149,20 @@ describe("Iroh discovery and grants", () => {
     const discovered = await Effect.runPromise(fixture.broker.discover(USER_A, NOW)) as {
       relay_fleet: string[];
       bindings: Array<{ path_hints: unknown[] }>;
+      grant_verification_keys: {
+        current_kid: string;
+        keys: Array<{ kid: string; spki_der_base64: string }>;
+      };
     };
     expect(discovered.relay_fleet).toEqual([...MANAGED_RELAY_URLS]);
     expect(discovered.bindings[0]!.path_hints).toEqual([]);
     expect(fixture.repository.bindings[0]!.pathHints).toEqual([]);
+    expect(discovered.grant_verification_keys.current_kid).toBe("current");
+    expect(discovered.grant_verification_keys.keys.map((key) => key.kid)).toEqual([
+      "current",
+      "previous",
+    ]);
+    expect(JSON.stringify(discovered.grant_verification_keys)).not.toContain("PRIVATE KEY");
   });
 
   test("pair grants require two same-user bindings and a pairable Mac", async () => {
@@ -169,6 +183,65 @@ describe("Iroh discovery and grants", () => {
       initiatorBindingId: initiator.id,
       acceptorBindingId: acceptor.id,
     }, NOW), "IrohNotFoundError");
+  });
+
+  test("issues a short-lived opaque same-account attestation only for an owned active binding", async () => {
+    const fixture = makeFixture();
+    const active = binding({ userId: USER_A, platform: "ios", identityGeneration: 4 });
+    fixture.repository.bindings.push(active);
+    const result = await Effect.runPromise(fixture.broker.issueEndpointAttestation(USER_A, {
+      bindingId: active.id,
+    }, NOW)) as {
+      attestation_version: number;
+      attestation: string;
+      expires_at: string;
+      grant_verification_keys: { current_kid: string };
+    };
+    expect(result.attestation_version).toBe(1);
+    expect(result.grant_verification_keys.current_kid).toBe("current");
+    expect(new Date(result.expires_at).getTime() - NOW.getTime()).toBe(24 * 60 * 60 * 1_000);
+    const payload = JSON.parse(Buffer.from(result.attestation.split(".")[1]!, "base64url").toString()) as {
+      sub: string;
+    };
+    expect(payload.sub).toHaveLength(43);
+    expect(JSON.stringify(payload)).not.toContain(USER_A);
+
+    const keys = parseVerificationKeys(fixture.config.grantVerificationKeysJson);
+    expect(verifyEndpointAttestation(result.attestation, keys.publicKeys, {
+      bindingId: active.id,
+      deviceId: active.deviceUuid,
+      endpointId: active.endpointId,
+      identityGeneration: active.identityGeneration,
+      platform: "ios",
+      nowSeconds: Math.floor(NOW.getTime() / 1_000),
+    }).sub).toBe(payload.sub);
+
+    await expectEffectFailure(fixture.broker.issueEndpointAttestation(USER_B, {
+      bindingId: active.id,
+    }, NOW), "IrohNotFoundError");
+    active.revokedAt = NOW;
+    await expectEffectFailure(fixture.broker.issueEndpointAttestation(USER_A, {
+      bindingId: active.id,
+    }, NOW), "IrohNotFoundError");
+  });
+
+  test("fails closed when verification or opaque-subject signing material is unavailable", async () => {
+    const fixture = makeFixture();
+    const active = binding({ userId: USER_A, platform: "ios" });
+    fixture.repository.bindings.push(active);
+    const noVerificationKeys = makeIrohTrustBroker(fixture.repository, fixture.minter, {
+      ...fixture.config,
+      grantVerificationKeysJson: undefined,
+    });
+    await expectEffectFailure(noVerificationKeys.discover(USER_A, NOW), "IrohConfigurationError");
+
+    const noAccountSubject = makeIrohTrustBroker(fixture.repository, fixture.minter, {
+      ...fixture.config,
+      accountSubjectSecretBase64: undefined,
+    });
+    await expectEffectFailure(noAccountSubject.issueEndpointAttestation(USER_A, {
+      bindingId: active.id,
+    }, NOW), "IrohConfigurationError");
   });
 });
 
@@ -421,11 +494,24 @@ function makeFixture(options: {
   const identityGeneration = options.identityGeneration ?? 1;
   const config: IrohTrustBrokerConfigShape = {
     lanDiscoverySecretBase64: Buffer.alloc(32, 7).toString("base64"),
+    accountSubjectSecretBase64: Buffer.alloc(32, 8).toString("base64"),
     grantSigningPrivateKeyPem: grantKeys.privateKey.export({ format: "pem", type: "pkcs8" }).toString(),
     grantSigningKid: "current",
     grantVerificationKeysJson: JSON.stringify({
-      current: grantKeys.publicKey.export({ format: "pem", type: "spki" }).toString(),
-      previous: previousKeys.publicKey.export({ format: "pem", type: "spki" }).toString(),
+      version: 1,
+      current_kid: "current",
+      keys: [
+        {
+          kid: "current",
+          alg: "EdDSA",
+          spki_der_base64: grantKeys.publicKey.export({ format: "der", type: "spki" }).toString("base64"),
+        },
+        {
+          kid: "previous",
+          alg: "EdDSA",
+          spki_der_base64: previousKeys.publicKey.export({ format: "der", type: "spki" }).toString("base64"),
+        },
+      ],
     }),
     deviceLimitOverrideEnabled: false,
     deviceLimitOverrideUserIds: new Set(),
@@ -438,6 +524,7 @@ function makeFixture(options: {
     repository,
     minter,
     broker,
+    config,
     endpointId,
     appInstanceId,
     deviceId,

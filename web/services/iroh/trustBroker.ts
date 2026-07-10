@@ -3,13 +3,18 @@ import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import {
+  assertCurrentSigningKey,
+  deriveAccountSubject,
   deriveLanRendezvousKey,
   hashesEqual,
   nonceHash,
   parseVerificationKeys,
+  signEndpointAttestation,
   signPairGrant,
+  verifyEndpointAttestation,
   verifyEndpointRegistrationSignature,
   verifyPairGrant,
+  type EndpointAttestationClaims,
   type PairGrantClaims,
   type PairGrantPeer,
 } from "./crypto";
@@ -30,6 +35,9 @@ import {
 import {
   IROH_ALPN,
   IROH_CHALLENGE_LIFETIME_MS,
+  IROH_ENDPOINT_ATTESTATION_LIFETIME_SECONDS,
+  IROH_ENDPOINT_ATTESTATION_SCOPE,
+  IROH_ENDPOINT_ATTESTATION_VERSION,
   IROH_PAIR_GRANT_LIFETIME_SECONDS,
   IROH_PAIR_SCOPE,
   IROH_RELAY_TOKEN_LIFETIME_SECONDS,
@@ -78,6 +86,11 @@ export type IrohTrustBrokerShape = {
     now?: Date,
   ) => Effect.Effect<unknown, IrohExpectedError>;
   readonly issuePairGrant: (
+    userId: string,
+    raw: unknown,
+    now?: Date,
+  ) => Effect.Effect<unknown, IrohExpectedError>;
+  readonly issueEndpointAttestation: (
     userId: string,
     raw: unknown,
     now?: Date,
@@ -207,11 +220,13 @@ export function makeIrohTrustBroker(
         userId,
         generation,
       ));
+      const verificationKeys = yield* parseEffect(() => signingVerificationKeys(config));
       return {
         route_contract_version: 1,
         bindings: bindings.map((binding) => publicBinding(binding, now)),
         relay_fleet: MANAGED_RELAY_URLS,
         lan_rendezvous: { generation, key: rendezvousKey },
+        grant_verification_keys: verificationKeys.keySet,
       };
     }),
 
@@ -253,13 +268,13 @@ export function makeIrohTrustBroker(
         }
         return config.grantSigningKid;
       });
-      const verificationKeys = yield* parseEffect(() => parseVerificationKeys(config.grantVerificationKeysJson));
+      const verificationKeys = yield* parseEffect(() => signingVerificationKeys(config));
       const token = yield* parseEffect(() => signPairGrant({
         privateKeyPem: config.grantSigningPrivateKeyPem,
         kid: signingKeyId,
         claims,
       }));
-      yield* parseEffect(() => verifyPairGrant(token, verificationKeys, {
+      yield* parseEffect(() => verifyPairGrant(token, verificationKeys.publicKeys, {
         initiator: claims.initiator,
         acceptor: claims.acceptor,
         nowSeconds: issuedAtSeconds,
@@ -277,6 +292,55 @@ export function makeIrohTrustBroker(
         expiresAt: new Date(claims.exp * 1_000),
       });
       return { grant: token, expires_at: new Date(claims.exp * 1_000).toISOString() };
+    }),
+
+    issueEndpointAttestation: (userId, raw, now = new Date()) => Effect.gen(function* () {
+      const { bindingId } = yield* parseEffect(() => parseBindingIdBody(raw));
+      const bindings = yield* repository.findActiveBindings(userId, [bindingId]);
+      const binding = bindings.length === 1 ? bindings[0] : undefined;
+      if (!binding) return yield* Effect.fail(new IrohNotFoundError({ resource: "binding" }));
+
+      const verificationKeys = yield* parseEffect(() => signingVerificationKeys(config));
+      const issuedAtSeconds = Math.floor(now.getTime() / 1_000);
+      const platform = yield* parseEffect(() => bindingPlatform(binding));
+      const claims: EndpointAttestationClaims = {
+        version: IROH_ENDPOINT_ATTESTATION_VERSION,
+        jti: randomUUID(),
+        sub: yield* parseEffect(() => deriveAccountSubject(config.accountSubjectSecretBase64, userId)),
+        bindingId: binding.id,
+        deviceId: binding.deviceUuid,
+        endpointId: binding.endpointId,
+        identityGeneration: binding.identityGeneration,
+        platform,
+        iat: issuedAtSeconds,
+        nbf: issuedAtSeconds - 5,
+        exp: issuedAtSeconds + IROH_ENDPOINT_ATTESTATION_LIFETIME_SECONDS,
+        alpn: IROH_ALPN,
+        scope: IROH_ENDPOINT_ATTESTATION_SCOPE,
+      };
+      const attestation = yield* parseEffect(() => signEndpointAttestation({
+        privateKeyPem: config.grantSigningPrivateKeyPem,
+        kid: config.grantSigningKid,
+        claims,
+      }));
+      yield* parseEffect(() => verifyEndpointAttestation(
+        attestation,
+        verificationKeys.publicKeys,
+        {
+          bindingId: binding.id,
+          deviceId: binding.deviceUuid,
+          endpointId: binding.endpointId,
+          identityGeneration: binding.identityGeneration,
+          platform,
+          nowSeconds: issuedAtSeconds,
+        },
+      ));
+      return {
+        attestation_version: IROH_ENDPOINT_ATTESTATION_VERSION,
+        attestation,
+        expires_at: new Date(claims.exp * 1_000).toISOString(),
+        grant_verification_keys: verificationKeys.keySet,
+      };
     }),
 
     issueRelayToken,
@@ -348,6 +412,23 @@ function grantPeer(binding: IrohBindingRecord): PairGrantPeer {
     endpointId: binding.endpointId,
     identityGeneration: binding.identityGeneration,
   };
+}
+
+function signingVerificationKeys(config: IrohTrustBrokerConfigShape) {
+  const verificationKeys = parseVerificationKeys(config.grantVerificationKeysJson);
+  assertCurrentSigningKey({
+    privateKeyPem: config.grantSigningPrivateKeyPem,
+    kid: config.grantSigningKid,
+    verificationKeys,
+  });
+  return verificationKeys;
+}
+
+function bindingPlatform(binding: IrohBindingRecord): "mac" | "ios" {
+  if (binding.platform !== "mac" && binding.platform !== "ios") {
+    throw new IrohConfigurationError({ component: "grant_signing" });
+  }
+  return binding.platform;
 }
 
 // Stack bearer authentication alone is never sufficient to mutate path hints.

@@ -18,6 +18,7 @@ export type IrohRouteOperation =
   | "challenge"
   | "register"
   | "discover"
+  | "endpoint_attestation"
   | "revoke"
   | "pair_grant"
   | "relay_token";
@@ -98,6 +99,7 @@ function invoke(
     case "challenge": return broker.issueChallenge(userId, body);
     case "register": return broker.register(userId, body);
     case "discover": return broker.discover(userId);
+    case "endpoint_attestation": return broker.issueEndpointAttestation(userId, body);
     case "revoke": return broker.revoke(userId, body);
     case "pair_grant": return broker.issuePairGrant(userId, body);
     case "relay_token": return broker.issueRelayToken(userId, body);
