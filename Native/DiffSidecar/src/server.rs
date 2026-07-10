@@ -71,7 +71,11 @@ struct BranchSessionAuthorization {
 }
 
 const MAX_CACHED_MANIFESTS: usize = 64;
+const MAX_RPC_REQUEST_BYTES: usize = 1024 * 1024;
 const MAX_RPC_RESPONSE_BYTES: usize = 32 * 1024 * 1024;
+const RPC_STDIN_READ_TIMEOUT: Duration = Duration::from_secs(10);
+// The caller-supplied ID cannot be trusted until the complete envelope parses.
+const UNTRUSTED_RPC_REQUEST_ID: &str = "__cmux_untrusted_request__";
 const MAX_CONCURRENT_CHILD_PROCESSES: usize = 4;
 const BRANCH_LIST_CHILD_TIMEOUT: Duration = Duration::from_secs(30);
 // Branch regeneration runs Git commands with 60-second deadlines, then writes
@@ -147,19 +151,57 @@ fn app_state(config: ServerConfig, port: u16) -> Result<AppState, String> {
 pub async fn run_rpc(config: ServerConfig) -> Result<(), String> {
     validate_root(&config.root).await?;
     let _ = rustls::crypto::ring::default_provider().install_default();
+    let response = match read_rpc_request(tokio::io::stdin(), RPC_STDIN_READ_TIMEOUT).await? {
+        RpcRequestRead::Request(request) => {
+            let state = app_state(config, 0)?;
+            handle_protocol_request(request, Some(&state)).await
+        }
+        RpcRequestRead::Rejected(response) => response,
+    };
+    write_rpc_response(&response).await
+}
+
+enum RpcRequestRead {
+    Request(DiffRequest),
+    Rejected(DiffResponse),
+}
+
+async fn read_rpc_request<R>(reader: R, timeout: Duration) -> Result<RpcRequestRead, String>
+where
+    R: tokio::io::AsyncRead + Unpin,
+{
     let mut input = Vec::new();
-    tokio::io::stdin()
-        .take(1024 * 1024 + 1)
-        .read_to_end(&mut input)
-        .await
-        .map_err(|error| error.to_string())?;
-    if input.len() > 1024 * 1024 {
-        return Err("request exceeds 1 MiB".to_owned());
+    let mut limited_reader = reader.take((MAX_RPC_REQUEST_BYTES + 1) as u64);
+    let read = limited_reader.read_to_end(&mut input);
+    match tokio::time::timeout(timeout, read).await {
+        Err(_) => {
+            return Ok(RpcRequestRead::Rejected(DiffResponse::failure(
+                UNTRUSTED_RPC_REQUEST_ID.to_owned(),
+                "requestTimeout",
+                "Timed out waiting for a complete RPC request",
+            )));
+        }
+        Ok(Err(error)) => return Err(error.to_string()),
+        Ok(Ok(_)) => {}
     }
-    let request: DiffRequest =
-        serde_json::from_slice(&input).map_err(|error| format!("invalid request: {error}"))?;
-    let state = app_state(config, 0)?;
-    let response = handle_protocol_request(request, Some(&state)).await;
+    if input.len() > MAX_RPC_REQUEST_BYTES {
+        return Ok(RpcRequestRead::Rejected(DiffResponse::failure(
+            UNTRUSTED_RPC_REQUEST_ID.to_owned(),
+            "requestTooLarge",
+            "RPC request exceeds 1 MiB",
+        )));
+    }
+    match serde_json::from_slice(&input) {
+        Ok(request) => Ok(RpcRequestRead::Request(request)),
+        Err(error) => Ok(RpcRequestRead::Rejected(DiffResponse::failure(
+            UNTRUSTED_RPC_REQUEST_ID.to_owned(),
+            "invalidRequest",
+            &format!("Invalid RPC request: {error}"),
+        ))),
+    }
+}
+
+async fn write_rpc_response(response: &DiffResponse) -> Result<(), String> {
     let bytes = serde_json::to_vec(&response).map_err(|error| error.to_string())?;
     if bytes.len() > MAX_RPC_RESPONSE_BYTES {
         return Err("response exceeds 32 MiB".to_owned());
@@ -886,10 +928,17 @@ pub async fn write_handshake_to_stdout() -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
+    use tokio::io::AsyncWriteExt;
+
     use crate::PROTOCOL_VERSION;
     use crate::protocol::{DiffCommand, DiffRequest, DiffResult};
 
-    use super::{handle_protocol_request, valid_group_id};
+    use super::{
+        RpcRequestRead, UNTRUSTED_RPC_REQUEST_ID, handle_protocol_request, read_rpc_request,
+        valid_group_id,
+    };
 
     #[tokio::test]
     async fn handshake_reports_transport_capabilities() {
@@ -924,5 +973,23 @@ mod tests {
         assert!(!valid_group_id(""));
         assert!(!valid_group_id(&"a".repeat(65)));
         assert!(!valid_group_id("../group"));
+    }
+
+    #[tokio::test]
+    async fn stdio_request_read_has_an_internal_deadline() {
+        let (mut writer, reader) = tokio::io::duplex(64);
+        writer.write_all(b"{").await.expect("write partial request");
+
+        let read = read_rpc_request(reader, Duration::from_millis(10))
+            .await
+            .expect("read timeout response");
+        let RpcRequestRead::Rejected(response) = read else {
+            panic!("expected rejected request");
+        };
+        assert_eq!(response.id, UNTRUSTED_RPC_REQUEST_ID);
+        assert_eq!(
+            response.error.as_ref().map(|error| error.code.as_str()),
+            Some("requestTimeout")
+        );
     }
 }

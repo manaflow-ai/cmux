@@ -1,11 +1,46 @@
 use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::{Command, Output, Stdio};
 
 use futures_util::{SinkExt, StreamExt};
 
 #[test]
 fn rpc_uses_stdio_without_server_state() {
+    let output = run_stdio_rpc(br#"{"id":"probe","version":1,"method":"protocolHandshake"}"#);
+    assert!(output.status.success());
+    let response: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("decode response");
+    assert_eq!(response["id"], "probe");
+    assert_eq!(response["result"]["type"], "handshake");
+}
+
+#[test]
+fn rpc_returns_typed_failure_for_malformed_request() {
+    let output = run_stdio_rpc(br#"{"id": "unclosed"#);
+    assert!(output.status.success());
+    assert_rpc_failure(&output, "invalidRequest");
+}
+
+#[test]
+fn rpc_returns_typed_failure_for_oversized_request() {
+    let output = run_stdio_rpc(&vec![b' '; 1024 * 1024 + 1]);
+    assert!(output.status.success());
+    assert_rpc_failure(&output, "requestTooLarge");
+}
+
+#[test]
+fn rpc_accepts_request_at_one_mib_limit() {
+    let mut request = br#"{"id":"limit","version":1,"method":"protocolHandshake"}"#.to_vec();
+    request.resize(1024 * 1024, b' ');
+    let output = run_stdio_rpc(&request);
+    assert!(output.status.success());
+    let response: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("decode limit response");
+    assert_eq!(response["id"], "limit");
+    assert_eq!(response["result"]["type"], "handshake");
+}
+
+fn run_stdio_rpc(input: &[u8]) -> Output {
     let root = std::env::temp_dir().join(format!(
         "cmux-diff-sidecar-rpc-test-{}-{}",
         std::process::id(),
@@ -34,17 +69,21 @@ fn rpc_uses_stdio_without_server_state() {
         .stdin
         .take()
         .expect("sidecar stdin")
-        .write_all(br#"{"id":"probe","version":1,"method":"protocolHandshake"}"#)
+        .write_all(input)
         .expect("write request");
     let output = child.wait_with_output().expect("wait for sidecar");
-    assert!(output.status.success());
-    let response: serde_json::Value =
-        serde_json::from_slice(&output.stdout).expect("decode response");
-    assert_eq!(response["id"], "probe");
-    assert_eq!(response["result"]["type"], "handshake");
     assert!(!root.join(".server.json").exists());
-
     let _ = std::fs::remove_dir_all(root);
+    output
+}
+
+fn assert_rpc_failure(output: &Output, code: &str) {
+    let response: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("decode typed failure");
+    assert_eq!(response["id"], "__cmux_untrusted_request__");
+    assert_eq!(response["version"], 1);
+    assert!(response["result"].is_null());
+    assert_eq!(response["error"]["code"], code);
 }
 
 #[test]
