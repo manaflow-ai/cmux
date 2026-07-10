@@ -23,6 +23,10 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         super.tearDown()
     }
 
+    func testNotificationsPopoverShowsWorkspaceAsHeadline() {
+        runNotificationsPopoverShowsWorkspaceAsHeadline()
+    }
+
     func testNotificationsRouteToCorrectWindow() {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_UI_TEST_MULTI_WINDOW_NOTIF_SETUP"] = "1"
@@ -652,12 +656,6 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         }
         button.click()
         return waitForFocusChange(from: token, timeout: max(0.0, timeout - firstDeadline))
-    }
-
-    func waitForWindowCount(atLeast count: Int, app: XCUIApplication, timeout: TimeInterval) -> Bool {
-        waitForCondition(timeout: timeout) {
-            app.windows.count >= count
-        }
     }
 
     func launchAllowingHeadlessBackgroundActivation(_ app: XCUIApplication) {

@@ -1,7 +1,7 @@
 import XCTest
 
 extension MultiWindowNotificationsUITests {
-    func testNotificationsPopoverShowsWorkspaceAsHeadline() {
+    func runNotificationsPopoverShowsWorkspaceAsHeadline() {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_UI_TEST_MULTI_WINDOW_NOTIF_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_MULTI_WINDOW_NOTIF_PATH"] = dataPath
@@ -13,14 +13,21 @@ extension MultiWindowNotificationsUITests {
         )
 
         XCTAssertTrue(
-            waitForData(keys: ["notifId1", "workspaceTitle1"], timeout: 15.0),
+            waitForData(
+                keys: ["notifId1", "workspaceTitle1", "notifId2", "workspaceTitle2"],
+                timeout: 15.0
+            ),
             "Expected notification and workspace-title setup data"
         )
         guard let setup = loadData(),
-              let notificationId = setup["notifId1"],
-              let workspaceTitle = setup["workspaceTitle1"],
-              !notificationId.isEmpty,
-              !workspaceTitle.isEmpty else {
+              let notificationId1 = setup["notifId1"],
+              let workspaceTitle1 = setup["workspaceTitle1"],
+              let notificationId2 = setup["notifId2"],
+              let workspaceTitle2 = setup["workspaceTitle2"],
+              !notificationId1.isEmpty,
+              !workspaceTitle1.isEmpty,
+              !notificationId2.isEmpty,
+              !workspaceTitle2.isEmpty else {
             XCTFail("Missing notification workspace-title setup data")
             return
         }
@@ -33,13 +40,24 @@ extension MultiWindowNotificationsUITests {
 
         app.typeKey("i", modifierFlags: [.command])
 
-        let workspaceHeadline = app.descendants(matching: .any)
-            .matching(identifier: "NotificationPopoverRow.\(notificationId).workspaceTitle")
-            .firstMatch
-        XCTAssertTrue(
-            workspaceHeadline.waitForExistence(timeout: 6.0),
-            "Expected the notification row to expose its workspace as the headline"
-        )
-        XCTAssertEqual(workspaceHeadline.label, workspaceTitle)
+        for (notificationId, workspaceTitle) in [
+            (notificationId1, workspaceTitle1),
+            (notificationId2, workspaceTitle2),
+        ] {
+            let workspaceHeadline = app.descendants(matching: .any)
+                .matching(identifier: "NotificationPopoverRow.\(notificationId).workspaceTitle")
+                .firstMatch
+            XCTAssertTrue(
+                workspaceHeadline.waitForExistence(timeout: 6.0),
+                "Expected notification \(notificationId) to expose workspace \(workspaceTitle) as its headline"
+            )
+            XCTAssertEqual(workspaceHeadline.label, workspaceTitle)
+        }
+    }
+
+    func waitForWindowCount(atLeast count: Int, app: XCUIApplication, timeout: TimeInterval) -> Bool {
+        waitForCondition(timeout: timeout) {
+            app.windows.count >= count
+        }
     }
 }
