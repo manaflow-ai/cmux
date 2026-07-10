@@ -6,6 +6,37 @@ import Testing
 @Suite
 struct MobileCoreRPCIndependentEventTests {
     @Test
+    func subscribeAdvertisesIndependentDeliveryOnlyAfterReceiverPreparation() async throws {
+        let route = try irohRoute(hexBytePair: "9a")
+        let source = IndependentEventSource()
+        let transport = SubscribeRoundTripTransport()
+        let runtime = TestMobileSyncRuntime(
+            transportFactory: FixedTransportFactory(transport: transport),
+            independentEventByteStreamProvider: { _ in await source.makeStream() }
+        )
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: try ticket(route: route, deviceSuffix: "003")
+        )
+        let request = try MobileCoreRPCClient.requestData(
+            method: "mobile.events.subscribe",
+            params: [
+                "stream_id": "events",
+                "topics": ["terminal.updated"],
+            ]
+        )
+
+        _ = try await client.sendRequest(request)
+
+        #expect(
+            await transport.recordedEventTransport()
+                == "iroh_server_events_v1"
+        )
+        await client.disconnect()
+    }
+
+    @Test
     func independentlyFramedEventsReachTheExistingListenerPipeline() async throws {
         let route = try irohRoute(hexBytePair: "ab")
         let source = IndependentEventSource()
@@ -59,7 +90,7 @@ struct MobileCoreRPCIndependentEventTests {
             route: route,
             ticket: try ticket(route: route, deviceSuffix: "005")
         )
-        _ = await client.subscribe(to: ["workspace.updated"])
+        let listener = await client.subscribe(to: ["workspace.updated"])
 
         #expect(await client.prepareIndependentServerEvents())
         await source.finish(throwing: IndependentEventTestError.closed)
@@ -69,6 +100,7 @@ struct MobileCoreRPCIndependentEventTests {
         }
         #expect(!(await client.session.hasIndependentEventReaderForTesting))
         #expect(await client.session.eventListenerCountForTesting == 1)
+        _ = listener
 
         await client.disconnect()
     }
@@ -130,4 +162,56 @@ private actor NeverConnectedTransport: CmxByteTransport {
     func receive() async throws -> Data? { nil }
     func send(_: Data) async throws {}
     func close() async {}
+}
+
+private actor SubscribeRoundTripTransport: CmxByteTransport {
+    private var replies: [Data] = []
+    private var waiter: CheckedContinuation<Data?, Never>?
+    private var eventTransport: String?
+    private var closed = false
+
+    func connect() async throws {}
+
+    func receive() async throws -> Data? {
+        if !replies.isEmpty { return replies.removeFirst() }
+        if closed { return nil }
+        return await withCheckedContinuation { waiter = $0 }
+    }
+
+    func send(_ data: Data) async throws {
+        var buffer = data
+        let payload = try #require(
+            MobileSyncFrameCodec.decodeFrames(from: &buffer).first
+        )
+        let request = try #require(
+            JSONSerialization.jsonObject(with: payload) as? [String: Any]
+        )
+        let params = request["params"] as? [String: Any]
+        eventTransport = params?["event_transport"] as? String
+        let response = try JSONSerialization.data(withJSONObject: [
+            "id": request["id"] ?? NSNull(),
+            "ok": true,
+            "result": [
+                "stream_id": "events",
+                "event_transport": eventTransport ?? "control_v1",
+            ],
+        ])
+        let framed = try MobileSyncFrameCodec.encodeFrame(response)
+        if let waiter {
+            self.waiter = nil
+            waiter.resume(returning: framed)
+        } else {
+            replies.append(framed)
+        }
+    }
+
+    func close() async {
+        closed = true
+        waiter?.resume(returning: nil)
+        waiter = nil
+    }
+
+    func recordedEventTransport() -> String? {
+        eventTransport
+    }
 }

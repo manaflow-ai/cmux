@@ -425,23 +425,19 @@ struct CmxIrohClientSessionTests {
     }
 
     @Test
-    func inboundArtifactHeaderIsRemovedWithoutDroppingPayload() async throws {
+    func serverEventReceiverRemovesItsLaneHeaderWithoutDroppingPayload() async throws {
         let control = controlStream(decision: .accepted)
-        let artifactLane = CmxIrohLane.artifact(
-            resourceID: try CmxIrohResourceID("artifact:preview"),
-            offset: 128
+        let eventHeader = try CmxIrohStreamHeaderCodec().encode(
+            CmxIrohStreamHeader(lane: .serverEvents(cursor: nil))
         )
-        let artifactHeader = try CmxIrohStreamHeaderCodec().encode(
-            CmxIrohStreamHeader(lane: artifactLane)
-        )
-        let artifactPayload = Data("preview".utf8)
-        let artifactReceive = TestIrohReceiveStream(
-            buffer: artifactHeader + artifactPayload
+        let eventPayload = Data("event-frame".utf8)
+        let eventReceive = TestIrohReceiveStream(
+            buffer: eventHeader + eventPayload
         )
         let connection = TestIrohConnection(
             remoteIdentity: remoteIdentity,
             bidirectionalStreams: [control.stream],
-            receiveStreams: [artifactReceive]
+            receiveStreams: [eventReceive]
         )
         let endpoint = TestDialingIrohEndpoint(
             localIdentity: localIdentity,
@@ -455,10 +451,14 @@ struct CmxIrohClientSessionTests {
         )
         try await session.connect()
 
-        let inbound = try await session.acceptInboundStream()
+        let stream = try await session.serverEventByteStream()
+        var bytes = stream.makeAsyncIterator()
 
-        #expect(inbound.lane == artifactLane)
-        #expect(try await inbound.receiveStream.receive(maximumByteCount: 64) == artifactPayload)
+        #expect(try await bytes.next() == eventPayload)
+        #expect(await connection.observedIncomingStreamLimits().first == "0:0")
+        #expect(await connection.observedIncomingStreamLimits().contains("0:1"))
+        await session.close()
+        #expect(await connection.observedIncomingStreamLimits().last == "0:0")
     }
 
     @Test

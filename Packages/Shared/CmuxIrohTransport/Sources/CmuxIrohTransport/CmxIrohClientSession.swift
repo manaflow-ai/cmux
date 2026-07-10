@@ -18,6 +18,7 @@ public actor CmxIrohClientSession {
     private var connectionTask: Task<CmxIrohConnectedControl, any Error>?
     private var connection: (any CmxIrohConnection)?
     private var controlStream: CmxIrohBidirectionalStream?
+    private var serverEventReceiver: CmxIrohClientServerEventReceiver?
     private var controlReceiveBuffer = Data()
     private var closed = false
 
@@ -157,34 +158,23 @@ public actor CmxIrohClientSession {
         }
     }
 
-    /// Accepts a peer-created unidirectional lane and removes its binary header.
-    ///
-    /// - Returns: The lane plus its buffered payload stream.
-    /// - Throws: A transport, framing, or lifecycle error.
-    public func acceptInboundStream() async throws -> CmxIrohInboundStream {
+    /// Starts the session-owned server-event accept loop. This is the only API
+    /// that can grant peer-created unidirectional stream credit, so feature
+    /// consumers cannot race over QUIC stream acceptance.
+    public func serverEventByteStream() async throws -> CmxIndependentEventByteStream {
         guard !closed else { throw CmxIrohClientSessionError.alreadyClosed }
         guard let connection else { throw CmxIrohClientSessionError.notConnected }
-        let receiveStream = try await connection.acceptReceiveStream()
-        do {
-            let decoded = try await readHeader(from: receiveStream)
-            switch decoded.header.lane {
-            case .serverEvents, .artifact:
-                break
-            case .control, .terminal:
-                throw CmxIrohClientSessionError.invalidOutgoingLane
-            }
-            let buffered = CmxIrohBufferedReceiveStream(
-                base: receiveStream,
-                buffer: decoded.trailingBytes
+        let receiver: CmxIrohClientServerEventReceiver
+        if let serverEventReceiver {
+            receiver = serverEventReceiver
+        } else {
+            receiver = try CmxIrohClientServerEventReceiver(
+                connection: connection,
+                protocolConfiguration: protocolConfiguration
             )
-            return CmxIrohInboundStream(
-                lane: decoded.header.lane,
-                receiveStream: buffered
-            )
-        } catch {
-            await receiveStream.stop(errorCode: 1)
-            throw error
+            serverEventReceiver = receiver
         }
+        return try await receiver.byteStream()
     }
 
     /// Suspends until the exact admitted QUIC connection closes.
@@ -202,6 +192,8 @@ public actor CmxIrohClientSession {
         closed = true
         connectionTask?.cancel()
         connectionTask = nil
+        await serverEventReceiver?.close()
+        serverEventReceiver = nil
         if let controlStream {
             await controlStream.sendStream.reset(errorCode: 0)
             await controlStream.receiveStream.stop(errorCode: 0)
@@ -299,11 +291,6 @@ public actor CmxIrohClientSession {
                     throw CmxIrohClientSessionError.invalidAdmissionFrame
                 }
                 try Task.checkCancellation()
-                try await establishedConnection.setIncomingStreamLimits(
-                    maximumBidirectionalStreamCount: 0,
-                    maximumUnidirectionalStreamCount: 16
-                )
-                try Task.checkCancellation()
                 return CmxIrohConnectedControl(
                     connection: establishedConnection,
                     stream: stream,
@@ -339,33 +326,4 @@ public actor CmxIrohClientSession {
         )
     }
 
-    private func readHeader(
-        from receiveStream: any CmxIrohReceiveStream
-    ) async throws -> (header: CmxIrohStreamHeader, trailingBytes: Data) {
-        var buffer = Data()
-        var requestedByteCount = 16
-        while true {
-            if buffer.count >= requestedByteCount {
-                do {
-                    let decoded = try headerCodec.decodePrefix(buffer)
-                    return (
-                        decoded.header,
-                        Data(buffer.dropFirst(decoded.consumedByteCount))
-                    )
-                } catch let error as CmxIrohStreamHeaderCodecError {
-                    if case let .incompleteFrame(requiredByteCount) = error {
-                        requestedByteCount = requiredByteCount
-                    } else {
-                        throw error
-                    }
-                }
-            }
-            let remaining = requestedByteCount - buffer.count
-            guard let bytes = try await receiveStream.receive(maximumByteCount: remaining),
-                  !bytes.isEmpty else {
-                throw CmxIrohClientSessionError.unexpectedEndOfStream
-            }
-            buffer.append(bytes)
-        }
-    }
 }

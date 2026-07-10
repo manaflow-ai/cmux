@@ -87,13 +87,6 @@ public actor CmxIrohServerSession {
                     admissionCodec.encodeFrame(.serverReady)
                 )
                 try Task.checkCancellation()
-                // One control stream plus sixteen bounded terminal or artifact lanes.
-                // Client-created unidirectional streams are not part of this protocol.
-                try await connection.setIncomingStreamLimits(
-                    maximumBidirectionalStreamCount: 17,
-                    maximumUnidirectionalStreamCount: 0
-                )
-                try Task.checkCancellation()
                 admitted = true
                 admittedPeer = peer
                 onlineAdmissionLease = onlineLease

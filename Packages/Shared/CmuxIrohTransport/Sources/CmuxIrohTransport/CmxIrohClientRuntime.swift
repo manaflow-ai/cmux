@@ -252,16 +252,12 @@ public actor CmxIrohClientRuntime {
         )
     }
 
-    /// Accepts a server-event or artifact lane from the admitted pooled peer.
-    ///
-    /// - Parameter request: The exact Iroh route and intended Mac device binding.
-    /// - Returns: The decoded lane and its payload stream.
-    /// - Throws: A lifecycle, discovery, admission, or stream-framing error.
-    public func acceptInboundStream(
+    /// Starts the one client-owned server-event accept loop for this peer.
+    public func serverEventByteStream(
         for request: CmxByteTransportRequest
-    ) async throws -> CmxIrohInboundStream {
+    ) async throws -> CmxIndependentEventByteStream {
         guard desiredActive else { throw CmxIrohClientRuntimeError.inactive }
-        return try await sessionPool.acceptInboundStream(for: request)
+        return try await sessionPool.serverEventByteStream(for: request)
     }
 
     /// Invalidates one peer session after a lane reports a terminal connection error.

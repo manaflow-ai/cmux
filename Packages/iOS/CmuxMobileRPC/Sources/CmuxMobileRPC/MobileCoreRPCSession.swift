@@ -3,6 +3,7 @@ import Foundation
 
 actor MobileCoreRPCSession {
     typealias TransportFactory = @Sendable () throws -> any CmxByteTransport
+    typealias IndependentEventByteStreamFactory = @Sendable () async throws -> CmxIndependentEventByteStream
     typealias ConnectedCandidateHook = @Sendable (_ candidate: any CmxByteTransport) async -> Void
     typealias PendingContinuation = CheckedContinuation<Result<Data, MobileShellConnectionError>, Never>
     typealias ConnectingTask = (id: UUID, lease: MobileRPCConnectAttemptLease?, task: Task<any CmxByteTransport, any Error>, waiters: Set<UUID>, completed: Bool)
@@ -25,17 +26,30 @@ actor MobileCoreRPCSession {
         let frame: Data
     }
 
+    private struct IndependentEventPreparation: Sendable {
+        let id: UUID
+        let task: Task<CmxIndependentEventByteStream, any Error>
+    }
+
+    private struct IndependentEventReader: Sendable {
+        let id: UUID
+        let task: Task<Void, Never>
+    }
+
     private let taskTimeout = RPCTaskTimeout()
     private let connectAttemptKey: String?
     let connectAttemptRegistry: MobileRPCConnectAttemptRegistry
     let abandonedConnectCleanupTimeoutNanoseconds: UInt64
     let lateAbandonedConnectCloseTimeoutNanoseconds: UInt64
     private let makeTransport: TransportFactory
+    private let makeIndependentEventByteStream: IndependentEventByteStreamFactory?
     private let didReceiveConnectedCandidate: ConnectedCandidateHook?
     private var transport: (any CmxByteTransport)?
     private var connectionTask: ConnectingTask?
     private var installedConnectionID: UUID?
     private var readerTask: Task<Void, Never>?
+    private var independentEventPreparation: IndependentEventPreparation?
+    private var independentEventReader: IndependentEventReader?
     private var pending: [String: PendingContinuation] = [:]
     private var requestTimeoutTasks: [String: Task<Void, Never>] = [:]
     private var queuedWriteIDs: [String: UUID] = [:]
@@ -54,6 +68,7 @@ actor MobileCoreRPCSession {
         abandonedConnectCleanupTimeoutNanoseconds: UInt64 = 1_000_000_000,
         lateAbandonedConnectCloseTimeoutNanoseconds: UInt64 = 5_000_000_000,
         makeTransport: @escaping TransportFactory,
+        makeIndependentEventByteStream: IndependentEventByteStreamFactory? = nil,
         didReceiveConnectedCandidate: ConnectedCandidateHook? = nil
     ) {
         self.connectAttemptKey = connectAttemptKey
@@ -61,12 +76,15 @@ actor MobileCoreRPCSession {
         self.abandonedConnectCleanupTimeoutNanoseconds = abandonedConnectCleanupTimeoutNanoseconds
         self.lateAbandonedConnectCloseTimeoutNanoseconds = lateAbandonedConnectCloseTimeoutNanoseconds
         self.makeTransport = makeTransport
+        self.makeIndependentEventByteStream = makeIndependentEventByteStream
         self.didReceiveConnectedCandidate = didReceiveConnectedCandidate
     }
 
     deinit {
         connectionTask?.task.cancel()
         readerTask?.cancel()
+        independentEventPreparation?.task.cancel()
+        independentEventReader?.task.cancel()
         writerTask?.cancel()
         writeQueue?.finish()
     }
@@ -139,7 +157,68 @@ actor MobileCoreRPCSession {
         listeners.removeValue(forKey: id)
     }
 
+    /// Prepares one independently framed server-event reader when the active
+    /// route supports it. Concurrent callers coalesce onto the same provider
+    /// operation and never create competing stream consumers.
+    func prepareIndependentServerEvents(
+        timeoutNanoseconds: UInt64? = nil
+    ) async -> Bool {
+        if independentEventReader != nil { return true }
+        guard !isTearingDown, let makeIndependentEventByteStream else { return false }
+
+        let preparation: IndependentEventPreparation
+        if let current = independentEventPreparation {
+            preparation = current
+        } else {
+            let task = Task {
+                try await makeIndependentEventByteStream()
+            }
+            preparation = IndependentEventPreparation(id: UUID(), task: task)
+            independentEventPreparation = preparation
+        }
+
+        do {
+            let stream: CmxIndependentEventByteStream
+            if let timeoutNanoseconds {
+                stream = try await taskTimeout.value(
+                    preparation.task,
+                    timeoutNanoseconds: timeoutNanoseconds
+                )
+            } else {
+                stream = try await preparation.task.value
+            }
+            guard independentEventPreparation?.id == preparation.id else {
+                return independentEventReader != nil
+            }
+            independentEventPreparation = nil
+            guard !isTearingDown else { return false }
+            if independentEventReader != nil { return true }
+
+            let readerID = UUID()
+            let task = Task { [weak self] in
+                guard let self else { return }
+                await self.readIndependentEventLoop(stream: stream, id: readerID)
+            }
+            independentEventReader = IndependentEventReader(id: readerID, task: task)
+            return true
+        } catch MobileShellConnectionError.requestTimedOut {
+            // The optional preparation does not consume the control RPC's full
+            // deadline. Keep the shared provider operation alive so a later
+            // subscribe can adopt it, while this request uses control fallback.
+            return independentEventReader != nil
+        } catch is CancellationError {
+            return independentEventReader != nil
+        } catch {
+            if independentEventPreparation?.id == preparation.id {
+                independentEventPreparation = nil
+            }
+            return independentEventReader != nil
+        }
+    }
+
     func connectWaiterCountForTesting() -> Int { connectionTask?.waiters.count ?? 0 }
+    var hasIndependentEventReaderForTesting: Bool { independentEventReader != nil }
+    var eventListenerCountForTesting: Int { listeners.count }
 
     func tearDown(error: MobileShellConnectionError) async {
         guard !isTearingDown else { return }
@@ -175,6 +254,10 @@ actor MobileCoreRPCSession {
         transport = nil
         readerTask?.cancel()
         readerTask = nil
+        independentEventPreparation?.task.cancel()
+        independentEventPreparation = nil
+        independentEventReader?.task.cancel()
+        independentEventReader = nil
         if let connecting { await abandonConnectionTask(connecting) }
         isTearingDown = false
     }
@@ -414,6 +497,42 @@ actor MobileCoreRPCSession {
             for frame in frames {
                 dispatch(frame: frame)
             }
+        }
+    }
+
+    /// Reads only independently framed event bytes. A malformed or closed
+    /// event stream disables this optional path without tearing down control
+    /// RPCs or finishing their existing event listeners. The next subscribe
+    /// reassertion may prepare a fresh event stream and the host can fall back
+    /// to control delivery in the meantime.
+    private func readIndependentEventLoop(
+        stream: CmxIndependentEventByteStream,
+        id: UUID
+    ) async {
+        defer {
+            if independentEventReader?.id == id {
+                independentEventReader = nil
+            }
+        }
+
+        var buffer = Data()
+        do {
+            for try await chunk in stream {
+                try Task.checkCancellation()
+                guard !chunk.isEmpty else { continue }
+                buffer.append(chunk)
+                let frames = try MobileSyncFrameCodec.decodeFrames(from: &buffer)
+                guard buffer.count <= MobileSyncFrameCodec.defaultMaximumFrameByteCount
+                        + MobileSyncFrameCodec.headerByteCount else {
+                    throw MobileSyncFrameCodecError.frameTooLarge(buffer.count)
+                }
+                for frame in frames {
+                    dispatch(frame: frame)
+                }
+            }
+        } catch {
+            // Optional-lane failure deliberately leaves the control session and
+            // listener registrations alive for rolling fallback.
         }
     }
 

@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import Foundation
 import Testing
 @testable import CmuxIrohTransport
@@ -36,13 +37,12 @@ struct CmxIrohClientServerEventReceiverTests {
         let byteStream = try await receiver.byteStream()
         var bytes = byteStream.makeAsyncIterator()
 
-        #expect(await bytes.next() == payload)
+        #expect(try await bytes.next() == payload)
         #expect(await artifactReceive.observedStoppedCodes() == [1])
         #expect(await connection.observedReceiveStreamAcceptCount() == 2)
-        #expect(await connection.observedIncomingStreamLimits() == ["0:1"])
-
         await receiver.close()
-        #expect(await connection.observedIncomingStreamLimits() == ["0:1", "0:0"])
+        #expect(await connection.observedIncomingStreamLimits().first == "0:1")
+        #expect(await connection.observedIncomingStreamLimits().last == "0:0")
     }
 
     @Test
@@ -58,7 +58,9 @@ struct CmxIrohClientServerEventReceiverTests {
         )
         let receiver = try CmxIrohClientServerEventReceiver(connection: connection)
 
-        _ = try await receiver.byteStream()
+        let firstStream = try await receiver.byteStream()
+        var blockedEvents = await blocking.blockedEvents().makeAsyncIterator()
+        _ = await blockedEvents.next()
 
         await #expect(
             throws: CmxIrohClientServerEventReceiverError.consumerAlreadyActive
@@ -66,6 +68,7 @@ struct CmxIrohClientServerEventReceiverTests {
             _ = try await receiver.byteStream()
         }
         #expect(await connection.observedReceiveStreamAcceptCount() == 1)
+        _ = firstStream
 
         await receiver.close()
     }

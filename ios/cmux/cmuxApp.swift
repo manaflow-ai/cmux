@@ -50,7 +50,10 @@ struct cmuxApp: App {
             transportFactory: transportFactory,
             stackAccessTokenProvider: CMUXMobileRuntime.stackAccessTokenProvider(from: auth.coordinator),
             stackAccessTokenForStatusProvider: CMUXMobileRuntime.stackAccessTokenForStatusProvider(from: auth.coordinator),
-            stackAccessTokenForceRefresher: CMUXMobileRuntime.stackAccessTokenForceRefresher(from: auth.coordinator)
+            stackAccessTokenForceRefresher: CMUXMobileRuntime.stackAccessTokenForceRefresher(from: auth.coordinator),
+            independentEventByteStreamProvider: { request in
+                try await iroh.serverEventByteStream(for: request)
+            }
         )
 
         return AppCompositionRoot(

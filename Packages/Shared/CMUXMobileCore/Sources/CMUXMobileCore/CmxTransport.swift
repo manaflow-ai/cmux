@@ -410,6 +410,14 @@ public protocol CmxByteTransport: Sendable {
     func close() async
 }
 
+/// Independently framed server-event bytes delivered outside the RPC control stream.
+public typealias CmxIndependentEventByteStream = AsyncThrowingStream<Data, any Error>
+
+/// Opens the one bounded event byte stream associated with an exact transport intent.
+public typealias CmxIndependentEventByteStreamProvider = @Sendable (
+    CmxByteTransportRequest
+) async throws -> CmxIndependentEventByteStream
+
 public protocol CmxByteTransportFactory: Sendable {
     func makeTransport(for route: CmxAttachRoute) throws -> any CmxByteTransport
     func makeTransport(for request: CmxByteTransportRequest) throws -> any CmxByteTransport

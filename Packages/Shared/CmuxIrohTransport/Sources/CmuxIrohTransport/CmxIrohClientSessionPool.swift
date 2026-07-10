@@ -26,6 +26,7 @@ actor CmxIrohClientSessionPool {
     private var runtimeGeneration: UInt64?
     private var sessions: [SessionKey: PooledSession] = [:]
     private var connectionTasks: [SessionKey: PendingConnection] = [:]
+    private var controlOwners: [SessionKey: UUID] = [:]
 
     init(
         supervisor: CmxIrohEndpointSupervisor,
@@ -124,6 +125,28 @@ actor CmxIrohClientSessionPool {
         }
     }
 
+    /// Acquires exact ownership of control-stream framing before returning the
+    /// pooled session. The owner remains reserved across a reentrant dial so a
+    /// concurrent transport cannot install a second control reader.
+    func acquireControlSession(
+        for request: CmxByteTransportRequest,
+        ownerID: UUID
+    ) async throws -> CmxIrohClientSession {
+        let key = try sessionKey(for: request)
+        if let existing = controlOwners[key], existing != ownerID {
+            throw CmxIrohByteTransportError.controlLaneAlreadyOwned
+        }
+        controlOwners[key] = ownerID
+        do {
+            return try await session(for: request)
+        } catch {
+            if controlOwners[key] == ownerID {
+                controlOwners[key] = nil
+            }
+            throw error
+        }
+    }
+
     func openBidirectionalLane(
         for request: CmxByteTransportRequest,
         lane: CmxIrohLane,
@@ -133,20 +156,31 @@ actor CmxIrohClientSessionPool {
         return try await session.openBidirectionalLane(lane, priority: priority)
     }
 
-    func acceptInboundStream(
+    func serverEventByteStream(
         for request: CmxByteTransportRequest
-    ) async throws -> CmxIrohInboundStream {
+    ) async throws -> CmxIndependentEventByteStream {
         let session = try await session(for: request)
-        return try await session.acceptInboundStream()
+        return try await session.serverEventByteStream()
+    }
+
+    /// Releases an exact control owner and closes its session so partial RPC
+    /// framing can never be inherited by a replacement owner.
+    func releaseControlSession(
+        for request: CmxByteTransportRequest,
+        ownerID: UUID
+    ) async {
+        guard let key = try? sessionKey(for: request),
+              controlOwners[key] == ownerID else {
+            return
+        }
+        controlOwners[key] = nil
+        await invalidateSession(for: key)
     }
 
     func invalidate(for request: CmxByteTransportRequest) async {
         guard let key = try? sessionKey(for: request) else { return }
-        connectionTasks[key]?.task.cancel()
-        connectionTasks[key] = nil
-        let pooled = sessions.removeValue(forKey: key)
-        pooled?.closureTask.cancel()
-        await pooled?.session.close()
+        controlOwners[key] = nil
+        await invalidateSession(for: key)
     }
 
     func invalidateAll() async {
@@ -156,6 +190,7 @@ actor CmxIrohClientSessionPool {
         for task in tasks { task.cancel() }
         let closing = sessions.values
         sessions.removeAll(keepingCapacity: false)
+        controlOwners.removeAll(keepingCapacity: false)
         for pooled in closing {
             pooled.closureTask.cancel()
             await pooled.session.close()
@@ -165,7 +200,16 @@ actor CmxIrohClientSessionPool {
     private func sessionDidClose(key: SessionKey, sessionID: UUID) async {
         guard let pooled = sessions[key], pooled.id == sessionID else { return }
         sessions[key] = nil
+        controlOwners[key] = nil
         await pooled.session.close()
+    }
+
+    private func invalidateSession(for key: SessionKey) async {
+        connectionTasks[key]?.task.cancel()
+        connectionTasks[key] = nil
+        let pooled = sessions.removeValue(forKey: key)
+        pooled?.closureTask.cancel()
+        await pooled?.session.close()
     }
 
     private func sessionKey(for request: CmxByteTransportRequest) throws -> SessionKey {

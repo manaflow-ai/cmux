@@ -221,17 +221,14 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
         )
     }
 
-    /// Accepts a server-event or artifact stream on the pooled admitted connection.
-    ///
-    /// - Parameter request: The exact Iroh peer route and intended Mac device binding.
-    /// - Returns: The decoded lane and payload stream.
-    public func acceptInboundStream(
+    /// Starts the one server-event byte stream on the pooled admitted connection.
+    public func serverEventByteStream(
         for request: CmxByteTransportRequest
-    ) async throws -> CmxIrohInboundStream {
+    ) async throws -> CmxIndependentEventByteStream {
         await reconcileLiveAuthIfNeeded()
         await transitionTask?.value
         guard let runtime else { throw CmxIrohClientRuntimeError.inactive }
-        return try await runtime.acceptInboundStream(for: request)
+        return try await runtime.serverEventByteStream(for: request)
     }
 
     /// Preserves the endpoint when iOS backgrounds the scene.

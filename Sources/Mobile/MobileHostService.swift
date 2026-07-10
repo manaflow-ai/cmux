@@ -101,6 +101,24 @@ enum MobileHostConnectionAuthorizationContext: Equatable, Sendable {
     case irohAdmission(CmxIrohAdmittedPeer)
 }
 
+enum MobileHostEventTransport: String, Equatable, Sendable {
+    case control = "control_v1"
+    case irohServerEvents = "iroh_server_events_v1"
+}
+
+/// Optional independent event-lane boundary. Only an admitted Iroh session
+/// supplies an implementation; legacy/private-network transports keep events
+/// on their existing control stream.
+protocol MobileHostIndependentEventWriting: Sendable {
+    /// Probes a ready lane without competing with an in-flight event write.
+    /// Returns true when the lane is ready or an existing write already proves
+    /// it is active.
+    func probe(_ framedData: Data) async -> Bool
+    func send(_ framedData: Data) async throws
+    func reset() async
+    func close() async
+}
+
 private final class MobileHostConnectionRegistry: @unchecked Sendable {
     private struct Entry {
         let connection: MobileHostConnection
@@ -1148,6 +1166,7 @@ final class MobileHostService {
     nonisolated static func acceptTransport(
         _ transport: any CmxByteTransport,
         authorization: MobileHostConnectionAuthorizationContext,
+        independentEventWriter: (any MobileHostIndependentEventWriting)? = nil,
         isCurrent: @escaping @Sendable () async -> Bool
     ) async {
         MobileHostRequestActivity.beginConnection()
@@ -1162,6 +1181,7 @@ final class MobileHostService {
         let session = MobileHostConnection(
             id: id,
             transport: transport,
+            independentEventWriter: independentEventWriter,
             authorizeRequest: { request in
                 await Self.connectionAuthorizationError(
                     for: request,
@@ -2130,10 +2150,25 @@ actor MobileHostConnection {
     private static let maximumReceiveBufferByteCount = MobileSyncFrameCodec.defaultMaximumFrameByteCount + MobileSyncFrameCodec.headerByteCount
     private static let defaultFirstFrameTimeoutNanoseconds: UInt64 = 15 * 1_000_000_000
     private static let defaultIdleTimeoutNanoseconds: UInt64 = 30 * 1_000_000_000
+    private static let maximumQueuedEventCount = 256
+    private static let maximumQueuedEventByteCount =
+        MobileSyncFrameCodec.defaultMaximumFrameByteCount
+        + MobileSyncFrameCodec.headerByteCount
+
+    private struct EventSubscription: Sendable {
+        let topics: Set<String>
+        let transport: MobileHostEventTransport
+    }
+
+    private struct QueuedEvent: Sendable {
+        let topic: String
+        let frame: Data
+    }
 
     private let id: UUID
     private let transport: any CmxByteTransport
     private let writer: MobileHostSerializedTransportWriter
+    private let independentEventWriter: (any MobileHostIndependentEventWriting)?
     private let firstFrameTimeoutNanoseconds: UInt64
     private let idleTimeoutNanoseconds: UInt64
     private let authorizeRequest: @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult?
@@ -2145,17 +2180,23 @@ actor MobileHostConnection {
     private var idleTimeoutTask: Task<Void, Never>?
     private var responseTasks: [UUID: Task<Void, Never>] = [:]
     private var receiveTask: Task<Void, Never>?
+    private var queuedEvents: [QueuedEvent] = []
+    private var queuedEventByteCount = 0
+    private var eventDrainTask: Task<Void, Never>?
+    private var independentEventRevision: UInt64 = 0
+    private var independentEventNegotiationInProgress = false
     private var didDecodeFirstFrame = false
     private var isClosed = false
-    /// stream_id → set of topics this connection is subscribed to.
+    /// stream_id → topics and their negotiated event delivery path.
     /// Populated by `mobile.events.subscribe`; cleared on close.
-    private var subscriptions: [String: Set<String>] = [:]
+    private var subscriptions: [String: EventSubscription] = [:]
 
     init(
         id: UUID,
         connection: NWConnection,
         firstFrameTimeoutNanoseconds: UInt64 = MobileHostConnection.defaultFirstFrameTimeoutNanoseconds,
         idleTimeoutNanoseconds: UInt64 = MobileHostConnection.defaultIdleTimeoutNanoseconds,
+        independentEventWriter: (any MobileHostIndependentEventWriting)? = nil,
         authorizeRequest: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult?,
         onAuthorizedRequest: @escaping @Sendable (MobileHostRPCRequest) async -> Void,
         handleRequest: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult,
@@ -2165,6 +2206,7 @@ actor MobileHostConnection {
         self.id = id
         self.transport = transport
         self.writer = MobileHostSerializedTransportWriter(transport: transport)
+        self.independentEventWriter = independentEventWriter
         self.firstFrameTimeoutNanoseconds = firstFrameTimeoutNanoseconds
         self.idleTimeoutNanoseconds = idleTimeoutNanoseconds
         self.authorizeRequest = authorizeRequest
@@ -2178,6 +2220,7 @@ actor MobileHostConnection {
         transport: any CmxByteTransport,
         firstFrameTimeoutNanoseconds: UInt64 = MobileHostConnection.defaultFirstFrameTimeoutNanoseconds,
         idleTimeoutNanoseconds: UInt64 = MobileHostConnection.defaultIdleTimeoutNanoseconds,
+        independentEventWriter: (any MobileHostIndependentEventWriting)? = nil,
         authorizeRequest: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult?,
         onAuthorizedRequest: @escaping @Sendable (MobileHostRPCRequest) async -> Void,
         handleRequest: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult,
@@ -2186,6 +2229,7 @@ actor MobileHostConnection {
         self.id = id
         self.transport = transport
         self.writer = MobileHostSerializedTransportWriter(transport: transport)
+        self.independentEventWriter = independentEventWriter
         self.firstFrameTimeoutNanoseconds = firstFrameTimeoutNanoseconds
         self.idleTimeoutNanoseconds = idleTimeoutNanoseconds
         self.authorizeRequest = authorizeRequest
@@ -2231,6 +2275,10 @@ actor MobileHostConnection {
         idleTimeoutTask = nil
         receiveTask?.cancel()
         receiveTask = nil
+        eventDrainTask?.cancel()
+        eventDrainTask = nil
+        queuedEvents.removeAll(keepingCapacity: false)
+        queuedEventByteCount = 0
         let tasks = responseTasks.values
         responseTasks.removeAll()
         for task in tasks {
@@ -2238,13 +2286,14 @@ actor MobileHostConnection {
         }
         let previousSubscriptions = Array(subscriptions.values)
         subscriptions.removeAll()
-        for topics in previousSubscriptions where !topics.isEmpty {
+        for subscription in previousSubscriptions where !subscription.topics.isEmpty {
             MobileHostEventSubscriptionTracker.replace(
-                previousTopics: topics,
+                previousTopics: subscription.topics,
                 nextTopics: nil
             )
         }
         mobileHostLog.info("mobile host connection closed \(self.id.uuidString, privacy: .public): \(reason, privacy: .public)")
+        await independentEventWriter?.close()
         await transport.close()
         await onClose(id)
     }
@@ -2386,7 +2435,7 @@ actor MobileHostConnection {
             guard !isClosed, !Task.isCancelled else {
                 return
             }
-            if let intercepted = handleSubscriptionRPC(request) {
+            if let intercepted = await handleSubscriptionRPC(request) {
                 _ = await sendResponse(MobileHostRPCEnvelope.encodeResponse(id: request.id, result: intercepted))
                 return
             }
@@ -2408,7 +2457,7 @@ actor MobileHostConnection {
         }
     }
 
-    private func handleSubscriptionRPC(_ request: MobileHostRPCRequest) -> MobileHostRPCResult? {
+    private func handleSubscriptionRPC(_ request: MobileHostRPCRequest) async -> MobileHostRPCResult? {
         switch request.method {
         case "mobile.events.subscribe":
             let streamID = (request.params["stream_id"] as? String) ?? UUID().uuidString
@@ -2424,7 +2473,19 @@ actor MobileHostConnection {
             // were never delivered), so it requests a catch-up replay instead
             // of trusting delta continuity.
             let alreadySubscribed = subscriptions[streamID] != nil
-            subscribe(streamID: streamID, topics: topics)
+            let requestedTransport = request.params["event_transport"] as? String
+            let selectedTransport: MobileHostEventTransport
+            if requestedTransport == MobileHostEventTransport.irohServerEvents.rawValue,
+               await prepareIndependentEventWriter() {
+                selectedTransport = .irohServerEvents
+            } else {
+                selectedTransport = .control
+            }
+            subscribe(
+                streamID: streamID,
+                topics: topics,
+                transport: selectedTransport
+            )
             #if DEBUG
             cmuxDebugLog("mobile.subscribe streamID=\(streamID) topics=\(topics.sorted()) existing=\(alreadySubscribed) connID=\(self.id.uuidString)")
             #endif
@@ -2432,10 +2493,11 @@ actor MobileHostConnection {
                 "stream_id": streamID,
                 "topics": Array(topics).sorted(),
                 "already_subscribed": alreadySubscribed,
+                "event_transport": selectedTransport.rawValue,
             ])
         case "mobile.events.unsubscribe":
             let streamID = request.params["stream_id"] as? String ?? ""
-            let removed = unsubscribe(streamID: streamID)
+            let removed = await unsubscribe(streamID: streamID)
             return .ok([
                 "stream_id": streamID,
                 "removed": removed,
@@ -2461,9 +2523,16 @@ actor MobileHostConnection {
     }
 
     /// Add a subscription for this connection. Idempotent per stream_id.
-    func subscribe(streamID: String, topics: Set<String>) {
-        let previousTopics = subscriptions[streamID]
-        subscriptions[streamID] = topics
+    func subscribe(
+        streamID: String,
+        topics: Set<String>,
+        transport: MobileHostEventTransport = .control
+    ) {
+        let previousTopics = subscriptions[streamID]?.topics
+        subscriptions[streamID] = EventSubscription(
+            topics: topics,
+            transport: transport
+        )
         MobileHostEventSubscriptionTracker.replace(
             previousTopics: previousTopics,
             nextTopics: topics
@@ -2474,11 +2543,19 @@ actor MobileHostConnection {
 
     /// Remove a subscription by id. Returns true if it existed.
     @discardableResult
-    func unsubscribe(streamID: String) -> Bool {
-        let previousTopics = subscriptions.removeValue(forKey: streamID)
-        let removed = previousTopics != nil
-        if let previousTopics {
-            MobileHostEventSubscriptionTracker.replace(previousTopics: previousTopics, nextTopics: nil)
+    func unsubscribe(streamID: String) async -> Bool {
+        let previousSubscription = subscriptions.removeValue(forKey: streamID)
+        let removed = previousSubscription != nil
+        if let previousSubscription {
+            MobileHostEventSubscriptionTracker.replace(
+                previousTopics: previousSubscription.topics,
+                nextTopics: nil
+            )
+        }
+        if !subscriptions.values.contains(where: {
+            $0.transport == .irohServerEvents
+        }) {
+            await resetIndependentEventWriter()
         }
         if subscriptions.isEmpty {
             startIdleTimeout()
@@ -2488,15 +2565,16 @@ actor MobileHostConnection {
 
     /// Check whether this connection has any subscriber registered for `topic`.
     func isSubscribed(to topic: String) -> Bool {
-        for (_, topics) in subscriptions where topics.contains(topic) {
+        for (_, subscription) in subscriptions
+        where subscription.topics.contains(topic) {
             return true
         }
         return false
     }
 
-    /// Send a server-pushed event envelope to this connection. Returns true
-    /// if the event was actually written to the wire. No-ops if the
-    /// connection is closed or not subscribed to the topic.
+    /// Enqueues a server-pushed event for this connection. One drain task owns
+    /// wire writes. The queue is bounded; overflow closes the connection so a
+    /// slow phone cannot accumulate unbounded tasks or stale terminal deltas.
     @discardableResult
     func sendEvent(topic: String, payload: [String: Any]) async -> Bool {
         guard !isClosed else {
@@ -2517,7 +2595,115 @@ actor MobileHostConnection {
             "payload": payload,
         ]
         guard let data = try? JSONSerialization.data(withJSONObject: envelope) else { return false }
-        return await sendResponse(data)
+        let frame: Data
+        do {
+            frame = try MobileSyncFrameCodec.encodeFrame(data)
+        } catch {
+            await close(reason: "event frame encode failed")
+            return false
+        }
+        guard queuedEvents.count < Self.maximumQueuedEventCount,
+              frame.count <= Self.maximumQueuedEventByteCount - queuedEventByteCount else {
+            await close(reason: "event queue exceeded bounded capacity")
+            return false
+        }
+        queuedEvents.append(QueuedEvent(topic: topic, frame: frame))
+        queuedEventByteCount += frame.count
+        startEventDrainIfNeeded()
+        return true
+    }
+
+    private func prepareIndependentEventWriter() async -> Bool {
+        guard let independentEventWriter else { return false }
+        if independentEventNegotiationInProgress {
+            // Concurrent crafted/new subscriptions fall back to control. An
+            // idempotent subscription already on the independent lane can keep
+            // it; any in-flight failure will still downgrade every subscription.
+            return subscriptions.values.contains {
+                $0.transport == .irohServerEvents
+            }
+        }
+        independentEventNegotiationInProgress = true
+        defer {
+            independentEventNegotiationInProgress = false
+            startEventDrainIfNeeded()
+        }
+        let probePayload = Data(#"{"kind":"event_stream_probe"}"#.utf8)
+        guard let probeFrame = try? MobileSyncFrameCodec.encodeFrame(probePayload) else {
+            return false
+        }
+        // One reset/reopen retry handles a stale lane after suspension without
+        // advertising independent delivery until a framed write succeeds.
+        for _ in 0..<2 {
+            let revision = independentEventRevision
+            if await independentEventWriter.probe(probeFrame) {
+                guard independentEventRevision == revision else {
+                    return false
+                }
+                return true
+            }
+            await resetIndependentEventWriter()
+        }
+        downgradeIndependentSubscriptionsToControl()
+        return false
+    }
+
+    private func startEventDrainIfNeeded() {
+        guard eventDrainTask == nil,
+              !independentEventNegotiationInProgress,
+              !isClosed else { return }
+        eventDrainTask = Task { [weak self] in
+            guard let self else { return }
+            await self.drainEventQueue()
+        }
+    }
+
+    private func drainEventQueue() async {
+        defer { eventDrainTask = nil }
+        while !Task.isCancelled, !isClosed, !queuedEvents.isEmpty {
+            let event = queuedEvents.removeFirst()
+            queuedEventByteCount -= event.frame.count
+            guard isSubscribed(to: event.topic) else { continue }
+            guard await deliverQueuedEvent(event) else { return }
+        }
+        if !isClosed, !queuedEvents.isEmpty {
+            startEventDrainIfNeeded()
+        }
+    }
+
+    private func deliverQueuedEvent(_ event: QueuedEvent) async -> Bool {
+        let prefersIndependent = subscriptions.values.contains {
+            $0.transport == .irohServerEvents && $0.topics.contains(event.topic)
+        }
+        if prefersIndependent, let independentEventWriter {
+            do {
+                try await independentEventWriter.send(event.frame)
+                return true
+            } catch {
+                independentEventRevision &+= 1
+                downgradeIndependentSubscriptionsToControl()
+                await independentEventWriter.reset()
+                // Deliver the event that exposed the dead/backpressured lane on
+                // control immediately. Subsequent events also use control.
+                return await sendControlFrame(event.frame)
+            }
+        }
+        return await sendControlFrame(event.frame)
+    }
+
+    private func downgradeIndependentSubscriptionsToControl() {
+        for (streamID, subscription) in subscriptions
+        where subscription.transport == .irohServerEvents {
+            subscriptions[streamID] = EventSubscription(
+                topics: subscription.topics,
+                transport: .control
+            )
+        }
+    }
+
+    private func resetIndependentEventWriter() async {
+        independentEventRevision &+= 1
+        await independentEventWriter?.reset()
     }
 
     private func sendResponse(_ response: Data) async -> Bool {
@@ -2532,6 +2718,11 @@ actor MobileHostConnection {
             return false
         }
 
+        return await sendControlFrame(frame)
+    }
+
+    private func sendControlFrame(_ frame: Data) async -> Bool {
+        guard !isClosed else { return false }
         do {
             try await writer.send(frame)
             return true
@@ -2555,6 +2746,22 @@ extension MobileHostConnection {
 
     func debugHandleReceiveDataForTesting(_ data: Data) async {
         await handleReceive(data: data)
+    }
+
+    func debugHandleSubscriptionRPCForTesting(
+        _ request: MobileHostRPCRequest
+    ) async -> MobileHostRPCResult? {
+        await handleSubscriptionRPC(request)
+    }
+
+    func debugEventTransportForTesting(
+        streamID: String
+    ) -> MobileHostEventTransport? {
+        subscriptions[streamID]?.transport
+    }
+
+    func debugQueuedEventCountForTesting() -> Int {
+        queuedEvents.count
     }
 }
 #endif

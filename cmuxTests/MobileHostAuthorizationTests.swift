@@ -1068,6 +1068,205 @@ struct MobileHostAuthorizationTests {
         let finalRecordedIDs = await recorder.recordedIDs()
         #expect(finalRecordedIDs == [connectionID])
     }
+
+    @Test func testDeadIndependentEventLaneFallsBackCurrentAndFutureEventsToControl() async throws {
+        let control = RecordingMobileHostByteTransport()
+        let independent = TestMobileHostIndependentEventWriter(
+            behavior: .failAfterProbe
+        )
+        let session = MobileHostConnection(
+            id: UUID(),
+            transport: control,
+            independentEventWriter: independent,
+            authorizeRequest: { _ in nil },
+            onAuthorizedRequest: { _ in },
+            handleRequest: { _ in .ok([:]) },
+            onClose: { _ in }
+        )
+        let result = await session.debugHandleSubscriptionRPCForTesting(
+            MobileHostRPCRequest(
+                id: "subscribe",
+                method: "mobile.events.subscribe",
+                params: [
+                    "stream_id": "events",
+                    "topics": ["terminal.updated"],
+                    "event_transport": "iroh_server_events_v1",
+                ],
+                auth: nil
+            )
+        )
+        guard case let .ok(payload)? = result else {
+            Issue.record("Expected successful independent subscription")
+            return
+        }
+        let acknowledgement = try #require(payload as? [String: Any])
+        #expect(
+            acknowledgement["event_transport"] as? String
+                == "iroh_server_events_v1"
+        )
+
+        #expect(
+            await session.sendEvent(
+                topic: "terminal.updated",
+                payload: ["seq": 1]
+            )
+        )
+        let sent = await control.waitForSentBufferCount(1)
+        var framed = try #require(sent.first)
+        let eventPayload = try #require(
+            MobileSyncFrameCodec.decodeFrames(from: &framed).first
+        )
+        let event = try #require(
+            JSONSerialization.jsonObject(with: eventPayload) as? [String: Any]
+        )
+        #expect(event["kind"] as? String == "event")
+        #expect(event["topic"] as? String == "terminal.updated")
+        #expect(
+            await session.debugEventTransportForTesting(streamID: "events")
+                == .control
+        )
+
+        #expect(
+            await session.sendEvent(
+                topic: "terminal.updated",
+                payload: ["seq": 2]
+            )
+        )
+        #expect(await control.waitForSentBufferCount(2).count == 2)
+        #expect(await independent.observedSendCount() == 2)
+        await session.close(reason: "test complete")
+    }
+
+    @Test func testIndependentEventBackpressureClosesAtBoundedQueueCapacity() async throws {
+        let control = RecordingMobileHostByteTransport()
+        let independent = TestMobileHostIndependentEventWriter(
+            behavior: .blockAfterProbe
+        )
+        var blocked = await independent.blockedEvents().makeAsyncIterator()
+        let session = MobileHostConnection(
+            id: UUID(),
+            transport: control,
+            independentEventWriter: independent,
+            authorizeRequest: { _ in nil },
+            onAuthorizedRequest: { _ in },
+            handleRequest: { _ in .ok([:]) },
+            onClose: { _ in }
+        )
+        _ = await session.debugHandleSubscriptionRPCForTesting(
+            MobileHostRPCRequest(
+                id: "subscribe",
+                method: "mobile.events.subscribe",
+                params: [
+                    "stream_id": "events",
+                    "topics": ["terminal.updated"],
+                    "event_transport": "iroh_server_events_v1",
+                ],
+                auth: nil
+            )
+        )
+
+        #expect(
+            await session.sendEvent(
+                topic: "terminal.updated",
+                payload: ["seq": 0]
+            )
+        )
+        _ = await blocked.next()
+
+        for sequence in 1...256 {
+            #expect(
+                await session.sendEvent(
+                    topic: "terminal.updated",
+                    payload: ["seq": sequence]
+                )
+            )
+        }
+        #expect(
+            !(await session.sendEvent(
+                topic: "terminal.updated",
+                payload: ["seq": 257]
+            ))
+        )
+
+        #expect(await control.observedCloseCount() == 1)
+        #expect(await independent.observedCloseCount() == 1)
+        #expect(await session.debugQueuedEventCountForTesting() == 0)
+    }
+
+    @Test func testIdempotentProbeCannotReenableALaneThatFailsWhileProbeIsInFlight() async throws {
+        let control = RecordingMobileHostByteTransport()
+        let independent = TestMobileHostIndependentEventWriter(
+            behavior: .blockAfterProbe
+        )
+        var eventBlocked = await independent.blockedEvents().makeAsyncIterator()
+        var probeBlocked = await independent.blockedProbeEvents().makeAsyncIterator()
+        let session = MobileHostConnection(
+            id: UUID(),
+            transport: control,
+            independentEventWriter: independent,
+            authorizeRequest: { _ in nil },
+            onAuthorizedRequest: { _ in },
+            handleRequest: { _ in .ok([:]) },
+            onClose: { _ in }
+        )
+        let subscribe = MobileHostRPCRequest(
+            id: "subscribe",
+            method: "mobile.events.subscribe",
+            params: [
+                "stream_id": "events",
+                "topics": ["terminal.updated"],
+                "event_transport": "iroh_server_events_v1",
+            ],
+            auth: nil
+        )
+        _ = await session.debugHandleSubscriptionRPCForTesting(subscribe)
+        #expect(
+            await session.sendEvent(
+                topic: "terminal.updated",
+                payload: ["seq": 1]
+            )
+        )
+        _ = await eventBlocked.next()
+
+        let reassertion = Task {
+            await session.debugHandleSubscriptionRPCForTesting(subscribe)
+        }
+        _ = await probeBlocked.next()
+        await independent.failBlockedSend()
+        await independent.releaseBlockedProbe(result: true)
+
+        guard case let .ok(payload)? = await reassertion.value else {
+            Issue.record("Expected a rolling-fallback subscribe response")
+            return
+        }
+        let acknowledgement = try #require(payload as? [String: Any])
+        #expect(acknowledgement["event_transport"] as? String == "control_v1")
+        #expect(
+            await session.debugEventTransportForTesting(streamID: "events")
+                == .control
+        )
+        #expect(await control.waitForSentBufferCount(1).count == 1)
+        await session.close(reason: "test complete")
+    }
+
+    @Test func testIrohEventWriterTimesOutBackpressureWithInjectedClock() async {
+        let stream = BlockingMobileHostIrohSendStream()
+        let writer = MobileHostIrohServerEventWriter(
+            openStream: { stream },
+            clock: ImmediateMobileHostIrohClock(),
+            sendTimeout: 3
+        )
+
+        do {
+            try await writer.send(Data("framed-event".utf8))
+            Issue.record("Expected independent event backpressure to time out")
+        } catch {}
+
+        let resetCodes = await stream.observedResetCodes()
+        #expect(!resetCodes.isEmpty)
+        #expect(resetCodes.allSatisfy { $0 == 1 })
+        await writer.close()
+    }
     @Test func testTerminalRenderObserverRetainsGhosttyDemandOnlyWithTerminalSubscriber() async throws {
         let service = MobileHostService.shared
         service.debugResetMobileLifecycleStateForTesting()
@@ -1391,6 +1590,156 @@ private actor MobileHostConnectionBox {
     }
     func close(reason: String) async {
         await session?.close(reason: reason)
+    }
+}
+private actor RecordingMobileHostByteTransport: CmxByteTransport {
+    private var sent: [Data] = []
+    private var closeCount = 0
+
+    func connect() async throws {}
+    func receive() async throws -> Data? { nil }
+    func send(_ data: Data) async throws { sent.append(data) }
+    func close() async { closeCount += 1 }
+
+    func waitForSentBufferCount(_ count: Int) async -> [Data] {
+        for _ in 0..<1_000 {
+            if sent.count >= count { return sent }
+            await Task.yield()
+        }
+        return sent
+    }
+
+    func observedCloseCount() -> Int { closeCount }
+}
+private enum TestMobileHostIndependentEventWriterError: Error {
+    case failed
+}
+private actor TestMobileHostIndependentEventWriter: MobileHostIndependentEventWriting {
+    enum Behavior: Sendable {
+        case failAfterProbe
+        case blockAfterProbe
+    }
+
+    private let behavior: Behavior
+    private var sendCount = 0
+    private var closeCount = 0
+    private var blockedWaiter: CheckedContinuation<Void, any Error>?
+    private var blockedProbeWaiter: CheckedContinuation<Bool, Never>?
+    private let blockedStream: AsyncStream<Void>
+    private let blockedContinuation: AsyncStream<Void>.Continuation
+    private let blockedProbeStream: AsyncStream<Void>
+    private let blockedProbeContinuation: AsyncStream<Void>.Continuation
+
+    init(behavior: Behavior) {
+        self.behavior = behavior
+        let blocked = AsyncStream<Void>.makeStream()
+        blockedStream = blocked.stream
+        blockedContinuation = blocked.continuation
+        let blockedProbe = AsyncStream<Void>.makeStream()
+        blockedProbeStream = blockedProbe.stream
+        blockedProbeContinuation = blockedProbe.continuation
+    }
+
+    func probe(_: Data) async -> Bool {
+        if blockedWaiter != nil {
+            blockedProbeContinuation.yield(())
+            return await withCheckedContinuation { continuation in
+                blockedProbeWaiter = continuation
+            }
+        }
+        sendCount += 1
+        return true
+    }
+
+    func send(_: Data) async throws {
+        sendCount += 1
+        switch behavior {
+        case .failAfterProbe:
+            throw TestMobileHostIndependentEventWriterError.failed
+        case .blockAfterProbe:
+            blockedContinuation.yield(())
+            try await withTaskCancellationHandler {
+                try await withCheckedThrowingContinuation { continuation in
+                    blockedWaiter = continuation
+                }
+            } onCancel: {
+                Task { await self.cancelBlockedSend() }
+            }
+        }
+    }
+
+    func reset() async {
+        blockedWaiter?.resume(throwing: TestMobileHostIndependentEventWriterError.failed)
+        blockedWaiter = nil
+    }
+
+    func close() async {
+        closeCount += 1
+        blockedWaiter?.resume(throwing: CancellationError())
+        blockedWaiter = nil
+        blockedProbeWaiter?.resume(returning: false)
+        blockedProbeWaiter = nil
+    }
+
+    func blockedEvents() -> AsyncStream<Void> { blockedStream }
+    func blockedProbeEvents() -> AsyncStream<Void> { blockedProbeStream }
+    func observedSendCount() -> Int { sendCount }
+    func observedCloseCount() -> Int { closeCount }
+
+    func failBlockedSend() {
+        blockedWaiter?.resume(throwing: TestMobileHostIndependentEventWriterError.failed)
+        blockedWaiter = nil
+    }
+
+    func releaseBlockedProbe(result: Bool) {
+        blockedProbeWaiter?.resume(returning: result)
+        blockedProbeWaiter = nil
+    }
+
+    private func cancelBlockedSend() {
+        blockedWaiter?.resume(throwing: CancellationError())
+        blockedWaiter = nil
+    }
+}
+private struct ImmediateMobileHostIrohClock: CmxIrohRelayClock {
+    private let instant = Date(timeIntervalSince1970: 1_700_000_000)
+
+    func now() -> Date { instant }
+    func sleep(until _: Date) async throws {}
+}
+private actor BlockingMobileHostIrohSendStream: CmxIrohSendStream {
+    private var sendWaiter: CheckedContinuation<Void, any Error>?
+    private var resetCodes: [UInt64] = []
+    private var wasReset = false
+
+    func send(_: Data) async throws {
+        guard !wasReset else {
+            throw TestMobileHostIndependentEventWriterError.failed
+        }
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                sendWaiter = continuation
+            }
+        } onCancel: {
+            Task { await self.cancelSend() }
+        }
+    }
+
+    func finish() async throws {}
+
+    func reset(errorCode: UInt64) async {
+        wasReset = true
+        resetCodes.append(errorCode)
+        sendWaiter?.resume(throwing: TestMobileHostIndependentEventWriterError.failed)
+        sendWaiter = nil
+    }
+
+    func setPriority(_: Int32) async throws {}
+    func observedResetCodes() -> [UInt64] { resetCodes }
+
+    private func cancelSend() {
+        sendWaiter?.resume(throwing: CancellationError())
+        sendWaiter = nil
     }
 }
 private enum AsyncTestSignalError: Error {

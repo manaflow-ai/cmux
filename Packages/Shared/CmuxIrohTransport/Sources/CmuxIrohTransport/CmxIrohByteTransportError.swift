@@ -16,4 +16,7 @@ public enum CmxIrohByteTransportError: Error, Equatable, Sendable {
 
     /// Send or receive was attempted before successful admission.
     case notConnected
+
+    /// Another RPC session already owns framing on this peer's control lane.
+    case controlLaneAlreadyOwned
 }
