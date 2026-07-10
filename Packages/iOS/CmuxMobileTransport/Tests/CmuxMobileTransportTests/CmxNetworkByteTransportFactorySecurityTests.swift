@@ -30,6 +30,9 @@ import Testing
         #expect(throws: (any Error).self) {
             _ = try CmxNetworkByteTransportFactory().makeTransport(for: route)
         }
+        #expect(throws: CmxNetworkByteTransportError.authorizationIntentRequired) {
+            _ = try CmxNetworkByteTransport(route: route)
+        }
     }
 
     @Test func rejectsRouteKindAuthorizationSubstitution() throws {
