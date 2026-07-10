@@ -28,6 +28,7 @@ public final class HostBrowserSignInFlow {
     private let clock: any Clock<Duration>
     private let browserAttemptTimeout: TimeInterval
     private let slowSignInThreshold: TimeInterval
+    private let prepareForSignOut: @Sendable () async -> Void
     private let onSignedOut: @Sendable (
         _ accessToken: String?,
         _ refreshToken: String?
@@ -46,6 +47,11 @@ public final class HostBrowserSignInFlow {
     @ObservationIgnored private var pendingManualCallbackState: String?
     @ObservationIgnored private var pendingFallbackCallbackState: String?
     @ObservationIgnored private var signOutGeneration: UInt64 = 0
+    @ObservationIgnored private var nextSignOutOperationID: UInt64 = 0
+    @ObservationIgnored private var activeSignOutOperation: (
+        id: UInt64,
+        task: Task<Void, Never>
+    )?
 
     /// Creates the flow.
     public init(
@@ -59,6 +65,7 @@ public final class HostBrowserSignInFlow {
         clock: any Clock<Duration> = ContinuousClock(),
         browserAttemptTimeout: TimeInterval = 10 * 60,
         slowSignInThreshold: TimeInterval = 30,
+        prepareForSignOut: @escaping @Sendable () async -> Void = {},
         onSignedOut: @escaping @Sendable (
             _ accessToken: String?,
             _ refreshToken: String?
@@ -74,6 +81,7 @@ public final class HostBrowserSignInFlow {
         self.clock = clock
         self.browserAttemptTimeout = browserAttemptTimeout
         self.slowSignInThreshold = slowSignInThreshold
+        self.prepareForSignOut = prepareForSignOut
         self.onSignedOut = onSignedOut
     }
 
@@ -156,12 +164,28 @@ public final class HostBrowserSignInFlow {
 
     /// Sign out and prevent a late callback from resurrecting the session.
     public func signOut() async {
+        if let operation = activeSignOutOperation {
+            log.log("auth.browser.signOut.join operation=\(operation.id)")
+            await operation.task.value
+            return
+        }
         log.log("auth.browser.signOut.begin signingIn=\(isSigningIn) activeAttempt=\(activeAttemptID.map(String.init) ?? "nil") generation=\(signOutGeneration)")
         signOutGeneration &+= 1
         lastFailure = nil
         cancelActiveAttempt()
-        await coordinator.signOut(onSignedOut: onSignedOut)
-        log.log("auth.browser.signOut.end generation=\(signOutGeneration)")
+        nextSignOutOperationID &+= 1
+        let operationID = nextSignOutOperationID
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.prepareForSignOut()
+            await self.coordinator.signOut(onSignedOut: self.onSignedOut)
+        }
+        activeSignOutOperation = (operationID, task)
+        await task.value
+        if activeSignOutOperation?.id == operationID {
+            activeSignOutOperation = nil
+        }
+        log.log("auth.browser.signOut.end operation=\(operationID) generation=\(signOutGeneration)")
     }
 
     /// Sign out with a socket deadline while sign-out continues in background.
@@ -464,9 +488,11 @@ public final class HostBrowserSignInFlow {
         log.log("auth.callback.coordinator.complete.end attempt=\(attemptID.map(String.init) ?? "external") signedIn=\(coordinator.isAuthenticated)")
         guard signOutGeneration == generation else {
             // Sign-out ran while the validation round trip was in flight. The
-            // user's intent wins: tear the just-published session back down.
+            // user's intent wins. Join the prepared flow-level operation so
+            // this rollback cannot clear auth before composition-owned state
+            // has been durably quarantined.
             log.log("auth.callback.coordinator.rollback attempt=\(attemptID.map(String.init) ?? "external") reason=signOutRaced generation=\(signOutGeneration)")
-            await coordinator.signOut()
+            await signOut()
             await tokenStore.clearTokensIfCurrent(
                 accessToken: payload.accessToken,
                 refreshToken: payload.refreshToken

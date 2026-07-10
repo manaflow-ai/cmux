@@ -88,7 +88,9 @@ final class MobileHostIrohRuntime {
     private var lastKnownAccountID: String?
     private var lastKnownTag: String?
     private var lastKnownBindingID: String?
-    private var preparedRevocation: CmxIrohPendingRevocation?
+    private var preparedSignOut: CmxIrohHostSignOutPreparation?
+    private var signOutIntentActive = false
+    private var signOutPreparationTask: Task<Void, Never>?
     private var lifecycleRevision: UInt64 = 0
 
     private init() {}
@@ -104,12 +106,27 @@ final class MobileHostIrohRuntime {
                 guard !Task.isCancelled else { return }
                 let previousAccountID = self.observedAccountID
                 self.observedAccountID = state.accountID
+                if self.signOutIntentActive {
+                    if state.accountID == nil {
+                        self.signOutIntentActive = false
+                        self.signOutPreparationTask = nil
+                    }
+                    continue
+                }
+                guard state.accountID != nil
+                        || previousAccountID != nil
+                        || self.activeAccountID != nil
+                        || self.runtime != nil else { continue }
                 self.scheduleReconcile(
-                    eraseAccountState: state.accountID == nil
+                    eraseAccountState: (state.accountID == nil
+                        && (previousAccountID != nil
+                            || self.activeAccountID != nil
+                            || self.runtime != nil))
                         || (previousAccountID != nil
                             && previousAccountID != state.accountID)
                         || (self.activeAccountID != nil
                             && self.activeAccountID != state.accountID)
+                        || self.preparedSignOut?.wasPersisted == false
                 )
             }
         }
@@ -121,11 +138,18 @@ final class MobileHostIrohRuntime {
             return
         }
         desiredActive = desired
+        guard !signOutIntentActive else { return }
         scheduleReconcile(eraseAccountState: false)
     }
 
     func retryIfNeeded() {
-        guard desiredActive, observedAccountID != nil else { return }
+        guard !signOutIntentActive,
+              desiredActive,
+              observedAccountID != nil else { return }
+        if preparedSignOut?.wasPersisted == false {
+            scheduleReconcile(eraseAccountState: true)
+            return
+        }
         if runtime != nil {
             let revision = lifecycleRevision
             Task { @MainActor [weak self] in
@@ -140,24 +164,46 @@ final class MobileHostIrohRuntime {
         scheduleReconcile(eraseAccountState: false)
     }
 
-    /// Completes local teardown first, then best-effort revokes the old broker binding.
+    /// Stops the endpoint and durably quarantines its binding before auth clears tokens.
+    func prepareSignOut() async {
+        if let signOutPreparationTask {
+            await signOutPreparationTask.value
+            return
+        }
+        signOutIntentActive = true
+        let task = scheduleReconcile(eraseAccountState: true)
+        signOutPreparationTask = task
+        await task.value
+    }
+
+    /// Uses auth's captured tokens to revoke the exact preparation made before clear.
     func revokeAfterSignOut(
         accessToken: String?,
         refreshToken: String?
     ) async {
         observedAccountID = nil
-        let pending = currentPendingRevocation() ?? preparedRevocation
-        let transition = scheduleReconcile(eraseAccountState: true)
-        await transition.value
+        if let signOutPreparationTask {
+            await signOutPreparationTask.value
+        } else if preparedSignOut == nil {
+            await prepareSignOut()
+        }
+        defer {
+            signOutIntentActive = false
+            signOutPreparationTask = nil
+        }
 
-        guard let pending,
-              let accessToken,
+        guard var preparation = preparedSignOut else { return }
+        if preparation.pendingRevocation == nil {
+            preparedSignOut = nil
+            return
+        }
+        preparation = await retryPersistingQuarantinedPreparation(preparation)
+
+        guard let accessToken,
               !accessToken.isEmpty,
               let refreshToken,
               !refreshToken.isEmpty else { return }
         do {
-            // Retry persistence in case the pre-wipe Keychain attempt failed.
-            try await pendingRevocations.enqueue(pending)
             let broker = try CmxIrohTrustBrokerClient(
                 baseURL: AuthEnvironment.vmAPIBaseURL,
                 tokenSource: CmxIrohBrokerTokenSource(
@@ -165,13 +211,20 @@ final class MobileHostIrohRuntime {
                     refreshToken: { refreshToken }
                 )
             )
-            try await pendingRevocations.revokePending(
-                accountID: pending.accountID,
-                beforeRegisteringTag: pending.tag,
-                using: broker
+            try await preparation.revoke(
+                using: broker,
+                pendingRevocations: pendingRevocations
             )
-            if preparedRevocation == pending {
-                preparedRevocation = nil
+            if !preparation.wasPersisted {
+                await wipePersistedAccountState(
+                    after: CmxIrohHostSignOutPreparation(
+                        pendingRevocation: preparation.pendingRevocation,
+                        wasPersisted: true
+                    )
+                )
+            }
+            if preparedSignOut?.pendingRevocation == preparation.pendingRevocation {
+                preparedSignOut = nil
             }
         } catch {
             mobileHostIrohLog.error(
@@ -192,8 +245,10 @@ final class MobileHostIrohRuntime {
             await previous?.value
             guard let self, revision == self.lifecycleRevision else { return }
             await self.reconcile(
-                targetAccountID: self.desiredActive ? self.observedAccountID : nil,
-                eraseAccountState: eraseAccountState,
+                targetAccountID: self.signOutIntentActive
+                    ? nil
+                    : (self.desiredActive ? self.observedAccountID : nil),
+                eraseAccountState: eraseAccountState || self.signOutIntentActive,
                 revision: revision
             )
             if revision == self.lifecycleRevision {
@@ -209,7 +264,9 @@ final class MobileHostIrohRuntime {
         eraseAccountState: Bool,
         revision: UInt64
     ) async {
-        if activeAccountID != targetAccountID || targetAccountID == nil {
+        if eraseAccountState {
+            await quarantineForSignOut()
+        } else if activeAccountID != targetAccountID || targetAccountID == nil {
             let previousRuntime = runtime
             runtime = nil
             activeAccountID = nil
@@ -218,22 +275,9 @@ final class MobileHostIrohRuntime {
             await lanPublisher.stop()
         }
 
-        if eraseAccountState {
-            await enqueuePendingRevocationBeforeLocalWipe()
-            do {
-                try await hostPolicies.deactivate()
-            } catch {
-                mobileHostIrohLog.error(
-                    "Iroh offline policy deletion failed: \(String(describing: error), privacy: .private)"
-                )
-            }
-            try? await brokerCredentials.deactivate()
-            try? await identities.deactivate()
-            await appInstances.deactivate()
-        }
-
         guard revision == lifecycleRevision,
               !Task.isCancelled,
+              !signOutIntentActive,
               desiredActive,
               let targetAccountID,
               runtime == nil else { return }
@@ -409,8 +453,8 @@ final class MobileHostIrohRuntime {
                     self.lastKnownBindingID = binding.bindingID
                     self.lastKnownAccountID = accountID
                     self.lastKnownTag = tag
-                    if self.preparedRevocation?.accountID == accountID {
-                        self.preparedRevocation = nil
+                    if self.preparedSignOut?.pendingRevocation?.accountID == accountID {
+                        self.preparedSignOut = nil
                     }
                     MobileHostService.shared.updateIrohBinding(binding)
                 }
@@ -450,39 +494,134 @@ final class MobileHostIrohRuntime {
         do {
             try await hostRuntime.start()
         } catch {
+            if revision != lifecycleRevision || Task.isCancelled {
+                runtime = hostRuntime
+                activeAccountID = accountID
+                activeAppInstanceID = appInstanceID
+                throw CancellationError()
+            }
             await hostRuntime.stop()
             throw error
         }
         guard revision == lifecycleRevision,
               !Task.isCancelled,
+              !signOutIntentActive,
               desiredActive,
               observedAccountID == accountID else {
-            await hostRuntime.stop()
+            // The succeeding reconcile owns this runtime. Retaining it lets a
+            // sign-out or account-switch transition capture a binding that was
+            // registered while activation was being superseded.
+            runtime = hostRuntime
+            activeAccountID = accountID
+            activeAppInstanceID = appInstanceID
             throw CancellationError()
         }
         runtime = hostRuntime
         activeAccountID = accountID
         activeAppInstanceID = appInstanceID
-        if preparedRevocation?.accountID == accountID {
-            preparedRevocation = nil
+        if preparedSignOut?.pendingRevocation?.accountID == accountID {
+            preparedSignOut = nil
         }
     }
 
-    private func enqueuePendingRevocationBeforeLocalWipe() async {
-        guard let pending = currentPendingRevocation() else { return }
-        preparedRevocation = pending
-        do {
-            try await pendingRevocations.enqueue(pending)
-            if lastKnownBindingID == pending.bindingID {
-                lastKnownBindingID = nil
-                lastKnownAccountID = nil
-                lastKnownTag = nil
-            }
-        } catch {
+    private func quarantineForSignOut() async {
+        let preparation: CmxIrohHostSignOutPreparation
+        if let runtime {
+            preparation = await runtime.deactivateForSignOut()
+        } else {
+            preparation = await prepareWithoutRuntime()
+        }
+        preparedSignOut = preparation
+        await lanPublisher.stop()
+        if preparation.wasPersisted {
+            await wipePersistedAccountState(after: preparation)
+        } else {
             mobileHostIrohLog.error(
-                "Iroh binding revocation queue failed: \(String(describing: error), privacy: .private)"
+                "Iroh binding quarantine persistence failed; account state retained"
             )
         }
+    }
+
+    private func prepareWithoutRuntime() async -> CmxIrohHostSignOutPreparation {
+        let pending: CmxIrohPendingRevocation?
+        if preparedSignOut?.wasPersisted == false {
+            pending = preparedSignOut?.pendingRevocation
+        } else {
+            pending = currentPendingRevocation()
+                ?? preparedSignOut?.pendingRevocation
+        }
+        var wasPersisted = pending == nil || preparedSignOut?.wasPersisted == true
+        if let pending, !wasPersisted {
+            do {
+                try await pendingRevocations.enqueue(pending)
+                wasPersisted = true
+            } catch {
+                mobileHostIrohLog.error(
+                    "Iroh binding quarantine persistence failed: \(String(describing: error), privacy: .private)"
+                )
+            }
+        }
+        return CmxIrohHostSignOutPreparation(
+            pendingRevocation: pending,
+            wasPersisted: wasPersisted
+        )
+    }
+
+    private func retryPersistingQuarantinedPreparation(
+        _ preparation: CmxIrohHostSignOutPreparation
+    ) async -> CmxIrohHostSignOutPreparation {
+        guard !preparation.wasPersisted else { return preparation }
+        let retried: CmxIrohHostSignOutPreparation
+        if let runtime {
+            retried = await runtime.deactivateForSignOut()
+        } else {
+            retried = await prepareWithoutRuntime()
+        }
+        guard retried.pendingRevocation == preparation.pendingRevocation else {
+            mobileHostIrohLog.error(
+                "Iroh binding quarantine retry returned a different binding"
+            )
+            return preparation
+        }
+        preparedSignOut = retried
+        if retried.wasPersisted {
+            await wipePersistedAccountState(after: retried)
+        }
+        return retried
+    }
+
+    private func wipePersistedAccountState(
+        after preparation: CmxIrohHostSignOutPreparation
+    ) async {
+        guard preparation.wasPersisted else { return }
+        do {
+            try await hostPolicies.deactivate()
+        } catch {
+            mobileHostIrohLog.error(
+                "Iroh offline policy deletion failed: \(String(describing: error), privacy: .private)"
+            )
+        }
+        do {
+            try await brokerCredentials.deactivate()
+        } catch {
+            mobileHostIrohLog.error(
+                "Iroh broker credential deletion failed: \(String(describing: error), privacy: .private)"
+            )
+        }
+        do {
+            try await identities.deactivate()
+        } catch {
+            mobileHostIrohLog.error(
+                "Iroh identity deletion failed: \(String(describing: error), privacy: .private)"
+            )
+        }
+        await appInstances.deactivate()
+        runtime = nil
+        activeAccountID = nil
+        activeAppInstanceID = nil
+        lastKnownBindingID = nil
+        lastKnownAccountID = nil
+        lastKnownTag = nil
     }
 
     private func currentPendingRevocation() -> CmxIrohPendingRevocation? {

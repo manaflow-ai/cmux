@@ -127,6 +127,9 @@ struct MacAuthComposition {
             makeSignInURL: { AuthEnvironment.signInURL(callbackState: $0) },
             callbackScheme: { AuthEnvironment.callbackScheme },
             openExternalURL: { NSWorkspace.shared.open($0) },
+            prepareForSignOut: {
+                await MobileHostIrohRuntime.shared.prepareSignOut()
+            },
             onSignedOut: { accessToken, refreshToken in
                 await MobileHostIrohRuntime.shared.revokeAfterSignOut(
                     accessToken: accessToken,
