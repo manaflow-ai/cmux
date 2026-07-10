@@ -102,9 +102,16 @@ struct QueueState {
     events: VecDeque<PtyInputEvent>,
     queued_bytes: usize,
     release_reservations: usize,
-    in_flight: bool,
+    in_flight: Option<InFlightInput>,
     closed: bool,
     remote_failed: bool,
+    shutdown_release_drain: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct InFlightInput {
+    surface_id: SurfaceId,
+    kind: PtyInputKind,
 }
 
 #[derive(Default)]
@@ -155,17 +162,30 @@ impl PtyInputDispatcher {
     pub fn shutdown(&mut self, timeout: Duration) -> bool {
         let deadline = Instant::now() + timeout;
         let mut state = self.sender.queue.state.lock().unwrap();
-        while (!state.events.is_empty() || state.in_flight) && Instant::now() < deadline {
+        while (!state.events.is_empty() || state.in_flight.is_some()) && Instant::now() < deadline {
             let remaining = deadline.saturating_duration_since(Instant::now());
             let (next, _) = self.sender.queue.changed.wait_timeout(state, remaining).unwrap();
             state = next;
         }
-        let drained = state.events.is_empty() && !state.in_flight;
+        let drained = state.events.is_empty() && state.in_flight.is_none();
         state.closed = true;
         if !drained {
+            let release = state
+                .in_flight
+                .filter(|input| input.kind == PtyInputKind::Press)
+                .and_then(|input| {
+                    state.events.iter().position(|event| {
+                        event.kind == PtyInputKind::Release && event.surface_id == input.surface_id
+                    })
+                })
+                .and_then(|index| state.events.remove(index));
             state.events.clear();
-            state.queued_bytes = 0;
+            state.queued_bytes = release.as_ref().map_or(0, |event| event.bytes.len());
             state.release_reservations = 0;
+            if let Some(release) = release {
+                state.events.push_back(release);
+                state.shutdown_release_drain = true;
+            }
         }
         self.sender.queue.changed.notify_all();
         drop(state);
@@ -260,9 +280,11 @@ impl Drop for PtyInputDispatcher {
     fn drop(&mut self) {
         let mut state = self.sender.queue.state.lock().unwrap();
         state.closed = true;
-        state.events.clear();
-        state.queued_bytes = 0;
-        state.release_reservations = 0;
+        if !state.shutdown_release_drain {
+            state.events.clear();
+            state.queued_bytes = 0;
+            state.release_reservations = 0;
+        }
         self.sender.queue.changed.notify_all();
     }
 }
@@ -354,8 +376,9 @@ fn worker(queue: Arc<SharedQueue>, on_failure: Arc<dyn Fn(PtyOperationFailure) +
             if state.events.is_empty() && state.closed {
                 return;
             }
-            state.in_flight = true;
             let event = state.events.pop_front().unwrap();
+            state.in_flight =
+                Some(InFlightInput { surface_id: event.surface_id, kind: event.kind });
             state.queued_bytes = state.queued_bytes.saturating_sub(event.bytes.len());
             event
         };
@@ -397,7 +420,7 @@ fn worker(queue: Arc<SharedQueue>, on_failure: Arc<dyn Fn(PtyOperationFailure) +
             state.queued_bytes = 0;
             state.release_reservations = 0;
         }
-        state.in_flight = false;
+        state.in_flight = None;
         queue.changed.notify_all();
         drop(state);
         if let Some(failure) = failure {
@@ -571,15 +594,14 @@ mod tests {
     }
 
     #[test]
-    fn shutdown_timeout_discards_pending_input() {
+    fn shutdown_timeout_preserves_release_behind_in_flight_press() {
         let queue = Arc::new(SharedQueue::default());
         {
             let mut state = queue.state.lock().unwrap();
-            state.events.push_back(event(1, 1, PtyInputKind::Press));
+            state.events.push_back(event(1, 1, PtyInputKind::Motion));
             state.events.push_back(event(1, 2, PtyInputKind::Release));
             state.queued_bytes = 2;
-            state.release_reservations = 1;
-            state.in_flight = true;
+            state.in_flight = Some(InFlightInput { surface_id: 1, kind: PtyInputKind::Press });
         }
         let mut dispatcher = PtyInputDispatcher {
             sender: PtyInputSender { queue: queue.clone(), on_failure: Arc::new(|_| {}) },
@@ -590,9 +612,32 @@ mod tests {
 
         let state = queue.state.lock().unwrap();
         assert!(state.closed);
-        assert!(state.events.is_empty());
-        assert_eq!(state.queued_bytes, 0);
+        assert_eq!(state.events.len(), 1);
+        assert_eq!(state.events[0].kind, PtyInputKind::Release);
+        assert_eq!(state.queued_bytes, 1);
         assert_eq!(state.release_reservations, 0);
+        assert!(state.shutdown_release_drain);
+    }
+
+    #[test]
+    fn shutdown_timeout_discards_backlog_without_an_in_flight_press() {
+        let queue = Arc::new(SharedQueue::default());
+        {
+            let mut state = queue.state.lock().unwrap();
+            state.events.push_back(event(1, 1, PtyInputKind::Ordered));
+            state.queued_bytes = 1;
+            state.in_flight = Some(InFlightInput { surface_id: 1, kind: PtyInputKind::Ordered });
+        }
+        let mut dispatcher = PtyInputDispatcher {
+            sender: PtyInputSender { queue: queue.clone(), on_failure: Arc::new(|_| {}) },
+            worker: None,
+        };
+
+        assert!(!dispatcher.shutdown(Duration::ZERO));
+
+        let state = queue.state.lock().unwrap();
+        assert!(state.events.is_empty());
+        assert!(!state.shutdown_release_drain);
     }
 
     #[test]

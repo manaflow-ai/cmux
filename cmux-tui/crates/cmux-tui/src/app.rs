@@ -614,6 +614,13 @@ enum Drag {
     ResizeSplit { horizontal: Option<(PaneId, PaneEdge)>, vertical: Option<(PaneId, PaneEdge)> },
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PtyMousePressResult {
+    NotOwned,
+    Consumed,
+    Started,
+}
+
 pub struct App {
     pub session: OrderedSession,
     pub config: Config,
@@ -1388,6 +1395,21 @@ impl App {
     }
 
     fn defer_input(&mut self, input: Event) -> RenderAction {
+        let replace_motion = match (&input, self.deferred_input.back()) {
+            (
+                Event::Mouse(MouseEvent { kind: MouseEventKind::Moved, .. }),
+                Some(Event::Mouse(MouseEvent { kind: MouseEventKind::Moved, .. })),
+            ) => true,
+            (
+                Event::Mouse(MouseEvent { kind: MouseEventKind::Drag(button), .. }),
+                Some(Event::Mouse(MouseEvent { kind: MouseEventKind::Drag(previous), .. })),
+            ) => button == previous,
+            _ => false,
+        };
+        if replace_motion {
+            *self.deferred_input.back_mut().unwrap() = input;
+            return RenderAction::None;
+        }
         if self.deferred_input.len() >= DEFERRED_INPUT_CAPACITY {
             if matches!(&input, Event::Mouse(MouseEvent { kind: MouseEventKind::Up(_), .. })) {
                 self.deferred_input.pop_front();
@@ -2484,7 +2506,8 @@ impl App {
                     mouse.row,
                     MouseButton::Right,
                     mouse.modifiers,
-                ) {
+                ) != PtyMousePressResult::NotOwned
+                {
                     return Ok(RenderAction::Draw);
                 }
                 self.open_context_menu(mouse.column, mouse.row);
@@ -2520,7 +2543,8 @@ impl App {
                     mouse.row,
                     MouseButton::Middle,
                     mouse.modifiers,
-                ) {
+                ) != PtyMousePressResult::NotOwned
+                {
                     RenderAction::Draw
                 } else {
                     RenderAction::None
@@ -2571,20 +2595,22 @@ impl App {
         y: u16,
         button: MouseButton,
         modifiers: KeyModifiers,
-    ) -> bool {
+    ) -> PtyMousePressResult {
         if modifiers.contains(KeyModifiers::SHIFT)
             || self.menu.is_some()
             || self.prompt.is_some()
             || self.drag.is_some()
         {
-            return false;
+            return PtyMousePressResult::NotOwned;
         }
-        let Some(area) = self.pane_area_at(x, y).copied() else { return false };
+        let Some(area) = self.pane_area_at(x, y).copied() else {
+            return PtyMousePressResult::NotOwned;
+        };
         if !area.content.contains(x, y)
             || self.surface_kind(area.surface) != SurfaceKind::Pty
             || !self.pty_mouse_tracking(area.surface)
         {
-            return false;
+            return PtyMousePressResult::NotOwned;
         }
 
         if self.active_pane() != Some(area.pane) {
@@ -2602,7 +2628,7 @@ impl App {
             modifiers,
             true,
         ) {
-            return false;
+            return PtyMousePressResult::Consumed;
         }
         self.drag = Some(Drag::PtyMouse {
             surface: area.surface,
@@ -2611,7 +2637,7 @@ impl App {
             position: (x, y),
             modifiers,
         });
-        true
+        PtyMousePressResult::Started
     }
 
     fn forward_pty_mouse_drag(
@@ -3184,7 +3210,9 @@ impl App {
                     );
                     self.drag =
                         Some(Drag::Browser { surface: area.surface, content: area.content });
-                } else if self.begin_pty_mouse_drag(x, y, MouseButton::Left, modifiers) {
+                } else if self.begin_pty_mouse_drag(x, y, MouseButton::Left, modifiers)
+                    != PtyMousePressResult::NotOwned
+                {
                     return Ok(RenderAction::Draw);
                 } else {
                     if self.active_pane() != Some(area.pane) {
@@ -4183,6 +4211,89 @@ mod tests {
         .unwrap();
 
         assert!(app.deferred_input.is_empty());
+    }
+
+    #[test]
+    fn deferred_pointer_motion_keeps_only_the_latest_sample() {
+        let mux = Mux::new("deferred-motion-test", SurfaceOptions::default());
+        let (mut app, events) = test_app_with_events(Session::Local(mux));
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        app.session.enqueue("blocking mutation", move |_| {
+            started_tx.send(()).unwrap();
+            release_rx.recv().unwrap();
+            Ok(())
+        });
+        started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        for column in [4, 9] {
+            app.handle(AppEvent::Input(Event::Mouse(MouseEvent {
+                kind: MouseEventKind::Moved,
+                column,
+                row: 3,
+                modifiers: KeyModifiers::NONE,
+            })))
+            .unwrap();
+        }
+
+        assert_eq!(app.deferred_input.len(), 1);
+        assert!(matches!(
+            app.deferred_input.front(),
+            Some(Event::Mouse(MouseEvent { column: 9, .. }))
+        ));
+        release_tx.send(()).unwrap();
+        let settled = events.recv_timeout(Duration::from_secs(1)).unwrap();
+        app.handle(settled).unwrap();
+    }
+
+    #[test]
+    fn failed_pty_owned_press_does_not_fall_through_to_cmux_mouse_actions() {
+        let mux = Mux::new(
+            "failed-owned-press-test",
+            SurfaceOptions {
+                command: Some(vec![
+                    "/bin/sh".to_string(),
+                    "-c".to_string(),
+                    "sleep 30".to_string(),
+                ]),
+                ..Default::default()
+            },
+        );
+        let surface = mux.new_workspace(None, Some((20, 8))).unwrap();
+        surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[?1000h\x1b[?1006h"));
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.tree = app.session.tree();
+        let pane = app.tree.active_screen().unwrap().active_pane;
+        let content = Rect { x: 2, y: 3, width: 20, height: 8 };
+        app.pane_areas.push(PaneArea {
+            pane,
+            surface: surface.id,
+            rect: Rect { x: 1, y: 2, width: 23, height: 10 },
+            bar: Some(Rect { x: 1, y: 2, width: 23, height: 1 }),
+            omnibar: None,
+            content,
+            track: None,
+        });
+        assert!(app.pty_input.shutdown(Duration::from_secs(1)));
+        let event = |button| MouseEvent {
+            kind: MouseEventKind::Down(button),
+            column: content.x + 4,
+            row: content.y + 2,
+            modifiers: KeyModifiers::NONE,
+        };
+
+        app.handle_mouse(event(MouseButton::Right)).unwrap();
+        assert!(app.menu.is_none());
+        assert!(app.drag.is_none());
+        app.handle_mouse(event(MouseButton::Left)).unwrap();
+        assert!(app.selection.is_none());
+        assert!(app.drag.is_none());
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("PTY input queue is full; input was not sent")
+        );
+
+        mux.close_surface(surface.id);
     }
 
     #[test]
