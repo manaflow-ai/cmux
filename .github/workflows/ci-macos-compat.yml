@@ -144,6 +144,10 @@ jobs:
             sleep $((attempt * 5))
           done
 
+      - name: Run Iroh transport package tests on Intel Sonoma
+        if: matrix.expected_arch == 'x86_64'
+        run: swift test --package-path Packages/Shared/CmuxIrohTransport
+
       - name: Run unit tests
         env:
           CMUX_SKIP_ZIG_BUILD: ${{ matrix.skip_zig && '1' || '0' }}
