@@ -415,13 +415,12 @@ describe("device registry route", () => {
     }
   });
 
-  test("hostIsTailscaleAttachable accepts only CGNAT and *.ts.net", () => {
+  test("hostIsTailscaleAttachable accepts only numeric Tailscale peer addresses", () => {
     for (const host of [
       "100.64.0.1",
       "100.127.255.255",
       "100.100.5.7",
-      "my-mac.tailnet.ts.net",
-      "MY-MAC.TS.NET",
+      "fd7a:115c:a1e0::1",
     ]) {
       expect(hostIsTailscaleAttachable(host)).toBe(true);
     }
@@ -434,7 +433,8 @@ describe("device registry route", () => {
       "8.8.8.8",
       "example.com",
       "my-mac.local",
-      "fd7a:115c:a1e0::1",
+      "my-mac.tailnet.ts.net",
+      "MY-MAC.TS.NET",
       // Malformed .ts.net strings that pass a naive suffix check but are not
       // dialable bare hosts.
       "bad host.ts.net",
@@ -464,7 +464,8 @@ describe("device registry route", () => {
     ];
     // Valid: id present, tailscale host:port, attachable host, in-range port.
     expect(manualRoutesAreValid(ok())).toBe(true);
-    expect(manualRoutesAreValid(ok({}, { host: "my-mac.ts.net", port: 1 }))).toBe(true);
+    expect(manualRoutesAreValid(ok({}, { host: "fd7a:115c:a1e0::1", port: 1 }))).toBe(true);
+    expect(manualRoutesAreValid(ok({}, { host: "my-mac.ts.net", port: 1 }))).toBe(false);
     expect(manualRoutesAreValid(ok({ priority: 0 }))).toBe(true); // integer priority ok
     expect(manualRoutesAreValid(ok({ priority: 5 }))).toBe(true);
     expect(manualRoutesAreValid(ok({ priority: "0" }))).toBe(false); // string priority (iOS drops it)
