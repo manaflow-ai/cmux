@@ -178,6 +178,14 @@ final class PortalSplitDividerRegion {
         var current: NSView? = splitView
         while let view = current {
             if view.isHidden { return false }
+            // Bonsplit's keepAllAlive lifecycle parks inactive tab content at
+            // SwiftUI opacity(0) with hit testing disabled instead of hiding
+            // it; that surfaces as a zero-alpha platform ancestor. Dividers
+            // inside such content must not pair into intersection drags (a
+            // drag would mutate an invisible split the click could never
+            // reach natively).
+            if view.alphaValue == 0 { return false }
+            if let layer = view.layer, layer.opacity == 0 { return false }
             current = view.superview
         }
         let first = splitView.arrangedSubviews[dividerIndex].frame

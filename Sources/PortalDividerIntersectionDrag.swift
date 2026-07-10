@@ -38,6 +38,7 @@ final class PortalDividerIntersectionDragController {
     }
 
     private var axes: [AxisDrag] = []
+    private var isAborted = false
 
     var isActive: Bool { !axes.isEmpty }
 
@@ -78,12 +79,16 @@ final class PortalDividerIntersectionDragController {
     }
 
     func update(windowPoint: NSPoint) {
-        guard isActive else { return }
+        guard isActive, !isAborted else { return }
         for axis in axes {
             // Resizing the first axis can synchronously reconfigure the tree,
             // so revalidate each axis immediately before applying it.
             guard let splitView = axis.resolvedSplitView else {
-                end()
+                // Keep the gesture claimed and stop moving anything: the
+                // button is still down, so running the latch-clearing
+                // reassert now would read as part of the drag. `end()` runs
+                // the handshake at the real mouse-up instead.
+                isAborted = true
                 return
             }
             let pointer = splitView.convert(windowPoint, from: nil)
@@ -103,6 +108,7 @@ final class PortalDividerIntersectionDragController {
         // native divider tracking runs this handshake for us).
         reassertCurrentPositions()
         axes = []
+        isAborted = false
         TerminalWindowPortalRegistry.endInteractiveGeometryResize()
     }
 

@@ -49,16 +49,12 @@ extension WindowBrowserHostView {
         intersectionDrag.begin(atWindowPoint: event.locationInWindow, regions: splitDividerRegions())
     }
 
-    /// Forwards a drag sample to the active two-axis drag, if any.
+    /// Forwards a drag sample to the active two-axis drag, if any. An
+    /// aborted drag stays claimed until mouse-up; `mouseUp` runs the release
+    /// handshake and re-resolves the cursor.
     func updateIntersectionDragIfActive(with event: NSEvent) -> Bool {
         guard intersectionDrag.isActive else { return false }
         intersectionDrag.update(windowPoint: event.locationInWindow)
-        if !intersectionDrag.isActive {
-            // The drag aborted (a captured divider went stale); re-resolve
-            // the cursor now instead of leaving the four-way cursor stuck
-            // until the next pointer move.
-            updateDividerCursor(at: convert(event.locationInWindow, from: nil))
-        }
         return true
     }
 

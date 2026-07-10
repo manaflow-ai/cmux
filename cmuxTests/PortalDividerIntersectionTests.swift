@@ -235,14 +235,52 @@ import Testing
         #expect(controller.begin(atWindowPoint: cornerPoint, regions: [horizontal, vertical]))
 
         // A pane close between drag samples invalidates the captured divider
-        // index; the next update must cancel the gesture instead of calling
-        // setPosition with a stale index (AppKit range exception).
+        // index; updates must stop moving anything instead of calling
+        // setPosition with a stale index (AppKit range exception). The
+        // gesture stays claimed until the release handshake in end(), so the
+        // owning coordinator's drag latch is cleared with the button up.
         let removed = inner.arrangedSubviews[1]
         inner.removeArrangedSubview(removed)
         removed.removeFromSuperview()
         controller.update(windowPoint: NSPoint(x: 420, y: 280))
+        #expect(controller.isActive)
+        controller.update(windowPoint: NSPoint(x: 520, y: 240))
+        #expect(controller.isActive)
 
+        controller.end()
         #expect(!controller.isActive)
+    }
+
+    @Test func zeroAlphaAncestorsAreNotLiveForIntersection() {
+        let window = NSWindow(
+            contentRect: Self.contentBounds,
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        let (outer, inner) = makeNestedSplits()
+        inner.addArrangedSubview(NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300)))
+        inner.addArrangedSubview(NSView(frame: NSRect(x: 401, y: 0, width: 399, height: 300)))
+        window.contentView?.addSubview(outer)
+
+        let horizontal = region(outer, rect: horizontalDividerRect, isVertical: false)
+        let vertical = region(inner, rect: verticalDividerRect, isVertical: true)
+
+        #expect(PortalSplitDividerRegion.dividerIntersection(
+            at: cornerPoint,
+            in: [horizontal, vertical]
+        ) != nil)
+
+        // Bonsplit keepAllAlive parks inactive tab content at opacity(0)
+        // (zero-alpha platform ancestor) instead of hiding it; dividers
+        // inside that content must not pair into an intersection drag.
+        inner.superview?.alphaValue = 0
+
+        #expect(PortalSplitDividerRegion.dividerIntersection(
+            at: cornerPoint,
+            in: [horizontal, vertical]
+        ) == nil)
     }
 
     @Test func clampHonorsDelegateConstraints() {
