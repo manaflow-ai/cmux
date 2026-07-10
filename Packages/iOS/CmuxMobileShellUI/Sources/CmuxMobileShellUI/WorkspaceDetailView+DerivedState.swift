@@ -10,7 +10,12 @@ extension WorkspaceDetailView {
 
     var selectedToolbarSubtitle: String? {
         guard let selectedTerminalID = store.selectedTerminalID else { return nil }
-        return workspace.terminals.first { $0.id == selectedTerminalID }?.name
+        let terminalName = workspace.terminals.first { $0.id == selectedTerminalID }?.name
+        guard connectionStatus == .connected,
+              let activeTransportKind else {
+            return terminalName
+        }
+        return activeTransportKind.mobileToolbarSubtitle(terminalName: terminalName)
     }
 
     var terminalTopPadding: CGFloat { 4 }

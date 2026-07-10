@@ -92,8 +92,16 @@ struct SettingCatalogTests {
         #expect(ids.contains("paneBorderColor"))
         #expect(ids.contains("activePaneBorderColor"))
         #expect(ids.contains("mobile.iOSPairingHost.enabled"))
+        #expect(ids.contains("mobile.iOSPairingHost.irohTransport.enabled"))
+        #expect(ids.contains("mobile.iOSPairingHost.publishTailscaleRoutes"))
         #expect(ids.contains("automation.socketControlMode"))
         #expect(ids.contains("automation.socketPassword"))
+    }
+
+    @Test func mobileIrohRolloutDefaultsAreOn() {
+        let mobile = SettingCatalog().mobile
+        #expect(mobile.iOSPairingIrohTransport.defaultValue)
+        #expect(mobile.iOSPairingPublishesTailscaleRoutes.defaultValue)
     }
 
     @Test func keyIdsMatchTheirSectionPrefix() {

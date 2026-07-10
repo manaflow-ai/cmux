@@ -323,6 +323,7 @@ final class HostSettingsActions: SettingsHostActions {
             boundPort: status.port,
             usesEphemeralFallback: status.usesEphemeralFallback,
             activeConnectionCount: status.activeConnectionCount,
+            activeTransportLabels: activeTransportLabels(from: status.activeTransportCounts),
             routes: routes
         )
     }
@@ -357,6 +358,14 @@ final class HostSettingsActions: SettingsHostActions {
             return String(localized: "settings.mobile.route.iroh", defaultValue: "Iroh")
         case .websocket:
             return String(localized: "settings.mobile.route.websocket", defaultValue: "WebSocket")
+        }
+    }
+
+    private static func activeTransportLabels(from counts: [CmxAttachTransportKind: Int]) -> [String] {
+        let displayOrder: [CmxAttachTransportKind] = [.iroh, .tailscale, .debugLoopback, .websocket]
+        return displayOrder.compactMap { kind in
+            guard (counts[kind] ?? 0) > 0 else { return nil }
+            return routeKindLabel(kind)
         }
     }
 

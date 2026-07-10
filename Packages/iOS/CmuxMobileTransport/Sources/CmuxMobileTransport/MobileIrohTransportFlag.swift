@@ -2,9 +2,10 @@ public import Foundation
 
 /// Feature flag for the iOS iroh transport lane.
 ///
-/// Resolution order is environment override, UserDefaults override, then build
-/// flavor. DEBUG defaults on for dogfood and package tests; Release defaults
-/// off until the rollout slice flips it.
+/// Resolution order is environment override, UserDefaults override, then the
+/// rollout default. Iroh now defaults on in every build; the old parameterized
+/// build-flavor input remains only for source compatibility with P3 tests and
+/// callers.
 public struct MobileIrohTransportFlag: Sendable, Equatable {
     /// Environment variable override for dogfood and tagged builds.
     public static let envKey = "CMUX_MOBILE_IROH_TRANSPORT"
@@ -19,7 +20,7 @@ public struct MobileIrohTransportFlag: Sendable, Equatable {
         self.isEnabled = isEnabled
     }
 
-    /// Resolves the flag from environment, defaults, and build flavor.
+    /// Resolves the flag from environment, defaults, and the default-on rollout.
     public static func resolved(
         environment: [String: String] = ProcessInfo.processInfo.environment,
         defaults: UserDefaults = .standard,
@@ -38,7 +39,7 @@ public struct MobileIrohTransportFlag: Sendable, Equatable {
         if defaults.object(forKey: defaultsKey) != nil {
             return MobileIrohTransportFlag(isEnabled: defaults.bool(forKey: defaultsKey))
         }
-        return MobileIrohTransportFlag(isEnabled: isDebugBuild)
+        return MobileIrohTransportFlag(isEnabled: true)
     }
 
     /// Compile-time build flavor, parameterized above for tests.

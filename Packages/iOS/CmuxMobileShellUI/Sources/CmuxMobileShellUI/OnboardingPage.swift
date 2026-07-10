@@ -58,12 +58,9 @@ struct OnboardingPage: Sendable {
                 "mobile.onboarding.connectTitle",
                 defaultValue: "A private link to your Mac"
             ),
-            // Honest about the path: the phone reaches the Mac directly, the
-            // recommended way is Tailscale (which the standard QR pairing needs),
-            // and same-Wi-Fi manual pairing exists but is unencrypted.
             body: L10n.string(
                 "mobile.onboarding.connectBody",
-                defaultValue: "Your phone has to reach your Mac over the network. The simplest private path is Tailscale: both devices join the same tailnet and connect directly, with no cloud relay. On the same Wi-Fi you can instead type the Mac's local address by hand, but that link is unencrypted, so Tailscale is recommended."
+                defaultValue: "cmux tries an encrypted Iroh connection first, so pairing usually works as long as both devices are online and signed in. You can also publish Tailscale or LAN routes as a fallback."
             )
         )
     }
@@ -73,16 +70,16 @@ struct OnboardingPage: Sendable {
             systemImage: "point.3.connected.trianglepath.dotted",
             title: L10n.string(
                 "mobile.onboarding.tailscaleTitle",
-                defaultValue: "Put both devices on Tailscale"
+                defaultValue: "Optional fallback: Tailscale"
             ),
             body: L10n.string(
                 "mobile.onboarding.tailscaleBody",
-                defaultValue: "Tailscale is a free app that gives your devices a private network. Do this once, on both the phone and the Mac."
+                defaultValue: "Iroh is the default transport. Tailscale can add a private fallback route if your network blocks Iroh or you are connecting from an older cmux build."
             ),
             checklist: [
                 L10n.string(
                     "mobile.onboarding.tailscaleStep1",
-                    defaultValue: "Install Tailscale on this phone and on your Mac."
+                    defaultValue: "Install Tailscale on this phone and on your Mac only if you want the fallback route."
                 ),
                 L10n.string(
                     "mobile.onboarding.tailscaleStep2",
@@ -90,7 +87,7 @@ struct OnboardingPage: Sendable {
                 ),
                 L10n.string(
                     "mobile.onboarding.tailscaleStep3",
-                    defaultValue: "Keep both signed in to the same cmux account too. Pairing checks that they match."
+                    defaultValue: "Leave Also Publish Tailscale/LAN Routes on in Mac Settings when you want that fallback."
                 ),
             ],
             links: [

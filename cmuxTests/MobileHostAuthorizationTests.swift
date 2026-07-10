@@ -246,6 +246,52 @@ struct MobileHostAuthorizationTests {
         #expect(preferred?.kind == .iroh)
     }
 
+    @Test func testMobileRouteResolverCanPublishOnlyIrohRoute() throws {
+        let resolver = MobileRouteResolver()
+        let irohRoute = try CmxAttachRoute(
+            id: "iroh",
+            kind: .iroh,
+            endpoint: .peer(
+                id: "peer-abcdef",
+                relayHint: nil,
+                directAddrs: ["192.0.2.10:443"],
+                relayURL: "https://relay.example.com"
+            ),
+            priority: 5
+        )
+        let snapshot = resolver.routes(
+            port: 61234,
+            irohRoute: irohRoute,
+            tailscaleHosts: ["100.71.210.41"],
+            publishTailscaleRoutes: false
+        )
+
+        #expect(snapshot.routes.contains { $0.kind == .iroh })
+        #expect(!snapshot.routes.contains { $0.kind == .tailscale })
+        #if DEBUG
+        #expect(snapshot.routes.contains { $0.kind == .debugLoopback })
+        #endif
+    }
+
+    @Test func testMobileHostIrohAndTailscaleRouteSettingsDefaultOn() {
+        let suiteName = "MobileHostSettings.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        #expect(MobileHostIrohFlag.resolved(defaults: defaults).isEnabled)
+        #expect(MobileHostService.publishesTailscaleRoutes(defaults: defaults))
+    }
+
+    @Test func testMobileHostTailscaleRouteSettingCanDisableFallbackRoutes() {
+        let suiteName = "MobileHostSettings.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set(false, forKey: MobileHostService.publishTailscaleRoutesDefaultsKey)
+
+        #expect(!MobileHostService.publishesTailscaleRoutes(defaults: defaults))
+    }
+
     @Test func testMobileRouteResolverOmitsIrohWhenNoEndpointRouteIsAvailable() throws {
         let resolver = MobileRouteResolver()
         let snapshot = resolver.routes(
@@ -277,6 +323,7 @@ struct MobileHostAuthorizationTests {
                 ),
             ],
             activeConnectionCount: 0,
+            activeTransportCounts: [.iroh: 1],
             lastErrorDescription: nil
         )
 
@@ -284,6 +331,7 @@ struct MobileHostAuthorizationTests {
         let route = try #require(snapshot.routes.first)
         #expect(route.kindLabel == String(localized: "settings.mobile.route.iroh", defaultValue: "Iroh"))
         #expect(route.endpoint == "peer-abcdef1 - relay.example.com")
+        #expect(snapshot.activeTransportLabels == [String(localized: "settings.mobile.route.iroh", defaultValue: "Iroh")])
     }
 
     @Test func testMobileRouteResolverAwaitsMagicDNSForPublicStatusRoutes() async throws {

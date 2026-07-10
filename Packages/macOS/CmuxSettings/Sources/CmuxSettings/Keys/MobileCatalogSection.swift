@@ -20,6 +20,27 @@ public struct MobileCatalogSection: SettingCatalogSection {
     private static let iOSPairingHostDefault = false
     #endif
 
+    /// Enables the default iroh transport listener and route for iOS pairing.
+    ///
+    /// This reuses the original rollout flag storage key so existing dogfood
+    /// overrides keep working, but the fallback default is now ON in every build.
+    public let iOSPairingIrohTransport = DefaultsKey<Bool>(
+        id: "mobile.iOSPairingHost.irohTransport.enabled",
+        defaultValue: true,
+        userDefaultsKey: "mobileIrohTransport"
+    )
+
+    /// Publishes Tailscale/LAN host:port routes in addition to the iroh route.
+    ///
+    /// Defaults ON during rollout so older iOS builds that only know the TCP
+    /// route can still connect. Turning it OFF leaves iroh as the only
+    /// production route (plus debug loopback in DEBUG builds).
+    public let iOSPairingPublishesTailscaleRoutes = DefaultsKey<Bool>(
+        id: "mobile.iOSPairingHost.publishTailscaleRoutes",
+        defaultValue: true,
+        userDefaultsKey: "mobile.iOSPairingHost.publishTailscaleRoutes"
+    )
+
     /// TCP port the Mac-side iOS pairing listener prefers to bind.
     ///
     /// This is a *preference*: if the port is already in use the listener

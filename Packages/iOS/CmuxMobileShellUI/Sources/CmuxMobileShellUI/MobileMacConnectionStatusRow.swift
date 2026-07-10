@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import CmuxMobileShellModel
 import CmuxMobileSupport
 import SwiftUI
@@ -11,6 +12,7 @@ import SwiftUI
 struct MobileMacConnectionStatusRow: View {
     let host: String
     let status: MobileMacConnectionStatus
+    var activeTransportKind: CmxAttachTransportKind?
     var showsSpinner = false
     var titleOverride: String?
     var descriptionOverride: String?
@@ -45,7 +47,7 @@ struct MobileMacConnectionStatusRow: View {
                         .foregroundStyle(.primary)
                         .lineLimit(1)
 
-                    Text(descriptionOverride ?? (host.isEmpty ? status.description : host))
+                    Text(descriptionOverride ?? defaultDescription)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -89,5 +91,17 @@ struct MobileMacConnectionStatusRow: View {
         .padding(.vertical, 8)
         .accessibilityElement(children: hasActions ? .contain : .combine)
         .accessibilityIdentifier("MobileMacConnectionStatus")
+    }
+
+    private var defaultDescription: String {
+        if status == .connected || host.isEmpty {
+            return status.description(transportKind: activeTransportKind)
+        }
+        guard let activeTransportKind else { return host }
+        let format = L10n.string(
+            "mobile.connection.hostTransportFormat",
+            defaultValue: "%@ - %@"
+        )
+        return String(format: format, host, activeTransportKind.mobileDisplayLabel)
     }
 }

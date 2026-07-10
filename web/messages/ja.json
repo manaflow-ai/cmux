@@ -1,10 +1,10 @@
 {
   "ios": {
     "metaTitle": "cmux iOS — iPhone と iPad でターミナルを",
-    "metaDescription": "cmux iOS アプリは、Mac のターミナルを自分の Tailscale やローカルネットワーク経由で iPhone・iPad にリアルタイムでミラーリング。どこからでもコーディングエージェントを操作できます。",
+    "metaDescription": "cmux iOS アプリは、Iroh 経由で Mac のターミナルを iPhone・iPad にリアルタイムでミラーリングし、任意で Tailscale やローカルネットワークをフォールバックにできます。どこからでもコーディングエージェントを操作できます。",
     "title": "cmux iOS",
     "tagline": "ターミナルを、ポケットに。",
-    "subtitle": "cmux iOS アプリは、Mac のターミナルを iPhone と iPad にリアルタイムでミラーリングします。自分の Tailscale やローカルネットワーク経由で、どこからでもコーディングエージェントの操作、ビルドの確認、ワークスペースの切り替えができます。",
+    "subtitle": "cmux iOS アプリは、Mac のターミナルを iPhone と iPad にリアルタイムでミラーリングします。Iroh 経由で、任意の Tailscale やローカルネットワークのフォールバックも使いながら、どこからでもコーディングエージェントの操作、ビルドの確認、ワークスペースの切り替えができます。",
     "ctaBeta": "TestFlight でダウンロード",
     "ctaDocs": "iOS ドキュメントを読む",
     "screenshotAlt": "ライブのエージェントターミナルを表示する cmux iOS アプリ",
@@ -12,7 +12,7 @@
     "realtimeSync": "リアルタイム同期",
     "realtimeSyncDesc": "：ターミナルの変化が即座に iPhone・iPad にストリーミングされます",
     "byoNetwork": "自分のネットワークを利用",
-    "byoNetworkDesc": "：間にサーバーを挟まず、自分の Tailscale やローカルネットワークで接続",
+    "byoNetworkDesc": "：Iroh で接続し、必要な場合は Tailscale やローカルネットワークをフォールバックにできます",
     "verticalTabs": "垂直タブ",
     "verticalTabsDesc": "：デスクトップと同じく、すべてのワークスペースにワンタップで",
     "notifications": "エージェント通知",
@@ -22,7 +22,7 @@
     "native": "ネイティブで高速",
     "nativeDesc": "：Mac アプリと同じエンジンによる GPU アクセラレーションレンダリング",
     "howTitle": "仕組み",
-    "howBody": "Mobile Connect ウィンドウから iPhone と Mac をペアリングし、任意のワークスペースにアタッチします。接続は自分の Tailscale やローカルネットワーク経由で行われるため、ターミナルが第三者のサーバーを経由することはありません。",
+    "howBody": "Mobile Connect ウィンドウから iPhone と Mac をペアリングし、任意のワークスペースにアタッチします。cmux はまず Iroh を試し、Tailscale やローカルネットワークのフォールバックルートも公開できるため、ターミナルが第三者のサーバーを経由することはありません。",
     "galleryTitle": "ターミナルで動くものは何でも",
     "backToMac": "cmux for Mac",
     "galleryItemAlt": "iPhone の cmux ターミナルで動作する {name}"
@@ -598,7 +598,7 @@
         },
         {
           "q": "iOS アプリにまだ Tailscale が必要ですか?",
-          "a": "はい、現時点では必要です。どのプランでも Tailscale などお使いのネットワーク経由で iPhone と Mac をペアリングできます。Enterprise ではセルフホストも可能です。設定不要のホスト型ネットワークはロードマップにあります。"
+          "a": "いいえ。cmux はまず Iroh を試します。Tailscale はどのプランでも任意のフォールバックルートとして引き続き便利です。Enterprise ではセルフホストも可能です。設定不要のホスト型ネットワークはロードマップにあります。"
         },
         {
           "q": "課金はどのように行われますか?",
@@ -2485,7 +2485,7 @@
     },
     "ios": {
       "metaTitle": "iOSアプリ",
-      "metaDescription": "cmux iOSコンパニオンアプリのセットアップ：TestFlightでの入手、TailscaleまたはWireGuardによる持ち込みネットワーク、ペアリング、通知、cmuxが保存するデータについて。",
+      "metaDescription": "cmux iOSコンパニオンアプリのセットアップ：TestFlightでの入手、Iroh トランスポートと任意の Tailscale または WireGuard フォールバック、ペアリング、通知、cmuxが保存するデータについて。",
       "title": "iOSアプリ",
       "intro": "cmux iOSアプリはMacのコンパニオンです。cmuxを実行しているMacとiPhoneまたはiPadをペアリングし、スマートフォンからターミナルにアタッチできます。ターミナル通知の転送もオプションで利用できます。",
       "betaNote": "iOSアプリはベータ版です。TestFlightで「cmux BETA」として提供されています。",
@@ -2495,11 +2495,11 @@
       "prereqIntro": "始める前に、次のものが必要です：",
       "prereq1": "cmuxを実行し、サインイン済みのMac。",
       "prereq2": "TestFlightからcmux BETAアプリをインストールしたiPhoneまたはiPad。",
-      "prereq3": "スマートフォンからMacへのネットワーク経路（下記の「持ち込みネットワーク」を参照）。",
-      "networkingTitle": "持ち込みネットワーク",
-      "networkingDesc": "cmuxはネットワーク機能を標準では提供しません。ターミナルのストリームはスマートフォンとMacの間を直接流れるため、スマートフォンがネットワーク上でMacに到達できる必要があります。最も簡単なのはプライベートなオーバーレイネットワークです。",
-      "tailscaleTitle": "Tailscale（推奨）",
-      "tailscaleDesc": "Macとスマートフォンの両方に<link>Tailscale</link>をインストールし、同じtailnetにサインインします。これでスマートフォンはどこからでも、ポート転送なしでMacのtailnetアドレスに到達できます。",
+      "prereq3": "両方の端末がオンラインであること。任意のフォールバックルートには Tailscale、WireGuard、または信頼できるローカルネットワークを使用できます。",
+      "networkingTitle": "トランスポートとフォールバックネットワーク",
+      "networkingDesc": "cmux はまず暗号化された Iroh ルートを試します。ターミナルのストリームは引き続きスマートフォンと Mac の間を直接流れます。ネットワークが Iroh をブロックする場合や古いビルドが TCP を必要とする場合は、フォールバックルートを公開できます。",
+      "tailscaleTitle": "Tailscale（任意のフォールバック）",
+      "tailscaleDesc": "プライベートなフォールバックルートが必要な場合は、Mac とスマートフォンの両方に<link>Tailscale</link>をインストールし、同じ tailnet にサインインします。これによりスマートフォンはどこからでも、ポート転送なしで Mac の tailnet アドレスに到達できます。",
       "wireguardTitle": "WireGuard",
       "wireguardDesc": "すでに<link>WireGuard</link>を運用している場合は、Macとスマートフォンを同じネットワークに置き、MacのWireGuardアドレスを使用します。",
       "networkingNote": "どちらを選んでも、接続はあなた自身のものです。cmuxはデバイス間のターミナルトラフィックをプロキシしたり中継したりしません。",

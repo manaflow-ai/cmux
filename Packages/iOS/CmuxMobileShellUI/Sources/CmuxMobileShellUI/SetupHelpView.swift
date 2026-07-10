@@ -17,9 +17,8 @@ import SwiftUI
 /// known paired Mac) to pick which gate to highlight, and renders static
 /// guidance for each of the four setup gates classified by
 /// ``MobileSetupGuidancePolicy``. The honest network section states the real
-/// constraint: QR pairing needs Tailscale on the Mac, and same-Wi-Fi without
-/// Tailscale only works by typing the Mac's local address by hand over an
-/// unencrypted link.
+/// constraint: pairing normally uses Iroh first, while Tailscale/LAN routes are
+/// optional fallback paths and same-Wi-Fi manual entry is unencrypted.
 struct SetupHelpView: View {
     /// The gate to emphasize, or `nil` when the user has no current blocker (for
     /// example Settings opened while connected). When set, that gate floats to the
@@ -126,7 +125,7 @@ struct SetupHelpView: View {
             VStack(alignment: .leading, spacing: 8) {
                 Text(L10n.string(
                     "mobile.setupHelp.networkBody",
-                    defaultValue: "Scanning the computer's QR code needs Tailscale: the computer only shows a code when it has a Tailscale address your phone can reach. Install Tailscale on both, sign both in to the same tailnet, and the code appears."
+                    defaultValue: "Scanning the computer's QR code normally uses Iroh first. Keep cmux open on the computer and make sure both devices are online. Tailscale is optional and only needed as a fallback route."
                 ))
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
@@ -152,7 +151,7 @@ struct SetupHelpView: View {
 
                 Text(L10n.string(
                     "mobile.setupHelp.lanBody",
-                    defaultValue: "No Tailscale? On the same Wi-Fi you can still connect by typing the computer's local address and port by hand in Add Computer. That link is unencrypted, so only use it on a network you trust."
+                    defaultValue: "On the same Wi-Fi you can still connect by typing the computer's local address and port by hand in Add Computer. That link is unencrypted, so only use it on a network you trust."
                 ))
                 .font(.footnote)
                 .foregroundStyle(.secondary)
@@ -169,7 +168,7 @@ struct SetupHelpView: View {
         } footer: {
             Text(L10n.string(
                 "mobile.setupHelp.sameAccountFooter",
-                defaultValue: "The computer and this phone must be signed in to the same cmux account, and on the same tailnet (or the same Wi-Fi for a manual local connection)."
+                defaultValue: "The computer and this phone must be signed in to the same cmux account. Tailscale or same-Wi-Fi routing is only needed for fallback/manual connections."
             ))
         }
         .accessibilityIdentifier("MobileSetupHelpNetworkSection")

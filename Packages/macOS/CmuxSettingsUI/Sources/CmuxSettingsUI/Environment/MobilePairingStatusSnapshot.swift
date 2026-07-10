@@ -31,6 +31,9 @@ public struct MobilePairingStatusSnapshot: Sendable, Equatable {
     /// Number of iOS devices currently connected.
     public let activeConnectionCount: Int
 
+    /// Localized transport labels currently used by attached iOS devices.
+    public let activeTransportLabels: [String]
+
     /// The addresses the iOS app can use to reach this Mac.
     public let routes: [MobilePairingRoute]
 
@@ -43,6 +46,7 @@ public struct MobilePairingStatusSnapshot: Sendable, Equatable {
     ///   - usesEphemeralFallback: True when the bound port differs from the
     ///     configured port because the configured port was unavailable.
     ///   - activeConnectionCount: Number of connected iOS devices.
+    ///   - activeTransportLabels: Localized transport labels currently in use.
     ///   - routes: Addresses the iOS app can use to reach this Mac.
     public init(
         isRunning: Bool,
@@ -50,6 +54,7 @@ public struct MobilePairingStatusSnapshot: Sendable, Equatable {
         boundPort: Int?,
         usesEphemeralFallback: Bool,
         activeConnectionCount: Int,
+        activeTransportLabels: [String] = [],
         routes: [MobilePairingRoute]
     ) {
         self.isRunning = isRunning
@@ -57,6 +62,7 @@ public struct MobilePairingStatusSnapshot: Sendable, Equatable {
         self.boundPort = boundPort
         self.usesEphemeralFallback = usesEphemeralFallback
         self.activeConnectionCount = activeConnectionCount
+        self.activeTransportLabels = activeTransportLabels
         self.routes = routes
     }
 }

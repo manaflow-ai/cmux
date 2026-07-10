@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import Foundation
 import CmuxMobileShell
 import CmuxMobileShellModel
@@ -50,6 +51,10 @@ struct WorkspaceShellView: View {
             return .reconnecting
         }
         return store.workspaceListConnectionStatus
+    }
+
+    private var activeTransportKind: CmxAttachTransportKind? {
+        store.activeRoute?.kind
     }
 
     private var canCreateWorkspaceOnForegroundConnection: Bool {
@@ -111,6 +116,7 @@ struct WorkspaceShellView: View {
                 selectedWorkspaceID: store.selectedWorkspaceID,
                 host: store.connectedHostName,
                 connectionStatus: listConnectionStatus,
+                activeTransportKind: activeTransportKind,
                 navigationStyle: .push,
                 showsNavigationToolbar: compactNavigationPath.isEmpty,
                 wrapWorkspaceTitles: displaySettings.wrapWorkspaceTitles,
@@ -215,6 +221,7 @@ struct WorkspaceShellView: View {
                 selectedWorkspaceID: store.selectedWorkspaceID,
                 host: store.connectedHostName,
                 connectionStatus: listConnectionStatus,
+                activeTransportKind: activeTransportKind,
                 navigationStyle: .sidebar,
                 wrapWorkspaceTitles: displaySettings.wrapWorkspaceTitles,
                 previewLineLimit: displaySettings.workspacePreviewLineCount,

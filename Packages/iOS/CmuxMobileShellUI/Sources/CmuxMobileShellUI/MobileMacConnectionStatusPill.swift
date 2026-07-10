@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import CmuxMobileShellModel
 import SwiftUI
 
@@ -7,6 +8,7 @@ import SwiftUI
 struct MobileMacConnectionStatusPill: View {
     let host: String
     let status: MobileMacConnectionStatus
+    var activeTransportKind: CmxAttachTransportKind?
 
     var body: some View {
         // Only surface the pill for problem states (reconnecting / offline).
@@ -17,7 +19,7 @@ struct MobileMacConnectionStatusPill: View {
                     .fill(status.tintColor)
                     .frame(width: 8, height: 8)
 
-                Text(status.label)
+                Text(pillLabel)
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.white)
                     .lineLimit(1)
@@ -26,8 +28,13 @@ struct MobileMacConnectionStatusPill: View {
             .padding(.vertical, 7)
             .background(.black.opacity(0.78), in: Capsule())
             .accessibilityElement(children: .combine)
-            .accessibilityLabel(host.isEmpty ? status.label : "\(host), \(status.label)")
+            .accessibilityLabel(host.isEmpty ? pillLabel : "\(host), \(pillLabel)")
             .accessibilityIdentifier("MobileTerminalMacConnectionStatus")
         }
+    }
+
+    private var pillLabel: String {
+        guard let activeTransportKind else { return status.label }
+        return activeTransportKind.mobileToolbarSubtitle(terminalName: status.label)
     }
 }

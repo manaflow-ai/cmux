@@ -28,25 +28,49 @@ final class MobileRouteResolver: @unchecked Sendable {
         port: Int,
         now: Date = Date(),
         irohRoute: CmxAttachRoute? = nil,
+        publishTailscaleRoutes: Bool = true,
         immediateHosts: () -> [String] = { MobileRouteResolver.tailscaleRouteHosts(resolveDNS: false) }
     ) -> MobileHostRouteSnapshot {
+        guard publishTailscaleRoutes else {
+            return routes(
+                port: port,
+                irohRoute: irohRoute,
+                tailscaleHosts: [],
+                publishTailscaleRoutes: false
+            )
+        }
         refreshTailscaleRoutes()
         let cachedHosts = resolvedTailscaleRouteHostsFromCache(now: now) ?? []
         return routes(
             port: port,
             irohRoute: irohRoute,
-            tailscaleHosts: Self.deduplicatedHosts(cachedHosts + immediateHosts())
+            tailscaleHosts: Self.deduplicatedHosts(cachedHosts + immediateHosts()),
+            publishTailscaleRoutes: publishTailscaleRoutes
         )
     }
 
     func routesResolvingTailscaleDNS(
         port: Int,
         irohRoute: CmxAttachRoute? = nil,
+        publishTailscaleRoutes: Bool = true,
         resolveHosts: @escaping @Sendable () -> [String] = { MobileRouteResolver.tailscaleRouteHosts(resolveDNS: true) },
         now: Date = Date()
     ) async -> MobileHostRouteSnapshot {
+        guard publishTailscaleRoutes else {
+            return routes(
+                port: port,
+                irohRoute: irohRoute,
+                tailscaleHosts: [],
+                publishTailscaleRoutes: false
+            )
+        }
         let hosts = await resolvedTailscaleRouteHosts(resolveHosts: resolveHosts, now: now)
-        return routes(port: port, irohRoute: irohRoute, tailscaleHosts: hosts)
+        return routes(
+            port: port,
+            irohRoute: irohRoute,
+            tailscaleHosts: hosts,
+            publishTailscaleRoutes: publishTailscaleRoutes
+        )
     }
 
     /// Drop the resolved-host cache and orphan any in-flight resolution.
@@ -70,7 +94,8 @@ final class MobileRouteResolver: @unchecked Sendable {
     func routes(
         port: Int,
         irohRoute: CmxAttachRoute? = nil,
-        tailscaleHosts: [String]
+        tailscaleHosts: [String],
+        publishTailscaleRoutes: Bool = true
     ) -> MobileHostRouteSnapshot {
         var resolved: [CmxAttachRoute] = []
 
@@ -89,17 +114,19 @@ final class MobileRouteResolver: @unchecked Sendable {
             resolved.append(irohRoute)
         }
 
-        for (index, tailscaleHost) in tailscaleHosts.enumerated() {
-            let id = index == 0
-                ? CmxAttachTransportKind.tailscale.rawValue
-                : "\(CmxAttachTransportKind.tailscale.rawValue)_\(index + 1)"
-            if let tailscaleRoute = try? CmxAttachRoute(
-                id: id,
-                kind: .tailscale,
-                endpoint: .hostPort(host: tailscaleHost, port: port),
-                priority: 10 + (index * 10)
-            ) {
-                resolved.append(tailscaleRoute)
+        if publishTailscaleRoutes {
+            for (index, tailscaleHost) in tailscaleHosts.enumerated() {
+                let id = index == 0
+                    ? CmxAttachTransportKind.tailscale.rawValue
+                    : "\(CmxAttachTransportKind.tailscale.rawValue)_\(index + 1)"
+                if let tailscaleRoute = try? CmxAttachRoute(
+                    id: id,
+                    kind: .tailscale,
+                    endpoint: .hostPort(host: tailscaleHost, port: port),
+                    priority: 10 + (index * 10)
+                ) {
+                    resolved.append(tailscaleRoute)
+                }
             }
         }
 

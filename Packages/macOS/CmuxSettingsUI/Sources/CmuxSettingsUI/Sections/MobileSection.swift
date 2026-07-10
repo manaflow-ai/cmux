@@ -9,6 +9,8 @@ import SwiftUI
 @MainActor
 public struct MobileSection: View {
     @State private var iOSPairingHost: DefaultsValueModel<Bool>
+    @State private var irohTransport: DefaultsValueModel<Bool>
+    @State private var publishTailscaleRoutes: DefaultsValueModel<Bool>
     @State private var port: DefaultsValueModel<Int>
     @State private var displayName: DefaultsValueModel<String>
     @State private var status: MobilePairingStatusModel
@@ -43,6 +45,8 @@ public struct MobileSection: View {
         hostActions: SettingsHostActions
     ) {
         _iOSPairingHost = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.mobile.iOSPairingHost))
+        _irohTransport = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.mobile.iOSPairingIrohTransport))
+        _publishTailscaleRoutes = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.mobile.iOSPairingPublishesTailscaleRoutes))
         _port = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.mobile.iOSPairingPort))
         _displayName = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.mobile.iOSPairingDisplayName))
         _status = State(initialValue: MobilePairingStatusModel(hostActions: hostActions))
@@ -74,6 +78,10 @@ public struct MobileSection: View {
                 SettingsCardDivider()
                 iOSPairingHostRow
                 SettingsCardDivider()
+                irohTransportRow
+                SettingsCardDivider()
+                publishTailscaleRoutesRow
+                SettingsCardDivider()
                 portRow
                 boundPortStatusRow
                 SettingsCardDivider()
@@ -94,6 +102,8 @@ public struct MobileSection: View {
     private func startObservingSettings() {
         let models: [any SettingObservationStarting] = [
             iOSPairingHost,
+            irohTransport,
+            publishTailscaleRoutes,
             port,
             displayName,
             status,
@@ -132,6 +142,40 @@ public struct MobileSection: View {
                 .labelsHidden()
                 .controlSize(.small)
                 .accessibilityIdentifier("SettingsMobileIOSPairingHostToggle")
+        }
+    }
+
+    @ViewBuilder
+    private var irohTransportRow: some View {
+        SettingsCardRow(
+            configurationReview: .settingsOnly,
+            searchAnchorID: "setting:mobile:iOSPairingIrohTransport",
+            String(localized: "settings.mobile.iOSPairingIrohTransport", defaultValue: "Use Iroh Transport"),
+            subtitle: irohTransport.current
+                ? String(localized: "settings.mobile.iOSPairingIrohTransport.subtitleOn", defaultValue: "Publishes the encrypted Iroh route first for iOS pairing and terminal sync.")
+                : String(localized: "settings.mobile.iOSPairingIrohTransport.subtitleOff", defaultValue: "Disables the encrypted Iroh route; iOS can still use published Tailscale/LAN routes.")
+        ) {
+            Toggle("", isOn: Binding(get: { irohTransport.current }, set: { irohTransport.set($0) }))
+                .labelsHidden()
+                .controlSize(.small)
+                .accessibilityIdentifier("SettingsMobileIOSPairingIrohTransportToggle")
+        }
+    }
+
+    @ViewBuilder
+    private var publishTailscaleRoutesRow: some View {
+        SettingsCardRow(
+            configurationReview: .settingsOnly,
+            searchAnchorID: "setting:mobile:iOSPairingPublishesTailscaleRoutes",
+            String(localized: "settings.mobile.iOSPairingPublishesTailscaleRoutes", defaultValue: "Also Publish Tailscale/LAN Routes"),
+            subtitle: publishTailscaleRoutes.current
+                ? String(localized: "settings.mobile.iOSPairingPublishesTailscaleRoutes.subtitleOn", defaultValue: "Publishes Tailscale and LAN fallback routes after the preferred Iroh route.")
+                : String(localized: "settings.mobile.iOSPairingPublishesTailscaleRoutes.subtitleOff", defaultValue: "Only Iroh routes are published for production pairing.")
+        ) {
+            Toggle("", isOn: Binding(get: { publishTailscaleRoutes.current }, set: { publishTailscaleRoutes.set($0) }))
+                .labelsHidden()
+                .controlSize(.small)
+                .accessibilityIdentifier("SettingsMobileIOSPairingPublishesTailscaleRoutesToggle")
         }
     }
 
@@ -293,7 +337,31 @@ public struct MobileSection: View {
                 .monospacedDigit()
                 .foregroundStyle(.secondary)
         }
+        activeTransportRow(snapshot)
         routesView(snapshot)
+    }
+
+    @ViewBuilder
+    private func activeTransportRow(_ snapshot: MobilePairingStatusSnapshot?) -> some View {
+        SettingsCardRow(
+            configurationReview: .settingsOnly,
+            searchAnchorID: "setting:mobile:activeTransport",
+            String(localized: "settings.mobile.activeTransport", defaultValue: "Active Transport"),
+            subtitle: String(localized: "settings.mobile.activeTransport.subtitle", defaultValue: "Transport currently used by attached iOS sessions.")
+        ) {
+            Text(activeTransportText(snapshot))
+                .cmuxFont(size: 13, weight: .medium)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private func activeTransportText(_ snapshot: MobilePairingStatusSnapshot?) -> String {
+        guard let snapshot,
+              snapshot.activeConnectionCount > 0,
+              !snapshot.activeTransportLabels.isEmpty else {
+            return String(localized: "settings.mobile.activeTransport.none", defaultValue: "None")
+        }
+        return snapshot.activeTransportLabels.joined(separator: ", ")
     }
 
     @ViewBuilder
@@ -302,7 +370,7 @@ public struct MobileSection: View {
             if snapshot.routes.isEmpty {
                 SettingsCardNote(String(
                     localized: "settings.mobile.routes.empty",
-                    defaultValue: "No reachable addresses yet. Pairing over the network needs Tailscale running on this Mac."
+                    defaultValue: "No reachable routes yet. Keep cmux open and online, or enable the Tailscale/LAN fallback routes."
                 ))
             } else {
                 VStack(alignment: .leading, spacing: 4) {

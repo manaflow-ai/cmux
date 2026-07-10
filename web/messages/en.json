@@ -1,10 +1,10 @@
 {
   "ios": {
     "metaTitle": "cmux iOS — your terminals on iPhone and iPad",
-    "metaDescription": "The cmux iOS app mirrors your Mac terminals to iPhone and iPad in realtime, over your own Tailscale or local network. Drive your coding agents from anywhere.",
+    "metaDescription": "The cmux iOS app mirrors your Mac terminals to iPhone and iPad in realtime over Iroh, with optional Tailscale or local-network fallback. Drive your coding agents from anywhere.",
     "title": "cmux iOS",
     "tagline": "Your terminals, in your pocket.",
-    "subtitle": "The cmux iOS app mirrors your Mac terminals to iPhone and iPad in realtime. Drive your coding agents, watch builds, and switch workspaces from anywhere, over your own Tailscale or local network.",
+    "subtitle": "The cmux iOS app mirrors your Mac terminals to iPhone and iPad in realtime. Drive your coding agents, watch builds, and switch workspaces from anywhere over Iroh, with optional Tailscale or local-network fallback.",
     "ctaBeta": "Download on TestFlight",
     "ctaDocs": "Read the iOS docs",
     "screenshotAlt": "cmux iOS app showing a live agent terminal",
@@ -12,7 +12,7 @@
     "realtimeSync": "Realtime sync",
     "realtimeSyncDesc": ": your terminals stream to iPhone and iPad the instant they change",
     "byoNetwork": "Bring your own network",
-    "byoNetworkDesc": ": connect over your own Tailscale or local network, with no servers in between",
+    "byoNetworkDesc": ": connect over Iroh, with Tailscale or local-network fallback when you need it",
     "verticalTabs": "Vertical tabs",
     "verticalTabsDesc": ": every workspace one tap away, just like the desktop",
     "notifications": "Agent notifications",
@@ -22,7 +22,7 @@
     "native": "Native and fast",
     "nativeDesc": ": GPU-accelerated rendering on the same engine as the Mac app",
     "howTitle": "How it works",
-    "howBody": "Pair your iPhone with your Mac from the Mobile Connect window, then attach to any workspace. The connection runs over your own Tailscale or local network, so your terminals never touch a third-party server.",
+    "howBody": "Pair your iPhone with your Mac from the Mobile Connect window, then attach to any workspace. cmux tries Iroh first and can publish Tailscale or local-network fallback routes, so your terminals never touch a third-party server.",
     "galleryTitle": "Run anything in your terminal",
     "backToMac": "cmux for Mac",
     "galleryItemAlt": "{name} running in a cmux terminal on iPhone"
@@ -598,7 +598,7 @@
         },
         {
           "q": "Do I still need Tailscale for the iOS app?",
-          "a": "Yes, for now. Pair your iPhone with your Mac over your own networking, like Tailscale, on any plan; Enterprise can self-host. Hosted networking with zero setup is on the roadmap."
+          "a": "No. cmux tries Iroh first. Tailscale remains useful as an optional fallback route on any plan; Enterprise can self-host. Hosted networking with zero setup is on the roadmap."
         },
         {
           "q": "How does billing work?",
@@ -2574,7 +2574,7 @@
     },
     "ios": {
       "metaTitle": "iOS App",
-      "metaDescription": "Set up the cmux iOS companion app: TestFlight access, bring-your-own networking with Tailscale or WireGuard, pairing, notifications, and what data cmux stores.",
+      "metaDescription": "Set up the cmux iOS companion app: TestFlight access, Iroh transport with optional Tailscale or WireGuard fallback, pairing, notifications, and what data cmux stores.",
       "title": "iOS App",
       "intro": "The cmux iOS app is a companion for your Mac. Pair your iPhone or iPad with a Mac running cmux and attach to your terminals from your phone, with optional forwarding of terminal notifications.",
       "betaNote": "The iOS app is in beta. It ships on TestFlight as cmux BETA.",
@@ -2584,11 +2584,11 @@
       "prereqIntro": "Before you start, you need:",
       "prereq1": "A Mac running cmux and signed in.",
       "prereq2": "An iPhone or iPad with the cmux BETA app installed from TestFlight.",
-      "prereq3": "A network path from your phone to your Mac (see Bring your own networking below).",
-      "networkingTitle": "Bring your own networking",
-      "networkingDesc": "cmux does not provide networking out of the box. The terminal stream flows directly between your phone and your Mac, so your phone has to be able to reach your Mac on the network. The simplest way is a private overlay network.",
-      "tailscaleTitle": "Tailscale (recommended)",
-      "tailscaleDesc": "Install <link>Tailscale</link> on both your Mac and your phone and sign in to the same tailnet. Your phone can then reach your Mac by its tailnet address from anywhere, with no port forwarding.",
+      "prereq3": "Both devices online. Optional fallback routes can use Tailscale, WireGuard, or a trusted local network.",
+      "networkingTitle": "Transport and fallback networking",
+      "networkingDesc": "cmux tries an encrypted Iroh route first. The terminal stream still flows directly between your phone and your Mac, and you can publish fallback routes when a network blocks Iroh or an older build needs TCP.",
+      "tailscaleTitle": "Tailscale (optional fallback)",
+      "tailscaleDesc": "Install <link>Tailscale</link> on both your Mac and your phone and sign in to the same tailnet if you want a private fallback route. Your phone can then reach your Mac by its tailnet address from anywhere, with no port forwarding.",
       "wireguardTitle": "WireGuard",
       "wireguardDesc": "If you already run <link>WireGuard</link>, put your Mac and phone on the same network and use the Mac's WireGuard address.",
       "networkingNote": "Whichever you choose, the connection is yours. cmux does not proxy or relay terminal traffic between your devices.",

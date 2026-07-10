@@ -97,8 +97,13 @@ private enum MobileHostEventSubscriptionTracker {
 private final class MobileHostConnectionRegistry: @unchecked Sendable {
     static let shared = MobileHostConnectionRegistry()
 
+    private struct Entry {
+        let connection: MobileHostConnection
+        let transportKind: CmxAttachTransportKind
+    }
+
     private let lock = NSLock()
-    private var connections: [UUID: MobileHostConnection] = [:]
+    private var connections: [UUID: Entry] = [:]
 
     var count: Int {
         lock.lock()
@@ -106,13 +111,26 @@ private final class MobileHostConnectionRegistry: @unchecked Sendable {
         return connections.count
     }
 
-    func insert(_ connection: MobileHostConnection, id: UUID, limit: Int) -> Bool {
+    var transportCounts: [CmxAttachTransportKind: Int] {
+        lock.lock()
+        defer { lock.unlock() }
+        return connections.values.reduce(into: [:]) { counts, entry in
+            counts[entry.transportKind, default: 0] += 1
+        }
+    }
+
+    func insert(
+        _ connection: MobileHostConnection,
+        id: UUID,
+        transportKind: CmxAttachTransportKind,
+        limit: Int
+    ) -> Bool {
         lock.lock()
         guard connections.count < limit else {
             lock.unlock()
             return false
         }
-        connections[id] = connection
+        connections[id] = Entry(connection: connection, transportKind: transportKind)
         lock.unlock()
         // Notify after the authoritative count actually changes (this registry
         // backs `MobileHostServiceStatus.activeConnectionCount`), so the Mobile
@@ -132,7 +150,7 @@ private final class MobileHostConnectionRegistry: @unchecked Sendable {
 
     func removeAll() -> [MobileHostConnection] {
         lock.lock()
-        let values = Array(connections.values)
+        let values = connections.values.map(\.connection)
         connections.removeAll()
         lock.unlock()
         if !values.isEmpty {
@@ -146,7 +164,7 @@ private final class MobileHostConnectionRegistry: @unchecked Sendable {
     func snapshot() -> [MobileHostConnection] {
         lock.lock()
         defer { lock.unlock() }
-        return Array(connections.values)
+        return connections.values.map(\.connection)
     }
 }
 
@@ -250,6 +268,7 @@ struct MobileHostServiceStatus {
     let usesEphemeralFallback: Bool
     let routes: [CmxAttachRoute]
     let activeConnectionCount: Int
+    let activeTransportCounts: [CmxAttachTransportKind: Int]
     let lastErrorDescription: String?
 
     var payload: [String: Any] {
@@ -260,6 +279,9 @@ struct MobileHostServiceStatus {
             "uses_ephemeral_fallback": usesEphemeralFallback,
             "routes": routes.map(\.mobileHostJSONObject),
             "active_connection_count": activeConnectionCount,
+            "active_transport_counts": Dictionary(
+                uniqueKeysWithValues: activeTransportCounts.map { ($0.key.rawValue, $0.value) }
+            ),
             "last_error": lastErrorDescription ?? NSNull()
         ]
     }
@@ -518,6 +540,22 @@ final class MobileHostService {
 
     /// User-default key for the preferred iOS pairing listener port.
     nonisolated static let portDefaultsKey = SettingCatalog().mobile.iOSPairingPort.userDefaultsKey
+
+    /// User-default key for the rollout-compatible Tailscale/LAN route
+    /// publication toggle.
+    nonisolated static let publishTailscaleRoutesDefaultsKey = SettingCatalog().mobile.iOSPairingPublishesTailscaleRoutes.userDefaultsKey
+
+    /// Whether TCP host:port routes should be published alongside iroh.
+    ///
+    /// Defaults ON for rollout compatibility with older iOS clients that only
+    /// support the Tailscale/LAN lane.
+    nonisolated static func publishesTailscaleRoutes(defaults: UserDefaults = .standard) -> Bool {
+        let key = SettingCatalog().mobile.iOSPairingPublishesTailscaleRoutes
+        if defaults.object(forKey: key.userDefaultsKey) != nil {
+            return defaults.bool(forKey: key.userDefaultsKey)
+        }
+        return key.defaultValue
+    }
 
     /// The preferred TCP port the listener should try to bind, read from
     /// settings.
@@ -903,6 +941,7 @@ final class MobileHostService {
                     )
                     Self.acceptByteConnectionOffMain(
                         byteConnection,
+                        transportKind: .iroh,
                         canAccept: {
                             await MobileHostService.shared.canAcceptIrohConnection(generation: generation)
                         }
@@ -946,7 +985,8 @@ final class MobileHostService {
     private func resolvedRoutes(port: Int) -> [CmxAttachRoute] {
         routeResolver.routes(
             port: port,
-            irohRoute: currentIrohRoute()
+            irohRoute: currentIrohRoute(),
+            publishTailscaleRoutes: Self.publishesTailscaleRoutes()
         ).routes
     }
 
@@ -954,7 +994,8 @@ final class MobileHostService {
         routeResolver.routes(
             port: port,
             irohRoute: currentIrohRoute(),
-            tailscaleHosts: tailscaleHosts
+            tailscaleHosts: tailscaleHosts,
+            publishTailscaleRoutes: Self.publishesTailscaleRoutes()
         ).routes
     }
 
@@ -1096,6 +1137,7 @@ final class MobileHostService {
             usesEphemeralFallback: isRunning && listenerUsesEphemeralFallback,
             routes: routes,
             activeConnectionCount: MobileHostConnectionRegistry.shared.count,
+            activeTransportCounts: MobileHostConnectionRegistry.shared.transportCounts,
             lastErrorDescription: lastErrorDescription
         )
     }
@@ -1132,11 +1174,27 @@ final class MobileHostService {
         case .restart:
             restart()
         }
+        syncIrohEndpointToSettings(defaults: defaults)
+        republishRoutesForCurrentHost()
     }
 
     private func restart() {
         stop()
         start()
+    }
+
+    private func republishRoutesForCurrentHost() {
+        guard listener != nil || irohEndpoint != nil else { return }
+        MobileHostPublicStatusCache.update(routes: resolvedRoutesForCurrentHost())
+    }
+
+    private func syncIrohEndpointToSettings(defaults: UserDefaults) {
+        guard Self.isListeningEnabled(defaults: defaults) else { return }
+        if MobileHostIrohFlag.resolved(defaults: defaults).isEnabled {
+            startIrohEndpointIfNeeded()
+        } else if irohEndpoint != nil {
+            stopIrohEndpoint()
+        }
     }
 
     nonisolated private static func acceptConnectionOffMain(
@@ -1170,6 +1228,7 @@ final class MobileHostService {
 
             Self.acceptByteConnectionOffMain(
                 MobileHostNWConnectionAdapter(connection: connection),
+                transportKind: Self.isLoopbackConnection(connection) ? .debugLoopback : .tailscale,
                 canAccept: {
                     await MobileHostService.shared.canAcceptConnection(generation: generation)
                 }
@@ -1179,6 +1238,7 @@ final class MobileHostService {
 
     nonisolated private static func acceptByteConnectionOffMain(
         _ byteConnection: any MobileHostByteConnection,
+        transportKind: CmxAttachTransportKind,
         canAccept: @escaping @Sendable () async -> Bool
     ) {
         Task.detached(priority: .userInitiated) {
@@ -1225,6 +1285,7 @@ final class MobileHostService {
             guard MobileHostConnectionRegistry.shared.insert(
                 session,
                 id: id,
+                transportKind: transportKind,
                 limit: Self.maximumActiveConnectionCount
             ) else {
                 mobileHostLog.error("mobile host rejected connection because active connection limit was reached")

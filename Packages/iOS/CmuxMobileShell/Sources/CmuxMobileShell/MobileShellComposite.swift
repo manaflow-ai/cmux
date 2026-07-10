@@ -5030,10 +5030,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // disable auth for a trusted Tailscale/loopback/iroh route.
         let routeAllowsStackAuthFallbackOverride = allowsStackAuthFallback
         let connectionAttemptStartedAt = pairingAttemptStartedAt
+        let routeOrder = supportedRoutes.enumerated()
+            .map { index, route in
+                "\(index + 1):id=\(route.id),kind=\(route.kind.rawValue)"
+            }
+            .joined(separator: " ")
+        mobileShellLog.info("mobile attach route order \(routeOrder, privacy: .public)")
         var lastError: (any Error)?
-        for route in supportedRoutes {
+        for (routeIndex, route) in supportedRoutes.enumerated() {
             activeRoute = route
-            mobileShellLog.info("pairing trying route kind=\(route.kind.rawValue, privacy: .public) endpoint=\(route.endpoint.logDescription, privacy: .private)")
+            mobileShellLog.info(
+                "mobile attach route attempt index=\(routeIndex + 1, privacy: .public) id=\(route.id, privacy: .public) kind=\(route.kind.rawValue, privacy: .public) endpoint=\(route.endpoint.logDescription, privacy: .private)"
+            )
             let client = MobileCoreRPCClient(
                 runtime: runtime,
                 route: route,
@@ -5064,6 +5072,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     )
                     let response = try MobileSyncWorkspaceListResponse.decode(resultData)
                     guard isConnectCurrent() else { return nil }
+                    mobileShellLog.info(
+                        "mobile attach route connected id=\(route.id, privacy: .public) kind=\(route.kind.rawValue, privacy: .public)"
+                    )
                     await persistPairedMacFromTicket(ticket, ifStillCurrent: isConnectCurrent)
                     guard isConnectCurrent() else { return nil }
                     replaceRemoteClient(with: client)
@@ -5117,7 +5128,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         connections[resolvedForegroundMacID] = MacConnection(
                             macDeviceID: resolvedForegroundMacID,
                             ticket: ticket,
-                            route: firstRoute,
+                            route: route,
                             client: client,
                             generation: generation
                         )

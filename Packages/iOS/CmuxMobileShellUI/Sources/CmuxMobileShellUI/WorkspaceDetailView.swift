@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import CmuxAgentChat
 import CmuxAgentChatUI
 import CmuxMobileBrowser
@@ -17,6 +18,7 @@ import AppKit
 struct WorkspaceDetailView: View {
     let host: String
     let connectionStatus: MobileMacConnectionStatus
+    var activeTransportKind: CmxAttachTransportKind? = nil
     let workspace: MobileWorkspacePreview
     @Bindable var store: CMUXMobileShellStore
     let createWorkspace: () -> Void
@@ -249,7 +251,11 @@ struct WorkspaceDetailView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .overlay(alignment: .topLeading) {
-            MobileMacConnectionStatusPill(host: host, status: connectionStatus)
+            MobileMacConnectionStatusPill(
+                host: host,
+                status: connectionStatus,
+                activeTransportKind: activeTransportKind
+            )
                 .padding(.top, 10)
                 .padding(.leading, 10)
         }

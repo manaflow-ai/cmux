@@ -4,6 +4,39 @@ import Testing
 @testable import CmuxMobileTransport
 
 @Suite struct CmxIrohByteTransportTests {
+    @Test func mobileIrohTransportDefaultsOnInRelease() {
+        let suiteName = "MobileIrohTransportFlag.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        #expect(MobileIrohTransportFlag.resolved(
+            environment: [:],
+            defaults: defaults,
+            isDebugBuild: false
+        ).isEnabled)
+    }
+
+    @Test func mobileIrohTransportCanBeDisabledByUserDefaults() {
+        let suiteName = "MobileIrohTransportFlag.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(false, forKey: MobileIrohTransportFlag.defaultsKey)
+
+        #expect(!MobileIrohTransportFlag.resolved(environment: [:], defaults: defaults).isEnabled)
+    }
+
+    @Test func mobileIrohTransportEnvironmentOverrideWins() {
+        let suiteName = "MobileIrohTransportFlag.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(true, forKey: MobileIrohTransportFlag.defaultsKey)
+
+        #expect(!MobileIrohTransportFlag.resolved(
+            environment: [MobileIrohTransportFlag.envKey: "false"],
+            defaults: defaults
+        ).isEnabled)
+    }
+
     @Test func routeFactoryRegistersIrohPeerRoutes() throws {
         let ffi = FakeIrohFFIClient()
         let manager = CmxIrohEndpointManager(

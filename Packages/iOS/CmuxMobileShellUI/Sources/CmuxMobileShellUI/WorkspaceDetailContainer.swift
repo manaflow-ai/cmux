@@ -41,6 +41,7 @@ struct WorkspaceDetailContainer: View {
                 WorkspaceDetailView(
                     host: store.connectedHostName,
                     connectionStatus: workspace.macConnectionStatus ?? store.macConnectionStatus,
+                    activeTransportKind: store.activeRoute?.kind,
                     workspace: workspace,
                     store: store,
                     createWorkspace: createWorkspace,

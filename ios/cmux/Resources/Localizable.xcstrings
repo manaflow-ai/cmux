@@ -1888,6 +1888,40 @@
         }
       }
     },
+    "mobile.connection.connectedViaFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live terminal sync is active over %@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 経由でライブターミナル同期が有効です。"
+          }
+        }
+      }
+    },
+    "mobile.connection.hostTransportFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ - %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ - %@"
+          }
+        }
+      }
+    },
     "mobile.connection.reconnecting": {
       "extractionState": "manual",
       "localizations": {
@@ -1922,6 +1956,125 @@
         }
       }
     },
+    "mobile.connection.reconnectingViaFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trying to restore the %@ connection."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 接続を復元しようとしています。"
+          }
+        }
+      }
+    },
+    "mobile.connection.terminalTransportFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ via %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@（%@）"
+          }
+        }
+      }
+    },
+    "mobile.connection.transport.iroh": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iroh"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iroh"
+          }
+        }
+      }
+    },
+    "mobile.connection.transport.loopback": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Loopback"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ループバック"
+          }
+        }
+      }
+    },
+    "mobile.connection.transport.tailscale": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale"
+          }
+        }
+      }
+    },
+    "mobile.connection.transport.websocket": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "WebSocket"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "WebSocket"
+          }
+        }
+      }
+    },
+    "mobile.connection.transportOnlyFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connected via %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ で接続済み"
+          }
+        }
+      }
+    },
     "mobile.connection.unavailable": {
       "extractionState": "manual",
       "localizations": {
@@ -1952,6 +2105,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "ライブ接続が切断されました。選択した cmux ビルドはまだオンラインの可能性があります。再接続をタップしてください。"
+          }
+        }
+      }
+    },
+    "mobile.connection.unavailableViaFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The %@ connection dropped. Tap Reconnect."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 接続が切断されました。再接続をタップしてください。"
           }
         }
       }
@@ -2693,13 +2863,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Your phone has to reach your Mac over the network. The simplest private path is Tailscale: both devices join the same tailnet and connect directly, with no cloud relay. On the same Wi-Fi you can instead type the Mac's local address by hand, but that link is unencrypted, so Tailscale is recommended."
+            "value": "cmux tries an encrypted Iroh connection first, so pairing usually works as long as both devices are online and signed in. You can also publish Tailscale or LAN routes as a fallback."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "iPhoneはネットワーク経由でMacに届く必要があります。最もシンプルでプライベートな方法はTailscaleです。両方の端末を同じtailnetに参加させると、クラウド中継なしで直接つながります。同じWi-Fiなら、Macのローカルアドレスを手入力して接続することもできますが、その接続は暗号化されないため、Tailscaleをおすすめします。"
+            "value": "cmux はまず暗号化された Iroh 接続を試すため、両方の端末がオンラインでサインイン済みなら通常はペアリングできます。フォールバックとして Tailscale または LAN ルートも公開できます。"
           }
         }
       }
@@ -2829,13 +2999,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscale is a free app that gives your devices a private network. Do this once, on both the phone and the Mac."
+            "value": "Iroh is the default transport. Tailscale can add a private fallback route if your network blocks Iroh or you are connecting from an older cmux build."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscaleは、端末同士をプライベートなネットワークでつなぐ無料アプリです。iPhoneとMacの両方で一度だけ設定してください。"
+            "value": "Iroh が既定のトランスポートです。ネットワークが Iroh をブロックする場合や古い cmux ビルドから接続する場合、Tailscale でプライベートなフォールバックルートを追加できます。"
           }
         }
       }
@@ -2863,13 +3033,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Install Tailscale on this phone and on your Mac."
+            "value": "Install Tailscale on this phone and on your Mac only if you want the fallback route."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "この端末とMacの両方にTailscaleをインストールします。"
+            "value": "フォールバックルートを使いたい場合にだけ、この端末と Mac の両方に Tailscale をインストールします。"
           }
         }
       }
@@ -2897,13 +3067,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Keep both signed in to the same cmux account too. Pairing checks that they match."
+            "value": "Leave Also Publish Tailscale/LAN Routes on in Mac Settings when you want that fallback."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "両方を同じcmuxアカウントでもサインインしておきます。ペアリング時に一致を確認します。"
+            "value": "そのフォールバックを使う場合は、Mac の設定で「Tailscale/LAN ルートも公開」をオンのままにします。"
           }
         }
       }
@@ -2914,13 +3084,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Put both devices on Tailscale"
+            "value": "Optional fallback: Tailscale"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "両方の端末をTailscaleに入れる"
+            "value": "任意のフォールバック: Tailscale"
           }
         }
       }
@@ -3186,13 +3356,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No response from %@:%d. Your Mac may be asleep or off Tailscale. Make sure it's awake and on the same Tailscale network."
+            "value": "No response from %@:%d. Your Mac may be asleep or the fallback route may be unavailable. Make sure cmux is open and the route is reachable."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@:%d から応答がありません。Macがスリープしているか、Tailscaleに接続されていない可能性があります。Macがスリープしておらず、同じTailscaleネットワーク上にあることを確認してください。"
+            "value": "%@:%d から応答がありません。Mac がスリープしているか、フォールバックルートを利用できない可能性があります。cmux が開いていて、ルートに到達できることを確認してください。"
           }
         }
       }
@@ -3254,13 +3424,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Couldn't resolve %@. Check that Tailscale is connected on both devices."
+            "value": "Couldn't resolve %@. Check that the fallback route is online; if it is a Tailscale name, make sure Tailscale is connected on both devices."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ を解決できませんでした。両方の端末でTailscaleが接続されていることを確認してください。"
+            "value": "%@ を解決できませんでした。フォールバックルートがオンラインであることを確認してください。Tailscale 名の場合は、両方の端末で Tailscale が接続されていることを確認してください。"
           }
         }
       }
@@ -3424,13 +3594,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Check that this phone and your Mac are on the same Wi-Fi or both running Tailscale, that the Mac is awake, and that cmux is open on it."
+            "value": "Check that the Mac is awake, cmux is open on it, and both devices are online. If this was a fallback route, also check Wi-Fi or Tailscale."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このスマートフォンとMacが同じWi-Fi上にあるか、両方でTailscaleが動作していること、Macがスリープしていないこと、Macでcmuxが開いていることを確認してください。"
+            "value": "Mac がスリープしておらず、Mac で cmux が開いていて、両方の端末がオンラインであることを確認してください。フォールバックルートだった場合は、Wi-Fi または Tailscale も確認してください。"
           }
         }
       }
@@ -3492,13 +3662,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Can't reach %@:%d. Make sure your Mac is awake and on the same Tailscale network as this device."
+            "value": "Can't reach %@:%d. Make sure your Mac is awake, cmux is open, and the fallback route is reachable."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@:%d に接続できません。Macがスリープしておらず、この端末と同じTailscaleネットワーク上にあることを確認してください。"
+            "value": "%@:%d に接続できません。Mac がスリープしておらず、cmux が開いていて、フォールバックルートに到達できることを確認してください。"
           }
         }
       }
@@ -3628,13 +3798,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This code points at the Mac itself (localhost), so your iPhone can't use it. Set up Tailscale on the Mac, then scan a fresh code."
+            "value": "This code points at the Mac itself (localhost), so your iPhone can't use it. Refresh Mobile Connect so it can publish an Iroh route, or set up Tailscale and scan a fresh code."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このコードは Mac 自身（localhost）を指しているため、iPhone からは使えません。Mac に Tailscale を設定してから、新しいコードをスキャンしてください。"
+            "value": "このコードは Mac 自身（localhost）を指しているため、iPhone からは使えません。Mobile Connect を更新して Iroh ルートを公開するか、Tailscale を設定してから新しいコードをスキャンしてください。"
           }
         }
       }
@@ -4886,13 +5056,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No Tailscale? On the same Wi-Fi you can still connect by typing the computer's local address and port by hand in Add Computer. That link is unencrypted, so only use it on a network you trust."
+            "value": "On the same Wi-Fi you can still connect by typing the computer's local address and port by hand in Add Computer. That link is unencrypted, so only use it on a network you trust."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscaleがない場合でも、同じWi-Fiなら、「コンピュータを追加」でコンピュータのローカルアドレスとポートを手入力して接続できます。その接続は暗号化されないため、信頼できるネットワークでのみ使用してください。"
+            "value": "同じ Wi-Fi 上なら、「コンピュータを追加」でコンピュータのローカルアドレスとポートを手入力して接続することもできます。その接続は暗号化されないため、信頼できるネットワークでのみ使用してください。"
           }
         }
       }
@@ -4988,13 +5158,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Scanning the computer's QR code needs Tailscale: the computer only shows a code when it has a Tailscale address your phone can reach. Install Tailscale on both, sign both in to the same tailnet, and the code appears."
+            "value": "Scanning the computer's QR code normally uses Iroh first. Keep cmux open on the computer and make sure both devices are online. Tailscale is optional and only needed as a fallback route."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "コンピュータのQRコードをスキャンするにはTailscaleが必要です。コンピュータは、iPhoneから届くTailscaleアドレスを持っているときだけコードを表示します。両方にTailscaleをインストールし、同じtailnetでサインインすると、コードが表示されます。"
+            "value": "コンピュータの QR コードをスキャンすると、通常はまず Iroh を使用します。コンピュータで cmux を開いたままにし、両方の端末がオンラインであることを確認してください。Tailscale は任意で、フォールバックルートとしてのみ必要です。"
           }
         }
       }
@@ -5022,13 +5192,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The computer and this phone must be signed in to the same cmux account, and on the same tailnet (or the same Wi-Fi for a manual local connection)."
+            "value": "The computer and this phone must be signed in to the same cmux account. Tailscale or same-Wi-Fi routing is only needed for fallback/manual connections."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "コンピュータとこの端末は、同じcmuxアカウントでサインインし、同じtailnet（手動でローカル接続する場合は同じWi-Fi）にある必要があります。"
+            "value": "コンピュータとこの端末は同じ cmux アカウントでサインインしている必要があります。Tailscale または同じ Wi-Fi のルーティングは、フォールバックまたは手動接続の場合にのみ必要です。"
           }
         }
       }
@@ -5124,13 +5294,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "You have paired this computer before but it is not reachable now. Wake it, make sure cmux is running, and confirm both devices are on the same tailnet or Wi-Fi. Then reconnect."
+            "value": "You have paired this computer before but it is not reachable now. Wake it, make sure cmux is running, and confirm both devices are online. If you rely on a fallback route, also check Tailscale or Wi-Fi. Then reconnect."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このコンピュータは以前ペアリング済みですが、今は届きません。コンピュータを起こし、cmuxが起動していることを確認し、両方の端末が同じtailnetまたはWi-Fiにあることを確かめてから再接続してください。"
+            "value": "このコンピュータは以前ペアリング済みですが、今は到達できません。コンピュータを起こし、cmux が起動していて、両方の端末がオンラインであることを確認してください。フォールバックルートに依存している場合は、Tailscale または Wi-Fi も確認してから再接続してください。"
           }
         }
       }
@@ -5668,13 +5838,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Your Mac may be unreachable because Tailscale is off here. Turn it on, then try again."
+            "value": "Iroh is tried first. If this Mac was using the Tailscale fallback route, turn Tailscale on, then try again."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このデバイスで Tailscale がオフのため、Mac に接続できない可能性があります。Tailscale をオンにしてから、もう一度お試しください。"
+            "value": "まず Iroh が試されます。この Mac が Tailscale フォールバックルートを使用していた場合は、Tailscale をオンにしてからもう一度お試しください。"
           }
         }
       }
@@ -5719,13 +5889,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "QR pairing usually needs both devices on the same Tailscale network. Turn Tailscale on first, or pair by host and port on a trusted local network."
+            "value": "Iroh pairing can work without Tailscale. Turn Tailscale on only if you are using the Tailscale fallback route."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "QR ペアリングには通常、両方のデバイスが同じ Tailscale ネットワークに接続されている必要があります。まず Tailscale をオンにするか、信頼できるローカルネットワーク上でホストとポートを指定してペアリングしてください。"
+            "value": "Iroh ペアリングは Tailscale なしでも動作します。Tailscale フォールバックルートを使用する場合にだけ、Tailscale をオンにしてください。"
           }
         }
       }

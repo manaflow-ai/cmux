@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
@@ -16,6 +17,7 @@ struct WorkspaceListView: View {
     let selectedWorkspaceID: MobileWorkspacePreview.ID?
     let host: String
     let connectionStatus: MobileMacConnectionStatus
+    var activeTransportKind: CmxAttachTransportKind? = nil
     let navigationStyle: WorkspaceNavigationStyle
     var showsNavigationToolbar = true
     /// Whether workspace-row titles wrap (multi-line) instead of truncating to a
@@ -249,6 +251,7 @@ struct WorkspaceListView: View {
                     MobileMacConnectionStatusRow(
                         host: host,
                         status: connectionStatus,
+                        activeTransportKind: activeTransportKind,
                         showsSpinner: isInitialConnectionLoading,
                         titleOverride: initialConnectionTimedOut
                             ? L10n.string("mobile.loading.timeout.title", defaultValue: "Still loading")

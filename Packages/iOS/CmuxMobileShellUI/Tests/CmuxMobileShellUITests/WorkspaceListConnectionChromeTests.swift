@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import CmuxMobileShellModel
 import SwiftUI
 import Testing
@@ -5,6 +6,19 @@ import Testing
 
 @MainActor
 @Suite struct WorkspaceListConnectionChromeTests {
+    @Test func transportLabelsDescribeLiveIrohSession() {
+        #expect(CmxAttachTransportKind.iroh.mobileDisplayLabel == "Iroh")
+        #expect(CmxAttachTransportKind.iroh.mobileToolbarSubtitle(terminalName: "zsh") == "zsh via Iroh")
+        #expect(CmxAttachTransportKind.iroh.mobileToolbarSubtitle(terminalName: nil) == "Connected via Iroh")
+        #expect(MobileMacConnectionStatus.connected.description(transportKind: .iroh) == "Live terminal sync is active over Iroh.")
+    }
+
+    @Test func transportLabelsDescribeLiveTailscaleSession() {
+        #expect(CmxAttachTransportKind.tailscale.mobileDisplayLabel == "Tailscale")
+        #expect(CmxAttachTransportKind.tailscale.mobileToolbarSubtitle(terminalName: "agent") == "agent via Tailscale")
+        #expect(MobileMacConnectionStatus.reconnecting.description(transportKind: .tailscale) == "Trying to restore the Tailscale connection.")
+    }
+
     @Test func reconnectingRecoveryShowsMacStatusRow() {
         #expect(chrome(
             isRecoveringConnection: true,

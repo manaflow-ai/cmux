@@ -186,6 +186,8 @@ extension Array where Element == CuratedSettingEntry {
             // Mobile
             .init(section: .mobile, id: "pairDevice", title: "Pair a Device", synonyms: "pair pairing add device qr qr code scan iphone ipad ios mobile tailscale connect onboarding sign in"),
             .init(section: .mobile, id: "iOSPairingHost", title: "iOS Pairing", synonyms: "ios iphone ipad mobile pairing local network permission sync"),
+            .init(section: .mobile, id: "iOSPairingIrohTransport", title: String(localized: "settings.mobile.iOSPairingIrohTransport", defaultValue: "Use Iroh Transport"), synonyms: "mobile.iOSPairingHost.irohTransport.enabled iroh quic vpn-free encrypted mobile pairing route transport"),
+            .init(section: .mobile, id: "iOSPairingPublishesTailscaleRoutes", title: String(localized: "settings.mobile.iOSPairingPublishesTailscaleRoutes", defaultValue: "Also Publish Tailscale/LAN Routes"), synonyms: "mobile.iOSPairingHost.publishTailscaleRoutes tailscale lan fallback route routes mobile pairing"),
             .init(section: .mobile, id: "iOSPairingPort", title: String(localized: "settings.mobile.port", defaultValue: "Pairing Port"), synonyms: "mobile.iOSPairingHost.port ios iphone mobile pairing port tcp listener firewall conflict"),
             .init(section: .mobile, id: "iOSPairingDisplayName", title: String(localized: "settings.mobile.displayName", defaultValue: "Display Name"), synonyms: "mobile.iOSPairingHost.displayName ios iphone mobile pairing display name mac hostname device label"),
 

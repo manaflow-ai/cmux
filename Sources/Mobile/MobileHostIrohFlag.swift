@@ -1,8 +1,10 @@
 import Foundation
+import CmuxSettings
 
 struct MobileHostIrohFlag: Sendable, Equatable {
     static let envKey = "CMUX_MOBILE_IROH_TRANSPORT"
-    static let defaultsKey = "mobileIrohTransport"
+    static let catalogKey = SettingCatalog().mobile.iOSPairingIrohTransport
+    static let defaultsKey = catalogKey.userDefaultsKey
 
     let isEnabled: Bool
 
@@ -25,7 +27,7 @@ struct MobileHostIrohFlag: Sendable, Equatable {
         if defaults.object(forKey: defaultsKey) != nil {
             return MobileHostIrohFlag(isEnabled: defaults.bool(forKey: defaultsKey))
         }
-        return MobileHostIrohFlag(isEnabled: isDebugBuild)
+        return MobileHostIrohFlag(isEnabled: catalogKey.defaultValue)
     }
 
     static var isDebugBuild: Bool {
