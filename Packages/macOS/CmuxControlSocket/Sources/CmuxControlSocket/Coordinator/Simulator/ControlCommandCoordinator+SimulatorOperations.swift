@@ -42,7 +42,7 @@ extension ControlCommandCoordinator {
             }
             operation = .hardwareButton(simulatorButtonName(button))
         case "simulator.rotate":
-            guard let orientation = string(request.params, "orientation") else {
+            guard let orientation = actionKey(request.params, "orientation") else {
                 return invalidSimulatorOperation("orientation is required")
             }
             operation = .rotate(orientation)
