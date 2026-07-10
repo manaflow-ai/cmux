@@ -99,12 +99,19 @@ import Testing
     let fullChunk = try #require(await iterator.next())
     #expect(String(decoding: fullChunk.data, as: UTF8.self).contains("live-full-takes-over"))
 
+    let droppedOutputCountBeforePartial =
+        store.terminalReplayBarrierDroppedOutputCountsBySurfaceID[surfaceID] ?? 0
     await transport.deliver(try renderGridEventFrame(
         surfaceID: surfaceID,
         seq: 11,
         text: "partial-dropped-before-full-ack",
         full: false
     ))
+    let partialWasDropped = try await pollUntil {
+        (store.terminalReplayBarrierDroppedOutputCountsBySurfaceID[surfaceID] ?? 0)
+            > droppedOutputCountBeforePartial
+    }
+    #expect(partialWasDropped)
     await router.enqueueReplayPayload(text: "stale-held-replay", sequence: 5)
     await router.releaseAllHeld()
     store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: fullChunk.streamToken)
