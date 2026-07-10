@@ -2,6 +2,7 @@ import CmuxFoundation
 import AppKit
 import CMUXMobileCore
 import CmuxAuthRuntime
+import CmuxSettings
 import SwiftUI
 
 /// The macOS onboarding window for pairing an iPhone with this Mac.
@@ -32,6 +33,7 @@ struct MobilePairingView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 header
+                transportRow
                 requirements
                 Divider()
                 content
@@ -62,12 +64,48 @@ struct MobilePairingView: View {
         }
     }
 
+    // MARK: Transport choice
+
+    /// The per-Mac transport picker shown during onboarding / adding a machine:
+    /// cmux relay (iroh), the user's own relay, or Tailscale. Changing it
+    /// re-binds the lane and re-mints the displayed code.
+    private var transportRow: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(String(localized: "mobile.pairing.transport.title", defaultValue: "How your iPhone connects"))
+                .cmuxFont(.callout, weight: .medium)
+            Picker(
+                "",
+                selection: Binding(
+                    get: { model.transportMode },
+                    set: { model.selectTransportMode($0) }
+                )
+            ) {
+                ForEach(MobileTransportMode.allCases) { mode in
+                    Text(mode.displayName).tag(mode)
+                }
+            }
+            .labelsHidden()
+            .pickerStyle(.menu)
+            .fixedSize()
+            .accessibilityIdentifier("MobilePairingTransportPicker")
+            if model.transportMode == .ownRelay {
+                Text(String(localized: "mobile.pairing.transport.ownRelay.hint", defaultValue: "Set your relay URL in Settings → Mobile."))
+                    .cmuxFont(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
     // MARK: Requirements checklist
 
     private var requirements: some View {
         VStack(alignment: .leading, spacing: 12) {
             signInRow
-            tailscaleRow
+            // Tailscale is only a requirement in Tailscale mode; the iroh modes
+            // reach this Mac via the relay, no tailnet needed.
+            if model.transportMode == .tailscale {
+                tailscaleRow
+            }
         }
     }
 

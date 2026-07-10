@@ -1,0 +1,20 @@
+{
+  "deviceId": "11111111-1111-4111-8111-111111111111",
+  "platform": "mac",
+  "displayName": "Tailscale Mac",
+  "ownerUserId": "user_tailscale",
+  "lastSeenAtAtRev": 1719000000000,
+  "instances": [
+    {
+      "tag": "default",
+      "lastSeenAtAtRev": 1719000000000,
+      "routes": [
+        {
+          "id": "tailscale",
+          "kind": "tailscale",
+          "endpoint": { "type": "host_port", "host": "100.64.1.2", "port": 49831 }
+        }
+      ]
+    }
+  ]
+}

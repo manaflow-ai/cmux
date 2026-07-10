@@ -32,7 +32,7 @@ actor MobileCoreRPCSession {
     let lateAbandonedConnectCloseTimeoutNanoseconds: UInt64
     private let makeTransport: TransportFactory
     private let didReceiveConnectedCandidate: ConnectedCandidateHook?
-    private var transport: (any CmxByteTransport)?
+    private(set) var transport: (any CmxByteTransport)?
     private var connectionTask: ConnectingTask?
     private var installedConnectionID: UUID?
     private var readerTask: Task<Void, Never>?

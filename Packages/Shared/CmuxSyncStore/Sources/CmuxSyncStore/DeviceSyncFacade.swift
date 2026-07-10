@@ -49,15 +49,22 @@ public struct SyncedDeviceRecord: Codable, Equatable, Sendable {
         public var tag: String
         public var routes: [CmxAttachRoute]
         public var lastSeenAtAtRev: Double
+        /// The Mac-chosen mobile transport mode (cmuxRelay/ownRelay/tailscale),
+        /// rendered as a read-only badge. `nil` for older hosts that don't report
+        /// it; additive, so it does not bump the sync schema version.
+        public var transportMode: String?
 
         private enum CodingKeys: String, CodingKey {
-            case tag, routes, lastSeenAtAtRev
+            case tag, routes, lastSeenAtAtRev, transportMode
         }
 
-        public init(tag: String, routes: [CmxAttachRoute], lastSeenAtAtRev: Double) {
+        /// Memberwise initializer for one tagged app instance in a device record.
+        /// `transportMode` defaults to `nil` (older hosts that do not report it).
+        public init(tag: String, routes: [CmxAttachRoute], lastSeenAtAtRev: Double, transportMode: String? = nil) {
             self.tag = tag
             self.routes = routes
             self.lastSeenAtAtRev = lastSeenAtAtRev
+            self.transportMode = transportMode
         }
 
         /// Decode routes FAILABLY per entry: a future route kind or one malformed
@@ -69,6 +76,7 @@ public struct SyncedDeviceRecord: Codable, Equatable, Sendable {
             let container = try decoder.container(keyedBy: CodingKeys.self)
             self.tag = try container.decode(String.self, forKey: .tag)
             self.lastSeenAtAtRev = try container.decode(Double.self, forKey: .lastSeenAtAtRev)
+            self.transportMode = try container.decodeIfPresent(String.self, forKey: .transportMode)
             self.routes = Self.decodeRoutesFailably(container)
         }
 
@@ -77,6 +85,7 @@ public struct SyncedDeviceRecord: Codable, Equatable, Sendable {
             try container.encode(tag, forKey: .tag)
             try container.encode(routes, forKey: .routes)
             try container.encode(lastSeenAtAtRev, forKey: .lastSeenAtAtRev)
+            try container.encodeIfPresent(transportMode, forKey: .transportMode)
         }
 
         private static func decodeRoutesFailably(
@@ -158,7 +167,8 @@ public struct DeviceSyncFacade: Sendable {
                 RegistryAppInstance(
                     tag: inst.tag,
                     routes: inst.routes,
-                    lastSeenAt: Date(timeIntervalSince1970: inst.lastSeenAtAtRev / 1000.0)
+                    lastSeenAt: Date(timeIntervalSince1970: inst.lastSeenAtAtRev / 1000.0),
+                    transportMode: inst.transportMode
                 )
             }
         )

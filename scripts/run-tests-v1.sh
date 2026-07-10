@@ -11,6 +11,8 @@ fi
 
 cd "$(dirname "$0")/.."
 
+./scripts/ensure-cmux-iroh.sh
+
 DERIVED_DATA_PATH="$HOME/Library/Developer/Xcode/DerivedData/cmux-tests-v1"
 APP="$DERIVED_DATA_PATH/Build/Products/Debug/cmux DEV.app"
 RUN_TAG="tests-v1"

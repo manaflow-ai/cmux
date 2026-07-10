@@ -136,6 +136,19 @@ describe("parseHeartbeat", () => {
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.beat.stopping).toBeUndefined();
   });
+
+  it("carries the Mac-chosen transportMode, omits it when absent, and bounds it", () => {
+    const withMode = parseHeartbeat({ deviceId: DEVICE_ID, platform: "mac", transportMode: "cmuxRelay" });
+    expect(withMode.ok).toBe(true);
+    if (withMode.ok) expect(withMode.beat.transportMode).toBe("cmuxRelay");
+
+    const bare = parseHeartbeat({ deviceId: DEVICE_ID, platform: "mac" });
+    if (bare.ok) expect(bare.beat.transportMode).toBeUndefined();
+
+    expect(
+      parseHeartbeat({ deviceId: DEVICE_ID, platform: "mac", transportMode: "x".repeat(33) }),
+    ).toEqual({ ok: false, error: "invalid_transport_mode" });
+  });
 });
 
 describe("parseHeartbeat routes", () => {

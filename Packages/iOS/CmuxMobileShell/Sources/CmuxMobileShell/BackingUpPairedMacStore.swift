@@ -258,6 +258,23 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         )
     }
 
+    /// Persist the device-local iroh EndpointId pin without uploading it.
+    public func setPinnedIrohEndpointID(
+        macDeviceID: String,
+        endpointID: String,
+        stackUserID: String?,
+        teamID: String?,
+        now: Date
+    ) async throws {
+        try await inner.setPinnedIrohEndpointID(
+            macDeviceID: macDeviceID,
+            endpointID: endpointID,
+            stackUserID: stackUserID,
+            teamID: await resolvedTeam(teamID),
+            now: now
+        )
+    }
+
     /// Remove one paired Mac locally and tombstone it in backup when signed in.
     public func remove(macDeviceID: String, stackUserID: String?, teamID: String?) async throws {
         let team = await resolvedTeam(teamID)

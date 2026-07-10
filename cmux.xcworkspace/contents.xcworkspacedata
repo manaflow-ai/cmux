@@ -23,7 +23,13 @@
          location = "group:CmuxClientConfig">
       </FileRef>
       <FileRef
+         location = "group:CmuxIrohFFI">
+      </FileRef>
+      <FileRef
          location = "group:CMUXMobileCore">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxMobileIrohTransport">
       </FileRef>
       <FileRef
          location = "group:CmuxSyncStore">

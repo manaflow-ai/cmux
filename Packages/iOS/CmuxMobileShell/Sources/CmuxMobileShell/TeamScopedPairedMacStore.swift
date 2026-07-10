@@ -103,6 +103,25 @@ public struct TeamScopedPairedMacStore: MobilePairedMacStoring {
         )
     }
 
+    /// Persist the device-local iroh EndpointId pin without changing row scope.
+    public func setPinnedIrohEndpointID(
+        macDeviceID: String,
+        endpointID: String,
+        stackUserID: String?,
+        teamID: String?,
+        now: Date
+    ) async throws {
+        let team = await resolvedTeam(teamID)
+        let scope = try await visibleScope(macDeviceID: macDeviceID, stackUserID: stackUserID, teamID: team)
+        try await inner.setPinnedIrohEndpointID(
+            macDeviceID: macDeviceID,
+            endpointID: endpointID,
+            stackUserID: scope.stackUserID,
+            teamID: scope.teamID,
+            now: now
+        )
+    }
+
     /// Remove one paired Mac in the selected team scope.
     public func remove(macDeviceID: String, stackUserID: String?, teamID: String?) async throws {
         let team = await resolvedTeam(teamID)

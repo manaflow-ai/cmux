@@ -1,0 +1,27 @@
+{
+  "deviceId": "44444444-4444-4444-8444-444444444444",
+  "platform": "mac",
+  "displayName": "Future Field Mac",
+  "ownerUserId": "user_future",
+  "lastSeenAtAtRev": 1719000400000,
+  "futureTopLevelField": "ignored-by-current-clients",
+  "instances": [
+    {
+      "tag": "default",
+      "lastSeenAtAtRev": 1719000400000,
+      "futureInstanceField": { "nested": true },
+      "routes": [
+        {
+          "id": "tailscale",
+          "kind": "tailscale",
+          "endpoint": { "type": "host_port", "host": "100.64.1.9", "port": 51000 }
+        },
+        {
+          "id": "future-route",
+          "kind": "quantum-teleport",
+          "endpoint": { "type": "wormhole", "coords": "x1y2z3" }
+        }
+      ]
+    }
+  ]
+}

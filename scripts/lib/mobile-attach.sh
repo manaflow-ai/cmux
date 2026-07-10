@@ -63,13 +63,15 @@ cmux_attach_mac_app_path() {
     "$HOME" "$slug" "$slug"
 }
 
-# Enable the opt-in iOS pairing host on the tagged Mac bundle. Must be written
-# BEFORE the Mac app launches (read in applicationDidFinishLaunching). The first
-# bind per bundle id triggers a one-time macOS "Local Network" prompt.
+# Select the iOS mobile transport on the tagged Mac bundle. Must be written
+# BEFORE the Mac app launches (read in applicationDidFinishLaunching). Defaults
+# to cmuxRelay (iroh, no Tailscale needed) so dogfood builds attach off-LAN; pass
+# a mode arg (tailscale/ownRelay) to override. (The iroh lane needs no Local
+# Network prompt; the tailscale lane triggers the one-time macOS prompt.)
 cmux_attach_enable_pairing_host() {
-  local tag="$1" bundle_id
+  local tag="$1" mode="${2:-cmuxRelay}" bundle_id
   bundle_id="$(cmux_attach_mac_bundle_id "$tag")"
-  defaults write "$bundle_id" mobile.iOSPairingHost.enabled -bool true
+  defaults write "$bundle_id" mobile.iOSTransportMode -string "$mode"
 }
 
 # True if the tagged Mac app's debug socket is bound (app running + listening).

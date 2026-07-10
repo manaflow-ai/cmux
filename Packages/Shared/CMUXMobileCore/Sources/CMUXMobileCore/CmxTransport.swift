@@ -335,11 +335,78 @@ public struct CmxAttachTicket: Codable, Equatable, Sendable {
     }
 }
 
+/// A live diagnostics snapshot for the byte transport serving a Mac connection.
+public struct CmxConnectionDiagnostics: Equatable, Sendable {
+    /// The transport implementation carrying the connection.
+    public enum TransportKind: String, Sendable {
+        /// iroh QUIC transport.
+        case iroh
+        /// Network.framework LAN/Tailscale transport.
+        case network
+    }
+
+    /// The current path selected by the transport, when known.
+    public enum PathKind: String, Sendable {
+        /// Direct peer-to-peer path.
+        case direct
+        /// Relay path.
+        case relay
+        /// Both relay and direct paths are known but no selected path is available.
+        case mixed
+        /// Local-network or host/port path.
+        case lan
+        /// No path information is currently available.
+        case unknown
+    }
+
+    /// The transport implementation carrying the connection.
+    public var transportKind: TransportKind
+    /// The current path selected by the transport, when known.
+    public var pathKind: PathKind
+    /// The latest round-trip time in milliseconds, when available.
+    public var rttMs: Double?
+    /// Total bytes sent by the underlying transport, when available.
+    public var bytesSent: UInt64?
+    /// Total bytes received by the underlying transport, when available.
+    public var bytesReceived: UInt64?
+    /// Relay region/label or URL for relayed iroh paths.
+    public var relayLabel: String?
+    /// Remote iroh EndpointId, when available.
+    public var remoteEndpointId: String?
+
+    /// Creates a diagnostics snapshot.
+    public init(
+        transportKind: TransportKind,
+        pathKind: PathKind,
+        rttMs: Double? = nil,
+        bytesSent: UInt64? = nil,
+        bytesReceived: UInt64? = nil,
+        relayLabel: String? = nil,
+        remoteEndpointId: String? = nil
+    ) {
+        self.transportKind = transportKind
+        self.pathKind = pathKind
+        self.rttMs = rttMs
+        self.bytesSent = bytesSent
+        self.bytesReceived = bytesReceived
+        self.relayLabel = relayLabel
+        self.remoteEndpointId = remoteEndpointId
+    }
+}
+
 public protocol CmxByteTransport: Sendable {
     func connect() async throws
     func receive() async throws -> Data?
     func send(_ data: Data) async throws
     func close() async
+    func connectionDiagnostics() async -> CmxConnectionDiagnostics?
+}
+
+public extension CmxByteTransport {
+    /// Returns live transport diagnostics when the concrete transport supports them.
+    func connectionDiagnostics() async -> CmxConnectionDiagnostics? {
+        nil
+    }
 }
 
 public protocol CmxByteTransportFactory: Sendable {

@@ -14,7 +14,7 @@ private let pairedMacStoreLog = Logger(subsystem: "com.cmuxterm.app", category: 
 /// inject it as `any MobilePairedMacStoring`.
 public actor MobilePairedMacStore: MobilePairedMacStoring {
     /// The schema version this build creates and migrates to.
-    public static let currentSchemaVersion: Int32 = 4
+    public static let currentSchemaVersion: Int32 = 5
 
     private let dbPath: String
     // `nonisolated(unsafe)` only so the (Swift 6 nonisolated) `deinit` can close
@@ -88,7 +88,9 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
     private var didMigrate = false
 
     /// Run schema migrations exactly once, on first store access (actor-isolated).
-    private func ensureReady() throws {
+    /// Package-internal (not `private`) so the `+IrohEndpointPin` extension file
+    /// can call it; every other in-file caller is unaffected.
+    func ensureReady() throws {
         guard !didMigrate else { return }
         try runMigrations()
         didMigrate = true
@@ -109,27 +111,36 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
                 try migrateToV2()
                 try migrateToV3()
                 try migrateToV4()
-                try setUserVersion(4)
+                try migrateToV5()
+                try setUserVersion(5)
             }
         case 1:
             try transaction {
                 try migrateToV2()
                 try migrateToV3()
                 try migrateToV4()
-                try setUserVersion(4)
+                try migrateToV5()
+                try setUserVersion(5)
             }
         case 2:
             try transaction {
                 try migrateToV3()
                 try migrateToV4()
-                try setUserVersion(4)
+                try migrateToV5()
+                try setUserVersion(5)
             }
         case 3:
             try transaction {
                 try migrateToV4()
-                try setUserVersion(4)
+                try migrateToV5()
+                try setUserVersion(5)
             }
         case 4:
+            try transaction {
+                try migrateToV5()
+                try setUserVersion(5)
+            }
+        case 5:
             break
         default:
             // A newer build wrote a higher schema version. Schema migrations are
@@ -290,8 +301,9 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
     }
 
     /// Column names defined on `table` (via `PRAGMA table_info`), used to make
-    /// additive column migrations idempotent.
-    private func tableColumns(_ table: String) throws -> Set<String> {
+    /// additive column migrations idempotent. Package-internal so the
+    /// `+IrohEndpointPin` extension file's `migrateToV5()` can call it.
+    func tableColumns(_ table: String) throws -> Set<String> {
         var statement: OpaquePointer?
         defer { sqlite3_finalize(statement) }
         let rc = sqlite3_prepare_v2(db, "PRAGMA table_info(\(table));", -1, &statement, nil)
@@ -484,6 +496,7 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
         var customName: String? = nil
         var customColor: String? = nil
         var customIcon: String? = nil
+        var pinnedIrohEndpointID: String? = nil
     }
 
     private func fetchMacRow(macDeviceID: String, ownerKey: String) throws -> MacRow? {
@@ -579,11 +592,13 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
         try exec("""
             INSERT INTO paired_macs (
                 mac_device_id, owner_key, display_name, stack_user_id, team_id,
-                created_at, last_seen_at, is_active, custom_name, custom_color, custom_icon
+                created_at, last_seen_at, is_active, custom_name, custom_color, custom_icon,
+                pinned_iroh_endpoint_id
             )
             SELECT
                 mac_device_id, ?, display_name, stack_user_id, ?, created_at,
-                last_seen_at, is_active, custom_name, custom_color, custom_icon
+                last_seen_at, is_active, custom_name, custom_color, custom_icon,
+                pinned_iroh_endpoint_id
             FROM paired_macs
             WHERE mac_device_id = ? AND owner_key = ?;
         """, binding: [
@@ -634,7 +649,7 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
         let whereClause = clauses.isEmpty ? "" : "WHERE " + clauses.joined(separator: " AND ")
         let sql = """
             SELECT mac_device_id, owner_key, display_name, stack_user_id, created_at, last_seen_at, is_active,
-                   custom_name, custom_color, custom_icon, team_id
+                   custom_name, custom_color, custom_icon, team_id, pinned_iroh_endpoint_id
             FROM paired_macs
             \(whereClause)
             ORDER BY last_seen_at DESC;
@@ -666,7 +681,8 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
                 isActive: isActive,
                 customName: Self.readNullableText(statement, column: 7),
                 customColor: Self.readNullableText(statement, column: 8),
-                customIcon: Self.readNullableText(statement, column: 9)
+                customIcon: Self.readNullableText(statement, column: 9),
+                pinnedIrohEndpointID: Self.readNullableText(statement, column: 11)
             ))
         }
 
@@ -683,7 +699,8 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
                 teamID: row.teamID,
                 customName: row.customName,
                 customColor: row.customColor,
-                customIcon: row.customIcon
+                customIcon: row.customIcon,
+                pinnedIrohEndpointID: row.pinnedIrohEndpointID
             )
         }
     }
@@ -734,14 +751,17 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
 
     // MARK: - Statement helpers
 
-    private enum BindValue {
+    // Package-internal (not `private`) so the `+IrohEndpointPin` extension file
+    // can call `exec(_:binding:)` with typed bindings; widening `exec` to
+    // internal also requires `BindValue` to be at least internal.
+    enum BindValue {
         case text(String)
         case int(Int64)
         case real(Double)
         case null
     }
 
-    private func exec(_ sql: String, binding parameters: [BindValue] = []) throws {
+    func exec(_ sql: String, binding parameters: [BindValue] = []) throws {
         if parameters.isEmpty {
             let rc = sqlite3_exec(db, sql, nil, nil, nil)
             guard rc == SQLITE_OK else {

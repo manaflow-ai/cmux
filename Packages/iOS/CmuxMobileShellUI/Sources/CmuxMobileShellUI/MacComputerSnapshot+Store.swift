@@ -33,7 +33,9 @@ extension MacComputerSnapshot {
                 connectionStatus: connectionStatuses[mac.macDeviceID],
                 presence: presence,
                 buildLabel: summary?.buildLabel,
+                transportMode: summary?.transportMode,
                 routeDescription: CmxAttachRoute.deviceTreeRouteDescription(for: mac.routes),
+                identityMismatch: store.hasIrohIdentityMismatch(for: mac.macDeviceID),
                 lastSeenAt: mac.lastSeenAt,
                 workspaceCount: store.workspaceCount(for: mac.macDeviceID),
                 aliasIDs: aliases

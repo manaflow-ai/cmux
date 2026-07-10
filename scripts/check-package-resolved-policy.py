@@ -137,6 +137,71 @@ def dependency_calls_include_url(calls: list[str]) -> bool:
     return any(PACKAGE_URL_ARGUMENT_RE.search(call) for call in calls)
 
 
+def local_path_dependency_root(
+    call: str,
+    manifest: Path,
+    manifests: dict[str, Path],
+) -> str | None:
+    path_match = PACKAGE_PATH_ARGUMENT_RE.search(call)
+    if path_match is None:
+        return None
+
+    dependency_root = (manifest.parent / path_match.group(1)).resolve()
+    for root, candidate_manifest in manifests.items():
+        if candidate_manifest.parent.resolve() == dependency_root:
+            return root
+    return None
+
+
+def changed_dependency_calls_touch_remote(
+    current_calls: list[str],
+    previous_calls: list[str],
+    current_manifest: Path,
+    previous_manifest: Path,
+    current_manifests: dict[str, Path],
+    previous_manifests: dict[str, Path],
+    graph: dict[str, tuple[bool, list[str]]],
+    previous_graph: dict[str, tuple[bool, list[str]]],
+    current_remote_memo: dict[str, bool],
+    previous_remote_memo: dict[str, bool],
+) -> bool:
+    added_calls = set(current_calls) - set(previous_calls)
+    removed_calls = set(previous_calls) - set(current_calls)
+
+    if dependency_calls_include_url(list(added_calls | removed_calls)):
+        return True
+
+    for call in added_calls:
+        dependency_root = local_path_dependency_root(
+            call,
+            current_manifest,
+            current_manifests,
+        )
+        if dependency_root is not None and has_remote_dependency(
+            dependency_root,
+            graph,
+            current_remote_memo,
+            set(),
+        ):
+            return True
+
+    for call in removed_calls:
+        dependency_root = local_path_dependency_root(
+            call,
+            previous_manifest,
+            previous_manifests,
+        )
+        if dependency_root is not None and has_remote_dependency(
+            dependency_root,
+            previous_graph,
+            previous_remote_memo,
+            set(),
+        ):
+            return True
+
+    return False
+
+
 def has_remote_dependency(
     root: str,
     graph: dict[str, tuple[bool, list[str]]],
@@ -314,17 +379,19 @@ def main() -> int:
                 continue
             # Local path-only dependency edits do not always change the resolved
             # external pins. Require a matching Package.resolved diff only when
-            # the edited manifest's graph currently has, previously had, or
-            # directly changes a remote dependency.
-            if (
-                dependency_calls_include_url(current_calls + previous_calls)
-                or has_remote_dependency(root, graph, current_remote_memo, set())
-                or has_remote_dependency(
-                    root,
-                    previous_graph,
-                    previous_remote_memo,
-                    set(),
-                )
+            # the changed dependency call directly edits a remote dependency, or
+            # the changed local dependency's own subtree reaches a remote pin.
+            if changed_dependency_calls_touch_remote(
+                current_calls,
+                previous_calls,
+                manifest,
+                previous_manifests.get(root, manifest),
+                all_manifests,
+                previous_manifests,
+                graph,
+                previous_graph,
+                current_remote_memo,
+                previous_remote_memo,
             ):
                 changed_dependency_roots.add(root)
 

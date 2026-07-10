@@ -99,18 +99,60 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
     /// Choose the routes to persist for the next reconnect.
     ///
     /// The reconnect path connects on `local` routes immediately (no added
-    /// latency on the common case) and only *replaces* the persisted routes when
+    /// latency on the common case) and only *rewrites* the persisted routes when
     /// the registry returns a usable, different set, so a stale-route Mac gets
     /// rescued on the next reconnect trigger. Returns `nil` to signal "no change
     /// needed" (registry unavailable, empty, or identical), letting callers skip
     /// a redundant store write and fall back to the locally persisted routes.
+    ///
+    /// The registry is authoritative for HOST/PORT routes only (its fresher
+    /// host/port rescues a stale local one — the original purpose of this
+    /// refresh). PEER (iroh) routes are owned by attach tickets and live
+    /// presence pushes, both of which carry the Mac's CURRENT EndpointId; the
+    /// registry's copy is a snapshot that lags identity changes, so it never
+    /// overwrites or removes a local peer route here.
+    ///
+    /// Both failure modes were hit in dogfood before this shape:
+    /// - wholesale replacement: a Mac switched to the iroh-only cmuxRelay lane
+    ///   while its registry row still held only an old tailscale host/port; the
+    ///   refresh deleted the freshly-paired iroh route, and every later cold
+    ///   open dialed the dead TCP port.
+    /// - per-KIND authority: the registry's stale iroh route (an EndpointId the
+    ///   Mac had already rotated away from) overwrote the freshly-attached
+    ///   current one, so the very next cold open dialed a dead peer identity.
     public static func selectReconnectRoutes(
         local: [CmxAttachRoute],
         registry: [CmxAttachRoute]?
     ) -> [CmxAttachRoute]? {
         guard let registry, !registry.isEmpty else { return nil }
-        guard registry != local else { return nil }
-        return registry
+        func isHostPort(_ route: CmxAttachRoute) -> Bool {
+            if case .hostPort = route.endpoint { return true }
+            return false
+        }
+        let registryHostPort = registry.filter(isHostPort)
+        let registryHostPortKinds = Set(registryHostPort.map(\.kind))
+        let preservedLocal = local.filter { route in
+            !isHostPort(route) || !registryHostPortKinds.contains(route.kind)
+        }
+        let merged = registryHostPort + preservedLocal
+        guard !merged.isEmpty, merged != local else { return nil }
+        return merged
+    }
+
+    /// Routes to persist from a LIVE presence push. Unlike the registry
+    /// snapshot (``selectReconnectRoutes(local:registry:)``, host/port-only),
+    /// a presence `routes` event is the Mac's heartbeat announcing its CURRENT
+    /// full route set — including its current iroh EndpointId — so it replaces
+    /// the stored set wholesale. This is the path that heals a stored peer
+    /// route after the Mac's iroh identity rotates (a dev re-sign regenerates
+    /// the Keychain-held key). Returns `nil` when pushed is empty or identical
+    /// (no store write needed).
+    public static func selectPushedRoutes(
+        local: [CmxAttachRoute],
+        pushed: [CmxAttachRoute]
+    ) -> [CmxAttachRoute]? {
+        guard !pushed.isEmpty, pushed != local else { return nil }
+        return pushed
     }
 
     /// Whether a background registry refresh may write back into the paired-Mac

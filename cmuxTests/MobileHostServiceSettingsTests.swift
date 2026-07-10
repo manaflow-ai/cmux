@@ -9,18 +9,38 @@ import Testing
 #endif
 
 struct MobileHostServiceSettingsTests {
-    @Test func mobileHostListenerDefaultsOffUntilIOSPairingIsEnabled() throws {
+    @Test func transportModeSelectsTheActiveLane() throws {
         let suiteName = "MobileHostServiceSettingsTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
+        // Default (unset) → disabled: preserve no-listener behavior until the
+        // pairing flow or Settings records an explicit transport choice.
         #expect(!MobileHostService.isListeningEnabled(defaults: defaults))
+        #expect(!MobileHostService.isIrohHostEnabled(defaults: defaults))
+        #expect(MobileHostService.irohRelayURL(defaults: defaults) == nil)
 
-        defaults.set(true, forKey: MobileHostService.listeningEnabledDefaultsKey)
+        // Opening the pairing flow seeds the recommended relay mode explicitly.
+        MobileHostService.seedDefaultTransportModeIfUnset(defaults: defaults)
+        #expect(MobileHostService.currentTransportMode(defaults: defaults) == .cmuxRelay)
+        #expect(MobileHostService.isIrohHostEnabled(defaults: defaults))
+
+        // Tailscale mode → TCP listener on, iroh off.
+        defaults.set(MobileTransportMode.tailscale.rawValue, forKey: MobileHostService.transportModeDefaultsKey)
         #expect(MobileHostService.isListeningEnabled(defaults: defaults))
+        #expect(!MobileHostService.isIrohHostEnabled(defaults: defaults))
 
-        defaults.set(false, forKey: MobileHostService.listeningEnabledDefaultsKey)
+        // Disabled mode → no listener lane.
+        defaults.set(MobileTransportMode.disabled.rawValue, forKey: MobileHostService.transportModeDefaultsKey)
         #expect(!MobileHostService.isListeningEnabled(defaults: defaults))
+        #expect(!MobileHostService.isIrohHostEnabled(defaults: defaults))
+
+        // ownRelay mode → iroh on with the configured custom relay URL.
+        defaults.set(MobileTransportMode.ownRelay.rawValue, forKey: MobileHostService.transportModeDefaultsKey)
+        defaults.set("https://relay.example.com", forKey: SettingCatalog().mobile.iOSIrohRelayURL.userDefaultsKey)
+        #expect(!MobileHostService.isListeningEnabled(defaults: defaults))
+        #expect(MobileHostService.isIrohHostEnabled(defaults: defaults))
+        #expect(MobileHostService.irohRelayURL(defaults: defaults) == "https://relay.example.com")
     }
 
     @Test func configuredPortDefaultsToCatalogDefaultWhenUnset() throws {
@@ -174,6 +194,33 @@ struct MobileHostMacScopedMutationAuthorizationTests {
             }
             #expect(error.code == "forbidden")
         }
+    }
+
+    @Test func testDisabledTransportModeStartsNoListener() {
+        let service = MobileHostService.shared
+        let defaults = UserDefaults.standard
+        let key = MobileHostService.transportModeDefaultsKey
+        let previous = defaults.object(forKey: key)
+        service.stop()
+        service.debugResetMobileLifecycleStateForTesting()
+        defaults.set(MobileTransportMode.disabled.rawValue, forKey: key)
+        defer {
+            if let previous {
+                defaults.set(previous, forKey: key)
+            } else {
+                defaults.removeObject(forKey: key)
+            }
+            service.stop()
+            service.debugResetMobileLifecycleStateForTesting()
+        }
+
+        service.start()
+
+        let status = service.statusSnapshot()
+        #expect(!status.isRunning)
+        #expect(status.port == nil)
+        #expect(status.routes.isEmpty)
+        #expect(service.debugListenerPortForTesting() == nil)
     }
 }
 #endif

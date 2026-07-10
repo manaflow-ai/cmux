@@ -154,6 +154,99 @@ import Testing
         #expect(pick?.0 == "lawrences-macbook-pro-2.tail137216.ts.net")
     }
 
+    private func iroh() throws -> CmxAttachRoute {
+        try CmxAttachRoute(
+            id: "iroh",
+            kind: .iroh,
+            endpoint: .peer(
+                id: "827b8213a588038820428bc8aa4c1b08ae635fd12c6899d935ee1348caa16123",
+                relayHint: nil,
+                directAddrs: ["192.168.1.20:52186"],
+                relayURL: nil
+            ),
+            priority: 20
+        )
+    }
+
+    @Test func irohOnlyMacYieldsItsPeerRouteForReconnect() throws {
+        // The cmuxRelay dogfood failure: a Mac in cmuxRelay mode publishes ONLY
+        // an iroh peer route. The host/port-only selection returned nil, so the
+        // stored-Mac auto-connect never dialed and the phone sat disconnected
+        // until re-paired. Full-route selection must return the iroh route.
+        let pick = MobileShellComposite.firstReconnectRoute(
+            [try iroh()],
+            supportedKinds: [.debugLoopback, .tailscale, .iroh],
+            preferNonLoopback: true
+        )
+        #expect(pick?.kind == .iroh)
+    }
+
+    @Test func hostPortRouteStillPreferredWhenBothExist() throws {
+        // A Mac publishing both lanes keeps the proven host/port behavior
+        // (including the IP-literal preference); iroh is the fallback, not an
+        // override.
+        let pick = MobileShellComposite.firstReconnectRoute(
+            [try iroh(), try tailscale()],
+            supportedKinds: [.debugLoopback, .tailscale, .iroh],
+            preferNonLoopback: true
+        )
+        #expect(pick?.kind == .tailscale)
+        if case let .hostPort(host, _) = pick?.endpoint {
+            #expect(host == "100.82.214.112")
+        } else {
+            Issue.record("expected host/port endpoint")
+        }
+    }
+
+    @Test func irohRouteSkippedWhenTransportUnsupported() throws {
+        // A build without the iroh transport registered (release today) must not
+        // select a route it cannot dial.
+        let pick = MobileShellComposite.firstReconnectRoute(
+            [try iroh()],
+            supportedKinds: [.debugLoopback, .tailscale],
+            preferNonLoopback: true
+        )
+        #expect(pick == nil)
+    }
+
+    @Test func candidatesTryHostPortFirstThenIroh() throws {
+        // The dogfood failure mode: a stored STALE tailscale route (the Mac
+        // moved to iroh-only cmuxRelay) plus the freshly-paired iroh route. The
+        // dial order must be host/port first (existing behavior), then the iroh
+        // peer as fallback — so one dead TCP dial no longer skips the whole Mac.
+        let candidates = MobileShellComposite.reconnectRouteCandidates(
+            [try tailscale(), try iroh()],
+            supportedKinds: [.debugLoopback, .tailscale, .iroh],
+            preferNonLoopback: true
+        )
+        #expect(candidates.map(\.kind) == [.tailscale, .iroh])
+    }
+
+    @Test func candidatesAreIrohOnlyForACmuxRelayMac() throws {
+        let candidates = MobileShellComposite.reconnectRouteCandidates(
+            [try iroh()],
+            supportedKinds: [.debugLoopback, .tailscale, .iroh],
+            preferNonLoopback: true
+        )
+        #expect(candidates.map(\.kind) == [.iroh])
+    }
+
+    @Test func fullRouteSelectionMatchesHostPortChoice() throws {
+        // The route-returning selection must pick the SAME endpoint the legacy
+        // host/port selection proved reachable (loopback deprioritized on device).
+        let pick = MobileShellComposite.firstReconnectRoute(
+            [try loopback(), try tailscale()],
+            supportedKinds: [.debugLoopback, .tailscale],
+            preferNonLoopback: true
+        )
+        if case let .hostPort(host, port) = pick?.endpoint {
+            #expect(host == "100.82.214.112")
+            #expect(port == 50906)
+        } else {
+            Issue.record("expected host/port endpoint")
+        }
+    }
+
     @Test func ipLiteralHostClassification() {
         #expect(MobileShellComposite.isIPLiteralHost("100.82.214.112"))
         #expect(MobileShellComposite.isIPLiteralHost("127.0.0.1"))
@@ -178,6 +271,16 @@ import Testing
         #expect(merged.count == 2)
     }
 
+    // The branch dials at most one host/port candidate plus one iroh peer per
+    // Mac (``reconnectRouteCandidates`` = single host/port + iroh fallback), so
+    // the stale->good fall-through it actually performs is host/port -> iroh:
+    // a Mac whose stored host/port route went stale (moved to the iroh-only
+    // cmuxRelay lane) still connects over its stored iroh peer instead of the
+    // whole Mac being skipped after one dead host/port dial. These two tests
+    // use that real vehicle (loopback host/port `stale` + iroh peer `good`)
+    // rather than two loopback routes, which the branch intentionally collapses
+    // to a single dial candidate (loopback = the sole XCUITest mock host).
+
     @Test func reconnectActiveMacFallsThroughStaleRouteToGoodRouteInOneAttempt() async throws {
         let clock = TestClock()
         let router = LivenessHostRouter()
@@ -190,12 +293,12 @@ import Testing
         let store = try await makeReconnectStore(
             routes: [
                 try loopbackRoute(id: "stale", port: 51000),
-                try loopbackRoute(id: "good", port: 51001),
+                try irohRoute(id: "good", endpointID: "good-node"),
             ],
             runtime: LivenessTestRuntime(
                 transportFactory: factory,
                 now: { clock.now },
-                supportedRouteKinds: [.debugLoopback]
+                supportedRouteKinds: [.debugLoopback, .iroh]
             )
         )
 
@@ -203,7 +306,10 @@ import Testing
 
         #expect(connected)
         #expect(store.connectionState == .connected)
-        #expect(factory.attemptedPorts() == [51000, 51001, 51001])
+        // Stale host/port dialed once (its ticket mint fails fast), then the
+        // iroh peer connects: minted once, attached once. Proves the single
+        // reconnect call fell through the dead host/port route to the good peer.
+        #expect(factory.attemptedRoutes() == ["51000", "iroh:good-node", "iroh:good-node"])
     }
 
     @Test func supersededReconnectGenerationAbortsRouteIteration() async throws {
@@ -219,12 +325,12 @@ import Testing
         let store = try await makeReconnectStore(
             routes: [
                 try loopbackRoute(id: "stale", port: 51000),
-                try loopbackRoute(id: "good", port: 51001),
+                try irohRoute(id: "good", endpointID: "good-node"),
             ],
             runtime: LivenessTestRuntime(
                 transportFactory: factory,
                 now: { clock.now },
-                supportedRouteKinds: [.debugLoopback]
+                supportedRouteKinds: [.debugLoopback, .iroh]
             )
         )
 
@@ -232,7 +338,7 @@ import Testing
             await store.reconnectActiveMacIfAvailable(stackUserID: "user-1")
         }
         let firstRouteReached = try await pollUntil {
-            factory.attemptedPorts() == [51000]
+            factory.attemptedRoutes() == ["51000"]
         }
         #expect(firstRouteReached)
 
@@ -243,9 +349,14 @@ import Testing
         factory.releaseHeldConnect()
         let firstConnected = await first.value
 
+        // The first attempt is held on the stale host/port dial; the second
+        // reconnect bumps the generation and completes the host/port -> iroh
+        // fall-through. When the first's held dial finally fails it sees the
+        // superseded generation and aborts instead of also iterating to the
+        // iroh peer, so the good peer is dialed only by the winning attempt.
         #expect(!firstConnected)
         #expect(secondConnected)
-        #expect(factory.attemptedPorts() == [51000, 51001, 51001])
+        #expect(factory.attemptedRoutes() == ["51000", "iroh:good-node", "iroh:good-node"])
     }
 
     private func loopbackRoute(id: String, port: Int) throws -> CmxAttachRoute {
@@ -254,6 +365,20 @@ import Testing
             kind: .debugLoopback,
             endpoint: .hostPort(host: "127.0.0.1", port: port),
             priority: port
+        )
+    }
+
+    private func irohRoute(id: String, endpointID: String) throws -> CmxAttachRoute {
+        try CmxAttachRoute(
+            id: id,
+            kind: .iroh,
+            endpoint: .peer(
+                id: endpointID,
+                relayHint: nil,
+                directAddrs: ["192.168.1.20:52186"],
+                relayURL: nil
+            ),
+            priority: 51001
         )
     }
 
@@ -292,106 +417,4 @@ import Testing
         )
         return (store, directory)
     }
-}
-
-private enum RouteRecordingTransportError: Error {
-    case routeFailed
-}
-
-private final class RouteRecordingTransportFactory: CmxByteTransportFactory, @unchecked Sendable {
-    private let router: LivenessHostRouter
-    private let box: TransportBox
-    private let failingPorts: Set<Int>
-    private let holdFirstFailingPort: Int?
-    private let lock = NSLock()
-    private var attempts: [Int] = []
-    private var heldConnectConsumed = false
-    private var heldConnectReleased = false
-    private var heldConnectWaiters: [CheckedContinuation<Void, Never>] = []
-
-    init(
-        router: LivenessHostRouter,
-        box: TransportBox,
-        failingPorts: Set<Int>,
-        holdFirstFailingPort: Int? = nil
-    ) {
-        self.router = router
-        self.box = box
-        self.failingPorts = failingPorts
-        self.holdFirstFailingPort = holdFirstFailingPort
-    }
-
-    func makeTransport(for route: CmxAttachRoute) throws -> any CmxByteTransport {
-        guard case let .hostPort(_, port) = route.endpoint else {
-            throw RouteRecordingTransportError.routeFailed
-        }
-        let shouldHold = lock.withLock {
-            attempts.append(port)
-            if port == holdFirstFailingPort, !heldConnectConsumed {
-                heldConnectConsumed = true
-                return true
-            }
-            return false
-        }
-        if shouldHold {
-            return HeldFailingConnectTransport(factory: self)
-        }
-        if failingPorts.contains(port) {
-            throw RouteRecordingTransportError.routeFailed
-        }
-        let transport = LivenessTransport(router: router)
-        box.set(transport)
-        return transport
-    }
-
-    func attemptedPorts() -> [Int] {
-        lock.withLock { attempts }
-    }
-
-    func releaseHeldConnect() {
-        let waiters = lock.withLock {
-            heldConnectReleased = true
-            let waiters = heldConnectWaiters
-            heldConnectWaiters = []
-            return waiters
-        }
-        for waiter in waiters {
-            waiter.resume()
-        }
-    }
-
-    func waitUntilHeldConnectReleased() async {
-        let shouldWait = lock.withLock {
-            guard !heldConnectReleased else { return false }
-            return true
-        }
-        guard shouldWait else { return }
-        await withCheckedContinuation { continuation in
-            let resumeImmediately = lock.withLock {
-                guard !heldConnectReleased else { return true }
-                heldConnectWaiters.append(continuation)
-                return false
-            }
-            if resumeImmediately {
-                continuation.resume()
-            }
-        }
-    }
-}
-
-private actor HeldFailingConnectTransport: CmxByteTransport {
-    private let factory: RouteRecordingTransportFactory
-
-    init(factory: RouteRecordingTransportFactory) {
-        self.factory = factory
-    }
-
-    func connect() async throws {
-        await factory.waitUntilHeldConnectReleased()
-        throw RouteRecordingTransportError.routeFailed
-    }
-
-    func receive() async throws -> Data? { nil }
-    func send(_ data: Data) async throws {}
-    func close() async {}
 }

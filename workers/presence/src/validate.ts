@@ -7,6 +7,10 @@ import type { HeartbeatInput, PresenceRoute } from "./core";
 
 export const MAX_REQUEST_BYTES = 16 * 1024;
 export const MAX_TAG_LENGTH = 64;
+/** Bound for the Mac-chosen mobile transport mode (cmuxRelay/ownRelay/tailscale
+ * today). Opaque + bounded; the worker does not enforce the enum (client-owned,
+ * like routes) so a new mode flows through without a worker ship. */
+export const MAX_TRANSPORT_MODE_LENGTH = 32;
 export const MAX_DISPLAY_NAME_LENGTH = 128;
 export const MAX_CAPABILITIES = 32;
 export const MAX_CAPABILITY_LENGTH = 64;
@@ -66,6 +70,14 @@ export function parseHeartbeat(body: Record<string, unknown>): HeartbeatParse {
     return { ok: false, error: "invalid_bundle_id" };
   }
 
+  // The Mac-chosen mobile transport mode, so the phone can show a read-only
+  // badge. Opaque + bounded; the worker does not enforce the enum (client-owned,
+  // like routes) so a new mode flows through without a worker ship.
+  const transportMode = trimmedString(body.transportMode);
+  if (transportMode.length > MAX_TRANSPORT_MODE_LENGTH) {
+    return { ok: false, error: "invalid_transport_mode" };
+  }
+
   let capabilities: string[] | undefined;
   if (body.capabilities !== undefined) {
     if (!Array.isArray(body.capabilities)) return { ok: false, error: "invalid_capabilities" };
@@ -119,6 +131,7 @@ export function parseHeartbeat(body: Record<string, unknown>): HeartbeatParse {
       platform,
       displayName: displayName || undefined,
       bundleId: bundleId || undefined,
+      transportMode: transportMode || undefined,
       capabilities,
       stopping: stopping || undefined,
       routes,

@@ -1,0 +1,5 @@
+# Test code may use terse unwrap/expect/panic as assertions; the deny set in
+# Cargo.toml [lints.clippy] still applies to non-test code.
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-panic-in-tests = true

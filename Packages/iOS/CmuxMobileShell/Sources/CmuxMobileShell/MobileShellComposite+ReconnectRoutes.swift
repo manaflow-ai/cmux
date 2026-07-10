@@ -4,27 +4,6 @@ import Foundation
 
 @MainActor
 extension MobileShellComposite {
-    /// The first reachable host/port route to a Mac, in priority order.
-    ///
-    /// When `preferNonLoopback` is set (physical devices), a real route
-    /// (`.tailscale` etc.) is always chosen over a `.debugLoopback` route even
-    /// if the loopback route has a lower (more-preferred) priority, because a
-    /// loopback route can never reach a remote Mac from a physical phone. A
-    /// loopback route is used only when it is the sole supported route — the
-    /// on-device XCUITest mock host, which serves a real listener on `127.0.0.1`
-    /// inside the test runner.
-    static func firstReconnectHostPortRoute(
-        _ routes: [CmxAttachRoute],
-        supportedKinds: [CmxAttachTransportKind],
-        preferNonLoopback: Bool = false
-    ) -> (String, Int)? {
-        reconnectHostPortRoutes(
-            routes,
-            supportedKinds: supportedKinds,
-            preferNonLoopback: preferNonLoopback
-        ).first.map { ($0.host, $0.port) }
-    }
-
     /// Resume foreground-only refresh loops after the app becomes active.
     public func resumeForegroundRefresh() {
         startObservingNetworkPathChanges()
@@ -92,19 +71,6 @@ extension MobileShellComposite {
         }
         let last = lastTerminalEventAt ?? now
         return now.timeIntervalSince(last) >= Self.renderGridLivenessSilenceThreshold
-    }
-
-    /// Writes the persisted paired-Mac hint only when `generation` is current.
-    func setHasKnownPairedMac(_ value: Bool, generation: Int) {
-        guard generation == storedMacReconnectGeneration else { return }
-        hasKnownPairedMac = value
-    }
-
-    /// Mark the stored-Mac reconnect attempt resolved only for the current generation.
-    func finishStoredMacReconnectAttempt(generation: Int) {
-        guard generation == storedMacReconnectGeneration else { return }
-        isReconnectingStoredMac = false
-        didFinishStoredMacReconnectAttempt = true
     }
 
     /// Ordered host/port reconnect candidates for a Mac, preserving the single-route

@@ -41,6 +41,91 @@ import Testing
         #expect(selected == registry)
     }
 
+    private func irohRoute() throws -> CmxAttachRoute {
+        try CmxAttachRoute(
+            id: "iroh",
+            kind: .iroh,
+            endpoint: .peer(id: "node-1", relayHint: nil, directAddrs: [], relayURL: nil),
+            priority: 20
+        )
+    }
+
+    @Test func registryLackingALocalKindPreservesIt() throws {
+        // The dogfood bug: a Mac switched to the iroh-only cmuxRelay lane while
+        // its registry row still held only the old tailscale host/port. Wholesale
+        // replacement deleted the freshly-paired iroh route, so every later cold
+        // open dialed the dead TCP port. The merge must keep the local iroh route.
+        let local = [try irohRoute()]
+        let registry = [try route(host: "100.0.0.1", port: 64138)]
+        let selected = DeviceRegistryService.selectReconnectRoutes(local: local, registry: registry)
+        #expect(selected?.count == 2)
+        #expect(selected?.contains(where: { $0.kind == .iroh }) == true)
+        #expect(selected?.contains(where: { $0.kind == .tailscale }) == true)
+    }
+
+    @Test func registryUpdatesItsOwnKindWhilePreservingOtherKinds() throws {
+        // Registry stays authoritative per kind: its fresher tailscale host/port
+        // replaces the stale local one, while the local iroh route survives.
+        let local = [try route(host: "100.0.0.1", port: 51000), try irohRoute()]
+        let registry = [try route(host: "100.9.9.9", port: 51999)]
+        let selected = DeviceRegistryService.selectReconnectRoutes(local: local, registry: registry)
+        #expect(selected?.count == 2)
+        if case let .hostPort(host, _) = selected?.first(where: { $0.kind == .tailscale })?.endpoint {
+            #expect(host == "100.9.9.9")
+        } else {
+            Issue.record("expected the registry tailscale route")
+        }
+        #expect(selected?.contains(where: { $0.kind == .iroh }) == true)
+    }
+
+    @Test func mergeIdenticalToLocalIsANoOp() throws {
+        // Registry re-serves the same tailscale route the store already has (and
+        // carries no iroh): merged (registry-first) equals local, so skip the
+        // redundant store write.
+        let tailscale = try route(host: "100.0.0.1", port: 51000)
+        let local = [tailscale, try irohRoute()]
+        #expect(DeviceRegistryService.selectReconnectRoutes(local: local, registry: [tailscale]) == nil)
+    }
+
+    @Test func staleRegistryIrohNeverOverwritesTheLocalIrohRoute() throws {
+        // The second dogfood failure mode: the Mac's iroh EndpointId rotated (dev
+        // rebuild re-signed the app, Keychain ACL rejected the old key) and the
+        // registry still served the OLD id. Under per-kind authority that stale
+        // peer route overwrote the freshly-attached current one and the next cold
+        // open dialed a dead identity. Peer routes are owned by attach/presence;
+        // the registry copy must be ignored.
+        let currentIroh = try irohRoute() // node-1, the freshly attached identity
+        let staleIroh = try CmxAttachRoute(
+            id: "iroh",
+            kind: .iroh,
+            endpoint: .peer(id: "stale-old-node", relayHint: nil, directAddrs: [], relayURL: nil),
+            priority: 20
+        )
+        let freshTailscale = try route(host: "100.9.9.9", port: 51999)
+        let selected = DeviceRegistryService.selectReconnectRoutes(
+            local: [currentIroh],
+            registry: [staleIroh, freshTailscale]
+        )
+        // Registry's host/port is adopted; its stale iroh is discarded; the
+        // local (current) iroh survives.
+        #expect(selected?.count == 2)
+        #expect(selected?.contains(currentIroh) == true)
+        #expect(selected?.contains(staleIroh) == false)
+    }
+
+    @Test func registryWithOnlyPeerRoutesIsANoOp() throws {
+        // A registry row carrying ONLY peer routes has nothing this refresh is
+        // authoritative for; never rewrite the store from it.
+        let local = [try route(host: "100.0.0.1", port: 51000), try irohRoute()]
+        let staleIroh = try CmxAttachRoute(
+            id: "iroh",
+            kind: .iroh,
+            endpoint: .peer(id: "stale-old-node", relayHint: nil, directAddrs: [], relayURL: nil),
+            priority: 20
+        )
+        #expect(DeviceRegistryService.selectReconnectRoutes(local: local, registry: [staleIroh]) == nil)
+    }
+
     @Test func parsesRoutesForMatchingMacFromListResponse() throws {
         let json = """
         {

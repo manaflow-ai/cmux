@@ -133,6 +133,34 @@ public struct IOSBuildScopedPairedMacStore: MobilePairedMacStoring {
         )
     }
 
+    public func setPinnedIrohEndpointID(
+        macDeviceID: String,
+        endpointID: String,
+        stackUserID: String?,
+        teamID: String?,
+        now: Date
+    ) async throws {
+        if normalizedTeamID(teamID) != nil {
+            let selectedRows = try await scopedRows(stackUserID: stackUserID, teamID: teamID)
+            let targetTeamID = selectedRows.contains { $0.macDeviceID == macDeviceID } ? teamID : nil
+            try await inner.setPinnedIrohEndpointID(
+                macDeviceID: macDeviceID,
+                endpointID: endpointID,
+                stackUserID: stackUserID,
+                teamID: scopedTeamID(targetTeamID),
+                now: now
+            )
+            return
+        }
+        try await inner.setPinnedIrohEndpointID(
+            macDeviceID: macDeviceID,
+            endpointID: endpointID,
+            stackUserID: stackUserID,
+            teamID: scopedTeamID(teamID),
+            now: now
+        )
+    }
+
     public func remove(macDeviceID: String, stackUserID: String?, teamID: String?) async throws {
         try await inner.remove(macDeviceID: macDeviceID, stackUserID: stackUserID, teamID: scopedTeamID(teamID))
         if normalizedTeamID(teamID) != nil {

@@ -7,44 +7,55 @@ struct WorkspaceTitleMenuContent: View {
     let canRenameWorkspace: Bool
     let canToggleReadState: Bool
     let canCloseWorkspace: Bool
+    let presentConnectionInfo: () -> Void
     let presentRename: () -> Void
     let toggleReadState: () -> Void
     let requestClose: () -> Void
 
     var body: some View {
-        if canRenameWorkspace || canToggleReadState || canCloseWorkspace {
-            Section(workspace.name) {
-                if canRenameWorkspace {
-                    Button(action: presentRename) {
-                        Label(
-                            L10n.string("mobile.workspace.rename.title", defaultValue: "Rename Workspace"),
-                            systemImage: "pencil"
-                        )
-                    }
-                    .accessibilityIdentifier("MobileWorkspaceTitleRenameMenuItem")
-                }
+        // Connection info is always available, so the title menu always renders.
+        Section(workspace.name) {
+            Button(action: presentConnectionInfo) {
+                Label(
+                    L10n.string(
+                        "mobile.workspace.connectionInfo.title",
+                        defaultValue: "Connection info…"
+                    ),
+                    systemImage: "antenna.radiowaves.left.and.right"
+                )
+            }
+            .accessibilityIdentifier("MobileWorkspaceTitleConnectionInfoMenuItem")
 
-                if canToggleReadState {
-                    Button(action: toggleReadState) {
-                        Label(
-                            workspace.hasUnread
-                                ? L10n.string("mobile.workspace.markRead", defaultValue: "Mark as Read")
-                                : L10n.string("mobile.workspace.markUnread", defaultValue: "Mark as Unread"),
-                            systemImage: workspace.hasUnread ? "envelope.open" : "envelope.badge"
-                        )
-                    }
-                    .accessibilityIdentifier("MobileWorkspaceTitleReadStateMenuItem")
+            if canRenameWorkspace {
+                Button(action: presentRename) {
+                    Label(
+                        L10n.string("mobile.workspace.rename.title", defaultValue: "Rename Workspace"),
+                        systemImage: "pencil"
+                    )
                 }
+                .accessibilityIdentifier("MobileWorkspaceTitleRenameMenuItem")
+            }
 
-                if canCloseWorkspace {
-                    Button(role: .destructive, action: requestClose) {
-                        Label(
-                            L10n.string("mobile.workspace.close.action", defaultValue: "Close Workspace"),
-                            systemImage: "xmark.square"
-                        )
-                    }
-                    .accessibilityIdentifier("MobileWorkspaceTitleCloseMenuItem")
+            if canToggleReadState {
+                Button(action: toggleReadState) {
+                    Label(
+                        workspace.hasUnread
+                            ? L10n.string("mobile.workspace.markRead", defaultValue: "Mark as Read")
+                            : L10n.string("mobile.workspace.markUnread", defaultValue: "Mark as Unread"),
+                        systemImage: workspace.hasUnread ? "envelope.open" : "envelope.badge"
+                    )
                 }
+                .accessibilityIdentifier("MobileWorkspaceTitleReadStateMenuItem")
+            }
+
+            if canCloseWorkspace {
+                Button(role: .destructive, action: requestClose) {
+                    Label(
+                        L10n.string("mobile.workspace.close.action", defaultValue: "Close Workspace"),
+                        systemImage: "xmark.square"
+                    )
+                }
+                .accessibilityIdentifier("MobileWorkspaceTitleCloseMenuItem")
             }
         }
     }

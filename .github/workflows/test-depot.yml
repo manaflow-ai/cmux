@@ -90,6 +90,15 @@ jobs:
         run: |
           ./scripts/install-rust-ci.sh
 
+      - name: Cache CmuxIrohFFI.xcframework
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.cache/cmux/cmux-iroh
+          key: cmux-iroh-${{ hashFiles('Native/cmux-iroh/**', 'scripts/ensure-cmux-iroh.sh') }}
+
+      - name: Build CmuxIrohFFI.xcframework
+        run: ./scripts/ensure-cmux-iroh.sh
+
       - name: Create virtual display
         run: |
           set -euo pipefail

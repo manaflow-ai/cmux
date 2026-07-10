@@ -15,12 +15,31 @@ public struct PresenceMap: Equatable, Sendable {
         /// …), derived from its reported bundle id + tag. `nil` when not
         /// identifiable (older host). See ``MacBuildChannel``.
         public var buildLabel: String?
+        /// The Mac-chosen mobile transport mode (`cmuxRelay`/`ownRelay`/
+        /// `tailscale`), from the same label instance as ``buildLabel``. `nil`
+        /// for an older host that doesn't announce it.
+        public var transportMode: String?
+        /// The label instance's raw bundle id, for build-scope policy (a dev
+        /// phone refusing other tags' dev Macs). `nil` when unreported.
+        public var bundleId: String?
+        /// The label instance's raw heartbeat tag (`"default"` for stable).
+        public var tag: String?
 
         /// Create one device-level presence rollup.
-        public init(online: Bool, lastSeenAt: Date, buildLabel: String? = nil) {
+        public init(
+            online: Bool,
+            lastSeenAt: Date,
+            buildLabel: String? = nil,
+            transportMode: String? = nil,
+            bundleId: String? = nil,
+            tag: String? = nil
+        ) {
             self.online = online
             self.lastSeenAt = lastSeenAt
             self.buildLabel = buildLabel
+            self.transportMode = transportMode
+            self.bundleId = bundleId
+            self.tag = tag
         }
     }
 
@@ -100,7 +119,10 @@ public struct PresenceMap: Equatable, Sendable {
         return DeviceSummary(
             online: online,
             lastSeenAt: Date(timeIntervalSince1970: lastSeenMs / 1000),
-            buildLabel: MacBuildChannel().label(bundleID: labelInstance?.bundleId, tag: labelInstance?.tag)
+            buildLabel: MacBuildChannel().label(bundleID: labelInstance?.bundleId, tag: labelInstance?.tag),
+            transportMode: labelInstance?.transportMode,
+            bundleId: labelInstance?.bundleId,
+            tag: labelInstance?.tag
         )
     }
 }

@@ -89,6 +89,26 @@ New Settings toggle on the Mac (Mobile section): "Also publish Tailscale/LAN rou
 
 Rollout compatibility: during the transition the toggle defaults ON so existing paired phones on old builds (which only support `.tailscale`) keep connecting; `preferredRoute` picks iroh on new phones automatically because of priority ordering. Flipping the default to OFF is a later, separate change once the fleet has the iroh-capable build. Direct LAN connectivity does not actually need Tailscale at all under iroh: direct addrs in the iroh route make same-LAN dials holepunch-free, so the toggle is genuinely only for people who want the tailnet path.
 
+## Production transport configuration (three modes)
+
+Production requires both lanes to ship and a user-visible choice of which one carries their phone. The two development booleans (`mobile.iOSPairingHost.enabled`, `mobile.iOSIrohHost.enabled`) collapse into one transport-mode picker plus a relay-URL field, all in the Mobile settings section.
+
+`mobile.iOSTransportMode` (enum, default `cmuxRelay`):
+
+- **cmuxRelay** (cmux-hosted iroh, recommended): iroh endpoint binds against the cmux/n0 relay map. Works off-LAN with zero setup. This is the dogfood lane.
+- **ownRelay**: iroh endpoint binds against `mobile.iOSIrohRelayURL` (a validated `https://` relay the user runs via open-source `iroh-relay`). The bound endpoint homes on that relay, so `route_json` advertises it and the phone dials through it with no phone-side config (`CmxAttachEndpoint.peer` already carries `relayURL`).
+- **tailscale**: iroh lane stays off; the TCP/LAN listener (today's `iOSPairingHost` behavior) publishes tailscale/LAN routes only. For users who already run a tailnet and want no relay dependency.
+
+`mobile.iOSIrohRelayURL` (string, default empty): only meaningful in `ownRelay`; the UI shows the field only for that mode and validates a non-empty `https://` URL before binding.
+
+Mechanism / code impact:
+
+- **FFI**: `cmux_iroh_endpoint_bind` grows an optional relay-URL argument (nil → default cmux/n0 map; set → custom relay map). `cmux_iroh_endpoint_route_json` must emit whichever relay the endpoint actually homed on so the published route is dialable. The dial side (`cmux_iroh_endpoint_connect`) already takes `relay_url`, so the phone is unchanged.
+- **CmxIrohByteListener**: gains a relay config (default vs custom URL) passed to bind.
+- **MobileHostService**: reads `iOSTransportMode`, binds the iroh listener with the resolved relay, and gates each lane on the mode. This also **decouples the iroh accept lane from the pairing-host (`isListeningEnabled`) gate** it currently sits behind, so `cmuxRelay`/`ownRelay` can run without the tailscale listener.
+- **Migration**: old booleans map forward — iroh-on → `cmuxRelay`; iroh-off + pairing-on → `tailscale`; both-off → a new `off` case (mobile host disabled).
+- **Localization**: picker label, three option labels, relay-URL field label + validation error, all en+ja. **Docs**: configuration docs + `cmux.json` schema (this is a setting, not a shortcut).
+
 ## Packaging (no vendored binaries)
 
 The spike's Rust crate graduates to `native/cmux-iroh/` in-repo (source only, Cargo.lock committed). A `scripts/ensure-cmux-iroh.sh` builds `CmuxIrohFFI.xcframework` (macOS arm64+x86_64, iOS device arm64, iOS sim arm64) into a gitignored path, mirroring the GhosttyKit pattern (`scripts/ensure-ghosttykit.sh`, gitignored `GhosttyKit.xcframework`). CI and fleet builders gain a pinned Rust toolchain step next to the existing pinned Zig step (`scripts/install-zig-ci.sh` precedent). The xcframework links into the Mac app and the iOS app; binary cost is about +7.7 MB per slice (measured in the spike), which is acceptable against the existing GhosttyKit payload.
@@ -114,7 +134,7 @@ P1 is not bundled here because it carries a build-toolchain change for all CI an
 2. **PR 2, packaging**: `native/cmux-iroh/` crate (FFI grown to caller-provided keys and error-kind codes), `scripts/ensure-cmux-iroh.sh`, Rust toolchain in CI, xcframework linked into both apps but referenced by nothing. Proves the build matrix everywhere without behavior change.
 3. **PR 3, phone dial lane**: `CmxIrohByteTransport` in `Packages/iOS/CmuxMobileTransport` plus registration, behind a feature flag (DEBUG default ON, release default OFF). Includes the EndpointId pin gate from the security section: pin at first trust in `MobilePairedMacStore`, refuse to send Stack tokens to a non-matching EndpointId, explicit re-trust UX on change. Unit tests with the existing transport test doubles; one loopback-style integration test dialing a local iroh listener.
 4. **PR 4, Mac host lane**: `MobileHostByteConnection` seam extraction in `MobileHostService` (pure refactor commit first, NWConnection adapter only, zero behavior change), then the iroh accept loop, Keychain key custody, route publication in `MobileRouteResolver`, registry propagation. Same feature flag.
-5. **PR 5, default-on plus Settings**: flag becomes a real Settings toggle pair (iroh on by default; "Also publish Tailscale/LAN routes" on by default for compat), strings en+ja, docs. Flip of the Tailscale-publication default is a later standalone change.
+5. **PR 5, three-mode transport config**: the two dev booleans become the `mobile.iOSTransportMode` picker (`cmuxRelay` default / `ownRelay` / `tailscale`) plus the `mobile.iOSIrohRelayURL` field, per the "Production transport configuration" section above. Includes the FFI custom-relay-bind extension, the iroh-lane decoupling from the pairing-host gate, migration from the old booleans, strings en+ja, and config/schema docs. Gated behind the PR-4 dogfood proving the `cmuxRelay` substrate attaches e2e.
 
 Dogfood gate between 4 and 5: phone on cellular (Tailscale off) attaches to the Mac by sign-in alone, terminal latency subjectively fine on both relay and holepunched paths, reconnect after backgrounding works.
 

@@ -10,6 +10,7 @@ import Testing
     private func instance(
         deviceId: String,
         tag: String = "default",
+        transportMode: String? = nil,
         online: Bool = true,
         lastSeenAt: Double = 1_000
     ) -> PresenceInstance {
@@ -17,6 +18,7 @@ import Testing
             deviceId: deviceId,
             tag: tag,
             platform: "mac",
+            transportMode: transportMode,
             online: online,
             lastSeenAt: lastSeenAt
         )
@@ -59,6 +61,37 @@ import Testing
         #expect(b?.online == false)
         #expect(b?.lastSeenAt == Date(timeIntervalSince1970: 9))
         #expect(map.deviceSummary(deviceId: "never-seen") == nil)
+    }
+
+    @Test func deviceSummaryCarriesTransportModeFromTheLabelInstance() {
+        var map = PresenceMap()
+        // Two instances: the ONLINE one's mode must win (it's the build actually
+        // running), not the fresher offline one's.
+        map.apply(snapshot([
+            instance(deviceId: "mac-a", tag: "default", transportMode: "cmuxRelay", online: true, lastSeenAt: 1_000),
+            instance(deviceId: "mac-a", tag: "old", transportMode: "tailscale", online: false, lastSeenAt: 9_000),
+        ]))
+        #expect(map.deviceSummary(deviceId: "mac-a")?.transportMode == "cmuxRelay")
+        // A host that never announced a mode yields nil (older Mac build).
+        map.apply(snapshot([instance(deviceId: "mac-b", online: true)]))
+        #expect(map.deviceSummary(deviceId: "mac-b")?.transportMode == nil)
+    }
+
+    @Test func presenceInstanceDecodesTransportModeFromWireJSON() throws {
+        // The worker's PresenceInstance JSON shape (workers/presence/src/core.ts)
+        // with the transportMode the Mac heartbeats; absent field decodes nil.
+        let json = """
+        {"deviceId":"d","tag":"default","platform":"mac","capabilities":[],
+         "online":true,"lastSeenAt":1000,"transportMode":"ownRelay"}
+        """
+        let decoded = try JSONDecoder().decode(PresenceInstance.self, from: Data(json.utf8))
+        #expect(decoded.transportMode == "ownRelay")
+        let legacy = """
+        {"deviceId":"d","tag":"default","platform":"mac","capabilities":[],
+         "online":true,"lastSeenAt":1000}
+        """
+        let decodedLegacy = try JSONDecoder().decode(PresenceInstance.self, from: Data(legacy.utf8))
+        #expect(decodedLegacy.transportMode == nil)
     }
 
     @Test func snapshotReplacesTheWholeMap() {

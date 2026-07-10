@@ -91,7 +91,7 @@ struct SettingCatalogTests {
         #expect(ids.contains("app.appearance"))
         #expect(ids.contains("paneBorderColor"))
         #expect(ids.contains("activePaneBorderColor"))
-        #expect(ids.contains("mobile.iOSPairingHost.enabled"))
+        #expect(ids.contains("mobile.iOSTransportMode"))
         #expect(ids.contains("automation.socketControlMode"))
         #expect(ids.contains("automation.socketPassword"))
     }

@@ -36,6 +36,10 @@ export interface DeviceInstanceRecord {
   routes: PresenceRoute[];
   /** Last-seen epoch ms AS OF the rev this record was stamped at. Not live. */
   lastSeenAtAtRev: number;
+  /** The Mac-chosen mobile transport mode (cmuxRelay/ownRelay/tailscale), shown
+   * as a read-only badge on the phone. Absent for older hosts that don't report
+   * it; additive, so it does not bump the sync schema version. */
+  transportMode?: string;
 }
 
 /** The durable device-list record the iOS tree renders. */
@@ -72,6 +76,7 @@ export function deriveDeviceRecord(
       tag: i.tag,
       routes: i.routes ?? [],
       lastSeenAtAtRev: i.lastSeenAt,
+      ...(i.transportMode !== undefined ? { transportMode: i.transportMode } : {}),
     })),
   };
 }
@@ -100,6 +105,7 @@ export function deviceShapeChanged(
     const prior = prevByTag.get(inst.tag);
     if (prior === undefined) return true; // tag added
     if (!routesEqual(prior.routes, inst.routes)) return true;
+    if (prior.transportMode !== inst.transportMode) return true; // badge changed
   }
   return false;
 }

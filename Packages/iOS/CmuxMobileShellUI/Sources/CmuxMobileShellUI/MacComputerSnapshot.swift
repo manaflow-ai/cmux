@@ -18,8 +18,14 @@ struct MacComputerSnapshot: Equatable, Identifiable {
     let presence: DeviceTreePresence?
     /// The host's build channel label from its heartbeat.
     var buildLabel: String?
+    /// The Mac-chosen mobile transport mode (`cmuxRelay`/`ownRelay`/`tailscale`)
+    /// from its heartbeat, rendered as a read-only badge. `nil` when the host
+    /// hasn't announced one (older build, or no presence yet).
+    var transportMode: String?
     /// The reachable route the phone would dial.
     let routeDescription: String?
+    /// Whether the stored iroh EndpointId no longer matches the advertised route.
+    let identityMismatch: Bool
     /// When the Mac was last seen by the paired store.
     let lastSeenAt: Date
     /// How many aggregated workspaces this computer contributes.

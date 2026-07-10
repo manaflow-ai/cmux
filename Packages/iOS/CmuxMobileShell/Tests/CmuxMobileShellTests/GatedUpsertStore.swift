@@ -77,6 +77,22 @@ actor GatedUpsertStore: MobilePairedMacStoring {
             customIcon: customIcon, stackUserID: stackUserID, teamID: teamID, now: now)
     }
 
+    func setPinnedIrohEndpointID(
+        macDeviceID: String,
+        endpointID: String,
+        stackUserID: String?,
+        teamID: String?,
+        now: Date
+    ) async throws {
+        try await inner.setPinnedIrohEndpointID(
+            macDeviceID: macDeviceID,
+            endpointID: endpointID,
+            stackUserID: stackUserID,
+            teamID: teamID,
+            now: now
+        )
+    }
+
     func remove(macDeviceID: String, stackUserID: String?, teamID: String?) async throws {
         if failRemove { throw NSError(domain: "GatedUpsertStore", code: 1) }
         try await inner.remove(macDeviceID: macDeviceID, stackUserID: stackUserID, teamID: teamID)

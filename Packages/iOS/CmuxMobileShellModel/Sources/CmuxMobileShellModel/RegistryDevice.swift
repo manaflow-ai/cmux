@@ -19,14 +19,22 @@ public struct RegistryAppInstance: Equatable, Sendable, Identifiable {
     /// When the registry last saw this instance register/refresh. Drives the
     /// best-effort "last seen N ago" liveness hint when no live link exists.
     public var lastSeenAt: Date
+    /// The Mac-chosen mobile transport mode (cmuxRelay/ownRelay/tailscale) for a
+    /// read-only badge. `nil` when unknown (the registry path does not carry it;
+    /// it is populated from the presence-DO sync record).
+    public var transportMode: String?
 
     /// The tag is unique per device, so it doubles as the per-device row id.
     public var id: String { tag }
 
-    public init(tag: String, routes: [CmxAttachRoute], lastSeenAt: Date) {
+    /// Memberwise initializer. `transportMode` defaults to `nil` for callers
+    /// (the registry path) that do not carry it; the presence-DO sync facade
+    /// passes the synced value through.
+    public init(tag: String, routes: [CmxAttachRoute], lastSeenAt: Date, transportMode: String? = nil) {
         self.tag = tag
         self.routes = routes
         self.lastSeenAt = lastSeenAt
+        self.transportMode = transportMode
     }
 
     /// Whether this instance advertises at least one attach route, i.e. it is a

@@ -33,6 +33,12 @@ struct MacComputerRow: View {
     /// Performs the confirmed removal. Separate from ``requestRemove`` so a
     /// full-swipe can request confirmation without directly removing the row.
     var confirmRemove: ((String) -> Void)? = nil
+    /// Request confirmation before trusting a changed iroh identity.
+    var requestTrust: ((String) -> Void)? = nil
+    /// Whether this row's re-trust confirmation is presented.
+    var isConfirmingTrust: Binding<Bool> = .constant(false)
+    /// Performs the confirmed re-trust.
+    var confirmTrust: ((String) -> Void)? = nil
     var style: Style = .computers
     /// Reconnect action for `.reconnect` rows; tapping the row calls this with
     /// the device id instead of navigating.
@@ -70,22 +76,54 @@ struct MacComputerRow: View {
         } message: {
             Text(removeMessage)
         }
+        .confirmationDialog(
+            trustTitle,
+            isPresented: isConfirmingTrust,
+            titleVisibility: .visible
+        ) {
+            if let confirmTrust {
+                Button(
+                    L10n.string("mobile.computers.trustNewIdentity", defaultValue: "Trust New Identity"),
+                    role: .destructive
+                ) {
+                    confirmTrust(computer.deviceId)
+                }
+                .accessibilityIdentifier("MobileComputerTrustConfirm-\(computer.deviceId)")
+            }
+            Button(L10n.string("mobile.common.cancel", defaultValue: "Cancel"), role: .cancel) {
+                isConfirmingTrust.wrappedValue = false
+            }
+        } message: {
+            Text(trustMessage)
+        }
     }
 
     @ViewBuilder
     private var rowContainer: some View {
-        switch style {
-        case .computers:
-            NavigationLink(value: computer.deviceId) {
-                rowLabel
-            }
-        case .reconnect:
+        // A changed iroh identity makes the row a re-trust prompt in both
+        // styles: dialing is pointless (the pin gate refuses tokens), so the
+        // only useful tap is the explicit trust decision.
+        if computer.identityMismatch, let requestTrust {
             Button {
-                connect?(computer.deviceId)
+                requestTrust(computer.deviceId)
             } label: {
                 rowLabel
             }
             .buttonStyle(.plain)
+        } else {
+            switch style {
+            case .computers:
+                NavigationLink(value: computer.deviceId) {
+                    rowLabel
+                }
+            case .reconnect:
+                Button {
+                    connect?(computer.deviceId)
+                } label: {
+                    rowLabel
+                }
+                .buttonStyle(.plain)
+            }
         }
     }
 
@@ -113,6 +151,9 @@ struct MacComputerRow: View {
                         .lineLimit(1)
                     if let buildLabel = computer.buildLabel {
                         buildBadge(buildLabel)
+                    }
+                    if let transportLabel {
+                        transportBadge(transportLabel)
                     }
                 }
                 Text(connectionLine)
@@ -182,13 +223,39 @@ struct MacComputerRow: View {
         )
     }
 
+    private var trustTitle: String {
+        String(
+            format: L10n.string("mobile.computers.identityChangedTitleFormat", defaultValue: "Trust %@ again?"),
+            computer.title
+        )
+    }
+
+    private var trustMessage: String {
+        L10n.string(
+            "mobile.computers.identityChangedMessage",
+            defaultValue: "This Mac's secure identity changed. That can happen after a Mac Keychain reset. If you did not expect it, do not connect."
+        )
+    }
+
     /// The connection dot: green only when the PHONE is actually connected to this
     /// Mac. Orange while reconnecting, grey when the phone is not connected (even
     /// if presence says the Mac is online — that's the route/tailscale signal).
     /// `.reconnect` rows show a spinner while their connect attempt is in flight.
     @ViewBuilder
     private var badge: some View {
-        if isConnecting {
+        if computer.identityMismatch {
+            Label {
+                Text(L10n.string("mobile.computers.identityChanged", defaultValue: "Identity changed"))
+                    .font(.caption2.weight(.semibold))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+            } icon: {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.caption2.weight(.semibold))
+            }
+            .foregroundStyle(.orange)
+            .accessibilityIdentifier("MobileComputerIdentityChanged-\(computer.deviceId)")
+        } else if isConnecting {
             ProgressView()
                 .controlSize(.small)
                 .accessibilityLabel(
@@ -221,6 +288,28 @@ struct MacComputerRow: View {
         if label.hasPrefix("DEV") || label == "RC" || label == "Staging" { return .orange }
         if label == "Nightly" { return .blue }
         return .secondary
+    }
+
+    /// The localized display label for the Mac-chosen transport mode, or `nil`
+    /// when the host hasn't announced one (see ``MobileTransportModeLabel``).
+    private var transportLabel: String? {
+        MobileTransportModeLabel().label(for: computer.transportMode)
+    }
+
+    /// A read-only pill showing HOW this Mac is reachable (the Mac chooses the
+    /// transport; the phone only displays it). Neutral tint: informational, not
+    /// a state to act on from here — change it on the Mac.
+    private func transportBadge(_ label: String) -> some View {
+        Text(label)
+            .font(.caption2.weight(.semibold))
+            .lineLimit(1)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(Color.secondary.opacity(0.14), in: Capsule())
+            .foregroundStyle(.secondary)
+            .accessibilityLabel(
+                "\(L10n.string("mobile.computers.transportLabelPrefix", defaultValue: "Transport:")) \(label)")
+            .accessibilityIdentifier("MobileComputerTransport-\(computer.deviceId)")
     }
 
     private var dotColor: Color {
