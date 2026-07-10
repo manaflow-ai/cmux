@@ -1,5 +1,4 @@
 import AppKit
-import CmuxAuthRuntime
 import Foundation
 import WebKit
 
@@ -311,7 +310,7 @@ import WebKit
         }
 
         if let url = navigationAction.request.url,
-           shouldOpenNativeAuthCallbackInApp(navigationAction, url: url) {
+           authCallbackNavigationPolicy.shouldOpenNativeAuthCallbackInApp(navigationAction, url: url) {
             clearAttemptedRequest(discardPendingBypasses: true)
             let reportTerminalCancellation = terminalPolicyCancellationReporter?(navigationAction, webView) ?? {}
             let opened = NSWorkspace.shared.open(url)
@@ -442,22 +441,7 @@ import WebKit
         decisionHandler(.allow)
     }
 
-    /// The app's own auth-callback scheme URLs (`cmux://auth-callback`,
-    /// `cmux-dev-<tag>://auth-callback`, ...) delivered by the hosted
-    /// after-sign-in page. WKWebView cannot open native schemes itself, so
-    /// hand the URL to the OS, which routes it to this app's URL handler
-    /// (the stateless-callback fallback in HostBrowserSignInFlow accepts it).
-    /// Requires a user-activated main-frame link so pages cannot silently
-    /// push tokens into the app.
-    private func shouldOpenNativeAuthCallbackInApp(_ navigationAction: WKNavigationAction, url: URL) -> Bool {
-        guard navigationAction.targetFrame?.isMainFrame != false else { return false }
-        guard navigationAction.navigationType == .linkActivated else { return false }
-        return nativeAuthCallbackRouter.isAuthCallbackURL(url)
-    }
-
-    private lazy var nativeAuthCallbackRouter = AuthCallbackRouter(
-        extraAllowedScheme: AuthEnvironment.callbackScheme
-    )
+    private let authCallbackNavigationPolicy = BrowserAuthCallbackNavigationPolicy()
 
     private func shouldOpenCheckoutInSystemBrowser(_ navigationAction: WKNavigationAction, url: URL) -> Bool {
         guard navigationAction.targetFrame?.isMainFrame != false else { return false }
