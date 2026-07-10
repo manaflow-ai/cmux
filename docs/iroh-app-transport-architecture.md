@@ -47,6 +47,8 @@ iOS normally permits one active packet-tunnel VPN. cmux never starts a competing
 
 The Mac exposes a stable configurable UDP listen port, or a small documented port range, for Iroh direct paths. This lets Tailscale ACLs and corporate firewalls allowlist cmux. An ephemeral-only UDP listener is insufficient for managed private-network deployments. Relay fallback remains available where UDP is blocked.
 
+Apple endpoints disable Iroh's automatic UPnP, PCP, and NAT-PMP port mapping. Its SSDP replies can trigger the macOS firewall dialog, and on iOS the multicast probe can request Local Network access before the user invokes LAN discovery. Hole punching and managed relays remain enabled. A future explicit port-mapping preference must explain the prompt and cannot silently restore the upstream default.
+
 Bonjour supplies local reachability, not trust. A known EndpointID authenticates a discovered peer. First-time offline pairing requires a QR or one-time local proof. Serialized IPv6 link-local addresses are rejected because an interface scope is local to the receiving device. An IPv6-link-local-only LAN therefore requires relay reachability or a future scope-aware Iroh API; cmux does not strip a scope and risk dialing the wrong interface.
 
 Bonjour must not advertise a stable EndpointID, account identifier, email, device name, build tag, or private-network profile. Same-account devices use a rotating opaque rendezvous alias and opaque SRV hostname derived from a backend-issued local-discovery secret and a bounded time epoch. Revocation rotates that secret. A first-time offline QR carries a separate one-use rendezvous value. The TXT record contains only its version, epoch, and interface-local numeric Iroh addresses. The phone obtains the EndpointID from its authenticated registry or QR proof before dialing, verifies the alias against that exact binding, rejects off-link addresses, then still requires Iroh TLS and a signed pair grant.
@@ -100,6 +102,8 @@ Relay replacement must be behavior-tested before rollout. Iroh 1.0 caches the au
 
 No n0 public DNS discovery or development relay enters the production preset. Relay URL syntax validation is separate from the runtime allowlist above.
 
+Iroh 1.0 relay-over-WebSocket does not honor a system HTTP proxy. A network that permits outbound traffic only through an explicit HTTP CONNECT proxy may therefore make every Iroh route unavailable even though ordinary HTTPS works. cmux retains the released-client Tailscale/private-network transport for this case and reports the Iroh failure. Proxy-only Iroh support remains gated on an upstream transport hook or a reviewed fork implementation.
+
 End-to-end encryption does not hide connection metadata. A relay can observe source and destination IP addresses, endpoint identifiers, timing, and relayed byte counts. A direct peer learns the other peer's reachable IP address. cmux must disclose this in privacy documentation and must not enable Iroh Services network-diagnostics capabilities without explicit user consent. Relay-only peer-IP privacy is not a v1 launch claim.
 
 The app derives path quality from local Iroh connection statistics. Product telemetry may report aggregate route class, relay region, latency bucket, reconnect result, and byte bucket, but never IP addresses, private hints, full EndpointIDs, grants, or tokens. The Iroh Services project API secret is not embedded to obtain diagnostics or dashboard metrics.
@@ -115,7 +119,7 @@ The initial ALPN is `cmux/mobile/1`. One QUIC connection multiplexes:
 
 Datagrams carry only disposable hints. Mutating requests never use 0-RTT.
 
-The official Swift FFI exposes raw QUIC connections, bidirectional and unidirectional streams, datagrams, relays, and connection statistics. It does not expose every Iroh protocol crate. cmux maintains a minimal fork for Apple platform support, cancellation, and required bindings. Blobs, documents, and gossip are added incrementally with protocol-level tests. Large resumable verified artifacts are a likely blobs use case; latency-sensitive previews should first use low-priority streams on the existing connection.
+The official Swift FFI exposes raw QUIC connections, bidirectional and unidirectional streams, datagrams, relays, and connection statistics. It does not expose every Iroh protocol crate. cmux maintains a minimal fork for Apple platform support, cancellation, and required bindings. Blobs, documents, and gossip are added incrementally with protocol-level tests. Large resumable verified artifacts are a likely blobs use case; latency-sensitive previews should first use low-priority streams on the existing connection. Iroh 1.0 has an open single-stream blob-throughput regression on LAN, so artifact adoption requires chunking and measured end-to-end throughput rather than assuming the typed protocol is faster. Gossip and docs each require their own memory, persistence, compaction, and mobile-energy soak before product use.
 
 ## Disclosure and persistence
 
@@ -137,10 +141,12 @@ Before defaulting to Iroh, verification must cover:
 - arm64 iOS devices and arm64/x86_64 Simulators;
 - direct, NAT-traversed, relay-only, LAN, Tailscale, and custom-profile paths;
 - TCP-only firewalls, blocked UDP, captive portals, constrained paths, and expensive cellular paths;
+- explicit HTTP-proxy-only networks, with a clear legacy/private-network fallback until Iroh relay WebSockets support proxy-controlled connection establishment;
 - relay token denial, expiry, refresh, and long-lived stream preservation;
 - background and foreground endpoint recreation with stable EndpointID;
 - a deterministic failed-rebind/network-resume test that proves the health watchdog detects terminal driver failure and recreates the endpoint from the same key and identity generation with a new runtime generation;
 - measured direct, relay, and private-fallback path selection, including asymmetric traffic, classification of cmux-supplied versus Iroh-discovered candidates, and stale-profile cancellation before explicit fallback;
+- long-lived multi-interface and VM-bridge connections, checking periodic path churn, battery use, congestion resets, and accidental relay selection;
 - the pinned Iroh core's `pending_open_paths` deduplication and hard cap, plus an adversarial multi-connection test with failing overlay hints that asserts bounded queue and memory growth;
 - custom-home-relay failure and rolling-restart soaks with bounded reachability and stream-recovery telemetry;
 - regional relay instance loss and capacity exhaustion, because one relay per region is currently one regional failure domain even though other regions can recover reachability;
