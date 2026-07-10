@@ -9,13 +9,6 @@ import CmuxTerminal
 @testable import cmux
 #endif
 
-// Test-only compatibility for fixtures that intentionally request an immediate reveal.
-extension GhosttySurfaceScrollView {
-    func setVisibleInUI(_ visible: Bool) {
-        setVisibleInUI(visible, refreshPolicy: .immediate)
-    }
-}
-
 extension TerminalWindowPortalLifecycleTests {
 
     @MainActor

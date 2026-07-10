@@ -42,6 +42,11 @@ enum TerminalPortalVisibilityRefreshPolicy {
 }
 
 extension GhosttySurfaceScrollView {
+    /// `TerminalSurfacePaneHosting` compatibility. App presentation paths choose a policy explicitly.
+    func setVisibleInUI(_ visible: Bool) {
+        setVisibleInUI(visible, refreshPolicy: .deferredToPortal)
+    }
+
     func setPortalHostHandlers(
         ownerHostId: ObjectIdentifier,
         focusHandler: (() -> Void)?,
