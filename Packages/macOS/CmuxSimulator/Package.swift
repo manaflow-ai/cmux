@@ -68,7 +68,7 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxSimulatorUITests",
-            dependencies: ["CmuxSimulatorUI"],
+            dependencies: ["CmuxSimulatorUI", "CmuxSimulatorWorker"],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
             ]
