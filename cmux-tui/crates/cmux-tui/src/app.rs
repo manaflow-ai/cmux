@@ -157,6 +157,7 @@ impl OrderedSession {
         let events = self.events.clone();
         self.enqueue("create browser tab", move |session| {
             session.new_browser_tab(url, pane, size)?;
+            session.invalidate_remote_tree();
             let _ = events.send(AppEvent::BrowserTabCreated { pane });
             Ok(())
         });
@@ -1475,7 +1476,8 @@ impl App {
                 }
             }
         }
-        for area in self.pane_areas.clone() {
+        for index in 0..self.pane_areas.len() {
+            let area = self.pane_areas[index];
             if area.content.width == 0 || area.content.height == 0 {
                 continue;
             }
