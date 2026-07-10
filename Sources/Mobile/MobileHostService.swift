@@ -301,10 +301,7 @@ final class MobileHostService {
     /// reached the Mac to ask for status, while route discovery belongs to the
     /// authenticated registry. The Mac's account and cryptographic identities
     /// are never on this unauthenticated surface.
-    nonisolated static func publicStatusPayload(
-        routes: [CmxAttachRoute],
-        now: Date = Date()
-    ) -> [String: Any] {
+    nonisolated static func publicStatusPayload(routes: [CmxAttachRoute], now: Date = Date()) -> [String: Any] {
         // The Mac's resolved terminal theme is caller-independent, so it rides
         // the public payload (identity merges on top). `GhosttyConfig.load()`
         // resolves named ghostty themes, cmux's managed defaults, and explicit
@@ -325,10 +322,7 @@ final class MobileHostService {
     /// the display name or the device id, so this reply is where a freshly
     /// paired phone learns what to call this Mac and which paired-Mac record
     /// the connection belongs to.
-    nonisolated static func identityStatusPayload(
-        routes: [CmxAttachRoute],
-        now: Date = Date()
-    ) -> [String: Any] {
+    nonisolated static func identityStatusPayload(routes: [CmxAttachRoute], now: Date = Date()) -> [String: Any] {
         var payload = publicStatusPayload(routes: [], now: now)
         payload["routes"] = routes.mobileHostJSONObjects(for: .authenticated, at: now)
         payload["mac_device_id"] = MobileHostIdentity.deviceID()
