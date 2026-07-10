@@ -1,4 +1,5 @@
 import * as Data from "effect/Data";
+import { FiberFailureCauseId } from "effect/Runtime";
 
 export class IrohInvalidInputError extends Data.TaggedError("IrohInvalidInputError")<{
   readonly code: string;
@@ -55,10 +56,11 @@ export function irohExpectedError(error: unknown): IrohExpectedError | null {
   const tag = (error as { _tag?: unknown })._tag;
   if (typeof tag === "string" && IROH_ERROR_TAGS.has(tag)) return error as IrohExpectedError;
 
-  const symbol = Object.getOwnPropertySymbols(error).find(
-    (candidate) => candidate.description === "effect/Runtime/FiberFailure/Cause",
-  );
-  if (symbol) return errorFromCause((error as Record<symbol, unknown>)[symbol]);
+  if (FiberFailureCauseId in error) {
+    return errorFromCause(
+      (error as Record<typeof FiberFailureCauseId, unknown>)[FiberFailureCauseId],
+    );
+  }
   return null;
 }
 

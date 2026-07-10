@@ -561,20 +561,6 @@ describe("Iroh trust broker database behavior", () => {
   });
 
   dbTest("fails attestation finalization when revocation commits during signing", async () => {
-    type FinalizeEndpointAttestation = (input: {
-      readonly userId: string;
-      readonly bindingId: string;
-      readonly deviceId: string;
-      readonly endpointId: string;
-      readonly identityGeneration: number;
-      readonly platform: "mac" | "ios";
-    }) => Effect.Effect<void, unknown>;
-    const repositoryWithFinalizer = requiredRepository() as unknown as {
-      readonly finalizeEndpointAttestation?: FinalizeEndpointAttestation;
-    };
-    expect(typeof repositoryWithFinalizer.finalizeEndpointAttestation).toBe("function");
-    if (!repositoryWithFinalizer.finalizeEndpointAttestation) return;
-
     const userId = "user-attestation-race";
     const bindingId = await insertBinding({
       userId,
@@ -587,7 +573,7 @@ describe("Iroh trust broker database behavior", () => {
       await revocationSql`
         select pg_advisory_xact_lock(hashtextextended(${`iroh:binding:${userId}`}, 0))
       `;
-      finalization = Effect.runPromiseExit(repositoryWithFinalizer.finalizeEndpointAttestation!({
+      finalization = Effect.runPromiseExit(requiredRepository().finalizeEndpointAttestation({
         userId,
         bindingId,
         deviceId: peer.deviceId,

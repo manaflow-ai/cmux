@@ -149,4 +149,7 @@ contract, including one-use consumption and staged key rotation. Shipping
 offline QR pairing remains blocked until the Swift client has equivalent actor
 tests that prove QR possession alone fails, both attestations are required, the
 live Iroh EndpointIDs are bound, concurrent replay has one winner, and current
-plus previous key rotation works.
+plus previous key rotation works. Release also requires a privacy decision on
+the documented 24-hour pseudonymous account-correlation window. Production and
+staging must use distinct account-subject secrets and Ed25519 signing key sets,
+so an attestation from one environment cannot verify in another.

@@ -271,9 +271,6 @@ export function parseIrohPathHint(value: unknown, now: Date): IrohPathHint {
   const hintValue = kind === "relay_url"
     ? managedRelayUrl(hint.value, source)
     : literalSocketAddress(hint.value, privacyScope, source);
-  if (kind === "relay_url" && source !== "native") {
-    throw new IrohInvalidInputError({ code: "invalid_relay_hint_source" });
-  }
   const parsed: IrohPathHint = {
     kind,
     value: hintValue,

@@ -275,13 +275,8 @@ export function makeIrohTrustBroker(
         initiator: grantPeer(initiator),
         acceptor: grantPeer(acceptor),
       };
-      const signingKeyId = yield* parseEffect(() => {
-        if (!config.grantSigningKid || !/^[A-Za-z0-9._-]{1,64}$/.test(config.grantSigningKid)) {
-          throw new IrohConfigurationError({ component: "grant_signing" });
-        }
-        return config.grantSigningKid;
-      });
       const verificationKeys = yield* parseEffect(() => signingVerificationKeys(config));
+      const signingKeyId = verificationKeys.keySet.current_kid;
       const token = yield* parseEffect(() => signPairGrant({
         privateKeyPem: config.grantSigningPrivateKeyPem,
         kid: signingKeyId,
@@ -333,7 +328,7 @@ export function makeIrohTrustBroker(
       };
       const attestation = yield* parseEffect(() => signEndpointAttestation({
         privateKeyPem: config.grantSigningPrivateKeyPem,
-        kid: config.grantSigningKid,
+        kid: verificationKeys.keySet.current_kid,
         claims,
       }));
       yield* parseEffect(() => verifyEndpointAttestation(

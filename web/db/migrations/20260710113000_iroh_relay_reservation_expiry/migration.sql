@@ -3,4 +3,7 @@ ALTER TABLE "iroh_relay_token_issuances"
 --> statement-breakpoint
 ALTER TABLE "iroh_relay_token_issuances"
   ADD CONSTRAINT "iroh_relay_token_issuances_status_check"
-  CHECK ("status" in ('pending', 'succeeded', 'failed', 'expired'));
+  CHECK ("status" in ('pending', 'succeeded', 'failed', 'expired')) NOT VALID;
+--> statement-breakpoint
+ALTER TABLE "iroh_relay_token_issuances"
+  VALIDATE CONSTRAINT "iroh_relay_token_issuances_status_check";

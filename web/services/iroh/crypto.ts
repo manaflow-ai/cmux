@@ -139,7 +139,11 @@ export function verifyEndpointRegistrationSignature(input: {
   readonly signature: string;
 }): void {
   const publicKey = endpointPublicKey(input.endpointId);
-  const signature = Buffer.from(input.signature, "base64url");
+  const signature = decodeCanonicalBase64url(
+    input.signature,
+    64,
+    "invalid_registration_signature",
+  );
   const valid = verify(
     null,
     registrationTranscript(input),

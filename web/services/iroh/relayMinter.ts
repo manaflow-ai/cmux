@@ -2,7 +2,11 @@ import { createHash, createHmac } from "node:crypto";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import { IrohConfigurationError, IrohRelayMintError } from "./errors";
+import {
+  IrohConfigurationError,
+  type IrohInvalidInputError,
+  IrohRelayMintError,
+} from "./errors";
 import { IrohTrustBrokerConfig } from "./config";
 import { IROH_RELAY_TOKEN_LIFETIME_SECONDS, endpointId } from "./model";
 
@@ -19,7 +23,10 @@ export type IrohRelayMinterShape = {
     readonly endpointId: string;
     readonly lifetimeSeconds: typeof IROH_RELAY_TOKEN_LIFETIME_SECONDS;
     readonly now: Date;
-  }) => Effect.Effect<IrohRelayMintResult, IrohConfigurationError | IrohRelayMintError>;
+  }) => Effect.Effect<
+    IrohRelayMintResult,
+    IrohConfigurationError | IrohInvalidInputError | IrohRelayMintError
+  >;
 };
 
 export class IrohRelayMinter extends Context.Tag("cmux/IrohRelayMinter")<
@@ -40,7 +47,10 @@ export const IrohRelayMinterLive = Layer.effect(
 function mintWithIsolatedService(
   config: typeof IrohTrustBrokerConfig.Service,
   input: Parameters<IrohRelayMinterShape["mint"]>[0],
-): Effect.Effect<IrohRelayMintResult, IrohConfigurationError | IrohRelayMintError> {
+): Effect.Effect<
+  IrohRelayMintResult,
+  IrohConfigurationError | IrohInvalidInputError | IrohRelayMintError
+> {
   return Effect.tryPromise({
     try: async () => {
       endpointId(input.endpointId);
@@ -92,6 +102,9 @@ function mintWithIsolatedService(
     catch: (cause) => {
       if ((cause as { _tag?: unknown } | null)?._tag === "IrohConfigurationError") {
         return cause as IrohConfigurationError;
+      }
+      if ((cause as { _tag?: unknown } | null)?._tag === "IrohInvalidInputError") {
+        return cause as IrohInvalidInputError;
       }
       if ((cause as { _tag?: unknown } | null)?._tag === "IrohRelayMintError") {
         return cause as IrohRelayMintError;
