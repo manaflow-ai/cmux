@@ -95,6 +95,26 @@ import Testing
         #expect(meta.branch == nil)
     }
 
+    @Test func currentBranchNameReadsCheckedOutBranch() async throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("feature/current")
+        let service = GitMetadataService()
+
+        let branch = await service.currentBranchName(forDirectory: fixture.root.path)
+
+        #expect(branch == "feature/current")
+    }
+
+    @Test func currentBranchNameIsNilForDetachedHead() async throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeDetachedHead(commit: String(repeating: "1", count: 40))
+        let service = GitMetadataService()
+
+        let branch = await service.currentBranchName(forDirectory: fixture.root.path)
+
+        #expect(branch == nil)
+    }
+
     // MARK: Dirty detection (index v2)
 
     @Test func cleanWorkingTreeIsNotDirty() async throws {

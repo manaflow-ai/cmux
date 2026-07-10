@@ -156,6 +156,18 @@ public struct GitMetadataService: Sendable {
         return Self.githubRepositorySlugs(fromGitRemoteVOutput: output)
     }
 
+    /// Reads the current checked-out branch for the repository enclosing `directory`.
+    ///
+    /// - Parameter directory: An absolute path to inspect.
+    /// - Returns: The normalized branch name, or `nil` when `directory` is not
+    ///   inside a repository or `HEAD` is detached.
+    public nonisolated func currentBranchName(forDirectory directory: String) async -> String? {
+        guard let repository = Self.resolveGitRepository(containing: directory) else {
+            return nil
+        }
+        return Self.normalizedBranchName(Self.gitBranchName(repository: repository))
+    }
+
     /// Whether this module's `nonisolated async` methods execute off the calling
     /// thread. A seam for the test that pins the SE-0338 execution contract the
     /// reads above rely on (see the `Important` note on the type): if this module

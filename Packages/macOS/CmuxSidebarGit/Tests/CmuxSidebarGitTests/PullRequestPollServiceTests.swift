@@ -223,6 +223,83 @@ import CmuxGit
         #expect(service.workspacePullRequestTrackedPanelIds(workspaceId: workspaceId).isEmpty)
     }
 
+    @Test func resolvedBadgeWithMismatchedBranchSchedulesGitMetadataProbe() throws {
+        let host = RecordingSidebarGitHost()
+        host.pollingEnabled = true
+        let (workspaceId, panelId) = host.addWorkspace(panelDirectory: "/tmp/repo")
+        host.workspaces[0].state.panels[panelId]?.branch = SidebarPanelGitBranch(
+            branch: "feature/old",
+            isDirty: false
+        )
+        let service = makeService(host: host, clock: ManualGitPollClock())
+        let key = WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: panelId)
+
+        service.applyWorkspacePullRequestRefreshResults(
+            [
+                WorkspacePullRequestRefreshResult(
+                    workspaceId: workspaceId,
+                    panelId: panelId,
+                    resolution: .resolved(WorkspacePullRequestResolvedItem(
+                        number: 99,
+                        urlString: "https://github.com/o/r/pull/99",
+                        statusRawValue: PullRequestStatus.open.rawValue,
+                        branch: "feature/new"
+                    )),
+                    usedCachedRepoData: false
+                ),
+            ],
+            repoResults: [:],
+            requestedKeys: [key],
+            now: Date(),
+            reason: "test"
+        )
+
+        #expect(host.workspaces[0].state.panels[panelId]?.badge?.number == 99)
+        #expect(host.events.contains(.scheduleGitMetadataProbe(
+            workspaceId,
+            panelId,
+            "pullRequestBranchMismatch"
+        )))
+    }
+
+    @Test func resolvedBadgeWithMatchingBranchDoesNotScheduleProbe() throws {
+        let host = RecordingSidebarGitHost()
+        host.pollingEnabled = true
+        let (workspaceId, panelId) = host.addWorkspace(panelDirectory: "/tmp/repo")
+        host.workspaces[0].state.panels[panelId]?.branch = SidebarPanelGitBranch(
+            branch: "feature/new",
+            isDirty: false
+        )
+        let service = makeService(host: host, clock: ManualGitPollClock())
+        let key = WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: panelId)
+
+        service.applyWorkspacePullRequestRefreshResults(
+            [
+                WorkspacePullRequestRefreshResult(
+                    workspaceId: workspaceId,
+                    panelId: panelId,
+                    resolution: .resolved(WorkspacePullRequestResolvedItem(
+                        number: 99,
+                        urlString: "https://github.com/o/r/pull/99",
+                        statusRawValue: PullRequestStatus.open.rawValue,
+                        branch: "feature/new"
+                    )),
+                    usedCachedRepoData: false
+                ),
+            ],
+            repoResults: [:],
+            requestedKeys: [key],
+            now: Date(),
+            reason: "test"
+        )
+
+        #expect(host.workspaces[0].state.panels[panelId]?.badge?.number == 99)
+        #expect(!host.events.contains {
+            if case .scheduleGitMetadataProbe = $0 { return true }
+            return false
+        })
+    }
+
     /// Disabling polling resets all tracking and clears every badge.
     @Test func disablingPollingSettingClearsBadgesAndTracking() async throws {
         let host = RecordingSidebarGitHost()

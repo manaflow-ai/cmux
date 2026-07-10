@@ -1,5 +1,5 @@
 public import Foundation
-public import CmuxGit
+import CmuxGit
 
 // MARK: - Applying refresh results, poll-deadline math, and tracking bookkeeping.
 
@@ -110,6 +110,26 @@ extension PullRequestPollService {
                         isStale: false
                     )
                 )
+                let resolvedBranch = GitMetadataService.normalizedBranchName(resolvedPullRequest.branch)
+                let projectedBranch = GitMetadataService.normalizedBranchName(
+                    host.panelGitBranch(workspaceId: result.workspaceId, panelId: result.panelId)?.branch
+                )
+                if resolvedBranch != projectedBranch {
+                    host.schedulePanelGitMetadataProbe(
+                        workspaceId: result.workspaceId,
+                        panelId: result.panelId,
+                        reason: "pullRequestBranchMismatch"
+                    )
+#if DEBUG
+                    debugLog(
+                        "workspace.prRefresh.branchProjectionMismatch " +
+                        "workspace=\(result.workspaceId.uuidString.prefix(5)) " +
+                        "panel=\(result.panelId.uuidString.prefix(5)) " +
+                        "resolved=\(resolvedPullRequest.branch) " +
+                        "projected=\(projectedBranch ?? "nil")"
+                    )
+#endif
+                }
             case .notFound:
                 workspacePullRequestTransientFailureCountByKey[key] = 0
                 workspacePullRequestLastTerminalStateRefreshAtByKey.removeValue(forKey: key)

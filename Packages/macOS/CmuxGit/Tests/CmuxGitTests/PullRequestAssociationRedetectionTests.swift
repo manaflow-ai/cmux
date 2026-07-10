@@ -152,6 +152,44 @@ import CmuxFoundation
         }
     }
 
+    @Test func authHeaderValueReusesSuccessfulGitHubCliToken() async {
+        let runner = CountingCommandRunner(outputs: ["token-one\n", "token-two\n"])
+        let service = PullRequestProbeService(commandRunner: runner)
+
+        let first = await service.authHeaderValue()
+        let second = await service.authHeaderValue()
+
+        if Self.hasEnvironmentToken {
+            #expect(first == second)
+            #expect(await runner.runCount == 0)
+        } else {
+            #expect(first == "Bearer token-one")
+            #expect(second == "Bearer token-one")
+            #expect(await runner.runCount == 1)
+        }
+    }
+
+    @Test func authHeaderCacheDoesNotReuseNilForSuccessLifetime() async {
+        let cache = GitHubAuthHeaderCache(successLifetime: 5 * 60, failureLifetime: 0)
+        let counter = ResolutionCounter(outputs: [nil, "Bearer token-two"])
+
+        let first = await cache.header {
+            await counter.next()
+        }
+        let second = await cache.header {
+            await counter.next()
+        }
+
+        #expect(first == nil)
+        #expect(second == "Bearer token-two")
+        #expect(await counter.count == 2)
+    }
+
+    private static var hasEnvironmentToken: Bool {
+        let environment = ProcessInfo.processInfo.environment
+        let token = environment["GH_TOKEN"] ?? environment["GITHUB_TOKEN"] ?? ""
+        return !token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
 }
 
 private actor CountingCommandRunner: CommandRunning {
@@ -180,3 +218,16 @@ private actor CountingCommandRunner: CommandRunning {
     }
 }
 
+private actor ResolutionCounter {
+    private var outputs: [String?]
+    private(set) var count = 0
+
+    init(outputs: [String?]) {
+        self.outputs = outputs
+    }
+
+    func next() -> String? {
+        count += 1
+        return outputs.isEmpty ? nil : outputs.removeFirst()
+    }
+}

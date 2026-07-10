@@ -16,13 +16,18 @@ public import CmuxFoundation
 /// Like ``GitMetadataService`` it is a stateless `Sendable` value with
 /// `nonisolated async` reads (off the caller's actor, parallel across calls;
 /// see that type's `Important` note on `NonisolatedNonsendingByDefault`). The
-/// repo cache is owned by the caller and passed in, so the service holds no
-/// mutable state. Authentication uses `GH_TOKEN`/`GITHUB_TOKEN` or
+/// repo cache is owned by the caller and passed in. The service only retains a
+/// short-lived auth-header cache so periodic refreshes do not spawn `gh auth
+/// token` on every pass. Authentication uses `GH_TOKEN`/`GITHUB_TOKEN` or
 /// `gh auth token` via the injected ``CmuxProcess/CommandRunning``.
 public struct PullRequestProbeService: Sendable {
     /// Runs `gh auth token` for the API auth header. Injected so tests supply a
     /// fake without spawning a process.
     let commandRunner: any CommandRunning
+
+    /// Caches `gh auth token` results so refresh passes do not repeatedly spawn
+    /// the GitHub CLI when the app has no environment token.
+    let authHeaderCache: GitHubAuthHeaderCache
 
     /// Debug-log sink for probe diagnostics (the app injects its debug logger
     /// in DEBUG builds; defaults to a no-op).
@@ -38,6 +43,7 @@ public struct PullRequestProbeService: Sendable {
         debugLog: @escaping @Sendable (String) -> Void = { _ in }
     ) {
         self.commandRunner = commandRunner
+        self.authHeaderCache = GitHubAuthHeaderCache()
         self.debugLog = debugLog
     }
 
@@ -65,6 +71,13 @@ public struct PullRequestProbeService: Sendable {
     /// across seeds); a seed whose directory has no GitHub remote yields a
     /// candidate with empty ``WorkspacePullRequestCandidate/repoSlugs``.
     ///
+    /// Each directory's checked-out branch is also re-detected on disk (once
+    /// per directory per pass) and overrides the seed's projected branch, so a
+    /// stale sidebar branch projection cannot pin the PR association to an old
+    /// branch. Detached HEAD or a missing repository falls back to the seed's
+    /// branch; a re-detected default branch (main/master) stays on the
+    /// candidate but is excluded from the per-repo lookup index.
+    ///
     /// - Parameters:
     ///   - seeds: One per panel wanting a badge.
     ///   - gitMetadata: The git-metadata reader used for slug resolution.
@@ -78,9 +91,12 @@ public struct PullRequestProbeService: Sendable {
         var candidateBranchesByRepo: [String: Set<String>] = [:]
         var repoDirectoriesBySlug: [String: String] = [:]
         var repoSlugsByDirectory: [String: [String]] = [:]
+        var currentBranchesByDirectory: [String: String] = [:]
+        var currentBranchResolvedDirectories: Set<String> = []
 
         for seed in seeds {
             let repoSlugs: [String]
+            let detectedBranch: String?
             if let directory = seed.directory {
                 if let cachedRepoSlugs = repoSlugsByDirectory[directory] {
                     repoSlugs = cachedRepoSlugs
@@ -89,21 +105,38 @@ public struct PullRequestProbeService: Sendable {
                     repoSlugsByDirectory[directory] = resolvedRepoSlugs
                     repoSlugs = resolvedRepoSlugs
                 }
+
+                if currentBranchResolvedDirectories.contains(directory) {
+                    detectedBranch = currentBranchesByDirectory[directory]
+                } else {
+                    let resolvedBranch = await gitMetadata.currentBranchName(forDirectory: directory)
+                    currentBranchResolvedDirectories.insert(directory)
+                    if let resolvedBranch {
+                        currentBranchesByDirectory[directory] = resolvedBranch
+                    }
+                    detectedBranch = resolvedBranch
+                }
             } else {
                 repoSlugs = []
+                detectedBranch = nil
             }
 
+            let candidateBranch = detectedBranch
+                ?? GitMetadataService.normalizedBranchName(seed.branch)
+                ?? seed.branch
+            let shouldLookupBranch = !Self.shouldSkipLookup(branch: candidateBranch)
             candidates.append(
                 WorkspacePullRequestCandidate(
                     workspaceId: seed.workspaceId,
                     panelId: seed.panelId,
-                    branch: seed.branch,
+                    branch: candidateBranch,
                     repoSlugs: repoSlugs
                 )
             )
 
             for repoSlug in repoSlugs {
-                candidateBranchesByRepo[repoSlug, default: []].insert(seed.branch)
+                guard shouldLookupBranch else { continue }
+                candidateBranchesByRepo[repoSlug, default: []].insert(candidateBranch)
                 if let directory = seed.directory, repoDirectoriesBySlug[repoSlug] == nil {
                     repoDirectoriesBySlug[repoSlug] = directory
                 }
@@ -124,7 +157,9 @@ public struct PullRequestProbeService: Sendable {
     /// For each candidate the first repo (in slug preference order) with a PR
     /// for the branch wins; otherwise a transient failure anywhere downgrades
     /// the outcome to ``WorkspacePullRequestRefreshResult/Resolution/transientFailure``
-    /// (so an existing badge is kept), else `notFound`.
+    /// (so an existing badge is kept), else `notFound`. A candidate on a
+    /// default branch (main/master) resolves `notFound` without matching, so
+    /// returning to the default branch clears any badge.
     public static func resolveRefreshResults(
         candidates: [WorkspacePullRequestCandidate],
         repoResults: [String: WorkspacePullRequestRepoFetchResult]
@@ -135,6 +170,15 @@ public struct PullRequestProbeService: Sendable {
                     workspaceId: candidate.workspaceId,
                     panelId: candidate.panelId,
                     resolution: .unsupportedRepository,
+                    usedCachedRepoData: false
+                )
+            }
+
+            if Self.shouldSkipLookup(branch: candidate.branch) {
+                return WorkspacePullRequestRefreshResult(
+                    workspaceId: candidate.workspaceId,
+                    panelId: candidate.panelId,
+                    resolution: .notFound,
                     usedCachedRepoData: false
                 )
             }
