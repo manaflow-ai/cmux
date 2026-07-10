@@ -87,6 +87,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private static let terminalRenderGridCapability = "terminal.render_grid.v1"
     private static let terminalBytesCapability = "terminal.bytes.v1"
     static let terminalReplayCapability = "terminal.replay.v1"
+    static let maxTerminalReplayBarrierDroppedOutputBeforeFailOpen: UInt64 = 256
     private static let workspaceActionsCapability = "workspace.actions.v1"
     private static let workspaceReadStateCapability = "workspace.read_state.v1"
     private static let workspaceCloseCapability = "workspace.close.v1"
@@ -105,12 +106,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// wedged stream recovers in a few seconds instead of the transport's ~85s
     /// timeout, while staying well above any normal inter-event gap on a busy
     /// shell.
-    private static let renderGridLivenessSilenceThreshold: TimeInterval = 9
+    static let renderGridLivenessSilenceThreshold: TimeInterval = 9
     /// Cadence of the liveness watchdog tick. It only reads a timestamp and
     /// compares against the threshold, so a short interval is cheap; it does not
     /// reschedule per received event (an actively-streaming connection just keeps
     /// failing the silence check because `lastTerminalEventAt` stays fresh).
     private static let renderGridLivenessCheckInterval: TimeInterval = 2.5
+    /// Short background dwells usually preserve the event stream; beyond this,
+    /// the liveness watchdog and normal foreground resync own catch-up.
+    static let foregroundResyncShortBackgroundThreshold: TimeInterval = 30
 
     public private(set) var isSignedIn: Bool {
         didSet {
@@ -591,7 +595,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// registry. Optional and failure-tolerant: when `nil` or unreachable,
     /// reconnect uses the locally persisted paired-Mac routes, so pairing
     /// survives the cloud registry being down.
-    private let deviceRegistry: (any DeviceRegistryRefreshing)?
+    let deviceRegistry: (any DeviceRegistryRefreshing)?
     /// Live presence subscription (the `workers/presence` Durable Object edge).
     /// Optional and failure-tolerant like the registry: when `nil` or down, the
     /// device tree simply keeps its registry "last seen" hints.
@@ -668,7 +672,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     var remoteClientForAgentChat: MobileCoreRPCClient? { remoteClient }
     /// Identity token that changes when the paired Mac chat event source is rebuilt.
     public var agentChatEventSourceIdentity: String { chatEventSourceGeneration.uuidString }
-    private var terminalEventListenerTask: Task<Void, Never>?
+    var terminalEventListenerTask: Task<Void, Never>?
     private var terminalEventListenerID: UUID?
     /// Recovers the Mac's identity post-handshake for tickets that arrived
     /// without one (the minimal v2 pairing QR). Owned separately from the
@@ -710,7 +714,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// in-flight slot.
     private var renderGridLivenessProbeTask: Task<Void, Never>?
     private var renderGridLivenessProbeID: UUID?
-    private var lastTerminalEventAt: Date?
+    var lastTerminalEventAt: Date?
+    var lastBackgroundedAt: Date?
     private var terminalSubscriptionRefreshTask: Task<Void, Never>?
     var createWorkspaceTask: Task<Result<Void, MobileWorkspaceMutationFailure>, Never>?
     var createWorkspaceTaskGroupID: MobileWorkspaceGroupPreview.ID?
@@ -1183,22 +1188,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // Selection resets above are done; allow draft saving again so a
         // subsequent sign-in restores drafts normally.
         isLoadingDraft = false
-    }
-
-    /// Resume foreground-only refresh loops after the app becomes active.
-    public func resumeForegroundRefresh() {
-        startObservingNetworkPathChanges()
-        // Covers stores constructed already-signed-in (no isSignedIn edge) and
-        // restarts a subscription torn down while backgrounded.
-        evaluatePresenceSubscription()
-        resyncTerminalOutput(reason: "foreground", restartEventStream: true)
-        // The foreground Mac's workspace list updates live over the sync stream,
-        // but the other Macs are a read-only snapshot. Re-aggregate them on
-        // foreground so workspaces created on another Mac while backgrounded
-        // appear without a manual pull-to-refresh.
-        if multiMacAggregationEnabled, connectionState == .connected {
-            self.scheduleSecondaryAggregation()
-        }
     }
 
     /// React to a Stack team switch. The team-scoped services (presence, device
@@ -2017,7 +2006,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// while signed in (and a client is injected), torn down with a blanked map
     /// on sign-out. Idempotent; called from the `isSignedIn` edge and from
     /// `resumeForegroundRefresh()` for stores constructed already-signed-in.
-    private func evaluatePresenceSubscription() {
+    func evaluatePresenceSubscription() {
         if isSignedIn, presence != nil {
             startPresenceSubscription()
         } else {
@@ -2253,11 +2242,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         instance: RegistryAppInstance
     ) async {
         let supportedKinds = runtime?.supportedRouteKinds ?? []
-        guard let (host, port) = Self.firstReconnectHostPortRoute(
+        let candidateRoutes = Self.reconnectHostPortRoutes(
             instance.routes,
             supportedKinds: supportedKinds,
             preferNonLoopback: Self.prefersNonLoopbackRoutes
-        ), let normalizedHost = MobileShellRouteAuthPolicy.normalizedManualHost(host) else {
+        ).filter { MobileShellRouteAuthPolicy.normalizedManualHost($0.host) != nil }
+        guard !candidateRoutes.isEmpty else {
             mobileShellLog.error(
                 "connectToRegistryInstance: no reconnectable route device=\(device.deviceId, privacy: .public) tag=\(instance.tag, privacy: .public)"
             )
@@ -2266,9 +2256,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // Already connected to this exact device/instance route: nothing to do.
         if connectionState == .connected,
            connectedMacDeviceID == device.deviceId,
-           case let .hostPort(liveHost, livePort)? = activeRoute?.endpoint,
-           liveHost == normalizedHost, livePort == port {
-            return
+           case let .hostPort(liveHost, livePort)? = activeRoute?.endpoint {
+            for route in candidateRoutes {
+                if MobileShellRouteAuthPolicy.normalizedManualHost(route.host) == liveHost,
+                   livePort == route.port {
+                    return
+                }
+            }
         }
         // The currently-active Mac to fall back to if the connect fails, so the
         // destructive connect below can be rolled back. Unlike switchToMac, this
@@ -2279,16 +2273,27 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // switch failure.
         let previousActive = pairedMacs.first { $0.isActive }
         let scope = await currentScopeSnapshot()
-        await connectManualHost(
-            name: device.displayName ?? host, host: host, port: port,
-            pairedMacDeviceID: device.deviceId)
+        var connectedRoute: (host: String, port: Int, routeID: String)?
+        for route in candidateRoutes {
+            await connectManualHost(
+                name: device.displayName ?? route.host,
+                host: route.host,
+                port: route.port,
+                pairedMacDeviceID: device.deviceId)
+            guard connectionState == .connected,
+                  case let .hostPort(liveHost, livePort)? = activeRoute?.endpoint,
+                  liveHost == MobileShellRouteAuthPolicy.normalizedManualHost(route.host),
+                  livePort == route.port else {
+                continue
+            }
+            connectedRoute = route
+            break
+        }
         // Persist as the active paired Mac only when the live connection is to
         // THIS route (a switch tapped while this connect was in flight could win
         // the connection; matching the live route avoids persisting a stale
         // target). Uses the real device id so reconnect-on-relaunch finds it.
-        guard connectionState == .connected,
-              case let .hostPort(liveHost, livePort)? = activeRoute?.endpoint,
-              liveHost == normalizedHost, livePort == port else {
+        guard connectedRoute != nil else {
             // The connect did not land on this route. If the destructive path
             // dropped a previously-active session, reconnect it so a failed tap on
             // a stale/offline tag does not strand the user disconnected.
@@ -2897,6 +2902,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 guard await self.isScopeCurrent(scope) else { return }
             }
             var displayName = ticketDisplayName
+            var storedRoutes: [CmxAttachRoute] = []
             if displayName == nil {
                 let knownMacs = (try? await pairedMacStore.loadAll(
                     stackUserID: nil,
@@ -2905,12 +2911,25 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 let matches = knownMacs.filter { $0.macDeviceID == ticket.macDeviceID }
                 displayName = (matches.first { $0.stackUserID == stackUserID } ?? matches.first)?
                     .displayName
+                storedRoutes = (matches.first { $0.stackUserID == stackUserID } ?? matches.first)?
+                    .routes ?? []
+            } else {
+                let scopedMacs = (try? await pairedMacStore.loadAll(
+                    stackUserID: stackUserID,
+                    teamID: scope?.teamID
+                )) ?? []
+                storedRoutes = scopedMacs.first { $0.macDeviceID == ticket.macDeviceID }?.routes ?? []
             }
+            // A fresh re-pair can also carry one route; merging here is bounded
+            // and preserves known fallbacks instead of eroding the route set.
+            let routesToPersist = ticket.routes.count == 1 && !storedRoutes.isEmpty
+                ? Self.mergedReconnectRoutes(ticketRoutes: ticket.routes, storedRoutes: storedRoutes)
+                : ticket.routes
             do {
                 try await pairedMacStore.upsert(
                     macDeviceID: ticket.macDeviceID,
                     displayName: displayName,
-                    routes: ticket.routes,
+                    routes: routesToPersist,
                     markActive: true,
                     stackUserID: stackUserID,
                     teamID: scope?.teamID,
@@ -3494,7 +3513,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Launch the multi-Mac aggregation in a tracked task so sign-out / account
     /// switch can cancel it (its scope guards then bail before any cross-account
     /// write). Replaces any prior in-flight pass.
-    private func scheduleSecondaryAggregation() {
+    func scheduleSecondaryAggregation() {
         secondaryAggregationTask?.cancel()
         secondaryAggregationTask = Task { [weak self] in await self?.refreshSecondaryMacWorkspaces() }
     }
@@ -3813,7 +3832,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Whether the multi-Mac aggregated workspace list is enabled. Env override,
     /// then UserDefaults, then enabled by default. Env/defaults are kill switches
     /// for rollout control.
-    private var multiMacAggregationEnabled: Bool {
+    var multiMacAggregationEnabled: Bool {
         MultiMacAggregationFlag(
             environment: ProcessInfo.processInfo.environment,
             defaults: multiMacAggregationDefaults
@@ -6641,7 +6660,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         return ack
     }
 
-    private func resyncTerminalOutput(
+    func resyncTerminalOutput(
         reason: String,
         restartEventStream: Bool,
         surfaceIDs requestedSurfaceIDs: [String]? = nil
@@ -6808,6 +6827,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     func shouldDropRenderGridBehindPendingInput(_ renderGrid: MobileTerminalRenderGridFrame, source: String) -> Bool {
+        if source == "replay",
+           let pendingSeq = pendingTerminalByteEndSeqBySurfaceID[renderGrid.surfaceID],
+           renderGrid.stateSeq >= pendingSeq { return false }
         guard let pendingSeq = pendingTerminalByteEndSeqBySurfaceID[renderGrid.surfaceID],
               renderGrid.stateSeq < pendingSeq else {
             guard pendingTerminalInputDroppedRenderGridSurfaceIDs.contains(renderGrid.surfaceID),
@@ -7067,37 +7089,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 }
                 if let renderGrid {
                     guard !self.shouldDropRenderGridBehindPendingInput(renderGrid, source: "replay") else {
-                        if let retryToken = self.prepareTerminalReplayFailureRetry(
+                        transferredInFlightToRetry = self.recoverAfterDroppedReplayFrame(
                             surfaceID: surfaceID,
-                            replayBarrierToken: replayBarrierTokenForRequest
-                        ) {
-                            self.clearTerminalReplayInFlightIfCurrent(
-                                surfaceID: surfaceID,
-                                requestID: replayRequestID
-                            )
-                            transferredInFlightToRetry = true
-                            self.requestTerminalReplay(
-                                surfaceID: surfaceID,
-                                replayBarrierToken: retryToken,
-                                coveredReplayBarrierDroppedOutputCount:
-                                    self.terminalReplayBarrierDroppedOutputCountsBySurfaceID[surfaceID]
-                            )
-                            return
-                        }
-                        if replayBarrierTokenForRequest == nil,
-                           self.prepareNonBarrierTerminalReplayFailureRetry(surfaceID: surfaceID) {
-                            self.clearTerminalReplayInFlightIfCurrent(
-                                surfaceID: surfaceID,
-                                requestID: replayRequestID
-                            )
-                            transferredInFlightToRetry = true
-                            self.requestTerminalReplay(surfaceID: surfaceID)
-                            return
-                        }
-                        self.clearTerminalReplayBarrierIfCurrent(
-                            surfaceID: surfaceID,
-                            token: replayBarrierTokenForRequest,
-                            reason: "pending_input_exhausted"
+                            replayBarrierToken: replayBarrierTokenForRequest,
+                            replayRequestID: replayRequestID,
+                            coveredReplayBarrierDroppedOutputCount: coveredReplayBarrierDroppedOutputCountForRequest,
+                            reason: "pending_input_drop"
                         )
                         return
                     }
@@ -7107,11 +7104,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         bypassReplayBarrier: replayBarrierTokenForRequest != nil
                     )
                     guard accepted else {
-                        self.clearTerminalReplayBarrierIfCurrent(
+                        transferredInFlightToRetry = self.recoverAfterDroppedReplayFrame(
                             surfaceID: surfaceID,
-                            token: replayBarrierTokenForRequest,
-                            reason: "not_delivered",
-                            preserveDroppedOutput: true
+                            replayBarrierToken: replayBarrierTokenForRequest,
+                            replayRequestID: replayRequestID,
+                            coveredReplayBarrierDroppedOutputCount: coveredReplayBarrierDroppedOutputCountForRequest,
+                            reason: "not_delivered"
                         )
                         return
                     }
@@ -7367,6 +7365,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     b: Int(clamping: seq)
                 ))
                 mobileShellLog.info("terminal byte gap surface=\(surfaceID, privacy: .public) deliveredSeq=\(deliveredSeq, privacy: .public) nextSeq=\(seq, privacy: .public)")
+                guard deliverTerminalBytes(bytes, surfaceID: surfaceID) else { return }
+                markTerminalBytesDelivered(surfaceID: surfaceID, endSeq: endSeq)
+                if terminalReplaySurfaceIDsInFlight.contains(surfaceID) {
+                    cancelTerminalReplayInFlight(surfaceID: surfaceID)
+                }
                 resyncTerminalOutput(
                     reason: "seq_gap",
                     restartEventStream: false,

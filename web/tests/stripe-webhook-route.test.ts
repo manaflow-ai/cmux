@@ -8,8 +8,14 @@ let insertedEventRows: unknown[] = [{ id: "evt_1" }];
 let selectedEventRows: unknown[] = [];
 const updates: Record<string, unknown>[] = [];
 let recordCheckoutShouldFail = false;
+let recordCheckoutCompletionResult: unknown = {
+  scope: "user",
+  stackUserId: "user_1",
+  subscriptionId: "sub_1",
+};
 const recordCheckoutCompletion = mock(async () => {
   if (recordCheckoutShouldFail) throw new Error("db down");
+  return recordCheckoutCompletionResult;
 });
 const applySubscriptionUpdate = mock(async () => ({ stackUserId: "user_1", isActive: true }));
 const retrieveSession = mock(async () => ({
@@ -96,6 +102,11 @@ describe("Stripe billing webhook route", () => {
     selectedEventRows = [];
     updates.length = 0;
     recordCheckoutShouldFail = false;
+    recordCheckoutCompletionResult = {
+      scope: "user",
+      stackUserId: "user_1",
+      subscriptionId: "sub_1",
+    };
     recordCheckoutCompletion.mockClear();
     applySubscriptionUpdate.mockClear();
     retrieveSession.mockClear();
@@ -144,6 +155,22 @@ describe("Stripe billing webhook route", () => {
       expand: ["subscription", "customer"],
     });
     expect(recordCheckoutCompletion).toHaveBeenCalled();
+    expect(updates.at(-1)).toMatchObject({ error: null });
+  });
+
+  test("reports checkout completions skipped during account deletion", async () => {
+    recordCheckoutCompletionResult = {
+      skipped: "account_deletion_in_progress",
+      stackUserId: "user_1",
+      subscriptionId: "sub_1",
+    };
+
+    const response = await POST(webhookRequest());
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      skipped: "account_deletion_in_progress",
+    });
     expect(updates.at(-1)).toMatchObject({ error: null });
   });
 
