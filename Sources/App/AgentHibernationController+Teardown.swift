@@ -89,7 +89,7 @@ extension AgentHibernationController {
             let postSnapshotSequence = markPostSnapshotValidationPoint()
             let postSnapshotIndex = await sharedPostSnapshotValidationIndexTask(
                 minimumStartSequence: postSnapshotSequence,
-                loader: postSnapshotIndexLoader
+                loader: { .empty }
             ).value
 
             for request in requests {
