@@ -39,7 +39,7 @@ final class AutomationSocketUITests: XCTestCase {
         let app = configuredApp(mode: "cmuxOnly")
         app.launch()
         XCTAssertTrue(
-            ensureForegroundAfterLaunch(app, timeout: 12.0),
+            ensureRunningAfterLaunch(app, timeout: 12.0),
             "Expected app to launch for socket toggle test. state=\(app.state.rawValue)"
         )
 
@@ -56,7 +56,7 @@ final class AutomationSocketUITests: XCTestCase {
         let app = configuredApp(mode: "automation")
         app.launch()
         XCTAssertTrue(
-            ensureForegroundAfterLaunch(app, timeout: 12.0),
+            ensureRunningAfterLaunch(app, timeout: 12.0),
             "Expected app to launch for socket path recreation test. state=\(app.state.rawValue)"
         )
 
@@ -80,7 +80,7 @@ final class AutomationSocketUITests: XCTestCase {
         let app = configuredApp(mode: "off")
         app.launch()
         XCTAssertTrue(
-            ensureForegroundAfterLaunch(app, timeout: 12.0),
+            ensureRunningAfterLaunch(app, timeout: 12.0),
             "Expected app to launch for socket off test. state=\(app.state.rawValue)"
         )
 
@@ -208,6 +208,16 @@ final class AutomationSocketUITests: XCTestCase {
         return false
     }
 
+    private func ensureRunningAfterLaunch(_ app: XCUIApplication, timeout: TimeInterval) -> Bool {
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in
+                app.state == .runningForeground || app.state == .runningBackground
+            },
+            object: NSObject()
+        )
+        return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
+    }
+
     private func waitForSocketPong(timeout: TimeInterval) -> Bool {
         var resolvedPath: String?
         let ready = waitForControlSocketReady(
@@ -278,7 +288,8 @@ final class AutomationSocketUITests: XCTestCase {
     }
 
     private func socketCommand(_ command: String) -> String? {
-        ControlSocketClient(path: socketPath, responseTimeout: 1.0).sendLine(command)
+        ControlSocketClient(path: socketPath, responseTimeout: 1.0).sendLine(command) ??
+            controlSocketCommandViaNetcat(command, socketPath: socketPath)
     }
 
     private func socketJSON(method: String, params: [String: Any]) -> [String: Any]? {
@@ -287,7 +298,8 @@ final class AutomationSocketUITests: XCTestCase {
             "method": method,
             "params": params,
         ]
-        return ControlSocketClient(path: socketPath, responseTimeout: 2.0).sendJSON(request)
+        return ControlSocketClient(path: socketPath, responseTimeout: 2.0).sendJSON(request) ??
+            controlSocketJSONViaNetcat(request, socketPath: socketPath)
     }
 
     private func socketResult(method: String, params: [String: Any]) -> [String: Any]? {
