@@ -21,14 +21,19 @@ public struct CmxNetworkRoutePinger: CmxRoutePinging {
         _ route: CmxAttachRoute,
         timeoutNanoseconds: UInt64 = 5 * 1_000_000_000
     ) async -> CmxRoutePingResult {
-        let transport: CmxNetworkByteTransport
+        let transport: any CmxByteTransport
         do {
-            transport = try CmxNetworkByteTransport(
+            let request = CmxByteTransportRequest(
                 route: route,
-                connectTimeoutNanoseconds: timeoutNanoseconds
+                expectedPeerDeviceID: nil,
+                authorizationMode: .stackBearer
             )
+            transport = try CmxNetworkByteTransportFactory(
+                connectTimeoutNanoseconds: timeoutNanoseconds
+            ).makeTransport(for: request)
         } catch {
-            // Empty host, bad port, or a non-host/port endpoint: nothing to dial.
+            // Empty host, bad port, unsupported endpoint, or unavailable
+            // interface-bound Tailscale route: nothing safe to dial.
             return .unsupportedRoute
         }
 

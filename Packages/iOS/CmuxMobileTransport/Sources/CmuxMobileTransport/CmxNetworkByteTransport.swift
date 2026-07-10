@@ -72,6 +72,8 @@ public struct CmxNetworkByteTransportFactory: CmxRouteAwareByteTransportFactory 
     public var supportedKinds: [CmxAttachTransportKind]
     /// The maximum number of bytes a single receive call yields.
     public var maximumReceiveLength: Int
+    /// Deadline for transports built by this factory to become ready.
+    public var connectTimeoutNanoseconds: UInt64
     private let tailscaleRouteAuthority: any CmxTailscaleRouteAuthorizing
 
     /// Creates a factory bound to the given supported route kinds.
@@ -81,10 +83,12 @@ public struct CmxNetworkByteTransportFactory: CmxRouteAwareByteTransportFactory 
     ///   - maximumReceiveLength: Per-receive byte cap for built transports.
     public init(
         supportedKinds: [CmxAttachTransportKind] = [.tailscale, .debugLoopback],
-        maximumReceiveLength: Int = CmxNetworkByteTransport.defaultMaximumReceiveLength
+        maximumReceiveLength: Int = CmxNetworkByteTransport.defaultMaximumReceiveLength,
+        connectTimeoutNanoseconds: UInt64 = CmxNetworkByteTransport.defaultConnectTimeoutNanoseconds
     ) {
         self.supportedKinds = supportedKinds
         self.maximumReceiveLength = maximumReceiveLength
+        self.connectTimeoutNanoseconds = max(1, connectTimeoutNanoseconds)
         tailscaleRouteAuthority = CmxSystemTailscaleRouteAuthority.shared
     }
 
@@ -107,7 +111,8 @@ public struct CmxNetworkByteTransportFactory: CmxRouteAwareByteTransportFactory 
         return try CmxNetworkByteTransport(
             host: host,
             port: port,
-            maximumReceiveLength: maximumReceiveLength
+            maximumReceiveLength: maximumReceiveLength,
+            connectTimeoutNanoseconds: connectTimeoutNanoseconds
         )
     }
 
@@ -143,7 +148,8 @@ public struct CmxNetworkByteTransportFactory: CmxRouteAwareByteTransportFactory 
                 request: request,
                 preparedTailscaleRoute: prepared,
                 tailscaleRouteAuthority: tailscaleRouteAuthority,
-                maximumReceiveLength: maximumReceiveLength
+                maximumReceiveLength: maximumReceiveLength,
+                connectTimeoutNanoseconds: connectTimeoutNanoseconds
             )
         case .debugLoopback:
             guard CmxLoopbackHost().matches(route) else {
@@ -152,7 +158,8 @@ public struct CmxNetworkByteTransportFactory: CmxRouteAwareByteTransportFactory 
             return try CmxNetworkByteTransport(
                 host: host,
                 port: port,
-                maximumReceiveLength: maximumReceiveLength
+                maximumReceiveLength: maximumReceiveLength,
+                connectTimeoutNanoseconds: connectTimeoutNanoseconds
             )
         case .iroh, .websocket:
             throw CmxNetworkByteTransportError.unsupportedRouteKind(route.kind)
@@ -258,6 +265,9 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
         connectTimeoutNanoseconds: UInt64 = CmxNetworkByteTransport.defaultConnectTimeoutNanoseconds
     ) throws {
         try route.validate()
+        guard route.kind != .tailscale else {
+            throw CmxNetworkByteTransportError.authorizationIntentRequired
+        }
         guard case let .hostPort(host, port) = route.endpoint else {
             throw CmxNetworkByteTransportError.unsupportedEndpoint(route.endpoint)
         }
