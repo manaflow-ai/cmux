@@ -3,6 +3,14 @@ import GhosttyKit
 import UIKit
 
 extension GhosttySurfaceView {
+    private var localScrollbackScreenScale: CGFloat {
+        if let screen = window?.windowScene?.screen {
+            return screen.scale
+        }
+        let traitScale = traitCollection.displayScale
+        return traitScale > 0 ? traitScale : 2
+    }
+
     func localScrollbackScrollState() -> (
         surface: ghostty_surface_t,
         generation: UInt64,
@@ -13,7 +21,7 @@ extension GhosttySurfaceView {
         return (
             surface,
             surfaceGeneration,
-            Double(max(preferredScreenScale, 1)),
+            Double(max(localScrollbackScreenScale, 1)),
             outputQueue
         )
     }
