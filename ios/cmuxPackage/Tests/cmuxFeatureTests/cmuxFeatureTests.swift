@@ -2287,6 +2287,8 @@ final class TerminalOutputCollector {
     #expect(store.selectedTerminalID?.rawValue == "terminal-notes")
 }
 
+@Suite(.serialized)
+struct TerminalStreamTests {
 @MainActor
 @Test func submittedTerminalInputIncludesClientViewportAndCarriageReturn() async throws {
     let route = try CmxAttachRoute(
@@ -2602,6 +2604,7 @@ final class TerminalOutputCollector {
     #expect(replayRequest.viewportRows == 24)
     #expect(replayRequest.clientID?.isEmpty == false)
     collector.unmount()
+}
 }
 
 @MainActor

@@ -14,6 +14,7 @@ GHOSTTYKIT_FILE="$ROOT_DIR/.github/workflows/build-ghosttykit.yml"
 COMPAT_FILE="$ROOT_DIR/.github/workflows/ci-macos-compat.yml"
 E2E_FILE="$ROOT_DIR/.github/workflows/test-e2e.yml"
 TMUX_CORPUS_FILE="$ROOT_DIR/.github/workflows/tmux-corpus.yml"
+IOS_FILE="$ROOT_DIR/.github/workflows/test-ios.yml"
 
 check_macos_runner() {
   local file="$1" job="$2"
@@ -94,6 +95,17 @@ check_build_lag_deriveddata_cache_path() {
 
 check_e2e_runner_fallbacks() {
   if ! awk '
+    /^on:$/ { in_on=1; next }
+    in_on && /^[^[:space:]]/ { in_on=0 }
+    in_on && /^  workflow_dispatch:$/ { saw_dispatch=1; next }
+    in_on && /^  [A-Za-z0-9_-]+:/ { saw_other_trigger=1 }
+    END { exit !(saw_dispatch && !saw_other_trigger) }
+  ' "$E2E_FILE"; then
+    echo "FAIL: test-e2e.yml must remain workflow_dispatch-only before it may expose the self-hosted Tart canary"
+    exit 1
+  fi
+
+  if ! awk '
     /^run-name:/ {
       saw_run_name=1
       if ($0 ~ /inputs\.test_filter/ && ($0 ~ /inputs\.runner/ || $0 ~ /depot-macos-latest/) && ($0 ~ /inputs\.ref/ || $0 ~ /github\.ref_name/)) {
@@ -119,6 +131,20 @@ check_e2e_runner_fallbacks() {
     fi
   done
 
+  if ! awk '
+    /^      runner:$/ { in_runner=1; next }
+    in_runner && /^      [A-Za-z0-9_-]+:/ { in_runner=0; in_options=0 }
+    in_runner && /^        options:$/ { in_options=1; next }
+    in_options && /^        [A-Za-z0-9_-]+:/ { in_options=0 }
+    in_options && /^          - tart-canary$/ { canary_options++ }
+    in_options && /^          - tart-dual$/ { dual_options++ }
+    in_options && /^          - tart-small$/ { small_options++ }
+    END { exit !(canary_options == 1 && dual_options == 1 && small_options == 1) }
+  ' "$E2E_FILE"; then
+    echo "FAIL: test-e2e.yml must expose tart-canary, tart-dual, and tart-small exactly once under workflow_dispatch.inputs.runner.options"
+    exit 1
+  fi
+
   if ! grep -Fq 'RUNNER_CONTEXT_NAME: ${{ runner.name }}' "$E2E_FILE"; then
     echo "FAIL: test-e2e.yml must inspect the actual runner name for Depot runs"
     exit 1
@@ -126,6 +152,27 @@ check_e2e_runner_fallbacks() {
 
   if ! grep -Fq "startsWith((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') || inputs.runner, 'depot-macos-')" "$E2E_FILE"; then
     echo "FAIL: test-e2e.yml must validate all Depot macOS runner choices"
+    exit 1
+  fi
+
+  if ! awk '
+    /^[[:space:]]*- name: Validate Tart canary identity$/ { in_tart_step=1; next }
+    in_tart_step && /^      - / { in_tart_step=0; in_runner_reject=0; in_marker_reject=0 }
+    in_tart_step && /startsWith\(\(!inputs\.runner \|\| inputs\.runner == '\''auto'\''\) && \(vars\.MACOS_RUNNER_15 \|\| '\''blacksmith-6vcpu-macos-15'\''\) \|\| inputs\.runner, '\''tart-'\''\)/ { saw_effective_runner=1 }
+    in_tart_step && /REQUESTED_RUNNER:.*inputs\.runner/ { saw_requested_runner=1 }
+    in_tart_step && /RUNNER_CONTEXT_NAME: \$\{\{ runner\.name \}\}/ { saw_runner_context=1 }
+    in_tart_step && /tart-cmux-\*/ { saw_runner_pattern=1 }
+    in_tart_step && /^[[:space:]]*\*\)$/ { in_runner_reject=1 }
+    in_runner_reject && /::error::\$REQUESTED_RUNNER resolved to unexpected runner/ { saw_runner_reject=1 }
+    in_runner_reject && /^[[:space:]]*exit 1$/ { saw_runner_exit=1 }
+    in_runner_reject && /^[[:space:]]*;;$/ { in_runner_reject=0 }
+    in_tart_step && /test -f \/etc\/cmux-tart-ci \|\| \{/ { saw_vm_marker=1; in_marker_reject=1 }
+    in_marker_reject && /::error::\$REQUESTED_RUNNER runner is missing the immutable VM identity marker/ { saw_marker_reject=1 }
+    in_marker_reject && /^[[:space:]]*exit 1$/ { saw_marker_exit=1 }
+    in_marker_reject && /^[[:space:]]*}$/ { in_marker_reject=0 }
+    END { exit !(saw_effective_runner && saw_requested_runner && saw_runner_context && saw_runner_pattern && saw_runner_reject && saw_runner_exit && saw_vm_marker && saw_marker_reject && saw_marker_exit) }
+  ' "$E2E_FILE"; then
+    echo "FAIL: test-e2e.yml must validate the effective Tart runner name and immutable VM marker, failing closed for either mismatch"
     exit 1
   fi
 
@@ -155,7 +202,28 @@ check_e2e_runner_fallbacks() {
     exit 1
   fi
 
-  echo "PASS: test-e2e.yml exposes Depot runner choices, identity guard, and duplicate-queue cancellation"
+  echo "PASS: test-e2e.yml exposes Depot and Tart runner choices, identity guards, and duplicate-queue cancellation"
+}
+
+check_ios_tart_canary() {
+  if ! grep -Eq '^[[:space:]]+- tart-ios$' "$IOS_FILE"; then
+    echo "FAIL: test-ios.yml must expose the Tart iOS canary runner"
+    exit 1
+  fi
+  if [[ "$(grep -c 'tart-ios resolved to unexpected runner' "$IOS_FILE")" -ne 2 ]] ||
+     [[ "$(grep -c 'tart-ios runner is missing the immutable VM identity marker' "$IOS_FILE")" -ne 2 ]]; then
+    echo "FAIL: both macOS iOS test jobs must fail closed on Tart identity mismatch"
+    exit 1
+  fi
+  if [[ "$(grep -Fc "runs-on: \${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26') || inputs.runner }}" "$IOS_FILE")" -ne 2 ]]; then
+    echo "FAIL: both macOS iOS test jobs must honor the dispatch runner override"
+    exit 1
+  fi
+  if [[ "$(grep -Fc "startsWith((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26') || inputs.runner, 'tart-')" "$IOS_FILE")" -ne 2 ]]; then
+    echo "FAIL: both macOS iOS test jobs must validate Tart identity for explicit and repo-variable routing"
+    exit 1
+  fi
+  echo "PASS: test-ios.yml exposes the guarded Tart iOS canary"
 }
 
 check_xcode_selection() {
@@ -795,19 +863,16 @@ check_no_bare_github_hosted_runners() {
 }
 
 check_no_self_hosted_fleet_runners() {
-  # We do NOT use our self-hosted mac fleet for required CI. Those runners carry
-  # custom labels that collide with cloud labels, and GitHub PREFERS a matching
-  # self-hosted runner, so any required job that names such a label can land on
-  # a mini that cannot foreground a GUI app. Forbid every real fleet label (see
-  # the runner registry) and the bare self-hosted/macOS/ARM64 combos in
-  # runner-selection positions, so required jobs only ever use cloud runners.
+  # Required jobs route through repository variables. Forbid hardcoded fleet
+  # labels so Tart cutover and paid-provider fallback remain configuration
+  # changes and a physical host label cannot bypass the isolated VM pool.
   # Allowed macOS labels (none carried by any fleet runner):
   #   blacksmith-6vcpu-macos-{15,26,latest}, warp-macos-15-arm64-6x,
   #   depot-macos-{latest,14}.
   # NOTE: reload-build.yml is the dev-build offload path (workflow_dispatch,
   # not required CI) and intentionally targets the fleet via a free-form input;
   # this guard only inspects runner-selection lines, not its input description.
-  local fleet='macos-26|warp-macos-26-arm64-6x|cmux-aws-macos|cmux-macos|cmux-local-macos|macfleet|(^|[^a-z0-9-])mac4([^a-z0-9]|$)|(^|[^a-z0-9-])mac-mini([^a-z0-9]|$)|slot-[0-9]|xcode-[0-9]+-[0-9]|(^|[^a-z0-9-])cmux([^a-z0-9-]|$)'
+  local fleet='macos-26|warp-macos-26-arm64-6x|cmux-aws-macos|cmux-macos|cmux-local-macos|macfleet|tart-[a-z0-9-]+|(^|[^a-z0-9-])mac4([^a-z0-9]|$)|(^|[^a-z0-9-])mac-mini([^a-z0-9]|$)|slot-[0-9]|xcode-[0-9]+-[0-9]|(^|[^a-z0-9-])cmux([^a-z0-9-]|$)'
   local allowed='blacksmith-6vcpu-macos-(15|26|latest)|warp-macos-15-arm64-6x|depot-macos-(latest|14)'
 
   # Bare self-hosted/macOS/ARM64 targeting (inline array or multi-line list).
@@ -820,7 +885,7 @@ check_no_self_hosted_fleet_runners() {
   # known fleet/self-hosted label must be caught, every allowed cloud label
   # must pass. Probes are raw YAML values (no path:lineno: prefix).
   local probe
-  for probe in 'runs-on: macfleet' '- mac4' '- mac-mini' '- slot-3' '- xcode-26-3' '- cmux' \
+  for probe in 'runs-on: macfleet' '- tart-canary' '- tart-dual' '- tart-small' '- tart-macos-26' '- tart-ios' '- mac4' '- mac-mini' '- slot-3' '- xcode-26-3' '- cmux' \
                "runs-on: \${{ vars.X || 'macos-26' }}" '- warp-macos-26-arm64-6x' \
                '- cmux-aws-macos-15' '- cmux-macos-26' '- self-hosted' '- macOS' '- ARM64' \
                'runs-on: [self-hosted, macOS, ARM64]'; do
@@ -833,13 +898,49 @@ check_no_self_hosted_fleet_runners() {
                "runs-on: \${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}" \
                '- warp-macos-15-arm64-6x' '- depot-macos-latest' '- blacksmith-6vcpu-macos-15' \
                '- blacksmith-4vcpu-ubuntu-2404'; do
-    if printf '%s\n' "$probe" | grep -E "($forbidden)" | grep -Eqv "($allowed)"; then
+    if printf '%s\n' "$probe" | sed -E "s/($allowed)//g" | grep -Eq "($forbidden)"; then
       echo "FAIL: fleet-runner guard self-test false-positived a cloud label: $probe"
       exit 1
     fi
   done
 
-  local hits="" line content
+  probe="runs-on: \${{ vars.USE_TART == '1' && 'tart-canary' || 'blacksmith-6vcpu-macos-15' }}"
+  if ! printf '%s\n' "$probe" | sed -E "s/($allowed)//g" | grep -Eq "($forbidden)"; then
+    echo "FAIL: fleet-runner guard self-test let an allowed fallback mask a forbidden label: $probe"
+    exit 1
+  fi
+
+  local e2e_tart_option_line e2e_tart_dual_option_line e2e_tart_small_option_line e2e_tart_tahoe_option_line ios_tart_option_line
+  e2e_tart_option_line="$(awk '
+    /^      runner:$/ { in_runner=1; next }
+    in_runner && /^      [A-Za-z0-9_-]+:/ { in_runner=0; in_options=0 }
+    in_runner && /^        options:$/ { in_options=1; next }
+    in_options && /^        [A-Za-z0-9_-]+:/ { in_options=0 }
+    in_options && /^          - tart-canary$/ { print FNR }
+  ' "$E2E_FILE")"
+  e2e_tart_dual_option_line="$(awk '
+    /^      runner:$/ { in_runner=1; next }
+    in_runner && /^      [A-Za-z0-9_-]+:/ { in_runner=0; in_options=0 }
+    in_runner && /^        options:$/ { in_options=1; next }
+    in_options && /^        [A-Za-z0-9_-]+:/ { in_options=0 }
+    in_options && /^          - tart-dual$/ { print FNR }
+  ' "$E2E_FILE")"
+  e2e_tart_small_option_line="$(awk '
+    /^      runner:$/ { in_runner=1; next }
+    in_runner && /^      [A-Za-z0-9_-]+:/ { in_runner=0; in_options=0 }
+    in_runner && /^        options:$/ { in_options=1; next }
+    in_options && /^        [A-Za-z0-9_-]+:/ { in_options=0 }
+    in_options && /^          - tart-small$/ { print FNR }
+  ' "$E2E_FILE")"
+  ios_tart_option_line="$(awk '
+    /^      runner:$/ { in_runner=1; next }
+    in_runner && /^      [A-Za-z0-9_-]+:/ { in_runner=0; in_options=0 }
+    in_runner && /^        options:$/ { in_options=1; next }
+    in_options && /^        [A-Za-z0-9_-]+:/ { in_options=0 }
+    in_options && /^          - tart-ios$/ { print FNR }
+  ' "$IOS_FILE")"
+
+  local hits="" line content content_without_allowed
   # Inspect runner-selection lines only: runs-on:, matrix `os:`, and scalar list
   # items (`  - <label>`, which covers dispatch runner dropdowns and multi-line
   # `runs-on:` arrays). `- name:` / `- uses:` step entries have a colon and are
@@ -848,8 +949,20 @@ check_no_self_hosted_fleet_runners() {
   # never match the bare `cmux` label.
   while IFS= read -r line; do
     content="${line#*:*:}"
-    printf '%s\n' "$content" | grep -Eq "($forbidden)" || continue
-    printf '%s\n' "$content" | grep -Eq "($allowed)" && continue
+    content_without_allowed="$(printf '%s\n' "$content" | sed -E "s/($allowed)//g")"
+    printf '%s\n' "$content_without_allowed" | grep -Eq "($forbidden)" || continue
+    if [[ -n "$e2e_tart_option_line" ]] && [[ "$line" == "$E2E_FILE:$e2e_tart_option_line:"* ]]; then
+      continue
+    fi
+    if [[ -n "$e2e_tart_dual_option_line" ]] && [[ "$line" == "$E2E_FILE:$e2e_tart_dual_option_line:"* ]]; then
+      continue
+    fi
+    if [[ -n "$e2e_tart_small_option_line" ]] && [[ "$line" == "$E2E_FILE:$e2e_tart_small_option_line:"* ]]; then
+      continue
+    fi
+    if [[ -n "$ios_tart_option_line" ]] && [[ "$line" == "$IOS_FILE:$ios_tart_option_line:"* ]]; then
+      continue
+    fi
     hits+="$line"$'\n'
   done < <(grep -rnE "(runs-on:|[[:space:]]os:[[:space:]]|^[[:space:]]*-[[:space:]]+[A-Za-z0-9._-]+[[:space:]]*$)" "$ROOT_DIR/.github/workflows")
   if [[ -n "$hits" ]]; then
@@ -881,6 +994,7 @@ check_macos_runner "$COMPAT_FILE" "compat-tests"
 # test-e2e.yml is manual, so keep the Depot GUI runner choices but cancel
 # duplicate queued runs for the same ref/filter/runner.
 check_e2e_runner_fallbacks
+check_ios_tart_canary
 
 check_xcode_selection
 check_release_build_signal
