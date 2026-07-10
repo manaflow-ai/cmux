@@ -337,12 +337,14 @@ extension Workspace {
     }
 
     func terminalTabAgentIconAsset(forPanelId panelId: UUID) -> String? {
-        let liveAgents = (agentPIDKeysByPanelId[panelId] ?? []).map { key in
+        let shellActivityState = panelShellActivityStates[panelId] ?? (panels[panelId] as? TerminalPanel)?.shellActivity.state ?? .unknown
+        let allowsObservedAgentEvidence = isRemoteTmuxMirror || shellActivityState != .promptIdle
+        let liveAgents = allowsObservedAgentEvidence ? (agentPIDKeysByPanelId[panelId] ?? []).map { key in
             TerminalTabAgentIconResolver.LiveAgent(
                 statusKey: agentStatusKey(forAgentPIDKey: key),
                 processStart: agentPIDProcessIdentitiesByKey[key]
             )
-        }
+        } : []
         // Registered-agent icons resolve from the panel's restorable-agent
         // registration, which is already in memory. Icon sync runs on the
         // agent PID/status mutation path, so it must never load the Vault
@@ -357,8 +359,7 @@ extension Workspace {
                 : nil
         }
         let registration = snapshot?.registration
-        let shellActivityState = panelShellActivityStates[panelId] ?? (panels[panelId] as? TerminalPanel)?.shellActivity.state ?? .unknown
-        let titleDerivedStatusKey = isRemoteTmuxMirror || shellActivityState != .promptIdle ? titleDerivedAgentStatusKeysByPanelId[panelId] : nil
+        let titleDerivedStatusKey = allowsObservedAgentEvidence ? titleDerivedAgentStatusKeysByPanelId[panelId] : nil
         return TerminalTabAgentIconResolver().assetName(
             liveAgents: liveAgents,
             titleDerivedStatusKey: titleDerivedStatusKey,
@@ -442,11 +443,13 @@ extension DockSplitStore {
             : nil
         let registration = restorableAgent?.registration
         let shellActivityState = (transfer?.panel as? TerminalPanel)?.shellActivity.state ?? .unknown
-        let titleDerivedStatusKey = shellActivityState == .promptIdle ? nil : titleDerivedAgentStatusKeysByPanelId[panelId]
+        let allowsObservedAgentEvidence = shellActivityState != .promptIdle
+        let agentRuntime = allowsObservedAgentEvidence ? transfer?.agentRuntime : nil
+        let titleDerivedStatusKey = allowsObservedAgentEvidence ? titleDerivedAgentStatusKeysByPanelId[panelId] : nil
         return TerminalTabAgentIconResolver().assetName(
-            agentPIDKeys: transfer?.agentRuntime?.agentPIDKeys ?? [],
-            processIdentities: transfer?.agentRuntime?.agentPIDProcessIdentities ?? [:],
-            knownStatusKeys: transfer?.agentRuntime.map { Set($0.statusEntries.keys) } ?? [],
+            agentPIDKeys: agentRuntime?.agentPIDKeys ?? [],
+            processIdentities: agentRuntime?.agentPIDProcessIdentities ?? [:],
+            knownStatusKeys: agentRuntime.map { Set($0.statusEntries.keys) } ?? [],
             titleDerivedStatusKey: titleDerivedStatusKey,
             restoredAgent: restorableAgent.map(
                 TerminalTabAgentIconResolver.RestoredAgent.init(snapshot:)

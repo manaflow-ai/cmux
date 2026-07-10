@@ -397,7 +397,7 @@ struct TerminalTabAgentIconTests {
             createdAt: Date(), isRead: false
         )
         notificationStore.replaceNotificationsForTesting([staleNotification, siblingNotification])
-        if expectedAsset != nil { workspace.updatePanelShellActivityState(panelId: panel.id, state: .commandRunning) }
+        workspace.updatePanelShellActivityState(panelId: panel.id, state: .commandRunning)
         #expect(workspace.terminalTabAgentIconAsset(forPanelId: panel.id) == staleAsset)
         let stalePayload = workspace.terminalTabAgentIconPayload(forPanelId: panel.id)
         #expect(workspace.bonsplitController.tab(tabId)?.iconImageData == stalePayload.imageData)
@@ -436,6 +436,7 @@ struct TerminalTabAgentIconTests {
             willRunStartupInput: false
         )
         workspace.restoredAgentResumeStatesByPanelId[panel.id] = .observedAgentCommandRunning
+        workspace.updatePanelShellActivityState(panelId: panel.id, state: .commandRunning)
         workspace.recordAgentPID(key: stalePIDKey, pid: 0, panelId: panel.id, refreshPorts: false)
 
         #expect(workspace.terminalTabAgentIconAsset(forPanelId: panel.id) == expectedAsset)
