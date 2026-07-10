@@ -35,14 +35,15 @@ extension ControlCommandCoordinator {
     }
 
     nonisolated func simulatorButtonName(_ raw: String) -> String {
-        switch raw.lowercased() {
-        case "swipe-home", "swipe_home": "swipeHome"
-        case "app-switcher", "app_switcher": "appSwitcher"
-        case "side-button", "side_button": "sideButton"
-        case "volume-up", "volume_up": "volumeUp"
-        case "volume-down", "volume_down": "volumeDown"
-        case "watch-side-button", "watch_side_button": "watchSideButton"
-        default: raw
+        let normalized = raw.lowercased()
+        return switch normalized {
+        case "swipe-home", "swipe_home", "swipehome": "swipeHome"
+        case "app-switcher", "app_switcher", "appswitcher": "appSwitcher"
+        case "side-button", "side_button", "sidebutton": "sideButton"
+        case "volume-up", "volume_up", "volumeup": "volumeUp"
+        case "volume-down", "volume_down", "volumedown": "volumeDown"
+        case "watch-side-button", "watch_side_button", "watchsidebutton": "watchSideButton"
+        default: normalized
         }
     }
 

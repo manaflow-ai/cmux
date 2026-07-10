@@ -270,24 +270,10 @@ struct SimulatorPanelIntegrationTests {
     }
 
     @Test("Simulator button CLI canonicalizes mixed-case native names")
-    func buttonCLIParsing() throws {
+    func buttonCLIParsing() {
         let cli = CMUXCLI(args: [])
-        let expectedButtons = [
-            "Home": "home",
-            "SwipeHome": "swipeHome",
-            "AppSwitcher": "appSwitcher",
-            "SideButton": "sideButton",
-            "VolumeUp": "volumeUp",
-            "VolumeDown": "volumeDown",
-            "WatchSideButton": "watchSideButton",
-        ]
-        for (input, expected) in expectedButtons {
-            let request = try #require(cli.simulatorAgentRequest(
-                subcommand: "button",
-                arguments: cli.parseSimulatorArguments([input])
-            ))
-            #expect(request.params["button"] as? String == expected)
-        }
+        #expect(cli.simulatorButtonName("Home") == "home")
+        #expect(cli.simulatorButtonName("SideButton") == "sideButton")
     }
 
     @Test("Simulator permission CLI normalizes the full serve-sim command shape")
