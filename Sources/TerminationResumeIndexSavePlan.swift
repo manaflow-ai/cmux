@@ -42,5 +42,7 @@ nonisolated struct UpdateRelaunchResumeIndexResolver {
         completedTerminationIndexes: ProcessDetectedResumeIndexes?
     ) -> ProcessDetectedResumeIndexes? {
         completedTerminationIndexes
+            ?? cachedIndexes()
+            ?? loadSynchronously()
     }
 }
