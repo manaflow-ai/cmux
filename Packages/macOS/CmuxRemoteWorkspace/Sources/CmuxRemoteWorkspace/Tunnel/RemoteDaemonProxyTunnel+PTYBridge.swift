@@ -12,7 +12,7 @@ extension RemoteDaemonProxyTunnel {
         onLifecycleEnded: @escaping @Sendable () -> Void = {}
     ) throws -> RemotePTYBridgeServer.Endpoint {
         try queue.sync {
-            guard let ptyRPCClient, !isStopped else {
+            guard let rpcClient, !isStopped else {
                 throw NSError(domain: "cmux.remote.pty", code: 33, userInfo: [
                     NSLocalizedDescriptionKey: "remote daemon tunnel is not ready",
                 ])
@@ -25,7 +25,7 @@ extension RemoteDaemonProxyTunnel {
                 bridgeID: bridgeID
             )
             let server = RemotePTYBridgeServer(
-                rpcClient: ptyRPCClient,
+                rpcClient: rpcClient,
                 sessionID: lifecycleKey.sessionID,
                 lifecycleID: lifecycleKey.lifecycleID,
                 attachmentID: attachmentID,
@@ -75,14 +75,15 @@ extension RemoteDaemonProxyTunnel {
         deadline: DispatchTime = .distantFuture
     ) throws {
         let preparation = try queue.sync {
-            guard ptyRPCClient != nil, !isStopped else {
+            guard rpcClient != nil, !isStopped else {
                 throw NSError(domain: "cmux.remote.pty", code: 31, userInfo: [
                     NSLocalizedDescriptionKey: "remote daemon tunnel is not ready",
                 ])
             }
             let previous = ptyLifecycleRegistry.requestIntentionalClose(sessionID: sessionID)
+            let normalizedSessionID = RemotePTYLifecycleKey.normalizedSessionID(sessionID)
             let matchingServers = ptyBridgeServers.values.filter {
-                $0.lifecycleKey.sessionID == RemotePTYLifecycleKey(sessionID: sessionID, lifecycleID: "").sessionID
+                $0.lifecycleKey.sessionID == normalizedSessionID
             }
             return (previous: previous, matchingServers: matchingServers)
         }
@@ -99,7 +100,7 @@ extension RemoteDaemonProxyTunnel {
             }
         }
         try queue.sync {
-            guard let ptyRPCClient, !isStopped else {
+            guard let rpcClient, !isStopped else {
                 ptyLifecycleRegistry.completeIntentionalClose(preparation.previous)
                 throw NSError(domain: "cmux.remote.pty", code: 31, userInfo: [
                     NSLocalizedDescriptionKey: "remote daemon tunnel is not ready",
@@ -115,7 +116,7 @@ extension RemoteDaemonProxyTunnel {
                 Double(deadline.uptimeNanoseconds - now) / 1_000_000_000
             )
             do {
-                try ptyRPCClient.closePTY(sessionID: sessionID, timeout: remainingTimeout)
+                try rpcClient.closePTY(sessionID: sessionID, timeout: remainingTimeout)
                 ptyLifecycleRegistry.completeIntentionalClose(preparation.previous)
             } catch {
                 if Self.ptyCloseWasDefinitivelyRejected(error) {

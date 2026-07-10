@@ -6,8 +6,12 @@ struct RemotePTYLifecycleKey: Hashable, Sendable {
     let lifecycleID: String
 
     init(sessionID: String, lifecycleID: String) {
-        self.sessionID = sessionID.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.sessionID = Self.normalizedSessionID(sessionID)
         self.lifecycleID = Self.normalizedLifecycleID(lifecycleID)
+    }
+
+    static func normalizedSessionID(_ value: String) -> String {
+        value.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private static func normalizedLifecycleID(_ value: String) -> String {

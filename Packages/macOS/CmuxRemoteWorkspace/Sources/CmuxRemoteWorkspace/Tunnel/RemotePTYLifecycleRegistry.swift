@@ -28,7 +28,12 @@ struct RemotePTYLifecycleRegistry: Sendable {
             throw RemotePTYLifecycleError.intentionallyClosed
         }
         if var generation = generations[key] {
-            guard generation.phase == .active else {
+            switch generation.phase {
+            case .active:
+                break
+            case .intentionalCleanupRequested:
+                throw RemotePTYLifecycleError.intentionallyClosed
+            case .intentionallyClosed:
                 retire(key)
                 throw RemotePTYLifecycleError.intentionallyClosed
             }
@@ -45,7 +50,8 @@ struct RemotePTYLifecycleRegistry: Sendable {
             attachmentID: attachmentID,
             phase: .active,
             bridgeIDs: [bridgeID],
-            acceptedClient: false
+            acceptedClient: false,
+            wrapperEnded: false
         )
         generationOrder.append(key)
     }
@@ -61,7 +67,12 @@ struct RemotePTYLifecycleRegistry: Sendable {
         if disposition == .acceptedClient {
             generation.acceptedClient = true
         }
-        guard generation.bridgeIDs.isEmpty, !generation.acceptedClient else {
+        if generation.phase == .intentionalCleanupRequested {
+            generations[key] = generation
+            return false
+        }
+        guard generation.bridgeIDs.isEmpty,
+              !generation.acceptedClient || generation.wrapperEnded else {
             generations[key] = generation
             return false
         }
@@ -76,7 +87,7 @@ struct RemotePTYLifecycleRegistry: Sendable {
     mutating func requestIntentionalClose(
         sessionID: String
     ) -> [RemotePTYLifecycleKey: RemotePTYSessionLifecycle] {
-        let normalizedSessionID = RemotePTYLifecycleKey(sessionID: sessionID, lifecycleID: "").sessionID
+        let normalizedSessionID = RemotePTYLifecycleKey.normalizedSessionID(sessionID)
         var previous: [RemotePTYLifecycleKey: RemotePTYSessionLifecycle] = [:]
         for key in generationOrder where key.sessionID == normalizedSessionID {
             guard var generation = generations[key] else { continue }
@@ -93,7 +104,12 @@ struct RemotePTYLifecycleRegistry: Sendable {
         for key in previous.keys {
             guard var generation = generations[key] else { continue }
             generation.phase = .intentionallyClosed
-            generations[key] = generation
+            if generation.bridgeIDs.isEmpty,
+               !generation.acceptedClient || generation.wrapperEnded {
+                retire(key)
+            } else {
+                generations[key] = generation
+            }
         }
     }
 
@@ -103,7 +119,16 @@ struct RemotePTYLifecycleRegistry: Sendable {
         for (key, phase) in previous {
             guard var generation = generations[key] else { continue }
             generation.phase = phase
-            generations[key] = generation
+            if generation.bridgeIDs.isEmpty,
+               !generation.acceptedClient || generation.wrapperEnded {
+                if phase == .active {
+                    discardGeneration(key)
+                } else {
+                    retire(key)
+                }
+            } else {
+                generations[key] = generation
+            }
         }
     }
 
@@ -113,13 +138,18 @@ struct RemotePTYLifecycleRegistry: Sendable {
     }
 
     mutating func acknowledge(_ key: RemotePTYLifecycleKey) {
-        retire(key)
+        guard acknowledgePendingCleanupIfNeeded(key) else {
+            retire(key)
+            return
+        }
     }
 
     @discardableResult
     mutating func acknowledgeIfKnown(_ key: RemotePTYLifecycleKey) -> Bool {
         guard generations[key] != nil || retiredKeys.contains(key) else { return false }
-        retire(key)
+        if !acknowledgePendingCleanupIfNeeded(key) {
+            retire(key)
+        }
         return true
     }
 
@@ -138,6 +168,14 @@ struct RemotePTYLifecycleRegistry: Sendable {
     private mutating func discardGeneration(_ key: RemotePTYLifecycleKey) {
         generations.removeValue(forKey: key)
         generationOrder.removeAll { $0 == key }
+    }
+
+    private mutating func acknowledgePendingCleanupIfNeeded(_ key: RemotePTYLifecycleKey) -> Bool {
+        guard var generation = generations[key],
+              generation.phase == .intentionalCleanupRequested else { return false }
+        generation.wrapperEnded = true
+        generations[key] = generation
+        return true
     }
 
     private mutating func retire(_ key: RemotePTYLifecycleKey) {

@@ -6,4 +6,5 @@ struct RemotePTYLifecycleGeneration: Sendable, Equatable {
     var phase: RemotePTYSessionLifecycle
     var bridgeIDs: Set<UUID>
     var acceptedClient: Bool
+    var wrapperEnded: Bool
 }

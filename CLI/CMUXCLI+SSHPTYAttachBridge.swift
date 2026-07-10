@@ -118,8 +118,10 @@ extension CMUXCLI {
             )
         }
 
-        let intentionallyClosed = ((response["requested_session_lifecycle"] as? String)?
-            .trimmingCharacters(in: .whitespacesAndNewlines)) == "intentionally_closed"
+        let requestedLifecycle = (response["requested_session_lifecycle"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let intentionalCleanup = requestedLifecycle == "intentional_cleanup_requested" ||
+            requestedLifecycle == "intentionally_closed"
         guard let sessions = response["sessions"] as? [[String: Any]] else {
             throw CLIError(message: reconciliationFailure, exitCode: SSHPTYAttachExitCode.retryableTransient)
         }
@@ -132,18 +134,18 @@ extension CMUXCLI {
         } else {
             errors = []
         }
-        if !intentionallyClosed, !errors.isEmpty {
+        if !intentionalCleanup, !errors.isEmpty {
             throw CLIError(
                 message: "\(reconciliationFailure)\n\(sshSessionListFailureMessage(errors))",
                 exitCode: SSHPTYAttachExitCode.retryableTransient
             )
         }
-        if intentionalOnly, !intentionallyClosed { return false }
+        if intentionalOnly, !intentionalCleanup { return false }
 
         let sessionStillRunning = sessions.contains {
             (($0["session_id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "") == sessionID
         }
-        if !intentionallyClosed, sessionStillRunning {
+        if !intentionalCleanup, sessionStillRunning {
             throw CLIError(
                 message: "ssh-pty-attach: bridge closed while remote PTY session is still running",
                 exitCode: SSHPTYAttachExitCode.bridgeClosedSessionRunning

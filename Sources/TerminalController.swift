@@ -4110,7 +4110,6 @@ class TerminalController {
                     }
                 }
             }
-
             var sessions: [[String: Any]] = []
             var errors: [[String: Any]] = []
             for target in targets {
@@ -4131,7 +4130,6 @@ class TerminalController {
                     errors.append(payload)
                 }
             }
-
             return .ok(["all_workspaces": true, "workspace_count": targets.count, "sessions": sessions, "errors": errors])
         }
         let resolved = v2ResolveRemotePTYTarget(
@@ -4145,17 +4143,25 @@ class TerminalController {
             return .err(code: "remote_pty_error", message: "remote connection is not active", data: ["workspace_id": target.workspaceId.uuidString, "workspace_ref": target.workspaceRef])
         }
         do {
-            let sessionID = v2RawString(params, "session_id")?.trimmingCharacters(in: .whitespacesAndNewlines), lifecycleID = v2RawString(params, "lifecycle_id")?.trimmingCharacters(in: .whitespacesAndNewlines)
-            if let sessionID, !sessionID.isEmpty, let lifecycleID, !lifecycleID.isEmpty, v2Bool(params, "acknowledge_lifecycle") == true {
-                try controller.acknowledgePTYLifecycle(sessionID: sessionID, lifecycleID: lifecycleID); var payload = v2RemotePTYTargetPayload(target); payload["sessions"] = [[String: Any]](); return .ok(payload)
-            }
-            if let sessionID, !sessionID.isEmpty, let lifecycleID, !lifecycleID.isEmpty,
-               try controller.ptySessionLifecycle(sessionID: sessionID, lifecycleID: lifecycleID) == .intentionallyClosed {
-                try controller.acknowledgePTYLifecycle(sessionID: sessionID, lifecycleID: lifecycleID)
-                var payload = v2RemotePTYTargetPayload(target)
-                payload["sessions"] = [[String: Any]]()
-                payload["requested_session_lifecycle"] = RemotePTYSessionLifecycle.intentionallyClosed.rawValue
-                return .ok(payload)
+            let sessionID = v2RawString(params, "session_id")?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let lifecycleID = v2RawString(params, "lifecycle_id")?.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let sessionID, !sessionID.isEmpty, let lifecycleID, !lifecycleID.isEmpty {
+                if v2Bool(params, "acknowledge_lifecycle") == true {
+                    try controller.acknowledgePTYLifecycle(sessionID: sessionID, lifecycleID: lifecycleID)
+                    var payload = v2RemotePTYTargetPayload(target)
+                    payload["sessions"] = [[String: Any]]()
+                    return .ok(payload)
+                }
+                let lifecycle = try controller.ptySessionLifecycle(sessionID: sessionID, lifecycleID: lifecycleID)
+                if lifecycle != .active {
+                    if lifecycle == .intentionallyClosed {
+                        try controller.acknowledgePTYLifecycle(sessionID: sessionID, lifecycleID: lifecycleID)
+                    }
+                    var payload = v2RemotePTYTargetPayload(target)
+                    payload["sessions"] = [[String: Any]]()
+                    payload["requested_session_lifecycle"] = lifecycle.rawValue
+                    return .ok(payload)
+                }
             }
             let sessions = try controller.listPTYSessions()
             let shouldAcknowledgeAbsentLifecycle = v2Bool(params, "acknowledge_lifecycle_if_session_absent") == true
@@ -4322,11 +4328,8 @@ class TerminalController {
             return .err(code: "remote_pty_error", message: "remote connection is not active", data: [
                 "workspace_id": target.workspaceId.uuidString,
                 "workspace_ref": target.workspaceRef,
-                "session_id": sessionID,
-                "attachment_id": attachmentID,
             ])
         }
-
         do {
             let endpoint = try controller.startPTYBridge(
                 sessionID: sessionID,
@@ -4350,9 +4353,6 @@ class TerminalController {
             return .err(code: code, message: v2RemotePTYUserFacingErrorMessage(error), data: [
                 "workspace_id": target.workspaceId.uuidString,
                 "workspace_ref": target.workspaceRef,
-                "session_id": sessionID,
-                "lifecycle_id": lifecycleID,
-                "attachment_id": attachmentID,
             ])
         }
     }

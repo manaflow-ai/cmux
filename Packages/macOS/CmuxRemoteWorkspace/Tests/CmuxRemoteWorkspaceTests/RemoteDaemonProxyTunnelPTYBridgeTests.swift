@@ -248,6 +248,40 @@ struct RemoteDaemonProxyTunnelPTYBridgeTests {
         }
     }
 
+    @Test("cleanup rollback survives rejected reconnect and wrapper end")
+    func cleanupRollbackPreservesReconnectEligibility() throws {
+        var registry = RemotePTYLifecycleRegistry()
+        let rejected = RemotePTYLifecycleKey(sessionID: "session", lifecycleID: "rejected")
+        let wrapperEnded = RemotePTYLifecycleKey(sessionID: "session", lifecycleID: "wrapper-ended")
+        let unused = RemotePTYLifecycleKey(sessionID: "session", lifecycleID: "unused")
+        for key in [rejected, wrapperEnded, unused] {
+            try registry.registerBridge(key: key, attachmentID: "surface", bridgeID: UUID())
+        }
+        for key in [rejected, wrapperEnded] {
+            let bridgeID = try #require(registry.generations[key]?.bridgeIDs.first)
+            registry.bridgeStopped(key: key, bridgeID: bridgeID, disposition: .acceptedClient)
+        }
+
+        let previous = registry.requestIntentionalClose(sessionID: "session")
+        let unusedBridgeID = try #require(registry.generations[unused]?.bridgeIDs.first)
+        registry.bridgeStopped(key: unused, bridgeID: unusedBridgeID, disposition: .unused)
+        #expect(throws: RemotePTYLifecycleError.intentionallyClosed) {
+            try registry.registerBridge(
+                key: rejected,
+                attachmentID: "surface",
+                bridgeID: UUID()
+            )
+        }
+        let acknowledgedWrapperEnd = registry.acknowledgeIfKnown(wrapperEnded)
+        #expect(acknowledgedWrapperEnd)
+        registry.rollbackIntentionalClose(previous)
+
+        for key in [rejected, wrapperEnded, unused] {
+            #expect(registry.lifecycle(for: key) == .active)
+            try registry.registerBridge(key: key, attachmentID: "surface", bridgeID: UUID())
+        }
+    }
+
     @Test("unused and closed-unused endpoints retire without live generation leaks")
     func unusedGenerationsRetire() throws {
         var registry = RemotePTYLifecycleRegistry()
@@ -404,7 +438,7 @@ struct RemoteDaemonProxyTunnelPTYBridgeTests {
             ptyBridgeStrings: TestPTYBridgeStrings(),
             onFatalError: { _ in }
         )
-        tunnel.queue.sync { tunnel.ptyRPCClient = rpc }
+        tunnel.queue.sync { tunnel.rpcClient = rpc }
         return tunnel
     }
 

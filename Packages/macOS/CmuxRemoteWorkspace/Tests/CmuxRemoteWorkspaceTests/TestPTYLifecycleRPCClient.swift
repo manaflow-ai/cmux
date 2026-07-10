@@ -3,7 +3,7 @@ import Foundation
 @testable import CmuxRemoteWorkspace
 
 /// Thread-safe PTY lifecycle RPC fake for tunnel ownership tests.
-final class TestPTYLifecycleRPCClient: RemotePTYLifecycleRPCClient, @unchecked Sendable {
+final class TestPTYLifecycleRPCClient: RemoteDaemonTunnelRPCClient, @unchecked Sendable {
     private let lock = NSLock()
     private let delaysAttach: Bool
     private let attachStarted = DispatchSemaphore(value: 0)
@@ -38,6 +38,22 @@ final class TestPTYLifecycleRPCClient: RemotePTYLifecycleRPCClient, @unchecked S
     }
 
     func listPTY() throws -> [[String: Any]] { [] }
+
+    func stop() {}
+
+    func openStream(host: String, port: Int, timeoutMs: Int) throws -> String {
+        throw NSError(domain: "test.remote.proxy", code: 1)
+    }
+
+    func writeStream(streamID: String, data: Data) throws {}
+
+    func attachStream(
+        streamID: String,
+        queue: DispatchQueue,
+        onEvent: @escaping (RemoteDaemonStreamEvent) -> Void
+    ) throws {}
+
+    func closeStream(streamID: String) {}
 
     func closePTY(sessionID: String, timeout: TimeInterval) throws {
         closeStarted.signal()

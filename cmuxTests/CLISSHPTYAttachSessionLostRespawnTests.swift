@@ -194,7 +194,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 return self.v2Response(id: id, ok: true, result: ["resized": true])
             case "workspace.remote.pty_sessions":
                 return self.v2Response(id: id, ok: true, result: [
-                    "requested_session_lifecycle": "intentionally_closed",
+                    "requested_session_lifecycle": "intentional_cleanup_requested",
                     "sessions": [["session_id": sessionId]],
                     "errors": [["error": "remote connection is not active"]],
                 ])
@@ -267,10 +267,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
                     error: ["code": "pty_lifecycle_closed", "message": "remote PTY operation failed"]
                 )
             case "workspace.remote.pty_sessions":
-                return self.v2Response(id: id, ok: true, result: [
-                    "requested_session_lifecycle": "intentionally_closed",
-                    "sessions": [],
-                ])
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "remote_pty_error", "message": "reconciliation unavailable"]
+                )
             case "workspace.remote.pty_attach_end":
                 return self.v2Response(id: id, ok: true, result: ["ended": true])
             default:
@@ -285,6 +286,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_SSH_PTY_ATTACH_WRAPPER_CAN_RETRY"] = "1"
         let result = runProcess(
             executablePath: cliPath,
             arguments: [

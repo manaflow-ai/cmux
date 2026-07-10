@@ -12420,10 +12420,29 @@ struct CMUXCLI {
                 exitCode = SSHPTYAttachExitCode.classifyBridgeEstablishmentFailure(String(describing: error))
             }
             let closedGeneration = (error as? CLIError)?.v2Code == "pty_lifecycle_closed"
-            if exitCode.isWrapperRetryable, sshPTYAttachWrapperRetryPending() {
+            if !closedGeneration, exitCode.isWrapperRetryable, sshPTYAttachWrapperRetryPending() {
                 wrapperWillRetrySameSurface = true
             }
-            if closedGeneration || exitCode.isWrapperRetryable {
+            if closedGeneration {
+                if (try? reconcileBridgeEnd(intentionalOnly: true)) == true {
+                    attachFinished = true
+                    return
+                }
+                cleanupFailedSSHPTYAttach(
+                    client: client,
+                    workspaceId: workspaceId,
+                    surfaceID: surfaceID,
+                    sessionID: sessionID,
+                    lifecycleID: lifecycleID,
+                    attachmentID: attachmentID,
+                    attachmentToken: attachmentToken,
+                    retireLifecycle: true,
+                    clearLocalSurface: true
+                )
+                attachFinished = true
+                return
+            }
+            if exitCode.isWrapperRetryable {
                 if try reconcileBridgeEnd(intentionalOnly: true) {
                     attachFinished = true
                     return

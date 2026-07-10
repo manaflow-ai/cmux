@@ -8,5 +8,3 @@ protocol RemotePTYLifecycleRPCClient: RemotePTYBridgeRPCClient {
     func resizePTY(sessionID: String, attachmentID: String, attachmentToken: String, cols: Int, rows: Int) throws
     func detachPTYChecked(sessionID: String, attachmentID: String, attachmentToken: String) throws
 }
-
-extension RemoteDaemonRPCClient: RemotePTYLifecycleRPCClient {}

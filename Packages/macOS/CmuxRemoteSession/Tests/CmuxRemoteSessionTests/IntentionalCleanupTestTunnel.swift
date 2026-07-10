@@ -5,7 +5,7 @@ import Foundation
 final class IntentionalCleanupTestTunnel: RemoteProxyTunneling, @unchecked Sendable {
     private let lock = NSLock()
     private var lifecycleByKey: [IntentionalCleanupTestTunnelKey: RemotePTYSessionLifecycle] = [:]
-    private var bridgeServers: [RemotePTYBridgeServer] = []
+    private var bridgeServers: [(sessionID: String, server: RemotePTYBridgeServer)] = []
 
     func start() throws {}
 
@@ -16,7 +16,7 @@ final class IntentionalCleanupTestTunnel: RemoteProxyTunneling, @unchecked Senda
             lifecycleByKey.removeAll()
             return servers
         }
-        for server in servers { server.stop() }
+        for record in servers { record.server.stop() }
     }
 
     func stopPreservingPTYLifecycle() -> RemotePTYLifecycleSnapshot {
@@ -33,11 +33,11 @@ final class IntentionalCleanupTestTunnel: RemoteProxyTunneling, @unchecked Senda
             for key in lifecycleByKey.keys where key.sessionID == sessionID {
                 lifecycleByKey[key] = .intentionallyClosed
             }
-            let servers = bridgeServers
-            bridgeServers.removeAll()
+            let servers = bridgeServers.filter { $0.sessionID == sessionID }
+            bridgeServers.removeAll { $0.sessionID == sessionID }
             return servers
         }
-        for server in servers { server.stop() }
+        for record in servers { record.server.stop() }
     }
 
     func ptySessionLifecycle(sessionID: String, lifecycleID: String) -> RemotePTYSessionLifecycle {
@@ -104,7 +104,7 @@ final class IntentionalCleanupTestTunnel: RemoteProxyTunneling, @unchecked Senda
         let endpoint = try server.start()
         lock.withLock {
             lifecycleByKey[key] = .active
-            bridgeServers.append(server)
+            bridgeServers.append((sessionID: sessionID, server: server))
         }
         return endpoint
     }

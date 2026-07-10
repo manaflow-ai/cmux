@@ -33,8 +33,7 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
     let queue = DispatchQueue(label: "com.cmux.remote-ssh.daemon-tunnel.\(UUID().uuidString)", qos: .utility)
 
     private var listener: NWListener?
-    var rpcClient: RemoteDaemonRPCClient?
-    var ptyRPCClient: (any RemotePTYLifecycleRPCClient)?
+    var rpcClient: (any RemoteDaemonTunnelRPCClient)?
     private var sessions: [UUID: RemoteDaemonProxySession] = [:]
     var ptyBridgeServers: [UUID: RemotePTYBridgeServerRecord] = [:]
     var ptyLifecycleRegistry = RemotePTYLifecycleRegistry()
@@ -114,7 +113,6 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
                 }
 
                 self.rpcClient = client
-                self.ptyRPCClient = client
                 self.listener = listener
                 listener.start(queue: queue)
             } catch {
@@ -156,24 +154,24 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
     /// `[[String: Any]]` to match the legacy payload plumbing.
     public func listPTY() throws -> [[String: Any]] {
         try queue.sync {
-            guard let ptyRPCClient, !isStopped else {
+            guard let rpcClient, !isStopped else {
                 throw NSError(domain: "cmux.remote.pty", code: 30, userInfo: [
                     NSLocalizedDescriptionKey: "remote daemon tunnel is not ready",
                 ])
             }
-            return try ptyRPCClient.listPTY()
+            return try rpcClient.listPTY()
         }
     }
 
     /// Resizes a PTY attachment.
     public func resizePTY(sessionID: String, attachmentID: String, attachmentToken: String, cols: Int, rows: Int) throws {
         try queue.sync {
-            guard let ptyRPCClient, !isStopped else {
+            guard let rpcClient, !isStopped else {
                 throw NSError(domain: "cmux.remote.pty", code: 32, userInfo: [
                     NSLocalizedDescriptionKey: "remote daemon tunnel is not ready",
                 ])
             }
-            try ptyRPCClient.resizePTY(
+            try rpcClient.resizePTY(
                 sessionID: sessionID,
                 attachmentID: attachmentID,
                 attachmentToken: attachmentToken,
@@ -186,12 +184,12 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
     /// Detaches a PTY attachment, surfacing daemon-side errors.
     public func detachPTY(sessionID: String, attachmentID: String, attachmentToken: String) throws {
         try queue.sync {
-            guard let ptyRPCClient, !isStopped else {
+            guard let rpcClient, !isStopped else {
                 throw NSError(domain: "cmux.remote.pty", code: 34, userInfo: [
                     NSLocalizedDescriptionKey: "remote daemon tunnel is not ready",
                 ])
             }
-            try ptyRPCClient.detachPTYChecked(
+            try rpcClient.detachPTYChecked(
                 sessionID: sessionID,
                 attachmentID: attachmentID,
                 attachmentToken: attachmentToken
@@ -633,7 +631,6 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
 
         rpcClient?.stop()
         rpcClient = nil
-        ptyRPCClient = nil
     }
 
     private static func makeLoopbackListener(port: Int) throws -> NWListener {
