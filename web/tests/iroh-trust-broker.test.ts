@@ -169,23 +169,23 @@ describe("Iroh discovery and grants", () => {
     const fixture = makeFixture();
     const active = binding({ userId: USER_A });
     fixture.repository.bindings.push(active);
-    let releaseList: (() => void) | undefined;
-    const listCanReturn = new Promise<void>((resolve) => {
-      releaseList = resolve;
+    let releaseSnapshot: (() => void) | undefined;
+    const snapshotCanRead = new Promise<void>((resolve) => {
+      releaseSnapshot = resolve;
     });
-    let didList: (() => void) | undefined;
-    const listed = new Promise<void>((resolve) => {
-      didList = resolve;
+    let didBeginSnapshot: (() => void) | undefined;
+    const snapshotStarted = new Promise<void>((resolve) => {
+      didBeginSnapshot = resolve;
     });
-    fixture.repository.afterListActiveBindings = async () => {
-      didList?.();
-      await listCanReturn;
+    fixture.repository.beforeDiscoverySnapshot = async () => {
+      didBeginSnapshot?.();
+      await snapshotCanRead;
     };
 
     const discovery = Effect.runPromise(fixture.broker.discover(USER_A, NOW));
-    await listed;
+    await snapshotStarted;
     await Effect.runPromise(fixture.broker.revoke(USER_A, { bindingId: active.id }, NOW));
-    releaseList?.();
+    releaseSnapshot?.();
     const result = await discovery as {
       bindings: unknown[];
       lan_rendezvous: { generation: number };
@@ -415,7 +415,7 @@ class MemoryRepository implements IrohRepositoryShape {
     status: string;
   }> = [];
   private lanGenerations = new Map<string, number>();
-  afterListActiveBindings: (() => Promise<void>) | undefined;
+  beforeDiscoverySnapshot: (() => Promise<void>) | undefined;
   beforeRecordPairGrant: (() => void) | undefined;
   beforeFinalizeEndpointAttestation: (() => void) | undefined;
 
@@ -492,14 +492,14 @@ class MemoryRepository implements IrohRepositoryShape {
     return Effect.succeed(inserted);
   }
 
-  listActiveBindings(userId: string) {
-    const bindings = this.bindings.filter((row) => row.userId === userId && !row.revokedAt);
-    return this.afterListActiveBindings
-      ? Effect.promise(async () => {
-        await this.afterListActiveBindings?.();
-        return bindings;
-      })
-      : Effect.succeed(bindings);
+  discoverySnapshot(input: Parameters<IrohRepositoryShape["discoverySnapshot"]>[0]) {
+    return Effect.promise(async () => {
+      await this.beforeDiscoverySnapshot?.();
+      return {
+        bindings: this.bindings.filter((row) => row.userId === input.userId && !row.revokedAt),
+        lanDiscoveryGeneration: this.lanGenerations.get(input.userId) ?? 1,
+      };
+    });
   }
 
   findActiveBindings(userId: string, bindingIds: readonly string[]) {
@@ -515,10 +515,6 @@ class MemoryRepository implements IrohRepositoryShape {
     row.revokedReason = "user_requested";
     this.lanGenerations.set(input.userId, (this.lanGenerations.get(input.userId) ?? 1) + 1);
     return Effect.succeed(true);
-  }
-
-  accountLanGeneration(input: Parameters<IrohRepositoryShape["accountLanGeneration"]>[0]) {
-    return Effect.succeed(this.lanGenerations.get(input.userId) ?? 1);
   }
 
   pruneExpiredState(input: Parameters<IrohRepositoryShape["pruneExpiredState"]>[0]) {

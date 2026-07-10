@@ -171,7 +171,7 @@ describe("Iroh trust broker database behavior", () => {
     const operations: Array<Effect.Effect<unknown, unknown>> = [
       repository.findActiveBindings(userId, [iosId, macId]),
       repository.revokeBinding({ userId, bindingId: macId, now: NOW }),
-      repository.accountLanGeneration({ userId, now: NOW }),
+      repository.discoverySnapshot({ userId, now: NOW }),
       repository.pruneExpiredState({ userId, now: NOW }),
       repository.finalizeEndpointAttestation({
         userId,
@@ -366,6 +366,86 @@ describe("Iroh trust broker database behavior", () => {
         'user-a', ${randomUUID()}, ${randomUUID()}, 'stable', 'mac', ${"43".repeat(32)}, 2147483648
       )
     `, "22003");
+  });
+
+  dbTest("keeps LAN discovery account-scoped and coherent across binding revocation", async () => {
+    const repo = requiredRepository();
+    const userId = "user-lan-revoke";
+    const firstBindingId = await insertBinding({
+      userId,
+      endpointId: "44".repeat(32),
+    });
+    const secondBindingId = await insertBinding({
+      userId,
+      endpointId: "45".repeat(32),
+    });
+    const otherBindingId = await insertBinding({
+      userId: "user-lan-other",
+      endpointId: "46".repeat(32),
+    });
+
+    const initial = await Effect.runPromise(repo.discoverySnapshot({ userId, now: NOW }));
+    const otherInitial = await Effect.runPromise(repo.discoverySnapshot({
+      userId: "user-lan-other",
+      now: NOW,
+    }));
+    expect(initial.lanDiscoveryGeneration).toBe(1);
+    expect(initial.bindings.map((binding) => binding.id).sort()).toEqual([
+      firstBindingId,
+      secondBindingId,
+    ].sort());
+    expect(otherInitial).toMatchObject({
+      lanDiscoveryGeneration: 1,
+      bindings: [{ id: otherBindingId }],
+    });
+
+    expect(await Effect.runPromise(repo.revokeBinding({
+      userId,
+      bindingId: firstBindingId,
+      now: NOW,
+    }))).toBe(true);
+    const afterFirstRevoke = await Effect.runPromise(repo.discoverySnapshot({ userId, now: NOW }));
+    expect(afterFirstRevoke.lanDiscoveryGeneration).toBe(2);
+    expect(afterFirstRevoke.bindings.map((binding) => binding.id)).toEqual([secondBindingId]);
+    expect(await Effect.runPromise(repo.revokeBinding({
+      userId,
+      bindingId: firstBindingId,
+      now: NOW,
+    }))).toBe(false);
+
+    let concurrentDiscovery: ReturnType<typeof Effect.runPromise> | undefined;
+    await requiredSql().begin(async (revocationSql) => {
+      await revocationSql`
+        select pg_advisory_xact_lock(hashtextextended(${`iroh:binding:${userId}`}, 0))
+      `;
+      await revocationSql`
+        update iroh_endpoint_bindings
+        set revoked_at = ${NOW}, revoked_reason = 'user_requested',
+            path_hints = '[]'::jsonb, path_hints_next_expiry = null, updated_at = ${NOW}
+        where id = ${secondBindingId} and user_id = ${userId} and revoked_at is null
+      `;
+      await revocationSql`
+        update iroh_account_security_states
+        set lan_discovery_generation = lan_discovery_generation + 1, updated_at = ${NOW}
+        where user_id = ${userId}
+      `;
+      concurrentDiscovery = Effect.runPromise(repo.discoverySnapshot({ userId, now: NOW }));
+      await waitForAdvisoryLockWaiter();
+    });
+    if (!concurrentDiscovery) throw new Error("concurrent discovery was not started");
+    const afterConcurrentRevoke = await concurrentDiscovery;
+    expect(afterConcurrentRevoke).toMatchObject({
+      lanDiscoveryGeneration: 3,
+      bindings: [],
+    });
+    const otherAfter = await Effect.runPromise(repo.discoverySnapshot({
+      userId: "user-lan-other",
+      now: NOW,
+    }));
+    expect(otherAfter).toMatchObject({
+      lanDiscoveryGeneration: 1,
+      bindings: [{ id: otherBindingId }],
+    });
   });
 
   dbTest("serializes the pair-grant hourly quota", async () => {

@@ -25,6 +25,14 @@ display name. The hourly `/api/internal/iroh/retention` cron applies the same
 policy across inactive accounts; responses also filter expired hints
 defensively.
 
+The LAN rendezvous key is HMAC-derived from an independent random server secret,
+the exact Stack user id, and an account generation. Discovery reads active
+bindings and that generation in one transaction under the same account lock as
+registration and revocation, so it cannot mix tuples from opposite sides of a
+revocation. Every successful binding revoke increments the generation in the
+revocation transaction. Sign-out callers must invoke the authenticated revoke
+route with their captured binding id before discarding the Stack credential.
+
 Postgres advisory locks make the authoritative limits concurrency-safe: six
 challenges per device per ten minutes, 32 outstanding challenges per account,
 32 active bindings per account, eight active bindings per physical device, 60

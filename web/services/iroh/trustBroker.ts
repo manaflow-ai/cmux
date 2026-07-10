@@ -221,19 +221,21 @@ export function makeIrohTrustBroker(
 
     discover: (userId, now = new Date()) => Effect.gen(function* () {
       yield* repository.pruneExpiredState({ userId, now });
-      const bindings = yield* repository.listActiveBindings(userId);
-      const generation = yield* repository.accountLanGeneration({ userId, now });
+      const snapshot = yield* repository.discoverySnapshot({ userId, now });
       const rendezvousKey = yield* parseEffect(() => deriveLanRendezvousKey(
         config.lanDiscoverySecretBase64,
         userId,
-        generation,
+        snapshot.lanDiscoveryGeneration,
       ));
       const verificationKeys = yield* parseEffect(() => signingVerificationKeys(config));
       return {
         route_contract_version: 1,
-        bindings: bindings.map((binding) => publicBinding(binding, now)),
+        bindings: snapshot.bindings.map((binding) => publicBinding(binding, now)),
         relay_fleet: MANAGED_RELAY_URLS,
-        lan_rendezvous: { generation, key: rendezvousKey },
+        lan_rendezvous: {
+          generation: snapshot.lanDiscoveryGeneration,
+          key: rendezvousKey,
+        },
         grant_verification_keys: verificationKeys.keySet,
       };
     }),

@@ -89,9 +89,13 @@ export type IrohRepositoryShape = {
     readonly now: Date;
     readonly deviceLimitOverrideAllowed: boolean;
   }) => Effect.Effect<IrohBindingRecord, RepositoryError>;
-  readonly listActiveBindings: (
-    userId: string,
-  ) => Effect.Effect<IrohBindingRecord[], RepositoryError>;
+  readonly discoverySnapshot: (input: {
+    readonly userId: string;
+    readonly now: Date;
+  }) => Effect.Effect<{
+    readonly bindings: IrohBindingRecord[];
+    readonly lanDiscoveryGeneration: number;
+  }, RepositoryError>;
   readonly findActiveBindings: (
     userId: string,
     bindingIds: readonly string[],
@@ -101,10 +105,6 @@ export type IrohRepositoryShape = {
     readonly bindingId: string;
     readonly now: Date;
   }) => Effect.Effect<boolean, RepositoryError>;
-  readonly accountLanGeneration: (input: {
-    readonly userId: string;
-    readonly now: Date;
-  }) => Effect.Effect<number, RepositoryError>;
   readonly pruneExpiredState: (input: {
     readonly userId: string;
     readonly now: Date;
@@ -375,15 +375,32 @@ function makeLiveRepository(): IrohRepositoryShape {
       });
     }),
 
-    listActiveBindings: (userId) => repositoryEffect("list_bindings", async () => {
-      return await cloudDb()
-        .select()
-        .from(irohEndpointBindings)
-        .where(and(
-          eq(irohEndpointBindings.userId, userId),
-          isNull(irohEndpointBindings.revokedAt),
-        ))
-        .orderBy(asc(irohEndpointBindings.registeredAt));
+    discoverySnapshot: (input) => repositoryEffect("discovery_snapshot", async () => {
+      return await cloudDb().transaction(async (tx) => {
+        await assertIrohUserMutationAllowed(tx, input.userId);
+        await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`iroh:binding:${input.userId}`}, 0))`);
+        const [state] = await tx
+          .insert(irohAccountSecurityStates)
+          .values({ userId: input.userId, lanDiscoveryGeneration: 1, createdAt: input.now, updatedAt: input.now })
+          .onConflictDoUpdate({
+            target: irohAccountSecurityStates.userId,
+            set: { updatedAt: sql`${irohAccountSecurityStates.updatedAt}` },
+          })
+          .returning({ generation: irohAccountSecurityStates.lanDiscoveryGeneration });
+        if (!state) throw new Error("account security state returned no row");
+        const bindings = await tx
+          .select()
+          .from(irohEndpointBindings)
+          .where(and(
+            eq(irohEndpointBindings.userId, input.userId),
+            isNull(irohEndpointBindings.revokedAt),
+          ))
+          .orderBy(asc(irohEndpointBindings.registeredAt));
+        return {
+          bindings,
+          lanDiscoveryGeneration: state.generation,
+        };
+      });
     }),
 
     findActiveBindings: (userId, bindingIds) => repositoryEffect("find_bindings", async () => {
@@ -442,22 +459,6 @@ function makeLiveRepository(): IrohRepositoryShape {
             },
           });
         return true;
-      });
-    }),
-
-    accountLanGeneration: (input) => repositoryEffect("lan_generation", async () => {
-      return await cloudDb().transaction(async (tx) => {
-        await assertIrohUserMutationAllowed(tx, input.userId);
-        const [state] = await tx
-          .insert(irohAccountSecurityStates)
-          .values({ userId: input.userId, lanDiscoveryGeneration: 1, createdAt: input.now, updatedAt: input.now })
-          .onConflictDoUpdate({
-            target: irohAccountSecurityStates.userId,
-            set: { updatedAt: sql`${irohAccountSecurityStates.updatedAt}` },
-          })
-          .returning({ generation: irohAccountSecurityStates.lanDiscoveryGeneration });
-        if (!state) throw new Error("account security state returned no row");
-        return state.generation;
       });
     }),
 
