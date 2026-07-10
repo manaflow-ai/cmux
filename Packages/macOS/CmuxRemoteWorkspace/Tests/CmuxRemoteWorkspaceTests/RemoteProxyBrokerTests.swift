@@ -81,7 +81,7 @@ final class FakeProxyTunnel: RemoteProxyTunneling, @unchecked Sendable {
         return [["session_id": "s-1"]]
     }
 
-    func closePTY(sessionID: String) throws {
+    func closePTY(sessionID: String, deadline: DispatchTime) throws {
         record("closePTY", [sessionID])
         lock.lock()
         let previous = ptyLifecycleRegistry.requestIntentionalClose(sessionID: sessionID)
@@ -474,7 +474,7 @@ struct RemoteProxyBrokerTests {
         #expect(sessions.first?["session_id"] as? String == "s-1")
         let lifecycle = try broker.ptySessionLifecycle(configuration: configuration, sessionID: "s-8", lifecycleID: "life-8")
         try broker.acknowledgePTYLifecycle(configuration: configuration, sessionID: "s-8", lifecycleID: "life-8")
-        try broker.closePTY(configuration: configuration, sessionID: "s-9")
+        try broker.closePTY(configuration: configuration, sessionID: "s-9", deadline: .distantFuture)
         try broker.resizePTY(configuration: configuration, sessionID: "s", attachmentID: "a", attachmentToken: "t", cols: 80, rows: 24)
         try broker.detachPTY(configuration: configuration, sessionID: "s", attachmentID: "a", attachmentToken: "t")
         let endpoint = try broker.startPTYBridge(configuration: configuration, sessionID: "s", lifecycleID: "life", attachmentID: "a", command: "top", requireExisting: true)

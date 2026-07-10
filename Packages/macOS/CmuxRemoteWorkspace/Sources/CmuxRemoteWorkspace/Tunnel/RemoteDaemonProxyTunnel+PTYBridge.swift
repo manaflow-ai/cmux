@@ -1,3 +1,4 @@
+public import Dispatch
 internal import Foundation
 
 extension RemoteDaemonProxyTunnel {
@@ -65,7 +66,14 @@ extension RemoteDaemonProxyTunnel {
     }
 
     /// Intentionally closes a remote PTY and gates every known logical attach generation first.
-    public func closePTY(sessionID: String) throws {
+    ///
+    /// - Parameters:
+    ///   - sessionID: Persistent PTY session to terminate.
+    ///   - deadline: Monotonic deadline shared with the originating cleanup call.
+    public func closePTY(
+        sessionID: String,
+        deadline: DispatchTime = .distantFuture
+    ) throws {
         let preparation = try queue.sync {
             guard ptyRPCClient != nil, !isStopped else {
                 throw NSError(domain: "cmux.remote.pty", code: 31, userInfo: [
@@ -83,7 +91,12 @@ extension RemoteDaemonProxyTunnel {
         // RPCs on this caller thread, never on the tunnel/bridge/RPC queues
         // that must deliver their completion signals.
         for record in preparation.matchingServers {
-            record.server.stopAndWaitForAttachCompletion()
+            guard record.server.stopAndWaitForAttachCompletion(deadline: deadline) else {
+                queue.sync {
+                    ptyLifecycleRegistry.rollbackIntentionalClose(preparation.previous)
+                }
+                throw Self.ptyOperationTimedOutError()
+            }
         }
         try queue.sync {
             guard let ptyRPCClient, !isStopped else {
@@ -92,8 +105,17 @@ extension RemoteDaemonProxyTunnel {
                     NSLocalizedDescriptionKey: "remote daemon tunnel is not ready",
                 ])
             }
+            let now = DispatchTime.now().uptimeNanoseconds
+            guard deadline.uptimeNanoseconds > now else {
+                ptyLifecycleRegistry.rollbackIntentionalClose(preparation.previous)
+                throw Self.ptyOperationTimedOutError()
+            }
+            let remainingTimeout = min(
+                8.0,
+                Double(deadline.uptimeNanoseconds - now) / 1_000_000_000
+            )
             do {
-                try ptyRPCClient.closePTY(sessionID: sessionID)
+                try ptyRPCClient.closePTY(sessionID: sessionID, timeout: remainingTimeout)
                 ptyLifecycleRegistry.completeIntentionalClose(preparation.previous)
             } catch {
                 if Self.ptyCloseWasDefinitivelyRejected(error) {
@@ -104,6 +126,12 @@ extension RemoteDaemonProxyTunnel {
                 throw error
             }
         }
+    }
+
+    private static func ptyOperationTimedOutError() -> NSError {
+        NSError(domain: "cmux.remote.pty", code: 3, userInfo: [
+            NSLocalizedDescriptionKey: "timed out waiting for remote PTY operation",
+        ])
     }
 
     private static func ptyCloseWasDefinitivelyRejected(_ error: any Error) -> Bool {

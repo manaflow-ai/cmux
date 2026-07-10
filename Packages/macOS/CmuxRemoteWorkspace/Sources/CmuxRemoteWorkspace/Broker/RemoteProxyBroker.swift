@@ -1,4 +1,5 @@
 public import CmuxCore
+public import Dispatch
 internal import Darwin
 internal import Foundation
 
@@ -117,10 +118,25 @@ public final class RemoteProxyBroker: @unchecked Sendable {
     }
 
     /// Closes a persistent PTY session through the ready tunnel.
-    public func closePTY(configuration: WorkspaceRemoteConfiguration, sessionID: String) throws {
-        try withReadyTunnel(configuration: configuration) { tunnel in
-            try tunnel.closePTY(sessionID: sessionID)
+    ///
+    /// The broker queue is used only to retain the tunnel; the potentially
+    /// blocking cleanup runs after that queue is released.
+    ///
+    /// - Parameters:
+    ///   - configuration: Remote transport whose ready tunnel owns the PTY.
+    ///   - sessionID: Persistent PTY session to terminate.
+    ///   - deadline: Monotonic deadline shared with the originating cleanup call.
+    public func closePTY(
+        configuration: WorkspaceRemoteConfiguration,
+        sessionID: String,
+        deadline: DispatchTime
+    ) throws {
+        let tunnel = try queue.sync {
+            let key = Self.transportKey(for: configuration)
+            guard let tunnel = entries[key]?.tunnel else { throw Self.ptyTunnelNotReadyError() }
+            return tunnel
         }
+        try tunnel.closePTY(sessionID: sessionID, deadline: deadline)
     }
 
     /// Returns the shared lifecycle for one logical PTY attach generation.

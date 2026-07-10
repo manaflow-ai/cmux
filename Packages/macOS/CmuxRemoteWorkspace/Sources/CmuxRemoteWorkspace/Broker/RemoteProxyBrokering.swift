@@ -1,4 +1,5 @@
 public import CmuxCore
+public import Dispatch
 internal import Foundation
 
 /// Process-wide brokering of shared remote daemon proxy tunnels, keyed by
@@ -30,8 +31,17 @@ public protocol RemoteProxyBrokering: AnyObject, Sendable {
     /// `configuration`; throws when no tunnel is ready.
     func listPTY(configuration: WorkspaceRemoteConfiguration) throws -> [[String: Any]]
 
-    /// Closes a persistent PTY session through the ready tunnel.
-    func closePTY(configuration: WorkspaceRemoteConfiguration, sessionID: String) throws
+    /// Closes a persistent PTY session through the ready tunnel before `deadline`.
+    ///
+    /// - Parameters:
+    ///   - configuration: Remote transport whose ready tunnel owns the PTY.
+    ///   - sessionID: Persistent PTY session to terminate.
+    ///   - deadline: Monotonic deadline shared with the originating cleanup call.
+    func closePTY(
+        configuration: WorkspaceRemoteConfiguration,
+        sessionID: String,
+        deadline: DispatchTime
+    ) throws
 
     /// Returns the shared lifecycle for one logical PTY attach generation.
     func ptySessionLifecycle(

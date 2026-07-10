@@ -60,7 +60,11 @@ struct RemoteProxyBrokerPTYLifecycleRestartTests {
             command: nil,
             requireExisting: true
         )
-        try broker.closePTY(configuration: configuration, sessionID: "session")
+        try broker.closePTY(
+            configuration: configuration,
+            sessionID: "session",
+            deadline: .distantFuture
+        )
         #expect(try broker.ptySessionLifecycle(
             configuration: configuration,
             sessionID: "session",

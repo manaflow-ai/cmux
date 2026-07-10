@@ -26,6 +26,7 @@ extension RemoteSessionCoordinator {
     /// Closes one persistent PTY session by ID; same blocking contract as
     /// ``listPTYSessions(timeout:)``.
     public func closePTYSession(sessionID: String, timeout: TimeInterval = 8.0) throws {
+        let deadline = DispatchTime.now() + max(0, timeout)
         try runOnControllerQueue(timeout: timeout) {
             guard self.daemonReady, self.proxyLease != nil else {
                 throw NSError(domain: "cmux.remote.pty", code: 2, userInfo: [
@@ -34,7 +35,8 @@ extension RemoteSessionCoordinator {
             }
             try self.proxyBroker.closePTY(
                 configuration: self.configuration,
-                sessionID: sessionID.trimmingCharacters(in: .whitespacesAndNewlines)
+                sessionID: sessionID.trimmingCharacters(in: .whitespacesAndNewlines),
+                deadline: deadline
             )
         }
     }

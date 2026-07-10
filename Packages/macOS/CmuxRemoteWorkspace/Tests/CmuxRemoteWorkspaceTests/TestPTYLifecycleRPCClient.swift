@@ -8,6 +8,7 @@ final class TestPTYLifecycleRPCClient: RemotePTYLifecycleRPCClient, @unchecked S
     private let delaysAttach: Bool
     private let attachStarted = DispatchSemaphore(value: 0)
     private let attachRelease = DispatchSemaphore(value: 0)
+    private let attachReturned = DispatchSemaphore(value: 0)
     private let closeStarted = DispatchSemaphore(value: 0)
     private var _closedSessionIDs: [String] = []
     private var _closeError: (any Error)?
@@ -28,13 +29,17 @@ final class TestPTYLifecycleRPCClient: RemotePTYLifecycleRPCClient, @unchecked S
         attachRelease.signal()
     }
 
+    func waitForAttachReturn() -> DispatchTimeoutResult {
+        attachReturned.wait(timeout: .now() + 2)
+    }
+
     func waitForCloseStart(timeout: DispatchTime) -> DispatchTimeoutResult {
         closeStarted.wait(timeout: timeout)
     }
 
     func listPTY() throws -> [[String: Any]] { [] }
 
-    func closePTY(sessionID: String) throws {
+    func closePTY(sessionID: String, timeout: TimeInterval) throws {
         closeStarted.signal()
         let error = lock.withLock {
             _closedSessionIDs.append(sessionID)
@@ -67,6 +72,7 @@ final class TestPTYLifecycleRPCClient: RemotePTYLifecycleRPCClient, @unchecked S
         if delaysAttach {
             attachStarted.signal()
             attachRelease.wait()
+            attachReturned.signal()
         }
         return RemotePTYBridgeAttachment(attachmentID: attachmentID, token: "token")
     }

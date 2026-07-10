@@ -1,3 +1,4 @@
+public import Dispatch
 internal import Foundation
 
 /// The proxy-tunnel operations ``RemoteProxyBroker`` drives on each
@@ -32,8 +33,12 @@ public protocol RemoteProxyTunneling: AnyObject {
     /// shape pinned).
     func listPTY() throws -> [[String: Any]]
 
-    /// Closes a persistent PTY session on the daemon.
-    func closePTY(sessionID: String) throws
+    /// Closes a persistent PTY session on the daemon before `deadline`.
+    ///
+    /// - Parameters:
+    ///   - sessionID: Persistent PTY session to terminate.
+    ///   - deadline: Monotonic deadline shared with the originating cleanup call.
+    func closePTY(sessionID: String, deadline: DispatchTime) throws
 
     /// Returns the shared lifecycle for one logical PTY attach generation.
     func ptySessionLifecycle(sessionID: String, lifecycleID: String) -> RemotePTYSessionLifecycle

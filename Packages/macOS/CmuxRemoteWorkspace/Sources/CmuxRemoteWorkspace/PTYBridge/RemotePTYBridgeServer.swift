@@ -180,7 +180,10 @@ public final class RemotePTYBridgeServer: @unchecked Sendable {
     /// `requireExisting: false` attach recreating the session afterward.
     /// This method must be called from outside the bridge and RPC queues so
     /// those queues remain free to deliver the attach completion.
-    func stopAndWaitForAttachCompletion() {
+    ///
+    /// - Parameter deadline: Last instant to wait for an in-flight attach.
+    /// - Returns: `true` when no attach can complete after this method returns.
+    func stopAndWaitForAttachCompletion(deadline: DispatchTime) -> Bool {
         let stopped = DispatchSemaphore(value: 0)
         let shouldWait = queue.sync {
             stopLocked()
@@ -188,9 +191,8 @@ public final class RemotePTYBridgeServer: @unchecked Sendable {
             stopWaiters.append { stopped.signal() }
             return true
         }
-        if shouldWait {
-            stopped.wait()
-        }
+        guard shouldWait else { return true }
+        return stopped.wait(timeout: deadline) == .success
     }
 
     /// Stops synchronously so a tunnel replacement can preserve the final disposition.

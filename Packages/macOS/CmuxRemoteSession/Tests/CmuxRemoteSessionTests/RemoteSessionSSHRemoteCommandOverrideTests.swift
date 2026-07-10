@@ -168,7 +168,11 @@ private final class UnusedRemoteProxyBroker: RemoteProxyBrokering, @unchecked Se
     }
 
     func listPTY(configuration: WorkspaceRemoteConfiguration) throws -> [[String: Any]] { [] }
-    func closePTY(configuration: WorkspaceRemoteConfiguration, sessionID: String) throws {}
+    func closePTY(
+        configuration: WorkspaceRemoteConfiguration,
+        sessionID: String,
+        deadline: DispatchTime
+    ) throws {}
     func ptySessionLifecycle(
         configuration: WorkspaceRemoteConfiguration,
         sessionID: String,

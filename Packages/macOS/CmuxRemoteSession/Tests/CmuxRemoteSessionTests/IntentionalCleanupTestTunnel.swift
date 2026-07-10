@@ -33,7 +33,7 @@ final class IntentionalCleanupTestTunnel: RemoteProxyTunneling, @unchecked Senda
 
     func listPTY() throws -> [[String: Any]] { [] }
 
-    func closePTY(sessionID: String) throws {
+    func closePTY(sessionID: String, deadline: DispatchTime) throws {
         let servers = lock.withLock {
             for key in lifecycleByKey.keys where key.sessionID == sessionID {
                 lifecycleByKey[key] = .intentionallyClosed

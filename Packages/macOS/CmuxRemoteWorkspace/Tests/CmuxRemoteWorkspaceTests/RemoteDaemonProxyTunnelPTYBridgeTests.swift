@@ -82,6 +82,47 @@ struct RemoteDaemonProxyTunnelPTYBridgeTests {
         #expect(rpc.closedSessionIDs == [endpoint.sessionID])
     }
 
+    @Test("cleanup deadline rolls back without a late close")
+    func cleanupDeadlinePreventsLateClose() throws {
+        let rpc = TestPTYLifecycleRPCClient(delaysAttach: true)
+        let tunnel = makeTunnel(rpc: rpc)
+        defer {
+            rpc.releaseAttach()
+            tunnel.stop()
+        }
+        let endpoint = try tunnel.startPTYBridge(
+            sessionID: "deadline-session",
+            lifecycleID: "deadline-lifecycle",
+            attachmentID: "surface",
+            command: "exec shell",
+            requireExisting: false
+        )
+        let fd = try connect(endpoint)
+        defer { Darwin.close(fd) }
+        try writeAll(fd, Data("{\"token\":\"\(endpoint.token)\",\"cols\":80,\"rows\":24}\n".utf8))
+        #expect(rpc.waitForAttachStart() == .success)
+
+        do {
+            try tunnel.closePTY(sessionID: endpoint.sessionID, deadline: .now())
+            Issue.record("expected cleanup deadline error")
+        } catch {
+            let nsError = error as NSError
+            #expect(nsError.domain == "cmux.remote.pty")
+            #expect(nsError.code == 3)
+            #expect(nsError.localizedDescription == "timed out waiting for remote PTY operation")
+        }
+        #expect(tunnel.ptySessionLifecycle(
+            sessionID: endpoint.sessionID,
+            lifecycleID: endpoint.lifecycleID
+        ) == .active)
+        #expect(rpc.closedSessionIDs.isEmpty)
+
+        rpc.releaseAttach()
+        #expect(rpc.waitForAttachReturn() == .success)
+        #expect(rpc.waitForCloseStart(timeout: .now()) == .timedOut)
+        #expect(rpc.closedSessionIDs.isEmpty)
+    }
+
     @Test("acknowledged closed generations remain tombstoned against stale retry")
     func acknowledgedGenerationRejectsOldRetry() throws {
         let tunnel = makeTunnel(rpc: TestPTYLifecycleRPCClient())
