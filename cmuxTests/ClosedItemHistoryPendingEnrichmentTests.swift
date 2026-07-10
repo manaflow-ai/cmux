@@ -191,6 +191,30 @@ struct ClosedItemHistoryPendingEnrichmentTests {
     }
 
     @Test
+    func boundedProjectionStopsAfterReachingVisibleItemLimit() {
+        var visitedRecordCount = 0
+        let newestFirstRecords = CountingHistorySequence(
+            elements: [6, 5, 4, 3, 2, 1],
+            onElement: { visitedRecordCount += 1 }
+        )
+
+        let projection = ClosedItemHistoryMenuProjector.project(
+            newestFirst: newestFirstRecords,
+            eligibleItemCount: 3,
+            maxItemCount: 2,
+            isEligible: { !$0.isMultiple(of: 2) },
+            transform: { $0 }
+        )
+
+        #expect(projection.items == [5, 3])
+        #expect(projection.isLimited)
+        #expect(
+            visitedRecordCount == 4,
+            "Bounded projection must stop once it finds the requested visible items."
+        )
+    }
+
+    @Test
     func remapDuringPendingCaptureIsPreservedByEnrichment() async throws {
         let oldWorkspaceId = UUID()
         let newWorkspaceId = UUID()
@@ -286,5 +310,27 @@ struct ClosedItemHistoryPendingEnrichmentTests {
     private static func panelID(from entry: ClosedItemHistoryEntry) -> UUID {
         guard case .panel(let panelEntry) = entry else { return UUID() }
         return panelEntry.snapshot.id
+    }
+}
+
+private struct CountingHistorySequence<Element>: Sequence {
+    let elements: [Element]
+    let onElement: () -> Void
+
+    func makeIterator() -> Iterator {
+        Iterator(elements: elements, onElement: onElement)
+    }
+
+    struct Iterator: IteratorProtocol {
+        let elements: [Element]
+        let onElement: () -> Void
+        private var index = 0
+
+        mutating func next() -> Element? {
+            guard elements.indices.contains(index) else { return nil }
+            onElement()
+            defer { index += 1 }
+            return elements[index]
+        }
     }
 }
