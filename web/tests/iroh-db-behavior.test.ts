@@ -290,6 +290,49 @@ describe("Iroh trust broker database behavior", () => {
     expect(nextExpiry?.getTime()).toBe(pathHintExpiry.getTime());
   });
 
+  dbTest("serializes an account-wide registration challenge rate cap", async () => {
+    const userId = "user-challenge-flood";
+    await requiredSql()`
+      insert into iroh_registration_challenges (
+        user_id, device_uuid, app_instance_id, tag, endpoint_id,
+        identity_generation, payload_sha256, nonce_hash, created_at, expires_at, consumed_at
+      )
+      select
+        ${userId}, gen_random_uuid(), gen_random_uuid(), 'stable', repeat('3a', 32),
+        1,
+        md5('account-payload-a-' || value::text) || md5('account-payload-b-' || value::text),
+        md5('account-nonce-a-' || value::text) || md5('account-nonce-b-' || value::text),
+        ${new Date(NOW.getTime() - 60_000)}, ${new Date(NOW.getTime() + 60_000)}, ${NOW}
+      from generate_series(1, 119) as values(value)
+    `;
+    const issue = (suffix: string) => Effect.runPromise(requiredRepository().issueChallenge({
+      userId,
+      deviceUuid: randomUUID(),
+      appInstanceId: randomUUID(),
+      tag: "stable",
+      endpointId: suffix.repeat(64),
+      identityGeneration: 1,
+      payloadSha256: suffix.repeat(64),
+      nonceHash: `${suffix}${"0".repeat(63)}`,
+      now: NOW,
+      expiresAt: new Date(NOW.getTime() + 5 * 60 * 1_000),
+    }));
+
+    const results = await Promise.allSettled([issue("4"), issue("5")]);
+    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    expect(results.filter((result) => result.status === "rejected")).toHaveLength(1);
+    expect(results.find((result) => result.status === "rejected")?.reason).toMatchObject({
+      _tag: "IrohQuotaExceededError",
+      code: "challenge_account_rate_limited",
+    });
+    const [{ total }] = await requiredSql()<Array<{ total: string }>>`
+      select count(*)::text as total
+      from iroh_registration_challenges
+      where user_id = ${userId}
+    `;
+    expect(total).toBe("120");
+  });
+
   dbTest("enforces globally unique active EndpointIDs and app instances", async () => {
     const appInstanceId = randomUUID();
     const endpointId = "40".repeat(32);
@@ -391,6 +434,87 @@ describe("Iroh trust broker database behavior", () => {
       where user_id = 'user-pair-race'
     `;
     expect(total).toBe("0");
+  });
+
+  dbTest("rejects pair-grant peers that resolve to one physical device", async () => {
+    const userId = "user-pair-same-device";
+    const deviceUuid = randomUUID();
+    const initiatorId = await insertBinding({
+      userId,
+      deviceUuid,
+      platform: "ios",
+      endpointId: "54".repeat(32),
+    });
+    const acceptorId = await insertBinding({
+      userId,
+      deviceUuid,
+      platform: "mac",
+      endpointId: "55".repeat(32),
+    });
+    const exit = await Effect.runPromiseExit(requiredRepository().recordPairGrant({
+      userId,
+      jti: randomUUID(),
+      initiator: await pairPeer(initiatorId),
+      acceptor: await pairPeer(acceptorId),
+      signingKeyId: "current",
+      alpn: "cmux/mobile/1",
+      scope: "cmux.mobile.attach",
+      issuedAt: NOW,
+      notBefore: NOW,
+      expiresAt: new Date(NOW.getTime() + 7 * 24 * 60 * 60 * 1_000),
+    }));
+
+    expect(exit._tag).toBe("Failure");
+    expect(String(exit)).toContain("pair_grant_same_device");
+  });
+
+  dbTest("fails attestation finalization when revocation commits during signing", async () => {
+    type FinalizeEndpointAttestation = (input: {
+      readonly userId: string;
+      readonly bindingId: string;
+      readonly deviceId: string;
+      readonly endpointId: string;
+      readonly identityGeneration: number;
+      readonly platform: "mac" | "ios";
+    }) => Effect.Effect<void, unknown>;
+    const repositoryWithFinalizer = requiredRepository() as unknown as {
+      readonly finalizeEndpointAttestation?: FinalizeEndpointAttestation;
+    };
+    expect(typeof repositoryWithFinalizer.finalizeEndpointAttestation).toBe("function");
+    if (!repositoryWithFinalizer.finalizeEndpointAttestation) return;
+
+    const userId = "user-attestation-race";
+    const bindingId = await insertBinding({
+      userId,
+      platform: "ios",
+      endpointId: "56".repeat(32),
+    });
+    const peer = await pairPeer(bindingId);
+    let finalization: ReturnType<typeof Effect.runPromiseExit> | undefined;
+    await requiredSql().begin(async (revocationSql) => {
+      await revocationSql`
+        select pg_advisory_xact_lock(hashtextextended(${`iroh:binding:${userId}`}, 0))
+      `;
+      finalization = Effect.runPromiseExit(repositoryWithFinalizer.finalizeEndpointAttestation!({
+        userId,
+        bindingId,
+        deviceId: peer.deviceId,
+        endpointId: peer.endpointId,
+        identityGeneration: peer.identityGeneration,
+        platform: peer.platform,
+      }));
+      await waitForAdvisoryLockWaiter();
+      await revocationSql`
+        update iroh_endpoint_bindings
+        set revoked_at = ${NOW}, revoked_reason = 'user_requested'
+        where id = ${bindingId}
+      `;
+    });
+
+    if (!finalization) throw new Error("attestation finalization was not started");
+    const exit = await finalization;
+    expect(exit._tag).toBe("Failure");
+    expect(String(exit)).toContain("IrohNotFoundError");
   });
 
   dbTest("serializes relay quota reservations before provider work", async () => {
@@ -518,7 +642,7 @@ describe("Iroh trust broker database behavior", () => {
     expect(retentionState?.untouchedUpdatedAt.getTime()).toBe(untouchedBefore?.updatedAt.getTime());
   });
 
-  dbTest("retention skips locked hint rows and bounds each indexed batch", async () => {
+  dbTest("retention skips locked hint rows and drains multiple indexed batches", async () => {
     const lockedId = await insertBinding({
       userId: "user-retention-lock",
       endpointId: "84".repeat(32),
@@ -562,7 +686,7 @@ describe("Iroh trust broker database behavior", () => {
         md5('nonce-a-' || value::text) || md5('nonce-b-' || value::text),
         ${new Date(NOW.getTime() - 3 * 24 * 60 * 60 * 1_000)},
         ${new Date(NOW.getTime() - 2 * 24 * 60 * 60 * 1_000)}
-      from generate_series(1, ${IROH_RETENTION_BATCH_SIZE + 1}) as values(value)
+      from generate_series(1, ${IROH_RETENTION_BATCH_SIZE * 2 + 1}) as values(value)
     `;
     await Effect.runPromise(requiredRepository().pruneExpiredStateGlobally({ now: NOW }));
     const [{ remaining }] = await requiredSql()<Array<{ remaining: string }>>`
@@ -570,7 +694,7 @@ describe("Iroh trust broker database behavior", () => {
       from iroh_registration_challenges
       where user_id = 'user-retention-batch'
     `;
-    expect(remaining).toBe("1");
+    expect(remaining).toBe("0");
 
     await requiredSql()`
       insert into iroh_registration_challenges (
@@ -596,6 +720,105 @@ describe("Iroh trust broker database behavior", () => {
       where user_id = 'user-retention-scoped'
     `;
     expect(scopedRemaining).toBe("1");
+  });
+
+  dbTest("global retention reports backlog when its row budget is exhausted", async () => {
+    await requiredSql()`
+      insert into iroh_registration_challenges (
+        user_id, device_uuid, app_instance_id, tag, endpoint_id,
+        identity_generation, payload_sha256, nonce_hash, created_at, expires_at
+      )
+      select
+        'user-retention-budget', gen_random_uuid(), gen_random_uuid(), 'stable',
+        repeat('88', 32), 1,
+        md5('budget-payload-a-' || value::text) || md5('budget-payload-b-' || value::text),
+        md5('budget-nonce-a-' || value::text) || md5('budget-nonce-b-' || value::text),
+        ${new Date(NOW.getTime() - 3 * 24 * 60 * 60 * 1_000)},
+        ${new Date(NOW.getTime() - 2 * 24 * 60 * 60 * 1_000)}
+      from generate_series(1, ${IROH_RETENTION_BATCH_SIZE + 1}) as values(value)
+    `;
+    const cleanupInput = {
+      now: NOW,
+      maxRows: IROH_RETENTION_BATCH_SIZE,
+      maxDurationMs: 30_000,
+    };
+    const result = await Effect.runPromise(
+      requiredRepository().pruneExpiredStateGlobally(cleanupInput),
+    ) as unknown as {
+      rowsProcessed: number;
+      backlog: boolean;
+      budgetExhausted: "rows" | "time" | null;
+      byCategory: { expiredChallenges: number };
+    };
+
+    expect(result).toMatchObject({
+      rowsProcessed: IROH_RETENTION_BATCH_SIZE,
+      backlog: true,
+      budgetExhausted: "rows",
+      byCategory: { expiredChallenges: IROH_RETENTION_BATCH_SIZE },
+    });
+    const [{ remaining }] = await requiredSql()<Array<{ remaining: string }>>`
+      select count(*)::text as remaining
+      from iroh_registration_challenges
+      where user_id = 'user-retention-budget'
+    `;
+    expect(remaining).toBe("1");
+  });
+
+  dbTest("retention and cascade lookups use their dedicated indexes", async () => {
+    const userId = "user-retention-index-plan";
+    const initiatorId = await insertBinding({
+      userId,
+      platform: "ios",
+      endpointId: "89".repeat(32),
+    });
+    const acceptorId = await insertBinding({
+      userId,
+      platform: "mac",
+      endpointId: "8a".repeat(32),
+    });
+    await requiredSql()`
+      insert into iroh_pair_grant_issuances (
+        user_id, jti, initiator_binding_id, acceptor_binding_id, signing_key_id,
+        alpn, scope, issued_at, not_before, expires_at
+      ) values (
+        ${userId}, ${randomUUID()}, ${initiatorId}, ${acceptorId}, 'current',
+        'cmux/mobile/1', 'cmux.mobile.attach', ${NOW}, ${NOW}, ${new Date(NOW.getTime() + 1_000)}
+      )
+    `;
+    await requiredSql()`
+      update iroh_endpoint_bindings
+      set revoked_at = ${new Date(NOW.getTime() - 31 * 24 * 60 * 60 * 1_000)}
+      where id = ${initiatorId}
+    `;
+
+    await requiredSql().begin(async (planSql) => {
+      await planSql`set local enable_seqscan = off`;
+      const initiatorPlan = await planSql`
+        explain (format json)
+        select id
+        from iroh_pair_grant_issuances
+        where initiator_binding_id = ${initiatorId}
+      `;
+      const fullUserPlan = await planSql`
+        explain (format json)
+        select id
+        from iroh_endpoint_bindings
+        where user_id = ${userId}
+      `;
+      const revokedCleanupPlan = await planSql`
+        explain (format json)
+        select id
+        from iroh_endpoint_bindings
+        where user_id = ${userId}
+          and revoked_at < ${NOW}
+        order by revoked_at, id
+      `;
+
+      expect(JSON.stringify(initiatorPlan)).toContain("iroh_pair_grant_issuances_initiator_idx");
+      expect(JSON.stringify(fullUserPlan)).toContain("iroh_endpoint_bindings_user_idx");
+      expect(JSON.stringify(revokedCleanupPlan)).toContain("iroh_endpoint_bindings_user_revoked_idx");
+    });
   });
 
   dbTest("binding deletion cascades grant and relay audit rows", async () => {
@@ -627,6 +850,7 @@ describe("Iroh trust broker database behavior", () => {
 
 async function insertBinding(input: {
   readonly userId: string;
+  readonly deviceUuid?: string;
   readonly appInstanceId?: string;
   readonly endpointId: string;
   readonly platform?: "mac" | "ios";
@@ -638,7 +862,7 @@ async function insertBinding(input: {
       identity_generation, pairing_enabled, capabilities, path_hints,
       path_hints_next_expiry
     ) values (
-      ${input.userId}, ${randomUUID()}, ${input.appInstanceId ?? randomUUID()}, 'stable',
+      ${input.userId}, ${input.deviceUuid ?? randomUUID()}, ${input.appInstanceId ?? randomUUID()}, 'stable',
       ${input.platform ?? "mac"}, ${input.endpointId}, 1, true, '[]'::jsonb,
       ${requiredSql().json((input.pathHints ?? []) as never)},
       ${earliestStoredHintExpiry(input.pathHints ?? [])}

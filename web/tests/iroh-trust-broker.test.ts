@@ -209,6 +209,29 @@ describe("Iroh discovery and grants", () => {
     expect(raced.repository.pairGrantAudits).toHaveLength(0);
   });
 
+  test("pair grants require two distinct physical devices", async () => {
+    const fixture = makeFixture();
+    const deviceUuid = randomUUID();
+    const iosInitiator = binding({
+      userId: USER_A,
+      deviceUuid,
+      platform: "ios",
+    });
+    const macAcceptor = binding({
+      userId: USER_A,
+      deviceUuid,
+      platform: "mac",
+      pairingEnabled: true,
+    });
+    fixture.repository.bindings.push(iosInitiator, macAcceptor);
+
+    await expectEffectFailure(fixture.broker.issuePairGrant(USER_A, {
+      initiatorBindingId: iosInitiator.id,
+      acceptorBindingId: macAcceptor.id,
+    }, NOW), "IrohForbiddenError");
+    expect(fixture.repository.pairGrantAudits).toHaveLength(0);
+  });
+
   test("issues a short-lived opaque same-account attestation only for an owned active binding", async () => {
     const fixture = makeFixture();
     const active = binding({ userId: USER_A, platform: "ios", identityGeneration: 4 });
@@ -244,6 +267,19 @@ describe("Iroh discovery and grants", () => {
       bindingId: active.id,
     }, NOW), "IrohNotFoundError");
     active.revokedAt = NOW;
+    await expectEffectFailure(fixture.broker.issueEndpointAttestation(USER_A, {
+      bindingId: active.id,
+    }, NOW), "IrohNotFoundError");
+  });
+
+  test("does not return an attestation when its exact binding is revoked during signing", async () => {
+    const fixture = makeFixture();
+    const active = binding({ userId: USER_A, platform: "ios" });
+    fixture.repository.bindings.push(active);
+    fixture.repository.beforeFinalizeEndpointAttestation = () => {
+      active.revokedAt = NOW;
+    };
+
     await expectEffectFailure(fixture.broker.issueEndpointAttestation(USER_A, {
       bindingId: active.id,
     }, NOW), "IrohNotFoundError");
@@ -350,6 +386,7 @@ class MemoryRepository implements IrohRepositoryShape {
   }> = [];
   private lanGenerations = new Map<string, number>();
   beforeRecordPairGrant: (() => void) | undefined;
+  beforeFinalizeEndpointAttestation: (() => void) | undefined;
 
   issueChallenge(input: Parameters<IrohRepositoryShape["issueChallenge"]>[0]) {
     const challenge: IrohChallengeRecord = {
@@ -480,6 +517,31 @@ class MemoryRepository implements IrohRepositoryShape {
       return Effect.fail(new IrohForbiddenError({ code: "target_not_pairable" }));
     }
     this.pairGrantAudits.push(input);
+    return Effect.void;
+  }
+
+  finalizeEndpointAttestation(input: {
+    readonly userId: string;
+    readonly bindingId: string;
+    readonly deviceId: string;
+    readonly endpointId: string;
+    readonly identityGeneration: number;
+    readonly platform: "mac" | "ios";
+  }) {
+    this.beforeFinalizeEndpointAttestation?.();
+    const active = this.bindings.find((row) =>
+      row.id === input.bindingId &&
+      row.userId === input.userId &&
+      !row.revokedAt);
+    if (!active) return Effect.fail(new IrohNotFoundError({ resource: "binding" }));
+    if (
+      active.deviceUuid !== input.deviceId ||
+      active.endpointId !== input.endpointId ||
+      active.identityGeneration !== input.identityGeneration ||
+      active.platform !== input.platform
+    ) {
+      return Effect.fail(new IrohConflictError({ code: "binding_changed_during_attestation" }));
+    }
     return Effect.void;
   }
 

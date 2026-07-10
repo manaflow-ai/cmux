@@ -12,6 +12,17 @@ const requiredEnv = {
   NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY: "stack-public",
 };
 
+const requiredIrohProductionEnv = {
+  CMUX_IROH_LAN_DISCOVERY_SECRET_B64: Buffer.alloc(32, 0x11).toString("base64"),
+  CMUX_IROH_ACCOUNT_SUBJECT_SECRET_B64: Buffer.alloc(32, 0x22).toString("base64"),
+  CMUX_IROH_GRANT_SIGNING_KEY_P8: `-----BEGIN PRIVATE KEY-----\n${"A".repeat(64)}\n-----END PRIVATE KEY-----`,
+  CMUX_IROH_GRANT_SIGNING_KID: "current",
+  CMUX_IROH_GRANT_VERIFICATION_KEYS_JSON: "{}",
+  CMUX_IROH_MINT_URL: "https://iroh-minter.example.com/api/relay-token",
+  CMUX_IROH_MINT_HMAC_SECRET_B64: Buffer.alloc(32, 0x33).toString("base64"),
+  CMUX_IROH_RATE_LIMIT_ID: "iroh-rule",
+};
+
 describe("client config env validation", () => {
   test("allows local builds with VERCEL set but no deployment environment", () => {
     const result = importEnv({
@@ -41,7 +52,7 @@ describe("client config env validation", () => {
       VERCEL: "1",
       VERCEL_ENV: "production",
       CMUX_CLIENT_CONFIG_RATE_LIMIT_ID: "client-config-rule",
-      CMUX_IROH_RATE_LIMIT_ID: "iroh-rule",
+      ...requiredIrohProductionEnv,
     });
 
     expect(result.exitCode).toBe(0);
@@ -57,6 +68,20 @@ describe("client config env validation", () => {
 
     expect(result.exitCode).not.toBe(0);
     expect(result.stderr).toContain("CMUX_IROH_RATE_LIMIT_ID is required");
+  });
+
+  test("requires the complete Iroh trust-broker configuration in production", () => {
+    const result = importEnv({
+      ...requiredEnv,
+      VERCEL: "1",
+      VERCEL_ENV: "production",
+      CMUX_CLIENT_CONFIG_RATE_LIMIT_ID: "client-config-rule",
+      CMUX_IROH_RATE_LIMIT_ID: "iroh-rule",
+    });
+
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain("CMUX_IROH_GRANT_SIGNING_KEY_P8 is required");
+    expect(result.stderr).toContain("CMUX_IROH_MINT_HMAC_SECRET_B64 is required");
   });
 });
 

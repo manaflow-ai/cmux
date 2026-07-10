@@ -444,6 +444,7 @@ mod tests {
     use super::*;
 
     const TEST_HMAC_SECRET: [u8; 32] = [0x42; 32];
+    const PREVIOUS_HMAC_SECRET: [u8; 32] = [0x41; 32];
 
     #[tokio::test]
     async fn mints_lowercase_relay_only_rcan_for_the_exact_audience() {
@@ -553,6 +554,27 @@ mod tests {
         assert_eq!(
             handle_request(substituted, &config, now).await.status(),
             StatusCode::UNAUTHORIZED
+        );
+    }
+
+    #[tokio::test]
+    async fn accepts_the_previous_hmac_secret_only_during_rotation_overlap() {
+        let mut config = test_config();
+        config.hmac_previous_secret = Some(Zeroizing::new(PREVIOUS_HMAC_SECRET.to_vec()));
+        let now = SystemTime::now();
+        let timestamp = unix_seconds(now).expect("test clock is valid");
+        let body = valid_body(&test_endpoint().to_string());
+        let request = signed_request_with_secret(
+            Method::POST,
+            MINT_PATH,
+            timestamp,
+            body,
+            &PREVIOUS_HMAC_SECRET,
+        );
+
+        assert_eq!(
+            handle_request(request, &config, now).await.status(),
+            StatusCode::OK
         );
     }
 
@@ -760,21 +782,37 @@ mod tests {
         timestamp: u64,
         body: String,
     ) -> Request<Full<Bytes>> {
+        signed_request_with_secret(method, path, timestamp, body, &TEST_HMAC_SECRET)
+    }
+
+    fn signed_request_with_secret(
+        method: Method,
+        path: &str,
+        timestamp: u64,
+        body: String,
+        secret: &[u8],
+    ) -> Request<Full<Bytes>> {
         Request::builder()
             .method(method)
             .uri(path)
             .header(CONTENT_TYPE, "application/json")
             .header(&TIMESTAMP_HEADER, timestamp.to_string())
-            .header(&SIGNATURE_HEADER, sign_request(timestamp, body.as_bytes()))
+            .header(
+                &SIGNATURE_HEADER,
+                sign_request_with_secret(secret, timestamp, body.as_bytes()),
+            )
             .body(Full::new(Bytes::from(body)))
             .expect("test request is valid")
     }
 
     fn sign_request(timestamp: u64, body: &[u8]) -> String {
+        sign_request_with_secret(&TEST_HMAC_SECRET, timestamp, body)
+    }
+
+    fn sign_request_with_secret(secret: &[u8], timestamp: u64, body: &[u8]) -> String {
         let body_hash = hex::encode(Sha256::digest(body));
         let transcript = format!("POST\n{MINT_PATH}\n{timestamp}\n{body_hash}");
-        let mut mac =
-            HmacSha256::new_from_slice(&TEST_HMAC_SECRET).expect("test HMAC key length is valid");
+        let mut mac = HmacSha256::new_from_slice(secret).expect("test HMAC key length is valid");
         mac.update(transcript.as_bytes());
         URL_SAFE_NO_PAD.encode(mac.finalize().into_bytes())
     }

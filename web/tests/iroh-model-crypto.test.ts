@@ -224,6 +224,24 @@ describe("Iroh pair-grant verification", () => {
     })).toThrow();
   });
 
+  test("rejects grants whose peers claim the same physical device", () => {
+    const sameDeviceClaims = {
+      ...claims,
+      acceptor: { ...acceptor, deviceId: initiator.deviceId },
+    };
+    const token = manuallySignedJws(
+      { alg: "EdDSA", typ: IROH_PAIR_GRANT_TYP, kid: "current" },
+      sameDeviceClaims,
+      current.privateKey,
+    );
+
+    expect(() => verifyPairGrant(token, keys, {
+      initiator,
+      acceptor: sameDeviceClaims.acceptor,
+      nowSeconds: claims.iat,
+    })).toThrow();
+  });
+
   test("rejects identity or team claims outside the fixed grant contract", () => {
     const token = manuallySignedJws(
       { alg: "EdDSA", typ: IROH_PAIR_GRANT_TYP, kid: "current" },
