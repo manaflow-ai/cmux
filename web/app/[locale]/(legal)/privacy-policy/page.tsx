@@ -54,7 +54,10 @@ export default function PrivacyPolicyPage() {
       <ul>
         <li>Crash reports and error diagnostics (via Sentry)</li>
         <li>Operating system version and application version</li>
-        <li>Anonymous usage patterns</li>
+        <li>
+          Product analytics and feature usage events for the Site and
+          Application
+        </li>
         <li>
           Device, account, and pairing metadata needed to connect your signed-in
           devices
@@ -70,15 +73,33 @@ export default function PrivacyPolicyPage() {
       </p>
       <p>
         The Site uses PostHog for analytics, including page views and navigation
-        patterns. PostHog stores a cookie to distinguish unique visitors. This
-        analytics is anonymous and collects no personally identifiable
-        information, with one exception: if you join a platform waitlist, the
-        email address you submit is recorded in PostHog so we can notify you when
-        that platform is available. If you submit the Enterprise contact form,
-        we record the company and contact details you provide in PostHog and
-        send them to our internal Slack workspace and founders email inbox so we
-        can respond. You can opt out of analytics by using a browser extension
-        that blocks tracking scripts.
+        patterns. PostHog stores a cookie to distinguish unique visitors. If you
+        join a platform waitlist, the email address you submit is recorded in
+        PostHog so we can notify you when that platform is available. If you
+        submit the Enterprise contact form, we record the company and contact
+        details you provide in PostHog and send them to our internal Slack
+        workspace and founders email inbox so we can respond. You can opt out of
+        website analytics by using a browser extension that blocks tracking
+        scripts.
+      </p>
+      <p>
+        The iPhone and iPad Application sends product analytics events to our
+        server-side PostHog proxy. These events help us diagnose reliability,
+        understand feature usage, and improve the Application. They include app
+        launch and session events, sign-in status, pairing attempts and results,
+        connection recovery, workspace opens, terminal input byte and line
+        counts, and notification opt-in or notification-deep-link results. The
+        mobile analytics pipeline does not send terminal command text, terminal
+        output, selected photos, or speech transcripts to PostHog. Before sign
+        in, events use a random per-install client identifier. After sign in,
+        our server attaches your Stack Auth account identifier to events before
+        forwarding them to PostHog. We retain mobile analytics only as long as
+        needed for product analytics and debugging. Where the Application exposes
+        a Send anonymous telemetry preference, turning it off stops analytics
+        events from being buffered or sent. You may also contact us at{" "}
+        <a href="mailto:founders@manaflow.com">founders@manaflow.com</a> to
+        request deletion of analytics associated with your account or to disable
+        account-linked analytics for your account.
       </p>
 
       <h3>2. Information you provide directly</h3>
@@ -153,10 +174,11 @@ export default function PrivacyPolicyPage() {
           engine. Runs entirely locally on your device.
         </li>
         <li>
-          <strong>PostHog</strong> &mdash; website analytics. Collects anonymous
-          page view data, navigation patterns, and browser metadata via a
-          first-party proxy. If you join a platform waitlist, the email address
-          you submit is also recorded in PostHog so we can notify you.
+          <strong>PostHog</strong> &mdash; website and mobile product analytics.
+          Collects page view data, navigation patterns, browser metadata, mobile
+          app feature events, and account-linked mobile analytics after sign-in
+          via a first-party proxy. If you join a platform waitlist, the email
+          address you submit is also recorded in PostHog so we can notify you.
         </li>
         <li>
           <strong>Resend</strong> &mdash; transactional email delivery. Used to

@@ -32,6 +32,9 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(appStorePricingUnavailableURL(request.nextUrl), 302);
   }
 
+  // Keep Stack deferred until after the App Store distribution gate. lib/stack
+  // eagerly initializes stackServerApp, and this route must not do auth work for
+  // App Store billing-management requests.
   const { getStackServerApp, isStackConfigured } = await import("../../../lib/stack");
   if (!isStackConfigured() || !isStripeBillingConfigured()) {
     return pricingRedirect(request, "unavailable");

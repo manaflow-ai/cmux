@@ -10,9 +10,10 @@ Reviewer access:
 
 - Use the demo account entered in App Store Connect Review Information. Do not
   put demo credentials in this repository.
-- After sign-in, use the pairing flow shown in the app. Pairing can be tested
-  with a prepared review Mac, or with a manual pairing code supplied in the
-  Review Information notes for the submitted build.
+- After sign-in, use the Add Computer flow shown in the app. Pairing can be
+  tested with a prepared review Mac by entering the exact Name, Host, and Port
+  values supplied in the Review Information notes, or by scanning a QR code whose
+  route is reachable from Apple review networks.
 - Follow `reviewer-setup.md` before submission so the reviewer can test without
   owning a Mac.
 - The app may request Local Network permission during pairing so it can discover

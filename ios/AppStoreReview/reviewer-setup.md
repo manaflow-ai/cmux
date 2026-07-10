@@ -18,11 +18,22 @@ The prepared Mac must:
 - Expose a safe workspace named `App Review`.
 - Keep a terminal ready for harmless commands such as `echo app-review-ok`,
   `pwd`, and `date`.
-- Have any required pairing route, relay, or tunnel live before submission.
+- Have a reachable pairing route live before submission. Use either a tested
+  external host/port route, or provide Tailscale install/sign-in instructions
+  and credentials in App Store Connect so the reviewer can join the same
+  tailnet as the prepared Mac.
 
-Do not rely on LAN-only discovery for review. If the pairing code resolves only
-to a private local-network address, the reviewer will not be able to verify the
-app from Apple.
+Do not rely on LAN-only discovery or a generated route that resolves only to a
+private local-network address. The reviewer must receive exact field values for
+the iOS Add Computer form:
+
+- Name: `App Review Mac`
+- Host: an externally reachable hostname, or a Tailscale MagicDNS/100.x address
+  after the reviewer signs in to the supplied tailnet
+- Port: the prepared Mac's cmux mobile host port
+
+Before submission, verify those exact values from a clean network outside
+Manaflow's office and outside the prepared Mac's LAN.
 
 ## App Store Connect Review Information
 
@@ -49,8 +60,19 @@ Pairing:
 1. Launch cmux.
 2. Sign in with the demo account.
 3. Tap Add Computer.
-4. Choose manual pairing.
-5. Enter this pairing code: <LIVE_PAIRING_CODE_FOR_THIS_BUILD>
+4. If Tailscale is required, install Tailscale from the App Store and sign in
+   with the Tailscale credentials supplied here: <TAILSCALE_REVIEW_ACCESS>.
+5. In the Add Computer form, enter:
+   - Name: App Review Mac
+   - Host: <EXTERNALLY_REACHABLE_HOST_OR_TAILSCALE_MAGICDNS>
+   - Port: <CMUX_MOBILE_HOST_PORT>
+6. Tap Pair.
+
+QR alternative:
+- If the prepared Mac shows a QR code whose route is reachable from Apple review
+  networks, tap Scan QR Code instead of typing Host and Port. Do not use a QR
+  route that only resolves on a private LAN unless Tailscale access above is
+  supplied and verified.
 
 Expected result:
 - A computer named "App Review Mac" appears.
@@ -80,10 +102,11 @@ Support during review:
 Before submitting:
 
 1. Sign in to the iOS App Store build with the review account.
-2. Pair using the exact code that will be pasted into App Store Connect.
+2. Pair using the exact host, port, and Tailscale instructions that will be
+   pasted into App Store Connect.
 3. Open the `App Review` workspace.
 4. Send `echo app-review-ok`.
 5. Confirm the prepared Mac remains reachable from a network outside the office
-   LAN.
+   LAN, and outside the Mac's tailnet unless Tailscale access is supplied.
 6. Confirm the Privacy Policy URL in App Store Connect is
    `https://cmux.com/privacy-policy`.
