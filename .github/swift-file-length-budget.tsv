@@ -83,7 +83,7 @@
 1197	cmuxTests/VMDefaultCloudCommandTests.swift
 1166	Sources/VaultAgentProcessScanner.swift
 1147	cmuxTests/PiVaultAgentPersistenceTests.swift
-1122	Sources/FileExplorerStore.swift
+1126	Sources/FileExplorerStore.swift
 1121	cmuxTests/AgentHibernationTests.swift
 1093	cmuxUITests/BonsplitTabDragUITests.swift
 1087	Packages/macOS/CmuxCommandPalette/Sources/CmuxCommandPalette/Search/CommandPaletteFuzzyMatcher.swift
