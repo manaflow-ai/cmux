@@ -11,6 +11,55 @@ import CmuxTerminal
 extension TerminalWindowPortalLifecycleTests {
 
     @MainActor
+    func testDeferredPortalBindRefreshesAfterRepresentableTurn() throws {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 340),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer {
+            NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
+            window.orderOut(nil)
+        }
+        realizeWindowLayout(window)
+        let contentView = try XCTUnwrap(window.contentView)
+        let anchor = NSView(frame: NSRect(x: 20, y: 20, width: 360, height: 240))
+        contentView.addSubview(anchor)
+
+        let portal = WindowTerminalPortal(window: window)
+        let surface = TerminalSurface(
+            tabId: UUID(), context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil, workingDirectory: nil
+        )
+        portal.bind(hostedView: surface.hostedView, to: anchor, visibleInUI: false)
+        drainMainQueue()
+        realizeWindowLayout(window)
+
+        surface.resetDebugForceRefreshCount()
+        portal.bind(
+            hostedView: surface.hostedView,
+            to: anchor,
+            visibleInUI: true,
+            deferLayoutSynchronization: true
+        )
+        portal.synchronizeHostedViewForAnchor(anchor, syncLayout: false)
+
+        XCTAssertEqual(
+            surface.debugForceRefreshCount(),
+            0,
+            "A representable-owned bind must not force display while its view update is active"
+        )
+
+        drainMainQueue()
+        XCTAssertEqual(
+            surface.debugForceRefreshCount(),
+            1,
+            "The portal owner should refresh once after binding and geometry settle"
+        )
+    }
+
+    @MainActor
     func testPortalSkipsSynchronousRefreshForHiddenSurfaces() throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 520, height: 340),
