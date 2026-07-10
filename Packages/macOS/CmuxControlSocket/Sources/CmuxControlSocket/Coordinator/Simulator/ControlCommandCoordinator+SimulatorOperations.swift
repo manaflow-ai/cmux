@@ -183,7 +183,9 @@ extension ControlCommandCoordinator {
     private nonisolated func simulatorTouch(
         _ fields: [String: JSONValue], phase fallbackPhase: String? = nil
     ) -> ControlSimulatorTouch? {
-        let phase = string(fields, "phase") ?? string(fields, "type") ?? fallbackPhase
+        let phase = (
+            string(fields, "phase") ?? string(fields, "type") ?? fallbackPhase
+        )?.lowercased()
         guard let phase, ["begin", "began", "move", "moved", "end", "ended", "cancel", "cancelled"].contains(phase),
               let x = simulatorDouble(fields, "x") ?? simulatorDouble(fields, "x1"),
               let y = simulatorDouble(fields, "y") ?? simulatorDouble(fields, "y1"),
