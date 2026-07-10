@@ -63,7 +63,7 @@ fn serves_only_manifest_allowlisted_files() {
             .expect("secure root permissions");
     }
     let token = "0123456789abcdef";
-    let group = "1234567890-group";
+    let group = "short-group";
     let patch_path = root.join("sample.patch");
     let generated_path = root.join("generated.html");
     std::fs::write(&patch_path, b"diff --git a/a b/a\n").expect("write patch");

@@ -683,7 +683,7 @@ async fn authorize_repo_for_token(state: &AppState, token: &str, repo: &str) -> 
 }
 
 async fn authorize_branch_change(state: &AppState, token: &str, group: &str, repo: &str) -> bool {
-    if !valid_token(token) || !valid_token(group) {
+    if !valid_token(token) || !valid_group_id(group) {
         return false;
     }
     let Ok(canonical_repo) = tokio::fs::canonicalize(repo).await else {
@@ -699,6 +699,13 @@ async fn authorize_branch_change(state: &AppState, token: &str, group: &str, rep
     session.token == token
         && session.group_id == group
         && session_allows_repo(&session, &canonical_repo).await
+}
+
+fn valid_group_id(value: &str) -> bool {
+    (1..=64).contains(&value.chars().count())
+        && value
+            .chars()
+            .all(|character| character.is_alphanumeric() || character == '-')
 }
 
 async fn read_branch_session(path: &Path) -> Result<BranchSessionAuthorization, ()> {
@@ -878,7 +885,7 @@ mod tests {
     use crate::PROTOCOL_VERSION;
     use crate::protocol::{DiffCommand, DiffRequest, DiffResult};
 
-    use super::handle_protocol_request;
+    use super::{handle_protocol_request, valid_group_id};
 
     #[tokio::test]
     async fn handshake_reports_transport_capabilities() {
@@ -904,5 +911,14 @@ mod tests {
                 .capabilities
                 .contains(&"transport.websocket".to_owned())
         );
+    }
+
+    #[test]
+    fn branch_group_ids_match_cli_validation() {
+        assert!(valid_group_id("a"));
+        assert!(valid_group_id(&"a".repeat(64)));
+        assert!(!valid_group_id(""));
+        assert!(!valid_group_id(&"a".repeat(65)));
+        assert!(!valid_group_id("../group"));
     }
 }

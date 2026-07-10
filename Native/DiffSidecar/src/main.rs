@@ -89,13 +89,18 @@ fn enforce_benchmark_budget(report: &benchmark::BenchmarkReport) -> Result<(), S
             report.manifest_decode_p95_micros
         ));
     }
-    if let Some(minimum) = environment_number::<f64>("CMUX_DIFF_BENCH_MIN_READ_MIBPS")?
-        && report.sequential_read_mib_per_second < minimum
-    {
-        return Err(format!(
-            "sequential read throughput was {:.1} MiB/s, budget is {minimum:.1} MiB/s",
-            report.sequential_read_mib_per_second
-        ));
+    if let Some(minimum) = environment_number::<f64>("CMUX_DIFF_BENCH_MIN_READ_MIBPS")? {
+        if !minimum.is_finite() || minimum < 0.0 {
+            return Err(
+                "CMUX_DIFF_BENCH_MIN_READ_MIBPS must be finite and non-negative".to_owned(),
+            );
+        }
+        if report.sequential_read_mib_per_second < minimum {
+            return Err(format!(
+                "sequential read throughput was {:.1} MiB/s, budget is {minimum:.1} MiB/s",
+                report.sequential_read_mib_per_second
+            ));
+        }
     }
     Ok(())
 }

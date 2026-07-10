@@ -4,6 +4,12 @@ import { streamPatch, type StreamMetrics } from "../src/diff-stream";
 
 const fileCount = Number(process.env.CMUX_DIFF_BENCH_FILES ?? 2000);
 const iterations = Number(process.env.CMUX_DIFF_BENCH_ITERATIONS ?? 5);
+if (!Number.isSafeInteger(fileCount) || fileCount <= 0) {
+  throw new Error("CMUX_DIFF_BENCH_FILES must be a positive integer");
+}
+if (!Number.isSafeInteger(iterations) || iterations <= 0) {
+  throw new Error("CMUX_DIFF_BENCH_ITERATIONS must be a positive integer");
+}
 const patch = makePatch(fileCount);
 const originalFetch = globalThis.fetch;
 const originalDocument = globalThis.document;
@@ -68,7 +74,8 @@ await Bun.write(Bun.stdout, `${JSON.stringify(report, null, 2)}\n`);
 process.exit(0);
 
 function percentile(values: number[], target: number): number {
-  return values[Math.floor(((values.length - 1) * target) / 100)] ?? 0;
+  const rank = Math.ceil((values.length * target) / 100);
+  return values[Math.max(0, Math.min(values.length - 1, rank - 1))] ?? 0;
 }
 
 function makePatch(count: number): string {

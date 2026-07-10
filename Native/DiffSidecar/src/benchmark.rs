@@ -82,14 +82,26 @@ pub fn run(sample_bytes: usize, iterations: usize) -> Result<BenchmarkReport, St
 
 fn percentile(samples: &mut [Duration], percentile: usize) -> Duration {
     samples.sort_unstable();
-    let index = ((samples.len().saturating_sub(1)) * percentile) / 100;
+    let rank = samples.len().saturating_mul(percentile).div_ceil(100);
+    let index = rank.saturating_sub(1).min(samples.len() - 1);
     samples[index]
 }
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     #[test]
     fn zero_iterations_return_an_error() {
         assert!(super::run(1024, 0).is_err());
+    }
+
+    #[test]
+    fn percentile_uses_nearest_rank_for_small_samples() {
+        let mut samples = [1, 2, 3, 4, 5].map(Duration::from_millis);
+        assert_eq!(
+            super::percentile(&mut samples, 95),
+            Duration::from_millis(5)
+        );
     }
 }
