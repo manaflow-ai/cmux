@@ -8182,18 +8182,13 @@ final class Workspace: Identifiable, ObservableObject {
         return extensionBrowserPanel
     }
 
-    /// Open the markdown viewer for `filePath`, reusing an existing
-    /// `MarkdownPanel` in this workspace that already shows the same file.
-    /// Paths are compared after symlink resolution so `./README.md` and a
-    /// symlink pointing at the same file focus the same viewer.
-    /// Returns `nil` when no existing viewer matches and split creation
-    /// fails, so callers can fall back to the preferred editor / system opener.
-    @discardableResult
     /// Focus an existing browser tab already opened for `localFileURL`, or open
     /// one in a right-side split (mirroring `openOrFocusMarkdownSplit`). Matches
     /// on the stable `sourceLocalFileURL` set at construction, so the two
     /// dispatches of one cmd-click collapse into a single tab and a re-click
-    /// focuses the existing tab instead of duplicating it.
+    /// focuses the existing tab instead of duplicating it. Returns `nil` when no
+    /// existing viewer matches and split creation fails.
+    @discardableResult
     func openOrFocusBrowserSplit(
         from panelId: UUID,
         localFileURL: URL
@@ -8225,6 +8220,13 @@ final class Workspace: Identifiable, ObservableObject {
         )
     }
 
+    /// Open the markdown viewer for `filePath`, reusing an existing
+    /// `MarkdownPanel` in this workspace that already shows the same file.
+    /// Paths are compared after symlink resolution so `./README.md` and a
+    /// symlink pointing at the same file focus the same viewer.
+    /// Returns `nil` when no existing viewer matches and split creation
+    /// fails, so callers can fall back to the preferred editor / system opener.
+    @discardableResult
     func openOrFocusMarkdownSplit(
         from panelId: UUID,
         filePath: String
