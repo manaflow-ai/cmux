@@ -8,7 +8,6 @@
 
 use std::collections::{HashMap, VecDeque};
 use std::io::Write;
-use std::ops::Deref;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
 use std::sync::{Arc, Mutex};
@@ -42,7 +41,7 @@ use crate::pty_input::{
     PtyInputBytes, PtyInputDispatcher, PtyInputEnqueueResult, PtyInputEvent, PtyInputKind,
     PtyInputSender, PtyOperationDelivery, PtyOperationFailure,
 };
-use crate::session::{Session, SurfaceHandle, TreeView};
+use crate::session::{Session, SidebarPluginSurface, SurfaceHandle, TreeView, is_remote_timeout};
 use crate::ui::graphics::GraphicPlacement;
 use crate::ui::graphics_writer::GraphicsWriter;
 use crate::ui::input::{InputEvent, TextInput};
@@ -61,6 +60,7 @@ pub enum AppEvent {
     PtyOperationFailed(PtyOperationFailure),
     SessionMutationSettled(SessionMutationOutcome),
     RemoteTreeUpdated(Result<TreeView, String>),
+    SidebarPluginUpdated(SidebarPluginSurface),
 }
 
 #[derive(Default)]
@@ -116,6 +116,7 @@ pub enum SessionMutationOutcome {
         completion: Option<SessionCompletion>,
     },
     IdentityRefreshFailed(String),
+    MutationTimedOut(String),
     Failed(String),
     Canceled,
 }
@@ -159,6 +160,62 @@ impl Drop for RemoteRefreshClaim {
     }
 }
 
+struct SurfaceResizeClaim {
+    claims: Arc<Mutex<HashMap<SurfaceId, (u16, u16)>>>,
+    surface: SurfaceId,
+    desired: (u16, u16),
+}
+
+enum SurfaceResizeDecision {
+    Noop,
+    AlreadyClaimed,
+    NeedsQueue(SurfaceResizeClaim),
+}
+
+#[derive(Default)]
+struct SidebarPluginSyncState {
+    claimed: Option<((u16, u16), u64)>,
+    applied: Option<((u16, u16), u64)>,
+}
+
+struct SidebarPluginSyncClaim {
+    state: Arc<Mutex<SidebarPluginSyncState>>,
+    desired: ((u16, u16), u64),
+    applied: bool,
+}
+
+impl SidebarPluginSyncClaim {
+    fn mark_applied(&mut self) {
+        let mut state = self.state.lock().unwrap();
+        state.applied = Some(self.desired);
+        if state.claimed == Some(self.desired) {
+            state.claimed = None;
+        }
+        self.applied = true;
+    }
+}
+
+impl Drop for SidebarPluginSyncClaim {
+    fn drop(&mut self) {
+        if self.applied {
+            return;
+        }
+        let mut state = self.state.lock().unwrap();
+        if state.claimed == Some(self.desired) {
+            state.claimed = None;
+        }
+    }
+}
+
+impl Drop for SurfaceResizeClaim {
+    fn drop(&mut self) {
+        let mut claims = self.claims.lock().unwrap();
+        if claims.get(&self.surface) == Some(&self.desired) {
+            claims.remove(&self.surface);
+        }
+    }
+}
+
 /// Read access stays synchronous, while every UI-originated session mutation
 /// enters the same ordered worker as PTY input. Accepted keys, mouse releases,
 /// resizes, and closes therefore have one execution order without blocking the
@@ -172,6 +229,9 @@ pub struct OrderedSession {
     committed_mutation_generation: Arc<AtomicU64>,
     remote_refresh_queued: Arc<AtomicBool>,
     remote_background_dirty: Arc<AtomicBool>,
+    surface_resize_claims: Arc<Mutex<HashMap<SurfaceId, (u16, u16)>>>,
+    config_generation: Arc<AtomicU64>,
+    sidebar_plugin_sync: Arc<Mutex<SidebarPluginSyncState>>,
 }
 
 impl OrderedSession {
@@ -186,12 +246,66 @@ impl OrderedSession {
             committed_mutation_generation: Arc::new(AtomicU64::new(0)),
             remote_refresh_queued: Arc::new(AtomicBool::new(false)),
             remote_background_dirty: Arc::new(AtomicBool::new(false)),
+            surface_resize_claims: Arc::new(Mutex::new(HashMap::new())),
+            config_generation: Arc::new(AtomicU64::new(0)),
+            sidebar_plugin_sync: Arc::new(Mutex::new(SidebarPluginSyncState::default())),
         }
     }
 
     fn pending_mutation(&self) -> PendingSessionMutation {
         self.pending_mutations.fetch_add(1, Ordering::AcqRel);
         PendingSessionMutation { events: self.events.clone(), settled: false }
+    }
+
+    fn events(&self) -> cmux_tui_core::MuxEventReceiver {
+        self.inner.events()
+    }
+
+    fn tree(&self) -> TreeView {
+        self.inner.tree()
+    }
+
+    pub(crate) fn surface(&self, id: SurfaceId) -> Option<SurfaceHandle> {
+        self.inner.cached_surface(id)
+    }
+
+    fn has_surface(&self, id: SurfaceId) -> bool {
+        self.inner.has_surface(id)
+    }
+
+    fn forget_surface(&self, id: SurfaceId) {
+        self.inner.forget_surface(id);
+    }
+
+    fn invalidate_remote_tree(&self) {
+        self.inner.invalidate_remote_tree();
+    }
+
+    fn begin_shutdown(&self) {
+        self.inner.begin_shutdown();
+    }
+
+    fn attach_surface(&self, id: SurfaceId, size: Option<(u16, u16)>) {
+        if self.inner.cached_surface(id).is_some() {
+            return;
+        }
+        let session = self.inner.clone();
+        let pending = self.pending_mutation();
+        self.operations.enqueue_coalescing_mutation(
+            "attach surface",
+            ("attach surface", id),
+            self.remote,
+            move || {
+                if session.surface_sized(id, size).is_none() {
+                    pending.settle(SessionMutationOutcome::Failed(format!(
+                        "surface {id} is unavailable"
+                    )));
+                    anyhow::bail!("surface {id} is unavailable");
+                }
+                pending.settle(SessionMutationOutcome::Success { tree: None });
+                Ok(())
+            },
+        );
     }
 
     fn has_pending_mutations(&self) -> bool {
@@ -309,7 +423,12 @@ impl OrderedSession {
             let completion = match operation(session.clone()) {
                 Ok(completion) => completion,
                 Err(error) => {
-                    pending.settle(SessionMutationOutcome::Failed(error.to_string()));
+                    if remote && is_remote_timeout(&error) {
+                        session.invalidate_remote_tree();
+                        pending.settle(SessionMutationOutcome::MutationTimedOut(error.to_string()));
+                    } else {
+                        pending.settle(SessionMutationOutcome::Failed(error.to_string()));
+                    }
                     return Err(error);
                 }
             };
@@ -347,6 +466,7 @@ impl OrderedSession {
         cols: u16,
         rows: u16,
         reassert: bool,
+        claim: SurfaceResizeClaim,
     ) {
         let pending = self.pending_mutation();
         let committed_mutation_generation = self.committed_mutation_generation.clone();
@@ -355,12 +475,94 @@ impl OrderedSession {
             ("surface resize", surface_id),
             self.remote,
             move || {
+                let _claim = claim;
                 if reassert {
                     surface.reassert_size(cols, rows)?;
                 } else {
                     surface.resize(cols, rows)?;
                 }
                 committed_mutation_generation.fetch_add(1, Ordering::AcqRel);
+                pending.settle(SessionMutationOutcome::Success { tree: None });
+                Ok(())
+            },
+        );
+    }
+
+    fn surface_resize_decision(
+        &self,
+        surface_id: SurfaceId,
+        desired: (u16, u16),
+        surface_needs_resize: bool,
+    ) -> SurfaceResizeDecision {
+        {
+            let mut claims = self.surface_resize_claims.lock().unwrap();
+            if claims.get(&surface_id) == Some(&desired) {
+                return SurfaceResizeDecision::AlreadyClaimed;
+            }
+            if !claims.contains_key(&surface_id) && !surface_needs_resize {
+                return SurfaceResizeDecision::Noop;
+            }
+            claims.insert(surface_id, desired);
+        }
+        SurfaceResizeDecision::NeedsQueue(SurfaceResizeClaim {
+            claims: self.surface_resize_claims.clone(),
+            surface: surface_id,
+            desired,
+        })
+    }
+
+    fn apply_config(&self, config: Config) {
+        let session = self.inner.clone();
+        let pending = self.pending_mutation();
+        let committed_mutation_generation = self.committed_mutation_generation.clone();
+        let config_generation = self.config_generation.clone();
+        self.operations.enqueue_coalescing_mutation(
+            "apply config",
+            ("apply config", 0),
+            self.remote,
+            move || {
+                session.apply_config(&config);
+                config_generation.fetch_add(1, Ordering::AcqRel);
+                committed_mutation_generation.fetch_add(1, Ordering::AcqRel);
+                pending.settle(SessionMutationOutcome::Success { tree: None });
+                Ok(())
+            },
+        );
+    }
+
+    fn sidebar_plugin(&self, size: (u16, u16), relaunch: bool) {
+        let config_generation = self.config_generation.load(Ordering::Acquire);
+        let claim = if relaunch {
+            None
+        } else {
+            let desired = (size, config_generation);
+            let mut state = self.sidebar_plugin_sync.lock().unwrap();
+            if state.claimed == Some(desired) || state.applied == Some(desired) {
+                return;
+            }
+            state.claimed = Some(desired);
+            Some(SidebarPluginSyncClaim {
+                state: self.sidebar_plugin_sync.clone(),
+                desired,
+                applied: false,
+            })
+        };
+        let session = self.inner.clone();
+        let events = self.events.clone();
+        let pending = self.pending_mutation();
+        let committed_mutation_generation = self.committed_mutation_generation.clone();
+        self.operations.enqueue_coalescing_mutation(
+            "sync sidebar plugin",
+            ("sidebar plugin", 0),
+            self.remote,
+            move || {
+                let mut claim = claim;
+                let status = session.sidebar_plugin(size, relaunch);
+                let _ = events.send(AppEvent::SidebarPluginUpdated(status));
+                committed_mutation_generation.fetch_add(1, Ordering::AcqRel);
+                if let Some(claim) = &mut claim {
+                    claim.mark_applied();
+                }
                 pending.settle(SessionMutationOutcome::Success { tree: None });
                 Ok(())
             },
@@ -502,14 +704,6 @@ impl OrderedSession {
 
     pub fn move_workspace(&self, workspace: WorkspaceId, index: usize) {
         self.enqueue("move workspace", move |session| session.move_workspace(workspace, index));
-    }
-}
-
-impl Deref for OrderedSession {
-    type Target = Session;
-
-    fn deref(&self) -> &Self::Target {
-        &self.inner
     }
 }
 
@@ -843,6 +1037,7 @@ enum Drag {
     PtyMouse {
         surface: SurfaceId,
         reservation_id: u64,
+        release_bytes: PtyInputBytes,
         content: Rect,
         button: MouseButton,
         position: (u16, u16),
@@ -869,11 +1064,18 @@ struct PtyInputForwardResult {
     reservation_id: Option<u64>,
 }
 
+enum PtyMouseReleaseCapture {
+    Bytes(PtyInputBytes),
+    NotReported,
+    Failed,
+}
+
 pub struct App {
     pub session: OrderedSession,
     pub config: Config,
     pub chrome: ChromeTheme,
     pub tree: TreeView,
+    tab_locations: HashMap<SurfaceId, [usize; 4]>,
     pub render_states: HashMap<SurfaceId, RenderState>,
     pub graphics_writer: Option<GraphicsWriter>,
     pub graphics_supported: bool,
@@ -1167,6 +1369,7 @@ pub fn run(
         config,
         chrome,
         tree: TreeView::default(),
+        tab_locations: HashMap::new(),
         render_states: HashMap::new(),
         graphics_writer,
         graphics_supported,
@@ -1211,6 +1414,7 @@ pub fn run(
 
     let result = app.event_loop(&mut terminal, rx);
     app.cancel_pty_mouse_drag();
+    app.session.begin_shutdown();
     let _ = app.pty_input.shutdown(Duration::from_secs(3));
     if let Some(writer) = app.graphics_writer.as_mut() {
         writer.shutdown(Duration::from_millis(200));
@@ -1356,27 +1560,49 @@ impl App {
     }
 
     fn apply_mux_titles(&mut self) -> bool {
-        let mut titles = self.mux_titles.take();
+        let titles = self.mux_titles.take();
         if titles.is_empty() {
             return false;
         }
         let mut changed = false;
-        for tab in self
-            .tree
-            .workspaces
-            .iter_mut()
-            .flat_map(|workspace| workspace.screens.iter_mut())
-            .flat_map(|screen| screen.panes.iter_mut())
-            .flat_map(|pane| pane.tabs.iter_mut())
-        {
-            if let Some(title) = titles.remove(&tab.surface)
-                && tab.title != title
-            {
+        for (surface, title) in titles {
+            let Some([workspace, screen, pane, tab]) = self.tab_locations.get(&surface).copied()
+            else {
+                continue;
+            };
+            let Some(tab) = self
+                .tree
+                .workspaces
+                .get_mut(workspace)
+                .and_then(|workspace| workspace.screens.get_mut(screen))
+                .and_then(|screen| screen.panes.get_mut(pane))
+                .and_then(|pane| pane.tabs.get_mut(tab))
+            else {
+                continue;
+            };
+            if tab.title != title {
                 tab.title = title;
                 changed = true;
             }
         }
         changed
+    }
+
+    fn replace_tree(&mut self, tree: TreeView) {
+        self.tab_locations.clear();
+        for (workspace_index, workspace) in tree.workspaces.iter().enumerate() {
+            for (screen_index, screen) in workspace.screens.iter().enumerate() {
+                for (pane_index, pane) in screen.panes.iter().enumerate() {
+                    for (tab_index, tab) in pane.tabs.iter().enumerate() {
+                        self.tab_locations.insert(
+                            tab.surface,
+                            [workspace_index, screen_index, pane_index, tab_index],
+                        );
+                    }
+                }
+            }
+        }
+        self.tree = tree;
     }
 
     fn apply_session_completions_through(&mut self, authoritative_generation: u64) {
@@ -1487,7 +1713,7 @@ impl App {
     fn reload_config(&mut self) {
         let mut config = crate::config::load();
         config.apply_chrome_defaults(self.chrome);
-        self.session.apply_config(&config);
+        self.session.apply_config(config.clone());
         self.config = config;
     }
 
@@ -1519,7 +1745,7 @@ impl App {
         };
         self.content_area = area;
         self.sync_sidebar_plugin(false);
-        self.tree = self.session.tree();
+        self.replace_tree(self.session.tree());
         let layout = self
             .tree
             .active_screen()
@@ -1559,22 +1785,31 @@ impl App {
             // server-side resize, so no post-attach reflow artifacts).
             let size = Some((content.width, content.height));
             for tab in &pane.tabs {
-                if !self.session.has_surface(tab.surface)
-                    && !self.prepare_pty_input_before_mutation()
-                {
-                    return;
+                if !self.session.has_surface(tab.surface) {
+                    if self.prepare_pty_input_before_mutation() {
+                        self.session.attach_surface(tab.surface, size);
+                    }
+                    continue;
                 }
-                if let Some(surface) = self.session.surface_sized(tab.surface, size)
-                    && surface.resize_needed(content.width, content.height, false)
-                    && self.prepare_pty_input_before_mutation()
-                {
-                    self.enqueue_surface_resize(
-                        tab.surface,
-                        surface,
-                        content.width,
-                        content.height,
-                        false,
-                    );
+                if let Some(surface) = self.session.surface(tab.surface) {
+                    let needs = surface.resize_needed(content.width, content.height, false);
+                    if let SurfaceResizeDecision::NeedsQueue(claim) =
+                        self.session.surface_resize_decision(
+                            tab.surface,
+                            (content.width, content.height),
+                            needs,
+                        )
+                        && self.prepare_pty_input_before_mutation()
+                    {
+                        self.enqueue_surface_resize(
+                            tab.surface,
+                            surface,
+                            content.width,
+                            content.height,
+                            false,
+                            Some(claim),
+                        );
+                    }
                 }
             }
         }
@@ -1604,7 +1839,10 @@ impl App {
         if relaunch && !self.prepare_pty_input_before_mutation() {
             return;
         }
-        let status = self.session.sidebar_plugin((rect.width, rect.height), relaunch);
+        self.session.sidebar_plugin((rect.width, rect.height), relaunch);
+    }
+
+    fn apply_sidebar_plugin_status(&mut self, status: SidebarPluginSurface) {
         self.sidebar_plugin_surface = status.surface_id;
         self.sidebar_plugin_error = status.error;
         self.sidebar_plugin_retry_after_ms = status.retry_after_ms;
@@ -1651,6 +1889,10 @@ impl App {
         match event {
             AppEvent::MuxTitlesReady => {
                 Ok(if self.apply_mux_titles() { RenderAction::Paint } else { RenderAction::None })
+            }
+            AppEvent::SidebarPluginUpdated(status) => {
+                self.apply_sidebar_plugin_status(status);
+                Ok(RenderAction::Draw)
             }
             AppEvent::Mux(MuxEvent::Empty) => {
                 self.quit = true;
@@ -1726,7 +1968,7 @@ impl App {
                 match outcome {
                     SessionMutationOutcome::Success { tree } => {
                         if let Some(tree) = tree {
-                            self.tree = tree;
+                            self.replace_tree(tree);
                         }
                         self.routing_refresh_retries_remaining = 0;
                     }
@@ -1735,7 +1977,7 @@ impl App {
                         authoritative_generation,
                         completion,
                     } => {
-                        self.tree = tree;
+                        self.replace_tree(tree);
                         self.routing_refresh_retries_remaining = 0;
                         if let Some(completion) = completion {
                             self.pending_session_completions.push_back(completion);
@@ -1746,7 +1988,7 @@ impl App {
                         tree,
                         authoritative_generation,
                     } => {
-                        self.tree = tree;
+                        self.replace_tree(tree);
                         self.routing_refresh_retries_remaining = 0;
                         self.apply_session_completions_through(authoritative_generation);
                         self.complete_remote_tree_refresh(true);
@@ -1776,6 +2018,15 @@ impl App {
                         self.complete_remote_tree_refresh(refresh_stale);
                         return Ok(RenderAction::Draw);
                     }
+                    SessionMutationOutcome::MutationTimedOut(error) => {
+                        self.status_message = Some(format!(
+                            "session operation may have committed; refreshing its layout: {error}"
+                        ));
+                        self.routing_refresh_retries_remaining = ROUTING_REFRESH_RETRIES;
+                        self.session.invalidate_remote_tree();
+                        self.session.refresh_remote_tree_if_stale();
+                        return Ok(RenderAction::Draw);
+                    }
                     SessionMutationOutcome::Failed(error) => {
                         self.deferred_input.clear();
                         self.pending_session_completions.clear();
@@ -1802,7 +2053,7 @@ impl App {
             AppEvent::RemoteTreeUpdated(result) => {
                 match result {
                     Ok(tree) => {
-                        self.tree = tree;
+                        self.replace_tree(tree);
                         self.routing_refresh_retries_remaining = 0;
                     }
                     Err(error) => {
@@ -1971,12 +2222,30 @@ impl App {
             let rect = self.sidebar_plugin_rect();
             if rect.width > 0 && rect.height > 0 {
                 let needs_barrier = surface.resize_needed(rect.width, rect.height, true);
-                if !needs_barrier {
-                    let _ = surface.reassert_size(rect.width, rect.height);
-                } else if self.prepare_pty_input_before_mutation()
-                    && let Some(surface_id) = self.sidebar_plugin_surface
-                {
-                    self.enqueue_surface_resize(surface_id, surface, rect.width, rect.height, true);
+                if let Some(surface_id) = self.sidebar_plugin_surface {
+                    match self.session.surface_resize_decision(
+                        surface_id,
+                        (rect.width, rect.height),
+                        needs_barrier,
+                    ) {
+                        SurfaceResizeDecision::Noop => {
+                            let _ = surface.reassert_size(rect.width, rect.height);
+                        }
+                        SurfaceResizeDecision::AlreadyClaimed => {}
+                        SurfaceResizeDecision::NeedsQueue(claim)
+                            if self.prepare_pty_input_before_mutation() =>
+                        {
+                            self.enqueue_surface_resize(
+                                surface_id,
+                                surface,
+                                rect.width,
+                                rect.height,
+                                true,
+                                Some(claim),
+                            );
+                        }
+                        SurfaceResizeDecision::NeedsQueue(_) => {}
+                    }
                 }
             }
         }
@@ -1989,23 +2258,35 @@ impl App {
             {
                 return;
             }
-            if let Some(surface) = self
-                .session
-                .surface_sized(area.surface, Some((area.content.width, area.content.height)))
-            {
+            if let Some(surface) = self.session.surface(area.surface) {
                 let needs_barrier =
                     surface.resize_needed(area.content.width, area.content.height, true);
-                if !needs_barrier {
-                    let _ = surface.reassert_size(area.content.width, area.content.height);
-                } else if self.prepare_pty_input_before_mutation() {
-                    self.enqueue_surface_resize(
-                        area.surface,
-                        surface,
-                        area.content.width,
-                        area.content.height,
-                        true,
-                    );
+                match self.session.surface_resize_decision(
+                    area.surface,
+                    (area.content.width, area.content.height),
+                    needs_barrier,
+                ) {
+                    SurfaceResizeDecision::Noop => {
+                        let _ = surface.reassert_size(area.content.width, area.content.height);
+                    }
+                    SurfaceResizeDecision::AlreadyClaimed => {}
+                    SurfaceResizeDecision::NeedsQueue(claim)
+                        if self.prepare_pty_input_before_mutation() =>
+                    {
+                        self.enqueue_surface_resize(
+                            area.surface,
+                            surface,
+                            area.content.width,
+                            area.content.height,
+                            true,
+                            Some(claim),
+                        );
+                    }
+                    SurfaceResizeDecision::NeedsQueue(_) => {}
                 }
+            } else if self.prepare_pty_input_before_mutation() {
+                self.session
+                    .attach_surface(area.surface, Some((area.content.width, area.content.height)));
             }
         }
     }
@@ -2024,6 +2305,7 @@ impl App {
         cols: u16,
         rows: u16,
         reassert: bool,
+        claim: Option<SurfaceResizeClaim>,
     ) {
         if surface.kind() == SurfaceKind::Browser {
             self.browser_input.enqueue(BrowserInputEvent {
@@ -2032,7 +2314,8 @@ impl App {
                 kind: BrowserInputKind::Resize { cols, rows, reassert },
             });
         } else {
-            self.session.resize_surface(surface_id, surface, cols, rows, reassert);
+            let Some(claim) = claim else { return };
+            self.session.resize_surface(surface_id, surface, cols, rows, reassert, claim);
         }
     }
 
@@ -3137,6 +3420,11 @@ impl App {
         }
         self.sidebar_focused = false;
         self.selection = None;
+        let release_capture =
+            self.capture_pty_mouse_release(area.surface, area.content, x, y, button, modifiers);
+        if matches!(release_capture, PtyMouseReleaseCapture::Failed) {
+            return PtyMousePressResult::Consumed;
+        }
         let forwarded = self.forward_pty_mouse_to_surface(
             area.surface,
             area.content,
@@ -3153,9 +3441,14 @@ impl App {
         let Some(reservation_id) = forwarded.reservation_id else {
             return PtyMousePressResult::Consumed;
         };
+        let PtyMouseReleaseCapture::Bytes(release_bytes) = release_capture else {
+            self.pty_input.cancel_release_reservation(reservation_id);
+            return PtyMousePressResult::Consumed;
+        };
         self.drag = Some(Drag::PtyMouse {
             surface: area.surface,
             reservation_id,
+            release_bytes,
             content: area.content,
             button,
             position: (x, y),
@@ -3205,60 +3498,123 @@ impl App {
         _reported_button: MouseButton,
         modifiers: KeyModifiers,
     ) -> bool {
-        let Some(Drag::PtyMouse { surface, content, button: active_button, .. }) = self.drag else {
+        let Some(Drag::PtyMouse {
+            surface, reservation_id, release_bytes, content, button, ..
+        }) = &self.drag
+        else {
             return false;
         };
-        // Xterm SGR releases carry no button identity and crossterm exposes
-        // them as left. Release the one button this TUI accepted.
-        if !self.pty_mouse_tracking(surface) {
-            self.cancel_pty_release_reservation();
-            self.drag = None;
-            return true;
-        }
+        let (surface, reservation_id, fallback, content, button) =
+            (*surface, *reservation_id, release_bytes.clone(), *content, *button);
         let content = self.current_pty_content(surface).unwrap_or(content);
-        let delivered = self
-            .forward_pty_mouse_to_surface(
-                surface,
-                content,
-                x,
-                y,
-                MouseAction::Release,
-                Some(Self::ghostty_mouse_button(active_button)),
-                modifiers,
-                false,
-            )
-            .accepted;
-        if delivered {
-            self.drag = None;
+        let release_bytes =
+            match self.capture_pty_mouse_release(surface, content, x, y, button, modifiers) {
+                PtyMouseReleaseCapture::Bytes(bytes) => bytes,
+                PtyMouseReleaseCapture::NotReported | PtyMouseReleaseCapture::Failed => fallback,
+            };
+        let delivered = self.enqueue_pty_release(surface, reservation_id, release_bytes);
+        self.drag = None;
+        if !delivered {
+            self.pty_input.cancel_release_reservation(reservation_id);
         }
         true
     }
 
+    fn capture_pty_mouse_release(
+        &mut self,
+        surface_id: SurfaceId,
+        content: Rect,
+        x: u16,
+        y: u16,
+        button: MouseButton,
+        modifiers: KeyModifiers,
+    ) -> PtyMouseReleaseCapture {
+        let Some(surface) = self.session.surface(surface_id) else {
+            return PtyMouseReleaseCapture::Failed;
+        };
+        let cell_width = u32::from(self.cell_pixels.0.max(1));
+        let cell_height = u32::from(self.cell_pixels.1.max(1));
+        let input = MouseInput {
+            action: MouseAction::Release,
+            button: Some(Self::ghostty_mouse_button(button)),
+            mods: Self::ghostty_mouse_mods(modifiers),
+            position: (
+                (x as f32 - content.x as f32 + 0.5) * cell_width as f32,
+                (y as f32 - content.y as f32 + 0.5) * cell_height as f32,
+            ),
+            screen_size: (
+                u32::from(content.width).saturating_mul(cell_width),
+                u32::from(content.height).saturating_mul(cell_height),
+            ),
+            cell_size: (cell_width, cell_height),
+            any_button_pressed: false,
+        };
+        let Ok(mut encoder) = MouseEncoder::new() else {
+            return PtyMouseReleaseCapture::Failed;
+        };
+        let mut output = Vec::new();
+        let encoded = surface.with_terminal(|terminal| {
+            encoder.sync_from_terminal(terminal);
+            encoder.encode(input, &mut output)
+        });
+        match encoded {
+            Some(Ok(())) if output.is_empty() => PtyMouseReleaseCapture::NotReported,
+            Some(Ok(())) => PtyMouseReleaseCapture::Bytes(PtyInputBytes::from_slice(&output)),
+            Some(Err(_)) | None => PtyMouseReleaseCapture::Failed,
+        }
+    }
+
+    fn enqueue_pty_release(
+        &mut self,
+        surface_id: SurfaceId,
+        reservation_id: u64,
+        bytes: PtyInputBytes,
+    ) -> bool {
+        let Some(surface) = self.session.surface(surface_id) else { return false };
+        self.encode_buf.clear();
+        self.encode_buf.extend_from_slice(bytes.as_ref());
+        let (result, _) = self.pty_input.enqueue_with_reservation(PtyInputEvent::release(
+            surface_id,
+            surface,
+            bytes,
+            reservation_id,
+        ));
+        self.handle_pty_enqueue_result(result)
+    }
+
     fn cancel_pty_mouse_drag(&mut self) {
-        let Some(Drag::PtyMouse { surface, content, button, position, modifiers, .. }) = self.drag
+        let Some(Drag::PtyMouse {
+            surface,
+            reservation_id,
+            release_bytes,
+            content,
+            button,
+            position,
+            modifiers,
+        }) = &self.drag
         else {
             return;
         };
-        if !self.pty_mouse_tracking(surface) {
-            self.cancel_pty_release_reservation();
-            self.drag = None;
-            return;
-        }
+        let (surface, reservation_id, fallback, content, button, position, modifiers) = (
+            *surface,
+            *reservation_id,
+            release_bytes.clone(),
+            *content,
+            *button,
+            *position,
+            *modifiers,
+        );
         let content = self.current_pty_content(surface).unwrap_or(content);
-        let delivered = self
-            .forward_pty_mouse_to_surface(
-                surface,
-                content,
-                position.0,
-                position.1,
-                MouseAction::Release,
-                Some(Self::ghostty_mouse_button(button)),
-                modifiers,
-                false,
-            )
-            .accepted;
-        if delivered {
-            self.drag = None;
+        let release_bytes = match self
+            .capture_pty_mouse_release(surface, content, position.0, position.1, button, modifiers)
+        {
+            PtyMouseReleaseCapture::Bytes(bytes) => bytes,
+            PtyMouseReleaseCapture::NotReported | PtyMouseReleaseCapture::Failed => fallback,
+        };
+        let delivered = self.enqueue_pty_release(surface, reservation_id, release_bytes);
+        self.drag = None;
+        if !delivered {
+            self.pty_input.cancel_release_reservation(reservation_id);
         }
     }
 
@@ -3340,7 +3696,7 @@ impl App {
         }
         if self.encode_buf.is_empty() {
             if action == MouseAction::Release {
-                self.pty_input.cancel_release_reservation();
+                self.cancel_pty_release_reservation();
             }
             return PtyInputForwardResult { accepted: true, reservation_id: None };
         }
@@ -3446,7 +3802,9 @@ impl App {
     }
 
     fn cancel_pty_release_reservation(&self) {
-        self.pty_input.cancel_release_reservation();
+        if let Some(Drag::PtyMouse { reservation_id, .. }) = &self.drag {
+            self.pty_input.cancel_release_reservation(*reservation_id);
+        }
     }
 
     fn pty_mouse_tracking(&self, surface_id: SurfaceId) -> bool {
@@ -4477,8 +4835,8 @@ fn browser_key_mapping(
 mod tests {
     use super::{
         App, AppEvent, Drag, MuxTitleIngress, OrderedSession, PaneArea, RenderAction,
-        SessionCompletion, SessionCompletionAction, browser_content_size_for_rect,
-        browser_hover_forward_allowed, pane_parts_for_rect,
+        SessionCompletion, SessionCompletionAction, SurfaceResizeDecision,
+        browser_content_size_for_rect, browser_hover_forward_allowed, pane_parts_for_rect,
     };
     use std::collections::{HashMap, VecDeque};
     use std::sync::atomic::Ordering;
@@ -4501,8 +4859,8 @@ mod tests {
     use crate::browser_input::BrowserInputDispatcher;
     use crate::config::{ChromeTheme, Config, ScrollbarPosition};
     use crate::pty_input::{
-        PtyInputDispatcher, PtyInputEnqueueResult, PtyInputKind, PtyOperationDelivery,
-        PtyOperationFailure,
+        PtyInputBytes, PtyInputDispatcher, PtyInputEnqueueResult, PtyInputKind,
+        PtyOperationDelivery, PtyOperationFailure,
     };
     use crate::session::tree::{PaneView, ScreenView, TabNotificationView, TabView, WorkspaceView};
     use crate::session::{Session, TreeView};
@@ -4561,7 +4919,7 @@ mod tests {
         surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[?1002h\x1b[?1006h"));
 
         let mut app = test_app(Session::Local(mux.clone()));
-        app.tree = app.session.tree();
+        app.replace_tree(app.session.tree());
         let pane = app.tree.active_screen().unwrap().active_pane;
         let content = Rect { x: 2, y: 3, width: 20, height: 8 };
         app.pane_areas.push(PaneArea {
@@ -4587,9 +4945,11 @@ mod tests {
         assert!(app.selection.is_none());
         assert!(matches!(app.drag, Some(Drag::PtyMouse { button: MouseButton::Left, .. })));
 
+        surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[?1002l\x1b[?1006l"));
         app.handle_mouse(event(MouseEventKind::Up(MouseButton::Left), KeyModifiers::NONE)).unwrap();
         assert_eq!(app.encode_buf, b"\x1b[<0;5;3m");
         assert!(app.drag.is_none());
+        surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[?1002h\x1b[?1006h"));
 
         app.handle_mouse(event(MouseEventKind::ScrollDown, KeyModifiers::NONE)).unwrap();
         assert_eq!(app.encode_buf, b"\x1b[<65;5;3M");
@@ -4688,12 +5048,39 @@ mod tests {
     }
 
     #[test]
+    fn rejected_release_clears_the_active_pty_drag() {
+        let mux = Mux::new("rejected-release-drag-test", SurfaceOptions::default());
+        let surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
+        surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[?1000h\x1b[?1006h"));
+        let mut app = test_app(Session::Local(mux));
+        app.drag = Some(Drag::PtyMouse {
+            surface: surface.id,
+            reservation_id: 41,
+            release_bytes: PtyInputBytes::from_slice(b"fallback-release"),
+            content: Rect { x: 1, y: 1, width: 20, height: 8 },
+            button: MouseButton::Left,
+            position: (4, 3),
+            modifiers: KeyModifiers::NONE,
+        });
+        assert!(app.pty_input.shutdown(Duration::from_secs(1)));
+
+        assert!(app.finish_pty_mouse_drag(4, 3, MouseButton::Left, KeyModifiers::NONE));
+
+        assert!(app.drag.is_none());
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("PTY input queue is full; input was not sent")
+        );
+    }
+
+    #[test]
     fn motion_failure_preserves_pty_drag_for_the_physical_release() {
         let mux = Mux::new("motion-failure-drag-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
         app.drag = Some(Drag::PtyMouse {
             surface: 42,
             reservation_id: 1,
+            release_bytes: PtyInputBytes::from_slice(b"release"),
             content: Rect { x: 1, y: 1, width: 20, height: 8 },
             button: MouseButton::Right,
             position: (4, 3),
@@ -4781,6 +5168,7 @@ mod tests {
         app.drag = Some(Drag::PtyMouse {
             surface: 42,
             reservation_id: 1,
+            release_bytes: PtyInputBytes::from_slice(b"release"),
             content: Rect { x: 1, y: 1, width: 20, height: 8 },
             button: MouseButton::Right,
             position: (4, 3),
@@ -4808,6 +5196,7 @@ mod tests {
         app.drag = Some(Drag::PtyMouse {
             surface: 42,
             reservation_id: 7,
+            release_bytes: PtyInputBytes::from_slice(b"release"),
             content: Rect { x: 1, y: 1, width: 20, height: 8 },
             button: MouseButton::Left,
             position: (4, 3),
@@ -4835,6 +5224,7 @@ mod tests {
         app.drag = Some(Drag::PtyMouse {
             surface: 42,
             reservation_id: 9,
+            release_bytes: PtyInputBytes::from_slice(b"release"),
             content: Rect { x: 1, y: 1, width: 20, height: 8 },
             button: MouseButton::Left,
             position: (4, 3),
@@ -4927,7 +5317,7 @@ mod tests {
         let mut app = test_app(Session::Local(mux));
         let updated_surface = 41;
         let untouched_surface = 42;
-        app.tree = browser_completion_tree(updated_surface, untouched_surface);
+        app.replace_tree(browser_completion_tree(updated_surface, untouched_surface));
         let (wake_tx, wake_rx) = std::sync::mpsc::channel();
 
         for index in 0..10_000 {
@@ -4945,6 +5335,87 @@ mod tests {
         assert_eq!(app.tree.pane(2).unwrap().tabs[0].title, "title-9999");
         assert_eq!(app.tree.pane(2).unwrap().tabs[1].title, "");
         assert!(app.mux_titles.push(updated_surface, "next".to_string()));
+    }
+
+    #[test]
+    fn resize_claims_skip_identical_work_and_replace_a_b_a_reversions() {
+        let mux = Mux::new("resize-claim-test", SurfaceOptions::default());
+        let app = test_app(Session::Local(mux));
+        assert!(matches!(
+            app.session.surface_resize_decision(7, (80, 24), false),
+            SurfaceResizeDecision::Noop
+        ));
+        let first = match app.session.surface_resize_decision(7, (100, 30), true) {
+            SurfaceResizeDecision::NeedsQueue(claim) => claim,
+            _ => panic!("first changed size must queue"),
+        };
+        for _ in 0..1_000 {
+            assert!(matches!(
+                app.session.surface_resize_decision(7, (100, 30), true),
+                SurfaceResizeDecision::AlreadyClaimed
+            ));
+        }
+        let reverted = match app.session.surface_resize_decision(7, (80, 24), false) {
+            SurfaceResizeDecision::NeedsQueue(claim) => claim,
+            _ => panic!("different outstanding size must be replaced even when server is current"),
+        };
+        drop(first);
+        assert!(matches!(
+            app.session.surface_resize_decision(7, (80, 24), false),
+            SurfaceResizeDecision::AlreadyClaimed
+        ));
+        drop(reverted);
+        assert!(matches!(
+            app.session.surface_resize_decision(7, (80, 24), false),
+            SurfaceResizeDecision::Noop
+        ));
+    }
+
+    #[test]
+    fn sidebar_plugin_sync_is_deduped_after_it_is_applied() {
+        let mux = Mux::new("sidebar-plugin-sync-test", SurfaceOptions::default());
+        let (mut app, events) = test_app_with_events(Session::Local(mux));
+
+        for _ in 0..1_000 {
+            app.session.sidebar_plugin((24, 8), false);
+        }
+
+        let mut updates = 0;
+        while let Ok(event) = events.recv_timeout(Duration::from_millis(100)) {
+            if matches!(event, AppEvent::SidebarPluginUpdated(_)) {
+                updates += 1;
+            }
+            app.handle(event).unwrap();
+            if !app.session.has_pending_mutations() {
+                break;
+            }
+        }
+        assert_eq!(updates, 1);
+        assert!(!app.session.has_pending_mutations());
+        assert_eq!(app.session.sidebar_plugin_sync.lock().unwrap().applied, Some(((24, 8), 0)));
+    }
+
+    #[test]
+    fn remote_mutation_timeout_keeps_deferred_routing_state() {
+        let mux = Mux::new("mutation-timeout-test", SurfaceOptions::default());
+        let (mut app, events) = test_app_with_events(Session::Local(mux));
+        app.session.remote = true;
+        app.deferred_input
+            .push_back(Event::Key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)));
+        app.session
+            .enqueue("timed out mutation", |_| Err(crate::session::test_remote_timeout_error()));
+        let settled = events.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(matches!(
+            settled,
+            AppEvent::SessionMutationSettled(super::SessionMutationOutcome::MutationTimedOut(_))
+        ));
+        app.handle(settled).unwrap();
+        assert_eq!(app.deferred_input.len(), 1);
+        assert!(
+            app.status_message
+                .as_deref()
+                .is_some_and(|message| message.contains("may have committed"))
+        );
     }
 
     #[test]
@@ -5199,6 +5670,7 @@ mod tests {
         app.drag = Some(Drag::PtyMouse {
             surface: 42,
             reservation_id: 1,
+            release_bytes: PtyInputBytes::from_slice(b"release"),
             content: Rect { x: 2, y: 3, width: 20, height: 8 },
             button: MouseButton::Right,
             position: (5, 5),
@@ -5312,7 +5784,7 @@ mod tests {
         let surface = mux.new_workspace(None, Some((20, 8))).unwrap();
         surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[?1000h\x1b[?1006h"));
         let mut app = test_app(Session::Local(mux.clone()));
-        app.tree = app.session.tree();
+        app.replace_tree(app.session.tree());
         let pane = app.tree.active_screen().unwrap().active_pane;
         let content = Rect { x: 2, y: 3, width: 20, height: 8 };
         app.pane_areas.push(PaneArea {
@@ -5362,7 +5834,7 @@ mod tests {
         let surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
         let mut app = test_app(Session::Local(mux.clone()));
         app.sidebar_width = 12;
-        app.tree = notify_tree(surface.id, true);
+        app.replace_tree(notify_tree(surface.id, true));
         app.pane_areas.push(PaneArea {
             pane: 2,
             surface: surface.id,
@@ -5385,7 +5857,7 @@ mod tests {
         assert!(row_contains(buffer, 1, "•"), "tab bar should contain unread dot");
         assert_eq!(buffer[(0, 2)].symbol(), "•", "sidebar should contain unread dot");
 
-        app.tree = notify_tree(surface.id, false);
+        app.replace_tree(notify_tree(surface.id, false));
         let mut terminal = Terminal::new(TestBackend::new(40, 12)).unwrap();
         terminal
             .draw(|frame| {
@@ -5420,7 +5892,7 @@ mod tests {
             command: vec!["/bin/sh".to_string(), "-c".to_string(), "sleep 30".to_string()],
             cwd: None,
         });
-        app.tree = notify_tree(surface.id, false);
+        app.replace_tree(notify_tree(surface.id, false));
 
         let mut terminal = Terminal::new(TestBackend::new(40, 12)).unwrap();
         terminal
@@ -5531,6 +6003,7 @@ mod tests {
             config: Config::default(),
             chrome: ChromeTheme::dark(),
             tree: TreeView::default(),
+            tab_locations: HashMap::new(),
             render_states: HashMap::<u64, RenderState>::new(),
             graphics_writer: None,
             graphics_supported: false,

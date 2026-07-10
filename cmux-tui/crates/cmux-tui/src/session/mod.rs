@@ -101,6 +101,11 @@ pub enum SurfaceHandle {
 }
 
 impl Session {
+    pub fn begin_shutdown(&self) {
+        if let Session::Remote(remote) = self {
+            remote.begin_shutdown();
+        }
+    }
     pub fn invalidate_remote_tree(&self) {
         if let Session::Remote(remote) = self {
             remote.invalidate_tree();
@@ -224,8 +229,19 @@ impl Session {
         }
     }
 
-    pub fn surface(&self, id: SurfaceId) -> Option<SurfaceHandle> {
-        self.surface_sized(id, None)
+    pub fn cached_surface(&self, id: SurfaceId) -> Option<SurfaceHandle> {
+        match self {
+            Session::Local(mux) => mux.surface(id).map(SurfaceHandle::Local),
+            Session::Remote(remote) => {
+                if remote.surface_kind(id) == SurfaceKind::Browser
+                    && !remote.supports_browser_attach()
+                {
+                    Some(SurfaceHandle::RemoteBrowserUnsupported)
+                } else {
+                    remote.surface(id).map(|surface| SurfaceHandle::Remote(surface, remote.clone()))
+                }
+            }
+        }
     }
 
     pub fn has_surface(&self, id: SurfaceId) -> bool {

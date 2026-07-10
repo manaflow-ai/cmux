@@ -77,6 +77,17 @@ impl PtyInputEvent {
         }
     }
 
+    pub fn release(
+        surface_id: SurfaceId,
+        surface: SurfaceHandle,
+        bytes: PtyInputBytes,
+        reservation_id: u64,
+    ) -> Self {
+        let mut event = Self::input(surface_id, surface, bytes, PtyInputKind::Release);
+        event.reservation_id = Some(reservation_id);
+        event
+    }
+
     fn mutation(
         label: &'static str,
         coalesce_key: Option<(&'static str, u64)>,
@@ -146,10 +157,15 @@ impl ReleaseReservations {
         id.is_some_and(|id| self.outstanding.remove(&id).is_some())
     }
 
-    fn cancel_latest(&mut self) {
-        if let Some(id) = self.outstanding.keys().copied().max() {
-            self.outstanding.remove(&id);
+    fn consume_id(&mut self, reservation_id: u64, surface_id: SurfaceId) -> bool {
+        if self.outstanding.get(&reservation_id) != Some(&surface_id) {
+            return false;
         }
+        self.outstanding.remove(&reservation_id).is_some()
+    }
+
+    fn cancel(&mut self, reservation_id: u64) {
+        self.outstanding.remove(&reservation_id);
     }
 
     fn clear(&mut self) {
@@ -210,8 +226,8 @@ impl PtyInputDispatcher {
         self.sender.clone()
     }
 
-    pub fn cancel_release_reservation(&self) {
-        self.sender.cancel_release_reservation();
+    pub fn cancel_release_reservation(&self, reservation_id: u64) {
+        self.sender.cancel_release_reservation(reservation_id);
     }
 
     /// Drain queued writes during detach/normal shutdown, bounded so a
@@ -219,27 +235,23 @@ impl PtyInputDispatcher {
     pub fn shutdown(&mut self, timeout: Duration) -> bool {
         let deadline = Instant::now() + timeout;
         let mut state = self.sender.queue.state.lock().unwrap();
+        let releases = state
+            .events
+            .drain(..)
+            .filter(|event| event.kind == PtyInputKind::Release)
+            .collect::<VecDeque<_>>();
+        state.queued_bytes = releases.iter().map(|event| event.bytes.len()).sum();
+        state.events = releases;
+        state.release_reservations.clear();
+        state.closed = true;
+        state.shutdown_release_drain = true;
+        self.sender.queue.changed.notify_all();
         while (!state.events.is_empty() || state.in_flight.is_some()) && Instant::now() < deadline {
             let remaining = deadline.saturating_duration_since(Instant::now());
             let (next, _) = self.sender.queue.changed.wait_timeout(state, remaining).unwrap();
             state = next;
         }
         let drained = state.events.is_empty() && state.in_flight.is_none();
-        state.closed = true;
-        if !drained {
-            let releases = state
-                .events
-                .drain(..)
-                .filter(|event| event.kind == PtyInputKind::Release)
-                .collect::<VecDeque<_>>();
-            state.queued_bytes = releases.iter().map(|event| event.bytes.len()).sum();
-            state.release_reservations.clear();
-            if !releases.is_empty() {
-                state.events = releases;
-                state.shutdown_release_drain = true;
-            }
-        }
-        self.sender.queue.changed.notify_all();
         drop(state);
         if drained && let Some(worker) = self.worker.take() {
             let _ = worker.join();
@@ -286,9 +298,9 @@ impl PtyInputSender {
         }
     }
 
-    pub fn cancel_release_reservation(&self) {
+    pub fn cancel_release_reservation(&self, reservation_id: u64) {
         let mut state = self.queue.state.lock().unwrap();
-        state.release_reservations.cancel_latest();
+        state.release_reservations.cancel(reservation_id);
         self.queue.changed.notify_all();
     }
 
@@ -393,7 +405,15 @@ fn enqueue_bounded(
             previous.kind == PtyInputKind::Ordered && previous.surface_id == event.surface_id
         });
     let consumes_reservation = event.kind == PtyInputKind::Release
-        && release_reservations.outstanding.values().any(|surface| *surface == event.surface_id);
+        && match event.reservation_id {
+            Some(reservation_id) => {
+                release_reservations.outstanding.get(&reservation_id) == Some(&event.surface_id)
+            }
+            None => release_reservations
+                .outstanding
+                .values()
+                .any(|surface| *surface == event.surface_id),
+        };
     let mut projected = events.len()
         + release_reservations.len()
         + usize::from(!merge_stream)
@@ -422,7 +442,11 @@ fn enqueue_bounded(
     if event.kind == PtyInputKind::Press {
         event.reservation_id = Some(release_reservations.reserve(event.surface_id));
     } else if consumes_reservation {
-        release_reservations.consume(event.surface_id);
+        if let Some(reservation_id) = event.reservation_id {
+            release_reservations.consume_id(reservation_id, event.surface_id);
+        } else {
+            release_reservations.consume(event.surface_id);
+        }
     }
 
     if merge_stream {
@@ -736,6 +760,38 @@ mod tests {
     }
 
     #[test]
+    fn release_consumes_only_its_exact_reservation() {
+        let mut events = VecDeque::new();
+        let mut queued_bytes = 0;
+        let mut releases = ReleaseReservations::default();
+        assert!(enqueue_bounded(
+            &mut events,
+            &mut queued_bytes,
+            &mut releases,
+            event(7, 1, PtyInputKind::Press),
+            8,
+            1024,
+        ));
+        let first = releases.next_id;
+        assert!(enqueue_bounded(
+            &mut events,
+            &mut queued_bytes,
+            &mut releases,
+            event(7, 2, PtyInputKind::Press),
+            8,
+            1024,
+        ));
+        let second = releases.next_id;
+
+        let mut release = event(7, 3, PtyInputKind::Release);
+        release.reservation_id = Some(first);
+        assert!(enqueue_bounded(&mut events, &mut queued_bytes, &mut releases, release, 8, 1024,));
+
+        assert!(!releases.outstanding.contains_key(&first));
+        assert_eq!(releases.outstanding.get(&second), Some(&7));
+    }
+
+    #[test]
     fn ordered_batch_respects_byte_budget() {
         let mut events = VecDeque::new();
         let mut queued_bytes = 0;
@@ -760,12 +816,19 @@ mod tests {
     }
 
     #[test]
-    fn shutdown_timeout_preserves_release_behind_any_in_flight_operation() {
+    fn shutdown_retains_release_for_worker_behind_in_flight_operation() {
         let queue = Arc::new(SharedQueue::default());
+        let released = Arc::new(std::sync::atomic::AtomicBool::new(false));
         {
             let mut state = queue.state.lock().unwrap();
             state.events.push_back(event(1, 1, PtyInputKind::Motion));
-            state.events.push_back(event(1, 2, PtyInputKind::Release));
+            let released_flag = released.clone();
+            let mut release = event(1, 2, PtyInputKind::Release);
+            release.mutation = Some(Box::new(move || {
+                released_flag.store(true, std::sync::atomic::Ordering::Release);
+                Ok(())
+            }));
+            state.events.push_back(release);
             state.queued_bytes = 2;
             state.in_flight = Some(InFlightInput { surface_id: 2, kind: PtyInputKind::Ordered });
         }
@@ -779,10 +842,36 @@ mod tests {
         let state = queue.state.lock().unwrap();
         assert!(state.closed);
         assert_eq!(state.events.len(), 1);
-        assert_eq!(state.events[0].kind, PtyInputKind::Release);
         assert_eq!(state.queued_bytes, 1);
         assert_eq!(state.release_reservations.len(), 0);
-        assert!(state.shutdown_release_drain);
+        assert!(!released.load(std::sync::atomic::Ordering::Acquire));
+    }
+
+    #[test]
+    fn shutdown_waits_for_worker_ordered_release_after_response_wait_is_canceled() {
+        let (line_tx, line_rx) = std::sync::mpsc::channel();
+        let (cancel_tx, cancel_rx) = std::sync::mpsc::channel();
+        let mut dispatcher = PtyInputDispatcher::spawn(|_| {}).unwrap();
+        dispatcher.sender().enqueue_session_mutation("in flight", true, move || {
+            line_tx.send("request").unwrap();
+            cancel_rx.recv().unwrap();
+            Ok(())
+        });
+        assert_eq!(line_rx.recv_timeout(Duration::from_secs(1)).unwrap(), "request");
+
+        let released = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let released_flag = released.clone();
+        let mut release = event(1, 2, PtyInputKind::Release);
+        release.mutation = Some(Box::new(move || {
+            released_flag.store(true, std::sync::atomic::Ordering::Release);
+            Ok(())
+        }));
+        assert_eq!(dispatcher.enqueue(release), PtyInputEnqueueResult::Accepted);
+
+        let shutdown = std::thread::spawn(move || dispatcher.shutdown(Duration::from_secs(1)));
+        cancel_tx.send(()).unwrap();
+        assert!(shutdown.join().unwrap());
+        assert!(released.load(std::sync::atomic::Ordering::Acquire));
     }
 
     #[test]
@@ -803,7 +892,7 @@ mod tests {
 
         let state = queue.state.lock().unwrap();
         assert!(state.events.is_empty());
-        assert!(!state.shutdown_release_drain);
+        assert!(state.shutdown_release_drain);
     }
 
     #[test]

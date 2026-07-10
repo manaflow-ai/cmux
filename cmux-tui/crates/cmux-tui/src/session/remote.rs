@@ -28,6 +28,7 @@ pub(crate) enum RemoteRequestError {
     Transport(std::io::Error),
     Timeout,
     Rejected(String),
+    Shutdown,
 }
 
 impl RemoteRequestError {
@@ -47,6 +48,7 @@ impl std::fmt::Display for RemoteRequestError {
             Self::Transport(error) => write!(formatter, "remote transport write failed: {error}"),
             Self::Timeout => write!(formatter, "remote session did not respond"),
             Self::Rejected(error) => write!(formatter, "remote command rejected: {error}"),
+            Self::Shutdown => write!(formatter, "remote response wait canceled for shutdown"),
         }
     }
 }
@@ -287,6 +289,7 @@ pub struct RemoteSession {
     writer: Mutex<Box<dyn transport::Stream>>,
     pending: Mutex<HashMap<u64, Sender<Value>>>,
     next_id: AtomicU64,
+    shutdown: AtomicBool,
     surfaces: Mutex<HashMap<SurfaceId, Arc<RemoteSurface>>>,
     exited_surfaces: Mutex<HashSet<SurfaceId>>,
     tree: Mutex<RemoteTreeCache>,
@@ -301,6 +304,10 @@ impl RemoteSession {
         self.surfaces.lock().unwrap().contains_key(&id)
     }
 
+    pub(super) fn surface(&self, id: SurfaceId) -> Option<Arc<RemoteSurface>> {
+        self.surfaces.lock().unwrap().get(&id).cloned()
+    }
+
     pub fn connect(path: &Path) -> anyhow::Result<Arc<Self>> {
         let stream = transport::connect(path).map_err(|e| {
             anyhow::anyhow!("cannot connect to session socket {}: {e}", path.display())
@@ -310,6 +317,7 @@ impl RemoteSession {
             writer: Mutex::new(stream),
             pending: Mutex::new(HashMap::new()),
             next_id: AtomicU64::new(1),
+            shutdown: AtomicBool::new(false),
             surfaces: Mutex::new(HashMap::new()),
             exited_surfaces: Mutex::new(HashSet::new()),
             tree: Mutex::new(RemoteTreeCache::default()),
@@ -547,6 +555,11 @@ impl RemoteSession {
             return Err(RemoteRequestError::Transport(err).into());
         }
 
+        if self.shutdown.load(Ordering::Acquire) {
+            self.pending.lock().unwrap().remove(&id);
+            return Err(RemoteRequestError::Shutdown.into());
+        }
+
         let response = match rx.recv_timeout(Duration::from_secs(10)) {
             Ok(response) => response,
             Err(_) => {
@@ -557,6 +570,9 @@ impl RemoteSession {
                 return Err(RemoteRequestError::Timeout.into());
             }
         };
+        if response.get("shutdown").and_then(Value::as_bool) == Some(true) {
+            return Err(RemoteRequestError::Shutdown.into());
+        }
         if response.get("ok").and_then(|v| v.as_bool()) == Some(true) {
             Ok(response.get("data").cloned().unwrap_or(Value::Null))
         } else {
@@ -568,6 +584,14 @@ impl RemoteSession {
     pub fn send_bytes(&self, surface: SurfaceId, bytes: &[u8]) -> anyhow::Result<()> {
         let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
         self.request(json!({"cmd": "send", "surface": surface, "bytes": encoded})).map(|_| ())
+    }
+
+    pub fn begin_shutdown(&self) {
+        self.shutdown.store(true, Ordering::Release);
+        let pending = std::mem::take(&mut *self.pending.lock().unwrap());
+        for (_, sender) in pending {
+            let _ = sender.send(json!({"shutdown": true}));
+        }
     }
 
     pub fn set_cell_pixel_size(&self, width_px: u16, height_px: u16) -> anyhow::Result<()> {
@@ -802,13 +826,63 @@ fn parse_browser_frame(value: &Value) -> Option<RemoteBrowserFrame> {
 
 #[cfg(test)]
 mod tests {
+    use std::io::BufRead;
+    #[cfg(unix)]
+    use std::os::unix::net::UnixStream;
     use std::sync::Mutex;
-    use std::sync::atomic::AtomicBool;
+    use std::sync::atomic::{AtomicBool, AtomicU64};
 
     use ghostty_vt::{Callbacks, Terminal};
     use serde_json::json;
 
     use super::*;
+
+    #[cfg(unix)]
+    fn socket_test_session(stream: UnixStream) -> Arc<RemoteSession> {
+        Arc::new(RemoteSession {
+            writer: Mutex::new(Box::new(stream)),
+            pending: Mutex::new(HashMap::new()),
+            next_id: AtomicU64::new(1),
+            shutdown: AtomicBool::new(false),
+            surfaces: Mutex::new(HashMap::new()),
+            exited_surfaces: Mutex::new(HashSet::new()),
+            tree: Mutex::new(RemoteTreeCache::default()),
+            tree_refresh: Mutex::new(()),
+            tree_stale: AtomicBool::new(true),
+            subscribers: MuxEventBroadcaster::default(),
+            frame_logs: Mutex::new(HashMap::new()),
+        })
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn shutdown_cancels_response_wait_before_ordered_release_write() {
+        let (client, server) = UnixStream::pair().unwrap();
+        let session = socket_test_session(client);
+        let waiting_session = session.clone();
+        let waiting = std::thread::spawn(move || {
+            waiting_session.request(json!({"cmd": "mutation"})).unwrap_err()
+        });
+
+        let mut peer = BufReader::new(server);
+        let mut first_line = String::new();
+        peer.read_line(&mut first_line).unwrap();
+        let first: Value = serde_json::from_str(&first_line).unwrap();
+        assert_eq!(first["cmd"], "mutation");
+
+        session.begin_shutdown();
+        assert!(waiting.join().unwrap().to_string().contains("canceled for shutdown"));
+
+        let release_error = session.send_bytes(7, b"release").unwrap_err();
+        assert!(release_error.to_string().contains("canceled for shutdown"));
+        let mut release_line = String::new();
+        peer.read_line(&mut release_line).unwrap();
+        let release: Value = serde_json::from_str(&release_line).unwrap();
+        assert_eq!(release["cmd"], "send");
+        assert_eq!(release["surface"], 7);
+        assert_eq!(release["bytes"], "cmVsZWFzZQ==");
+        assert!(release["id"].as_u64().unwrap() > first["id"].as_u64().unwrap());
+    }
 
     #[test]
     fn indexed_title_update_changes_only_the_addressed_surface() {
