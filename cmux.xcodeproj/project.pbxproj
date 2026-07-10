@@ -1073,7 +1073,6 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		7738C0067738C0067738C006 /* RemoteTmuxWindowMirror+ControlMutations.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7738D0067738D0067738D006 /* RemoteTmuxWindowMirror+ControlMutations.swift */; };
 		7738C0027738C0027738C002 /* RemoteTmuxWindowMirror+ControlTopology.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7738D0027738D0027738D002 /* RemoteTmuxWindowMirror+ControlTopology.swift */; };
 		740600000000000000000015 /* RemoteTmuxWindowMirror+DividerSizing.swift in Sources */ = {isa = PBXBuildFile; fileRef = 740600000000000000000014 /* RemoteTmuxWindowMirror+DividerSizing.swift */; };
-		AE59865494BDF6BADB953C53 /* RemoteTmuxWindowMirror+RenderConstants.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB4BFF1720534ACC83D40DB6 /* RemoteTmuxWindowMirror+RenderConstants.swift */; };
 		826F6597BF05F1242E17F0C3 /* RemoteTmuxWindowMirror.swift in Sources */ = {isa = PBXBuildFile; fileRef = FCE03473FCBD453C7DA78A09 /* RemoteTmuxWindowMirror.swift */; };
 		74060000000000000000000E /* RemoteTmuxWindowMirrorFocusSeedTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74060000000000000000000D /* RemoteTmuxWindowMirrorFocusSeedTests.swift */; };
 		8845B95B4AA5B7B28540D01B /* RemoteTmuxWindowMirrorSizingSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4AFCBA6217C0EB912342F0A5 /* RemoteTmuxWindowMirrorSizingSnapshot.swift */; };
@@ -2706,7 +2705,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		7738D0067738D0067738D006 /* RemoteTmuxWindowMirror+ControlMutations.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RemoteTmuxWindowMirror+ControlMutations.swift"; sourceTree = "<group>"; };
 		7738D0027738D0027738D002 /* RemoteTmuxWindowMirror+ControlTopology.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RemoteTmuxWindowMirror+ControlTopology.swift"; sourceTree = "<group>"; };
 		740600000000000000000014 /* RemoteTmuxWindowMirror+DividerSizing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RemoteTmuxWindowMirror+DividerSizing.swift"; sourceTree = "<group>"; };
-		EB4BFF1720534ACC83D40DB6 /* RemoteTmuxWindowMirror+RenderConstants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RemoteTmuxWindowMirror+RenderConstants.swift"; sourceTree = "<group>"; };
 		FCE03473FCBD453C7DA78A09 /* RemoteTmuxWindowMirror.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxWindowMirror.swift; sourceTree = "<group>"; };
 		74060000000000000000000D /* RemoteTmuxWindowMirrorFocusSeedTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxWindowMirrorFocusSeedTests.swift; sourceTree = "<group>"; };
 		4AFCBA6217C0EB912342F0A5 /* RemoteTmuxWindowMirrorSizingSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxWindowMirrorSizingSnapshot.swift; sourceTree = "<group>"; };
@@ -4307,7 +4305,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				7738D0077738D0077738D007 /* TerminalController+RemoteTmuxControlMutations.swift */,
 				7738D0047738D0047738D004 /* TerminalController+RemoteTmuxControlTopology.swift */,
 				7738D0087738D0087738D008 /* TerminalController+RemoteTmuxControlRefs.swift */,
-					EB4BFF1720534ACC83D40DB6 /* RemoteTmuxWindowMirror+RenderConstants.swift */,
 					740600000000000000000003 /* RemoteTmuxWindowMirror+Bonsplit.swift */,
 					740600000000000000000005 /* RemoteTmuxWindowMirror+BonsplitLayout.swift */,
 					740600000000000000000014 /* RemoteTmuxWindowMirror+DividerSizing.swift */,
@@ -6051,7 +6048,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				7738C0067738C0067738C006 /* RemoteTmuxWindowMirror+ControlMutations.swift in Sources */,
 				7738C0027738C0027738C002 /* RemoteTmuxWindowMirror+ControlTopology.swift in Sources */,
 				740600000000000000000015 /* RemoteTmuxWindowMirror+DividerSizing.swift in Sources */,
-				AE59865494BDF6BADB953C53 /* RemoteTmuxWindowMirror+RenderConstants.swift in Sources */,
 				826F6597BF05F1242E17F0C3 /* RemoteTmuxWindowMirror.swift in Sources */,
 				8845B95B4AA5B7B28540D01B /* RemoteTmuxWindowMirrorSizingSnapshot.swift in Sources */,
 				740600000000000000000008 /* RemoteTmuxWindowMirrorSplitView.swift in Sources */,
