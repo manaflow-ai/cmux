@@ -20,6 +20,9 @@ pub struct BenchmarkReport {
 ///
 /// Returns an error when the fixture cannot be created, decoded, or read.
 pub fn run(sample_bytes: usize, iterations: usize) -> Result<BenchmarkReport, String> {
+    if iterations == 0 {
+        return Err("benchmark requires at least one iteration".to_owned());
+    }
     let root = std::env::temp_dir().join(format!("cmux-diff-benchmark-{}", std::process::id()));
     std::fs::create_dir_all(&root).map_err(|error| error.to_string())?;
     let patch_path = root.join("sample.patch");
@@ -81,4 +84,12 @@ fn percentile(samples: &mut [Duration], percentile: usize) -> Duration {
     samples.sort_unstable();
     let index = ((samples.len().saturating_sub(1)) * percentile) / 100;
     samples[index]
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn zero_iterations_return_an_error() {
+        assert!(super::run(1024, 0).is_err());
+    }
 }

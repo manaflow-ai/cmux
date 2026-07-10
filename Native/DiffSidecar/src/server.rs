@@ -24,7 +24,9 @@ use tokio::process::Command;
 use tokio::sync::{RwLock, Semaphore};
 use tokio_util::io::ReaderStream;
 
-use crate::manifest::{AllowedFile, Manifest, split_resource_path, valid_token};
+use crate::manifest::{
+    AllowedFile, Manifest, split_resource_path, valid_request_path, valid_token,
+};
 use crate::protocol::{
     BranchListResult, DiffCommand, DiffRequest, DiffResponse, DiffResult, NavigationResult,
     handshake,
@@ -221,12 +223,15 @@ async fn handle_websocket(mut socket: WebSocket, state: AppState) {
     while let Some(Ok(message)) = socket.next().await {
         match message {
             Message::Text(text) => {
-                let response = match serde_json::from_str::<DiffRequest>(&text) {
-                    Ok(request) => handle_protocol_request(request, Some(&state)).await,
-                    Err(_) => {
-                        DiffResponse::failure(String::new(), "invalidRequest", "Invalid request")
-                    }
+                let Ok(request) = serde_json::from_str::<DiffRequest>(&text) else {
+                    // A malformed frame has no trustworthy request id, so a
+                    // response cannot be correlated with a pending call.
+                    // Closing rejects every pending client promise instead
+                    // of leaving one hung forever.
+                    let _ = socket.send(Message::Close(None)).await;
+                    break;
                 };
+                let response = handle_protocol_request(request, Some(&state)).await;
                 let Ok(encoded) = serde_json::to_string(&response) else {
                     break;
                 };
@@ -421,13 +426,29 @@ async fn change_branch(
     if !output.status.success() {
         return Err(());
     }
-    let scheme_url = String::from_utf8_lossy(&output.stdout).trim().to_owned();
-    let Some(path) = scheme_url.strip_prefix(&format!("cmux-diff-viewer://{token}/")) else {
+    let scheme_url = String::from_utf8_lossy(&output.stdout);
+    let Ok(url) = reqwest::Url::parse(scheme_url.trim()) else {
         return Err(());
     };
+    if url.scheme() != "cmux-diff-viewer"
+        || url.host_str() != Some(token)
+        || url.port().is_some()
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.query().is_some()
+        || url.fragment().is_some()
+        || !valid_request_path(url.path())
+    {
+        return Err(());
+    }
+    let resource_path = format!("{token}{}", url.path());
+    if resolve_allowed_file(state, &resource_path).await.is_none() {
+        return Err(());
+    }
     Ok(format!(
-        "http://127.0.0.1:{}/{token}/{path}#cmux-diff-viewer",
-        server_port(state)
+        "http://127.0.0.1:{}/{token}{}#cmux-diff-viewer",
+        server_port(state),
+        url.path()
     ))
 }
 

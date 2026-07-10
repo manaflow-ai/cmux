@@ -5856,14 +5856,6 @@ extension CMUXCLI {
     }
 
     private func diffViewerServerExecutableURL(for runtime: URL?) -> URL? {
-        if let override = ProcessInfo.processInfo.environment["CMUX_DIFF_SIDECAR_PATH"]?
-            .trimmingCharacters(in: .whitespacesAndNewlines),
-           !override.isEmpty {
-            let url = URL(fileURLWithPath: override, isDirectory: false)
-            if FileManager.default.isExecutableFile(atPath: url.path) {
-                return url.standardizedFileURL.resolvingSymlinksInPath()
-            }
-        }
         guard let cmuxExecutable = diffViewerExecutableURL(for: runtime) else { return nil }
         let sidecar = cmuxExecutable.deletingLastPathComponent()
             .appendingPathComponent("cmux-diff-sidecar", isDirectory: false)

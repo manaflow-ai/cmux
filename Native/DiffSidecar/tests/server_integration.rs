@@ -21,14 +21,23 @@ fn serves_only_manifest_allowlisted_files() {
     let token = "0123456789abcdef";
     let group = "1234567890-group";
     let patch_path = root.join("sample.patch");
+    let generated_path = root.join("generated.html");
     std::fs::write(&patch_path, b"diff --git a/a b/a\n").expect("write patch");
+    std::fs::write(&generated_path, b"<!doctype html>").expect("write generated page");
     let manifest = serde_json::json!({
         "token": token,
-        "files": [{
-            "request_path": "/sample.patch",
-            "file_path": patch_path,
-            "mime_type": "text/x-diff"
-        }]
+        "files": [
+            {
+                "request_path": "/sample.patch",
+                "file_path": patch_path,
+                "mime_type": "text/x-diff"
+            },
+            {
+                "request_path": "/generated.html",
+                "file_path": generated_path,
+                "mime_type": "text/html"
+            }
+        ]
     });
     std::fs::write(
         root.join(format!(".manifest-{token}.json")),
@@ -120,6 +129,11 @@ async fn verify_resources(client: &reqwest::Client, port: u16, token: &str, root
                 "request_path": "/second.patch",
                 "file_path": second_path,
                 "mime_type": "text/x-diff"
+            },
+            {
+                "request_path": "/generated.html",
+                "file_path": root.join("generated.html"),
+                "mime_type": "text/html"
             }
         ]
     });
@@ -200,6 +214,17 @@ async fn verify_rpc(client: &reqwest::Client, port: u16, token: &str, group: &st
         .expect("untrusted request");
     assert_eq!(untrusted.status(), reqwest::StatusCode::NOT_FOUND);
 
+    verify_branch_change(client, &endpoint, &origin, token, group, root).await;
+}
+
+async fn verify_branch_change(
+    client: &reqwest::Client,
+    endpoint: &str,
+    origin: &str,
+    token: &str,
+    group: &str,
+    root: &Path,
+) {
     let branch_change = serde_json::json!({
         "id": "branch-change",
         "version": 1,
@@ -212,8 +237,8 @@ async fn verify_rpc(client: &reqwest::Client, port: u16, token: &str, group: &st
         }
     });
     let changed: serde_json::Value = client
-        .post(&endpoint)
-        .header(reqwest::header::ORIGIN, &origin)
+        .post(endpoint)
+        .header(reqwest::header::ORIGIN, origin)
         .header(reqwest::header::CONTENT_TYPE, "application/json")
         .body(branch_change.to_string())
         .send()
@@ -224,6 +249,31 @@ async fn verify_rpc(client: &reqwest::Client, port: u16, token: &str, group: &st
         .map(|bytes| serde_json::from_slice(&bytes).expect("branch change response JSON"))
         .expect("branch change response bytes");
     assert_eq!(changed["result"]["type"], "navigation");
+
+    let malformed_change = serde_json::json!({
+        "id": "malformed-branch-change",
+        "version": 1,
+        "method": "branchChange",
+        "params": {
+            "groupId": group,
+            "repoRoot": root,
+            "baseRef": "malformed",
+            "capabilityToken": token
+        }
+    });
+    let malformed: serde_json::Value = client
+        .post(endpoint)
+        .header(reqwest::header::ORIGIN, origin)
+        .header(reqwest::header::CONTENT_TYPE, "application/json")
+        .body(malformed_change.to_string())
+        .send()
+        .await
+        .expect("malformed branch change request")
+        .bytes()
+        .await
+        .map(|bytes| serde_json::from_slice(&bytes).expect("malformed response JSON"))
+        .expect("malformed response bytes");
+    assert_eq!(malformed["error"]["code"], "branchChangeFailed");
 }
 
 async fn verify_websocket(port: u16) {
@@ -257,4 +307,17 @@ async fn verify_websocket(port: u16) {
     let response: serde_json::Value = serde_json::from_str(&response).expect("JSON response");
     assert_eq!(response["id"], "hello");
     assert_eq!(response["result"]["value"]["protocolVersion"], 1);
+
+    socket
+        .send(tokio_tungstenite::tungstenite::Message::Text(
+            "not-json".into(),
+        ))
+        .await
+        .expect("invalid WebSocket request");
+    let close = socket
+        .next()
+        .await
+        .expect("WebSocket close")
+        .expect("valid WebSocket close");
+    assert!(close.is_close());
 }
