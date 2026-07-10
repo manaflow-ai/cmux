@@ -16,7 +16,6 @@ extension Workspace {
                 workspaceId: id,
                 panelId: panelId
             ),
-            shellState: panelShellActivityStates[panelId],
             currentProcessIdentity: Self.agentPIDProcessIdentity(pid:)
         )
     }
@@ -28,7 +27,6 @@ extension Workspace {
         restoredAgentLifecycle.reconcileCompletedAgent(
             panelId: panelId,
             observation: observation,
-            shellState: panelShellActivityStates[panelId],
             currentProcessIdentity: Self.agentPIDProcessIdentity(pid:)
         )
     }
@@ -42,7 +40,6 @@ extension Workspace {
         })
         restoredAgentLifecycle.markCompleted(
             panelId: panelId,
-            snapshot: snapshot,
             observation: SharedLiveAgentIndex.shared.index?.entry(
                 workspaceId: id,
                 panelId: panelId
@@ -161,18 +158,19 @@ extension Workspace {
     }
 
     func seedDetachedRestoredAgentState(from detached: DetachedSurfaceTransfer) {
-        if let restorableAgent = detached.restorableAgent {
-            restoredAgentSnapshotsByPanelId[detached.panelId] = restorableAgent
-            invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: detached.panelId)
+        if let shellActivityState = detached.shellActivityState {
+            panelShellActivityStates[detached.panelId] = shellActivityState
+            (detached.panel as? TerminalPanel)?.updateShellActivityState(shellActivityState)
         } else {
-            restoredAgentSnapshotsByPanelId.removeValue(forKey: detached.panelId)
-            invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: detached.panelId)
+            panelShellActivityStates.removeValue(forKey: detached.panelId)
         }
-        if let resumeState = detached.restorableAgentResumeState {
-            restoredAgentResumeStatesByPanelId[detached.panelId] = resumeState
-        } else {
-            restoredAgentResumeStatesByPanelId.removeValue(forKey: detached.panelId)
-        }
+        restoredAgentLifecycle.seedTransferredState(
+            panelId: detached.panelId,
+            snapshot: detached.restorableAgent,
+            resumeState: detached.restorableAgentResumeState,
+            completedGeneration: detached.restoredAgentCompletedGeneration
+        )
+        invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: detached.panelId)
     }
 
     func setAgentLifecycle(

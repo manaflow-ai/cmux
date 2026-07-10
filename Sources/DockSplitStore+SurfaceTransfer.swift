@@ -136,6 +136,10 @@ extension DockSplitStore {
         let transferTitle = trimmedCustomTitle?.isEmpty == false
             ? preservedTransfer?.customTitle
             : panel.displayTitle
+        let panelShellActivityState = (panel as? TerminalPanel)?.shellActivity.state
+        let transferredShellActivityState = panelShellActivityState == .unknown
+            ? preservedTransfer?.shellActivityState
+            : panelShellActivityState
 
         // Drop our ownership first: once the tab close fires `reconcilePanels`,
         // a still-tracked panel would be `panel.close()`d (killing the process).
@@ -182,6 +186,10 @@ extension DockSplitStore {
             restoredUnreadIndicator: preservedTransfer?.restoredUnreadIndicator,
             restorableAgent: agentProvenExited ? nil : preservedTransfer?.restorableAgent,
             restorableAgentResumeState: agentProvenExited ? nil : preservedTransfer?.restorableAgentResumeState,
+            restoredAgentCompletedGeneration: agentProvenExited
+                ? nil
+                : preservedTransfer?.restoredAgentCompletedGeneration,
+            shellActivityState: transferredShellActivityState,
             restoredResumeSessionWorkingDirectory: restoredResumeSessionWorkingDirectory,
             resumeBinding: resumeBinding,
             agentRuntime: agentProvenExited ? nil : preservedTransfer?.agentRuntime,

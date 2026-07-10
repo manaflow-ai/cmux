@@ -25,7 +25,6 @@ struct CompletedRestoredAgentGenerationTests {
         lifecycle.resumeStatesByPanelId[panelId] = .observedAgentCommandRunning
         lifecycle.markCompleted(
             panelId: panelId,
-            snapshot: snapshot,
             observation: indexEntry(snapshot: snapshot, updatedAt: 95, identity: oldIdentity),
             runtimeProcessIdentities: []
         )
@@ -33,7 +32,6 @@ struct CompletedRestoredAgentGenerationTests {
         let staleGenerationAccepted = lifecycle.reconcileCompletedAgent(
             panelId: panelId,
             observation: indexEntry(snapshot: snapshot, updatedAt: 110, identity: oldIdentity),
-            shellState: .commandRunning,
             currentProcessIdentity: { _ in oldIdentity }
         )
         #expect(!staleGenerationAccepted)
@@ -42,7 +40,6 @@ struct CompletedRestoredAgentGenerationTests {
         let exitedStaleGenerationAccepted = lifecycle.reconcileCompletedAgent(
             panelId: panelId,
             observation: indexEntry(snapshot: snapshot, updatedAt: 110, identity: oldIdentity),
-            shellState: .commandRunning,
             currentProcessIdentity: { _ in nil }
         )
         #expect(!exitedStaleGenerationAccepted)
@@ -51,7 +48,6 @@ struct CompletedRestoredAgentGenerationTests {
         let newGenerationAccepted = lifecycle.reconcileCompletedAgent(
             panelId: panelId,
             observation: indexEntry(snapshot: snapshot, updatedAt: 95, identity: newIdentity),
-            shellState: .commandRunning,
             currentProcessIdentity: { _ in newIdentity }
         )
         #expect(newGenerationAccepted)
@@ -59,11 +55,11 @@ struct CompletedRestoredAgentGenerationTests {
     }
 
     @Test
-    func sameSessionNewHookGenerationPersistsAfterCompletion() throws {
+    func newerHookTimestampWithoutLiveAgentDoesNotSupersedeCompletion() throws {
         let workspace = Workspace()
         let panelId = try #require(workspace.focusedPanelId)
-        let sessionId = "completed-agent-restarted"
-        let oldWorkingDirectory = "/tmp/completed-agent-restarted-old"
+        let sessionId = "completed-agent-stale-hook"
+        let oldWorkingDirectory = "/tmp/completed-agent-stale-hook-old"
         workspace.restoredAgentSnapshotsByPanelId[panelId] = agentSnapshot(
             sessionId: sessionId,
             workingDirectory: oldWorkingDirectory,
@@ -87,10 +83,90 @@ struct CompletedRestoredAgentGenerationTests {
             restorableAgentIndex: fixture.index
         )
 
-        #expect(snapshot.panels.first?.terminal?.agent?.sessionId == sessionId)
-        #expect(snapshot.panels.first?.terminal?.agent?.workingDirectory == fixture.workingDirectory.path)
-        #expect(workspace.restoredAgentResumeStatesByPanelId[panelId] == .observedAgentCommandRunning)
-        #expect(workspace.allowsAgentContinuation(forPanelId: panelId))
+        #expect(snapshot.panels.first?.terminal?.agent == nil)
+        #expect(workspace.restoredAgentResumeStatesByPanelId[panelId] == .completedAgentExit)
+        #expect(workspace.restoredAgentSnapshotsByPanelId[panelId]?.sessionId == sessionId)
+        #expect(!workspace.allowsAgentContinuation(forPanelId: panelId))
+    }
+
+    @Test
+    func transferredCompletionGenerationAcceptsAgentStartedBeforeAttach() throws {
+        let panelId = UUID()
+        let snapshot = agentSnapshot(
+            sessionId: "detached-agent-restarted",
+            workingDirectory: "/tmp/detached-agent-restarted",
+            capturedAt: 90
+        )
+        let source = RestoredAgentLifecycleCoordinator(dateProvider: { 100 })
+        source.snapshotsByPanelId[panelId] = snapshot
+        source.resumeStatesByPanelId[panelId] = .observedAgentCommandRunning
+        source.markCompleted(
+            panelId: panelId,
+            observation: nil,
+            runtimeProcessIdentities: []
+        )
+        let transferredGeneration = try #require(source.completedGeneration(panelId: panelId))
+
+        let destination = RestoredAgentLifecycleCoordinator(dateProvider: { 200 })
+        destination.seedTransferredState(
+            panelId: panelId,
+            snapshot: snapshot,
+            resumeState: .completedAgentExit,
+            completedGeneration: transferredGeneration
+        )
+        let replacementIdentity = AgentPIDProcessIdentity(
+            pid: 654,
+            startSeconds: 150,
+            startMicroseconds: 0
+        )
+
+        let accepted = destination.reconcileCompletedAgent(
+            panelId: panelId,
+            observation: indexEntry(
+                snapshot: snapshot,
+                updatedAt: 160,
+                identity: replacementIdentity
+            ),
+            currentProcessIdentity: { _ in replacementIdentity }
+        )
+
+        #expect(accepted)
+        #expect(destination.resumeStatesByPanelId[panelId] == .observedAgentCommandRunning)
+    }
+
+    @Test
+    func workspaceTransferPreservesCompletionGenerationAndShellActivity() throws {
+        let source = Workspace()
+        let panelId = try #require(source.focusedPanelId)
+        let snapshot = agentSnapshot(
+            sessionId: "workspace-transfer-completed-agent",
+            workingDirectory: "/tmp/workspace-transfer-completed-agent",
+            capturedAt: Date.now.timeIntervalSince1970 - 60
+        )
+        source.restoredAgentSnapshotsByPanelId[panelId] = snapshot
+        source.restoredAgentResumeStatesByPanelId[panelId] = .observedAgentCommandRunning
+        source.updatePanelShellActivityState(panelId: panelId, state: .commandRunning)
+        source.updatePanelShellActivityState(panelId: panelId, state: .promptIdle)
+        let sourceGeneration = try #require(source.restoredAgentLifecycle.completedGeneration(panelId: panelId))
+
+        let detached = try #require(source.detachSurface(panelId: panelId))
+        #expect(detached.shellActivityState == .promptIdle)
+        #expect(detached.restoredAgentCompletedGeneration?.completedAt == sourceGeneration.completedAt)
+
+        let destination = Workspace()
+        let destinationPaneId = try #require(destination.bonsplitController.focusedPaneId)
+        #expect(
+            destination.attachDetachedSurface(
+                detached,
+                inPane: destinationPaneId,
+                focus: false
+            ) == panelId
+        )
+        #expect(destination.panelShellActivityStates[panelId] == .promptIdle)
+        #expect(
+            destination.restoredAgentLifecycle.completedGeneration(panelId: panelId)?.completedAt
+                == sourceGeneration.completedAt
+        )
     }
 
     @Test

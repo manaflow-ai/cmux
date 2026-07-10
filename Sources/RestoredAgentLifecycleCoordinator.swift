@@ -32,7 +32,6 @@ final class RestoredAgentLifecycleCoordinator {
                 }
                 completedGenerationsByPanelId[panelId] = RestoredAgentCompletedGeneration(
                     completedAt: dateProvider(),
-                    updatedAt: snapshot.launchCommand?.capturedAt ?? 0,
                     processIdentities: []
                 )
             }
@@ -44,7 +43,6 @@ final class RestoredAgentLifecycleCoordinator {
 
     func markCompleted(
         panelId: UUID,
-        snapshot: SessionRestorableAgentSnapshot,
         observation: RestorableAgentSessionIndex.Entry?,
         runtimeProcessIdentities: Set<AgentPIDProcessIdentity>
     ) {
@@ -53,10 +51,6 @@ final class RestoredAgentLifecycleCoordinator {
         )
         completedGenerationsByPanelId[panelId] = RestoredAgentCompletedGeneration(
             completedAt: dateProvider(),
-            updatedAt: max(
-                observation?.updatedAt ?? 0,
-                snapshot.launchCommand?.capturedAt ?? 0
-            ),
             processIdentities: runtimeProcessIdentities.union(observedProcessIdentities)
         )
         resumeStatesByPanelId[panelId] = .completedAgentExit
@@ -65,7 +59,6 @@ final class RestoredAgentLifecycleCoordinator {
     func continuationSnapshot(
         panelId: UUID,
         observation: RestorableAgentSessionIndex.Entry?,
-        shellState: PanelShellActivityState?,
         currentProcessIdentity: (pid_t) -> AgentPIDProcessIdentity?
     ) -> SessionRestorableAgentSnapshot? {
         guard resumeStatesByPanelId[panelId] == .completedAgentExit else {
@@ -75,7 +68,6 @@ final class RestoredAgentLifecycleCoordinator {
               observationSupersedesCompletion(
                   panelId: panelId,
                   observation: observation,
-                  shellState: shellState,
                   currentProcessIdentity: currentProcessIdentity
               ) else {
             return nil
@@ -87,14 +79,12 @@ final class RestoredAgentLifecycleCoordinator {
     func reconcileCompletedAgent(
         panelId: UUID,
         observation: RestorableAgentSessionIndex.Entry,
-        shellState: PanelShellActivityState?,
         currentProcessIdentity: (pid_t) -> AgentPIDProcessIdentity?
     ) -> Bool {
         guard resumeStatesByPanelId[panelId] == .completedAgentExit,
               observationSupersedesCompletion(
                   panelId: panelId,
                   observation: observation,
-                  shellState: shellState,
                   currentProcessIdentity: currentProcessIdentity
               ) else {
             return false
@@ -106,14 +96,41 @@ final class RestoredAgentLifecycleCoordinator {
         return true
     }
 
+    func completedGeneration(panelId: UUID) -> RestoredAgentCompletedGeneration? {
+        completedGenerationsByPanelId[panelId]
+    }
+
+    func seedTransferredState(
+        panelId: UUID,
+        snapshot: SessionRestorableAgentSnapshot?,
+        resumeState: Workspace.RestoredAgentResumeState?,
+        completedGeneration: RestoredAgentCompletedGeneration?
+    ) {
+        if let snapshot {
+            snapshotsByPanelId[panelId] = snapshot
+        } else {
+            snapshotsByPanelId.removeValue(forKey: panelId)
+        }
+
+        if resumeState == .completedAgentExit, let completedGeneration {
+            completedGenerationsByPanelId[panelId] = completedGeneration
+        } else {
+            completedGenerationsByPanelId.removeValue(forKey: panelId)
+        }
+
+        if let resumeState {
+            resumeStatesByPanelId[panelId] = resumeState
+        } else {
+            resumeStatesByPanelId.removeValue(forKey: panelId)
+        }
+    }
+
     private func observationSupersedesCompletion(
         panelId: UUID,
         observation: RestorableAgentSessionIndex.Entry,
-        shellState: PanelShellActivityState?,
         currentProcessIdentity: (pid_t) -> AgentPIDProcessIdentity?
     ) -> Bool {
-        guard shellState == .commandRunning,
-              let completed = completedGenerationsByPanelId[panelId] else {
+        guard let completed = completedGenerationsByPanelId[panelId] else {
             return false
         }
 
@@ -129,8 +146,6 @@ final class RestoredAgentLifecycleCoordinator {
                 return startedAt > completed.completedAt
             }
         }
-
-        guard observation.agentProcessIDs.isEmpty else { return false }
-        return observation.updatedAt > max(completed.completedAt, completed.updatedAt)
+        return false
     }
 }

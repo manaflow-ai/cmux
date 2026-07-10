@@ -37,6 +37,8 @@ extension Workspace {
         let restoredUnreadIndicator: RestoredPanelUnreadIndicator?
         let restorableAgent: SessionRestorableAgentSnapshot?
         let restorableAgentResumeState: RestoredAgentResumeState?
+        let restoredAgentCompletedGeneration: RestoredAgentCompletedGeneration?
+        let shellActivityState: PanelShellActivityState?
         let restoredResumeSessionWorkingDirectory: String?
         let resumeBinding: SurfaceResumeBindingSnapshot?
         let agentRuntime: DetachedAgentRuntimeState?
@@ -67,6 +69,8 @@ extension Workspace {
                 restoredUnreadIndicator: restoredUnreadIndicator,
                 restorableAgent: restorableAgent,
                 restorableAgentResumeState: restorableAgentResumeState,
+                restoredAgentCompletedGeneration: restoredAgentCompletedGeneration,
+                shellActivityState: shellActivityState,
                 restoredResumeSessionWorkingDirectory: restoredResumeSessionWorkingDirectory,
                 resumeBinding: resumeBinding,
                 agentRuntime: agentRuntime,

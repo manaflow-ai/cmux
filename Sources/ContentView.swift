@@ -5703,16 +5703,17 @@ struct ContentView: View {
         let panelChanged = commandPaletteForkableAgentActivePanelKey != panelKey
         commandPaletteForkableAgentActivePanelKey = panelKey
         let allowsAgentContinuation = panelContext.workspace.allowsAgentContinuation(forPanelId: panelId)
-        guard allowsAgentContinuation else {
+        if !allowsAgentContinuation {
             cancelCommandPaletteForkableAgentAvailabilityProbe(for: panelKey)
             commandPaletteForkableAgentSupportedPanelKeys.remove(panelKey)
             commandPaletteForkableAgentSnapshotsByPanelKey.removeValue(forKey: panelKey)
             commandPaletteForkableAgentSnapshotFingerprintsByPanelKey.removeValue(forKey: panelKey)
             commandPaletteForkableAgentRemoteContextsByPanelKey.removeValue(forKey: panelKey)
             commandPaletteForkableAgentResultHadFallbackByPanelKey.removeValue(forKey: panelKey)
-            return
         }
-        let fallbackSnapshot = panelContext.workspace.restoredAgentSnapshotForContinuation(panelId: panelId)
+        let fallbackSnapshot = allowsAgentContinuation
+            ? panelContext.workspace.restoredAgentSnapshotForContinuation(panelId: panelId)
+            : nil
 
         if let fallbackSnapshot {
             let fallbackFingerprint = Self.commandPaletteForkSnapshotFingerprint(fallbackSnapshot)
@@ -5871,7 +5872,8 @@ struct ContentView: View {
         commandPaletteForkableAgentAvailabilityTasksByPanelKey[panelKey] = Task {
             let index = await RestorableAgentSessionIndex.loadIncludingProcessDetectedSnapshots()
             guard !Task.isCancelled else { return }
-            let indexSnapshot = index.snapshot(workspaceId: workspaceId, panelId: panelId)
+            let indexEntry = index.entry(workspaceId: workspaceId, panelId: panelId)
+            let indexSnapshot = indexEntry?.snapshot
             let snapshot = indexSnapshot ?? fallbackSnapshot
             let supportsFork: Bool
             if let snapshot {
@@ -5898,6 +5900,22 @@ struct ContentView: View {
             await MainActor.run {
                 guard commandPaletteForkableAgentProbeIDsByPanelKey[panelKey] == probeID else { return }
                 guard commandPaletteForkableAgentProbeFingerprintsByPanelKey[panelKey] == probeFingerprint else { return }
+                var acceptedIndexSnapshot = indexSnapshot
+                var acceptedSnapshot = snapshot
+                if let currentContext = focusedPanelContext,
+                   currentContext.workspace.id == workspaceId,
+                   currentContext.panelId == panelId {
+                    if let indexEntry {
+                        currentContext.workspace.reconcileCompletedRestoredAgent(
+                            panelId: panelId,
+                            observation: indexEntry
+                        )
+                    }
+                    if !currentContext.workspace.allowsAgentContinuation(forPanelId: panelId) {
+                        acceptedIndexSnapshot = nil
+                        acceptedSnapshot = nil
+                    }
+                }
                 if let fallbackFingerprint,
                    let currentContext = focusedPanelContext,
                    currentContext.workspace.id == workspaceId,
@@ -5912,19 +5930,17 @@ struct ContentView: View {
                 let wasSupported = commandPaletteForkableAgentSupportedPanelKeys.contains(panelKey)
                 let hadCachedSnapshot = commandPaletteForkableAgentSnapshotsByPanelKey[panelKey] != nil
                 let shouldRefreshResults: Bool
-                if supportsFork {
+                if supportsFork, let acceptedSnapshot {
                     shouldRefreshResults = !wasSupported
                     commandPaletteForkableAgentSupportedPanelKeys.insert(panelKey)
                     commandPaletteForkableAgentRemoteContextsByPanelKey[panelKey] = isRemoteTerminal
-                    if let snapshot {
-                        commandPaletteForkableAgentSnapshotsByPanelKey[panelKey] = snapshot
-                        commandPaletteForkableAgentSnapshotFingerprintsByPanelKey[panelKey] = Self.commandPaletteForkCacheFingerprint(
-                            snapshot: snapshot,
-                            fallbackFingerprint: fallbackFingerprint
-                        )
-                        commandPaletteForkableAgentResultHadFallbackByPanelKey[panelKey] =
-                            indexSnapshot == nil && fallbackSnapshot != nil
-                    }
+                    commandPaletteForkableAgentSnapshotsByPanelKey[panelKey] = acceptedSnapshot
+                    commandPaletteForkableAgentSnapshotFingerprintsByPanelKey[panelKey] = Self.commandPaletteForkCacheFingerprint(
+                        snapshot: acceptedSnapshot,
+                        fallbackFingerprint: fallbackFingerprint
+                    )
+                    commandPaletteForkableAgentResultHadFallbackByPanelKey[panelKey] =
+                        acceptedIndexSnapshot == nil && fallbackSnapshot != nil
                 } else {
                     shouldRefreshResults = wasSupported || hadCachedSnapshot
                     commandPaletteForkableAgentSupportedPanelKeys.remove(panelKey)
