@@ -1,14 +1,32 @@
 import CMUXMobileCore
 @testable import CmuxIrohTransport
 
+actor TestIrohEventRecorder {
+    private var events: [String] = []
+
+    func record(_ event: String) {
+        events.append(event)
+    }
+
+    func observedEvents() -> [String] {
+        events
+    }
+}
+
 actor TestIrohConnection: CmxIrohConnection {
     private let peerIdentity: CmxIrohPeerIdentity
     private var bidirectionalStreams: [CmxIrohBidirectionalStream]
     private var receiveStreams: [any CmxIrohReceiveStream]
+    private let natTraversalAuthorizationError: TestIrohTransportError?
+    private let eventRecorder: TestIrohEventRecorder?
     private var incomingStreamLimits: [(
         maximumBidirectionalStreamCount: UInt64,
         maximumUnidirectionalStreamCount: UInt64
     )] = []
+    private var bidirectionalStreamOpenCount = 0
+    private var natTraversalAuthorizationAttemptCount = 0
+    private var natTraversalActivationCount = 0
+    private var natTraversalAuthorized = false
     private var closeCalls: [(code: UInt64, reason: String)] = []
     private let closeStream: AsyncStream<(code: UInt64, reason: String)>
     private let closeContinuation: AsyncStream<(code: UInt64, reason: String)>.Continuation
@@ -16,11 +34,15 @@ actor TestIrohConnection: CmxIrohConnection {
     init(
         remoteIdentity: CmxIrohPeerIdentity,
         bidirectionalStreams: [CmxIrohBidirectionalStream],
-        receiveStreams: [any CmxIrohReceiveStream] = []
+        receiveStreams: [any CmxIrohReceiveStream] = [],
+        natTraversalAuthorizationError: TestIrohTransportError? = nil,
+        eventRecorder: TestIrohEventRecorder? = nil
     ) {
         peerIdentity = remoteIdentity
         self.bidirectionalStreams = bidirectionalStreams
         self.receiveStreams = receiveStreams
+        self.natTraversalAuthorizationError = natTraversalAuthorizationError
+        self.eventRecorder = eventRecorder
         let closes = AsyncStream<(code: UInt64, reason: String)>.makeStream()
         closeStream = closes.stream
         closeContinuation = closes.continuation
@@ -33,22 +55,27 @@ actor TestIrohConnection: CmxIrohConnection {
     func setIncomingStreamLimits(
         maximumBidirectionalStreamCount: UInt64,
         maximumUnidirectionalStreamCount: UInt64
-    ) {
+    ) async {
         incomingStreamLimits.append((
             maximumBidirectionalStreamCount,
             maximumUnidirectionalStreamCount
         ))
+        await eventRecorder?.record(
+            "connection.limits:\(maximumBidirectionalStreamCount):\(maximumUnidirectionalStreamCount)"
+        )
     }
 
-    func openBidirectionalStream() throws -> CmxIrohBidirectionalStream {
+    func openBidirectionalStream() async throws -> CmxIrohBidirectionalStream {
         guard !bidirectionalStreams.isEmpty else {
             throw TestIrohTransportError.unsupported
         }
+        bidirectionalStreamOpenCount += 1
+        await eventRecorder?.record("connection.openBidirectionalStream")
         return bidirectionalStreams.removeFirst()
     }
 
-    func acceptBidirectionalStream() throws -> CmxIrohBidirectionalStream {
-        try openBidirectionalStream()
+    func acceptBidirectionalStream() async throws -> CmxIrohBidirectionalStream {
+        try await openBidirectionalStream()
     }
 
     func openSendStream() throws -> any CmxIrohSendStream {
@@ -70,6 +97,17 @@ actor TestIrohConnection: CmxIrohConnection {
         closeContinuation.yield((errorCode, reason))
     }
 
+    func authorizeNatTraversal() async throws {
+        natTraversalAuthorizationAttemptCount += 1
+        await eventRecorder?.record("connection.authorizeNatTraversal")
+        if let natTraversalAuthorizationError {
+            throw natTraversalAuthorizationError
+        }
+        guard !natTraversalAuthorized else { return }
+        natTraversalAuthorized = true
+        natTraversalActivationCount += 1
+    }
+
     func observedCloseCallCount() -> Int {
         closeCalls.count
     }
@@ -78,6 +116,18 @@ actor TestIrohConnection: CmxIrohConnection {
         incomingStreamLimits.map {
             "\($0.maximumBidirectionalStreamCount):\($0.maximumUnidirectionalStreamCount)"
         }
+    }
+
+    func observedBidirectionalStreamOpenCount() -> Int {
+        bidirectionalStreamOpenCount
+    }
+
+    func observedNatTraversalAuthorizationAttemptCount() -> Int {
+        natTraversalAuthorizationAttemptCount
+    }
+
+    func observedNatTraversalActivationCount() -> Int {
+        natTraversalActivationCount
     }
 
     func closeEvents() -> AsyncStream<(code: UInt64, reason: String)> {

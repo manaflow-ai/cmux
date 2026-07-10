@@ -2,13 +2,26 @@ import Foundation
 @testable import CmuxIrohTransport
 
 actor TestIrohSendStream: CmxIrohSendStream {
+    private let eventRecorder: TestIrohEventRecorder?
+    private let eventName: String?
     private var sentBuffers: [Data] = []
     private var finishCallCount = 0
     private var resetCodes: [UInt64] = []
     private var priorities: [Int32] = []
 
-    func send(_ data: Data) {
+    init(
+        eventRecorder: TestIrohEventRecorder? = nil,
+        eventName: String? = nil
+    ) {
+        self.eventRecorder = eventRecorder
+        self.eventName = eventName
+    }
+
+    func send(_ data: Data) async {
         sentBuffers.append(data)
+        if let eventName {
+            await eventRecorder?.record(eventName)
+        }
     }
 
     func finish() {

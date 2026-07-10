@@ -7,7 +7,8 @@ import Testing
 struct CmxIrohServerSessionTests {
     @Test
     func acceptedControlPreservesPayloadAndUnlocksIndependentLanes() async throws {
-        let fixture = try ServerFixture(decision: .accepted)
+        let events = TestIrohEventRecorder()
+        let fixture = try ServerFixture(decision: .accepted, eventRecorder: events)
         let terminalID = try CmxIrohResourceID("terminal-1")
         let terminalHeader = try fixture.headerCodec.encode(
             CmxIrohStreamHeader(lane: .terminal(resourceID: terminalID, cursor: nil))
@@ -24,7 +25,8 @@ struct CmxIrohServerSessionTests {
                     receiveStream: terminalReceive,
                     sendStream: terminalSend
                 ),
-            ]
+            ],
+            eventRecorder: events
         )
         let session = try CmxIrohServerSession(
             connection: connection,
@@ -32,7 +34,9 @@ struct CmxIrohServerSessionTests {
         )
 
         let admittedPeer = try await session.admit()
-        #expect(await connection.observedIncomingStreamLimits() == ["17:0"])
+        #expect(await connection.observedIncomingStreamLimits() == ["1:0", "17:0"])
+        #expect(await connection.observedNatTraversalAuthorizationAttemptCount() == 1)
+        #expect(await connection.observedNatTraversalActivationCount() == 1)
         #expect(admittedPeer == fixture.admittedPeer)
         #expect(try await session.receiveControl() == Data("rpc".utf8))
         let inbound = try await session.acceptBidirectionalLane()
@@ -41,8 +45,20 @@ struct CmxIrohServerSessionTests {
             try await inbound.stream.receiveStream.receive(maximumByteCount: 64)
                 == Data("terminal-payload".utf8)
         )
-        let ack = try #require(await fixture.controlSend.observedSentBuffers().first)
-        #expect(try CmxIrohAdmissionAckCodec().decodePrefix(ack) == .accepted)
+        let acknowledgements = await fixture.controlSend.observedSentBuffers()
+        let acceptedPending = try #require(acknowledgements.first)
+        let serverReady = try #require(acknowledgements.dropFirst().first)
+        #expect(acknowledgements.count == 2)
+        #expect(try CmxIrohAdmissionAckCodec().decodePrefix(acceptedPending) == .accepted)
+        #expect(serverReady == admissionFrame(status: 3))
+        #expect(await events.observedEvents() == [
+            "connection.limits:1:0",
+            "connection.openBidirectionalStream",
+            "control.send",
+            "connection.authorizeNatTraversal",
+            "connection.limits:17:0",
+            "control.send",
+        ])
         #expect(await connection.observedCloseCallCount() == 0)
     }
 
@@ -63,6 +79,79 @@ struct CmxIrohServerSessionTests {
         }
         let ack = try #require(await fixture.controlSend.observedSentBuffers().first)
         #expect(try CmxIrohAdmissionAckCodec().decodePrefix(ack) == .denied(code: 7))
+        #expect(await connection.observedNatTraversalAuthorizationAttemptCount() == 0)
+        #expect(await connection.observedCloseCallCount() == 1)
+    }
+
+    @Test
+    func missingClientReadyFailsClosedWithoutAuthorizingNatTraversal() async throws {
+        let fixture = try ServerFixture(
+            decision: .accepted,
+            clientReadyFrame: nil,
+            applicationBytes: Data()
+        )
+        let connection = TestIrohConnection(
+            remoteIdentity: fixture.peerID,
+            bidirectionalStreams: [fixture.controlStream]
+        )
+        let session = try CmxIrohServerSession(
+            connection: connection,
+            authorizer: fixture.authorizer
+        )
+
+        await #expect(throws: CmxIrohServerSessionError.unexpectedEndOfStream) {
+            try await session.admit()
+        }
+
+        #expect(await fixture.controlSend.observedSentBuffers().count == 1)
+        #expect(await connection.observedNatTraversalAuthorizationAttemptCount() == 0)
+        #expect(await connection.observedCloseCallCount() == 1)
+    }
+
+    @Test
+    func roleInvalidClientReadyFailsClosedWithoutAuthorizingNatTraversal() async throws {
+        let fixture = try ServerFixture(
+            decision: .accepted,
+            clientReadyFrame: admissionFrame(status: 3)
+        )
+        let connection = TestIrohConnection(
+            remoteIdentity: fixture.peerID,
+            bidirectionalStreams: [fixture.controlStream]
+        )
+        let session = try CmxIrohServerSession(
+            connection: connection,
+            authorizer: fixture.authorizer
+        )
+
+        await #expect(throws: (any Error).self) {
+            try await session.admit()
+        }
+
+        #expect(await fixture.controlSend.observedSentBuffers().count == 1)
+        #expect(await connection.observedNatTraversalAuthorizationAttemptCount() == 0)
+        #expect(await connection.observedCloseCallCount() == 1)
+    }
+
+    @Test
+    func serverNatTraversalAuthorizationFailureSendsNoFinalReadyAndCloses() async throws {
+        let fixture = try ServerFixture(decision: .accepted)
+        let connection = TestIrohConnection(
+            remoteIdentity: fixture.peerID,
+            bidirectionalStreams: [fixture.controlStream],
+            natTraversalAuthorizationError: .natTraversalAuthorizationFailed
+        )
+        let session = try CmxIrohServerSession(
+            connection: connection,
+            authorizer: fixture.authorizer
+        )
+
+        await #expect(throws: TestIrohTransportError.natTraversalAuthorizationFailed) {
+            try await session.admit()
+        }
+
+        #expect(await fixture.controlSend.observedSentBuffers().count == 1)
+        #expect(await connection.observedNatTraversalAuthorizationAttemptCount() == 1)
+        #expect(await connection.observedNatTraversalActivationCount() == 0)
         #expect(await connection.observedCloseCallCount() == 1)
     }
 
@@ -230,10 +319,15 @@ private struct ServerFixture {
     let admittedPeer: CmxIrohAdmittedPeer
     let authorizer: FixedAdmissionAuthorizer
     let headerCodec = try! CmxIrohStreamHeaderCodec()
-    let controlSend = TestIrohSendStream()
+    let controlSend: TestIrohSendStream
     let controlStream: CmxIrohBidirectionalStream
 
-    init(decision: CmxIrohAdmissionDecision) throws {
+    init(
+        decision: CmxIrohAdmissionDecision,
+        clientReadyFrame: Data? = admissionFrame(status: 2),
+        applicationBytes: Data = Data("rpc".utf8),
+        eventRecorder: TestIrohEventRecorder? = nil
+    ) throws {
         let peerID = try CmxIrohPeerIdentity(endpointID: String(repeating: "a", count: 64))
         let admittedPeer = CmxIrohAdmittedPeer(
             bindingID: "123e4567-e89b-42d3-a456-426614174001",
@@ -251,15 +345,35 @@ private struct ServerFixture {
             .denied(code: code)
         }
         authorizer = FixedAdmissionAuthorizer(authorization: authorization)
+        controlSend = TestIrohSendStream(
+            eventRecorder: eventRecorder,
+            eventName: "control.send"
+        )
         let credential = try CmxIrohAdmissionCredential.pairGrant("aa.bb.cc")
         let header = try headerCodec.encode(
             CmxIrohStreamHeader(lane: .control, credential: credential)
         )
+        let readyFrame = if decision == .accepted {
+            clientReadyFrame ?? Data()
+        } else {
+            Data()
+        }
         controlStream = CmxIrohBidirectionalStream(
-            receiveStream: TestIrohReceiveStream(buffer: header + Data("rpc".utf8)),
+            receiveStream: TestIrohReceiveStream(
+                buffer: header + readyFrame + applicationBytes
+            ),
             sendStream: controlSend
         )
     }
+}
+
+private func admissionFrame(status: UInt8, code: UInt16 = 0) -> Data {
+    var frame = Data("CMXA".utf8)
+    frame.append(1)
+    frame.append(status)
+    let bigEndian = code.bigEndian
+    withUnsafeBytes(of: bigEndian) { frame.append(contentsOf: $0) }
+    return frame
 }
 
 private actor FixedAdmissionAuthorizer: CmxIrohAdmissionAuthorizing {

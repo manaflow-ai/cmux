@@ -17,13 +17,16 @@ struct CmxIrohClientSessionTests {
 
     @Test
     func publicDialAdmitsControlAndPreservesFollowingRPCBytes() async throws {
+        let events = TestIrohEventRecorder()
         let control = controlStream(
             decision: .accepted,
-            trailingBytes: Data("rpc".utf8)
+            trailingBytes: Data("rpc".utf8),
+            eventRecorder: events
         )
         let connection = TestIrohConnection(
             remoteIdentity: remoteIdentity,
-            bidirectionalStreams: [control.stream]
+            bidirectionalStreams: [control.stream],
+            eventRecorder: events
         )
         let endpoint = TestDialingIrohEndpoint(
             localIdentity: localIdentity,
@@ -39,14 +42,55 @@ struct CmxIrohClientSessionTests {
 
         try await session.connect()
 
-        #expect(await connection.observedIncomingStreamLimits() == ["0:16"])
+        #expect(await connection.observedIncomingStreamLimits() == ["0:0", "0:16"])
+        #expect(await connection.observedNatTraversalAuthorizationAttemptCount() == 1)
+        #expect(await connection.observedNatTraversalActivationCount() == 1)
+        #expect(await connection.observedBidirectionalStreamOpenCount() == 1)
         let dialed = await endpoint.observedDialedAddresses()
         #expect(dialed == [CmxIrohEndpointAddress(identity: remoteIdentity, pathHints: [publicHint])])
         let sent = await control.send.observedSentBuffers()
-        #expect(sent.count == 1)
-        let decodedHeader = try CmxIrohStreamHeaderCodec().decodePrefix(sent[0]).header
+        let encodedHeader = try #require(sent.first)
+        let clientReady = try #require(sent.dropFirst().first)
+        #expect(sent.count == 2)
+        let decodedHeader = try CmxIrohStreamHeaderCodec().decodePrefix(encodedHeader).header
         #expect(decodedHeader == (try CmxIrohStreamHeader(lane: .control, credential: credential)))
+        #expect(clientReady == admissionFrame(status: 2))
+        #expect(await events.observedEvents() == [
+            "connection.limits:0:0",
+            "connection.openBidirectionalStream",
+            "control.send",
+            "connection.authorizeNatTraversal",
+            "control.send",
+            "connection.limits:0:16",
+        ])
         #expect(try await session.receiveControl() == Data("rpc".utf8))
+    }
+
+    @Test
+    func repeatedConnectDoesNotRepeatNatTraversalAuthorization() async throws {
+        let control = controlStream(decision: .accepted)
+        let connection = TestIrohConnection(
+            remoteIdentity: remoteIdentity,
+            bidirectionalStreams: [control.stream]
+        )
+        let endpoint = TestDialingIrohEndpoint(
+            localIdentity: localIdentity,
+            dialResults: [.connection(connection)]
+        )
+        let session = try CmxIrohClientSession(
+            endpoint: endpoint,
+            targetIdentity: remoteIdentity,
+            dialPlan: try testIrohDialPlan(),
+            credential: credential
+        )
+
+        try await session.connect()
+        try await session.connect()
+
+        #expect(await connection.observedNatTraversalAuthorizationAttemptCount() == 1)
+        #expect(await connection.observedNatTraversalActivationCount() == 1)
+        #expect(await connection.observedBidirectionalStreamOpenCount() == 1)
+        #expect(await endpoint.observedDialedAddresses().count == 1)
     }
 
     @Test
@@ -201,6 +245,72 @@ struct CmxIrohClientSessionTests {
         await #expect(throws: CmxIrohClientSessionError.admissionDenied(code: 7)) {
             try await session.connect()
         }
+        #expect(await connection.observedNatTraversalAuthorizationAttemptCount() == 0)
+        #expect(await connection.observedCloseCallCount() == 1)
+    }
+
+    @Test
+    func natTraversalAuthorizationFailureSendsNoReadyAckAndCloses() async throws {
+        let control = controlStream(decision: .accepted)
+        let connection = TestIrohConnection(
+            remoteIdentity: remoteIdentity,
+            bidirectionalStreams: [control.stream],
+            natTraversalAuthorizationError: .natTraversalAuthorizationFailed
+        )
+        let endpoint = TestDialingIrohEndpoint(
+            localIdentity: localIdentity,
+            dialResults: [.connection(connection)]
+        )
+        let session = try CmxIrohClientSession(
+            endpoint: endpoint,
+            targetIdentity: remoteIdentity,
+            dialPlan: try testIrohDialPlan(),
+            credential: credential
+        )
+
+        await #expect(throws: TestIrohTransportError.natTraversalAuthorizationFailed) {
+            try await session.connect()
+        }
+
+        #expect(await connection.observedNatTraversalAuthorizationAttemptCount() == 1)
+        #expect(await connection.observedNatTraversalActivationCount() == 0)
+        #expect(await control.send.observedSentBuffers().count == 1)
+        #expect(await connection.observedCloseCallCount() == 1)
+    }
+
+    @Test
+    func missingServerReadyFailsBeforeAnyApplicationLaneCanOpen() async throws {
+        let control = controlStream(
+            decision: .accepted,
+            includesServerReady: false
+        )
+        let connection = TestIrohConnection(
+            remoteIdentity: remoteIdentity,
+            bidirectionalStreams: [control.stream]
+        )
+        let endpoint = TestDialingIrohEndpoint(
+            localIdentity: localIdentity,
+            dialResults: [.connection(connection)]
+        )
+        let session = try CmxIrohClientSession(
+            endpoint: endpoint,
+            targetIdentity: remoteIdentity,
+            dialPlan: try testIrohDialPlan(),
+            credential: credential
+        )
+
+        await #expect(throws: CmxIrohClientSessionError.unexpectedEndOfStream) {
+            try await session.connect()
+        }
+        await #expect(throws: CmxIrohClientSessionError.notConnected) {
+            _ = try await session.openBidirectionalLane(
+                .artifact(resourceID: CmxIrohResourceID("artifact:blocked"), offset: 0),
+                priority: 1
+            )
+        }
+
+        #expect(await connection.observedNatTraversalAuthorizationAttemptCount() == 1)
+        #expect(await connection.observedBidirectionalStreamOpenCount() == 1)
         #expect(await connection.observedCloseCallCount() == 1)
     }
 
@@ -302,16 +412,35 @@ struct CmxIrohClientSessionTests {
 
     private func controlStream(
         decision: CmxIrohAdmissionDecision,
-        trailingBytes: Data = Data()
+        trailingBytes: Data = Data(),
+        includesServerReady: Bool = true,
+        eventRecorder: TestIrohEventRecorder? = nil
     ) -> (stream: CmxIrohBidirectionalStream, send: TestIrohSendStream) {
+        let finalFrame = if decision == .accepted, includesServerReady {
+            admissionFrame(status: 3)
+        } else {
+            Data()
+        }
         let receive = TestIrohReceiveStream(
-            buffer: CmxIrohAdmissionAckCodec().encode(decision) + trailingBytes
+            buffer: CmxIrohAdmissionAckCodec().encode(decision) + finalFrame + trailingBytes
         )
-        let send = TestIrohSendStream()
+        let send = TestIrohSendStream(
+            eventRecorder: eventRecorder,
+            eventName: "control.send"
+        )
         return (
             CmxIrohBidirectionalStream(receiveStream: receive, sendStream: send),
             send
         )
+    }
+
+    private func admissionFrame(status: UInt8, code: UInt16 = 0) -> Data {
+        var frame = Data("CMXA".utf8)
+        frame.append(1)
+        frame.append(status)
+        let bigEndian = code.bigEndian
+        withUnsafeBytes(of: bigEndian) { frame.append(contentsOf: $0) }
+        return frame
     }
 
     private func publicRelayHint() throws -> CmxIrohPathHint {
