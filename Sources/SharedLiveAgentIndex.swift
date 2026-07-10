@@ -185,7 +185,10 @@ final class SharedLiveAgentIndex {
             publication: .scoped,
             validating: nil
         )
-        return Task { @MainActor in
+        return Task { @MainActor [self] in
+            // The returned operation owns its coordinator until the requested
+            // generation resolves, including for injected non-singleton indexes.
+            defer { _ = self }
             await refreshTask.value?.index
         }
     }
