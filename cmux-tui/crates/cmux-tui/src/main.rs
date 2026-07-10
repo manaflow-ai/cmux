@@ -26,6 +26,7 @@ use session::{RemoteSession, Session};
 
 static SHUTDOWN_REQUESTED: AtomicBool = AtomicBool::new(false);
 
+#[cfg(unix)]
 extern "C" fn handle_signal(_: libc::c_int) {
     SHUTDOWN_REQUESTED.store(true, Ordering::Release);
 }
@@ -34,6 +35,7 @@ pub(crate) fn shutdown_requested() -> bool {
     SHUTDOWN_REQUESTED.load(Ordering::Acquire)
 }
 
+#[cfg(unix)]
 fn install_signal_handlers() {
     unsafe {
         libc::signal(libc::SIGTERM, handle_signal as *const () as libc::sighandler_t);
@@ -41,6 +43,9 @@ fn install_signal_handlers() {
         libc::signal(libc::SIGHUP, handle_signal as *const () as libc::sighandler_t);
     }
 }
+
+#[cfg(not(unix))]
+fn install_signal_handlers() {}
 
 const USAGE: &str = "\
 cmux-tui - terminal multiplexer backed by libghostty-vt

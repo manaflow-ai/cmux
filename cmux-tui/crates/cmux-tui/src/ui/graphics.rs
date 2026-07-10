@@ -1,6 +1,9 @@
 use std::collections::{HashMap, HashSet};
 use std::io::Write;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+
+#[cfg(unix)]
+use std::time::Instant;
 
 use cmux_tui_core::{Rect, SurfaceId};
 
@@ -114,6 +117,7 @@ pub fn detect_cell_pixels(query_fallback: bool) -> (u16, u16) {
     (8, 16)
 }
 
+#[cfg(unix)]
 fn ioctl_cell_pixels() -> Option<(u16, u16)> {
     let mut ws: libc::winsize = unsafe { std::mem::zeroed() };
     let ok = unsafe { libc::ioctl(libc::STDOUT_FILENO, libc::TIOCGWINSZ, &mut ws) } == 0;
@@ -123,6 +127,11 @@ fn ioctl_cell_pixels() -> Option<(u16, u16)> {
     let w = (ws.ws_xpixel / ws.ws_col).max(1);
     let h = (ws.ws_ypixel / ws.ws_row).max(1);
     Some((w, h))
+}
+
+#[cfg(not(unix))]
+fn ioctl_cell_pixels() -> Option<(u16, u16)> {
+    None
 }
 
 fn query_cell_pixels() -> Option<(u16, u16)> {
@@ -144,6 +153,7 @@ fn query_cell_pixels() -> Option<(u16, u16)> {
     Some((((width / cols as u32).max(1)) as u16, ((height / rows as u32).max(1)) as u16))
 }
 
+#[cfg(unix)]
 fn read_stdin_for(timeout: Duration) -> Vec<u8> {
     let start = Instant::now();
     let mut out = Vec::new();
@@ -166,6 +176,11 @@ fn read_stdin_for(timeout: Duration) -> Vec<u8> {
         }
     }
     out
+}
+
+#[cfg(not(unix))]
+fn read_stdin_for(_timeout: Duration) -> Vec<u8> {
+    Vec::new()
 }
 
 fn find_bytes(haystack: &[u8], needle: &[u8]) -> Option<usize> {
