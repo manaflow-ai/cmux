@@ -1420,6 +1420,28 @@ struct MobileHostAuthorizationTests {
         let recordedMethods = await requestRecorder.recordedMethods()
         #expect(recordedMethods == ["workspace.list"])
     }
+    @Test func testMobileHostConnectionClosesBeforeStartingAnUnboundedRPCBatch() async throws {
+        let transport = RecordingMobileHostByteTransport()
+        let session = MobileHostConnection(
+            id: UUID(),
+            transport: transport,
+            authorizeRequest: { _ in nil },
+            onAuthorizedRequest: { _ in },
+            handleRequest: { _ in .ok([:]) },
+            onClose: { _ in }
+        )
+        let frame = try MobileSyncFrameCodec.encodeFrame(
+            Data(#"{"id":"bounded","method":"workspace.list","params":{}}"#.utf8)
+        )
+        var batch = Data()
+        for _ in 0...MobileHostRPCWorkQuota.recommendedMaximumConcurrentRequestCount {
+            batch.append(frame)
+        }
+
+        await session.debugHandleReceiveDataForTesting(batch)
+
+        #expect(await transport.observedCloseCount() == 1)
+    }
     // MARK: - Advertised mobile host capabilities
     @Test func testMobileHostAdvertisesWorkspaceActionCapabilities() {
         let capabilities = MobileHostService.mobileHostCapabilities
