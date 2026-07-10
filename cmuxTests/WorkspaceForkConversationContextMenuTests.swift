@@ -247,6 +247,20 @@ struct WorkspaceForkConversationContextMenuTests {
         )
         await sharedIndex.refreshForkAvailabilityNow(workspaceId: liveWorkspaceId, panelId: livePanelId)
         #expect(
+            sharedIndex.index?.snapshot(
+                workspaceId: liveWorkspaceId,
+                panelId: livePanelId
+            )?.sessionId == sessionId,
+            "The published generation must contain the process-remapped live panel."
+        )
+        #expect(
+            sharedIndex.snapshotForForkConversationCandidate(
+                workspaceId: liveWorkspaceId,
+                panelId: livePanelId
+            )?.sessionId == sessionId,
+            "The owning generation must clear pending state and publish its validated panel."
+        )
+        #expect(
             sharedIndex.snapshotForForkAvailability(
                 workspaceId: liveWorkspaceId,
                 panelId: livePanelId
