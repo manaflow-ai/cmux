@@ -1,25 +1,45 @@
+internal import Foundation
 public import OSLog
 
-/// Emits dynamically enabled terminal-renderer intervals with negligible disabled-path work.
+/// Emits terminal-renderer points of interest with negligible disabled-path work.
 public struct TerminalRendererProfilingSignposts: Sendable {
-    private let signposter = OSSignposter(
-        subsystem: "com.cmux.terminal-renderer",
-        category: .dynamicTracing
-    )
+    private let signposter: OSSignposter
+    private let collectionRequested: Bool
 
-    /// Creates a dynamic-tracing signpost emitter.
-    public init() {}
+    private static let defaultCollectionRequested: Bool = {
+        let environment = ProcessInfo.processInfo.environment
+        return environment["CMUX_TERMINAL_RENDERER_PROFILING"] == "1" ||
+            environment["CMUX_KEY_LATENCY_PROBE"] == "1"
+    }()
 
-    /// Whether a trace collector currently records dynamic signposts.
+    /// Creates a points-of-interest signpost emitter captured by standard Instruments templates.
+    /// Collection is opt-in through `CMUX_TERMINAL_RENDERER_PROFILING=1` or the existing
+    /// `CMUX_KEY_LATENCY_PROBE=1` profiling mode so ordinary rendering retains its disabled path.
+    public init() {
+        self.init(
+            signposter: OSSignposter(
+                subsystem: "com.cmux.terminal-renderer",
+                category: .pointsOfInterest
+            ),
+            collectionRequested: Self.defaultCollectionRequested
+        )
+    }
+
+    init(signposter: OSSignposter, collectionRequested: Bool) {
+        self.signposter = signposter
+        self.collectionRequested = collectionRequested
+    }
+
+    /// Whether a trace collector currently records points-of-interest signposts.
     @inline(__always)
-    public var isEnabled: Bool { signposter.isEnabled }
+    public var isEnabled: Bool { collectionRequested && signposter.isEnabled }
 
     /// Starts one drawable-to-presentation frame interval.
     @inline(__always)
     public func beginFrame(
         _ metadata: @autoclosure () -> TerminalRendererProfilingMetadata
     ) -> OSSignpostIntervalState? {
-        guard signposter.isEnabled else { return nil }
+        guard isEnabled else { return nil }
         let details = metadata().details
         return signposter.beginInterval(
             "terminal-renderer-frame",
@@ -44,7 +64,7 @@ public struct TerminalRendererProfilingSignposts: Sendable {
     public func beginUpdate(
         _ metadata: @autoclosure () -> TerminalRendererProfilingMetadata
     ) -> OSSignpostIntervalState? {
-        guard signposter.isEnabled else { return nil }
+        guard isEnabled else { return nil }
         let details = metadata().details
         return signposter.beginInterval(
             "terminal-renderer-update",

@@ -52,9 +52,13 @@ import Testing
 }
 
 @Suite struct TerminalRendererProfilingSignpostsTests {
-    @Test func disabledSignposterDoesNotEvaluateMetadata() {
+    @Test func disabledCollectionDoesNotEvaluateMetadata() {
         let signposts = TerminalRendererProfilingSignposts(
-            signposter: OSSignposter(logHandle: .disabled)
+            signposter: OSSignposter(
+                subsystem: "com.cmux.terminal-renderer-tests",
+                category: .pointsOfInterest
+            ),
+            collectionRequested: false
         )
         var evaluationCount = 0
 
