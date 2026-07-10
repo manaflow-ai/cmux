@@ -92,6 +92,14 @@ jobs:
       - name: Validate macOS runner guards
         run: ./tests/test_ci_self_hosted_guard.sh
 
+      - name: Validate MACOS_RUNNER_15 routing variable
+        env:
+          MACOS_RUNNER_15_VALUE: ${{ vars.MACOS_RUNNER_15 }}
+        run: ./scripts/ci/check-macos-runner-routing.sh
+
+      - name: Validate MACOS_RUNNER_15 routing guard behavior
+        run: ./tests/test_ci_macos_runner_routing_guard.sh
+
       - name: Validate release SDK build lane
         run: ./tests/test_ci_release_sdk_lane.sh
 

@@ -1,14 +1,16 @@
 # CI runners
 
 Every CI/CD job picks its runner from a repository variable instead of a
-hardcoded label. Linux uses Blacksmith. macOS uses ephemeral Tart VMs on the
-cmux Mac fleet. Changing a runner type is a single repository-variable update
-that takes effect on the next workflow run.
+hardcoded label. Linux uses Blacksmith. macOS GUI/XCUITest and iOS lanes use
+ephemeral Tart VMs on the cmux Mac fleet; the `MACOS_RUNNER_15` lanes stay on
+paid cloud runners until the Tart Sequoia image serves their dual-Xcode
+contract (see below). Changing a runner type is a single repository-variable
+update that takes effect on the next workflow run.
 
 | Variable            | Used by                                                    | Active value                | Fallback baked into the workflow |
 | ------------------- | ---------------------------------------------------------- | --------------------------- | -------------------------------- |
 | `LINUX_RUNNER`      | every Linux job (`ci.yml` web/typecheck/db, presence, cloud-vm, nightly/ios decide jobs, claude, homebrew, tmux fuzz) | `blacksmith-4vcpu-ubuntu-2404` | `warp-ubuntu-latest-x64-4x`   |
-| `MACOS_RUNNER_15`   | universal Release app builds: nightly, stable release, `release-ghostty-cli-helper`, most macOS defaults | `tart-macos-15` | `warp-macos-15-arm64-6x`         |
+| `MACOS_RUNNER_15`   | universal Release app builds: nightly, stable release, `release-ghostty-cli-helper`, `swift-package-tests`, app-host unit-test shards, most macOS defaults | `warp-macos-15-arm64-6x` | `warp-macos-15-arm64-6x`         |
 | `MACOS_RUNNER_26`   | macOS 26 compatibility jobs                                | `blacksmith-6vcpu-macos-26` | `blacksmith-6vcpu-macos-26`      |
 | `MACOS_RUNNER_26_RELEASE` | disk-heavy `release-build` universal app             | `blacksmith-6vcpu-macos-26` | `blacksmith-6vcpu-macos-26`      |
 | `MACOS_RUNNER_DISPLAY` | macOS GUI, XCUITest, and virtual-display tests           | `tart-gui`                  | `warp-macos-15-arm64-6x`         |
@@ -37,6 +39,26 @@ self-hosted labels are the `tart-*` labels, and each Tart-aware canary checks
 that the resolved runner name starts with `tart-cmux-` and that the guest has
 the immutable `/etc/cmux-tart-ci` marker.
 
+## MACOS_RUNNER_15 dual-Xcode contract
+
+The jobs behind `MACOS_RUNNER_15` (`swift-package-tests`, the app-host
+unit-test shards, release/nightly universal builds) need a runner image with
+**both** an SDK-15 Xcode (16.x, for the universal Ghostty CLI helper built
+with `CMUX_CI_REQUIRED_MACOS_SDK_MAJOR=15`) and the pinned SDK-26 Xcode
+(`vars.CMUX_CI_XCODE_APP_MACOS_15`). The Tart Sequoia image ships only SDK-26
+Xcodes, so `MACOS_RUNNER_15` must NOT point at `tart-macos-15` until the image
+carries an SDK-15 Xcode and both lanes are proven green on it.
+
+This is enforced: `workflow-guard-tests` runs
+`scripts/ci/check-macos-runner-routing.sh` against the live variable on every
+`ci.yml` run and fails closed with remediation instructions if
+`MACOS_RUNNER_15` is set to a label outside the validated allowlist
+(2026-07-10 incident: flipping it to `tart-macos-15` broke
+`swift-package-tests` on every branch with "No Xcode.app found under
+/Applications with macOS SDK major 15"). To cut these lanes over to a new
+runner type, validate the image, extend the allowlist in that script in a
+reviewed PR, then flip the variable.
+
 ## Break-glass: switch a runner type to a paid provider
 
 There is no automatic overflow. If the Tart pool is unavailable or its queue is
@@ -52,10 +74,11 @@ gh variable set MACOS_RUNNER_DISPLAY    --repo manaflow-ai/cmux -b depot-macos-l
 gh variable set MACOS_RUNNER_IOS        --repo manaflow-ai/cmux -b blacksmith-6vcpu-macos-26
 ```
 
-Restore the self-hosted pool with explicit labels:
+Restore the self-hosted pool with explicit labels (`MACOS_RUNNER_15` stays on
+cloud until the Tart image satisfies the dual-Xcode contract above):
 
 ```bash
-gh variable set MACOS_RUNNER_15         --repo manaflow-ai/cmux -b tart-macos-15
+gh variable set MACOS_RUNNER_15         --repo manaflow-ai/cmux -b warp-macos-15-arm64-6x
 gh variable set MACOS_RUNNER_26         --repo manaflow-ai/cmux -b blacksmith-6vcpu-macos-26
 gh variable set MACOS_RUNNER_26_RELEASE --repo manaflow-ai/cmux -b blacksmith-6vcpu-macos-26
 gh variable set MACOS_RUNNER_DISPLAY    --repo manaflow-ai/cmux -b tart-gui
