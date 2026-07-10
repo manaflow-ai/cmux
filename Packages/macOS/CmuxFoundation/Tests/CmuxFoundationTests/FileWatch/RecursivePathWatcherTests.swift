@@ -103,4 +103,25 @@ private actor GateClock: FileWatchClock {
         #expect(next == nil)
         #expect(await clock.sleeperCount == 0)
     }
+
+    @Test func identifiedEventsEmitLatestStableIDFromThrottleWindow() async {
+        let clock = GateClock()
+        let watcher = RecursivePathWatcher(testThrottleClock: clock)
+        var iterator = watcher.identifiedEvents.makeAsyncIterator()
+
+        await watcher.simulateFileSystemEventForTesting(
+            id: FileWatchEventID(rawValue: 41)
+        )
+        await watcher.simulateFileSystemEventForTesting(
+            id: FileWatchEventID(rawValue: 43)
+        )
+        await watcher.simulateFileSystemEventForTesting(
+            id: FileWatchEventID(rawValue: 42)
+        )
+        await clock.waitForSleeper()
+        await clock.releaseOne()
+
+        #expect(await iterator.next() == FileWatchEventID(rawValue: 43))
+        await watcher.stop()
+    }
 }

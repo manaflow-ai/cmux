@@ -106,6 +106,68 @@ private final class BlockingSnapshotLoadGate: @unchecked Sendable {
         #expect(snapshots.count == 2)
     }
 
+    @Test(.timeLimit(.minutes(1)))
+    func duplicateWindowWatcherDeliveryRunsOneTrackedScan() async throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("main")
+        let entry = try fixture.writeWorkingTreeFile("file.txt", contents: "hello")
+        try fixture.writeIndex(GitIndexFixture(version: 2, entries: [entry]))
+        let repository = try #require(
+            GitMetadataService.resolveGitRepository(containing: fixture.root.path)
+        )
+        let filePath = fixture.root.appendingPathComponent("file.txt").path
+        let reader = GatedCountingGitFileStatusReader(gatedPath: filePath)
+        let scope = GitTrackedChangesSnapshotScope()
+        let firstWindow = GitMetadataService(
+            fileStatusReader: reader,
+            trackedChangesSnapshotScope: scope
+        )
+        let secondWindow = GitMetadataService(
+            fileStatusReader: reader,
+            trackedChangesSnapshotScope: scope
+        )
+        let identity = GitTrackedChangesRepositoryIdentity(repository: repository)
+        let sourceEventID = GitTrackedPathEventID(rawValue: 8_080)
+        let firstAuthority = await firstWindow.recordTrackedPathEvent(
+            for: identity,
+            sourceEventID: sourceEventID
+        )
+        let secondAuthority = await secondWindow.recordTrackedPathEvent(
+            for: identity,
+            sourceEventID: sourceEventID
+        )
+        let startGate = ConcurrentOperationStartGate(expectedCount: 2)
+        let snapshotsTask = Task {
+            await withTaskGroup(of: GitTrackedChangesSnapshot.self) { group in
+                group.addTask {
+                    await startGate.wait()
+                    return await firstWindow.gitTrackedChangesSnapshot(
+                        repository: repository,
+                        snapshotRequest: .watcherEvent(firstAuthority)
+                    )
+                }
+                group.addTask {
+                    await startGate.wait()
+                    return await secondWindow.gitTrackedChangesSnapshot(
+                        repository: repository,
+                        snapshotRequest: .watcherEvent(secondAuthority)
+                    )
+                }
+                return await group.reduce(into: []) { $0.append($1) }
+            }
+        }
+        defer {
+            reader.openGate()
+            snapshotsTask.cancel()
+        }
+
+        #expect(firstAuthority == secondAuthority)
+        #expect(await waitUntil { reader.callCount(atPath: filePath) == 1 })
+        reader.openGate()
+        #expect(await snapshotsTask.value.count == 2)
+        #expect(reader.callCount(atPath: filePath) == 1)
+    }
+
     @Test func laterFallbackRescansAndCatchesMissedWatcherEvent() async throws {
         let fixture = try GitRepositoryFixture()
         try fixture.writeBranch("main")
