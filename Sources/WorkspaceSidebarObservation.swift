@@ -95,6 +95,8 @@ final class WorkspaceSidebarProcessTitleObservationModel {
     @ObservationIgnored
     private var changeObservers: [UUID: AsyncStream<Void>.Continuation] = [:]
     @ObservationIgnored
+    private var hasUnobservedChange = false
+    @ObservationIgnored
     private var cancelSettleAction: Cancellation?
     @ObservationIgnored
     private var cancelDeferralDeadline: Cancellation?
@@ -138,6 +140,16 @@ final class WorkspaceSidebarProcessTitleObservationModel {
         AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
             let id = UUID()
             changeObservers[id] = continuation
+            // A row's onAppear snapshot and this subscription are not atomic:
+            // an automatic title change in that gap found no observers and was
+            // not scheduled. Replay it so the first subscriber refreshes once;
+            // rows refresh by re-reading current state, so the replay is
+            // idempotent.
+            if hasUnobservedChange {
+                hasUnobservedChange = false
+                changeGeneration &+= 1
+                continuation.yield(())
+            }
             continuation.onTermination = { [weak self] _ in
                 Task { @MainActor in
                     guard let self else { return }
@@ -153,6 +165,7 @@ final class WorkspaceSidebarProcessTitleObservationModel {
     func processTitleDidChange() {
         guard !changeObservers.isEmpty else {
             cancelPendingProcessTitleChange()
+            hasUnobservedChange = true
             return
         }
         cancelSettleAction?()
