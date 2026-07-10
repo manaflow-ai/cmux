@@ -128,16 +128,28 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
         self.init(
             appInstances: CmxIrohAppInstanceRepository(store: installState),
             identities: CmxIrohIdentityRepository(
-                secureStore: CmxIrohKeychainIdentityStore(),
+                secureStore: Self.identityStore(
+                    bundleIdentifier: bundleIdentifier
+                ),
                 installState: installState
             ),
             brokerCredentials: CmxIrohBrokerCredentialRepository(
-                secureStore: CmxIrohKeychainCredentialStore(),
+                secureStore: Self.credentialStore(
+                    service: "broker-credentials",
+                    bundleIdentifier: bundleIdentifier
+                ),
                 installState: installState
             ),
             pendingRevocations: CmxIrohPendingRevocationOutbox(
-                secureStore: CmxIrohKeychainCredentialStore(
-                    service: "com.cmuxterm.iroh.pending-revocations.v1"
+                secureStore: Self.credentialStore(
+                    service: "pending-revocations",
+                    bundleIdentifier: bundleIdentifier
+                )
+            ),
+            offlinePolicies: CmxIrohClientOfflinePolicyCache(
+                secureStore: Self.credentialStore(
+                    service: "client-offline-policy",
+                    bundleIdentifier: bundleIdentifier
                 )
             ),
             endpointFactory: CmxIrohLibEndpointFactory(),
@@ -994,6 +1006,64 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
                 .joined()
         )
     }
+
+    private static func identityStore(
+        bundleIdentifier: String?
+    ) -> any CmxIrohSecureIdentityStoring {
+        #if DEBUG
+        CmxIrohDevelopmentFileIdentityStore(
+            directory: developmentStoreDirectory(
+                service: "identity",
+                bundleIdentifier: bundleIdentifier
+            )
+        )
+        #else
+        CmxIrohKeychainIdentityStore()
+        #endif
+    }
+
+    private static func credentialStore(
+        service: String,
+        bundleIdentifier: String?
+    ) -> any CmxIrohSecureCredentialStoring {
+        #if DEBUG
+        CmxIrohDevelopmentFileCredentialStore(
+            directory: developmentStoreDirectory(
+                service: service,
+                bundleIdentifier: bundleIdentifier
+            )
+        )
+        #else
+        CmxIrohKeychainCredentialStore(
+            service: "com.cmuxterm.iroh.\(service).v1"
+        )
+        #endif
+    }
+
+    #if DEBUG
+    private static func developmentStoreDirectory(
+        service: String,
+        bundleIdentifier: String?
+    ) -> URL {
+        let rawBundleScope = bundleIdentifier ?? "dev.cmux.ios.debug"
+        let bundleScope = String(rawBundleScope.map { character in
+            character.isASCII
+                && (character.isLetter
+                    || character.isNumber
+                    || ["-", ".", "_"].contains(character))
+                ? character
+                : "_"
+        })
+        let applicationSupport = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        )[0]
+        return applicationSupport
+            .appendingPathComponent("iroh-debug", isDirectory: true)
+            .appendingPathComponent(bundleScope, isDirectory: true)
+            .appendingPathComponent(service, isDirectory: true)
+    }
+    #endif
 
     private static func currentTag(
         infoDictionary: [String: Any]?,

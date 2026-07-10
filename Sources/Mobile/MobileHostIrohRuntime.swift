@@ -65,16 +65,12 @@ final class MobileHostIrohRuntime {
     ]
     private static let capabilities = ["mobile-rpc-v1", "multistream-v1"]
 
-    private let appInstances = CmxIrohAppInstanceRepository()
-    private let identities = CmxIrohIdentityRepository()
-    private let brokerCredentials = CmxIrohBrokerCredentialRepository()
-    private let hostPolicies = CmxIrohHostPolicyCache()
-    private let pendingRevocations = CmxIrohPendingRevocationOutbox(
-        secureStore: CmxIrohKeychainCredentialStore(
-            service: "com.cmuxterm.iroh.pending-revocations.v1"
-        )
-    )
-    private let lanPublisher = CmxIrohLANHostPublisher()
+    private let appInstances: CmxIrohAppInstanceRepository
+    private let identities: CmxIrohIdentityRepository
+    private let brokerCredentials: CmxIrohBrokerCredentialRepository
+    private let hostPolicies: CmxIrohHostPolicyCache
+    private let pendingRevocations: CmxIrohPendingRevocationOutbox
+    private let lanPublisher: CmxIrohLANHostPublisher
     private let authObserver = MobileHostIrohAuthObserver()
 
     private weak var auth: AuthCoordinator?
@@ -93,7 +89,45 @@ final class MobileHostIrohRuntime {
     private var signOutPreparationTask: Task<Void, Never>?
     private var lifecycleRevision: UInt64 = 0
 
-    private init() {}
+    private init() {
+        appInstances = CmxIrohAppInstanceRepository()
+        #if DEBUG
+        identities = CmxIrohIdentityRepository(
+            secureStore: CmxIrohDevelopmentFileIdentityStore(
+                directory: Self.developmentStoreDirectory(service: "identity")
+            )
+        )
+        brokerCredentials = CmxIrohBrokerCredentialRepository(
+            secureStore: CmxIrohDevelopmentFileCredentialStore(
+                directory: Self.developmentStoreDirectory(
+                    service: "broker-credentials"
+                )
+            )
+        )
+        hostPolicies = CmxIrohHostPolicyCache(
+            secureStore: CmxIrohDevelopmentFileCredentialStore(
+                directory: Self.developmentStoreDirectory(service: "host-policy")
+            )
+        )
+        pendingRevocations = CmxIrohPendingRevocationOutbox(
+            secureStore: CmxIrohDevelopmentFileCredentialStore(
+                directory: Self.developmentStoreDirectory(
+                    service: "pending-revocations"
+                )
+            )
+        )
+        #else
+        identities = CmxIrohIdentityRepository()
+        brokerCredentials = CmxIrohBrokerCredentialRepository()
+        hostPolicies = CmxIrohHostPolicyCache()
+        pendingRevocations = CmxIrohPendingRevocationOutbox(
+            secureStore: CmxIrohKeychainCredentialStore(
+                service: "com.cmuxterm.iroh.pending-revocations.v1"
+            )
+        )
+        #endif
+        lanPublisher = CmxIrohLANHostPublisher()
+    }
 
     func configure(auth: AuthCoordinator) {
         self.auth = auth
@@ -634,6 +668,30 @@ final class MobileHostIrohRuntime {
             bindingID: bindingID
         )
     }
+
+    #if DEBUG
+    private static func developmentStoreDirectory(service: String) -> URL {
+        let rawBundleScope = Bundle.main.bundleIdentifier
+            ?? "com.cmuxterm.app.debug"
+        let bundleScope = String(rawBundleScope.map { character in
+            character.isASCII
+                && (character.isLetter
+                    || character.isNumber
+                    || ["-", ".", "_"].contains(character))
+                ? character
+                : "_"
+        })
+        let applicationSupport = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        )[0]
+        return applicationSupport
+            .appendingPathComponent("cmux", isDirectory: true)
+            .appendingPathComponent("iroh-debug", isDirectory: true)
+            .appendingPathComponent(bundleScope, isDirectory: true)
+            .appendingPathComponent(service, isDirectory: true)
+    }
+    #endif
 
     private static func currentTag(
         environment: [String: String] = ProcessInfo.processInfo.environment,
