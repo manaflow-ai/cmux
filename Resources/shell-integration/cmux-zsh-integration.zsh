@@ -68,6 +68,9 @@ _cmux_send() {
 # and sends resume as soon as the listener drains them.
 typeset -ga _CMUX_SEND_PIDS
 typeset -gi _CMUX_SEND_MAX_IN_FLIGHT=8
+# Accepts multiple payloads: they are sent sequentially inside ONE child, so
+# callers with an ordering dependency between two messages (report_tty before
+# ports_kick) batch them instead of racing two independent children.
 _cmux_send_bg() {
     local -a live=()
     local pid
@@ -77,7 +80,12 @@ _cmux_send_bg() {
     _CMUX_SEND_PIDS=("${live[@]}")
     (( ${#_CMUX_SEND_PIDS[@]} >= _CMUX_SEND_MAX_IN_FLIGHT )) && return 0
     _cmux_zsh_job_table_saturated && return 0
-    { _cmux_send "$1" } >/dev/null 2>&1 &!
+    {
+        local _cmux_msg
+        for _cmux_msg in "$@"; do
+            _cmux_send "$_cmux_msg"
+        done
+    } >/dev/null 2>&1 &!
     _CMUX_SEND_PIDS+=("$!")
 }
 
@@ -822,7 +830,14 @@ _cmux_report_tty_once() {
         payload="$(_cmux_report_tty_payload)"
         [[ -n "$payload" ]] || return 0
         _CMUX_TTY_REPORTED=1
-        _cmux_send_bg "$payload"
+        # Batch the first ports kick behind the registration in the same
+        # child: the scanner drops kicks for unregistered TTYs, and two
+        # detached children can connect out of order.
+        if [[ -n "$CMUX_TAB_ID" && -n "$CMUX_PANEL_ID" ]]; then
+            _cmux_send_bg "$payload" "ports_kick --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID --reason=command"
+        else
+            _cmux_send_bg "$payload"
+        fi
     else
         [[ -n "$_CMUX_TTY_NAME" ]] || return 0
         # Keep the first relay TTY report synchronous so the server can resolve
