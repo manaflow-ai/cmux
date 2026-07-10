@@ -5,13 +5,15 @@ import Foundation
 import ImageIO
 
 public struct SimulatorCameraSourceClassifier: Sendable {
+    /// Creates a classifier for host image and video files.
     public init() {}
 
+    /// Returns the native camera configuration represented by a media file.
     public func configuration(for url: URL) async -> SimulatorCameraConfiguration? {
-        let isImage = await Task.detached {
-            Self.isImage(url)
+        let isImageFile = await Task.detached { [self] in
+            isImage(url)
         }.value
-        if isImage { return .image(url) }
+        if isImageFile { return .image(url) }
 
         let asset = AVURLAsset(url: url)
         guard let tracks = try? await asset.loadTracks(withMediaType: .video),
@@ -19,7 +21,7 @@ public struct SimulatorCameraSourceClassifier: Sendable {
         return .video(url, loops: true)
     }
 
-    nonisolated static func isImage(_ url: URL) -> Bool {
+    nonisolated func isImage(_ url: URL) -> Bool {
         guard url.isFileURL else { return false }
         if let source = CGImageSourceCreateWithURL(url as CFURL, nil),
            CGImageSourceGetCount(source) > 0 {

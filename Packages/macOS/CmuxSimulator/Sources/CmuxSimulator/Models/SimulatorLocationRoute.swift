@@ -41,14 +41,14 @@ public struct SimulatorLocationRoute: Equatable, Sendable {
         if loops, let first = points.first, points.last != first {
             points.append(first)
         }
-        let distance = zip(points, points.dropFirst()).reduce(0) { total, segment in
-            total + Self.distance(from: segment.0, to: segment.1)
+        let totalDistance = zip(points, points.dropFirst()).reduce(0) { total, segment in
+            total + distance(from: segment.0, to: segment.1)
         }
-        guard distance.isFinite, distance > 0 else { return nil }
-        return distance / speed
+        guard totalDistance.isFinite, totalDistance > 0 else { return nil }
+        return totalDistance / speed
     }
 
-    private static func distance(
+    private func distance(
         from start: SimulatorLocationCoordinate,
         to end: SimulatorLocationCoordinate
     ) -> Double {

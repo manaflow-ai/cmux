@@ -1,20 +1,13 @@
 import CmuxSimulator
 import Foundation
 
-public struct SimulatorTextInputSubmission: Equatable, Sendable {
-    public let characterCount: Int
-    public let completionTimeoutSeconds: TimeInterval
-
-    public init(characterCount: Int, completionTimeoutSeconds: TimeInterval) {
-        self.characterCount = characterCount
-        self.completionTimeoutSeconds = completionTimeoutSeconds
-    }
-}
-
 /// Failures returned synchronously before or while queueing native text input.
 public enum SimulatorTextInputSubmissionError: Error, Equatable, Sendable {
+    /// The text cannot be represented by the Simulator keyboard transport.
     case encoding(SimulatorTextInputEncodingError)
+    /// The selected Simulator cannot currently receive input.
     case inputUnavailable
+    /// The isolated worker could not accept the input request.
     case deliveryUnavailable
 
     var failure: SimulatorFailure {
@@ -32,18 +25,18 @@ public enum SimulatorTextInputSubmissionError: Error, Equatable, Sendable {
             return SimulatorFailure(
                 code: "text_input_too_long",
                 message: String(
-                    localized: "simulator.failure.textTooLong",
-                    defaultValue: "Text is too long to type"
-                ) + " (maximum \(maximum) UTF-8 bytes)",
+                    localized: "simulator.failure.textTooLongDetail",
+                    defaultValue: "Text is too long to type (maximum \(maximum) UTF-8 bytes)"
+                ),
                 isRecoverable: true
             )
         case let .encoding(.unsupportedScalar(value, index)):
             return SimulatorFailure(
                 code: "text_input_unsupported_character",
                 message: String(
-                    localized: "simulator.failure.textUnsupported",
-                    defaultValue: "Text contains a character that cannot be typed with a US keyboard"
-                ) + " (scalar \(index): U+\(String(value, radix: 16, uppercase: true)))",
+                    localized: "simulator.failure.textUnsupportedDetail",
+                    defaultValue: "Text contains a character that cannot be typed with a US keyboard (scalar \(index): U+\(String(value, radix: 16, uppercase: true)))"
+                ),
                 isRecoverable: true
             )
         case .encoding(.malformedSequence), .deliveryUnavailable:

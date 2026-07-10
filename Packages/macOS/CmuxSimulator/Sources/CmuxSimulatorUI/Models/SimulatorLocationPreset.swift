@@ -30,7 +30,7 @@ enum SimulatorLocationPreset: String, CaseIterable, Identifiable {
     private var waypoints: [SimulatorLocationCoordinate] {
         switch self {
         case .applePark:
-            Self.coordinates([
+            simulatorLocationCoordinates([
                 (37.33272, -122.00833), (37.33309, -122.00735),
                 (37.33373, -122.00663), (37.33454, -122.00627),
                 (37.33540, -122.00633), (37.33618, -122.00679),
@@ -41,7 +41,7 @@ enum SimulatorLocationPreset: String, CaseIterable, Identifiable {
                 (37.33296, -122.01042), (37.33268, -122.00940),
             ])
         case .goldenGate:
-            Self.coordinates([
+            simulatorLocationCoordinates([
                 (37.83212, -122.48065), (37.82937, -122.47974),
                 (37.82649, -122.47940), (37.82362, -122.47907),
                 (37.82074, -122.47873), (37.81786, -122.47839),
@@ -53,7 +53,7 @@ enum SimulatorLocationPreset: String, CaseIterable, Identifiable {
                 (37.82963, -122.47967), (37.83233, -122.48072),
             ])
         case .mountTam:
-            Self.coordinates([
+            simulatorLocationCoordinates([
                 (37.88664, -122.62599), (37.88887, -122.62332),
                 (37.89115, -122.62160), (37.89353, -122.61921),
                 (37.89466, -122.61577), (37.89631, -122.61268),
@@ -67,7 +67,7 @@ enum SimulatorLocationPreset: String, CaseIterable, Identifiable {
                 (37.91642, -122.58236), (37.91481, -122.58011),
             ])
         case .centralPark:
-            Self.coordinates([
+            simulatorLocationCoordinates([
                 (40.78216, -73.96254), (40.78221, -73.96098),
                 (40.78328, -73.96010), (40.78440, -73.95930),
                 (40.78550, -73.95848), (40.78664, -73.95774),
@@ -79,7 +79,7 @@ enum SimulatorLocationPreset: String, CaseIterable, Identifiable {
                 (40.78402, -73.96459), (40.78322, -73.96334),
             ])
         case .pacificCoast:
-            Self.coordinates([
+            simulatorLocationCoordinates([
                 (37.59659, -122.50316), (37.59555, -122.50424),
                 (37.59452, -122.50534), (37.59329, -122.50588),
                 (37.59212, -122.50508), (37.59100, -122.50413),
@@ -95,27 +95,10 @@ enum SimulatorLocationPreset: String, CaseIterable, Identifiable {
         }
     }
 
-    private static func coordinates(
-        _ values: [(Double, Double)]
-    ) -> [SimulatorLocationCoordinate] {
-        values.map { SimulatorLocationCoordinate(latitude: $0.0, longitude: $0.1) }
-    }
 }
 
-enum SimulatorLocationTransportMode: String, CaseIterable, Identifiable {
-    case walk
-    case run
-    case cycle
-    case drive
-
-    var id: String { rawValue }
-
-    var metersPerSecond: Double {
-        switch self {
-        case .walk: 1.4
-        case .run: 3.0
-        case .cycle: 5.5
-        case .drive: 13.4
-        }
-    }
+private func simulatorLocationCoordinates(
+    _ values: [(Double, Double)]
+) -> [SimulatorLocationCoordinate] {
+    values.map { SimulatorLocationCoordinate(latitude: $0.0, longitude: $0.1) }
 }

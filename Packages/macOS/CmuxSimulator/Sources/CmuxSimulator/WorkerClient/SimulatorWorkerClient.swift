@@ -42,6 +42,7 @@ public actor SimulatorWorkerClient: SimulatorPaneClient {
     var subscribers: [Int: SimulatorWorkerEventStream.Continuation] = [:]
     var nextSubscriberID = 0
     var currentContextID: UInt32?
+    var contextCacheRevision: UInt64 = 0
     var currentCapabilities: Set<SimulatorCapability> = []
     var currentStatus: SimulatorSessionStatus?
 
@@ -49,16 +50,23 @@ public actor SimulatorWorkerClient: SimulatorPaneClient {
     var lastGeometry: SimulatorSurfaceGeometry?
     var lastDisplayOrientation: SimulatorOrientation?
     var cameraReplayConfigurations: [SimulatorCameraConfiguration] = []
-    var cameraReplayRequestConfigurations: [UUID: SimulatorCameraConfiguration] = [:]
+    var cameraRequestConfigurations: [UUID: SimulatorCameraConfiguration] = [:]
+    var cameraSourceSwitchRequests: [UUID: SimulatorCameraConfiguration] = [:]
+    var cameraMirrorRequests: [UUID: SimulatorCameraMirrorMode] = [:]
     var cameraCleanupBundleIdentifiers: Set<String> = []
     var lastCameraMirrorMode: SimulatorCameraMirrorMode?
     var cameraCleanupTask: Task<Void, Never>?
     var cameraCleanupRevision: UInt64 = 0
+    var cameraCleanupPermit = SimulatorCameraCleanupPermit()
     var activePointer: SimulatorPointerEvent?
+    var activeScrollIdentifier: UUID?
     var pointerStateRevision: UInt64?
     var heldKeyUsages: Set<UInt32> = []
     var keyStateRevisions: [UInt32: UInt64] = [:]
     var pendingTextInputUsages: [UUID: Set<UInt32>] = [:]
+    var pendingInteractiveRequestIdentifiers: Set<UUID> = []
+    var deferredMessages: [SimulatorWorkerInbound] = []
+    var deferredRequestDeliveries: [UUID: CheckedContinuation<Void, Error>] = [:]
     var heldButtonUsages: Set<SimulatorHIDButtonUsage> = []
     var buttonStateRevisions: [SimulatorHIDButtonUsage: UInt64] = [:]
     var nextInputStateRevision: UInt64 = 1
@@ -67,8 +75,13 @@ public actor SimulatorWorkerClient: SimulatorPaneClient {
     var unprovenConvenienceButtonUsages: Set<SimulatorHIDButtonUsage> = []
     var convenienceButtonProofs: [UInt64: Set<SimulatorHIDButtonUsage>] = [:]
     var replayAwaitingStreaming = false
+    var attachmentAwaitingStreaming = false
+    var replayMessages: [SimulatorWorkerInbound] = []
+    var replayAcknowledgementSequence: UInt64?
     var replayRequestIDs: Set<UUID> = []
+    var replayDeadlineToken: UUID?
     var probeNeededAfterReplay = false
+    var probeNeededAfterTextInput = false
     var replayWatchdog: Task<Void, Never>?
 
     /// Creates a client that launches the supplied executable on demand.
@@ -208,7 +221,10 @@ public actor SimulatorWorkerClient: SimulatorPaneClient {
             throw SimulatorControlError(
                 code: "device_activation_failed",
                 arguments: [],
-                message: "The isolated worker could not attach to the selected Simulator."
+                message: String(
+                    localized: "simulator.failure.workerAttachFailed",
+                    defaultValue: "The isolated worker could not attach to the selected Simulator."
+                )
             )
         }
     }
@@ -274,6 +290,8 @@ public actor SimulatorWorkerClient: SimulatorPaneClient {
                 return
             }
             try await sendRequired(message)
+        } catch is CancellationError {
+            return
         } catch {
             broadcastFailure(error, code: "worker_send_failed")
         }
@@ -285,6 +303,11 @@ public actor SimulatorWorkerClient: SimulatorPaneClient {
         await waitForCameraCleanup()
         try requireOpen()
         prepareExplicitRecovery()
+        if child != nil,
+           lastAttachment != nil,
+           currentStatus != .streaming {
+            discardWorker(intentional: true, clearReplayState: false)
+        }
         _ = try ensureRunning()
     }
 
@@ -335,115 +358,69 @@ public actor SimulatorWorkerClient: SimulatorPaneClient {
             throw SimulatorControlError(
                 code: "worker_crash_fuse",
                 arguments: arguments,
-                message: "The Simulator worker failed twice. Recover the pane before retrying."
+                message: String(
+                    localized: "simulator.failure.workerCrashFuse",
+                    defaultValue: "The Simulator worker failed twice. Recover the pane before retrying."
+                )
             )
         }
 
+        let beginsAttachment: Bool = if case .attach = message { true } else { false }
+        if !beginsAttachment, shouldDeferMessage(message) {
+            try await deferMessageUntilDelivered(message)
+            return
+        }
         let data = try JSONEncoder().encode(message)
         for attempt in 0..<2 {
+            let connection: SimulatorWorkerConnection
             do {
-                let connection = try ensureRunning()
-                try connection.send(data)
-                remember(message)
-                if probe { try armResponsivenessProbe() }
+                if beginsAttachment { attachmentAwaitingStreaming = true }
+                connection = try ensureRunning()
+            } catch {
+                try prepareRetryAfterTransportFailure(
+                    error,
+                    attempt: attempt,
+                    beginsAttachment: beginsAttachment
+                )
+                continue
+            }
+            if !beginsAttachment, shouldDeferMessage(message) {
+                try await deferMessageUntilDelivered(message)
                 return
+            }
+            do {
+                try connection.send(data)
+            } catch {
+                try prepareRetryAfterTransportFailure(
+                    error,
+                    attempt: attempt,
+                    beginsAttachment: beginsAttachment
+                )
+                continue
+            }
+            remember(message)
+            do {
+                if probe { try armResponsivenessProbe() }
             } catch {
                 discardWorker(intentional: true, clearReplayState: false)
-                if attempt == 0, !restartAttemptUsed {
-                    restartAttemptUsed = true
-                    continue
-                }
-                tripCrashFuse(reason: error)
+                handleUnexpectedWorkerStop(
+                    reason: String(
+                        localized: "simulator.failure.workerCommandOutcomeUnknown",
+                        defaultValue: "The Simulator worker accepted a command but disconnected before confirming its outcome."
+                    )
+                )
+                if beginsAttachment { attachmentAwaitingStreaming = false }
                 throw SimulatorControlError(
-                    code: "worker_unavailable",
+                    code: "worker_command_outcome_unknown",
                     arguments: arguments,
-                    message: "The isolated Simulator worker could not accept a command: \(error)"
+                    message: String(
+                        localized: "simulator.failure.workerCommandOutcomeUnknown",
+                        defaultValue: "The Simulator worker accepted a command but disconnected before confirming its outcome."
+                    )
                 )
             }
+            return
         }
     }
 
-    func removeSubscriber(_ identifier: Int) {
-        subscribers.removeValue(forKey: identifier)
-    }
-
-    func requireOpen() throws {
-        guard !isPermanentlyStopped else {
-            throw SimulatorControlError(
-                code: "worker_permanently_stopped",
-                arguments: arguments,
-                message: String(
-                    localized: "simulator.failure.workerClientStopped",
-                    defaultValue: "The Simulator worker client is permanently stopped."
-                )
-            )
-        }
-    }
-
-    func broadcast(_ event: SimulatorWorkerEvent, byteCount: Int? = nil) {
-        let chargedBytes = byteCount ?? estimatedByteCount(of: event)
-        var overflowed: [Int] = []
-        var terminated: [Int] = []
-        for (identifier, continuation) in subscribers {
-            switch continuation.yield(event, byteCount: chargedBytes) {
-            case .enqueued:
-                break
-            case .overflow:
-                overflowed.append(identifier)
-            case .terminated:
-                terminated.append(identifier)
-            @unknown default:
-                break
-            }
-        }
-        for identifier in Set(overflowed + terminated) {
-            subscribers.removeValue(forKey: identifier)?.finish()
-        }
-        guard !overflowed.isEmpty, child != nil else { return }
-        let failure = SimulatorFailure(
-            code: "worker_subscriber_queue_overflow",
-            message: String(
-                localized: "simulator.failure.subscriberQueueOverflow",
-                defaultValue: "A Simulator event subscriber exceeded its bounded queue."
-            ),
-            isRecoverable: true
-        )
-        for continuation in subscribers.values {
-            yield(.message(.failure(failure)), to: continuation)
-        }
-        discardWorker(intentional: true, clearReplayState: false)
-        handleUnexpectedWorkerStop(reason: failure.message)
-    }
-
-    func broadcastFailure(_ error: Error, code: String) {
-        let failure: SimulatorFailure
-        if let simulatorFailure = error as? SimulatorFailure {
-            failure = simulatorFailure
-        } else if let controlError = error as? SimulatorControlError {
-            failure = SimulatorFailure(
-                code: controlError.code,
-                message: controlError.message,
-                isRecoverable: true
-            )
-        } else {
-            failure = SimulatorFailure(code: code, message: String(describing: error), isRecoverable: true)
-        }
-        broadcast(.message(.failure(failure)))
-    }
-
-    private func yield(
-        _ event: SimulatorWorkerEvent,
-        to continuation: SimulatorWorkerEventStream.Continuation
-    ) {
-        _ = continuation.yield(event, byteCount: estimatedByteCount(of: event))
-    }
-
-    private func estimatedByteCount(of event: SimulatorWorkerEvent) -> Int {
-        switch event {
-        case .workerStopped:
-            return 1
-        case let .message(message):
-            return (try? JSONEncoder().encode(message).count) ?? 4_096
-        }
-    }
 }

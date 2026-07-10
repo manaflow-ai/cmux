@@ -150,8 +150,16 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case diffViewerOpenFileSearch
 
     // MARK: Simulator
-    case simulatorHome, simulatorRotateLeft, simulatorRotateRight
-    case simulatorToggleAppearance, simulatorToggleSoftwareKeyboard
+    /// Presses the Home button in the focused Simulator pane.
+    case simulatorHome
+    /// Rotates the focused Simulator pane counterclockwise.
+    case simulatorRotateLeft
+    /// Rotates the focused Simulator pane clockwise.
+    case simulatorRotateRight
+    /// Toggles light and dark appearance in the focused Simulator pane.
+    case simulatorToggleAppearance
+    /// Toggles the software keyboard in the focused Simulator pane.
+    case simulatorToggleSoftwareKeyboard
 }
 
 extension ShortcutAction {

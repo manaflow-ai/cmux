@@ -13,14 +13,19 @@ final class SimulatorCameraAdapter {
         [String],
         [String: String]
     ) async throws -> SimulatorSubprocessResult
+    typealias TargetResolvedOperation = @MainActor @Sendable (String) async throws -> Void
+    typealias OperationIsCurrent = @MainActor @Sendable () -> Bool
+    typealias ApplicationMutationWillCommit = @MainActor @Sendable (String) -> Void
 
     let compiledLibraryOperation: CompiledLibraryOperation
     let simctlOperation: SimctlOperation
     let cameraPermission: SimulatorCameraPermissionAdapter
+    let mutationGate: SimulatorMutationGate
+    let applicationMutationWillCommit: ApplicationMutationWillCommit
     var deviceIdentifier: String?
     var surfaceRing: SimulatorCameraSurfaceRing?
-    private var ownershipLock: SimulatorCameraOwnershipLock?
-    private var producer: SimulatorCameraFrameProducer?
+    var ownershipLock: SimulatorCameraOwnershipLock?
+    var producer: SimulatorCameraFrameProducer?
     var injectedBundleIdentifiers: Set<String> = []
     var injectedProcessIdentifiers: [String: Int32] = [:]
     var injectionMonitors: [String: DispatchSourceProcess] = [:]
@@ -38,7 +43,9 @@ final class SimulatorCameraAdapter {
         subprocessRunner: SimulatorSubprocessRunner = SimulatorSubprocessRunner(),
         cameraPermission: SimulatorCameraPermissionAdapter? = nil,
         compiledLibrary: CompiledLibraryOperation? = nil,
-        simctl: SimctlOperation? = nil
+        simctl: SimctlOperation? = nil,
+        mutationGate: SimulatorMutationGate = SimulatorMutationGate(),
+        applicationMutationWillCommit: @escaping ApplicationMutationWillCommit = { _ in }
     ) {
         let compiler = SimulatorCameraInjectorCompiler(subprocessRunner: subprocessRunner)
         compiledLibraryOperation = compiledLibrary ?? {
@@ -53,6 +60,8 @@ final class SimulatorCameraAdapter {
         }
         self.cameraPermission = cameraPermission
             ?? SimulatorCameraPermissionAdapter(subprocessRunner: subprocessRunner)
+        self.mutationGate = mutationGate
+        self.applicationMutationWillCommit = applicationMutationWillCommit
     }
 
     var isAvailable: Bool {
@@ -68,7 +77,7 @@ final class SimulatorCameraAdapter {
             activeConfiguration = .disabled
             invalidateAutomaticReinjectionsSynchronously()
             cancelInjectionMonitors()
-            producer?.stop()
+            if let producer { Task { await producer.stop() } }
             producer = nil
             surfaceRing = nil
             ownershipLock = nil
@@ -85,8 +94,14 @@ final class SimulatorCameraAdapter {
 
     func configure(
         _ configuration: SimulatorCameraConfiguration,
-        inferredApplication: SimulatorApplicationInfo?
+        inferredApplication: SimulatorApplicationInfo?,
+        targetResolved: TargetResolvedOperation = { _ in },
+        operationIsCurrent: OperationIsCurrent = { !Task.isCancelled }
     ) async throws -> SimulatorApplicationInfo? {
+        func requireCurrentOperation() throws {
+            guard operationIsCurrent() else { throw CancellationError() }
+        }
+        try requireCurrentOperation()
         guard let deviceIdentifier else {
             throw SimulatorWorkerFailure.privateAPIUnavailable(
                 "Synthetic camera injection requires an attached Simulator."
@@ -125,10 +140,12 @@ final class SimulatorCameraAdapter {
             deviceIdentifier: deviceIdentifier,
             bundleIdentifier: bundleIdentifier
         )
+        try requireCurrentOperation()
         let hasLiveInjection = await injectionIsLive(
             deviceIdentifier: deviceIdentifier,
             bundleIdentifier: bundleIdentifier
         )
+        try requireCurrentOperation()
         if !hasLiveInjection {
             injectedBundleIdentifiers.remove(bundleIdentifier)
             removeInjectionRecord(bundleIdentifier: bundleIdentifier)
@@ -139,6 +156,7 @@ final class SimulatorCameraAdapter {
         }
         let requiresInjection = !hasLiveInjection
         let libraryURL = requiresInjection ? try await compiledLibraryOperation() : nil
+        try requireCurrentOperation()
 
         let previousConfiguration = activeConfiguration
         let hadSurfaceRing = surfaceRing != nil
@@ -159,6 +177,9 @@ final class SimulatorCameraAdapter {
         do {
             applyMirrorMode(to: ring)
             try await producer.configure(configuration)
+            try requireCurrentOperation()
+            try await targetResolved(bundleIdentifier)
+            try requireCurrentOperation()
 
             if !requiresInjection {
                 activeTargetBundleIdentifier = bundleIdentifier
@@ -178,25 +199,38 @@ final class SimulatorCameraAdapter {
                     )
             }
 
-            try await cameraPermission.grant(
-                deviceIdentifier: deviceIdentifier,
-                bundleIdentifier: bundleIdentifier
-            )
-            _ = try? await runSimctl([
-                "terminate", deviceIdentifier, bundleIdentifier,
-            ])
             guard let libraryURL else {
                 throw SimulatorWorkerFailure.frameworkUnavailable(
                     "The synthetic-camera injector library is unavailable."
                 )
             }
-            let launch = try await runSimctl(
-                ["launch", deviceIdentifier, bundleIdentifier],
-                environment: [
-                    "SIMCTL_CHILD_DYLD_INSERT_LIBRARIES": libraryURL.path,
-                    "SIMCTL_CHILD_SIMCAM_SHM_NAME": ring.sharedMemoryName,
-                ]
-            )
+            let launch = try await mutationGate.withLocks([
+                .tcc(deviceIdentifier: deviceIdentifier),
+                .application(
+                    deviceIdentifier: deviceIdentifier,
+                    bundleIdentifier: bundleIdentifier
+                ),
+            ]) {
+                try requireCurrentOperation()
+                applicationMutationWillCommit(bundleIdentifier)
+                try await cameraPermission.grant(
+                    deviceIdentifier: deviceIdentifier,
+                    bundleIdentifier: bundleIdentifier
+                )
+                try requireCurrentOperation()
+                _ = try? await runSimctl([
+                    "terminate", deviceIdentifier, bundleIdentifier,
+                ])
+                try requireCurrentOperation()
+                return try await runSimctl(
+                    ["launch", deviceIdentifier, bundleIdentifier],
+                    environment: [
+                        "SIMCTL_CHILD_DYLD_INSERT_LIBRARIES": libraryURL.path,
+                        "SIMCTL_CHILD_SIMCAM_SHM_NAME": ring.sharedMemoryName,
+                    ]
+                )
+            }
+            try requireCurrentOperation()
             injectedBundleIdentifiers.insert(bundleIdentifier)
             activeTargetBundleIdentifier = bundleIdentifier
             activeConfiguration = configuration
@@ -230,7 +264,7 @@ final class SimulatorCameraAdapter {
         } catch {
             applyMirrorMode(to: ring)
             if previousConfiguration.isDisabled {
-                producer.stop()
+                await producer.stop()
                 self.producer = nil
                 if !hadSurfaceRing {
                     surfaceRing = nil
@@ -245,7 +279,19 @@ final class SimulatorCameraAdapter {
                     activeTargetBundleIdentifier = nil
                     activeTargetProcessIdentifier = nil
                 }
-                _ = try? await runSimctl(["launch", deviceIdentifier, bundleIdentifier])
+                if operationIsCurrent() {
+                    _ = try? await mutationGate.withLocks([
+                        .application(
+                            deviceIdentifier: deviceIdentifier,
+                            bundleIdentifier: bundleIdentifier
+                        ),
+                    ]) {
+                        applicationMutationWillCommit(bundleIdentifier)
+                        return try await runSimctl([
+                            "launch", deviceIdentifier, bundleIdentifier,
+                        ])
+                    }
+                }
             }
             throw error
         }
@@ -255,7 +301,7 @@ final class SimulatorCameraAdapter {
         activeConfiguration = .disabled
         invalidateAutomaticReinjectionsSynchronously()
         cancelInjectionMonitors()
-        producer?.stop()
+        if let producer { Task { await producer.stop() } }
         producer = nil
         surfaceRing = nil
         ownershipLock = nil
@@ -347,7 +393,7 @@ final class SimulatorCameraAdapter {
         activeConfiguration = .disabled
         invalidateAutomaticReinjectionsSynchronously()
         cancelInjectionMonitors()
-        producer?.stop()
+        if let producer { await producer.stop() }
         producer = nil
         surfaceRing = nil
         await cancelAndJoinAutomaticReinjections()
@@ -359,9 +405,21 @@ final class SimulatorCameraAdapter {
         activeTargetProcessIdentifier = nil
         var firstFailure: Error?
         for bundleIdentifier in bundles {
-            _ = try? await runSimctl(["terminate", deviceIdentifier, bundleIdentifier])
             do {
-                _ = try await runSimctl(["launch", deviceIdentifier, bundleIdentifier])
+                try await mutationGate.withLocks([
+                    .application(
+                        deviceIdentifier: deviceIdentifier,
+                        bundleIdentifier: bundleIdentifier
+                    ),
+                ]) {
+                    applicationMutationWillCommit(bundleIdentifier)
+                    _ = try? await runSimctl([
+                        "terminate", deviceIdentifier, bundleIdentifier,
+                    ])
+                    _ = try await runSimctl([
+                        "launch", deviceIdentifier, bundleIdentifier,
+                    ])
+                }
             } catch {
                 if firstFailure == nil { firstFailure = error }
             }

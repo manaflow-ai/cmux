@@ -124,7 +124,9 @@ extension SimulatorWebInspectorService {
                     if bypassRouter {
                         try sendToTarget(request)
                     } else {
-                        try sendMessage(String(decoding: request, as: UTF8.self))
+                        try sendMessageWithoutMutationGate(
+                            String(decoding: request, as: UTF8.self)
+                        )
                     }
                 } catch {
                     failInternalRequest(identifier, with: error)
@@ -181,7 +183,7 @@ extension SimulatorWebInspectorService {
         closingSocket?.close()
         currentDeviceIdentifier = nil
         cancelRefresh(with: error)
-        releaseSession(emit: true)
+        releaseSessionWithoutMutationGate(emit: true)
         catalog.reset()
         subscribedApplicationIdentifiers.removeAll()
         pendingListingIdentifiers.removeAll()
@@ -232,7 +234,7 @@ extension SimulatorWebInspectorService {
     private func validateAttachedTarget() {
         guard let session else { return }
         guard let current = catalog.target(id: session.target.id), !current.isInUse else {
-            releaseSession()
+            releaseSessionWithoutMutationGate()
             return
         }
     }
@@ -273,7 +275,7 @@ extension SimulatorWebInspectorService {
 
     private func emitRawMessage(_ data: Data, sessionID: UUID) {
         let messageID = UUID()
-        let maximum = SimulatorWebInspectorMessageChunker.defaultMaximumPayloadLength
+        let maximum = SimulatorWebInspectorMessageChunker().maximumPayloadLength
         if data.isEmpty {
             eventHandler?(.message(SimulatorWebInspectorMessageChunk(
                 sessionID: sessionID,

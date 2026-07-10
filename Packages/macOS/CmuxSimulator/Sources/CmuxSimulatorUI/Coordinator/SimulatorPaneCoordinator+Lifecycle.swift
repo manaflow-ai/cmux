@@ -77,7 +77,7 @@ extension SimulatorPaneCoordinator {
             let discovered = try await client.discoverDevices()
             devices = discovered
                 .filter { $0.isAvailable && ($0.family == .iPhone || $0.family == .iPad) }
-                .sorted(by: Self.deviceOrdering)
+                .sorted(by: simulatorDeviceOrdering)
             failure = nil
 
             if let selectedDeviceID,
@@ -106,7 +106,7 @@ extension SimulatorPaneCoordinator {
             selectedDeviceID = nextDeviceID
         } catch {
             guard !Task.isCancelled else { return }
-            let simulatorFailure = Self.failure(from: error, code: "device_discovery_failed")
+            let simulatorFailure = simulatorPaneFailure(from: error, code: "device_discovery_failed")
             failure = simulatorFailure
             status = .failed(simulatorFailure)
         }
@@ -149,7 +149,7 @@ extension SimulatorPaneCoordinator {
                 return
             } catch {
                 guard self.selectionGeneration == generation else { return }
-                let simulatorFailure = Self.failure(from: error, code: "device_activation_failed")
+                let simulatorFailure = simulatorPaneFailure(from: error, code: "device_activation_failed")
                 self.failure = simulatorFailure
                 self.status = .failed(simulatorFailure)
             }
@@ -260,7 +260,7 @@ extension SimulatorPaneCoordinator {
                 return
             } catch {
                 guard self.selectionGeneration == generation else { return }
-                let simulatorFailure = Self.failure(from: error, code: "device_shutdown_failed")
+                let simulatorFailure = simulatorPaneFailure(from: error, code: "device_shutdown_failed")
                 self.failure = simulatorFailure
                 self.status = .failed(simulatorFailure)
             }
@@ -337,14 +337,15 @@ extension SimulatorPaneCoordinator {
         }
     }
 
-    private static func deviceOrdering(_ lhs: SimulatorDevice, _ rhs: SimulatorDevice) -> Bool {
-        if lhs.state == .booted, rhs.state != .booted { return true }
-        if rhs.state == .booted, lhs.state != .booted { return false }
-        if lhs.family != rhs.family { return lhs.family == .iPhone }
-        if lhs.lastBootedAt != rhs.lastBootedAt {
-            return (lhs.lastBootedAt ?? .distantPast) > (rhs.lastBootedAt ?? .distantPast)
-        }
-        if lhs.runtimeName != rhs.runtimeName { return lhs.runtimeName > rhs.runtimeName }
-        return lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
+}
+
+private func simulatorDeviceOrdering(_ lhs: SimulatorDevice, _ rhs: SimulatorDevice) -> Bool {
+    if lhs.state == .booted, rhs.state != .booted { return true }
+    if rhs.state == .booted, lhs.state != .booted { return false }
+    if lhs.family != rhs.family { return lhs.family == .iPhone }
+    if lhs.lastBootedAt != rhs.lastBootedAt {
+        return (lhs.lastBootedAt ?? .distantPast) > (rhs.lastBootedAt ?? .distantPast)
     }
+    if lhs.runtimeName != rhs.runtimeName { return lhs.runtimeName > rhs.runtimeName }
+    return lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
 }

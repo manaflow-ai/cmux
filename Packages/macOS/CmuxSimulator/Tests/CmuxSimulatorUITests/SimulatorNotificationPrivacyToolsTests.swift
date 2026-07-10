@@ -6,34 +6,34 @@ import Testing
 struct SimulatorNotificationPrivacyToolsTests {
     @Test("All is reset-only and targeted mutations require an app")
     func actionAvailability() {
-        #expect(!SimulatorNotificationPrivacyTools.actionIsEnabled(
+        #expect(!simulatorPrivacyActionIsEnabled(
             .grant, service: .all, bundleIdentifier: "com.example.app"
         ))
-        #expect(!SimulatorNotificationPrivacyTools.actionIsEnabled(
+        #expect(!simulatorPrivacyActionIsEnabled(
             .revoke, service: .camera, bundleIdentifier: "  "
         ))
-        #expect(SimulatorNotificationPrivacyTools.actionIsEnabled(
+        #expect(simulatorPrivacyActionIsEnabled(
             .grant, service: .camera, bundleIdentifier: "com.example.app"
         ))
-        #expect(!SimulatorNotificationPrivacyTools.actionIsEnabled(
+        #expect(!simulatorPrivacyActionIsEnabled(
             .reset, service: .all, bundleIdentifier: ""
         ))
-        #expect(SimulatorNotificationPrivacyTools.actionIsEnabled(
+        #expect(simulatorPrivacyActionIsEnabled(
             .reset, service: .all, bundleIdentifier: "com.example.app"
         ))
     }
 
     @Test("Foreground app fills only an empty permission target")
     func foregroundBundleDefault() {
-        #expect(SimulatorNotificationPrivacyTools.bundleIdentifier(
+        #expect(simulatorPrivacyBundleIdentifier(
             current: "",
             foreground: "com.example.foreground"
         ) == "com.example.foreground")
-        #expect(SimulatorNotificationPrivacyTools.bundleIdentifier(
+        #expect(simulatorPrivacyBundleIdentifier(
             current: "com.example.override",
             foreground: "com.example.foreground"
         ) == "com.example.override")
-        #expect(SimulatorNotificationPrivacyTools.bundleIdentifier(
+        #expect(simulatorPrivacyBundleIdentifier(
             current: "  ",
             foreground: nil
         ) == "  ")

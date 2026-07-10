@@ -1,5 +1,19 @@
 import CmuxSimulator
 
+private func simulatorIsBalancedKeySequence(_ sequence: [SimulatorKeyEvent]) -> Bool {
+    guard !sequence.isEmpty else { return false }
+    var pressed: Set<UInt32> = []
+    for event in sequence {
+        switch event.phase {
+        case .down:
+            guard pressed.insert(event.usage).inserted else { return false }
+        case .up:
+            guard pressed.remove(event.usage) != nil else { return false }
+        }
+    }
+    return pressed.isEmpty
+}
+
 enum SimulatorConvenienceButton: Hashable, Sendable {
     case modern(page: UInt32, usage: UInt32)
     case legacy(eventSource: Int32)
@@ -18,18 +32,25 @@ extension SimulatorHIDTransport {
     /// Sends React Native's registered Command-R key command. Every successful
     /// down is explicitly unwound if a later phase fails.
     @discardableResult
-    func reloadReactNative() -> Bool {
+    func reloadReactNative() async -> Bool {
         let commandUsage: UInt32 = 0xE3
         let rUsage: UInt32 = 0x15
-        guard !heldKeys.contains(commandUsage), !heldKeys.contains(rUsage) else { return false }
-        var pressed: [UInt32] = []
-        let sequence = [
+        return await sendPacedKeySequence([
             SimulatorKeyEvent(usage: commandUsage, phase: .down),
             SimulatorKeyEvent(usage: rUsage, phase: .down),
             SimulatorKeyEvent(usage: rUsage, phase: .up),
             SimulatorKeyEvent(usage: commandUsage, phase: .up),
-        ]
-        for event in sequence {
+        ])
+    }
+
+    func sendPacedKeySequence(_ sequence: [SimulatorKeyEvent]) async -> Bool {
+        let acquiredUsages = Set(sequence.compactMap { event in
+            event.phase == .down ? event.usage : nil
+        })
+        guard simulatorIsBalancedKeySequence(sequence), sequence.count <= 16,
+              acquiredUsages.isDisjoint(with: heldKeys) else { return false }
+        var pressed: [UInt32] = []
+        for (index, event) in sequence.enumerated() {
             guard send(event) else {
                 unwindKeys(&pressed)
                 return false
@@ -39,6 +60,13 @@ extension SimulatorHIDTransport {
                 pressed.append(event.usage)
             case .up:
                 pressed.removeAll { $0 == event.usage }
+            }
+            guard index < sequence.index(before: sequence.endIndex) else { continue }
+            do {
+                try await sleeper.sleep(for: .milliseconds(30))
+            } catch {
+                unwindKeys(&pressed)
+                return false
             }
         }
         return true

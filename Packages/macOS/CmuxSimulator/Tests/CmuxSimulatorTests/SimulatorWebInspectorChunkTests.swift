@@ -10,7 +10,8 @@ struct SimulatorWebInspectorChunkTests {
         let sessionID = UUID()
         let messageID = UUID()
 
-        let chunks = SimulatorWebInspectorMessageChunker.chunks(
+        let chunker = SimulatorWebInspectorMessageChunker()
+        let chunks = chunker.chunks(
             sessionID: sessionID,
             messageID: messageID,
             payload: payload
@@ -21,7 +22,7 @@ struct SimulatorWebInspectorChunkTests {
         #expect(chunks.dropLast().allSatisfy { !$0.isFinal })
         #expect(chunks.last?.isFinal == true)
         #expect(chunks.allSatisfy {
-            $0.payload.count <= SimulatorWebInspectorMessageChunker.defaultMaximumPayloadLength
+            $0.payload.count <= chunker.maximumPayloadLength
         })
         #expect(chunks.reduce(into: Data()) { $0.append($1.payload) } == payload)
         for chunk in chunks {
@@ -32,7 +33,7 @@ struct SimulatorWebInspectorChunkTests {
 
     @Test("An empty raw message still produces one terminal chunk")
     func emptyMessage() {
-        let chunks = SimulatorWebInspectorMessageChunker.chunks(
+        let chunks = SimulatorWebInspectorMessageChunker().chunks(
             sessionID: UUID(),
             payload: Data()
         )

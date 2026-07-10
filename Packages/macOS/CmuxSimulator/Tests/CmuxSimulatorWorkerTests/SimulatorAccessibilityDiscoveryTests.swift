@@ -55,7 +55,7 @@ struct SimulatorAccessibilityDiscoveryTests {
     func boundedAccessibilityStrings() {
         let value = String(repeating: "🙂", count: 1_000)
 
-        let bounded = SimulatorAccessibilityBridge.boundedAccessibilityText(value)
+        let bounded = boundedSimulatorAccessibilityText(value)
 
         #expect(bounded.utf8.count <= SimulatorAccessibilityBridge.maximumTextUTF8ByteCount)
         #expect(bounded.allSatisfy { $0 == "🙂" })
@@ -66,10 +66,11 @@ struct SimulatorAccessibilityDiscoveryTests {
     func boundedFullDisplayGrid() throws {
         let bounds = NSRect(x: 120, y: 40, width: 1_366, height: 1_024)
 
-        let points = SimulatorAccessibilityGrid.points(in: bounds)
+        let grid = SimulatorAccessibilityGrid()
+        let points = grid.points(in: bounds)
 
         #expect(!points.isEmpty)
-        #expect(points.count <= SimulatorAccessibilityGrid.maximumPointCount)
+        #expect(points.count <= grid.maximumPointCount)
         #expect(points.allSatisfy(bounds.contains))
         let quadrants = Set(points.map { point in
             "\(point.x < bounds.midX ? "left" : "right")-\(point.y < bounds.midY ? "bottom" : "top")"
@@ -94,13 +95,10 @@ struct SimulatorAccessibilityDiscoveryTests {
 
     @Test("Invalid and empty displays produce no probe points")
     func invalidBounds() {
-        #expect(SimulatorAccessibilityGrid.points(in: .zero).isEmpty)
-        #expect(SimulatorAccessibilityGrid.points(
+        let grid = SimulatorAccessibilityGrid()
+        #expect(grid.points(in: .zero).isEmpty)
+        #expect(grid.points(
             in: NSRect(x: 0, y: 0, width: CGFloat.infinity, height: 10)
         ).isEmpty)
     }
-}
-
-private final class SimulatorScalarPropertyDouble: NSObject {
-    @objc dynamic func pid() -> Int32 { 4_877 }
 }

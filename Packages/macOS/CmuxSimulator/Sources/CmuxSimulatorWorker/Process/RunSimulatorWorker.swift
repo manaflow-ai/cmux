@@ -18,7 +18,7 @@ public func runSimulatorWorker(
     readFD: Int32 = STDIN_FILENO,
     writeFD: Int32 = STDOUT_FILENO
 ) -> Never {
-    guard SimulatorWorkerProcessGroup.isolateCurrentProcess() else {
+    guard SimulatorWorkerProcessGroup().isolateCurrentProcess() else {
         _exit(SimulatorWorkerProcessGroup.isolationFailureExitStatus)
     }
     signal(SIGPIPE, SIG_IGN)
@@ -62,7 +62,7 @@ public func runSimulatorWorker(
                     exit(0)
                 }
             }
-            await coordinator.shutdown()
+            coordinator.prepareForProcessExit()
             exit(0)
         }
         application.run()

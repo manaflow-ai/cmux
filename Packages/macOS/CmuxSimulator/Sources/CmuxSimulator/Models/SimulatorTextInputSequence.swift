@@ -6,11 +6,6 @@ public struct SimulatorTextInputSequence: Codable, Equatable, Sendable {
     public static let maximumUTF8ByteCount = 4_096
     /// Maximum expanded event count. A shifted character needs four events.
     public static let maximumEventCount = maximumUTF8ByteCount * 4
-    /// Length-aware upper bound for correlated worker delivery.
-    public static func completionTimeoutSeconds(forEventCount count: Int) -> TimeInterval {
-        min(120, max(10, 10 + (Double(max(0, count)) * 0.012)))
-    }
-
     /// The source character count used for action reporting.
     public let characterCount: Int
     /// Keyboard events in the exact order the worker must deliver them.
@@ -18,7 +13,7 @@ public struct SimulatorTextInputSequence: Codable, Equatable, Sendable {
 
     /// Deadline shared by the socket receipt and bounded worker sequence.
     public var completionTimeoutSeconds: TimeInterval {
-        Self.completionTimeoutSeconds(forEventCount: events.count)
+        min(120, max(10, 10 + (Double(events.count) * 0.012)))
     }
 
     /// Creates a bounded sequence and verifies that every key is released.
@@ -62,6 +57,7 @@ public struct SimulatorTextInputSequence: Codable, Equatable, Sendable {
         case events
     }
 
+    /// Decodes and validates a bounded, balanced sequence.
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let characterCount = try container.decode(Int.self, forKey: .characterCount)
@@ -76,12 +72,4 @@ public struct SimulatorTextInputSequence: Codable, Equatable, Sendable {
             )
         }
     }
-}
-
-/// Validation failures produced before any text input reaches the worker.
-public enum SimulatorTextInputEncodingError: Error, Equatable, Sendable {
-    case empty
-    case tooLong(actualUTF8ByteCount: Int, maximumUTF8ByteCount: Int)
-    case unsupportedScalar(value: UInt32, scalarIndex: Int)
-    case malformedSequence
 }

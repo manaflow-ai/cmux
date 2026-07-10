@@ -34,27 +34,30 @@ private struct ContinuousSimulatorCameraTiming: SimulatorCameraTiming {
 final class SimulatorCameraFrameProducer {
     private let surfaceRing: SimulatorCameraSurfaceRing
     private let timing: any SimulatorCameraTiming
+    private let sessionRunner: SimulatorCameraSessionRunner
     private var videoTask: Task<Void, Never>?
-    private var captureSession: AVCaptureSession?
+    private var captureSession: SimulatorCameraCaptureSessionBox?
     private var captureDelegate: SimulatorCameraCaptureDelegate?
 
     init(
         surfaceRing: SimulatorCameraSurfaceRing,
-        timing: any SimulatorCameraTiming = ContinuousSimulatorCameraTiming()
+        timing: any SimulatorCameraTiming = ContinuousSimulatorCameraTiming(),
+        sessionRunner: SimulatorCameraSessionRunner = SimulatorCameraSessionRunner()
     ) {
         self.surfaceRing = surfaceRing
         self.timing = timing
+        self.sessionRunner = sessionRunner
     }
 
     deinit {
         videoTask?.cancel()
-        captureSession?.stopRunning()
+        if let captureSession { sessionRunner.stopDetached(captureSession) }
     }
 
     func configure(_ configuration: SimulatorCameraConfiguration) async throws {
         let source = Self.unwrappedSource(configuration)
 
-        stop()
+        await stop()
         switch source {
         case .disabled:
             return
@@ -108,11 +111,11 @@ final class SimulatorCameraFrameProducer {
         }
     }
 
-    func stop() {
+    func stop() async {
         videoTask?.cancel()
         videoTask = nil
         if let captureSession {
-            captureSession.stopRunning()
+            await sessionRunner.stop(captureSession)
         }
         captureSession = nil
         captureDelegate = nil
@@ -305,8 +308,17 @@ final class SimulatorCameraFrameProducer {
             queue: DispatchQueue(label: "com.cmux.simulator.camera.capture", qos: .userInteractive)
         )
         captureDelegate = delegate
-        captureSession = session
-        session.startRunning()
+        let sessionBox = SimulatorCameraCaptureSessionBox(session)
+        captureSession = sessionBox
+        await sessionRunner.start(sessionBox)
+        do {
+            try Task.checkCancellation()
+        } catch {
+            await sessionRunner.stop(sessionBox)
+            captureSession = nil
+            captureDelegate = nil
+            throw error
+        }
     }
 
     static func availableHostCameras() -> [SimulatorHostCameraDevice] {

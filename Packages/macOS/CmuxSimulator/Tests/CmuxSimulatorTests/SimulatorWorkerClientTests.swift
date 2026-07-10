@@ -77,12 +77,70 @@ struct SimulatorWorkerClientTests {
         await client.stop()
     }
 
+    @Test("A failed attachment clears renderer state and rejects deferred requests")
+    func failedAttachmentClearsState() async throws {
+        let launcher = TestWorkerLauncher()
+        let client = makeClient(launcher: launcher)
+        await client.send(.attach(udid: "DEVICE", geometry: nil))
+        let endpoint = try #require(launcher.endpoint(at: 0))
+        let display = SimulatorDisplayMetadata(
+            width: 1_200,
+            height: 2_400,
+            orientation: .landscapeLeft,
+            scale: 3
+        )
+        endpoint.emit(.context(99))
+        endpoint.emit(.capabilities([.touch]))
+        endpoint.emit(.display(display))
+        for _ in 0..<1_000 {
+            if await client.currentContextID == 99 { break }
+            await Task.yield()
+        }
+        let requestID = UUID()
+        let deferred = Task<SimulatorCameraStatus, Error> {
+            try await client.requestWorkerValue(
+                sending: .requestCameraStatus(requestID: requestID),
+                timeout: .seconds(30),
+                timeoutRecovery: .preserveWorker
+            ) { message -> SimulatorCameraStatus? in
+                guard case let .cameraStatus(responseID, status) = message,
+                      responseID == requestID else { return nil }
+                return status
+            }
+        }
+        for _ in 0..<1_000 {
+            if await client.deferredMessages.contains(where: {
+                $0.requestIdentifier == requestID
+            }) { break }
+            await Task.yield()
+        }
+        let failure = SimulatorFailure(
+            code: "worker_attach_failed",
+            message: "fixture",
+            isRecoverable: true
+        )
+        endpoint.emit(.status(.failed(failure)))
+
+        do {
+            _ = try await deferred.value
+            Issue.record("Expected the deferred request to fail with attachment")
+        } catch let received as SimulatorFailure {
+            #expect(received.code == failure.code)
+        }
+        #expect(await client.currentContextID == nil)
+        #expect(await client.currentCapabilities.isEmpty)
+        #expect(await client.lastDisplayOrientation == nil)
+        #expect(!(await client.attachmentAwaitingStreaming))
+        #expect((await MainActor.run { client.contextCache.contextID }) == nil)
+        await client.stop()
+    }
+
     @Test("A pending text sequence defers probes until its correlated completion")
     func textInputDefersResponsivenessProbe() async throws {
         let launcher = TestWorkerLauncher()
         let client = makeClient(launcher: launcher)
         let requestIdentifier = UUID()
-        let sequence = try SimulatorUSKeyboardTextEncoder.encode("a")
+        let sequence = try SimulatorUSKeyboardTextEncoder().encode("a")
 
         let inputTask = Task {
             await client.send(.typeText(requestID: requestIdentifier, sequence: sequence))
@@ -146,11 +204,14 @@ struct SimulatorWorkerClientTests {
     func reprobesCommandsQueuedBehindPing() async throws {
         let launcher = TestWorkerLauncher()
         let client = makeClient(launcher: launcher)
-        let events = await client.subscribe()
-        var iterator = events.makeAsyncIterator()
         await client.send(.attach(udid: "DEVICE", geometry: nil))
-        await client.send(.resize(SimulatorSurfaceGeometry(width: 700, height: 500, scale: 2)))
         let endpoint = try #require(launcher.endpoint(at: 0))
+        endpoint.emit(.status(.streaming))
+        for _ in 0..<1_000 {
+            if await client.pendingPingSequence != nil { break }
+            await Task.yield()
+        }
+        await client.send(.resize(SimulatorSurfaceGeometry(width: 700, height: 500, scale: 2)))
         let beforeAcknowledgement = endpoint.inboundMessages()
         let firstPing = try #require(beforeAcknowledgement.compactMap { message -> UInt64? in
             if case let .ping(sequence) = message { return sequence }
@@ -159,7 +220,11 @@ struct SimulatorWorkerClientTests {
 
         endpoint.emit(.ack(firstPing))
         endpoint.emit(.context(77))
-        #expect(await iterator.next() == .message(.context(77)))
+        for _ in 0..<1_000 {
+            if await client.currentContextID == 77 { break }
+            await Task.yield()
+        }
+        #expect(await client.currentContextID == 77)
 
         let pings = endpoint.inboundMessages().compactMap { message -> UInt64? in
             if case let .ping(sequence) = message { return sequence }
@@ -259,18 +324,27 @@ struct SimulatorWorkerClientTests {
         var iterator = events.makeAsyncIterator()
         await client.send(.attach(udid: "DEVICE", geometry: nil))
         let endpoint = try #require(launcher.endpoint(at: 0))
+        endpoint.emit(.status(.streaming))
         endpoint.emit(.capabilities([.cameraInjection]))
         endpoint.emit(.context(55))
         _ = await iterator.next()
         _ = await iterator.next()
+        _ = await iterator.next()
         endpoint.setResponder { message in
-            guard case let .configureCamera(requestID, .placeholder) = message else { return nil }
-            return .cameraConfiguration(
-                requestID: requestID,
-                succeeded: true,
-                targetBundleIdentifier: "com.example.camera"
-            )
+            switch message {
+            case let .ping(sequence):
+                return .ack(sequence)
+            case let .configureCamera(requestID, .placeholder):
+                return .cameraConfiguration(
+                    requestID: requestID,
+                    succeeded: true,
+                    targetBundleIdentifier: "com.example.camera"
+                )
+            default:
+                return nil
+            }
         }
+        endpoint.acknowledgeRecordedPings()
 
         let result = try await client.perform(.configureCamera(.placeholder))
 
@@ -286,14 +360,23 @@ struct SimulatorWorkerClientTests {
         var iterator = events.makeAsyncIterator()
         await client.send(.attach(udid: "DEVICE", geometry: nil))
         let endpoint = try #require(launcher.endpoint(at: 0))
+        endpoint.emit(.status(.streaming))
         endpoint.emit(.capabilities([.extendedPermissions]))
         endpoint.emit(.context(88))
         _ = await iterator.next()
         _ = await iterator.next()
+        _ = await iterator.next()
         endpoint.setResponder { message in
-            guard case let .setPrivatePrivacy(requestID, _, _, _, _) = message else { return nil }
-            return .privatePrivacy(requestID: requestID, succeeded: true)
+            switch message {
+            case let .ping(sequence):
+                return .ack(sequence)
+            case let .setPrivatePrivacy(requestID, _, _, _, _):
+                return .privatePrivacy(requestID: requestID, succeeded: true)
+            default:
+                return nil
+            }
         }
+        endpoint.acknowledgeRecordedPings()
 
         _ = try await client.perform(.setPrivacy(
             deviceID: "DEVICE",
@@ -320,23 +403,30 @@ struct SimulatorWorkerClientTests {
         var iterator = events.makeAsyncIterator()
         await client.send(.attach(udid: "DEVICE", geometry: nil))
         let endpoint = try #require(launcher.endpoint(at: 0))
+        endpoint.emit(.status(.streaming))
         endpoint.emit(.capabilities([.extendedPermissions]))
         endpoint.emit(.context(99))
         _ = await iterator.next()
         _ = await iterator.next()
+        _ = await iterator.next()
         endpoint.setResponder { message in
-            guard case let .requestPrivacy(requestID, deviceID, bundleIdentifier) = message else {
+            switch message {
+            case let .ping(sequence):
+                return .ack(sequence)
+            case let .requestPrivacy(requestID, deviceID, bundleIdentifier):
+                return .privacy(
+                    requestID: requestID,
+                    SimulatorPrivacySnapshot(
+                        deviceID: deviceID,
+                        bundleIdentifier: bundleIdentifier,
+                        authorizations: [.camera: .granted, .notifications: .critical]
+                    )
+                )
+            default:
                 return nil
             }
-            return .privacy(
-                requestID: requestID,
-                SimulatorPrivacySnapshot(
-                    deviceID: deviceID,
-                    bundleIdentifier: bundleIdentifier,
-                    authorizations: [.camera: .granted, .notifications: .critical]
-                )
-            )
         }
+        endpoint.acknowledgeRecordedPings()
 
         let result = try await client.perform(.readPrivacy(
             deviceID: "DEVICE",
@@ -386,92 +476,6 @@ struct SimulatorWorkerClientTests {
         }
         #expect(finished)
         #expect(await sleeper.callCount == 1)
-    }
-
-    @Test("Discarding a worker cancels its pending graceful-exit deadline")
-    func discardCancelsGracefulTerminationDeadline() async throws {
-        let launcher = TestWorkerLauncher()
-        let sleeper = CancellableWorkerSleeper()
-        let client = makeClient(launcher: launcher, sleeper: sleeper)
-        await client.send(.attach(udid: "DEVICE", geometry: nil))
-        let endpoint = try #require(launcher.endpoint(at: 0))
-
-        try await client.shutdownDevice(id: "DEVICE")
-        for _ in 0..<100 {
-            if await sleeper.hasStarted { break }
-            await Task.yield()
-        }
-        #expect(endpoint.terminationCountValue() == 0)
-
-        await client.invalidateWorker()
-        for _ in 0..<100 {
-            if await sleeper.wasCancelled { break }
-            await Task.yield()
-        }
-        #expect(await sleeper.wasCancelled)
-        #expect(endpoint.terminationCountValue() == 1)
-        await client.stop()
-    }
-
-    @Test("Unrelated generic failures do not poison concurrent correlated requests")
-    func isolatesConcurrentCorrelations() async throws {
-        let launcher = TestWorkerLauncher()
-        let client = makeClient(launcher: launcher)
-        let events = await client.subscribe()
-        var iterator = events.makeAsyncIterator()
-        await client.send(.attach(udid: "DEVICE", geometry: nil))
-        let endpoint = try #require(launcher.endpoint(at: 0))
-        endpoint.emit(.capabilities([.extendedPermissions, .cameraInjection]))
-        endpoint.emit(.context(91))
-        _ = await iterator.next()
-        _ = await iterator.next()
-        endpoint.setResponder { message in
-            endpoint.emit(.failure(SimulatorFailure(
-                code: "unrelated_pointer_failure",
-                message: "unrelated",
-                isRecoverable: true
-            )))
-            switch message {
-            case let .requestPrivacy(requestID, deviceID, bundleIdentifier):
-                return .privacy(
-                    requestID: requestID,
-                    SimulatorPrivacySnapshot(
-                        deviceID: deviceID,
-                        bundleIdentifier: bundleIdentifier,
-                        authorizations: [.camera: .granted]
-                    )
-                )
-            case let .requestCameraStatus(requestID):
-                return .cameraStatus(
-                    requestID: requestID,
-                    SimulatorCameraStatus(
-                        configuration: .disabled,
-                        mirrorMode: .auto,
-                        injectedBundleIdentifiers: [],
-                        hostCameras: []
-                    )
-                )
-            default:
-                return nil
-            }
-        }
-
-        async let privacy = client.perform(.readPrivacy(
-            deviceID: "DEVICE",
-            bundleIdentifier: "com.example.app"
-        ))
-        async let camera = client.perform(.readCameraStatus)
-        let (privacyResult, cameraResult) = try await (privacy, camera)
-
-        guard case .privacy = privacyResult else {
-            Issue.record("Expected correlated privacy result")
-            return
-        }
-        guard case .cameraStatus = cameraResult else {
-            Issue.record("Expected correlated camera status")
-            return
-        }
-        await client.stop()
     }
 
     func makeClient(

@@ -10,11 +10,10 @@ struct SimulatorWebInspectorResponseBufferTests {
         let sessionID = UUID()
         let messageID = UUID()
         let payload = Data(repeating: 0x61, count: SimulatorWebInspectorResponseBuffer.maximumResponseBytes + 50)
-        let chunks = SimulatorWebInspectorMessageChunker.chunks(
+        let chunks = SimulatorWebInspectorMessageChunker(maximumPayloadLength: 64 * 1024).chunks(
             sessionID: sessionID,
             messageID: messageID,
-            payload: payload,
-            maximumPayloadLength: 64 * 1024
+            payload: payload
         )
         var buffer = SimulatorWebInspectorResponseBuffer()
 
@@ -75,11 +74,10 @@ struct SimulatorWebInspectorResponseBufferTests {
                 + String(repeating: "x", count: SimulatorWebInspectorResponseBuffer.maximumResponseBytes + 1_000)
                 + "\"}}").utf8
         )
-        let chunks = SimulatorWebInspectorMessageChunker.chunks(
+        let chunks = SimulatorWebInspectorMessageChunker(maximumPayloadLength: 64 * 1024).chunks(
             sessionID: sessionID,
             messageID: UUID(),
-            payload: payload,
-            maximumPayloadLength: 64 * 1024
+            payload: payload
         )
         var buffer = SimulatorWebInspectorResponseBuffer()
         for chunk in chunks { _ = buffer.ingest(chunk, currentSessionID: sessionID) }
@@ -99,11 +97,10 @@ struct SimulatorWebInspectorResponseBufferTests {
                 )
                 + "\",\"id\":\"late\",\"result\":{\"ok\":true}}").utf8
         )
-        let chunks = SimulatorWebInspectorMessageChunker.chunks(
+        let chunks = SimulatorWebInspectorMessageChunker(maximumPayloadLength: 31 * 1_024).chunks(
             sessionID: sessionID,
             messageID: UUID(),
-            payload: payload,
-            maximumPayloadLength: 31 * 1_024
+            payload: payload
         )
         var buffer = SimulatorWebInspectorResponseBuffer()
         for chunk in chunks { _ = buffer.ingest(chunk, currentSessionID: sessionID) }

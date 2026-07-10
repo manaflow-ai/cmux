@@ -10,7 +10,8 @@ extension SimulatorWorkerClient {
             let requestID = UUID()
             let targets: [SimulatorWebInspectorTarget] = try await requestWorkerValue(
                 sending: .requestWebInspectorTargets(requestID: requestID, deviceID: deviceID),
-                timeout: .seconds(10)
+                timeout: .seconds(10),
+                timeoutRecovery: .preserveWorker
             ) { message in
                 guard case let .webInspectorTargets(responseID, targets) = message,
                       responseID == requestID else { return nil }
@@ -22,7 +23,8 @@ extension SimulatorWorkerClient {
             let requestID = UUID()
             let status: SimulatorWebInspectorSessionStatus = try await requestWorkerValue(
                 sending: .attachWebInspector(requestID: requestID, targetID: targetID),
-                timeout: .seconds(10)
+                timeout: .seconds(10),
+                timeoutRecovery: .preserveWorker
             ) { message in
                 guard case let .webInspectorSession(responseID, status) = message,
                       responseID == requestID else { return nil }
@@ -32,7 +34,10 @@ extension SimulatorWorkerClient {
                 throw SimulatorControlError(
                     code: "web_inspector_attach_failed",
                     arguments: [],
-                    message: "The isolated worker could not attach the selected inspector target."
+                    message: String(
+                        localized: "simulator.failure.webInspectorAttachFailed",
+                        defaultValue: "The isolated worker could not attach the selected inspector target."
+                    )
                 )
             }
             return .webInspectorSession(status)
@@ -40,7 +45,8 @@ extension SimulatorWorkerClient {
             let requestID = UUID()
             let status: SimulatorWebInspectorSessionStatus = try await requestWorkerValue(
                 sending: .releaseWebInspector(requestID: requestID),
-                timeout: .seconds(5)
+                timeout: .seconds(5),
+                timeoutRecovery: .preserveWorker
             ) { message in
                 guard case let .webInspectorSession(responseID, status) = message,
                       responseID == requestID else { return nil }
@@ -52,7 +58,8 @@ extension SimulatorWorkerClient {
             let requestID = UUID()
             let succeeded: Bool = try await requestWorkerValue(
                 sending: .setWebInspectorHighlight(requestID: requestID, enabled: enabled),
-                timeout: .seconds(10)
+                timeout: .seconds(10),
+                timeoutRecovery: .preserveWorker
             ) { message in
                 guard case let .webInspectorHighlight(responseID, succeeded) = message,
                       responseID == requestID else { return nil }
@@ -62,7 +69,10 @@ extension SimulatorWorkerClient {
                 throw SimulatorControlError(
                     code: "web_inspector_highlight_failed",
                     arguments: [],
-                    message: "The isolated worker could not update the page highlight."
+                    message: String(
+                        localized: "simulator.failure.webInspectorHighlightFailed",
+                        defaultValue: "The isolated worker could not update the page highlight."
+                    )
                 )
             }
             return SimulatorControlResult.none
@@ -71,7 +81,8 @@ extension SimulatorWorkerClient {
             let requestID = UUID()
             let accepted: Bool = try await requestWorkerValue(
                 sending: .sendWebInspectorMessage(requestID: requestID, json: json),
-                timeout: .seconds(5)
+                timeout: .seconds(5),
+                timeoutRecovery: .preserveWorker
             ) { message in
                 guard case let .webInspectorCommand(responseID, accepted) = message,
                       responseID == requestID else { return nil }
@@ -81,7 +92,10 @@ extension SimulatorWorkerClient {
                 throw SimulatorControlError(
                     code: "web_inspector_command_rejected",
                     arguments: [],
-                    message: "The isolated worker rejected the raw inspector command."
+                    message: String(
+                        localized: "simulator.failure.webInspectorCommandRejected",
+                        defaultValue: "The isolated worker rejected the raw inspector command."
+                    )
                 )
             }
             return SimulatorControlResult.none
@@ -95,7 +109,10 @@ extension SimulatorWorkerClient {
             throw SimulatorControlError(
                 code: "web_inspector_unavailable",
                 arguments: [],
-                message: "The selected Simulator did not negotiate native Web Inspector access."
+                message: String(
+                    localized: "simulator.failure.webInspectorCapability",
+                    defaultValue: "The selected Simulator did not negotiate native Web Inspector access."
+                )
             )
         }
     }

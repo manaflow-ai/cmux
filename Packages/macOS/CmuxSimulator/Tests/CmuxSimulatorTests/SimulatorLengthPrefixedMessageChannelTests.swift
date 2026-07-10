@@ -192,10 +192,7 @@ struct SimulatorLengthPrefixedMessageChannelTests {
 
         connection = nil
         _ = connection
-        for _ in 0..<10_000 where Darwin.kill(processIdentifier, 0) == 0 {
-            await Task.yield()
-        }
-        #expect(Darwin.kill(processIdentifier, 0) != 0)
+        #expect(await Self.waitUntilProcessExits(processIdentifier))
     }
 
     @Test("Host cleanup kills a worker subprocess and its grandchild")
@@ -250,10 +247,9 @@ struct SimulatorLengthPrefixedMessageChannelTests {
         #expect(getpgid(identifiers.worker) == identifiers.worker)
         #expect(getpgid(identifiers.subprocess) == identifiers.worker)
         #expect(getpgid(identifiers.grandchild) == identifiers.worker)
-        #expect(!SimulatorWorkerProcessGroup.isSafeWorkerGroup(
-            hostGroup,
+        #expect(!SimulatorWorkerProcessGroup(
             hostGroupIdentifier: hostGroup
-        ))
+        ).isSafeWorkerGroup(hostGroup))
 
         connection?.terminate()
         #expect(await Self.waitUntilProcessExits(identifiers.worker))

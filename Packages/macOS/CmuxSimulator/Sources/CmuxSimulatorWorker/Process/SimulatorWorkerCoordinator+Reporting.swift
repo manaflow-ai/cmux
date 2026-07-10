@@ -35,11 +35,14 @@ extension SimulatorWorkerCoordinator {
         }
     }
 
-    func send(_ message: SimulatorWorkerOutbound) {
+    @discardableResult
+    func send(_ message: SimulatorWorkerOutbound) -> Bool {
         do {
             try channel.sendMessage(encoder.encode(message))
+            return true
         } catch {
             coordinatorLogger.error("Simulator worker protocol write failed: \(error.localizedDescription, privacy: .public)")
+            return false
         }
     }
 

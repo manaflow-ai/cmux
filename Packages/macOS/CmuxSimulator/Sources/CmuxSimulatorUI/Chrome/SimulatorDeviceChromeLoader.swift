@@ -5,14 +5,32 @@ import Foundation
 actor SimulatorDeviceChromeLoader {
     private let deviceTypeRoots: [URL]
     private let chromeRoots: [URL]
+    private let fileManager: FileManager
+    private let measurer: SimulatorDeviceChromeMeasurer
     private var cache: [String: SimulatorDeviceChromeProfile?] = [:]
 
     init(
         deviceTypeRoots: [URL]? = nil,
-        chromeRoots: [URL]? = nil
+        chromeRoots: [URL]? = nil,
+        fileManager: FileManager = .default,
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        developerSelectionURL: URL = URL(
+            fileURLWithPath: "/var/db/xcode_select_link",
+            isDirectory: true
+        ),
+        measurer: SimulatorDeviceChromeMeasurer = SimulatorDeviceChromeMeasurer()
     ) {
-        self.deviceTypeRoots = deviceTypeRoots ?? Self.defaultDeviceTypeRoots()
-        self.chromeRoots = chromeRoots ?? Self.defaultChromeRoots()
+        self.fileManager = fileManager
+        self.measurer = measurer
+        let developerDirectory = activeSimulatorDeveloperDirectory(
+            environment: environment,
+            selectionURL: developerSelectionURL,
+            fileManager: fileManager
+        )
+        self.deviceTypeRoots = deviceTypeRoots
+            ?? defaultSimulatorDeviceTypeRoots(developerDirectory: developerDirectory)
+        self.chromeRoots = chromeRoots
+            ?? defaultSimulatorChromeRoots(developerDirectory: developerDirectory)
     }
 
     func load(deviceTypeIdentifier: String) -> SimulatorDeviceChromeProfile? {
@@ -31,7 +49,7 @@ actor SimulatorDeviceChromeLoader {
               let scale = number(profile["mainScreenScale"]), scale > 0,
               let chromeResources = findChromeResources(identifier: chromeIdentifier),
               let data = try? Data(contentsOf: chromeResources.appendingPathComponent("chrome.json")),
-              let chrome = try? JSONDecoder().decode(Chrome.self, from: data) else {
+              let chrome = try? JSONDecoder().decode(SimulatorDeviceChrome.self, from: data) else {
             return nil
         }
 
@@ -67,7 +85,7 @@ actor SimulatorDeviceChromeLoader {
             0
         )
         let screenCornerRadius = compositeURL
-            .flatMap(SimulatorDeviceChromeMeasurement.screenOpening)
+            .flatMap(measurer.screenOpening)
             .map { opening in
                 max(0, opening.radius - ((opening.width - screenWidth) / 2))
             } ?? fallbackScreenRadius
@@ -86,7 +104,7 @@ actor SimulatorDeviceChromeLoader {
             case "center": alignedX = padding.left + ((bodyWidth - width) / 2) + restX
             default: alignedX = padding.left + restX
             }
-            let topLeft: Chrome.Point
+            let topLeft: SimulatorDeviceChromePoint
             switch input.anchor {
             case "left":
                 topLeft = .init(
@@ -147,7 +165,7 @@ actor SimulatorDeviceChromeLoader {
 
     private func findDeviceType(identifier: String) -> URL? {
         for root in deviceTypeRoots {
-            guard let entries = try? FileManager.default.contentsOfDirectory(
+            guard let entries = try? fileManager.contentsOfDirectory(
                 at: root,
                 includingPropertiesForKeys: nil,
                 options: [.skipsHiddenFiles]
@@ -167,7 +185,7 @@ actor SimulatorDeviceChromeLoader {
             let resources = root
                 .appendingPathComponent("\(suffix).devicechrome", isDirectory: true)
                 .appendingPathComponent("Contents/Resources", isDirectory: true)
-            if FileManager.default.fileExists(atPath: resources.path) { return resources }
+            if fileManager.fileExists(atPath: resources.path) { return resources }
         }
         return nil
     }
@@ -188,134 +206,60 @@ actor SimulatorDeviceChromeLoader {
         guard let name else { return nil }
         for fileExtension in ["pdf", "png", "tiff"] {
             let url = directory.appendingPathComponent(name).appendingPathExtension(fileExtension)
-            if FileManager.default.fileExists(atPath: url.path) { return url }
+            if fileManager.fileExists(atPath: url.path) { return url }
         }
         return nil
     }
 
-    private static func activeDeveloperDirectory() -> URL? {
-        if let override = ProcessInfo.processInfo.environment["DEVELOPER_DIR"], !override.isEmpty {
-            return URL(fileURLWithPath: override, isDirectory: true)
-        }
-        let selection = URL(fileURLWithPath: "/var/db/xcode_select_link", isDirectory: true)
-            .resolvingSymlinksInPath()
-        return FileManager.default.fileExists(atPath: selection.path) ? selection : nil
-    }
-
-    private static func defaultDeviceTypeRoots() -> [URL] {
-        var roots = [
-            URL(fileURLWithPath: "/Library/Developer/CoreSimulator/Profiles/DeviceTypes", isDirectory: true),
-        ]
-        if let developer = activeDeveloperDirectory() {
-            roots.insert(
-                developer.appendingPathComponent(
-                    "Platforms/iPhoneSimulator.platform/Library/Developer/CoreSimulator/Profiles/DeviceTypes",
-                    isDirectory: true
-                ),
-                at: 0
-            )
-            roots.insert(
-                developer.appendingPathComponent(
-                    "Library/Developer/CoreSimulator/Profiles/DeviceTypes",
-                    isDirectory: true
-                ),
-                at: 0
-            )
-        }
-        return roots
-    }
-
-    private static func defaultChromeRoots() -> [URL] {
-        var roots = [
-            URL(fileURLWithPath: "/Library/Developer/DeviceKit/Chrome", isDirectory: true),
-        ]
-        if let developer = activeDeveloperDirectory() {
-            roots.insert(
-                developer.appendingPathComponent("Library/Developer/DeviceKit/Chrome", isDirectory: true),
-                at: 0
-            )
-        }
-        return roots
-    }
 }
 
-private struct Chrome: Decodable {
-    let images: Images
-    let paths: Paths
-    let inputs: [Input]
-
-    struct Images: Decodable {
-        let topLeft: String?
-        let top: String?
-        let topRight: String?
-        let right: String?
-        let bottomRight: String?
-        let bottom: String?
-        let bottomLeft: String?
-        let left: String?
-        let composite: String?
-        let sizing: Sizing
-        let devicePadding: DevicePadding?
-
-        var assetNames: [String: String] {
-            [
-                "topLeft": topLeft,
-                "top": top,
-                "topRight": topRight,
-                "right": right,
-                "bottomRight": bottomRight,
-                "bottom": bottom,
-                "bottomLeft": bottomLeft,
-                "left": left,
-            ].compactMapValues { $0 }
-        }
+private func activeSimulatorDeveloperDirectory(
+    environment: [String: String],
+    selectionURL: URL,
+    fileManager: FileManager
+) -> URL? {
+    if let override = environment["DEVELOPER_DIR"], !override.isEmpty {
+        return URL(fileURLWithPath: override, isDirectory: true)
     }
+    let selection = selectionURL.resolvingSymlinksInPath()
+    return fileManager.fileExists(atPath: selection.path) ? selection : nil
+}
 
-    struct Sizing: Decodable {
-        let leftWidth: Double
-        let rightWidth: Double
-        let topHeight: Double
-        let bottomHeight: Double
+private func defaultSimulatorDeviceTypeRoots(developerDirectory: URL?) -> [URL] {
+    var roots = [
+        URL(fileURLWithPath: "/Library/Developer/CoreSimulator/Profiles/DeviceTypes", isDirectory: true),
+    ]
+    if let developerDirectory {
+        roots.insert(
+            developerDirectory.appendingPathComponent(
+                "Platforms/iPhoneSimulator.platform/Library/Developer/CoreSimulator/Profiles/DeviceTypes",
+                isDirectory: true
+            ),
+            at: 0
+        )
+        roots.insert(
+            developerDirectory.appendingPathComponent(
+                "Library/Developer/CoreSimulator/Profiles/DeviceTypes",
+                isDirectory: true
+            ),
+            at: 0
+        )
     }
+    return roots
+}
 
-    struct DevicePadding: Decodable {
-        let top: Double
-        let left: Double
-        let bottom: Double
-        let right: Double
-
-        static let zero = DevicePadding(top: 0, left: 0, bottom: 0, right: 0)
+private func defaultSimulatorChromeRoots(developerDirectory: URL?) -> [URL] {
+    var roots = [
+        URL(fileURLWithPath: "/Library/Developer/DeviceKit/Chrome", isDirectory: true),
+    ]
+    if let developerDirectory {
+        roots.insert(
+            developerDirectory.appendingPathComponent(
+                "Library/Developer/DeviceKit/Chrome",
+                isDirectory: true
+            ),
+            at: 0
+        )
     }
-
-    struct Paths: Decodable {
-        let simpleOutsideBorder: Border
-    }
-
-    struct Border: Decodable {
-        let cornerRadiusX: Double
-    }
-
-    struct Input: Decodable {
-        let name: String
-        let image: String?
-        let imageDown: String?
-        let onTop: Bool?
-        let usagePage: UInt32?
-        let usage: UInt32?
-        let anchor: String
-        let align: String?
-        let offsets: Offsets
-    }
-
-    struct Offsets: Decodable {
-        let normal: Point?
-        let rollover: Point?
-    }
-
-    struct Point: Decodable {
-        let x: Double
-        let y: Double
-
-        static let zero = Point(x: 0, y: 0)
-    }
+    return roots
 }

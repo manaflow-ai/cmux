@@ -32,7 +32,7 @@ struct SimulatorPaneToolbar: View {
                 }
             } else {
                 ForEach(coordinator.devices) { device in
-                    let label = Self.deviceRowLabel(
+                    let label = simulatorDeviceRowLabel(
                         device,
                         among: coordinator.devices,
                         localizedState: String(localized: simulatorStrings.deviceState(device.state))
@@ -133,15 +133,16 @@ struct SimulatorPaneToolbar: View {
         }
     }
 
-    nonisolated static func deviceRowLabel(
-        _ device: SimulatorDevice,
-        among devices: [SimulatorDevice],
-        localizedState: String
-    ) -> String {
-        let duplicateName = devices.lazy.filter { $0.name == device.name }.prefix(2).count > 1
-        if duplicateName {
-            return "\(device.name) · \(device.runtimeName) · \(localizedState)"
-        }
-        return "\(device.name) · \(localizedState)"
+}
+
+func simulatorDeviceRowLabel(
+    _ device: SimulatorDevice,
+    among devices: [SimulatorDevice],
+    localizedState: String
+) -> String {
+    let duplicateName = devices.lazy.filter { $0.name == device.name }.prefix(2).count > 1
+    if duplicateName {
+        return "\(device.name) · \(device.runtimeName) · \(localizedState)"
     }
+    return "\(device.name) · \(localizedState)"
 }

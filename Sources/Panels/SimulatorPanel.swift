@@ -1,8 +1,8 @@
 import AppKit
 import CmuxSimulator
 import CmuxSimulatorUI
-import Combine
 import Foundation
+import Observation
 
 /// App-level panel shim for one isolated native Simulator session.
 ///
@@ -10,11 +10,11 @@ import Foundation
 /// This class conforms to the legacy `Panel`/`ObservableObject` boundary only
 /// so the existing workspace registry can own it.
 @MainActor
+@Observable
 final class SimulatorPanel: Panel {
     let id = UUID()
     let stableSurfaceIdentity = PanelStableSurfaceIdentity()
     let panelType: PanelType = .simulator
-    let objectWillChange = ObservableObjectPublisher()
     let coordinator: SimulatorPaneCoordinator
 
     private let preferredDeviceID: String?

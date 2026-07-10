@@ -3,6 +3,21 @@ import Foundation
 
 extension SimulatorWorkerCoordinator {
     func requestForegroundApplication(requestIdentifier: UUID) {
+        if foregroundApplicationTask != nil,
+           foregroundApplicationGeneration == nil {
+            send(.requestFailure(
+                requestID: requestIdentifier,
+                SimulatorFailure(
+                    code: "foreground_request_busy",
+                    message: String(
+                        localized: "simulator.failure.foregroundRequestUnwinding",
+                        defaultValue: "The previous foreground-application read is still unwinding."
+                    ),
+                    isRecoverable: true
+                )
+            ))
+            return
+        }
         guard foregroundApplicationRequestIdentifiers.count <
             SimulatorLengthPrefixedMessageChannel.maximumBufferedFrameCount
         else {
@@ -10,7 +25,10 @@ extension SimulatorWorkerCoordinator {
                 requestID: requestIdentifier,
                 SimulatorFailure(
                     code: "foreground_request_busy",
-                    message: "A foreground-application read is already at capacity.",
+                    message: String(
+                        localized: "simulator.failure.foregroundRequestBusy",
+                        defaultValue: "A foreground-application read is already at capacity."
+                    ),
                     isRecoverable: true
                 )
             ))
@@ -31,9 +49,11 @@ extension SimulatorWorkerCoordinator {
                 result = .failure(error)
             }
 
-            guard let self,
-                  self.foregroundApplicationGeneration == generation
-            else { return }
+            guard let self else { return }
+            guard self.foregroundApplicationGeneration == generation else {
+                self.foregroundApplicationTask = nil
+                return
+            }
             let requestIdentifiers = self.foregroundApplicationRequestIdentifiers
             self.foregroundApplicationRequestIdentifiers.removeAll()
             self.foregroundApplicationGeneration = nil
@@ -59,8 +79,20 @@ extension SimulatorWorkerCoordinator {
     }
 
     func cancelForegroundApplicationRequests() {
+        for requestIdentifier in foregroundApplicationRequestIdentifiers {
+            send(.requestFailure(
+                requestID: requestIdentifier,
+                SimulatorFailure(
+                    code: "foreground_request_cancelled",
+                    message: String(
+                        localized: "simulator.failure.foregroundRequestCancelled",
+                        defaultValue: "The Simulator changed during foreground-app inspection."
+                    ),
+                    isRecoverable: true
+                )
+            ))
+        }
         foregroundApplicationTask?.cancel()
-        foregroundApplicationTask = nil
         foregroundApplicationGeneration = nil
         foregroundApplicationRequestIdentifiers.removeAll()
     }

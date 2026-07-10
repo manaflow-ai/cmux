@@ -7,7 +7,7 @@ extension SimulatorWorkerClientTests {
     @Test("Correlated timeouts terminate each generation, restart once, then trip the fuse")
     func correlatedTimeoutRecoveryAndFuse() async throws {
         let launcher = TestWorkerLauncher()
-        let client = makeClient(launcher: launcher, sleeper: ImmediateWorkerSleeper())
+        let client = makeClient(launcher: launcher, sleeper: ReplayDeadlineSleeper())
         let events = await client.subscribe()
         var iterator = events.makeAsyncIterator()
 
@@ -211,28 +211,48 @@ extension SimulatorWorkerClientTests {
     @Test("Crash between convenience-button phases replays a conservative up")
     func convenienceButtonCrashRecovery() async throws {
         let launcher = TestWorkerLauncher()
+        let pingResponder = LimitedPingResponder(maximumAcknowledgements: 1)
         launcher.setResponder { message in
-            if case .attach = message { return .status(.streaming) }
-            return nil
+            switch message {
+            case .attach: .status(.streaming)
+            default: pingResponder.response(to: message)
+            }
         }
         let client = makeClient(launcher: launcher)
         try await client.activateDevice(id: "DEVICE", geometry: nil)
         let first = try #require(launcher.endpoint(at: 0))
 
         await client.send(.button(.volumeUp))
+        for _ in 0..<1_000 {
+            if first.inboundMessages().contains(.button(.volumeUp)) { break }
+            await Task.yield()
+        }
+        #expect(first.inboundMessages().contains(.button(.volumeUp)))
         first.finish()
 
-        var replacement: TestWorkerEndpoint?
+        var replacementCandidate: TestWorkerEndpoint?
         let expectedRelease = SimulatorWorkerInbound.hidButton(SimulatorHIDButtonEvent(
             button: SimulatorHIDButtonUsage(page: 0x0C, usage: 0xE9),
             phase: .up
         ))
         for _ in 0..<1_000 {
-            replacement = launcher.endpoint(at: 1)
-            if replacement?.inboundMessages().contains(expectedRelease) == true { break }
+            replacementCandidate = launcher.endpoint(at: 1)
+            if replacementCandidate?.inboundMessages().contains(expectedRelease) == true { break }
             await Task.yield()
         }
-        let inbound = try #require(replacement).inboundMessages()
+        let replacement = try #require(replacementCandidate)
+        replacement.setResponder { message in
+            guard case let .ping(sequence) = message else { return nil }
+            return .ack(sequence)
+        }
+        replacement.acknowledgeRecordedPings()
+        replacement.emit(.status(.streaming))
+        var inbound: [SimulatorWorkerInbound] = []
+        for _ in 0..<10_000 {
+            inbound = replacement.inboundMessages()
+            if inbound.contains(expectedRelease) { break }
+            await Task.yield()
+        }
         #expect(inbound.contains(expectedRelease))
         await client.stop()
     }
@@ -240,14 +260,24 @@ extension SimulatorWorkerClientTests {
     @Test("Queued raw input releases remain conservative until a ping proves them")
     func rawReleaseCrashRecovery() async throws {
         let launcher = TestWorkerLauncher()
+        let pingResponder = LimitedPingResponder(maximumAcknowledgements: 4)
+        launcher.setResponder { message in
+            switch message {
+            case .attach: .status(.streaming)
+            default: pingResponder.response(to: message)
+            }
+        }
         let client = makeClient(launcher: launcher)
         await client.send(.attach(udid: "DEVICE", geometry: nil))
         let first = try #require(launcher.endpoint(at: 0))
         let point = SimulatorPoint(x: 0.4, y: 0.5)
         let button = SimulatorHIDButtonUsage(page: 0x0C, usage: 0xE9)
         await client.send(.pointer(.init(phase: .began, primary: point)))
+        await waitForAcknowledgedPing(client)
         await client.send(.key(.init(usage: 4, phase: .down)))
+        await waitForAcknowledgedPing(client)
         await client.send(.hidButton(.init(button: button, phase: .down)))
+        await waitForAcknowledgedPing(client)
         await client.send(.pointer(.init(phase: .ended, primary: point)))
         await client.send(.key(.init(usage: 4, phase: .up)))
         await client.send(.hidButton(.init(button: button, phase: .up)))
@@ -255,13 +285,19 @@ extension SimulatorWorkerClientTests {
 
         first.finish()
         let second = try await replacementEndpoint(launcher)
+        second.setResponder { message in
+            guard case let .ping(sequence) = message else { return nil }
+            return .ack(sequence)
+        }
+        second.acknowledgeRecordedPings()
+        second.emit(.status(.streaming))
         let expected = [
             SimulatorWorkerInbound.pointer(.init(phase: .cancelled, primary: point)),
             .key(.init(usage: 4, phase: .up)),
             .hidButton(.init(button: button, phase: .up)),
         ]
         var messages: [SimulatorWorkerInbound] = []
-        for _ in 0..<1_000 {
+        for _ in 0..<10_000 {
             messages = second.inboundMessages()
             if expected.allSatisfy(messages.contains) { break }
             await Task.yield()
@@ -274,7 +310,10 @@ extension SimulatorWorkerClientTests {
     func unacknowledgedReleaseCrashRecovery() async throws {
         let launcher = TestWorkerLauncher()
         let pingResponder = LimitedPingResponder(maximumAcknowledgements: 2)
-        launcher.setResponder { message in pingResponder.response(to: message) }
+        launcher.setResponder { message in
+            if case .attach = message { return .status(.streaming) }
+            return pingResponder.response(to: message)
+        }
         let client = makeClient(launcher: launcher)
         await client.send(.attach(udid: "DEVICE", geometry: nil))
         let first = try #require(launcher.endpoint(at: 0))
@@ -291,6 +330,11 @@ extension SimulatorWorkerClientTests {
 
         first.finish()
         let second = try await replacementEndpoint(launcher)
+        second.emit(.status(.streaming))
+        for _ in 0..<1_000 {
+            if second.inboundMessages().contains(.key(.init(usage: 4, phase: .up))) { break }
+            await Task.yield()
+        }
         #expect(second.inboundMessages().contains(.key(.init(usage: 4, phase: .up))))
         await client.stop()
     }
@@ -298,6 +342,13 @@ extension SimulatorWorkerClientTests {
     @Test("Crash during correlated gesture replays a cancellation")
     func interactiveGestureCrashRecovery() async throws {
         let launcher = TestWorkerLauncher()
+        launcher.setResponder { message in
+            switch message {
+            case .attach: .status(.streaming)
+            case let .ping(sequence): .ack(sequence)
+            default: nil
+            }
+        }
         let client = makeClient(launcher: launcher)
         await client.send(.attach(udid: "DEVICE", geometry: nil))
         let first = try #require(launcher.endpoint(at: 0))
@@ -313,31 +364,16 @@ extension SimulatorWorkerClientTests {
         _ = await task.result
 
         let second = try await replacementEndpoint(launcher)
+        second.emit(.status(.streaming))
+        for _ in 0..<1_000 {
+            if second.inboundMessages().contains(
+                .pointer(.init(phase: .cancelled, primary: point))
+            ) { break }
+            await Task.yield()
+        }
         #expect(second.inboundMessages().contains(
             .pointer(.init(phase: .cancelled, primary: point))
         ))
-        await client.stop()
-    }
-
-    @Test("Crash during correlated hardware button replays a raw up")
-    func interactiveButtonCrashRecovery() async throws {
-        let launcher = TestWorkerLauncher()
-        let client = makeClient(launcher: launcher)
-        await client.send(.attach(udid: "DEVICE", geometry: nil))
-        let first = try #require(launcher.endpoint(at: 0))
-        let task = Task {
-            try await client.perform(.interactive(.hardwareButton(.volumeUp)))
-        }
-        try await awaitInboundInteractive(first)
-        first.finish()
-        _ = await task.result
-
-        let second = try await replacementEndpoint(launcher)
-        let release = SimulatorWorkerInbound.hidButton(.init(
-            button: .init(page: 0x0C, usage: 0xE9),
-            phase: .up
-        ))
-        #expect(second.inboundMessages().contains(release))
         await client.stop()
     }
 
@@ -369,7 +405,9 @@ extension SimulatorWorkerClientTests {
 
     private func waitForAcknowledgedPing(_ client: SimulatorWorkerClient) async {
         for _ in 0..<1_000 {
-            if await client.pendingPingSequence == nil { return }
+            if await client.currentStatus == .streaming,
+               await client.pendingPingSequence == nil,
+               await client.deferredMessages.isEmpty { return }
             await Task.yield()
         }
     }

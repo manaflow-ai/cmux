@@ -43,60 +43,11 @@ public struct SimulatorStatusBarOverride: Equatable, Sendable {
     }
 
     /// A status bar data-network indicator.
-    public enum DataNetwork: String, Codable, CaseIterable, Hashable, Sendable {
-        /// Hide the indicator.
-        case hide
-        /// Wi-Fi.
-        case wifi
-        /// 3G.
-        case threeG = "3g"
-        /// 4G.
-        case fourG = "4g"
-        /// LTE.
-        case lte
-        /// LTE Advanced.
-        case lteAdvanced = "lte-a"
-        /// LTE Plus.
-        case ltePlus = "lte+"
-        /// 5G.
-        case fiveG = "5g"
-        /// 5G Plus.
-        case fiveGPlus = "5g+"
-        /// 5G ultra-wideband.
-        case fiveGUWB = "5g-uwb"
-        /// 5G ultra-capacity.
-        case fiveGUC = "5g-uc"
-    }
-
+    public typealias DataNetwork = SimulatorStatusBarDataNetwork
     /// A Wi-Fi connection mode.
-    public enum ConnectionMode: String, Codable, CaseIterable, Hashable, Sendable {
-        /// Searching for a network.
-        case searching
-        /// Connection failed.
-        case failed
-        /// Connected.
-        case active
-    }
-
+    public typealias ConnectionMode = SimulatorStatusBarConnectionMode
     /// A cellular connection mode.
-    public enum CellularMode: String, Codable, CaseIterable, Hashable, Sendable {
-        /// Cellular is unavailable on the device.
-        case notSupported
-        /// Searching for service.
-        case searching
-        /// Connection failed.
-        case failed
-        /// Connected.
-        case active
-    }
-
+    public typealias CellularMode = SimulatorStatusBarCellularMode
     /// A simulated battery state.
-    public enum BatteryState: String, Codable, CaseIterable, Hashable, Sendable {
-        /// The device is charging.
-        case charging
-        /// The battery is full.
-        case charged
-        /// The device is using battery power.
-        case discharging
-    }
+    public typealias BatteryState = SimulatorStatusBarBatteryState
 }

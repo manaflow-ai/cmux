@@ -266,7 +266,10 @@ extension ControlCommandCoordinator {
         guard ["terminal", "browser", "simulator"].contains(type) else {
             return .err(
                 code: "invalid_params",
-                message: "type must be terminal, browser, or simulator",
+                message: String(
+                    localized: "cli.canvas.error.invalidPaneType",
+                    defaultValue: "type must be terminal, browser, or simulator"
+                ),
                 data: nil
             )
         }

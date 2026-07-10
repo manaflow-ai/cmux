@@ -14,26 +14,41 @@ import ObjectiveC.runtime
 /// Adapted from idb's accessibility bridge (MIT, Meta Platforms) and
 /// serve-sim's Swift port (Apache-2.0, Evan Bacon). The private translator has
 /// a synchronous delegate contract, so its one irreducible XPC bridge uses a
-/// bounded semaphore wait on a dedicated completion queue. A timeout returns
-/// an empty response and lets the host supervisor recover the worker.
+/// bounded group wait on a dedicated completion queue. A timeout returns an
+/// empty response and lets the host supervisor recover the worker.
+///
+/// Safety: `SimulatorAccessibilityExecutor` exclusively owns this object. The
+/// Objective-C callback is invoked synchronously inside an executor-owned
+/// translation and captures the current device before its asynchronous reply.
 final class SimulatorAccessibilityBridge: NSObject, @unchecked Sendable {
     static let maximumNodeCount = 500
     static let maximumDepth = 80
     static let maximumTextUTF8ByteCount = 512
 
-    private let lock = NSLock()
     private let completionQueue = DispatchQueue(
         label: "com.cmux.simulator.accessibility",
         qos: .userInitiated
     )
-    private var tokenDevices: [String: NSObject] = [:]
-    var translator: NSObject?
+    let accessibilityGrid: SimulatorAccessibilityGrid
+    let applicationMetadataResolver: SimulatorApplicationMetadataResolver
+    private let tokenFactory: @Sendable () -> String
+    private var translator: NSObject?
     private var attachedDevice: NSObject?
 
+    init(
+        accessibilityGrid: SimulatorAccessibilityGrid = SimulatorAccessibilityGrid(),
+        applicationMetadataResolver: SimulatorApplicationMetadataResolver =
+            SimulatorApplicationMetadataResolver(),
+        tokenFactory: @escaping @Sendable () -> String = { UUID().uuidString }
+    ) {
+        self.accessibilityGrid = accessibilityGrid
+        self.applicationMetadataResolver = applicationMetadataResolver
+        self.tokenFactory = tokenFactory
+        super.init()
+    }
+
     func attach(device: NSObject) -> Bool {
-        lock.withLock {
-            attachedDevice = device
-        }
+        attachedDevice = device
         do {
             try loadTranslator()
             return device.responds(
@@ -47,17 +62,13 @@ final class SimulatorAccessibilityBridge: NSObject, @unchecked Sendable {
     }
 
     func detach() {
-        lock.withLock {
-            attachedDevice = nil
-            tokenDevices.removeAll()
-        }
+        attachedDevice = nil
     }
 
     func accessibilitySnapshot(
         display: SimulatorDisplayMetadata
     ) throws -> SimulatorAccessibilitySnapshot {
         let (translation, token) = try frontmostTranslation()
-        defer { removeToken(token) }
         stampToken(on: translation, token: token)
 
         let translator = try requireTranslator()
@@ -117,7 +128,7 @@ final class SimulatorAccessibilityBridge: NSObject, @unchecked Sendable {
     }
 
     private func loadTranslator() throws {
-        if lock.withLock({ translator != nil }) { return }
+        if translator != nil { return }
         let path = "/System/Library/PrivateFrameworks/" +
             "AccessibilityPlatformTranslation.framework/AccessibilityPlatformTranslation"
         guard dlopen(path, RTLD_NOW | RTLD_GLOBAL) != nil,
@@ -142,21 +153,16 @@ final class SimulatorAccessibilityBridge: NSObject, @unchecked Sendable {
                 "AXPTranslator does not expose tokenized bridge delegation."
             )
         }
-        lock.withLock {
-            self.translator = translator
-        }
+        self.translator = translator
     }
 
     func frontmostTranslation() throws -> (translation: NSObject, token: String) {
         try loadTranslator()
         let translator = try requireTranslator()
-        guard let device = lock.withLock({ attachedDevice }) else {
+        guard attachedDevice != nil else {
             throw SimulatorWorkerFailure.accessibilityUnavailable("No Simulator is attached.")
         }
-        let token = UUID().uuidString
-        lock.withLock {
-            tokenDevices[token] = device
-        }
+        let token = tokenFactory()
 
         let selector = NSSelectorFromString(
             "frontmostApplicationWithDisplayId:bridgeDelegateToken:"
@@ -164,7 +170,6 @@ final class SimulatorAccessibilityBridge: NSObject, @unchecked Sendable {
         guard translator.responds(to: selector),
               let implementation = class_getMethodImplementation(type(of: translator), selector)
         else {
-            removeToken(token)
             throw SimulatorWorkerFailure.accessibilityUnavailable(
                 "AXPTranslator cannot query the frontmost application."
             )
@@ -181,7 +186,6 @@ final class SimulatorAccessibilityBridge: NSObject, @unchecked Sendable {
             0,
             token as NSString
         ) as? NSObject else {
-            removeToken(token)
             throw SimulatorWorkerFailure.accessibilityUnavailable(
                 "The Simulator has no frontmost accessibility application."
             )
@@ -191,7 +195,7 @@ final class SimulatorAccessibilityBridge: NSObject, @unchecked Sendable {
     }
 
     func requireTranslator() throws -> NSObject {
-        guard let translator = lock.withLock({ translator }) else {
+        guard let translator else {
             throw SimulatorWorkerFailure.accessibilityUnavailable("AXPTranslator is unavailable.")
         }
         return translator
@@ -239,13 +243,13 @@ final class SimulatorAccessibilityBridge: NSObject, @unchecked Sendable {
         let rawRole = element?.accessibilityRole()?.rawValue
         let role = rawRole.map { value in
             value.hasPrefix("AX") ? String(value.dropFirst(2)) : value
-        }.map(Self.boundedAccessibilityText)
-        let label = element?.accessibilityLabel().map(Self.boundedAccessibilityText)
+        }.map(boundedSimulatorAccessibilityText)
+        let label = element?.accessibilityLabel().map(boundedSimulatorAccessibilityText)
         let rawValue = element?.accessibilityValue()
-        let value = rawValue.map { Self.boundedAccessibilityText(String(describing: $0)) }
-        let identifier = element?.accessibilityIdentifier().map(Self.boundedAccessibilityText)
+        let value = rawValue.map { boundedSimulatorAccessibilityText(String(describing: $0)) }
+        let identifier = element?.accessibilityIdentifier().map(boundedSimulatorAccessibilityText)
         let roleDescription = element?.accessibilityRoleDescription().map(
-            Self.boundedAccessibilityText
+            boundedSimulatorAccessibilityText
         )
         let enabled = element?.isAccessibilityEnabled()
         let children = element?.accessibilityChildren() ?? []
@@ -273,7 +277,7 @@ final class SimulatorAccessibilityBridge: NSObject, @unchecked Sendable {
             }
         }
 
-        if !serializedChildren.isEmpty || Self.isLikelyAccessibilityContainer(resolvedFrame) {
+        if !serializedChildren.isEmpty || isLikelySimulatorAccessibilityContainer(resolvedFrame) {
             coverage.insertContainer(resolvedFrame)
         } else {
             coverage.insertLeaf(resolvedFrame)
@@ -299,36 +303,12 @@ final class SimulatorAccessibilityBridge: NSObject, @unchecked Sendable {
         )
     }
 
-    private static func isLikelyAccessibilityContainer(_ frame: NSRect) -> Bool {
-        max(frame.width, frame.height) >= 250
-    }
-
-    static func boundedAccessibilityText(_ value: String) -> String {
-        guard value.utf8.count > maximumTextUTF8ByteCount else { return value }
-        var result = ""
-        var byteCount = 0
-        for scalar in value.unicodeScalars {
-            let scalarByteCount = scalar.utf8.count
-            guard byteCount + scalarByteCount <= maximumTextUTF8ByteCount else { break }
-            result.unicodeScalars.append(scalar)
-            byteCount += scalarByteCount
-        }
-        return result
-    }
-
-    func removeToken(_ token: String) {
-        _ = lock.withLock {
-            tokenDevices.removeValue(forKey: token)
-        }
-    }
-
     @objc(accessibilityTranslationDelegateBridgeCallbackWithToken:)
-    private func bridgeCallback(token: String) -> AnyObject {
+    private func bridgeCallback(token _: String) -> AnyObject {
+        let device = attachedDevice
         let block: @convention(block) (AnyObject?) -> AnyObject? = { [weak self] request in
-            guard let self, let request,
-                  let device = self.lock.withLock({ self.tokenDevices[token] })
-            else {
-                return Self.emptyTranslatorResponse()
+            guard let self, let request, let device else {
+                return emptySimulatorTranslatorResponse()
             }
             return self.runRequest(request, device: device)
         }
@@ -342,14 +322,15 @@ final class SimulatorAccessibilityBridge: NSObject, @unchecked Sendable {
         guard device.responds(to: selector),
               let implementation = class_getMethodImplementation(type(of: device), selector)
         else {
-            return Self.emptyTranslatorResponse()
+            return emptySimulatorTranslatorResponse()
         }
 
-        let semaphore = DispatchSemaphore(value: 0)
-        let box = ResponseBox()
+        let group = DispatchGroup()
+        group.enter()
+        let box = SimulatorAccessibilityResponseBox()
         let completion: @convention(block) (AnyObject?) -> Void = { response in
             box.value = response
-            semaphore.signal()
+            group.leave()
         }
         typealias Function = @convention(c) (
             AnyObject,
@@ -365,10 +346,10 @@ final class SimulatorAccessibilityBridge: NSObject, @unchecked Sendable {
             completionQueue,
             completion as AnyObject
         )
-        guard semaphore.wait(timeout: .now() + 3) == .success else {
-            return Self.emptyTranslatorResponse()
+        guard group.wait(timeout: .now() + 3) == .success else {
+            return emptySimulatorTranslatorResponse()
         }
-        return box.value ?? Self.emptyTranslatorResponse()
+        return box.value ?? emptySimulatorTranslatorResponse()
     }
 
     @objc(accessibilityTranslationConvertPlatformFrameToSystem:withToken:)
@@ -381,19 +362,35 @@ final class SimulatorAccessibilityBridge: NSObject, @unchecked Sendable {
         nil
     }
 
-    private static func emptyTranslatorResponse() -> AnyObject? {
-        guard let responseClass = NSClassFromString("AXPTranslatorResponse") as? NSObject.Type else {
-            return nil
-        }
-        let selector = NSSelectorFromString("emptyResponse")
-        guard responseClass.responds(to: selector) else { return nil }
-        return responseClass.perform(selector)?.takeUnretainedValue()
-    }
-
 }
 
-private final class ResponseBox: @unchecked Sendable {
-    var value: AnyObject?
+func boundedSimulatorAccessibilityText(_ value: String) -> String {
+    guard value.utf8.count > SimulatorAccessibilityBridge.maximumTextUTF8ByteCount else {
+        return value
+    }
+    var result = ""
+    var byteCount = 0
+    for scalar in value.unicodeScalars {
+        let scalarByteCount = scalar.utf8.count
+        guard byteCount + scalarByteCount <= SimulatorAccessibilityBridge.maximumTextUTF8ByteCount
+        else { break }
+        result.unicodeScalars.append(scalar)
+        byteCount += scalarByteCount
+    }
+    return result
+}
+
+private func isLikelySimulatorAccessibilityContainer(_ frame: NSRect) -> Bool {
+    max(frame.width, frame.height) >= 250
+}
+
+private func emptySimulatorTranslatorResponse() -> AnyObject? {
+    guard let responseClass = NSClassFromString("AXPTranslatorResponse") as? NSObject.Type else {
+        return nil
+    }
+    let selector = NSSelectorFromString("emptyResponse")
+    guard responseClass.responds(to: selector) else { return nil }
+    return responseClass.perform(selector)?.takeUnretainedValue()
 }
 
 private func setObjectProperty(_ target: NSObject, name: String, value: AnyObject) -> Bool {

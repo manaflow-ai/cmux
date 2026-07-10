@@ -32,7 +32,7 @@ extension SimulatorPaneCoordinator {
             return result
         } catch {
             guard generation == selectionGeneration, !closed else { throw error }
-            let failure = Self.failure(from: error, code: "control_action_failed")
+            let failure = simulatorPaneFailure(from: error, code: "control_action_failed")
             controlFailure = failure
             appendCoordinatorAction(for: action, succeeded: false)
             throw failure
@@ -251,7 +251,7 @@ extension SimulatorPaneCoordinator {
             videoSession = session
             isVideoRecording = true
         } catch {
-            controlFailure = Self.failure(from: error, code: "video_recording_failed")
+            controlFailure = simulatorPaneFailure(from: error, code: "video_recording_failed")
         }
     }
 
@@ -290,7 +290,7 @@ extension SimulatorPaneCoordinator {
             logSession = session
             isStreamingLogs = true
         } catch {
-            controlFailure = Self.failure(from: error, code: "log_stream_failed")
+            controlFailure = simulatorPaneFailure(from: error, code: "log_stream_failed")
         }
     }
 
@@ -348,7 +348,7 @@ extension SimulatorPaneCoordinator {
         for action: SimulatorControlAction,
         succeeded: Bool
     ) {
-        guard let name = Self.coordinatorActionName(action) else { return }
+        guard let name = simulatorCoordinatorActionName(action) else { return }
         actionLog.insert(SimulatorActionLogEntry(
             id: UUID(),
             timestamp: Date(),
@@ -361,37 +361,38 @@ extension SimulatorPaneCoordinator {
         }
     }
 
-    private static func coordinatorActionName(_ action: SimulatorControlAction) -> String? {
-        switch action {
-        case .interactive:
-            "interactive"
-        case .listApplications, .installApplication, .launchApplication, .terminateApplication:
-            "applications"
-        case .openURL:
-            "open_url"
-        case .addMedia:
-            "media"
-        case .readClipboard, .writeClipboard, .syncClipboardFromHost:
-            "clipboard"
-        case .setLocation, .clearLocation, .startLocationRoute,
-             .pauseLocationRoute, .resumeLocationRoute, .stopLocationRoute:
-            "location"
-        case .pushNotification:
-            "push_notification"
-        case .overrideStatusBar, .clearStatusBar:
-            "status_bar"
-        case .setInterface:
-            "interface"
-        case .screenshot, .prepareVideoRecording:
-            "capture"
-        case .recentLogs, .prepareLogStream:
-            "logs"
-        case .setPrivacy, .readPrivacy, .readInterfaceStatus, .configureCamera, .switchCameraSource, .setCameraMirror,
-             .readCameraStatus, .reloadReactNative, .readAccessibility,
-             .readForegroundApplication, .setAccessibilityHighlight,
-             .refreshWebInspectorTargets, .attachWebInspector, .releaseWebInspector,
-             .setWebInspectorHighlight, .sendWebInspectorMessage:
-            nil
-        }
+}
+
+private func simulatorCoordinatorActionName(_ action: SimulatorControlAction) -> String? {
+    switch action {
+    case .interactive:
+        "interactive"
+    case .listApplications, .installApplication, .launchApplication, .terminateApplication:
+        "applications"
+    case .openURL:
+        "open_url"
+    case .addMedia:
+        "media"
+    case .readClipboard, .writeClipboard, .syncClipboardFromHost:
+        "clipboard"
+    case .setLocation, .clearLocation, .startLocationRoute,
+         .pauseLocationRoute, .resumeLocationRoute, .stopLocationRoute:
+        "location"
+    case .pushNotification:
+        "push_notification"
+    case .overrideStatusBar, .clearStatusBar:
+        "status_bar"
+    case .setInterface:
+        "interface"
+    case .screenshot, .prepareVideoRecording:
+        "capture"
+    case .recentLogs, .prepareLogStream:
+        "logs"
+    case .setPrivacy, .readPrivacy, .readInterfaceStatus, .configureCamera, .switchCameraSource, .setCameraMirror,
+         .readCameraStatus, .reloadReactNative, .readAccessibility,
+         .readForegroundApplication, .setAccessibilityHighlight,
+         .refreshWebInspectorTargets, .attachWebInspector, .releaseWebInspector,
+         .setWebInspectorHighlight, .sendWebInspectorMessage:
+        nil
     }
 }

@@ -64,7 +64,7 @@ struct SimulatorCameraSurfaceRingTests {
             try await ContinuousClock().sleep(for: .milliseconds(1))
         }
         try #require(await probe.hasStarted)
-        producer.stop()
+        await producer.stop()
         for _ in 0..<1_000 {
             if await probe.wasCancelled { break }
             try await ContinuousClock().sleep(for: .milliseconds(1))

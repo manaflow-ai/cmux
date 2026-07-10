@@ -18,11 +18,15 @@ final class SimulatorWorkerCoordinator {
     let interfaceSettings: SimulatorAXSettingsAdapter
     let privacy: SimulatorPrivatePrivacyAdapter
     let webInspector: SimulatorWebInspectorService
+    let toolOperationSleeper: any SimulatorHIDSleeping
+    let toolOperationContainment: SimulatorToolOperationContainment
+    let mutationGate: SimulatorMutationGate
 
     var resolver: SimulatorDeviceResolver?
     var renderContext: SimulatorRemoteRenderContext?
     var framebuffer: SimulatorFramebuffer?
     var hid: SimulatorHIDTransport?
+    var scrollWheel: SimulatorScrollWheelController?
     var currentDisplay: SimulatorDisplayMetadata?
     var currentDeviceIdentifier: String?
     var attachedDevice: NSObject?
@@ -35,19 +39,53 @@ final class SimulatorWorkerCoordinator {
     var foregroundApplicationTask: Task<Void, Never>?
     var foregroundApplicationGeneration: UUID?
     var foregroundApplicationRequestIdentifiers: [UUID] = []
+    var accessibilitySnapshotTask: Task<Void, Never>?
+    var accessibilitySnapshotGeneration: UUID?
+    var accessibilitySnapshotRequestIdentifiers: [UUID] = []
+    var accessibilitySnapshotDeviceIdentifier: String?
+    var accessibilitySnapshotDisplay: SimulatorDisplayMetadata?
+    var cachedAccessibilitySnapshot: SimulatorAccessibilitySnapshot?
+    var toolOperationQueues: [SimulatorToolOperationLane: [SimulatorQueuedToolOperation]] = [:]
+    var toolOperationTasks: [SimulatorToolOperationLane: Task<Void, Never>] = [:]
+    var toolOperationDeadlineTasks: [SimulatorToolOperationLane: Task<Void, Never>] = [:]
+    var toolOperationCancellationGraceTasks: [SimulatorToolOperationLane: Task<Void, Never>] = [:]
+    var toolOperationGenerations: [SimulatorToolOperationLane: UUID] = [:]
+    var toolOperationCurrentRequestIdentifiers: [SimulatorToolOperationLane: UUID] = [:]
+    var cancelingToolOperationLanes: Set<SimulatorToolOperationLane> = []
+    var timedOutToolOperationGenerations: Set<UUID> = []
+    var pendingCameraTargetAcknowledgements: [UUID: CheckedContinuation<Void, Error>] = [:]
 
     init(
         channel: SimulatorLengthPrefixedMessageChannel,
         subprocessRunner: SimulatorSubprocessRunner = SimulatorSubprocessRunner(),
-        accessibilityExecutor: (any SimulatorAccessibilityExecuting)? = nil
+        accessibilityExecutor: (any SimulatorAccessibilityExecuting)? = nil,
+        toolOperationSleeper: any SimulatorHIDSleeping = ContinuousSimulatorHIDSleeper(),
+        toolOperationContainment: SimulatorToolOperationContainment = SimulatorToolOperationContainment()
     ) {
         self.channel = channel
         self.subprocessRunner = subprocessRunner
         self.accessibilityExecutor = accessibilityExecutor ?? SimulatorAccessibilityExecutor()
-        camera = SimulatorCameraAdapter(subprocessRunner: subprocessRunner)
+        self.toolOperationSleeper = toolOperationSleeper
+        self.toolOperationContainment = toolOperationContainment
+        let mutationGate = SimulatorMutationGate()
+        self.mutationGate = mutationGate
+        let inspector = SimulatorWebInspectorService(
+            subprocessRunner: subprocessRunner,
+            mutationGate: mutationGate
+        )
+        webInspector = inspector
+        camera = SimulatorCameraAdapter(
+            subprocessRunner: subprocessRunner,
+            mutationGate: mutationGate,
+            applicationMutationWillCommit: { [weak inspector] bundleIdentifier in
+                inspector?.releaseSessionWithoutMutationGate(ifOwnedBy: bundleIdentifier)
+            }
+        )
         interfaceSettings = SimulatorAXSettingsAdapter(subprocessRunner: subprocessRunner)
-        privacy = SimulatorPrivatePrivacyAdapter(subprocessRunner: subprocessRunner)
-        webInspector = SimulatorWebInspectorService(subprocessRunner: subprocessRunner)
+        privacy = SimulatorPrivatePrivacyAdapter(
+            subprocessRunner: subprocessRunner,
+            mutationGate: mutationGate
+        )
         webInspector.eventHandler = { [weak self] event in
             self?.receiveWebInspectorEvent(event)
         }
@@ -64,6 +102,7 @@ final class SimulatorWorkerCoordinator {
         case let .resize(geometry):
             framebuffer?.resize(geometry)
         case let .pointer(event):
+            if event.phase == .began { scrollWheel?.cancel() }
             guard hid?.send(event) == true else {
                 if event.phase != .moved {
                     reportUnavailable(action: "pointer", detail: "Touch injection is unavailable.")
@@ -108,6 +147,25 @@ final class SimulatorWorkerCoordinator {
                     )
                 }
             }
+        case let .keySequence(events):
+            let succeeded = await hid?.sendPacedKeySequence(events) == true
+            if !succeeded {
+                reportUnavailable(
+                    action: "key_sequence",
+                    detail: "The paced keyboard chord could not be delivered."
+                )
+            }
+            emitAction("key_sequence", summary: "events:\(events.count)", succeeded: succeeded)
+        case let .scrollWheel(event):
+            guard let scrollWheel else {
+                send(.scrollWheelEnded(eventID: event.id))
+                reportUnavailable(action: "scroll", detail: "Wheel scrolling is unavailable.")
+                break
+            }
+            let succeeded = await scrollWheel.send(event)
+            if !succeeded {
+                reportUnavailable(action: "scroll", detail: "Wheel scrolling is unavailable.")
+            }
         case let .typeText(requestIdentifier, sequence):
             let succeeded = await hid?.sendTextSequence(sequence) == true
             if !succeeded {
@@ -129,12 +187,7 @@ final class SimulatorWorkerCoordinator {
             let succeeded = await performInteractiveAction(action)
             send(.interactiveAction(requestID: requestIdentifier, succeeded: succeeded))
         case let .button(button):
-            let succeeded: Bool
-            if button == .home, let currentDeviceIdentifier {
-                succeeded = await foregroundSpringBoard(deviceIdentifier: currentDeviceIdentifier)
-            } else {
-                succeeded = await hid?.press(button) == true
-            }
+            let succeeded = await hid?.press(button) == true
             guard succeeded else {
                 reportUnavailable(
                     action: "button",
@@ -206,51 +259,33 @@ final class SimulatorWorkerCoordinator {
                 succeeded: true
             )
         case let .configureCamera(requestIdentifier, configuration):
-            var succeeded = false
-            var resolvedTargetBundleIdentifier: String?
-            do {
-                let inferredApplication: SimulatorApplicationInfo?
-                if configuration.targetBundleIdentifier == nil {
-                    inferredApplication = try await accessibilityExecutor.foregroundApplication()
-                } else {
-                    inferredApplication = nil
-                }
-                let application = try await camera.configure(
-                    configuration,
-                    inferredApplication: inferredApplication
+            enqueueToolOperation(
+                lane: .camera,
+                requestIdentifier: requestIdentifier,
+                timeout: .seconds(110)
+            ) { coordinator, generation in
+                await coordinator.configureCamera(
+                    requestIdentifier: requestIdentifier,
+                    configuration: configuration,
+                    operationGeneration: generation
                 )
-                succeeded = true
-                let target = application?.bundleIdentifier
-                    ?? configuration.targetBundleIdentifier
-                    ?? inferredApplication?.bundleIdentifier
-                    ?? "disabled"
-                resolvedTargetBundleIdentifier = target == "disabled" ? nil : target
-                let pid = application?.processIdentifier.map(String.init) ?? "unknown"
-                emitAction("camera", summary: "\(target):\(pid)", succeeded: true)
-            } catch {
-                report(error)
-                emitAction("camera", summary: error.localizedDescription, succeeded: false)
             }
-            send(.cameraConfiguration(
-                requestID: requestIdentifier,
-                succeeded: succeeded,
-                targetBundleIdentifier: resolvedTargetBundleIdentifier
-            ))
+        case let .acknowledgeCameraTarget(requestIdentifier):
+            pendingCameraTargetAcknowledgements
+                .removeValue(forKey: requestIdentifier)?
+                .resume()
         case let .switchCameraSource(requestIdentifier, configuration):
-            var succeeded = false
-            do {
-                try await camera.switchSource(configuration)
-                succeeded = true
-                emitAction("camera_source", summary: "switched", succeeded: true)
-            } catch {
-                report(error)
-                emitAction("camera_source", summary: error.localizedDescription, succeeded: false)
+            enqueueToolOperation(
+                lane: .camera,
+                requestIdentifier: requestIdentifier,
+                timeout: .seconds(110)
+            ) { coordinator, generation in
+                await coordinator.switchCameraSource(
+                    requestIdentifier: requestIdentifier,
+                    configuration: configuration,
+                    operationGeneration: generation
+                )
             }
-            send(.cameraConfiguration(
-                requestID: requestIdentifier,
-                succeeded: succeeded,
-                targetBundleIdentifier: nil
-            ))
         case let .setCameraMirror(requestIdentifier, mode):
             let succeeded = camera.setMirrorMode(mode)
             send(.cameraMirror(requestID: requestIdentifier, succeeded: succeeded))
@@ -258,49 +293,41 @@ final class SimulatorWorkerCoordinator {
         case let .requestCameraStatus(requestIdentifier):
             let status = camera.status()
             send(.cameraStatus(requestID: requestIdentifier, status))
-        case let .setPrivateInterface(requestIdentifier, deviceID, setting):
-            var succeeded = false
-            do {
-                guard currentDeviceIdentifier == deviceID else {
-                    throw SimulatorWorkerFailure.deviceNotFound(
-                        "The interface-settings target does not match the attached Simulator."
-                    )
-                }
-                try await interfaceSettings.set(
-                    deviceIdentifier: deviceID,
-                    setting: setting
-                )
-                succeeded = true
-                emitAction(
-                    "private_interface",
-                    summary: String(describing: setting),
-                    succeeded: true
-                )
-            } catch {
-                report(error)
-                emitAction(
-                    "private_interface",
-                    summary: error.localizedDescription,
-                    succeeded: false
+        case let .prepareApplicationMutation(requestIdentifier, bundleIdentifier):
+            enqueueToolOperation(
+                lane: .camera,
+                requestIdentifier: requestIdentifier,
+                timeout: .seconds(30)
+            ) { coordinator, generation in
+                await coordinator.prepareApplicationMutation(
+                    requestIdentifier: requestIdentifier,
+                    bundleIdentifier: bundleIdentifier,
+                    operationGeneration: generation
                 )
             }
-            send(.privateInterface(requestID: requestIdentifier, succeeded: succeeded))
+        case let .setPrivateInterface(requestIdentifier, deviceID, setting):
+            enqueueToolOperation(
+                lane: .maintenance,
+                requestIdentifier: requestIdentifier,
+                timeout: .seconds(110)
+            ) { coordinator, generation in
+                await coordinator.setPrivateInterface(
+                    requestIdentifier: requestIdentifier,
+                    deviceIdentifier: deviceID,
+                    setting: setting,
+                    operationGeneration: generation
+                )
+            }
         case let .requestPrivateInterfaceStatus(requestIdentifier, deviceID):
-            do {
-                guard currentDeviceIdentifier == deviceID else {
-                    throw SimulatorWorkerFailure.deviceNotFound(
-                        "The interface-status target does not match the attached Simulator."
-                    )
-                }
-                let status = try await interfaceSettings.status(deviceIdentifier: deviceID)
-                send(.privateInterfaceStatus(requestID: requestIdentifier, status))
-                emitAction("private_interface_status", summary: deviceID, succeeded: true)
-            } catch {
-                report(error)
-                emitAction(
-                    "private_interface_status",
-                    summary: error.localizedDescription,
-                    succeeded: false
+            enqueueToolOperation(
+                lane: .maintenance,
+                requestIdentifier: requestIdentifier,
+                timeout: .seconds(110)
+            ) { coordinator, generation in
+                await coordinator.requestPrivateInterfaceStatus(
+                    requestIdentifier: requestIdentifier,
+                    deviceIdentifier: deviceID,
+                    operationGeneration: generation
                 )
             }
         case let .setPrivatePrivacy(
@@ -310,43 +337,35 @@ final class SimulatorWorkerCoordinator {
             service,
             bundleIdentifier
         ):
-            var succeeded = false
-            do {
-                guard currentDeviceIdentifier == deviceID else {
-                    throw SimulatorWorkerFailure.deviceNotFound(
-                        "The permission target does not match the attached Simulator."
-                    )
-                }
-                try await privacy.set(
+            enqueueToolOperation(
+                lane: .maintenance,
+                requestIdentifier: requestIdentifier,
+                timeout: service == .all ? .seconds(110) : .seconds(25)
+            ) { coordinator, generation in
+                await coordinator.setPrivatePrivacy(
+                    requestIdentifier: requestIdentifier,
                     deviceIdentifier: deviceID,
                     action: action,
                     service: service,
-                    bundleIdentifier: bundleIdentifier
+                    bundleIdentifier: bundleIdentifier,
+                    operationGeneration: generation
                 )
-                succeeded = true
-                emitAction(
-                    "privacy",
-                    summary: "\(action.rawValue):\(service.rawValue):\(bundleIdentifier)",
-                    succeeded: true
-                )
-            } catch {
-                report(error)
-                emitAction("privacy", summary: error.localizedDescription, succeeded: false)
             }
-            send(.privatePrivacy(requestID: requestIdentifier, succeeded: succeeded))
         case let .requestPrivacy(requestIdentifier, deviceID, bundleIdentifier):
-            let snapshot = await privacy.snapshot(
-                deviceIdentifier: deviceID,
-                bundleIdentifier: bundleIdentifier
-            )
-            send(.privacy(requestID: requestIdentifier, snapshot))
-            emitAction(
-                "privacy_status",
-                summary: bundleIdentifier ?? "runtime",
-                succeeded: true
-            )
+            enqueueToolOperation(
+                lane: .maintenance,
+                requestIdentifier: requestIdentifier,
+                timeout: .seconds(25)
+            ) { coordinator, generation in
+                await coordinator.requestPrivacy(
+                    requestIdentifier: requestIdentifier,
+                    deviceIdentifier: deviceID,
+                    bundleIdentifier: bundleIdentifier,
+                    operationGeneration: generation
+                )
+            }
         case let .reloadReactNative(requestIdentifier):
-            let succeeded = hid?.reloadReactNative() == true
+            let succeeded = await hid?.reloadReactNative() == true
             if !succeeded {
                 report(
                     SimulatorWorkerFailure.inputUnavailable(
@@ -361,9 +380,8 @@ final class SimulatorWorkerCoordinator {
             let isClear = nodeIdentifier == nil && frame == nil
             if !isClear,
                let currentDisplay,
-               let snapshot = try? await accessibilityExecutor.accessibilitySnapshot(
-                   display: currentDisplay
-               ) {
+               let snapshot = cachedAccessibilitySnapshot,
+               snapshot.display == currentDisplay {
                 framebuffer?.setAccessibilityCoordinateSpace(
                     Self.accessibilityCoordinateSpace(nodes: snapshot.roots)
                 )
@@ -396,48 +414,70 @@ final class SimulatorWorkerCoordinator {
             }
             send(.accessibilityHighlight(requestID: requestIdentifier, applied: applied))
         case let .requestAccessibility(requestIdentifier):
-            guard let currentDisplay else {
-                let failure = SimulatorFailure(
-                    code: "accessibility_unavailable",
-                    message: "Accessibility requires a live framebuffer.",
-                    isRecoverable: true
-                )
-                send(.requestFailure(requestID: requestIdentifier, failure))
-                break
-            }
-            do {
-                let snapshot = try await accessibilityExecutor.accessibilitySnapshot(
-                    display: currentDisplay
-                )
-                framebuffer?.setAccessibilityCoordinateSpace(
-                    Self.accessibilityCoordinateSpace(nodes: snapshot.roots)
-                )
-                send(.accessibility(requestID: requestIdentifier, snapshot))
-            } catch {
-                report(error, requestID: requestIdentifier)
-            }
+            requestAccessibility(requestIdentifier: requestIdentifier)
         case let .requestForegroundApplication(requestIdentifier):
             requestForegroundApplication(requestIdentifier: requestIdentifier)
         case let .requestWebInspectorTargets(requestIdentifier, deviceIdentifier):
-            await requestWebInspectorTargets(
+            enqueueToolOperation(
+                lane: .webInspector,
                 requestIdentifier: requestIdentifier,
-                deviceIdentifier: deviceIdentifier
-            )
+                timeout: .seconds(8)
+            ) { coordinator, generation in
+                await coordinator.requestWebInspectorTargets(
+                    requestIdentifier: requestIdentifier,
+                    deviceIdentifier: deviceIdentifier,
+                    operationGeneration: generation
+                )
+            }
         case let .attachWebInspector(requestIdentifier, targetIdentifier):
-            await attachWebInspector(
+            enqueueToolOperation(
+                lane: .webInspector,
                 requestIdentifier: requestIdentifier,
-                targetIdentifier: targetIdentifier
-            )
+                timeout: .seconds(8)
+            ) { coordinator, generation in
+                await coordinator.attachWebInspector(
+                    requestIdentifier: requestIdentifier,
+                    targetIdentifier: targetIdentifier,
+                    operationGeneration: generation
+                )
+            }
         case let .releaseWebInspector(requestIdentifier):
-            releaseWebInspector(requestIdentifier: requestIdentifier)
-        case let .setWebInspectorHighlight(requestIdentifier, enabled):
-            await setWebInspectorHighlight(
+            enqueueToolOperation(
+                lane: .webInspector,
                 requestIdentifier: requestIdentifier,
-                enabled: enabled
-            )
+                timeout: .seconds(4)
+            ) { coordinator, generation in
+                await coordinator.releaseWebInspector(
+                    requestIdentifier: requestIdentifier,
+                    operationGeneration: generation
+                )
+            }
+        case let .setWebInspectorHighlight(requestIdentifier, enabled):
+            enqueueToolOperation(
+                lane: .webInspector,
+                requestIdentifier: requestIdentifier,
+                timeout: .seconds(8)
+            ) { coordinator, generation in
+                await coordinator.setWebInspectorHighlight(
+                    requestIdentifier: requestIdentifier,
+                    enabled: enabled,
+                    operationGeneration: generation
+                )
+            }
         case let .sendWebInspectorMessage(requestIdentifier, json):
-            sendWebInspectorMessage(requestIdentifier: requestIdentifier, json: json)
+            enqueueToolOperation(
+                lane: .webInspector,
+                requestIdentifier: requestIdentifier,
+                timeout: .seconds(4)
+            ) { coordinator, generation in
+                await coordinator.sendWebInspectorMessage(
+                    requestIdentifier: requestIdentifier,
+                    json: json,
+                    operationGeneration: generation
+                )
+            }
         case .releaseInputs:
+            scrollWheel?.cancel()
             hid?.releaseInputs()
             pendingKeyUsages.removeAll()
         case .terminateRenderer:
@@ -451,7 +491,7 @@ final class SimulatorWorkerCoordinator {
             )
             #endif
         case .shutdown:
-            await shutdown()
+            prepareForProcessExit()
             return false
         }
         return true

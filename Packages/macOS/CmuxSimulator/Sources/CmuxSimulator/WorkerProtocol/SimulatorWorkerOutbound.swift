@@ -29,6 +29,10 @@ public enum SimulatorWorkerOutbound: Codable, Equatable, Sendable {
     case accessibilityHighlight(requestID: UUID, applied: Bool)
     /// Confirms whether an ordered text-input sequence finished transmission.
     case textInput(requestID: UUID, succeeded: Bool)
+    /// Transfers cleanup ownership before camera injection mutates an app.
+    case cameraTargetResolved(requestID: UUID, bundleIdentifier: String)
+    /// Confirms that a worker-timed wheel burst no longer holds a touch.
+    case scrollWheelEnded(eventID: UUID)
     /// Confirms a correlated native input or diagnostic action.
     case interactiveAction(requestID: UUID, succeeded: Bool)
     /// Confirms a source-independent camera mirror update.
@@ -41,6 +45,8 @@ public enum SimulatorWorkerOutbound: Codable, Equatable, Sendable {
     )
     /// Delivers a correlated camera adapter snapshot.
     case cameraStatus(requestID: UUID, SimulatorCameraStatus)
+    /// Confirms camera and inspector state no longer owns an app lifecycle.
+    case applicationMutationPrepared(requestID: UUID, succeeded: Bool)
     /// Confirms a correlated live private interface update.
     case privateInterface(requestID: UUID, succeeded: Bool)
     /// Delivers correlated live private interface values.

@@ -15,7 +15,9 @@ public enum SimulatorCameraConfiguration: Codable, Hashable, Sendable {
     /// Apply a source to one installed target app instead of inferring the
     /// foreground application.
     indirect case targeted(bundleIdentifier: String, source: SimulatorCameraConfiguration)
+}
 
+extension SimulatorCameraConfiguration {
     /// Whether this configuration disables camera injection.
     public var isDisabled: Bool {
         switch self {

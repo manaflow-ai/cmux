@@ -18,17 +18,7 @@ public struct SimulatorAccessibilitySnapshot: Codable, Equatable, Sendable {
     ) {
         self.roots = roots
         self.display = display
-        self.nodeCount = nodeCount ?? Self.count(nodes: roots)
+        self.nodeCount = nodeCount ?? roots.reduce(0) { $0 + $1.subtreeNodeCount }
         self.isTruncated = isTruncated
-    }
-
-    private static func count(nodes: [SimulatorAccessibilityNode]) -> Int {
-        var count = 0
-        var pending = nodes
-        while let node = pending.popLast() {
-            count += 1
-            pending.append(contentsOf: node.children)
-        }
-        return count
     }
 }

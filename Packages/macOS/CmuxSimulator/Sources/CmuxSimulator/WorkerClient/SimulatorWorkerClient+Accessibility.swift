@@ -19,7 +19,8 @@ extension SimulatorWorkerClient {
             let requestID = UUID()
             let response: Result<SimulatorAccessibilitySnapshot, SimulatorFailure> = try await requestWorkerValue(
                 sending: .requestAccessibility(requestID),
-                timeout: .seconds(30)
+                timeout: .seconds(30),
+                timeoutRecovery: .restartWorker
             ) { message in
                 switch message {
                 case let .accessibility(responseID, snapshot) where responseID == requestID:
@@ -46,7 +47,7 @@ extension SimulatorWorkerClient {
             let response: Result<SimulatorApplicationInfo?, SimulatorFailure> = try await requestWorkerValue(
                 sending: .requestForegroundApplication(requestID),
                 timeout: .seconds(15),
-                timeoutRecovery: .preserveWorker
+                timeoutRecovery: .restartWorker
             ) { message in
                 switch message {
                 case let .foregroundApplication(responseID, application)

@@ -18,7 +18,7 @@ final class SimulatorRemoteRenderContext {
         guard contextClass.responds(to: selector),
               let unmanaged = contextClass.perform(selector, with: [:] as NSDictionary),
               let context = unmanaged.takeUnretainedValue() as? NSObject,
-              let identifier = Self.contextIdentifier(of: context)
+              let identifier = simulatorRemoteContextIdentifier(of: context)
         else {
             throw SimulatorWorkerFailure.privateAPIUnavailable(
                 "Core Animation remote contexts are unavailable on this macOS version."
@@ -56,14 +56,15 @@ final class SimulatorRemoteRenderContext {
         CATransaction.flush()
     }
 
-    private static func contextIdentifier(of context: NSObject) -> UInt32? {
-        let selector = NSSelectorFromString("contextId")
-        guard context.responds(to: selector),
-              let implementation = class_getMethodImplementation(type(of: context), selector)
-        else {
-            return nil
-        }
-        typealias Function = @convention(c) (AnyObject, Selector) -> UInt32
-        return unsafeBitCast(implementation, to: Function.self)(context, selector)
+}
+
+private func simulatorRemoteContextIdentifier(of context: NSObject) -> UInt32? {
+    let selector = NSSelectorFromString("contextId")
+    guard context.responds(to: selector),
+          let implementation = class_getMethodImplementation(type(of: context), selector)
+    else {
+        return nil
     }
+    typealias Function = @convention(c) (AnyObject, Selector) -> UInt32
+    return unsafeBitCast(implementation, to: Function.self)(context, selector)
 }

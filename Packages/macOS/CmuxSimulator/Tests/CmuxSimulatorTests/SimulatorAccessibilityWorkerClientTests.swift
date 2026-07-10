@@ -12,30 +12,39 @@ struct SimulatorAccessibilityWorkerClientTests {
         var iterator = events.makeAsyncIterator()
         await client.send(.attach(udid: "DEVICE", geometry: nil))
         let endpoint = try #require(launcher.endpoint(at: 0))
+        endpoint.emit(.status(.streaming))
         endpoint.emit(.capabilities([.accessibility]))
         endpoint.emit(.context(12))
         _ = await iterator.next()
         _ = await iterator.next()
+        _ = await iterator.next()
         endpoint.setResponder { message in
-            guard case let .requestAccessibility(requestID) = message else { return nil }
-            return .accessibility(
-                requestID: requestID,
-                SimulatorAccessibilitySnapshot(
-                    roots: [SimulatorAccessibilityNode(
-                        id: "button",
-                        role: "Button",
-                        label: "Continue",
-                        value: nil,
-                        roleDescription: "button",
-                        frame: SimulatorRect(x: 10, y: 20, width: 80, height: 40),
-                        isEnabled: true,
-                        children: []
-                    )],
-                    display: Self.display,
-                    nodeCount: 1
+            switch message {
+            case let .ping(sequence):
+                return .ack(sequence)
+            case let .requestAccessibility(requestID):
+                return .accessibility(
+                    requestID: requestID,
+                    SimulatorAccessibilitySnapshot(
+                        roots: [SimulatorAccessibilityNode(
+                            id: "button",
+                            role: "Button",
+                            label: "Continue",
+                            value: nil,
+                            roleDescription: "button",
+                            frame: SimulatorRect(x: 10, y: 20, width: 80, height: 40),
+                            isEnabled: true,
+                            children: []
+                        )],
+                        display: Self.display,
+                        nodeCount: 1
+                    )
                 )
-            )
+            default:
+                return nil
+            }
         }
+        endpoint.acknowledgeRecordedPings()
 
         let result = try await client.perform(.readAccessibility)
 
@@ -56,14 +65,23 @@ struct SimulatorAccessibilityWorkerClientTests {
         var iterator = events.makeAsyncIterator()
         await client.send(.attach(udid: "DEVICE", geometry: nil))
         let endpoint = try #require(launcher.endpoint(at: 0))
+        endpoint.emit(.status(.streaming))
         endpoint.emit(.capabilities([.foregroundApplication]))
         endpoint.emit(.context(13))
         _ = await iterator.next()
         _ = await iterator.next()
+        _ = await iterator.next()
         endpoint.setResponder { message in
-            guard case let .requestForegroundApplication(requestID) = message else { return nil }
-            return .foregroundApplication(requestID: requestID, nil)
+            switch message {
+            case let .ping(sequence):
+                return .ack(sequence)
+            case let .requestForegroundApplication(requestID):
+                return .foregroundApplication(requestID: requestID, nil)
+            default:
+                return nil
+            }
         }
+        endpoint.acknowledgeRecordedPings()
 
         let result = try await client.perform(.readForegroundApplication)
 
@@ -79,21 +97,30 @@ struct SimulatorAccessibilityWorkerClientTests {
         var iterator = events.makeAsyncIterator()
         await client.send(.attach(udid: "DEVICE", geometry: nil))
         let endpoint = try #require(launcher.endpoint(at: 0))
+        endpoint.emit(.status(.streaming))
         endpoint.emit(.capabilities([.accessibility]))
         endpoint.emit(.context(14))
         _ = await iterator.next()
         _ = await iterator.next()
+        _ = await iterator.next()
         endpoint.setResponder { message in
-            guard case let .requestAccessibility(requestID) = message else { return nil }
-            return .requestFailure(
-                requestID: requestID,
-                SimulatorFailure(
-                    code: "accessibility_unavailable",
-                    message: "Fixture unavailable",
-                    isRecoverable: true
+            switch message {
+            case let .ping(sequence):
+                return .ack(sequence)
+            case let .requestAccessibility(requestID):
+                return .requestFailure(
+                    requestID: requestID,
+                    SimulatorFailure(
+                        code: "accessibility_unavailable",
+                        message: "Fixture unavailable",
+                        isRecoverable: true
+                    )
                 )
-            )
+            default:
+                return nil
+            }
         }
+        endpoint.acknowledgeRecordedPings()
 
         do {
             _ = try await client.perform(.readAccessibility)
@@ -116,10 +143,17 @@ struct SimulatorAccessibilityWorkerClientTests {
         var iterator = events.makeAsyncIterator()
         await client.send(.attach(udid: "DEVICE", geometry: nil))
         let endpoint = try #require(launcher.endpoint(at: 0))
+        endpoint.emit(.status(.streaming))
         endpoint.emit(.capabilities([.foregroundApplication]))
         endpoint.emit(.context(15))
         _ = await iterator.next()
         _ = await iterator.next()
+        _ = await iterator.next()
+        endpoint.setResponder { message in
+            guard case let .ping(sequence) = message else { return nil }
+            return .ack(sequence)
+        }
+        endpoint.acknowledgeRecordedPings()
 
         do {
             _ = try await client.perform(.readForegroundApplication)

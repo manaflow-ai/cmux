@@ -101,7 +101,7 @@ final class SimulatorFramebuffer {
         var candidates: [NSObject] = []
         for port in ports {
             guard let descriptor = objectProperty(port, selectorName: "descriptor") as? NSObject,
-                  Self.hasFramebufferSurface(descriptor)
+                  hasSimulatorFramebufferSurface(descriptor)
             else {
                 continue
             }
@@ -232,11 +232,11 @@ final class SimulatorFramebuffer {
                   descriptor,
                   selectorName: "screenProperties"
               ) as? NSObject,
-              let rawValue = Self.unsignedIntegerProperty(
+              let rawValue = simulatorUnsignedIntegerProperty(
                   properties,
                   selectorName: "uiOrientation"
               ),
-              SimulatorFramebufferOrientationState.nativeOrientation(
+              simulatorNativeOrientation(
                   rawValue: rawValue
               ) != nil
         else {
@@ -256,7 +256,7 @@ final class SimulatorFramebuffer {
             return false
         }
         if let rawValue = display.orientationRawValue,
-           SimulatorFramebufferOrientationState.nativeOrientation(rawValue: rawValue) != nil {
+           simulatorNativeOrientation(rawValue: rawValue) != nil {
             nativeOrientationRawValue = rawValue
         }
         let surface = display.surface
@@ -331,31 +331,12 @@ final class SimulatorFramebuffer {
         let bounds = displayLayer.bounds
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        highlightLayer.frame = Self.highlightFrame(
+        highlightLayer.frame = simulatorAccessibilityHighlightFrame(
             highlightedFrame,
             coordinateSpace: accessibilityCoordinateSpace,
             displayBounds: bounds
         )
         CATransaction.commit()
-    }
-
-    nonisolated static func highlightFrame(
-        _ frame: SimulatorRect,
-        coordinateSpace: SimulatorRect,
-        displayBounds: CGRect
-    ) -> CGRect {
-        let relativeX = frame.x - coordinateSpace.x
-        let relativeY = frame.y - coordinateSpace.y
-        let x = displayBounds.minX
-            + relativeX / coordinateSpace.width * displayBounds.width
-        let width = frame.width / coordinateSpace.width * displayBounds.width
-        let height = frame.height / coordinateSpace.height * displayBounds.height
-        // AXP frames use a top-left origin. Core Animation layer geometry uses
-        // a bottom-left origin, so flip the complete vertical extent.
-        let y = displayBounds.maxY
-            - ((relativeY + frame.height) / coordinateSpace.height * displayBounds.height)
-        return CGRect(x: x, y: y, width: width, height: height)
-            .intersection(displayBounds)
     }
 
     private func bestDisplay(
@@ -365,7 +346,7 @@ final class SimulatorFramebuffer {
         var bestOrientationRawValue: UInt32?
         var bestArea = 0
         for descriptor in descriptors {
-            guard let rawSurface = Self.framebufferSurface(descriptor) else {
+            guard let rawSurface = simulatorFramebufferSurface(descriptor) else {
                 continue
             }
             guard let surface = rawSurface as? IOSurface else { continue }
@@ -378,7 +359,7 @@ final class SimulatorFramebuffer {
                         selectorName: "screenProperties"
                     ) as? NSObject
                     bestOrientationRawValue = properties.flatMap {
-                        Self.unsignedIntegerProperty($0, selectorName: "uiOrientation")
+                        simulatorUnsignedIntegerProperty($0, selectorName: "uiOrientation")
                     }
                 }
                 bestArea = area
@@ -387,36 +368,56 @@ final class SimulatorFramebuffer {
         return best.map { ($0, bestOrientationRawValue) }
     }
 
-    private static func hasFramebufferSurface(_ descriptor: NSObject) -> Bool {
-        ["framebufferSurface", "ioSurface"].contains {
-            descriptor.responds(to: NSSelectorFromString($0))
-        }
-    }
+}
 
-    private static func framebufferSurface(_ descriptor: NSObject) -> AnyObject? {
-        objectProperty(descriptor, selectorName: "framebufferSurface")
-            ?? objectProperty(descriptor, selectorName: "ioSurface")
-    }
+func simulatorAccessibilityHighlightFrame(
+    _ frame: SimulatorRect,
+    coordinateSpace: SimulatorRect,
+    displayBounds: CGRect
+) -> CGRect {
+    let relativeX = frame.x - coordinateSpace.x
+    let relativeY = frame.y - coordinateSpace.y
+    let x = displayBounds.minX
+        + relativeX / coordinateSpace.width * displayBounds.width
+    let width = frame.width / coordinateSpace.width * displayBounds.width
+    let height = frame.height / coordinateSpace.height * displayBounds.height
+    // AXP frames use a top-left origin. Core Animation layer geometry uses
+    // a bottom-left origin, so flip the complete vertical extent.
+    let y = displayBounds.maxY
+        - ((relativeY + frame.height) / coordinateSpace.height * displayBounds.height)
+    return CGRect(x: x, y: y, width: width, height: height)
+        .intersection(displayBounds)
+}
 
-    private static func unsignedIntegerProperty(
-        _ target: NSObject,
-        selectorName: String
-    ) -> UInt32? {
-        let selector = NSSelectorFromString(selectorName)
-        guard target.responds(to: selector),
-              let method = class_getInstanceMethod(type(of: target), selector)
-        else {
-            return nil
-        }
-        let returnType = method_copyReturnType(method)
-        defer { free(returnType) }
-        guard String(cString: returnType) == "I" else { return nil }
-        typealias Function = @convention(c) (AnyObject, Selector) -> UInt32
-        return unsafeBitCast(method_getImplementation(method), to: Function.self)(
-            target,
-            selector
-        )
+private func hasSimulatorFramebufferSurface(_ descriptor: NSObject) -> Bool {
+    ["framebufferSurface", "ioSurface"].contains {
+        descriptor.responds(to: NSSelectorFromString($0))
     }
+}
+
+private func simulatorFramebufferSurface(_ descriptor: NSObject) -> AnyObject? {
+    objectProperty(descriptor, selectorName: "framebufferSurface")
+        ?? objectProperty(descriptor, selectorName: "ioSurface")
+}
+
+private func simulatorUnsignedIntegerProperty(
+    _ target: NSObject,
+    selectorName: String
+) -> UInt32? {
+    let selector = NSSelectorFromString(selectorName)
+    guard target.responds(to: selector),
+          let method = class_getInstanceMethod(type(of: target), selector)
+    else {
+        return nil
+    }
+    let returnType = method_copyReturnType(method)
+    defer { free(returnType) }
+    guard String(cString: returnType) == "I" else { return nil }
+    typealias Function = @convention(c) (AnyObject, Selector) -> UInt32
+    return unsafeBitCast(method_getImplementation(method), to: Function.self)(
+        target,
+        selector
+    )
 }
 
 @discardableResult

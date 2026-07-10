@@ -18,6 +18,7 @@ public struct SimulatorWebInspectorMessageChunk: Codable, Equatable, Sendable {
     /// Raw UTF-8 bytes. Splits may occur between Unicode scalar boundaries.
     public let payload: Data
 
+    /// Creates one ordered piece of a raw Web Inspector response.
     public init(
         sessionID: UUID,
         messageID: UUID,

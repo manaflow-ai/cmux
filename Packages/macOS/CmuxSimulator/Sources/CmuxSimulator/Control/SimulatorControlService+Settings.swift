@@ -1,29 +1,38 @@
 import Foundation
 
 extension SimulatorControlService {
+    /// Changes one application privacy service through `simctl privacy`.
     public func setPrivacy(
         deviceID: String,
         action: SimulatorPrivacyAction,
         service: SimulatorPrivacyService,
         bundleIdentifier: String?
     ) async throws {
-        guard let simctlService = Self.simctlPrivacyService(for: service) else {
+        guard let simctlService = simctlPrivacyService(for: service) else {
             throw SimulatorControlError(
                 code: "unsupported_private_permission",
                 arguments: ["simctl", "privacy", deviceID, action.rawValue, service.rawValue],
-                message: "The active Xcode does not expose \(service.rawValue) through simctl; cmux will not mutate private TCC or BulletinBoard stores in the host process."
+                message: String(
+                    localized: "simulator.control.privacyServiceUnavailable",
+                    defaultValue: "The active Xcode does not expose \(service.rawValue) through simctl; cmux will not mutate private TCC or BulletinBoard stores in the host process."
+                )
             )
         }
         if action != .reset, bundleIdentifier == nil {
             throw SimulatorControlError(
                 code: "missing_bundle_identifier",
                 arguments: ["simctl", "privacy", deviceID, action.rawValue, simctlService],
-                message: "Granting or revoking privacy access requires a bundle identifier."
+                message: String(
+                    localized: "simulator.control.privacyBundleIdentifierRequired",
+                    defaultValue: "Granting or revoking privacy access requires a bundle identifier."
+                )
             )
         }
         var arguments = ["simctl", "privacy", deviceID, action.rawValue, simctlService]
         if let bundleIdentifier { arguments.append(bundleIdentifier) }
-        _ = try await output(arguments: arguments)
+        try await mutationGate.withLocks([.tcc(deviceIdentifier: deviceID)]) {
+            _ = try await output(arguments: arguments)
+        }
     }
 
     /// Merges one or more values into the simulated status bar.
@@ -33,25 +42,28 @@ extension SimulatorControlService {
         if let dataNetwork = values.dataNetwork { arguments += ["--dataNetwork", dataNetwork.rawValue] }
         if let wifiMode = values.wifiMode { arguments += ["--wifiMode", wifiMode.rawValue] }
         if let wifiBars = values.wifiBars {
-            try Self.validate(wifiBars, range: 0...3, name: "Wi-Fi bars", arguments: arguments)
+            try validate(wifiBars, range: 0...3, name: "Wi-Fi bars", arguments: arguments)
             arguments += ["--wifiBars", String(wifiBars)]
         }
         if let cellularMode = values.cellularMode { arguments += ["--cellularMode", cellularMode.rawValue] }
         if let cellularBars = values.cellularBars {
-            try Self.validate(cellularBars, range: 0...4, name: "cellular bars", arguments: arguments)
+            try validate(cellularBars, range: 0...4, name: "cellular bars", arguments: arguments)
             arguments += ["--cellularBars", String(cellularBars)]
         }
         if let operatorName = values.operatorName { arguments += ["--operatorName", operatorName] }
         if let batteryState = values.batteryState { arguments += ["--batteryState", batteryState.rawValue] }
         if let batteryLevel = values.batteryLevel {
-            try Self.validate(batteryLevel, range: 0...100, name: "battery level", arguments: arguments)
+            try validate(batteryLevel, range: 0...100, name: "battery level", arguments: arguments)
             arguments += ["--batteryLevel", String(batteryLevel)]
         }
         guard arguments.count > 4 else {
             throw SimulatorControlError(
                 code: "empty_status_bar_override",
                 arguments: arguments,
-                message: "A status bar override needs at least one value."
+                message: String(
+                    localized: "simulator.control.statusBarValueRequired",
+                    defaultValue: "A status bar override needs at least one value."
+                )
             )
         }
         _ = try await output(arguments: arguments)
@@ -64,37 +76,36 @@ extension SimulatorControlService {
 
     /// Changes one appearance or accessibility setting supported by `simctl ui`.
     public func setInterface(deviceID: String, setting: SimulatorInterfaceSetting) async throws {
+        let arguments: [String]
         switch setting {
         case let .appearance(value):
-            _ = try await output(arguments: [
-                "simctl", "ui", deviceID, "appearance", value.rawValue,
-            ])
+            arguments = ["simctl", "ui", deviceID, "appearance", value.rawValue]
         case let .increaseContrast(enabled):
-            _ = try await output(arguments: [
+            arguments = [
                 "simctl", "ui", deviceID, "increase_contrast",
                 enabled ? "enabled" : "disabled",
-            ])
+            ]
         case let .contentSize(value):
-            _ = try await output(arguments: [
-                "simctl", "ui", deviceID, "content_size", value.rawValue,
-            ])
+            arguments = ["simctl", "ui", deviceID, "content_size", value.rawValue]
         case let .contentSizeAdjustment(value):
-            _ = try await output(arguments: [
-                "simctl", "ui", deviceID, "content_size", value.rawValue,
-            ])
+            arguments = ["simctl", "ui", deviceID, "content_size", value.rawValue]
         case .liquidGlass, .colorFilter, .reduceMotion, .buttonShapes,
              .reduceTransparency, .voiceOver:
             throw SimulatorControlError(
                 code: "worker_only_action",
                 arguments: [],
-                message: "This live accessibility setting requires the contained in-Simulator helper."
+                message: String(
+                    localized: "simulator.control.liveAccessibilityRequiresHelper",
+                    defaultValue: "This live accessibility setting requires the contained in-Simulator helper."
+                )
             )
+        }
+        try await mutationGate.withLocks([.interface(deviceIdentifier: deviceID)]) {
+            _ = try await output(arguments: arguments)
         }
     }
 
-    /// Saves a screenshot to a file URL.
-
-    static func validate(
+    func validate(
         _ value: Int,
         range: ClosedRange<Int>,
         name: String,
@@ -104,13 +115,16 @@ extension SimulatorControlService {
             throw SimulatorControlError(
                 code: "invalid_status_bar_value",
                 arguments: arguments,
-                message: "The \(name) value must be from \(range.lowerBound) through \(range.upperBound)."
+                message: String(
+                    localized: "simulator.control.statusBarValueOutOfRange",
+                    defaultValue: "The \(name) value must be from \(range.lowerBound) through \(range.upperBound)."
+                )
             )
         }
     }
 
 
-    static func simctlPrivacyService(for service: SimulatorPrivacyService) -> String? {
+    func simctlPrivacyService(for service: SimulatorPrivacyService) -> String? {
         switch service {
         case .locationInUse:
             return "location"

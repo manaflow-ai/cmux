@@ -1,17 +1,22 @@
 import Foundation
 
 /// Splits raw inspector output into process-safe protocol messages.
-public enum SimulatorWebInspectorMessageChunker {
+public struct SimulatorWebInspectorMessageChunker: Sendable {
     /// Payload size chosen to stay far below the four MiB outer JSON frame
     /// after `Data` is Base64 encoded by `JSONEncoder`.
-    public static let defaultMaximumPayloadLength = 192 * 1024
+    public let maximumPayloadLength: Int
+
+    /// Creates a chunker with a bounded payload size.
+    /// - Parameter maximumPayloadLength: Maximum raw bytes carried by one chunk.
+    public init(maximumPayloadLength: Int = 192 * 1024) {
+        self.maximumPayloadLength = maximumPayloadLength
+    }
 
     /// Produces at least one ordered chunk for a raw inspector message.
-    public static func chunks(
+    public func chunks(
         sessionID: UUID,
         messageID: UUID = UUID(),
-        payload: Data,
-        maximumPayloadLength: Int = defaultMaximumPayloadLength
+        payload: Data
     ) -> [SimulatorWebInspectorMessageChunk] {
         guard maximumPayloadLength > 0 else { return [] }
         if payload.isEmpty {

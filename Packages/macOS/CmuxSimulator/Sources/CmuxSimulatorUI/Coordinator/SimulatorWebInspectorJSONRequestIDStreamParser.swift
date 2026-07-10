@@ -3,12 +3,6 @@ import Foundation
 /// Incrementally extracts one top-level JSON request id without retaining the
 /// response body. Strings, escapes, and nested containers may cross chunks.
 struct SimulatorWebInspectorJSONRequestIDStreamParser {
-    private enum StringRole {
-        case key
-        case idValue
-        case other
-    }
-
     private static let maximumKeyTokenBytes = 64
     private static let maximumIDTokenBytes = 8 * 1_024
 
@@ -22,7 +16,7 @@ struct SimulatorWebInspectorJSONRequestIDStreamParser {
     private var awaitingIDValue = false
     private var isInsideString = false
     private var isEscaped = false
-    private var stringRole = StringRole.other
+    private var stringRole = SimulatorWebInspectorJSONStringRole.other
     private var token = Data()
     private var tokenOverflowed = false
     private var isCapturingScalarID = false
@@ -42,7 +36,7 @@ struct SimulatorWebInspectorJSONRequestIDStreamParser {
             return
         }
         if isCapturingScalarID {
-            if Self.isValueDelimiter(byte) {
+            if isSimulatorWebInspectorJSONValueDelimiter(byte) {
                 finishScalarID()
             } else {
                 appendScalar(byte)
@@ -50,7 +44,7 @@ struct SimulatorWebInspectorJSONRequestIDStreamParser {
             }
         }
         if !started {
-            guard !Self.isWhitespace(byte) else { return }
+            guard !isSimulatorWebInspectorJSONWhitespace(byte) else { return }
             guard byte == 0x7B else {
                 finished = true
                 return
@@ -60,7 +54,7 @@ struct SimulatorWebInspectorJSONRequestIDStreamParser {
             expectsTopLevelKey = true
             return
         }
-        if depth == 1, awaitingIDValue, !Self.isWhitespace(byte) {
+        if depth == 1, awaitingIDValue, !isSimulatorWebInspectorJSONWhitespace(byte) {
             awaitingIDValue = false
             if byte == 0x22 {
                 startString(role: .idValue)
@@ -96,7 +90,7 @@ struct SimulatorWebInspectorJSONRequestIDStreamParser {
         }
     }
 
-    private mutating func startString(role: StringRole) {
+    private mutating func startString(role: SimulatorWebInspectorJSONStringRole) {
         isInsideString = true
         isEscaped = false
         stringRole = role
@@ -126,13 +120,13 @@ struct SimulatorWebInspectorJSONRequestIDStreamParser {
         case .key:
             let key = tokenOverflowed
                 ? nil
-                : SimulatorWebInspectorJSONRequestID.decodeStringToken(token)
+                : decodeSimulatorWebInspectorJSONStringToken(token)
             currentKeyIsID = key == "id"
             expectsTopLevelKey = false
             awaitingColon = true
         case .idValue:
             if !tokenOverflowed {
-                requestID = SimulatorWebInspectorJSONRequestID.parseValueToken(token)
+                requestID = parseSimulatorWebInspectorJSONRequestIDToken(token)
             }
         case .other:
             break
@@ -142,7 +136,7 @@ struct SimulatorWebInspectorJSONRequestIDStreamParser {
 
     private mutating func finishScalarID() {
         if !tokenOverflowed {
-            requestID = SimulatorWebInspectorJSONRequestID.parseValueToken(scalarIDToken)
+            requestID = parseSimulatorWebInspectorJSONRequestIDToken(scalarIDToken)
         }
         isCapturingScalarID = false
         scalarIDToken.removeAll(keepingCapacity: true)
@@ -169,11 +163,12 @@ struct SimulatorWebInspectorJSONRequestIDStreamParser {
         scalarIDToken.append(byte)
     }
 
-    private static func isWhitespace(_ byte: UInt8) -> Bool {
-        byte == 0x20 || byte == 0x09 || byte == 0x0A || byte == 0x0D
-    }
+}
 
-    private static func isValueDelimiter(_ byte: UInt8) -> Bool {
-        isWhitespace(byte) || byte == 0x2C || byte == 0x7D || byte == 0x5D
-    }
+private func isSimulatorWebInspectorJSONWhitespace(_ byte: UInt8) -> Bool {
+    byte == 0x20 || byte == 0x09 || byte == 0x0A || byte == 0x0D
+}
+
+private func isSimulatorWebInspectorJSONValueDelimiter(_ byte: UInt8) -> Bool {
+    isSimulatorWebInspectorJSONWhitespace(byte) || byte == 0x2C || byte == 0x7D || byte == 0x5D
 }

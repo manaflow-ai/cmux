@@ -54,7 +54,7 @@ extension CMUXCLI {
                 "service": normalized.service,
                 "bundle_id": bundleIdentifier,
             ],
-            timeout: 60,
+            timeout: normalized.service == "all" ? 135 : 60,
             output: .permissionsUpdated(
                 action: normalized.action,
                 service: normalized.service,

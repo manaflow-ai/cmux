@@ -232,7 +232,9 @@ extension TerminalController {
         if case .cameraSwitch = operation { return 160 }
         if case .interfaceStatus = operation { return 125 }
         if case .interfaceSet = operation { return 125 }
-        if case .permissionsSet = operation { return 55 }
+        if case let .permissionsSet(_, service, _) = operation {
+            return service == SimulatorPrivacyService.all.rawValue ? 130 : 55
+        }
         if case .accessibility = operation { return 35 }
         return 35
     }

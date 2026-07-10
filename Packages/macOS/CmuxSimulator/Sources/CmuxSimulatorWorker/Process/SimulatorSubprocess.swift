@@ -160,7 +160,7 @@ private final class SimulatorSubprocessBox: @unchecked Sendable {
         outputReader.start()
         errorReader.start()
         do {
-            let process = try SimulatorProcessGroupProcess.launch(
+            let process = try SimulatorProcessGroupProcess(
                 executableURL: executableURL,
                 arguments: arguments,
                 environment: environment,
@@ -175,39 +175,41 @@ private final class SimulatorSubprocessBox: @unchecked Sendable {
                 grouping: .inheritedProcessGroup
             )
             lock.withLock { self.process = process }
-            process.setTerminationHandler { [self] status in
-                outputReader.requestStop()
-                errorReader.requestStop()
-                let output = outputReader.waitForEnd()
-                let error = errorReader.waitForEnd()
-                let completion = lock.withLock { () -> (
-                    SimulatorSubprocessResult?,
-                    Task<Void, Never>?,
-                    Task<Void, Never>?
-                ) in
-                    guard !finished else { return (nil, nil, nil) }
-                    finished = true
-                    let pendingTimeoutTask = timeoutTask
-                    let pendingForceKillTask = forceKillTask
-                    timeoutTask = nil
-                    forceKillTask = nil
-                    return (
-                        SimulatorSubprocessResult(
-                            status: status,
-                            standardOutput: String(decoding: output.data, as: UTF8.self),
-                            standardError: String(decoding: error.data, as: UTF8.self),
-                            outputWasTruncated: output.truncated,
-                            errorWasTruncated: error.truncated,
-                            timedOut: timedOut
-                        ),
-                        pendingTimeoutTask,
-                        pendingForceKillTask
-                    )
-                }
-                completion.1?.cancel()
-                completion.2?.cancel()
-                if let result = completion.0 {
-                    continuation.resume(returning: result)
+            Task {
+                await process.setTerminationHandler { [self] status in
+                    outputReader.requestStop()
+                    errorReader.requestStop()
+                    let output = outputReader.waitForEnd()
+                    let error = errorReader.waitForEnd()
+                    let completion = lock.withLock { () -> (
+                        SimulatorSubprocessResult?,
+                        Task<Void, Never>?,
+                        Task<Void, Never>?
+                    ) in
+                        guard !finished else { return (nil, nil, nil) }
+                        finished = true
+                        let pendingTimeoutTask = timeoutTask
+                        let pendingForceKillTask = forceKillTask
+                        timeoutTask = nil
+                        forceKillTask = nil
+                        return (
+                            SimulatorSubprocessResult(
+                                status: status,
+                                standardOutput: String(decoding: output.data, as: UTF8.self),
+                                standardError: String(decoding: error.data, as: UTF8.self),
+                                outputWasTruncated: output.truncated,
+                                errorWasTruncated: error.truncated,
+                                timedOut: timedOut
+                            ),
+                            pendingTimeoutTask,
+                            pendingForceKillTask
+                        )
+                    }
+                    completion.1?.cancel()
+                    completion.2?.cancel()
+                    if let result = completion.0 {
+                        continuation.resume(returning: result)
+                    }
                 }
             }
             try? standardOutput.fileHandleForWriting.close()
@@ -282,7 +284,7 @@ private final class SimulatorSubprocessBox: @unchecked Sendable {
     }
 
     private func claimRunningProcessForTermination() -> SimulatorProcessGroupProcess? {
-        guard !terminationSignalSent, let process, process.isRunning else { return nil }
+        guard !finished, !terminationSignalSent, let process else { return nil }
         terminationSignalSent = true
         return process
     }
@@ -301,8 +303,7 @@ private final class SimulatorSubprocessBox: @unchecked Sendable {
         }
         let keepTask = lock.withLock { () -> Bool in
             guard !finished,
-                  self.process === process,
-                  process.isRunning else { return false }
+                  self.process === process else { return false }
             forceKillTask?.cancel()
             forceKillTask = task
             return true
@@ -312,7 +313,7 @@ private final class SimulatorSubprocessBox: @unchecked Sendable {
 
     private func forceKillIfRunning(process: SimulatorProcessGroupProcess) {
         lock.withLock {
-            guard self.process === process, process.isRunning else { return }
+            guard !finished, self.process === process else { return }
             process.forceKill()
         }
     }

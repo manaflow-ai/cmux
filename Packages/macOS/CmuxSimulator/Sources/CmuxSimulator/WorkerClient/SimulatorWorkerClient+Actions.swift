@@ -5,16 +5,12 @@ private struct SimulatorCameraConfigurationConfirmation: Sendable {
     let targetBundleIdentifier: String?
 }
 
-enum SimulatorWorkerRequestTimeoutRecovery: Sendable {
-    case restartWorker
-    case preserveWorker
-}
-
 extension SimulatorWorkerClient {
     /// Performs one public Simulator action or routes camera configuration to
     /// the isolated worker.
     public func perform(_ action: SimulatorControlAction) async throws -> SimulatorControlResult {
         try requireOpen()
+        if let result = try await performApplicationLifecycleAction(action) { return result }
         if case let .interactive(interactiveAction) = action {
             let requestID = UUID()
             let succeeded: Bool = try await requestWorkerValue(
@@ -30,7 +26,10 @@ extension SimulatorWorkerClient {
                 throw SimulatorControlError(
                     code: "interactive_action_failed",
                     arguments: [],
-                    message: "The isolated worker could not complete the Simulator action."
+                    message: String(
+                        localized: "simulator.failure.interactiveActionFailed",
+                        defaultValue: "The isolated worker could not complete the Simulator action."
+                    )
                 )
             }
             return .none
@@ -46,7 +45,8 @@ extension SimulatorWorkerClient {
                     deviceID: deviceID,
                     setting: setting
                 ),
-                timeout: .seconds(120)
+                timeout: .seconds(120),
+                timeoutRecovery: .restartWorker
             ) { message in
                 guard case let .privateInterface(responseID, succeeded) = message,
                       responseID == requestID else { return nil }
@@ -56,7 +56,10 @@ extension SimulatorWorkerClient {
                 throw SimulatorControlError(
                     code: "private_interface_setting_failed",
                     arguments: [],
-                    message: "The in-Simulator accessibility helper could not apply the requested setting."
+                    message: String(
+                        localized: "simulator.failure.privateInterfaceSettingFailed",
+                        defaultValue: "The in-Simulator accessibility helper could not apply the requested setting."
+                    )
                 )
             }
             return .none
@@ -68,7 +71,8 @@ extension SimulatorWorkerClient {
                     requestID: requestID,
                     deviceID: deviceID
                 ),
-                timeout: .seconds(120)
+                timeout: .seconds(120),
+                timeoutRecovery: .restartWorker
             ) { message in
                 guard case let .privateInterfaceStatus(responseID, status) = message,
                       responseID == requestID else { return nil }
@@ -81,13 +85,17 @@ extension SimulatorWorkerClient {
                 throw SimulatorControlError(
                     code: "camera_injection_unavailable",
                     arguments: [],
-                    message: "The active Xcode worker did not negotiate an isolated camera adapter."
+                    message: String(
+                        localized: "simulator.failure.cameraAdapterCapability",
+                        defaultValue: "The active Xcode worker did not negotiate an isolated camera adapter."
+                    )
                 )
             }
             let requestID = UUID()
             let succeeded: Bool = try await requestWorkerValue(
                 sending: .setCameraMirror(requestID: requestID, mode: mode),
-                timeout: .seconds(30)
+                timeout: .seconds(30),
+                timeoutRecovery: .restartWorker
             ) { message in
                 guard case let .cameraMirror(responseID, succeeded) = message,
                       responseID == requestID else { return nil }
@@ -97,10 +105,12 @@ extension SimulatorWorkerClient {
                 throw SimulatorControlError(
                     code: "camera_mirror_failed",
                     arguments: [],
-                    message: "The worker could not update camera mirroring."
+                    message: String(
+                        localized: "simulator.failure.cameraMirrorFailed",
+                        defaultValue: "The worker could not update camera mirroring."
+                    )
                 )
             }
-            lastCameraMirrorMode = mode
             return .none
         }
         if case .readCameraStatus = action {
@@ -108,7 +118,7 @@ extension SimulatorWorkerClient {
             let status: SimulatorCameraStatus = try await requestWorkerValue(
                 sending: .requestCameraStatus(requestID: requestID),
                 timeout: .seconds(30),
-                timeoutRecovery: .preserveWorker
+                timeoutRecovery: .restartWorker
             ) { message in
                 guard case let .cameraStatus(responseID, status) = message,
                       responseID == requestID else { return nil }
@@ -121,7 +131,10 @@ extension SimulatorWorkerClient {
                 throw SimulatorControlError(
                     code: "extended_permission_unavailable",
                     arguments: [],
-                    message: "The active Xcode worker did not negotiate permission readback."
+                    message: String(
+                        localized: "simulator.failure.permissionReadbackCapability",
+                        defaultValue: "The active Xcode worker did not negotiate permission readback."
+                    )
                 )
             }
             let requestID = UUID()
@@ -131,7 +144,8 @@ extension SimulatorWorkerClient {
                     deviceID: deviceID,
                     bundleIdentifier: bundleIdentifier
                 ),
-                timeout: .seconds(15)
+                timeout: .seconds(30),
+                timeoutRecovery: .preserveWorker
             ) { message in
                 guard case let .privacy(responseID, snapshot) = message,
                       responseID == requestID else { return nil }
@@ -143,7 +157,8 @@ extension SimulatorWorkerClient {
             let requestID = UUID()
             let succeeded: Bool = try await requestWorkerValue(
                 sending: .reloadReactNative(requestID: requestID),
-                timeout: .seconds(10)
+                timeout: .seconds(10),
+                timeoutRecovery: .preserveWorker
             ) { message in
                 guard case let .reactNativeReload(responseID, succeeded) = message,
                       responseID == requestID else { return nil }
@@ -153,7 +168,10 @@ extension SimulatorWorkerClient {
                 throw SimulatorControlError(
                     code: "react_native_reload_failed",
                     arguments: [],
-                    message: "The worker could not reload the foreground React Native application."
+                    message: String(
+                        localized: "simulator.failure.reactNativeReloadFailed",
+                        defaultValue: "The worker could not reload the foreground React Native application."
+                    )
                 )
             }
             return .none
@@ -163,7 +181,10 @@ extension SimulatorWorkerClient {
                 throw SimulatorControlError(
                     code: "accessibility_unavailable",
                     arguments: [],
-                    message: "The active Xcode worker did not negotiate accessibility inspection."
+                    message: String(
+                        localized: "simulator.failure.accessibilityCapability",
+                        defaultValue: "The active Xcode worker did not negotiate accessibility inspection."
+                    )
                 )
             }
             let requestID = UUID()
@@ -173,7 +194,8 @@ extension SimulatorWorkerClient {
                     nodeID: nodeID,
                     frame: frame
                 ),
-                timeout: .seconds(10)
+                timeout: .seconds(10),
+                timeoutRecovery: .restartWorker
             ) { message in
                 guard case let .accessibilityHighlight(responseID, applied) = message,
                       responseID == requestID else { return nil }
@@ -183,7 +205,10 @@ extension SimulatorWorkerClient {
                 throw SimulatorControlError(
                     code: "accessibility_highlight_failed",
                     arguments: [],
-                    message: "The worker could not update the accessibility highlight overlay."
+                    message: String(
+                        localized: "simulator.failure.accessibilityHighlightFailed",
+                        defaultValue: "The worker could not update the accessibility highlight overlay."
+                    )
                 )
             }
             return .none
@@ -193,7 +218,10 @@ extension SimulatorWorkerClient {
                 throw SimulatorControlError(
                     code: "camera_injection_unavailable",
                     arguments: [],
-                    message: "The active Xcode worker did not negotiate an isolated camera adapter."
+                    message: String(
+                        localized: "simulator.failure.cameraAdapterCapability",
+                        defaultValue: "The active Xcode worker did not negotiate an isolated camera adapter."
+                    )
                 )
             }
             let requestID = UUID()
@@ -202,7 +230,8 @@ extension SimulatorWorkerClient {
                     requestID: requestID,
                     configuration: configuration
                 ),
-                timeout: .seconds(120)
+                timeout: .seconds(120),
+                timeoutRecovery: .restartWorker
             ) { message in
                 guard case let .cameraConfiguration(responseID, succeeded, _) = message,
                       responseID == requestID else { return nil }
@@ -218,10 +247,6 @@ extension SimulatorWorkerClient {
                     )
                 )
             }
-            cameraReplayConfigurations = Self.cameraReplayConfigurations(
-                cameraReplayConfigurations,
-                switchingTo: configuration
-            )
             return .none
         }
         if case let .configureCamera(configuration) = action {
@@ -230,13 +255,17 @@ extension SimulatorWorkerClient {
                 throw SimulatorControlError(
                     code: "camera_injection_unavailable",
                     arguments: [],
-                    message: "The active Xcode worker did not negotiate an isolated camera adapter."
+                    message: String(
+                        localized: "simulator.failure.cameraAdapterCapability",
+                        defaultValue: "The active Xcode worker did not negotiate an isolated camera adapter."
+                    )
                 )
             }
             let requestID = UUID()
             let confirmation: SimulatorCameraConfigurationConfirmation = try await requestWorkerValue(
                 sending: .configureCamera(requestID: requestID, configuration: configuration),
-                timeout: .seconds(120)
+                timeout: .seconds(120),
+                timeoutRecovery: .restartWorker
             ) { message in
                 guard case let .cameraConfiguration(responseID, succeeded, target) = message,
                       responseID == requestID else { return nil }
@@ -249,17 +278,10 @@ extension SimulatorWorkerClient {
                 throw SimulatorControlError(
                     code: "camera_configuration_failed",
                     arguments: [],
-                    message: "The isolated worker could not configure the requested camera source and target."
-                )
-            }
-            if configuration.isDisabled {
-                cameraReplayConfigurations.removeAll()
-                cameraCleanupBundleIdentifiers.removeAll()
-                lastCameraMirrorMode = nil
-            } else {
-                rememberCameraConfiguration(
-                    configuration,
-                    resolvedTargetBundleIdentifier: confirmation.targetBundleIdentifier
+                    message: String(
+                        localized: "simulator.failure.cameraConfigurationFailed",
+                        defaultValue: "The isolated worker could not configure the requested camera source and target."
+                    )
                 )
             }
             return .none
@@ -271,7 +293,10 @@ extension SimulatorWorkerClient {
                 throw SimulatorControlError(
                     code: "extended_permission_unavailable",
                     arguments: [],
-                    message: "Reset All needs the active Xcode worker's isolated extended-permissions adapter."
+                    message: String(
+                        localized: "simulator.failure.permissionResetAllCapability",
+                        defaultValue: "Reset All needs the active Xcode worker's isolated extended-permissions adapter."
+                    )
                 )
             }
             _ = try await simulatorControl.perform(action)
@@ -289,14 +314,20 @@ extension SimulatorWorkerClient {
                 throw SimulatorControlError(
                     code: "extended_permission_unavailable",
                     arguments: [],
-                    message: "The active Xcode worker did not negotiate a safe adapter for \(service.rawValue)."
+                    message: String(
+                        localized: "simulator.failure.permissionMutationCapability",
+                        defaultValue: "The active Xcode worker did not negotiate a safe adapter for \(service.rawValue)."
+                    )
                 )
             }
             guard let bundleIdentifier, !bundleIdentifier.isEmpty else {
                 throw SimulatorControlError(
                     code: "missing_bundle_identifier",
                     arguments: [],
-                    message: "Private permission changes require an installed application bundle identifier."
+                    message: String(
+                        localized: "simulator.failure.permissionBundleIdentifierRequired",
+                        defaultValue: "Private permission changes require an installed application bundle identifier."
+                    )
                 )
             }
             try await performPrivatePrivacyMutation(
@@ -396,7 +427,8 @@ extension SimulatorWorkerClient {
                 service: service,
                 bundleIdentifier: bundleIdentifier
             ),
-            timeout: .seconds(15)
+            timeout: service == .all ? .seconds(120) : .seconds(30),
+            timeoutRecovery: .preserveWorker
         ) { message in
             guard case let .privatePrivacy(responseID, succeeded) = message,
                   responseID == requestID else { return nil }
@@ -406,66 +438,12 @@ extension SimulatorWorkerClient {
             throw SimulatorControlError(
                 code: "private_permission_failed",
                 arguments: [],
-                message: "The isolated worker could not update \(service.rawValue)."
+                message: String(
+                    localized: "simulator.failure.privatePermissionFailed",
+                    defaultValue: "The isolated worker could not update \(service.rawValue)."
+                )
             )
         }
     }
 
-    func requestWorkerValue<Value: Sendable>(
-        sending message: SimulatorWorkerInbound,
-        timeout: Duration = .seconds(60),
-        timeoutRecovery: SimulatorWorkerRequestTimeoutRecovery = .restartWorker,
-        matching: @escaping @Sendable (SimulatorWorkerOutbound) -> Value?
-    ) async throws -> Value {
-        let stream = await subscribe()
-        // The correlated response is the liveness proof. Do not put the short
-        // interactive ping deadline behind camera compilation or database work.
-        try await sendRequired(message, probe: false)
-        let requestGeneration = generation
-        let sleeper = self.sleeper
-        do {
-            return try await withThrowingTaskGroup(of: Value.self) { group in
-                group.addTask {
-                    for await event in stream {
-                        guard case let .message(outbound) = event else {
-                            throw SimulatorControlError(
-                                code: "worker_stopped",
-                                arguments: [],
-                                message: "The Simulator worker stopped before replying."
-                            )
-                        }
-                        if let value = matching(outbound) { return value }
-                    }
-                    throw SimulatorControlError(
-                        code: "worker_stopped",
-                        arguments: [],
-                        message: "The Simulator worker closed its event stream before replying."
-                    )
-                }
-                group.addTask {
-                    try await sleeper.sleep(for: timeout)
-                    throw SimulatorControlError(
-                        code: "worker_response_timed_out",
-                        arguments: [],
-                        message: "The Simulator worker did not reply before the bounded deadline."
-                    )
-                }
-                guard let value = try await group.next() else {
-                    throw SimulatorControlError(
-                        code: "worker_stopped",
-                        arguments: [],
-                        message: "The Simulator worker did not produce a response."
-                    )
-                }
-                group.cancelAll()
-                return value
-            }
-        } catch let error as SimulatorControlError
-            where error.code == "worker_response_timed_out" {
-            if timeoutRecovery == .restartWorker {
-                correlatedOperationDeadlineExpired(generation: requestGeneration, failure: error)
-            }
-            throw error
-        }
-    }
 }

@@ -1,13 +1,17 @@
 import Foundation
 
 extension SimulatorControlService {
+    /// Performs one typed `simctl` action and returns its structured result.
     public func perform(_ action: SimulatorControlAction) async throws -> SimulatorControlResult {
         switch action {
         case .interactive:
             throw SimulatorControlError(
                 code: "worker_only_action",
                 arguments: [],
-                message: "Native input actions require the isolated Simulator worker."
+                message: String(
+                    localized: "simulator.control.nativeInputRequiresWorker",
+                    defaultValue: "Native input actions require the isolated Simulator worker."
+                )
             )
         case let .listApplications(deviceID):
             return .applications(try await listApplications(deviceID: deviceID))
@@ -60,7 +64,10 @@ extension SimulatorControlService {
             throw SimulatorControlError(
                 code: "worker_only_action",
                 arguments: [],
-                message: "This action requires correlated execution in the isolated Simulator worker."
+                message: String(
+                    localized: "simulator.control.correlatedActionRequiresWorker",
+                    defaultValue: "This action requires correlated execution in the isolated Simulator worker."
+                )
             )
         case let .overrideStatusBar(deviceID, values):
             try await overrideStatusBar(deviceID: deviceID, values: values)
@@ -97,7 +104,10 @@ extension SimulatorControlService {
             throw SimulatorControlError(
                 code: "worker_only_action",
                 arguments: [],
-                message: "Camera injection must run inside the isolated Simulator worker."
+                message: String(
+                    localized: "simulator.control.cameraRequiresWorker",
+                    defaultValue: "Camera injection must run inside the isolated Simulator worker."
+                )
             )
         }
         return .none

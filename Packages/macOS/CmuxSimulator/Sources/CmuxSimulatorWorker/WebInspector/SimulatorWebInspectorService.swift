@@ -23,6 +23,7 @@ final class SimulatorWebInspectorService {
 
     let discovery: SimulatorWebInspectorSocketDiscovery
     let sleeper: any SimulatorWebInspectorSleeping
+    let mutationGate: SimulatorMutationGate
     var socket: (any SimulatorWebInspectorTransport)?
     var socketReaderTask: Task<Void, Never>?
     var currentDeviceIdentifier: String?
@@ -41,10 +42,12 @@ final class SimulatorWebInspectorService {
 
     init(
         subprocessRunner: SimulatorSubprocessRunner,
-        sleeper: any SimulatorWebInspectorSleeping = ContinuousSimulatorWebInspectorSleeper()
+        sleeper: any SimulatorWebInspectorSleeping = ContinuousSimulatorWebInspectorSleeper(),
+        mutationGate: SimulatorMutationGate = SimulatorMutationGate()
     ) {
         discovery = SimulatorWebInspectorSocketDiscovery(subprocessRunner: subprocessRunner)
         self.sleeper = sleeper
+        self.mutationGate = mutationGate
     }
 
     func isAvailable(deviceIdentifier: String) async -> Bool {
@@ -87,40 +90,56 @@ final class SimulatorWebInspectorService {
     }
 
     func attach(targetIdentifier: String) async throws -> SimulatorWebInspectorSessionStatus {
-        guard socket != nil, let target = catalog.target(id: targetIdentifier) else {
+        guard socket != nil,
+              let deviceIdentifier = currentDeviceIdentifier,
+              let target = catalog.target(id: targetIdentifier) else {
             throw SimulatorWebInspectorError.targetNotFound
         }
         guard !target.isInUse else { throw SimulatorWebInspectorError.targetInUse }
-        releaseSession(emit: false)
-
-        let identifier = UUID()
-        let senderIdentifier = UUID().uuidString
-        session = Session(
-            identifier: identifier,
-            target: target,
-            senderIdentifier: senderIdentifier
-        )
-        do {
-            try sendRPC(selector: "_rpc_forwardSocketSetup:", arguments: [
-                "WIRApplicationIdentifierKey": target.applicationIdentifier,
-                "WIRPageIdentifierKey": NSNumber(value: target.pageIdentifier),
-                "WIRSenderKey": senderIdentifier,
-                "WIRAutomaticallyPause": false,
-            ])
-            try await negotiateSessionRouting()
-        } catch {
-            releaseSession(emit: false)
-            throw error
+        if session != nil { try await releaseSession(emit: false) }
+        let key = try mutationKey(deviceIdentifier: deviceIdentifier, target: target)
+        return try await mutationGate.withLocks([key]) {
+            let identifier = UUID()
+            let senderIdentifier = UUID().uuidString
+            session = Session(
+                identifier: identifier,
+                target: target,
+                senderIdentifier: senderIdentifier
+            )
+            do {
+                try sendRPC(selector: "_rpc_forwardSocketSetup:", arguments: [
+                    "WIRApplicationIdentifierKey": target.applicationIdentifier,
+                    "WIRPageIdentifierKey": NSNumber(value: target.pageIdentifier),
+                    "WIRSenderKey": senderIdentifier,
+                    "WIRAutomaticallyPause": false,
+                ])
+                try await negotiateSessionRouting()
+            } catch {
+                releaseSessionWithoutMutationGate(emit: false)
+                throw error
+            }
+            let status = SimulatorWebInspectorSessionStatus.attached(
+                sessionID: identifier,
+                targetID: target.id
+            )
+            eventHandler?(.session(status))
+            return status
         }
-        let status = SimulatorWebInspectorSessionStatus.attached(
-            sessionID: identifier,
-            targetID: target.id
-        )
-        eventHandler?(.session(status))
-        return status
     }
 
-    func releaseSession(emit: Bool = true) {
+    func releaseSession(emit: Bool = true) async throws {
+        guard let session, let deviceIdentifier = currentDeviceIdentifier else {
+            if emit { eventHandler?(.session(.detached)) }
+            return
+        }
+        let key = try mutationKey(deviceIdentifier: deviceIdentifier, target: session.target)
+        try await mutationGate.withLocks([key]) {
+            guard self.session?.identifier == session.identifier else { return }
+            releaseSessionWithoutMutationGate(emit: emit)
+        }
+    }
+
+    func releaseSessionWithoutMutationGate(emit: Bool = true) {
         guard let session else {
             if emit { eventHandler?(.session(.detached)) }
             return
@@ -136,7 +155,30 @@ final class SimulatorWebInspectorService {
         if emit { eventHandler?(.session(.detached)) }
     }
 
-    func sendMessage(_ rawJSON: String) throws {
+    func releaseSession(ifOwnedBy bundleIdentifier: String) async throws {
+        guard session?.target.bundleIdentifier == bundleIdentifier else { return }
+        try await releaseSession()
+    }
+
+    func releaseSessionWithoutMutationGate(ifOwnedBy bundleIdentifier: String) {
+        guard session?.target.bundleIdentifier == bundleIdentifier else { return }
+        releaseSessionWithoutMutationGate()
+    }
+
+    func sendMessage(_ rawJSON: String) async throws {
+        guard let session, let deviceIdentifier = currentDeviceIdentifier else {
+            throw SimulatorWebInspectorError.sessionUnavailable
+        }
+        let key = try mutationKey(deviceIdentifier: deviceIdentifier, target: session.target)
+        try await mutationGate.withLocks([key]) {
+            guard self.session?.identifier == session.identifier else {
+                throw SimulatorWebInspectorError.sessionUnavailable
+            }
+            try sendMessageWithoutMutationGate(rawJSON)
+        }
+    }
+
+    func sendMessageWithoutMutationGate(_ rawJSON: String) throws {
         guard var session else { throw SimulatorWebInspectorError.sessionUnavailable }
         let payload = Data(rawJSON.utf8)
         let outgoing = try session.router.routeOutgoing(payload)
@@ -145,6 +187,19 @@ final class SimulatorWebInspectorService {
     }
 
     func setHighlight(enabled: Bool) async throws {
+        guard let session, let deviceIdentifier = currentDeviceIdentifier else {
+            throw SimulatorWebInspectorError.sessionUnavailable
+        }
+        let key = try mutationKey(deviceIdentifier: deviceIdentifier, target: session.target)
+        try await mutationGate.withLocks([key]) {
+            guard self.session?.identifier == session.identifier else {
+                throw SimulatorWebInspectorError.sessionUnavailable
+            }
+            try await setHighlightWithoutMutationGate(enabled: enabled)
+        }
+    }
+
+    private func setHighlightWithoutMutationGate(enabled: Bool) async throws {
         if enabled {
             let document = try await callTarget(method: "DOM.getDocument", parameters: ["depth": 0])
             guard let result = document["result"] as? [String: Any],
@@ -169,7 +224,7 @@ final class SimulatorWebInspectorService {
 
     func shutdown() {
         cancelRefresh(with: SimulatorWebInspectorError.transportClosed)
-        releaseSession(emit: false)
+        releaseSessionWithoutMutationGate(emit: false)
         socketReaderTask?.cancel()
         socketReaderTask = nil
         socket?.close()
@@ -182,6 +237,7 @@ final class SimulatorWebInspectorService {
 
     private func ensureConnected(deviceIdentifier: String) async throws {
         if socket != nil, currentDeviceIdentifier == deviceIdentifier { return }
+        try? await releaseSession(emit: false)
         shutdown()
         let path = try await discovery.socketPath(deviceIdentifier: deviceIdentifier)
         let socket = try SimulatorWebInspectorSocket.connect(path: path)
@@ -237,5 +293,21 @@ final class SimulatorWebInspectorService {
         if let value = value as? Int64 { return value }
         if let value = value as? Int { return Int64(value) }
         return nil
+    }
+
+    private func mutationKey(
+        deviceIdentifier: String,
+        target: SimulatorWebInspectorTarget
+    ) throws -> SimulatorMutationKey {
+        guard let bundleIdentifier = target.bundleIdentifier,
+              !bundleIdentifier.isEmpty else {
+            throw SimulatorWebInspectorError.unavailable(
+                "Web Inspector did not report the target application's bundle identifier."
+            )
+        }
+        return .application(
+            deviceIdentifier: deviceIdentifier,
+            bundleIdentifier: bundleIdentifier
+        )
     }
 }

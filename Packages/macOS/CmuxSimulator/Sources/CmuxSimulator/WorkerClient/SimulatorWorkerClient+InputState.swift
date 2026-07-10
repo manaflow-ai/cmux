@@ -21,15 +21,30 @@ extension SimulatorWorkerClient {
             rememberPointer(event)
         case let .key(event):
             rememberKey(event)
+        case let .keySequence(events):
+            for event in events { rememberKey(event) }
+        case let .scrollWheel(event):
+            rememberScrollWheel(event)
         case let .typeText(requestID, sequence):
             pendingTextInputUsages[requestID] = Set(sequence.events.map(\.usage))
+        case let .configureCamera(requestID, configuration):
+            cameraRequestConfigurations[requestID] = configuration
+            if let bundleIdentifier = configuration.targetBundleIdentifier,
+               !bundleIdentifier.isEmpty {
+                cameraCleanupBundleIdentifiers.insert(bundleIdentifier)
+            }
+        case let .switchCameraSource(requestID, configuration):
+            cameraSourceSwitchRequests[requestID] = configuration
+        case let .setCameraMirror(requestID, mode):
+            cameraMirrorRequests[requestID] = mode
         case let .hidButton(event):
             rememberHIDButton(event)
         case let .button(button):
             if let usage = button.recoveryHIDUsage {
                 unprovenConvenienceButtonUsages.insert(usage)
             }
-        case let .interactiveAction(_, action):
+        case let .interactiveAction(requestID, action):
+            pendingInteractiveRequestIdentifiers.insert(requestID)
             rememberInteractiveAction(action)
         case .releaseInputs:
             rememberReleaseOfAllInputs()
@@ -69,10 +84,14 @@ extension SimulatorWorkerClient {
 
     func resetHeldInputState() {
         activePointer = nil
+        activeScrollIdentifier = nil
         pointerStateRevision = nil
         heldKeyUsages.removeAll()
         keyStateRevisions.removeAll()
         pendingTextInputUsages.removeAll()
+        pendingInteractiveRequestIdentifiers.removeAll()
+        deferredMessages.removeAll()
+        probeNeededAfterTextInput = false
         heldButtonUsages.removeAll()
         buttonStateRevisions.removeAll()
         unprovenInputRelease = SimulatorInputReleaseProof()
@@ -94,6 +113,7 @@ extension SimulatorWorkerClient {
     }
 
     private func rememberPointer(_ event: SimulatorPointerEvent) {
+        activeScrollIdentifier = nil
         let revision = nextInputRevision()
         pointerStateRevision = revision
         switch event.phase {
@@ -104,6 +124,20 @@ extension SimulatorWorkerClient {
             if activePointer == nil { activePointer = event }
             unprovenInputRelease.pointerRevision = revision
         }
+    }
+
+    private func rememberScrollWheel(_ event: SimulatorScrollWheelEvent) {
+        let revision = nextInputRevision()
+        activeScrollIdentifier = event.id
+        pointerStateRevision = revision
+        activePointer = SimulatorPointerEvent(
+            phase: .moved,
+            primary: SimulatorPoint(
+                x: min(max(event.anchor.x + event.deltaX, 0), 1),
+                y: min(max(event.anchor.y + event.deltaY, 0), 1)
+            )
+        )
+        unprovenInputRelease.pointerRevision = nil
     }
 
     private func rememberKey(_ event: SimulatorKeyEvent) {

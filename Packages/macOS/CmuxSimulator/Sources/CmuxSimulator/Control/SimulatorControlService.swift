@@ -12,8 +12,12 @@ public actor SimulatorControlService: SimulatorControlling {
     let boundedCommands: any SimulatorBoundedCommandRunning
     let commandTimeout: TimeInterval
     let bootTimeout: TimeInterval
+    let fileManager: FileManager
+    let currentDirectoryURL: URL
+    let makeUUID: @Sendable () -> UUID
     let now: @Sendable () -> Date
     let routeSleep: @Sendable (Duration) async throws -> Void
+    let mutationGate = SimulatorMutationGate()
     var activeLocationRoutes: [String: ActiveLocationRoute] = [:]
     var locationRouteInitialCoordinates: [String: SimulatorLocationCoordinate] = [:]
     var locationLifecycleTasks: [String: Task<Void, Never>] = [:]
@@ -24,12 +28,18 @@ public actor SimulatorControlService: SimulatorControlling {
     ///   - commands: Injected process runner. Tests can provide a fake.
     ///   - commandTimeout: Deadline for ordinary one-shot operations.
     ///   - bootTimeout: Deadline for CoreSimulator boot completion.
+    ///   - fileManager: Filesystem dependency used for bounded staging files.
+    ///   - currentDirectoryURL: Working directory passed to child commands.
+    ///   - makeUUID: Identifier source used to name private staging files.
     ///   - now: Injected wall clock used to estimate a paused route position.
     ///   - routeSleep: Injected monotonic delay used to complete or restart routes.
     public init(
         commands: any CommandRunning = CommandRunner(),
         commandTimeout: TimeInterval = 30,
         bootTimeout: TimeInterval = 180,
+        fileManager: FileManager = FileManager(),
+        currentDirectoryURL: URL = URL(fileURLWithPath: ".").standardizedFileURL,
+        makeUUID: @escaping @Sendable () -> UUID = UUID.init,
         now: @escaping @Sendable () -> Date = Date.init,
         routeSleep: @escaping @Sendable (Duration) async throws -> Void = {
             try await ContinuousClock().sleep(for: $0)
@@ -45,6 +55,9 @@ public actor SimulatorControlService: SimulatorControlling {
         }
         self.commandTimeout = commandTimeout
         self.bootTimeout = bootTimeout
+        self.fileManager = fileManager
+        self.currentDirectoryURL = currentDirectoryURL
+        self.makeUUID = makeUUID
         self.now = now
         self.routeSleep = routeSleep
     }

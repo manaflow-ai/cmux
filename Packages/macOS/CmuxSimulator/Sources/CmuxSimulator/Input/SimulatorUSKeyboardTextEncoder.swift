@@ -1,11 +1,16 @@
 import Foundation
 
 /// Encodes text into deterministic USB HID usage events for a US keyboard.
-public enum SimulatorUSKeyboardTextEncoder {
-    private static let leftShiftUsage: UInt32 = 0xE1
+public struct SimulatorUSKeyboardTextEncoder: Sendable {
+    private let leftShiftUsage: UInt32
+
+    /// Creates an encoder for the standard USB left-shift usage.
+    public init(leftShiftUsage: UInt32 = 0xE1) {
+        self.leftShiftUsage = leftShiftUsage
+    }
 
     /// Validates the complete string before returning any input events.
-    public static func encode(_ text: String) throws -> SimulatorTextInputSequence {
+    public func encode(_ text: String) throws -> SimulatorTextInputSequence {
         let byteCount = text.utf8.count
         guard byteCount > 0 else {
             throw SimulatorTextInputEncodingError.empty
@@ -55,7 +60,7 @@ public enum SimulatorUSKeyboardTextEncoder {
         )
     }
 
-    private static func mapping(for scalar: Unicode.Scalar) -> (usage: UInt32, shifted: Bool)? {
+    private func mapping(for scalar: Unicode.Scalar) -> (usage: UInt32, shifted: Bool)? {
         let value = scalar.value
         if value >= 0x61, value <= 0x7A { // a...z
             return (0x04 + value - 0x61, false)

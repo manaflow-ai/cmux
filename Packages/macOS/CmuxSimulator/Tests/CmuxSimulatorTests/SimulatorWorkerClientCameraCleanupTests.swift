@@ -329,10 +329,10 @@ private final class TestCameraSharedMemoryRegion {
     private let descriptor: Int32
 
     init(deviceIdentifier: String, processIdentifier: Int32) throws {
-        name = SimulatorCameraSharedMemory.name(
+        name = SimulatorCameraSharedMemory(
             deviceIdentifier: deviceIdentifier,
             processIdentifier: processIdentifier
-        )
+        ).name
         _ = Darwin.shm_unlink(name)
         descriptor = try Self.open(name: name, flags: O_CREAT | O_EXCL | O_RDWR)
         guard ftruncate(descriptor, 1) == 0 else {

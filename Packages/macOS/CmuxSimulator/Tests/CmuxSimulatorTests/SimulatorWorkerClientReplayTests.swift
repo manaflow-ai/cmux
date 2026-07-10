@@ -23,6 +23,11 @@ extension SimulatorWorkerClientTests {
         first.finish()
         #expect(await iterator.next() == .workerStopped)
         let second = try #require(launcher.endpoint(at: 1))
+        second.setResponder { message in
+            guard case let .ping(sequence) = message else { return nil }
+            return .ack(sequence)
+        }
+        second.emit(.status(.streaming))
         let replay = await replayMessages(from: second) { messages in
             messages.contains(.attach(udid: "DEVICE", geometry: nil))
                 && messages.contains(.rotate(.landscapeRight))
@@ -44,9 +49,15 @@ extension SimulatorWorkerClientTests {
         let client = makeClient(launcher: launcher)
         await client.send(.attach(udid: "DEVICE", geometry: nil))
         let first = try #require(launcher.endpoint(at: 0))
-        let sequence = try SimulatorUSKeyboardTextEncoder.encode("A?")
+        let sequence = try SimulatorUSKeyboardTextEncoder().encode("A?")
         let events = await client.subscribe()
         var iterator = events.makeAsyncIterator()
+        first.setResponder { message in
+            guard case let .ping(sequence) = message else { return nil }
+            return .ack(sequence)
+        }
+        first.emit(.status(.streaming))
+        #expect(await iterator.next() == .message(.status(.streaming)))
         let typing = Task {
             await client.send(.typeText(requestID: UUID(), sequence: sequence))
         }
@@ -61,6 +72,11 @@ extension SimulatorWorkerClientTests {
         #expect(await iterator.next() == .workerStopped)
         await typing.value
         let second = try #require(launcher.endpoint(at: 1))
+        second.setResponder { message in
+            guard case let .ping(sequence) = message else { return nil }
+            return .ack(sequence)
+        }
+        second.emit(.status(.streaming))
         let expectedUsages = Set(sequence.events.map(\.usage))
         let replay = await replayMessages(from: second) { messages in
             let released = Set(messages.compactMap { message -> UInt32? in
@@ -85,12 +101,16 @@ extension SimulatorWorkerClientTests {
         let first = try #require(launcher.endpoint(at: 0))
         let readiness = await client.subscribe()
         var readinessIterator = readiness.makeAsyncIterator()
+        first.emit(.status(.streaming))
         first.emit(.capabilities([.cameraInjection]))
         first.emit(.context(42))
         _ = await readinessIterator.next()
         _ = await readinessIterator.next()
+        _ = await readinessIterator.next()
         first.setResponder { message in
             switch message {
+            case let .ping(sequence):
+                return .ack(sequence)
             case let .configureCamera(requestID, configuration):
                 return .cameraConfiguration(
                     requestID: requestID,
@@ -103,6 +123,7 @@ extension SimulatorWorkerClientTests {
                 return nil
             }
         }
+        acknowledgeRecordedPings(first)
         _ = try await client.perform(.configureCamera(.placeholder))
         _ = try await client.perform(.setCameraMirror(.on))
         let touch = SimulatorPointerEvent(
@@ -118,14 +139,43 @@ extension SimulatorWorkerClientTests {
             button: heldButton,
             phase: .down
         )))
+        for _ in 0..<1_000 {
+            if first.inboundMessages().contains(.hidButton(.init(
+                button: heldButton,
+                phase: .down
+            ))) { break }
+            await Task.yield()
+        }
+        #expect(first.inboundMessages().contains(.hidButton(.init(
+            button: heldButton,
+            phase: .down
+        ))))
         let events = await client.subscribe()
         var iterator = events.makeAsyncIterator()
+        _ = await iterator.next()
         _ = await iterator.next()
         _ = await iterator.next()
 
         first.finish()
         #expect(await iterator.next() == .workerStopped)
         let second = try #require(launcher.endpoint(at: 1))
+        second.setResponder { message in
+            switch message {
+            case let .ping(sequence):
+                return .ack(sequence)
+            case let .configureCamera(requestID, configuration):
+                return .cameraConfiguration(
+                    requestID: requestID,
+                    succeeded: true,
+                    targetBundleIdentifier: configuration.targetBundleIdentifier
+                )
+            case let .setCameraMirror(requestID, _):
+                return .cameraMirror(requestID: requestID, succeeded: true)
+            default:
+                return nil
+            }
+        }
+        second.emit(.status(.streaming))
         let replay = await replayMessages(from: second) { messages in
             messages.contains { if case .attach = $0 { true } else { false } }
                 && messages.contains { if case .configureCamera = $0 { true } else { false } }
@@ -158,21 +208,6 @@ extension SimulatorWorkerClientTests {
         #expect(buttonUpIndex < cameraIndex)
         #expect(cameraIndex < mirrorIndex)
 
-        second.emit(.status(.streaming))
-        for message in replay {
-            switch message {
-            case let .configureCamera(requestID, configuration):
-                second.emit(.cameraConfiguration(
-                    requestID: requestID,
-                    succeeded: true,
-                    targetBundleIdentifier: configuration.targetBundleIdentifier
-                ))
-            case let .setCameraMirror(requestID, _):
-                second.emit(.cameraMirror(requestID: requestID, succeeded: true))
-            default:
-                break
-            }
-        }
         let newTouch = SimulatorPointerEvent(
             phase: .began,
             primary: SimulatorPoint(x: 40, y: 50),
@@ -195,19 +230,28 @@ extension SimulatorWorkerClientTests {
         let first = try #require(launcher.endpoint(at: 0))
         let readiness = await client.subscribe()
         var readinessIterator = readiness.makeAsyncIterator()
+        first.emit(.status(.streaming))
         first.emit(.capabilities([.cameraInjection]))
         first.emit(.context(44))
         _ = await readinessIterator.next()
         _ = await readinessIterator.next()
+        _ = await readinessIterator.next()
         first.setResponder { message in
-            guard case let .configureCamera(requestID, configuration) = message else { return nil }
-            let target = configuration.targetBundleIdentifier ?? "com.example.inferred"
-            return .cameraConfiguration(
-                requestID: requestID,
-                succeeded: true,
-                targetBundleIdentifier: target
-            )
+            switch message {
+            case let .ping(sequence):
+                return .ack(sequence)
+            case let .configureCamera(requestID, configuration):
+                let target = configuration.targetBundleIdentifier ?? "com.example.inferred"
+                return .cameraConfiguration(
+                    requestID: requestID,
+                    succeeded: true,
+                    targetBundleIdentifier: target
+                )
+            default:
+                return nil
+            }
         }
+        acknowledgeRecordedPings(first)
 
         _ = try await client.perform(.configureCamera(.placeholder))
         _ = try await client.perform(.configureCamera(.targeted(
@@ -218,10 +262,26 @@ extension SimulatorWorkerClientTests {
         var iterator = events.makeAsyncIterator()
         _ = await iterator.next()
         _ = await iterator.next()
+        _ = await iterator.next()
         first.finish()
         #expect(await iterator.next() == .workerStopped)
 
         let second = try #require(launcher.endpoint(at: 1))
+        second.setResponder { message in
+            switch message {
+            case let .ping(sequence):
+                return .ack(sequence)
+            case let .configureCamera(requestID, configuration):
+                return .cameraConfiguration(
+                    requestID: requestID,
+                    succeeded: true,
+                    targetBundleIdentifier: configuration.targetBundleIdentifier
+                )
+            default:
+                return nil
+            }
+        }
+        second.emit(.status(.streaming))
         let replay = await replayMessages(from: second) { messages in
             messages.compactMap { message -> String? in
                 guard case let .configureCamera(_, configuration) = message else { return nil }
@@ -244,12 +304,16 @@ extension SimulatorWorkerClientTests {
         let endpoint = try #require(launcher.endpoint(at: 0))
         let readiness = await client.subscribe()
         var readinessIterator = readiness.makeAsyncIterator()
+        endpoint.emit(.status(.streaming))
         endpoint.emit(.capabilities([.cameraInjection]))
         endpoint.emit(.context(45))
         _ = await readinessIterator.next()
         _ = await readinessIterator.next()
+        _ = await readinessIterator.next()
         endpoint.setResponder { message in
             switch message {
+            case let .ping(sequence):
+                return .ack(sequence)
             case let .configureCamera(requestID, configuration):
                 return .cameraConfiguration(
                     requestID: requestID,
@@ -268,6 +332,7 @@ extension SimulatorWorkerClientTests {
                 return nil
             }
         }
+        acknowledgeRecordedPings(endpoint)
         for target in ["com.example.a", "com.example.b"] {
             _ = try await client.perform(.configureCamera(.targeted(
                 bundleIdentifier: target,
@@ -292,7 +357,7 @@ extension SimulatorWorkerClientTests {
     @Test("A stalled automatic camera replay spends the restart fuse on its long deadline")
     func timesOutCameraReplay() async throws {
         let launcher = TestWorkerLauncher()
-        let sleeper = ReplayDeadlineSleeper()
+        let sleeper = CameraReplayDeadlineSleeper()
         let client = makeClient(
             launcher: launcher,
             sleeper: sleeper,
@@ -302,33 +367,49 @@ extension SimulatorWorkerClientTests {
         let first = try #require(launcher.endpoint(at: 0))
         let readiness = await client.subscribe()
         var readinessIterator = readiness.makeAsyncIterator()
+        first.emit(.status(.streaming))
         first.emit(.capabilities([.cameraInjection]))
         first.emit(.context(43))
         _ = await readinessIterator.next()
         _ = await readinessIterator.next()
+        _ = await readinessIterator.next()
         first.setResponder { message in
-            guard case let .configureCamera(requestID, .placeholder) = message else { return nil }
-            return .cameraConfiguration(
-                requestID: requestID,
-                succeeded: true,
-                targetBundleIdentifier: "com.example.camera"
-            )
+            switch message {
+            case let .ping(sequence):
+                return .ack(sequence)
+            case let .configureCamera(requestID, .placeholder):
+                return .cameraConfiguration(
+                    requestID: requestID,
+                    succeeded: true,
+                    targetBundleIdentifier: "com.example.camera"
+                )
+            default:
+                return nil
+            }
         }
+        acknowledgeRecordedPings(first)
         _ = try await client.perform(.configureCamera(.placeholder))
         let events = await client.subscribe()
         var iterator = events.makeAsyncIterator()
         _ = await iterator.next()
         _ = await iterator.next()
+        _ = await iterator.next()
 
         first.finish()
         #expect(await iterator.next() == .workerStopped)
-        #expect(await iterator.next() == .workerStopped)
+        let replacement = try #require(launcher.endpoint(at: 1))
+        replacement.emit(.status(.streaming))
+        var timeoutEvent = await iterator.next()
+        while timeoutEvent != .workerStopped {
+            timeoutEvent = await iterator.next()
+        }
+        #expect(timeoutEvent == .workerStopped)
         guard case let .message(.failure(failure)) = await iterator.next() else {
             Issue.record("Expected replay timeout to trip the restart fuse")
             return
         }
         #expect(failure.code == "worker_crash_fuse")
-        let replay = try #require(launcher.endpoint(at: 1)).inboundMessages()
+        let replay = replacement.inboundMessages()
         #expect(replay.contains { message in
             guard case let .configureCamera(_, configuration) = message else { return false }
             return configuration == .targeted(
@@ -349,6 +430,15 @@ extension SimulatorWorkerClientTests {
             await Task.yield()
         }
         return endpoint.inboundMessages()
+    }
+
+    private func acknowledgeRecordedPings(_ endpoint: TestWorkerEndpoint) {
+        for sequence in endpoint.inboundMessages().compactMap({ message -> UInt64? in
+            guard case let .ping(sequence) = message else { return nil }
+            return sequence
+        }) {
+            endpoint.emit(.ack(sequence))
+        }
     }
 
 }

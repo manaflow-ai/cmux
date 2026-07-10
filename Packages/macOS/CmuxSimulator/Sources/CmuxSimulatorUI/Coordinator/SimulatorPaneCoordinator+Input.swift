@@ -16,7 +16,7 @@ extension SimulatorPaneCoordinator {
     ) -> Result<SimulatorTextInputSubmission, SimulatorTextInputSubmissionError> {
         let sequence: SimulatorTextInputSequence
         do {
-            sequence = try SimulatorUSKeyboardTextEncoder.encode(text)
+            sequence = try SimulatorUSKeyboardTextEncoder().encode(text)
         } catch let error as SimulatorTextInputEncodingError {
             let submissionError = SimulatorTextInputSubmissionError.encoding(error)
             controlFailure = submissionError.failure

@@ -86,11 +86,10 @@ struct SimulatorWebInspectorCoordinatorTests {
                 count: SimulatorWebInspectorResponseBuffer.maximumResponseBytes + 1_000
             )
             + "\",\"id\":42,\"result\":{\"value\":true}}"
-        let chunks = SimulatorWebInspectorMessageChunker.chunks(
+        let chunks = SimulatorWebInspectorMessageChunker(maximumPayloadLength: 64 * 1024).chunks(
             sessionID: sessionID,
             messageID: UUID(),
-            payload: Data(raw.utf8),
-            maximumPayloadLength: 64 * 1024
+            payload: Data(raw.utf8)
         )
         for chunk in chunks { await client.emit(.message(.webInspectorMessage(chunk))) }
 
@@ -180,7 +179,7 @@ struct SimulatorWebInspectorCoordinatorTests {
     @Test("Closing the pane cancels an injected Web Inspector response deadline")
     func closeCancelsResponseDeadline() async {
         let client = SimulatorPaneClientSpy(devices: [])
-        let sleeper = BlockingProcessSleeper()
+        let sleeper = CancellableProcessSleeper()
         let coordinator = SimulatorPaneCoordinator(
             client: client,
             webInspectorSleeper: sleeper
@@ -234,23 +233,5 @@ struct SimulatorWebInspectorCoordinatorTests {
             await Task.yield()
         }
         Issue.record("Condition did not become true")
-    }
-}
-
-private actor BlockingProcessSleeper: SimulatorProcessSleeper {
-    private var started = false
-    private var cancelled = false
-
-    var hasStarted: Bool { started }
-    var wasCancelled: Bool { cancelled }
-
-    func sleep(for duration: Duration) async throws {
-        started = true
-        do {
-            try await ContinuousClock().sleep(for: .seconds(3_600))
-        } catch {
-            cancelled = true
-            throw error
-        }
     }
 }

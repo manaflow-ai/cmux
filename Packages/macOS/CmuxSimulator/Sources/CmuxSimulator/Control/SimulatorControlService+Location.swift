@@ -1,13 +1,14 @@
 import Foundation
 
 extension SimulatorControlService {
+    /// Sets one fixed simulated location.
     public func setLocation(deviceID: String, coordinate: SimulatorLocationCoordinate) async throws {
-        try Self.validate(coordinate)
+        try validate(coordinate)
         let token = beginLocationOperation(deviceID: deviceID)
         activeLocationRoutes.removeValue(forKey: deviceID)
         do {
             _ = try await output(arguments: [
-                "simctl", "location", deviceID, "set", Self.coordinateArgument(coordinate),
+                "simctl", "location", deviceID, "set", coordinateArgument(coordinate),
             ])
             guard locationRouteTokens[deviceID] == token else { return }
             locationRouteInitialCoordinates.removeValue(forKey: deviceID)
@@ -35,7 +36,7 @@ extension SimulatorControlService {
 
     /// Starts a route interpolated by CoreSimulator.
     public func startLocationRoute(deviceID: String, route: SimulatorLocationRoute) async throws {
-        try Self.validate(route: route, deviceID: deviceID)
+        try validate(route: route, deviceID: deviceID)
         guard let initialCoordinate = route.waypoints.first else { return }
         try await startLocationRoute(
             deviceID: deviceID,
@@ -67,7 +68,7 @@ extension SimulatorControlService {
         deviceID: String,
         route: SimulatorLocationRoute
     ) async throws {
-        try Self.validate(route: route, deviceID: deviceID)
+        try validate(route: route, deviceID: deviceID)
         var arguments = [
             "simctl", "location", deviceID, "start", "--speed=\(route.speed)",
         ]
@@ -76,7 +77,10 @@ extension SimulatorControlService {
                 throw SimulatorControlError(
                     code: "invalid_location_route",
                     arguments: arguments,
-                    message: "Location route update distance must be positive."
+                    message: String(
+                        localized: "simulator.control.locationDistanceInvalid",
+                        defaultValue: "Location route update distance must be positive."
+                    )
                 )
             }
             arguments.append("--distance=\(distance)")
@@ -86,12 +90,15 @@ extension SimulatorControlService {
                 throw SimulatorControlError(
                     code: "invalid_location_route",
                     arguments: arguments,
-                    message: "Location route update interval must be positive."
+                    message: String(
+                        localized: "simulator.control.locationIntervalInvalid",
+                        defaultValue: "Location route update interval must be positive."
+                    )
                 )
             }
             arguments.append("--interval=\(interval)")
         }
-        arguments += Self.commandWaypoints(for: route).map(Self.coordinateArgument)
+        arguments += commandWaypoints(for: route).map(coordinateArgument)
         _ = try await output(arguments: arguments)
     }
 
@@ -101,18 +108,21 @@ extension SimulatorControlService {
             throw SimulatorControlError(
                 code: "location_route_not_running",
                 arguments: ["simctl", "location", deviceID],
-                message: "cmux has no running location route for this device."
+                message: String(
+                    localized: "simulator.control.locationRouteNotRunning",
+                    defaultValue: "cmux has no running location route for this device."
+                )
             )
         }
         let elapsed = max(0, now().timeIntervalSince(startedAt))
-        let pausedRoute = Self.remainingRoute(route, after: elapsed)
+        let pausedRoute = remainingRoute(route, after: elapsed)
         let coordinate = pausedRoute.waypoints[0]
         let token = beginLocationOperation(deviceID: deviceID)
         activeLocationRoutes.removeValue(forKey: deviceID)
         do {
             _ = try await output(arguments: ["simctl", "location", deviceID, "clear"])
             _ = try await output(arguments: [
-                "simctl", "location", deviceID, "set", Self.coordinateArgument(coordinate),
+                "simctl", "location", deviceID, "set", coordinateArgument(coordinate),
             ])
         } catch {
             finishLocationOperation(deviceID: deviceID, token: token)
@@ -128,7 +138,10 @@ extension SimulatorControlService {
             throw SimulatorControlError(
                 code: "location_route_not_paused",
                 arguments: ["simctl", "location", deviceID],
-                message: "cmux has no paused location route for this device."
+                message: String(
+                    localized: "simulator.control.locationRouteNotPaused",
+                    defaultValue: "cmux has no paused location route for this device."
+                )
             )
         }
         let initialCoordinate = locationRouteInitialCoordinates[deviceID] ?? route.waypoints[0]
@@ -155,7 +168,7 @@ extension SimulatorControlService {
         do {
             _ = try await output(arguments: ["simctl", "location", deviceID, "clear"])
             _ = try await output(arguments: [
-                "simctl", "location", deviceID, "set", Self.coordinateArgument(initialCoordinate),
+                "simctl", "location", deviceID, "set", coordinateArgument(initialCoordinate),
             ])
         } catch {
             finishLocationOperation(deviceID: deviceID, token: token)
@@ -166,9 +179,7 @@ extension SimulatorControlService {
         finishLocationOperation(deviceID: deviceID, token: token)
     }
 
-    /// Delivers a JSON Apple Push Notification payload file.
-
-    static func validate(_ coordinate: SimulatorLocationCoordinate) throws {
+    func validate(_ coordinate: SimulatorLocationCoordinate) throws {
         guard coordinate.latitude.isFinite,
               coordinate.longitude.isFinite,
               (-90...90).contains(coordinate.latitude),
@@ -176,27 +187,33 @@ extension SimulatorControlService {
             throw SimulatorControlError(
                 code: "invalid_location",
                 arguments: [],
-                message: "Latitude must be from -90 through 90 and longitude from -180 through 180."
+                message: String(
+                    localized: "simulator.control.locationCoordinateInvalid",
+                    defaultValue: "Latitude must be from -90 through 90 and longitude from -180 through 180."
+                )
             )
         }
     }
 
-    static func validate(route: SimulatorLocationRoute, deviceID: String) throws {
+    func validate(route: SimulatorLocationRoute, deviceID: String) throws {
         guard route.waypoints.count >= 2, route.speed.isFinite, route.speed > 0 else {
             throw SimulatorControlError(
                 code: "invalid_location_route",
                 arguments: ["simctl", "location", deviceID, "start"],
-                message: "A location route needs at least two waypoints and a positive speed."
+                message: String(
+                    localized: "simulator.control.locationRouteInvalid",
+                    defaultValue: "A location route needs at least two waypoints and a positive speed."
+                )
             )
         }
         try route.waypoints.forEach(validate)
     }
 
-    static func coordinateArgument(_ coordinate: SimulatorLocationCoordinate) -> String {
+    func coordinateArgument(_ coordinate: SimulatorLocationCoordinate) -> String {
         "\(coordinate.latitude),\(coordinate.longitude)"
     }
 
-    static func remainingRoute(
+    func remainingRoute(
         _ route: SimulatorLocationRoute,
         after elapsed: TimeInterval
     ) -> SimulatorLocationRoute {
@@ -233,7 +250,7 @@ extension SimulatorControlService {
         )
     }
 
-    static func commandWaypoints(
+    func commandWaypoints(
         for route: SimulatorLocationRoute
     ) -> [SimulatorLocationCoordinate] {
         guard route.loops,
@@ -242,11 +259,11 @@ extension SimulatorControlService {
         return route.waypoints + [first]
     }
 
-    static func routeDuration(_ route: SimulatorLocationRoute) -> TimeInterval? {
+    func routeDuration(_ route: SimulatorLocationRoute) -> TimeInterval? {
         route.estimatedDuration
     }
 
-    static func remainingLoopingRoute(
+    func remainingLoopingRoute(
         _ route: SimulatorLocationRoute,
         after elapsed: TimeInterval
     ) -> SimulatorLocationRoute {
@@ -296,7 +313,7 @@ extension SimulatorControlService {
     ) {
         cancelLocationLifecycle(deviceID: deviceID)
         guard locationRouteTokens[deviceID] == token,
-              let duration = Self.routeDuration(route) else { return }
+              let duration = routeDuration(route) else { return }
         let routeSleep = routeSleep
         locationLifecycleTasks[deviceID] = Task { [weak self] in
             do {
@@ -370,7 +387,7 @@ extension SimulatorControlService {
         locationLifecycleTasks.removeValue(forKey: deviceID)?.cancel()
     }
 
-    static func distance(
+    func distance(
         from start: SimulatorLocationCoordinate,
         to end: SimulatorLocationCoordinate
     ) -> Double {

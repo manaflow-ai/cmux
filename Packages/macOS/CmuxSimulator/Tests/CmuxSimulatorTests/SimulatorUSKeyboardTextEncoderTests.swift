@@ -7,7 +7,7 @@ struct SimulatorUSKeyboardTextEncoderTests {
     @Test("ASCII mappings preserve order and balanced Shift phases")
     func fullMapping() throws {
         let source = "aA1!0)-_=+[]{}\\|;:'\"`~,<.>/? \n\t"
-        let sequence = try SimulatorUSKeyboardTextEncoder.encode(source)
+        let sequence = try SimulatorUSKeyboardTextEncoder().encode(source)
 
         #expect(sequence.characterCount == source.count)
         #expect(sequence.events.prefix(6) == [
@@ -34,7 +34,7 @@ struct SimulatorUSKeyboardTextEncoderTests {
     @Test("Every printable US ASCII character encodes")
     func printableASCII() throws {
         let source = String((0x20...0x7E).compactMap(Unicode.Scalar.init).map(Character.init))
-        let sequence = try SimulatorUSKeyboardTextEncoder.encode(source)
+        let sequence = try SimulatorUSKeyboardTextEncoder().encode(source)
         #expect(sequence.characterCount == 95)
     }
 
@@ -74,7 +74,7 @@ struct SimulatorUSKeyboardTextEncoderTests {
             value: 0x1F642,
             scalarIndex: 1
         )) {
-            try SimulatorUSKeyboardTextEncoder.encode("a🙂")
+            try SimulatorUSKeyboardTextEncoder().encode("a🙂")
         }
     }
 
@@ -85,14 +85,14 @@ struct SimulatorUSKeyboardTextEncoderTests {
             actualUTF8ByteCount: source.utf8.count,
             maximumUTF8ByteCount: SimulatorTextInputSequence.maximumUTF8ByteCount
         )) {
-            try SimulatorUSKeyboardTextEncoder.encode(source)
+            try SimulatorUSKeyboardTextEncoder().encode(source)
         }
     }
 
     @Test("Maximum input receives a bounded length-aware completion deadline")
     func maximumInputDeadline() throws {
         let source = String(repeating: "a", count: SimulatorTextInputSequence.maximumUTF8ByteCount)
-        let sequence = try SimulatorUSKeyboardTextEncoder.encode(source)
+        let sequence = try SimulatorUSKeyboardTextEncoder().encode(source)
         #expect(sequence.events.count == SimulatorTextInputSequence.maximumUTF8ByteCount * 2)
         #expect(sequence.completionTimeoutSeconds > 100)
         #expect(sequence.completionTimeoutSeconds <= 120)
@@ -104,11 +104,11 @@ struct SimulatorUSKeyboardTextEncoderTests {
             SimulatorKeyEvent(usage: 0x28, phase: .down),
             SimulatorKeyEvent(usage: 0x28, phase: .up),
         ]
-        let crlf = try SimulatorUSKeyboardTextEncoder.encode("\r\n")
+        let crlf = try SimulatorUSKeyboardTextEncoder().encode("\r\n")
         #expect(crlf.characterCount == 1)
         #expect(crlf.events == enter)
 
-        let lone = try SimulatorUSKeyboardTextEncoder.encode("a\rb")
+        let lone = try SimulatorUSKeyboardTextEncoder().encode("a\rb")
         #expect(lone.characterCount == 2)
         #expect(lone.events == [
             SimulatorKeyEvent(usage: 0x04, phase: .down),
@@ -117,7 +117,7 @@ struct SimulatorUSKeyboardTextEncoderTests {
             SimulatorKeyEvent(usage: 0x05, phase: .up),
         ])
 
-        let carriageReturnOnly = try SimulatorUSKeyboardTextEncoder.encode("\r")
+        let carriageReturnOnly = try SimulatorUSKeyboardTextEncoder().encode("\r")
         #expect(carriageReturnOnly.characterCount == 0)
         #expect(carriageReturnOnly.events.isEmpty)
     }
@@ -142,7 +142,7 @@ struct SimulatorUSKeyboardTextEncoderTests {
         usage: UInt32,
         shifted: Bool
     ) throws {
-        let events = try SimulatorUSKeyboardTextEncoder.encode(String(character)).events
+        let events = try SimulatorUSKeyboardTextEncoder().encode(String(character)).events
         if shifted {
             #expect(events == [
                 SimulatorKeyEvent(usage: 0xE1, phase: .down),

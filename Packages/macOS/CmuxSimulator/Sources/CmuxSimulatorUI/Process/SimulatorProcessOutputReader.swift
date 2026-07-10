@@ -1,7 +1,7 @@
 import Darwin
 import Foundation
 
-final class SimulatorProcessOutputReader: @unchecked Sendable {
+final class SimulatorProcessOutputReader: Sendable {
     private let descriptor: Int32
 
     init(fileDescriptor: Int32) {

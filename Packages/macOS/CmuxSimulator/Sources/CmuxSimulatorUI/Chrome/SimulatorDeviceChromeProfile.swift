@@ -2,43 +2,8 @@ import CmuxSimulator
 import Foundation
 
 struct SimulatorDeviceChromeProfile: Equatable, Sendable {
-    struct Insets: Equatable, Sendable {
-        let top: Double
-        let leading: Double
-        let bottom: Double
-        let trailing: Double
-
-        static let zero = Insets(top: 0, leading: 0, bottom: 0, trailing: 0)
-    }
-
-    struct Button: Equatable, Sendable {
-        struct Offset: Equatable, Sendable {
-            let x: Double
-            let y: Double
-        }
-
-        let name: String
-        let rect: SimulatorRect
-        let imageURL: URL?
-        let imageDownURL: URL?
-        let onTop: Bool
-        let normalOffset: Offset
-        let rolloverOffset: Offset
-        let usagePage: UInt32?
-        let usage: UInt32?
-
-        var hidUsage: SimulatorHIDButtonUsage? {
-            guard let usagePage, let usage else { return nil }
-            return SimulatorHIDButtonUsage(page: usagePage, usage: usage)
-        }
-
-        var rolloverTranslation: SimulatorInputDelta {
-            SimulatorInputDelta(
-                x: rolloverOffset.x - normalOffset.x,
-                y: normalOffset.y - rolloverOffset.y
-            )
-        }
-    }
+    typealias Insets = SimulatorDeviceChromeInsets
+    typealias Button = SimulatorDeviceChromeButton
 
     let screenWidth: Double
     let screenHeight: Double

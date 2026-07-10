@@ -105,11 +105,14 @@ struct SimulatorInputStateMachineTests {
             anchor: anchor
         )
 
-        #expect(messages == [.scrollWheel(SimulatorScrollWheelEvent(
-            anchor: anchor,
-            deltaX: 0,
-            deltaY: 0.05
-        ))])
+        guard case let .scrollWheel(event)? = messages.first else {
+            Issue.record("Expected one worker-timed wheel event")
+            return
+        }
+        #expect(messages.count == 1)
+        #expect(event.anchor == anchor)
+        #expect(event.deltaX == 0)
+        #expect(abs(event.deltaY - 0.05) < 0.000_001)
     }
 
     @Test("Scroll begins under the pointer anchor")
@@ -167,11 +170,11 @@ struct SimulatorInputStateMachineTests {
 
     @Test("Display edges are classified for system gestures")
     func edgeClassification() {
-        #expect(SimulatorInputStateMachine.edge(at: SimulatorPoint(x: 0, y: 0.5)) == .left)
-        #expect(SimulatorInputStateMachine.edge(at: SimulatorPoint(x: 1, y: 0.5)) == .right)
-        #expect(SimulatorInputStateMachine.edge(at: SimulatorPoint(x: 0.5, y: 0)) == .top)
-        #expect(SimulatorInputStateMachine.edge(at: SimulatorPoint(x: 0.5, y: 1)) == .bottom)
-        #expect(SimulatorInputStateMachine.edge(at: SimulatorPoint(x: 0.5, y: 0.5)) == .none)
+        #expect(simulatorEdge(at: SimulatorPoint(x: 0, y: 0.5)) == .left)
+        #expect(simulatorEdge(at: SimulatorPoint(x: 1, y: 0.5)) == .right)
+        #expect(simulatorEdge(at: SimulatorPoint(x: 0.5, y: 0)) == .top)
+        #expect(simulatorEdge(at: SimulatorPoint(x: 0.5, y: 1)) == .bottom)
+        #expect(simulatorEdge(at: SimulatorPoint(x: 0.5, y: 0.5)) == .none)
     }
 
     @Test("Raw portrait landscape input maps touches, pinch, edges, and scroll movement")
@@ -213,14 +216,14 @@ struct SimulatorInputStateMachineTests {
     func dragCoordinatesClamp() {
         let rect = CGRect(x: 20, y: 30, width: 400, height: 800)
 
-        let point = SimulatorRemoteSurfaceView.normalizedPoint(
+        let point = normalizedSimulatorPoint(
             location: CGPoint(x: -100, y: 1_000),
             displayRect: rect,
             clamped: true
         )
 
         #expect(point == SimulatorPoint(x: 0, y: 0))
-        #expect(SimulatorRemoteSurfaceView.normalizedPoint(
+        #expect(normalizedSimulatorPoint(
             location: CGPoint(x: -100, y: 1_000),
             displayRect: rect,
             clamped: false

@@ -3,11 +3,19 @@ import Foundation
 
 /// A deterministic camera control-region name shared by the worker and its
 /// supervising host. The host can unlink the name after an abrupt worker exit.
-package enum SimulatorCameraSharedMemory {
-    package static func name(
+package struct SimulatorCameraSharedMemory: Sendable {
+    private let deviceIdentifier: String
+    private let processIdentifier: Int32
+
+    package init(
         deviceIdentifier: String,
         processIdentifier: Int32
-    ) -> String {
+    ) {
+        self.deviceIdentifier = deviceIdentifier
+        self.processIdentifier = processIdentifier
+    }
+
+    package var name: String {
         let identity = "\(deviceIdentifier.lowercased())\u{0}\(processIdentifier)"
         var hash: UInt64 = 0xcbf29ce484222325
         for byte in identity.utf8 {
@@ -18,13 +26,7 @@ package enum SimulatorCameraSharedMemory {
     }
 
     @discardableResult
-    package static func unlink(
-        deviceIdentifier: String,
-        processIdentifier: Int32
-    ) -> Bool {
-        Darwin.shm_unlink(name(
-            deviceIdentifier: deviceIdentifier,
-            processIdentifier: processIdentifier
-        )) == 0
+    package func unlink() -> Bool {
+        Darwin.shm_unlink(name) == 0
     }
 }

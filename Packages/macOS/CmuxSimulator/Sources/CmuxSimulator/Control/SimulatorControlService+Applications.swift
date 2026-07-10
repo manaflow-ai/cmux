@@ -1,6 +1,7 @@
 import Foundation
 
 extension SimulatorControlService {
+    /// Lists installed user and system applications.
     public func listApplications(deviceID: String) async throws -> [SimulatorInstalledApplication] {
         let arguments = ["simctl", "listapps", deviceID]
         let data = try await output(arguments: arguments)
@@ -11,14 +12,23 @@ extension SimulatorControlService {
             throw SimulatorControlError(
                 code: "invalid_application_list",
                 arguments: arguments,
-                message: "Xcode returned an unreadable installed-application list: \(error)"
+                message: String.localizedStringWithFormat(
+                    String(
+                        localized: "simulator.control.applicationListUnreadable",
+                        defaultValue: "Xcode returned an unreadable installed-application list: %@"
+                    ),
+                    String(describing: error)
+                )
             )
         }
         guard let records = value as? [String: [String: Any]] else {
             throw SimulatorControlError(
                 code: "invalid_application_list",
                 arguments: arguments,
-                message: "Xcode returned an unexpected installed-application list."
+                message: String(
+                    localized: "simulator.control.applicationListUnexpected",
+                    defaultValue: "Xcode returned an unexpected installed-application list."
+                )
             )
         }
         return records.map { bundleIdentifier, record in
@@ -55,34 +65,47 @@ extension SimulatorControlService {
         arguments += [deviceID, bundleIdentifier]
         arguments += configuration.arguments
 
-        let data: Data
-        if configuration.environment.isEmpty {
-            data = try await output(arguments: arguments)
-        } else {
-            let invalidKey = configuration.environment.keys.first { !Self.isValidEnvironmentKey($0) }
-            if let invalidKey {
-                throw SimulatorControlError(
-                    code: "invalid_environment_key",
-                    arguments: arguments,
-                    message: "The application environment key '\(invalidKey)' is invalid."
+        let invalidKey = configuration.environment.keys.first { !isValidEnvironmentKey($0) }
+        if let invalidKey {
+            throw SimulatorControlError(
+                code: "invalid_environment_key",
+                arguments: arguments,
+                message: String(
+                    localized: "simulator.control.environmentKeyInvalid",
+                    defaultValue: "The application environment key '\(invalidKey)' is invalid."
                 )
-            }
-            let environment = configuration.environment
-                .sorted { $0.key < $1.key }
-                .map { "SIMCTL_CHILD_\($0.key)=\($0.value)" }
-            data = try await output(
-                executable: "/usr/bin/env",
-                arguments: environment + ["/usr/bin/xcrun"] + arguments
             )
         }
-
-        let output = String(decoding: data, as: UTF8.self)
-        return output.split(whereSeparator: { !$0.isNumber }).last.flatMap { Int32($0) }
+        let environment = configuration.environment
+            .sorted { $0.key < $1.key }
+            .map { "SIMCTL_CHILD_\($0.key)=\($0.value)" }
+        return try await mutationGate.withLocks([
+            .application(deviceIdentifier: deviceID, bundleIdentifier: bundleIdentifier),
+        ]) {
+            let data: Data
+            if environment.isEmpty {
+                data = try await output(arguments: arguments)
+            } else {
+                data = try await output(
+                    executable: "/usr/bin/env",
+                    arguments: environment + ["/usr/bin/xcrun"] + arguments
+                )
+            }
+            let commandOutput = String(decoding: data, as: UTF8.self)
+            return commandOutput.split(whereSeparator: { !$0.isNumber })
+                .last.flatMap { Int32($0) }
+        }
     }
 
     /// Terminates a running application by bundle identifier.
     public func terminateApplication(deviceID: String, bundleIdentifier: String) async throws {
-        _ = try await output(arguments: ["simctl", "terminate", deviceID, bundleIdentifier])
+        try await mutationGate.withLocks([
+            .application(deviceIdentifier: deviceID, bundleIdentifier: bundleIdentifier),
+        ]) {
+            _ = try await output(arguments: [
+                "simctl", "terminate", deviceID, bundleIdentifier,
+            ])
+        }
     }
 
     /// Opens a URL through the selected simulated operating system.
@@ -133,9 +156,9 @@ extension SimulatorControlService {
                 )
             )
         }
-        let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-simulator-paste-\(UUID().uuidString)")
-        let created = FileManager.default.createFile(
+        let url = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-simulator-paste-\(makeUUID().uuidString)")
+        let created = fileManager.createFile(
             atPath: url.path,
             contents: Data(text.utf8),
             attributes: [.posixPermissions: 0o600]
@@ -144,10 +167,13 @@ extension SimulatorControlService {
             throw SimulatorControlError(
                 code: "clipboard_staging_failed",
                 arguments: arguments,
-                message: "cmux could not create a private clipboard staging file."
+                message: String(
+                    localized: "simulator.control.clipboardStagingFailed",
+                    defaultValue: "cmux could not create a private clipboard staging file."
+                )
             )
         }
-        defer { try? FileManager.default.removeItem(at: url) }
+        defer { try? fileManager.removeItem(at: url) }
 
         let shellSource = "exec /usr/bin/xcrun simctl pbcopy \"$1\" < \"$2\""
         _ = try await output(
@@ -162,8 +188,7 @@ extension SimulatorControlService {
         _ = try await output(arguments: ["simctl", "pbsync", "host", deviceID])
     }
 
-    /// Sets one fixed simulated location.
-
+    /// Delivers a JSON Apple Push Notification payload file.
     public func sendPushNotification(
         deviceID: String,
         bundleIdentifier: String,
@@ -174,9 +199,7 @@ extension SimulatorControlService {
         ])
     }
 
-    /// Changes one application privacy service through `simctl privacy`.
-
-    static func isValidEnvironmentKey(_ key: String) -> Bool {
+    func isValidEnvironmentKey(_ key: String) -> Bool {
         guard let first = key.unicodeScalars.first,
               CharacterSet.letters.union(CharacterSet(charactersIn: "_")).contains(first) else {
             return false

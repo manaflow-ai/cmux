@@ -1,10 +1,6 @@
 import AppKit
 import CmuxSimulator
 
-enum SimulatorKeyEquivalentAction: Equatable {
-    case messages([SimulatorWorkerInbound])
-}
-
 struct SimulatorKeyEquivalentTranslator {
     private let keyMapper: SimulatorHIDKeyMapper
 
@@ -14,21 +10,22 @@ struct SimulatorKeyEquivalentTranslator {
 
     func action(
         keyCode: UInt16,
-        modifierFlags: NSEvent.ModifierFlags
+        modifierFlags: NSEvent.ModifierFlags,
+        heldUsages: Set<UInt32> = []
     ) -> SimulatorKeyEquivalentAction? {
         let flags = modifierFlags.intersection(.deviceIndependentFlagsMask)
         guard flags.contains(.command) else { return nil }
         guard let usage = keyMapper.usage(for: keyCode) else { return nil }
-        let modifiers = modifierUsages(flags)
-        var messages = modifiers.map {
-            SimulatorWorkerInbound.key(SimulatorKeyEvent(usage: $0, phase: .down))
+        let modifiers = modifierUsages(flags).filter { !heldUsages.contains($0) }
+        var events = modifiers.map {
+            SimulatorKeyEvent(usage: $0, phase: .down)
         }
-        messages.append(.key(SimulatorKeyEvent(usage: usage, phase: .down)))
-        messages.append(.key(SimulatorKeyEvent(usage: usage, phase: .up)))
-        messages.append(contentsOf: modifiers.reversed().map {
-            SimulatorWorkerInbound.key(SimulatorKeyEvent(usage: $0, phase: .up))
+        events.append(SimulatorKeyEvent(usage: usage, phase: .down))
+        events.append(SimulatorKeyEvent(usage: usage, phase: .up))
+        events.append(contentsOf: modifiers.reversed().map {
+            SimulatorKeyEvent(usage: $0, phase: .up)
         })
-        return .messages(messages)
+        return .messages([.keySequence(events)])
     }
 
     private func modifierUsages(_ flags: NSEvent.ModifierFlags) -> [UInt32] {

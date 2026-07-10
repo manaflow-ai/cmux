@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import Testing
 @testable import CmuxSimulatorWorker
@@ -137,6 +138,17 @@ struct SimulatorPrivatePrivacyAdapterTests {
         holder.standardInput = holderInput
         holder.standardOutput = holderOutput
         holder.standardError = FileHandle.nullDevice
+        for handle in [
+            holderInput.fileHandleForReading,
+            holderInput.fileHandleForWriting,
+            holderOutput.fileHandleForReading,
+            holderOutput.fileHandleForWriting,
+        ] {
+            let descriptor = handle.fileDescriptor
+            let flags = fcntl(descriptor, F_GETFD)
+            #expect(flags >= 0)
+            #expect(fcntl(descriptor, F_SETFD, flags | FD_CLOEXEC) == 0)
+        }
         try holder.run()
         defer {
             try? holderInput.fileHandleForWriting.close()

@@ -34,68 +34,13 @@ public enum SimulatorInterfaceSetting: Codable, Hashable, Sendable {
     }
 
     /// A supported appearance value.
-    public enum Appearance: String, Codable, CaseIterable, Hashable, Sendable {
-        /// Light system appearance.
-        case light
-        /// Dark system appearance.
-        case dark
-    }
-
+    public typealias Appearance = SimulatorInterfaceAppearance
     /// A Dynamic Type category accepted by `simctl ui content_size`.
-    public enum ContentSize: String, Codable, CaseIterable, Hashable, Sendable {
-        /// Extra-small text.
-        case extraSmall = "extra-small"
-        /// Small text.
-        case small
-        /// Medium text.
-        case medium
-        /// Large text.
-        case large
-        /// Extra-large text.
-        case extraLarge = "extra-large"
-        /// Extra-extra-large text.
-        case extraExtraLarge = "extra-extra-large"
-        /// Extra-extra-extra-large text.
-        case extraExtraExtraLarge = "extra-extra-extra-large"
-        /// Accessibility medium text.
-        case accessibilityMedium = "accessibility-medium"
-        /// Accessibility large text.
-        case accessibilityLarge = "accessibility-large"
-        /// Accessibility extra-large text.
-        case accessibilityExtraLarge = "accessibility-extra-large"
-        /// Accessibility extra-extra-large text.
-        case accessibilityExtraExtraLarge = "accessibility-extra-extra-large"
-        /// Accessibility extra-extra-extra-large text.
-        case accessibilityExtraExtraExtraLarge = "accessibility-extra-extra-extra-large"
-    }
-
+    public typealias ContentSize = SimulatorInterfaceContentSize
     /// A relative Dynamic Type adjustment accepted by `simctl ui content_size`.
-    public enum ContentSizeAdjustment: String, Codable, CaseIterable, Hashable, Sendable {
-        /// Advance to the next larger Dynamic Type category.
-        case increment
-        /// Move to the next smaller Dynamic Type category.
-        case decrement
-    }
-
+    public typealias ContentSizeAdjustment = SimulatorInterfaceContentSizeAdjustment
     /// A Liquid Glass legibility style.
-    public enum LiquidGlass: String, Codable, CaseIterable, Hashable, Sendable {
-        /// Clear glass.
-        case clear
-        /// Tinted glass with stronger contrast.
-        case tinted
-    }
-
+    public typealias LiquidGlass = SimulatorInterfaceLiquidGlass
     /// A system display color filter.
-    public enum ColorFilter: String, Codable, CaseIterable, Hashable, Sendable {
-        /// Disable color filtering.
-        case none
-        /// Grayscale.
-        case grayscale
-        /// Protanopia compensation.
-        case redGreen = "red-green"
-        /// Deuteranopia compensation.
-        case greenRed = "green-red"
-        /// Tritanopia compensation.
-        case blueYellow = "blue-yellow"
-    }
+    public typealias ColorFilter = SimulatorInterfaceColorFilter
 }

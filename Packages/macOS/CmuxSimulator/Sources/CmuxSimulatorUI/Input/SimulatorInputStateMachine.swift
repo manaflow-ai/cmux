@@ -1,13 +1,7 @@
 import CmuxSimulator
 
 struct SimulatorInputStateMachine {
-    enum ScrollPhase {
-        case began
-        case changed
-        case ended
-        case cancelled
-        case discrete
-    }
+    typealias ScrollPhase = SimulatorScrollPhase
 
     private(set) var activePointer: SimulatorPoint?
     private(set) var activeEdge: SimulatorEdge = .none
@@ -30,7 +24,7 @@ struct SimulatorInputStateMachine {
         var messages = releasePointerIfNeeded()
         messages.append(contentsOf: releaseScrollIfNeeded())
         activePointer = point
-        activeEdge = Self.edge(at: point)
+        activeEdge = simulatorEdge(at: point)
         usesSecondaryTouch = optionPinch
         secondaryTouchOffset = optionPinch && parallelPan
             ? SimulatorInputDelta(x: 1 - (2 * point.x), y: 1 - (2 * point.y))
@@ -75,15 +69,15 @@ struct SimulatorInputStateMachine {
         guard activePointer == nil else { return [] }
         switch phase {
         case .discrete:
-            var messages = releaseScrollIfNeeded()
             let origin = clampedScrollAnchor(anchor)
             let destination = scrolledPoint(from: origin, deltaX: deltaX, deltaY: deltaY)
-            messages.append(contentsOf: [
-                scrollPointer(.began, at: origin),
-                scrollPointer(.moved, at: destination),
-                scrollPointer(.ended, at: destination),
-            ])
-            return messages
+            let rawOrigin = rawScrollPoint(origin)
+            let rawDestination = rawScrollPoint(destination)
+            return [.scrollWheel(SimulatorScrollWheelEvent(
+                anchor: rawOrigin,
+                deltaX: rawDestination.x - rawOrigin.x,
+                deltaY: rawDestination.y - rawOrigin.y
+            ))]
         case .began:
             var messages = releaseScrollIfNeeded()
             let origin = clampedScrollAnchor(anchor)
@@ -136,14 +130,6 @@ struct SimulatorInputStateMachine {
         heldKeys.removeAll(keepingCapacity: true)
         messages.append(.releaseInputs)
         return messages
-    }
-
-    static func edge(at point: SimulatorPoint, threshold: Double = 0.035) -> SimulatorEdge {
-        if point.x <= threshold { return .left }
-        if point.x >= 1 - threshold { return .right }
-        if point.y <= threshold { return .top }
-        if point.y >= 1 - threshold { return .bottom }
-        return .none
     }
 
     private func pointer(_ phase: SimulatorTouchPhase, at point: SimulatorPoint) -> SimulatorWorkerInbound {
@@ -226,5 +212,18 @@ struct SimulatorInputStateMachine {
         return .pointer(orientationGeometry?.rawPointerEvent(event) ?? event)
     }
 
+    private func rawScrollPoint(_ point: SimulatorPoint) -> SimulatorPoint {
+        let event = SimulatorPointerEvent(phase: .moved, primary: point)
+        return orientationGeometry?.rawPointerEvent(event).primary ?? point
+    }
+
     private static let scrollEdgeMargin = 0.08
+}
+
+func simulatorEdge(at point: SimulatorPoint, threshold: Double = 0.035) -> SimulatorEdge {
+    if point.x <= threshold { return .left }
+    if point.x >= 1 - threshold { return .right }
+    if point.y <= threshold { return .top }
+    if point.y >= 1 - threshold { return .bottom }
+    return .none
 }

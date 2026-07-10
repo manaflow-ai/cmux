@@ -21,19 +21,19 @@ struct SimulatorNotificationPrivacyTools: View {
             }
             HStack {
                 Button(simulatorStrings.grant) { apply(.grant) }
-                    .disabled(!Self.actionIsEnabled(
+                    .disabled(!simulatorPrivacyActionIsEnabled(
                         .grant,
                         service: service,
                         bundleIdentifier: bundleIdentifier
                     ))
                 Button(simulatorStrings.revoke) { apply(.revoke) }
-                    .disabled(!Self.actionIsEnabled(
+                    .disabled(!simulatorPrivacyActionIsEnabled(
                         .revoke,
                         service: service,
                         bundleIdentifier: bundleIdentifier
                     ))
                 Button(simulatorStrings.reset) { apply(.reset) }
-                    .disabled(!Self.actionIsEnabled(
+                    .disabled(!simulatorPrivacyActionIsEnabled(
                         .reset,
                         service: service,
                         bundleIdentifier: bundleIdentifier
@@ -69,7 +69,11 @@ struct SimulatorNotificationPrivacyTools: View {
 
     private func apply(_ action: SimulatorPrivacyAction) {
         let target = bundleIdentifier.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard Self.actionIsEnabled(action, service: service, bundleIdentifier: target) else { return }
+        guard simulatorPrivacyActionIsEnabled(
+            action,
+            service: service,
+            bundleIdentifier: target
+        ) else { return }
         Task {
             await coordinator.setPrivacy(
                 action,
@@ -80,32 +84,32 @@ struct SimulatorNotificationPrivacyTools: View {
     }
 
     private func adoptForegroundBundleIfEmpty(_ foregroundBundleIdentifier: String?) {
-        bundleIdentifier = Self.bundleIdentifier(
+        bundleIdentifier = simulatorPrivacyBundleIdentifier(
             current: bundleIdentifier,
             foreground: foregroundBundleIdentifier
         )
     }
+}
 
-    nonisolated static func actionIsEnabled(
-        _ action: SimulatorPrivacyAction,
-        service: SimulatorPrivacyService,
-        bundleIdentifier: String
-    ) -> Bool {
-        guard !bundleIdentifier.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            return false
-        }
-        return switch action {
-        case .grant, .revoke:
-            service != .all
-        case .reset:
-            true
-        }
+func simulatorPrivacyActionIsEnabled(
+    _ action: SimulatorPrivacyAction,
+    service: SimulatorPrivacyService,
+    bundleIdentifier: String
+) -> Bool {
+    guard !bundleIdentifier.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        return false
     }
+    return switch action {
+    case .grant, .revoke:
+        service != .all
+    case .reset:
+        true
+    }
+}
 
-    nonisolated static func bundleIdentifier(current: String, foreground: String?) -> String {
-        guard current.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              let foreground = foreground?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !foreground.isEmpty else { return current }
-        return foreground
-    }
+func simulatorPrivacyBundleIdentifier(current: String, foreground: String?) -> String {
+    guard current.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+          let foreground = foreground?.trimmingCharacters(in: .whitespacesAndNewlines),
+          !foreground.isEmpty else { return current }
+    return foreground
 }

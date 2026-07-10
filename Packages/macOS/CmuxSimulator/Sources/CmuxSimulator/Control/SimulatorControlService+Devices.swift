@@ -1,6 +1,7 @@
 import Foundation
 
 extension SimulatorControlService {
+    /// Discovers installed Simulator devices with normalized runtime metadata.
     public func discoverDevices() async throws -> [SimulatorDevice] {
         let deviceData = try await output(arguments: ["simctl", "list", "devices", "--json"])
         let runtimeData = try await output(arguments: ["simctl", "list", "runtimes", "--json"])
@@ -15,14 +16,20 @@ extension SimulatorControlService {
             throw SimulatorControlError(
                 code: "invalid_simctl_json",
                 arguments: ["simctl", "list"],
-                message: "Xcode returned an unreadable Simulator device list: \(error)"
+                message: String.localizedStringWithFormat(
+                    String(
+                        localized: "simulator.control.deviceListUnreadable",
+                        defaultValue: "Xcode returned an unreadable Simulator device list: %@"
+                    ),
+                    String(describing: error)
+                )
             )
         }
 
         var preferredRuntimes: [String: RuntimeRecord] = [:]
         for runtime in runtimeList.runtimes {
             if let existing = preferredRuntimes[runtime.identifier],
-               !Self.prefers(runtime, over: existing) {
+               !prefers(runtime, over: existing) {
                 continue
             }
             preferredRuntimes[runtime.identifier] = runtime
@@ -41,16 +48,16 @@ extension SimulatorControlService {
                     id: record.udid,
                     name: record.name,
                     runtimeIdentifier: runtimeIdentifier,
-                    runtimeName: runtimeNames[runtimeIdentifier] ?? Self.runtimeName(from: runtimeIdentifier),
+                    runtimeName: runtimeNames[runtimeIdentifier] ?? runtimeName(from: runtimeIdentifier),
                     deviceTypeIdentifier: record.deviceTypeIdentifier,
-                    family: Self.family(
+                    family: family(
                         productFamily: productFamilies[record.deviceTypeIdentifier],
                         name: record.name,
                         deviceTypeIdentifier: record.deviceTypeIdentifier
                     ),
                     state: SimulatorDeviceState(simctlState: record.state),
                     isAvailable: record.isAvailable ?? true,
-                    lastBootedAt: record.lastBootedAt.flatMap(Self.parseDate)
+                    lastBootedAt: record.lastBootedAt.flatMap(parseDate)
                 )
             }
         }
@@ -60,10 +67,10 @@ extension SimulatorControlService {
     public func boot(deviceID: String) async throws {
         let arguments = ["simctl", "boot", deviceID]
         let result = await run(arguments: arguments)
-        if Self.succeeded(result) || Self.diagnostic(for: result).localizedCaseInsensitiveContains("current state: Booted") {
+        if succeeded(result) || diagnostic(for: result).localizedCaseInsensitiveContains("current state: Booted") {
             return
         }
-        throw Self.failure(result: result, arguments: arguments)
+        throw failure(result: result, arguments: arguments)
     }
 
     /// Waits for device boot and data migration to finish.
@@ -78,21 +85,19 @@ extension SimulatorControlService {
     public func shutdown(deviceID: String) async throws {
         let arguments = ["simctl", "shutdown", deviceID]
         let result = await run(arguments: arguments)
-        if Self.succeeded(result) || Self.diagnostic(for: result).localizedCaseInsensitiveContains("current state: Shutdown") {
+        if succeeded(result) || diagnostic(for: result).localizedCaseInsensitiveContains("current state: Shutdown") {
             return
         }
-        throw Self.failure(result: result, arguments: arguments)
+        throw failure(result: result, arguments: arguments)
     }
 
-    /// Lists installed user and system applications.
-
-    static func parseDate(_ value: String) -> Date? {
+    func parseDate(_ value: String) -> Date? {
         let fractional = ISO8601DateFormatter()
         fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return fractional.date(from: value) ?? ISO8601DateFormatter().date(from: value)
     }
 
-    static func runtimeName(from identifier: String) -> String {
+    func runtimeName(from identifier: String) -> String {
         let marker = ".SimRuntime."
         let suffix = identifier.components(separatedBy: marker).last ?? identifier
         let pieces = suffix.split(separator: "-")
@@ -100,7 +105,7 @@ extension SimulatorControlService {
         return "\(pieces[0]) \(pieces.dropFirst().joined(separator: "."))"
     }
 
-    static func family(
+    func family(
         productFamily: String?,
         name: String,
         deviceTypeIdentifier: String
@@ -114,7 +119,7 @@ extension SimulatorControlService {
         return .unknown
     }
 
-    static func prefers(_ candidate: RuntimeRecord, over existing: RuntimeRecord) -> Bool {
+    func prefers(_ candidate: RuntimeRecord, over existing: RuntimeRecord) -> Bool {
         let candidateAvailable = candidate.isAvailable ?? true
         let existingAvailable = existing.isAvailable ?? true
         if candidateAvailable != existingAvailable {
@@ -125,34 +130,4 @@ extension SimulatorControlService {
         return candidateVersion.compare(existingVersion, options: .numeric) == .orderedDescending
     }
 
-
-struct DeviceListResponse: Decodable {
-    let devices: [String: [DeviceRecord]]
-}
-
-struct DeviceRecord: Decodable {
-    let udid: String
-    let name: String
-    let state: String
-    let isAvailable: Bool?
-    let deviceTypeIdentifier: String
-    let lastBootedAt: String?
-}
-
-struct RuntimeListResponse: Decodable {
-    let runtimes: [RuntimeRecord]
-}
-
-struct RuntimeRecord: Decodable {
-    let identifier: String
-    let name: String
-    let version: String?
-    let isAvailable: Bool?
-    let supportedDeviceTypes: [RuntimeDeviceType]?
-}
-
-struct RuntimeDeviceType: Decodable {
-    let identifier: String
-    let productFamily: String
-}
 }

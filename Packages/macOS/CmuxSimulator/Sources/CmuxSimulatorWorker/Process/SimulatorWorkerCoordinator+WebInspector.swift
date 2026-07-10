@@ -4,7 +4,8 @@ import Foundation
 extension SimulatorWorkerCoordinator {
     func requestWebInspectorTargets(
         requestIdentifier: UUID,
-        deviceIdentifier: String
+        deviceIdentifier: String,
+        operationGeneration: UUID
     ) async {
         do {
             guard currentDeviceIdentifier == deviceIdentifier else {
@@ -15,6 +16,7 @@ extension SimulatorWorkerCoordinator {
             let targets = try await webInspector.refreshTargets(
                 deviceIdentifier: deviceIdentifier
             )
+            guard toolOperationIsCurrent(operationGeneration) else { return }
             send(.webInspectorTargets(requestID: requestIdentifier, targets))
             emitAction(
                 "web_inspector_targets",
@@ -22,8 +24,16 @@ extension SimulatorWorkerCoordinator {
                 succeeded: true
             )
         } catch {
+            guard toolOperationIsCurrent(operationGeneration) else { return }
             reportWebInspector(error)
-            send(.webInspectorTargets(requestID: requestIdentifier, []))
+            send(.requestFailure(
+                requestID: requestIdentifier,
+                SimulatorFailure(
+                    code: "web_inspector_failed",
+                    message: error.localizedDescription,
+                    isRecoverable: true
+                )
+            ))
             emitAction(
                 "web_inspector_targets",
                 summary: error.localizedDescription,
@@ -32,12 +42,18 @@ extension SimulatorWorkerCoordinator {
         }
     }
 
-    func attachWebInspector(requestIdentifier: UUID, targetIdentifier: String) async {
+    func attachWebInspector(
+        requestIdentifier: UUID,
+        targetIdentifier: String,
+        operationGeneration: UUID
+    ) async {
         do {
             let status = try await webInspector.attach(targetIdentifier: targetIdentifier)
+            guard toolOperationIsCurrent(operationGeneration) else { return }
             send(.webInspectorSession(requestID: requestIdentifier, status))
             emitAction("web_inspector_attach", summary: targetIdentifier, succeeded: true)
         } catch {
+            guard toolOperationIsCurrent(operationGeneration) else { return }
             reportWebInspector(error)
             send(.webInspectorSession(requestID: requestIdentifier, .detached))
             emitAction(
@@ -48,15 +64,34 @@ extension SimulatorWorkerCoordinator {
         }
     }
 
-    func releaseWebInspector(requestIdentifier: UUID) {
-        webInspector.releaseSession()
-        send(.webInspectorSession(requestID: requestIdentifier, .detached))
-        emitAction("web_inspector_release", summary: "detached", succeeded: true)
+    func releaseWebInspector(
+        requestIdentifier: UUID,
+        operationGeneration: UUID
+    ) async {
+        do {
+            try await webInspector.releaseSession()
+            guard toolOperationIsCurrent(operationGeneration) else { return }
+            send(.webInspectorSession(requestID: requestIdentifier, .detached))
+            emitAction("web_inspector_release", summary: "detached", succeeded: true)
+        } catch {
+            guard toolOperationIsCurrent(operationGeneration) else { return }
+            reportWebInspector(error)
+            emitAction(
+                "web_inspector_release",
+                summary: error.localizedDescription,
+                succeeded: false
+            )
+        }
     }
 
-    func setWebInspectorHighlight(requestIdentifier: UUID, enabled: Bool) async {
+    func setWebInspectorHighlight(
+        requestIdentifier: UUID,
+        enabled: Bool,
+        operationGeneration: UUID
+    ) async {
         do {
             try await webInspector.setHighlight(enabled: enabled)
+            guard toolOperationIsCurrent(operationGeneration) else { return }
             send(.webInspectorHighlight(requestID: requestIdentifier, succeeded: true))
             emitAction(
                 "web_inspector_highlight",
@@ -64,6 +99,7 @@ extension SimulatorWorkerCoordinator {
                 succeeded: true
             )
         } catch {
+            guard toolOperationIsCurrent(operationGeneration) else { return }
             reportWebInspector(error)
             send(.webInspectorHighlight(requestID: requestIdentifier, succeeded: false))
             emitAction(
@@ -74,12 +110,18 @@ extension SimulatorWorkerCoordinator {
         }
     }
 
-    func sendWebInspectorMessage(requestIdentifier: UUID, json: String) {
+    func sendWebInspectorMessage(
+        requestIdentifier: UUID,
+        json: String,
+        operationGeneration: UUID
+    ) async {
         do {
-            try webInspector.sendMessage(json)
+            try await webInspector.sendMessage(json)
+            guard toolOperationIsCurrent(operationGeneration) else { return }
             send(.webInspectorCommand(requestID: requestIdentifier, accepted: true))
             emitAction("web_inspector_command", summary: "json", succeeded: true)
         } catch {
+            guard toolOperationIsCurrent(operationGeneration) else { return }
             reportWebInspector(error)
             send(.webInspectorCommand(requestID: requestIdentifier, accepted: false))
             emitAction(

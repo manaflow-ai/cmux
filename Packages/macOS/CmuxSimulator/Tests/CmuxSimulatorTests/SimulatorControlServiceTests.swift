@@ -116,7 +116,7 @@ struct SimulatorControlServiceTests {
         #expect(arguments.suffix(4) == [
             "0.0,0.0", "0.0,0.01", "0.01,0.01", "0.0,0.0",
         ])
-        let remaining = SimulatorControlService.remainingRoute(route, after: 120)
+        let remaining = await service.remainingRoute(route, after: 120)
         #expect(remaining.loops)
         #expect(remaining.waypoints.count == 4)
         #expect(remaining.waypoints.first != route.waypoints.first)

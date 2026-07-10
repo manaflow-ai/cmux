@@ -6,6 +6,8 @@ struct SimulatorCameraCleanupSnapshot: Sendable {
 }
 
 extension SimulatorWorkerClient {
+    nonisolated static let cameraCleanupWaitTimeout: Duration = .seconds(3)
+
     func cameraCleanupSnapshot() -> SimulatorCameraCleanupSnapshot {
         SimulatorCameraCleanupSnapshot(
             deviceIdentifier: Self.attachedDeviceIdentifier(from: lastAttachment),
@@ -32,12 +34,15 @@ extension SimulatorWorkerClient {
         cameraCleanupRevision &+= 1
         let previous = cameraCleanupTask
         let simulatorControl = self.simulatorControl
+        let permit = cameraCleanupPermit
         cameraCleanupTask = Task {
             await previous?.value
+            guard !Task.isCancelled, await permit.allowsMutation() else { return }
             await Self.cleanCameraInjections(
                 deviceIdentifier: deviceIdentifier,
                 bundleIdentifiers: snapshot.bundleIdentifiers,
-                simulatorControl: simulatorControl
+                simulatorControl: simulatorControl,
+                permit: permit
             )
         }
     }
@@ -45,28 +50,56 @@ extension SimulatorWorkerClient {
     func waitForCameraCleanup() async {
         while let task = cameraCleanupTask {
             let revision = cameraCleanupRevision
-            await task.value
-            if revision == cameraCleanupRevision { return }
+            let outcome = await SimulatorCameraCleanupWaitState().wait(
+                for: task,
+                timeout: Self.cameraCleanupWaitTimeout,
+                sleeper: sleeper
+            )
+            switch outcome {
+            case .completed:
+                if revision == cameraCleanupRevision { return }
+            case .timedOut, .cancelled:
+                task.cancel()
+                cameraCleanupTask?.cancel()
+                await cameraCleanupPermit.cancel()
+                cameraCleanupPermit = SimulatorCameraCleanupPermit()
+                cameraCleanupTask = nil
+                cameraCleanupRevision &+= 1
+                return
+            }
         }
     }
 
     nonisolated static func cleanCameraInjections(
         deviceIdentifier: String,
         bundleIdentifiers: [String],
-        simulatorControl: any SimulatorControlling
+        simulatorControl: any SimulatorControlling,
+        permit: SimulatorCameraCleanupPermit? = nil
     ) async {
         for bundleIdentifier in bundleIdentifiers {
-            _ = try? await simulatorControl.perform(.terminateApplication(
-                deviceID: deviceIdentifier,
-                bundleIdentifier: bundleIdentifier
-            ))
-            _ = try? await simulatorControl.perform(.launchApplication(
-                deviceID: deviceIdentifier,
-                bundleIdentifier: bundleIdentifier,
-                configuration: SimulatorLaunchConfiguration(
-                    terminateRunningProcess: true
-                )
-            ))
+            guard !Task.isCancelled,
+                  await permit?.allowsMutation() != false else { return }
+            do {
+                _ = try await simulatorControl.perform(.terminateApplication(
+                    deviceID: deviceIdentifier,
+                    bundleIdentifier: bundleIdentifier
+                ))
+            } catch is CancellationError {
+                return
+            } catch {}
+            guard !Task.isCancelled,
+                  await permit?.allowsMutation() != false else { return }
+            do {
+                _ = try await simulatorControl.perform(.launchApplication(
+                    deviceID: deviceIdentifier,
+                    bundleIdentifier: bundleIdentifier,
+                    configuration: SimulatorLaunchConfiguration(
+                        terminateRunningProcess: true
+                    )
+                ))
+            } catch is CancellationError {
+                return
+            } catch {}
         }
     }
 
@@ -84,9 +117,9 @@ extension SimulatorWorkerClient {
         guard let deviceIdentifier,
               let processIdentifier = connection.processIdentifier,
               processIdentifier > 1 else { return }
-        SimulatorCameraSharedMemory.unlink(
+        SimulatorCameraSharedMemory(
             deviceIdentifier: deviceIdentifier,
             processIdentifier: processIdentifier
-        )
+        ).unlink()
     }
 }

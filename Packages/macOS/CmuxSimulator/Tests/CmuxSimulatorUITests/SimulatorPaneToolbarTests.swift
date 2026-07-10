@@ -11,17 +11,17 @@ struct SimulatorPaneToolbarTests {
         let unique = device(id: "C", name: "iPad Pro", runtime: "iOS 26.5", state: .shutdown)
         let devices = [current, older, unique]
 
-        #expect(SimulatorPaneToolbar.deviceRowLabel(
+        #expect(simulatorDeviceRowLabel(
             current,
             among: devices,
             localizedState: "Booted"
         ) == "iPhone 17 Pro · iOS 26.5 · Booted")
-        #expect(SimulatorPaneToolbar.deviceRowLabel(
+        #expect(simulatorDeviceRowLabel(
             older,
             among: devices,
             localizedState: "Shut Down"
         ) == "iPhone 17 Pro · iOS 18.6 · Shut Down")
-        #expect(SimulatorPaneToolbar.deviceRowLabel(
+        #expect(simulatorDeviceRowLabel(
             unique,
             among: devices,
             localizedState: "Shut Down"

@@ -21,6 +21,7 @@ public struct SimulatorWebInspectorTarget: Codable, Equatable, Hashable, Identif
     /// Whether another inspector connection currently owns the page.
     public let isInUse: Bool
 
+    /// Creates one inspectable application page description.
     public init(
         id: String,
         applicationIdentifier: String,

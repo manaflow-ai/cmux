@@ -38,3 +38,15 @@ public struct SimulatorAccessibilityNode: Codable, Equatable, Identifiable, Send
         self.children = children
     }
 }
+
+extension SimulatorAccessibilityNode {
+    var subtreeNodeCount: Int {
+        var count = 0
+        var pending = [self]
+        while let node = pending.popLast() {
+            count += 1
+            pending.append(contentsOf: node.children)
+        }
+        return count
+    }
+}

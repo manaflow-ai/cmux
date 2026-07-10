@@ -5,11 +5,6 @@ import ObjectiveC.runtime
 import QuartzCore
 
 @MainActor
-public protocol SimulatorInputResponder: AnyObject {
-    var simulatorOwnerID: ObjectIdentifier? { get }
-}
-
-@MainActor
 final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
     var simulatorOwnerID: ObjectIdentifier?
     var onMessage: ((SimulatorWorkerInbound) -> Void)?
@@ -18,6 +13,8 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
 
     var hostedLayer: CALayer?
     private var hostedContextID: UInt32?
+    private let remoteLayerFactory: @MainActor (UInt32) -> CALayer?
+    private var isTornDown = false
     var display: SimulatorDisplayMetadata?
     var chrome: SimulatorDeviceChromeProfile?
     private var input = SimulatorInputStateMachine()
@@ -29,7 +26,20 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
     var pendingFocusGeneration: UInt64?
 
     override init(frame frameRect: NSRect) {
+        remoteLayerFactory = Self.makeRemoteLayer
         super.init(frame: frameRect)
+        configureLayerBacking()
+    }
+
+    init(
+        remoteLayerFactory: @escaping @MainActor (UInt32) -> CALayer?
+    ) {
+        self.remoteLayerFactory = remoteLayerFactory
+        super.init(frame: .zero)
+        configureLayerBacking()
+    }
+
+    private func configureLayerBacking() {
         wantsLayer = true
         layer?.backgroundColor = NSColor.black.cgColor
         layer?.masksToBounds = true
@@ -37,6 +47,7 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) {
+        remoteLayerFactory = Self.makeRemoteLayer
         return nil
     }
 
@@ -49,6 +60,7 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
         display: SimulatorDisplayMetadata,
         chrome: SimulatorDeviceChromeProfile?
     ) {
+        guard !isTornDown else { return }
         let previousGeometry = self.display.map(SimulatorOrientationGeometry.init(display:))
         let geometry = SimulatorOrientationGeometry(display: display)
         if let previousGeometry, previousGeometry != geometry || self.chrome != chrome {
@@ -66,11 +78,14 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
     }
 
     func teardown() {
+        isTornDown = true
         cancelInputs()
         NotificationCenter.default.removeObserver(self)
         hostedLayer?.removeFromSuperlayer()
         hostedLayer = nil
         hostedContextID = nil
+        display = nil
+        chrome = nil
         onMessage = nil
         onGeometry = nil
         onRequestPanelFocus = nil
@@ -220,7 +235,8 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
         guard event.type == .keyDown,
               let action = simulatorKeyEquivalentTranslator.action(
                   keyCode: event.keyCode,
-                  modifierFlags: event.modifierFlags
+                  modifierFlags: event.modifierFlags,
+                  heldUsages: input.heldKeys
               ) else {
             return super.performKeyEquivalent(with: event)
         }
@@ -292,9 +308,18 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
     }
 
     private func adopt(contextID: UInt32) {
+        guard !isTornDown else { return }
         hostedLayer?.removeFromSuperlayer()
         hostedLayer = nil
         hostedContextID = nil
+        guard let remoteLayer = remoteLayerFactory(contextID) else { return }
+        layer?.addSublayer(remoteLayer)
+        hostedLayer = remoteLayer
+        hostedContextID = contextID
+        layoutHostedLayer()
+    }
+
+    private static func makeRemoteLayer(contextID: UInt32) -> CALayer? {
         let setter = NSSelectorFromString("setContextId:")
         guard let hostClass = NSClassFromString("CALayerHost") as? CALayer.Type,
               let method = class_getInstanceMethod(hostClass, setter),
@@ -303,7 +328,7 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
               let selectorType = method_copyArgumentType(method, 1),
               let contextType = method_copyArgumentType(method, 2)
         else {
-            return
+            return nil
         }
         let returnType = method_copyReturnType(method)
         defer {
@@ -316,38 +341,22 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
               String(cString: receiverType) == "@",
               String(cString: selectorType) == ":",
               String(cString: contextType) == "I"
-        else { return }
+        else { return nil }
 
         let remoteLayer = hostClass.init()
-        typealias Setter = @convention(c) (AnyObject, Selector, UInt32) -> Void
-        unsafeBitCast(method_getImplementation(method), to: Setter.self)(
-            remoteLayer,
-            setter,
-            contextID
-        )
-        layer?.addSublayer(remoteLayer)
-        hostedLayer = remoteLayer
-        hostedContextID = contextID
-        layoutHostedLayer()
+        guard SimulatorRemoteLayerContextSetter().set(
+            contextID: contextID,
+            on: remoteLayer
+        ) else { return nil }
+        return remoteLayer
     }
 
     private func normalizedPoint(for event: NSEvent, clamped: Bool = false) -> SimulatorPoint? {
         let location = convert(event.locationInWindow, from: nil)
-        return Self.normalizedPoint(location: location, displayRect: displayRect, clamped: clamped)
-    }
-
-    static func normalizedPoint(
-        location: CGPoint,
-        displayRect rect: CGRect,
-        clamped: Bool
-    ) -> SimulatorPoint? {
-        guard rect.width > 0, rect.height > 0 else { return nil }
-        if !clamped, !rect.contains(location) { return nil }
-        let x = min(max((location.x - rect.minX) / rect.width, 0), 1)
-        let y = min(max(1 - ((location.y - rect.minY) / rect.height), 0), 1)
-        return SimulatorPoint(
-            x: x,
-            y: y
+        return normalizedSimulatorPoint(
+            location: location,
+            displayRect: displayRect,
+            clamped: clamped
         )
     }
 
@@ -459,4 +468,16 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
     @objc private func windowWillClose(_ notification: Notification) {
         cancelInputs()
     }
+}
+
+func normalizedSimulatorPoint(
+    location: CGPoint,
+    displayRect rect: CGRect,
+    clamped: Bool
+) -> SimulatorPoint? {
+    guard rect.width > 0, rect.height > 0 else { return nil }
+    if !clamped, !rect.contains(location) { return nil }
+    let x = min(max((location.x - rect.minX) / rect.width, 0), 1)
+    let y = min(max(1 - ((location.y - rect.minY) / rect.height), 0), 1)
+    return SimulatorPoint(x: x, y: y)
 }

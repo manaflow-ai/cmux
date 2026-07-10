@@ -286,10 +286,10 @@ final class SimulatorCameraSurfaceRing: @unchecked Sendable {
         deviceIdentifier: String,
         processIdentifier: Int32
     ) -> String {
-        SimulatorCameraSharedMemory.name(
+        SimulatorCameraSharedMemory(
             deviceIdentifier: deviceIdentifier,
             processIdentifier: processIdentifier
-        )
+        ).name
     }
 
     private static func errnoDescription(operation: String) -> String {

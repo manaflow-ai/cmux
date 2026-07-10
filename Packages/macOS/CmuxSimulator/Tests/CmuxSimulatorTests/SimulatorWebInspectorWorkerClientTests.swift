@@ -20,11 +20,15 @@ struct SimulatorWebInspectorWorkerClientTests {
         var iterator = events.makeAsyncIterator()
         await client.send(.attach(udid: "DEVICE", geometry: nil))
         let endpoint = try #require(launcher.endpoint(at: 0))
+        endpoint.emit(.status(.streaming))
         endpoint.emit(.capabilities([.webInspector]))
+        _ = await iterator.next()
         _ = await iterator.next()
         let target = Self.target()
         endpoint.setResponder { message in
             switch message {
+            case let .ping(sequence):
+                .ack(sequence)
             case let .requestWebInspectorTargets(requestID, _):
                 .webInspectorTargets(requestID: requestID, [target])
             case let .attachWebInspector(requestID, _):
@@ -40,6 +44,7 @@ struct SimulatorWebInspectorWorkerClientTests {
                 nil
             }
         }
+        endpoint.acknowledgeRecordedPings()
 
         #expect(try await client.perform(.refreshWebInspectorTargets(deviceID: "DEVICE"))
             == .webInspectorTargets([target]))

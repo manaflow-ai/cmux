@@ -8037,7 +8037,7 @@ struct CMUXCLI {
         case "new-pane":
             if let type = optionValue(rest, name: "--type")?.lowercased() {
                 guard ["terminal", "browser", "simulator"].contains(type) else {
-                    throw CLIError(message: "Usage: cmux canvas new-pane [--type terminal|browser|simulator]")
+                    throw CLIError(message: String(localized: "cli.canvas.error.newPaneTypeUsage", defaultValue: "Usage: cmux canvas new-pane [--type terminal|browser|simulator]"))
                 }
                 params["type"] = type
             }

@@ -21,7 +21,7 @@ struct SimulatorFramebufferOrientationState: Equatable, Sendable {
         nativeRawValue: UInt32?,
         nativeValueIsAuthoritative: Bool = false
     ) -> SimulatorOrientation {
-        let nativeOrientation = nativeRawValue.flatMap(Self.nativeOrientation(rawValue:))
+        let nativeOrientation = nativeRawValue.flatMap(simulatorNativeOrientation(rawValue:))
 
         if let requestedOrientation {
             if let nativeOrientation,
@@ -32,8 +32,8 @@ struct SimulatorFramebufferOrientationState: Equatable, Sendable {
             }
 
             if nativeOrientation == nil,
-               let landscapeShape = Self.landscapeShape(width: width, height: height),
-               landscapeShape == Self.isLandscape(requestedOrientation) {
+               let landscapeShape = simulatorLandscapeShape(width: width, height: height),
+               landscapeShape == simulatorOrientationIsLandscape(requestedOrientation) {
                 self.requestedOrientation = nil
             }
             orientation = requestedOrientation
@@ -45,11 +45,11 @@ struct SimulatorFramebufferOrientationState: Equatable, Sendable {
             return nativeOrientation
         }
 
-        guard let landscapeShape = Self.landscapeShape(width: width, height: height) else {
+        guard let landscapeShape = simulatorLandscapeShape(width: width, height: height) else {
             return orientation ?? .portrait
         }
         if let orientation,
-           Self.isLandscape(orientation) == landscapeShape {
+           simulatorOrientationIsLandscape(orientation) == landscapeShape {
             return orientation
         }
 
@@ -58,26 +58,27 @@ struct SimulatorFramebufferOrientationState: Equatable, Sendable {
         return inferred
     }
 
-    /// Maps SimulatorKit's `SimScreenUIOrientation` values without importing its private type.
-    static func nativeOrientation(rawValue: UInt32) -> SimulatorOrientation? {
-        switch rawValue {
-        case 1: .portrait
-        case 2: .portraitUpsideDown
-        case 3: .landscapeRight
-        case 4: .landscapeLeft
-        default: nil
-        }
-    }
+}
 
-    private static func landscapeShape(width: Int, height: Int) -> Bool? {
-        guard width > 0, height > 0, width != height else { return nil }
-        return width > height
+/// Maps SimulatorKit's `SimScreenUIOrientation` values without importing its private type.
+func simulatorNativeOrientation(rawValue: UInt32) -> SimulatorOrientation? {
+    switch rawValue {
+    case 1: .portrait
+    case 2: .portraitUpsideDown
+    case 3: .landscapeRight
+    case 4: .landscapeLeft
+    default: nil
     }
+}
 
-    private static func isLandscape(_ orientation: SimulatorOrientation) -> Bool {
-        switch orientation {
-        case .portrait, .portraitUpsideDown: false
-        case .landscapeLeft, .landscapeRight: true
-        }
+private func simulatorLandscapeShape(width: Int, height: Int) -> Bool? {
+    guard width > 0, height > 0, width != height else { return nil }
+    return width > height
+}
+
+private func simulatorOrientationIsLandscape(_ orientation: SimulatorOrientation) -> Bool {
+    switch orientation {
+    case .portrait, .portraitUpsideDown: false
+    case .landscapeLeft, .landscapeRight: true
     }
 }

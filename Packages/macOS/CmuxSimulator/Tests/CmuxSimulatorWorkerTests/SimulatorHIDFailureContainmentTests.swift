@@ -128,7 +128,7 @@ struct SimulatorHIDFailureContainmentTests {
     @Test("Long repeated text preserves every HID event before the local drain")
     @MainActor
     func longRepeatedTextTransmission() async throws {
-        let sequence = try SimulatorUSKeyboardTextEncoder.encode(
+        let sequence = try SimulatorUSKeyboardTextEncoder().encode(
             String(repeating: "Ab9!", count: 128)
         )
         let script = HIDSendScript(outcomes: Array(
@@ -149,65 +149,5 @@ struct SimulatorHIDFailureContainmentTests {
         #expect(drain.count == 1)
         #expect(sleeper.durations.count == sequence.events.count + 1)
         #expect(sleeper.durations.last == .milliseconds(50))
-    }
-}
-
-private struct ImmediateHIDSleeper: SimulatorHIDSleeping {
-    func sleep(for duration: Duration) async throws {}
-}
-
-private final class RecordingHIDSleeper: SimulatorHIDSleeping, @unchecked Sendable {
-    private let lock = NSLock()
-    private let throwOnCall: Int?
-    private var recordedDurations: [Duration] = []
-
-    init(throwOnCall: Int? = nil) {
-        self.throwOnCall = throwOnCall
-    }
-
-    var durations: [Duration] {
-        lock.withLock { recordedDurations }
-    }
-
-    func sleep(for duration: Duration) async throws {
-        let call = lock.withLock { () -> Int in
-            recordedDurations.append(duration)
-            return recordedDurations.count
-        }
-        if call == throwOnCall { throw CancellationError() }
-    }
-}
-
-@MainActor
-private final class HIDSendScript {
-    private var outcomes: [Bool]
-    private(set) var keyEvents: [SimulatorKeyEvent] = []
-    private(set) var buttonDirections: [Bool] = []
-
-    init(outcomes: [Bool]) {
-        self.outcomes = outcomes
-    }
-
-    func send(key event: SimulatorKeyEvent) -> Bool {
-        keyEvents.append(event)
-        return nextOutcome()
-    }
-
-    func send(button: SimulatorConvenienceButton, down: Bool) -> Bool {
-        buttonDirections.append(down)
-        return nextOutcome()
-    }
-
-    private func nextOutcome() -> Bool {
-        outcomes.isEmpty ? false : outcomes.removeFirst()
-    }
-}
-
-@MainActor
-private final class TransmissionDrainProbe {
-    private(set) var count = 0
-
-    func record() {
-        count += 1
     }
 }

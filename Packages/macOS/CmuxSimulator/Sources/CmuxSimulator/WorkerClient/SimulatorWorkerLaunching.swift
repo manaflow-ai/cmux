@@ -130,7 +130,7 @@ final class SimulatorWorkerProcessBox: @unchecked Sendable {
     private let terminationObservationTimeout: TimeInterval
     private let terminationGrace: Duration
     private let sleeper: any SimulatorWorkerSleeping
-    private let hostProcessGroupIdentifier = getpgrp()
+    private let workerProcessGroup = SimulatorWorkerProcessGroup()
     private var stopped = false
     private var terminationRequested = false
     private var terminationRecord: TerminationRecord?
@@ -164,10 +164,9 @@ final class SimulatorWorkerProcessBox: @unchecked Sendable {
             return self.processIdentifier
         }
         if let processIdentifier {
-            _ = SimulatorWorkerProcessGroup.signal(
+            _ = workerProcessGroup.signal(
                 SIGKILL,
-                groupIdentifier: processIdentifier,
-                hostGroupIdentifier: hostProcessGroupIdentifier
+                groupIdentifier: processIdentifier
             )
             if process.isRunning, process.processIdentifier == processIdentifier {
                 _ = Darwin.kill(processIdentifier, SIGKILL)
@@ -196,10 +195,9 @@ final class SimulatorWorkerProcessBox: @unchecked Sendable {
             return true
         }
         if shouldCleanExitedGroup {
-            _ = SimulatorWorkerProcessGroup.signal(
+            _ = workerProcessGroup.signal(
                 SIGKILL,
-                groupIdentifier: processIdentifier,
-                hostGroupIdentifier: hostProcessGroupIdentifier
+                groupIdentifier: processIdentifier
             )
         }
     }
@@ -250,10 +248,9 @@ final class SimulatorWorkerProcessBox: @unchecked Sendable {
                 completeForceKillDeadline()
             }
             forceKillTask = task
-            let signalledGroup = SimulatorWorkerProcessGroup.signal(
+            let signalledGroup = workerProcessGroup.signal(
                 SIGTERM,
-                groupIdentifier: processIdentifier,
-                hostGroupIdentifier: hostProcessGroupIdentifier
+                groupIdentifier: processIdentifier
             )
             if !signalledGroup { process.terminate() }
         }
@@ -301,10 +298,9 @@ final class SimulatorWorkerProcessBox: @unchecked Sendable {
             return (killGroup, killProcess)
         }
         if actions.killGroup {
-            _ = SimulatorWorkerProcessGroup.signal(
+            _ = workerProcessGroup.signal(
                 SIGKILL,
-                groupIdentifier: processIdentifier,
-                hostGroupIdentifier: hostProcessGroupIdentifier
+                groupIdentifier: processIdentifier
             )
         }
         if actions.killProcess {
@@ -338,10 +334,9 @@ final class SimulatorWorkerProcessBox: @unchecked Sendable {
         }
         cleanup.0?.cancel()
         if let groupIdentifier = cleanup.1 {
-            _ = SimulatorWorkerProcessGroup.signal(
+            _ = workerProcessGroup.signal(
                 SIGKILL,
-                groupIdentifier: groupIdentifier,
-                hostGroupIdentifier: hostProcessGroupIdentifier
+                groupIdentifier: groupIdentifier
             )
         }
     }

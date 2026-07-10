@@ -7,13 +7,16 @@ import Foundation
 struct SimulatorPrivatePrivacyAdapter: Sendable {
     let subprocessRunner: SimulatorSubprocessRunner
     let sqliteBusyTimeoutMilliseconds: Int
+    let mutationGate: SimulatorMutationGate
 
     init(
         subprocessRunner: SimulatorSubprocessRunner = SimulatorSubprocessRunner(),
-        sqliteBusyTimeoutMilliseconds: Int = 5_000
+        sqliteBusyTimeoutMilliseconds: Int = 5_000,
+        mutationGate: SimulatorMutationGate = SimulatorMutationGate()
     ) {
         self.subprocessRunner = subprocessRunner
         self.sqliteBusyTimeoutMilliseconds = max(0, sqliteBusyTimeoutMilliseconds)
+        self.mutationGate = mutationGate
     }
 
     var isAvailable: Bool {
@@ -38,20 +41,31 @@ struct SimulatorPrivatePrivacyAdapter: Sendable {
                     "The private permission adapter only supports reset for the all service."
                 )
             }
-            for value in [
-                SimulatorPrivacyService.camera,
-                SimulatorPrivacyService.photosLimited,
-                .notifications,
-                .speech,
-                .faceID,
-                .userTracking,
-                .homeKit,
-            ] {
-                try await set(
+            try await mutationGate.withLocks([
+                .tcc(deviceIdentifier: deviceIdentifier),
+                .store(deviceIdentifier: deviceIdentifier, name: "BulletinBoard"),
+            ]) {
+                for value in [
+                    SimulatorPrivacyService.camera,
+                    .photosLimited,
+                    .speech,
+                    .faceID,
+                    .userTracking,
+                    .homeKit,
+                ] {
+                    try await setTCC(
+                        deviceIdentifier: deviceIdentifier,
+                        bundleIdentifier: bundleIdentifier,
+                        action: .reset,
+                        service: value
+                    )
+                }
+                try await mutateNotifications(
                     deviceIdentifier: deviceIdentifier,
+                    bundleIdentifier: bundleIdentifier,
                     action: .reset,
-                    service: value,
-                    bundleIdentifier: bundleIdentifier
+                    critical: false,
+                    blob: nil
                 )
             }
             return
@@ -66,12 +80,14 @@ struct SimulatorPrivatePrivacyAdapter: Sendable {
                 critical: service == .criticalNotifications
             )
         case .camera, .photosLimited, .speech, .faceID, .userTracking, .homeKit:
-            try await setTCC(
-                deviceIdentifier: deviceIdentifier,
-                bundleIdentifier: bundleIdentifier,
-                action: action,
-                service: service
-            )
+            try await mutationGate.withLocks([.tcc(deviceIdentifier: deviceIdentifier)]) {
+                try await setTCC(
+                    deviceIdentifier: deviceIdentifier,
+                    bundleIdentifier: bundleIdentifier,
+                    action: action,
+                    service: service
+                )
+            }
         default:
             throw SimulatorWorkerFailure.privateAPIUnavailable(
                 "\(service.rawValue) belongs to public simctl privacy, not the isolated adapter."
@@ -79,112 +95,41 @@ struct SimulatorPrivatePrivacyAdapter: Sendable {
         }
     }
 
-    func snapshot(
-        deviceIdentifier: String,
-        bundleIdentifier: String?
-    ) async -> SimulatorPrivacySnapshot {
-        var authorizations = Self.emptyAuthorizations()
-        guard Self.isSafeIdentifier(deviceIdentifier),
-              bundleIdentifier.map(Self.isSafeIdentifier) ?? true
-        else {
-            return SimulatorPrivacySnapshot(
-                deviceID: deviceIdentifier,
-                bundleIdentifier: bundleIdentifier,
-                authorizations: authorizations
-            )
-        }
-
-        let databaseURL = simulatorLibrary(deviceIdentifier: deviceIdentifier)
-            .appendingPathComponent("TCC/TCC.db")
-        let locationEntries = Self.locationEntries(deviceIdentifier: deviceIdentifier)
-        let notificationSections = Self.notificationSections(deviceIdentifier: deviceIdentifier)
-
-        if let bundleIdentifier {
-            if FileManager.default.isReadableFile(atPath: databaseURL.path),
-               let rows = try? await readTCCRows(
-                   databaseURL: databaseURL,
-                   bundleIdentifier: bundleIdentifier
-               ) {
-                Self.applyTCCRows(rows, to: &authorizations)
-            }
-            Self.applyLocation(
-                bundleIdentifier: bundleIdentifier,
-                entries: locationEntries,
-                to: &authorizations
-            )
-            Self.applyNotifications(
-                bundleIdentifier: bundleIdentifier,
-                sections: notificationSections,
-                to: &authorizations
-            )
-            return SimulatorPrivacySnapshot(
-                deviceID: deviceIdentifier,
-                bundleIdentifier: bundleIdentifier,
-                authorizations: authorizations
-            )
-        }
-
-        let tccReadback: SimulatorTCCApplicationReadback? = if FileManager.default
-            .isReadableFile(atPath: databaseURL.path) {
-            try? await readTCCApplicationRows(databaseURL: databaseURL)
-        } else { nil }
-        let tccRows = Dictionary(
-            uniqueKeysWithValues: (tccReadback?.applications ?? []).map {
-                ($0.bundleIdentifier, $0.services)
-            }
-        )
-        var bundleIdentifiers = Set(tccRows.keys)
-        bundleIdentifiers.formUnion(Self.locationBundleIdentifiers(in: locationEntries))
-        bundleIdentifiers.formUnion(Self.notificationBundleIdentifiers(in: notificationSections))
-        let sortedBundleIdentifiers = bundleIdentifiers.sorted()
-        let selectedBundleIdentifiers = sortedBundleIdentifiers.prefix(
-            Self.maximumUnfilteredApplications
-        )
-        let applications = selectedBundleIdentifiers.map { bundleIdentifier in
-            var applicationAuthorizations = Self.emptyAuthorizations()
-            Self.applyTCCRows(
-                tccRows[bundleIdentifier] ?? [:],
-                to: &applicationAuthorizations
-            )
-            Self.applyLocation(
-                bundleIdentifier: bundleIdentifier,
-                entries: locationEntries,
-                to: &applicationAuthorizations
-            )
-            Self.applyNotifications(
-                bundleIdentifier: bundleIdentifier,
-                sections: notificationSections,
-                to: &applicationAuthorizations
-            )
-            return SimulatorPrivacyApplicationSnapshot(
-                bundleIdentifier: bundleIdentifier,
-                authorizations: applicationAuthorizations
-            )
-        }
-        return SimulatorPrivacySnapshot(
-            deviceID: deviceIdentifier,
-            bundleIdentifier: nil,
-            authorizations: authorizations,
-            applications: applications,
-            isTruncated: tccReadback?.isTruncated == true
-                || sortedBundleIdentifiers.count > Self.maximumUnfilteredApplications
-        )
-    }
-
-    private static func emptyAuthorizations()
-        -> [SimulatorPrivacyService: SimulatorPrivacyAuthorization] {
-        Dictionary(
-            uniqueKeysWithValues: SimulatorPrivacyService.allCases
-                .filter { $0 != .all }
-                .map { ($0, SimulatorPrivacyAuthorization.unknown) }
-        )
-    }
-
     private func setNotifications(
         deviceIdentifier: String,
         bundleIdentifier: String,
         action: SimulatorPrivacyAction,
         critical: Bool
+    ) async throws {
+        let prepared = try await prepareNotificationBlob(
+            bundleIdentifier: bundleIdentifier,
+            action: action,
+            critical: critical
+        )
+        defer {
+            if let temporaryDirectory = prepared?.temporaryDirectory {
+                try? FileManager.default.removeItem(at: temporaryDirectory)
+            }
+        }
+        try await mutationGate.withLocks([
+            .store(deviceIdentifier: deviceIdentifier, name: "BulletinBoard"),
+        ]) {
+            try await mutateNotifications(
+                deviceIdentifier: deviceIdentifier,
+                bundleIdentifier: bundleIdentifier,
+                action: action,
+                critical: critical,
+                blob: prepared?.blob
+            )
+        }
+    }
+
+    private func mutateNotifications(
+        deviceIdentifier: String,
+        bundleIdentifier: String,
+        action: SimulatorPrivacyAction,
+        critical: Bool,
+        blob: URL?
     ) async throws {
         let destination = simulatorLibrary(deviceIdentifier: deviceIdentifier)
             .appendingPathComponent("BulletinBoard/VersionedSectionInfo.plist")
@@ -194,15 +139,6 @@ struct SimulatorPrivatePrivacyAdapter: Sendable {
                 "The Simulator BulletinBoard store is unavailable; wait for SpringBoard to finish booting."
             )
         }
-
-        let temporaryDirectory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-simulator-permission-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(
-            at: temporaryDirectory,
-            withIntermediateDirectories: true
-        )
-        let blob = temporaryDirectory.appendingPathComponent("section-info.plist")
-        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
 
         _ = try? await run(
             executable: "/usr/bin/chflags",
@@ -215,28 +151,11 @@ struct SimulatorPrivatePrivacyAdapter: Sendable {
                 allowsFailure: true
             )
             if action != .reset {
-                guard let data = Data(base64Encoded: Self.notificationTemplateBase64) else {
+                guard let blob else {
                     throw SimulatorWorkerFailure.privateAPIUnavailable(
-                        "The bundled notification permission template is invalid."
+                        "The prepared notification permission template is unavailable."
                     )
                 }
-                try data.write(to: blob, options: .atomic)
-                let enabled = action == .grant
-                try await plistBuddy(
-                    commands: [
-                        "Set :$objects:2 \(bundleIdentifier)",
-                        "Set :$objects:3:allowsNotifications \(enabled ? "true" : "false")",
-                        "Add :$objects:3:criticalAlertSetting integer " +
-                            "\(enabled && critical ? 2 : 0)",
-                        "Set :$objects:5 \(bundleIdentifier)",
-                        "Save",
-                    ],
-                    file: blob
-                )
-                try await runExpectingSuccess(
-                    executable: "/usr/bin/plutil",
-                    arguments: ["-convert", "binary1", blob.path]
-                )
                 try await plistBuddy(
                     commands: ["Import :sectionInfo:\(bundleIdentifier) \(blob.path)", "Save"],
                     file: destination
@@ -251,6 +170,50 @@ struct SimulatorPrivatePrivacyAdapter: Sendable {
             throw error
         }
         await restoreBulletinBoardFlags(destination)
+    }
+
+    private func prepareNotificationBlob(
+        bundleIdentifier: String,
+        action: SimulatorPrivacyAction,
+        critical: Bool
+    ) async throws -> (temporaryDirectory: URL, blob: URL)? {
+        guard action != .reset else { return nil }
+        guard let data = Data(base64Encoded: Self.notificationTemplateBase64) else {
+            throw SimulatorWorkerFailure.privateAPIUnavailable(
+                "The bundled notification permission template is invalid."
+            )
+        }
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-simulator-permission-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(
+            at: temporaryDirectory,
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700]
+        )
+        let blob = temporaryDirectory.appendingPathComponent("section-info.plist")
+        do {
+            try data.write(to: blob, options: .atomic)
+            let enabled = action == .grant
+            try await plistBuddy(
+                commands: [
+                    "Set :$objects:2 \(bundleIdentifier)",
+                    "Set :$objects:3:allowsNotifications \(enabled ? "true" : "false")",
+                    "Add :$objects:3:criticalAlertSetting integer " +
+                        "\(enabled && critical ? 2 : 0)",
+                    "Set :$objects:5 \(bundleIdentifier)",
+                    "Save",
+                ],
+                file: blob
+            )
+            try await runExpectingSuccess(
+                executable: "/usr/bin/plutil",
+                arguments: ["-convert", "binary1", blob.path]
+            )
+        } catch {
+            try? FileManager.default.removeItem(at: temporaryDirectory)
+            throw error
+        }
+        return (temporaryDirectory, blob)
     }
 
     private func restoreBulletinBoardFlags(_ url: URL) async {
@@ -313,116 +276,6 @@ struct SimulatorPrivatePrivacyAdapter: Sendable {
             .appendingPathComponent("Library/Developer/CoreSimulator/Devices")
             .appendingPathComponent(deviceIdentifier)
             .appendingPathComponent("data/Library")
-    }
-
-    private static func locationEntries(
-        deviceIdentifier: String
-    ) -> [String: Any]? {
-        let path = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Developer/CoreSimulator/Devices")
-            .appendingPathComponent(deviceIdentifier)
-            .appendingPathComponent("data/Library/Caches/locationd/clients.plist")
-        guard let data = try? Data(contentsOf: path) else { return nil }
-        return try? PropertyListSerialization.propertyList(
-            from: data,
-            options: [],
-            format: nil
-        ) as? [String: Any]
-    }
-
-    private static func locationBundleIdentifiers(
-        in entries: [String: Any]?
-    ) -> Set<String> {
-        guard let entries else { return [] }
-        return Set(entries.keys.compactMap { key in
-            guard key.hasPrefix("i"), key.hasSuffix(":"), key.count > 2 else { return nil }
-            let bundleIdentifier = String(key.dropFirst().dropLast())
-            return isSafeIdentifier(bundleIdentifier) ? bundleIdentifier : nil
-        })
-    }
-
-    private static func applyLocation(
-        bundleIdentifier: String,
-        entries: [String: Any]?,
-        to authorizations: inout [SimulatorPrivacyService: SimulatorPrivacyAuthorization]
-    ) {
-        guard let entry = entries?["i\(bundleIdentifier):"] as? [String: Any],
-              let raw = entry["Authorization"] as? NSNumber
-        else {
-            authorizations[.location] = .notDetermined
-            authorizations[.locationAlways] = .notDetermined
-            authorizations[.locationInUse] = .notDetermined
-            return
-        }
-        let value: SimulatorPrivacyAuthorization = switch raw.intValue {
-        case 0: .notDetermined
-        case 1, 2: .denied
-        case 3, 4: .granted
-        default: .unknown
-        }
-        authorizations[.location] = value
-        authorizations[.locationAlways] = raw.intValue == 3 ? .granted : value
-        authorizations[.locationInUse] = raw.intValue == 4 ? .granted : value
-    }
-
-    private static func notificationSections(
-        deviceIdentifier: String
-    ) -> [String: Any]? {
-        let path = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Developer/CoreSimulator/Devices")
-            .appendingPathComponent(deviceIdentifier)
-            .appendingPathComponent("data/Library/BulletinBoard/VersionedSectionInfo.plist")
-        guard let data = try? Data(contentsOf: path),
-              let root = try? PropertyListSerialization.propertyList(
-                  from: data,
-                  options: [],
-                  format: nil
-              ) as? [String: Any]
-        else { return nil }
-        return root["sectionInfo"] as? [String: Any]
-    }
-
-    private static func notificationBundleIdentifiers(
-        in sections: [String: Any]?
-    ) -> Set<String> {
-        guard let sections else { return [] }
-        return Set(sections.keys.filter(isSafeIdentifier))
-    }
-
-    private static func applyNotifications(
-        bundleIdentifier: String,
-        sections: [String: Any]?,
-        to authorizations: inout [SimulatorPrivacyService: SimulatorPrivacyAuthorization]
-    ) {
-        guard let archiveData = sections?[bundleIdentifier] as? Data
-        else {
-            authorizations[.notifications] = .notDetermined
-            authorizations[.criticalNotifications] = .notDetermined
-            return
-        }
-        guard let archive = try? PropertyListSerialization.propertyList(
-            from: archiveData,
-            options: [],
-            format: nil
-        ) as? [String: Any],
-              let objects = archive["$objects"] as? [Any],
-              objects.indices.contains(3),
-              let settings = objects[3] as? [String: Any]
-        else {
-            authorizations[.notifications] = .unknown
-            authorizations[.criticalNotifications] = .unknown
-            return
-        }
-        let allowed = (settings["allowsNotifications"] as? NSNumber)?.boolValue
-        let critical = (settings["criticalAlertSetting"] as? NSNumber)?.intValue == 2
-        authorizations[.notifications] = allowed.map { $0 ? .granted : .denied } ?? .unknown
-        authorizations[.criticalNotifications] = if allowed == true, critical {
-            .critical
-        } else if allowed == false {
-            .denied
-        } else {
-            .notDetermined
-        }
     }
 
     static func isSafeIdentifier(_ value: String) -> Bool {

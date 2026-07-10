@@ -29,7 +29,7 @@ struct SimulatorAccessibilityPresentationTests {
             children: children
         )
 
-        let rows = SimulatorPaneCoordinator.accessibilityPresentationRows([root])
+        let rows = simulatorAccessibilityPresentationRows([root])
 
         #expect(rows.count == 76)
         #expect(rows[50].node.id == "child-49")
@@ -47,7 +47,7 @@ struct SimulatorAccessibilityPresentationTests {
             )
         }
 
-        #expect(SimulatorPaneCoordinator.accessibilityPresentationRows(roots).count == 500)
+        #expect(simulatorAccessibilityPresentationRows(roots).count == 500)
     }
 
     @Test("Overlay maps every framed node through the largest accessibility container")
@@ -62,8 +62,8 @@ struct SimulatorAccessibilityPresentationTests {
                 isEnabled: true, children: []
             )]
         )
-        let rows = SimulatorPaneCoordinator.accessibilityPresentationRows([root])
-        let frames = SimulatorAccessibilityOverlayLayout.frames(
+        let rows = simulatorAccessibilityPresentationRows([root])
+        let frames = simulatorAccessibilityOverlayFrames(
             rows: rows,
             screenRect: CGRect(x: 20, y: 30, width: 100, height: 200)
         )
@@ -143,25 +143,5 @@ struct SimulatorAccessibilityPresentationTests {
             await Task.yield()
         }
         Issue.record("Condition did not become true")
-    }
-}
-
-private actor AccessibilityOverlaySleeper: SimulatorProcessSleeper {
-    private var startCount = 0
-    private var cancellationCount = 0
-
-    func sleep(for duration: Duration) async throws {
-        _ = duration
-        startCount += 1
-        do {
-            try await ContinuousClock().sleep(for: .seconds(3_600))
-        } catch {
-            cancellationCount += 1
-            throw error
-        }
-    }
-
-    func counts() -> (starts: Int, cancellations: Int) {
-        (startCount, cancellationCount)
     }
 }

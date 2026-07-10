@@ -14,11 +14,7 @@ extension SimulatorWorkerCoordinator {
             name = "gesture"
             summary = "events:\(events.count)"
         case let .hardwareButton(button):
-            if button == .home, let currentDeviceIdentifier {
-                succeeded = await foregroundSpringBoard(deviceIdentifier: currentDeviceIdentifier)
-            } else {
-                succeeded = await hid?.press(button) == true
-            }
+            succeeded = await hid?.press(button) == true
             name = "button"
             summary = button.rawValue
         case let .rotate(orientation):

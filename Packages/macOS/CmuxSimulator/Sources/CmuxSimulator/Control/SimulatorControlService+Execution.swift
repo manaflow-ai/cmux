@@ -14,11 +14,11 @@ extension SimulatorControlService {
         timeout: TimeInterval? = nil
     ) async -> CommandResult {
         let result = await boundedCommands.runBounded(
-            directory: FileManager.default.currentDirectoryPath,
+            directory: currentDirectoryURL.path,
             executable: executable,
             arguments: arguments,
             timeout: timeout ?? commandTimeout,
-            standardOutputLimit: Self.outputLimit(arguments: arguments),
+            standardOutputLimit: outputLimit(arguments: arguments),
             standardErrorLimit: Self.maximumBoundedDiagnosticBytes
         )
         return CommandResult(
@@ -37,8 +37,8 @@ extension SimulatorControlService {
         timeout: TimeInterval? = nil
     ) async throws -> Data {
         let result = await run(executable: executable, arguments: arguments, timeout: timeout)
-        guard Self.succeeded(result) else {
-            throw Self.failure(result: result, arguments: diagnosticArguments ?? arguments)
+        guard succeeded(result) else {
+            throw failure(result: result, arguments: diagnosticArguments ?? arguments)
         }
         return Data((result.stdout ?? "").utf8)
     }
@@ -51,7 +51,7 @@ extension SimulatorControlService {
         timeout: TimeInterval? = nil
     ) async throws -> SimulatorBoundedCommandResult {
         let result = await boundedCommands.runBounded(
-            directory: FileManager.default.currentDirectoryPath,
+            directory: currentDirectoryURL.path,
             executable: executable,
             arguments: arguments,
             timeout: timeout ?? commandTimeout,
@@ -65,8 +65,8 @@ extension SimulatorControlService {
             timedOut: result.timedOut,
             executionError: result.executionError
         )
-        guard Self.succeeded(commandResult) else {
-            throw Self.failure(
+        guard succeeded(commandResult) else {
+            throw failure(
                 result: commandResult,
                 arguments: diagnosticArguments ?? arguments
             )
@@ -74,11 +74,11 @@ extension SimulatorControlService {
         return result
     }
 
-    static func succeeded(_ result: CommandResult) -> Bool {
+    func succeeded(_ result: CommandResult) -> Bool {
         result.executionError == nil && !result.timedOut && result.exitStatus == 0
     }
 
-    static func diagnostic(for result: CommandResult) -> String {
+    func diagnostic(for result: CommandResult) -> String {
         let stderr = result.stderr?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if !stderr.isEmpty { return stderr }
         let stdout = result.stdout?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -88,7 +88,7 @@ extension SimulatorControlService {
         return "The Simulator command exited with status \(result.exitStatus.map(String.init) ?? "unknown")."
     }
 
-    static func failure(result: CommandResult, arguments: [String]) -> SimulatorControlError {
+    func failure(result: CommandResult, arguments: [String]) -> SimulatorControlError {
         let code: String
         if result.executionError != nil {
             code = "command_launch_failed"
@@ -100,12 +100,12 @@ extension SimulatorControlService {
         return SimulatorControlError(code: code, arguments: arguments, message: diagnostic(for: result))
     }
 
-    private static func outputLimit(arguments: [String]) -> Int {
+    private func outputLimit(arguments: [String]) -> Int {
         let inventoryCommands: Set<String> = ["devices", "runtimes", "listapps"]
         if arguments.contains(where: inventoryCommands.contains) {
-            return maximumInventoryBytes
+            return Self.maximumInventoryBytes
         }
-        return maximumMutationOutputBytes
+        return Self.maximumMutationOutputBytes
     }
 
 }

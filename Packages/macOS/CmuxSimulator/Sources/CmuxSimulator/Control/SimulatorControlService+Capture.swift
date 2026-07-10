@@ -1,6 +1,7 @@
 import Foundation
 
 extension SimulatorControlService {
+    /// Saves a screenshot to a file URL.
     public func screenshot(
         deviceID: String,
         destinationURL: URL,
@@ -37,7 +38,10 @@ extension SimulatorControlService {
             throw SimulatorControlError(
                 code: "invalid_log_interval",
                 arguments: ["simctl", "spawn", deviceID, "log", "show"],
-                message: "The log interval must be positive."
+                message: String(
+                    localized: "simulator.control.logIntervalInvalid",
+                    defaultValue: "The log interval must be positive."
+                )
             )
         }
         var arguments = [

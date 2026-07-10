@@ -7,6 +7,35 @@ struct SimulatorCameraAutomaticReinjectionTask {
 }
 
 extension SimulatorCameraAdapter {
+    func prepareForIntentionalApplicationMutation(
+        bundleIdentifier: String
+    ) async {
+        _ = advanceAutomaticReinjectionGeneration(bundleIdentifier: bundleIdentifier)
+        let matchingTasks = automaticReinjectionTasks.filter {
+            $0.value.bundleIdentifier == bundleIdentifier
+        }
+        for (_, record) in matchingTasks { record.task.cancel() }
+        for (generation, record) in matchingTasks {
+            await record.task.value
+            automaticReinjectionTasks.removeValue(forKey: generation)
+        }
+        removeInjectionRecord(bundleIdentifier: bundleIdentifier)
+        injectedBundleIdentifiers.remove(bundleIdentifier)
+        automaticReinjectionAttempted.remove(bundleIdentifier)
+        if activeTargetBundleIdentifier == bundleIdentifier {
+            activeTargetBundleIdentifier = injectedBundleIdentifiers.sorted().first
+            activeTargetProcessIdentifier = activeTargetBundleIdentifier.flatMap {
+                injectedProcessIdentifiers[$0]
+            }
+        }
+        guard injectedBundleIdentifiers.isEmpty else { return }
+        activeConfiguration = .disabled
+        if let producer { await producer.stop() }
+        self.producer = nil
+        surfaceRing = nil
+        ownershipLock = nil
+    }
+
     func recordInjection(
         bundleIdentifier: String,
         processIdentifier: Int32,
@@ -168,34 +197,52 @@ extension SimulatorCameraAdapter {
             deviceIdentifier: expectedDeviceIdentifier,
             sharedMemoryName: expectedSharedMemoryName
         ) else { return }
-        try? await cameraPermission.grant(
-            deviceIdentifier: expectedDeviceIdentifier,
-            bundleIdentifier: bundleIdentifier
-        )
-
-        guard automaticReinjectionIsCurrent(
-            bundleIdentifier: bundleIdentifier,
-            generation: taskGeneration,
-            deviceIdentifier: expectedDeviceIdentifier,
-            sharedMemoryName: expectedSharedMemoryName
-        ) else { return }
-        _ = try? await runSimctl([
-            "terminate", expectedDeviceIdentifier, bundleIdentifier,
-        ])
-
-        guard automaticReinjectionIsCurrent(
-            bundleIdentifier: bundleIdentifier,
-            generation: taskGeneration,
-            deviceIdentifier: expectedDeviceIdentifier,
-            sharedMemoryName: expectedSharedMemoryName
-        ) else { return }
-        guard let launch = try? await runSimctl(
-            ["launch", expectedDeviceIdentifier, bundleIdentifier],
-            environment: [
-                "SIMCTL_CHILD_DYLD_INSERT_LIBRARIES": libraryURL.path,
-                "SIMCTL_CHILD_SIMCAM_SHM_NAME": expectedSharedMemoryName,
-            ]
-        ) else { return }
+        let launch: SimulatorSubprocessResult
+        do {
+            launch = try await mutationGate.withLocks([
+                .tcc(deviceIdentifier: expectedDeviceIdentifier),
+                .application(
+                    deviceIdentifier: expectedDeviceIdentifier,
+                    bundleIdentifier: bundleIdentifier
+                ),
+            ]) {
+                guard automaticReinjectionIsCurrent(
+                    bundleIdentifier: bundleIdentifier,
+                    generation: taskGeneration,
+                    deviceIdentifier: expectedDeviceIdentifier,
+                    sharedMemoryName: expectedSharedMemoryName
+                ) else { throw CancellationError() }
+                applicationMutationWillCommit(bundleIdentifier)
+                try await cameraPermission.grant(
+                    deviceIdentifier: expectedDeviceIdentifier,
+                    bundleIdentifier: bundleIdentifier
+                )
+                guard automaticReinjectionIsCurrent(
+                    bundleIdentifier: bundleIdentifier,
+                    generation: taskGeneration,
+                    deviceIdentifier: expectedDeviceIdentifier,
+                    sharedMemoryName: expectedSharedMemoryName
+                ) else { throw CancellationError() }
+                _ = try? await runSimctl([
+                    "terminate", expectedDeviceIdentifier, bundleIdentifier,
+                ])
+                guard automaticReinjectionIsCurrent(
+                    bundleIdentifier: bundleIdentifier,
+                    generation: taskGeneration,
+                    deviceIdentifier: expectedDeviceIdentifier,
+                    sharedMemoryName: expectedSharedMemoryName
+                ) else { throw CancellationError() }
+                return try await runSimctl(
+                    ["launch", expectedDeviceIdentifier, bundleIdentifier],
+                    environment: [
+                        "SIMCTL_CHILD_DYLD_INSERT_LIBRARIES": libraryURL.path,
+                        "SIMCTL_CHILD_SIMCAM_SHM_NAME": expectedSharedMemoryName,
+                    ]
+                )
+            }
+        } catch {
+            return
+        }
 
         guard automaticReinjectionIsCurrent(
             bundleIdentifier: bundleIdentifier,

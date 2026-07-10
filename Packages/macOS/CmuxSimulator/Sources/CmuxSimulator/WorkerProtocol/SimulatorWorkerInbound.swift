@@ -12,6 +12,10 @@ public enum SimulatorWorkerInbound: Codable, Equatable, Sendable {
     case pointer(SimulatorPointerEvent)
     /// Forward one USB HID keyboard event.
     case key(SimulatorKeyEvent)
+    /// Deliver one short, balanced key chord with worker-owned pacing.
+    case keySequence([SimulatorKeyEvent])
+    /// Merge one phase-less wheel delta into a worker-timed touch drag.
+    case scrollWheel(SimulatorScrollWheelEvent)
     /// Deliver one prevalidated, bounded text sequence as an ordered worker command.
     case typeText(requestID: UUID, sequence: SimulatorTextInputSequence)
     /// Execute one correlated, bounded native input or diagnostic action.
@@ -32,12 +36,16 @@ public enum SimulatorWorkerInbound: Codable, Equatable, Sendable {
     case coreAnimationDiagnostic(SimulatorCADiagnostic, enabled: Bool)
     /// Configure the experimental camera feed entirely inside the isolated worker.
     case configureCamera(requestID: UUID, configuration: SimulatorCameraConfiguration)
+    /// Confirms the host recorded cleanup ownership for a resolved camera target.
+    case acknowledgeCameraTarget(requestID: UUID)
     /// Replace the shared source without selecting or relaunching an application.
     case switchCameraSource(requestID: UUID, configuration: SimulatorCameraConfiguration)
     /// Hot-swap source-independent camera mirroring.
     case setCameraMirror(requestID: UUID, mode: SimulatorCameraMirrorMode)
     /// Request a correlated camera source, injection, and host-device snapshot.
     case requestCameraStatus(requestID: UUID)
+    /// Suppress camera reinjection before an intentional app lifecycle change.
+    case prepareApplicationMutation(requestID: UUID, bundleIdentifier: String)
     /// Apply one live private interface setting inside the selected Simulator.
     case setPrivateInterface(
         requestID: UUID,
@@ -82,4 +90,35 @@ public enum SimulatorWorkerInbound: Codable, Equatable, Sendable {
     case terminateRenderer
     /// Stop capture and exit cleanly.
     case shutdown
+}
+
+extension SimulatorWorkerInbound {
+    /// Correlation identifier carried by request/response worker operations.
+    public var requestIdentifier: UUID? {
+        switch self {
+        case let .typeText(requestID, _),
+             let .interactiveAction(requestID, _),
+             let .configureCamera(requestID, _),
+             let .switchCameraSource(requestID, _),
+             let .setCameraMirror(requestID, _),
+             let .requestCameraStatus(requestID),
+             let .prepareApplicationMutation(requestID, _),
+             let .setPrivateInterface(requestID, _, _),
+             let .requestPrivateInterfaceStatus(requestID, _),
+             let .setPrivatePrivacy(requestID, _, _, _, _),
+             let .requestPrivacy(requestID, _, _),
+             let .reloadReactNative(requestID),
+             let .setAccessibilityHighlight(requestID, _, _),
+             let .requestAccessibility(requestID),
+             let .requestForegroundApplication(requestID),
+             let .requestWebInspectorTargets(requestID, _),
+             let .attachWebInspector(requestID, _),
+             let .releaseWebInspector(requestID),
+             let .setWebInspectorHighlight(requestID, _),
+             let .sendWebInspectorMessage(requestID, _):
+            requestID
+        default:
+            nil
+        }
+    }
 }

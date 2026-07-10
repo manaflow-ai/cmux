@@ -133,7 +133,7 @@ struct SimulatorProcessSessionTests {
         let (stream, continuation) = AsyncStream.makeStream(of: Void.self)
         continuation.finish()
 
-        let result = await SimulatorProcessSession.waitForTermination(
+        let result = await waitForSimulatorProcessTermination(
             events: stream,
             sleeper: CancellableProcessSleeper(),
             for: .seconds(30)
@@ -222,61 +222,6 @@ struct SimulatorProcessSessionTests {
         }
 
         #expect(await sleeper.wasCancelled)
-    }
-}
-
-private actor ManuallyAdvancingProcessSleeper: SimulatorProcessSleeper {
-    private(set) var callCount = 0
-    private var sleepWaiters: [CheckedContinuation<Void, Never>] = []
-    private var observationWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
-
-    func sleep(for duration: Duration) async throws {
-        _ = duration
-        callCount += 1
-        let ready = observationWaiters.filter { $0.count <= callCount }
-        observationWaiters.removeAll { $0.count <= callCount }
-        ready.forEach { $0.continuation.resume() }
-        await withCheckedContinuation { continuation in
-            sleepWaiters.append(continuation)
-        }
-    }
-
-    func advance() {
-        guard !sleepWaiters.isEmpty else { return }
-        sleepWaiters.removeFirst().resume()
-    }
-
-    func waitForCallCount(_ count: Int) async {
-        guard callCount < count else { return }
-        await withCheckedContinuation { continuation in
-            observationWaiters.append((count, continuation))
-        }
-    }
-}
-
-private actor ImmediateProcessSleeper: SimulatorProcessSleeper {
-    private(set) var callCount = 0
-
-    func sleep(for duration: Duration) async throws {
-        callCount += 1
-    }
-}
-
-private actor CancellableProcessSleeper: SimulatorProcessSleeper {
-    private var started = false
-    private var cancelled = false
-
-    var hasStarted: Bool { started }
-    var wasCancelled: Bool { cancelled }
-
-    func sleep(for duration: Duration) async throws {
-        started = true
-        do {
-            try await ContinuousClock().sleep(for: .seconds(3_600))
-        } catch {
-            cancelled = true
-            throw error
-        }
     }
 }
 

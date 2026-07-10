@@ -3,18 +3,47 @@ import Foundation
 import os
 
 extension SimulatorWorkerCoordinator {
-    func shutdown() async {
+    func prepareForProcessExit() {
         cancelForegroundApplicationRequests()
+        cancelAccessibilitySnapshotRequests()
+        cancelToolOperationsWithoutWaiting()
         deviceStateMonitor?.invalidate()
         deviceStateMonitor = nil
         attachedDevice = nil
         deviceStateGate.reset()
+        scrollWheel?.cancel()
+        scrollWheel = nil
+        hid?.releaseInputs()
+        hid = nil
+        framebuffer?.stop()
+        framebuffer = nil
+        camera.stop()
+        webInspector.shutdown()
+        renderContext = nil
+        currentDisplay = nil
+        currentDeviceIdentifier = nil
+        gestureStart = nil
+        gestureUsesTwoFingers = false
+        pendingKeyUsages.removeAll()
+    }
+
+    func shutdown() async {
+        cancelForegroundApplicationRequests()
+        cancelAccessibilitySnapshotRequests()
+        await cancelToolOperations()
+        deviceStateMonitor?.invalidate()
+        deviceStateMonitor = nil
+        attachedDevice = nil
+        deviceStateGate.reset()
+        scrollWheel?.cancel()
+        scrollWheel = nil
         hid?.releaseInputs()
         hid = nil
         framebuffer?.stop()
         framebuffer = nil
         await accessibilityExecutor.detach()
         await camera.shutdown()
+        try? await webInspector.releaseSession(emit: false)
         webInspector.shutdown()
         renderContext = nil
         currentDisplay = nil
@@ -56,6 +85,9 @@ extension SimulatorWorkerCoordinator {
                 renderContext: renderContext
             ) { [weak self] display in
                 guard let self else { return }
+                if self.currentDisplay != display {
+                    self.cancelAccessibilitySnapshotRequests()
+                }
                 self.currentDisplay = display
                 self.send(.display(display))
             }
@@ -67,9 +99,17 @@ extension SimulatorWorkerCoordinator {
             do {
                 try hid.attach(device: device)
                 self.hid = hid
+                scrollWheel = SimulatorScrollWheelController(
+                    sender: { [weak hid] event in hid?.send(event) == true },
+                    sleeper: hid.sleeper,
+                    completion: { [weak self] eventIdentifier in
+                        self?.send(.scrollWheelEnded(eventID: eventIdentifier))
+                    }
+                )
             } catch {
                 hidFailure = error
                 self.hid = nil
+                scrollWheel = nil
             }
             let accessibilityAvailable = await accessibilityExecutor.attach(
                 device: SimulatorAccessibilityDevice(device)
@@ -130,18 +170,6 @@ extension SimulatorWorkerCoordinator {
             send(.status(.failed(failure)))
             coordinatorLogger.error("Simulator worker attach failed: \(error.localizedDescription, privacy: .public)")
         }
-    }
-
-    func foregroundSpringBoard(deviceIdentifier: String) async -> Bool {
-        guard let result = try? await subprocessRunner.run(
-            executableURL: URL(fileURLWithPath: "/usr/bin/xcrun"),
-            arguments: [
-                "simctl", "launch", deviceIdentifier, "com.apple.springboard",
-            ]
-        ) else {
-            return false
-        }
-        return result.status == 0
     }
 
     private func startDeviceStateMonitoring(
@@ -207,7 +235,11 @@ extension SimulatorWorkerCoordinator {
         deviceStateMonitor?.invalidate()
         deviceStateMonitor = nil
         cancelForegroundApplicationRequests()
+        cancelAccessibilitySnapshotRequests()
+        cancelToolOperationsWithoutWaiting()
         attachedDevice = nil
+        scrollWheel?.cancel()
+        scrollWheel = nil
         hid?.releaseInputs()
         hid = nil
         framebuffer?.stop()
@@ -225,7 +257,10 @@ extension SimulatorWorkerCoordinator {
 
         let failure = SimulatorFailure(
             code: "simulator_device_unavailable",
-            message: "Simulator \(deviceIdentifier) changed to \(state).",
+            message: String(
+                localized: "simulator.failure.deviceStateChanged",
+                defaultValue: "Simulator \(deviceIdentifier) changed to \(state)."
+            ),
             isRecoverable: true
         )
         send(.capabilities([]))

@@ -39,6 +39,25 @@ extension SimulatorPrivatePrivacyAdapter {
         try await runSQLite(databaseURL: databaseURL, sql: sql)
     }
 
+    func setTCCWithoutMutationGate(
+        deviceIdentifier: String,
+        bundleIdentifier: String,
+        action: SimulatorPrivacyAction,
+        service: SimulatorPrivacyService
+    ) async throws {
+        guard Self.isSafeIdentifier(deviceIdentifier), Self.isSafeIdentifier(bundleIdentifier) else {
+            throw SimulatorWorkerFailure.privateAPIUnavailable(
+                "Permission mutation rejected an invalid device or bundle identifier."
+            )
+        }
+        try await setTCC(
+            deviceIdentifier: deviceIdentifier,
+            bundleIdentifier: bundleIdentifier,
+            action: action,
+            service: service
+        )
+    }
+
     static func tccMutationSQL(
         service: SimulatorPrivacyService,
         action: SimulatorPrivacyAction,

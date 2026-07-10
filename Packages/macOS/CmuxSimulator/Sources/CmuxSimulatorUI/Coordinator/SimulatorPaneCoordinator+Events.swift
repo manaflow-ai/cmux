@@ -69,7 +69,11 @@ extension SimulatorPaneCoordinator {
         case let .status(status):
             self.status = status
             if status == .streaming { failure = nil }
-            if status == .deviceUnavailable {
+            let sessionEnded: Bool = switch status {
+            case .deviceUnavailable, .failed: true
+            case .idle, .connecting, .streaming, .workerCrashed: false
+            }
+            if sessionEnded {
                 contextID = nil
                 display = nil
                 capabilities = [.userInterfaceSettings]
@@ -95,7 +99,8 @@ extension SimulatorPaneCoordinator {
         case let .privacy(_, snapshot):
             privacySnapshot = snapshot
         case .privatePrivacy, .reactNativeReload, .accessibilityHighlight, .interactiveAction,
-             .cameraConfiguration, .cameraMirror, .privateInterface:
+             .cameraTargetResolved, .cameraConfiguration, .cameraMirror,
+             .applicationMutationPrepared, .privateInterface, .scrollWheelEnded:
             break
         case let .textInput(requestID, succeeded):
             textInputCompletions.removeValue(forKey: requestID)?(succeeded)
@@ -133,7 +138,10 @@ extension SimulatorPaneCoordinator {
             case .overflow:
                 let failure = SimulatorFailure(
                     code: "web_inspector_response_overflow",
-                    message: "The inspector response stream exceeded its bounded in-flight buffer.",
+                    message: String(
+                        localized: "simulator.failure.webInspectorResponseOverflow",
+                        defaultValue: "The inspector response stream exceeded its bounded in-flight buffer."
+                    ),
                     isRecoverable: true
                 )
                 controlFailure = failure
@@ -170,7 +178,10 @@ extension SimulatorPaneCoordinator {
     private func clearWebInspectorSession() {
         failPendingWebInspectorResponses(
             code: "web_inspector_session_ended",
-            message: "The Web Inspector session ended before the response arrived."
+            message: String(
+                localized: "simulator.failure.webInspectorSessionEnded",
+                defaultValue: "The Web Inspector session ended before the response arrived."
+            )
         )
         webInspectorSession = .detached
         webInspectorIsHighlighted = false

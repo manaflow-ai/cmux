@@ -73,28 +73,32 @@ final class SimulatorWebInspectorSocket: SimulatorWebInspectorTransport, @unchec
 
     func send(propertyList: [String: Any]) throws {
         let frame = try SimulatorWebInspectorPlistFrameCodec.frame(propertyList)
-        try lock.withLock {
-            guard descriptor >= 0, !isClosing else {
-                throw SimulatorWebInspectorError.transportClosed
-            }
-            try frame.withUnsafeBytes { raw in
-                guard let baseAddress = raw.baseAddress else { return }
-                var offset = 0
-                while offset < raw.count {
-                    let written = Darwin.write(
+        do {
+            try lock.withLock {
+                guard descriptor >= 0, !isClosing else {
+                    throw SimulatorWebInspectorError.transportClosed
+                }
+                try frame.withUnsafeBytes { raw in
+                    guard let baseAddress = raw.baseAddress else { return }
+                    let written = Darwin.send(
                         descriptor,
-                        baseAddress.advanced(by: offset),
-                        raw.count - offset
+                        baseAddress,
+                        raw.count,
+                        MSG_DONTWAIT | MSG_NOSIGNAL
                     )
-                    if written > 0 {
-                        offset += written
-                    } else if written == -1, errno == EINTR {
-                        continue
-                    } else {
-                        throw SimulatorWebInspectorError.socketFailure(errno)
+                    guard written == raw.count else {
+                        throw SimulatorWebInspectorError.socketFailure(
+                            written < 0 ? errno : EIO
+                        )
                     }
                 }
             }
+        } catch {
+            // A partial frame cannot be retried without corrupting the plist
+            // stream. Closing also turns socket backpressure into a contained,
+            // recoverable inspector failure instead of a MainActor stall.
+            requestClose()
+            throw error
         }
     }
 

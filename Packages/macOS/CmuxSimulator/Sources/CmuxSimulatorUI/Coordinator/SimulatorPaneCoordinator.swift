@@ -197,8 +197,9 @@ public final class SimulatorPaneCoordinator {
         }
     }
 
-    static func failure(from error: any Error, code: String) -> SimulatorFailure {
-        if let failure = error as? SimulatorFailure { return failure }
-        return SimulatorFailure(code: code, message: String(describing: error), isRecoverable: true)
-    }
+}
+
+func simulatorPaneFailure(from error: any Error, code: String) -> SimulatorFailure {
+    if let failure = error as? SimulatorFailure { return failure }
+    return SimulatorFailure(code: code, message: String(describing: error), isRecoverable: true)
 }

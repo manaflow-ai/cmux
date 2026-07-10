@@ -13,11 +13,11 @@ struct SimulatorCameraPermissionAdapter: Sendable {
     init(subprocessRunner: SimulatorSubprocessRunner) {
         let privacy = SimulatorPrivatePrivacyAdapter(subprocessRunner: subprocessRunner)
         mutation = { deviceIdentifier, action, service, bundleIdentifier in
-            try await privacy.set(
+            try await privacy.setTCCWithoutMutationGate(
                 deviceIdentifier: deviceIdentifier,
+                bundleIdentifier: bundleIdentifier,
                 action: action,
-                service: service,
-                bundleIdentifier: bundleIdentifier
+                service: service
             )
         }
     }

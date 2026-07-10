@@ -7,7 +7,7 @@ import Testing
 struct SimulatorFramebufferHighlightTests {
     @Test("Point-space accessibility frames map into a pixel surface with top-origin Y")
     func topOriginConversion() {
-        let frame = SimulatorFramebuffer.highlightFrame(
+        let frame = simulatorAccessibilityHighlightFrame(
             SimulatorRect(x: 43, y: 100, width: 86, height: 200),
             coordinateSpace: SimulatorRect(x: 0, y: 0, width: 430, height: 932),
             displayBounds: CGRect(x: 0, y: 0, width: 1_290, height: 2_796)

@@ -46,7 +46,7 @@ extension SimulatorAccessibilityBridge {
         let platformElement = unsafeBitCast(elementImplementation, to: ElementFunction.self)
 
         var result: [SimulatorAccessibilityNode] = []
-        let points = SimulatorAccessibilityGrid.points(in: bounds)
+        let points = accessibilityGrid.points(in: bounds)
         for (index, point) in points.enumerated() where remaining > 0 {
             if coverage.contains(point) { continue }
             guard let translation = objectAtPoint(
@@ -82,10 +82,15 @@ extension SimulatorAccessibilityBridge {
 }
 
 struct SimulatorAccessibilityGrid {
-    static let preferredStep: CGFloat = 32
-    static let maximumPointCount = 768
+    let preferredStep: CGFloat
+    let maximumPointCount: Int
 
-    static func points(in bounds: NSRect) -> [CGPoint] {
+    init(preferredStep: CGFloat = 32, maximumPointCount: Int = 768) {
+        self.preferredStep = preferredStep
+        self.maximumPointCount = maximumPointCount
+    }
+
+    func points(in bounds: NSRect) -> [CGPoint] {
         guard bounds.isFiniteAndVisible else { return [] }
         let preferredColumns = max(1, Int(ceil(bounds.width / preferredStep)))
         let preferredRows = max(1, Int(ceil(bounds.height / preferredStep)))
@@ -112,46 +117,7 @@ struct SimulatorAccessibilityGrid {
     }
 }
 
-struct SimulatorAccessibilityCoverage {
-    private var leafRects: [NSRect] = []
-    private var frameKeys: Set<SimulatorAccessibilityFrameKey> = []
-
-    mutating func insertLeaf(_ rect: NSRect) {
-        guard rect.isFiniteAndVisible else { return }
-        if frameKeys.insert(SimulatorAccessibilityFrameKey(rect)).inserted {
-            leafRects.append(rect)
-        }
-    }
-
-    mutating func insertContainer(_ rect: NSRect) {
-        guard rect.isFiniteAndVisible else { return }
-        frameKeys.insert(SimulatorAccessibilityFrameKey(rect))
-    }
-
-    func contains(_ rect: NSRect) -> Bool {
-        frameKeys.contains(SimulatorAccessibilityFrameKey(rect))
-    }
-
-    func contains(_ point: CGPoint) -> Bool {
-        leafRects.contains(where: { $0.contains(point) })
-    }
-}
-
-private struct SimulatorAccessibilityFrameKey: Hashable {
-    let x: Int
-    let y: Int
-    let width: Int
-    let height: Int
-
-    init(_ rect: NSRect) {
-        x = Int(rect.origin.x.rounded())
-        y = Int(rect.origin.y.rounded())
-        width = Int(rect.width.rounded())
-        height = Int(rect.height.rounded())
-    }
-}
-
-private extension NSRect {
+extension NSRect {
     var isFiniteAndVisible: Bool {
         origin.x.isFinite && origin.y.isFinite && width.isFinite && height.isFinite
             && width > 0 && height > 0

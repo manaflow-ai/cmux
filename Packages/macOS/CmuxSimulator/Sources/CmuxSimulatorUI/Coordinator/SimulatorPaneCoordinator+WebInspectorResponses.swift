@@ -7,17 +7,23 @@ extension SimulatorPaneCoordinator {
         _ json: String,
         timeout: Duration = .seconds(15)
     ) async throws -> SimulatorWebInspectorCommandResponse {
-        guard let requestID = SimulatorWebInspectorJSONRequestID.parse(from: json) else {
+        guard let requestID = parseSimulatorWebInspectorJSONRequestID(from: json) else {
             throw SimulatorFailure(
                 code: "web_inspector_request_id_required",
-                message: "A Web Inspector command must contain a string or numeric id.",
+                message: String(
+                    localized: "simulator.failure.webInspectorRequestIDRequired",
+                    defaultValue: "A Web Inspector command must contain a string or numeric id."
+                ),
                 isRecoverable: true
             )
         }
         guard pendingWebInspectorResponses[requestID] == nil else {
             throw SimulatorFailure(
                 code: "web_inspector_request_id_in_use",
-                message: "A Web Inspector command with this id is already pending.",
+                message: String(
+                    localized: "simulator.failure.webInspectorRequestIDInUse",
+                    defaultValue: "A Web Inspector command with this id is already pending."
+                ),
                 isRecoverable: true
             )
         }
@@ -36,7 +42,10 @@ extension SimulatorPaneCoordinator {
                         requestID,
                         with: .failure(SimulatorFailure(
                             code: "web_inspector_response_timeout",
-                            message: "The Web Inspector response did not arrive before the bounded deadline.",
+                            message: String(
+                                localized: "simulator.failure.webInspectorResponseTimedOut",
+                                defaultValue: "The Web Inspector response did not arrive before the bounded deadline."
+                            ),
                             isRecoverable: true
                         ))
                     )
@@ -67,7 +76,10 @@ extension SimulatorPaneCoordinator {
                     requestID,
                     with: .failure(SimulatorFailure(
                         code: "web_inspector_response_cancelled",
-                        message: "The Web Inspector response wait was cancelled.",
+                        message: String(
+                            localized: "simulator.failure.webInspectorResponseCancelled",
+                            defaultValue: "The Web Inspector response wait was cancelled."
+                        ),
                         isRecoverable: true
                     ))
                 )
@@ -78,7 +90,7 @@ extension SimulatorPaneCoordinator {
 
     func receiveCompletedWebInspectorResponse(_ response: SimulatorWebInspectorResponse) {
         guard let requestID = response.requestID
-                ?? SimulatorWebInspectorJSONRequestID.parse(from: response.text) else { return }
+                ?? parseSimulatorWebInspectorJSONRequestID(from: response.text) else { return }
         resolveWebInspectorResponse(
             requestID,
             with: .success(SimulatorWebInspectorCommandResponse(

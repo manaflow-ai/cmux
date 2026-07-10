@@ -2,6 +2,7 @@ import Testing
 @testable import CmuxSimulatorWorker
 
 @Suite("Simulator DTUHID connection state")
+@MainActor
 struct SimulatorDTUHIDConnectionStateTests {
     @Test("An XPC error permanently rejects subsequent sends")
     func invalidationIsTerminal() {
@@ -24,7 +25,7 @@ struct SimulatorDTUHIDConnectionStateTests {
         await Task.yield()
         task.cancel()
         #expect(await task.value == false)
-        waiter.complete(true)
+        await waiter.complete(true)
     }
 
     @Test("Local transmission barrier reports its callback result")
