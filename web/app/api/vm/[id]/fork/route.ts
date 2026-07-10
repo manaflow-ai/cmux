@@ -74,6 +74,7 @@ export async function POST(
           userId: user.id,
           billingCustomerType: entitlements.billingCustomerType,
           billingTeamId: entitlements.billingTeamId,
+          teamIds: user.teamIds,
           billingPlanId: entitlements.planId,
           maxActiveVms: entitlements.maxActiveVms,
           providerVmId: id,

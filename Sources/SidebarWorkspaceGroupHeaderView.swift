@@ -403,7 +403,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
             Button(
                 String(
                     localized: "workspaceGroup.contextMenu.ungroup",
-                    defaultValue: "Ungroup (Keep Workspaces)"
+                    defaultValue: "Ungroup Workspaces"
                 ),
                 action: onUngroup
             )
@@ -414,7 +414,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                 Text(
                     String(
                         localized: "workspaceGroup.contextMenu.delete",
-                        defaultValue: "Delete Group (Close Workspaces)"
+                        defaultValue: "Delete Group"
                     )
                 )
             }
