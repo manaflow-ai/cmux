@@ -357,9 +357,11 @@ extension Workspace {
                 : nil
         }
         let registration = snapshot?.registration
+        let shellActivityState = panelShellActivityStates[panelId] ?? (panels[panelId] as? TerminalPanel)?.shellActivity.state ?? .unknown
+        let titleDerivedStatusKey = isRemoteTmuxMirror || shellActivityState != .promptIdle ? titleDerivedAgentStatusKeysByPanelId[panelId] : nil
         return TerminalTabAgentIconResolver().assetName(
             liveAgents: liveAgents,
-            titleDerivedStatusKey: titleDerivedAgentStatusKeysByPanelId[panelId],
+            titleDerivedStatusKey: titleDerivedStatusKey,
             restoredAgent: snapshot.map(TerminalTabAgentIconResolver.RestoredAgent.init(snapshot:)),
             registrationIconAssetName: { statusKey in
                 registration?.id == statusKey ? registration?.iconAssetName : nil
@@ -439,11 +441,13 @@ extension DockSplitStore {
             ? transfer?.restorableAgent
             : nil
         let registration = restorableAgent?.registration
+        let shellActivityState = (transfer?.panel as? TerminalPanel)?.shellActivity.state ?? .unknown
+        let titleDerivedStatusKey = shellActivityState == .promptIdle ? nil : titleDerivedAgentStatusKeysByPanelId[panelId]
         return TerminalTabAgentIconResolver().assetName(
             agentPIDKeys: transfer?.agentRuntime?.agentPIDKeys ?? [],
             processIdentities: transfer?.agentRuntime?.agentPIDProcessIdentities ?? [:],
             knownStatusKeys: transfer?.agentRuntime.map { Set($0.statusEntries.keys) } ?? [],
-            titleDerivedStatusKey: titleDerivedAgentStatusKeysByPanelId[panelId],
+            titleDerivedStatusKey: titleDerivedStatusKey,
             restoredAgent: restorableAgent.map(
                 TerminalTabAgentIconResolver.RestoredAgent.init(snapshot:)
             ),
