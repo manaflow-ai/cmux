@@ -35,6 +35,20 @@ extension CLITmuxCompatRemoteSplitTests {
         #expect(relative["amount"] == nil)
     }
 
+    @Test func pixelOnlyPaneMetricsDoNotBecomePointFallbacks() throws {
+        let cells = try captureResize(arguments: ["-x", "3"], includePointMetrics: false)
+        #expect((cells["target_cells"] as? NSNumber)?.intValue == 3)
+        #expect(cells["target_pixels"] == nil)
+
+        let percentage = try captureResize(arguments: ["-x", "50%"], includePointMetrics: false)
+        #expect((percentage["target_percentage"] as? NSNumber)?.intValue == 50)
+        #expect((percentage["target_pixels"] as? NSNumber)?.intValue == 320)
+
+        let relative = try captureResize(arguments: ["-L", "7"], includePointMetrics: false)
+        #expect((relative["amount_cells"] as? NSNumber)?.intValue == 7)
+        #expect(relative["amount"] == nil)
+    }
+
     @Test func directionalResizeUsesPositionalAmountAndDefaultsToOneCell() throws {
         let explicit = try captureResize(arguments: ["-L", "7"])
         #expect(explicit["direction"] as? String == "left")
@@ -54,7 +68,8 @@ extension CLITmuxCompatRemoteSplitTests {
 
     private func captureResize(
         arguments: [String],
-        includeMetrics: Bool = true
+        includeMetrics: Bool = true,
+        includePointMetrics: Bool = true
     ) throws -> [String: Any] {
         let cliPath = try BundledCLITestSupport.bundledCLIPath(
             for: CLITmuxCompatRemoteSplitBundleToken.self
@@ -96,8 +111,10 @@ extension CLITmuxCompatRemoteSplitTests {
                 if includeMetrics {
                     pane["cell_width_px"] = 16
                     pane["cell_height_px"] = 34
-                    pane["cell_width_points"] = 8
-                    pane["cell_height_points"] = 17
+                    if includePointMetrics {
+                        pane["cell_width_points"] = 8
+                        pane["cell_height_points"] = 17
+                    }
                     result["panes"] = [pane]
                     result["container_frame"] = ["width": 640, "height": 816]
                 }
