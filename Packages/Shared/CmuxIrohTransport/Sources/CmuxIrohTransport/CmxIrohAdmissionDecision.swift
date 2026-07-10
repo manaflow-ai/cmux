@@ -1,6 +1,6 @@
-/// The server's fixed-size response to a control-stream admission proof.
+/// The server's initial response to a control-stream admission proof.
 public enum CmxIrohAdmissionDecision: Equatable, Sendable {
-    /// The connection may create authenticated application lanes.
+    /// The proof passed, but application lanes await the NAT authorization barrier.
     case accepted
 
     /// Admission failed with a non-sensitive protocol code.

@@ -27,6 +27,10 @@ struct CmxIrohLibConnection: CmxIrohConnection {
         )
     }
 
+    func authorizeNatTraversal() async throws {
+        try await driver.authorizeNatTraversal()
+    }
+
     func openBidirectionalStream() async throws -> CmxIrohBidirectionalStream {
         Self.stream(try await driver.openBi())
     }

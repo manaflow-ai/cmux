@@ -5,6 +5,20 @@ import Testing
 @Suite
 struct CmxIrohAdmissionAckCodecTests {
     @Test(arguments: [
+        CmxIrohAdmissionFrame.acceptedPendingNatTraversal,
+        CmxIrohAdmissionFrame.denied(code: 1),
+        CmxIrohAdmissionFrame.clientReady,
+        CmxIrohAdmissionFrame.serverReady,
+    ])
+    func barrierFrameRoundTripsInEightBytes(_ frame: CmxIrohAdmissionFrame) throws {
+        let codec = CmxIrohAdmissionAckCodec()
+        let encoded = codec.encodeFrame(frame)
+
+        #expect(encoded.count == CmxIrohAdmissionAckCodec.frameByteCount)
+        #expect(try codec.decodeFramePrefix(encoded + Data([0xff])) == frame)
+    }
+
+    @Test(arguments: [
         CmxIrohAdmissionDecision.accepted,
         CmxIrohAdmissionDecision.denied(code: 1),
         CmxIrohAdmissionDecision.denied(code: .max),
@@ -37,8 +51,8 @@ struct CmxIrohAdmissionAckCodecTests {
         }
 
         var invalidStatus = codec.encode(.accepted)
-        invalidStatus[5] = 2
-        #expect(throws: CmxIrohAdmissionAckCodecError.invalidStatus(2)) {
+        invalidStatus[5] = 4
+        #expect(throws: CmxIrohAdmissionAckCodecError.invalidStatus(4)) {
             try codec.decodePrefix(invalidStatus)
         }
 
@@ -46,6 +60,20 @@ struct CmxIrohAdmissionAckCodecTests {
         invalidAcceptedCode[7] = 1
         #expect(throws: CmxIrohAdmissionAckCodecError.invalidAcceptedCode(1)) {
             try codec.decodePrefix(invalidAcceptedCode)
+        }
+
+        var invalidReadyCode = codec.encodeFrame(.clientReady)
+        invalidReadyCode[7] = 1
+        #expect(
+            throws: CmxIrohAdmissionAckCodecError.invalidReadyCode(status: 2, code: 1)
+        ) {
+            try codec.decodeFramePrefix(invalidReadyCode)
+        }
+
+        #expect(
+            throws: CmxIrohAdmissionAckCodecError.invalidDecisionFrame(.serverReady)
+        ) {
+            try codec.decodePrefix(codec.encodeFrame(.serverReady))
         }
     }
 }

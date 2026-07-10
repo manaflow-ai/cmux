@@ -1,11 +1,31 @@
 import CMUXMobileCore
 import Darwin
 import Foundation
+import IrohLib
 import Testing
 @testable import CmuxIrohTransport
 
 @Suite(.serialized)
 struct CmxIrohLibEndpointTests {
+    @Test
+    func cmuxEndpointStartsWithNoStreamCreditOrPreAdmissionNatTraversal() throws {
+        let options = CmxIrohLibEndpointFactory.endpointOptions(
+            configuration: try CmxIrohEndpointConfiguration(
+                secretKey: CmxIrohSecretKey(bytes: Data(repeating: 7, count: 32)),
+                alpns: [CmxIrohProtocolConfiguration.cmuxMobileV1.alpn],
+                managedRelayURLs: [],
+                relays: []
+            ),
+            socketAddress: nil,
+            relayMap: RelayMap.empty()
+        )
+
+        #expect(options.portMappingEnabled == false)
+        #expect(options.deferNatTraversalUntilAuthorized == true)
+        #expect(options.initialMaxConcurrentBiStreams == 0)
+        #expect(options.initialMaxConcurrentUniStreams == 0)
+    }
+
     @Test
     func minimalPresetPreservesIdentityWithoutPublicN0Relays() async throws {
         let endpoint = try await makeEndpoint(managedRelayURLs: [])

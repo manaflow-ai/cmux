@@ -250,6 +250,48 @@ struct CmxIrohClientSessionTests {
     }
 
     @Test
+    func deniedAdmissionNeverCreatesAPrivateFallbackConnection() async throws {
+        let denied = controlStream(decision: .denied(code: 7))
+        let deniedConnection = TestIrohConnection(
+            remoteIdentity: remoteIdentity,
+            bidirectionalStreams: [denied.stream]
+        )
+        let replacement = TestIrohConnection(
+            remoteIdentity: remoteIdentity,
+            bidirectionalStreams: [controlStream(decision: .accepted).stream]
+        )
+        let endpoint = TestDialingIrohEndpoint(
+            localIdentity: localIdentity,
+            dialResults: [
+                .connection(deniedConnection),
+                .connection(replacement),
+            ]
+        )
+        let publicHint = try publicRelayHint()
+        let privateHint = try tailscaleHint()
+        let authorization = try privateFallbackAuthorization(for: [privateHint])
+        let session = try CmxIrohClientSession(
+            endpoint: endpoint,
+            targetIdentity: remoteIdentity,
+            dialPlan: try testIrohDialPlan(
+                publicPaths: [publicHint],
+                privateFallbackPaths: [privateHint]
+            ),
+            credential: credential,
+            privateFallbackAuthorization: authorization,
+            privateFallbackValidator: TestPrivateFallbackValidator()
+        )
+
+        await #expect(throws: CmxIrohClientSessionError.admissionDenied(code: 7)) {
+            try await session.connect()
+        }
+
+        #expect(await endpoint.observedDialedAddresses().map(\.pathHints) == [[publicHint]])
+        #expect(await deniedConnection.observedNatTraversalAuthorizationAttemptCount() == 0)
+        #expect(await replacement.observedBidirectionalStreamOpenCount() == 0)
+    }
+
+    @Test
     func natTraversalAuthorizationFailureSendsNoReadyAckAndCloses() async throws {
         let control = controlStream(decision: .accepted)
         let connection = TestIrohConnection(
@@ -282,7 +324,7 @@ struct CmxIrohClientSessionTests {
     func missingServerReadyFailsBeforeAnyApplicationLaneCanOpen() async throws {
         let control = controlStream(
             decision: .accepted,
-            includesServerReady: false
+            serverConfirmationStatus: nil
         )
         let connection = TestIrohConnection(
             remoteIdentity: remoteIdentity,
@@ -311,6 +353,35 @@ struct CmxIrohClientSessionTests {
 
         #expect(await connection.observedNatTraversalAuthorizationAttemptCount() == 1)
         #expect(await connection.observedBidirectionalStreamOpenCount() == 1)
+        #expect(await connection.observedCloseCallCount() == 1)
+    }
+
+    @Test
+    func roleInvalidServerConfirmationFailsClosed() async throws {
+        let control = controlStream(
+            decision: .accepted,
+            serverConfirmationStatus: 2
+        )
+        let connection = TestIrohConnection(
+            remoteIdentity: remoteIdentity,
+            bidirectionalStreams: [control.stream]
+        )
+        let endpoint = TestDialingIrohEndpoint(
+            localIdentity: localIdentity,
+            dialResults: [.connection(connection)]
+        )
+        let session = try CmxIrohClientSession(
+            endpoint: endpoint,
+            targetIdentity: remoteIdentity,
+            dialPlan: try testIrohDialPlan(),
+            credential: credential
+        )
+
+        await #expect(throws: CmxIrohClientSessionError.invalidAdmissionFrame) {
+            try await session.connect()
+        }
+
+        #expect(await connection.observedNatTraversalAuthorizationAttemptCount() == 1)
         #expect(await connection.observedCloseCallCount() == 1)
     }
 
@@ -413,11 +484,11 @@ struct CmxIrohClientSessionTests {
     private func controlStream(
         decision: CmxIrohAdmissionDecision,
         trailingBytes: Data = Data(),
-        includesServerReady: Bool = true,
+        serverConfirmationStatus: UInt8? = 3,
         eventRecorder: TestIrohEventRecorder? = nil
     ) -> (stream: CmxIrohBidirectionalStream, send: TestIrohSendStream) {
-        let finalFrame = if decision == .accepted, includesServerReady {
-            admissionFrame(status: 3)
+        let finalFrame = if decision == .accepted, let serverConfirmationStatus {
+            admissionFrame(status: serverConfirmationStatus)
         } else {
             Data()
         }

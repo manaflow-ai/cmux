@@ -4,6 +4,7 @@ public enum CmxIrohServerSessionError: Error, Equatable, Sendable {
     case notAdmitted
     case alreadyClosed
     case unexpectedEndOfStream
+    case invalidAdmissionFrame
     case invalidFirstLane
     case invalidPeerLane
     case invalidServerLane

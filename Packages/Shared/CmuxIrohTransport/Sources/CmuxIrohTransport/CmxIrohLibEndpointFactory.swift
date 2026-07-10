@@ -42,13 +42,29 @@ public struct CmxIrohLibEndpointFactory: CmxIrohEndpointFactory {
             }
             try relayMap.insert(config: CmxIrohLibEndpoint.relayConfig(relay))
         }
-        let options = EndpointOptions(
+        let options = Self.endpointOptions(
+            configuration: configuration,
+            socketAddress: socketAddress,
+            relayMap: relayMap
+        )
+        return try await Endpoint.bind(options: options)
+    }
+
+    static func endpointOptions(
+        configuration: CmxIrohEndpointConfiguration,
+        socketAddress: String?,
+        relayMap: RelayMap
+    ) -> EndpointOptions {
+        EndpointOptions(
             preset: presetMinimal(),
             bindAddr: socketAddress,
             secretKey: configuration.secretKey.bytes,
             alpns: configuration.alpns,
-            relayMode: RelayMode.custom(map: relayMap)
+            relayMode: RelayMode.custom(map: relayMap),
+            portMappingEnabled: false,
+            deferNatTraversalUntilAuthorized: true,
+            initialMaxConcurrentBiStreams: 0,
+            initialMaxConcurrentUniStreams: 0
         )
-        return try await Endpoint.bind(options: options)
     }
 }

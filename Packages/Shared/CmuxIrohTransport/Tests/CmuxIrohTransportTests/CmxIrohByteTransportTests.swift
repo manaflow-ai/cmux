@@ -13,8 +13,11 @@ struct CmxIrohByteTransportTests {
         let remoteIdentity = try CmxIrohPeerIdentity(
             endpointID: String(repeating: "cd", count: 32)
         )
+        let admissionCodec = CmxIrohAdmissionAckCodec()
         let controlReceive = TestIrohReceiveStream(
-            buffer: CmxIrohAdmissionAckCodec().encode(.accepted) + Data("response".utf8)
+            buffer: admissionCodec.encode(.accepted)
+                + admissionCodec.encodeFrame(.serverReady)
+                + Data("response".utf8)
         )
         let controlSend = TestIrohSendStream()
         let connection = TestIrohConnection(
@@ -66,8 +69,9 @@ struct CmxIrohByteTransportTests {
         #expect(try await transport.receive() == Data("response".utf8))
         #expect(await contextProvider.requests() == [request])
         let sent = await controlSend.observedSentBuffers()
-        #expect(sent.count == 2)
-        #expect(sent[1] == Data("request".utf8))
+        #expect(sent.count == 3)
+        #expect(sent[1] == admissionCodec.encodeFrame(.clientReady))
+        #expect(sent[2] == Data("request".utf8))
     }
 
     @Test

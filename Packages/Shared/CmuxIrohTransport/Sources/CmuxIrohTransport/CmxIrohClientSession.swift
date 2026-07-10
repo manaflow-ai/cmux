@@ -260,7 +260,7 @@ public actor CmxIrohClientSession {
             }
             try await establishedConnection.setIncomingStreamLimits(
                 maximumBidirectionalStreamCount: 0,
-                maximumUnidirectionalStreamCount: 16
+                maximumUnidirectionalStreamCount: 0
             )
             let stream = try await establishedConnection.openBidirectionalStream()
             let header = try CmxIrohStreamHeader(
@@ -268,16 +268,42 @@ public actor CmxIrohClientSession {
                 credential: credential
             )
             try await stream.sendStream.send(headerCodec.encode(header))
-            let admission = try await readAdmission(from: stream.receiveStream)
-            switch admission.decision {
-            case .accepted:
+            let admission = try await readAdmissionFrame(from: stream.receiveStream)
+            switch admission.frame {
+            case .acceptedPendingNatTraversal:
+                try Task.checkCancellation()
+                try await establishedConnection.authorizeNatTraversal()
+                try Task.checkCancellation()
+                try await stream.sendStream.send(
+                    admissionCodec.encodeFrame(.clientReady)
+                )
+                let confirmation = try await readAdmissionFrame(
+                    from: stream.receiveStream,
+                    initialBuffer: admission.trailingBytes
+                )
+                switch confirmation.frame {
+                case .serverReady:
+                    break
+                case let .denied(code):
+                    throw CmxIrohClientSessionError.admissionDenied(code: code)
+                case .acceptedPendingNatTraversal, .clientReady:
+                    throw CmxIrohClientSessionError.invalidAdmissionFrame
+                }
+                try Task.checkCancellation()
+                try await establishedConnection.setIncomingStreamLimits(
+                    maximumBidirectionalStreamCount: 0,
+                    maximumUnidirectionalStreamCount: 16
+                )
+                try Task.checkCancellation()
                 return CmxIrohConnectedControl(
                     connection: establishedConnection,
                     stream: stream,
-                    initialReceiveBuffer: admission.trailingBytes
+                    initialReceiveBuffer: confirmation.trailingBytes
                 )
             case let .denied(code):
                 throw CmxIrohClientSessionError.admissionDenied(code: code)
+            case .clientReady, .serverReady:
+                throw CmxIrohClientSessionError.invalidAdmissionFrame
             }
         } catch {
             await establishedConnection.close(errorCode: 1, reason: "admission_failed")
@@ -285,10 +311,11 @@ public actor CmxIrohClientSession {
         }
     }
 
-    private func readAdmission(
-        from receiveStream: any CmxIrohReceiveStream
-    ) async throws -> (decision: CmxIrohAdmissionDecision, trailingBytes: Data) {
-        var buffer = Data()
+    private func readAdmissionFrame(
+        from receiveStream: any CmxIrohReceiveStream,
+        initialBuffer: Data = Data()
+    ) async throws -> (frame: CmxIrohAdmissionFrame, trailingBytes: Data) {
+        var buffer = initialBuffer
         while buffer.count < CmxIrohAdmissionAckCodec.frameByteCount {
             let remaining = CmxIrohAdmissionAckCodec.frameByteCount - buffer.count
             guard let bytes = try await receiveStream.receive(maximumByteCount: remaining),
@@ -298,7 +325,7 @@ public actor CmxIrohClientSession {
             buffer.append(bytes)
         }
         return (
-            try admissionCodec.decodePrefix(buffer),
+            try admissionCodec.decodeFramePrefix(buffer),
             Data(buffer.dropFirst(CmxIrohAdmissionAckCodec.frameByteCount))
         )
     }

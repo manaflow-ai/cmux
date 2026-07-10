@@ -265,9 +265,11 @@ private struct PoolFixture {
     }
 
     func controlStream() -> CmxIrohBidirectionalStream {
-        CmxIrohBidirectionalStream(
+        let admissionCodec = CmxIrohAdmissionAckCodec()
+        return CmxIrohBidirectionalStream(
             receiveStream: TestIrohReceiveStream(
-                buffer: CmxIrohAdmissionAckCodec().encode(.accepted)
+                buffer: admissionCodec.encode(.accepted)
+                    + admissionCodec.encodeFrame(.serverReady)
             ),
             sendStream: TestIrohSendStream()
         )

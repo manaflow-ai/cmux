@@ -9,6 +9,9 @@ public enum CmxIrohClientSessionError: Error, Equatable, Sendable {
     /// The peer closed a stream before its fixed framing completed.
     case unexpectedEndOfStream
 
+    /// A role-invalid frame appeared during the admission barrier.
+    case invalidAdmissionFrame
+
     /// An operation required an admitted control stream.
     case notConnected
 

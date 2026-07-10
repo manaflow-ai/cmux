@@ -10,6 +10,7 @@ public actor CmxIrohServerSession {
     private var controlReceiveBuffer = Data()
     private var admittedPeer: CmxIrohAdmittedPeer?
     private var onlineAdmissionLease: CmxIrohOnlineAdmissionLease?
+    private var admissionInProgress = false
     private var admitted = false
     private var closed = false
 
@@ -27,16 +28,25 @@ public actor CmxIrohServerSession {
     @discardableResult
     public func admit() async throws -> CmxIrohAdmittedPeer {
         guard !closed else { throw CmxIrohServerSessionError.alreadyClosed }
-        guard !admitted, controlStream == nil else {
+        guard !admitted, !admissionInProgress, controlStream == nil else {
             throw CmxIrohServerSessionError.alreadyAdmitted
         }
-        // One control stream plus sixteen bounded terminal or artifact lanes.
-        // Client-created unidirectional streams are not part of this protocol.
-        try await connection.setIncomingStreamLimits(
-            maximumBidirectionalStreamCount: 17,
-            maximumUnidirectionalStreamCount: 0
-        )
-        let stream = try await connection.acceptBidirectionalStream()
+        admissionInProgress = true
+        defer { admissionInProgress = false }
+        // Keep only the bootstrap control stream available until both peers
+        // finish the NAT-authorization barrier.
+        let stream: CmxIrohBidirectionalStream
+        do {
+            try await connection.setIncomingStreamLimits(
+                maximumBidirectionalStreamCount: 1,
+                maximumUnidirectionalStreamCount: 0
+            )
+            stream = try await connection.acceptBidirectionalStream()
+        } catch {
+            await connection.close(errorCode: 1, reason: "invalid_control_stream")
+            closed = true
+            throw error
+        }
         do {
             let decoded = try await readHeader(from: stream.receiveStream)
             guard decoded.header.lane == .control,
@@ -63,11 +73,32 @@ public actor CmxIrohServerSession {
             )
             switch checkedAuthorization {
             case let .accepted(peer, onlineLease):
+                let clientReady = try await readAdmissionFrame(
+                    from: stream.receiveStream,
+                    initialBuffer: decoded.trailingBytes
+                )
+                guard clientReady.frame == .clientReady else {
+                    throw CmxIrohServerSessionError.invalidAdmissionFrame
+                }
+                try Task.checkCancellation()
+                try await connection.authorizeNatTraversal()
+                try Task.checkCancellation()
+                try await stream.sendStream.send(
+                    admissionCodec.encodeFrame(.serverReady)
+                )
+                try Task.checkCancellation()
+                // One control stream plus sixteen bounded terminal or artifact lanes.
+                // Client-created unidirectional streams are not part of this protocol.
+                try await connection.setIncomingStreamLimits(
+                    maximumBidirectionalStreamCount: 17,
+                    maximumUnidirectionalStreamCount: 0
+                )
+                try Task.checkCancellation()
                 admitted = true
                 admittedPeer = peer
                 onlineAdmissionLease = onlineLease
                 controlStream = stream
-                controlReceiveBuffer = decoded.trailingBytes
+                controlReceiveBuffer = clientReady.trailingBytes
                 return peer
             case let .denied(code):
                 await stream.sendStream.reset(errorCode: 1)
@@ -229,5 +260,24 @@ public actor CmxIrohServerSession {
             }
             buffer.append(bytes)
         }
+    }
+
+    private func readAdmissionFrame(
+        from receiveStream: any CmxIrohReceiveStream,
+        initialBuffer: Data
+    ) async throws -> (frame: CmxIrohAdmissionFrame, trailingBytes: Data) {
+        var buffer = initialBuffer
+        while buffer.count < CmxIrohAdmissionAckCodec.frameByteCount {
+            let remaining = CmxIrohAdmissionAckCodec.frameByteCount - buffer.count
+            guard let bytes = try await receiveStream.receive(maximumByteCount: remaining),
+                  !bytes.isEmpty else {
+                throw CmxIrohServerSessionError.unexpectedEndOfStream
+            }
+            buffer.append(bytes)
+        }
+        return (
+            try admissionCodec.decodeFramePrefix(buffer),
+            Data(buffer.dropFirst(CmxIrohAdmissionAckCodec.frameByteCount))
+        )
     }
 }

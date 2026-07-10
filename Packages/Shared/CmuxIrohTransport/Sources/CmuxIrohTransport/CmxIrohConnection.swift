@@ -14,6 +14,12 @@ public protocol CmxIrohConnection: Sendable {
         maximumUnidirectionalStreamCount: UInt64
     ) async throws
 
+    /// Irreversibly enables NAT-traversal candidate exchange on this connection.
+    ///
+    /// Calls are idempotent. Admission code invokes this only after authenticating
+    /// the peer and keeps application lanes unavailable until both peers confirm it.
+    func authorizeNatTraversal() async throws
+
     /// Opens a new bidirectional application stream.
     ///
     /// - Returns: Independent receive and send halves.

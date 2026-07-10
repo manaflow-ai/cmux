@@ -1,4 +1,4 @@
-/// Binary framing failures for a control-stream admission response.
+/// Binary framing failures for a control-stream admission frame.
 public enum CmxIrohAdmissionAckCodecError: Error, Equatable, Sendable {
     /// Fewer than eight response bytes are available.
     case incompleteFrame
@@ -14,4 +14,10 @@ public enum CmxIrohAdmissionAckCodecError: Error, Equatable, Sendable {
 
     /// An accepted response carried a nonzero denial code.
     case invalidAcceptedCode(UInt16)
+
+    /// A ready frame carried a nonzero code.
+    case invalidReadyCode(status: UInt8, code: UInt16)
+
+    /// A ready frame appeared where an initial server decision was required.
+    case invalidDecisionFrame(CmxIrohAdmissionFrame)
 }
