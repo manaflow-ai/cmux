@@ -173,25 +173,13 @@ extension RemoteTmuxMirrorCLIObservabilityTests {
         #expect(commands.contains("resize-pane -t @3.%\(tmuxPaneID) -R 10\n"))
     }
 
-    @Test func bonsplitOnlyPaneMutationsRejectProjectedPaneIDs() throws {
+    @Test func unsupportedBonsplitOnlyPaneMutationsRejectProjectedPaneIDs() throws {
         let harness = try Harness(focusAwayFromMirror: true)
         defer { harness.tearDown() }
         let tmuxPaneID = try #require(harness.mirror.paneIDsInOrder.first)
         let paneID = try #require(harness.mirror.syntheticPaneID(forPane: tmuxPaneID)?.id)
         let surfaceID = try #require(harness.mirror.panel(forPane: tmuxPaneID)?.id)
         let focusedBefore = harness.workspace.bonsplitController.focusedPaneId?.id
-
-        let resize = TerminalController.shared.controlPaneResize(
-            routing: harness.routing(paneID: paneID),
-            inputs: ControlPaneResizeInputs(
-                paneID: paneID,
-                absoluteAxis: nil,
-                targetPixels: nil,
-                direction: "right",
-                amount: 1
-            )
-        )
-        #expect(resize == .paneNotFound(paneID))
 
         let breakResult = TerminalController.shared.controlPaneBreak(
             routing: harness.routing(paneID: paneID),

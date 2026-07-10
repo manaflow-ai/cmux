@@ -429,8 +429,8 @@ extension TerminalController: ControlPaneContext {
         guard let paneUUID else {
             return .noFocusedPane
         }
-        guard ws.remoteTmuxControlPane(paneID: paneUUID) == nil else {
-            return .paneNotFound(paneUUID)
+        if let remote = controlRemoteTmuxPaneResize(workspace: ws, tabManager: tabManager, inputs: inputs) {
+            return remote
         }
         guard ws.bonsplitController.allPaneIds.contains(where: { $0.id == paneUUID }) else {
             return .paneNotFound(paneUUID)

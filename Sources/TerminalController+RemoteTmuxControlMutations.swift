@@ -220,4 +220,75 @@ extension TerminalController {
             surfaceID: location.pane.panel.id
         )
     }
+
+    /// Routes `pane.resize` to a projected mirror pane when the explicit or
+    /// focused target belongs to remote tmux. A `nil` result means the target is
+    /// owned by the workspace's ordinary Bonsplit tree.
+    func controlRemoteTmuxPaneResize(
+        workspace: Workspace,
+        tabManager: TabManager,
+        inputs: ControlPaneResizeInputs
+    ) -> ControlPaneResizeResolution? {
+        let location: Workspace.RemoteTmuxControlPaneLocation
+        if let paneID = inputs.paneID {
+            guard let remote = workspace.remoteTmuxControlPane(paneID: paneID) else { return nil }
+            location = remote
+        } else if let focusedPanelID = workspace.focusedPanelId,
+                  let mirror = workspace.remoteTmuxWindowMirror(forPanelId: focusedPanelID) {
+            guard let pane = mirror.activeControlPane() else { return .noFocusedPane }
+            location = (focusedPanelID, mirror, pane)
+        } else {
+            return nil
+        }
+
+        let paneID = location.pane.paneID.id
+        let unavailable = ControlPaneResizeResolution.remoteResizeUnavailable(
+            paneID: paneID,
+            message: String(
+                localized: "socket.pane.resize.remoteUnavailable",
+                defaultValue: "The remote tmux pane could not be resized; wait for the connection to recover and retry."
+            )
+        )
+        if let axis = inputs.absoluteAxis, let targetPixels = inputs.targetPixels {
+            guard targetPixels.isFinite,
+                  let sample = location.pane.panel.surface.rawSizingSample() else {
+                return unavailable
+            }
+            let cellPixels = axis == "horizontal" ? sample.cellWidthPx : sample.cellHeightPx
+            guard cellPixels > 0 else { return unavailable }
+            let targetCells = NSNumber(
+                value: (targetPixels / Double(cellPixels)).rounded()
+            ).intValue
+            guard location.mirror.requestResizePane(
+                location.pane.tmuxPaneID,
+                absoluteAxis: axis,
+                targetCells: targetCells
+            ) else {
+                return unavailable
+            }
+            return .remoteAbsoluteResizeRequested(
+                windowID: v2ResolveWindowId(tabManager: tabManager),
+                workspaceID: workspace.id,
+                paneID: paneID,
+                absoluteAxis: axis,
+                targetPixels: targetPixels
+            )
+        }
+
+        guard let direction = inputs.direction,
+              location.mirror.requestResizePane(
+                location.pane.tmuxPaneID,
+                direction: direction,
+                amount: inputs.amount
+              ) else {
+            return unavailable
+        }
+        return .remoteRelativeResizeRequested(
+            windowID: v2ResolveWindowId(tabManager: tabManager),
+            workspaceID: workspace.id,
+            paneID: paneID,
+            direction: direction,
+            amount: inputs.amount
+        )
+    }
 }

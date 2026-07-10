@@ -44,9 +44,11 @@ extension RemoteTmuxWindowMirror {
                 parentExtent: parentExtent,
                 dividerPosition: position
             )
-            let flag = orientation == .horizontal ? "-x" : "-y"
-            _ = connection?.send(
-                "resize-pane -t @\(windowId).%\(first.paneIDsInOrder.first ?? 0) \(flag) \(cells)"
+            let axis = orientation == .horizontal ? "horizontal" : "vertical"
+            _ = requestResizePane(
+                first.paneIDsInOrder.first ?? 0,
+                absoluteAxis: axis,
+                targetCells: cells
             )
         }
 
