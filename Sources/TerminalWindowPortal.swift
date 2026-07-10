@@ -188,6 +188,11 @@ final class WindowTerminalHostView: NSView {
                        at: convert(point, to: nil),
                        in: splitDividerRegions()
                    ) != nil {
+                    // Record cursor ownership before claiming: without a
+                    // preceding hover event `activeDividerCursorKind` would
+                    // stay nil and `clearActiveDividerCursor` at mouse-up
+                    // could not restore the arrow.
+                    assertDividerCursor(kind)
                     return self
                 }
                 assertDividerCursor(kind)

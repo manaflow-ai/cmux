@@ -178,14 +178,6 @@ final class PortalSplitDividerRegion {
         var current: NSView? = splitView
         while let view = current {
             if view.isHidden { return false }
-            // Bonsplit's keepAllAlive lifecycle parks inactive tab content at
-            // SwiftUI opacity(0) with hit testing disabled instead of hiding
-            // it; that surfaces as a zero-alpha platform ancestor. Dividers
-            // inside such content must not pair into intersection drags (a
-            // drag would mutate an invisible split the click could never
-            // reach natively).
-            if view.alphaValue == 0 { return false }
-            if let layer = view.layer, layer.opacity == 0 { return false }
             current = view.superview
         }
         let first = splitView.arrangedSubviews[dividerIndex].frame
@@ -198,6 +190,25 @@ final class PortalSplitDividerRegion {
 
     static func allLive(_ regions: [PortalSplitDividerRegion]) -> Bool {
         regions.allSatisfy(\.isLive)
+    }
+
+    /// Whether the divider's content is actually visible to the user.
+    /// Bonsplit's keepAllAlive lifecycle parks inactive tab content at SwiftUI
+    /// opacity(0) with hit testing disabled instead of hiding it, which
+    /// surfaces as a zero-alpha platform ancestor. Dividers inside such
+    /// content must not pair into intersection drags (a drag would mutate an
+    /// invisible split the click could never reach natively). Kept separate
+    /// from `isLive`, which the portal hosts use for structural cache reuse:
+    /// folding this in there would make a parked divider permanently
+    /// non-live and force a full-tree recollect on every pointer event.
+    var isInteractable: Bool {
+        var current: NSView? = splitView
+        while let view = current {
+            if view.alphaValue == 0 { return false }
+            if let layer = view.layer, layer.opacity == 0 { return false }
+            current = view.superview
+        }
+        return true
     }
 
     var hitRectInWindow: NSRect {
@@ -218,7 +229,7 @@ final class PortalSplitDividerRegion {
         var horizontal: [(region: PortalSplitDividerRegion, distance: CGFloat, order: Int)] = []
         var first: PortalSplitDividerRegion?
         for (order, region) in regions.reversed().enumerated() {
-            if checkLiveness, !region.isLive { continue }
+            if checkLiveness, !region.isLive || !region.isInteractable { continue }
             let hitRect = region.hitRectInWindow
             guard !hitRect.isNull, hitRect.contains(windowPoint) else { continue }
             if first == nil { first = region }

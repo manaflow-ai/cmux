@@ -251,7 +251,7 @@ import Testing
         #expect(!controller.isActive)
     }
 
-    @Test func zeroAlphaAncestorsAreNotLiveForIntersection() {
+    @Test func zeroAlphaAncestorsAreNotInteractableForIntersection() {
         let window = NSWindow(
             contentRect: Self.contentBounds,
             styleMask: [.titled],
@@ -281,6 +281,11 @@ import Testing
             at: cornerPoint,
             in: [horizontal, vertical]
         ) == nil)
+        // Interactability is separate from liveness on purpose: the portal
+        // hosts reuse their region cache only while every cached region is
+        // live, so a permanently parked zero-alpha divider must stay "live"
+        // or every pointer event would recollect the whole hierarchy.
+        #expect(vertical.isLive)
     }
 
     @Test func clampHonorsDelegateConstraints() {
