@@ -37,7 +37,7 @@ enum CmuxSocketEventMapper {
         let params = request["params"] as? [String: Any] ?? [:]
         let result = responseObject["result"] as? [String: Any] ?? [:]
         publishResult(
-            name: mapping.name.resolved(using: result),
+            name: mapping.resolvedName(using: result),
             category: mapping.category,
             method: method,
             params: mappedParams(params, using: mapping.params),
@@ -47,34 +47,28 @@ enum CmuxSocketEventMapper {
     }
 
     private struct DomainEventMapping {
-        let name: DomainEventName
+        let name: String
+        let remoteName: String?
         let category: String
         let params: ParameterMapping
 
-        init(name: String, category: String, params: ParameterMapping) {
-            self.name = .fixed(name)
-            self.category = category
-            self.params = params
-        }
-
-        init(name: DomainEventName, category: String, params: ParameterMapping) {
+        init(
+            name: String,
+            remoteName: String? = nil,
+            category: String,
+            params: ParameterMapping
+        ) {
             self.name = name
+            self.remoteName = remoteName
             self.category = category
             self.params = params
         }
-    }
 
-    private enum DomainEventName {
-        case fixed(String)
-        case booleanResult(key: String, trueName: String, falseName: String)
-
-        func resolved(using result: [String: Any]) -> String {
-            switch self {
-            case .fixed(let name):
-                return name
-            case .booleanResult(let key, let trueName, let falseName):
-                return result[key] as? Bool == true ? trueName : falseName
+        func resolvedName(using result: [String: Any]) -> String {
+            if result["remote"] as? Bool == true, let remoteName {
+                return remoteName
             }
+            return name
         }
     }
 
@@ -106,11 +100,8 @@ enum CmuxSocketEventMapper {
             return DomainEventMapping(name: "surface.key_sent", category: "surface", params: .unchanged)
         case "pane.resize":
             return DomainEventMapping(
-                name: .booleanResult(
-                    key: "remote",
-                    trueName: "pane.resize_requested",
-                    falseName: "pane.resized"
-                ),
+                name: "pane.resized",
+                remoteName: "pane.resize_requested",
                 category: "pane",
                 params: .unchanged
             )
