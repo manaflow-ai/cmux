@@ -136,6 +136,7 @@ public actor CmxIrohOnlineAdmissionRegistry {
             return .accepted(lease.validatedOnline(at: online.fetchedAt))
         } catch {
             guard Self.isConnectivity(error),
+                  policyRevision == revision,
                   !isDenied(lease),
                   !isExpired(lease) else {
                 return .denied
@@ -227,9 +228,12 @@ public actor CmxIrohOnlineAdmissionRegistry {
         guard !isDenied(lease), clock.now() < lease.expiresAt else {
             return .terminal
         }
+        let revision = policyRevision
         do {
             let online = try await currentSnapshot()
-            guard validate(online.response, lease: lease, learnDenial: true) else {
+            guard policyRevision == revision,
+                  !isDenied(lease),
+                  validate(online.response, lease: lease, learnDenial: true) else {
                 await invalidateDeniedMonitors()
                 return .terminal
             }
@@ -238,7 +242,9 @@ public actor CmxIrohOnlineAdmissionRegistry {
             }
             return .active(online.fetchedAt)
         } catch {
-            return Self.isConnectivity(error) && !isDenied(lease)
+            return Self.isConnectivity(error)
+                && policyRevision == revision
+                && !isDenied(lease)
                 ? .connectivity
                 : .terminal
         }
