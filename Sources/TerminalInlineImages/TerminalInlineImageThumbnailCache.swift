@@ -22,7 +22,7 @@ actor TerminalInlineImageThumbnailCache {
     private var waitersByKey: [String: [UUID: CheckedContinuation<TerminalInlineImageThumbnail?, Never>]] = [:]
     private var pathByKey: [String: String] = [:]
     private var pendingKeys: [String] = []
-    private var pendingHeadIndex = 0
+    private var pendingKeySet: Set<String> = []
     private var activeTasksByKey: [String: Task<Void, Never>] = [:]
     private var requestTokenByKey: [String: DecodeRequestToken] = [:]
     private var cacheGeneration: UInt64 = 0
@@ -87,7 +87,7 @@ actor TerminalInlineImageThumbnailCache {
         pathByKey.removeAll()
         requestTokenByKey.removeAll()
         pendingKeys.removeAll()
-        pendingHeadIndex = 0
+        pendingKeySet.removeAll()
         continuations.forEach { $0.resume(returning: nil) }
     }
 
@@ -102,7 +102,9 @@ actor TerminalInlineImageThumbnailCache {
             waitersByKey[key] = waiters
             return
         }
-        guard waitersByKey.count < maximumPendingDecodes + maximumConcurrentDecodes else {
+        let canStartImmediately = activeTasksByKey[key] == nil
+            && activeTasksByKey.count < maximumConcurrentDecodes
+        guard canStartImmediately || pendingKeys.count < maximumPendingDecodes else {
             continuation.resume(returning: nil)
             return
         }
@@ -112,16 +114,17 @@ actor TerminalInlineImageThumbnailCache {
             id: UUID(),
             cacheGeneration: cacheGeneration
         )
-        pendingKeys.append(key)
+        if pendingKeySet.insert(key).inserted {
+            pendingKeys.append(key)
+        }
         startPendingDecodesIfPossible()
     }
 
     private func startPendingDecodesIfPossible() {
         while activeTasksByKey.count < maximumConcurrentDecodes,
-              pendingHeadIndex < pendingKeys.count {
-            let key = pendingKeys[pendingHeadIndex]
-            guard activeTasksByKey[key] == nil else { break }
-            pendingHeadIndex += 1
+              let nextIndex = pendingKeys.firstIndex(where: { activeTasksByKey[$0] == nil }) {
+            let key = pendingKeys.remove(at: nextIndex)
+            pendingKeySet.remove(key)
             guard let path = pathByKey[key],
                   waitersByKey[key] != nil,
                   let requestToken = requestTokenByKey[key] else {
@@ -139,7 +142,6 @@ actor TerminalInlineImageThumbnailCache {
                 )
             }
         }
-        compactPendingKeysIfNeeded()
     }
 
     private func decodeDidFinish(
@@ -175,6 +177,7 @@ actor TerminalInlineImageThumbnailCache {
         }
         continuation.resume(returning: nil)
         if waiters.isEmpty {
+            removePendingKey(key)
             if let activeTask = activeTasksByKey[key] {
                 waitersByKey.removeValue(forKey: key)
                 pathByKey.removeValue(forKey: key)
@@ -184,8 +187,8 @@ actor TerminalInlineImageThumbnailCache {
                 waitersByKey.removeValue(forKey: key)
                 pathByKey.removeValue(forKey: key)
                 requestTokenByKey.removeValue(forKey: key)
-                compactPendingKeysAfterCancellation()
             }
+            startPendingDecodesIfPossible()
         } else {
             waitersByKey[key] = waiters
         }
@@ -219,14 +222,11 @@ actor TerminalInlineImageThumbnailCache {
         cachedPathOrder.removeFirst(overflow)
     }
 
-    private func compactPendingKeysIfNeeded() {
-        guard pendingHeadIndex > 32, pendingHeadIndex * 2 >= pendingKeys.count else { return }
-        pendingKeys.removeFirst(pendingHeadIndex)
-        pendingHeadIndex = 0
-    }
-
-    private func compactPendingKeysAfterCancellation() {
-        pendingKeys = pendingKeys[pendingHeadIndex...].filter { waitersByKey[$0] != nil }
-        pendingHeadIndex = 0
+    private func removePendingKey(_ key: String) {
+        guard pendingKeySet.remove(key) != nil,
+              let index = pendingKeys.firstIndex(of: key) else {
+            return
+        }
+        pendingKeys.remove(at: index)
     }
 }
