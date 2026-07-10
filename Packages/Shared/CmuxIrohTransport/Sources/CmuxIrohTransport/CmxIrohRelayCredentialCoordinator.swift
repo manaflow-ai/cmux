@@ -18,6 +18,7 @@ public actor CmxIrohRelayCredentialCoordinator {
     private let managedRelayURLs: Set<String>
     private let clock: any CmxIrohRelayClock
     private let jitter: @Sendable (_ now: Date, _ refreshAfter: Date) -> Date
+    private let credentialDidInstall: @Sendable (CmxIrohRelayTokenResponse) async -> Void
     private var binding: Binding?
     private var installedCredential: InstalledCredential?
     private var lifecycleRevision: UInt64 = 0
@@ -34,13 +35,17 @@ public actor CmxIrohRelayCredentialCoordinator {
             refreshAfter in
             let window = min(15 * 60, max(0, refreshAfter.timeIntervalSince(now)))
             return refreshAfter.addingTimeInterval(-Double.random(in: 0 ... window))
-        }
+        },
+        credentialDidInstall: @escaping @Sendable (
+            CmxIrohRelayTokenResponse
+        ) async -> Void = { _ in }
     ) {
         self.supervisor = supervisor
         self.broker = broker
         self.managedRelayURLs = managedRelayURLs
         self.clock = clock
         self.jitter = jitter
+        self.credentialDidInstall = credentialDidInstall
     }
 
     /// Starts refresh scheduling for one exact registered endpoint binding.
@@ -164,6 +169,7 @@ public actor CmxIrohRelayCredentialCoordinator {
             expiresAt: expiresAt
         )
         installedCredential = installed
+        await credentialDidInstall(response)
         return installed
     }
 

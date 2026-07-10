@@ -14,12 +14,16 @@ struct CmxIrohRelayCredentialCoordinatorTests {
         let clock = TestRelayClock(now: fixture.now)
         var clockEvents = clock.events().makeAsyncIterator()
         let response = try fixture.response()
+        let installs = TestRelayCredentialInstallRecorder()
         let coordinator = CmxIrohRelayCredentialCoordinator(
             supervisor: supervisor,
             broker: broker,
             managedRelayURLs: Set(fixture.relayURLs),
             clock: clock,
-            jitter: { _, refreshAfter in refreshAfter }
+            jitter: { _, refreshAfter in refreshAfter },
+            credentialDidInstall: { response in
+                await installs.record(response)
+            }
         )
 
         try await coordinator.activate(
@@ -33,6 +37,7 @@ struct CmxIrohRelayCredentialCoordinatorTests {
         #expect(updates.count == 1)
         #expect(updates[0].map(\.url) == fixture.relayURLs)
         #expect(await coordinator.credentialExpiresAt() == fixture.expiresAt)
+        #expect(await installs.values() == [response])
         #expect(await broker.observedBindingIDs().isEmpty)
         await coordinator.deactivate()
         #expect(await clockEvents.next() == .cancelled)
@@ -121,6 +126,18 @@ struct CmxIrohRelayCredentialCoordinatorTests {
 
         #expect(await endpoint.observedRelayUpdates().isEmpty)
         #expect(try await supervisor.activeEndpoint().identity() == fixture.identity)
+    }
+}
+
+private actor TestRelayCredentialInstallRecorder {
+    private var responses: [CmxIrohRelayTokenResponse] = []
+
+    func record(_ response: CmxIrohRelayTokenResponse) {
+        responses.append(response)
+    }
+
+    func values() -> [CmxIrohRelayTokenResponse] {
+        responses
     }
 }
 
