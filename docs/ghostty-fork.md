@@ -12,12 +12,14 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-Current cmux pinned fork head: `4117298e4`. It combines the previous cmux pin
+Current cmux pinned fork head: `bdf4baa80`. It combines the previous cmux pin
 `dd726a9a6`, current fork `main` (`8495e581a`), and upstream
 `ghostty-org/ghostty` `main` through `7e02af879` (2026-07-09), followed by the
-render-grid preserved-page OOM fix. Published via
+render-grid preserved-page OOM fix and mutex-safe selection notifications.
+Published via
 https://github.com/manaflow-ai/ghostty/pull/96 and
-https://github.com/manaflow-ai/ghostty/pull/99.
+https://github.com/manaflow-ai/ghostty/pull/99 and
+https://github.com/manaflow-ai/ghostty/pull/104.
 
 ### Upstream TLDR (`d560c645..7e02af879`)
 
@@ -58,21 +60,30 @@ https://github.com/manaflow-ai/ghostty/pull/99.
    for the scope defer instead of double-freeing the prior decode.
 5. Fork CI keeps the `ubuntu-latest` aggregate-test fallback and skips
    upstream-only Vouch jobs outside `ghostty-org/ghostty`.
+6. Selection changes advance a per-screen activity token. The renderer reads
+   that token under its demand lock, releases the terminal mutex, then invokes
+   `selection_changed`. Genuine surface transitions also wake the renderer.
+   Accessibility callbacks can therefore read the selection synchronously
+   without deadlocking, and clears or endpoint adjustments do not leave stale
+   accessibility state.
 
 Verified with Zig 0.15.2: compression and libghostty-vt compression tests,
 the cmux link-click regression test, the `wasm32-freestanding` libghostty-vt
-build, a clean universal GhosttyKit build, and tagged cmux reload `gcmp`.
+build, a clean universal GhosttyKit build, tagged cmux reloads `gcmp` and
+`gsel2`, and live accessibility reads across select-all, endpoint adjustment,
+and clearing.
 Prebuilt archive:
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-4117298e4bc198ce0ae8f522357e3121e98a9a2b-crashsubdir-cmux-crash-v1
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-bdf4baa802746a49d60648b402cafbff50cdd8b0-crashsubdir-cmux-crash-v1
 
 ### Previous pin
 
 The previous cmux pin was `dd726a9a6`, carrying the iOS external renderer-drain
 mode and IOSurface detach fixes on top of `a78fe53ef`. The initial compression
 merge for this update was `870ed36f9`; it was superseded by `4117298e4` after
-the preserved-page OOM ownership fix. The fork's prior `main` head was
+the preserved-page OOM ownership fix, then by `bdf4baa80` after the selection
+notification callback fix. The fork's prior `main` head was
 `cc31d54ee`, which merged upstream through `d560c645`; both histories are
-ancestors of `4117298e4`.
+ancestors of `bdf4baa80`.
 
 ### Earlier pin
 
