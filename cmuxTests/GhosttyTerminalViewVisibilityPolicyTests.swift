@@ -249,6 +249,62 @@ struct TerminalPortalHostAuthorityTests {
 
     @MainActor
     @Test
+    func currentAuthorityCanApplyHiddenPresentationWithoutCedingOwnership() {
+        let surface = makeSurface()
+        let host = NSView()
+        let pane = PaneID()
+        let bounds = CGRect(x: 0, y: 0, width: 400, height: 300)
+
+        #expect(surface.claimPortalHost(
+            hostId: ObjectIdentifier(host), paneId: pane, instanceSerial: 1,
+            inWindow: true, bounds: bounds, reason: "test.visible.initial"
+        ))
+        #expect(surface.claimPortalHost(
+            hostId: ObjectIdentifier(host), paneId: pane, instanceSerial: 1,
+            inWindow: true, bounds: bounds,
+            allowsAuthorityAcquisition: false,
+            reason: "test.current.hidden"
+        ))
+        #expect(
+            surface.debugPortalHostLease().hostId ==
+                String(describing: ObjectIdentifier(host))
+        )
+    }
+
+    @MainActor
+    @Test
+    func newerModelOwnershipGenerationOverridesHostCreationOrderAfterRollback() {
+        let surface = makeSurface()
+        let originalHost = NSView(), movedHost = NSView()
+        let originalPane = PaneID(), movedPane = PaneID()
+        let bounds = CGRect(x: 0, y: 0, width: 400, height: 300)
+
+        #expect(surface.claimPortalHost(
+            hostId: ObjectIdentifier(originalHost), paneId: originalPane, instanceSerial: 10,
+            ownershipGeneration: 1,
+            inWindow: true, bounds: bounds, reason: "test.original.initial"
+        ))
+        #expect(surface.claimPortalHost(
+            hostId: ObjectIdentifier(movedHost), paneId: movedPane, instanceSerial: 20,
+            ownershipGeneration: 2,
+            inWindow: true, bounds: bounds, reason: "test.move.commit"
+        ))
+        surface.releasePortalHostIfOwned(
+            hostId: ObjectIdentifier(movedHost), reason: "test.move.rollback"
+        )
+        #expect(surface.claimPortalHost(
+            hostId: ObjectIdentifier(originalHost), paneId: originalPane, instanceSerial: 10,
+            ownershipGeneration: 3,
+            inWindow: true, bounds: bounds, reason: "test.rollback.commit"
+        ))
+        #expect(
+            surface.debugPortalHostLease().hostId ==
+                String(describing: ObjectIdentifier(originalHost))
+        )
+    }
+
+    @MainActor
+    @Test
     func olderHostCannotReclaimAfterNewHostLeaseReleases() {
         let surface = makeSurface()
         let oldHost = NSView(), newHost = NSView()
