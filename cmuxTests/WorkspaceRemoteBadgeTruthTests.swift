@@ -39,6 +39,40 @@ final class WorkspaceRemoteBadgeTruthTests: XCTestCase {
         XCTAssertEqual(workspace.remoteStatusPayload()["connected"] as? Bool, true)
     }
 
+    @MainActor
+    func testLegacySSHProxyOnlyErrorDowngradesAfterLastTerminalSessionEnds() throws {
+        let workspace = Workspace()
+        let config = remoteConfiguration(preserveAfterTerminalExit: false)
+        workspace.configureRemoteConnection(config, autoConnect: false)
+
+        XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 1)
+
+        try endSeededLegacyTerminalSession(in: workspace)
+
+        let proxyError = "Remote proxy to host unavailable: Remote daemon transport failed: daemon transport keepalive timed out"
+        workspace.applyRemoteConnectionStateUpdate(.error, detail: proxyError, target: "host")
+
+        XCTAssertEqual(workspace.remoteConnectionState, .error)
+        XCTAssertEqual(workspace.remoteStatusPayload()["connected"] as? Bool, false)
+    }
+
+    @MainActor
+    func testProxyOnlyRetryDoesNotPinConnectedWithoutLiveTerminalSessions() throws {
+        let workspace = Workspace()
+        let config = remoteConfiguration(preserveAfterTerminalExit: false)
+        workspace.configureRemoteConnection(config, autoConnect: false)
+
+        XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 1)
+
+        try endSeededLegacyTerminalSession(in: workspace)
+
+        let proxyError = "Remote proxy to host unavailable: Remote daemon transport failed: daemon transport keepalive timed out"
+        workspace.applyRemoteConnectionStateUpdate(.error, detail: proxyError, target: "host")
+        workspace.applyRemoteConnectionStateUpdate(.reconnecting, detail: "Reconnecting to host (retry 1)", target: "host")
+
+        XCTAssertEqual(workspace.remoteConnectionState, .reconnecting)
+    }
+
     private func remoteConfiguration(preserveAfterTerminalExit: Bool) -> WorkspaceRemoteConfiguration {
         WorkspaceRemoteConfiguration(
             destination: "host",
@@ -53,5 +87,26 @@ final class WorkspaceRemoteBadgeTruthTests: XCTestCase {
             terminalStartupCommand: "ssh-pty-attach",
             preserveAfterTerminalExit: preserveAfterTerminalExit
         )
+    }
+
+    @MainActor
+    private func endSeededLegacyTerminalSession(in workspace: Workspace) throws {
+        let surfaceId = try seededTerminalSurfaceID(in: workspace)
+        Workspace.runSSHControlMasterCommandOverrideForTesting = { _ in }
+        defer { Workspace.runSSHControlMasterCommandOverrideForTesting = nil }
+
+        workspace.markRemoteTerminalSessionEnded(surfaceId: surfaceId, relayPort: 64007)
+
+        XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 0)
+        XCTAssertEqual(workspace.remoteConnectionState, .disconnected)
+    }
+
+    @MainActor
+    private func seededTerminalSurfaceID(in workspace: Workspace) throws -> UUID {
+        let terminalSurfaceIds = workspace.panels.compactMap { panelId, panel in
+            panel is TerminalPanel ? panelId : nil
+        }
+        XCTAssertEqual(terminalSurfaceIds.count, 1)
+        return try XCTUnwrap(terminalSurfaceIds.first)
     }
 }

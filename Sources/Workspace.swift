@@ -6484,7 +6484,7 @@ final class Workspace: Identifiable, ObservableObject {
         let proxyOnlyError = trimmedDetail.map(Self.isProxyOnlyRemoteError) ?? false
         let preserveConnectedStateForRetry =
             (state == .connecting || state == .reconnecting) &&
-                preservesProxyFailureForSSHRemoteWorkspace &&
+                (suppressesProxyOnlySidebarErrorForDefaultCloud || preservesProxyFailureWhileSSHTerminalIsAlive) && // #6409 default cloud; otherwise live non-persistent SSH only (#7366/#7823)
                 hasProxyOnlyRemoteSidebarError
         let suppressProxyOnlySidebarError =
             suppressesProxyOnlySidebarErrorForDefaultCloud &&
@@ -6492,7 +6492,7 @@ final class Workspace: Identifiable, ObservableObject {
         let effectiveState: WorkspaceRemoteConnectionState
         if state == .error && proxyOnlyError && suppressesProxyOnlySidebarErrorForDefaultCloud {
             effectiveState = .connected
-        } else if state == .error && proxyOnlyError && preservesProxyFailureForSSHRemoteWorkspace {
+        } else if state == .error && proxyOnlyError && preservesProxyFailureWhileSSHTerminalIsAlive { // live non-persistent SSH terminal only (#6409 vs #7366/#7823)
             effectiveState = .connected
         } else if preserveConnectedStateForRetry {
             effectiveState = .connected
