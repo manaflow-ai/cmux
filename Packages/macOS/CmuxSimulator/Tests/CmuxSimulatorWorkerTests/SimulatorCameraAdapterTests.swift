@@ -319,6 +319,53 @@ struct SimulatorCameraAdapterTests {
         #expect(!adapter.status().injectedBundleIdentifiers.contains(bundleIdentifier))
     }
 
+    @Test("Camera mutation waits for host cleanup ownership")
+    @MainActor
+    func cameraMutationWaitsForCleanupOwnership() async throws {
+        let bundleIdentifier = "com.example.CameraFixture"
+        let ownershipGate = CameraTargetOwnershipGate()
+        let permission = CameraPermissionRecorder()
+        let simctl = CameraReinjectionSimctlFake(
+            bundleIdentifier: bundleIdentifier,
+            processIdentifier: Int32(getpid())
+        )
+        let adapter = SimulatorCameraAdapter(
+            cameraPermission: SimulatorCameraPermissionAdapter {
+                device, action, service, bundle in
+                await permission.record(
+                    device: device,
+                    action: action,
+                    service: service,
+                    bundle: bundle
+                )
+            },
+            compiledLibrary: { URL(fileURLWithPath: "/tmp/cmux-camera-test.dylib") },
+            simctl: { arguments, environment in
+                await simctl.run(arguments: arguments, environment: environment)
+            }
+        )
+        adapter.attach(deviceIdentifier: "DEVICE")
+        let operation = Task { @MainActor in
+            try await adapter.configure(
+                .targeted(bundleIdentifier: bundleIdentifier, source: .placeholder),
+                inferredApplication: nil,
+                targetResolved: { bundleIdentifier in
+                    await ownershipGate.transfer(bundleIdentifier: bundleIdentifier)
+                }
+            )
+        }
+
+        #expect(await ownershipGate.waitUntilStarted() == bundleIdentifier)
+        #expect(await permission.mutation == nil)
+        #expect(await simctl.lifecycleMutationCount == 0)
+        await ownershipGate.release()
+        _ = try await operation.value
+
+        #expect(await permission.mutation?.bundle == bundleIdentifier)
+        #expect(await simctl.injectedLaunchCount == 1)
+        await adapter.shutdown()
+    }
+
     @Test("simctl launch output extracts the injected app pid")
     func launchOutput() {
         #expect(
