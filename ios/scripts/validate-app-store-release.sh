@@ -4,7 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 IOS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-APP="${ASC_APP_ID:-${IOS_APPSTORE_APP_ID:-${IOS_APPSTORE_BUNDLE_ID:-com.cmux.app}}}"
+APP="${ASC_APP_ID:-${IOS_APPSTORE_APP_ID:-}}"
 VERSION=""
 BUILD_NUMBER=""
 BUILD_ID=""
@@ -26,7 +26,7 @@ VALIDATE_DIGITAL_GOODS="${CMUX_APP_STORE_VALIDATE_DIGITAL_GOODS:-0}"
 usage() {
   cat <<'EOF'
 Usage:
-  ios/scripts/validate-app-store-release.sh [--app <app-id-or-bundle>]
+  ios/scripts/validate-app-store-release.sh [--app <app-store-connect-app-id>]
     [--version <X.Y.Z>] [--build-number <CFBundleVersion> | --build-id <id>]
     [--strict] [--wait-build] [--metadata-dir <dir>] [--screenshots-dir <dir>]
     [--screenshot-device-type <ASC_DEVICE_TYPE>] [--copy-metadata-from <version>]
@@ -75,7 +75,8 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-[[ -n "$APP" ]] || die "App Store app id is required; pass --app or configure the App Store app id"
+[[ -n "$APP" ]] || die "App Store Connect app id is required; pass --app or configure ASC_APP_ID / IOS_APPSTORE_APP_ID"
+[[ "$APP" =~ ^[0-9]+$ ]] || die "App Store Connect app id must be numeric (got '$APP'); do not pass a bundle id"
 if [[ -z "$VERSION" ]]; then
   VERSION="$(
     sed -nE 's/^[[:space:]]*MARKETING_VERSION[[:space:]]*=[[:space:]]*([0-9]+(\.[0-9]+){1,2}).*/\1/p' \

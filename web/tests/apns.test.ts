@@ -162,6 +162,10 @@ describe("apns route policy", () => {
       bundleId: "com.cmux.app",
       environment: "production",
     });
+    expect(normalizeApnsBundle("com.cmuxterm.app")).toEqual({
+      bundleId: "com.cmuxterm.app",
+      environment: "production",
+    });
     expect(normalizeApnsBundle("dev.cmux.app.beta")).toEqual({
       bundleId: "dev.cmux.app.beta",
       environment: "production",
@@ -172,7 +176,6 @@ describe("apns route policy", () => {
     });
 
     expect(normalizeApnsBundle("com.example.app")).toBeNull();
-    expect(normalizeApnsBundle("com.cmuxterm.app")).toBeNull();
     expect(normalizeApnsBundle("dev.cmux.ios.bad_topic")).toBeNull();
     expect(normalizeApnsBundle("dev.cmux.ios.-bad")).toBeNull();
   });

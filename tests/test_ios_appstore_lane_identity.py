@@ -19,6 +19,7 @@ ROOT = Path(__file__).resolve().parents[1]
 TEAM_ID = "7WLXT3NR37"
 APPSTORE_BUNDLE_ID = "com.cmux.app"
 APPSTORE_APP_ID = f"{TEAM_ID}.{APPSTORE_BUNDLE_ID}"
+ASC_APP_ID = "6783338052"
 IDENTITY = f"Apple Distribution: Manaflow, Inc. ({TEAM_ID})"
 
 FAILURES: list[str] = []
@@ -355,6 +356,20 @@ from pathlib import Path
 log = os.environ.get("CMUX_FAKE_ASC_LOG")
 if log:
     Path(log).open("a", encoding="utf-8").write(json.dumps(sys.argv[1:]) + "\\n")
+
+args = sys.argv[1:]
+if args[:2] == ["apps", "view"]:
+    app_id = args[args.index("--id") + 1]
+    print(json.dumps({
+        "data": {
+            "id": app_id,
+            "attributes": {
+                "bundleId": os.environ.get("CMUX_FAKE_ASC_APP_BUNDLE_ID", "com.cmux.app")
+            }
+        }
+    }))
+    sys.exit(0)
+
 sys.exit(0)
 """,
     )
@@ -379,7 +394,22 @@ def _base_env(tmp: Path, fakebin: Path) -> dict[str, str]:
     return env
 
 
-def _run(args: list[str], *, env: dict[str, str], tmp: Path) -> subprocess.CompletedProcess[str]:
+def _asc_upload_env(tmp: Path, fakebin: Path) -> dict[str, str]:
+    env = _base_env(tmp, fakebin)
+    env["ASC_APP_ID"] = ASC_APP_ID
+    env["ASC_API_KEY_ID"] = "KEY123"
+    env["ASC_API_ISSUER_ID"] = "ISSUER123"
+    env["ASC_API_KEY_P8_BASE64"] = base64.b64encode(b"fake p8").decode()
+    return env
+
+
+def _run(
+    args: list[str],
+    *,
+    env: dict[str, str],
+    tmp: Path,
+    log_failure: bool = True,
+) -> subprocess.CompletedProcess[str]:
     result = subprocess.run(
         args,
         cwd=ROOT,
@@ -388,7 +418,7 @@ def _run(args: list[str], *, env: dict[str, str], tmp: Path) -> subprocess.Compl
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
-    if result.returncode != 0:
+    if log_failure and result.returncode != 0:
         print(result.stdout)
         print(result.stderr, file=sys.stderr)
     return result
@@ -443,6 +473,37 @@ def test_upload_appstore_lane_uses_production_bundle_id(tmp: Path, fakebin: Path
     _check(info.get("CFBundleIdentifier") == APPSTORE_BUNDLE_ID, "final signed IPA Info.plist is com.cmux.app")
 
 
+def test_upload_appstore_checks_asc_app_bundle_id_before_upload(tmp: Path, fakebin: Path) -> None:
+    env = _asc_upload_env(tmp, fakebin)
+    env["CMUX_IOS_UPLOAD_DIR"] = str(tmp / "upload")
+    env["CMUX_BUILD_NUMBER_OUT_FILE"] = str(tmp / "build-number.txt")
+    result = _run(
+        [
+            "bash",
+            str(ROOT / "ios" / "scripts" / "upload-app-store.sh"),
+            "--signing",
+            "manual",
+        ],
+        env=env,
+        tmp=tmp,
+    )
+    _check(result.returncode == 0, "appstore upload lane succeeds with fake asc")
+    _check(
+        f"App Store Connect app verified: {ASC_APP_ID} bundle id {APPSTORE_BUNDLE_ID}" in result.stdout,
+        "upload lane verifies ASC app bundle id before upload",
+    )
+
+    asc_calls = [
+        json.loads(line)
+        for line in (tmp / "asc.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    app_view_index = next(index for index, call in enumerate(asc_calls) if call[:2] == ["apps", "view"])
+    upload_index = next(index for index, call in enumerate(asc_calls) if call[:2] == ["builds", "upload"])
+    _check(app_view_index < upload_index, "ASC app bundle id is resolved before build upload")
+    app_view_call = asc_calls[app_view_index]
+    _check(app_view_call[app_view_call.index("--id") + 1] == ASC_APP_ID, "ASC app lookup uses numeric app id")
+
+
 def test_profile_installer_accepts_production_profile_by_default(tmp: Path, fakebin: Path) -> None:
     env = _base_env(tmp, fakebin)
     env["RUNNER_TEMP"] = str(tmp / "runner")
@@ -463,8 +524,9 @@ def test_profile_installer_accepts_production_profile_by_default(tmp: Path, fake
     )
 
 
-def test_validate_appstore_release_defaults_to_production_app(tmp: Path, fakebin: Path) -> None:
+def test_validate_appstore_release_requires_numeric_app_id(tmp: Path, fakebin: Path) -> None:
     env = _base_env(tmp, fakebin)
+    env["ASC_APP_ID"] = ASC_APP_ID
     result = _run(
         ["bash", str(ROOT / "ios" / "scripts" / "validate-app-store-release.sh"), "--version", "1.0.4"],
         env=env,
@@ -477,7 +539,24 @@ def test_validate_appstore_release_defaults_to_production_app(tmp: Path, fakebin
     ]
     validate_call = next(call for call in asc_calls if call and call[0] == "validate")
     app_index = validate_call.index("--app") + 1
-    _check(validate_call[app_index] == APPSTORE_BUNDLE_ID, "validation helper defaults to com.cmux.app")
+    _check(validate_call[app_index] == ASC_APP_ID, "validation helper uses the numeric App Store Connect app id")
+
+    bad_env = _base_env(tmp / "bad-app", fakebin)
+    bad_result = _run(
+        [
+            "bash",
+            str(ROOT / "ios" / "scripts" / "validate-app-store-release.sh"),
+            "--app",
+            APPSTORE_BUNDLE_ID,
+            "--version",
+            "1.0.4",
+        ],
+        env=bad_env,
+        tmp=tmp / "bad-app",
+        log_failure=False,
+    )
+    _check(bad_result.returncode != 0, "validation helper rejects bundle id as --app")
+    _check("must be numeric" in bad_result.stderr, "validation helper explains that --app must be numeric")
 
 
 def main() -> None:
@@ -486,8 +565,9 @@ def main() -> None:
         fakebin = tmp / "bin"
         _install_fake_tools(fakebin)
         test_upload_appstore_lane_uses_production_bundle_id(tmp / "upload-test", fakebin)
+        test_upload_appstore_checks_asc_app_bundle_id_before_upload(tmp / "upload-live-test", fakebin)
         test_profile_installer_accepts_production_profile_by_default(tmp / "profile-test", fakebin)
-        test_validate_appstore_release_defaults_to_production_app(tmp / "validate-test", fakebin)
+        test_validate_appstore_release_requires_numeric_app_id(tmp / "validate-test", fakebin)
 
     if FAILURES:
         print(f"\n{len(FAILURES)} failure(s)")

@@ -982,6 +982,10 @@ upload_app_store_with_asc() {
     echo "error: --lane appstore requires ASC_APP_ID so the upload targets the exact App Store Connect app record" >&2
     exit 2
   fi
+  if [[ ! "$ASC_APP_ID" =~ ^[0-9]+$ ]]; then
+    echo "error: --lane appstore requires numeric ASC_APP_ID (got '$ASC_APP_ID'); do not pass a bundle id" >&2
+    exit 2
+  fi
   if ! command -v asc >/dev/null 2>&1; then
     echo "error: --lane appstore requires the asc CLI for app-id based upload (install with: brew install asc)" >&2
     exit 2
@@ -1019,6 +1023,53 @@ upload_app_store_with_asc() {
   if [[ -n "$asc_private_key_b64" ]]; then
     asc_env+=( "ASC_PRIVATE_KEY_B64=$asc_private_key_b64" )
   fi
+
+  local asc_app_json="$OUT_DIR/asc-app.json"
+  (
+    export "${asc_env[@]}"
+    asc apps view --id "$ASC_APP_ID" --output json > "$asc_app_json"
+  )
+
+  local asc_bundle_id
+  asc_bundle_id="$(
+    python3 - "$asc_app_json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], "r", encoding="utf-8") as handle:
+    body = json.load(handle)
+
+def bundle_id(value):
+    if isinstance(value, dict):
+        for key in ("bundleId", "bundle_id", "bundleIdentifier", "bundle_identifier"):
+            found = value.get(key)
+            if isinstance(found, str) and found:
+                return found
+        for key in ("attributes", "data", "app", "result"):
+            found = bundle_id(value.get(key))
+            if found:
+                return found
+    elif isinstance(value, list):
+        for item in value:
+            found = bundle_id(item)
+            if found:
+                return found
+    return ""
+
+found = bundle_id(body)
+if not found:
+    raise SystemExit(1)
+print(found)
+PY
+  )" || {
+    echo "error: could not read bundleId from App Store Connect app $ASC_APP_ID" >&2
+    exit 2
+  }
+  if [[ "$asc_bundle_id" != "$PRODUCT_BUNDLE_IDENTIFIER" ]]; then
+    echo "error: App Store Connect app $ASC_APP_ID has bundle id '$asc_bundle_id', but lane '$LANE' is exporting '$PRODUCT_BUNDLE_IDENTIFIER'; refusing to upload" >&2
+    exit 1
+  fi
+  echo "App Store Connect app verified: $ASC_APP_ID bundle id $asc_bundle_id"
 
   (
     export "${asc_env[@]}"
