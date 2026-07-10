@@ -50,8 +50,10 @@ public enum MobileWorkspaceListItem: Identifiable, Equatable, Sendable {
     /// - Items follow `workspaces` order. A group header is emitted at the first
     ///   member's position.
     /// - The anchor workspace is never a separate row (the header represents it).
-    /// - Expanded groups emit their visible non-anchor members directly after the
-    ///   header. No synthetic rows are inserted between adjacent group sections.
+    /// - Expanded groups emit their visible non-anchor members directly after
+    ///   the header, followed by one end-of-group drop slot when the run
+    ///   rendered at least one member row. Anchor-only groups, collapsed
+    ///   groups, and non-contiguous second runs emit no slot.
     /// - When a group is collapsed, its members are skipped and the header remains.
     /// - Ungrouped workspaces interleave inline by position.
     ///

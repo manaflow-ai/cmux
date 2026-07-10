@@ -508,12 +508,46 @@ import Testing
         ]
         let groups = [group("g", anchor: "anchor")]
         let items = MobileWorkspaceListItem.items(workspaces: workspaces, groups: groups)
+        // Items: [header, member, footer, dragged]; dropping "dragged" right
+        // back into its own gap is a no-op.
+        let intent = items.moveIntent(
+            workspaces: workspaces,
+            groups: groups,
+            sourceOffsets: IndexSet(integer: 3),
+            destination: 4
+        )
+        #expect(intent == nil)
+    }
+
+    @Test func listMoveIntentRejectsGroupEndSlotAsDragSource() {
+        let workspaces = [
+            workspace("anchor", group: "g"),
+            workspace("member", group: "g"),
+            workspace("dragged"),
+        ]
+        let groups = [group("g", anchor: "anchor")]
+        let items = MobileWorkspaceListItem.items(workspaces: workspaces, groups: groups)
         let intent = items.moveIntent(
             workspaces: workspaces,
             groups: groups,
             sourceOffsets: IndexSet(integer: 2),
-            destination: 3
+            destination: 0
         )
         #expect(intent == nil)
+    }
+
+    @Test func collapsedGroupEmitsNoEndOfGroupSlot() {
+        let items = MobileWorkspaceListItem.items(
+            workspaces: [
+                workspace("anchor", group: "g"),
+                workspace("member", group: "g"),
+                workspace("tail"),
+            ],
+            groups: [group("g", anchor: "anchor", collapsed: true)]
+        )
+        #expect(items == [
+            .groupHeader(group("g", anchor: "anchor", collapsed: true), hasUnread: false),
+            .workspace(workspace("tail"), indented: false),
+        ])
     }
 }
