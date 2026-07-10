@@ -159,6 +159,19 @@ struct PostHogAnalyticsPropertiesTests {
         #expect(properties["app_build"] as? String == "230")
     }
 
+    @Test("feature-flag evaluation identifies the app build channel")
+    func featureFlagEvaluationPropertiesSeparateReleaseChannels() {
+        #expect(PostHogAnalytics.featureFlagEvaluationProperties(buildFlavor: .stable) == [
+            "cmux_build_channel": "stable",
+        ])
+        #expect(PostHogAnalytics.featureFlagEvaluationProperties(buildFlavor: .nightly) == [
+            "cmux_build_channel": "nightly",
+        ])
+        #expect(PostHogAnalytics.featureFlagEvaluationProperties(buildFlavor: .dev) == [
+            "cmux_build_channel": "dev",
+        ])
+    }
+
     @Test
     func hourlyActivePropertiesIncludeVersionAndBuild() {
         let properties = PostHogAnalytics.hourlyActiveProperties(

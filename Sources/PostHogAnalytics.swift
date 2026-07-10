@@ -130,9 +130,23 @@ final class PostHogAnalytics: @unchecked Sendable {
         // break events down by released app version/build.
         PostHogSDK.shared.register(Self.superProperties(infoDictionary: Bundle.main.infoDictionary ?? [:]))
 
+        // Feature-flag evaluation does not use registered event properties.
+        // Send the immutable build channel explicitly, before the first flag
+        // reload, so a PostHog rule can enable a flag for Nightly without
+        // changing the Stable app (or vice versa).
+        PostHogSDK.shared.setPersonPropertiesForFlags(
+            Self.featureFlagEvaluationProperties(buildFlavor: BuildFlavor.current),
+            reloadFeatureFlags: false
+        )
+
         // The SDK automatically generates and persists an anonymous distinct ID.
 
         didStart = true
+
+        // CmuxFeatureFlags installs its observer during app launch, before
+        // analytics initialization reaches this point. Reload only after the
+        // build-channel evaluation context is ready.
+        PostHogSDK.shared.reloadFeatureFlags()
 
         scheduleActiveCheckTimer()
     }
@@ -242,6 +256,13 @@ final class PostHogAnalytics: @unchecked Sendable {
         var properties: [String: Any] = ["platform": "cmuxterm"]
         properties.merge(versionProperties(infoDictionary: infoDictionary)) { _, new in new }
         return properties
+    }
+
+    /// Properties sent only with feature-flag evaluation. In PostHog, target
+    /// the `cmux_build_channel` person property with `nightly` or `stable` to
+    /// roll a flag out to one desktop release channel independently.
+    nonisolated static func featureFlagEvaluationProperties(buildFlavor: BuildFlavor) -> [String: Any] {
+        ["cmux_build_channel": buildFlavor.rawValue]
     }
 
     nonisolated static func dailyActiveProperties(
