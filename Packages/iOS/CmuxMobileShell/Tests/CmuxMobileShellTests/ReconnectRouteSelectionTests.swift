@@ -128,14 +128,24 @@ import Testing
         #expect(candidates.first?.routeID == "duplicate")
     }
 
-    @Test func storedReconnectKeepsIrohFirstAndExcludesPhysicalLoopback() throws {
+    @Test func storedReconnectPinsIrohAndExcludesRawFallbacks() throws {
         let routes = MobileShellComposite.storedReconnectRoutes(
             [try loopback(), try tailscale(), try iroh()],
             supportedKinds: [.iroh, .tailscale, .debugLoopback],
             preferNonLoopback: true
         )
 
-        #expect(routes.map(\.kind) == [.iroh, .tailscale])
+        #expect(routes.map(\.kind) == [.iroh])
+    }
+
+    @Test func rawReconnectCandidatesAreUnavailableForIrohCapablePairing() throws {
+        let candidates = MobileShellComposite.reconnectHostPortRoutes(
+            [try tailscale(), try iroh()],
+            supportedKinds: [.iroh, .tailscale],
+            preferNonLoopback: true
+        )
+
+        #expect(candidates.isEmpty)
     }
 
     @Test func reconnectActiveMacUsesPersistedIrohBeforeNetworkFallback() async throws {
@@ -163,6 +173,53 @@ import Testing
         #expect(!store.workspaces.contains {
             $0.rpcWorkspaceID.rawValue == "stored-workspace"
         })
+    }
+
+    @Test func rejectedIrohReconnectNeverDowngradesToRawTailscale() async throws {
+        let clock = TestClock()
+        let router = LivenessHostRouter()
+        let box = TransportBox()
+        let factory = KindRecordingTransportFactory(
+            router: router,
+            box: box,
+            failingKinds: [.iroh]
+        )
+        let store = try await makeReconnectStore(
+            routes: [try tailscale(), try iroh()],
+            runtime: LivenessTestRuntime(
+                transportFactory: factory,
+                now: { clock.now },
+                supportedRouteKinds: [.iroh, .tailscale]
+            )
+        )
+
+        let connected = await store.reconnectActiveMacIfAvailable(stackUserID: "user-1")
+
+        #expect(!connected)
+        #expect(store.connectionState == .disconnected)
+        #expect(factory.attemptedKinds() == [.iroh])
+    }
+
+    @Test func legacyMacWithoutIrohStillReconnectsOverTailscale() async throws {
+        let clock = TestClock()
+        let router = LivenessHostRouter()
+        let box = TransportBox()
+        let factory = KindRecordingTransportFactory(router: router, box: box)
+        let store = try await makeReconnectStore(
+            routes: [try tailscale()],
+            runtime: LivenessTestRuntime(
+                transportFactory: factory,
+                now: { clock.now },
+                supportedRouteKinds: [.iroh, .tailscale]
+            )
+        )
+
+        let connected = await store.reconnectActiveMacIfAvailable(stackUserID: "user-1")
+
+        #expect(connected)
+        let attemptedKinds = factory.attemptedKinds()
+        #expect(!attemptedKinds.isEmpty)
+        #expect(attemptedKinds.allSatisfy { $0 == .tailscale })
     }
 
     private func magicDNS(_ port: Int = 50906) throws -> CmxAttachRoute {
@@ -491,16 +548,25 @@ private actor HeldFailingConnectTransport: CmxByteTransport {
 private final class KindRecordingTransportFactory: CmxByteTransportFactory, @unchecked Sendable {
     private let router: LivenessHostRouter
     private let box: TransportBox
+    private let failingKinds: Set<CmxAttachTransportKind>
     private let lock = NSLock()
     private var kinds: [CmxAttachTransportKind] = []
 
-    init(router: LivenessHostRouter, box: TransportBox) {
+    init(
+        router: LivenessHostRouter,
+        box: TransportBox,
+        failingKinds: Set<CmxAttachTransportKind> = []
+    ) {
         self.router = router
         self.box = box
+        self.failingKinds = failingKinds
     }
 
     func makeTransport(for route: CmxAttachRoute) throws -> any CmxByteTransport {
         lock.withLock { kinds.append(route.kind) }
+        if failingKinds.contains(route.kind) {
+            throw RouteRecordingTransportError.routeFailed
+        }
         let transport = LivenessTransport(router: router)
         box.set(transport)
         return transport

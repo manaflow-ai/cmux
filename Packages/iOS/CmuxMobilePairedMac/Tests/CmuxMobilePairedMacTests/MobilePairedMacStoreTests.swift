@@ -49,6 +49,57 @@ import Testing
         #expect(activeUser1?.routes.first?.id == "tailscale")
     }
 
+    @Test func irohCapabilityPinSurvivesRawOnlyRouteRefresh() async throws {
+        let (store, directory) = try makeStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let iroh = try CmxAttachRoute(
+            id: "iroh",
+            kind: .iroh,
+            endpoint: .peer(
+                identity: CmxIrohPeerIdentity(
+                    endpointID: String(repeating: "a", count: 64)
+                ),
+                pathHints: []
+            ),
+            priority: -10_000
+        )
+        let initialTailscale = try CmxAttachRoute(
+            id: "tailscale-old",
+            kind: .tailscale,
+            endpoint: .hostPort(host: "100.64.0.10", port: 8443)
+        )
+        let refreshedTailscale = try CmxAttachRoute(
+            id: "tailscale-new",
+            kind: .tailscale,
+            endpoint: .hostPort(host: "100.64.0.11", port: 8443)
+        )
+
+        try await store.upsert(
+            macDeviceID: "iroh-mac",
+            displayName: "Iroh Mac",
+            routes: [iroh, initialTailscale],
+            markActive: true,
+            stackUserID: "user-1",
+            now: Date(timeIntervalSince1970: 1)
+        )
+        try await store.upsert(
+            macDeviceID: "iroh-mac",
+            displayName: "Iroh Mac",
+            routes: [refreshedTailscale],
+            markActive: true,
+            stackUserID: "user-1",
+            now: Date(timeIntervalSince1970: 2)
+        )
+
+        let stored = try #require(
+            await store.activeMac(stackUserID: "user-1")
+        )
+        #expect(stored.routes.contains { $0.kind == .iroh })
+        #expect(stored.routes.contains { $0.id == "tailscale-new" })
+        #expect(!stored.routes.contains { $0.id == "tailscale-old" })
+    }
+
     @Test func markingActiveDeactivatesPreviousWithinScope() async throws {
         let (store, directory) = try makeStore()
         defer { try? FileManager.default.removeItem(at: directory) }
