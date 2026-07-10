@@ -1093,6 +1093,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// surface. A dismantled surface performs no render, output, or
     /// accessibility work so a view SwiftUI has removed cannot keep driving the
     /// renderer or the accessibility tree.
+    /// Internal for `GhosttySurfaceView+RenderRecovery.swift` recovery guards.
     var isDismantled = false
     /// Whether the hidden terminal input should become first responder when the
     /// surface attaches to a window. Set to `false` to suppress autofocus after
