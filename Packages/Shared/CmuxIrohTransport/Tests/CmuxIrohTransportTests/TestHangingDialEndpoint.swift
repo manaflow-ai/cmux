@@ -53,6 +53,8 @@ actor TestHangingDialEndpoint: CmxIrohEndpoint {
         AsyncStream { $0.finish() }
     }
 
+    func isHealthy() -> Bool { true }
+
     func close() {
         cancelPendingConnect()
     }

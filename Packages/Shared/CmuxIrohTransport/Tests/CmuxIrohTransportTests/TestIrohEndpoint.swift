@@ -9,6 +9,7 @@ actor TestIrohEndpoint: CmxIrohEndpoint {
     private var closeCallCount = 0
     private var relayUpdates: [[CmxIrohRelayConfiguration]] = []
     private var relayUpdateShouldFail = false
+    private var healthy = true
 
     init(identity: CmxIrohPeerIdentity) {
         peerIdentity = identity
@@ -47,6 +48,10 @@ actor TestIrohEndpoint: CmxIrohEndpoint {
         healthStream
     }
 
+    func isHealthy() -> Bool {
+        healthy
+    }
+
     func close() {
         closeCallCount += 1
         healthContinuation.finish()
@@ -54,6 +59,10 @@ actor TestIrohEndpoint: CmxIrohEndpoint {
 
     func emit(_ event: CmxIrohEndpointHealthEvent) {
         healthContinuation.yield(event)
+    }
+
+    func setHealthy(_ value: Bool) {
+        healthy = value
     }
 
     func setRelayUpdateShouldFail(_ shouldFail: Bool) {

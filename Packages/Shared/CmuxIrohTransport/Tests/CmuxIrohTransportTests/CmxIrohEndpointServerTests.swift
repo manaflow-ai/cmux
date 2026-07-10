@@ -231,6 +231,7 @@ private actor TestAcceptingIrohEndpoint: CmxIrohEndpoint {
 
     func replaceRelays(_: [CmxIrohRelayConfiguration]) {}
     func healthEvents() -> AsyncStream<CmxIrohEndpointHealthEvent> { health }
+    func isHealthy() -> Bool { true }
 
     func close() {
         closed = true

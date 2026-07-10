@@ -5,8 +5,9 @@ public struct CmxIrohByteTransportFactory: CmxRouteAwareByteTransportFactory {
     /// The route kind served by this factory.
     public let supportedKinds: [CmxAttachTransportKind] = [.iroh]
 
-    private let supervisor: CmxIrohEndpointSupervisor
-    private let contextProvider: any CmxIrohClientContextProvider
+    private let buildTransport: @Sendable (
+        _ request: CmxByteTransportRequest
+    ) -> any CmxByteTransport
 
     /// Creates an Iroh transport factory.
     ///
@@ -17,8 +18,19 @@ public struct CmxIrohByteTransportFactory: CmxRouteAwareByteTransportFactory {
         supervisor: CmxIrohEndpointSupervisor,
         contextProvider: any CmxIrohClientContextProvider
     ) {
-        self.supervisor = supervisor
-        self.contextProvider = contextProvider
+        buildTransport = { request in
+            CmxIrohByteTransport(
+                request: request,
+                supervisor: supervisor,
+                contextProvider: contextProvider
+            )
+        }
+    }
+
+    init(sessionPool: CmxIrohClientSessionPool) {
+        buildTransport = { request in
+            CmxIrohPooledByteTransport(request: request, pool: sessionPool)
+        }
     }
 
     /// Creates a disconnected control-lane adapter for an Iroh peer route.
@@ -53,10 +65,6 @@ public struct CmxIrohByteTransportFactory: CmxRouteAwareByteTransportFactory {
               request.expectedPeerDeviceID?.isEmpty == false else {
             throw CmxIrohByteTransportError.missingPeerIntent
         }
-        return CmxIrohByteTransport(
-            request: request,
-            supervisor: supervisor,
-            contextProvider: contextProvider
-        )
+        return buildTransport(request)
     }
 }

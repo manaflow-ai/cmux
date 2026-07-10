@@ -175,6 +175,33 @@ public actor CmxIrohEndpointSupervisor {
         return endpoint
     }
 
+    /// Verifies the live driver after app suspension and recreates it when stale.
+    ///
+    /// Healthy generations remain untouched, preserving every open QUIC
+    /// connection and stream across ordinary background transitions.
+    ///
+    /// - Returns: The current or replacement active generation snapshot.
+    /// - Throws: The replacement bind error when the stale generation cannot recover.
+    @discardableResult
+    public func ensureHealthy() async throws -> CmxIrohEndpointSnapshot {
+        guard desiredActive else {
+            throw CmxIrohEndpointSupervisorError.inactive
+        }
+        if let endpoint, snapshot.state == .active, await endpoint.isHealthy() {
+            return snapshot
+        }
+
+        lifecycleRevision &+= 1
+        bindingOperation?.task.cancel()
+        bindingOperation = nil
+        healthTask?.cancel()
+        healthTask = nil
+        let staleEndpoint = endpoint
+        self.endpoint = nil
+        await staleEndpoint?.close()
+        return try await activate()
+    }
+
     /// Installs a fresh relay set on the live endpoint before committing it for future binds.
     ///
     /// The concrete endpoint must add replacement credentials before removing

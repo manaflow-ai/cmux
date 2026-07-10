@@ -171,6 +171,10 @@ actor CmxIrohLibEndpoint: CmxIrohEndpoint {
         }
     }
 
+    func isHealthy() -> Bool {
+        !closing && !closed
+    }
+
     func close() async {
         guard !closing, !closed else { return }
         closing = true

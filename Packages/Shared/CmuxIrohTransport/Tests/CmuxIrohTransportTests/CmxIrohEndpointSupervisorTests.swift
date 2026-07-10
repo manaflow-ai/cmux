@@ -126,6 +126,46 @@ struct CmxIrohEndpointSupervisorTests {
     }
 
     @Test
+    func foregroundHealthCheckPreservesAHealthyGeneration() async throws {
+        let endpoint = TestIrohEndpoint(identity: identity)
+        let factory = TestIrohEndpointFactory(endpoints: [endpoint])
+        let supervisor = try CmxIrohEndpointSupervisor(
+            factory: factory,
+            configuration: endpointConfiguration()
+        )
+        let active = try await supervisor.activate()
+
+        let checked = try await supervisor.ensureHealthy()
+
+        #expect(checked == active)
+        #expect(await factory.observedConfigurations().count == 1)
+        #expect(await endpoint.observedCloseCallCount() == 0)
+    }
+
+    @Test
+    func foregroundHealthCheckRecreatesAStaleGeneration() async throws {
+        let staleEndpoint = TestIrohEndpoint(identity: identity)
+        let replacementEndpoint = TestIrohEndpoint(identity: identity)
+        let factory = TestIrohEndpointFactory(
+            endpoints: [staleEndpoint, replacementEndpoint]
+        )
+        let supervisor = try CmxIrohEndpointSupervisor(
+            factory: factory,
+            configuration: endpointConfiguration()
+        )
+        _ = try await supervisor.activate()
+        await staleEndpoint.setHealthy(false)
+
+        let checked = try await supervisor.ensureHealthy()
+
+        #expect(checked.state == .active)
+        #expect(checked.runtimeGeneration == 2)
+        #expect(await factory.observedConfigurations().count == 2)
+        #expect(await staleEndpoint.observedCloseCallCount() == 1)
+        #expect(try await supervisor.activeEndpoint().identity() == identity)
+    }
+
+    @Test
     func failedRelayRefreshPreservesLastKnownGoodBindConfiguration() async throws {
         let firstEndpoint = TestIrohEndpoint(identity: identity)
         let secondEndpoint = TestIrohEndpoint(identity: identity)

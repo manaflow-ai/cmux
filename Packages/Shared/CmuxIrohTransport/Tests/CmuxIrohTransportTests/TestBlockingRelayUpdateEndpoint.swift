@@ -50,6 +50,8 @@ actor TestBlockingRelayUpdateEndpoint: CmxIrohEndpoint {
         healthStream
     }
 
+    func isHealthy() -> Bool { true }
+
     func close() {
         healthContinuation.finish()
     }

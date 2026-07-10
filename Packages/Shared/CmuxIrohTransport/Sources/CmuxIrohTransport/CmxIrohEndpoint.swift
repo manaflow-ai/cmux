@@ -38,6 +38,12 @@ public protocol CmxIrohEndpoint: Sendable {
     /// - Returns: A generation-scoped health stream that finishes on close.
     func healthEvents() async -> AsyncStream<CmxIrohEndpointHealthEvent>
 
+    /// Returns whether the underlying endpoint driver can still serve this generation.
+    ///
+    /// This snapshot is used when an app returns to the foreground, where iOS
+    /// may have suspended delivery of the driver's terminal event.
+    func isHealthy() async -> Bool
+
     /// Closes the endpoint and cancels its network work.
     func close() async
 }

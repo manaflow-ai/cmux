@@ -54,6 +54,8 @@ actor TestDialingIrohEndpoint: CmxIrohEndpoint {
         healthStream
     }
 
+    func isHealthy() -> Bool { true }
+
     func close() {
         healthContinuation.finish()
     }
