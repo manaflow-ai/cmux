@@ -6705,7 +6705,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             "sync.resync reason=\(reason) restart=\(restartEventStream) surfaces=\(surfaceIDs.count)"
         )
         for surfaceID in surfaceIDs {
-            requestTerminalReplay(surfaceID: surfaceID)
+            requestTerminalResync(surfaceID: surfaceID)
         }
     }
 
