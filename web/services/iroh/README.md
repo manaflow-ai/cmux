@@ -3,17 +3,17 @@
 The broker is scoped to the authenticated Stack `user.id`. Team membership and
 the legacy team device registry never grant Iroh discovery or pairing access.
 
-Registration challenge signatures are currently the only accepted path-hint
-mutation. A Stack bearer alone cannot update hints. Address churn therefore
-requires a fresh five-minute registration challenge until
-`endpoint-signed-monotonic-watch-addr-update-v1` adds a dedicated signed update
-route with an endpoint-owned sequence number. Endpoint or identity-generation
-replacement also requires explicit revocation and reapproval; a signature from
-only the proposed new key cannot replace an active binding.
+Registration signatures may carry the native Iroh `watch_addr` shape, but the
+server strips every direct/private address before repository persistence. Direct
+paths stay device-local or move endpoint-to-endpoint after admission. The broker
+persists and publishes only exact managed relay URLs. Endpoint or
+identity-generation replacement requires explicit revocation and reapproval; a
+signature from only the proposed new key cannot replace an active binding.
 
 `relay_fleet` is the server-configured connection preset/allowlist. It is not a
-peer address. Each peer's `relay_url` hints come from its signed `watch_addr`
-payload and must match that allowlist.
+peer address. Each peer's published `relay_url` comes from its signed
+`watch_addr` payload and must match that allowlist. Discovery defensively
+filters older rows to the same relay-only policy.
 
 Discovery runs the user-scoped retention cleanup before reading. It removes
 expired hints from binding JSON, challenges more than 24 hours past expiry or
@@ -59,11 +59,16 @@ lock both exact signed peers at audit insertion, requiring an iOS initiator and
 a pairable Mac acceptor. Relay credentials are returned only after a second
 locked active-binding check following the external mint.
 
-Registration stores the earliest path-hint expiry in
+Registration stores the earliest managed-relay expiry in
 `path_hints_next_expiry`. The hourly cleanup uses that indexed scalar and
-bounded 500-row `FOR UPDATE SKIP LOCKED` batches for hints, challenges, audit
-rows, and revoked bindings. Concurrent cron workers can cooperate without a
-full-table JSON scan.
+bounded 500-row `FOR UPDATE SKIP LOCKED` batches for relay hints, challenges,
+audit rows, and revoked bindings. Concurrent cron workers can cooperate without
+a full-table JSON scan.
+
+The `20260710120000_iroh_server_path_privacy` migration clears pre-policy broker
+hints and removes existing Iroh route bodies from the legacy device registry.
+Hosts republish sanitized EndpointID/managed-relay routes on their next refresh;
+non-Iroh routes are preserved in order.
 
 The `20260710113000_iroh_relay_reservation_expiry` migration adds the
 expanded status constraint with `NOT VALID` so its `ACCESS EXCLUSIVE` lock is

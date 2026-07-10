@@ -64,6 +64,7 @@ import {
   IrohRelayMinterLive,
   type IrohRelayMinterShape,
 } from "./relayMinter";
+import { serverPublishedIrohPathHints } from "./publicationPolicy";
 
 export type IrohTrustBrokerShape = {
   readonly issueChallenge: (
@@ -204,7 +205,10 @@ export function makeIrohTrustBroker(
         userId,
         challengeId: challenge.id,
         nonceHash: nonceHash(request.nonce),
-        payload: decoded.payload,
+        payload: {
+          ...decoded.payload,
+          pathHints: serverPublishedIrohPathHints(decoded.payload.pathHints),
+        },
         now,
         deviceLimitOverrideAllowed: deviceLimitOverrideAllowed(config, userId),
       });
@@ -411,13 +415,13 @@ function publicBinding(binding: IrohBindingRecord, now: Date): object {
     identity_generation: binding.identityGeneration,
     pairing_enabled: binding.pairingEnabled,
     capabilities: binding.capabilities,
-    path_hints: binding.pathHints.flatMap((hint): IrohPathHint[] => {
+    path_hints: serverPublishedIrohPathHints(binding.pathHints.flatMap((hint): IrohPathHint[] => {
       try {
         return [parseIrohPathHint(hint, now)];
       } catch {
         return [];
       }
-    }),
+    })),
     last_seen_at: binding.lastSeenAt.toISOString(),
   };
 }

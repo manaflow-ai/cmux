@@ -22,6 +22,7 @@
 // posture as sync.ts / syncStorage.ts.
 
 import { buildDelta, type SyncDeltaFrame, type SyncRecord, type SyncSnapshotFrame } from "./sync";
+import type { SyncServerFrame } from "./sync";
 import {
   listRecords,
   readRecord,
@@ -29,6 +30,7 @@ import {
   upsertRecord,
   type SyncStorage,
 } from "./syncStorage";
+import { sanitizePublishedRoutes } from "./routePrivacy";
 
 /** Logical collection name the client subscribes to and stores under. */
 export const PAIRED_MACS_COLLECTION = "pairedMacs";
@@ -78,10 +80,9 @@ export const MAX_ROUTES_TOTAL_BYTES = 2048;
 export const MAX_PAIRED_MAC_BACKUP_BYTES =
   MAX_BACKUP_OPS * (MAX_ROUTES_TOTAL_BYTES + 1024) + 2048;
 
-/** The backup payload — mirrors the iOS `MobilePairedMac` row so a restore is
- * lossless. The server bounds it but does not interpret `routes` (route
- * validation stays client-owned, exactly like the heartbeat route handling), so
- * new route kinds flow through without a worker ship. */
+/** The backup payload mirrors the iOS `MobilePairedMac` row. Legacy routes stay
+ * opaque, while Iroh routes are reduced to EndpointID plus an approved managed
+ * relay URL before persistence and again before restore. */
 export interface PairedMacBackupRecord {
   macDeviceID: string;
   displayName?: string;
@@ -261,7 +262,7 @@ export function parsePairedMacBackup(body: Record<string, unknown>): PairedMacBa
       record: {
         macDeviceID: id,
         displayName: displayName || undefined,
-        routes,
+        routes: sanitizePublishedRoutes(routes) ?? [],
         createdAt,
         lastSeenAt,
         isActive: r.isActive === true,
@@ -297,6 +298,26 @@ export function pairedMacShapeEqual(a: PairedMacBackupRecord, b: PairedMacBackup
   );
 }
 
+export function sanitizePairedMacRecord(record: PairedMacBackupRecord): PairedMacBackupRecord {
+  return {
+    ...record,
+    routes: sanitizePublishedRoutes(record.routes) ?? [],
+  };
+}
+
+/** Sanitize pre-hardening backup snapshots/deltas immediately before sending. */
+export function sanitizePairedMacSyncFrame<Frame extends SyncServerFrame<PairedMacBackupRecord>>(
+  frame: Frame,
+): Frame {
+  if (frame.type === "sync.tick") return frame;
+  return {
+    ...frame,
+    records: frame.records.map((record) => record.deleted
+      ? record
+      : { ...record, payload: sanitizePairedMacRecord(record.payload) }),
+  } as Frame;
+}
+
 /** Relabel a frame's collection from the physical per-user name back to the
  * logical `pairedMacs` so the client never sees (or stores under) the user-id
  * suffix. The rev space is the physical collection's, but each user has exactly
@@ -329,7 +350,7 @@ async function seedScopedBackupFromUnscopedIfNeeded(
       storage,
       scopedCollection,
       stored.id,
-      stored.payload,
+      sanitizePairedMacRecord(stored.payload),
       nowMs,
       pairedMacShapeEqual,
       (record) => record.lastSeenAt,
@@ -426,7 +447,7 @@ export async function applyBackupOps(
     // and the next restore would clear them. iOS always sends all three keys (it is
     // authoritative, including a `null` reset-to-Auto), so its uploads keep full
     // control. Only meaningful when there is a live existing record to inherit from.
-    const record = { ...op.record };
+    const record = sanitizePairedMacRecord(op.record);
     const provided = op.providedCustom ?? { name: true, color: true, icon: true };
     if (existing !== undefined && !existing.deleted) {
       const prev = existing.payload;
@@ -470,7 +491,7 @@ async function clearOtherActiveBackupRecords(
   const deltas: SyncDeltaFrame<unknown>[] = [];
   for (const stored of records) {
     if (stored.deleted || stored.id === activeID || !stored.payload.isActive) continue;
-    const next = { ...stored.payload, isActive: false };
+    const next = { ...sanitizePairedMacRecord(stored.payload), isActive: false };
     const res = await upsertRecord<PairedMacBackupRecord>(
       storage,
       collection,
@@ -511,7 +532,7 @@ export async function listBackupSnapshot(
   const all = await listRecords<PairedMacBackupRecord>(storage, pairedMacsCollection(userId, clientScope));
   const records = all
     .filter((r) => !r.deleted)
-    .map((r) => r.payload)
+    .map((r) => sanitizePairedMacRecord(r.payload))
     .sort((a, b) => (b?.lastSeenAt ?? 0) - (a?.lastSeenAt ?? 0));
   const deletedMacDeviceIDs = all
     .filter((r) => r.deleted)
@@ -524,11 +545,13 @@ function recordWithFreshUnscopedRoutes(
   scoped: PairedMacBackupRecord,
   unscoped: PairedMacBackupRecord,
 ): PairedMacBackupRecord {
-  if ((unscoped.lastSeenAt ?? 0) <= (scoped.lastSeenAt ?? 0)) return scoped;
+  if ((unscoped.lastSeenAt ?? 0) <= (scoped.lastSeenAt ?? 0)) {
+    return sanitizePairedMacRecord(scoped);
+  }
   return {
-    ...scoped,
+    ...sanitizePairedMacRecord(scoped),
     displayName: unscoped.displayName,
-    routes: unscoped.routes,
+    routes: sanitizePublishedRoutes(unscoped.routes) ?? [],
     lastSeenAt: unscoped.lastSeenAt,
   };
 }

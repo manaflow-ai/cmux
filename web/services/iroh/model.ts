@@ -1,6 +1,9 @@
 import { createHash } from "node:crypto";
 import { isIP } from "node:net";
 import { IrohInvalidInputError } from "./errors";
+import { MANAGED_RELAY_URLS } from "./publicationPolicy";
+
+export { MANAGED_RELAY_URLS } from "./publicationPolicy";
 
 export const IROH_ALPN = "cmux/mobile/1";
 export const IROH_PAIR_SCOPE = "cmux.mobile.attach";
@@ -17,13 +20,6 @@ export const IROH_RELAY_TOKEN_LIFETIME_SECONDS = 24 * 60 * 60;
 export const IROH_RELAY_TOKEN_REFRESH_SECONDS = 12 * 60 * 60;
 export const IROH_ROUTE_CONTRACT_VERSION = 1;
 export const POSTGRES_INT32_MAX = 2_147_483_647;
-
-export const MANAGED_RELAY_URLS = [
-  "https://euc1-1.relay.lawrence.cmux.iroh.link/",
-  "https://use1-1.relay.lawrence.cmux.iroh.link/",
-  "https://usw1-1.relay.lawrence.cmux.iroh.link/",
-  "https://aps1-1.relay.lawrence.cmux.iroh.link/",
-] as const;
 
 export type IrohPathHint = {
   readonly kind: "direct_address" | "relay_url";
