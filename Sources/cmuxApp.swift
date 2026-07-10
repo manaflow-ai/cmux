@@ -160,14 +160,13 @@ struct cmuxApp: App {
         // Reconcile saved language preference before any UI loads
         LanguageSettingsStore(defaults: .standard).reconcileLanguageOverrideAtLaunch()
         StartupBreadcrumbLog.append("app.init.language.applied")
-        let settingsJSONStore = JSONConfigStore(fileURL: configFileURL)
         self.settingsRuntime = SettingsRuntime(
             catalog: settingsCatalog,
             userDefaultsStore: UserDefaultsSettingsStore(
                 defaults: .standard,
                 migrating: settingsCatalog.all
             ),
-            jsonStore: settingsJSONStore,
+            jsonStore: JSONConfigStore(fileURL: configFileURL),
             secretStore: secretStore,
             errorLog: SettingsErrorLog(),
             accountFlow: HostAccountFlow(
@@ -177,18 +176,7 @@ struct cmuxApp: App {
             hostActions: HostSettingsActions(configFileURL: configFileURL)
         )
         StartupBreadcrumbLog.append("app.init.settingsRuntime.created")
-        let browserWebExtensionHost: (any BrowserWebExtensionHosting)?
-        if #available(macOS 15.4, *) {
-            let support = BrowserWebExtensionSupport()
-            support.configure(
-                jsonStore: settingsJSONStore,
-                catalog: settingsCatalog
-            )
-            browserWebExtensionHost = support
-            StartupBreadcrumbLog.append("app.init.browserWebExtensions.configured")
-        } else {
-            browserWebExtensionHost = nil
-        }
+
         let startupAppearance = AppearanceSettings.resolvedMode()
         Self.applyAppearance(startupAppearance, duringLaunch: true)
         StartupBreadcrumbLog.append("app.init.appearance.applied", fields: ["mode": startupAppearance.rawValue])
@@ -200,7 +188,12 @@ struct cmuxApp: App {
         KeyboardShortcutSettings.settingsFileStore.applyDeferredManagedDefaultSideEffects()
         StartupBreadcrumbLog.append("app.init.keyboardShortcuts.sideEffectsApplied")
         StartupBreadcrumbLog.append("app.init.tabManager.begin")
-        _tabManager = StateObject(wrappedValue: TabManager(browserWebExtensionHost: browserWebExtensionHost))
+        _tabManager = StateObject(wrappedValue: TabManager(
+            browserWebExtensionHost: makeBrowserWebExtensionHostAtLaunch(
+                jsonStore: settingsRuntime.jsonStore,
+                catalog: settingsCatalog
+            )
+        ))
         StartupBreadcrumbLog.append("app.init.tabManager.complete")
         // Migrate legacy and old-format socket mode values to the new enum.
         if let stored = defaults.string(forKey: SocketControlSettings.appStorageKey) {
@@ -1470,49 +1463,6 @@ private struct MainWindowBootstrapView: View {
                 }
             })
     }
-}
-
-private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
-    "cmux.settings",
-    "cmux.about",
-    "cmux.licenses",
-    "cmux.browser-popup",
-    "cmux.browserProfilePopoverDebug",
-    "cmux.configEditor",
-    "cmux.defaultTerminalRegistrationError",
-    "cmux.feedButtonStyleDebug",
-    "cmux.feedPreview",
-    "cmux.feedTextEditorDebug",
-    "cmux.fileExplorerStyleDebug",
-    "cmux.folderDragIcon",
-    "cmux.pdfPreviewChromeDebug",
-    "cmux.proBadgeDebug",
-    "cmux.recentlyClosedHistory",
-    "cmux.splitButtonLayoutDebug",
-    "cmux.tabBarBackdropLab",
-    "cmux.taskManager",
-    "cmux.aboutTitlebarDebug",
-    "cmux.debugWindowControls",
-    "cmux.browserImportHintDebug",
-    "cmux.extensionSidebarInspector",
-    "cmux.sidebarDebug",
-    "cmux.menubarDebug",
-    "cmux.spinnerGallery",
-    "cmux.backgroundDebug",
-    "cmux.startupAppearanceDebug",
-    "cmux.bonsplitTabBarDebug",
-    "cmux.titlebarLayoutDebug",
-    "cmux.devWindowDisplay",
-    "cmux.mobilePairingWindow",
-    "cmux.webExtensionPopout",
-]
-
-/// Returns whether the given window should handle the standard close shortcut
-/// as a standalone auxiliary window instead of routing it through workspace or
-/// panel-close behavior.
-func cmuxWindowShouldOwnCloseShortcut(_ window: NSWindow?) -> Bool {
-    guard let identifier = window?.identifier?.rawValue else { return false }
-    return cmuxAuxiliaryWindowIdentifiers.contains(identifier)
 }
 
 private enum DebugWindowConfigSnapshot {

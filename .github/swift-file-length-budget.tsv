@@ -2,26 +2,26 @@
 # Format: max_lines<TAB>relative path
 # Reduce counts as files shrink. CI fails if tracked files exceed this budget.
 35384	CLI/cmux.swift
-17836	Sources/AppDelegate.swift
+17816	Sources/AppDelegate.swift
 16404	Sources/ContentView.swift
 15093	Sources/TerminalController.swift
-13059	Sources/Workspace.swift
+12959	Sources/Workspace.swift
 12501	Sources/GhosttyTerminalView.swift
 12348	cmuxTests/AppDelegateShortcutRoutingTests.swift
-11417	Sources/Panels/BrowserPanel.swift
+11324	Sources/Panels/BrowserPanel.swift
 9497	cmuxTests/CLINotifyProcessIntegrationRegressionTests.swift
 8016	CLI/cmux_open.swift
-7968	Sources/Panels/BrowserPanelView.swift
+7893	Sources/Panels/BrowserPanelView.swift
 7709	Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite.swift
 7489	cmuxTests/WorkspaceUnitTests.swift
 7312	cmuxTests/WorkspaceRemoteConnectionTests.swift
 6359	cmuxTests/SessionPersistenceTests.swift
 6255	cmuxTests/GhosttyConfigTests.swift
-6211	Sources/TabManager.swift
+6169	Sources/TabManager.swift
 5914	cmuxTests/TerminalAndGhosttyTests.swift
 5809	Sources/TextBoxInput.swift
 5572	cmuxTests/BrowserConfigTests.swift
-4765	Sources/cmuxApp.swift
+4715	Sources/cmuxApp.swift
 4482	Sources/Panels/FilePreviewPanel.swift
 4367	cmuxTests/BrowserPanelTests.swift
 4007	cmuxTests/TabManagerUnitTests.swift
@@ -35,7 +35,7 @@
 3124	Sources/Update/UpdateTitlebarAccessory.swift
 2876	cmuxTests/CMUXOpenCommandTests.swift
 2875	Sources/SessionIndexView.swift
-2571	Sources/Panels/CmuxWebView.swift
+2560	Sources/Panels/CmuxWebView.swift
 2559	Sources/KeyboardShortcutSettings.swift
 2546	cmuxTests/WorkspaceManualUnreadTests.swift
 2524	cmuxTests/CommandPaletteSearchEngineTests.swift
@@ -94,8 +94,8 @@
 1002	Packages/iOS/CmuxMobileShell/Tests/CmuxMobileShellTests/PairedMacBackupTests.swift
 1000	cmuxTests/DockSocketLifecycleTests.swift
 982	Packages/Shared/CmuxAgentChat/Tests/CmuxAgentChatTests/ChatConversationStoreTests.swift
-966	Sources/App/ShortcutRoutingSupport.swift
 951	Sources/App/TerminalDirectoryOpenSupport.swift
+948	Sources/App/ShortcutRoutingSupport.swift
 947	Sources/TerminalNotificationPolicy.swift
 945	Sources/SessionIndexRegisteredAgents.swift
 944	Sources/CommandPalette/CommandPaletteSettingsToggle.swift

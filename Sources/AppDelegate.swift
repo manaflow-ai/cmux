@@ -15120,19 +15120,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return false
     }
 
-    func matchConfiguredShortcut(event: NSEvent, shortcut: StoredShortcut) -> Bool {
-        guard !shortcut.isUnbound else { return false }
-        if let prefix = activeConfiguredShortcutChordPrefixForCurrentEvent {
-            guard let secondStroke = shortcut.secondStroke,
-                  shortcut.firstStroke == prefix else {
-                return false
-            }
-            return matchShortcutStroke(event: event, stroke: secondStroke)
-        }
-        guard !shortcut.hasChord else { return false }
-        return matchShortcutStroke(event: event, stroke: shortcut.firstStroke)
-    }
-
     func matchConfiguredShortcut(event: NSEvent, action: KeyboardShortcutSettings.Action) -> Bool {
         if !shortcutWhenClauseAllows(action: action, event: event) { return false }
         return matchConfiguredShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: action))
@@ -16567,14 +16554,7 @@ private extension NSApplication {
             let responder = event.window?.firstResponder
                 ?? AppDelegate.shared?.shortcutRoutingKeyWindow?.firstResponder
                 ?? mainWindow?.firstResponder
-            // A stale default (e.g. ⌘⇧L after Open Browser is remapped) is free for
-            // web-extension commands like Bitwarden autofill while a browser web
-            // view has focus; otherwise the suppression below would eat it.
-            if #available(macOS 15.4, *), cmuxRespondersContainBrowserWebView(responder),
-               AppDelegate.shared?.shortcutEventBrowserPanel(event)?.performWebExtensionCommand(for: event) == true {
-#if DEBUG
-                cmuxDebugLog("app.sendEvent routed web-extension command before stale cmux menu shortcut")
-#endif
+            if cmuxRouteWebExtensionCommandForStaleMenuShortcut(event, responder: responder) {
                 return
             }
             if let ghosttyView = cmuxOwningGhosttyView(for: responder) {
