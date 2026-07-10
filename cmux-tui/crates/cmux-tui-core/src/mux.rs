@@ -27,7 +27,10 @@ pub enum MuxEvent {
     /// A surface's child exited. The mux has already reaped it from the
     /// tree (a tree-changed follows) by the time this arrives.
     SurfaceExited(SurfaceId),
-    TitleChanged(SurfaceId),
+    TitleChanged {
+        surface: SurfaceId,
+        title: String,
+    },
     Bell(SurfaceId),
     Notification(NotificationEvent),
     Status(String),
@@ -429,7 +432,7 @@ impl Mux {
                         browser.mark_failed(err.to_string());
                     }
                     mux.emit(MuxEvent::Status(format!("browser failed: {err}")));
-                    mux.emit(MuxEvent::TitleChanged(id));
+                    mux.emit(MuxEvent::TitleChanged { surface: id, title: surface.title() });
                     mux.emit(MuxEvent::SurfaceOutput(id));
                 }
             },

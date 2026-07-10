@@ -291,9 +291,9 @@ impl Surface {
                         }
                         if title_changed.swap(false, Ordering::Relaxed) {
                             let title = term.title().unwrap_or_default();
-                            *pty.title.lock().unwrap() = title;
+                            *pty.title.lock().unwrap() = title.clone();
                             if let Some(mux) = mux.upgrade() {
-                                mux.emit(MuxEvent::TitleChanged(surface.id));
+                                mux.emit(MuxEvent::TitleChanged { surface: surface.id, title });
                             }
                         }
                         if let Some(pwd) = term.pwd() {

@@ -85,6 +85,53 @@ impl Default for RemoteBrowserState {
     }
 }
 
+#[derive(Default)]
+struct RemoteTreeCache {
+    view: TreeView,
+    surface_tabs: HashMap<SurfaceId, [usize; 4]>,
+}
+
+impl RemoteTreeCache {
+    fn replace(&mut self, view: TreeView) {
+        self.surface_tabs.clear();
+        for (workspace_index, workspace) in view.workspaces.iter().enumerate() {
+            for (screen_index, screen) in workspace.screens.iter().enumerate() {
+                for (pane_index, pane) in screen.panes.iter().enumerate() {
+                    for (tab_index, tab) in pane.tabs.iter().enumerate() {
+                        self.surface_tabs.insert(
+                            tab.surface,
+                            [workspace_index, screen_index, pane_index, tab_index],
+                        );
+                    }
+                }
+            }
+        }
+        self.view = view;
+    }
+
+    fn update_title(&mut self, surface_id: SurfaceId, title: String) -> bool {
+        let Some([workspace, screen, pane, tab]) = self.surface_tabs.get(&surface_id).copied()
+        else {
+            return false;
+        };
+        let Some(tab) = self
+            .view
+            .workspaces
+            .get_mut(workspace)
+            .and_then(|workspace| workspace.screens.get_mut(screen))
+            .and_then(|screen| screen.panes.get_mut(pane))
+            .and_then(|pane| pane.tabs.get_mut(tab))
+        else {
+            return false;
+        };
+        if tab.surface != surface_id {
+            return false;
+        }
+        tab.title = title;
+        true
+    }
+}
+
 /// A surface mirrored from a remote session.
 pub struct RemoteSurface {
     pub id: SurfaceId,
@@ -208,7 +255,7 @@ pub struct RemoteSession {
     next_id: AtomicU64,
     surfaces: Mutex<HashMap<SurfaceId, Arc<RemoteSurface>>>,
     exited_surfaces: Mutex<HashSet<SurfaceId>>,
-    tree: Mutex<TreeView>,
+    tree: Mutex<RemoteTreeCache>,
     tree_refresh: Mutex<()>,
     tree_stale: AtomicBool,
     subscribers: Mutex<Vec<Sender<MuxEvent>>>,
@@ -231,7 +278,7 @@ impl RemoteSession {
             next_id: AtomicU64::new(1),
             surfaces: Mutex::new(HashMap::new()),
             exited_surfaces: Mutex::new(HashSet::new()),
-            tree: Mutex::new(TreeView::default()),
+            tree: Mutex::new(RemoteTreeCache::default()),
             tree_refresh: Mutex::new(()),
             tree_stale: AtomicBool::new(true),
             subscribers: Mutex::new(Vec::new()),
@@ -361,7 +408,9 @@ impl RemoteSession {
                     surface.update_browser_state(&value);
                     surface.dirty.store(true, Ordering::Release);
                 }
-                self.emit(MuxEvent::TitleChanged(id));
+                if let Some(title) = value.get("title").and_then(Value::as_str) {
+                    self.emit(MuxEvent::TitleChanged { surface: id, title: title.to_string() });
+                }
                 self.emit(MuxEvent::SurfaceOutput(id));
             }
             Some("frame") => {
@@ -399,8 +448,17 @@ impl RemoteSession {
             }
             Some("title-changed") => {
                 if let Some(id) = surface_id() {
-                    self.update_cached_title(id);
-                    self.emit(MuxEvent::TitleChanged(id));
+                    if let Some(title) = value.get("title").and_then(Value::as_str) {
+                        let updated = self.tree.lock().unwrap().update_title(id, title.to_string());
+                        if !updated {
+                            self.tree_stale.store(true, Ordering::Release);
+                            self.emit(MuxEvent::TreeChanged);
+                        }
+                        self.emit(MuxEvent::TitleChanged { surface: id, title: title.to_string() });
+                    } else {
+                        self.tree_stale.store(true, Ordering::Release);
+                        self.emit(MuxEvent::TreeChanged);
+                    }
                 }
             }
             Some("bell") => {
@@ -441,27 +499,6 @@ impl RemoteSession {
             return;
         }
         self.frame_logs.lock().unwrap().entry(surface).or_default().push(line);
-    }
-
-    fn update_cached_title(&self, surface_id: SurfaceId) {
-        let title = self
-            .surfaces
-            .lock()
-            .unwrap()
-            .get(&surface_id)
-            .and_then(|surface| surface.term.lock().unwrap().title())
-            .unwrap_or_default();
-        let mut tree = self.tree.lock().unwrap();
-        if let Some(tab) = tree
-            .workspaces
-            .iter_mut()
-            .flat_map(|workspace| workspace.screens.iter_mut())
-            .flat_map(|screen| screen.panes.iter_mut())
-            .flat_map(|pane| pane.tabs.iter_mut())
-            .find(|tab| tab.surface == surface_id)
-        {
-            tab.title = title;
-        }
     }
 
     pub fn request(&self, mut cmd: Value) -> anyhow::Result<Value> {
@@ -540,7 +577,7 @@ impl RemoteSession {
     ) -> Option<Arc<RemoteSurface>> {
         let kind = {
             let tree = self.tree.lock().unwrap();
-            tree.surface_kind(id)
+            tree.view.surface_kind(id)
         };
         self.ensure_surface_with_kind(id, kind, size)
     }
@@ -559,7 +596,7 @@ impl RemoteSession {
         }
         let source = {
             let tree = self.tree.lock().unwrap();
-            browser_source_from_tree(&tree, id)
+            browser_source_from_tree(&tree.view, id)
         };
         let (cols, rows) = size.unwrap_or((80, 24));
         let term = Terminal::new(cols, rows, 10_000, Callbacks::default()).ok()?;
@@ -588,11 +625,11 @@ impl RemoteSession {
     }
 
     pub fn surface_kind(&self, id: SurfaceId) -> SurfaceKind {
-        self.tree.lock().unwrap().surface_kind(id)
+        self.tree.lock().unwrap().view.surface_kind(id)
     }
 
     pub fn cached_tree(&self) -> TreeView {
-        self.tree.lock().unwrap().clone()
+        self.tree.lock().unwrap().view.clone()
     }
 
     pub fn refresh_tree(&self) -> anyhow::Result<TreeView> {
@@ -615,7 +652,7 @@ impl RemoteSession {
                 .flat_map(|pane| pane.tabs.iter())
                 .any(|tab| tab.surface == *surface_id)
         });
-        *self.tree.lock().unwrap() = tree.clone();
+        self.tree.lock().unwrap().replace(tree.clone());
         let surfaces = self.surfaces.lock().unwrap().clone();
         for (id, surface) in surfaces {
             surface.update_browser_source(browser_source_from_tree(&tree, id));
@@ -736,6 +773,44 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+
+    #[test]
+    fn indexed_title_update_changes_only_the_addressed_surface() {
+        let mut cache = RemoteTreeCache::default();
+        cache.replace(parse_tree(&json!({
+            "workspaces": [
+                {
+                    "id": 1,
+                    "active": true,
+                    "screens": [{
+                        "id": 2,
+                        "active": true,
+                        "layout": {"type": "leaf", "pane": 3},
+                        "panes": [{
+                            "id": 3,
+                            "tabs": [{"surface": 4, "title": "old target"}],
+                        }],
+                    }],
+                },
+                {
+                    "id": 5,
+                    "screens": [{
+                        "id": 6,
+                        "layout": {"type": "leaf", "pane": 7},
+                        "panes": [{
+                            "id": 7,
+                            "tabs": [{"surface": 8, "title": "other title"}],
+                        }],
+                    }],
+                },
+            ],
+        })));
+
+        assert!(cache.update_title(4, "server title".to_string()));
+        assert_eq!(cache.view.workspaces[0].screens[0].panes[0].tabs[0].title, "server title");
+        assert_eq!(cache.view.workspaces[1].screens[0].panes[0].tabs[0].title, "other title");
+        assert!(!cache.update_title(99, "missing".to_string()));
+    }
 
     #[test]
     fn browser_state_without_frame_keeps_cached_frame() {

@@ -13,15 +13,16 @@
 //!   wins) before dispatch, so a stalled endpoint never builds a replay
 //!   backlog of stale hover/drag positions.
 //! - When the queue is full (the worker is stuck inside a blocking
-//!   call), events are dropped instead of blocking the UI. Dropped
-//!   input against a wedged browser was going nowhere anyway.
+//!   call), pointer and key events are dropped instead of blocking the
+//!   UI. The latest rejected resize per surface is retained so geometry
+//!   catches up after already-queued input drains.
 //!
 //! Results are intentionally discarded: browser input has no caller
 //! that can act on a per-event error, and the surface's own status
 //! (`BrowserStatus`) is what the UI reports.
 
 use std::collections::HashMap;
-use std::sync::mpsc::{Receiver, SyncSender, sync_channel};
+use std::sync::mpsc::{Receiver, SyncSender, TrySendError, sync_channel};
 use std::sync::{Arc, Mutex};
 
 use cmux_tui_core::SurfaceId;
@@ -98,13 +99,14 @@ impl BrowserInputDispatcher {
         Ok(BrowserInputDispatcher { tx, latest_resizes })
     }
 
-    /// Queue an event; never blocks. A full queue (worker wedged inside
-    /// a blocking browser call) drops the event.
+    /// Queue an event without blocking. A full queue retains the latest
+    /// resize per surface and drops other input.
     pub fn enqueue(&self, event: BrowserInputEvent) {
-        if event.kind.is_resize() {
-            self.latest_resizes.lock().unwrap().insert(event.surface_id, event.clone());
+        if let Err(TrySendError::Full(event)) = self.tx.try_send(event)
+            && event.kind.is_resize()
+        {
+            self.latest_resizes.lock().unwrap().insert(event.surface_id, event);
         }
-        let _ = self.tx.try_send(event);
     }
 }
 
@@ -130,25 +132,13 @@ fn worker(
 
 fn merge_latest_resizes(
     batch: &mut Vec<BrowserInputEvent>,
-    mut latest: HashMap<SurfaceId, BrowserInputEvent>,
+    latest: HashMap<SurfaceId, BrowserInputEvent>,
 ) {
-    let mut merged = Vec::with_capacity(batch.len() + latest.len());
-    for index in 0..batch.len() {
-        let event = &batch[index];
-        if event.kind.is_resize() {
-            let has_later = batch[index + 1..]
-                .iter()
-                .any(|next| next.kind.is_resize() && next.surface_id == event.surface_id);
-            if has_later {
-                continue;
-            }
-            merged.push(latest.remove(&event.surface_id).unwrap_or_else(|| event.clone()));
-        } else {
-            merged.push(event.clone());
-        }
-    }
-    merged.extend(latest.into_values());
-    *batch = merged;
+    // These resizes were rejected only after every event already in
+    // `batch`, so append them at that ordering point. The subsequent
+    // coalescing pass may merge them with a trailing resize run, but
+    // must not move them ahead of intervening browser input.
+    batch.extend(latest.into_values());
 }
 
 /// Drop a mouse move when the next event is also a mouse move on the
@@ -291,6 +281,42 @@ mod tests {
             _ => panic!("expected resize event"),
         }
         assert!(matches!(batch[1].kind, BrowserInputKind::Mouse { .. }));
+    }
+
+    #[test]
+    fn resize_coalescing_stops_at_non_resize_input() {
+        let mut batch = vec![resize_event(1, 80), click_event(1), resize_event(1, 100)];
+
+        coalesce_browser_events(&mut batch);
+
+        assert_eq!(batch.len(), 3);
+        assert!(matches!(batch[0].kind, BrowserInputKind::Resize { cols: 80, .. }));
+        assert!(matches!(batch[1].kind, BrowserInputKind::Mouse { .. }));
+        assert!(matches!(batch[2].kind, BrowserInputKind::Resize { cols: 100, .. }));
+    }
+
+    #[test]
+    fn only_full_resizes_are_saved_for_fallback_delivery() {
+        let (tx, rx) = sync_channel(1);
+        let latest_resizes = Arc::new(Mutex::new(HashMap::new()));
+        let dispatcher = BrowserInputDispatcher { tx, latest_resizes: latest_resizes.clone() };
+
+        dispatcher.enqueue(click_event(1));
+        dispatcher.enqueue(resize_event(1, 132));
+        assert!(matches!(rx.recv().unwrap().kind, BrowserInputKind::Mouse { .. }));
+        assert!(matches!(
+            latest_resizes.lock().unwrap().get(&1).map(|event| &event.kind),
+            Some(BrowserInputKind::Resize { cols: 132, .. })
+        ));
+
+        latest_resizes.lock().unwrap().clear();
+        dispatcher.enqueue(resize_event(2, 144));
+        assert!(latest_resizes.lock().unwrap().is_empty());
+        assert!(matches!(rx.recv().unwrap().kind, BrowserInputKind::Resize { cols: 144, .. }));
+
+        drop(rx);
+        dispatcher.enqueue(resize_event(3, 156));
+        assert!(latest_resizes.lock().unwrap().is_empty());
     }
 
     #[test]

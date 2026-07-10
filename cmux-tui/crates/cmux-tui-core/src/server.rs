@@ -1368,54 +1368,7 @@ fn handle_command(mux: &Arc<Mux>, cmd: Command, writer: &LineWriter) -> anyhow::
             let writer = writer.clone();
             std::thread::Builder::new().name("mux-events-out".into()).spawn(move || {
                 while let Ok(event) = events.recv() {
-                    let value = match &event {
-                        MuxEvent::SurfaceOutput(id) => {
-                            json!({"event": "surface-output", "surface": id})
-                        }
-                        MuxEvent::SurfaceResized { surface, cols, rows } => {
-                            json!({
-                                "event": "surface-resized",
-                                "surface": surface,
-                                "cols": cols,
-                                "rows": rows,
-                            })
-                        }
-                        MuxEvent::SurfaceExited(id) => {
-                            json!({"event": "surface-exited", "surface": id})
-                        }
-                        MuxEvent::TitleChanged(id) => {
-                            json!({"event": "title-changed", "surface": id})
-                        }
-                        MuxEvent::Bell(id) => json!({"event": "bell", "surface": id}),
-                        MuxEvent::Notification(notification) => json!({
-                            "event": "notification",
-                            "notification": notification.notification,
-                            "title": notification.title,
-                            "body": notification.body,
-                            "level": notification.level.as_str(),
-                            "surface": notification.surface,
-                        }),
-                        MuxEvent::Status(message) => {
-                            json!({"event": "status", "message": message})
-                        }
-                        MuxEvent::ConfigReloadRequested => {
-                            json!({"event": "config-reload-requested"})
-                        }
-                        MuxEvent::WindowTitleRequested(title) => {
-                            json!({"event": "window-title-requested", "title": title})
-                        }
-                        MuxEvent::ScrollChanged { surface, offset, at_bottom } => json!({
-                            "event": "scroll-changed",
-                            "surface": surface,
-                            "offset": offset,
-                            "at_bottom": at_bottom,
-                        }),
-                        MuxEvent::TreeChanged => json!({"event": "tree-changed"}),
-                        MuxEvent::LayoutChanged(screen) => {
-                            json!({"event": "layout-changed", "screen": screen})
-                        }
-                        MuxEvent::Empty => json!({"event": "empty"}),
-                    };
+                    let value = subscribed_event_json(&event);
                     if writer.send(&value).is_err() {
                         break;
                     }
@@ -1490,6 +1443,45 @@ fn handle_command(mux: &Arc<Mux>, cmd: Command, writer: &LineWriter) -> anyhow::
             })?;
             Ok(json!({}))
         }
+    }
+}
+
+fn subscribed_event_json(event: &MuxEvent) -> Value {
+    match event {
+        MuxEvent::SurfaceOutput(id) => json!({"event": "surface-output", "surface": id}),
+        MuxEvent::SurfaceResized { surface, cols, rows } => json!({
+            "event": "surface-resized",
+            "surface": surface,
+            "cols": cols,
+            "rows": rows,
+        }),
+        MuxEvent::SurfaceExited(id) => json!({"event": "surface-exited", "surface": id}),
+        MuxEvent::TitleChanged { surface, title } => {
+            json!({"event": "title-changed", "surface": surface, "title": title})
+        }
+        MuxEvent::Bell(id) => json!({"event": "bell", "surface": id}),
+        MuxEvent::Notification(notification) => json!({
+            "event": "notification",
+            "notification": notification.notification,
+            "title": notification.title,
+            "body": notification.body,
+            "level": notification.level.as_str(),
+            "surface": notification.surface,
+        }),
+        MuxEvent::Status(message) => json!({"event": "status", "message": message}),
+        MuxEvent::ConfigReloadRequested => json!({"event": "config-reload-requested"}),
+        MuxEvent::WindowTitleRequested(title) => {
+            json!({"event": "window-title-requested", "title": title})
+        }
+        MuxEvent::ScrollChanged { surface, offset, at_bottom } => json!({
+            "event": "scroll-changed",
+            "surface": surface,
+            "offset": offset,
+            "at_bottom": at_bottom,
+        }),
+        MuxEvent::TreeChanged => json!({"event": "tree-changed"}),
+        MuxEvent::LayoutChanged(screen) => json!({"event": "layout-changed", "screen": screen}),
+        MuxEvent::Empty => json!({"event": "empty"}),
     }
 }
 
@@ -1592,6 +1584,46 @@ mod tests {
     fn window_title_osc_uses_osc_0_and_2_and_strips_controls() {
         assert_eq!(window_title_osc("hello").as_slice(), b"\x1b]0;hello\x07\x1b]2;hello\x07");
         assert_eq!(window_title_osc("a\x1bb\x07c").as_slice(), b"\x1b]0;a b c\x07\x1b]2;a b c\x07");
+    }
+
+    #[test]
+    fn title_changed_event_includes_authoritative_surface_title() {
+        let mux = Mux::new(
+            "title-event-test",
+            SurfaceOptions {
+                command: Some(vec![
+                    "/bin/sh".to_string(),
+                    "-c".to_string(),
+                    "printf '\\033]2;server title\\007'".to_string(),
+                ]),
+                ..SurfaceOptions::default()
+            },
+        );
+        let events = mux.subscribe();
+        let surface = mux.new_workspace(None, Some((20, 4))).unwrap();
+        loop {
+            match events.recv_timeout(Duration::from_secs(1)).unwrap() {
+                MuxEvent::TitleChanged { surface: id, title }
+                    if id == surface.id && title == "server title" =>
+                {
+                    break;
+                }
+                _ => {}
+            }
+        }
+
+        assert_eq!(surface.title(), "server title");
+        assert_eq!(
+            subscribed_event_json(&MuxEvent::TitleChanged {
+                surface: surface.id,
+                title: "server title".to_string(),
+            }),
+            json!({
+                "event": "title-changed",
+                "surface": surface.id,
+                "title": "server title",
+            })
+        );
     }
 
     #[test]

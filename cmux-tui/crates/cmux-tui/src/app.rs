@@ -49,6 +49,10 @@ use crate::ui::input::{InputEvent, TextInput};
 use crate::ui::thumb_geometry;
 
 const DEFERRED_INPUT_CAPACITY: usize = 512;
+const DEFERRED_INPUT_FIXED_BYTES: usize = 64;
+const BRACKETED_PASTE_MARKER_BYTES: usize = 12;
+const MAX_DEFERRED_INPUT_BYTES: usize = 4 * 1024 * 1024;
+const ROUTING_REFRESH_RETRIES: u8 = 1;
 
 pub enum AppEvent {
     Mux(MuxEvent),
@@ -60,6 +64,8 @@ pub enum AppEvent {
 
 pub enum SessionMutationOutcome {
     Success { tree: Option<TreeView>, completion: Option<SessionCompletion> },
+    CommittedTreeStale { error: Option<String>, completion: Option<SessionCompletion> },
+    RefreshFailed(String),
     Failed(String),
     Canceled,
 }
@@ -167,7 +173,7 @@ impl OrderedSession {
                         });
                     }
                     Err(error) => {
-                        pending.settle(SessionMutationOutcome::Failed(error.to_string()));
+                        pending.settle(SessionMutationOutcome::RefreshFailed(error.to_string()));
                     }
                 }
             });
@@ -231,24 +237,26 @@ impl OrderedSession {
     ) {
         let session = self.inner.clone();
         let pending = self.pending_mutation();
+        let remote = self.remote;
         self.operations.enqueue_session_mutation(label, self.remote, move || {
             if let Err(error) = operation(session.clone()) {
                 pending.settle(SessionMutationOutcome::Failed(error.to_string()));
                 return Err(error);
             }
             session.invalidate_remote_tree();
-            let _ =
-                std::thread::Builder::new().name("session-tree-settle".into()).spawn(move || {
-                    match session.refresh_tree() {
-                        Ok(tree) => pending.settle(SessionMutationOutcome::Success {
-                            tree: Some(tree),
-                            completion,
-                        }),
-                        Err(error) => {
-                            pending.settle(SessionMutationOutcome::Failed(error.to_string()));
-                        }
-                    }
-                });
+            if remote {
+                pending
+                    .settle(SessionMutationOutcome::CommittedTreeStale { error: None, completion });
+            } else {
+                match session.refresh_tree() {
+                    Ok(tree) => pending
+                        .settle(SessionMutationOutcome::Success { tree: Some(tree), completion }),
+                    Err(error) => pending.settle(SessionMutationOutcome::CommittedTreeStale {
+                        error: Some(error.to_string()),
+                        completion,
+                    }),
+                }
+            }
             Ok(())
         });
     }
@@ -340,12 +348,18 @@ impl OrderedSession {
     }
 
     pub fn set_ratio(&self, pane: PaneId, dir: SplitDir, ratio: f32) {
+        self.set_ratio_deferred(pane, dir, ratio);
+        self.settle_split_ratio();
+    }
+
+    fn set_ratio_deferred(&self, pane: PaneId, dir: SplitDir, ratio: f32) {
         let session = self.inner.clone();
         let direction = match dir {
             SplitDir::Right => "horizontal split ratio",
             SplitDir::Down => "vertical split ratio",
         };
         let pending = self.pending_mutation();
+        let remote = self.remote;
         self.operations.enqueue_coalescing_mutation(
             "resize pane split",
             (direction, pane),
@@ -355,21 +369,30 @@ impl OrderedSession {
                     pending.settle(SessionMutationOutcome::Failed(error.to_string()));
                     return Err(error);
                 }
-                session.invalidate_remote_tree();
-                let _ = std::thread::Builder::new().name("session-tree-settle".into()).spawn(
-                    move || match session.refresh_tree() {
+                if remote {
+                    pending
+                        .settle(SessionMutationOutcome::Success { tree: None, completion: None });
+                } else {
+                    match session.refresh_tree() {
                         Ok(tree) => pending.settle(SessionMutationOutcome::Success {
                             tree: Some(tree),
                             completion: None,
                         }),
                         Err(error) => {
-                            pending.settle(SessionMutationOutcome::Failed(error.to_string()));
+                            pending.settle(SessionMutationOutcome::CommittedTreeStale {
+                                error: Some(error.to_string()),
+                                completion: None,
+                            });
                         }
-                    },
-                );
+                    }
+                }
                 Ok(())
             },
         );
+    }
+
+    fn settle_split_ratio(&self) {
+        self.enqueue("settle split resize", |_| Ok(()));
     }
 
     pub fn close_surface(&self, surface: SurfaceId) {
@@ -820,6 +843,8 @@ pub struct App {
     pty_input: PtyInputDispatcher,
     deferred_input: VecDeque<Event>,
     routing_refresh_pending: bool,
+    routing_refresh_retries_remaining: u8,
+    pending_session_completions: VecDeque<SessionCompletion>,
     drag: Option<Drag>,
     encoder: KeyEncoder,
     mouse_encoder: MouseEncoder,
@@ -1085,6 +1110,8 @@ pub fn run(
         pty_input,
         deferred_input: VecDeque::new(),
         routing_refresh_pending: false,
+        routing_refresh_retries_remaining: 0,
+        pending_session_completions: VecDeque::new(),
         drag: None,
         encoder,
         mouse_encoder,
@@ -1208,6 +1235,16 @@ impl App {
             action = action.merge(self.handle(AppEvent::Input(input))?);
         }
         Ok(action)
+    }
+
+    fn apply_session_completion(&mut self, completion: SessionCompletion) {
+        match completion {
+            SessionCompletion::BrowserTabCreated { pane } => {
+                if let Some(pane) = pane.or_else(|| self.active_pane()) {
+                    self.focus_omnibar_with_buffer(pane, String::new(), false);
+                }
+            }
+        }
     }
 
     fn draw_terminal(
@@ -1423,6 +1460,12 @@ impl App {
     }
 
     fn handle(&mut self, event: AppEvent) -> anyhow::Result<RenderAction> {
+        if let AppEvent::Input(Event::Paste(text)) = &event
+            && deferred_paste_bytes(text) > MAX_DEFERRED_INPUT_BYTES
+        {
+            self.status_message = Some("Paste exceeds the 4 MiB PTY buffer limit".to_string());
+            return Ok(RenderAction::Draw);
+        }
         match &event {
             AppEvent::Mux(MuxEvent::SurfaceExited(_) | MuxEvent::LayoutChanged(_))
             | AppEvent::Input(Event::Key(_) | Event::Mouse(_) | Event::Paste(_)) => {
@@ -1520,14 +1563,41 @@ impl App {
                         if let Some(tree) = tree {
                             self.tree = tree;
                         }
-                        if let Some(SessionCompletion::BrowserTabCreated { pane }) = completion
-                            && let Some(pane) = pane.or_else(|| self.active_pane())
-                        {
-                            self.focus_omnibar_with_buffer(pane, String::new(), false);
+                        self.routing_refresh_retries_remaining = 0;
+                        if let Some(completion) = completion {
+                            self.apply_session_completion(completion);
                         }
+                        while let Some(completion) = self.pending_session_completions.pop_front() {
+                            self.apply_session_completion(completion);
+                        }
+                    }
+                    SessionMutationOutcome::CommittedTreeStale { error, completion } => {
+                        if let Some(completion) = completion {
+                            self.pending_session_completions.push_back(completion);
+                        }
+                        self.routing_refresh_retries_remaining = ROUTING_REFRESH_RETRIES;
+                        if let Some(error) = error {
+                            self.status_message = Some(format!(
+                                "session changed, but its layout refresh failed: {error}"
+                            ));
+                        }
+                        self.session.invalidate_remote_tree();
+                        self.session.refresh_remote_tree_if_stale();
+                    }
+                    SessionMutationOutcome::RefreshFailed(error) => {
+                        self.status_message = Some(format!(
+                            "session changed, but its layout is still stale: {error}"
+                        ));
+                        if self.routing_refresh_retries_remaining > 0 {
+                            self.routing_refresh_retries_remaining -= 1;
+                            self.session.invalidate_remote_tree();
+                            self.session.refresh_remote_tree_if_stale();
+                        }
+                        return Ok(RenderAction::Draw);
                     }
                     SessionMutationOutcome::Failed(error) => {
                         self.deferred_input.clear();
+                        self.pending_session_completions.clear();
                         self.status_message = Some(format!("session operation failed: {error}"));
                         return Ok(RenderAction::Draw);
                     }
@@ -1536,6 +1606,7 @@ impl App {
                             return Ok(RenderAction::None);
                         }
                         self.deferred_input.clear();
+                        self.pending_session_completions.clear();
                         self.status_message = Some("session operation was canceled".to_string());
                         return Ok(RenderAction::Draw);
                     }
@@ -1549,7 +1620,13 @@ impl App {
             }
             AppEvent::RemoteTreeUpdated(result) => {
                 match result {
-                    Ok(tree) => self.tree = tree,
+                    Ok(tree) => {
+                        self.tree = tree;
+                        self.routing_refresh_retries_remaining = 0;
+                        while let Some(completion) = self.pending_session_completions.pop_front() {
+                            self.apply_session_completion(completion);
+                        }
+                    }
                     Err(error) => {
                         self.status_message = Some(format!("refresh remote tree failed: {error}"));
                     }
@@ -1559,6 +1636,12 @@ impl App {
                     self.session.refresh_remote_tree_if_stale();
                 } else if self.session.take_background_refresh_dirty() {
                     self.session.refresh_remote_tree_background();
+                }
+                if !self.session.has_pending_mutations()
+                    && !self.session.remote_tree_is_stale()
+                    && !self.deferred_input.is_empty()
+                {
+                    self.routing_refresh_pending = true;
                 }
                 Ok(RenderAction::Draw)
             }
@@ -1617,7 +1700,7 @@ impl App {
 
     fn input_can_update_pending_mutation(&self, input: &Event) -> bool {
         if let Event::Key(key) = input
-            && (self.config.keys.prefix.matches(key)
+            && ((self.config.keys.prefix.matches(key) && !self.prefix_armed)
                 || self.config.keys.modeless_action_for(key) == Some(Action::Detach)
                 || (self.prefix_armed && self.config.keys.action_for(key) == Some(Action::Detach)))
         {
@@ -1626,7 +1709,11 @@ impl App {
         matches!(
             (input, &self.drag),
             (
-                Event::Mouse(MouseEvent { kind: MouseEventKind::Drag(MouseButton::Left), .. }),
+                Event::Mouse(MouseEvent {
+                    kind: MouseEventKind::Drag(MouseButton::Left)
+                        | MouseEventKind::Up(MouseButton::Left),
+                    ..
+                }),
                 Some(Drag::ResizeSplit { .. })
             ) | (
                 Event::Mouse(MouseEvent {
@@ -1635,6 +1722,12 @@ impl App {
                     ..
                 }),
                 Some(Drag::Browser { .. })
+            ) | (
+                Event::Mouse(MouseEvent {
+                    kind: MouseEventKind::Drag(_) | MouseEventKind::Up(_),
+                    ..
+                }),
+                Some(Drag::PtyMouse { .. })
             )
         )
     }
@@ -1655,14 +1748,21 @@ impl App {
             *self.deferred_input.back_mut().unwrap() = input;
             return RenderAction::None;
         }
-        if self.deferred_input.len() >= DEFERRED_INPUT_CAPACITY {
-            if matches!(&input, Event::Mouse(MouseEvent { kind: MouseEventKind::Up(_), .. })) {
-                self.deferred_input.pop_front();
-            } else {
-                self.status_message =
-                    Some("Input queue is full while a session change is pending".to_string());
+        let input_bytes = deferred_input_bytes(&input);
+        let mut queued_bytes = self.deferred_input.iter().map(deferred_input_bytes).sum::<usize>();
+        let prioritize_release =
+            matches!(&input, Event::Mouse(MouseEvent { kind: MouseEventKind::Up(_), .. }));
+        while self.deferred_input.len() >= DEFERRED_INPUT_CAPACITY
+            || queued_bytes.saturating_add(input_bytes) > MAX_DEFERRED_INPUT_BYTES
+        {
+            if !prioritize_release {
+                self.status_message = Some(
+                    "Input queue byte limit reached while a session change is pending".to_string(),
+                );
                 return RenderAction::Draw;
             }
+            let Some(removed) = self.deferred_input.pop_front() else { break };
+            queued_bytes = queued_bytes.saturating_sub(deferred_input_bytes(&removed));
         }
         self.deferred_input.push_back(input);
         RenderAction::None
@@ -3626,6 +3726,11 @@ impl App {
             );
             return Ok(RenderAction::Draw);
         }
+        if matches!(self.drag, Some(Drag::ResizeSplit { .. })) {
+            self.drag = None;
+            self.session.settle_split_ratio();
+            return Ok(RenderAction::Draw);
+        }
         let was_select = matches!(self.drag, Some(Drag::Select { .. }));
         let was_drag = self.drag.is_some();
         self.drag = None;
@@ -3841,7 +3946,7 @@ impl App {
         }
         let ratio = (coord.saturating_sub(start) as f32 / extent as f32).clamp(0.05, 0.95);
         if self.prepare_pty_input_before_mutation() {
-            self.session.set_ratio(target.set_pane, dir, ratio);
+            self.session.set_ratio_deferred(target.set_pane, dir, ratio);
         }
     }
 
@@ -4108,6 +4213,17 @@ fn menu_action_prepares_pty_release(action: MenuAction) -> bool {
     )
 }
 
+fn deferred_paste_bytes(text: &str) -> usize {
+    text.len().saturating_add(BRACKETED_PASTE_MARKER_BYTES)
+}
+
+fn deferred_input_bytes(input: &Event) -> usize {
+    match input {
+        Event::Paste(text) => deferred_paste_bytes(text),
+        _ => DEFERRED_INPUT_FIXED_BYTES,
+    }
+}
+
 fn browser_hover_forward_allowed(status: Option<BrowserStatus>, editing_same_pane: bool) -> bool {
     !editing_same_pane && matches!(status, Some(BrowserStatus::Live))
 }
@@ -4155,6 +4271,7 @@ mod tests {
         browser_hover_forward_allowed, pane_parts_for_rect,
     };
     use std::collections::{HashMap, VecDeque};
+    use std::sync::atomic::Ordering;
     use std::sync::mpsc::Receiver;
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
@@ -4490,6 +4607,15 @@ mod tests {
         .unwrap();
 
         assert!(app.deferred_input.is_empty());
+        app.handle(AppEvent::Input(Event::Mouse(MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Left),
+            column: 20,
+            row: 5,
+            modifiers: KeyModifiers::NONE,
+        })))
+        .unwrap();
+        assert!(app.deferred_input.is_empty());
+        assert!(app.drag.is_none());
     }
 
     #[test]
@@ -4550,6 +4676,110 @@ mod tests {
 
         assert!(app.deferred_input.is_empty());
         assert!(app.drag.is_none());
+    }
+
+    #[test]
+    fn pty_drag_motion_and_release_bypass_pending_mutation_with_pinned_surface() {
+        let mux = Mux::new("pty-release-barrier-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.session.pending_mutations.store(1, Ordering::Release);
+        app.drag = Some(Drag::PtyMouse {
+            surface: 42,
+            content: Rect { x: 2, y: 3, width: 20, height: 8 },
+            button: MouseButton::Right,
+            position: (5, 5),
+            modifiers: KeyModifiers::NONE,
+        });
+
+        app.handle(AppEvent::Input(Event::Mouse(MouseEvent {
+            kind: MouseEventKind::Drag(MouseButton::Left),
+            column: 8,
+            row: 6,
+            modifiers: KeyModifiers::NONE,
+        })))
+        .unwrap();
+        assert!(app.deferred_input.is_empty());
+        assert!(matches!(app.drag, Some(Drag::PtyMouse { surface: 42, position: (8, 6), .. })));
+
+        app.handle(AppEvent::Input(Event::Mouse(MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Left),
+            column: 8,
+            row: 6,
+            modifiers: KeyModifiers::NONE,
+        })))
+        .unwrap();
+        assert!(app.deferred_input.is_empty());
+        assert!(app.drag.is_none());
+    }
+
+    #[test]
+    fn doubled_prefix_waits_for_pending_mutation_after_first_prefix_arms() {
+        let mux = Mux::new("doubled-prefix-barrier-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.session.pending_mutations.store(1, Ordering::Release);
+        let prefix = Event::Key(KeyEvent::new(KeyCode::Char('b'), KeyModifiers::CONTROL));
+
+        app.handle(AppEvent::Input(prefix.clone())).unwrap();
+        assert!(app.prefix_armed);
+        assert!(app.deferred_input.is_empty());
+
+        app.handle(AppEvent::Input(prefix)).unwrap();
+        assert!(app.prefix_armed);
+        assert_eq!(app.deferred_input.len(), 1);
+    }
+
+    #[test]
+    fn committed_mutation_with_stale_refresh_retains_deferred_input() {
+        let mux = Mux::new("committed-stale-refresh-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.session.pending_mutations.store(1, Ordering::Release);
+        app.deferred_input
+            .push_back(Event::Key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)));
+
+        app.handle(AppEvent::SessionMutationSettled(
+            super::SessionMutationOutcome::CommittedTreeStale {
+                error: Some("refresh unavailable".to_string()),
+                completion: None,
+            },
+        ))
+        .unwrap();
+
+        assert_eq!(app.deferred_input.len(), 1);
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("session changed, but its layout refresh failed: refresh unavailable")
+        );
+        assert!(!app.session.has_pending_mutations());
+    }
+
+    #[test]
+    fn oversized_paste_is_rejected_before_routing_or_text_insertion() {
+        let mux = Mux::new("oversized-paste-ingress-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let text =
+            "x".repeat(super::MAX_DEFERRED_INPUT_BYTES - super::BRACKETED_PASTE_MARKER_BYTES + 1);
+
+        app.handle(AppEvent::Input(Event::Paste(text))).unwrap();
+
+        assert!(app.deferred_input.is_empty());
+        assert_eq!(app.status_message.as_deref(), Some("Paste exceeds the 4 MiB PTY buffer limit"));
+    }
+
+    #[test]
+    fn deferred_paste_budget_counts_bracket_markers() {
+        let mux = Mux::new("deferred-paste-budget-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.session.pending_mutations.store(1, Ordering::Release);
+        let half = "x".repeat(super::MAX_DEFERRED_INPUT_BYTES / 2);
+
+        app.handle(AppEvent::Input(Event::Paste(half.clone()))).unwrap();
+        app.handle(AppEvent::Input(Event::Paste(half))).unwrap();
+
+        assert_eq!(app.deferred_input.len(), 1);
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("Input queue byte limit reached while a session change is pending")
+        );
     }
 
     #[test]
@@ -4743,6 +4973,8 @@ mod tests {
             pty_input,
             deferred_input: VecDeque::new(),
             routing_refresh_pending: false,
+            routing_refresh_retries_remaining: 0,
+            pending_session_completions: VecDeque::new(),
             drag: None,
             encoder: KeyEncoder::new().unwrap(),
             mouse_encoder: MouseEncoder::new().unwrap(),
