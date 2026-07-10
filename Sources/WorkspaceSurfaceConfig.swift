@@ -112,7 +112,8 @@ extension Workspace {
     }
 
     func panelDirectoryForTerminalStartup(sourcePanelId: UUID?) -> String? {
-        guard let sourcePanelId, !isRemoteTerminalSurface(sourcePanelId) else { return nil }
+        guard let sourcePanelId,
+              allowsLocalDirectoryFallback(panelId: sourcePanelId) else { return nil }
         return panelDirectories[sourcePanelId]
     }
 

@@ -302,6 +302,8 @@ import Testing
         )
         #expect(reportedSnapshot.directory == trustedRemoteDirectory)
         #expect(reportedSnapshot.terminal?.workingDirectory == trustedRemoteDirectory)
+        workspace.disconnectRemoteConnection()
+        #expect(workspace.panelDirectoryForTerminalStartup(sourcePanelId: panel.id) == nil)
     }
 
     @Test func remoteStartupSplitSafeLocalWorkingDirectoryIsNotCapturedAsSessionDirectory() throws {
