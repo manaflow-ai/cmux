@@ -120,7 +120,6 @@ import CmuxGit
             clock: clock,
             pullRequestProbing: pullRequestProbing
         )
-
         service.updateSurfaceGitBranch(
             workspaceId: workspaceId,
             panelId: panelId,
@@ -244,6 +243,7 @@ import CmuxGit
             clock: clock,
             pullRequestProbing: pullRequestProbing
         )
+        var projectionEvents = host.projectionEvents().makeAsyncIterator()
 
         service.scheduleInitialWorkspaceGitMetadataRefreshIfPossible(
             workspaceId: workspaceId,
@@ -253,14 +253,14 @@ import CmuxGit
         await clock.waitForSleeper()
         await clock.resumeNext()
 
-        #expect(await waitUntil {
-            host.events.contains { event in
-                if case .gitBranch(workspaceId, panelId, "feature/x", true) = event {
-                    return true
-                }
-                return false
+        var observedProjection = false
+        while let event = await projectionEvents.next() {
+            if case .gitBranch(workspaceId, panelId, "feature/x", true) = event {
+                observedProjection = true
+                break
             }
-        })
+        }
+        #expect(observedProjection)
         #expect(host.workspaces[0].state.panels[panelId]?.branch == SidebarPanelGitBranch(branch: "feature/x", isDirty: true))
         #expect(pullRequestProbing.scheduledRefreshes.contains {
             $0.workspaceId == workspaceId && $0.panelId == panelId && $0.reason == "localGitProbe"
@@ -289,6 +289,7 @@ import CmuxGit
             clock: clock,
             pullRequestProbing: pullRequestProbing
         )
+        var projectionEvents = host.projectionEvents().makeAsyncIterator()
 
         service.scheduleWorkspaceGitMetadataRefreshIfPossible(
             workspaceId: workspaceId,
@@ -298,12 +299,14 @@ import CmuxGit
         await clock.waitForSleeper()
         await clock.resumeNext()
 
-        #expect(await waitUntil {
-            host.events.contains { event in
-                if case .gitBranch = event { return true }
-                return false
+        var observedProjection = false
+        while let event = await projectionEvents.next() {
+            if case .gitBranch = event {
+                observedProjection = true
+                break
             }
-        })
+        }
+        #expect(observedProjection)
         #expect(host.workspaces[0].state.panels[panelId]?.branch == SidebarPanelGitBranch(
             branch: "feature/x",
             isDirty: true
@@ -333,6 +336,7 @@ import CmuxGit
             clock: clock,
             pullRequestProbing: pullRequestProbing
         )
+        var projectionEvents = host.projectionEvents().makeAsyncIterator()
 
         service.scheduleInitialWorkspaceGitMetadataRefreshIfPossible(
             workspaceId: workspaceId,
@@ -342,7 +346,9 @@ import CmuxGit
         await clock.waitForSleeper()
         await clock.resumeNext()
         #expect(await reader.waitForTrackedPathEventGenerationProbe())
-        #expect(await waitUntil { pullRequestProbing.scheduledRefreshes.count == 1 })
+        while let event = await projectionEvents.next() {
+            if case .gitBranch = event { break }
+        }
 
         #expect(pullRequestProbing.scheduledRefreshes.count == 1)
         let scheduledRefresh = try #require(pullRequestProbing.scheduledRefreshes.first)
@@ -377,8 +383,9 @@ import CmuxGit
             clock: clock,
             pullRequestProbing: pullRequestService
         )
+        var projectionEvents = host.projectionEvents().makeAsyncIterator()
 
-        for expectedApplyCount in 1...2 {
+        for _ in 1...2 {
             service.scheduleWorkspaceGitMetadataRefreshIfPossible(
                 workspaceId: workspaceId,
                 panelId: panelId,
@@ -386,12 +393,14 @@ import CmuxGit
             )
             await clock.waitForSleeper(duration: 0)
             #expect(await clock.resumeFirst(duration: 0))
-            #expect(await waitUntil {
-                host.events.filter { event in
-                    if case .gitBranch(workspaceId, panelId, branch, false) = event { return true }
-                    return false
-                }.count == expectedApplyCount
-            })
+            var observedProjection = false
+            while let event = await projectionEvents.next() {
+                if case .gitBranch(workspaceId, panelId, branch, false) = event {
+                    observedProjection = true
+                    break
+                }
+            }
+            #expect(observedProjection)
         }
 
         let badgeClearCount = host.events.filter { event in
@@ -429,6 +438,7 @@ import CmuxGit
             clock: clock,
             pullRequestProbing: pullRequestService
         )
+        var projectionEvents = host.projectionEvents().makeAsyncIterator()
 
         for panelId in [firstPanelId, secondPanelId] {
             service.scheduleWorkspaceGitMetadataRefreshIfPossible(
@@ -442,12 +452,14 @@ import CmuxGit
             await clock.resumeNext()
         }
         await reader.openGate()
-        #expect(await waitUntil {
-            host.workspaces[0].state.panels.values.filter {
-                $0.branch?.branch == "feature/batched"
-            }.count == 2
-        })
-        #expect(await waitUntil { host.orderedWorkspaceIdsReadCount >= 1 })
+        var projectedPanelIds: Set<UUID> = []
+        while projectedPanelIds.count < 2, let event = await projectionEvents.next() {
+            if case .gitBranch(workspaceId, let panelId, "feature/batched", false) = event {
+                projectedPanelIds.insert(panelId)
+            }
+        }
+        #expect(projectedPanelIds == [firstPanelId, secondPanelId])
+        await host.waitForOrderedWorkspaceIdsReadCount(1)
 
         #expect(host.orderedWorkspaceIdsReadCount == 1)
         #expect(host.panelGitBranchPanelIdsReadCount == 1)
@@ -471,6 +483,7 @@ import CmuxGit
             clock: gitClock,
             pullRequestProbing: pullRequestService
         )
+        var projectionEvents = host.projectionEvents().makeAsyncIterator()
 
         for expectedApplyCount in 1...2 {
             service.scheduleWorkspaceGitMetadataRefreshIfPossible(
@@ -480,14 +493,16 @@ import CmuxGit
             )
             await gitClock.waitForSleeper(duration: 0)
             #expect(await gitClock.resumeFirst(duration: 0))
-            #expect(await waitUntil {
-                host.events.filter { event in
-                    if case .gitBranch(workspaceId, panelId, "feature/one", false) = event { return true }
-                    return false
-                }.count == expectedApplyCount
-            })
+            var observedExpectedProjection = false
+            while let event = await projectionEvents.next() {
+                if case .gitBranch(workspaceId, panelId, "feature/one", false) = event {
+                    observedExpectedProjection = true
+                    break
+                }
+            }
+            #expect(observedExpectedProjection)
             if expectedApplyCount == 1 {
-                #expect(await waitUntil { host.orderedWorkspaceIdsReadCount == 1 })
+                await host.waitForOrderedWorkspaceIdsReadCount(1)
             }
         }
         #expect(host.orderedWorkspaceIdsReadCount == 1)
@@ -513,7 +528,7 @@ import CmuxGit
             branch: " feature/two ",
             isDirty: false
         )
-        #expect(await waitUntil { host.orderedWorkspaceIdsReadCount == 3 })
+        await host.waitForOrderedWorkspaceIdsReadCount(3)
         service.updateSurfaceGitBranch(
             workspaceId: workspaceId,
             panelId: panelId,
@@ -547,6 +562,7 @@ import CmuxGit
             clock: gitClock,
             pullRequestProbing: pullRequestService
         )
+        var projectionEvents = host.projectionEvents().makeAsyncIterator()
 
         service.scheduleWorkspaceGitMetadataRefreshIfPossible(
             workspaceId: workspaceId,
@@ -555,12 +571,15 @@ import CmuxGit
         )
         await gitClock.waitForSleeper(duration: 0)
         #expect(await gitClock.resumeFirst(duration: 0))
-        #expect(await waitUntil {
-            host.workspaces[0].state.panels[panelId]?.branch == SidebarPanelGitBranch(
-                branch: "feature/x",
-                isDirty: false
-            ) && host.orderedWorkspaceIdsReadCount == 1
-        })
+        var observedInitialProjection = false
+        while let event = await projectionEvents.next() {
+            if case .gitBranch(workspaceId, panelId, "feature/x", false) = event {
+                observedInitialProjection = true
+                break
+            }
+        }
+        #expect(observedInitialProjection)
+        await host.waitForOrderedWorkspaceIdsReadCount(1)
 
         let readsBeforeDirtyUpdate = pullRequestTraversalReads(host)
         service.updateSurfaceGitBranch(
@@ -625,12 +644,7 @@ import CmuxGit
         #expect(await waitUntil { service.workspaceGitProbeRerunPending(for: key) })
         #expect(service.workspaceGitProbeRerunPending(for: key))
         await reader.openGate()
-
-        for _ in 0..<500 {
-            let immediateProbeSleeps = await clock.recordedDurations.filter { $0 == 0 }.count
-            if immediateProbeSleeps >= 3 { break }
-            await Task.yield()
-        }
+        await clock.waitForSleeper(duration: 0)
         let immediateProbeSleeps = await clock.recordedDurations.filter { $0 == 0 }.count
 
         #expect(immediateProbeSleeps == 3)

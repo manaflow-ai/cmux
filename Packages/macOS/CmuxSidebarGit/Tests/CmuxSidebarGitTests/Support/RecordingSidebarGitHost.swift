@@ -42,11 +42,21 @@ final class RecordingSidebarGitHost: SidebarGitHosting {
     private(set) var panelGitBranchPanelIdsReadCount = 0
     private(set) var panelPullRequestPanelIdsReadCount = 0
     private var eventContinuations: [AsyncStream<ProjectionEvent>.Continuation] = []
+    private var orderedWorkspaceReadWaiters: [
+        (minimumCount: Int, continuation: CheckedContinuation<Void, Never>)
+    ] = []
 
     /// A stream of projection events, registered before the awaited action.
     func projectionEvents() -> AsyncStream<ProjectionEvent> {
         AsyncStream { continuation in
             eventContinuations.append(continuation)
+        }
+    }
+
+    func waitForOrderedWorkspaceIdsReadCount(_ minimumCount: Int) async {
+        guard orderedWorkspaceIdsReadCount < minimumCount else { return }
+        await withCheckedContinuation { continuation in
+            orderedWorkspaceReadWaiters.append((minimumCount, continuation))
         }
     }
 
@@ -81,6 +91,15 @@ final class RecordingSidebarGitHost: SidebarGitHosting {
 
     func orderedWorkspaceIds() -> [UUID] {
         orderedWorkspaceIdsReadCount += 1
+        let readyWaiters = orderedWorkspaceReadWaiters.filter {
+            orderedWorkspaceIdsReadCount >= $0.minimumCount
+        }
+        orderedWorkspaceReadWaiters.removeAll {
+            orderedWorkspaceIdsReadCount >= $0.minimumCount
+        }
+        for waiter in readyWaiters {
+            waiter.continuation.resume()
+        }
         return workspaces.map(\.id)
     }
     func workspaceExists(_ workspaceId: UUID) -> Bool { state(workspaceId) != nil }
