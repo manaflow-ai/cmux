@@ -5,6 +5,7 @@ import ObjectiveC
 import WebKit
 
 private var browserProxyConfigurationApplicationStateKey: UInt8 = 0
+private var browserProxyConfigurationNetworkProcessMonitorKey: UInt8 = 0
 
 /// The semantic network route applied to a browser website data store.
 ///
@@ -82,6 +83,7 @@ struct BrowserProxyConfigurationRoute {
                     .directAfterExplicit(networkProcessIdentifier: identifier),
                     on: websiteDataStore
                 )
+                monitorDirectRouteProcess(identifier, on: websiteDataStore)
                 return true
             case .directAfterExplicit(let appliedIdentifier):
                 let currentIdentifier = currentNetworkProcessIdentifier()
@@ -97,6 +99,7 @@ struct BrowserProxyConfigurationRoute {
                     .directAfterExplicit(networkProcessIdentifier: currentIdentifier),
                     on: websiteDataStore
                 )
+                monitorDirectRouteProcess(currentIdentifier, on: websiteDataStore)
                 return true
             }
         }
@@ -104,6 +107,7 @@ struct BrowserProxyConfigurationRoute {
         if state == .explicit(identity: identity) {
             return false
         }
+        cancelDirectRouteProcessMonitor(on: websiteDataStore)
         websiteDataStore.proxyConfigurations = configurations
         storeApplicationState(.explicit(identity: identity), on: websiteDataStore)
         return true
@@ -130,6 +134,41 @@ struct BrowserProxyConfigurationRoute {
             state,
             .OBJC_ASSOCIATION_RETAIN_NONATOMIC
         )
+    }
+
+    @MainActor
+    private func monitorDirectRouteProcess(
+        _ processIdentifier: Int?,
+        on websiteDataStore: WKWebsiteDataStore
+    ) {
+        let monitor: BrowserProxyConfigurationNetworkProcessMonitor
+        if let existing = objc_getAssociatedObject(
+            websiteDataStore,
+            &browserProxyConfigurationNetworkProcessMonitorKey
+        ) as? BrowserProxyConfigurationNetworkProcessMonitor {
+            monitor = existing
+        } else {
+            monitor = BrowserProxyConfigurationNetworkProcessMonitor()
+            objc_setAssociatedObject(
+                websiteDataStore,
+                &browserProxyConfigurationNetworkProcessMonitorKey,
+                monitor,
+                .OBJC_ASSOCIATION_RETAIN_NONATOMIC
+            )
+        }
+        monitor.observe(processIdentifier: processIdentifier) { [weak websiteDataStore] in
+            guard let websiteDataStore else { return }
+            BrowserProxyConfigurationRoute.direct.apply(to: websiteDataStore)
+        }
+    }
+
+    @MainActor
+    private func cancelDirectRouteProcessMonitor(on websiteDataStore: WKWebsiteDataStore) {
+        let monitor = objc_getAssociatedObject(
+            websiteDataStore,
+            &browserProxyConfigurationNetworkProcessMonitorKey
+        ) as? BrowserProxyConfigurationNetworkProcessMonitor
+        monitor?.cancel()
     }
 
     private static func mirroredSystemIdentity(_ mirror: BrowserSystemProxyMirror) -> String {

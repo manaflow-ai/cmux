@@ -3734,15 +3734,10 @@ final class BrowserPanel: Panel, ObservableObject {
         navigationDelegate.didStartProvisionalNavigation = { [weak self] webView in
             MainActor.assumeIsolated {
                 guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
+                self.applyProxyConfigurationIfAvailable()
                 self.isMainFrameProvisionalNavigationActive = true
                 self.refreshBackgroundAppearance()
                 self.applyMuteState(to: webView, reason: "navigationStart")
-            }
-        }
-        navigationDelegate.willAllowNavigation = { [weak self] webView in
-            MainActor.assumeIsolated {
-                guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
-                self.applyProxyConfigurationIfAvailable()
             }
         }
         navigationDelegate.didCommit = { [weak self] webView in
@@ -4381,7 +4376,9 @@ final class BrowserPanel: Panel, ObservableObject {
     func setRemoteProxyEndpoint(_ endpoint: BrowserProxyEndpoint?) {
         guard !bypassesRemoteWorkspaceProxy else { return }
         guard remoteProxyEndpoint != endpoint else { return }
-        let shouldSuspendNetworking = usesRemoteWorkspaceProxy && remoteProxyEndpoint != nil && endpoint == nil
+        let shouldSuspendNetworking = usesRemoteWorkspaceProxy && remoteProxyEndpoint != nil
+            && endpoint == nil
+            && !hiddenWebViewDiscardManager.isDiscardedForMemory
         remoteProxyEndpoint = endpoint
         if shouldSuspendNetworking {
             replaceWebViewPreservingState(
