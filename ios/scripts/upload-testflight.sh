@@ -935,6 +935,7 @@ upload_app_store_with_asc() {
     "XDG_CACHE_HOME=$asc_xdg_cache"
     "ASC_BYPASS_KEYCHAIN=1"
     "ASC_STRICT_AUTH=true"
+    "ASC_NO_UPDATE=1"
     "ASC_KEY_ID=$ASC_API_KEY_ID"
     "ASC_ISSUER_ID=$ASC_API_ISSUER_ID"
   )
@@ -954,14 +955,26 @@ upload_app_store_with_asc() {
   ) | tee "$OUT_DIR/upload.log"
 }
 
-HAS_ASC_UPLOAD_ENV=0
-if [[ -n "${ASC_API_KEY_ID:-}" || -n "${ASC_API_ISSUER_ID:-}" || -n "${ASC_API_KEY_PATH:-}" || -n "${ASC_API_KEY_P8_BASE64:-}" ]]; then
-  HAS_ASC_UPLOAD_ENV=1
+HAS_COMPLETE_ASC_UPLOAD_ENV=0
+if [[ -n "${ASC_APP_ID:-}" && -n "${ASC_API_KEY_ID:-}" && -n "${ASC_API_ISSUER_ID:-}" && ( -n "${ASC_API_KEY_PATH:-}" || -n "${ASC_API_KEY_P8_BASE64:-}" ) ]]; then
+  HAS_COMPLETE_ASC_UPLOAD_ENV=1
 fi
 
-if [[ "$LANE" == "appstore" && "$HAS_ASC_UPLOAD_ENV" -eq 1 ]]; then
+HAS_ANY_ASC_UPLOAD_ENV=0
+if [[ -n "${ASC_APP_ID:-}" || -n "${ASC_API_KEY_ID:-}" || -n "${ASC_API_ISSUER_ID:-}" || -n "${ASC_API_KEY_PATH:-}" || -n "${ASC_API_KEY_P8_BASE64:-}" ]]; then
+  HAS_ANY_ASC_UPLOAD_ENV=1
+fi
+
+HAS_APPLE_ID_UPLOAD_ENV=0
+if [[ -n "${APPLE_ID:-}" || -n "${APPLE_APP_SPECIFIC_PASSWORD:-}" || -n "${APPLE_PROVIDER_PUBLIC_ID:-}" ]]; then
+  HAS_APPLE_ID_UPLOAD_ENV=1
+fi
+
+if [[ "$LANE" == "appstore" && "$HAS_COMPLETE_ASC_UPLOAD_ENV" -eq 1 ]]; then
   upload_app_store_with_asc
-elif [[ -n "${ASC_API_KEY_ID:-}" || -n "${ASC_API_ISSUER_ID:-}" || -n "${ASC_API_KEY_PATH:-}" ]]; then
+elif [[ "$LANE" == "appstore" && "$HAS_ANY_ASC_UPLOAD_ENV" -eq 1 && "$HAS_APPLE_ID_UPLOAD_ENV" -ne 1 ]]; then
+  upload_app_store_with_asc
+elif [[ "$LANE" != "appstore" && ( -n "${ASC_API_KEY_ID:-}" || -n "${ASC_API_ISSUER_ID:-}" || -n "${ASC_API_KEY_PATH:-}" ) ]]; then
   if [[ -z "${ASC_API_KEY_ID:-}" || -z "${ASC_API_ISSUER_ID:-}" || -z "${ASC_API_KEY_PATH:-}" ]]; then
     echo "error: ASC_API_KEY_ID, ASC_API_ISSUER_ID, and ASC_API_KEY_PATH must be set together" >&2
     exit 2
@@ -981,7 +994,7 @@ elif [[ -n "${ASC_API_KEY_ID:-}" || -n "${ASC_API_ISSUER_ID:-}" || -n "${ASC_API
     --api-key "$ASC_API_KEY_ID" \
     --api-issuer "$ASC_API_ISSUER_ID" \
     | tee "$OUT_DIR/upload.log"
-elif [[ -n "${APPLE_ID:-}" || -n "${APPLE_APP_SPECIFIC_PASSWORD:-}" || -n "${APPLE_PROVIDER_PUBLIC_ID:-}" ]]; then
+elif [[ "$HAS_APPLE_ID_UPLOAD_ENV" -eq 1 ]]; then
   if [[ -z "${APPLE_ID:-}" || -z "${APPLE_APP_SPECIFIC_PASSWORD:-}" || -z "${APPLE_PROVIDER_PUBLIC_ID:-}" ]]; then
     echo "error: APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, and APPLE_PROVIDER_PUBLIC_ID must be set together" >&2
     exit 2
