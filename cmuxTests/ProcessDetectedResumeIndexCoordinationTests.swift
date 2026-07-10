@@ -324,6 +324,10 @@ struct ProcessDetectedResumeIndexCoordinationTests {
         ))
 
         let plan = TerminationResumeIndexSavePlan.resolve(nil)
+        #expect(
+            plan.restorableAgentIndex != nil,
+            "Core snapshot fallback must suppress the snapshot builder's cold refresh."
+        )
         let snapshot = try #require(app.debugBuildSessionSnapshotForTesting(
             includeScrollback: false,
             surfaceResumeBindingIndex: plan.surfaceResumeBindingIndex
