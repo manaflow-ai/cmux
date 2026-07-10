@@ -15,7 +15,10 @@ struct CmxIrohSystemBonjourBrowserTests {
             maximumPendingResolves: 2,
             resolveTimeout: 5
         )
-        _ = await browser.events()
+        let stream = await browser.events()
+        let observationTask = Task {
+            for await _ in stream {}
+        }
 
         for alias in [
             "short",
@@ -37,6 +40,7 @@ struct CmxIrohSystemBonjourBrowserTests {
         ))
 
         await browser.stop()
+        await observationTask.value
     }
 
     @Test
@@ -49,7 +53,10 @@ struct CmxIrohSystemBonjourBrowserTests {
             maximumPendingResolves: 1,
             resolveTimeout: 5
         )
-        _ = await browser.events()
+        let stream = await browser.events()
+        let observationTask = Task {
+            for await _ in stream {}
+        }
         let aliases = canonicalAliases(count: 2)
 
         await dnsService.emitAdded(serviceName: aliases[0])
@@ -66,6 +73,7 @@ struct CmxIrohSystemBonjourBrowserTests {
         #expect(snapshot.maximumActiveResolveCount == 1)
 
         await browser.stop()
+        await observationTask.value
     }
 
     @Test
@@ -86,6 +94,7 @@ struct CmxIrohSystemBonjourBrowserTests {
         }
         let alias = String(repeating: "a", count: 32)
         await dnsService.emitAdded(serviceName: alias)
+        await clock.waitForPendingSleepCount(1)
         await dnsService.emitResolved(serviceName: alias)
 
         guard case let .resolved(id, service) = await iterator.next() else {
@@ -96,6 +105,7 @@ struct CmxIrohSystemBonjourBrowserTests {
         #expect(id.serviceName == alias)
         #expect(service.serviceName == alias)
         #expect(dnsService.snapshot().resolveStarts == [alias])
+        await clock.waitUntilIdle()
         #expect(await clock.pendingSleepCount() == 0)
 
         await browser.stop()
@@ -133,6 +143,35 @@ struct CmxIrohSystemBonjourBrowserTests {
 
         var iterator = stream.makeAsyncIterator()
         #expect(await iterator.next() == nil)
+    }
+
+    @Test
+    func cancellingLastObservationCancelsBrowseResolveAndDeadline() async throws {
+        let dnsService = TestBonjourDNSService()
+        let clock = TestBonjourClock(now: Date(timeIntervalSince1970: 1_800_000_000))
+        let browser = CmxIrohSystemBonjourBrowser(
+            dnsService: dnsService,
+            clock: clock,
+            maximumPendingResolves: 1,
+            resolveTimeout: 5
+        )
+        let stream = await browser.events()
+        let observationTask = Task {
+            for await _ in stream {}
+        }
+        await dnsService.emitAdded(serviceName: String(repeating: "a", count: 32))
+        await clock.waitForPendingSleepCount(1)
+
+        observationTask.cancel()
+        await observationTask.value
+        await dnsService.waitForResolveCancellationCount(1)
+        await clock.waitUntilIdle()
+
+        let snapshot = dnsService.snapshot()
+        #expect(snapshot.browseCancellationCount == 1)
+        #expect(snapshot.resolveCancellationCount == 1)
+        #expect(snapshot.activeResolveCount == 0)
+        #expect(await clock.pendingSleepCount() == 0)
     }
 
     private func canonicalAliases(count: Int) -> [String] {
