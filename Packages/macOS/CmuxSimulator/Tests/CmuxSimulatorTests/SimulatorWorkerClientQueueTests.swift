@@ -84,4 +84,25 @@ extension SimulatorWorkerClientTests {
         #expect(!replacement.inboundMessages().contains(key))
         await client.stop()
     }
+
+    @Test("A failed liveness probe never retries a command whose frame was delivered")
+    func probeFailureDoesNotDuplicateDeliveredCommand() async throws {
+        let launcher = TestWorkerLauncher()
+        let client = makeClient(launcher: launcher)
+        try await client.recover()
+        let first = try #require(launcher.endpoint(at: 0))
+        first.failNextSend { message in
+            if case .ping = message { return true }
+            return false
+        }
+        let request = SimulatorWorkerInbound.reloadReactNative(requestID: UUID())
+
+        await #expect(throws: SimulatorControlError.self) {
+            try await client.sendRequired(request)
+        }
+        let replacement = try #require(launcher.endpoint(at: 1))
+        #expect(first.inboundMessages().contains(request))
+        #expect(!replacement.inboundMessages().contains(request))
+        await client.stop()
+    }
 }

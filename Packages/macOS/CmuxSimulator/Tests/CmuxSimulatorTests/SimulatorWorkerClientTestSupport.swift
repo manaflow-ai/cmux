@@ -78,6 +78,21 @@ struct ReplayDeadlineSleeper: SimulatorWorkerSleeping {
     }
 }
 
+actor CameraReplayDeadlineSleeper: SimulatorWorkerSleeping {
+    private var replayCallCount = 0
+
+    func sleep(for duration: Duration) async throws {
+        guard duration == .milliseconds(1) else {
+            try await ContinuousClock().sleep(for: .seconds(3_600))
+            return
+        }
+        replayCallCount += 1
+        if replayCallCount == 1 {
+            try await ContinuousClock().sleep(for: .seconds(3_600))
+        }
+    }
+}
+
 final class TestWorkerEndpoint: @unchecked Sendable {
     let processIdentifier: Int32?
     private let lock = NSLock()
@@ -85,6 +100,7 @@ final class TestWorkerEndpoint: @unchecked Sendable {
     private let stream: AsyncStream<Data>
     private var sentData: [Data] = []
     private var responder: (@Sendable (SimulatorWorkerInbound) -> SimulatorWorkerOutbound?)?
+    private var nextSendFailure: (@Sendable (SimulatorWorkerInbound) -> Bool)?
 
     init(processIdentifier: Int32? = nil) {
         self.processIdentifier = processIdentifier
@@ -97,7 +113,7 @@ final class TestWorkerEndpoint: @unchecked Sendable {
         SimulatorWorkerConnection(
             processIdentifier: processIdentifier,
             messages: stream,
-            send: { [weak self] data in self?.append(data) },
+            send: { [weak self] data in try self?.append(data) },
             closeInput: { [weak self] in self?.finish() },
             terminate: { [weak self] in self?.terminate() },
             terminalFailure: { nil }
@@ -140,13 +156,33 @@ final class TestWorkerEndpoint: @unchecked Sendable {
         return data.compactMap { try? JSONDecoder().decode(SimulatorWorkerInbound.self, from: $0) }
     }
 
-    private func append(_ data: Data) {
+    func acknowledgeRecordedPings() {
+        for sequence in inboundMessages().compactMap({ message -> UInt64? in
+            guard case let .ping(sequence) = message else { return nil }
+            return sequence
+        }) {
+            emit(.ack(sequence))
+        }
+    }
+
+    func failNextSend(
+        where predicate: @escaping @Sendable (SimulatorWorkerInbound) -> Bool
+    ) {
+        lock.withLock { nextSendFailure = predicate }
+    }
+
+    private func append(_ data: Data) throws {
+        let message = try JSONDecoder().decode(SimulatorWorkerInbound.self, from: data)
         lock.lock()
+        if let nextSendFailure, nextSendFailure(message) {
+            self.nextSendFailure = nil
+            lock.unlock()
+            throw SimulatorChannelError.writeFailed
+        }
         sentData.append(data)
         let responder = self.responder
         lock.unlock()
-        guard let message = try? JSONDecoder().decode(SimulatorWorkerInbound.self, from: data),
-              let response = responder?(message),
+        guard let response = responder?(message),
               let responseData = try? JSONEncoder().encode(response) else { return }
         continuation.yield(responseData)
     }
