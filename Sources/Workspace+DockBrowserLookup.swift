@@ -39,7 +39,11 @@ extension Workspace {
         return true
     }
 
-    func openDockBrowserLinkInNewTab(panel: BrowserPanel, seed: BrowserNewTabNavigationSeed) -> Bool {
+    func openDockBrowserLinkInNewTab(
+        panel: BrowserPanel,
+        seed: BrowserNewTabNavigationSeed,
+        allowWebExtensionContext: Bool
+    ) -> Bool {
         guard let dock = _dockSplit, let paneId = dock.paneId(forPanelId: panel.id) else { return false }
         return dock.newSurface(
             kind: .browser,
@@ -49,11 +53,15 @@ extension Workspace {
             focus: true,
             preferredProfileID: panel.profileID,
             bypassInsecureHTTPHostOnce: seed.bypassInsecureHTTPHostOnce,
-            allowWebExtensionInitialNavigationConfiguration: false
+            allowWebExtensionInitialNavigationConfiguration: allowWebExtensionContext
         ) != nil
     }
 
-    static func openDockBrowserLinkInNewTabIfNeeded(panel: BrowserPanel, seed: BrowserNewTabNavigationSeed) -> Bool {
+    static func openDockBrowserLinkInNewTabIfNeeded(
+        panel: BrowserPanel,
+        seed: BrowserNewTabNavigationSeed,
+        allowWebExtensionContext: Bool
+    ) -> Bool {
         guard let app = AppDelegate.shared else { return false }
         if let dock = app.windowDockContainingPanel(panel.id),
            dock.browserPanel(for: panel.id) === panel,
@@ -66,12 +74,16 @@ extension Workspace {
                 focus: true,
                 preferredProfileID: panel.profileID,
                 bypassInsecureHTTPHostOnce: seed.bypassInsecureHTTPHostOnce,
-                allowWebExtensionInitialNavigationConfiguration: false
+                allowWebExtensionInitialNavigationConfiguration: allowWebExtensionContext
             ) != nil
         }
         guard let manager = app.tabManagerFor(tabId: panel.workspaceId) ?? app.tabManager,
               let workspace = manager.tabs.first(where: { $0.id == panel.workspaceId }) else { return false }
-        return workspace.openDockBrowserLinkInNewTab(panel: panel, seed: seed)
+        return workspace.openDockBrowserLinkInNewTab(
+            panel: panel,
+            seed: seed,
+            allowWebExtensionContext: allowWebExtensionContext
+        )
     }
 }
 

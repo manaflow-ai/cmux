@@ -5866,6 +5866,7 @@ final class BrowserPanel: Panel, ObservableObject {
         let oldWebView = webView
         let desiredZoom = max(minPageZoom, min(maxPageZoom, oldWebView.pageZoom))
         let reason = contextIdentifier == nil ? "webExtensionNavigation.leave" : "webExtensionNavigation.enter"
+        let restoreDeveloperTools = preferredDeveloperToolsVisible || isDeveloperToolsVisible()
 
 #if DEBUG
         cmuxDebugLog(
@@ -5874,6 +5875,7 @@ final class BrowserPanel: Panel, ObservableObject {
         )
 #endif
 
+        prepareDeveloperToolsForWebViewReplacement(preserveVisibleIntent: restoreDeveloperTools)
         detachWebViewObservers()
         clearBrowserFocusMode(reason: reason)
         faviconTask?.cancel()
@@ -5916,6 +5918,9 @@ final class BrowserPanel: Panel, ObservableObject {
         applyProxyConfigurationIfAvailable()
         applyBrowserThemeModeIfNeeded()
         refreshNavigationAvailability()
+        if restoreDeveloperTools {
+            requestDeveloperToolsRefreshAfterNextAttach(reason: reason)
+        }
     }
 
     private func remoteProxyPreparedRequest(from request: URLRequest, logScope: String) -> URLRequest {
@@ -6447,70 +6452,6 @@ extension BrowserPanel {
             request: URLRequest(url: url),
             bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce
         )
-    }
-
-    /// Opens a request in a sibling browser tab without dropping request metadata.
-    func openLinkInNewTab(request: URLRequest, bypassInsecureHTTPHostOnce: String? = nil) {
-        guard let seed = browserNewTabNavigationSeed(
-            from: request,
-            bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce
-        ) else {
-            return
-        }
-#if DEBUG
-        cmuxDebugLog(
-            "browser.newTab.open.begin panel=\(id.uuidString.prefix(5)) " +
-            "workspace=\(workspaceId.uuidString.prefix(5)) url=\(browserNavigationDebugURL(seed.url)) bypass=\(seed.bypassInsecureHTTPHostOnce ?? "nil")"
-        )
-#endif
-        guard BrowserAvailabilitySettings.isEnabled() else {
-            _ = NSWorkspace.shared.open(seed.url)
-#if DEBUG
-            cmuxDebugLog("browser.newTab.open.external panel=\(id.uuidString.prefix(5)) reason=browser_disabled")
-#endif
-            return
-        }
-        if Workspace.openDockBrowserLinkInNewTabIfNeeded(panel: self, seed: seed) { return }
-        guard let app = AppDelegate.shared else {
-#if DEBUG
-            cmuxDebugLog("browser.newTab.open.abort panel=\(id.uuidString.prefix(5)) reason=missingAppDelegate")
-#endif
-            return
-        }
-        guard let workspace = app.workspaceContainingPanel(
-            panelId: id,
-            preferredWorkspaceId: workspaceId
-        )?.workspace else {
-#if DEBUG
-            cmuxDebugLog("browser.newTab.open.abort panel=\(id.uuidString.prefix(5)) reason=workspaceMissing")
-#endif
-            return
-        }
-        guard let paneId = workspace.paneId(forPanelId: id) else {
-#if DEBUG
-            cmuxDebugLog("browser.newTab.open.abort panel=\(id.uuidString.prefix(5)) reason=paneMissing")
-#endif
-            return
-        }
-        guard let _ = workspace.newBrowserSurface(
-            inPane: paneId,
-            url: seed.url,
-            initialRequest: seed.initialRequest,
-            focus: true,
-            preferredProfileID: profileID,
-            bypassInsecureHTTPHostOnce: seed.bypassInsecureHTTPHostOnce, allowWebExtensionInitialNavigationConfiguration: false
-        ) else {
-#if DEBUG
-            cmuxDebugLog("browser.newTab.open.abort panel=\(id.uuidString.prefix(5)) reason=newPanelFailed")
-#endif
-            return
-        }
-#if DEBUG
-        cmuxDebugLog(
-            "browser.newTab.open.done panel=\(id.uuidString.prefix(5)) " +
-            "workspace=\(workspace.id.uuidString.prefix(5)) pane=\(paneId.id.uuidString.prefix(5))"
-        )
-#endif
     }
 
     var currentURLForTabDuplication: URL? {
