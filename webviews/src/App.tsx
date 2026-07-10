@@ -1412,6 +1412,18 @@ function useRenderDiff(
     }
     let cancelled = false;
     let openedSessionId: string | null = null;
+    const closeOpenedSession = () => {
+      const sessionId = openedSessionId;
+      if (!sessionId || !transport) {
+        return;
+      }
+      openedSessionId = null;
+      void transport.request({
+        method: "sessionClose",
+        params: { sessionId, capabilityToken: String(payload.capabilityToken ?? "") },
+      }).catch(() => {});
+    };
+    window.addEventListener("pagehide", closeOpenedSession);
     void (async () => {
       try {
         let patchURL = payload.patchURL as string | undefined;
@@ -1490,12 +1502,8 @@ function useRenderDiff(
     })();
     return () => {
       cancelled = true;
-      if (openedSessionId && transport) {
-        void transport.request({
-          method: "sessionClose",
-          params: { sessionId: openedSessionId, capabilityToken: String(payload.capabilityToken ?? "") },
-        }).catch(() => {});
-      }
+      window.removeEventListener("pagehide", closeOpenedSession);
+      closeOpenedSession();
     };
   }, [config, dispatch, label, latestState, onPatchURL, transport]);
 }

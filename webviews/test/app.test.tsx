@@ -143,9 +143,11 @@ test("custom-scheme pending pages stream exactly one typed Rust session", async 
   expect(requests[0].params.source).toEqual({ kind: "branch", repoRoot: "/tmp/repo", baseRef: "main" });
   expect(fetched).toEqual(["cmux-diff-viewer://0123456789abcdef/diff-session.patch"]);
   expect(requests.filter((request) => request.method === "sessionClose")).toHaveLength(0);
+  dom.window.dispatchEvent(new dom.window.Event("pagehide"));
+  await waitFor(() => requests.some((request) => request.method === "sessionClose"));
+  expect(requests.filter((request) => request.method === "sessionClose")).toHaveLength(1);
   flushSync(() => root?.unmount());
   root = null;
-  await waitFor(() => requests.some((request) => request.method === "sessionClose"));
   expect(requests.filter((request) => request.method === "sessionClose")).toHaveLength(1);
 });
 
