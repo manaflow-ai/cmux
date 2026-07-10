@@ -6143,6 +6143,7 @@ struct WebViewRepresentable: NSViewRepresentable {
             }
         }
         private func shouldForceHostedInspectorBottomDock(using hit: HostedInspectorDividerHit) -> Bool {
+            guard !hit.dockSide.isHorizontalDivider else { return false }
             let containerWidth = max(0, hit.containerView.bounds.width)
             guard containerWidth > 1 else { return false }
             let currentInspectorWidth = max(0, hit.inspectorView.frame.width)
