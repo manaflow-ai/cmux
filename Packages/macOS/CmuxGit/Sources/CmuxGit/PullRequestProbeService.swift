@@ -91,12 +91,11 @@ public struct PullRequestProbeService: Sendable {
         var candidateBranchesByRepo: [String: Set<String>] = [:]
         var repoDirectoriesBySlug: [String: String] = [:]
         var repoSlugsByDirectory: [String: [String]] = [:]
-        var currentBranchesByDirectory: [String: String] = [:]
-        var currentBranchResolvedDirectories: Set<String> = []
+        var checkedOutBranchesByDirectory: [String: GitCheckedOutBranch] = [:]
 
         for seed in seeds {
             let repoSlugs: [String]
-            let detectedBranch: String?
+            let checkedOutBranch: GitCheckedOutBranch
             if let directory = seed.directory {
                 if let cachedRepoSlugs = repoSlugsByDirectory[directory] {
                     repoSlugs = cachedRepoSlugs
@@ -106,31 +105,46 @@ public struct PullRequestProbeService: Sendable {
                     repoSlugs = resolvedRepoSlugs
                 }
 
-                if currentBranchResolvedDirectories.contains(directory) {
-                    detectedBranch = currentBranchesByDirectory[directory]
+                if let cachedBranch = checkedOutBranchesByDirectory[directory] {
+                    checkedOutBranch = cachedBranch
                 } else {
-                    let resolvedBranch = await gitMetadata.currentBranchName(forDirectory: directory)
-                    currentBranchResolvedDirectories.insert(directory)
-                    if let resolvedBranch {
-                        currentBranchesByDirectory[directory] = resolvedBranch
-                    }
-                    detectedBranch = resolvedBranch
+                    let resolvedBranch = await gitMetadata.checkedOutBranch(forDirectory: directory)
+                    checkedOutBranchesByDirectory[directory] = resolvedBranch
+                    checkedOutBranch = resolvedBranch
                 }
             } else {
                 repoSlugs = []
-                detectedBranch = nil
+                checkedOutBranch = .notARepository
             }
 
-            let candidateBranch = detectedBranch
-                ?? GitMetadataService.normalizedBranchName(seed.branch)
-                ?? seed.branch
-            let shouldLookupBranch = !Self.shouldSkipLookup(branch: candidateBranch)
+            let projectedBranch = GitMetadataService.normalizedBranchName(seed.branch) ?? seed.branch
+            let candidateBranch: String
+            let branchReadFailed: Bool
+            switch checkedOutBranch {
+            case .branch(let detectedBranch):
+                candidateBranch = detectedBranch
+                branchReadFailed = false
+            case .detached, .notARepository:
+                // A legitimate non-branch checkout (or a vanished repository)
+                // keeps the projected association, matching pre-detection
+                // behavior.
+                candidateBranch = projectedBranch
+                branchReadFailed = false
+            case .unreadable:
+                // The repository exists but its branch cannot be verified;
+                // resolve as transient so an existing badge is kept instead
+                // of re-matching a possibly stale projected branch.
+                candidateBranch = projectedBranch
+                branchReadFailed = true
+            }
+            let shouldLookupBranch = !branchReadFailed && !Self.shouldSkipLookup(branch: candidateBranch)
             candidates.append(
                 WorkspacePullRequestCandidate(
                     workspaceId: seed.workspaceId,
                     panelId: seed.panelId,
                     branch: candidateBranch,
-                    repoSlugs: repoSlugs
+                    repoSlugs: repoSlugs,
+                    branchReadFailed: branchReadFailed
                 )
             )
 
@@ -157,9 +171,11 @@ public struct PullRequestProbeService: Sendable {
     /// For each candidate the first repo (in slug preference order) with a PR
     /// for the branch wins; otherwise a transient failure anywhere downgrades
     /// the outcome to ``WorkspacePullRequestRefreshResult/Resolution/transientFailure``
-    /// (so an existing badge is kept), else `notFound`. A candidate on a
-    /// default branch (main/master) resolves `notFound` without matching, so
-    /// returning to the default branch clears any badge.
+    /// (so an existing badge is kept), else `notFound`. A candidate whose
+    /// checked-out branch could not be verified resolves `transientFailure`
+    /// without matching (keeping any badge); a candidate on a default branch
+    /// (main/master) resolves `notFound` without matching, so returning to
+    /// the default branch clears any badge.
     public static func resolveRefreshResults(
         candidates: [WorkspacePullRequestCandidate],
         repoResults: [String: WorkspacePullRequestRepoFetchResult]
@@ -170,6 +186,15 @@ public struct PullRequestProbeService: Sendable {
                     workspaceId: candidate.workspaceId,
                     panelId: candidate.panelId,
                     resolution: .unsupportedRepository,
+                    usedCachedRepoData: false
+                )
+            }
+
+            if candidate.branchReadFailed {
+                return WorkspacePullRequestRefreshResult(
+                    workspaceId: candidate.workspaceId,
+                    panelId: candidate.panelId,
+                    resolution: .transientFailure,
                     usedCachedRepoData: false
                 )
             }

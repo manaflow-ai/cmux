@@ -120,6 +120,51 @@ import CmuxFoundation
         #expect(resolved.branch == projectedBranch)
     }
 
+    /// A repository whose `HEAD` is missing/unreadable must not re-match the
+    /// stale projected branch: the candidate resolves as a transient failure
+    /// (existing badge kept, no lookup) until the branch can be verified.
+    @Test func unreadableHeadResolvesTransientFailureWithoutLookup() async throws {
+        let projectedBranch = "issue-7728-safari-default-browser-signin"
+        let fixture = try GitRepositoryFixture()
+        try writeGitHubRemoteConfig(fixture)
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let seed = WorkspacePullRequestCandidateSeed(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            branch: projectedBranch,
+            directory: fixture.root.path
+        )
+        let service = PullRequestProbeService(commandRunner: CountingCommandRunner(outputs: []))
+
+        let resolution = await service.resolveCandidateSeeds(
+            [seed],
+            gitMetadata: GitMetadataService()
+        )
+
+        #expect(resolution.candidateBranchesByRepo["manaflow-ai/cmux"] == nil)
+        let entry = WorkspacePullRequestRepoCacheEntry(
+            fetchedAt: Date(),
+            pullRequestsByBranch: [
+                projectedBranch: item(
+                    number: 7739,
+                    state: "MERGED",
+                    branch: projectedBranch,
+                    mergedAt: "2026-07-01T12:00:00Z"
+                ),
+            ]
+        )
+        let results = PullRequestProbeService.resolveRefreshResults(
+            candidates: resolution.candidates,
+            repoResults: ["manaflow-ai/cmux": .success(entry, usedCache: false, transientBranches: [])]
+        )
+        let result = try #require(results.first)
+        guard case .transientFailure = result.resolution else {
+            Issue.record("expected transientFailure, got \(result.resolution)")
+            return
+        }
+    }
+
     @Test func detectedDefaultBranchResolvesNotFoundWithoutLookup() async throws {
         let fixture = try GitRepositoryFixture()
         try fixture.writeBranch("main")
