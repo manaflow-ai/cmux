@@ -116,9 +116,11 @@ struct SharedLiveAgentIndexLoadCoalescingTests {
     func lateForkAvailabilityRefreshesShareOneSuccessorLoad() async {
         let firstLoadStarted = DispatchSemaphore(value: 0)
         let releaseFirstLoad = DispatchSemaphore(value: 0)
+        let successorLoadStarted = DispatchSemaphore(value: 0)
+        let releaseSuccessorLoad = DispatchSemaphore(value: 0)
         defer {
             releaseFirstLoad.signal()
-            releaseFirstLoad.signal()
+            releaseSuccessorLoad.signal()
         }
         let loadCount = OSAllocatedUnfairLock(initialState: 0)
         let hookDirectory = FileManager.default.temporaryDirectory
@@ -128,6 +130,15 @@ struct SharedLiveAgentIndexLoadCoalescingTests {
         let firstPanelId = UUID()
         let lateWorkspaceId = UUID()
         let latePanelId = UUID()
+        let latePanelKey = RestorableAgentSessionIndex.PanelKey(
+            workspaceId: lateWorkspaceId,
+            panelId: latePanelId
+        )
+        let staleIndex = Self.index(
+            workspaceId: lateWorkspaceId,
+            panelId: latePanelId,
+            sessionId: "stale-interactive-session"
+        )
         let lateSessionId = "late-interactive-session"
         let lateIndex = Self.index(
             workspaceId: lateWorkspaceId,
@@ -143,13 +154,20 @@ struct SharedLiveAgentIndexLoadCoalescingTests {
                 if invocation == 1 {
                     firstLoadStarted.signal()
                     releaseFirstLoad.wait()
-                    return Self.emptyLoadResult
+                    return (
+                        index: staleIndex,
+                        liveAgentProcessFingerprint: [],
+                        processScopeFingerprint: [],
+                        forkValidatedPanels: [latePanelKey]
+                    )
                 }
+                successorLoadStarted.signal()
+                releaseSuccessorLoad.wait()
                 return (
                     index: lateIndex,
                     liveAgentProcessFingerprint: [],
                     processScopeFingerprint: [],
-                    forkValidatedPanels: []
+                    forkValidatedPanels: [latePanelKey]
                 )
             },
             hookStoreDirectoryProvider: { hookDirectory.path }
@@ -182,11 +200,71 @@ struct SharedLiveAgentIndexLoadCoalescingTests {
 
         releaseFirstLoad.signal()
         await firstRefresh.value
+        #expect(await Self.wait(for: successorLoadStarted))
+        #expect(
+            !sharedIndex.prepareForkAvailabilityProbe(workspaceId: lateWorkspaceId, panelId: latePanelId),
+            "A late panel must remain unavailable while its successor generation is still loading."
+        )
+        #expect(
+            sharedIndex.snapshotForForkAvailability(workspaceId: lateWorkspaceId, panelId: latePanelId) == nil,
+            "The predecessor's stale result must not become actionable before the successor finishes."
+        )
+
+        releaseSuccessorLoad.signal()
         let secondSnapshot = await secondRefresh.value
         let thirdSnapshot = await thirdRefresh.value
         #expect(secondSnapshot?.sessionId == lateSessionId)
         #expect(thirdSnapshot?.sessionId == lateSessionId)
         #expect(loadCount.withLock { $0 } == 2)
+    }
+
+    @Test
+    func scopedRefreshDoesNotPublishWorkspaceNotification() async {
+        let notificationCount = OSAllocatedUnfairLock(initialState: 0)
+        let hookDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-shared-index-scoped-publication-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: hookDirectory) }
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let sessionId = "scoped-refresh-session"
+        let loadedIndex = Self.index(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            sessionId: sessionId
+        )
+        let sharedIndex = SharedLiveAgentIndex(
+            indexLoader: {
+                (
+                    index: loadedIndex,
+                    liveAgentProcessFingerprint: [],
+                    processScopeFingerprint: [],
+                    forkValidatedPanels: []
+                )
+            },
+            hookStoreDirectoryProvider: { hookDirectory.path }
+        )
+        let observer = NotificationCenter.default.addObserver(
+            forName: .sharedLiveAgentIndexDidChange,
+            object: sharedIndex,
+            queue: nil
+        ) { _ in
+            notificationCount.withLock { $0 += 1 }
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        let scopedIndex = await sharedIndex.refreshedIndexForScopedProbe()
+
+        #expect(scopedIndex.snapshot(workspaceId: workspaceId, panelId: panelId)?.sessionId == sessionId)
+        #expect(
+            notificationCount.withLock { $0 } == 0,
+            "A panel-local probe must not invalidate every Workspace through the global notification."
+        )
+
+        await sharedIndex.refreshForkAvailabilityNow(workspaceId: workspaceId, panelId: panelId)
+        #expect(
+            notificationCount.withLock { $0 } == 1,
+            "A workspace-published refresh must still notify the global consumer."
+        )
     }
 
     @Test
