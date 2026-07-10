@@ -18,7 +18,7 @@ struct TerminalPanelView: View {
     let paneId: PaneID
     let isFocused: Bool
     let isVisibleInUI: Bool
-    var portalPaneOwnershipResolver: (@MainActor () -> Bool)? = nil
+    var portalPresentationResolver: (@MainActor () -> TerminalPortalPresentation)? = nil
     let portalPriority: Int
     let isSplit: Bool
     let appearance: PanelAppearance
@@ -73,7 +73,7 @@ struct TerminalPanelView: View {
                 isActive: isFocused,
                 isVisibleInUI: isVisibleInUI,
                 ownershipGeneration: panel.portalHostOwnershipGeneration,
-                isCurrentPaneOwner: currentPortalPaneOwner,
+                portalPresentationResolver: currentPortalPresentation,
                 portalZPriority: portalPriority,
                 showsInactiveOverlay: isSplit && !isFocused,
                 showsUnreadNotificationRing: hasUnreadNotification && notificationPaneRingEnabled,
@@ -152,17 +152,16 @@ struct TerminalPanelView: View {
     }
 
     @MainActor
-    private func currentPortalPaneOwner() -> Bool {
-        if let portalPaneOwnershipResolver {
-            return portalPaneOwnershipResolver()
+    private func currentPortalPresentation() -> TerminalPortalPresentation {
+        if let portalPresentationResolver {
+            return portalPresentationResolver()
         }
         guard let app = AppDelegate.shared,
               let manager = app.tabManagerFor(tabId: panel.workspaceId),
-              let workspace = manager.tabs.first(where: { $0.id == panel.workspaceId }),
-              let currentPane = workspace.paneId(forPanelId: panel.id) else {
-            return false
+              let workspace = manager.tabs.first(where: { $0.id == panel.workspaceId }) else {
+            return .detached
         }
-        return currentPane.id == paneId.id
+        return workspace.terminalPortalPresentation(panelId: panel.id, paneId: paneId)
     }
 
     private var effectiveTerminalAgentContext: String {

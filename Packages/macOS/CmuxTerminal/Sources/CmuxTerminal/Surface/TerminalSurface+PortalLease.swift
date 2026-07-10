@@ -7,8 +7,9 @@ internal import CMUXDebugLog
 
 // MARK: - Portal-host leases (which pane host currently owns the surface)
 
+@MainActor
 extension TerminalSurface {
-    /// The current portal binding generation, bumped on ownership and close transitions.
+    /// The current portal binding generation, bumped only by close transitions.
     public func portalBindingGeneration() -> UInt64 {
         portalLifecycleGeneration
     }
@@ -45,44 +46,74 @@ extension TerminalSurface {
         activePortalHostLease?.hostId == hostId
     }
 
-    /// The surface ownership epoch used before host creation serials break ties.
+    /// The model-owned epoch that orders portal host ownership changes.
     public func currentPortalHostOwnershipGeneration() -> UInt64 {
-        portalLifecycleGeneration
+        portalHostOwnershipGeneration
     }
 
-    /// Makes the newest usable representable host authoritative as it claims
-    /// the lease. Older coordinators can no longer reclaim the surface afterward.
+    /// Reserves authority by model epoch and explicit host-retirement state.
+    /// Host creation order never participates in ownership.
     private func reservePortalHostAuthority(
         hostId: ObjectIdentifier,
         paneId: PaneID,
-        instanceSerial: UInt64,
-        ownershipGeneration: UInt64
-    ) -> UInt64? {
+        ownershipGeneration: UInt64,
+        retryWhenAvailable: (@MainActor () -> Void)?
+    ) -> Bool {
         if let current = portalHostAuthority {
-            if current.hostId == hostId, current.instanceSerial == instanceSerial {
-                guard ownershipGeneration >= current.ownershipGeneration else { return nil }
-                if current.paneId == paneId.id,
-                   current.ownershipGeneration == ownershipGeneration {
-                    return current.generation
+            guard ownershipGeneration >= current.ownershipGeneration else { return false }
+            if ownershipGeneration == current.ownershipGeneration {
+                if current.hostId == hostId {
+                    if current.paneId != paneId.id || current.phase != .bound {
+                        portalHostAuthority = TerminalPortalHostAuthority(
+                            hostId: hostId,
+                            paneId: paneId.id,
+                            ownershipGeneration: ownershipGeneration,
+                            phase: .bound
+                        )
+                    }
+                    return true
                 }
-            } else {
-                guard ownershipGeneration >= current.ownershipGeneration else { return nil }
-                if ownershipGeneration == current.ownershipGeneration,
-                   instanceSerial <= current.instanceSerial {
-                    return nil
+                guard current.phase == .replacementAllowed else {
+                    if let retryWhenAvailable {
+                        pendingPortalHostRetry = PendingTerminalPortalHostRetry(
+                            hostId: hostId,
+                            ownershipGeneration: ownershipGeneration,
+                            retry: retryWhenAvailable
+                        )
+                    }
+                    return false
                 }
             }
         }
 
-        let generation = (portalHostAuthority?.generation ?? 0) &+ 1
         portalHostAuthority = TerminalPortalHostAuthority(
             hostId: hostId,
             paneId: paneId.id,
-            instanceSerial: instanceSerial,
             ownershipGeneration: ownershipGeneration,
-            generation: generation
+            phase: .bound
         )
-        return generation
+        pendingPortalHostRetry = nil
+        return true
+    }
+
+    private func allowPortalHostReplacementIfAuthoritative(hostId: ObjectIdentifier) {
+        guard let current = portalHostAuthority, current.hostId == hostId else { return }
+        portalHostAuthority = TerminalPortalHostAuthority(
+            hostId: current.hostId,
+            paneId: current.paneId,
+            ownershipGeneration: current.ownershipGeneration,
+            phase: .replacementAllowed
+        )
+        guard let pendingPortalHostRetry else { return }
+        self.pendingPortalHostRetry = nil
+        guard pendingPortalHostRetry.ownershipGeneration == current.ownershipGeneration else { return }
+        pendingPortalHostRetry.retry()
+    }
+
+    /// Cancels a deferred authority retry when its candidate host is dismantled.
+    public func cancelPendingPortalHostRetry(hostId: ObjectIdentifier) {
+        guard pendingPortalHostRetry?.hostId == hostId else { return }
+        pendingPortalHostRetry = nil
     }
 
     /// Re-arms the lease when SwiftUI is about to rebuild the owning host.
@@ -96,10 +127,10 @@ extension TerminalSurface {
         activePortalHostLease = PortalHostLease(
             hostId: current.hostId,
             paneId: current.paneId,
-            instanceSerial: current.instanceSerial,
             inWindow: false,
             area: current.area
         )
+        allowPortalHostReplacementIfAuthoritative(hostId: hostId)
 #if DEBUG
         logDebugEvent(
             "terminal.portal.host.rearm surface=\(id.uuidString.prefix(5)) " +
@@ -116,48 +147,32 @@ extension TerminalSurface {
     public func claimPortalHost(
         hostId: ObjectIdentifier,
         paneId: PaneID,
-        instanceSerial: UInt64,
         ownershipGeneration: UInt64 = 0,
         inWindow: Bool,
         bounds: CGRect,
-        allowsAuthorityAcquisition: Bool = true,
+        retryWhenAvailable: (@MainActor () -> Void)? = nil,
         reason: String
     ) -> Bool {
         let next = PortalHostLease(
             hostId: hostId,
             paneId: paneId.id,
-            instanceSerial: instanceSerial,
             inWindow: inWindow,
             area: Self.portalHostArea(for: bounds)
         )
-
-        let alreadyOwnsLease = activePortalHostLease?.hostId == hostId
-        guard alreadyOwnsLease || allowsAuthorityAcquisition else {
-#if DEBUG
-            logDebugEvent(
-                "terminal.portal.host.skip surface=\(id.uuidString.prefix(5)) " +
-                "reason=\(reason) host=\(hostId) pane=\(paneId.id.uuidString.prefix(5)) " +
-                "cause=modelIneligible"
-            )
-#endif
-            return false
-        }
 
         if let current = activePortalHostLease {
             if current.hostId == hostId {
                 guard reservePortalHostAuthority(
                     hostId: hostId,
                     paneId: paneId,
-                    instanceSerial: instanceSerial,
-                    ownershipGeneration: ownershipGeneration
-                ) != nil else { return false }
+                    ownershipGeneration: ownershipGeneration,
+                    retryWhenAvailable: retryWhenAvailable
+                ) else { return false }
                 activePortalHostLease = next
                 return true
             }
 
-            let currentUsable = Self.portalHostIsUsable(current)
-            let nextUsable = Self.portalHostIsUsable(next)
-            guard nextUsable else {
+            guard Self.portalHostIsUsable(next) else {
 #if DEBUG
                 logDebugEvent(
                     "terminal.portal.host.skip surface=\(id.uuidString.prefix(5)) " +
@@ -167,32 +182,12 @@ extension TerminalSurface {
 #endif
                 return false
             }
-            // During split churn SwiftUI can briefly keep the old host alive while the new
-            // host for the same pane is already in the window. Prefer the newer live host
-            // immediately so the surface moves with the pane instead of waiting for a later
-            // update from unrelated focus/layout work.
-            let newerSamePaneHostReady =
-                current.paneId == paneId.id &&
-                nextUsable &&
-                next.instanceSerial > current.instanceSerial
-            let newerModelOwnerReady =
-                nextUsable &&
-                ownershipGeneration > (portalHostAuthority?.ownershipGeneration ?? 0)
-            // A dragged terminal must hand off immediately when it moves to a different pane.
-            // Waiting for the old host to become "worse" leaves the moved pane blank/stale.
-            let shouldReplace =
-                current.paneId != paneId.id ||
-                !currentUsable ||
-                newerSamePaneHostReady ||
-                newerModelOwnerReady
-
-            if shouldReplace {
-                guard reservePortalHostAuthority(
-                    hostId: hostId,
-                    paneId: paneId,
-                    instanceSerial: instanceSerial,
-                    ownershipGeneration: ownershipGeneration
-                ) != nil else { return false }
+            if reservePortalHostAuthority(
+                hostId: hostId,
+                paneId: paneId,
+                ownershipGeneration: ownershipGeneration,
+                retryWhenAvailable: retryWhenAvailable
+            ) {
 #if DEBUG
                 logDebugEvent(
                     "terminal.portal.host.claim surface=\(id.uuidString.prefix(5)) " +
@@ -226,9 +221,9 @@ extension TerminalSurface {
         guard reservePortalHostAuthority(
             hostId: hostId,
             paneId: paneId,
-            instanceSerial: instanceSerial,
-            ownershipGeneration: ownershipGeneration
-        ) != nil else { return false }
+            ownershipGeneration: ownershipGeneration,
+            retryWhenAvailable: retryWhenAvailable
+        ) else { return false }
 
         activePortalHostLease = next
 #if DEBUG
@@ -246,6 +241,7 @@ extension TerminalSurface {
     public func releasePortalHostIfOwned(hostId: ObjectIdentifier, reason: String) {
         guard let current = activePortalHostLease, current.hostId == hostId else { return }
         activePortalHostLease = nil
+        allowPortalHostReplacementIfAuthoritative(hostId: hostId)
 #if DEBUG
         logDebugEvent(
             "terminal.portal.host.release surface=\(id.uuidString.prefix(5)) " +

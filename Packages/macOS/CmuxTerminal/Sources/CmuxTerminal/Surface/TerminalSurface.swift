@@ -270,8 +270,10 @@ public final class TerminalSurface: Identifiable, ObservableObject {
 #endif
     var portalLifecycleState: PortalLifecycleState = .live
     var portalLifecycleGeneration: UInt64 = 1
+    var portalHostOwnershipGeneration: UInt64 = 1
     var activePortalHostLease: PortalHostLease?
     var portalHostAuthority: TerminalPortalHostAuthority?
+    var pendingPortalHostRetry: PendingTerminalPortalHostRetry?
     /// The live find session, or nil when find is closed. Setting it arms the
     /// debounced needle pipeline; clearing it ends the runtime search.
     /// Main-actor isolated: the observer cancels pane focus requests on the
@@ -464,7 +466,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     @MainActor
     public func updateWorkspaceId(_ newTabId: UUID) {
         if tabId != newTabId {
-            portalLifecycleGeneration &+= 1
+            portalHostOwnershipGeneration &+= 1
         }
         tabId = newTabId
         attachedView?.tabId = newTabId

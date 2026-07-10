@@ -1,6 +1,6 @@
 extension TerminalPanel {
-    /// Monotonic portal-host epoch across both container transfers and local
-    /// representable reattachments. It supersedes host creation serial order.
+    /// Monotonic portal-host epoch across container transfers and explicit
+    /// representable reattachment requests.
     var portalHostOwnershipGeneration: UInt64 {
         surface.currentPortalHostOwnershipGeneration() &+ viewReattachToken
     }

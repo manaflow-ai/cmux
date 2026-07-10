@@ -25,10 +25,8 @@ struct PanelContentView: View {
     /// Explicit browser pane-ownership signal for hosts whose panels live outside
     /// the main `Workspace` tree (the Dock). `nil` keeps the main-area behavior.
     var paneOwnershipOverride: Bool? = nil
-    /// Live terminal pane ownership for hosts outside the main `Workspace` tree.
-    /// The deferred portal commit invokes this again instead of trusting a
-    /// SwiftUI snapshot that may have gone stale during a move.
-    var terminalPaneOwnershipResolver: (@MainActor () -> Bool)? = nil
+    /// Live terminal presentation for hosts outside the main `Workspace` tree.
+    var terminalPortalPresentationResolver: (@MainActor () -> TerminalPortalPresentation)? = nil
     let onFocus: () -> Void
     let onRequestPanelFocus: () -> Void
     let onResumeAgentHibernation: () -> Void
@@ -52,7 +50,7 @@ struct PanelContentView: View {
                     paneId: paneId,
                     isFocused: isFocused,
                     isVisibleInUI: isVisibleInUI,
-                    portalPaneOwnershipResolver: terminalPaneOwnershipResolver,
+                    portalPresentationResolver: terminalPortalPresentationResolver,
                     portalPriority: portalPriority,
                     isSplit: isSplit,
                     appearance: appearance,

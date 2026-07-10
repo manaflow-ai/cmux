@@ -82,6 +82,31 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
         #expect(!didCommit)
     }
 
+    @MainActor
+    @Test
+    func portalMutationSchedulerReadsLiveWorkspaceSelection() async throws {
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        let pane = try #require(workspace.bonsplitController.allPaneIds.first)
+        let originalPanel = try #require(workspace.focusedTerminalPanel)
+        let replacementPanel = try #require(
+            workspace.newTerminalSurface(inPane: pane, focus: false)
+        )
+        let scheduler = TerminalPortalMutationScheduler()
+        var committedPresentation: TerminalPortalPresentation?
+
+        let commit = scheduler.schedule {
+            committedPresentation = workspace.terminalPortalPresentation(
+                panelId: originalPanel.id,
+                paneId: pane
+            )
+        }
+        workspace.focusPanel(replacementPanel.id)
+
+        await commit.value
+        #expect(committedPresentation == .hidden)
+    }
+
     @Test
     func immediateStateUpdateAllowedWhenDesiredStateIsHidden() {
         #expect(
@@ -181,15 +206,15 @@ struct TerminalPortalHostAuthorityTests {
         let bounds = CGRect(x: 0, y: 0, width: 400, height: 300)
 
         #expect(surface.claimPortalHost(
-            hostId: ObjectIdentifier(oldHost), paneId: oldPane, instanceSerial: 1,
+            hostId: ObjectIdentifier(oldHost), paneId: oldPane, ownershipGeneration: 1,
             inWindow: true, bounds: bounds, reason: "test.old.initial"
         ))
         #expect(surface.claimPortalHost(
-            hostId: ObjectIdentifier(newHost), paneId: newPane, instanceSerial: 2,
+            hostId: ObjectIdentifier(newHost), paneId: newPane, ownershipGeneration: 2,
             inWindow: true, bounds: bounds, reason: "test.new.bind"
         ))
         #expect(!surface.claimPortalHost(
-            hostId: ObjectIdentifier(oldHost), paneId: oldPane, instanceSerial: 1,
+            hostId: ObjectIdentifier(oldHost), paneId: oldPane, ownershipGeneration: 1,
             inWindow: true, bounds: bounds, reason: "test.old.delayed"
         ))
         #expect(
@@ -207,11 +232,11 @@ struct TerminalPortalHostAuthorityTests {
         let bounds = CGRect(x: 0, y: 0, width: 400, height: 300)
 
         #expect(surface.claimPortalHost(
-            hostId: ObjectIdentifier(oldHost), paneId: oldPane, instanceSerial: 1,
+            hostId: ObjectIdentifier(oldHost), paneId: oldPane, ownershipGeneration: 1,
             inWindow: true, bounds: bounds, reason: "test.old.initial"
         ))
         #expect(!surface.claimPortalHost(
-            hostId: ObjectIdentifier(newHost), paneId: newPane, instanceSerial: 2,
+            hostId: ObjectIdentifier(newHost), paneId: newPane, ownershipGeneration: 2,
             inWindow: false, bounds: bounds, reason: "test.new.detached"
         ))
         #expect(
@@ -219,11 +244,11 @@ struct TerminalPortalHostAuthorityTests {
                 String(describing: ObjectIdentifier(oldHost))
         )
         #expect(surface.claimPortalHost(
-            hostId: ObjectIdentifier(oldHost), paneId: oldPane, instanceSerial: 1,
+            hostId: ObjectIdentifier(oldHost), paneId: oldPane, ownershipGeneration: 1,
             inWindow: true, bounds: bounds, reason: "test.old.afterDetachedCandidate"
         ))
         #expect(surface.claimPortalHost(
-            hostId: ObjectIdentifier(newHost), paneId: newPane, instanceSerial: 2,
+            hostId: ObjectIdentifier(newHost), paneId: newPane, ownershipGeneration: 2,
             inWindow: true, bounds: bounds, reason: "test.new.attached"
         ))
         #expect(
@@ -234,49 +259,54 @@ struct TerminalPortalHostAuthorityTests {
 
     @MainActor
     @Test
-    func hiddenReplacementCannotAcquireAuthorityFromVisibleOwner() {
+    func sameEpochReplacementWaitsForAuthoritativeHostRetirement() {
         let surface = makeSurface()
-        let visibleHost = NSView(), hiddenHost = NSView()
-        let visiblePane = PaneID(), hiddenPane = PaneID()
+        let oldHost = NSView(), replacementHost = NSView()
+        let pane = PaneID()
         let bounds = CGRect(x: 0, y: 0, width: 400, height: 300)
+        var retryCount = 0
 
         #expect(surface.claimPortalHost(
-            hostId: ObjectIdentifier(visibleHost), paneId: visiblePane, instanceSerial: 1,
+            hostId: ObjectIdentifier(oldHost), paneId: pane, ownershipGeneration: 1,
             inWindow: true, bounds: bounds, reason: "test.visible.initial"
         ))
         #expect(!surface.claimPortalHost(
-            hostId: ObjectIdentifier(hiddenHost), paneId: hiddenPane, instanceSerial: 2,
+            hostId: ObjectIdentifier(replacementHost), paneId: pane, ownershipGeneration: 1,
             inWindow: true, bounds: bounds,
-            allowsAuthorityAcquisition: false,
-            reason: "test.hidden.speculative"
+            retryWhenAvailable: { retryCount += 1 },
+            reason: "test.replacement.wait"
         ))
-        #expect(
-            surface.debugPortalHostLease().hostId ==
-                String(describing: ObjectIdentifier(visibleHost))
-        )
+        #expect(retryCount == 0)
+        #expect(surface.preparePortalHostReplacementIfOwned(
+            hostId: ObjectIdentifier(oldHost),
+            reason: "test.old.retire"
+        ))
+        #expect(retryCount == 1)
         #expect(surface.claimPortalHost(
-            hostId: ObjectIdentifier(visibleHost), paneId: visiblePane, instanceSerial: 1,
-            inWindow: true, bounds: bounds, reason: "test.visible.afterHiddenCandidate"
+            hostId: ObjectIdentifier(replacementHost), paneId: pane, ownershipGeneration: 1,
+            inWindow: true, bounds: bounds, reason: "test.replacement.commit"
+        ))
+        #expect(!surface.claimPortalHost(
+            hostId: ObjectIdentifier(oldHost), paneId: pane, ownershipGeneration: 1,
+            inWindow: true, bounds: bounds, reason: "test.old.stale"
         ))
     }
 
     @MainActor
     @Test
-    func currentAuthorityCanApplyHiddenPresentationWithoutCedingOwnership() {
+    func currentAuthorityCanRefreshWithoutCedingOwnership() {
         let surface = makeSurface()
         let host = NSView()
         let pane = PaneID()
         let bounds = CGRect(x: 0, y: 0, width: 400, height: 300)
 
         #expect(surface.claimPortalHost(
-            hostId: ObjectIdentifier(host), paneId: pane, instanceSerial: 1,
+            hostId: ObjectIdentifier(host), paneId: pane, ownershipGeneration: 1,
             inWindow: true, bounds: bounds, reason: "test.visible.initial"
         ))
         #expect(surface.claimPortalHost(
-            hostId: ObjectIdentifier(host), paneId: pane, instanceSerial: 1,
-            inWindow: true, bounds: bounds,
-            allowsAuthorityAcquisition: false,
-            reason: "test.current.hidden"
+            hostId: ObjectIdentifier(host), paneId: pane, ownershipGeneration: 1,
+            inWindow: true, bounds: bounds, reason: "test.current.refresh"
         ))
         #expect(
             surface.debugPortalHostLease().hostId ==
@@ -286,28 +316,25 @@ struct TerminalPortalHostAuthorityTests {
 
     @MainActor
     @Test
-    func newerModelOwnershipGenerationOverridesHostCreationOrderAfterRollback() {
+    func newerModelOwnershipGenerationAllowsRollbackToEarlierHost() {
         let surface = makeSurface()
         let originalHost = NSView(), movedHost = NSView()
         let originalPane = PaneID(), movedPane = PaneID()
         let bounds = CGRect(x: 0, y: 0, width: 400, height: 300)
 
         #expect(surface.claimPortalHost(
-            hostId: ObjectIdentifier(originalHost), paneId: originalPane, instanceSerial: 10,
-            ownershipGeneration: 1,
+            hostId: ObjectIdentifier(originalHost), paneId: originalPane, ownershipGeneration: 1,
             inWindow: true, bounds: bounds, reason: "test.original.initial"
         ))
         #expect(surface.claimPortalHost(
-            hostId: ObjectIdentifier(movedHost), paneId: movedPane, instanceSerial: 20,
-            ownershipGeneration: 2,
+            hostId: ObjectIdentifier(movedHost), paneId: movedPane, ownershipGeneration: 2,
             inWindow: true, bounds: bounds, reason: "test.move.commit"
         ))
         surface.releasePortalHostIfOwned(
             hostId: ObjectIdentifier(movedHost), reason: "test.move.rollback"
         )
         #expect(surface.claimPortalHost(
-            hostId: ObjectIdentifier(originalHost), paneId: originalPane, instanceSerial: 10,
-            ownershipGeneration: 3,
+            hostId: ObjectIdentifier(originalHost), paneId: originalPane, ownershipGeneration: 3,
             inWindow: true, bounds: bounds, reason: "test.rollback.commit"
         ))
         #expect(
@@ -325,18 +352,18 @@ struct TerminalPortalHostAuthorityTests {
         let bounds = CGRect(x: 0, y: 0, width: 400, height: 300)
 
         #expect(surface.claimPortalHost(
-            hostId: ObjectIdentifier(oldHost), paneId: oldPane, instanceSerial: 1,
+            hostId: ObjectIdentifier(oldHost), paneId: oldPane, ownershipGeneration: 1,
             inWindow: true, bounds: bounds, reason: "test.old.initial"
         ))
         #expect(surface.claimPortalHost(
-            hostId: ObjectIdentifier(newHost), paneId: newPane, instanceSerial: 2,
+            hostId: ObjectIdentifier(newHost), paneId: newPane, ownershipGeneration: 2,
             inWindow: true, bounds: bounds, reason: "test.new.bind"
         ))
         surface.releasePortalHostIfOwned(
             hostId: ObjectIdentifier(newHost), reason: "test.new.release"
         )
         #expect(!surface.claimPortalHost(
-            hostId: ObjectIdentifier(oldHost), paneId: oldPane, instanceSerial: 1,
+            hostId: ObjectIdentifier(oldHost), paneId: oldPane, ownershipGeneration: 1,
             inWindow: true, bounds: bounds, reason: "test.old.afterRelease"
         ))
     }

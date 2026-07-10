@@ -7,11 +7,8 @@ struct TerminalPortalMutationSnapshot {
     let expectedSurfaceId: UUID
     let expectedSurfaceGeneration: UInt64
     let paneId: PaneID
-    let isActive: Bool
-    let isVisibleInUI: Bool
     let ownershipGeneration: UInt64
-    let isCurrentPaneOwner: @MainActor () -> Bool
-    let portalZPriority: Int
+    let portalPresentation: @MainActor () -> TerminalPortalPresentation
     let showsInactiveOverlay: Bool
     let showsUnreadNotificationRing: Bool
     let inactiveOverlayColor: NSColor
