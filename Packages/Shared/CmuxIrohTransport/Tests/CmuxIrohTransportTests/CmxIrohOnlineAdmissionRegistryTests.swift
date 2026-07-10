@@ -524,6 +524,39 @@ struct CmxIrohOnlineAdmissionRegistryTests {
     }
 
     @Test
+    func quickTransportRegistrationRetainsMonitorForConnectionLifetime() async throws {
+        let fixture = try OnlineAdmissionFixture()
+        let broker = OnlineAdmissionBroker(responses: [
+            .success(try fixture.discovery()),
+        ])
+        let registry = fixture.registry(broker: broker)
+        let lease = try #require(
+            await registry.authorizePairGrant(
+                fixture.grant(),
+                authenticatedPeerID: fixture.initiator.endpointID
+            ).lease
+        )
+        let connection = TestIrohConnection(
+            remoteIdentity: fixture.initiator.endpointID,
+            bidirectionalStreams: []
+        )
+        let closeRecorder = OnlineAdmissionCloseRecorder()
+
+        _ = await registry.monitor(lease, connection: connection) {
+            await closeRecorder.close()
+            await connection.close(errorCode: 1, reason: "lease_invalidated")
+        }
+
+        // Registering the application transport returns immediately. Revocation
+        // must still close the exact live connection after that handoff returns.
+        await registry.revoke(bindingID: fixture.initiator.bindingID)
+        await closeRecorder.waitUntilClosed()
+
+        #expect(await closeRecorder.count() == 1)
+        #expect(await connection.observedCloseCallCount() == 1)
+    }
+
+    @Test
     func localRevokeImmediatelyClosesAndSticks() async throws {
         let fixture = try OnlineAdmissionFixture()
         let broker = OnlineAdmissionBroker(responses: [
