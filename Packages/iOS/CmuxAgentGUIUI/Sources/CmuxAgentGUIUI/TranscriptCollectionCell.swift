@@ -16,6 +16,16 @@ final class TranscriptCollectionCell: UICollectionViewListCell {
         nil
     }
 
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        // UIHostingConfiguration swaps the list cell's managed content view,
+        // which can drop the counter-flip applied at init; reassert it so the
+        // cell always renders upright inside the flipped collection view.
+        if contentView.transform.d != -1 {
+            contentView.transform = CGAffineTransform(scaleX: 1, y: -1)
+        }
+    }
+
     func configure(row: TranscriptRow, measuredHeight: CGFloat) {
         self.measuredHeight = measuredHeight
         contentConfiguration = UIHostingConfiguration {

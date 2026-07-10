@@ -79,6 +79,20 @@ public struct UITestConfig {
         #endif
     }
 
+    /// Whether the standalone transcript-demo preview is enabled.
+    ///
+    /// When `CMUX_UITEST_TRANSCRIPT_DEMO=1`, the root view renders the agent
+    /// GUI transcript demo (replay-fixture driven, no sign-in or Mac pairing)
+    /// so transcript physics can be exercised and recorded on the simulator.
+    /// DEBUG-only.
+    public static var transcriptDemoPreviewEnabled: Bool {
+        #if DEBUG
+        return ProcessInfo.processInfo.environment["CMUX_UITEST_TRANSCRIPT_DEMO"] == "1"
+        #else
+        return false
+        #endif
+    }
+
     /// Whether the standalone workspace-list layout preview is enabled.
     ///
     /// When `CMUX_UITEST_WORKSPACE_LIST_PREVIEW=1`, the root view renders a
