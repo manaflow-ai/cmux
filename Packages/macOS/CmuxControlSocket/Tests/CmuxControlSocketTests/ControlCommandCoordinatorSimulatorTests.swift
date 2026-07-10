@@ -255,7 +255,7 @@ struct ControlCommandCoordinatorSimulatorTests {
         ))
     }
 
-    @Test("serve-sim hardware button aliases map to native button names")
+    @Test("serve-sim hardware button aliases and mixed-case native names map to canonical names")
     func buttonAliases() {
         let aliases = [
             "swipe_home": "swipeHome",
@@ -264,6 +264,13 @@ struct ControlCommandCoordinatorSimulatorTests {
             "volume_up": "volumeUp",
             "volume_down": "volumeDown",
             "watch_side_button": "watchSideButton",
+            "Home": "home",
+            "SwipeHome": "swipeHome",
+            "AppSwitcher": "appSwitcher",
+            "SideButton": "sideButton",
+            "VolumeUp": "volumeUp",
+            "VolumeDown": "volumeDown",
+            "WatchSideButton": "watchSideButton",
         ]
         for (alias, expected) in aliases {
             let context = FakeSimulatorControlCommandContext()
