@@ -22,13 +22,21 @@ extension CMUXCLI {
 
         let frame = panePayload["container_frame"] as? [String: Any]
         let dimensionKey = horizontal ? "width" : "height"
+        let gridKey = horizontal ? "columns" : "rows"
         let containerExtent = (frame?[dimensionKey] as? NSNumber)?.doubleValue
             ?? frame?[dimensionKey] as? Double
+        let gridCells = intFromAny(pane?[gridKey])
+        let pixelFrame = pane?["pixel_frame"] as? [String: Any]
+        let paneExtent = (pixelFrame?[dimensionKey] as? NSNumber)?.doubleValue
+            ?? pixelFrame?[dimensionKey] as? Double
         let targetPoints: Double?
         if isPercentage, let containerExtent, containerExtent > 0 {
             targetPoints = containerExtent * Double(target) / 100
-        } else if cellPoints > 0 {
-            targetPoints = Double(target) * cellPoints
+        } else if let cellPoints, cellPoints > 0,
+                  let gridCells, gridCells > 0,
+                  let paneExtent, paneExtent > 0 {
+            let residual = max(0, paneExtent - Double(gridCells) * cellPoints)
+            targetPoints = Double(target) * cellPoints + residual
         } else {
             targetPoints = nil
         }
@@ -66,7 +74,7 @@ extension CMUXCLI {
             "amount_cells": amountCells,
             "tmux_compat": true,
         ]
-        if cellPoints > 0 {
+        if let cellPoints, cellPoints > 0 {
             let pointDelta = Double(amountCells) * cellPoints
             params["amount"] = NSNumber(value: pointDelta.rounded()).intValue
         }
