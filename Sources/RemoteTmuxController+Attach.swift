@@ -69,8 +69,7 @@ extension RemoteTmuxController {
 
         let workspaceIds = mirrorDiscoveredSessions(host: host, sessions: sessions, into: targetManager)
         guard !workspaceIds.isEmpty else {
-            transportRegistry.remove(connectionHash: host.connectionHash)
-            RemoteTmuxSSHTransport.spawnControlMasterExit(host: host)
+            cleanUpTransportAfterFailedMirror(host: host)
             throw RemoteTmuxError.unreachable("could not mirror any tmux session on \(host.destination)")
         }
 
@@ -87,6 +86,11 @@ extension RemoteTmuxController {
         sessions: [RemoteTmuxSession],
         into tabManager: TabManager
     ) -> [UUID] {
+        // A mirror whose workspace died without a controller-driven detach
+        // must not block re-attach: its stale key makes `mirrorSessions` skip
+        // recreation while the dead workspace fails the manager filter below,
+        // so every retry would mirror nothing.
+        purgeDeadMirrors(for: host)
         // `mirrorSessions` applies stable-session-id de-dup and seeds discovery's
         // ids into new mirrors, so bulk discovery can't duplicate a session
         // mid-rename (#7362, #7365).
@@ -98,6 +102,28 @@ extension RemoteTmuxController {
                   managerWorkspaceIds.contains(workspaceId) else { return nil }
             return workspaceId
         }
+    }
+
+    private func purgeDeadMirrors(for host: RemoteTmuxHost) {
+        for (key, mirror) in sessionMirrors
+        where mirror.host.connectionHash == host.connectionHash
+            && mirror.mirroredWorkspaceId == nil {
+            sessionMirrors.removeValue(forKey: key)
+            mirror.detachObserver()
+        }
+    }
+
+    /// After an attach that mirrored nothing: live mirrors in other windows
+    /// still share this host's ControlMaster, so tear the transport down only
+    /// when nothing live remains on the connection.
+    func cleanUpTransportAfterFailedMirror(host: RemoteTmuxHost) {
+        let hasLiveMirror = sessionMirrors.values.contains { mirror in
+            mirror.host.connectionHash == host.connectionHash
+                && mirror.mirroredWorkspaceId != nil
+        }
+        guard !hasLiveMirror else { return }
+        transportRegistry.remove(connectionHash: host.connectionHash)
+        RemoteTmuxSSHTransport.spawnControlMasterExit(host: host)
     }
 
     func existingMirrorManager(for host: RemoteTmuxHost) -> TabManager? {

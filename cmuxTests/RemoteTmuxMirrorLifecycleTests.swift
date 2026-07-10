@@ -330,4 +330,32 @@ struct RemoteTmuxMirrorLifecycleTests {
         let entry = try #require(controller.sessionMirrors.values.first)
         #expect(entry.mirroredWorkspaceId == workspaceIds.first)
     }
+
+    @Test func failedMirrorAttachKeepsTransportSharedWithLiveMirror() throws {
+        let controller = RemoteTmuxController()
+        let manager = TabManager()
+        let host = RemoteTmuxHost(destination: "user@host")
+        _ = try mirror(
+            controller: controller,
+            manager: manager,
+            host: host,
+            sessionName: "dev"
+        )
+        _ = controller.transportRegistry.transport(for: host)
+        #expect(controller.transportRegistry.contains(connectionHash: host.connectionHash))
+
+        // An attach that mirrors nothing (e.g. explicitly targeting a window
+        // the sessions aren't in) must not kill the ControlMaster the live
+        // mirror shares.
+        controller.cleanUpTransportAfterFailedMirror(host: host)
+        #expect(controller.transportRegistry.contains(connectionHash: host.connectionHash))
+
+        // With no live mirror left, the failed attach owns the transport and
+        // must clean it up (the `ssh -O exit` fired here targets cmux's own
+        // nonexistent ControlPath socket — a local no-op, per suite policy).
+        controller.detach(host: host, sessionName: "dev")
+        _ = controller.transportRegistry.transport(for: host)
+        controller.cleanUpTransportAfterFailedMirror(host: host)
+        #expect(!controller.transportRegistry.contains(connectionHash: host.connectionHash))
+    }
 }
