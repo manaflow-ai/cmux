@@ -566,6 +566,7 @@ extension CMUXCLI {
                 "branchPickerBasePrefix": CMUXDiffViewerLocalization.string("diffViewer.branchPickerBasePrefix", defaultValue: "Base:"),
                 "branchPickerComparing": CMUXDiffViewerLocalization.string("diffViewer.branchPickerComparing", defaultValue: "Comparing {head} against {base}"),
                 "branchPickerFilterPlaceholder": CMUXDiffViewerLocalization.string("diffViewer.branchPickerFilterPlaceholder", defaultValue: "Filter branches"),
+                "branchPickerGenerateFailed": CMUXDiffViewerLocalization.string("diffViewer.branchPickerGenerateFailed", defaultValue: "Could not generate the diff. Choose a branch to retry."),
                 "branchPickerGenerating": CMUXDiffViewerLocalization.string("diffViewer.branchPickerGenerating", defaultValue: "Generating diff against {ref}..."),
                 "branchPickerGroupBranches": CMUXDiffViewerLocalization.string("diffViewer.branchPickerGroupBranches", defaultValue: "Branches"),
                 "branchPickerGroupRecent": CMUXDiffViewerLocalization.string("diffViewer.branchPickerGroupRecent", defaultValue: "Recent"),

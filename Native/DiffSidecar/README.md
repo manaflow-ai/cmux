@@ -4,4 +4,6 @@
 
 `src/protocol.rs` is the protocol source of truth. `scripts/generate-diff-sidecar-types.sh` generates `webviews/src/diff/generated/protocol.ts`; CI rejects stale generated types. The React client selects a `fetch`, `webSocket`, or `webKit` command transport from the payload. Patch bodies remain streamable resources, so HTTP and custom WebKit URL schemes do not require buffering a diff into a message reply.
 
+Rust is a required macOS build dependency. `scripts/setup.sh` verifies the toolchain using the same rustup and Homebrew paths available to Xcode build phases.
+
 Run `scripts/benchmark-diff-viewer.sh` from the repository root. It measures Rust manifest decoding and patch reads, then exercises the real Pierre parser and streaming batcher with 2,000 files. CI enforces conservative p95 and throughput budgets to catch large regressions without treating shared-runner noise as a failure.

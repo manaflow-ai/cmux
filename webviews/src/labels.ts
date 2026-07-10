@@ -6,6 +6,7 @@ const DEFAULT_DIFF_VIEWER_LABELS = {
   branchPickerBasePrefix: "Base:",
   branchPickerComparing: "Comparing {head} against {base}",
   branchPickerFilterPlaceholder: "Filter branches",
+  branchPickerGenerateFailed: "Could not generate the diff. Choose a branch to retry.",
   branchPickerGenerating: "Generating diff against {ref}...",
   branchPickerGroupBranches: "Branches",
   branchPickerGroupRecent: "Recent",

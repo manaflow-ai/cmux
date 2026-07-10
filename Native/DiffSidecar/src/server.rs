@@ -72,7 +72,11 @@ struct BranchSessionAuthorization {
 
 const MAX_CACHED_MANIFESTS: usize = 64;
 const MAX_CONCURRENT_CHILD_PROCESSES: usize = 4;
-const CHILD_PROCESS_TIMEOUT: Duration = Duration::from_secs(30);
+const BRANCH_LIST_CHILD_TIMEOUT: Duration = Duration::from_secs(30);
+// Branch regeneration runs Git commands with 60-second deadlines, then writes
+// the page, patch, assets, and manifest. Keep the outer safety deadline above
+// that complete contract while still releasing a stuck child eventually.
+const BRANCH_CHANGE_CHILD_TIMEOUT: Duration = Duration::from_secs(120);
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -363,7 +367,7 @@ async fn load_branch_refs(
     if let Some(base) = base {
         command.arg("--base").arg(base);
     }
-    match tokio::time::timeout(CHILD_PROCESS_TIMEOUT, command.output()).await {
+    match tokio::time::timeout(BRANCH_LIST_CHILD_TIMEOUT, command.output()).await {
         Ok(Ok(output)) if output.status.success() => {
             serde_json::from_slice(&output.stdout).map_err(|_| ())
         }
@@ -420,7 +424,8 @@ async fn change_branch(
         .stdin(Stdio::null())
         .stderr(Stdio::null())
         .kill_on_drop(true);
-    let Ok(Ok(output)) = tokio::time::timeout(CHILD_PROCESS_TIMEOUT, command.output()).await else {
+    let Ok(Ok(output)) = tokio::time::timeout(BRANCH_CHANGE_CHILD_TIMEOUT, command.output()).await
+    else {
         return Err(());
     };
     if !output.status.success() {

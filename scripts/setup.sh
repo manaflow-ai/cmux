@@ -16,6 +16,18 @@ if ! command -v zig &> /dev/null; then
     exit 1
 fi
 
+echo "==> Checking for Rust..."
+# Xcode uses a non-login shell, so verify the same PATH used by the sidecar
+# build phase rather than relying on the caller's interactive shell setup.
+export PATH="${CARGO_HOME:-${HOME}/.cargo}/bin:/opt/homebrew/bin:/usr/local/bin:${PATH}"
+if ! command -v cargo &> /dev/null || ! command -v rustc &> /dev/null; then
+    echo "Error: Rust is not installed."
+    echo "Install via: https://rustup.rs"
+    exit 1
+fi
+cargo --version
+rustc --version
+
 "$SCRIPT_DIR/ensure-ghosttykit.sh"
 
 "$SCRIPT_DIR/install-git-hooks.sh"

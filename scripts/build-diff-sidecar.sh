@@ -6,8 +6,12 @@ CRATE_DIR="${ROOT}/Native/DiffSidecar"
 BINARY_NAME="cmux-diff-sidecar"
 BUILD_OUTPUT_DIR="${TARGET_BUILD_DIR:-${CRATE_DIR}/target}/cmux-diff-sidecar"
 
+# Xcode build phases do not inherit a login-shell PATH. Prefer rustup's
+# conventional bin directory, then the standard Homebrew prefixes.
+export PATH="${CARGO_HOME:-${HOME}/.cargo}/bin:/opt/homebrew/bin:/usr/local/bin:${PATH}"
+
 if ! command -v cargo >/dev/null 2>&1; then
-  echo "error: cargo is required to build ${BINARY_NAME}" >&2
+  echo "error: cargo is required to build ${BINARY_NAME}; run ./scripts/setup.sh after installing Rust from https://rustup.rs" >&2
   exit 1
 fi
 

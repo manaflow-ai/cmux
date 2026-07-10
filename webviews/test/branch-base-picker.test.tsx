@@ -230,6 +230,7 @@ test("a failed branch regeneration leaves cached refs available for retry", asyn
   dom = createDom();
   installDomGlobals(dom);
   let changeAttempts = 0;
+  const navigated: string[] = [];
   const transport: DiffTransport = {
     request(command) {
       if (command.method === "branchList") {
@@ -241,7 +242,9 @@ test("a failed branch regeneration leaves cached refs available for retry", asyn
         });
       }
       changeAttempts += 1;
-      return Promise.reject(new Error("temporary sidecar failure"));
+      return changeAttempts === 1
+        ? Promise.reject(new Error("temporary sidecar failure"))
+        : Promise.resolve({ type: "navigation", value: { url: "/retry-succeeded" } });
     },
     subscribe: () => () => {},
     openResource: () => Promise.reject(new Error("unused")),
@@ -255,7 +258,7 @@ test("a failed branch regeneration leaves cached refs available for retry", asyn
   const container = document.getElementById("root");
   root = createRoot(container!);
   flushSync(() => {
-    root?.render(<BranchBasePicker label={label} onNavigate={() => {}} picker={picker} transport={transport} />);
+    root?.render(<BranchBasePicker label={label} onNavigate={(url) => navigated.push(url)} picker={picker} transport={transport} />);
   });
 
   document.querySelector<HTMLButtonElement>(".base-picker-button")?.click();
@@ -266,11 +269,20 @@ test("a failed branch regeneration leaves cached refs available for retry", asyn
     );
   });
   await waitFor(() => changeAttempts === 1);
-  await waitFor(() => document.querySelector<HTMLButtonElement>(".base-picker-button")?.disabled === false);
-
-  document.querySelector<HTMLButtonElement>(".base-picker-button")?.click();
   await waitFor(() => rowCount() === 1);
-  expect(document.querySelector(".base-picker-error")).toBeNull();
+  expect(document.querySelector(".base-picker-status-error")?.textContent).toBe(
+    "Could not generate the diff. Choose a branch to retry.",
+  );
+  expect(document.activeElement).toBe(document.querySelector(".base-picker-input"));
+
+  flushSync(() => {
+    document.querySelector<HTMLElement>(".base-picker-row")?.dispatchEvent(
+      new dom!.window.MouseEvent("mousedown", { bubbles: true, cancelable: true }),
+    );
+  });
+  await waitFor(() => navigated.length === 1);
+  expect(changeAttempts).toBe(2);
+  expect(navigated).toEqual(["/retry-succeeded"]);
 });
 
 function createDom(): JSDOM {

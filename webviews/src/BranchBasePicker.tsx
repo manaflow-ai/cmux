@@ -156,6 +156,7 @@ export function BranchBasePicker({
   const [loadState, setLoadState] = useState<"idle" | "loading" | "error">("idle");
   const [highlight, setHighlight] = useState(0);
   const [generatingRef, setGeneratingRef] = useState<string | null>(null);
+  const [regenerationFailed, setRegenerationFailed] = useState(false);
   // Inline position for the viewport-anchored (position: fixed) popover. Null
   // until the first measurement after open, so the popover is not painted at a
   // stale 0,0 for a frame. Recomputed on open, resize, and ancestor scroll.
@@ -214,6 +215,7 @@ export function BranchBasePicker({
       return;
     }
     setGeneratingRef(trimmed);
+    setRegenerationFailed(false);
     setOpen(false);
     if (transport && picker.groupId && picker.capabilityToken) {
       transport.request({
@@ -232,9 +234,13 @@ export function BranchBasePicker({
       }).catch((error) => {
         console.warn("cmux diff branch picker regeneration failed", error);
         setGeneratingRef(null);
-        // Refs are already loaded. Keep the cached rows usable so a transient
-        // regeneration failure can be retried by reopening the picker.
+        setRegenerationFailed(true);
         setLoadState("idle");
+        setQuery("");
+        setHighlight(0);
+        // Reopen the cached picker. Its callback-ref focuses the filter input,
+        // while the localized error explains why navigation did not happen.
+        setOpen(true);
       });
       return;
     }
@@ -390,6 +396,11 @@ export function BranchBasePicker({
               onKeyDown={onInputKeyDown}
             />
           </div>
+          {regenerationFailed ? (
+            <output className="base-picker-status base-picker-status-error">
+              {label("branchPickerGenerateFailed")}
+            </output>
+          ) : null}
           {/* Searchable command-palette listbox; a native select/datalist cannot
               render grouped rows with secondaries, pills, and matched bolding. */}
           {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
