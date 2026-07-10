@@ -284,6 +284,41 @@ struct SimulatorCameraAdapterTests {
         adapter.detachFromUnavailableDevice()
     }
 
+    @Test("Intentional app termination suppresses automatic camera reinjection")
+    @MainActor
+    func intentionalTerminationSuppressesReinjection() async throws {
+        let bundleIdentifier = "com.example.CameraFixture"
+        let processIdentifier = Int32(getpid())
+        let simctl = CameraReinjectionSimctlFake(
+            bundleIdentifier: bundleIdentifier,
+            processIdentifier: processIdentifier
+        )
+        let adapter = SimulatorCameraAdapter(
+            cameraPermission: SimulatorCameraPermissionAdapter { _, _, _, _ in },
+            compiledLibrary: { URL(fileURLWithPath: "/tmp/cmux-camera-test.dylib") },
+            simctl: { arguments, environment in
+                await simctl.run(arguments: arguments, environment: environment)
+            }
+        )
+        adapter.attach(deviceIdentifier: "DEVICE")
+        _ = try await adapter.configure(
+            .targeted(bundleIdentifier: bundleIdentifier, source: .placeholder),
+            inferredApplication: nil
+        )
+
+        await adapter.prepareForIntentionalApplicationMutation(
+            bundleIdentifier: bundleIdentifier
+        )
+        adapter.handleExitedInjection(
+            bundleIdentifier: bundleIdentifier,
+            processIdentifier: processIdentifier
+        )
+        for _ in 0..<100 { await Task.yield() }
+
+        #expect(await simctl.injectedLaunchCount == 1)
+        #expect(!adapter.status().injectedBundleIdentifiers.contains(bundleIdentifier))
+    }
+
     @Test("simctl launch output extracts the injected app pid")
     func launchOutput() {
         #expect(
