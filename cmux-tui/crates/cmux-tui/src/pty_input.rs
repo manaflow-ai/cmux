@@ -393,6 +393,31 @@ mod tests {
     }
 
     #[test]
+    fn flush_waits_until_prior_input_completes() {
+        let queue = Arc::new(SharedQueue::default());
+        queue.state.lock().unwrap().in_flight = true;
+        let dispatcher = Arc::new(PtyInputDispatcher { queue: queue.clone(), worker: None });
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let (done_tx, done_rx) = std::sync::mpsc::channel();
+        let flush_dispatcher = dispatcher.clone();
+        let flush_thread = std::thread::spawn(move || {
+            started_tx.send(()).unwrap();
+            done_tx.send(flush_dispatcher.flush(Duration::from_secs(1))).unwrap();
+        });
+
+        started_rx.recv().unwrap();
+        assert_eq!(done_rx.try_recv(), Err(std::sync::mpsc::TryRecvError::Empty));
+        {
+            let mut state = queue.state.lock().unwrap();
+            state.in_flight = false;
+            queue.changed.notify_all();
+        }
+
+        assert!(done_rx.recv_timeout(Duration::from_secs(1)).unwrap());
+        flush_thread.join().unwrap();
+    }
+
+    #[test]
     fn oversized_input_is_distinguished_from_queue_saturation() {
         let dispatcher = PtyInputDispatcher::spawn().unwrap();
         let mut oversized = event(1, 1, PtyInputKind::Ordered);
