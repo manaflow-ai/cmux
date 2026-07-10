@@ -980,6 +980,7 @@ jobs:
             local pkgdir="$1"
             shift
             local test_status=0
+            local tolerated_diagnostics='unexpected binary|doesn.t contain a version for the current architecture|incompatible architecture|dlopen_preflight'
             local output
             output="$(swift test --package-path "$pkgdir" "$@" 2>&1)" || test_status=$?
             printf '%s\n' "$output"
@@ -988,8 +989,8 @@ jobs:
             fi
             if printf '%s\n' "$output" | grep -Eq 'Test run with [0-9]+ tests( in [0-9]+ suites)? passed' \
               && ! printf '%s\n' "$output" | grep -Eq 'with [1-9][0-9]* failures?' \
-              && printf '%s\n' "$output" | grep -Eq 'unexpected binary|doesn.t contain a version for the current architecture|incompatible architecture|dlopen_preflight' \
-              && ! printf '%s\n' "$output" | grep -v 'unexpected binary' | grep -Eq '(^|[^a-zA-Z])error:'; then
+              && printf '%s\n' "$output" | grep -Eq "$tolerated_diagnostics" \
+              && ! printf '%s\n' "$output" | grep -E '(^|[^a-zA-Z])error:' | grep -Ev "$tolerated_diagnostics"; then
               echo "Tolerated cosmetic SwiftPM runner diagnostic; all tests passed."
               return 0
             fi

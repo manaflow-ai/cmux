@@ -6757,6 +6757,7 @@ final class Workspace: Identifiable, ObservableObject {
         return [
             inheritedWorkingDirectoryForTerminalStartup(sourcePanelId: sourcePanelId, inheritedWorkingDirectory: inheritedWorkingDirectory),
             sourcePanelId.flatMap { panelDirectories[$0] },
+            liveForegroundWorkingDirectoryForTerminalStartup(sourcePanelId: sourcePanelId),
             sourcePanelId.flatMap { terminalPanel(for: $0)?.requestedWorkingDirectory },
             currentDirectory,
         ].lazy.compactMap(Self.normalizedTerminalWorkingDirectory).first
@@ -6769,6 +6770,19 @@ final class Workspace: Identifiable, ObservableObject {
         guard let sourcePanelId else { return nil }
         return Self.terminalStartupInheritedWorkingDirectoryCandidate(
             inheritedWorkingDirectory,
+            shellActivityState: panelShellActivityStates[sourcePanelId],
+            isRemoteTerminalSurface: isRemoteTerminalSurface(sourcePanelId),
+            isRestoreGuarded: restoredGuardedWorkingDirectoriesByPanelId[sourcePanelId] != nil,
+            isAgentResumePendingOrRunning: restoredAgentResumeStatesByPanelId[sourcePanelId] == .awaitingAutoResumeCommand ||
+                restoredAgentResumeStatesByPanelId[sourcePanelId] == .autoResumeCommandRunning
+        )
+    }
+
+    private func liveForegroundWorkingDirectoryForTerminalStartup(sourcePanelId: UUID?) -> String? {
+        guard let sourcePanelId else { return nil }
+        guard Self.normalizedTerminalWorkingDirectory(panelDirectories[sourcePanelId]) == nil else { return nil }
+        return Self.terminalStartupInheritedWorkingDirectoryCandidate(
+            liveForegroundProcessWorkingDirectory(panelId: sourcePanelId),
             shellActivityState: panelShellActivityStates[sourcePanelId],
             isRemoteTerminalSurface: isRemoteTerminalSurface(sourcePanelId),
             isRestoreGuarded: restoredGuardedWorkingDirectoriesByPanelId[sourcePanelId] != nil,
@@ -7005,6 +7019,18 @@ final class Workspace: Identifiable, ObservableObject {
         return nil
     }
 
+    private func inheritedTerminalWorkingDirectory(fromPanelId panelId: UUID?) -> String? {
+        guard let panelId, let terminalPanel = terminalPanel(for: panelId) else { return nil }
+        let surface = terminalPanel.surface
+        guard let sourceSurface = surface.surface else { return nil }
+        let config = cmuxInheritedSurfaceConfig(
+            sourceSurface: sourceSurface,
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT
+        )
+        withExtendedLifetime((terminalPanel, surface)) {}
+        return config.workingDirectory
+    }
+
     /// Create a new split with a terminal panel
     @discardableResult
     func newTerminalSplit(
@@ -7156,10 +7182,11 @@ final class Workspace: Identifiable, ObservableObject {
             "remoteCommand=\(remoteTerminalStartupCommand == nil ? 0 : 1)"
         )
 #endif
-        let splitLiveWorkingDirectory = panelShellActivityStates[panelId] == .promptIdle
-            ? liveForegroundProcessWorkingDirectory(panelId: panelId)
-            : nil
-        let splitInheritedWorkingDirectory = splitLiveWorkingDirectory ?? (inheritedConfigSourcePanelId == panelId ? inheritedConfig?.workingDirectory : nil)
+        let splitInheritedWorkingDirectory = isRemoteStartupCommand
+            ? nil
+            : (inheritedConfigSourcePanelId == panelId
+                ? inheritedConfig?.workingDirectory
+                : inheritedTerminalWorkingDirectory(fromPanelId: panelId))
         let splitWorkingDirectory = isRemoteStartupCommand
             ? Self.normalizedTerminalWorkingDirectory(workingDirectory)
             : resolvedTerminalStartupWorkingDirectory(
@@ -7439,11 +7466,11 @@ final class Workspace: Identifiable, ObservableObject {
         let shouldInheritWorkingDirectoryFallback = inheritWorkingDirectoryFallback && !isRemoteStartupCommand
         var inheritedConfigSourcePanelId: UUID?
         var inheritedConfig = inheritedTerminalConfig(inPane: paneId, sourcePanelId: { inheritedConfigSourcePanelId = $0 })
-        let fallbackLiveWorkingDirectory = shouldInheritWorkingDirectoryFallback
-            && fallbackSourcePanelId.map({ panelShellActivityStates[$0] == .promptIdle }) == true
-            ? fallbackSourcePanelId.flatMap { liveForegroundProcessWorkingDirectory(panelId: $0) }
+        let inheritedWorkingDirectory = shouldInheritWorkingDirectoryFallback
+            ? (inheritedConfigSourcePanelId == fallbackSourcePanelId
+                ? inheritedConfig?.workingDirectory
+                : inheritedTerminalWorkingDirectory(fromPanelId: fallbackSourcePanelId))
             : nil
-        let inheritedWorkingDirectory = fallbackLiveWorkingDirectory ?? (inheritedConfigSourcePanelId == fallbackSourcePanelId ? inheritedConfig?.workingDirectory : nil)
         if startupCommand != nil {
             inheritedConfig = Self.terminalStartupConfigTemplate(inheritedConfig, waitAfterCommand: true, clearWorkingDirectory: isRemoteStartupCommand)
         }

@@ -49,14 +49,35 @@ import Testing
         )
     }
 
-    @Test func promptIdleFallbackLiveWorkingDirectoryBeatsTrackedDirectory() throws {
+    @Test func promptIdleFallbackTrackedDirectoryBeatsLiveWorkingDirectory() throws {
         let workspace = Workspace()
         let sourcePanelId = try #require(workspace.focusedPanelId)
         let paneId = try #require(workspace.bonsplitController.focusedPaneId)
-        let staleDirectory = "/tmp/cmux-stale-\(UUID().uuidString)"
+        let trackedDirectory = "/tmp/cmux-tracked-\(UUID().uuidString)"
         let liveDirectory = "/tmp/cmux-live-\(UUID().uuidString)"
 
-        #expect(workspace.updatePanelDirectory(panelId: sourcePanelId, directory: staleDirectory))
+        #expect(workspace.updatePanelDirectory(panelId: sourcePanelId, directory: trackedDirectory))
+        workspace.panelShellActivityStates[sourcePanelId] = .promptIdle
+        workspace.foregroundProcessWorkingDirectoryProvider = { panelId in
+            panelId == sourcePanelId ? liveDirectory : nil
+        }
+
+        let panel = try #require(workspace.newTerminalSurface(
+            inPane: paneId,
+            focus: false,
+            inheritWorkingDirectoryFallback: true,
+            workingDirectoryFallbackSourcePanelId: sourcePanelId
+        ))
+
+        #expect(panel.requestedWorkingDirectory == trackedDirectory)
+    }
+
+    @Test func promptIdleFallbackLiveWorkingDirectoryFillsMissingTrackedDirectory() throws {
+        let workspace = Workspace()
+        let sourcePanelId = try #require(workspace.focusedPanelId)
+        let paneId = try #require(workspace.bonsplitController.focusedPaneId)
+        let liveDirectory = "/tmp/cmux-live-missing-tracked-\(UUID().uuidString)"
+
         workspace.panelShellActivityStates[sourcePanelId] = .promptIdle
         workspace.foregroundProcessWorkingDirectoryProvider = { panelId in
             panelId == sourcePanelId ? liveDirectory : nil
@@ -72,13 +93,32 @@ import Testing
         #expect(panel.requestedWorkingDirectory == liveDirectory)
     }
 
-    @Test func promptIdleSplitLiveWorkingDirectoryBeatsTrackedDirectory() throws {
+    @Test func promptIdleSplitTrackedDirectoryBeatsLiveWorkingDirectory() throws {
         let workspace = Workspace()
         let sourcePanelId = try #require(workspace.focusedPanelId)
-        let staleDirectory = "/tmp/cmux-stale-split-\(UUID().uuidString)"
+        let trackedDirectory = "/tmp/cmux-tracked-split-\(UUID().uuidString)"
         let liveDirectory = "/tmp/cmux-live-split-\(UUID().uuidString)"
 
-        #expect(workspace.updatePanelDirectory(panelId: sourcePanelId, directory: staleDirectory))
+        #expect(workspace.updatePanelDirectory(panelId: sourcePanelId, directory: trackedDirectory))
+        workspace.panelShellActivityStates[sourcePanelId] = .promptIdle
+        workspace.foregroundProcessWorkingDirectoryProvider = { panelId in
+            panelId == sourcePanelId ? liveDirectory : nil
+        }
+
+        let panel = try #require(workspace.newTerminalSplit(
+            from: sourcePanelId,
+            orientation: .horizontal,
+            focus: false
+        ))
+
+        #expect(panel.requestedWorkingDirectory == trackedDirectory)
+    }
+
+    @Test func promptIdleSplitLiveWorkingDirectoryFillsMissingTrackedDirectory() throws {
+        let workspace = Workspace()
+        let sourcePanelId = try #require(workspace.focusedPanelId)
+        let liveDirectory = "/tmp/cmux-live-split-missing-tracked-\(UUID().uuidString)"
+
         workspace.panelShellActivityStates[sourcePanelId] = .promptIdle
         workspace.foregroundProcessWorkingDirectoryProvider = { panelId in
             panelId == sourcePanelId ? liveDirectory : nil
