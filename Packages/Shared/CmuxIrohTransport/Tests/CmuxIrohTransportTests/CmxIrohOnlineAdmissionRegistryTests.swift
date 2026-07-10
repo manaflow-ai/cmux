@@ -277,6 +277,67 @@ struct CmxIrohOnlineAdmissionRegistryTests {
     }
 
     @Test
+    func connectivityAfterPolicyUpdateCannotAdmitStaleAuthority() async throws {
+        let fixture = try OnlineAdmissionFixture()
+        let broker = OnlineAdmissionBroker(
+            responses: [.failure(.connectivity)],
+            suspended: true
+        )
+        let registry = fixture.registry(broker: broker)
+
+        async let authorization = registry.authorizePairGrant(
+            fixture.grant(),
+            authenticatedPeerID: fixture.initiator.endpointID
+        )
+        await broker.waitUntilCalled()
+        await registry.update(
+            keys: fixture.keySet,
+            acceptor: fixture.replacementAcceptor()
+        )
+        await broker.resume()
+
+        #expect(await authorization == .denied)
+    }
+
+    @Test
+    func staleSuccessfulMonitorRefreshCannotExtendAcrossPolicyUpdate() async throws {
+        let fixture = try OnlineAdmissionFixture()
+        let clock = OnlineAdmissionManualClock(now: fixture.now)
+        let broker = OnlineAdmissionBroker(responses: [
+            .success(try fixture.discovery()),
+            .success(try fixture.discovery()),
+        ])
+        let registry = fixture.registry(broker: broker, clock: clock)
+        let lease = try #require(
+            await registry.authorizePairGrant(
+                fixture.grant(),
+                authenticatedPeerID: fixture.initiator.endpointID
+            ).lease
+        )
+        let closeRecorder = OnlineAdmissionCloseRecorder()
+        _ = await registry.monitor(lease) { await closeRecorder.close() }
+        await clock.waitUntilSleeping()
+        await broker.suspend()
+
+        clock.advance(by: 30)
+        await broker.waitForCallCount(2)
+        await registry.update(
+            keys: fixture.keySet,
+            acceptor: fixture.replacementAcceptor()
+        )
+        await broker.resume()
+        for _ in 0 ..< 1_024 {
+            if await closeRecorder.count() > 0 || !clock.sleepingDeadlines().isEmpty {
+                break
+            }
+            await Task.yield()
+        }
+
+        #expect(await closeRecorder.count() == 1)
+        #expect(clock.sleepingDeadlines().isEmpty)
+    }
+
+    @Test
     func connectivityAllowsLocallyValidGrantOffline() async throws {
         let fixture = try OnlineAdmissionFixture()
         let broker = OnlineAdmissionBroker(responses: [.failure(.connectivity)])
@@ -580,6 +641,10 @@ private actor OnlineAdmissionBroker: CmxIrohRegistryServing {
         for waiter in waiters { waiter.resume() }
     }
 
+    func suspend() {
+        suspended = true
+    }
+
     func replaceResponses(
         _ responses: [Result<CmxIrohDiscoveryResponse, CmxIrohTrustBrokerClientError>]
     ) {
@@ -774,6 +839,17 @@ private struct OnlineAdmissionFixture {
         let input = Data("\(encodedHeader).\(encodedPayload)".utf8)
         let signature = try! (signer ?? signingKey).signature(for: input)
         return "\(encodedHeader).\(encodedPayload).\(signature.base64URL)"
+    }
+
+    func replacementAcceptor() -> CmxIrohGrantPeer {
+        CmxIrohGrantPeer(
+            bindingID: "123e4567-e89b-42d3-a456-426614174099",
+            deviceID: acceptor.deviceID,
+            tag: acceptor.tag,
+            platform: acceptor.platform,
+            endpointID: acceptor.endpointID,
+            identityGeneration: acceptor.identityGeneration
+        )
     }
 
     func offlinePair(
