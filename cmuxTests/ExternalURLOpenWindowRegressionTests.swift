@@ -39,11 +39,14 @@ final class ExternalURLOpenWindowRegressionTests: XCTestCase {
         // was created by the scene machinery before any auth code ran at all.
         let urlString = "cmux-dev://auth-callback?cmux_auth_state=probe&\(marker)=1"
 
-        // Hold strong references so no baseline window can deallocate mid-test
-        // and recycle its identity for a genuinely new window.
-        let baselineWindows = NSApp.windows
+        // Delayed app setup (config/onboarding panels) can open windows
+        // seconds after launch, and tests in this target run serially in one
+        // process — so wait for the window set to hold still before
+        // baselining, ensuring startup windows are never misattributed to
+        // the URL open. Hold strong references so no baseline window can
+        // deallocate mid-test and recycle its identity for a new window.
+        let baselineWindows = stableWindowBaseline()
         let baseline = Set(baselineWindows.map(ObjectIdentifier.init))
-        let logOffset = currentAuthDebugLogSize()
 
         try sendSelfAddressedGetURLEvent(urlString)
 
@@ -64,7 +67,7 @@ final class ExternalURLOpenWindowRegressionTests: XCTestCase {
             // The log file is shared; only re-read it every ~200ms.
             slice += 1
             if !deliveryObserved, slice % 10 == 0,
-               authDebugLogContainsDelivery(marker: marker, fromOffset: logOffset) {
+               authDebugLogContainsDelivery(marker: marker) {
                 deliveryObserved = true
                 // Grace period: keep watching for a late zombie window after
                 // the delegate has already seen the URL.
@@ -75,7 +78,7 @@ final class ExternalURLOpenWindowRegressionTests: XCTestCase {
             }
         }
         if !deliveryObserved {
-            deliveryObserved = authDebugLogContainsDelivery(marker: marker, fromOffset: logOffset)
+            deliveryObserved = authDebugLogContainsDelivery(marker: marker)
         }
 
         XCTAssertTrue(
@@ -109,27 +112,38 @@ final class ExternalURLOpenWindowRegressionTests: XCTestCase {
         _ = try event.sendEvent(options: [.noReply], timeout: 5)
     }
 
-    private func currentAuthDebugLogSize() -> UInt64 {
-        let attributes = try? FileManager.default.attributesOfItem(
-            atPath: Self.authDebugLogPath
-        )
-        return (attributes?[.size] as? NSNumber)?.uint64Value ?? 0
+    /// Returns `NSApp.windows` once the window set has been unchanged for a
+    /// full second (capped at 10s), so windows opened by delayed app setup
+    /// are captured in the baseline instead of failing the invariant.
+    private func stableWindowBaseline() -> [NSWindow] {
+        let deadline = Date(timeIntervalSinceNow: 10)
+        var snapshot = NSApp.windows
+        var stableSince = Date()
+        while Date() < deadline {
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+            let current = NSApp.windows
+            if Set(current.map(ObjectIdentifier.init)) != Set(snapshot.map(ObjectIdentifier.init)) {
+                snapshot = current
+                stableSince = Date()
+            } else if Date().timeIntervalSince(stableSince) >= 1 {
+                return current
+            }
+        }
+        return snapshot
     }
 
-    /// Whether bytes appended past `offset` contain an
-    /// `auth.openURLs.received` line mentioning the probe marker.
-    private func authDebugLogContainsDelivery(marker: String, fromOffset offset: UInt64) -> Bool {
-        guard let handle = FileHandle(forReadingAtPath: Self.authDebugLogPath) else {
-            return false
-        }
-        defer { try? handle.close() }
-        guard (try? handle.seek(toOffset: offset)) != nil,
-              let data = try? handle.readToEnd(),
+    /// Whether the auth debug log contains an `auth.openURLs.received` line
+    /// mentioning the probe marker. The whole file is rescanned on every
+    /// call: the marker is unique per run, so offset-free scanning stays
+    /// correct even if another process truncates or recreates the shared
+    /// `/tmp` log mid-test.
+    private func authDebugLogContainsDelivery(marker: String) -> Bool {
+        guard let data = FileManager.default.contents(atPath: Self.authDebugLogPath),
               !data.isEmpty else {
             return false
         }
-        let appended = String(decoding: data, as: UTF8.self)
-        return appended.split(separator: "\n").contains { line in
+        let contents = String(decoding: data, as: UTF8.self)
+        return contents.split(separator: "\n").contains { line in
             line.contains("auth.openURLs.received") && line.contains(marker)
         }
     }
