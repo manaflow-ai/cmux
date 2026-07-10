@@ -16,6 +16,14 @@ import Foundation
 final class PortScanner: @unchecked Sendable {
     static let shared = PortScanner()
 
+    /// Port scanning is only useful when the sidebar surfaces detected ports.
+    /// When `sidebar.showPorts` is off, skip scanning entirely — otherwise the
+    /// periodic `lsof` sweep over agent process trees runs (and can pin
+    /// `fileproviderd`/`fseventsd`) for data nothing consumes.
+    private var portScanningEnabled: Bool {
+        SidebarWorkspaceDetailDefaults.showPortsValue(defaults: .standard)
+    }
+
     /// Callback delivers `(workspaceId, panelId, ports)` on the main actor.
     var onPortsUpdated: (@MainActor (_ workspaceId: UUID, _ panelId: UUID, _ ports: [Int]) -> Void)?
     /// Callback delivers workspace-scoped ports owned by tracked agents.
@@ -82,6 +90,7 @@ final class PortScanner: @unchecked Sendable {
 
     func kick(workspaceId: UUID, panelId: UUID) {
         queue.async { [self] in
+            guard portScanningEnabled else { return }
             let key = PanelKey(workspaceId: workspaceId, panelId: panelId)
             guard ttyNames[key] != nil else { return }
             pendingKicks.insert(key)
@@ -157,6 +166,11 @@ final class PortScanner: @unchecked Sendable {
         // Already on `queue`. Snapshot which panels to scan and their TTYs.
         // We scan all registered panels, not just pending ones, since ports can
         // appear/disappear on any panel.
+        guard portScanningEnabled else {
+            pendingKicks.removeAll()
+            return
+        }
+
         let panelSnapshot = ttyNames
 
         guard !panelSnapshot.isEmpty else {
@@ -294,6 +308,7 @@ final class PortScanner: @unchecked Sendable {
     }
 
     private func runTrackedAgentScan() {
+        guard portScanningEnabled else { return }
         let workspaceIds = trackedAgentWorkspaces
         guard !workspaceIds.isEmpty else {
             updateAgentScanTimerLocked()
@@ -622,10 +637,16 @@ final class PortScanner: @unchecked Sendable {
     }
 
     private func runLsof(pidsCsv: String) -> [Int: Set<Int>] {
-        // `lsof -nP -a -p <pids> -iTCP -sTCP:LISTEN -F pn`
+        // `lsof -b -w -nP -a -p <pids> -iTCP -sTCP:LISTEN -F pn`
+        // `-b` avoids blocking kernel stat/lstat/readlink calls on the target
+        // processes' fds. Those calls are unnecessary for identifying listening
+        // TCP sockets (the socket address arrives in the `n` field regardless),
+        // but on macOS they fault in fds pointing at File Provider domains
+        // (iCloud/Google Drive/OneDrive/etc.), which pegs `fileproviderd` and
+        // `fseventsd` and stalls Finder. `-w` suppresses the resulting warnings.
         guard let output = Self.captureStandardOutput(
             executablePath: "/usr/sbin/lsof",
-            arguments: ["-nP", "-a", "-p", pidsCsv, "-iTCP", "-sTCP:LISTEN", "-Fpn"]
+            arguments: ["-b", "-w", "-nP", "-a", "-p", pidsCsv, "-iTCP", "-sTCP:LISTEN", "-Fpn"]
         ) else {
             return [:]
         }

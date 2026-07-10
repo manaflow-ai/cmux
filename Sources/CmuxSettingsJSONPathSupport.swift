@@ -57,6 +57,10 @@ extension SidebarWorkspaceDetailDefaults {
     static func pullRequestPollingEnabled(defaults: UserDefaults) -> Bool {
         watchGitStatusValue(defaults: defaults) && showPullRequestsValue(defaults: defaults)
     }
+
+    static func showPortsValue(defaults: UserDefaults) -> Bool {
+        boolValue(defaults: defaults, key: showPortsKey, defaultValue: showPorts)
+    }
 }
 
 enum AutomationSettings {
