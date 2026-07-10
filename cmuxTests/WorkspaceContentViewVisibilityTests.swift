@@ -27,6 +27,21 @@ final class WorkspaceContentViewVisibilityTests {
 
     @Test
     @MainActor
+    func ordinaryWorkspaceMountsOnlyTheSelectedPanelViewInEachPane() {
+        let workspace = Workspace(initialSurface: .cloudVMLoading)
+
+        switch workspace.bonsplitController.configuration.contentViewLifecycle {
+        case .recreateOnSwitch:
+            break
+        case .keepAllAlive:
+            Issue.record(
+                "An ordinary workspace must not keep hidden panel view trees mounted; panel models own terminal and browser runtime state across selection changes."
+            )
+        }
+    }
+
+    @Test
+    @MainActor
     func testMinimalModeToggleDoesNotReevaluateChromeHeavyBodies() async throws {
         _ = NSApplication.shared
 
