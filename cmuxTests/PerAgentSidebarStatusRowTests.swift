@@ -235,7 +235,7 @@ struct PerAgentSidebarStatusRowTests {
 
         // An adopted runtime whose keys were never validated must stay a
         // metadata pill in the destination, exactly as at the source.
-        let unvalidated = DetachedAgentRuntimeState(
+        let unvalidated = Workspace.DetachedAgentRuntimeState(
             panelId: panelId,
             statusEntries: [key: entry],
             agentPIDs: [key: 111],
