@@ -41,20 +41,47 @@ struct HostedInspectorMinimumSizePolicy: Equatable {
 /// for exactly the drag's duration so cmux is the only layout writer.
 @MainActor
 final class HostedInspectorDragFrameNotificationSilencer {
-    private var restore: (() -> Void)?
+    /// Deinit-safe restore token: the silencer's owner is an NSView whose
+    /// deinit is nonisolated, so restoration must not require MainActor
+    /// isolation proof at the call site.
+    private final class Restore: @unchecked Sendable {
+        private weak var view: NSView?
+        private let value: Bool
 
-    func begin(_ inspectedView: NSView) {
-        end()
-        let postedFrameChangedNotifications = inspectedView.postsFrameChangedNotifications
-        inspectedView.postsFrameChangedNotifications = false
-        restore = { [weak inspectedView] in
-            inspectedView?.postsFrameChangedNotifications = postedFrameChangedNotifications
+        @MainActor
+        init(view: NSView) {
+            self.view = view
+            self.value = view.postsFrameChangedNotifications
+        }
+
+        func run() {
+            if Thread.isMainThread {
+                MainActor.assumeIsolated { view?.postsFrameChangedNotifications = value }
+            } else {
+                DispatchQueue.main.async { [self] in
+                    MainActor.assumeIsolated { view?.postsFrameChangedNotifications = value }
+                }
+            }
         }
     }
 
+    private var restore: Restore?
+
+    func begin(_ inspectedView: NSView) {
+        end()
+        restore = Restore(view: inspectedView)
+        inspectedView.postsFrameChangedNotifications = false
+    }
+
     func end() {
-        restore?()
+        restore?.run()
         restore = nil
+    }
+
+    deinit {
+        // A drag that never sees mouseUp (owner torn down mid-drag) must not
+        // leave WebKit's inspector layout observer permanently deaf.
+        restore?.run()
     }
 }
 

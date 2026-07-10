@@ -122,7 +122,6 @@ final class WindowBrowserHostView: NSView {
     private var activeDividerCursorKind: DividerCursorKind?
     private var hostedInspectorDividerDrag: HostedInspectorDividerDragState?
     private var cachedHostedInspectorDividerHit: CachedHostedInspectorDividerHit?
-    private var lastSyncedHostedInspectorDragExtent: Int?
     private let hostedInspectorDragFrameSilencer = HostedInspectorDragFrameNotificationSilencer()
     private var lastHostedInspectorLayoutBoundsSize: NSSize?
 
@@ -132,6 +131,7 @@ final class WindowBrowserHostView: NSView {
             removeTrackingArea(trackingArea)
         }
         clearActiveDividerCursor(restoreArrow: false)
+        // hostedInspectorDragFrameSilencer restores in its own deinit.
     }
 
 #if DEBUG
@@ -409,7 +409,6 @@ final class WindowBrowserHostView: NSView {
             return
         }
         cachedHostedInspectorDividerHit = nil
-        lastSyncedHostedInspectorDragExtent = nil
 
         hostedInspectorHit.slotView.isHostedInspectorDividerDragActive = true
         hostedInspectorDragFrameSilencer.begin(hostedInspectorHit.pageView)
@@ -484,9 +483,12 @@ final class WindowBrowserHostView: NSView {
             ),
             reason: "drag"
         )
-        // Keep WebKit's stored attachment size tracking the live drag so its
-        // relayout can't re-apply the stale pre-drag size mid-drag.
-        syncAttachedSizeDuringDrag(extent: inspectorExtent, dockSide: dragState.dockSide, slotView: dragState.slotView)
+        // Do NOT sync the attachment size to WebKit per drag event: the
+        // frontend's JS queue backs up during fast scrubs and every queued
+        // setAttachedWindow* call echoes back as a stale WebKit frame apply
+        // (verified in the debug log), yanking the divider backwards. The
+        // frame-notification silencer keeps WebKit passive; one sync on
+        // mouseUp reconciles it.
         updateDividerCursor(
             at: convert(event.locationInWindow, from: nil),
             dividerHit: nil,
@@ -516,7 +518,11 @@ final class WindowBrowserHostView: NSView {
                 inspectorFrame: dragState.inspectorView.frame,
                 in: dragState.containerView.bounds
             )
-            syncAttachedSizeDuringDrag(extent: finalExtent, dockSide: dragState.dockSide, slotView: dragState.slotView)
+            HostedInspectorAttachedSizeSync.sync(
+                pageWebView: dragState.slotView.hostedInspectorPageWebViewForAttachedSizeSync,
+                dockSide: dragState.dockSide,
+                extent: finalExtent
+            )
 #if DEBUG
             cmuxDebugLog(
                 "browser.portal.manualInspectorDrag stage=end slot=\(browserPortalDebugToken(dragState.slotView)) " +
@@ -745,17 +751,6 @@ final class WindowBrowserHostView: NSView {
         }
 
         return nil
-    }
-
-    private func syncAttachedSizeDuringDrag(extent: CGFloat, dockSide: HostedInspectorDockSide, slotView: WindowBrowserSlotView) {
-        let roundedExtent = max(0, Int(extent.rounded()))
-        guard roundedExtent != lastSyncedHostedInspectorDragExtent else { return }
-        lastSyncedHostedInspectorDragExtent = roundedExtent
-        HostedInspectorAttachedSizeSync.sync(
-            pageWebView: slotView.hostedInspectorPageWebViewForAttachedSizeSync,
-            dockSide: dockSide,
-            extent: extent
-        )
     }
 
     private func cacheHostedInspectorDividerHit(_ hit: HostedInspectorDividerHit, at point: NSPoint) {

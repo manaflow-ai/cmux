@@ -5511,7 +5511,6 @@ struct WebViewRepresentable: NSViewRepresentable {
         private var activeDividerCursorKind: DividerCursorKind?
         private var hostedInspectorDividerDrag: HostedInspectorDividerDragState?
         private var cachedHostedInspectorDividerHit: CachedHostedInspectorDividerHit?
-        private var lastSyncedHostedInspectorDragExtent: Int?
         private let hostedInspectorDragFrameSilencer = HostedInspectorDragFrameNotificationSilencer()
         private var preferredHostedInspectorWidth: CGFloat?
         private var preferredHostedInspectorWidthFraction: CGFloat?
@@ -5544,6 +5543,7 @@ struct WebViewRepresentable: NSViewRepresentable {
                 removeTrackingArea(trackingArea)
             }
             clearActiveDividerCursor(restoreArrow: false)
+            // hostedInspectorDragFrameSilencer restores in its own deinit.
         }
         private func recordPreferredHostedInspectorWidth(_ width: CGFloat, containerBounds: NSRect) {
             preferredHostedInspectorWidth = width
@@ -6435,7 +6435,6 @@ struct WebViewRepresentable: NSViewRepresentable {
                 return
             }
             cachedHostedInspectorDividerHit = nil
-            lastSyncedHostedInspectorDragExtent = nil
             hostedInspectorReapplyWorkItem?.cancel()
             isHostedInspectorDividerDragActive = true
             hostedInspectorDragFrameSilencer.begin(hostedInspectorHit.pageView)
@@ -6492,11 +6491,11 @@ struct WebViewRepresentable: NSViewRepresentable {
                 ),
                 reason: "drag"
             )
-            // Keep WebKit's stored attachment size tracking the live drag: its
-            // inspectedViewFrameDidChange relayout otherwise re-applies the
-            // stale pre-drag size between our frame writes and the divider
-            // visibly fights the cursor.
-            syncAttachedSizeDuringDrag(extent: inspectorExtent, dockSide: dragState.dockSide)
+            // Do NOT sync the attachment size to WebKit per drag event: the
+            // frontend's JS queue backs up during fast scrubs and every queued
+            // setAttachedWindow* call echoes back as a stale WebKit frame
+            // apply, yanking the divider backwards. The frame-notification
+            // silencer keeps WebKit passive; one sync on mouseUp reconciles it.
 #if DEBUG
             debugLogHostedInspectorFrames(
                 stage: "drag.update",
@@ -6531,7 +6530,11 @@ struct WebViewRepresentable: NSViewRepresentable {
                     inspectorFrame: finalDragState.inspectorView.frame,
                     in: finalDragState.containerView.bounds
                 )
-                syncAttachedSizeDuringDrag(extent: finalExtent, dockSide: finalDragState.dockSide)
+                HostedInspectorAttachedSizeSync.sync(
+                    frontendWebView: hostedInspectorFrontendWebView,
+                    dockSide: finalDragState.dockSide,
+                    extent: finalExtent
+                )
 #if DEBUG
                 debugLogHostedInspectorFrames(
                     stage: "drag.end",
@@ -6547,16 +6550,6 @@ struct WebViewRepresentable: NSViewRepresentable {
                 reapplyHostedInspectorDividerToStoredExtentIfNeeded(reason: "drag.end")
             }
             super.mouseUp(with: event)
-        }
-        private func syncAttachedSizeDuringDrag(extent: CGFloat, dockSide: HostedInspectorDockSide) {
-            let roundedExtent = max(0, Int(extent.rounded()))
-            guard roundedExtent != lastSyncedHostedInspectorDragExtent else { return }
-            lastSyncedHostedInspectorDragExtent = roundedExtent
-            HostedInspectorAttachedSizeSync.sync(
-                frontendWebView: hostedInspectorFrontendWebView,
-                dockSide: dockSide,
-                extent: extent
-            )
         }
         private func shouldPassThroughToSidebarResizer(
             at point: NSPoint,
