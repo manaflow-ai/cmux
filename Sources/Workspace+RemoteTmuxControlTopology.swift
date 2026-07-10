@@ -43,16 +43,17 @@ extension Workspace {
         if let location = remoteTmuxControlPane(surfaceID: surfaceID) {
             return .pane(location)
         }
-        guard let mirror = remoteTmuxWindowMirror(forPanelId: surfaceID) else {
+        guard remoteTmuxWindowMirror(forPanelId: surfaceID) != nil else {
             return .notRemote
         }
-        guard let pane = mirror.activeControlPane() else { return .unresolvedMirror }
-        return .pane((surfaceID, mirror, pane))
+        // The wrapper UUID identifies the mirror container, not a tmux pane.
+        // Never alias it to the mutable active pane: callers may cache handles,
+        // and a later focus publication would silently retarget that handle.
+        return .unresolvedMirror
     }
 
     /// Canonicalizes an explicit control-plane terminal target. Hidden mirror
-    /// containers project to the authoritative active inner pane and unresolved
-    /// mirrors fail closed instead of exposing their stale wrapper panel.
+    /// containers fail closed instead of exposing their stale wrapper panel.
     func controlSurfaceTarget(for surfaceID: UUID) -> ControlSurfaceProjection? {
         switch remoteTmuxControlSurfaceTarget(surfaceID: surfaceID) {
         case .pane(let location):

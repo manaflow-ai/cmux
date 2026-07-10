@@ -52,15 +52,11 @@ extension RemoteTmuxWindowMirror {
         return (modifiers + [base]).joined(separator: "-")
     }
 
-    /// Selects a pane only when the control command was accepted. The tmux
-    /// publication remains authoritative when the transport is unavailable.
+    /// Requests pane selection. The next tmux publication remains authoritative
+    /// even after the writer accepts this command.
     @discardableResult
     func focus(pane tmuxPaneID: Int) -> Bool {
-        guard sendControlCommand("select-pane -t @\(windowId).%\(tmuxPaneID)") else {
-            return false
-        }
-        noteRemoteActivePane(tmuxPaneID)
-        return true
+        sendControlCommand("select-pane -t @\(windowId).%\(tmuxPaneID)")
     }
 
     /// Splits the addressed tmux pane. The new pane arrives through the next

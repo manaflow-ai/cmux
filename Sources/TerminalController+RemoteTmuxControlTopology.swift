@@ -47,6 +47,30 @@ extension TerminalController {
         return nil
     }
 
+    func locateRemoteTmuxMirrorContainer(
+        _ surfaceID: UUID
+    ) -> (windowId: UUID, tabManager: TabManager, workspace: Workspace)? {
+        guard let app = AppDelegate.shared else { return nil }
+        for summary in app.listMainWindowSummaries() {
+            guard let tabManager = app.tabManagerFor(windowId: summary.windowId) else { continue }
+            if let workspace = tabManager.tabs.first(where: {
+                $0.remoteTmuxWindowMirror(forPanelId: surfaceID) != nil
+            }) {
+                return (summary.windowId, tabManager, workspace)
+            }
+        }
+        return nil
+    }
+
+    func remoteTmuxMirrorContainerID(in params: [String: JSONValue]) -> UUID? {
+        for key in ["surface_id", "before_surface_id", "after_surface_id"] {
+            guard let rawID = params[key]?.foundationObject as? String,
+                  let surfaceID = UUID(uuidString: rawID) else { continue }
+            if locateRemoteTmuxMirrorContainer(surfaceID) != nil { return surfaceID }
+        }
+        return nil
+    }
+
     func controlPaneList(
         workspace: Workspace,
         tabManager: TabManager

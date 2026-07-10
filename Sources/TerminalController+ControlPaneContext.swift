@@ -256,6 +256,46 @@ extension TerminalController: ControlPaneContext {
         guard let ws = resolveWorkspace(routing: routing, tabManager: tabManager) else {
             return .workspaceNotFound
         }
+
+        if panelType == .terminal {
+            let remoteTarget: Workspace.RemoteTmuxControlPaneLocation?
+            if let requestedSurfaceID = inputs.requestedSourceSurfaceID {
+                switch ws.remoteTmuxControlSurfaceTarget(surfaceID: requestedSurfaceID) {
+                case .pane(let location):
+                    remoteTarget = location
+                case .unresolvedMirror:
+                    return .noSourceSurface
+                case .notRemote:
+                    remoteTarget = nil
+                }
+            } else {
+                remoteTarget = routing.paneID.flatMap { ws.remoteTmuxControlPane(paneID: $0) }
+            }
+            if let remoteTarget {
+                let unsupported = mirrorRoutedUnsupportedOptions(
+                    insertFirst: insertFirst,
+                    workingDirectory: inputs.workingDirectory,
+                    initialCommand: inputs.initialCommand,
+                    tmuxStartCommand: inputs.tmuxStartCommand,
+                    startupEnvironment: inputs.startupEnvironment,
+                    initialDividerPosition: initialDividerPosition
+                )
+                guard unsupported.isEmpty else { return .mirrorUnsupportedOptions(unsupported) }
+                guard remoteTarget.mirror.requestSplit(
+                    fromPane: remoteTarget.pane.tmuxPaneID,
+                    vertical: orientation == .vertical
+                ) else {
+                    return .createFailed
+                }
+                v2MaybeFocusWindow(for: tabManager)
+                v2MaybeSelectWorkspace(tabManager, workspace: ws)
+                return .routedToRemote(
+                    windowID: v2ResolveWindowId(tabManager: tabManager),
+                    workspaceID: ws.id,
+                    typeRawValue: panelType.rawValue
+                )
+            }
+        }
         v2MaybeFocusWindow(for: tabManager)
         v2MaybeSelectWorkspace(tabManager, workspace: ws)
 
@@ -389,6 +429,9 @@ extension TerminalController: ControlPaneContext {
         guard let paneUUID else {
             return .noFocusedPane
         }
+        guard ws.remoteTmuxControlPane(paneID: paneUUID) == nil else {
+            return .paneNotFound(paneUUID)
+        }
         guard ws.bonsplitController.allPaneIds.contains(where: { $0.id == paneUUID }) else {
             return .paneNotFound(paneUUID)
         }
@@ -475,8 +518,14 @@ extension TerminalController: ControlPaneContext {
         requestedFocus: Bool
     ) -> ControlPaneSwapResolution {
         let focus = v2FocusAllowed(requested: requestedFocus)
+        guard locateRemoteTmuxControlPane(sourcePaneID) == nil else {
+            return .sourcePaneNotFound(sourcePaneID)
+        }
         guard let located = v2LocatePane(sourcePaneID) else {
             return .sourcePaneNotFound(sourcePaneID)
+        }
+        guard located.workspace.remoteTmuxControlPane(paneID: targetPaneID) == nil else {
+            return .targetPaneNotFound(targetPaneID)
         }
         guard let targetPane = located.workspace.bonsplitController.allPaneIds.first(where: {
             $0.id == targetPaneID
@@ -560,6 +609,17 @@ extension TerminalController: ControlPaneContext {
             return .workspaceNotFound
         }
 
+        if let paneID, let remote = sourceWorkspace.remoteTmuxControlPane(paneID: paneID) {
+            return .surfaceNotFound(remote.pane.panel.id)
+        }
+        if let surfaceID {
+            switch sourceWorkspace.remoteTmuxControlSurfaceTarget(surfaceID: surfaceID) {
+            case .pane, .unresolvedMirror:
+                return .surfaceNotFound(surfaceID)
+            case .notRemote:
+                break
+            }
+        }
         let sourcePane: PaneID? = {
             if let paneID {
                 return sourceWorkspace.bonsplitController.allPaneIds.first(where: { $0.id == paneID })
@@ -623,6 +683,23 @@ extension TerminalController: ControlPaneContext {
         hasFocusParam: Bool,
         focus: Bool
     ) -> ControlPaneJoinResolution {
+        if let surfaceID, locateRemoteTmuxMirrorContainer(surfaceID) != nil {
+            return .moved(.err(
+                code: "not_found",
+                message: "Surface not found",
+                data: .object(["surface_id": .string(surfaceID.uuidString)])
+            ))
+        }
+        if let sourcePaneID, locateRemoteTmuxControlPane(sourcePaneID) != nil {
+            return .sourceSurfaceUnresolved(sourcePaneID: sourcePaneID)
+        }
+        if locateRemoteTmuxControlPane(targetPaneID) != nil {
+            return .moved(.err(
+                code: "not_found",
+                message: "Pane not found",
+                data: .object(["pane_id": .string(targetPaneID.uuidString)])
+            ))
+        }
         var resolvedSurfaceId = surfaceID
         if resolvedSurfaceId == nil, let sourcePaneID {
             guard let sourceLocated = v2LocatePane(sourcePaneID),
@@ -674,6 +751,9 @@ extension TerminalController: ControlPaneContext {
         }
         guard let ws = resolveWorkspace(routing: routing, tabManager: tabManager) else {
             return .workspaceNotFound
+        }
+        if let paneID = routing.paneID, ws.remoteTmuxControlPane(paneID: paneID) != nil {
+            return .noAlternatePane
         }
         guard let focused = ws.bonsplitController.focusedPaneId else {
             return .noFocusedPane

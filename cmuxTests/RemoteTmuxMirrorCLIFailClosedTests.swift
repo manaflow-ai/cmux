@@ -38,19 +38,27 @@ extension RemoteTmuxMirrorCLIObservabilityTests {
         }
     }
 
-    @Test func hiddenMirrorContainerRoutesThroughActiveProjection() throws {
+    @Test func hiddenMirrorContainerHandlesFailClosedWhileDefaultsProject() throws {
         do {
             let harness = try Harness()
             defer { harness.tearDown() }
             let activeSurfaceID = try activeSurfaceID(in: harness)
 
-            let send = TerminalController.shared.controlSurfaceSendText(
+            let implicitSend = TerminalController.shared.controlSurfaceSendText(
+                routing: harness.routing(),
+                surfaceID: nil,
+                hasSurfaceIDParam: false,
+                text: "route through active pane"
+            )
+            #expect(implicitSend == .surfaceUnavailable(activeSurfaceID))
+
+            let explicitSend = TerminalController.shared.controlSurfaceSendText(
                 routing: harness.routing(),
                 surfaceID: harness.outerPanelID,
                 hasSurfaceIDParam: true,
-                text: "route through active pane"
+                text: "do not alias a cached wrapper"
             )
-            #expect(send == .surfaceUnavailable(activeSurfaceID))
+            #expect(explicitSend == .surfaceNotTerminal(harness.outerPanelID))
             #expect(TerminalController.shared.controlSurfaceFocus(
                 routing: harness.routing(),
                 surfaceID: harness.outerPanelID
@@ -66,35 +74,106 @@ extension RemoteTmuxMirrorCLIObservabilityTests {
                 inputs: splitInputs(surfaceID: harness.outerPanelID)
             )
 
-            #expect(result == .createFailed)
+            #expect(result == .requestedSurfaceNotFound(harness.outerPanelID))
         }
 
         do {
             let harness = try Harness()
             defer { harness.tearDown() }
-            let activeSurfaceID = try activeSurfaceID(in: harness)
-
             let result = TerminalController.shared.controlSurfaceRespawn(
                 routing: harness.routing(),
                 inputs: respawnInputs(surfaceID: harness.outerPanelID)
             )
 
-            #expect(result == .respawnFailed(activeSurfaceID))
+            #expect(result == .surfaceNotFoundForID(harness.outerPanelID))
         }
 
         do {
             let harness = try Harness(addPeerSurface: true)
             defer { harness.tearDown() }
-            let activeSurfaceID = try activeSurfaceID(in: harness)
-
             let result = TerminalController.shared.controlSurfaceClose(
                 routing: harness.routing(),
                 surfaceID: harness.outerPanelID
             )
 
-            #expect(result == .closeFailed(activeSurfaceID))
+            #expect(result == .surfaceNotFound(harness.outerPanelID))
             #expect(harness.workspace.panels[harness.outerPanelID] != nil)
         }
+
+        do {
+            let harness = try Harness(addPeerSurface: true)
+            defer { harness.tearDown() }
+            let notFound = ControlCallResult.err(
+                code: "not_found",
+                message: "Surface not found",
+                data: .object(["surface_id": .string(harness.outerPanelID.uuidString)])
+            )
+
+            #expect(TerminalController.shared.controlSurfaceMove(params: [
+                "surface_id": .string(harness.outerPanelID.uuidString),
+            ]) == notFound)
+            #expect(TerminalController.shared.controlSurfaceReorder(
+                surfaceID: harness.outerPanelID,
+                inputs: ControlSurfaceReorderInputs(
+                    index: 0,
+                    beforeSurfaceID: nil,
+                    afterSurfaceID: nil
+                ),
+                requestedFocus: false
+            ) == .surfaceNotFound(harness.outerPanelID))
+            #expect(TerminalController.shared.controlPaneJoin(
+                targetPaneID: try #require(harness.workspace.bonsplitController.focusedPaneId?.id),
+                surfaceID: harness.outerPanelID,
+                sourcePaneID: nil,
+                hasFocusParam: false,
+                focus: false
+            ) == .moved(notFound))
+            #expect(harness.workspace.panels[harness.outerPanelID] != nil)
+        }
+    }
+
+    @Test func bonsplitOnlyPaneMutationsRejectProjectedPaneIDs() throws {
+        let harness = try Harness(focusAwayFromMirror: true)
+        defer { harness.tearDown() }
+        let tmuxPaneID = try #require(harness.mirror.paneIDsInOrder.first)
+        let paneID = try #require(harness.mirror.syntheticPaneID(forPane: tmuxPaneID)?.id)
+        let surfaceID = try #require(harness.mirror.panel(forPane: tmuxPaneID)?.id)
+        let focusedBefore = harness.workspace.bonsplitController.focusedPaneId?.id
+
+        let resize = TerminalController.shared.controlPaneResize(
+            routing: harness.routing(paneID: paneID),
+            inputs: ControlPaneResizeInputs(
+                paneID: paneID,
+                absoluteAxis: nil,
+                targetPixels: nil,
+                direction: "right",
+                amount: 1
+            )
+        )
+        #expect(resize == .paneNotFound(paneID))
+
+        let breakResult = TerminalController.shared.controlPaneBreak(
+            routing: harness.routing(paneID: paneID),
+            paneID: paneID,
+            surfaceID: nil,
+            requestedFocus: false
+        )
+        #expect(breakResult == .surfaceNotFound(surfaceID))
+
+        let join = TerminalController.shared.controlPaneJoin(
+            targetPaneID: paneID,
+            surfaceID: nil,
+            sourcePaneID: paneID,
+            hasFocusParam: false,
+            focus: false
+        )
+        #expect(join == .sourceSurfaceUnresolved(sourcePaneID: paneID))
+
+        let last = TerminalController.shared.controlPaneLast(
+            routing: harness.routing(paneID: paneID)
+        )
+        #expect(last == .noAlternatePane)
+        #expect(harness.workspace.bonsplitController.focusedPaneId?.id == focusedBefore)
     }
 
     @Test func paneScopedMutationsTargetTheRequestedProjectedPane() throws {
