@@ -1,5 +1,17 @@
 import AppKit
 
+enum TerminalPortalBulkSynchronization {
+    @MainActor
+    static func run<Entry>(
+        prepare: () -> Void,
+        entries: () -> [Entry],
+        synchronize: (Entry) -> Void
+    ) {
+        prepare()
+        entries().forEach(synchronize)
+    }
+}
+
 struct TransientPortalHostCandidate: Equatable {
     let ownershipGeneration: UInt64
     let registrationToken: UInt64
@@ -255,9 +267,6 @@ extension WindowTerminalPortal {
     func scheduleDeferredFullSynchronizeAll() -> Task<Void, Never> {
         fullSynchronizationScheduler.schedule { [weak self] in
             guard let self else { return }
-#if DEBUG
-            debugDeferredFullSynchronizationPassCount += 1
-#endif
             synchronizeAllHostedViews(excluding: nil)
         }
     }
@@ -268,20 +277,26 @@ extension WindowTerminalPortal {
         allowPresentationRefresh: Bool = true
     ) {
         guard ensureInstalled(syncLayout: false) else { return }
-        if syncLayout {
-            synchronizeLayoutHierarchy()
-        } else {
-            _ = synchronizeHostFrameToReference()
-        }
-        pruneDeadEntries()
-        let hostedIds = Array(entriesByHostedId.keys)
-        for hostedId in hostedIds where hostedId != hostedIdToSkip {
-            synchronizeHostedView(
-                withId: hostedId,
-                syncLayout: false,
-                allowPresentationRefresh: allowPresentationRefresh
-            )
-        }
+        TerminalPortalBulkSynchronization.run(
+            prepare: {
+                if syncLayout {
+                    synchronizeLayoutHierarchy()
+                } else {
+                    _ = synchronizeHostFrameToReference()
+                }
+                pruneDeadEntries()
+            },
+            entries: {
+                Array(entriesByHostedId.keys).filter { $0 != hostedIdToSkip }
+            },
+            synchronize: { hostedId in
+                synchronizeHostedView(
+                    withId: hostedId,
+                    syncLayout: false,
+                    allowPresentationRefresh: allowPresentationRefresh
+                )
+            }
+        )
     }
 }
 
