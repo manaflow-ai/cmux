@@ -303,21 +303,8 @@ struct WorkspaceContentView: View {
         .id(splitZoomRenderIdentity)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
-            updateWorkspacePresentationVisibility()
             syncBonsplitNotificationBadges()
             refreshGhosttyAppearanceConfig(reason: "onAppear")
-        }
-        .onChange(of: isWorkspaceVisible) { _, isVisible in
-            updateWorkspacePresentationVisibility()
-            guard isVisible else { return }
-            flushDeferredThemeRefreshIfNeeded()
-        }
-        .onChange(of: isWorkspaceInputActive) { _, _ in
-            updateWorkspacePresentationVisibility()
-        }
-        .onDisappear {
-            workspace.setPortalPresentationVisible(false)
-            workspace.setAgentHibernationAutoResumePresentationVisible(false)
         }
         .onChange(of: notificationStore.notifications) { _, _ in
             syncBonsplitNotificationBadges()
@@ -363,7 +350,7 @@ struct WorkspaceContentView: View {
             )
         }
 
-        Group {
+        ZStack {
             if workspace.layoutMode == .canvas {
                 WorkspaceCanvasHostView(
                     workspace: workspace,
@@ -377,6 +364,21 @@ struct WorkspaceContentView: View {
             }
         }
         .modifier(WorkspaceContentMinimalModeSafeAreaModifier(isFullScreen: isFullScreen))
+        .onAppear {
+            updateWorkspacePresentationVisibility()
+        }
+        .onChange(of: isWorkspaceVisible) { _, isVisible in
+            updateWorkspacePresentationVisibility()
+            guard isVisible else { return }
+            flushDeferredThemeRefreshIfNeeded()
+        }
+        .onChange(of: isWorkspaceInputActive) { _, _ in
+            updateWorkspacePresentationVisibility()
+        }
+        .onDisappear {
+            workspace.setPortalPresentationVisible(false)
+            workspace.setAgentHibernationAutoResumePresentationVisible(false)
+        }
     }
 
     private func syncBonsplitNotificationBadges() {

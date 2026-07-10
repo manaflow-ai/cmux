@@ -164,6 +164,16 @@ enum TerminalPortalVisibilityRefreshPolicy {
 }
 
 extension GhosttySurfaceScrollView {
+    func setDirectHostHandlers(
+        focusHandler: (() -> Void)?,
+        triggerFlashHandler: (() -> Void)?
+    ) {
+        // Direct hosting replaces the portal as one callback owner. Retire both
+        // portal-owned closures before publishing the direct host's callbacks.
+        setFocusHandler(focusHandler)
+        setTriggerFlashHandler(triggerFlashHandler)
+    }
+
     func prepareOwnedPortalHostForTransientReattach(hostId: ObjectIdentifier, reason: String) {
         guard let terminalSurface = surfaceView.terminalSurface,
               terminalSurface.isPortalHostOwner(hostId: hostId) else { return }
