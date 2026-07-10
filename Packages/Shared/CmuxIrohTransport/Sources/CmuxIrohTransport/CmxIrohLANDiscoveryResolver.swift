@@ -86,7 +86,12 @@ public struct CmxIrohLANDiscoveryResolver: Sendable {
         }
         guard !matchingInterfaces.isEmpty,
               txt.addresses.allSatisfy({ address in
-                  matchingInterfaces.contains(where: { $0.contains(address) })
+                  let owningInterfaces = Set(
+                      interfaces.lazy
+                          .filter { $0.contains(address) }
+                          .map(\.interfaceIndex)
+                  )
+                  return owningInterfaces == [service.interfaceIndex]
               }) else {
             throw CmxIrohLANDiscoveryError.invalidInterface
         }
