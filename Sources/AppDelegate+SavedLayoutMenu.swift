@@ -28,32 +28,26 @@ extension AppDelegate {
         return true
     }
 
-    func appendSavedLayoutMenuItems(to menu: NSMenu, windowId: UUID) {
-        let layouts = (try? SavedLayoutStore().list()) ?? []
-        guard !layouts.isEmpty else { return }
-
-        if !menu.items.isEmpty, menu.items.last?.isSeparatorItem == false {
-            menu.addItem(.separator())
-        }
-
+    func savedLayoutNewWorkspaceMenuItem(layoutNames: [String], windowId: UUID) -> NSMenuItem? {
+        guard !layoutNames.isEmpty else { return nil }
         let parent = NSMenuItem(
             title: String(localized: "menu.savedLayout.newWorkspaceFromLayout", defaultValue: "New Workspace from Template"),
             action: nil,
             keyEquivalent: ""
         )
         let submenu = NSMenu()
-        for layout in layouts {
+        for layoutName in layoutNames {
             let item = NSMenuItem(
-                title: layout.name,
+                title: layoutName,
                 action: #selector(performSavedLayoutContextMenuItem(_:)),
                 keyEquivalent: ""
             )
             item.target = self
-            item.representedObject = SavedLayoutContextMenuActionBox(windowId: windowId, layoutName: layout.name)
+            item.representedObject = SavedLayoutContextMenuActionBox(windowId: windowId, layoutName: layoutName)
             submenu.addItem(item)
         }
         parent.submenu = submenu
-        menu.addItem(parent)
+        return parent
     }
 
     @objc private func performSavedLayoutContextMenuItem(_ sender: NSMenuItem) {

@@ -24,32 +24,32 @@ import Testing
         #expect(harness.flow.isSigningIn == false)
     }
 
-    @Test func nonAuthBrowserCompletionWaitsForExternalCallback() async {
+    @Test func nonAuthBrowserCompletionEndsPresentationAndAcceptsLateExternalCallback() async {
         let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
         let harness = HostBrowserSignInFlowHarness(user: user)
-
         let attempt = Task { await harness.flow.signIn(timeout: 60) }
         await harness.waitForSession()
+        let callbackState = harness.callbackState(harness.factory.sessions[0])
         harness.factory.sessions[0].deliver(URL(string: "https://example.test/handler/sign-in?after_auth_return_to=1")!)
-
         await Task.yield()
         #expect(harness.flow.isSigningIn)
-        #expect(harness.coordinator.isAuthenticated == false)
-
-        let callbackResult = await harness.flow.handleCallbackURL(harness.callbackURL(state: harness.callbackState(harness.factory.sessions[0])))
-
+        #expect(!harness.flow.isPresentingSignIn && !harness.coordinator.isAuthenticated)
+        harness.flow.beginSignIn()
+        await Task.yield()
+        #expect(harness.flow.isPresentingSignIn && harness.flow.signInIsSlow)
+        #expect(harness.factory.sessions.count == 1)
+        let callbackResult = await harness.flow.handleCallbackURL(harness.callbackURL(state: callbackState))
         #expect(callbackResult)
         #expect(await attempt.value)
         #expect(harness.coordinator.isAuthenticated)
         #expect(harness.coordinator.currentUser == user)
         #expect(await harness.tokenStore.getStoredRefreshToken() == "refresh-1")
         #expect(await harness.tokenStore.getStoredAccessToken() == "access-1")
-        #expect(harness.flow.isSigningIn == false)
+        #expect(!harness.flow.isSigningIn && !harness.flow.isPresentingSignIn)
     }
 
     @Test func cancelledPopupResolvesFalse() async {
         let harness = HostBrowserSignInFlowHarness()
-
         let attempt = Task { await harness.flow.signIn(timeout: 60) }
         await harness.waitForSession()
         harness.factory.sessions[0].cancel()

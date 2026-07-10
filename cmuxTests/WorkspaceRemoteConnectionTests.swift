@@ -3657,7 +3657,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             cols: Int,
             rows: Int,
             command: String?,
-            requireExisting: Bool,
+            requireExisting: Bool, inputSeqAck: Bool,
             queue: DispatchQueue,
             onEvent: @escaping (RemotePTYBridgeEvent) -> Void
         ) throws -> RemotePTYBridgeAttachment {
@@ -3679,7 +3679,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             sessionID: String,
             attachmentID: String,
             attachmentToken: String,
-            data: Data,
+            data: Data, seq: UInt64?,
             completion: @escaping (Error?) -> Void
         ) {
             completion(nil)
@@ -3694,7 +3694,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             cols: Int,
             rows: Int,
             command: String?,
-            requireExisting: Bool,
+            requireExisting: Bool, inputSeqAck: Bool,
             queue: DispatchQueue,
             onEvent: @escaping (RemotePTYBridgeEvent) -> Void
         ) throws -> RemotePTYBridgeAttachment {
@@ -3709,7 +3709,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             sessionID: String,
             attachmentID: String,
             attachmentToken: String,
-            data: Data,
+            data: Data, seq: UInt64?,
             completion: @escaping (Error?) -> Void
         ) {
             completion(nil)
@@ -3726,7 +3726,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             cols: Int,
             rows: Int,
             command: String?,
-            requireExisting: Bool,
+            requireExisting: Bool, inputSeqAck: Bool,
             queue: DispatchQueue,
             onEvent: @escaping (RemotePTYBridgeEvent) -> Void
         ) throws -> RemotePTYBridgeAttachment {
@@ -3743,7 +3743,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             sessionID: String,
             attachmentID: String,
             attachmentToken: String,
-            data: Data,
+            data: Data, seq: UInt64?,
             completion: @escaping (Error?) -> Void
         ) {
             completion(nil)
@@ -3775,7 +3775,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             cols: Int,
             rows: Int,
             command: String?,
-            requireExisting: Bool,
+            requireExisting: Bool, inputSeqAck: Bool,
             queue: DispatchQueue,
             onEvent: @escaping (RemotePTYBridgeEvent) -> Void
         ) throws -> RemotePTYBridgeAttachment {
@@ -3794,7 +3794,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             sessionID: String,
             attachmentID: String,
             attachmentToken: String,
-            data: Data,
+            data: Data, seq: UInt64?,
             completion: @escaping (Error?) -> Void
         ) {
             guard String(data: data, encoding: .utf8)?.contains("after-half-close-input") == true else {
@@ -3840,7 +3840,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             cols: Int,
             rows: Int,
             command: String?,
-            requireExisting: Bool,
+            requireExisting: Bool, inputSeqAck: Bool,
             queue: DispatchQueue,
             onEvent: @escaping (RemotePTYBridgeEvent) -> Void
         ) throws -> RemotePTYBridgeAttachment {
@@ -3851,7 +3851,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             sessionID: String,
             attachmentID: String,
             attachmentToken: String,
-            data: Data,
+            data: Data, seq: UInt64?,
             completion: @escaping (Error?) -> Void
         ) {
             let writeCount: Int
@@ -5655,11 +5655,11 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         let server = RemotePTYBridgeServer(
             rpcClient: rpcClient,
             sessionID: "session-short-lived",
-            attachmentID: "attachment-short-lived",
+            lifecycleID: "attachment-short-lived", attachmentID: "attachment-short-lived",
             command: "printf done",
             requireExisting: true,
             strings: AppRemotePTYBridgeStrings()
-        ) {
+        ) { _ in
             stopped.signal()
         }
         let endpoint = try server.start()
@@ -5702,11 +5702,11 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         let server = RemotePTYBridgeServer(
             rpcClient: rpcClient,
             sessionID: "session-early-output",
-            attachmentID: "attachment-early-output",
+            lifecycleID: "attachment-early-output", attachmentID: "attachment-early-output",
             command: nil,
             requireExisting: true,
             strings: AppRemotePTYBridgeStrings()
-        ) {
+        ) { _ in
             stopped.signal()
         }
         let endpoint = try server.start()
@@ -5743,11 +5743,11 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         let server = RemotePTYBridgeServer(
             rpcClient: rpcClient,
             sessionID: "session-input-completion",
-            attachmentID: "attachment-input-completion",
+            lifecycleID: "attachment-input-completion", attachmentID: "attachment-input-completion",
             command: nil,
             requireExisting: false,
             strings: AppRemotePTYBridgeStrings()
-        ) {}
+        ) { _ in }
         let endpoint = try server.start()
         let fd = try connectLoopbackTCP(port: endpoint.port)
         defer {
@@ -5786,11 +5786,11 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         var server: RemotePTYBridgeServer? = RemotePTYBridgeServer(
             rpcClient: rpcClient,
             sessionID: "session-stop-retain",
-            attachmentID: "attachment-stop-retain",
+            lifecycleID: "attachment-stop-retain", attachmentID: "attachment-stop-retain",
             command: nil,
             requireExisting: false,
             strings: AppRemotePTYBridgeStrings()
-        ) {
+        ) { _ in
             stopped.signal()
         }
         guard let endpoint = try server?.start() else {
@@ -5810,11 +5810,11 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         let server = RemotePTYBridgeServer(
             rpcClient: rpcClient,
             sessionID: "session-half-close",
-            attachmentID: "attachment-half-close",
+            lifecycleID: "attachment-half-close", attachmentID: "attachment-half-close",
             command: nil,
             requireExisting: false,
             strings: AppRemotePTYBridgeStrings()
-        ) {
+        ) { _ in
             stopped.signal()
         }
         let endpoint = try server.start()
@@ -5849,11 +5849,11 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         let server = RemotePTYBridgeServer(
             rpcClient: rpcClient,
             sessionID: "session-half-close-no-pid",
-            attachmentID: "attachment-half-close-no-pid",
+            lifecycleID: "attachment-half-close-no-pid", attachmentID: "attachment-half-close-no-pid",
             command: nil,
             requireExisting: false,
             strings: AppRemotePTYBridgeStrings()
-        ) {
+        ) { _ in
             stopped.signal()
         }
         let endpoint = try server.start()
@@ -5890,11 +5890,11 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         let server = RemotePTYBridgeServer(
             rpcClient: rpcClient,
             sessionID: "session-half-close-before-attach",
-            attachmentID: "attachment-half-close-before-attach",
+            lifecycleID: "attachment-half-close-before-attach", attachmentID: "attachment-half-close-before-attach",
             command: nil,
             requireExisting: false,
             strings: AppRemotePTYBridgeStrings()
-        ) {
+        ) { _ in
             stopped.signal()
         }
         let endpoint = try server.start()
@@ -5933,11 +5933,11 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         let server = RemotePTYBridgeServer(
             rpcClient: rpcClient,
             sessionID: "session-client-close",
-            attachmentID: "attachment-client-close",
+            lifecycleID: "attachment-client-close", attachmentID: "attachment-client-close",
             command: nil,
             requireExisting: false,
             strings: AppRemotePTYBridgeStrings()
-        ) {
+        ) { _ in
             stopped.signal()
         }
         let endpoint = try server.start()
@@ -5971,11 +5971,11 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         let server = RemotePTYBridgeServer(
             rpcClient: rpcClient,
             sessionID: "session-output-flood",
-            attachmentID: "attachment-output-flood",
+            lifecycleID: "attachment-output-flood", attachmentID: "attachment-output-flood",
             command: nil,
             requireExisting: false,
             strings: AppRemotePTYBridgeStrings()
-        ) {
+        ) { _ in
             stopped.signal()
         }
         let endpoint = try server.start()

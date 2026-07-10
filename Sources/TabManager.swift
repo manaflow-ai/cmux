@@ -192,7 +192,7 @@ class TabManager: ObservableObject {
     // timing (objectWillChange + bridge publishers in willSet, selection
     // side effects in didSet).
     let workspaces = WorkspacesModel<Workspace>()
-    private var workspacesById: [UUID: Workspace] = [:]
+    private(set) var workspacesById: [UUID: Workspace] = [:]
 
     var tabs: [Workspace] {
         get { workspaces.tabs }
@@ -686,11 +686,7 @@ class TabManager: ObservableObject {
 
     private func sweepStaleAgentPIDs() {
         for tab in tabs {
-            if tab.clearStaleAgentPIDs() {
-                // Also clear stale notifications (e.g. "Doing well, thanks!")
-                // left behind when Claude was killed without SessionEnd firing.
-                AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: tab.id)
-            }
+            tab.clearStaleAgentPIDs()
         }
     }
 
@@ -5782,24 +5778,6 @@ extension TabManager {
         hasher.combine(snapshot.submissionPath)
         hashOptionalString(snapshot.localPath, into: &hasher)
         hasher.combine(snapshot.cleanupLocalPathWhenDisposed)
-    }
-
-    nonisolated private static func hashNotifications(
-        _ notifications: [TerminalNotification],
-        into hasher: inout Hasher
-    ) {
-        hasher.combine(notifications.count)
-        for notification in notifications.sorted(by: { $0.id.uuidString < $1.id.uuidString }) {
-            hasher.combine(notification.id)
-            hasher.combine(notification.title)
-            hasher.combine(notification.subtitle)
-            hasher.combine(notification.body)
-            hasher.combine(notification.createdAt.timeIntervalSince1970)
-            hasher.combine(notification.isRead)
-            hasher.combine(notification.paneFlash)
-            hasher.combine(notification.panelId)
-            hasher.combine(notification.clickAction)
-        }
     }
 
     nonisolated private static func hashOptionalString(_ value: String?, into hasher: inout Hasher) {

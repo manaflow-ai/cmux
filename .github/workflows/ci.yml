@@ -388,7 +388,12 @@ jobs:
     needs:
       - changes
       - linux-preflight
-    if: ${{ needs.changes.outputs.macos == 'true' }}
+    # !cancelled() disables the implicit success() gate, which GitHub evaluates
+    # over the transitive needs chain: linux-preflight runs behind routed linux
+    # jobs that legitimately skip (web/go/agent-session paths), and that
+    # transitive skip otherwise marks every macOS job skipped even when
+    # linux-preflight itself succeeds. Require the direct needs explicitly.
+    if: ${{ !cancelled() && needs.changes.result == 'success' && needs.linux-preflight.result == 'success' && needs.changes.outputs.macos == 'true' }}
     name: app-host unit tests (${{ matrix.shard }}/4)
     # App-host XCTest needs a runner that can broker testmanagerd control
     # sessions. Validated head-to-head that warp-macos-15-arm64-6x runs the
@@ -568,6 +573,46 @@ jobs:
             -destination "platform=macOS" \
             CMUX_SKIP_ZIG_BUILD=1 \
             -only-testing:cmuxTests/GhosttyOptionAsAltModsTests \
+            test
+
+      - name: Run omnibar suggestion click regression
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        run: |
+          # Focused gate for https://github.com/manaflow-ai/cmux/issues/7380.
+          # The tolerant full-suite step can crash-skip late suites (see #5888
+          # note above), so this regression gets a non-tolerant focused
+          # invocation.
+          set -euo pipefail
+          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          scripts/ci/run-in-console-session.sh \
+            scripts/ci/run-app-host-xcodebuild.sh \
+            -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+            -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+            -disableAutomaticPackageResolution \
+            -destination "platform=macOS" \
+            CMUX_SKIP_ZIG_BUILD=1 \
+            -only-testing:cmuxTests/BrowserOmnibarSuggestionClickRoutingTests \
+            test
+
+      - name: Run remote tmux mirror active-pane regression
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        run: |
+          # Focused gates for https://github.com/manaflow-ai/cmux/issues/7372.
+          # The tolerant full-suite step can crash-skip late suites (see #5888
+          # note above), so the seed and immediate-update paths get a
+          # non-tolerant invocation.
+          set -euo pipefail
+          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          scripts/ci/run-in-console-session.sh \
+            scripts/ci/run-app-host-xcodebuild.sh \
+            -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+            -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+            -disableAutomaticPackageResolution \
+            -destination "platform=macOS" \
+            CMUX_SKIP_ZIG_BUILD=1 \
+            -only-testing:cmuxTests/RemoteTmuxWindowMirrorFocusSeedTests \
             test
 
       - name: Run unit tests
@@ -772,7 +817,12 @@ jobs:
     needs:
       - changes
       - linux-preflight
-    if: ${{ needs.changes.outputs.macos == 'true' }}
+    # !cancelled() disables the implicit success() gate, which GitHub evaluates
+    # over the transitive needs chain: linux-preflight runs behind routed linux
+    # jobs that legitimately skip (web/go/agent-session paths), and that
+    # transitive skip otherwise marks every macOS job skipped even when
+    # linux-preflight itself succeeds. Require the direct needs explicitly.
+    if: ${{ !cancelled() && needs.changes.result == 'success' && needs.linux-preflight.result == 'success' && needs.changes.outputs.macos == 'true' }}
     runs-on: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}
     timeout-minutes: 40
     env:
@@ -1076,7 +1126,12 @@ jobs:
     needs:
       - changes
       - linux-preflight
-    if: ${{ needs.changes.outputs.macos == 'true' }}
+    # !cancelled() disables the implicit success() gate, which GitHub evaluates
+    # over the transitive needs chain: linux-preflight runs behind routed linux
+    # jobs that legitimately skip (web/go/agent-session paths), and that
+    # transitive skip otherwise marks every macOS job skipped even when
+    # linux-preflight itself succeeds. Require the direct needs explicitly.
+    if: ${{ !cancelled() && needs.changes.result == 'success' && needs.linux-preflight.result == 'success' && needs.changes.outputs.macos == 'true' }}
     # Build the full cmux scheme once, then run the required display/runtime
     # regressions from the same DerivedData instead of queuing a second display
     # runner for UI-only checks.
@@ -1412,7 +1467,10 @@ jobs:
       - changes
       - linux-preflight
       - swift-package-tests
-    if: ${{ needs.changes.outputs.macos == 'true' }}
+    # See app-host-unit-tests: explicit direct-needs gate instead of the
+    # implicit success() so skipped routed linux jobs upstream of
+    # linux-preflight do not skip this job transitively.
+    if: ${{ !cancelled() && needs.changes.result == 'success' && needs.linux-preflight.result == 'success' && needs.swift-package-tests.result == 'success' && needs.changes.outputs.macos == 'true' }}
     # Compile the same unsigned universal Release app that nightly builds before
     # signing, notarization, and publishing. This catches DEBUG/Release boundary
     # mistakes before they reach main.

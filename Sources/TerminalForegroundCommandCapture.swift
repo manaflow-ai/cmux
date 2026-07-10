@@ -5,6 +5,13 @@ import Foundation
 /// workspace action: the tty's foreground process argv, cleaned so re-running
 /// it starts a fresh session (known agent resume flags stripped).
 enum TerminalForegroundCommandCapture {
+    /// Maximum UTF-8 byte length for a command replayed by typing it into a fresh shell.
+    ///
+    /// Workspace layout replay writes the command plus a newline into a just-spawned
+    /// shell pty. That tty is still in canonical mode, and macOS silently discards
+    /// canonical input lines beyond MAX_CANON (1024 bytes) mid-token. The 1000-byte
+    /// limit leaves room for the trailing newline and shell-integration prefix bytes.
+    static let maxReplayableCommandUTF8Length = 1000
 
     /// Foreground, non-shell command lines keyed by tty device id. Identity
     /// comes from the workspace-owned panel→tty mapping — never from the
@@ -64,13 +71,20 @@ enum TerminalForegroundCommandCapture {
     ]
 
     /// Turns a captured argv into a re-runnable one-liner. argv[0] is preserved
-    /// verbatim (it is the form the user invoked — bare name, `./gradlew`,
-    /// or an absolute path — and panes replay from their saved cwd), known
-    /// agent argv goes through the shared provider-aware
-    /// `AgentLaunchSanitizer` so stale session/resume artifacts never
-    /// replay, and every token including the executable is shell-quoted so
-    /// nothing replays as shell syntax.
+    /// verbatim for ordinary commands (it is the form the user invoked — bare
+    /// name, `./gradlew`, or an absolute path — and panes replay from their
+    /// saved cwd). node/bun-hosted package-manager agents keep their captured
+    /// runtime/script path while their agent tail is cleaned. Known agent argv
+    /// then goes through the shared provider-aware
+    /// `AgentLaunchSanitizer` so stale session/resume artifacts never replay,
+    /// and every token including the executable is shell-quoted so nothing
+    /// replays as shell syntax.
     static func commandLine(fromArgv argv: [String]) -> String? {
+        let runtimeUnwrapper = JavaScriptRuntimeAgentLaunchUnwrapper(
+            isKnownAgentExecutableName: { knownAgentKind(forExecutableName: $0) != nil },
+            stripsCmuxHookArguments: true
+        )
+        let argv = runtimeUnwrapper.unwrappedArgv(argv) ?? argv
         guard let executable = argv.first, !executable.isEmpty else { return nil }
         let executableName = (executable as NSString).lastPathComponent
         guard !executableName.isEmpty, !isShellProcessName(executableName) else { return nil }
@@ -79,13 +93,22 @@ enum TerminalForegroundCommandCapture {
             if let sanitized = AgentLaunchSanitizer.sanitizedLaunchArguments(
                 argv,
                 launcher: "",
-                fallbackKind: agentKind
+                fallbackKind: agentKind,
+                stripCmuxHookArguments: true
             ) {
                 sanitizedArgv = sanitized
             } else {
                 // Non-restorable launch form: save the bare CLI so the action
                 // starts a fresh session.
                 sanitizedArgv = [executable]
+            }
+            // A future strong wrapper marker may prove the user launched by
+            // bare name and the shim resolved it to this absolute binary. Hook
+            // config argv is user-controllable, so marker-less argv keeps its
+            // executable verbatim.
+            if !sanitizedArgv.isEmpty,
+               runtimeUnwrapper.containsCmuxWrapperInjectedHookArguments(argv) {
+                sanitizedArgv[0] = executableName
             }
         }
         return sanitizedArgv.map(shellQuoted).joined(separator: " ")

@@ -27,8 +27,27 @@ final class MainWindowHostingView<Content: View>: NSHostingView<Content> {
         return isMinimalModeTitlebarControlHit(window: window, locationInWindow: event.locationInWindow)
     }
 
+    /// The window must never be resized to fit this view's SwiftUI content.
+    /// NSHostingView watches window layout and calls NSWindow.setFrame itself
+    /// (`windowDidLayout` → `updateAnimatedWindowSize`) when the content's
+    /// measured size disagrees with the window's — and it does so even with
+    /// empty `sizingOptions`, which only governs the constraint-based paths.
+    /// If content ever measures wider than the window (a workspace pushed
+    /// below its minimum width by a programmatic resize), that hook re-grows
+    /// the window a step per layout pass, without bound. Shadowing the
+    /// hook's Objective-C selector severs the path; should a future macOS
+    /// rename it, this no-op stops shadowing anything and
+    /// `MainWindowSelfSizingTests` flags the behavior's return.
+    @objc private func windowDidLayout() {
+        // Deliberately empty: the main window's size belongs to the user and
+        // to explicit window management, never to content measurement.
+    }
+
     required init(rootView: Content) {
         super.init(rootView: rootView)
+        // Belt with the suspenders above: keep the hosting view from creating
+        // any content-derived sizing constraints either.
+        sizingOptions = []
         addLayoutGuide(zeroSafeAreaLayoutGuide)
         NSLayoutConstraint.activate([
             zeroSafeAreaLayoutGuide.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -54,6 +73,7 @@ func configureCmuxMainWindowDragBehavior(_ window: NSWindow) {
 
 @MainActor
 final class CmuxMainWindow: NSWindow {
+
     static var minimumContentSize: NSSize {
         NSSize(
             width: CGFloat(SessionPersistencePolicy.minimumWindowWidth),
