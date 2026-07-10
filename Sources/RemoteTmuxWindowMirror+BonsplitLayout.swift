@@ -46,7 +46,12 @@ extension RemoteTmuxWindowMirror {
         let base = trimmed.isEmpty
             ? String(localized: "remoteTmux.tab.window", defaultValue: "tmux window")
             : trimmed
-        return paneIndex == 0 ? base : "\(base) [\(paneIndex)]"
+        guard paneIndex > 0 else { return base }
+        let formattedIndex = paneIndex.formatted()
+        return String(
+            localized: "remoteTmux.tab.windowPaneIndexed",
+            defaultValue: "\(base) [\(formattedIndex)]"
+        )
     }
 
     nonisolated static func dividerFraction(
