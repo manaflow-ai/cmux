@@ -50,6 +50,14 @@ public final class JsonTest {
             )
         );
         assertEquals("cmVwbGF5", legacyResize.replay(), "protocol v6 resize replay");
+        OverflowEvent overflow = (OverflowEvent) CmuxEvent.from(
+            (Map<String, Object>) Json.parse(
+                "{\"event\":\"overflow\",\"error\":\"subscriber fell behind\",\"scope\":\"surface\",\"surface\":7}"
+            )
+        );
+        assertEquals("subscriber fell behind", overflow.error(), "overflow error");
+        assertEquals("surface", overflow.scope(), "overflow scope");
+        assertEquals(7L, overflow.surface(), "overflow surface");
     }
 
     private static void assertReject(String input) {

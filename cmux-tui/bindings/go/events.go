@@ -16,6 +16,11 @@ func parseEvent(raw map[string]any) Event {
 		return TreeChangedEvent{}
 	case "empty":
 		return EmptyEvent{}
+	case "overflow":
+		var event OverflowEvent
+		if mustDecode(&event) {
+			return event
+		}
 	case "surface-output", "surface-exited", "bell":
 		var event SurfaceEvent
 		if mustDecode(&event) {

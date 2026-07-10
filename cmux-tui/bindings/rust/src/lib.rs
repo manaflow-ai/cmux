@@ -214,6 +214,13 @@ pub struct ResizedEvent {
     pub replay: String,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+pub struct OverflowEvent {
+    pub error: String,
+    pub scope: Option<String>,
+    pub surface: Option<u64>,
+}
+
 #[non_exhaustive]
 #[derive(Debug, Clone)]
 pub enum Event {
@@ -229,6 +236,7 @@ pub enum Event {
     Output(OutputEvent),
     Resized(ResizedEvent),
     Detached(SurfaceEvent),
+    Overflow(OverflowEvent),
     Unknown(Value),
 }
 
@@ -703,6 +711,7 @@ fn parse_event(value: Value) -> Event {
         "output" => parse_typed(value).map_or_else(Event::Unknown, Event::Output),
         "resized" => parse_typed(value).map_or_else(Event::Unknown, Event::Resized),
         "detached" => parse_typed(value).map_or_else(Event::Unknown, Event::Detached),
+        "overflow" => parse_typed(value).map_or_else(Event::Unknown, Event::Overflow),
         _ => Event::Unknown(value),
     }
 }
@@ -767,6 +776,24 @@ mod tests {
         assert!(matches!(
             event,
             Event::Resized(ResizedEvent { surface: 7, replay, .. }) if replay == "cmVwbGF5"
+        ));
+    }
+
+    #[test]
+    fn overflow_decodes_recovery_fields() {
+        let event = parse_event(serde_json::json!({
+            "event": "overflow",
+            "error": "subscriber fell behind",
+            "scope": "surface",
+            "surface": 7,
+        }));
+
+        assert!(matches!(
+            event,
+            Event::Overflow(OverflowEvent { error, scope, surface })
+                if error == "subscriber fell behind"
+                    && scope.as_deref() == Some("surface")
+                    && surface == Some(7)
         ));
     }
 }

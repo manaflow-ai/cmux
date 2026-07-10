@@ -21,6 +21,7 @@ FIXTURES = Path(__file__).resolve().with_name("fixtures.json")
 sys.path.insert(0, str(PYTHON_BINDING))
 
 from cmux import CommandError, CmuxClient, TimeoutError as CmuxTimeoutError  # noqa: E402
+from cmux.client import _parse_event  # noqa: E402
 
 
 class FixtureFailure(Exception):
@@ -163,6 +164,9 @@ def run_step(
     elif step_type == "wait_contains":
         request = substitute(step["request"], variables)
         wait_contains(client, request, step["path"], step["contains"], timeout_ms / 1000.0)
+    elif step_type == "parse_event":
+        event = dataclasses.asdict(_parse_event(substitute(step["event"], variables)))
+        assert_match(event, substitute(step.get("expect", {}), variables), step.get("match", "partial"))
     else:
         raise FixtureFailure(f"unknown step type {step_type}")
 

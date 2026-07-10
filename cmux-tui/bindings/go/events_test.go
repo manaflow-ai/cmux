@@ -40,3 +40,15 @@ func TestParseResizedAcceptsProtocolV6DataField(t *testing.T) {
 		t.Fatalf("replay = %q, want protocol v6 data", event.Replay)
 	}
 }
+
+func TestParseOverflowExposesRecoveryFields(t *testing.T) {
+	event, ok := parseEvent(map[string]any{
+		"event":   "overflow",
+		"error":   "subscriber fell behind",
+		"scope":   "surface",
+		"surface": float64(7),
+	}).(OverflowEvent)
+	if !ok || event.Scope == nil || *event.Scope != "surface" || event.Surface == nil || *event.Surface != 7 {
+		t.Fatalf("overflow event = %#v", event)
+	}
+}

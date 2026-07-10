@@ -9,7 +9,7 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::Write;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
-use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
+use std::sync::mpsc::{Receiver, RecvTimeoutError, SyncSender, sync_channel};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -57,10 +57,12 @@ const DEFERRED_INPUT_FIXED_BYTES: usize = 64;
 const BRACKETED_PASTE_MARKER_BYTES: usize = 12;
 const MAX_DEFERRED_INPUT_BYTES: usize = 4 * 1024 * 1024;
 const ROUTING_REFRESH_RETRIES: u8 = 1;
+const APP_EVENT_CAPACITY: usize = 4_096;
 
 pub enum AppEvent {
     Mux(MuxEvent),
     MuxTitlesReady,
+    MuxSubscriptionRecovered(Result<TreeView, String>),
     Input(Event),
     BrowserResizeFailed(BrowserResizeFailure),
     PtyOperationFailed(PtyOperationFailure),
@@ -72,6 +74,46 @@ pub enum AppEvent {
 #[derive(Default)]
 struct MuxTitleIngress {
     state: Mutex<MuxTitleIngressState>,
+}
+
+fn forward_mux_events(
+    event_source: Session,
+    mut session_events: cmux_tui_core::MuxEventReceiver,
+    tx: SyncSender<AppEvent>,
+    mux_titles: Arc<MuxTitleIngress>,
+) {
+    loop {
+        while let Ok(event) = session_events.recv() {
+            match event {
+                MuxEvent::TitleChanged { surface, title } => {
+                    if mux_titles.push(surface, title) && tx.send(AppEvent::MuxTitlesReady).is_err()
+                    {
+                        return;
+                    }
+                    continue;
+                }
+                MuxEvent::SurfaceExited(surface) => mux_titles.remove(surface),
+                _ => {}
+            }
+            let terminal = matches!(event, MuxEvent::Empty);
+            if tx.send(AppEvent::Mux(event)).is_err() {
+                return;
+            }
+            if terminal {
+                return;
+            }
+        }
+        if !session_events.overflowed() {
+            return;
+        }
+        // Subscribe before fetching the authoritative tree so events emitted
+        // during recovery are retained by the new mailbox.
+        session_events = event_source.events();
+        let recovered = event_source.refresh_tree().map_err(|error| error.to_string());
+        if tx.send(AppEvent::MuxSubscriptionRecovered(recovered)).is_err() {
+            return;
+        }
+    }
 }
 
 #[derive(Default)]
@@ -130,6 +172,7 @@ pub enum SessionMutationOutcome {
         surface: SurfaceId,
         operation: &'static str,
         error: String,
+        reconnect_required: bool,
     },
     MutationTimedOut(String),
     Failed(String),
@@ -146,7 +189,7 @@ enum SessionCompletionAction {
 }
 
 struct PendingSessionMutation {
-    events: Sender<AppEvent>,
+    events: SyncSender<AppEvent>,
     settled: bool,
 }
 
@@ -295,11 +338,12 @@ impl Drop for SurfaceResizeClaim {
 pub struct OrderedSession {
     inner: Session,
     operations: PtyInputSender,
-    events: Sender<AppEvent>,
+    events: SyncSender<AppEvent>,
     remote: bool,
     pending_mutations: Arc<AtomicUsize>,
     committed_mutation_generation: Arc<AtomicU64>,
-    routing_mutation_generation: Arc<AtomicU64>,
+    routing_mutation_started: Arc<AtomicU64>,
+    routing_mutation_committed: Arc<AtomicU64>,
     remote_refresh_queued: Arc<AtomicBool>,
     remote_background_dirty: Arc<AtomicBool>,
     remote_refresh_sequence: Arc<AtomicU64>,
@@ -314,7 +358,7 @@ pub struct OrderedSession {
 }
 
 impl OrderedSession {
-    fn new(inner: Session, operations: PtyInputSender, events: Sender<AppEvent>) -> Self {
+    fn new(inner: Session, operations: PtyInputSender, events: SyncSender<AppEvent>) -> Self {
         let remote = matches!(inner, Session::Remote(_));
         Self {
             inner,
@@ -323,7 +367,8 @@ impl OrderedSession {
             remote,
             pending_mutations: Arc::new(AtomicUsize::new(0)),
             committed_mutation_generation: Arc::new(AtomicU64::new(0)),
-            routing_mutation_generation: Arc::new(AtomicU64::new(0)),
+            routing_mutation_started: Arc::new(AtomicU64::new(0)),
+            routing_mutation_committed: Arc::new(AtomicU64::new(0)),
             remote_refresh_queued: Arc::new(AtomicBool::new(false)),
             remote_background_dirty: Arc::new(AtomicBool::new(false)),
             remote_refresh_sequence: Arc::new(AtomicU64::new(0)),
@@ -341,10 +386,6 @@ impl OrderedSession {
     fn pending_mutation(&self) -> PendingSessionMutation {
         self.pending_mutations.fetch_add(1, Ordering::AcqRel);
         PendingSessionMutation { events: self.events.clone(), settled: false }
-    }
-
-    fn events(&self) -> cmux_tui_core::MuxEventReceiver {
-        self.inner.events()
     }
 
     fn tree(&self) -> TreeView {
@@ -425,6 +466,7 @@ impl OrderedSession {
                             surface: id,
                             operation: "attach",
                             error: format!("surface {id} is unavailable"),
+                            reconnect_required: false,
                         });
                         Ok(())
                     }
@@ -443,6 +485,7 @@ impl OrderedSession {
                             surface: id,
                             operation: "attach",
                             error: error.to_string(),
+                            reconnect_required: timed_out,
                         });
                         if timed_out || transport_failed { Err(error) } else { Ok(()) }
                     }
@@ -489,8 +532,12 @@ impl OrderedSession {
         self.pending_mutations.load(Ordering::Acquire) > 0
     }
 
-    fn routing_mutation_generation(&self) -> u64 {
-        self.routing_mutation_generation.load(Ordering::Acquire)
+    fn routing_mutation_started(&self) -> u64 {
+        self.routing_mutation_started.load(Ordering::Acquire)
+    }
+
+    fn routing_mutation_committed(&self) -> u64 {
+        self.routing_mutation_committed.load(Ordering::Acquire)
     }
 
     fn settle_pending_mutation(&self) {
@@ -619,7 +666,9 @@ impl OrderedSession {
         let pending = self.pending_mutation();
         let remote = self.remote;
         let committed_mutation_generation = self.committed_mutation_generation.clone();
-        let routing_mutation_generation = self.routing_mutation_generation.clone();
+        let routing_token =
+            routing.then(|| self.routing_mutation_started.fetch_add(1, Ordering::AcqRel) + 1);
+        let routing_mutation_committed = self.routing_mutation_committed.clone();
         self.operations.enqueue_session_mutation(label, self.remote, move || {
             let completion = match operation(session.clone()) {
                 Ok(completion) => completion,
@@ -635,8 +684,8 @@ impl OrderedSession {
             };
             let mutation_generation =
                 committed_mutation_generation.fetch_add(1, Ordering::AcqRel) + 1;
-            if routing {
-                routing_mutation_generation.fetch_add(1, Ordering::AcqRel);
+            if let Some(routing_token) = routing_token {
+                routing_mutation_committed.fetch_max(routing_token, Ordering::AcqRel);
             }
             let completion =
                 completion.map(|action| SessionCompletion { mutation_generation, action });
@@ -735,6 +784,7 @@ impl OrderedSession {
                             surface: surface_id,
                             operation: "resize",
                             error: error.to_string(),
+                            reconnect_required: false,
                         });
                         if transient { Err(error) } else { Ok(()) }
                     }
@@ -1356,7 +1406,7 @@ enum PtyMouseReleaseCapture {
 struct DeferredInput {
     event: Event,
     destination: Option<SurfaceId>,
-    routing_generation: u64,
+    routing_intent: Option<u64>,
 }
 
 pub struct App {
@@ -1414,6 +1464,7 @@ pub struct App {
     background_refresh_attempts: u8,
     background_refresh_retry_at: Option<Instant>,
     last_applied_refresh_sequence: u64,
+    applied_routing_generation: u64,
     pending_session_completions: VecDeque<SessionCompletion>,
     mux_titles: Arc<MuxTitleIngress>,
     drag: Option<Drag>,
@@ -1569,7 +1620,7 @@ pub fn run(
     session.ensure_initial(initial_size)?;
     let encoder = KeyEncoder::new()?;
     let mouse_encoder = MouseEncoder::new()?;
-    let (tx, rx) = channel::<AppEvent>();
+    let (tx, rx) = sync_channel::<AppEvent>(APP_EVENT_CAPACITY);
     let browser_failure_tx = tx.clone();
     let browser_input = BrowserInputDispatcher::spawn(move |failure| {
         let _ = browser_failure_tx.send(AppEvent::BrowserResizeFailed(failure));
@@ -1583,29 +1634,12 @@ pub fn run(
     let mux_titles = Arc::new(MuxTitleIngress::default());
 
     // Session events → app channel.
-    let session_events = session.events();
+    let event_source = session.inner.clone();
+    let session_events = event_source.events();
     std::thread::Builder::new().name("mux-events".into()).spawn({
         let tx = tx.clone();
         let mux_titles = mux_titles.clone();
-        move || {
-            while let Ok(event) = session_events.recv() {
-                match event {
-                    MuxEvent::TitleChanged { surface, title } => {
-                        if mux_titles.push(surface, title)
-                            && tx.send(AppEvent::MuxTitlesReady).is_err()
-                        {
-                            break;
-                        }
-                        continue;
-                    }
-                    MuxEvent::SurfaceExited(surface) => mux_titles.remove(surface),
-                    _ => {}
-                }
-                if tx.send(AppEvent::Mux(event)).is_err() {
-                    break;
-                }
-            }
-        }
+        move || forward_mux_events(event_source, session_events, tx, mux_titles)
     })?;
 
     // Crossterm input → app channel.
@@ -1705,6 +1739,7 @@ pub fn run(
         background_refresh_attempts: 0,
         background_refresh_retry_at: None,
         last_applied_refresh_sequence: 0,
+        applied_routing_generation: 0,
         pending_session_completions: VecDeque::new(),
         mux_titles,
         drag: None,
@@ -1852,9 +1887,11 @@ impl App {
                 break;
             }
             let Some(input) = self.deferred_input.pop_front() else { break };
-            let routing_advanced =
-                self.session.routing_mutation_generation() > input.routing_generation;
-            if !routing_advanced && self.input_destination(&input.event) != input.destination {
+            let follows_pending_route = input.routing_intent.is_some_and(|intent| {
+                self.session.routing_mutation_committed() >= intent
+                    && self.session.routing_mutation_started() == intent
+            });
+            if !follows_pending_route && self.input_destination(&input.event) != input.destination {
                 self.status_message = Some(
                     "Deferred input was discarded because its destination changed".to_string(),
                 );
@@ -1944,6 +1981,7 @@ impl App {
             self.browser_input.forget_surface(surface);
         }
         self.tree = tree;
+        self.applied_routing_generation = self.session.routing_mutation_committed();
         self.rebuild_tab_locations();
     }
 
@@ -2370,6 +2408,21 @@ impl App {
             AppEvent::MuxTitlesReady => {
                 Ok(if self.apply_mux_titles() { RenderAction::Paint } else { RenderAction::None })
             }
+            AppEvent::MuxSubscriptionRecovered(result) => {
+                match result {
+                    Ok(tree) => {
+                        self.replace_tree(tree);
+                        self.status_message = Some(
+                            "Mux event backlog overflowed; subscription recovered".to_string(),
+                        );
+                    }
+                    Err(error) => {
+                        self.status_message =
+                            Some(format!("Mux event backlog overflowed; recovery failed: {error}"));
+                    }
+                }
+                Ok(RenderAction::Draw)
+            }
             AppEvent::SidebarPluginUpdated { status, relaunch } => {
                 self.apply_sidebar_plugin_status(status, relaunch);
                 Ok(RenderAction::Draw)
@@ -2453,7 +2506,16 @@ impl App {
                 if failed_active_press || failure.lane_failed {
                     self.drag = None;
                 }
-                self.status_message = Some(format!("{} failed: {}", failure.label, failure.error));
+                self.status_message = Some(if failure.label == "attach surface"
+                    && failure.delivery == PtyOperationDelivery::Ambiguous
+                {
+                    format!(
+                        "surface attach outcome is unknown; detach and reconnect before sending more input: {}",
+                        failure.error
+                    )
+                } else {
+                    format!("{} failed: {}", failure.label, failure.error)
+                });
                 Ok(RenderAction::Draw)
             }
             AppEvent::SessionMutationSettled(outcome) => {
@@ -2526,10 +2588,22 @@ impl App {
                         self.complete_remote_tree_refresh(refresh_stale);
                         return Ok(RenderAction::Draw);
                     }
-                    SessionMutationOutcome::SurfaceSyncFailed { surface, operation, error } => {
-                        self.status_message = Some(format!(
-                            "surface {surface} {operation} failed; retries are rate-limited: {error}"
-                        ));
+                    SessionMutationOutcome::SurfaceSyncFailed {
+                        surface,
+                        operation,
+                        error,
+                        reconnect_required,
+                    } => {
+                        if reconnect_required {
+                            self.deferred_input.retain(|input| input.destination != Some(surface));
+                            self.status_message = Some(format!(
+                                "surface {surface} {operation} outcome is unknown; detach and reconnect before sending more input: {error}"
+                            ));
+                        } else {
+                            self.status_message = Some(format!(
+                                "surface {surface} {operation} failed; retries are rate-limited: {error}"
+                            ));
+                        }
                     }
                     SessionMutationOutcome::MutationTimedOut(error) => {
                         self.status_message = Some(format!(
@@ -2686,33 +2760,35 @@ impl App {
 
     fn defer_input(&mut self, input: Event) -> RenderAction {
         let destination = self.input_destination(&input);
-        let routing_generation = self.session.routing_mutation_generation();
+        let routing_started = self.session.routing_mutation_started();
+        let routing_intent =
+            (routing_started > self.applied_routing_generation).then_some(routing_started);
         let replace_motion = match (&input, self.deferred_input.back()) {
             (
                 Event::Mouse(MouseEvent { kind: MouseEventKind::Moved, .. }),
                 Some(DeferredInput {
                     event: Event::Mouse(MouseEvent { kind: MouseEventKind::Moved, .. }),
                     destination: previous_destination,
-                    routing_generation: previous_generation,
+                    routing_intent: previous_intent,
                 }),
-            ) => *previous_destination == destination && *previous_generation == routing_generation,
+            ) => *previous_destination == destination && *previous_intent == routing_intent,
             (
                 Event::Mouse(MouseEvent { kind: MouseEventKind::Drag(button), .. }),
                 Some(DeferredInput {
                     event: Event::Mouse(MouseEvent { kind: MouseEventKind::Drag(previous), .. }),
                     destination: previous_destination,
-                    routing_generation: previous_generation,
+                    routing_intent: previous_intent,
                 }),
             ) => {
                 button == previous
                     && *previous_destination == destination
-                    && *previous_generation == routing_generation
+                    && *previous_intent == routing_intent
             }
             _ => false,
         };
         if replace_motion {
             *self.deferred_input.back_mut().unwrap() =
-                DeferredInput { event: input, destination, routing_generation };
+                DeferredInput { event: input, destination, routing_intent };
             return RenderAction::None;
         }
         let input_bytes = deferred_input_bytes(&input);
@@ -2735,11 +2811,7 @@ impl App {
             let Some(removed) = self.deferred_input.pop_front() else { break };
             queued_bytes = queued_bytes.saturating_sub(deferred_input_bytes(&removed.event));
         }
-        self.deferred_input.push_back(DeferredInput {
-            event: input,
-            destination,
-            routing_generation,
-        });
+        self.deferred_input.push_back(DeferredInput { event: input, destination, routing_intent });
         RenderAction::None
     }
 
@@ -5486,7 +5558,8 @@ mod tests {
     use super::{
         App, AppEvent, DeferredInput, Drag, MuxTitleIngress, OrderedSession, PaneArea,
         RenderAction, SessionCompletion, SessionCompletionAction, SurfaceResizeDecision,
-        browser_content_size_for_rect, browser_hover_forward_allowed, pane_parts_for_rect,
+        browser_content_size_for_rect, browser_hover_forward_allowed, forward_mux_events,
+        pane_parts_for_rect,
     };
     use std::collections::{HashMap, HashSet, VecDeque};
     use std::sync::atomic::Ordering;
@@ -6002,6 +6075,41 @@ mod tests {
     }
 
     #[test]
+    fn deferred_input_does_not_follow_a_later_routing_mutation() {
+        let mux = Mux::new("deferred-later-routing-test", SurfaceOptions::default());
+        let first = mux.new_workspace(None, None).unwrap();
+        let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let second = mux.new_tab(Some(pane), None, None).unwrap();
+        let third = mux.new_tab(Some(pane), None, None).unwrap();
+        mux.select_tab(Some(pane), Some(0), None);
+        let (mut app, events) = test_app_with_events(Session::Local(mux));
+        app.replace_tree(app.session.tree());
+
+        app.session.select_tab(Some(pane), Some(1), None);
+        app.handle(AppEvent::Input(Event::Key(KeyEvent::new(
+            KeyCode::Char('x'),
+            KeyModifiers::NONE,
+        ))))
+        .unwrap();
+        assert_eq!(app.deferred_input.front().and_then(|input| input.routing_intent), Some(1));
+        app.session.select_tab(Some(pane), Some(2), None);
+
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+        }
+        app.routing_refresh_pending = false;
+        app.replay_deferred_input().unwrap();
+
+        assert_eq!(app.active_surface(), Some(third.id));
+        assert_ne!(app.active_surface(), Some(second.id));
+        assert!(app.deferred_input.is_empty());
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("Deferred input was discarded because its destination changed")
+        );
+    }
+
+    #[test]
     fn identity_refresh_completion_consumes_coalesced_background_refresh() {
         let mux = Mux::new("identity-refresh-dirty-test", SurfaceOptions::default());
         let (mut app, events) = test_app_with_events(Session::Local(mux));
@@ -6050,6 +6158,45 @@ mod tests {
         assert_eq!(app.tree.pane(2).unwrap().tabs[0].title, "title-9999");
         assert_eq!(app.tree.pane(2).unwrap().tabs[1].title, "");
         assert!(app.mux_titles.push(updated_surface, "next".to_string()));
+    }
+
+    #[test]
+    fn mux_forwarder_recovers_after_bounded_mailbox_overflow() {
+        let mux = Mux::new("mux-forwarder-overflow-test", SurfaceOptions::default());
+        let event_source = Session::Local(mux.clone());
+        let session_events = event_source.events();
+        let (tx, rx) = std::sync::mpsc::sync_channel(1);
+        let titles = Arc::new(MuxTitleIngress::default());
+        let forwarder = std::thread::spawn(move || {
+            forward_mux_events(event_source, session_events, tx, titles);
+        });
+
+        for surface in 0..5_000 {
+            mux.emit(MuxEvent::Bell(surface));
+        }
+
+        let mut recovered = false;
+        for _ in 0..5_000 {
+            let event = rx.recv_timeout(Duration::from_secs(1)).unwrap();
+            if matches!(event, AppEvent::MuxSubscriptionRecovered(Ok(_))) {
+                recovered = true;
+                break;
+            }
+        }
+        assert!(recovered);
+
+        mux.emit(MuxEvent::Bell(9_999));
+        assert!(matches!(
+            rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+            AppEvent::Mux(MuxEvent::Bell(9_999))
+        ));
+        mux.emit(MuxEvent::Empty);
+        assert!(matches!(
+            rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+            AppEvent::Mux(MuxEvent::Empty)
+        ));
+        drop(rx);
+        forwarder.join().unwrap();
     }
 
     #[test]
@@ -6219,6 +6366,35 @@ mod tests {
     }
 
     #[test]
+    fn ambiguous_attach_timeout_discards_input_and_requests_reconnect() {
+        let mux = Mux::new("ambiguous-attach-reconnect-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.deferred_input.push_back(DeferredInput {
+            event: Event::Key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)),
+            destination: Some(77),
+            routing_intent: None,
+        });
+        app.session.pending_mutations.store(1, Ordering::Release);
+
+        app.handle(AppEvent::SessionMutationSettled(
+            super::SessionMutationOutcome::SurfaceSyncFailed {
+                surface: 77,
+                operation: "attach",
+                error: "remote session did not respond".to_string(),
+                reconnect_required: true,
+            },
+        ))
+        .unwrap();
+
+        assert!(app.deferred_input.is_empty());
+        assert!(
+            app.status_message
+                .as_deref()
+                .is_some_and(|message| message.contains("detach and reconnect"))
+        );
+    }
+
+    #[test]
     fn first_input_for_missing_mirror_is_deferred_through_attach() {
         let mux = Mux::new("missing-mirror-input-test", SurfaceOptions::default());
         let (mut app, events) = test_app_with_events(Session::Local(mux));
@@ -6298,7 +6474,7 @@ mod tests {
         app.deferred_input.push_back(DeferredInput {
             event: Event::Key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)),
             destination: None,
-            routing_generation: 0,
+            routing_intent: None,
         });
 
         app.handle(AppEvent::RemoteTreeUpdated { refresh_sequence: 2, result: Ok(newer.clone()) })
@@ -6511,7 +6687,7 @@ mod tests {
         app.deferred_input.push_back(DeferredInput {
             event: Event::Key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)),
             destination: Some(surface),
-            routing_generation: 0,
+            routing_intent: None,
         });
 
         assert_eq!(
@@ -6611,7 +6787,7 @@ mod tests {
         app.deferred_input.push_back(DeferredInput {
             event: Event::Key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)),
             destination: None,
-            routing_generation: 0,
+            routing_intent: None,
         });
         app.session
             .enqueue("timed out mutation", |_| Err(crate::session::test_remote_timeout_error()));
@@ -6637,7 +6813,7 @@ mod tests {
         app.deferred_input.push_back(DeferredInput {
             event: Event::Key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)),
             destination: None,
-            routing_generation: 0,
+            routing_intent: None,
         });
 
         for (label, key) in [
@@ -6974,7 +7150,7 @@ mod tests {
         app.deferred_input.push_back(DeferredInput {
             event: Event::Key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)),
             destination: None,
-            routing_generation: 0,
+            routing_intent: None,
         });
 
         app.handle(AppEvent::SessionMutationSettled(
@@ -7251,7 +7427,7 @@ mod tests {
 
     fn test_app_with_events(session: Session) -> (App, Receiver<AppEvent>) {
         let pty_input = PtyInputDispatcher::spawn(|_| {}).unwrap();
-        let (events, receiver) = std::sync::mpsc::channel();
+        let (events, receiver) = std::sync::mpsc::sync_channel(4_096);
         let session = OrderedSession::new(session, pty_input.sender(), events);
         let app = App {
             session,
@@ -7297,6 +7473,7 @@ mod tests {
             background_refresh_attempts: 0,
             background_refresh_retry_at: None,
             last_applied_refresh_sequence: 0,
+            applied_routing_generation: 0,
             pending_session_completions: VecDeque::new(),
             mux_titles: Arc::new(MuxTitleIngress::default()),
             drag: None,

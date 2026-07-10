@@ -61,6 +61,7 @@ export type SubscribeEvent =
   | { event: "title-changed"; surface: number; title?: string }
   | { event: "bell"; surface: number }
   | { event: "empty" }
+  | OverflowEvent
   | UnknownEvent;
 
 export type AttachEvent =
@@ -68,7 +69,16 @@ export type AttachEvent =
   | { event: "output"; surface: number; data: string }
   | { event: "resized"; surface: number; cols: number; rows: number; replay: string }
   | { event: "detached"; surface: number }
+  | OverflowEvent
   | UnknownEvent;
+
+export interface OverflowEvent {
+  event: "overflow";
+  error: string;
+  scope?: "surface";
+  surface?: number;
+  [key: string]: unknown;
+}
 
 export interface UnknownEvent {
   event: string;

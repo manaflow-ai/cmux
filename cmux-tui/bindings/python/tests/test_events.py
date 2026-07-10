@@ -26,6 +26,21 @@ class EventTests(unittest.TestCase):
         self.assertEqual(event.surface, 7)
         self.assertIsNone(event.title)
 
+    def test_overflow_exposes_recovery_fields(self) -> None:
+        event = _parse_event(
+            {
+                "event": "overflow",
+                "error": "subscriber fell behind",
+                "scope": "surface",
+                "surface": 7,
+            }
+        )
+
+        self.assertEqual(event.event, "overflow")
+        self.assertEqual(event.error, "subscriber fell behind")
+        self.assertEqual(event.scope, "surface")
+        self.assertEqual(event.surface, 7)
+
 
 if __name__ == "__main__":
     unittest.main()

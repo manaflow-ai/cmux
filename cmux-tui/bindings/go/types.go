@@ -124,6 +124,14 @@ type EmptyEvent struct{}
 
 func (EmptyEvent) EventName() string { return "empty" }
 
+type OverflowEvent struct {
+	Error   string  `json:"error"`
+	Scope   *string `json:"scope"`
+	Surface *uint64 `json:"surface"`
+}
+
+func (OverflowEvent) EventName() string { return "overflow" }
+
 type SurfaceEvent struct {
 	Event   string `json:"event"`
 	Surface uint64 `json:"surface"`

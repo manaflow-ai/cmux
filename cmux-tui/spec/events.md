@@ -6,9 +6,9 @@ Implemented event lines can appear on two stream types:
 
 | Stream | How to start | Event names |
 | --- | --- | --- |
-| Subscribe stream | `subscribe` command | `tree-changed`, `layout-changed`, `surface-output`, `scroll-changed`, `surface-resized`, `surface-exited`, `title-changed`, `bell`, `notification`, `config-reload-requested`, `window-title-requested`, `empty` |
-| Attach stream v5 | `attach-surface` command | `vt-state`, `output`, `detached` |
-| Attach stream v6 | `attach-surface` command | `vt-state`, `resized`, `output`, `scroll-changed`, `detached` |
+| Subscribe stream | `subscribe` command | `tree-changed`, `layout-changed`, `surface-output`, `scroll-changed`, `surface-resized`, `surface-exited`, `title-changed`, `bell`, `notification`, `config-reload-requested`, `window-title-requested`, `empty`, `overflow` |
+| Attach stream v5 | `attach-surface` command | `vt-state`, `output`, `detached`, `overflow` |
+| Attach stream v6 | `attach-surface` command | `vt-state`, `resized`, `output`, `scroll-changed`, `detached`, `overflow` |
 
 Events and command responses share one JSON-lines connection. Clients must route lines by checking for `event`. If `event` is absent, the line is a command response and should be matched by `id`.
 
@@ -19,6 +19,8 @@ The socket writes each response or event as one complete JSON line. Lines are no
 For a single subscription, ordinary events are delivered in the order the mux broadcasts them. The server does not create a total order across unrelated producer threads beyond the order in which events enter the mux broadcaster.
 
 Protocol v7 treats `title-changed` as a latest-state notification. A slow subscriber retains at most one pending title per surface. Repeated pending titles for the same surface coalesce to the newest `title` and take the newest event's position relative to ordinary events. Subscribers are independent, and a pending title is discarded when its surface exits.
+
+Each subscription retains at most 4,096 pending events. If a client falls behind that bound, the server drains the accepted backlog, emits `overflow`, and ends that subscription. A subscribe client must open a new subscription and fetch `list-workspaces` to reconcile state. An attach client must reattach the named surface.
 
 `subscribe` registers the event receiver before the command response is written. A client must not treat the `subscribe` response as an event-stream barrier.
 
@@ -31,6 +33,28 @@ Protocol v6 attach streams are ordered as `vt-state -> (resized | output)* -> de
 When a surface exits, the mux removes it from the tree itself. Subscribe streams normally receive `tree-changed` and possibly `empty` before `surface-exited` for that surface. By the time `surface-exited` is observed, frontends should consider the surface reaped from authoritative tree state.
 
 ## Implemented Subscribe Events
+
+### overflow
+
+| Field | Value |
+| --- | --- |
+| event | `overflow` |
+| status | implemented |
+| since | protocol 7 |
+
+Payload:
+
+```text
+object{event:"overflow",error:string,scope?:"surface",surface?:Id}
+```
+
+Meaning: The client stopped draining events before the bounded server backlog filled. Without `scope`, the subscribe stream ended and the client must subscribe again, then fetch `list-workspaces`. With `scope:"surface"`, the attach notification stream ended and the client must reattach `surface`.
+
+Example:
+
+```json
+{"event":"overflow","error":"subscriber fell behind; resubscribe to continue receiving events"}
+```
 
 ### tree-changed
 

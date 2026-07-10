@@ -293,6 +293,17 @@
       ]
     },
     {
+      "name": "overflow-event-schema",
+      "steps": [
+        {
+          "type": "parse_event",
+          "event": { "event": "overflow", "error": "subscriber fell behind", "scope": "surface", "surface": 7 },
+          "expect": { "event": "overflow", "error": "subscriber fell behind", "scope": "surface", "surface": 7 },
+          "match": "partial"
+        }
+      ]
+    },
+    {
       "name": "implemented-verbs-json",
       "requires": {
         "commands": ["run", "wait-for", "send-key", "copy", "ids", "notify", "list-agents", "report-agent"]

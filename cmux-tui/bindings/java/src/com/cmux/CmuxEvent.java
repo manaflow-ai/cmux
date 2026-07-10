@@ -2,7 +2,7 @@ package com.cmux;
 
 import java.util.Map;
 
-public sealed interface CmuxEvent permits TreeChangedEvent, EmptyEvent, SurfaceEvent, TitleChangedEvent, SurfaceResizedEvent, VtStateEvent, OutputEvent, ResizedEvent, UnknownEvent {
+public sealed interface CmuxEvent permits TreeChangedEvent, EmptyEvent, SurfaceEvent, TitleChangedEvent, SurfaceResizedEvent, VtStateEvent, OutputEvent, ResizedEvent, OverflowEvent, UnknownEvent {
     String event();
 
     static CmuxEvent from(Map<String, Object> raw) {
@@ -10,6 +10,11 @@ public sealed interface CmuxEvent permits TreeChangedEvent, EmptyEvent, SurfaceE
         return switch (event) {
             case "tree-changed" -> new TreeChangedEvent();
             case "empty" -> new EmptyEvent();
+            case "overflow" -> new OverflowEvent(
+                CmuxClient.asString(raw.get("error")),
+                raw.get("scope") instanceof String scope ? scope : null,
+                raw.get("surface") instanceof Number ? CmuxClient.asLong(raw.get("surface")) : null
+            );
             case "surface-output", "surface-exited", "bell", "detached" ->
                 new SurfaceEvent(event, CmuxClient.asLong(raw.get("surface")));
             case "title-changed" -> new TitleChangedEvent(
