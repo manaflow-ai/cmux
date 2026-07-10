@@ -214,8 +214,12 @@ import Testing
         let mirror = try #require(harness.windowMirror)
         let firstPanel = try #require(mirror.panel(forPane: 11))
         let secondPanel = try #require(mirror.panel(forPane: 22))
-        let firstRef = TerminalController.shared.v2Ref(kind: .surface, uuid: firstPanel.id)
-        let secondRef = TerminalController.shared.v2Ref(kind: .surface, uuid: secondPanel.id)
+        let firstRef = try #require(
+            TerminalController.shared.v2Ref(kind: .surface, uuid: firstPanel.id) as? String
+        )
+        let secondRef = try #require(
+            TerminalController.shared.v2Ref(kind: .surface, uuid: secondPanel.id) as? String
+        )
 
         try harness.publishLayout(
             "beef,80x24,0,0[80x12,0,0,22,80x11,0,13,11]",
