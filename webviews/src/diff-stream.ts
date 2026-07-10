@@ -370,7 +370,7 @@ function moveCurrentPathItemToPrevious(model: StreamingDiffModel, treePath: stri
   const replacementItem = { ...state.currentItem, id: newId };
   state.currentItem = replacementItem;
   state.currentItemId = newId;
-  replaceModelItem(model.items, oldId, replacementItem);
+  replaceModelItem(model, oldId, replacementItem);
   const itemMetadata = model.itemIdToFile.get(oldId);
   if (itemMetadata) {
     model.itemIdToFile.delete(oldId);
@@ -381,7 +381,6 @@ function moveCurrentPathItemToPrevious(model: StreamingDiffModel, treePath: stri
     model.treePathByItemId.set(newId, treePath);
   }
   if (model.pendingItemById.has(oldId)) {
-    replaceModelItem(model.pendingItems, oldId, replacementItem);
     model.pendingItemById.delete(oldId);
     model.pendingItemById.set(newId, replacementItem);
     return undefined;
@@ -389,10 +388,15 @@ function moveCurrentPathItemToPrevious(model: StreamingDiffModel, treePath: stri
   return { oldId, newId };
 }
 
-function replaceModelItem(items: DiffItem[], oldId: string, replacementItem: DiffItem): void {
-  const index = items.findIndex((item) => item.id === oldId);
-  if (index !== -1) {
-    items[index] = replacementItem;
+function replaceModelItem(model: StreamingDiffModel, oldId: string, replacementItem: DiffItem): void {
+  const fileOrder = model.itemIdToFile.get(oldId)?.fileOrder;
+  if (fileOrder == null) {
+    return;
+  }
+  if (fileOrder < model.items.length) {
+    model.items[fileOrder] = replacementItem;
+  } else {
+    model.pendingItems[fileOrder - model.items.length] = replacementItem;
   }
 }
 

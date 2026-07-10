@@ -169,6 +169,7 @@ extension CMUXCLI {
 
     private struct DiffInput {
         var patch: String
+        var localPatchURL: URL? = nil
         var sourceLabel: String
         var defaultTitle: String
         var emptyMessage: String?
@@ -1046,10 +1047,19 @@ extension CMUXCLI {
         if let surfaceHandle { params["surface_id"] = surfaceHandle }
 
         let payload = try activeClient.sendV2(method: "browser.open_split", params: params)
-        let completedViewer = try completeDeferredDiffViewer(viewer)
+        let completedViewer: DiffViewerWriteResult
+        do {
+            completedViewer = try completeDeferredDiffViewer(viewer)
+        } catch {
+            navigateCompletedDiffViewerIfNeeded(
+                viewer.completeDeferred != nil, viewer.url.scheme, payload,
+                viewer.url, viewer.url, socketPath, explicitPassword
+            )
+            throw error
+        }
         navigateCompletedDiffViewerIfNeeded(
             viewer.completeDeferred != nil, viewer.url.scheme, payload,
-            completedViewer.url, socketPath, explicitPassword
+            viewer.url, completedViewer.url, socketPath, explicitPassword
         )
 
         if jsonOutput {
@@ -1514,7 +1524,8 @@ extension CMUXCLI {
             let sourceURL = URL(string: rawInput) ?? trustedRemoteURL
             do {
                 return DiffInput(
-                    patch: try fetchDiffURL(trustedRemoteURL),
+                    patch: "",
+                    localPatchURL: try fetchDiffURLToFile(trustedRemoteURL, directory: diffViewerDirectory()),
                     sourceLabel: sourceURL.absoluteString,
                     defaultTitle: diffInputURLTitle(sourceURL),
                     emptyMessage: nil,
@@ -1531,7 +1542,8 @@ extension CMUXCLI {
             let sourceURL = URL(string: rawInput) ?? url
             do {
                 return DiffInput(
-                    patch: try fetchDiffURL(url),
+                    patch: "",
+                    localPatchURL: try fetchDiffURLToFile(url, directory: diffViewerDirectory()),
                     sourceLabel: sourceURL.absoluteString,
                     defaultTitle: diffInputURLTitle(sourceURL),
                     emptyMessage: nil,
@@ -1753,28 +1765,6 @@ extension CMUXCLI {
         normalized?.query = nil
         normalized?.fragment = nil
         return normalized?.url ?? url
-    }
-
-    private func fetchDiffURL(_ url: URL) throws -> String {
-        let result = CLIProcessRunner.runProcess(
-            executablePath: "/usr/bin/env",
-            arguments: [
-                "curl",
-                "-fL",
-                "--silent",
-                "--show-error",
-                "--max-time", "120",
-                url.absoluteString
-            ],
-            timeout: 130
-        )
-        if result.timedOut {
-            throw CLIError(message: "Timed out fetching diff URL: \(url.absoluteString)")
-        }
-        guard result.status == 0 else {
-            throw CLIError(message: "Failed to fetch diff URL: \(url.absoluteString)")
-        }
-        return result.stdout
     }
 
     private func diffInputURLTitle(_ url: URL) -> String {
@@ -3918,7 +3908,10 @@ extension CMUXCLI {
         }
 
         let input = try readDiffInput(rawInput, source: nil, context: context)
-        if input.remotePatchURL == nil {
+        defer {
+            if let localPatchURL = input.localPatchURL { try? FileManager.default.removeItem(at: localPatchURL) }
+        }
+        if input.localPatchURL == nil && input.remotePatchURL == nil {
             let trimmedPatch = input.patch.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmedPatch.isEmpty else {
                 throw CLIError(message: input.emptyMessage ?? "diff input is empty")
@@ -3942,6 +3935,7 @@ extension CMUXCLI {
         try writeDiffViewerHTML(
             to: viewerFileURL,
             patch: input.patch,
+            localPatchURL: input.localPatchURL,
             title: title,
             sourceLabel: input.sourceLabel,
             externalURL: input.externalURL,
@@ -7397,6 +7391,7 @@ extension CMUXCLI {
     private func writeDiffViewerHTML(
         to viewerURL: URL,
         patch: String,
+        localPatchURL: URL? = nil,
         title: String,
         sourceLabel: String,
         externalURL: String?,
@@ -7415,7 +7410,9 @@ extension CMUXCLI {
         pollForReplacement: Bool = false,
         runtime: URL? = nil
     ) throws {
-        if remotePatchURL == nil {
+        if let localPatchURL {
+            try FileManager.default.moveItem(at: localPatchURL, to: diffViewerPatchFileURL(for: viewerURL))
+        } else if remotePatchURL == nil {
             try writeDiffViewerPatchSidecar(patch, for: viewerURL)
         }
         let labels = DiffViewerLabels.localized()

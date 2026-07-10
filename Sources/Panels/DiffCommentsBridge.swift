@@ -296,7 +296,8 @@ final class DiffSidecarBridge: NSObject, WKScriptMessageHandlerWithReply {
     static let shared = DiffSidecarBridge()
 
     private static var handlerInstalledKey: UInt8 = 0
-    private static let maximumMessageBytes = 1024 * 1024
+    private static let maximumRequestBytes = 1024 * 1024
+    private static let maximumResponseBytes = 32 * 1024 * 1024
     // Longer than the sidecar's 120-second branch regeneration limit.
     private static let requestTimeout: TimeInterval = 130
 
@@ -325,7 +326,7 @@ final class DiffSidecarBridge: NSObject, WKScriptMessageHandlerWithReply {
         guard DiffCommentsBridge.isTrustedDiffViewerFrame(message.frameInfo),
               JSONSerialization.isValidJSONObject(message.body),
               let request = try? JSONSerialization.data(withJSONObject: message.body),
-              request.count <= Self.maximumMessageBytes else {
+              request.count <= Self.maximumRequestBytes else {
             replyHandler(Self.failureResponse(body: message.body, code: "notAllowed", message: "Diff sidecar request was rejected"), nil)
             return
         }
@@ -417,7 +418,7 @@ final class DiffSidecarBridge: NSObject, WKScriptMessageHandlerWithReply {
         await outputTask.value
         guard status == 0,
               !outputBox.data.isEmpty,
-              outputBox.data.count <= maximumMessageBytes else {
+              outputBox.data.count <= maximumResponseBytes else {
             throw CocoaError(.fileReadCorruptFile)
         }
         return outputBox.data
@@ -443,12 +444,19 @@ enum DiffViewerBridges {
 }
 
 extension BrowserPanel {
-    func navigateFromCLI(_ url: String) {
+    func hasCurrentURL(_ expectedURL: String) -> Bool {
+        (webView.url ?? currentURL)?.absoluteString == expectedURL
+    }
+
+    @discardableResult
+    func navigateFromCLI(_ url: String, expectedURL: String? = nil) -> Bool {
+        guard expectedURL.map(hasCurrentURL) != false else { return false }
         if let internalURL = URL(string: url),
            internalURL.scheme == CmuxDiffViewerURLSchemeHandler.scheme {
             navigate(to: internalURL)
         } else {
             navigateSmart(url)
         }
+        return true
     }
 }

@@ -71,6 +71,7 @@ struct BranchSessionAuthorization {
 }
 
 const MAX_CACHED_MANIFESTS: usize = 64;
+const MAX_RPC_RESPONSE_BYTES: usize = 32 * 1024 * 1024;
 const MAX_CONCURRENT_CHILD_PROCESSES: usize = 4;
 const BRANCH_LIST_CHILD_TIMEOUT: Duration = Duration::from_secs(30);
 // Branch regeneration runs Git commands with 60-second deadlines, then writes
@@ -160,6 +161,9 @@ pub async fn run_rpc(config: ServerConfig) -> Result<(), String> {
     let state = app_state(config, 0)?;
     let response = handle_protocol_request(request, Some(&state)).await;
     let bytes = serde_json::to_vec(&response).map_err(|error| error.to_string())?;
+    if bytes.len() > MAX_RPC_RESPONSE_BYTES {
+        return Err("response exceeds 32 MiB".to_owned());
+    }
     let mut stdout = tokio::io::stdout();
     stdout
         .write_all(&bytes)

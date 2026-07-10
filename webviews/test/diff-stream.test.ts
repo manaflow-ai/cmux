@@ -141,3 +141,29 @@ test("streamPatch reuses incremental tree collections with revisioned flushes", 
     { path: "b.ts", status: "deleted" },
   ]);
 });
+
+test("streamPatch replaces many repeated paths by stable file order", async () => {
+  const dom = new JSDOM("<!doctype html><html><body></body></html>");
+  (globalThis as any).document = dom.window.document;
+  (globalThis as any).window = dom.window;
+  (globalThis as any).fetch = () => Promise.resolve({ ok: true, text: () => Promise.resolve("patch") });
+  dom.window.document.hasFocus = () => false;
+
+  const batches: any[][] = [];
+  await streamPatch({
+    getCollapsed: () => false,
+    initialFileTreeRowCount: 1,
+    label: createDiffViewerLabelResolver(undefined),
+    onBatch: (items) => batches.push(items),
+    onComplete: () => {},
+    onMetrics: () => {},
+    onRename: () => {},
+    onTreeSource: () => {},
+    parsePatchFiles: () => [{ files: Array.from({ length: 2_000 }, () => ({ name: "repeat.ts", type: "change", hunks: [] })) }],
+    patchURL: "/patch.diff",
+    processFile: () => ({ name: "unused", type: "change", hunks: [] }),
+  });
+
+  expect(batches.reduce((count, batch) => count + batch.length, 0)).toBe(2_000);
+  expect(batches.at(-1)?.at(-1)?.id).toBe("repeat.ts?2");
+});

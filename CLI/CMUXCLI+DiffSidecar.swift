@@ -2,11 +2,35 @@ import Foundation
 
 /// Process selection and launch for the portable diff-viewer backend.
 extension CMUXCLI {
+    func fetchDiffURLToFile(_ url: URL, directory: URL) throws -> URL {
+        let outputURL = directory.appendingPathComponent("download-\(UUID().uuidString).patch")
+        let result = CLIProcessRunner.runProcess(
+            executablePath: "/usr/bin/env",
+            arguments: [
+                "curl", "-fL", "--silent", "--show-error", "--max-time", "120",
+                "--output", outputURL.path, url.absoluteString,
+            ],
+            timeout: 130
+        )
+        guard !result.timedOut, result.status == 0 else {
+            try? FileManager.default.removeItem(at: outputURL)
+            let reason = result.timedOut ? "Timed out fetching" : "Failed to fetch"
+            throw CLIError(message: "\(reason) diff URL: \(url.absoluteString)")
+        }
+        guard (try? outputURL.resourceValues(forKeys: [.fileSizeKey]).fileSize).map({ $0 > 0 }) == true else {
+            try? FileManager.default.removeItem(at: outputURL)
+            throw CLIError(message: "Diff input is empty: \(url.absoluteString)")
+        }
+        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: outputURL.path)
+        return outputURL
+    }
+
     /// Navigates a deferred custom-scheme viewer after Git work replaces its placeholder.
     func navigateCompletedDiffViewerIfNeeded(
         _ wasDeferred: Bool,
         _ scheme: String?,
         _ payload: [String: Any],
+        _ expectedURL: URL,
         _ completedURL: URL,
         _ socketPath: String,
         _ explicitPassword: String?
@@ -22,7 +46,11 @@ extension CMUXCLI {
         defer { client.close() }
         _ = try? client.sendV2(
             method: "browser.navigate",
-            params: ["surface_id": surface, "url": completedURL.absoluteString]
+            params: [
+                "surface_id": surface,
+                "url": completedURL.absoluteString,
+                "expected_url": expectedURL.absoluteString,
+            ]
         )
     }
 

@@ -552,7 +552,7 @@ final class CMUXOpenCommandTests: XCTestCase {
         let fakeBin = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-diff-fake-curl-\(UUID().uuidString)", isDirectory: true)
         let fakeCurl = fakeBin.appendingPathComponent("curl", isDirectory: false)
         try FileManager.default.createDirectory(at: fakeBin, withIntermediateDirectories: true)
-        let script = "#!/bin/sh\nprintf 'diff --git a/file.txt b/file.txt\\n--- a/file.txt\\n+++ b/file.txt\\n@@ -1 +1 @@\\n-old\\n+new\\n'\n"
+        let script = "#!/bin/sh\nwhile [ \"$1\" != \"--output\" ]; do shift; done\nshift\nprintf 'diff --git a/file.txt b/file.txt\\n--- a/file.txt\\n+++ b/file.txt\\n@@ -1 +1 @@\\n-old\\n+new\\n' > \"$1\"\n"
         try script.write(to: fakeCurl, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeCurl.path)
         defer { try? FileManager.default.removeItem(at: fakeBin) }
@@ -1803,14 +1803,13 @@ final class CMUXOpenCommandTests: XCTestCase {
         let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
         XCTAssertEqual(process.terminationStatus, 0, stderr)
         XCTAssertTrue(stdout.contains("OK surface=surface-id pane=pane-id"), stdout)
-        XCTAssertTrue(FileManager.default.fileExists(atPath: diffStartedURL.path))
-
         let openingURL = try XCTUnwrap(openedURLBox.get())
+        let navigationParams = state.commands.compactMap { Self.v2Payload(from: $0) }.first { $0["method"] as? String == "browser.navigate" }?["params"] as? [String: Any]
+        XCTAssertEqual(navigationParams?["expected_url"] as? String, openingURL)
         let htmlURL = try resolvedDiffViewerHTMLFileURL(openingHTMLURL, from: ["url": openingURL])
         let html = try String(contentsOf: htmlURL, encoding: .utf8)
         let patch = try String(contentsOf: htmlURL.deletingPathExtension().appendingPathExtension("patch"), encoding: .utf8)
         XCTAssertFalse(html.contains("data-cmux-diff-pending=\"true\""), html)
-        XCTAssertTrue(html.contains("Slow diff"), html)
         XCTAssertTrue(patch.contains("+new line"), patch)
     }
 
