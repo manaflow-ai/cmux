@@ -131,6 +131,9 @@ final class CanvasPaneContentMount: CanvasPaneContentMounting {
     func setRendering(_ rendering: Bool) {
         switch content {
         case .terminal(let panel):
+            if rendering {
+                panel.hostedView.setVisibleInUI(true, refreshPolicy: .immediate)
+            }
             panel.surface.setOcclusion(rendering)
         case .hosted(let panel, _):
             // Offscreen browsers may hidden-discard their webview; coming
