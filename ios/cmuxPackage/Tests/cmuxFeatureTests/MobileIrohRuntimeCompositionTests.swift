@@ -1,7 +1,11 @@
+import AuthenticationServices
+import CMUXAuthCore
 import CMUXMobileCore
+import CmuxAuthRuntime
 import CmuxIrohTransport
 import CmuxMobileShell
 import CmuxMobileShellModel
+import CryptoKit
 import Foundation
 import Testing
 @testable import cmuxFeature
@@ -233,6 +237,120 @@ struct MobileIrohRuntimeCompositionTests {
         case .authRejected, .ok: Issue.record("Cached Iroh routes created a device-list row")
         }
     }
+
+    @Test
+    func failedFallbackPersistenceQuarantinesRepositoriesAndBlocksAccountRotation() async throws {
+        let fixture = try await MobileIrohSignOutFixture.make()
+        await fixture.outboxStore.setWriteMode(.fail)
+
+        let preparation = await fixture.composition.prepareSignOut()
+
+        #expect(preparation.pendingRevocation == fixture.pendingRevocation)
+        #expect(preparation.wasPersisted == false)
+        try await fixture.expectOriginalRepositoriesRemain()
+
+        await fixture.auth.signOut(onSignedOut: { _, _ in })
+        await fixture.authClient.setUser(fixture.otherUser)
+        try await fixture.auth.signInWithPassword(email: "b@example.com", password: "pw")
+        await #expect(throws: CmxIrohClientRuntimeError.self) {
+            _ = try await fixture.composition.transport(for: fixture.request)
+        }
+
+        #expect(await fixture.endpointFactory.bindCount() == 1)
+        #expect(await fixture.broker.revokedBindingIDs().isEmpty)
+        try await fixture.expectOriginalRepositoriesRemain()
+    }
+
+    @Test
+    func capturedTokenHookRetriesExactPreparationBeforeWipingQuarantine() async throws {
+        let fixture = try await MobileIrohSignOutFixture.make()
+        await fixture.outboxStore.setWriteMode(.fail)
+        let preparation = await fixture.composition.prepareSignOut()
+        #expect(preparation.wasPersisted == false)
+        try await fixture.expectOriginalRepositoriesRemain()
+        await fixture.outboxStore.setWriteMode(.normal)
+
+        await fixture.auth.signOut { accessToken, refreshToken in
+            await fixture.composition.revokeAfterSignOut(
+                preparation,
+                accessToken: accessToken,
+                refreshToken: refreshToken
+            )
+        }
+
+        #expect(await fixture.broker.revokedBindingIDs() == [fixture.bindingID])
+        #expect(
+            try await fixture.outbox.pending(accountID: fixture.accountID).isEmpty
+        )
+        try await fixture.expectRepositoriesWereWiped()
+    }
+
+    @Test
+    func laterSameAccountAuthenticationRetriesQuarantineBeforeActivation() async throws {
+        let fixture = try await MobileIrohSignOutFixture.make()
+        await fixture.outboxStore.setWriteMode(.fail)
+        let preparation = await fixture.composition.prepareSignOut()
+        #expect(preparation.wasPersisted == false)
+        await fixture.auth.signOut(onSignedOut: { _, _ in })
+
+        await fixture.authClient.setUser(fixture.otherUser)
+        try await fixture.auth.signInWithPassword(email: "b@example.com", password: "pw")
+        await #expect(throws: CmxIrohClientRuntimeError.self) {
+            _ = try await fixture.composition.transport(for: fixture.request)
+        }
+        #expect(await fixture.endpointFactory.bindCount() == 1)
+        #expect(await fixture.broker.revokedBindingIDs().isEmpty)
+        try await fixture.expectOriginalRepositoriesRemain()
+
+        await fixture.auth.signOut(onSignedOut: { _, _ in })
+        await fixture.outboxStore.setWriteMode(.normal)
+        await fixture.authClient.setUser(fixture.user)
+        try await fixture.auth.signInWithPassword(email: "a@example.com", password: "pw")
+        await #expect(throws: CmxIrohClientRuntimeError.self) {
+            _ = try await fixture.composition.transport(for: fixture.request)
+        }
+
+        #expect(await fixture.broker.revokedBindingIDs() == [fixture.bindingID])
+        #expect(await fixture.endpointFactory.bindCount() == 2)
+        #expect(
+            try await fixture.outbox.pending(accountID: fixture.accountID).isEmpty
+        )
+        #expect(
+            try await fixture.appInstances.appInstanceID(
+                accountID: fixture.accountID,
+                tag: fixture.tag
+            ) != fixture.appInstanceID
+        )
+    }
+
+    @Test
+    func concurrentSignOutCannotOvertakeSuspendedPersistence() async throws {
+        let fixture = try await MobileIrohSignOutFixture.make()
+        await fixture.outboxStore.setWriteMode(.suspendThenFail)
+        let first = Task { await fixture.composition.prepareSignOut() }
+        await fixture.outboxStore.waitUntilWriteStarts()
+        let secondCompletion = MobileIrohCompletionProbe()
+        let second = Task {
+            let preparation = await fixture.composition.prepareSignOut()
+            await secondCompletion.finish()
+            return preparation
+        }
+
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(await secondCompletion.isFinished() == false)
+        #expect(await fixture.outboxStore.writeCount() == 1)
+        try await fixture.expectOriginalRepositoriesRemain()
+
+        await fixture.outboxStore.resumeSuspendedWrite()
+        let firstPreparation = await first.value
+        let secondPreparation = await second.value
+
+        #expect(firstPreparation == secondPreparation)
+        #expect(firstPreparation.pendingRevocation == fixture.pendingRevocation)
+        #expect(firstPreparation.wasPersisted == false)
+        #expect(await fixture.outboxStore.writeCount() == 1)
+        try await fixture.expectOriginalRepositoriesRemain()
+    }
 }
 
 private enum TestCompositionError: Error {
@@ -270,6 +388,502 @@ private actor MobileIrohBaseRegistry: DeviceRegistryRefreshing {
 
     func freshRoutes(forMacDeviceID _: String) -> [CmxAttachRoute]? { routes }
     func listDevices() -> DeviceRegistryListOutcome { .ok([]) }
+}
+
+@MainActor
+private struct MobileIrohSignOutFixture {
+    static let accountID = "account-a"
+    static let tag = "test"
+    static let bindingID = "123e4567-e89b-42d3-a456-426614174070"
+    static let deviceID = "123e4567-e89b-42d3-a456-426614174071"
+    static let firstAppInstanceID = UUID(
+        uuidString: "123e4567-e89b-42d3-a456-426614174072"
+    )!
+    static let secondAppInstanceID = UUID(
+        uuidString: "123e4567-e89b-42d3-a456-426614174073"
+    )!
+
+    let composition: MobileIrohRuntimeComposition
+    let auth: AuthCoordinator
+    let authClient: MobileIrohTestAuthClient
+    let user: CMUXAuthUser
+    let otherUser: CMUXAuthUser
+    let appInstances: CmxIrohAppInstanceRepository
+    let identities: CmxIrohIdentityRepository
+    let brokerCredentials: CmxIrohBrokerCredentialRepository
+    let outbox: CmxIrohPendingRevocationOutbox
+    let outboxStore: MobileIrohControlledCredentialStore
+    let endpointFactory: MobileIrohCountingEndpointFactory
+    let broker: MobileIrohRevocationBroker
+    let request: CmxByteTransportRequest
+    let appInstanceID: String
+    let identity: CmxIrohIdentityMaterial
+    let binding: CmxIrohBrokerBindingMetadata
+    let pendingRevocation: CmxIrohPendingRevocation
+
+    var accountID: String { Self.accountID }
+    var tag: String { Self.tag }
+    var bindingID: String { Self.bindingID }
+
+    static func make() async throws -> Self {
+        let suiteName = "MobileIrohRuntimeCompositionTests.signout.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        let installState = CmxIrohUserDefaultsInstallStateStore(defaults: defaults)
+        let appInstanceIDs = MobileIrohUUIDSequence([
+            firstAppInstanceID,
+            secondAppInstanceID,
+        ])
+        let identityBytes = MobileIrohDataSequence([
+            Data(repeating: 7, count: 32),
+            Data(repeating: 8, count: 32),
+        ])
+        let identityStore = MobileIrohInMemoryIdentityStore()
+        let brokerStore = MobileIrohControlledCredentialStore()
+        let outboxStore = MobileIrohControlledCredentialStore()
+        let offlineStore = MobileIrohControlledCredentialStore()
+        let appInstances = CmxIrohAppInstanceRepository(
+            store: installState,
+            makeUUID: { appInstanceIDs.next() }
+        )
+        let identities = CmxIrohIdentityRepository(
+            secureStore: identityStore,
+            installState: installState,
+            randomBytes: { identityBytes.next() },
+            marker: { "test-install" }
+        )
+        let brokerCredentials = CmxIrohBrokerCredentialRepository(
+            secureStore: brokerStore,
+            installState: installState
+        )
+        let appInstanceID = try await appInstances.appInstanceID(
+            accountID: accountID,
+            tag: tag
+        )
+        let identity = try await identities.identity(
+            accountID: accountID,
+            appInstanceID: appInstanceID
+        )
+        let privateKey = try Curve25519.Signing.PrivateKey(
+            rawRepresentation: identity.secretKey.bytes
+        )
+        let endpointID = try CmxIrohPeerIdentity(
+            endpointID: privateKey.publicKey.rawRepresentation
+                .map { String(format: "%02x", $0) }
+                .joined()
+        )
+        let binding = try CmxIrohBrokerBindingMetadata(
+            bindingID: bindingID,
+            deviceID: deviceID,
+            appInstanceID: appInstanceID,
+            tag: tag,
+            platform: .ios,
+            endpointID: endpointID,
+            identityGeneration: identity.generation
+        )
+        try await brokerCredentials.saveBinding(binding, accountID: accountID)
+
+        let user = CMUXAuthUser(
+            id: accountID,
+            primaryEmail: "a@example.com",
+            displayName: "A"
+        )
+        let otherUser = CMUXAuthUser(
+            id: "account-b",
+            primaryEmail: "b@example.com",
+            displayName: "B"
+        )
+        let authClient = MobileIrohTestAuthClient(user: user)
+        let authStore = MobileIrohAuthKeyValueStore()
+        let auth = AuthCoordinator(
+            client: authClient,
+            sessionCache: CMUXAuthSessionCache(
+                keyValueStore: authStore,
+                key: "has-tokens"
+            ),
+            userCache: CMUXAuthIdentityStore(
+                keyValueStore: authStore,
+                key: "cached-user"
+            ),
+            teamSelection: CMUXAuthTeamSelectionStore(
+                keyValueStore: authStore,
+                key: "selected-team"
+            ),
+            anchor: MobileIrohAuthAnchor(),
+            config: AuthConfig(
+                stack: CMUXAuthConfig(
+                    projectId: "test",
+                    publishableClientKey: "test"
+                ),
+                magicLinkCallbackURL: "http://localhost/auth/callback",
+                apiBaseURL: "http://localhost"
+            ),
+            launch: AuthLaunchOptions(
+                clearAuthRequested: false,
+                mockDataEnabled: false,
+                environment: [:],
+                includesDevAuth: false
+            )
+        )
+        try await auth.signInWithPassword(
+            email: "a@example.com",
+            password: "pw"
+        )
+
+        let outbox = CmxIrohPendingRevocationOutbox(secureStore: outboxStore)
+        let endpointFactory = MobileIrohCountingEndpointFactory()
+        let broker = MobileIrohRevocationBroker()
+        let composition = MobileIrohRuntimeComposition(
+            appInstances: appInstances,
+            identities: identities,
+            brokerCredentials: brokerCredentials,
+            pendingRevocations: outbox,
+            offlinePolicies: CmxIrohClientOfflinePolicyCache(
+                secureStore: offlineStore
+            ),
+            endpointFactory: endpointFactory,
+            brokerFactory: { _ in broker },
+            deviceID: { deviceID },
+            tag: tag,
+            now: { Date(timeIntervalSince1970: 1_000) }
+        )
+        composition.configure(auth: auth)
+        let remoteIdentity = try CmxIrohPeerIdentity(
+            endpointID: String(repeating: "a", count: 64)
+        )
+        let request = CmxByteTransportRequest(
+            route: try CmxAttachRoute(
+                id: "iroh",
+                kind: .iroh,
+                endpoint: .peer(identity: remoteIdentity, pathHints: []),
+                priority: 0
+            ),
+            expectedPeerDeviceID: "123e4567-e89b-42d3-a456-426614174074",
+            authorizationMode: .transportAdmission
+        )
+        await #expect(throws: CmxIrohClientRuntimeError.self) {
+            _ = try await composition.transport(for: request)
+        }
+        #expect(await endpointFactory.bindCount() == 1)
+
+        return Self(
+            composition: composition,
+            auth: auth,
+            authClient: authClient,
+            user: user,
+            otherUser: otherUser,
+            appInstances: appInstances,
+            identities: identities,
+            brokerCredentials: brokerCredentials,
+            outbox: outbox,
+            outboxStore: outboxStore,
+            endpointFactory: endpointFactory,
+            broker: broker,
+            request: request,
+            appInstanceID: appInstanceID,
+            identity: identity,
+            binding: binding,
+            pendingRevocation: try CmxIrohPendingRevocation(
+                accountID: accountID,
+                tag: tag,
+                bindingID: bindingID
+            )
+        )
+    }
+
+    func expectOriginalRepositoriesRemain() async throws {
+        #expect(
+            try await appInstances.appInstanceID(accountID: accountID, tag: tag)
+                == appInstanceID
+        )
+        #expect(
+            try await identities.identity(
+                accountID: accountID,
+                appInstanceID: appInstanceID
+            ) == identity
+        )
+        #expect(
+            try await brokerCredentials.loadBinding(
+                accountID: accountID,
+                appInstanceID: appInstanceID
+            ) == binding
+        )
+    }
+
+    func expectRepositoriesWereWiped() async throws {
+        #expect(
+            try await appInstances.appInstanceID(accountID: accountID, tag: tag)
+                != appInstanceID
+        )
+        #expect(
+            try await brokerCredentials.loadBinding(
+                accountID: accountID,
+                appInstanceID: Self.secondAppInstanceID.uuidString.lowercased()
+            ) == nil
+        )
+    }
+}
+
+private enum MobileIrohCredentialStoreWriteMode: Sendable {
+    case normal
+    case fail
+    case suspendThenFail
+}
+
+private enum MobileIrohSignOutTestError: Error {
+    case unavailable
+    case writeFailed
+    case exhaustedFixture
+}
+
+private actor MobileIrohControlledCredentialStore: CmxIrohSecureCredentialStoring {
+    private var storage: [String: Data] = [:]
+    private var writeMode = MobileIrohCredentialStoreWriteMode.normal
+    private var writes = 0
+    private var writeStarted = false
+    private var writeStartWaiters: [CheckedContinuation<Void, Never>] = []
+    private var suspendedWrite: CheckedContinuation<Void, Never>?
+
+    func setWriteMode(_ mode: MobileIrohCredentialStoreWriteMode) {
+        writeMode = mode
+    }
+
+    func read(account: String) -> Data? { storage[account] }
+
+    func write(
+        _ data: Data,
+        account: String,
+        accessibility _: CmxIrohSecureCredentialAccessibility
+    ) async throws {
+        writes += 1
+        switch writeMode {
+        case .normal:
+            storage[account] = data
+        case .fail:
+            throw MobileIrohSignOutTestError.writeFailed
+        case .suspendThenFail:
+            writeStarted = true
+            let waiters = writeStartWaiters
+            writeStartWaiters.removeAll()
+            for waiter in waiters { waiter.resume() }
+            await withCheckedContinuation { continuation in
+                suspendedWrite = continuation
+            }
+            throw MobileIrohSignOutTestError.writeFailed
+        }
+    }
+
+    func delete(account: String) { storage[account] = nil }
+    func deleteAll() { storage.removeAll() }
+
+    func waitUntilWriteStarts() async {
+        guard !writeStarted else { return }
+        await withCheckedContinuation { continuation in
+            writeStartWaiters.append(continuation)
+        }
+    }
+
+    func resumeSuspendedWrite() {
+        writeMode = .fail
+        suspendedWrite?.resume()
+        suspendedWrite = nil
+    }
+
+    func writeCount() -> Int { writes }
+}
+
+private final class MobileIrohInMemoryIdentityStore: CmxIrohSecureIdentityStoring,
+    @unchecked Sendable
+{
+    private let lock = NSLock()
+    private var storage: [String: Data] = [:]
+
+    func read(account: String) -> Data? {
+        lock.withLock { storage[account] }
+    }
+
+    func write(_ data: Data, account: String) {
+        lock.withLock { storage[account] = data }
+    }
+
+    func delete(account: String) {
+        lock.withLock { storage[account] = nil }
+    }
+
+    func deleteAll() {
+        lock.withLock { storage.removeAll() }
+    }
+}
+
+private final class MobileIrohUUIDSequence: @unchecked Sendable {
+    private let lock = NSLock()
+    private var values: [UUID]
+
+    init(_ values: [UUID]) { self.values = values }
+
+    func next() -> UUID {
+        lock.withLock {
+            guard !values.isEmpty else { return UUID() }
+            return values.removeFirst()
+        }
+    }
+}
+
+private final class MobileIrohDataSequence: @unchecked Sendable {
+    private let lock = NSLock()
+    private var values: [Data]
+
+    init(_ values: [Data]) { self.values = values }
+
+    func next() throws -> Data {
+        try lock.withLock {
+            guard !values.isEmpty else {
+                throw MobileIrohSignOutTestError.exhaustedFixture
+            }
+            return values.removeFirst()
+        }
+    }
+}
+
+private actor MobileIrohCountingEndpointFactory: CmxIrohEndpointFactory {
+    private var count = 0
+
+    func bind(
+        configuration _: CmxIrohEndpointConfiguration
+    ) throws -> any CmxIrohEndpoint {
+        count += 1
+        throw MobileIrohSignOutTestError.unavailable
+    }
+
+    func bindCount() -> Int { count }
+}
+
+private actor MobileIrohRevocationBroker: CmxIrohClientBrokerServing {
+    private var bindingIDs: [String] = []
+
+    func register(
+        prepared _: CmxIrohPreparedRegistration,
+        signer _: CmxIrohRegistrationSigner
+    ) throws -> CmxIrohRegistrationResponse {
+        throw MobileIrohSignOutTestError.unavailable
+    }
+
+    func discover() throws -> CmxIrohDiscoveryResponse {
+        throw MobileIrohSignOutTestError.unavailable
+    }
+
+    func issuePairGrant(
+        initiatorBindingID _: String,
+        acceptorBindingID _: String
+    ) throws -> CmxIrohPairGrantResponse {
+        throw MobileIrohSignOutTestError.unavailable
+    }
+
+    func issueRelayToken(
+        bindingID _: String
+    ) throws -> CmxIrohRelayTokenResponse {
+        throw MobileIrohSignOutTestError.unavailable
+    }
+
+    func revoke(bindingID: String) {
+        bindingIDs.append(bindingID)
+    }
+
+    func revokedBindingIDs() -> [String] { bindingIDs }
+}
+
+private actor MobileIrohCompletionProbe {
+    private var finished = false
+    func finish() { finished = true }
+    func isFinished() -> Bool { finished }
+}
+
+private final class MobileIrohAuthKeyValueStore: CMUXAuthKeyValueStore {
+    private var storage: [String: Any] = [:]
+
+    func bool(forKey defaultName: String) -> Bool {
+        storage[defaultName] as? Bool ?? false
+    }
+
+    func data(forKey defaultName: String) -> Data? {
+        storage[defaultName] as? Data
+    }
+
+    func string(forKey defaultName: String) -> String? {
+        storage[defaultName] as? String
+    }
+
+    func set(_ value: Any?, forKey defaultName: String) {
+        storage[defaultName] = value
+    }
+
+    func removeObject(forKey defaultName: String) {
+        storage[defaultName] = nil
+    }
+}
+
+private final class MobileIrohAuthAnchor: NSObject, AuthPresentationAnchoring,
+    @unchecked Sendable
+{
+    func presentationAnchor(
+        for session: ASWebAuthenticationSession
+    ) -> ASPresentationAnchor {
+        ASPresentationAnchor()
+    }
+
+    func presentationAnchor(
+        for controller: ASAuthorizationController
+    ) -> ASPresentationAnchor {
+        ASPresentationAnchor()
+    }
+}
+
+private actor MobileIrohTestAuthClient: AuthClient {
+    private var access: String? = "access"
+    private var refresh: String? = "refresh"
+    private var user: CMUXAuthUser
+
+    init(user: CMUXAuthUser) { self.user = user }
+
+    func setUser(_ user: CMUXAuthUser) { self.user = user }
+    func accessToken() -> String? { access }
+    func refreshToken() -> String? { refresh }
+    func forceRefreshAccessToken() -> String? { access }
+    func currentUser(throwOnMissing _: Bool) -> CMUXAuthUser? { user }
+    func listTeams() -> [CMUXAuthTeam] { [] }
+    func sendMagicLinkEmail(email _: String, callbackURL _: String) -> String { "nonce" }
+    func signInWithMagicLink(code _: String) {
+        access = "access"
+        refresh = "refresh"
+    }
+    func signInWithCredential(email _: String, password _: String) {
+        access = "access"
+        refresh = "refresh"
+    }
+    func signInWithOAuth(
+        provider _: String,
+        anchor _: any AuthPresentationAnchoring
+    ) {
+        access = "access"
+        refresh = "refresh"
+    }
+    func storedAccessToken() -> String? { access }
+    func clearLocalSession() {
+        access = nil
+        refresh = nil
+    }
+    func clearLocalSession(ifRefreshTokenMatches refreshToken: String) {
+        guard refresh == refreshToken else { return }
+        access = nil
+        refresh = nil
+    }
+    func revokeSession(accessToken _: String?, refreshToken _: String?) {}
+    func freshAccessToken(
+        accessToken: String?,
+        refreshToken _: String
+    ) -> String? {
+        accessToken
+    }
 }
 
 private func mobileIrohBinding(
