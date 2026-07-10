@@ -195,5 +195,32 @@ struct MobileHostMacScopedMutationAuthorizationTests {
             #expect(error.code == "forbidden")
         }
     }
+
+    @Test func testDisabledTransportModeStartsNoListener() {
+        let service = MobileHostService.shared
+        let defaults = UserDefaults.standard
+        let key = MobileHostService.transportModeDefaultsKey
+        let previous = defaults.object(forKey: key)
+        service.stop()
+        service.debugResetMobileLifecycleStateForTesting()
+        defaults.set(MobileTransportMode.disabled.rawValue, forKey: key)
+        defer {
+            if let previous {
+                defaults.set(previous, forKey: key)
+            } else {
+                defaults.removeObject(forKey: key)
+            }
+            service.stop()
+            service.debugResetMobileLifecycleStateForTesting()
+        }
+
+        service.start()
+
+        let status = service.statusSnapshot()
+        #expect(!status.isRunning)
+        #expect(status.port == nil)
+        #expect(status.routes.isEmpty)
+        #expect(service.debugListenerPortForTesting() == nil)
+    }
 }
 #endif
