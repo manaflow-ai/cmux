@@ -116,6 +116,47 @@ struct ProcessDetectedResumeIndexCoordinationTests {
     }
 
     @Test
+    func unavailableTerminationCaptureOverridesOlderSharedCache() async {
+        let timeoutWaiter = TerminationCoordinatorTimeoutWaiter()
+        let loadStarted = DispatchSemaphore(value: 0)
+        let releaseLoad = DispatchSemaphore(value: 0)
+        defer { releaseLoad.signal() }
+        let staleResult: SharedLiveAgentIndexLoader.LoadResult = (
+            index: .empty,
+            surfaceResumeBindingIndex: .empty,
+            liveAgentProcessFingerprint: [],
+            processScopeFingerprint: [],
+            forkValidatedPanels: []
+        )
+        let sharedIndex = SharedLiveAgentIndex(
+            indexLoader: {
+                loadStarted.signal()
+                releaseLoad.wait()
+                return staleResult
+            },
+            generationTimeoutWaiter: { await timeoutWaiter.wait() },
+            hookStoreDirectoryProvider: { Self.temporaryDirectory(named: "unavailable-overrides-cache").path }
+        )
+        sharedIndex.latestCompletedLoadResult = staleResult
+        let coordinator = TerminationResumeIndexCoordinator()
+
+        let capture = Task { @MainActor in
+            await coordinator.load(coordinatedBy: sharedIndex)
+        }
+        #expect(await Self.wait(for: loadStarted))
+        await timeoutWaiter.waitUntilPendingCount(1)
+        await timeoutWaiter.fireNext()
+
+        #expect(await capture.value == nil)
+        #expect(
+            coordinator.current(coordinatedBy: sharedIndex).map { _ in true } == nil,
+            "A memoized unavailable termination capture must override an older shared cache."
+        )
+        releaseLoad.signal()
+        await timeoutWaiter.cancelAll()
+    }
+
+    @Test
     func quickQuitDuringPrewarmQueuesPostConfirmationCapture() async {
         let loadStarted = DispatchSemaphore(value: 0)
         let secondLoadStarted = DispatchSemaphore(value: 0)
