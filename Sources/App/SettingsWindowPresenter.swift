@@ -58,6 +58,10 @@ final class SettingsWindowPresenter: NSObject {
     /// a closed window can never absorb a future open request.
     private var settingsWindow: NSWindow?
     private var pendingNavigationTarget: SettingsNavigationTarget?
+    /// Monotonic delivery token: bumped on every posted navigation so a
+    /// queued fresh-window delivery can detect it was superseded by a newer
+    /// targeted show and stay silent instead of navigating backwards.
+    private var navigationDeliveryGeneration = 0
 
     override convenience init() {
         self.init(windowFactory: { SettingsWindowFactory.makeSettingsWindow() })
@@ -324,12 +328,35 @@ final class SettingsWindowPresenter: NSObject {
     }
 
     /// Existing live content receives the navigation immediately; a freshly
-    /// created window keeps it pending, and ``SettingsWindowHostRoot``
-    /// consumes it once the content's notification subscriptions exist.
+    /// created window keeps it pending, and ``SettingsWindowHostRoot`` calls
+    /// `deliverPendingNavigationAfterContentAppears()` once the content's
+    /// notification subscriptions exist.
     private func deliverNavigation(reusedExistingWindow: Bool) {
         guard let target = pendingNavigationTarget else { return }
         if reusedExistingWindow {
             pendingNavigationTarget = nil
+            navigationDeliveryGeneration &+= 1
+            SettingsNavigationRequest.post(target)
+        }
+    }
+
+    static func deliverPendingNavigationAfterContentAppears() {
+        shared.deliverPendingNavigationAfterContentAppears()
+    }
+
+    /// Delivers a fresh window's pending target once its content is live. The
+    /// post is deferred one main-actor hop so the content's own restore
+    /// navigation (posted from a descendant `onAppear`) cannot clobber it, and
+    /// it is generation-guarded: a newer targeted `show()` that delivered in
+    /// the meantime supersedes this queued post instead of being overridden by
+    /// it.
+    func deliverPendingNavigationAfterContentAppears() {
+        guard let target = pendingNavigationTarget else { return }
+        pendingNavigationTarget = nil
+        navigationDeliveryGeneration &+= 1
+        let generation = navigationDeliveryGeneration
+        Task { @MainActor in
+            guard self.navigationDeliveryGeneration == generation else { return }
             SettingsNavigationRequest.post(target)
         }
     }

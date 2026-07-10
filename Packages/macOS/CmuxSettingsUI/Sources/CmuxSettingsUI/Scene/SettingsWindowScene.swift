@@ -116,6 +116,12 @@ public struct SettingsWindowRoot: View {
         .onReceive(NotificationCenter.default.publisher(for: Self.navigationRequestName)) { notification in
             applyNavigationRequest(notification)
         }
+        .onReceive(NotificationCenter.default.publisher(for: Self.sidebarToggleRequestName)) { _ in
+            // AppKit hosts this window, so SwiftUI's SidebarCommands cannot
+            // reach the split view; the host app routes its sidebar-toggle
+            // menu command here when the Settings window is key.
+            columnVisibility = columnVisibility == .detailOnly ? .all : .detailOnly
+        }
         .onChange(of: searchText) { _, newValue in
             // Legacy SettingsRootView resyncs the sidebar entry to the
             // section row whenever the search text is cleared, so
@@ -127,6 +133,7 @@ public struct SettingsWindowRoot: View {
     }
 
     public static let navigationRequestName = Notification.Name("cmux.settings.navigate")
+    public static let sidebarToggleRequestName = Notification.Name("cmux.settings.toggleSidebar")
 
     /// Legacy `SettingsRootView.onReceive` only updates the selection
     /// state (sidebar entry + section pane) in response to an external

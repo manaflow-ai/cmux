@@ -33,6 +33,20 @@ enum SettingsWindowFactory {
     }
 }
 
+extension SettingsWindowPresenter {
+    /// Routes the app's sidebar-toggle menu command (Toggle Left Sidebar) to
+    /// the Settings split view when the Settings window is key. The AppKit-
+    /// hosted window gets no SwiftUI `SidebarCommands`, so without this the
+    /// command would toggle a terminal window's sidebar instead.
+    static func handleSidebarToggleIfSettingsWindowIsKey(
+        keyWindow: NSWindow? = NSApp.keyWindow
+    ) -> Bool {
+        guard keyWindow?.identifier?.rawValue == windowIdentifier else { return false }
+        NotificationCenter.default.post(name: SettingsWindowRoot.sidebarToggleRequestName, object: nil)
+        return true
+    }
+}
+
 /// Settings window class that records the moment close teardown begins, so
 /// ``SettingsWindowPresenter`` can deterministically refuse to reuse a dying
 /// window even when a foreign `willClose` observer re-enters `show()` before
@@ -61,14 +75,10 @@ struct SettingsWindowHostRoot: View {
             .cmuxFontMagnificationEnvironment()
             .cmuxAppearanceColorScheme(appearanceMode)
             .onAppear {
-                guard let target = SettingsWindowPresenter.consumePendingNavigationTarget() else {
-                    return
-                }
-                // One main-actor hop so the content's own notification
-                // subscriptions are in place before the request posts.
-                Task { @MainActor in
-                    SettingsNavigationRequest.post(target)
-                }
+                // The presenter defers the post one main-actor hop (so the
+                // content's restore navigation cannot clobber it) and guards
+                // it against being superseded by a newer targeted show.
+                SettingsWindowPresenter.deliverPendingNavigationAfterContentAppears()
             }
     }
 
