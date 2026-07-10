@@ -154,6 +154,34 @@ struct CmxIrohEndpointSupervisorTests {
     }
 
     @Test
+    func successfulRelayRefreshPreservesRequiredBindPolicyForRecovery() async throws {
+        let firstEndpoint = TestIrohEndpoint(identity: identity)
+        let secondEndpoint = TestIrohEndpoint(identity: identity)
+        let factory = TestIrohEndpointFactory(endpoints: [firstEndpoint, secondEndpoint])
+        let bindPolicy = try CmxIrohEndpointBindPolicy.required(
+            CmxIrohBindAddress(ipAddress: "0.0.0.0", port: 49_152)
+        )
+        let initial = try endpointConfiguration(bindPolicy: bindPolicy)
+        let supervisor = CmxIrohEndpointSupervisor(
+            factory: factory,
+            configuration: initial
+        )
+        _ = try await supervisor.activate()
+        let replacement = try relayConfiguration(
+            url: "https://usw1-1.relay.lawrence.cmux.iroh.link/",
+            token: "bbbb"
+        )
+
+        try await supervisor.replaceRelays([replacement])
+        await supervisor.deactivate()
+        _ = try await supervisor.activate()
+
+        let configurations = await factory.observedConfigurations()
+        #expect(configurations.count == 2)
+        #expect(configurations[1].bindPolicy == bindPolicy)
+    }
+
+    @Test
     func supersededRelayRefreshCannotPoisonAReplacementGeneration() async throws {
         let firstEndpoint = TestBlockingRelayUpdateEndpoint(identity: identity)
         let secondEndpoint = TestIrohEndpoint(identity: identity)
@@ -191,7 +219,9 @@ struct CmxIrohEndpointSupervisorTests {
         #expect(configurations[2].relays == initialConfiguration.relays)
     }
 
-    private func endpointConfiguration() throws -> CmxIrohEndpointConfiguration {
+    private func endpointConfiguration(
+        bindPolicy: CmxIrohEndpointBindPolicy = .ephemeral
+    ) throws -> CmxIrohEndpointConfiguration {
         let relay = try relayConfiguration(
             url: "https://use1-1.relay.lawrence.cmux.iroh.link/",
             token: "aaaa"
@@ -199,6 +229,7 @@ struct CmxIrohEndpointSupervisorTests {
         return try CmxIrohEndpointConfiguration(
             secretKey: CmxIrohSecretKey(bytes: Data(repeating: 7, count: 32)),
             alpns: [CmxIrohProtocolConfiguration.cmuxMobileV1.alpn],
+            bindPolicy: bindPolicy,
             managedRelayURLs: [
                 relay.url,
                 "https://usw1-1.relay.lawrence.cmux.iroh.link/",

@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import Foundation
 import Testing
 @testable import CmuxIrohTransport
@@ -139,6 +140,50 @@ struct CmxIrohHostPolicyCacheTests {
         #expect(
             try await cache.load(
                 for: fixture.expectation(identityGeneration: 5),
+                now: fixture.now
+            ) == nil
+        )
+        #expect(await store.recordCount() == 0)
+    }
+
+    @Test("wrong local EndpointID deletes the active policy")
+    func loadDeletesWrongEndpointPolicy() async throws {
+        let fixture = try HostPolicyCacheTestFixture()
+        let store = TestSecureCredentialStore()
+        let cache = CmxIrohHostPolicyCache(secureStore: store)
+        try await cache.save(
+            fixture.policy(),
+            for: fixture.expectation(),
+            now: fixture.now
+        )
+
+        #expect(
+            try await cache.load(
+                for: fixture.expectation(
+                    endpointID: CmxIrohPeerIdentity(
+                        endpointID: String(repeating: "cd", count: 32)
+                    )
+                ),
+                now: fixture.now
+            ) == nil
+        )
+        #expect(await store.recordCount() == 0)
+    }
+
+    @Test("changed pairing policy deletes the active policy")
+    func loadDeletesChangedPairingPolicy() async throws {
+        let fixture = try HostPolicyCacheTestFixture()
+        let store = TestSecureCredentialStore()
+        let cache = CmxIrohHostPolicyCache(secureStore: store)
+        try await cache.save(
+            fixture.policy(),
+            for: fixture.expectation(),
+            now: fixture.now
+        )
+
+        #expect(
+            try await cache.load(
+                for: fixture.expectation(pairingEnabled: false),
                 now: fixture.now
             ) == nil
         )

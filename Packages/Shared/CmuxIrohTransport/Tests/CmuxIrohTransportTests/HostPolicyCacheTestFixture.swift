@@ -32,17 +32,20 @@ struct HostPolicyCacheTestFixture {
     func expectation(
         accountID: String = "account-a",
         appInstanceID: String? = nil,
-        identityGeneration: Int? = nil
+        endpointID: CmxIrohPeerIdentity? = nil,
+        identityGeneration: Int? = nil,
+        pairingEnabled: Bool = true,
+        capabilities: [String]? = nil
     ) throws -> CmxIrohHostPolicyExpectation {
         try CmxIrohHostPolicyExpectation(
             accountID: accountID,
             deviceID: binding.deviceID,
             appInstanceID: appInstanceID ?? binding.appInstanceID,
             tag: binding.tag,
-            endpointID: binding.endpointID,
+            endpointID: endpointID ?? binding.endpointID,
             identityGeneration: identityGeneration ?? binding.identityGeneration,
-            pairingEnabled: true,
-            capabilities: ["control", "multistream-v1"]
+            pairingEnabled: pairingEnabled,
+            capabilities: capabilities ?? ["control", "multistream-v1"]
         )
     }
 

@@ -8,6 +8,9 @@ public struct CmxIrohEndpointConfiguration: Equatable, Sendable {
     /// The application protocols accepted by this endpoint.
     public let alpns: [Data]
 
+    /// The endpoint's local UDP socket policy.
+    public let bindPolicy: CmxIrohEndpointBindPolicy
+
     /// The exact managed relay origins allowed for this build or policy.
     public let managedRelayURLs: Set<String>
 
@@ -19,12 +22,14 @@ public struct CmxIrohEndpointConfiguration: Equatable, Sendable {
     /// - Parameters:
     ///   - secretKey: The stable endpoint key.
     ///   - alpns: ALPNs advertised by the endpoint.
+    ///   - bindPolicy: Ephemeral by default, or an exact required socket address.
     ///   - managedRelayURLs: Exact relay origins permitted by app or MDM policy.
     ///   - relays: Current endpoint-scoped relay credentials.
     /// - Throws: ``CmxIrohEndpointConfigurationError`` for fleet-policy violations.
     public init(
         secretKey: CmxIrohSecretKey,
         alpns: [Data],
+        bindPolicy: CmxIrohEndpointBindPolicy = .ephemeral,
         managedRelayURLs: Set<String>,
         relays: [CmxIrohRelayConfiguration]
     ) throws {
@@ -42,6 +47,7 @@ public struct CmxIrohEndpointConfiguration: Equatable, Sendable {
         }
         self.secretKey = secretKey
         self.alpns = alpns
+        self.bindPolicy = bindPolicy
         self.managedRelayURLs = managedRelayURLs
         self.relays = relays
     }

@@ -209,6 +209,7 @@ public actor CmxIrohEndpointSupervisor {
         let candidateConfiguration = try CmxIrohEndpointConfiguration(
             secretKey: configuration.secretKey,
             alpns: configuration.alpns,
+            bindPolicy: configuration.bindPolicy,
             managedRelayURLs: configuration.managedRelayURLs,
             relays: relays
         )
