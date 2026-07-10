@@ -25,7 +25,7 @@ cmux-supplied addresses have two explicit phases:
 
 Private hints never enter the first cmux-supplied `EndpointAddr`. Iroh treats supplied IP paths as equivalent candidates, so array order is not a fallback boundary.
 
-This phase split is not a relay-only IP-privacy boundary. Stock Iroh 1.0 registers a TLS-complete connection with its path manager before cmux can verify a same-account grant, then exchanges public addresses, ports, and local interface addresses. EndpointID TLS proves key possession, not cmux authorization. The pinned cmux noq, Iroh, and FFI forks therefore negotiate QUIC NAT traversal but defer candidate announcement, inbound `REACH_OUT` processing, probes, timers, and direct-path migration on each connection. Every cmux endpoint advertises zero initial bidirectional and unidirectional stream credit; the Mac raises bidirectional credit to one only for the bootstrap control stream. Admission uses an acknowledged two-phase barrier: the Mac verifies the grant and returns an accepted-pending-NAT response, the phone authorizes its exact connection and sends client-ready over the bootstrap path, then the Mac authorizes its exact connection and returns server-ready. Only that final confirmation lets the phone return a connected session or open application lanes. The Mac's fresh candidate advertisement reaches an already-authorized phone and starts direct-path migration on that same connection. A denial, missing acknowledgement, role-invalid frame, or authorization failure closes the connection without creating a replacement connection. Default upstream behavior remains unchanged unless these endpoint options are enabled.
+This phase split is not a relay-only IP-privacy boundary. Stock Iroh 1.0 registers a TLS-complete connection with its path manager before cmux can verify a same-account grant, then exchanges public addresses, ports, and local interface addresses. EndpointID TLS proves key possession, not cmux authorization. The pinned cmux noq, Iroh, and FFI forks therefore negotiate QUIC NAT traversal but defer candidate announcement, inbound `REACH_OUT` processing, probes, timers, and direct-path migration on each connection. Every cmux endpoint advertises zero initial bidirectional and unidirectional stream credit; the Mac raises bidirectional credit to one only for the bootstrap control stream. Admission uses an acknowledged two-phase barrier: the Mac verifies the grant and returns an accepted-pending-NAT response, the phone authorizes its exact connection and sends client-ready over the bootstrap path, then the Mac authorizes its exact connection and returns server-ready. Only that final confirmation lets the phone return a connected session. Production v1 retains one bidirectional stream because no application component owns terminal or artifact streams yet. The client separately grants one unidirectional stream to the sole server-event receiver only after that receiver is prepared. A bounded test configuration can grant up to sixteen client application lanes after server-ready, and every lane header has a five-second deadline, but production must not enable that credit until a central accept owner and feature consumer are installed. The Mac's fresh candidate advertisement reaches an already-authorized phone and starts direct-path migration on that same connection. A denial, missing acknowledgement, role-invalid frame, or authorization failure closes the connection without creating a replacement connection. Default upstream behavior remains unchanged unless these endpoint options are enabled.
 
 After activation, the admitted peer may learn LAN, Tailscale, or other interface addresses even when cmux supplied only a relay URL. cmux documents this behavior and does not claim peer-IP concealment from an admitted peer. Iroh 1.0 still has no relay-only connection mode. Managed deployments that require peer-IP concealment must disable Iroh until a separately tested relay-only mode exists.
 
@@ -65,7 +65,7 @@ Offline LAN discovery is opt-in. The iOS target must declare its cmux Bonjour se
 
 | Path | v1 status | Capability boundary |
 | --- | --- | --- |
-| Managed relay or public-direct Iroh | Supported, default | Full admitted Iroh session and multistream features. |
+| Managed relay or public-direct Iroh | Supported, default | Admitted control plus an independently owned server-event stream; terminal and artifact lanes remain gated. |
 | Iroh-discovered LAN, Tailscale, or VPN candidate | Supported after admission | Same connection may migrate direct; selection is opportunistic, not guaranteed. |
 | Authenticated Bonjour LAN Iroh bootstrap | Supported | Exact known EndpointID or one-use offline proof; numeric on-link addresses only. |
 | Numeric Tailscale TCP | Compatibility only | Current framed RPC after interface-bound route proof; no Iroh-only features. |
@@ -134,12 +134,12 @@ The app derives path quality from local Iroh connection statistics. Product tele
 
 ## Streams and capabilities
 
-The initial ALPN is `cmux/mobile/1`. One QUIC connection multiplexes:
+The initial ALPN is `cmux/mobile/1`. Production v1 multiplexes:
 
 - a control stream for grants, requests, and lifecycle messages;
-- a server-event stream with sequence cursors;
-- one stream per terminal;
-- low-priority artifact streams with independent cancellation and backpressure.
+- one centrally owned server-event stream with sequence cursors.
+
+The binary protocol reserves client-created bidirectional terminal and artifact lanes. Their raw stream path, priority, post-admission credit, capacity, and header timeout are behavior-tested behind an explicit protocol configuration. Production keeps their credit at zero until it has one central Mac accept owner and concrete feature consumers. Server-created artifact streams are also disabled because the iOS unidirectional accept owner currently routes only server events. Artifact preview work should use a client-created artifact stream, which lets the requesting feature own both halves without competing for an accept loop.
 
 Datagrams carry only disposable hints. Mutating requests never use 0-RTT.
 
@@ -181,7 +181,7 @@ Before defaulting to Iroh, verification must cover:
 - same-account grant success plus cross-account, swapped-peer, revoked, expired, and replay denial;
 - coalesced online admission refresh, sticky learned revocation, idle-session closure within 30 seconds of an observable revoke, connectivity preservation, and closure at grant expiry without endpoint recreation;
 - offline cached-grant reconnect and explicit first-time offline pairing;
-- stream fairness, cancellation, reconnect cursors, and artifact backpressure;
+- control and server-event stream fairness, cancellation, and reconnect cursors; terminal and artifact backpressure before either reserved lane is production-enabled;
 - mobile energy use, relay byte use, and Low Data Mode behavior;
 - a final security and privacy pass over wire data, persistence, logs, and backend abuse limits.
 
