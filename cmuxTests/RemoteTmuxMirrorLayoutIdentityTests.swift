@@ -139,9 +139,9 @@ import Testing
                 "@1 f92f,80x24,0,0,11 f92f,80x24,0,0,11 [] editor",
                 "@2 abcd,80x24,0,0,44 abcd,80x24,0,0,44 [] logs",
             ],
-            initialRects: [
-                "%11 0 0 80 24 1 off :zsh",
-                "%44 0 0 80 24 0 off :zsh",
+            initialRectsByWindow: [
+                1: ["%11 0 0 80 24 1 off :zsh"],
+                2: ["%44 0 0 80 24 0 off :zsh"],
             ]
         )
         defer { harness.tearDown() }
@@ -189,7 +189,8 @@ private final class Harness {
     init(
         initialLayout: String = "f92f,80x24,0,0,11",
         initialWindowLines: [String]? = nil,
-        initialRects: [String] = ["%11 0 0 80 24 1 off :zsh"]
+        initialRects: [String] = ["%11 0 0 80 24 1 off :zsh"],
+        initialRectsByWindow: [Int: [String]]? = nil
     ) throws {
         connection = RemoteTmuxControlConnection(
             host: RemoteTmuxHost(destination: "user@host"),
@@ -212,11 +213,15 @@ private final class Harness {
             lines: initialWindowLines ?? ["@1 \(initialLayout) \(initialLayout) [] editor"],
             isError: false
         ))
-        connection.handleMessageForTesting(.commandResult(
-            commandNumber: 2,
-            lines: initialRects,
-            isError: false
-        ))
+        let rectsByWindow = initialRectsByWindow ?? [1: initialRects]
+        while let kind = connection.pendingCommandKindsForTesting.first {
+            guard case .paneRects(let windowID, _) = kind else { break }
+            connection.handleMessageForTesting(.commandResult(
+                commandNumber: 2,
+                lines: rectsByWindow[windowID] ?? [],
+                isError: false
+            ))
+        }
 
         manager = TabManager(autoWelcomeIfNeeded: false)
         workspace = try #require(manager.selectedWorkspace)
