@@ -14,11 +14,17 @@ actor CmxIrohClientSessionPool {
         let task: Task<CmxIrohClientSession, any Error>
     }
 
+    private struct PooledSession: Sendable {
+        let id: UUID
+        let session: CmxIrohClientSession
+        let closureTask: Task<Void, Never>
+    }
+
     private let supervisor: CmxIrohEndpointSupervisor
     private let contextProvider: any CmxIrohClientContextProvider
     private var lifecycleRevision: UInt64 = 0
     private var runtimeGeneration: UInt64?
-    private var sessions: [SessionKey: CmxIrohClientSession] = [:]
+    private var sessions: [SessionKey: PooledSession] = [:]
     private var connectionTasks: [SessionKey: PendingConnection] = [:]
 
     init(
@@ -42,8 +48,8 @@ actor CmxIrohClientSessionPool {
 
     func session(for request: CmxByteTransportRequest) async throws -> CmxIrohClientSession {
         let key = try sessionKey(for: request)
-        if let session = sessions[key] {
-            return session
+        if let pooled = sessions[key] {
+            return pooled.session
         }
 
         let revision = lifecycleRevision
@@ -93,12 +99,22 @@ actor CmxIrohClientSessionPool {
                 connectionTasks[key] = nil
             }
             if let installed = sessions[key] {
-                if installed !== connected {
+                if installed.session !== connected {
                     await connected.close()
                 }
-                return installed
+                return installed.session
             }
-            sessions[key] = connected
+            let sessionID = UUID()
+            let closureTask = Task { [weak self] in
+                await connected.waitUntilClosed()
+                guard !Task.isCancelled else { return }
+                await self?.sessionDidClose(key: key, sessionID: sessionID)
+            }
+            sessions[key] = PooledSession(
+                id: sessionID,
+                session: connected,
+                closureTask: closureTask
+            )
             return connected
         } catch {
             if connectionTasks[key]?.id == pending.id {
@@ -128,8 +144,9 @@ actor CmxIrohClientSessionPool {
         guard let key = try? sessionKey(for: request) else { return }
         connectionTasks[key]?.task.cancel()
         connectionTasks[key] = nil
-        let session = sessions.removeValue(forKey: key)
-        await session?.close()
+        let pooled = sessions.removeValue(forKey: key)
+        pooled?.closureTask.cancel()
+        await pooled?.session.close()
     }
 
     func invalidateAll() async {
@@ -139,7 +156,16 @@ actor CmxIrohClientSessionPool {
         for task in tasks { task.cancel() }
         let closing = sessions.values
         sessions.removeAll(keepingCapacity: false)
-        for session in closing { await session.close() }
+        for pooled in closing {
+            pooled.closureTask.cancel()
+            await pooled.session.close()
+        }
+    }
+
+    private func sessionDidClose(key: SessionKey, sessionID: UUID) async {
+        guard let pooled = sessions[key], pooled.id == sessionID else { return }
+        sessions[key] = nil
+        await pooled.session.close()
     }
 
     private func sessionKey(for request: CmxByteTransportRequest) throws -> SessionKey {

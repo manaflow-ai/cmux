@@ -63,6 +63,7 @@ extension MobileShellComposite {
         if shouldResync {
             resyncTerminalOutput(reason: "foreground", restartEventStream: true)
         }
+        recoverForegroundConnectionIfNeeded()
         // The foreground Mac's workspace list updates live over the sync stream,
         // but the other Macs are a read-only snapshot. Re-aggregate them on
         // foreground so workspaces created on another Mac while backgrounded

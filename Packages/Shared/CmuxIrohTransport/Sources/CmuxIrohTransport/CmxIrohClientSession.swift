@@ -187,6 +187,15 @@ public actor CmxIrohClientSession {
         }
     }
 
+    /// Suspends until the exact admitted QUIC connection closes.
+    ///
+    /// The session pool uses this independently of control-lane I/O so a peer or
+    /// suspended-iOS timeout evicts the stale pooled session before the next RPC.
+    public func waitUntilClosed() async {
+        guard let connection else { return }
+        await connection.waitUntilClosed()
+    }
+
     /// Closes the control stream and complete QUIC connection.
     public func close() async {
         guard !closed else { return }

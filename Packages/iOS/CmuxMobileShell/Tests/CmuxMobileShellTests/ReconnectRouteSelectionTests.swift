@@ -265,10 +265,10 @@ import Testing
 
         let recovered = try await pollUntil(attempts: 100) {
             guard let current = box.get() else { return false }
-            let workspaceListCount = await router.count(of: "mobile.workspace.list")
+            let foregroundProbeCount = await router.count(of: "mobile.workspace.list")
             return current !== firstTransport
                 && store.connectionState == .connected
-                && workspaceListCount >= 2
+                && foregroundProbeCount >= 1
         }
         #expect(recovered)
         #expect(store.activeRoute?.kind == .iroh)

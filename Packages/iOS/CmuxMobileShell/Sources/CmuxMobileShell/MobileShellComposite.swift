@@ -1419,6 +1419,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var networkPathObservationTask: Task<Void, Never>?
     private var recoveryInFlight = false
     private var recoveryTask: Task<Void, Never>?
+    private var foregroundConnectionRecoveryTask: Task<Void, Never>?
+    private var foregroundConnectionRecoveryID: UUID?
     private var lastReconnectStackUserID: String?
 
     private enum RecoveryTrigger: CustomStringConvertible {
@@ -1459,6 +1461,63 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public func retryMobileConnection() {
         connectionRecoveryFailed = false
         recoverMobileConnection(trigger: .manual)
+    }
+
+    /// Probes the foreground RPC connection after iOS resumes and transparently
+    /// redials the stored Mac when suspension killed the old QUIC session.
+    ///
+    /// The probe is bounded by the runtime liveness deadline. A failed probe
+    /// tears down only the exact client/generation it tested, then reconnects
+    /// through the persisted route policy, which keeps Iroh-capable Macs pinned
+    /// to Iroh rather than falling back to raw Tailscale.
+    func recoverForegroundConnectionIfNeeded() {
+        // Scene notifications can repeat while the first foreground probe is
+        // still redialing. Coalesce them so a later notification cannot cancel
+        // the task after it has torn down the old client but before it installs
+        // the replacement.
+        guard foregroundConnectionRecoveryTask == nil else { return }
+        guard connectionState == .connected,
+              let client = remoteClient,
+              pairedMacStore != nil else { return }
+        let recoveryID = UUID()
+        let generation = connectionGeneration
+        let stackUserID = lastReconnectStackUserID ?? identityProvider?.currentUserID
+        foregroundConnectionRecoveryID = recoveryID
+        foregroundConnectionRecoveryTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer {
+                if self.foregroundConnectionRecoveryID == recoveryID {
+                    self.foregroundConnectionRecoveryTask = nil
+                    self.foregroundConnectionRecoveryID = nil
+                }
+            }
+            let healthy = await self.reloadWorkspaceListFromMac(
+                timeoutNanoseconds: self.runtime?.livenessProbeTimeoutNanoseconds
+            )
+            guard !Task.isCancelled,
+                  self.foregroundConnectionRecoveryID == recoveryID,
+                  self.connectionGeneration == generation,
+                  self.remoteClient === client else { return }
+            if healthy {
+                self.markMacConnectionHealthy()
+                return
+            }
+            guard !self.connectionRequiresReauth, !self.recoveryInFlight else { return }
+            self.recoveryInFlight = true
+            self.isRecoveringConnection = true
+            self.connectionRecoveryFailed = false
+            self.connectionState = .disconnected
+            self.macConnectionStatus = .unavailable
+            self.clearRemoteConnectionContext()
+            let reconnected = await self.reconnectActiveMacIfAvailable(
+                stackUserID: stackUserID
+            )
+            if !reconnected, !Task.isCancelled {
+                self.connectionRecoveryFailed = true
+            }
+            self.recoveryInFlight = false
+            self.isRecoveringConnection = false
+        }
     }
 
     /// Single guarded recovery entry for every trigger (network change, manual
@@ -7580,20 +7639,28 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// transport) are caught and logged, leaving the existing list intact, because
     /// ``applyRemoteWorkspaceList(_:preferActiveTicketTarget:mergeExistingWorkspaces:)``
     /// runs only on a successful decode.
-    private func reloadWorkspaceListFromMac() async {
-        guard let client = remoteClient else { return }
+    @discardableResult
+    func reloadWorkspaceListFromMac(
+        timeoutNanoseconds: UInt64? = nil
+    ) async -> Bool {
+        guard let client = remoteClient else { return false }
         do {
             let request = try MobileCoreRPCClient.requestData(method: "mobile.workspace.list", params: [:])
             let data = try await client.sendRequest(
                 request,
-                timeoutNanoseconds: runtime?.rpcRequestTimeoutNanoseconds
+                timeoutNanoseconds: timeoutNanoseconds ?? runtime?.rpcRequestTimeoutNanoseconds
             )
             let response = try MobileSyncWorkspaceListResponse.decode(data)
-            guard remoteClient === client, connectionState == .connected else { return }
+            guard remoteClient === client, connectionState == .connected else { return false }
             applyRemoteWorkspaceList(response, preferActiveTicketTarget: false)
             syncSelectedTerminalForWorkspace()
+            return true
         } catch {
             mobileShellLog.error("workspace list event refresh failed: \(String(describing: error), privacy: .private)")
+            if remoteClient === client {
+                _ = disconnectForAuthorizationFailureIfNeeded(error)
+            }
+            return false
         }
     }
 
