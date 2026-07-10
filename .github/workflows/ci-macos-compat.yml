@@ -146,7 +146,7 @@ jobs:
 
       - name: Run Iroh transport package tests on Intel Sonoma
         if: matrix.expected_arch == 'x86_64'
-        run: swift test --package-path Packages/Shared/CmuxIrohTransport
+        run: ./scripts/ci/run-swift-testing-suites.sh Packages/Shared/CmuxIrohTransport
 
       - name: Run unit tests
         env:
