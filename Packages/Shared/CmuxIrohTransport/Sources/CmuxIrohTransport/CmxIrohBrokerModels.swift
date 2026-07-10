@@ -40,6 +40,9 @@ public struct CmxIrohBrokerBinding: Decodable, Equatable, Sendable {
         let endpointID = try container.decode(String.self, forKey: .endpointID)
         let identityGeneration = try container.decode(Int.self, forKey: .identityGeneration)
         let capabilities = try container.decode([String].self, forKey: .capabilities)
+        let displayName = try container.decodeIfPresent(String.self, forKey: .displayName)
+        let pathHints = try container.decode([CmxIrohPathHint].self, forKey: .pathHints)
+        let lastSeenAt = try container.decode(String.self, forKey: .lastSeenAt)
         guard Self.isCanonicalUUID(bindingID),
               Self.isCanonicalUUID(deviceID),
               Self.isCanonicalUUID(appInstanceID),
@@ -47,7 +50,15 @@ public struct CmxIrohBrokerBinding: Decodable, Equatable, Sendable {
               (1 ... Int(Int32.max)).contains(identityGeneration),
               capabilities.count <= 32,
               Set(capabilities).count == capabilities.count,
-              capabilities.allSatisfy(Self.isSafeToken) else {
+              capabilities.allSatisfy(Self.isSafeToken),
+              displayName.map(Self.isSafeDisplayName) ?? true,
+              pathHints.count <= CmxAttachEndpoint.maximumIrohPathHintCount,
+              pathHints.filter({ $0.kind == .relayURL }).count <= 2,
+              pathHints.allSatisfy(Self.isBrokerHint),
+              !pathHints.enumerated().contains(where: { index, hint in
+                  pathHints[..<index].contains(hint)
+              }),
+              Self.date(lastSeenAt) != nil else {
             throw DecodingError.dataCorrupted(
                 .init(codingPath: decoder.codingPath, debugDescription: "Invalid Iroh binding")
             )
@@ -57,13 +68,13 @@ public struct CmxIrohBrokerBinding: Decodable, Equatable, Sendable {
         self.appInstanceID = appInstanceID
         self.tag = tag
         platform = try container.decode(CmxIrohPlatform.self, forKey: .platform)
-        displayName = try container.decodeIfPresent(String.self, forKey: .displayName)
+        self.displayName = displayName
         self.endpointID = try CmxIrohPeerIdentity(endpointID: endpointID)
         self.identityGeneration = identityGeneration
         pairingEnabled = try container.decode(Bool.self, forKey: .pairingEnabled)
         self.capabilities = capabilities
-        pathHints = try container.decode([CmxIrohPathHint].self, forKey: .pathHints)
-        lastSeenAt = try container.decode(String.self, forKey: .lastSeenAt)
+        self.pathHints = pathHints
+        self.lastSeenAt = lastSeenAt
     }
 
     private static func isCanonicalUUID(_ value: String) -> Bool {
@@ -78,6 +89,33 @@ public struct CmxIrohBrokerBinding: Decodable, Equatable, Sendable {
                 || (97 ... 122).contains(byte)
                 || [45, 46, 58, 95].contains(byte)
         }
+    }
+
+    private static func isSafeDisplayName(_ value: String) -> Bool {
+        !value.isEmpty
+            && value.utf16.count <= 128
+            && !value.unicodeScalars.contains(where: {
+                $0.value <= 0x1f || $0.value == 0x7f
+            })
+    }
+
+    private static func isBrokerHint(_ hint: CmxIrohPathHint) -> Bool {
+        guard hint.isSafeForCurrentWireFormat,
+              hint.kind != .relayIdentifier,
+              let observedAt = hint.observedAt,
+              let expiresAt = hint.expiresAt,
+              expiresAt > observedAt,
+              expiresAt <= observedAt.addingTimeInterval(CmxIrohPathHint.maximumPrivateHintTTL)
+        else {
+            return false
+        }
+        return true
+    }
+
+    private static func date(_ value: String) -> Date? {
+        let fractional = ISO8601DateFormatter()
+        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return fractional.date(from: value) ?? ISO8601DateFormatter().date(from: value)
     }
 }
 
@@ -109,8 +147,51 @@ public struct CmxIrohGrantVerificationKeySet: Decodable, Equatable, Sendable {
 
 /// Same-account LAN rendezvous material. It is never advertised directly in mDNS.
 public struct CmxIrohLANRendezvous: Decodable, Equatable, Sendable {
+    private enum CodingKeys: String, CodingKey {
+        case generation
+        case key
+    }
+
     public let generation: Int
     public let key: String
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let generation = try container.decode(Int.self, forKey: .generation)
+        let key = try container.decode(String.self, forKey: .key)
+        guard (1 ... Int(Int32.max)).contains(generation),
+              Self.decodeBase64URL(key)?.count == 32 else {
+            throw DecodingError.dataCorrupted(
+                .init(codingPath: decoder.codingPath, debugDescription: "Invalid LAN rendezvous")
+            )
+        }
+        self.generation = generation
+        self.key = key
+    }
+
+    private static func decodeBase64URL(_ value: String) -> Data? {
+        guard !value.isEmpty,
+              value.utf8.allSatisfy({ byte in
+                  (48 ... 57).contains(byte)
+                      || (65 ... 90).contains(byte)
+                      || (97 ... 122).contains(byte)
+                      || byte == 45 || byte == 95
+              }) else {
+            return nil
+        }
+        let padding = String(repeating: "=", count: (4 - value.count % 4) % 4)
+        let standard = value
+            .replacingOccurrences(of: "-", with: "+")
+            .replacingOccurrences(of: "_", with: "/") + padding
+        guard let data = Data(base64Encoded: standard),
+              data.base64EncodedString()
+                .replacingOccurrences(of: "+", with: "-")
+                .replacingOccurrences(of: "/", with: "_")
+                .replacingOccurrences(of: "=", with: "") == value else {
+            return nil
+        }
+        return data
+    }
 }
 
 /// Authenticated registry snapshot used for endpoint discovery and grant verification.
@@ -127,6 +208,47 @@ public struct CmxIrohDiscoveryResponse: Decodable, Equatable, Sendable {
         case relayFleet = "relay_fleet"
         case lanRendezvous = "lan_rendezvous"
         case grantVerificationKeys = "grant_verification_keys"
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let routeContractVersion = try container.decode(Int.self, forKey: .routeContractVersion)
+        let bindings = try container.decode([CmxIrohBrokerBinding].self, forKey: .bindings)
+        let relayFleet = try container.decode([String].self, forKey: .relayFleet)
+        guard bindings.count <= 32,
+              Set(bindings.map(\.bindingID)).count == bindings.count,
+              (1 ... 8).contains(relayFleet.count),
+              Set(relayFleet).count == relayFleet.count,
+              relayFleet.allSatisfy(Self.isCanonicalRelayURL) else {
+            throw DecodingError.dataCorrupted(
+                .init(codingPath: decoder.codingPath, debugDescription: "Invalid Iroh registry")
+            )
+        }
+        self.routeContractVersion = routeContractVersion
+        self.bindings = bindings
+        self.relayFleet = relayFleet
+        lanRendezvous = try container.decode(CmxIrohLANRendezvous.self, forKey: .lanRendezvous)
+        grantVerificationKeys = try container.decode(
+            CmxIrohGrantVerificationKeySet.self,
+            forKey: .grantVerificationKeys
+        )
+    }
+
+    private static func isCanonicalRelayURL(_ value: String) -> Bool {
+        guard let components = URLComponents(string: value),
+              components.scheme == "https",
+              let host = components.host,
+              host == host.lowercased(),
+              !host.isEmpty,
+              components.port == nil,
+              components.user == nil,
+              components.password == nil,
+              components.query == nil,
+              components.fragment == nil,
+              components.path == "/" else {
+            return false
+        }
+        return components.string == value
     }
 }
 

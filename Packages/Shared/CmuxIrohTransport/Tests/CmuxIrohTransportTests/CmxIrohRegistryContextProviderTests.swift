@@ -30,10 +30,16 @@ struct CmxIrohRegistryContextProviderTests {
         )
         let unusableRegistryHints = try (0 ..< CmxAttachEndpoint.maximumIrohPathHintCount).map {
             try CmxIrohPathHint(
-                kind: .relayURL,
-                value: "https://unmanaged-\($0).example.com/",
-                source: .native,
-                privacyScope: .publicInternet
+                kind: .directAddress,
+                value: "10.0.0.\($0 + 1):4242",
+                source: .customVPN,
+                privacyScope: .privateNetwork,
+                observedAt: fixture.now,
+                expiresAt: fixture.now.addingTimeInterval(30 * 60),
+                networkProfile: CmxIrohNetworkProfileKey(
+                    source: .customVPN,
+                    profileID: "inactive-\($0)"
+                )
             )
         }
         let discovery = try fixture.discovery(targetHints: unusableRegistryHints)
@@ -320,7 +326,10 @@ private struct RegistryFixture: Sendable {
                 ),
             ],
             "relay_fleet": relayFleet ?? [relayURL],
-            "lan_rendezvous": ["generation": 1, "key": "opaque-test-key"],
+            "lan_rendezvous": [
+                "generation": 1,
+                "key": Data(repeating: 7, count: 32).registryBase64URL,
+            ],
             "grant_verification_keys": [
                 "version": 1,
                 "current_kid": key.kid,
@@ -331,7 +340,9 @@ private struct RegistryFixture: Sendable {
                 ]],
             ],
         ]
-        return try JSONDecoder().decode(
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return try decoder.decode(
             CmxIrohDiscoveryResponse.self,
             from: JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
         )
@@ -394,6 +405,7 @@ private struct RegistryFixture: Sendable {
         hints: [CmxIrohPathHint]
     ) throws -> [String: Any] {
         let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
         let hintObjects = try hints.map {
             try JSONSerialization.jsonObject(with: encoder.encode($0))
         }

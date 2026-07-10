@@ -58,6 +58,30 @@ struct CmxIrohTrustBrokerClientTests {
     }
 
     @Test
+    func discoveryDecodesBrokerISO8601PathHintDates() async throws {
+        let transport = RecordingBrokerTransport(responses: [
+            .json(status: 200, body: Self.discoveryResponse),
+        ])
+        let client = try makeClient(transport: transport)
+
+        let discovery = try await client.discover()
+
+        let binding = try #require(discovery.bindings.first)
+        let hint = try #require(binding.pathHints.first)
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        #expect(hint.value == Self.relayURLs[0])
+        #expect(
+            hint.observedAt
+                == formatter.date(from: "2026-07-10T00:00:00.000Z")
+        )
+        #expect(
+            hint.expiresAt
+                == formatter.date(from: "2026-07-10T01:00:00.000Z")
+        )
+    }
+
+    @Test
     func brokerErrorMapsOnlyStatusAndCoarseCode() async throws {
         let transport = RecordingBrokerTransport(responses: [
             .json(status: 403, body: #"{"error":"target_not_pairable","secret":"do-not-copy"}"#),
@@ -171,6 +195,42 @@ struct CmxIrohTrustBrokerClientTests {
           "https://euc1-1.relay.lawrence.cmux.iroh.link/",
           "https://use1-1.relay.lawrence.cmux.iroh.link/"
         ]
+      }
+    }
+    """
+    private static let discoveryResponse = """
+    {
+      "route_contract_version": 1,
+      "bindings": [{
+        "binding_id": "123e4567-e89b-42d3-a456-426614174010",
+        "device_id": "123e4567-e89b-42d3-a456-426614174001",
+        "app_instance_id": "123e4567-e89b-42d3-a456-426614174002",
+        "tag": "stable",
+        "platform": "mac",
+        "display_name": "Mac",
+        "endpoint_id": "\(endpointID)",
+        "identity_generation": 1,
+        "pairing_enabled": true,
+        "capabilities": ["control"],
+        "path_hints": [{
+          "kind": "relay_url",
+          "value": "\(relayURLs[0])",
+          "source": "native",
+          "privacy_scope": "public_internet",
+          "observed_at": "2026-07-10T00:00:00.000Z",
+          "expires_at": "2026-07-10T01:00:00.000Z"
+        }],
+        "last_seen_at": "2026-07-10T00:00:00.000Z"
+      }],
+      "relay_fleet": ["\(relayURLs[0])"],
+      "lan_rendezvous": {
+        "generation": 1,
+        "key": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      },
+      "grant_verification_keys": {
+        "version": 1,
+        "current_kid": "current",
+        "keys": []
       }
     }
     """

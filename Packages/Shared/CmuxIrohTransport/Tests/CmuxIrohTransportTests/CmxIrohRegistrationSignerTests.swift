@@ -69,6 +69,10 @@ struct CmxIrohRegistrationSignerTests {
         )
         #expect(payloadObject["endpointId"] as? String == endpointID)
         #expect(payloadObject["endpointID"] == nil)
+        let pathHints = try #require(payloadObject["pathHints"] as? [[String: Any]])
+        let encodedHint = try #require(pathHints.first)
+        #expect(encodedHint["observed_at"] is String)
+        #expect(encodedHint["expires_at"] is String)
     }
 
     @Test("secret and declared endpoint must match")

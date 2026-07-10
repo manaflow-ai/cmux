@@ -210,7 +210,9 @@ public actor CmxIrohTrustBrokerClient {
             )
         }
         do {
-            return try JSONDecoder().decode(Response.self, from: data)
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            return try decoder.decode(Response.self, from: data)
         } catch {
             throw CmxIrohTrustBrokerClientError.invalidResponse
         }
