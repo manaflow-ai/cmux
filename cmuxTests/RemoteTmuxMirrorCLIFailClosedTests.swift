@@ -166,22 +166,50 @@ extension RemoteTmuxMirrorCLIObservabilityTests {
         let writer = try #require(harness.controlWriter)
         let pipe = try #require(harness.controlPipe)
         writer.close()
-        let commands = String(
-            decoding: try pipe.fileHandleForReading.readToEnd() ?? Data(),
-            as: UTF8.self
+        let commands = try #require(
+            String(
+                bytes: try pipe.fileHandleForReading.readToEnd() ?? Data(),
+                encoding: .utf8
+            )
         )
         #expect(commands.contains("resize-pane -t @3.%\(tmuxPaneID) -R 10\n"))
     }
 
-    @Test func absolutePaneResizeClampsPositiveSubcellTargetToOneCell() throws {
+    @Test func absolutePaneResizeConvertsPixelsAndClampsSubcellTarget() throws {
         let harness = try Harness(connectedTransport: true)
         defer { harness.tearDown() }
         let tmuxPaneID = try #require(harness.mirror.paneIDsInOrder.first)
         let paneID = try #require(harness.mirror.syntheticPaneID(forPane: tmuxPaneID)?.id)
+        let panel = try #require(harness.mirror.panel(forPane: tmuxPaneID))
+        let sample = try #require(panel.surface.rawSizingSample())
+        let cellHeightPx = try #require(sample.cellHeightPx > 0 ? sample.cellHeightPx : nil)
+        let targetPixels = Double(cellHeightPx) * 3.4
 
-        let result = ControlCommandCoordinator(context: TerminalController.shared).handle(
+        let convertedResult = ControlCommandCoordinator(context: TerminalController.shared).handle(
             ControlRequest(
                 id: .int(1),
+                method: "pane.resize",
+                params: [
+                    "workspace_id": .string(harness.workspace.id.uuidString),
+                    "pane_id": .string(paneID.uuidString),
+                    "absolute_axis": .string("vertical"),
+                    "target_pixels": .double(targetPixels),
+                ]
+            )
+        )
+        guard case .ok(let payload)? = convertedResult else {
+            Issue.record("Absolute mirror pane resize failed: \(String(describing: convertedResult))")
+            return
+        }
+        let response = try #require(payload.foundationObject as? [String: Any])
+        #expect(response["pane_id"] as? String == paneID.uuidString)
+        #expect(response["absolute_axis"] as? String == "vertical")
+        #expect(response["target_pixels"] as? Double == targetPixels)
+        #expect(response["remote"] as? Bool == true)
+
+        let subcellResult = ControlCommandCoordinator(context: TerminalController.shared).handle(
+            ControlRequest(
+                id: .int(2),
                 method: "pane.resize",
                 params: [
                     "workspace_id": .string(harness.workspace.id.uuidString),
@@ -191,18 +219,20 @@ extension RemoteTmuxMirrorCLIObservabilityTests {
                 ]
             )
         )
-
-        guard case .ok? = result else {
-            Issue.record("Positive subcell mirror pane resize failed: \(String(describing: result))")
+        guard case .ok? = subcellResult else {
+            Issue.record("Positive subcell mirror pane resize failed: \(String(describing: subcellResult))")
             return
         }
         let writer = try #require(harness.controlWriter)
         let pipe = try #require(harness.controlPipe)
         writer.close()
-        let commands = String(
-            decoding: try pipe.fileHandleForReading.readToEnd() ?? Data(),
-            as: UTF8.self
+        let commands = try #require(
+            String(
+                bytes: try pipe.fileHandleForReading.readToEnd() ?? Data(),
+                encoding: .utf8
+            )
         )
+        #expect(commands.contains("resize-pane -t @3.%\(tmuxPaneID) -y 3\n"))
         #expect(commands.contains("resize-pane -t @3.%\(tmuxPaneID) -x 1\n"))
     }
 
@@ -213,6 +243,27 @@ extension RemoteTmuxMirrorCLIObservabilityTests {
         let paneID = try #require(harness.mirror.syntheticPaneID(forPane: tmuxPaneID)?.id)
         let surfaceID = try #require(harness.mirror.panel(forPane: tmuxPaneID)?.id)
         let focusedBefore = harness.workspace.bonsplitController.focusedPaneId?.id
+        let treeBefore = harness.workspace.bonsplitController.treeSnapshot()
+
+        let resize = ControlCommandCoordinator(context: TerminalController.shared).handle(
+            ControlRequest(
+                id: .int(1),
+                method: "pane.resize",
+                params: [
+                    "workspace_id": .string(harness.workspace.id.uuidString),
+                    "pane_id": .string(paneID.uuidString),
+                    "direction": .string("right"),
+                    "amount": .int(10),
+                ]
+            )
+        )
+        guard case .err(let code, _, let data)? = resize else {
+            Issue.record("Disconnected mirror pane resize did not fail: \(String(describing: resize))")
+            return
+        }
+        #expect(code == "unavailable")
+        #expect(data == .object(["pane_id": .string(paneID.uuidString)]))
+        #expect(harness.workspace.bonsplitController.treeSnapshot() == treeBefore)
 
         let breakResult = TerminalController.shared.controlPaneBreak(
             routing: harness.routing(paneID: paneID),

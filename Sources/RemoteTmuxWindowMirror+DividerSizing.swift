@@ -45,11 +45,13 @@ extension RemoteTmuxWindowMirror {
                 dividerPosition: position
             )
             let axis = orientation == .horizontal ? "horizontal" : "vertical"
-            _ = requestResizePane(
-                first.paneIDsInOrder.first ?? 0,
-                absoluteAxis: axis,
-                targetCells: cells
-            )
+            if let targetPaneID = first.paneIDsInOrder.first {
+                _ = requestResizePane(
+                    targetPaneID,
+                    absoluteAxis: axis,
+                    targetCells: cells
+                )
+            }
         }
 
         let parentExtent = orientation == .horizontal
