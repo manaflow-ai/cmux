@@ -5,6 +5,15 @@ public protocol CmxIrohConnection: Sendable {
     /// Returns the peer EndpointID authenticated by QUIC TLS.
     func remoteIdentity() async -> CmxIrohPeerIdentity
 
+    /// Bounds streams initiated by the peer before application code accepts them.
+    ///
+    /// A zero limit disables that stream direction. The limit applies to
+    /// concurrent streams and QUIC releases capacity when a stream closes.
+    func setIncomingStreamLimits(
+        maximumBidirectionalStreamCount: UInt64,
+        maximumUnidirectionalStreamCount: UInt64
+    ) async throws
+
     /// Opens a new bidirectional application stream.
     ///
     /// - Returns: Independent receive and send halves.

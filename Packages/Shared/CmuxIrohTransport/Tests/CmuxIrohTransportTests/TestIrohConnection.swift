@@ -5,6 +5,10 @@ actor TestIrohConnection: CmxIrohConnection {
     private let peerIdentity: CmxIrohPeerIdentity
     private var bidirectionalStreams: [CmxIrohBidirectionalStream]
     private var receiveStreams: [any CmxIrohReceiveStream]
+    private var incomingStreamLimits: [(
+        maximumBidirectionalStreamCount: UInt64,
+        maximumUnidirectionalStreamCount: UInt64
+    )] = []
     private var closeCalls: [(code: UInt64, reason: String)] = []
     private let closeStream: AsyncStream<(code: UInt64, reason: String)>
     private let closeContinuation: AsyncStream<(code: UInt64, reason: String)>.Continuation
@@ -24,6 +28,16 @@ actor TestIrohConnection: CmxIrohConnection {
 
     func remoteIdentity() -> CmxIrohPeerIdentity {
         peerIdentity
+    }
+
+    func setIncomingStreamLimits(
+        maximumBidirectionalStreamCount: UInt64,
+        maximumUnidirectionalStreamCount: UInt64
+    ) {
+        incomingStreamLimits.append((
+            maximumBidirectionalStreamCount,
+            maximumUnidirectionalStreamCount
+        ))
     }
 
     func openBidirectionalStream() throws -> CmxIrohBidirectionalStream {
@@ -58,6 +72,12 @@ actor TestIrohConnection: CmxIrohConnection {
 
     func observedCloseCallCount() -> Int {
         closeCalls.count
+    }
+
+    func observedIncomingStreamLimits() -> [String] {
+        incomingStreamLimits.map {
+            "\($0.maximumBidirectionalStreamCount):\($0.maximumUnidirectionalStreamCount)"
+        }
     }
 
     func closeEvents() -> AsyncStream<(code: UInt64, reason: String)> {

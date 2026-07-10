@@ -15,6 +15,18 @@ struct CmxIrohLibConnection: CmxIrohConnection {
         peerIdentity
     }
 
+    func setIncomingStreamLimits(
+        maximumBidirectionalStreamCount: UInt64,
+        maximumUnidirectionalStreamCount: UInt64
+    ) async throws {
+        try driver.setMaxConcurrentBiStreams(
+            count: maximumBidirectionalStreamCount
+        )
+        try driver.setMaxConcurrentUniStreams(
+            count: maximumUnidirectionalStreamCount
+        )
+    }
+
     func openBidirectionalStream() async throws -> CmxIrohBidirectionalStream {
         Self.stream(try await driver.openBi())
     }

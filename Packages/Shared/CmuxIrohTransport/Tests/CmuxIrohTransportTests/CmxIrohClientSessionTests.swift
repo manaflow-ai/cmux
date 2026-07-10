@@ -39,6 +39,7 @@ struct CmxIrohClientSessionTests {
 
         try await session.connect()
 
+        #expect(await connection.observedIncomingStreamLimits() == ["0:16"])
         let dialed = await endpoint.observedDialedAddresses()
         #expect(dialed == [CmxIrohEndpointAddress(identity: remoteIdentity, pathHints: [publicHint])])
         let sent = await control.send.observedSentBuffers()

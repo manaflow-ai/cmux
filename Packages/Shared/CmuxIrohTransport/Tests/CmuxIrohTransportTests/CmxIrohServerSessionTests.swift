@@ -32,6 +32,7 @@ struct CmxIrohServerSessionTests {
         )
 
         let admittedPeer = try await session.admit()
+        #expect(await connection.observedIncomingStreamLimits() == ["17:0"])
         #expect(admittedPeer == fixture.admittedPeer)
         #expect(try await session.receiveControl() == Data("rpc".utf8))
         let inbound = try await session.acceptBidirectionalLane()
