@@ -59,6 +59,11 @@ type ConfigProps = {
   initialStatus: DiffViewerStatus;
 };
 
+type ActiveDiffSession = {
+  capabilityToken: string;
+  sessionId: string;
+};
+
 type AppState = {
   activeItemId: string;
   activeTreePath: string;
@@ -252,7 +257,8 @@ export function App({ config, initialStatus }: ConfigProps) {
   const latestState = useSyncedRef(state);
   const codeViewRef = useRef<CodeViewHandle<any> | null>(null);
   const copyFallbackRef = useRef<HTMLTextAreaElement | null>(null);
-  const sessionCloserRef = useRef<(() => Promise<void>) | null>(null);
+  const activeSessionRef = useRef<ActiveDiffSession | null>(null);
+  const closingSessionRef = useRef<Promise<void> | null>(null);
   const viewerContainerRef = useRef<HTMLDivElement | null>(null);
   const workerModuleURL = resolveDiffViewerAssetURL(config.assets?.workerModuleURL);
   const workerPoolOptions = createDiffWorkerPoolOptions(workerModuleURL);
@@ -268,10 +274,37 @@ export function App({ config, initialStatus }: ConfigProps) {
   });
   const renderedCodeViewOptions = codeViewOptions(state.options, appearance);
   renderedCodeViewOptions.onGutterUtilityClick = comments.onGutterUtilityClick as any;
+  const closeActiveSession = useCallback(() => {
+    if (closingSessionRef.current) {
+      return closingSessionRef.current;
+    }
+    const activeSession = activeSessionRef.current;
+    if (!activeSession || !transport) {
+      return Promise.resolve();
+    }
+    activeSessionRef.current = null;
+    const closing = transport.request({
+        method: "sessionClose",
+        params: activeSession,
+      })
+      .then(() => {})
+      .catch(() => {
+        if (!activeSessionRef.current) {
+          activeSessionRef.current = activeSession;
+        }
+      })
+      .finally(() => {
+        if (closingSessionRef.current === closing) {
+          closingSessionRef.current = null;
+        }
+      });
+    closingSessionRef.current = closing;
+    return closing;
+  }, [transport]);
 
   usePageDataAttributes(state);
   usePendingReplacement(payload, label, dispatch, transport);
-  useRenderDiff(config, transport, label, dispatch, latestState, setActivePatchURL, sessionCloserRef);
+  useRenderDiff(config, transport, label, dispatch, latestState, setActivePatchURL, activeSessionRef, closeActiveSession);
   useCommentsBootstrap(bridgeAvailable ? repoRoot : null, comments.onLoaded);
   useKeyboardShortcuts(payload.shortcuts ?? {}, viewerContainerRef, dispatch);
   useOptionsDismiss(state.optionsOpen, dispatch);
@@ -362,11 +395,11 @@ export function App({ config, initialStatus }: ConfigProps) {
         onJump={scrollToItem}
         onNavigate={async (url) => {
           setStatus(createDiffViewerStatus(label("loadingDiff"), { pending: true }));
-          await sessionCloserRef.current?.();
+          await closeActiveSession();
           window.location.href = resolveDiffNavigationURL(url);
         }}
         onReload={async () => {
-          await sessionCloserRef.current?.();
+          await closeActiveSession();
           window.location.reload();
         }}
         onSetLayout={setLayout}
@@ -1400,7 +1433,8 @@ function useRenderDiff(
   dispatch: React.Dispatch<AppAction>,
   latestState: React.MutableRefObject<AppState>,
   onPatchURL: (url: string) => void,
-  sessionCloserRef: React.MutableRefObject<(() => Promise<void>) | null>,
+  activeSessionRef: React.MutableRefObject<ActiveDiffSession | null>,
+  closeActiveSession: () => Promise<void>,
 ) {
   const started = useRef(false);
   useEffect(() => {
@@ -1417,24 +1451,9 @@ function useRenderDiff(
       registerCustomTheme(appearance.themes.dark.name, () => Promise.resolve(shikiThemeFromGhostty(appearance.themes.dark, appearance)));
     }
     let cancelled = false;
-    let openedSessionId: string | null = null;
-    const closeOpenedSession = async () => {
-      const sessionId = openedSessionId;
-      if (!sessionId || !transport) {
-        return;
-      }
-      openedSessionId = null;
-      try {
-        await transport.request({
-          method: "sessionClose",
-          params: { sessionId, capabilityToken: String(payload.capabilityToken ?? "") },
-        });
-      } catch {}
-    };
     const handlePageHide = () => {
-      void closeOpenedSession();
+      void closeActiveSession();
     };
-    sessionCloserRef.current = closeOpenedSession;
     window.addEventListener("pagehide", handlePageHide);
     void (async () => {
       try {
@@ -1445,13 +1464,12 @@ function useRenderDiff(
           if (result.type !== "sessionOpened") {
             throw new DiffTransportError("invalidResponse", "Diff transport did not open a session");
           }
-          openedSessionId = result.value.sessionId;
+          activeSessionRef.current = {
+            sessionId: result.value.sessionId,
+            capabilityToken: String(payload.capabilityToken ?? ""),
+          };
           if (cancelled) {
-            await transport!.request({
-              method: "sessionClose",
-              params: { sessionId: openedSessionId, capabilityToken: String(payload.capabilityToken ?? "") },
-            }).catch(() => {});
-            openedSessionId = null;
+            await closeActiveSession();
             return;
           }
           patchURL = result.value.patch.id;
@@ -1515,12 +1533,9 @@ function useRenderDiff(
     return () => {
       cancelled = true;
       window.removeEventListener("pagehide", handlePageHide);
-      if (sessionCloserRef.current === closeOpenedSession) {
-        sessionCloserRef.current = null;
-      }
-      void closeOpenedSession();
+      void closeActiveSession();
     };
-  }, [config, dispatch, label, latestState, onPatchURL, sessionCloserRef, transport]);
+  }, [activeSessionRef, closeActiveSession, config, dispatch, label, latestState, onPatchURL, transport]);
 }
 
 function diffSessionRequest(payload: any, transport: DiffTransport | null): {
