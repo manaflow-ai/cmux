@@ -67,6 +67,18 @@ import Testing
                 executable: installation.emulatorURL.path,
                 arguments: ["-list-avds"]
             ): .success("Pixel_9_API_35\n"),
+            StubCommand(
+                executable: installation.adbURL!.path,
+                arguments: ["devices"]
+            ): .success("List of devices attached\n"),
+            StubCommand(
+                executable: installation.adbURL!.path,
+                arguments: ["-s", "emulator-5554", "wait-for-device"]
+            ): .success(""),
+            StubCommand(
+                executable: installation.adbURL!.path,
+                arguments: ["-s", "emulator-5554", "emu", "avd", "name"]
+            ): .success("Pixel_9_API_35\nOK\n"),
         ])
         let service = AndroidEmulatorService(
             sdkLocator: StubSDKLocator(resolution: .available(installation)),
@@ -79,8 +91,73 @@ import Testing
         #expect(await launcher.requests == [LaunchRequest(
             executableURL: installation.emulatorURL,
             avdName: "Pixel_9_API_35",
-            sdkRootURL: installation.rootURL
+            sdkRootURL: installation.rootURL,
+            consolePort: 5554
         )])
+    }
+
+    @Test func snapshotRejectsConsoleErrorReturnedWithZeroExitStatus() async throws {
+        let installation = Self.installation
+        let commands = StubCommandRunner(results: [
+            StubCommand(
+                executable: installation.emulatorURL.path,
+                arguments: ["-list-avds"]
+            ): .success("Pixel_9_API_35\n"),
+            StubCommand(
+                executable: installation.adbURL!.path,
+                arguments: ["devices"]
+            ): .success("List of devices attached\nemulator-5554\tdevice\n"),
+            StubCommand(
+                executable: installation.adbURL!.path,
+                arguments: ["-s", "emulator-5554", "emu", "avd", "name"]
+            ): .success("KO: 'avd name' is currently unsupported\nOK\n"),
+        ])
+        let service = AndroidEmulatorService(
+            sdkLocator: StubSDKLocator(resolution: .available(installation)),
+            commands: commands,
+            processLauncher: RecordingAndroidEmulatorLauncher()
+        )
+
+        let snapshot = try await service.snapshot()
+
+        #expect(snapshot.devices == [AndroidVirtualDevice(name: "Pixel_9_API_35", state: .unavailable)])
+        #expect(snapshot.warning != nil)
+    }
+
+    @Test func failedLaunchConfirmationTerminatesSpawnedProcess() async {
+        let installation = Self.installation
+        let launcher = RecordingAndroidEmulatorLauncher()
+        let commands = StubCommandRunner(results: [
+            StubCommand(
+                executable: installation.emulatorURL.path,
+                arguments: ["-list-avds"]
+            ): .success("Pixel_9_API_35\n"),
+            StubCommand(
+                executable: installation.adbURL!.path,
+                arguments: ["devices"]
+            ): .success("List of devices attached\n"),
+            StubCommand(
+                executable: installation.adbURL!.path,
+                arguments: ["-s", "emulator-5554", "wait-for-device"]
+            ): CommandResult(
+                stdout: nil,
+                stderr: nil,
+                exitStatus: nil,
+                timedOut: true,
+                executionError: nil
+            ),
+        ])
+        let service = AndroidEmulatorService(
+            sdkLocator: StubSDKLocator(resolution: .available(installation)),
+            commands: commands,
+            processLauncher: launcher
+        )
+
+        await #expect(throws: AndroidEmulatorError.launchNotConfirmed(name: "Pixel_9_API_35")) {
+            try await service.launch(avdName: "Pixel_9_API_35")
+        }
+
+        #expect(await launcher.terminatedProcessIDs == [RecordingAndroidEmulatorLauncher.processID])
     }
 
     @Test func stopRejectsPhysicalDeviceSerialBeforeRunningADB() async {
@@ -95,6 +172,27 @@ import Testing
             try await service.stop(serial: "R58M123")
         }
         #expect(await commands.invocations.isEmpty)
+    }
+
+    @Test func stopRejectsConsoleErrorReturnedWithZeroExitStatus() async {
+        let installation = Self.installation
+        let commands = StubCommandRunner(results: [
+            StubCommand(
+                executable: installation.adbURL!.path,
+                arguments: ["-s", "emulator-5554", "emu", "kill"]
+            ): .success("KO: emulator refused to stop\nOK\n"),
+        ])
+        let service = AndroidEmulatorService(
+            sdkLocator: StubSDKLocator(resolution: .available(installation)),
+            commands: commands,
+            processLauncher: RecordingAndroidEmulatorLauncher()
+        )
+
+        await #expect(throws: AndroidEmulatorError.self) {
+            try await service.stop(serial: "emulator-5554")
+        }
+
+        #expect(await commands.invocations.count == 1)
     }
 
     @Test func snapshotResolvesConnectedEmulatorNamesConcurrently() async throws {
@@ -234,17 +332,32 @@ private struct LaunchRequest: Sendable, Equatable {
     let executableURL: URL
     let avdName: String
     let sdkRootURL: URL
+    let consolePort: Int
 }
 
 private actor RecordingAndroidEmulatorLauncher: AndroidEmulatorProcessLaunching {
-    private(set) var requests: [LaunchRequest] = []
+    static let processID = UUID(uuidString: "00000000-0000-0000-0000-000000000001")!
 
-    func launch(executableURL: URL, avdName: String, sdkRootURL: URL) async throws {
+    private(set) var requests: [LaunchRequest] = []
+    private(set) var terminatedProcessIDs: [UUID] = []
+
+    func launch(
+        executableURL: URL,
+        avdName: String,
+        sdkRootURL: URL,
+        consolePort: Int
+    ) async throws -> UUID {
         requests.append(LaunchRequest(
             executableURL: executableURL,
             avdName: avdName,
-            sdkRootURL: sdkRootURL
+            sdkRootURL: sdkRootURL,
+            consolePort: consolePort
         ))
+        return Self.processID
+    }
+
+    func terminate(processID: UUID) {
+        terminatedProcessIDs.append(processID)
     }
 }
 

@@ -19,8 +19,6 @@ public final class AndroidEmulatorCoordinator {
     public private(set) var isRefreshing = false
 
     private let service: any AndroidEmulatorServicing
-    private let actionConfirmationTimeout: Duration
-    private let sleep: @Sendable (Duration) async throws -> Void
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
 
     /// Creates a coordinator for an injected Android emulator service.
@@ -28,21 +26,6 @@ public final class AndroidEmulatorCoordinator {
     /// - Parameter service: The service used for discovery and lifecycle actions.
     public init(service: any AndroidEmulatorServicing) {
         self.service = service
-        self.actionConfirmationTimeout = .seconds(30)
-        self.sleep = { duration in
-            // This is the cancellable deadline for surfacing an unconfirmed lifecycle action.
-            try await Task.sleep(for: duration)
-        }
-    }
-
-    init(
-        service: any AndroidEmulatorServicing,
-        actionConfirmationTimeout: Duration,
-        sleep: @escaping @Sendable (Duration) async throws -> Void
-    ) {
-        self.service = service
-        self.actionConfirmationTimeout = actionConfirmationTimeout
-        self.sleep = sleep
     }
 
     /// Refreshes the selected SDK, installed AVDs, and running state.
@@ -73,9 +56,10 @@ public final class AndroidEmulatorCoordinator {
         do {
             let snapshot = try await service.snapshot()
             let runningNames = Set(snapshot.devices.filter(\.state.isRunning).map(\.name))
-            let runningSerials = Set(snapshot.devices.compactMap(\.state.serial))
             launchingAVDNames.subtract(runningNames)
-            stoppingSerials.formIntersection(runningSerials)
+            if let connectedEmulatorSerials = snapshot.connectedEmulatorSerials {
+                stoppingSerials.formIntersection(connectedEmulatorSerials)
+            }
             loadState = .loaded(snapshot)
         } catch let error as AndroidEmulatorError {
             loadState = .failed(error)
@@ -93,6 +77,7 @@ public final class AndroidEmulatorCoordinator {
         launchingAVDNames.insert(avdName)
         do {
             try await service.launch(avdName: avdName)
+            launchingAVDNames.remove(avdName)
         } catch let error as AndroidEmulatorError {
             launchingAVDNames.remove(avdName)
             actionError = error
@@ -104,16 +89,6 @@ public final class AndroidEmulatorCoordinator {
         }
 
         await refreshAfterPendingAction()
-        guard launchingAVDNames.contains(avdName) else { return }
-        do {
-            try await sleep(actionConfirmationTimeout)
-        } catch {
-            launchingAVDNames.remove(avdName)
-            return
-        }
-        if launchingAVDNames.remove(avdName) != nil {
-            actionError = .launchNotConfirmed(name: avdName)
-        }
     }
 
     /// Stops a running emulator and refreshes its Android Debug Bridge state.
@@ -125,6 +100,7 @@ public final class AndroidEmulatorCoordinator {
         stoppingSerials.insert(serial)
         do {
             try await service.stop(serial: serial)
+            stoppingSerials.remove(serial)
         } catch let error as AndroidEmulatorError {
             stoppingSerials.remove(serial)
             actionError = error
@@ -136,16 +112,6 @@ public final class AndroidEmulatorCoordinator {
         }
 
         await refreshAfterPendingAction()
-        guard stoppingSerials.contains(serial) else { return }
-        do {
-            try await sleep(actionConfirmationTimeout)
-        } catch {
-            stoppingSerials.remove(serial)
-            return
-        }
-        if stoppingSerials.remove(serial) != nil {
-            actionError = .stopNotConfirmed(serial: serial)
-        }
     }
 
     private func refreshAfterPendingAction() async {

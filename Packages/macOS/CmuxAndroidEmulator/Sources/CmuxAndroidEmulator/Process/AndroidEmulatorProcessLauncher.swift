@@ -12,12 +12,17 @@ public actor AndroidEmulatorProcessLauncher: AndroidEmulatorProcessLaunching {
         self.baseEnvironment = baseEnvironment
     }
 
-    /// Starts the installed emulator with `-avd`, without hiding its vendor window.
-    public func launch(executableURL: URL, avdName: String, sdkRootURL: URL) async throws {
+    /// Starts the installed emulator with `-avd` and `-port`, without hiding its vendor window.
+    public func launch(
+        executableURL: URL,
+        avdName: String,
+        sdkRootURL: URL,
+        consolePort: Int
+    ) async throws -> UUID {
         let process = Process()
         let processID = UUID()
         process.executableURL = executableURL
-        process.arguments = ["-avd", avdName]
+        process.arguments = ["-avd", avdName, "-port", String(consolePort)]
         process.currentDirectoryURL = sdkRootURL
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = FileHandle.nullDevice
@@ -38,6 +43,13 @@ public actor AndroidEmulatorProcessLauncher: AndroidEmulatorProcessLaunching {
             processes.removeValue(forKey: processID)
             throw AndroidEmulatorError.launchFailed(detail: String(describing: error))
         }
+        return processID
+    }
+
+    /// Implements ``AndroidEmulatorProcessLaunching/terminate(processID:)``.
+    public func terminate(processID: UUID) {
+        guard let process = processes.removeValue(forKey: processID), process.isRunning else { return }
+        process.terminate()
     }
 
     private func removeProcess(_ processID: UUID) {
