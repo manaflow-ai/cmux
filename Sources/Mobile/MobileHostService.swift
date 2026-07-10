@@ -1016,7 +1016,7 @@ final class MobileHostService {
             let id = UUID()
             let session = MobileHostConnection(
                 id: id,
-                connection: connection,
+                connection: MobileHostNWConnectionAdapter(connection: connection),
                 authorizeRequest: { request in
                     if !Self.requiresAuthorization(method: request.method) {
                         return nil
@@ -1139,7 +1139,7 @@ final class MobileHostService {
         let id = UUID()
         let session = MobileHostConnection(
             id: id,
-            connection: connection,
+            connection: MobileHostNWConnectionAdapter(connection: connection),
             authorizeRequest: { request in
                 await MobileHostService.shared.authorizationError(for: request)
             },
@@ -1949,7 +1949,7 @@ actor MobileHostConnection {
     private static let defaultIdleTimeoutNanoseconds: UInt64 = 30 * 1_000_000_000
 
     private let id: UUID
-    private let connection: NWConnection
+    private let connection: any MobileHostByteConnection
     private let callbackQueue: DispatchQueue
     private let firstFrameTimeoutNanoseconds: UInt64
     private let idleTimeoutNanoseconds: UInt64
@@ -1969,7 +1969,7 @@ actor MobileHostConnection {
 
     init(
         id: UUID,
-        connection: NWConnection,
+        connection: any MobileHostByteConnection,
         firstFrameTimeoutNanoseconds: UInt64 = MobileHostConnection.defaultFirstFrameTimeoutNanoseconds,
         idleTimeoutNanoseconds: UInt64 = MobileHostConnection.defaultIdleTimeoutNanoseconds,
         authorizeRequest: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult?,
@@ -1989,7 +1989,7 @@ actor MobileHostConnection {
     }
 
     func start() {
-        connection.stateUpdateHandler = { [weak self, id] state in
+        connection.setStateUpdateHandler { [weak self, id] state in
             guard let self else { return }
             Task { await self.handleState(state, connectionID: id) }
         }
@@ -2021,8 +2021,8 @@ actor MobileHostConnection {
             )
         }
         mobileHostLog.info("mobile host connection closed \(self.id.uuidString, privacy: .public): \(reason, privacy: .public)")
-        connection.stateUpdateHandler = nil
-        connection.cancel()
+        connection.setStateUpdateHandler(nil)
+        connection.close()
         Task { await onClose(id) }
     }
 
@@ -2033,9 +2033,8 @@ actor MobileHostConnection {
         connection.receive(
             minimumIncompleteLength: 1,
             maximumLength: 64 * 1024
-        ) { [weak self] data, _, isComplete, error in
+        ) { [weak self] data, isComplete, errorDescription in
             guard let self else { return }
-            let errorDescription = error.map { String(describing: $0) }
             Task {
                 await self.handleReceive(
                     data: data,
@@ -2345,37 +2344,30 @@ actor MobileHostConnection {
         }
 
         return await withCheckedContinuation { continuation in
-            connection.send(
-                content: frame,
-                contentContext: .defaultMessage,
-                isComplete: false,
-                completion: .contentProcessed { [weak self] error in
-                    guard let self else {
-                        continuation.resume(returning: false)
-                        return
-                    }
-                    if let error {
-                        Task { await self.close(reason: String(describing: error)) }
-                        continuation.resume(returning: false)
-                    } else {
-                        continuation.resume(returning: true)
-                    }
+            connection.send(frame) { [weak self] errorDescription in
+                guard let self else {
+                    continuation.resume(returning: false)
+                    return
                 }
-            )
+                if let errorDescription {
+                    Task { await self.close(reason: errorDescription) }
+                    continuation.resume(returning: false)
+                } else {
+                    continuation.resume(returning: true)
+                }
+            }
         }
     }
 
-    private func handleState(_ state: NWConnection.State, connectionID: UUID) {
+    private func handleState(_ state: MobileHostByteConnectionState, connectionID: UUID) {
         switch state {
         case .failed(let error):
-            close(reason: String(describing: error))
+            close(reason: error)
         case .cancelled:
             close(reason: "cancelled")
         case .ready:
             mobileHostLog.debug("mobile host connection ready \(connectionID.uuidString, privacy: .public)")
         case .setup, .waiting, .preparing:
-            break
-        @unknown default:
             break
         }
     }
