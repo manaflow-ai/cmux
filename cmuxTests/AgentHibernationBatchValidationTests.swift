@@ -1,0 +1,218 @@
+import Foundation
+import os
+import Testing
+
+#if canImport(cmux_DEV)
+@testable import cmux_DEV
+#elseif canImport(cmux)
+@testable import cmux
+#endif
+
+extension AgentHibernationPlannerSwiftTests {
+    @MainActor
+    @Test
+    func laterBatchRequestUsesIndexCapturedAfterEarlierMonitorQuiescence() async throws {
+        let controller = AgentHibernationController.shared
+        let wasEnabled = AgentHibernationTrackingGate.isEnabled()
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = previousAppDelegate ?? AppDelegate()
+        let testDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-batch-teardown-boundary-\(UUID().uuidString)", isDirectory: true)
+        let configRoot = testDirectory.appendingPathComponent("claude-config", isDirectory: true)
+        defer {
+            if previousAppDelegate == nil, AppDelegate.shared === appDelegate {
+                AppDelegate.shared = nil
+            }
+            AgentHibernationTrackingGate.setEnabled(wasEnabled)
+            resetSharedHibernationState(controller)
+            try? FileManager.default.removeItem(at: testDirectory)
+        }
+
+        AgentHibernationTrackingGate.setEnabled(true)
+        let confirmationFingerprint = "headless-runtime-fingerprint"
+        let first = try Self.batchFixture(
+            name: "first",
+            configRoot: configRoot,
+            controller: controller,
+            confirmationFingerprint: confirmationFingerprint
+        )
+        let second = try Self.batchFixture(
+            name: "second",
+            configRoot: configRoot,
+            controller: controller,
+            confirmationFingerprint: confirmationFingerprint
+        )
+        let secondActiveIndex = Self.batchIndexWithLiveProcess(
+            workspaceId: second.record.key.workspaceId,
+            panelId: second.record.key.panelId,
+            agent: second.record.agent,
+            processID: 987_654
+        )
+
+        let monitorReady = DispatchSemaphore(value: 0)
+        let cancellationObserved = DispatchSemaphore(value: 0)
+        let releaseMonitor = DispatchSemaphore(value: 0)
+        let olderMonitorRequestID = UUID()
+        let olderMonitorTask = Task.detached {
+            await withTaskCancellationHandler {
+                monitorReady.signal()
+                releaseMonitor.wait()
+            } onCancel: {
+                cancellationObserved.signal()
+            }
+        }
+        defer {
+            releaseMonitor.signal()
+            olderMonitorTask.cancel()
+            controller.clearPostTeardownRestoreTask(
+                transcriptPath: first.transcriptPath,
+                requestID: olderMonitorRequestID
+            )
+        }
+        #expect(await Self.wait(for: monitorReady))
+        #expect(controller.storePostTeardownRestoreTask(
+            olderMonitorTask,
+            transcriptPath: first.transcriptPath,
+            requestID: olderMonitorRequestID,
+            cancellationState: AgentHibernationController.PostTeardownRestoreCancellationState()
+        ))
+
+        controller.postSnapshotValidationIndexSequence = 0
+        let loadCount = OSAllocatedUnfairLock(initialState: 0)
+        let teardownTask = controller.beginConfirmedTeardowns(
+            [first.request, second.request],
+            postSnapshotIndexLoader: {
+                let invocation = loadCount.withLock { count in
+                    count += 1
+                    return count
+                }
+                return invocation == 1 ? .empty : secondActiveIndex
+            },
+            runtimeObservationProvider: { _ in
+                AgentHibernationController.ConfirmedTeardownRuntimeObservation(
+                    hasLiveSurface: true,
+                    fingerprint: confirmationFingerprint
+                )
+            }
+        )
+        #expect(await Self.wait(for: cancellationObserved))
+        releaseMonitor.signal()
+        await teardownTask.value
+
+        #expect(loadCount.withLock { $0 } == 2)
+        #expect(first.panel.isAgentHibernated)
+        #expect(
+            !second.panel.isAgentHibernated,
+            "Later batch requests must use the successor index captured after an earlier monitor quiesces."
+        )
+
+        _ = await controller.cancelPostTeardownRestoreTaskForReplacement(
+            transcriptPath: first.transcriptPath
+        )
+        _ = await controller.cancelPostTeardownRestoreTaskForReplacement(
+            transcriptPath: second.transcriptPath
+        )
+    }
+
+    @MainActor
+    private static func batchFixture(
+        name: String,
+        configRoot: URL,
+        controller: AgentHibernationController,
+        confirmationFingerprint: String
+    ) throws -> (
+        record: AgentHibernationRecord,
+        request: AgentHibernationController.ConfirmedTeardownRequest,
+        panel: TerminalPanel,
+        transcriptPath: String
+    ) {
+        let workingDirectory = "/tmp/cmux-batch-teardown-\(name)-\(UUID().uuidString)"
+        let sessionId = "batch-teardown-\(name)-\(UUID().uuidString)"
+        let transcriptURL = configRoot
+            .appendingPathComponent("projects", isDirectory: true)
+            .appendingPathComponent(
+                RestorableAgentSessionIndex.encodeClaudeProjectDir(workingDirectory),
+                isDirectory: true
+            )
+            .appendingPathComponent("\(sessionId).jsonl", isDirectory: false)
+        try FileManager.default.createDirectory(
+            at: transcriptURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try #"{"type":"user","message":{"role":"user","content":"keep this turn"}}"#.write(
+            to: transcriptURL,
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+        let panel = try #require(workspace.panels[panelId] as? TerminalPanel)
+        let key = AgentHibernationPanelKey(workspaceId: workspace.id, panelId: panelId)
+        let agent = SessionRestorableAgentSnapshot(
+            kind: .claude,
+            sessionId: sessionId,
+            workingDirectory: workingDirectory,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "claude",
+                executablePath: "/usr/local/bin/claude",
+                arguments: ["/usr/local/bin/claude"],
+                workingDirectory: workingDirectory,
+                environment: ["CLAUDE_CONFIG_DIR": configRoot.path],
+                capturedAt: nil,
+                source: nil
+            )
+        )
+        workspace.setRestoredAgentSnapshotForTesting(agent, panelId: panelId)
+        workspace.setAgentLifecycle(key: "claude.batch-\(name)", panelId: panelId, lifecycle: .idle)
+        let record = AgentHibernationRecord(
+            key: key,
+            workspace: workspace,
+            terminalPanel: panel,
+            agent: agent,
+            lifecycle: .idle,
+            hasUnconfirmedTerminalInput: false,
+            lastActivityAt: 0,
+            isProtected: false,
+            hasLiveProcess: false,
+            processIDs: []
+        )
+        return (
+            record: record,
+            request: AgentHibernationController.ConfirmedTeardownRequest(
+                record: record,
+                confirmationFingerprint: confirmationFingerprint,
+                effectiveLastActivityAt: Date().timeIntervalSince1970 + 60,
+                requestID: UUID(),
+                epoch: controller.teardownValidationEpochByPanel[key] ?? 0,
+                generation: controller.teardownValidationGeneration
+            ),
+            panel: panel,
+            transcriptPath: transcriptURL.path
+        )
+    }
+
+    nonisolated private static func batchIndexWithLiveProcess(
+        workspaceId: UUID,
+        panelId: UUID,
+        agent: SessionRestorableAgentSnapshot,
+        processID: Int
+    ) -> RestorableAgentSessionIndex {
+        let key = RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId)
+        let detected: RestorableAgentSessionIndex.ProcessDetectedSnapshotEntry = (
+            snapshot: agent,
+            updatedAt: 42,
+            processIDs: [processID],
+            agentProcessIDs: [processID],
+            sessionIDSource: .explicit
+        )
+        return RestorableAgentSessionIndex.load(
+            homeDirectory: "/tmp/cmux-batch-teardown-missing-home",
+            fileManager: .default,
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            detectedSnapshots: [key: detected],
+            processArgumentsProvider: { _ in nil },
+            processIdentityProvider: { _ in nil }
+        )
+    }
+}

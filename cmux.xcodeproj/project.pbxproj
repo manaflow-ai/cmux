@@ -36,6 +36,7 @@
 		A9F200000000000000000002 /* AgentExecutableResolverError.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000002 /* AgentExecutableResolverError.swift */; };
 		A9E020000000000000000005 /* AgentExecutableResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9E010000000000000000005 /* AgentExecutableResolverTests.swift */; };
 		C0DEF0C10000000000000001 /* AgentForkSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF0C10000000000000002 /* AgentForkSupport.swift */; };
+		C85EBC780000000000000001 /* AgentHibernationBatchValidationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C85EBC780000000000000002 /* AgentHibernationBatchValidationTests.swift */; };
 		F65760100000000000000001 /* AgentHibernationController+Confirmation.swift in Sources */ = {isa = PBXBuildFile; fileRef = F65760100000000000000002 /* AgentHibernationController+Confirmation.swift */; };
 		D7332C050000000000000001 /* AgentHibernationController+ConfirmedTeardownRuntimeObservation.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7332C050000000000000002 /* AgentHibernationController+ConfirmedTeardownRuntimeObservation.swift */; };
 		D7332C100000000000000001 /* AgentHibernationController+EvaluationScheduling.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7332C100000000000000002 /* AgentHibernationController+EvaluationScheduling.swift */; };
@@ -1833,6 +1834,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		A9F100000000000000000002 /* AgentExecutableResolverError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentExecutableResolverError.swift; sourceTree = "<group>"; };
 		A9E010000000000000000005 /* AgentExecutableResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentExecutableResolverTests.swift; sourceTree = "<group>"; };
 		C0DEF0C10000000000000002 /* AgentForkSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentForkSupport.swift; sourceTree = "<group>"; };
+		C85EBC780000000000000002 /* AgentHibernationBatchValidationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHibernationBatchValidationTests.swift; sourceTree = "<group>"; };
 		F65760100000000000000002 /* AgentHibernationController+Confirmation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/AgentHibernationController+Confirmation.swift"; sourceTree = "<group>"; };
 		D7332C050000000000000002 /* AgentHibernationController+ConfirmedTeardownRuntimeObservation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/AgentHibernationController+ConfirmedTeardownRuntimeObservation.swift"; sourceTree = "<group>"; };
 		D7332C100000000000000002 /* AgentHibernationController+EvaluationScheduling.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/AgentHibernationController+EvaluationScheduling.swift"; sourceTree = "<group>"; };
@@ -4897,6 +4899,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A9E050000000000000000001 /* AgentSessionWebRendererTests.swift */,
 				A9E040000000000000000001 /* CodexAppServerSessionTests.swift */,
 				F65760010000000000000002 /* AgentHibernationPlannerSwiftTests.swift */,
+				C85EBC780000000000000002 /* AgentHibernationBatchValidationTests.swift */,
 				D7332C020000000000000002 /* AgentHibernationPlannerTeardownBarrierTests.swift */,
 				F65760240000000000000002 /* AgentHibernationRestoreMonitorTests.swift */,
 				F65760040000000000000002 /* AgentHibernationTranscriptGuardTests.swift */,
@@ -6946,6 +6949,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C7A51D100000000000000002 /* AgentChatSessionRegistryObservationReviewRegressionTests.swift in Sources */,
 				C7A51D000000000000000002 /* AgentChatSessionRegistryObservationTests.swift in Sources */,
 				A9E020000000000000000005 /* AgentExecutableResolverTests.swift in Sources */,
+				C85EBC780000000000000001 /* AgentHibernationBatchValidationTests.swift in Sources */,
 				F65760010000000000000001 /* AgentHibernationPlannerSwiftTests.swift in Sources */,
 				D7332C020000000000000001 /* AgentHibernationPlannerTeardownBarrierTests.swift in Sources */,
 				D72260010000000000000001 /* AgentHibernationPortalVisibilityTests.swift in Sources */,
