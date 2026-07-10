@@ -218,7 +218,7 @@ fn run_tui(session: Session, session_label: String) -> anyhow::Result<()> {
         eprintln!("cmux-tui: failed to set default colors: {err}");
     }
     raw_result?;
-    app::run(session, session_label)
+    app::run(session, session_label, colors)
 }
 
 fn run_headless(mux: &Arc<Mux>, socket_path: &std::path::Path) -> anyhow::Result<()> {

@@ -1,8 +1,6 @@
 import Foundation
 
 extension RemoteTmuxControlConnection {
-
-
     /// Sizes the tmux control client to `columns`×`rows` cells (tmux
     /// `refresh-client -C`) so the remote windows/panes reflow to the rendered
     /// cmux grid. Without this a freshly attached session stays at ssh's default

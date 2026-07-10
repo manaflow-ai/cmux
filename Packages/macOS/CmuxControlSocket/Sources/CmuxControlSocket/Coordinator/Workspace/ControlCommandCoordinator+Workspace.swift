@@ -279,48 +279,6 @@ extension ControlCommandCoordinator {
         }
     }
 
-    /// `workspace.close` — close a workspace by id.
-    func workspaceClose(_ params: [String: JSONValue]) -> ControlCallResult {
-        let routing = routingSelectors(params)
-        // Legacy resolved the TabManager BEFORE param validation, so unresolvable
-        // routing wins over a missing/invalid param (`unavailable` first).
-        guard context?.controlWorkspaceRoutingResolvesTabManager(routing: routing) ?? false else {
-            return .err(code: "unavailable", message: "TabManager not available", data: nil)
-        }
-        guard let workspaceID = uuid(params, "workspace_id") else {
-            return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
-        }
-        let resolution = context?.controlCloseWorkspace(
-            routing: routing,
-            workspaceID: workspaceID
-        ) ?? .tabManagerUnavailable
-        switch resolution {
-        case .tabManagerUnavailable:
-            return .err(code: "unavailable", message: "TabManager not available", data: nil)
-        case .protected(let windowID):
-            let message = context?.controlWorkspaceStrings().closeProtected ?? ""
-            return .err(code: "protected", message: message, data: .object([
-                "window_id": orNull(windowID?.uuidString),
-                "window_ref": ref(.window, windowID),
-                "workspace_id": .string(workspaceID.uuidString),
-                "workspace_ref": ref(.workspace, workspaceID),
-                "pinned": .bool(true),
-            ]))
-        case .notFound:
-            return .err(code: "not_found", message: "Workspace not found", data: .object([
-                "workspace_id": .string(workspaceID.uuidString),
-                "workspace_ref": ref(.workspace, workspaceID),
-            ]))
-        case .resolved(let windowID):
-            return .ok(.object([
-                "window_id": orNull(windowID?.uuidString),
-                "window_ref": ref(.window, windowID),
-                "workspace_id": .string(workspaceID.uuidString),
-                "workspace_ref": ref(.workspace, workspaceID),
-            ]))
-        }
-    }
-
     /// `workspace.move_to_window` — move a workspace to another window.
     func workspaceMoveToWindow(_ params: [String: JSONValue]) -> ControlCallResult {
         guard let workspaceID = uuid(params, "workspace_id") else {
@@ -897,47 +855,6 @@ extension ControlCommandCoordinator {
                 "workspace_found": .bool(true),
                 "cleared_remote_pty_session": .bool(cleared),
                 "untracked_remote_terminal": .bool(untracked),
-                "remote": remoteStatus,
-            ]))
-        }
-    }
-
-    /// `workspace.remote.terminal_session_end` — record a remote terminal
-    /// session end.
-    func workspaceRemoteTerminalSessionEnd(_ params: [String: JSONValue]) -> ControlCallResult {
-        guard let workspaceID = uuid(params, "workspace_id") else {
-            return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
-        }
-        guard let surfaceID = uuid(params, "surface_id") else {
-            return .err(code: "invalid_params", message: "Missing or invalid surface_id", data: nil)
-        }
-        guard let relayPort = strictInt(params, "relay_port"), relayPort > 0, relayPort <= 65535 else {
-            return .err(code: "invalid_params", message: "Missing or invalid relay_port", data: nil)
-        }
-
-        let resolution = context?.controlWorkspaceRemoteTerminalSessionEnd(
-            workspaceID: workspaceID,
-            surfaceID: surfaceID,
-            relayPort: relayPort
-        ) ?? .notFound
-        switch resolution {
-        case .notFound:
-            return .err(code: "not_found", message: "Workspace not found", data: .object([
-                "workspace_id": .string(workspaceID.uuidString),
-                "workspace_ref": ref(.workspace, workspaceID),
-                "surface_id": .string(surfaceID.uuidString),
-                "surface_ref": ref(.surface, surfaceID),
-                "relay_port": .int(Int64(relayPort)),
-            ]))
-        case .resolved(let windowID, let resolvedWorkspaceID, let remoteStatus):
-            return .ok(.object([
-                "window_id": orNull(windowID?.uuidString),
-                "window_ref": ref(.window, windowID),
-                "workspace_id": .string(resolvedWorkspaceID.uuidString),
-                "workspace_ref": ref(.workspace, resolvedWorkspaceID),
-                "surface_id": .string(surfaceID.uuidString),
-                "surface_ref": ref(.surface, surfaceID),
-                "relay_port": .int(Int64(relayPort)),
                 "remote": remoteStatus,
             ]))
         }

@@ -56,6 +56,23 @@ jobs:
       - name: Provision GhosttyKit
         run: ./scripts/ensure-ghosttykit.sh
 
+      - name: Install asc CLI
+        run: |
+          set -euo pipefail
+          BREW_BIN="$(command -v brew || true)"
+          if [ -z "$BREW_BIN" ] && [ -x /opt/homebrew/bin/brew ]; then
+            BREW_BIN=/opt/homebrew/bin/brew
+          fi
+          if [ -z "$BREW_BIN" ] && [ -x /usr/local/bin/brew ]; then
+            BREW_BIN=/usr/local/bin/brew
+          fi
+          if [ -z "$BREW_BIN" ]; then
+            echo "Homebrew is required to install asc CLI" >&2
+            exit 1
+          fi
+          "$BREW_BIN" list asc >/dev/null 2>&1 || "$BREW_BIN" install asc
+          echo "$(dirname "$BREW_BIN")" >> "$GITHUB_PATH"
+
       - name: Verify asc CLI
         run: |
           set -euo pipefail
@@ -79,6 +96,9 @@ jobs:
           printf '%s' "$ASC_API_KEY_P8_BASE64" | base64 --decode > "$KEY_PATH"
           chmod 600 "$KEY_PATH"
           echo "ASC_API_KEY_PATH=$KEY_PATH" >> "$GITHUB_ENV"
+          echo "ASC_KEY_ID=$ASC_API_KEY_ID" >> "$GITHUB_ENV"
+          echo "ASC_ISSUER_ID=$ASC_API_ISSUER_ID" >> "$GITHUB_ENV"
+          echo "ASC_PRIVATE_KEY_PATH=$KEY_PATH" >> "$GITHUB_ENV"
 
       - name: Import iOS distribution signing cert
         env:
@@ -119,39 +139,12 @@ jobs:
 
       - name: Install App Store provisioning profile
         env:
-          IOS_APPSTORE_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_APPSTORE_PROVISIONING_PROFILE_BASE64 || secrets.IOS_PROD_PROVISIONING_PROFILE_BASE64 }}
-        run: |
-          set -euo pipefail
-          if [ -z "${IOS_APPSTORE_PROVISIONING_PROFILE_BASE64:-}" ]; then
-            echo "Missing App Store production provisioning profile secret" >&2
-            exit 1
-          fi
-
-          TMP_PROFILE="$RUNNER_TEMP/cmux-appstore.mobileprovision"
-          TMP_PLIST="$RUNNER_TEMP/cmux-appstore-profile.plist"
-          printf '%s' "$IOS_APPSTORE_PROVISIONING_PROFILE_BASE64" | base64 --decode > "$TMP_PROFILE"
-          security cms -D -i "$TMP_PROFILE" > "$TMP_PLIST"
-
-          APP_ID="$(/usr/libexec/PlistBuddy -c "Print :Entitlements:application-identifier" "$TMP_PLIST")"
-          if [ "$APP_ID" != "7WLXT3NR37.com.cmuxterm.app" ]; then
-            echo "App Store provisioning profile targets unexpected app ID: $APP_ID" >&2
-            exit 1
-          fi
-          APS_ENVIRONMENT="$(/usr/libexec/PlistBuddy -c "Print :Entitlements:aps-environment" "$TMP_PLIST" 2>/dev/null || true)"
-          if [ "$APS_ENVIRONMENT" != "production" ]; then
-            echo "App Store provisioning profile aps-environment is '$APS_ENVIRONMENT', expected 'production'" >&2
-            exit 1
-          fi
-          APPLE_SIGN_IN="$(/usr/libexec/PlistBuddy -c "Print :Entitlements:com.apple.developer.applesignin:0" "$TMP_PLIST" 2>/dev/null || true)"
-          if [ "$APPLE_SIGN_IN" != "Default" ]; then
-            echo "App Store provisioning profile com.apple.developer.applesignin is '${APPLE_SIGN_IN:-<absent>}', expected 'Default'" >&2
-            exit 1
-          fi
-          PROFILE_NAME="$(/usr/libexec/PlistBuddy -c "Print :Name" "$TMP_PLIST")"
-          PROFILE_UUID="$(/usr/libexec/PlistBuddy -c "Print :UUID" "$TMP_PLIST")"
-          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
-          cp "$TMP_PROFILE" "$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID.mobileprovision"
-          echo "IOS_APPSTORE_PROVISIONING_PROFILE_NAME=$PROFILE_NAME" >> "$GITHUB_ENV"
+          IOS_APPSTORE_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_APPSTORE_PROVISIONING_PROFILE_BASE64 }}
+          IOS_PROD_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_PROD_PROVISIONING_PROFILE_BASE64 }}
+          IOS_BETA_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_BETA_PROVISIONING_PROFILE_BASE64 }}
+          APPLE_RELEASE_PROVISIONING_PROFILE_BASE64: ${{ secrets.APPLE_RELEASE_PROVISIONING_PROFILE_BASE64 }}
+          APPLE_NIGHTLY_PROVISIONING_PROFILE_BASE64: ${{ secrets.APPLE_NIGHTLY_PROVISIONING_PROFILE_BASE64 }}
+        run: ./.github/scripts/install-app-store-provisioning-profile.sh
 
       - name: Archive, export, and upload production build
         id: upload
@@ -213,7 +206,7 @@ jobs:
             echo "- submit for review: \`${INPUT_SUBMIT_FOR_REVIEW}\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Cleanup keychain
+      - name: Cleanup signing material
         if: always()
         run: |
           rm -f "${ASC_API_KEY_PATH:-}"

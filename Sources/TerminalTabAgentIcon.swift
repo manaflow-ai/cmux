@@ -204,29 +204,35 @@ extension Workspace {
         var didMutatePanelTitle = false
         var didMutateWorkspaceTitle = false
         var didMutateTitleDerivedAgent = false
+        var didPruneStaleAgentRuntime = false
 
-        if panelTitles[panelId] != trimmed {
+        if !isRemoteTmuxMirror, panelTitles[panelId] != trimmed {
             panelTitles[panelId] = trimmed
             didMutate = true
             didMutatePanelTitle = true
         }
 
-        if panels[panelId] is TerminalPanel,
-           updateTitleDerivedTerminalAgentStatusKey(forPanelId: panelId, title: trimmed) {
-            didMutate = true
-            didMutateTitleDerivedAgent = true
+        if panels[panelId] is TerminalPanel {
+            if updateTitleDerivedTerminalAgentStatusKey(forPanelId: panelId, title: trimmed) {
+                didMutate = true
+                didMutateTitleDerivedAgent = true
+            }
+            if clearStaleAgentPIDs(panelId: panelId, refreshPorts: true) {
+                didMutate = true
+                didPruneStaleAgentRuntime = true
+            }
         }
 
         // Update bonsplit tab title only when this panel's title changed, and
-        // update the icon when the title-derived agent fallback changes.
-        if (didMutatePanelTitle || didMutateTitleDerivedAgent),
+        // update the icon when the current agent signal changes.
+        if (didMutatePanelTitle || didMutateTitleDerivedAgent || didPruneStaleAgentRuntime),
            let tabId = surfaceIdFromPanelId(panelId),
            let panel = panels[panelId],
            let existing = bonsplitController.tab(tabId) {
             let baseTitle = panelTitles[panelId] ?? panel.displayTitle
             let resolvedTitle = resolvedPanelTitle(panelId: panelId, fallback: baseTitle)
-            let titleUpdate: String? = existing.title == resolvedTitle ? nil : resolvedTitle
-            let iconPayloadUpdate = didMutateTitleDerivedAgent
+            let titleUpdate: String? = isRemoteTmuxMirror || existing.title == resolvedTitle ? nil : resolvedTitle
+            let iconPayloadUpdate = didMutateTitleDerivedAgent || didPruneStaleAgentRuntime
                 ? terminalTabAgentIconPayload(forPanelId: panelId)
                 : nil
             bonsplitController.updateTab(
@@ -239,7 +245,7 @@ extension Workspace {
         }
 
         // If this is the only panel and no custom title, update workspace title
-        if panels.count == 1, customTitle == nil {
+        if !isRemoteTmuxMirror, panels.count == 1, customTitle == nil {
             if self.title != trimmed {
                 self.title = trimmed
                 didMutate = true

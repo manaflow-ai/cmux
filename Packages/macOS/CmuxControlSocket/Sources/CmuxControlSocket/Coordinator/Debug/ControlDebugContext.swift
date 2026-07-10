@@ -57,12 +57,9 @@ public protocol ControlDebugContext: AnyObject {
     /// - Returns: The raw v1 response.
     func controlDebugActivateApp() -> String
 
-    /// Requests the selected workspace's checklist add field for
-    /// `debug.workspace_todo.checklist_add_field`.
-    ///
-    /// - Returns: The selected workspace id, or `nil` when no workspace is
-    ///   selected.
-    func controlDebugRequestWorkspaceTodoChecklistAddField() -> UUID?
+    /// Shows the Pro welcome checklist window for
+    /// `debug.pro_welcome_checklist.show`.
+    func controlDebugShowProWelcomeChecklist()
 
     /// Runs the shared v1 `is_terminal_focused` body for
     /// `debug.terminal.is_focused`.

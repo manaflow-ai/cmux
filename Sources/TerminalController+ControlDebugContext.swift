@@ -74,10 +74,8 @@ extension TerminalController: ControlDebugContext {
 
     func controlDebugActivateApp() -> String { activateApp() }
 
-    func controlDebugRequestWorkspaceTodoChecklistAddField() -> UUID? {
-        guard let workspace = tabManager?.selectedWorkspace else { return nil }
-        WorkspaceTodoActions.requestChecklistAddField(workspaceId: workspace.id)
-        return workspace.id
+    func controlDebugShowProWelcomeChecklist() {
+        ProWelcomeChecklistPresenter.present()
     }
 
     func controlDebugIsTerminalFocused(surfaceArgument: String) -> String {

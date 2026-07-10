@@ -163,6 +163,14 @@
       "codexJsonPlaceholder": "{\"accessToken\":\"...\",\"refreshToken\":\"...\",\"idToken\":\"...\",\"accountID\":\"...\"}",
       "anthropicKeyPlaceholder": "sk-ant-...",
       "openAiKeyPlaceholder": "sk-..."
+    },
+    "billing": {
+      "plan": {
+        "heading": "خطتك الشخصية",
+        "free": "مجاني",
+        "pro": "Pro",
+        "loading": "جارٍ التحميل…"
+      }
     }
   },
   "community": {

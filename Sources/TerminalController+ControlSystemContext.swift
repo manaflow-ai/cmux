@@ -228,14 +228,19 @@ extension TerminalController: ControlSystemContext {
             navigationTarget = nil
         }
 
-        DispatchQueue.main.async {
-            if shouldActivate {
-                AppDelegate.presentPreferencesWindow(navigationTarget: navigationTarget)
-            } else {
-                SettingsWindowPresenter.show(navigationTarget: navigationTarget)
-            }
+        // Present synchronously (this context is @MainActor) so the reply
+        // reflects reality: `opened` if-and-only-if a window materialized.
+        // "OK but nothing happened" was the #7775 failure shape.
+        let result = SettingsWindowPresenter.show(
+            navigationTarget: navigationTarget,
+            activateApp: shouldActivate
+        )
+        switch result {
+        case .presented, .orderedWhileAppHidden:
+            return .opened(target: navigationTarget?.rawValue ?? "general")
+        case .failed(let reason):
+            return .failed(message: reason)
         }
-        return .opened(target: navigationTarget?.rawValue ?? "general")
     }
 
     func controlFeedbackOpen(workspaceID: UUID?, windowID: UUID?, requestedActivate: Bool) {
