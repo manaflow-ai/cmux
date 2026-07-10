@@ -435,6 +435,7 @@ extension SidebarGitMetadataService {
             .contains(probeKey.panelId)
         if let nextBranch,
            shouldTrackPullRequests,
+           !PullRequestProbeService.shouldSkipLookup(branch: nextBranch),
            previousBranchState?.branch != nextBranch || !isPullRequestRefreshTracked {
             pullRequestProbing.scheduleWorkspacePullRequestRefresh(
                 workspaceId: probeKey.workspaceId,
