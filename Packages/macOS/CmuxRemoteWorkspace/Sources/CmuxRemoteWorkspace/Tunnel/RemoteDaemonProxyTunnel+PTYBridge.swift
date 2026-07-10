@@ -165,6 +165,12 @@ extension RemoteDaemonProxyTunnel {
         }
     }
 
+    /// Retires a logical attach generation only when this tunnel still owns it.
+    ///
+    /// - Parameters:
+    ///   - sessionID: Persistent PTY session containing the generation.
+    ///   - lifecycleID: Stable logical generation identifier.
+    /// - Returns: `true` when the generation was known and retired.
     public func acknowledgePTYLifecycleIfKnown(sessionID: String, lifecycleID: String) -> Bool {
         queue.sync {
             ptyLifecycleRegistry.acknowledgeIfKnown(

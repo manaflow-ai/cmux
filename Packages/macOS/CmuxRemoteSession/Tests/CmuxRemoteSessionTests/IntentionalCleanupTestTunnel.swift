@@ -3,13 +3,8 @@ import Foundation
 
 /// Shared fake whose lifecycle table models the tunnel-owned coordinator seam.
 final class IntentionalCleanupTestTunnel: RemoteProxyTunneling, @unchecked Sendable {
-    private struct Key: Hashable {
-        let sessionID: String
-        let lifecycleID: String
-    }
-
     private let lock = NSLock()
-    private var lifecycleByKey: [Key: RemotePTYSessionLifecycle] = [:]
+    private var lifecycleByKey: [IntentionalCleanupTestTunnelKey: RemotePTYSessionLifecycle] = [:]
     private var bridgeServers: [RemotePTYBridgeServer] = []
 
     func start() throws {}
@@ -46,18 +41,24 @@ final class IntentionalCleanupTestTunnel: RemoteProxyTunneling, @unchecked Senda
     }
 
     func ptySessionLifecycle(sessionID: String, lifecycleID: String) -> RemotePTYSessionLifecycle {
-        lock.withLock { lifecycleByKey[Key(sessionID: sessionID, lifecycleID: lifecycleID)] ?? .active }
+        lock.withLock {
+            lifecycleByKey[
+                IntentionalCleanupTestTunnelKey(sessionID: sessionID, lifecycleID: lifecycleID)
+            ] ?? .active
+        }
     }
 
     func acknowledgePTYLifecycle(sessionID: String, lifecycleID: String) {
         lock.withLock {
-            lifecycleByKey[Key(sessionID: sessionID, lifecycleID: lifecycleID)] = .intentionallyClosed
+            lifecycleByKey[
+                IntentionalCleanupTestTunnelKey(sessionID: sessionID, lifecycleID: lifecycleID)
+            ] = .intentionallyClosed
         }
     }
 
     func acknowledgePTYLifecycleIfKnown(sessionID: String, lifecycleID: String) -> Bool {
         lock.withLock {
-            let key = Key(sessionID: sessionID, lifecycleID: lifecycleID)
+            let key = IntentionalCleanupTestTunnelKey(sessionID: sessionID, lifecycleID: lifecycleID)
             guard lifecycleByKey[key] != nil else { return false }
             lifecycleByKey[key] = .intentionallyClosed
             return true
@@ -86,7 +87,7 @@ final class IntentionalCleanupTestTunnel: RemoteProxyTunneling, @unchecked Senda
         requireExisting: Bool,
         onLifecycleEnded: @escaping @Sendable () -> Void
     ) throws -> RemotePTYBridgeServer.Endpoint {
-        let key = Key(sessionID: sessionID, lifecycleID: lifecycleID)
+        let key = IntentionalCleanupTestTunnelKey(sessionID: sessionID, lifecycleID: lifecycleID)
         if lock.withLock({ lifecycleByKey[key] == .intentionallyClosed }) {
             throw RemotePTYLifecycleError.intentionallyClosed
         }
