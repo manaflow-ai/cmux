@@ -84,7 +84,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
     // MARK: - Coordinator
 
     final class Coordinator: NSObject, NSOutlineViewDataSource, NSOutlineViewDelegate, NSMenuDelegate {
-        var store: FileExplorerStore { didSet { if store !== oldValue { lastRootNodeCount = -1; observeStore() } } } // Follow store swaps (Bonsplit reuses this coordinator across tool-panel switches): resubscribe and reset so the next reloadIfNeeded (updateNSView calls it) rebuilds; pre-migration @ObservedObject masked the stale subscription.
+        var store: FileExplorerStore { didSet { if store !== oldValue { lastRootNodeCount = -1; observeStore() } } } // Follow store swaps (Bonsplit reuses this coordinator across tool-panel switches): resubscribe and reset so the next reloadIfNeeded (updateNSView calls it) rebuilds; pre-migration the observed-object wrapper masked the stale subscription.
         var state: FileExplorerState
         var onOpenFilePreview: (String) -> Void
         var placement: FileExplorerPanelPlacement
@@ -162,7 +162,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
                 .debounce(for: .milliseconds(50), scheduler: RunLoop.main)
                 .sink { [weak self] _ in
                     Task { @MainActor [weak self] in
-                        self?.reloadIfNeeded()
+                        guard let self else { return }; self.containerView?.updateHeader(store: self.store); self.reloadIfNeeded() // updateHeader keeps the root-path display and search scope/contentRevision refresh in step; pre-migration the observed-object wrapper routed store publishes through updateNSView -> updateHeader.
                     }
                 }
         }
