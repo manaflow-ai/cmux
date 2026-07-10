@@ -8,6 +8,43 @@ import Testing
 /// the sign-out-vs-callback race guards, deadlines, and attempt cancellation.
 @MainActor
 @Suite(.serialized) struct HostBrowserSignInFlowTests {
+    @Test func concurrentSignOutWaitsForOnePreparationBeforeLocalClearAndTeardown() async {
+        let preparationStarted = TestPhaseSignal()
+        let preparationBlocker = TestContinuationBlocker()
+        let recorder = HostBrowserSignOutOrderingRecorder()
+        let harness = HostBrowserSignInFlowHarness(
+            prepareForSignOut: {
+                await recorder.record(.prepare)
+                await preparationStarted.markStarted()
+                await preparationBlocker.wait()
+            },
+            onSignedOut: { _, _ in
+                await recorder.record(.signedOut)
+            }
+        )
+        await harness.tokenStore.setTokens(
+            accessToken: "access-1",
+            refreshToken: "refresh-1"
+        )
+
+        let firstSignOut = Task { await harness.flow.signOut() }
+        await preparationStarted.waitUntilStarted()
+        let racedSignOut = Task { await harness.flow.signOut() }
+
+        // Both callers must remain behind the same durable-preparation gate.
+        #expect(await harness.tokenStore.getStoredAccessToken() == "access-1")
+        #expect(await harness.tokenStore.getStoredRefreshToken() == "refresh-1")
+        #expect(await recorder.values() == [.prepare])
+
+        await preparationBlocker.release()
+        await firstSignOut.value
+        await racedSignOut.value
+
+        #expect(await recorder.values() == [.prepare, .signedOut])
+        #expect(await harness.tokenStore.getStoredAccessToken() == nil)
+        #expect(await harness.tokenStore.getStoredRefreshToken() == nil)
+    }
+
     @Test func signOutRunsCompositionTeardownWithCapturedCredentials() async {
         let recorder = HostBrowserSignOutHookRecorder()
         let harness = HostBrowserSignInFlowHarness(
@@ -504,5 +541,22 @@ private actor HostBrowserSignOutHookRecorder {
 
     func values() -> [Call] {
         calls
+    }
+}
+
+private actor HostBrowserSignOutOrderingRecorder {
+    enum Event: Equatable, Sendable {
+        case prepare
+        case signedOut
+    }
+
+    private var events: [Event] = []
+
+    func record(_ event: Event) {
+        events.append(event)
+    }
+
+    func values() -> [Event] {
+        events
     }
 }
