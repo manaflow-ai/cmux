@@ -174,22 +174,23 @@ struct WorkspaceSidebarObservationTests {
         )
 
         workspace.title = "Agent Turn Trailing"
-        // Let the second value's re-read hop reach the coalescer, staying well
-        // inside the 50ms window so the trailing timer has not fired yet.
-        await Task.yield()
-        try? await Task.sleep(nanoseconds: 10_000_000)
-
-        #expect(
-            publishCount == 1,
-            "A second delivered value inside the open coalesce window should be held as the pending trailing value."
-        )
-
+        // No wall-clock "still held" assertion here (test-determinism gate):
+        // the open-window hold is covered deterministically by
+        // coalesceLatestKeepsLeadingEdgeSynchronousAndEmitsLatestTrailing via
+        // VirtualCoalesceScheduler. This integration test asserts the burst
+        // settles at exactly two emissions (leading + one trailing), never a
+        // third.
         await drainMainActor(until: { publishCount == 2 })
 
         #expect(
             publishCount == 2,
             "A coalesced burst must settle with exactly one trailing emission carrying the latest state."
         )
+
+        // A settled burst must not re-emit later: drain again and confirm the
+        // count is stable.
+        await drainMainActor(until: { publishCount > 2 }, maxIterations: 10)
+        #expect(publishCount == 2, "No third emission may follow the trailing edge of a settled burst.")
     }
 
     @Test func coalesceLatestKeepsLeadingEdgeSynchronousAndEmitsLatestTrailing() {
