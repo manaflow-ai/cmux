@@ -3,11 +3,30 @@ import AppKit
 extension AppDelegate {
     /// Extension manifest commands run only after configured cmux shortcuts decline the event.
     func shouldOfferBrowserWebExtensionCommand(_ event: NSEvent) -> Bool {
+        shouldOfferBrowserWebExtensionCommand(
+            event,
+            browserFocusModeActive: browserFocusModePanelForShortcutEvent(event) != nil
+        )
+    }
+
+    func shouldOfferBrowserWebExtensionCommand(
+        _ event: NSEvent,
+        browserFocusModeActive: Bool
+    ) -> Bool {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         // Manifest keyboard commands on macOS require a primary modifier. Keep
         // ordinary typing off the all-actions conflict scan in this hot path.
         guard !flags.intersection([.command, .control, .option]).isEmpty else {
             return false
+        }
+
+        // Browser focus mode already bypasses every configured cmux shortcut at
+        // the app-level monitor (the page owns the keyboard), so a binding like
+        // the default ⌘⇧L Open Browser cannot fire here anyway. Let manifest
+        // commands (e.g. Bitwarden autofill) claim the stroke instead of running
+        // a conflict scan against shortcuts that are suspended.
+        if browserFocusModeActive {
+            return true
         }
 
         let shortcutContext = shortcutEventFocusContext(event).shortcutContext
