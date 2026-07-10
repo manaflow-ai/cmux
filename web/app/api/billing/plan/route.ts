@@ -1,14 +1,18 @@
 import { NextRequest } from "next/server";
 import { getStackServerApp, isStackConfigured } from "../../../lib/stack";
+import { isStripeBillingConfigured } from "../../../../services/billing/stripe";
 import { parseBearer, jsonResponse } from "../../../../services/vms/routeHelpers";
 import {
   FREE_PLAN_ID,
   TEAM_PLAN_ID,
   hasActiveTeamSubscriptionForTeam,
-  metadataPlanId,
   resolveProPlanStatus,
   type BillingManagementKind,
 } from "../../../../services/billing/pro";
+import {
+  resolveBillingTeam,
+  type BillingTeamUserLike,
+} from "../../../../services/billing/teamResolution";
 
 export const dynamic = "force-dynamic";
 
@@ -28,6 +32,7 @@ export async function GET(request: NextRequest) {
     });
   }
 
+  const billingAvailable = isStripeBillingConfigured();
   const stackServerApp = getStackServerApp();
   const bearer = parseBearer(request);
   const user = bearer
@@ -45,7 +50,7 @@ export async function GET(request: NextRequest) {
   if (!user) {
     return jsonResponse({
       authenticated: false,
-      billingAvailable: true,
+      billingAvailable,
       planId: FREE_PLAN_ID,
       isPro: false,
       billingManagement: "none",
@@ -59,7 +64,7 @@ export async function GET(request: NextRequest) {
   const teamStatus = await resolveTeamPlanStatus(user);
   return jsonResponse({
     authenticated: !user.isAnonymous,
-    billingAvailable: true,
+    billingAvailable,
     planId: status.planId,
     isPro: status.isPro,
     billingManagement: status.billingManagement,
@@ -80,47 +85,14 @@ type TeamPlanStatus = {
   readonly billingManagement: BillingManagementKind;
 };
 
-type BillingTeamLike = {
-  readonly id?: string;
-  readonly clientReadOnlyMetadata?: unknown;
-};
-
-type BillingTeamUserLike = {
-  readonly selectedTeam?: unknown;
-  readonly listTeams?: () => Promise<readonly unknown[]>;
-};
-
 async function resolveTeamPlanStatus(user: BillingTeamUserLike): Promise<TeamPlanStatus> {
-  const team = await billingTeamForUser(user);
+  const team = await resolveBillingTeam(user);
   if (!team?.id) {
     return { planId: FREE_PLAN_ID, billingManagement: "none" };
   }
   const stripeActive = await hasActiveTeamSubscriptionForTeam(team.id);
-  const metadataActive = metadataPlanId(team.clientReadOnlyMetadata) === TEAM_PLAN_ID;
   if (stripeActive) {
     return { planId: TEAM_PLAN_ID, billingManagement: "stripe" };
   }
-  if (metadataActive) {
-    return { planId: TEAM_PLAN_ID, billingManagement: "external" };
-  }
   return { planId: FREE_PLAN_ID, billingManagement: "none" };
-}
-
-async function billingTeamForUser(user: BillingTeamUserLike): Promise<BillingTeamLike | null> {
-  const selected = teamFromUnknown(user.selectedTeam);
-  if (selected) return selected;
-  const teams = typeof user.listTeams === "function"
-    ? (await user.listTeams()).map(teamFromUnknown).filter((team): team is BillingTeamLike => !!team)
-    : [];
-  return teams.length === 1 ? teams[0] : null;
-}
-
-function teamFromUnknown(value: unknown): BillingTeamLike | null {
-  if (!value || typeof value !== "object") return null;
-  const id = (value as { id?: unknown }).id;
-  if (typeof id !== "string" || !id) return null;
-  return {
-    id,
-    clientReadOnlyMetadata: (value as { clientReadOnlyMetadata?: unknown }).clientReadOnlyMetadata,
-  };
 }

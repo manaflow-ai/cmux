@@ -8,6 +8,7 @@ final class PaneDropTargetView: NSView {
     weak var hostedView: GhosttySurfaceScrollView?
     var dropContext: PaneDropContext?
     private var activeZone: DropZone?
+    private let dropRoutingRegistration = PaneDropRoutingRegistration()
     private let dropZoneOverlayView = NSView(frame: .zero)
     private lazy var dropZoneOverlayAnimator = PaneDropZoneOverlayAnimator(overlayView: dropZoneOverlayView)
 #if DEBUG
@@ -29,7 +30,12 @@ final class PaneDropTargetView: NSView {
         nil
     }
 
-    deinit {}
+    override func viewWillMove(toSuperview newSuperview: NSView?) {
+        if newSuperview == nil {
+            dropRoutingRegistration.clear()
+        }
+        super.viewWillMove(toSuperview: newSuperview)
+    }
 
     override func layout() {
         super.layout()
@@ -77,19 +83,25 @@ final class PaneDropTargetView: NSView {
     }
 
     override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        updateDragState(sender, phase: "entered")
+        let operation = updateDragState(sender, phase: "entered")
+        dropRoutingRegistration.update(sender, operation: operation, targetView: self)
+        return operation
     }
 
     override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        updateDragState(sender, phase: "updated")
+        let operation = updateDragState(sender, phase: "updated")
+        dropRoutingRegistration.update(sender, operation: operation, targetView: self)
+        return operation
     }
 
     override func draggingExited(_ sender: (any NSDraggingInfo)?) {
+        dropRoutingRegistration.clear(sender)
         clearDragState(phase: "exited")
     }
 
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
         defer {
+            dropRoutingRegistration.clear(sender)
             clearDragState(phase: "perform.clear")
         }
 
@@ -100,21 +112,12 @@ final class PaneDropTargetView: NSView {
             return false
         }
 
-        // A Bonsplit tab dropped on a Dock pane routes to the Dock's own
-        // controller (move/split inside the Dock, or transfer in from elsewhere)
-        // rather than the owning workspace — otherwise a Dock drag-to-split would
-        // land in the main split area. Skip this when the drop should insert the
-        // dragged item's path as text (e.g. a file-preview drag carries both a
-        // Bonsplit tab-transfer payload AND a file URL): those fall through to the
-        // file-drop-as-text path below, matching the workspace ordering.
+        // Dock panes route real live-surface tab drops to the Dock controller,
+        // unless the same payload should insert its file path as terminal text.
         if let transfer = PaneDragTransfer.decode(from: sender.draggingPasteboard),
            transfer.isFromCurrentProcess,
            let dock = AppDelegate.shared?.dockForPane(dropContext.paneId),
-           // Only divert REAL live container tabs to the Dock. Registry-backed
-           // virtual drags (session-index, file-preview) reuse the same
-           // tab-transfer payload but own no live surface, so let them fall
-           // through to the workspace handlers that consume those registries.
-           AppDelegate.shared?.locateContainerSurface(tabId: transfer.tabId) != nil,
+           AppDelegate.shared?.canMoveSurfaceIntoDock(sourceTabId: transfer.tabId, destinationDock: dock) == true,
            !DragOverlayRoutingPolicy.shouldRouteFileDropToTextDestination(
                pasteboardTypes: sender.draggingPasteboard.types,
                modifierFlags: DragOverlayRoutingPolicy.currentModifierFlags,
@@ -228,18 +231,11 @@ final class PaneDropTargetView: NSView {
             return []
         }
 
-        // Dock pane target: show the Dock's own drop zone and accept the move so
-        // the drop routes to the Dock (see performDragOperation). Skipped for
-        // file-drop-as-text drags (e.g. file-preview), which fall through to the
-        // text-drop handling below.
+        // Dock pane target: preview the Dock route unless this is file-drop-as-text.
         if let transfer = PaneDragTransfer.decode(from: sender.draggingPasteboard),
            transfer.isFromCurrentProcess,
            let dock = AppDelegate.shared?.dockForPane(dropContext.paneId),
-           // Only divert REAL live container tabs to the Dock. Registry-backed
-           // virtual drags (session-index, file-preview) reuse the same
-           // tab-transfer payload but own no live surface, so let them fall
-           // through to the workspace handlers that consume those registries.
-           AppDelegate.shared?.locateContainerSurface(tabId: transfer.tabId) != nil,
+           AppDelegate.shared?.canMoveSurfaceIntoDock(sourceTabId: transfer.tabId, destinationDock: dock) == true,
            !DragOverlayRoutingPolicy.shouldRouteFileDropToTextDestination(
                pasteboardTypes: sender.draggingPasteboard.types,
                modifierFlags: DragOverlayRoutingPolicy.currentModifierFlags,

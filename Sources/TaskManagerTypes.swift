@@ -582,10 +582,18 @@ struct CmuxTaskManagerCodingAgentDefinition: Equatable {
         CmuxTaskManagerCodingAgentDefinition(
             id: "omp",
             displayName: "OMP",
-            assetName: nil,
+            assetName: "AgentIcons/Pi",
             launchKinds: ["omp"],
             directBasenames: ["omp"],
             argumentNeedles: ["@oh-my-pi/pi-coding-agent"]
+        ),
+        CmuxTaskManagerCodingAgentDefinition(
+            id: "campfire",
+            displayName: "Campfire",
+            assetName: nil,
+            launchKinds: ["campfire"],
+            directBasenames: ["campfire"],
+            argumentNeedles: ["packages/session/bin/campfire.ts", "packages/session/dist/campfire"]
         ),
         CmuxTaskManagerCodingAgentDefinition(
             id: "pi",
@@ -736,7 +744,7 @@ struct CmuxTaskManagerCodingAgentDefinition: Equatable {
     }
 
     private static let argumentHostBasenames: Set<String> = [
-        "node", "bun", "deno", "npm", "npx", "pnpm", "yarn", "tsx"
+        "node", "bun", "deno", "npm", "npx", "pnpm", "yarn", "tsx", "ts-node"
     ]
 
     private static let ambiguousDirectBasenames: Set<String> = [

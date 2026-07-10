@@ -21,6 +21,7 @@ public final class MobileDisplaySettings {
     // `init` and the write-through in `didSet` are safe nonisolated.
     private nonisolated(unsafe) let defaults: UserDefaults
     private static let wrapWorkspaceTitlesKey = "cmux.mobile.wrapWorkspaceTitles"
+    private static let showAltScreenNoticeKey = "cmux.mobile.showAltScreenNotice"
     private static let workspacePreviewLineCountKey = "cmux.mobile.workspacePreviewLineCount"
     private static let unreadIndicatorLeftShiftKey = "cmux.mobile.debug.unreadIndicatorLeftShift.v2"
     private static let profilePictureLeftShiftKey = "cmux.mobile.debug.profilePictureLeftShift"
@@ -48,6 +49,13 @@ public final class MobileDisplaySettings {
     /// this writes through to the injected ``UserDefaults``.
     public var wrapWorkspaceTitles: Bool {
         didSet { defaults.set(wrapWorkspaceTitles, forKey: Self.wrapWorkspaceTitlesKey) }
+    }
+
+    /// Whether the alternate-screen sizing notice is shown. Defaults to `true`.
+    /// The notice's "Don't Show Again" action sets this to `false`; mutating
+    /// this writes through to the injected ``UserDefaults``.
+    public var showAltScreenNotice: Bool {
+        didSet { defaults.set(showAltScreenNotice, forKey: Self.showAltScreenNoticeKey) }
     }
 
     /// How many lines a workspace row's activity preview shows (1 or 2).
@@ -99,6 +107,7 @@ public final class MobileDisplaySettings {
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         self.wrapWorkspaceTitles = defaults.bool(forKey: Self.wrapWorkspaceTitlesKey)
+        self.showAltScreenNotice = defaults.object(forKey: Self.showAltScreenNoticeKey) as? Bool ?? true
         let storedPreviewLines = defaults.object(forKey: Self.workspacePreviewLineCountKey) as? Int
         self.workspacePreviewLineCount = Self.clampedWorkspacePreviewLineCount(
             storedPreviewLines ?? Self.defaultWorkspacePreviewLineCount

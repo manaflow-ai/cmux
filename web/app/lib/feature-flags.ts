@@ -36,7 +36,7 @@ export const FEATURE_FLAGS = {
     key: "pro-checkout-enabled-release",
     owner: "lawrencecchen",
     description:
-      "Points the pricing page Pro CTA at /api/billing/checkout (Stack hosted purchase) instead of the download link. Off until prod Stripe Connect is live.",
+      "Points the pricing page Pro CTA at /api/billing/checkout instead of the download link. Off until prod Stripe is live.",
     reviewBy: "2026-10-01",
     defaultWhenUnavailable: false,
   },

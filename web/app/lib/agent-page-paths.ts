@@ -172,6 +172,10 @@ export const agentReadablePages = [
     title: "oh-my-codex",
   },
   {
+    path: "/docs/agent-integrations/oh-my-pi",
+    title: "oh-my-pi",
+  },
+  {
     path: "/docs/agent-integrations/oh-my-claudecode",
     title: "oh-my-claudecode",
   },
