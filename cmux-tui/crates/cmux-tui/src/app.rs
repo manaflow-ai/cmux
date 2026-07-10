@@ -181,6 +181,17 @@ struct SurfaceResizeClaim {
     token: u64,
 }
 
+struct SurfaceAttachClaim {
+    claims: Arc<Mutex<HashSet<SurfaceId>>>,
+    surface: SurfaceId,
+}
+
+impl Drop for SurfaceAttachClaim {
+    fn drop(&mut self) {
+        self.claims.lock().unwrap().remove(&self.surface);
+    }
+}
+
 #[derive(Clone, Copy)]
 struct SurfaceResizeClaimState {
     desired: (u16, u16),
@@ -191,6 +202,7 @@ struct SurfaceResizeClaimState {
 struct SurfaceSyncFailureState {
     attempts: u8,
     retry_after: Option<Instant>,
+    sticky_until_reconnect: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -202,15 +214,17 @@ struct SurfaceResizeFailure {
 fn next_surface_sync_failure(
     previous: Option<SurfaceSyncFailureState>,
     transient: bool,
+    sticky_until_reconnect: bool,
 ) -> SurfaceSyncFailureState {
     if !transient {
-        return SurfaceSyncFailureState { attempts: 0, retry_after: None };
+        return SurfaceSyncFailureState { attempts: 0, retry_after: None, sticky_until_reconnect };
     }
     let attempts = previous.map_or(1, |state| state.attempts.saturating_add(1)).min(6);
     let delay_seconds = 1_u64 << u32::from(attempts.saturating_sub(1));
     SurfaceSyncFailureState {
         attempts,
         retry_after: Some(Instant::now() + Duration::from_secs(delay_seconds.min(30))),
+        sticky_until_reconnect,
     }
 }
 
@@ -290,6 +304,7 @@ pub struct OrderedSession {
     remote_refresh_sequence: Arc<AtomicU64>,
     surface_resize_claims: Arc<Mutex<HashMap<SurfaceId, SurfaceResizeClaimState>>>,
     surface_resize_claim_sequence: Arc<AtomicU64>,
+    surface_attach_claims: Arc<Mutex<HashSet<SurfaceId>>>,
     surface_attach_failures: Arc<Mutex<HashMap<SurfaceId, SurfaceSyncFailureState>>>,
     surface_resize_failures: Arc<Mutex<HashMap<SurfaceId, SurfaceResizeFailure>>>,
     config_generation: Arc<AtomicU64>,
@@ -312,6 +327,7 @@ impl OrderedSession {
             remote_refresh_sequence: Arc::new(AtomicU64::new(0)),
             surface_resize_claims: Arc::new(Mutex::new(HashMap::new())),
             surface_resize_claim_sequence: Arc::new(AtomicU64::new(0)),
+            surface_attach_claims: Arc::new(Mutex::new(HashSet::new())),
             surface_attach_failures: Arc::new(Mutex::new(HashMap::new())),
             surface_resize_failures: Arc::new(Mutex::new(HashMap::new())),
             config_generation: Arc::new(AtomicU64::new(0)),
@@ -346,6 +362,7 @@ impl OrderedSession {
             self.exited_surfaces.lock().unwrap().insert(id);
         }
         self.surface_attach_failures.lock().unwrap().remove(&id);
+        self.surface_attach_claims.lock().unwrap().remove(&id);
         self.surface_resize_failures.lock().unwrap().remove(&id);
         self.inner.forget_surface(id);
     }
@@ -355,7 +372,10 @@ impl OrderedSession {
     }
 
     fn clear_surface_sync_failures(&self) {
-        self.surface_attach_failures.lock().unwrap().clear();
+        self.surface_attach_failures
+            .lock()
+            .unwrap()
+            .retain(|_, failure| failure.sticky_until_reconnect);
         self.surface_resize_failures.lock().unwrap().clear();
     }
 
@@ -367,6 +387,8 @@ impl OrderedSession {
         if !self.can_attach_surface(id) {
             return;
         }
+        self.surface_attach_claims.lock().unwrap().insert(id);
+        let claim = SurfaceAttachClaim { claims: self.surface_attach_claims.clone(), surface: id };
         let session = self.inner.clone();
         let exited_surfaces = self.exited_surfaces.clone();
         let attach_failures = self.surface_attach_failures.clone();
@@ -378,6 +400,7 @@ impl OrderedSession {
             ("attach surface", id),
             self.remote,
             move || {
+                let _claim = claim;
                 if exited_surfaces.lock().unwrap().contains(&id)
                     || (remote && session.remote_tree_is_stale())
                 {
@@ -392,7 +415,8 @@ impl OrderedSession {
                     }
                     Ok(None) => {
                         let mut failures = attach_failures.lock().unwrap();
-                        let state = next_surface_sync_failure(failures.get(&id).copied(), false);
+                        let state =
+                            next_surface_sync_failure(failures.get(&id).copied(), false, false);
                         failures.insert(id, state);
                         drop(failures);
                         pending.settle(SessionMutationOutcome::SurfaceSyncFailed {
@@ -403,11 +427,14 @@ impl OrderedSession {
                         Ok(())
                     }
                     Err(error) => {
-                        let transient =
-                            is_remote_timeout(&error) || is_remote_transport_failure(&error);
+                        let timed_out = is_remote_timeout(&error);
+                        let transport_failed = is_remote_transport_failure(&error);
                         let mut failures = attach_failures.lock().unwrap();
-                        let state =
-                            next_surface_sync_failure(failures.get(&id).copied(), transient);
+                        let state = next_surface_sync_failure(
+                            failures.get(&id).copied(),
+                            transport_failed,
+                            timed_out,
+                        );
                         failures.insert(id, state);
                         drop(failures);
                         pending.settle(SessionMutationOutcome::SurfaceSyncFailed {
@@ -415,7 +442,7 @@ impl OrderedSession {
                             operation: "attach",
                             error: error.to_string(),
                         });
-                        if transient { Err(error) } else { Ok(()) }
+                        if timed_out || transport_failed { Err(error) } else { Ok(()) }
                     }
                 }
             },
@@ -423,7 +450,7 @@ impl OrderedSession {
         if enqueue_result != PtyInputEnqueueResult::Accepted {
             let transient = enqueue_result != PtyInputEnqueueResult::Failed;
             let mut failures = enqueue_failures.lock().unwrap();
-            let state = next_surface_sync_failure(failures.get(&id).copied(), transient);
+            let state = next_surface_sync_failure(failures.get(&id).copied(), transient, false);
             failures.insert(id, state);
         }
     }
@@ -438,6 +465,7 @@ impl OrderedSession {
                 .get(&id)
                 .copied()
                 .is_some_and(surface_sync_failure_blocks)
+            && !self.surface_attach_claims.lock().unwrap().contains(&id)
             && (!self.remote || !self.inner.remote_tree_is_stale())
     }
 
@@ -675,7 +703,7 @@ impl OrderedSession {
                             is_remote_timeout(&error) || is_remote_transport_failure(&error);
                         let mut failures = failures.lock().unwrap();
                         let previous = failures.get(&surface_id).map(|failure| failure.state);
-                        let state = next_surface_sync_failure(previous, transient);
+                        let state = next_surface_sync_failure(previous, transient, false);
                         failures.insert(
                             surface_id,
                             SurfaceResizeFailure { desired: (cols, rows), state },
@@ -695,7 +723,7 @@ impl OrderedSession {
             let transient = enqueue_result != PtyInputEnqueueResult::Failed;
             let mut failures = enqueue_failures.lock().unwrap();
             let previous = failures.get(&surface_id).map(|failure| failure.state);
-            let state = next_surface_sync_failure(previous, transient);
+            let state = next_surface_sync_failure(previous, transient, false);
             failures.insert(surface_id, SurfaceResizeFailure { desired: (cols, rows), state });
         }
     }
@@ -1734,6 +1762,7 @@ impl App {
             if self.expire_toast() {
                 action = action.merge(RenderAction::Draw);
             }
+            self.retry_deferred_surface_attach();
             self.retry_background_refresh_if_due();
             self.render_action(terminal, action)?;
             if self.routing_refresh_pending {
@@ -1830,6 +1859,29 @@ impl App {
     }
 
     fn replace_tree(&mut self, tree: TreeView) {
+        let live_browsers = tree
+            .workspaces
+            .iter()
+            .flat_map(|workspace| workspace.screens.iter())
+            .flat_map(|screen| screen.panes.iter())
+            .flat_map(|pane| pane.tabs.iter())
+            .filter(|tab| tab.kind == SurfaceKind::Browser)
+            .map(|tab| tab.surface)
+            .collect::<HashSet<_>>();
+        let removed_browsers = self
+            .tree
+            .workspaces
+            .iter()
+            .flat_map(|workspace| workspace.screens.iter())
+            .flat_map(|screen| screen.panes.iter())
+            .flat_map(|pane| pane.tabs.iter())
+            .filter(|tab| tab.kind == SurfaceKind::Browser)
+            .map(|tab| tab.surface)
+            .filter(|surface| !live_browsers.contains(surface))
+            .collect::<Vec<_>>();
+        for surface in removed_browsers {
+            self.browser_input.forget_surface(surface);
+        }
         self.tree = tree;
         self.rebuild_tab_locations();
     }
@@ -2217,6 +2269,14 @@ impl App {
         }
         let event = match event {
             AppEvent::Input(input @ (Event::Key(_) | Event::Mouse(_) | Event::Paste(_)))
+                if self.missing_input_surface(&input).is_some()
+                    && !self.input_can_update_pending_mutation(&input) =>
+            {
+                let surface = self.missing_input_surface(&input).unwrap();
+                self.queue_surface_attach(surface);
+                return Ok(self.defer_input(input));
+            }
+            AppEvent::Input(input @ (Event::Key(_) | Event::Mouse(_) | Event::Paste(_)))
                 if (self.session.has_pending_mutations()
                     || self.session.remote_tree_is_stale()
                     || self.routing_refresh_pending)
@@ -2595,6 +2655,39 @@ impl App {
     fn active_surface_with_handle(&self) -> Option<(SurfaceId, SurfaceHandle)> {
         let id = self.active_surface()?;
         Some((id, self.session.surface(id)?))
+    }
+
+    fn missing_input_surface(&self, input: &Event) -> Option<SurfaceId> {
+        let surface = match input {
+            Event::Key(_) | Event::Paste(_) => self.active_surface()?,
+            Event::Mouse(mouse) => {
+                let area = self.pane_area_at(mouse.column, mouse.row)?;
+                area.content.contains(mouse.column, mouse.row).then_some(area.surface)?
+            }
+            _ => return None,
+        };
+        (!self.session.has_surface(surface)).then_some(surface)
+    }
+
+    fn queue_surface_attach(&mut self, surface: SurfaceId) {
+        if !self.session.can_attach_surface(surface) {
+            return;
+        }
+        let size = self
+            .pane_areas
+            .iter()
+            .find(|area| area.surface == surface)
+            .map(|area| (area.content.width, area.content.height))
+            .filter(|(cols, rows)| *cols > 0 && *rows > 0);
+        self.session.attach_surface(surface, size);
+    }
+
+    fn retry_deferred_surface_attach(&mut self) {
+        let surface =
+            self.deferred_input.iter().find_map(|input| self.missing_input_surface(input));
+        if let Some(surface) = surface {
+            self.queue_surface_attach(surface);
+        }
     }
 
     fn active_screen_id(&self) -> Option<cmux_tui_core::ScreenId> {
@@ -3603,7 +3696,7 @@ impl App {
     fn omnibar_hit_at(&self, x: u16, y: u16) -> Option<(PaneId, OmnibarHit)> {
         self.pane_areas.iter().find_map(|area| {
             let rect = area.omnibar?;
-            if self.surface_kind(area.surface) != SurfaceKind::Browser {
+            if self.surface_kind(area.surface) != Some(SurfaceKind::Browser) {
                 return None;
             }
             let editing = self
@@ -3824,7 +3917,7 @@ impl App {
             return PtyMousePressResult::NotOwned;
         };
         if !area.content.contains(x, y)
-            || self.surface_kind(area.surface) != SurfaceKind::Pty
+            || self.surface_kind(area.surface) != Some(SurfaceKind::Pty)
             || !self.pty_mouse_tracking(area.surface)
         {
             return PtyMousePressResult::NotOwned;
@@ -4047,7 +4140,7 @@ impl App {
         }
         let Some(area) = self.pane_area_at(x, y).copied() else { return false };
         if !area.content.contains(x, y)
-            || self.surface_kind(area.surface) != SurfaceKind::Pty
+            || self.surface_kind(area.surface) != Some(SurfaceKind::Pty)
             || !self.pty_mouse_tracking(area.surface)
         {
             return false;
@@ -4322,7 +4415,7 @@ impl App {
                 .iter()
                 .find(|area| {
                     area.content.contains(x, y)
-                        && self.surface_kind(area.surface) == SurfaceKind::Browser
+                        && self.surface_kind(area.surface) == Some(SurfaceKind::Browser)
                 })
                 .copied()
             {
@@ -4527,7 +4620,7 @@ impl App {
 
         if let Some(area) = self.pane_area_at(x, y).copied() {
             if area.content.contains(x, y) {
-                if self.surface_kind(area.surface) == SurfaceKind::Browser {
+                if self.surface_kind(area.surface) == Some(SurfaceKind::Browser) {
                     if self.active_pane() != Some(area.pane) {
                         self.focus_pane_after_input(area.pane);
                     }
@@ -4963,7 +5056,7 @@ impl App {
         }
         if let Some(area) = self.pane_area_at(x, y) {
             let mut items = Vec::new();
-            if self.surface_kind(area.surface) == SurfaceKind::Browser {
+            if self.surface_kind(area.surface) == Some(SurfaceKind::Browser) {
                 items.extend([
                     MenuAction::BrowserBack(area.pane),
                     MenuAction::BrowserForward(area.pane),
@@ -5097,8 +5190,16 @@ impl App {
         Ok(RenderAction::None)
     }
 
-    fn surface_kind(&self, surface: SurfaceId) -> SurfaceKind {
-        self.session.surface(surface).map(|surface| surface.kind()).unwrap_or(SurfaceKind::Pty)
+    fn surface_kind(&self, surface: SurfaceId) -> Option<SurfaceKind> {
+        self.tree
+            .workspaces
+            .iter()
+            .flat_map(|workspace| workspace.screens.iter())
+            .flat_map(|screen| screen.panes.iter())
+            .flat_map(|pane| pane.tabs.iter())
+            .find(|tab| tab.surface == surface)
+            .map(|tab| tab.kind)
+            .or_else(|| self.session.surface(surface).map(|surface| surface.kind()))
     }
 
     fn browser_source(&self, surface: SurfaceId) -> Option<BrowserSource> {
@@ -5909,18 +6010,83 @@ mod tests {
     }
 
     #[test]
+    fn ambiguous_attach_timeout_survives_lifecycle_clear_until_reconnect() {
+        let mux = Mux::new("ambiguous-attach-timeout-test", SurfaceOptions::default());
+        let app = test_app(Session::Local(mux));
+        app.session
+            .surface_attach_failures
+            .lock()
+            .unwrap()
+            .insert(77, super::next_surface_sync_failure(None, false, true));
+
+        app.session.clear_surface_sync_failures();
+
+        assert!(app.session.surface_attach_failures.lock().unwrap().contains_key(&77));
+        assert!(!app.session.can_attach_surface(77));
+    }
+
+    #[test]
+    fn first_input_for_missing_mirror_is_deferred_through_attach() {
+        let mux = Mux::new("missing-mirror-input-test", SurfaceOptions::default());
+        let (mut app, events) = test_app_with_events(Session::Local(mux));
+        let surface = 77;
+        app.replace_tree(notify_tree(surface, false));
+        app.pane_areas.push(browser_completion_area(surface));
+
+        app.handle(AppEvent::Input(Event::Key(KeyEvent::new(
+            KeyCode::Char('x'),
+            KeyModifiers::NONE,
+        ))))
+        .unwrap();
+
+        assert_eq!(app.deferred_input.len(), 1);
+        let settled = events.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(matches!(
+            settled,
+            AppEvent::SessionMutationSettled(super::SessionMutationOutcome::SurfaceSyncFailed {
+                surface: 77,
+                operation: "attach",
+                ..
+            })
+        ));
+        app.handle(settled).unwrap();
+        assert_eq!(app.deferred_input.len(), 1);
+    }
+
+    #[test]
+    fn replacing_tree_retires_removed_browser_input_state() {
+        let mux = Mux::new("browser-input-topology-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let (dispatcher, _blocked) = BrowserInputDispatcher::blocked(1);
+        app.browser_input = dispatcher;
+        let surface = 41;
+        app.replace_tree(browser_completion_tree(surface, surface));
+        app.browser_input.enqueue(BrowserInputEvent {
+            surface_id: surface,
+            surface: SurfaceHandle::RemoteBrowserUnsupported,
+            kind: BrowserInputKind::InsertText("x".to_string()),
+        });
+        assert!(app.browser_input.tracks_surface(surface));
+
+        app.replace_tree(TreeView::default());
+
+        assert!(!app.browser_input.tracks_surface(surface));
+    }
+
+    #[test]
     fn transient_surface_sync_failures_retry_with_bounded_backoff() {
-        let first = super::next_surface_sync_failure(None, true);
+        let first = super::next_surface_sync_failure(None, true, false);
         assert_eq!(first.attempts, 1);
         assert!(super::surface_sync_failure_blocks(first));
 
         let elapsed = super::SurfaceSyncFailureState {
             attempts: first.attempts,
             retry_after: Some(std::time::Instant::now() - Duration::from_millis(1)),
+            sticky_until_reconnect: false,
         };
         assert!(!super::surface_sync_failure_blocks(elapsed));
-        let capped =
-            (0..10).fold(elapsed, |state, _| super::next_surface_sync_failure(Some(state), true));
+        let capped = (0..10)
+            .fold(elapsed, |state, _| super::next_surface_sync_failure(Some(state), true, false));
         assert_eq!(capped.attempts, 6);
         assert!(capped.retry_after.unwrap() <= std::time::Instant::now() + Duration::from_secs(30));
     }

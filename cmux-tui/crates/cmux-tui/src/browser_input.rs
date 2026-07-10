@@ -243,6 +243,13 @@ impl BrowserInputDispatcher {
     pub fn clear_resize_failures(&self) {
         self.failed_resizes.lock().unwrap().clear();
     }
+
+    #[cfg(test)]
+    pub(crate) fn tracks_surface(&self, surface_id: SurfaceId) -> bool {
+        self.surface_lifetimes.lock().unwrap().contains_key(&surface_id)
+            || self.failed_resizes.lock().unwrap().contains_key(&surface_id)
+            || self.latest_resizes.lock().unwrap().keys().any(|(surface, _)| *surface == surface_id)
+    }
 }
 
 fn worker(
