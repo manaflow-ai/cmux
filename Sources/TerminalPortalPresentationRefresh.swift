@@ -1,38 +1,60 @@
 import AppKit
 
+extension GhosttyTerminalView {
+    static func shouldApplyImmediateHostedStateUpdate(
+        desiredVisibleInUI: Bool, hostedViewHasSuperview: Bool, isBoundToCurrentHost: Bool
+    ) -> Bool {
+        if !desiredVisibleInUI { return true }
+        // A replaced host cannot mutate state while the hosted view is attached elsewhere.
+        if isBoundToCurrentHost { return true }
+        return !hostedViewHasSuperview
+    }
+}
+
 @MainActor
 final class TerminalPortalMutationScheduler {
-    private var generation: UInt64 = 0
-    private var pendingTask: Task<Void, Never>?
+    private typealias Mutation = @MainActor () -> Void
+
+    private var cancellationGeneration: UInt64 = 0
+    private var pendingMutation: Mutation?
+    private var drainTask: Task<Void, Never>?
 
     @discardableResult
     func schedule(_ mutation: @escaping @MainActor () -> Void) -> Task<Void, Never> {
-        generation &+= 1
-        let scheduledGeneration = generation
-        pendingTask?.cancel()
+        pendingMutation = mutation
+        if let drainTask {
+            return drainTask
+        }
+
+        let scheduledCancellationGeneration = cancellationGeneration
 
         let task = Task { @MainActor [weak self] in
-            // Leave the SwiftUI/AppKit callback stack before touching portal or
-            // hosted-terminal state. The generation check coalesces every
-            // update in the current turn into one latest-state commit.
-            await Task.yield()
-            guard !Task.isCancelled,
-                  let self,
-                  self.generation == scheduledGeneration else { return }
+            guard let self else { return }
+            while !Task.isCancelled,
+                  self.cancellationGeneration == scheduledCancellationGeneration {
+                // Leave the SwiftUI/AppKit callback stack before every commit.
+                // Schedules during the yield replace one pending snapshot instead
+                // of canceling and multiplying tasks under layout churn.
+                await Task.yield()
+                guard !Task.isCancelled,
+                      self.cancellationGeneration == scheduledCancellationGeneration,
+                      let mutation = self.pendingMutation else { break }
+                self.pendingMutation = nil
+                mutation()
+            }
 
-            mutation()
-
-            guard self.generation == scheduledGeneration else { return }
-            self.pendingTask = nil
+            guard self.cancellationGeneration == scheduledCancellationGeneration else { return }
+            self.drainTask = nil
         }
-        pendingTask = task
+        drainTask = task
         return task
     }
 
     func cancel() {
-        generation &+= 1
-        pendingTask?.cancel()
-        pendingTask = nil
+        cancellationGeneration &+= 1
+        pendingMutation = nil
+        drainTask?.cancel()
+        drainTask = nil
     }
 }
 

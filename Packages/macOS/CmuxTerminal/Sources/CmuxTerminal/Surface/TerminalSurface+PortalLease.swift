@@ -5,6 +5,13 @@ public import Bonsplit
 internal import CMUXDebugLog
 #endif
 
+struct TerminalPortalHostAuthority {
+    let hostId: ObjectIdentifier
+    let paneId: UUID
+    let instanceSerial: UInt64
+    let generation: UInt64
+}
+
 // MARK: - Portal-host leases (which pane host currently owns the surface)
 
 extension TerminalSurface {
@@ -38,6 +45,47 @@ extension TerminalSurface {
 
     static func portalHostIsUsable(_ lease: PortalHostLease) -> Bool {
         lease.inWindow && lease.area > portalHostAreaThreshold
+    }
+
+    /// Makes the newest representable host authoritative before its deferred
+    /// portal mutation runs. An older coordinator may still have a queued task,
+    /// but it can no longer reclaim this surface after a replacement appears.
+    public func reservePortalHostAuthority(
+        hostId: ObjectIdentifier,
+        paneId: PaneID,
+        instanceSerial: UInt64
+    ) -> UInt64? {
+        if let current = portalHostAuthority {
+            if current.hostId == hostId, current.instanceSerial == instanceSerial {
+                if current.paneId == paneId.id {
+                    return current.generation
+                }
+            } else if instanceSerial <= current.instanceSerial {
+                return nil
+            }
+        }
+
+        let generation = (portalHostAuthority?.generation ?? 0) &+ 1
+        portalHostAuthority = TerminalPortalHostAuthority(
+            hostId: hostId,
+            paneId: paneId.id,
+            instanceSerial: instanceSerial,
+            generation: generation
+        )
+        return generation
+    }
+
+    private func hasPortalHostAuthority(
+        hostId: ObjectIdentifier,
+        paneId: PaneID,
+        instanceSerial: UInt64,
+        generation: UInt64
+    ) -> Bool {
+        guard let current = portalHostAuthority else { return false }
+        return current.hostId == hostId &&
+            current.paneId == paneId.id &&
+            current.instanceSerial == instanceSerial &&
+            current.generation == generation
     }
 
     /// Re-arms the lease when SwiftUI is about to rebuild the owning host.
@@ -74,8 +122,27 @@ extension TerminalSurface {
         instanceSerial: UInt64,
         inWindow: Bool,
         bounds: CGRect,
+        expectedAuthorityGeneration: UInt64? = nil,
         reason: String
     ) -> Bool {
+        let authorityGeneration: UInt64
+        if let expectedAuthorityGeneration {
+            guard hasPortalHostAuthority(
+                hostId: hostId,
+                paneId: paneId,
+                instanceSerial: instanceSerial,
+                generation: expectedAuthorityGeneration
+            ) else { return false }
+            authorityGeneration = expectedAuthorityGeneration
+        } else {
+            guard let reservedGeneration = reservePortalHostAuthority(
+                hostId: hostId,
+                paneId: paneId,
+                instanceSerial: instanceSerial
+            ) else { return false }
+            authorityGeneration = reservedGeneration
+        }
+
         let next = PortalHostLease(
             hostId: hostId,
             paneId: paneId.id,
@@ -92,6 +159,16 @@ extension TerminalSurface {
 
             let currentUsable = Self.portalHostIsUsable(current)
             let nextUsable = Self.portalHostIsUsable(next)
+            guard nextUsable else {
+#if DEBUG
+                logDebugEvent(
+                    "terminal.portal.host.skip surface=\(id.uuidString.prefix(5)) " +
+                    "reason=\(reason) host=\(hostId) pane=\(paneId.id.uuidString.prefix(5)) " +
+                    "authority=\(authorityGeneration) cause=detachedOrTiny"
+                )
+#endif
+                return false
+            }
             // During split churn SwiftUI can briefly keep the old host alive while the new
             // host for the same pane is already in the window. Prefer the newer live host
             // immediately so the surface moves with the pane instead of waiting for a later
@@ -136,6 +213,8 @@ extension TerminalSurface {
 #endif
             return false
         }
+
+        guard Self.portalHostIsUsable(next) else { return false }
 
         activePortalHostLease = next
 #if DEBUG

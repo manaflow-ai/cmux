@@ -12152,16 +12152,6 @@ struct GhosttyTerminalView: NSViewRepresentable {
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
-    static func shouldApplyImmediateHostedStateUpdate(
-        desiredVisibleInUI: Bool, hostedViewHasSuperview: Bool, isBoundToCurrentHost: Bool
-    ) -> Bool {
-        if !desiredVisibleInUI { return true }
-        // If this update originates from a stale/replaced host while the hosted view is
-        // already attached elsewhere, do not mutate visibility/active state here.
-        if isBoundToCurrentHost { return true }
-        return !hostedViewHasSuperview
-    }
-
     enum HostCallbackPortalGeometrySynchronizationAction<Window> {
         case skip
         case synchronizeWithoutLayoutFlush(Window)
@@ -12195,6 +12185,11 @@ struct GhosttyTerminalView: NSViewRepresentable {
         reason: String
     ) {
         guard coordinator.attachGeneration == snapshot.attachGeneration else { return }
+        guard let authorityGeneration = terminalSurface.reservePortalHostAuthority(
+            hostId: ObjectIdentifier(host),
+            paneId: snapshot.paneId,
+            instanceSerial: host.instanceSerial
+        ) else { return }
         coordinator.portalMutationScheduler.schedule {
             @MainActor [weak host, weak hostedView, weak terminalSurface, weak coordinator] in
             guard let host, let hostedView, let terminalSurface, let coordinator else { return }
@@ -12209,6 +12204,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
                 terminalSurface: terminalSurface,
                 coordinator: coordinator,
                 snapshot: snapshot,
+                authorityGeneration: authorityGeneration,
                 reason: reason
             )
         }
@@ -12220,6 +12216,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
         terminalSurface: TerminalSurface,
         coordinator: Coordinator,
         snapshot: PortalMutationSnapshot,
+        authorityGeneration: UInt64,
         reason: String
     ) {
         guard terminalSurface.claimPortalHost(
@@ -12228,6 +12225,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
             instanceSerial: host.instanceSerial,
             inWindow: host.window != nil,
             bounds: host.bounds,
+            expectedAuthorityGeneration: authorityGeneration,
             reason: reason
         ) else { return }
         guard terminalSurface.canAcceptPortalBinding(
