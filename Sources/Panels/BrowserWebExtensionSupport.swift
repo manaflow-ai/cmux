@@ -56,6 +56,14 @@ final class BrowserWebExtensionSupport: NSObject, BrowserWebExtensionHosting {
     var actionSnapshotIDs: [String] = []
     var actionSnapshotRevision = 0
     var loadErrors: [String] = []
+    /// Entry IDs whose toolbar button the user hid (`showsToolbarButton: false`
+    /// in settings). The extension stays loaded; only the button is hidden.
+    @ObservationIgnored
+    var toolbarHiddenEntryIDs: Set<String> = []
+    /// IDs backed by a `browser.webExtensions` settings entry (environment-only
+    /// extensions can't persist a visibility toggle).
+    @ObservationIgnored
+    var settingsBackedEntryIDs: Set<String> = []
 
     @ObservationIgnored
     var settingsObservationTask: Task<Void, Never>?

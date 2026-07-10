@@ -15,6 +15,12 @@ extension BrowserWebExtensionSupport {
 
     func apply(entries: [BrowserWebExtensionEntry], generation: Int) async {
         guard canApplyWebExtensionLoad(generation: generation) else { return }
+        settingsBackedEntryIDs = Set(entries.map(\.id))
+        let hiddenEntryIDs = Set(entries.filter { !$0.effectiveShowsToolbarButton }.map(\.id))
+        if hiddenEntryIDs != toolbarHiddenEntryIDs {
+            toolbarHiddenEntryIDs = hiddenEntryIDs
+            refreshAllActionSnapshots()
+        }
         let planner = BrowserWebExtensionReconciliationPlanner()
         let plan = planner.plan(
             settingsEntries: entries,
@@ -130,8 +136,30 @@ extension BrowserWebExtensionSupport {
                 ?? record.context.webExtension.icon(for: CGSize(width: 32, height: 32)),
             isEnabled: action?.isEnabled ?? true,
             badgeText: action?.badgeText ?? "",
-            hasUnreadBadgeText: action?.hasUnreadBadgeText ?? false
+            hasUnreadBadgeText: action?.hasUnreadBadgeText ?? false,
+            showsToolbarButton: !toolbarHiddenEntryIDs.contains(record.entryID),
+            canToggleToolbarButton: settingsBackedEntryIDs.contains(record.entryID)
         )
+    }
+
+    /// Persists toolbar-button visibility on the matching settings entry. The
+    /// settings stream re-applies, so the button set refreshes everywhere
+    /// without unloading the extension.
+    func setToolbarButtonVisible(_ visible: Bool, entryID: String) {
+        guard let settingsStore, let settingsKey else { return }
+        Task { @MainActor in
+            var entries = await settingsStore.value(for: settingsKey)
+            guard let index = entries.firstIndex(where: { $0.id == entryID }),
+                  entries[index].effectiveShowsToolbarButton != visible else { return }
+            entries[index].showsToolbarButton = visible ? nil : false
+            do {
+                try await settingsStore.set(entries, for: settingsKey)
+            } catch {
+#if DEBUG
+                cmuxDebugLog("browser.webext.toolbarVisibility saveFailed id=\(entryID) error=\(error.localizedDescription)")
+#endif
+            }
+        }
     }
 
     @discardableResult

@@ -8,6 +8,12 @@ struct BrowserWebExtensionActionSnapshot: Identifiable {
     let isEnabled: Bool
     let badgeText: String
     let hasUnreadBadgeText: Bool
+    /// Whether the toolbar renders this extension's button (the extension
+    /// stays loaded and its shortcuts keep working when hidden).
+    let showsToolbarButton: Bool
+    /// Settings-backed entries can persist the visibility toggle;
+    /// environment-injected extensions cannot.
+    let canToggleToolbarButton: Bool
 
     var accessibilityIdentifier: String {
         let safeID = id.map { character in

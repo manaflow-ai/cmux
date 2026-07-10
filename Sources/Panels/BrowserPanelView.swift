@@ -1157,6 +1157,7 @@ struct BrowserPanelView: View {
                 .accessibilityLabel("Browser omnibar")
 
             HStack(spacing: browserToolbarAccessorySpacing) {
+                webExtensionToolbarButtons
                 if shouldShowToolbarImportHintChip {
                     browserImportHintToolbarChip
                 }
@@ -1274,14 +1275,20 @@ struct BrowserPanelView: View {
                 )
             }
 
-            if #available(macOS 15.4, *), let support = panel.browserWebExtensionSupport {
-                BrowserWebExtensionToolbarButtons(
-                    support: support,
-                    panel: panel,
-                    iconPointSize: chromeMetrics.navigationIconFontSize,
-                    hitSize: addressBarButtonHitSize
-                )
-            }
+        }
+    }
+
+    /// Extension action buttons live to the right of the omnibar (matching
+    /// Safari/Chrome) rather than in the navigation cluster on its left.
+    @ViewBuilder
+    private var webExtensionToolbarButtons: some View {
+        if #available(macOS 15.4, *), let support = panel.browserWebExtensionSupport {
+            BrowserWebExtensionToolbarButtons(
+                support: support,
+                panel: panel,
+                iconPointSize: chromeMetrics.navigationIconFontSize,
+                hitSize: addressBarButtonHitSize
+            )
         }
     }
 

@@ -39,6 +39,15 @@ public struct BrowserWebExtensionEntry: Codable, Sendable, Equatable, Hashable, 
     /// Human-readable name captured when the extension was imported
     /// (e.g. the containing app's name), shown in the settings list.
     public var displayName: String?
+    /// Whether the extension shows a button in the browser toolbar. `nil`
+    /// means visible; hiding only affects the button, the extension stays
+    /// loaded and its shortcuts keep working.
+    public var showsToolbarButton: Bool?
+
+    /// Effective toolbar-button visibility (`showsToolbarButton ?? true`).
+    public var effectiveShowsToolbarButton: Bool {
+        showsToolbarButton ?? true
+    }
 
     /// - Parameters:
     ///   - id: Stable identity (appex plug-in identifier, or directory path).
@@ -46,12 +55,21 @@ public struct BrowserWebExtensionEntry: Codable, Sendable, Equatable, Hashable, 
     ///   - path: Absolute path to the `.appex` bundle or unpacked directory.
     ///   - enabled: Whether the extension loads into the browser.
     ///   - displayName: Human-readable name captured at import time.
-    public init(id: String, kind: Kind, path: String, enabled: Bool, displayName: String? = nil) {
+    ///   - showsToolbarButton: Toolbar-button visibility (`nil` = visible).
+    public init(
+        id: String,
+        kind: Kind,
+        path: String,
+        enabled: Bool,
+        displayName: String? = nil,
+        showsToolbarButton: Bool? = nil
+    ) {
         self.id = id
         self.kind = kind
         self.path = path
         self.enabled = enabled
         self.displayName = displayName
+        self.showsToolbarButton = showsToolbarButton
     }
 
     /// Absolute, standardized path used to identify the effective extension
