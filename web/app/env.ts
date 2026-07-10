@@ -62,8 +62,8 @@ export const env = createEnv({
     // change without a code edit.
     STRIPE_FOUNDERS_WEBHOOK_SECRET: z.string().min(1).optional(),
     CMUX_FOUNDERS_FROM_EMAIL: z.string().email().optional(),
-    // Direct Stripe billing for cmux Pro. Optional: when unset, checkout keeps
-    // using the legacy Stack-hosted product flow.
+    // Direct Stripe billing for cmux Pro. Optional: when unset, checkout is
+    // unavailable.
     STRIPE_SECRET_KEY: z.string().min(1).optional(),
     STRIPE_WEBHOOK_SECRET: z.string().min(1).optional(),
     STRIPE_PRO_MONTHLY_PRICE_ID: z.string().min(1).optional(),

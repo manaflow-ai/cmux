@@ -1,5 +1,3 @@
-import { mock } from "bun:test";
-
 const testflightEligibilityKey = Symbol.for("cmux.tests.testflightEligibility");
 
 export function createTestflightUser({
@@ -11,24 +9,7 @@ export function createTestflightUser({
     primaryEmail: "Pro@Example.com",
     displayName: "Pro User",
     clientReadOnlyMetadata: {},
-    listProducts: mock(async () =>
-      Object.assign(
-        eligible
-          ? [
-              {
-                id: "pro",
-                quantity: 1,
-                subscription: {
-                  cancelAtPeriodEnd: false,
-                  currentPeriodEnd: null,
-                },
-              },
-            ]
-          : [],
-        { nextCursor: null },
-      ),
-    ),
-    update: mock(async () => undefined),
+    update: async () => undefined,
   };
   Object.defineProperty(user, testflightEligibilityKey, {
     value: eligible,
