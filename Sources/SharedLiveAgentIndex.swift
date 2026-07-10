@@ -189,7 +189,7 @@ final class SharedLiveAgentIndex {
             // The returned operation owns its coordinator until the requested
             // generation resolves, including for injected non-singleton indexes.
             defer { _ = self }
-            await refreshTask.value?.index
+            return await refreshTask.value?.index
         }
     }
 
