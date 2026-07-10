@@ -107,6 +107,49 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
         #expect(committedPresentation == .hidden)
     }
 
+    @MainActor
+    @Test
+    func dockPresentationReadsLiveSidebarFocusOwnership() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let previousAppDelegate = AppDelegate.shared
+            let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+            let appDelegate = AppDelegate()
+            let manager = TabManager(autoWelcomeIfNeeded: false)
+            let fileExplorerState = FileExplorerState()
+            AppDelegate.shared = appDelegate
+            appDelegate.tabManager = manager
+            TerminalController.shared.setActiveTabManager(manager)
+            let windowId = appDelegate.registerMainWindowContextForTesting(
+                tabManager: manager,
+                fileExplorerState: fileExplorerState
+            )
+            defer {
+                TerminalController.shared.setActiveTabManager(previousManager)
+                appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+                manager.tabs.forEach { $0.teardownAllPanels() }
+                AppDelegate.shared = previousAppDelegate
+            }
+
+            let workspace = try #require(manager.tabs.first)
+            let dock = workspace.dockSplit
+            let pane = try #require(dock.bonsplitController.allPaneIds.first)
+            dock.setVisibleInUI(true)
+            let panelId = try #require(dock.newSurface(kind: .terminal, inPane: pane, focus: true))
+
+            fileExplorerState.rightSidebarOwnsInputFocus = false
+            #expect(
+                dock.terminalPortalPresentation(panelId: panelId, paneId: pane) ==
+                    .visible(isActive: false, zPriority: 1)
+            )
+
+            fileExplorerState.rightSidebarOwnsInputFocus = true
+            #expect(
+                dock.terminalPortalPresentation(panelId: panelId, paneId: pane) ==
+                    .visible(isActive: true, zPriority: 1)
+            )
+        }
+    }
+
     @Test
     func immediateStateUpdateAllowedWhenDesiredStateIsHidden() {
         #expect(
@@ -290,6 +333,43 @@ struct TerminalPortalHostAuthorityTests {
             hostId: ObjectIdentifier(oldHost), paneId: pane, ownershipGeneration: 1,
             inWindow: true, bounds: bounds, reason: "test.old.stale"
         ))
+    }
+
+    @MainActor
+    @Test
+    func survivingSameEpochCandidateRetriesAfterLaterCandidateDismantles() {
+        let surface = makeSurface()
+        let oldHost = NSView(), firstCandidate = NSView(), laterCandidate = NSView()
+        let pane = PaneID()
+        let bounds = CGRect(x: 0, y: 0, width: 400, height: 300)
+        var firstRetryCount = 0
+        var laterRetryCount = 0
+
+        #expect(surface.claimPortalHost(
+            hostId: ObjectIdentifier(oldHost), paneId: pane, ownershipGeneration: 1,
+            inWindow: true, bounds: bounds, reason: "test.old.initial"
+        ))
+        #expect(!surface.claimPortalHost(
+            hostId: ObjectIdentifier(firstCandidate), paneId: pane, ownershipGeneration: 1,
+            inWindow: true, bounds: bounds,
+            retryWhenAvailable: { firstRetryCount += 1 },
+            reason: "test.first.wait"
+        ))
+        #expect(!surface.claimPortalHost(
+            hostId: ObjectIdentifier(laterCandidate), paneId: pane, ownershipGeneration: 1,
+            inWindow: true, bounds: bounds,
+            retryWhenAvailable: { laterRetryCount += 1 },
+            reason: "test.later.wait"
+        ))
+
+        surface.cancelPendingPortalHostRetry(hostId: ObjectIdentifier(laterCandidate))
+        #expect(surface.preparePortalHostReplacementIfOwned(
+            hostId: ObjectIdentifier(oldHost),
+            reason: "test.old.retire"
+        ))
+
+        #expect(firstRetryCount == 1)
+        #expect(laterRetryCount == 0)
     }
 
     @MainActor
