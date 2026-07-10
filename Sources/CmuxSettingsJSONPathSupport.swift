@@ -13,6 +13,7 @@ enum SidebarWorkspaceDetailDefaults {
     static let showProgressKey = "sidebarShowProgress"
     static let showAgentActivityKey = "sidebarShowAgentActivity"
     static let showCustomMetadataKey = "sidebarShowStatusPills"
+    static let hideAllDetailsKey = "sidebarHideAllDetails"
 
     static let showBranchDirectory = true
     static let showPullRequests = true
@@ -23,6 +24,7 @@ enum SidebarWorkspaceDetailDefaults {
     static let showProgress = true
     static let showAgentActivity = true
     static let showCustomMetadata = true
+    static let hideAllDetails = false
 }
 
 enum SidebarWorkspaceTitleWrapSettings {
@@ -60,6 +62,18 @@ extension SidebarWorkspaceDetailDefaults {
 
     static func showPortsValue(defaults: UserDefaults) -> Bool {
         boolValue(defaults: defaults, key: showPortsKey, defaultValue: showPorts)
+    }
+
+    /// Ports are surfaced only when `showPorts` is on AND details aren't globally
+    /// hidden — mirrors the remote-session gate
+    /// (`Workspace.remotePortScanningEnabledFromSettings`). When this is false the
+    /// sidebar shows no ports, so scanning for them is pure waste.
+    static func portScanningEnabled(defaults: UserDefaults) -> Bool {
+        showPortsValue(defaults: defaults) && !hideAllDetailsValue(defaults: defaults)
+    }
+
+    private static func hideAllDetailsValue(defaults: UserDefaults) -> Bool {
+        boolValue(defaults: defaults, key: hideAllDetailsKey, defaultValue: hideAllDetails)
     }
 }
 

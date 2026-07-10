@@ -16,12 +16,12 @@ import Foundation
 final class PortScanner: @unchecked Sendable {
     static let shared = PortScanner()
 
-    /// Port scanning is only useful when the sidebar surfaces detected ports.
-    /// When `sidebar.showPorts` is off, skip scanning entirely — otherwise the
+    /// Port scanning is only useful when the sidebar surfaces detected ports
+    /// (`sidebar.showPorts` on and details not globally hidden). Otherwise the
     /// periodic `lsof` sweep over agent process trees runs (and can pin
     /// `fileproviderd`/`fseventsd`) for data nothing consumes.
     private var portScanningEnabled: Bool {
-        SidebarWorkspaceDetailDefaults.showPortsValue(defaults: .standard)
+        SidebarWorkspaceDetailDefaults.portScanningEnabled(defaults: .standard)
     }
 
     /// Callback delivers `(workspaceId, panelId, ports)` on the main actor.
@@ -212,7 +212,10 @@ final class PortScanner: @unchecked Sendable {
         agentPIDsByWorkspace: [UUID: Set<Int>],
         agentRevisions: [UUID: UInt64]
     ) {
-        // Already on `queue`.
+        // Already on `queue`. Fail-closed re-check: this is the authoritative
+        // gate right before `runLsof`, catching a setting change during the
+        // async `agentPIDsProvider` hop that ran after the earlier check.
+        guard portScanningEnabled else { return }
         let workspaceIds = Set(panelSnapshot.keys.map(\.workspaceId))
 
         // Build TTY set (deduplicated).
@@ -371,6 +374,11 @@ final class PortScanner: @unchecked Sendable {
         agentPIDsByWorkspace: [UUID: Set<Int>],
         agentRevisions: [UUID: UInt64]
     ) {
+        // Fail-closed re-check: `refreshAgentPorts()` reaches here directly
+        // (bypassing the `runTrackedAgentScan` gate), and the setting can flip
+        // during the async `agentPIDsProvider` hop. This is the authoritative
+        // gate before `runLsof`.
+        guard portScanningEnabled else { return }
         guard !workspaceIds.isEmpty else { return }
 
         let agentPidToWorkspaces = expandAgentProcessTree(agentPIDsByWorkspace: agentPIDsByWorkspace)
