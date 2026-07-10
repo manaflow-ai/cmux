@@ -15,20 +15,27 @@ extension SimulatorWorkerClientTests {
         let first = try #require(launcher.endpoint(at: 0))
         let readiness = await client.subscribe()
         var readinessIterator = readiness.makeAsyncIterator()
+        first.emit(.status(.streaming))
         first.emit(.capabilities([.cameraInjection]))
         first.emit(.context(77))
         _ = await readinessIterator.next()
         _ = await readinessIterator.next()
+        _ = await readinessIterator.next()
         first.setResponder { message in
-            guard case let .configureCamera(requestID, configuration) = message else {
+            switch message {
+            case let .ping(sequence):
+                return .ack(sequence)
+            case let .configureCamera(requestID, configuration):
+                return .cameraConfiguration(
+                    requestID: requestID,
+                    succeeded: true,
+                    targetBundleIdentifier: configuration.targetBundleIdentifier
+                )
+            default:
                 return nil
             }
-            return .cameraConfiguration(
-                requestID: requestID,
-                succeeded: true,
-                targetBundleIdentifier: configuration.targetBundleIdentifier
-            )
         }
+        acknowledgeRecordedPings(first)
         for bundleIdentifier in ["com.example.a", "com.example.b"] {
             _ = try await client.perform(.configureCamera(.targeted(
                 bundleIdentifier: bundleIdentifier,
@@ -42,6 +49,21 @@ extension SimulatorWorkerClientTests {
         )
         first.finish()
         let second = try await endpoint(from: launcher, at: 1)
+        second.setResponder { message in
+            switch message {
+            case let .ping(sequence):
+                return .ack(sequence)
+            case let .configureCamera(requestID, configuration):
+                return .cameraConfiguration(
+                    requestID: requestID,
+                    succeeded: configuration.targetBundleIdentifier != "com.example.b",
+                    targetBundleIdentifier: configuration.targetBundleIdentifier
+                )
+            default:
+                return nil
+            }
+        }
+        second.emit(.status(.streaming))
         #expect(!firstRegion.exists())
         #expect((await control.actions).isEmpty)
         var replayMessages: [SimulatorWorkerInbound] = []
@@ -54,14 +76,6 @@ extension SimulatorWorkerClientTests {
             await Task.yield()
         }
         #expect(replayMessages.count == 2)
-        for message in replayMessages {
-            guard case let .configureCamera(requestID, configuration) = message else { continue }
-            second.emit(.cameraConfiguration(
-                requestID: requestID,
-                succeeded: configuration.targetBundleIdentifier != "com.example.b",
-                targetBundleIdentifier: configuration.targetBundleIdentifier
-            ))
-        }
         for _ in 0..<1_000 {
             if await client.cameraReplayConfigurations.count == 1 { break }
             await Task.yield()
@@ -93,6 +107,28 @@ extension SimulatorWorkerClientTests {
         )
         #expect(await control.actions == expectedActions)
         let third = try #require(launcher.endpoint(at: 2))
+        third.setResponder { message in
+            switch message {
+            case let .ping(sequence):
+                return .ack(sequence)
+            case let .configureCamera(requestID, configuration):
+                return .cameraConfiguration(
+                    requestID: requestID,
+                    succeeded: true,
+                    targetBundleIdentifier: configuration.targetBundleIdentifier
+                )
+            default:
+                return nil
+            }
+        }
+        third.emit(.status(.streaming))
+        for _ in 0..<1_000 {
+            if third.inboundMessages().contains(where: {
+                guard case .configureCamera = $0 else { return false }
+                return true
+            }) { break }
+            await Task.yield()
+        }
         let replayTargets = Set(third.inboundMessages().compactMap { message -> String? in
             guard case let .configureCamera(_, configuration) = message else { return nil }
             return configuration.targetBundleIdentifier
@@ -112,20 +148,27 @@ extension SimulatorWorkerClientTests {
         let endpoint = try #require(launcher.endpoint(at: 0))
         let readiness = await client.subscribe()
         var readinessIterator = readiness.makeAsyncIterator()
+        endpoint.emit(.status(.streaming))
         endpoint.emit(.capabilities([.cameraInjection]))
         endpoint.emit(.context(78))
         _ = await readinessIterator.next()
         _ = await readinessIterator.next()
+        _ = await readinessIterator.next()
         endpoint.setResponder { message in
-            guard case let .configureCamera(requestID, configuration) = message else {
+            switch message {
+            case let .ping(sequence):
+                return .ack(sequence)
+            case let .configureCamera(requestID, configuration):
+                return .cameraConfiguration(
+                    requestID: requestID,
+                    succeeded: true,
+                    targetBundleIdentifier: configuration.targetBundleIdentifier
+                )
+            default:
                 return nil
             }
-            return .cameraConfiguration(
-                requestID: requestID,
-                succeeded: true,
-                targetBundleIdentifier: configuration.targetBundleIdentifier
-            )
         }
+        acknowledgeRecordedPings(endpoint)
         _ = try await client.perform(.configureCamera(.targeted(
             bundleIdentifier: "com.example.camera",
             source: .placeholder
@@ -146,6 +189,66 @@ extension SimulatorWorkerClientTests {
         #expect(endpoint.inboundMessages().contains(.releaseInputs))
         #expect(endpoint.inboundMessages().contains(.shutdown))
         #expect(launcher.endpoint(at: 1) == nil)
+    }
+
+    @Test("An explicit camera target is cleanup-owned before worker confirmation")
+    func pendingExplicitCameraTargetIsCleanupOwned() async throws {
+        let launcher = TestWorkerLauncher()
+        let client = makeClient(launcher: launcher)
+        try await client.sendRequired(.attach(udid: "DEVICE", geometry: nil))
+        let endpoint = try #require(launcher.endpoint(at: 0))
+        endpoint.setResponder { message in
+            guard case let .ping(sequence) = message else { return nil }
+            return .ack(sequence)
+        }
+        endpoint.emit(.status(.streaming))
+        endpoint.emit(.capabilities([.cameraInjection]))
+        for _ in 0..<100 { await Task.yield() }
+        let requestID = UUID()
+
+        try await client.sendRequired(.configureCamera(
+            requestID: requestID,
+            configuration: .targeted(
+                bundleIdentifier: "com.example.pending",
+                source: .placeholder
+            )
+        ))
+
+        #expect(await client.cameraCleanupSnapshot().bundleIdentifiers == ["com.example.pending"])
+        await client.stop()
+    }
+
+    @Test("A resolved inferred camera target is cleanup-owned before injection")
+    func resolvedInferredCameraTargetIsCleanupOwned() async throws {
+        let launcher = TestWorkerLauncher()
+        let client = makeClient(launcher: launcher)
+        try await client.sendRequired(.attach(udid: "DEVICE", geometry: nil))
+        let endpoint = try #require(launcher.endpoint(at: 0))
+        endpoint.setResponder { message in
+            guard case let .ping(sequence) = message else { return nil }
+            return .ack(sequence)
+        }
+        endpoint.emit(.status(.streaming))
+        endpoint.emit(.capabilities([.cameraInjection]))
+        for _ in 0..<100 { await Task.yield() }
+        let requestID = UUID()
+        try await client.sendRequired(.configureCamera(
+            requestID: requestID,
+            configuration: .placeholder
+        ))
+
+        endpoint.emit(.cameraTargetResolved(
+            requestID: requestID,
+            bundleIdentifier: "com.example.inferred"
+        ))
+        for _ in 0..<10_000 {
+            if await client.cameraCleanupSnapshot().bundleIdentifiers
+                .contains("com.example.inferred") { break }
+            await Task.yield()
+        }
+
+        #expect(await client.cameraCleanupSnapshot().bundleIdentifiers == ["com.example.inferred"])
+        await client.stop()
     }
 
     private func endpoint(
@@ -182,6 +285,15 @@ extension SimulatorWorkerClientTests {
                 ),
             ]
         }
+    }
+}
+
+private func acknowledgeRecordedPings(_ endpoint: TestWorkerEndpoint) {
+    for sequence in endpoint.inboundMessages().compactMap({ message -> UInt64? in
+        guard case let .ping(sequence) = message else { return nil }
+        return sequence
+    }) {
+        endpoint.emit(.ack(sequence))
     }
 }
 
