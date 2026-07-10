@@ -246,7 +246,7 @@ struct ClosedItemHistoryAgentEnrichmentTests {
             .appendingPathComponent("cmux-history-enrichment-\(UUID().uuidString)", isDirectory: true)
     }
 
-    private static var emptyLoadResult: SharedLiveAgentIndexLoader.LoadResult {
+    nonisolated private static var emptyLoadResult: SharedLiveAgentIndexLoader.LoadResult {
         (
             index: .empty,
             surfaceResumeBindingIndex: .empty,
