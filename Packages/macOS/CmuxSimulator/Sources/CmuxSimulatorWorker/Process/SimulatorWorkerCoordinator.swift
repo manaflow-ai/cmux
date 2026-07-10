@@ -6,7 +6,6 @@ nonisolated let coordinatorLogger = Logger(
     subsystem: "com.cmux.simulator.worker",
     category: "Coordinator"
 )
-
 @MainActor
 final class SimulatorWorkerCoordinator {
     let channel: SimulatorLengthPrefixedMessageChannel
