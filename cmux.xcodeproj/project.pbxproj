@@ -605,6 +605,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		DCDC0000000000000000A003 /* DockSplitStore+Config.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCDC0000000000000000A004 /* DockSplitStore+Config.swift */; };
 		DCDC1000000000000000B019 /* DockSplitStore+PaneFocus.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCDC1000000000000000B020 /* DockSplitStore+PaneFocus.swift */; };
 		DCDC1000000000000000C040 /* DockSplitStore+PortalDrop.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCDC1000000000000000C041 /* DockSplitStore+PortalDrop.swift */; };
+		D77800020000000000000001 /* DockSplitStore+PortalReconcile.swift in Sources */ = {isa = PBXBuildFile; fileRef = D77800020000000000000002 /* DockSplitStore+PortalReconcile.swift */; };
 		DCDC1000000000000000C010 /* DockSplitStore+SurfaceTransfer.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCDC1000000000000000C011 /* DockSplitStore+SurfaceTransfer.swift */; };
 		DCDC1000000000000000B017 /* DockSplitStore+TerminalStartup.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCDC1000000000000000B018 /* DockSplitStore+TerminalStartup.swift */; };
 		DCDC0000000000000000A001 /* DockSplitStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCDC0000000000000000A002 /* DockSplitStore.swift */; };
@@ -2225,6 +2226,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		DCDC0000000000000000A004 /* DockSplitStore+Config.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DockSplitStore+Config.swift"; sourceTree = "<group>"; };
 		DCDC1000000000000000B020 /* DockSplitStore+PaneFocus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DockSplitStore+PaneFocus.swift"; sourceTree = "<group>"; };
 		DCDC1000000000000000C041 /* DockSplitStore+PortalDrop.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DockSplitStore+PortalDrop.swift"; sourceTree = "<group>"; };
+		D77800020000000000000002 /* DockSplitStore+PortalReconcile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DockSplitStore+PortalReconcile.swift"; sourceTree = "<group>"; };
 		DCDC1000000000000000C011 /* DockSplitStore+SurfaceTransfer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DockSplitStore+SurfaceTransfer.swift"; sourceTree = "<group>"; };
 		DCDC1000000000000000B018 /* DockSplitStore+TerminalStartup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DockSplitStore+TerminalStartup.swift"; sourceTree = "<group>"; };
 		DCDC0000000000000000A002 /* DockSplitStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockSplitStore.swift; sourceTree = "<group>"; };
@@ -4399,6 +4401,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				D6212D0C00000000000000D4 /* TerminalController+WindowDockBrowserRouting.swift */,
 				DCDC1000000000000000C011 /* DockSplitStore+SurfaceTransfer.swift */,
 				DCDC1000000000000000C041 /* DockSplitStore+PortalDrop.swift */,
+				D77800020000000000000002 /* DockSplitStore+PortalReconcile.swift */,
 				DCDC1000000000000000B018 /* DockSplitStore+TerminalStartup.swift */,
 				DCDC0000000000000000A002 /* DockSplitStore.swift */,
 				DCDC1000000000000000B00E /* DockSurfaceKind.swift */,
@@ -5670,6 +5673,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				DCDC0000000000000000A003 /* DockSplitStore+Config.swift in Sources */,
 				DCDC1000000000000000B019 /* DockSplitStore+PaneFocus.swift in Sources */,
 				DCDC1000000000000000C040 /* DockSplitStore+PortalDrop.swift in Sources */,
+				D77800020000000000000001 /* DockSplitStore+PortalReconcile.swift in Sources */,
 				DCDC1000000000000000C010 /* DockSplitStore+SurfaceTransfer.swift in Sources */,
 				DCDC1000000000000000B017 /* DockSplitStore+TerminalStartup.swift in Sources */,
 				DCDC0000000000000000A001 /* DockSplitStore.swift in Sources */,

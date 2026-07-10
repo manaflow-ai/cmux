@@ -76,6 +76,192 @@ struct DockPortalReconcileTests {
         #expect(BrowserWindowPortalRegistry.debugSnapshot(for: browser.webView)?.visibleInUI == true)
     }
 
+    @Test("Terminal stale portal bind reconciles without focus")
+    @MainActor
+    func dockTerminalStalePortalBindReconcilesWithoutFocus() throws {
+        let store = DockSplitStore(workspaceId: UUID(), baseDirectoryProvider: { nil })
+        defer { store.closeAllPanels() }
+        let rootPane = try #require(store.bonsplitController.allPaneIds.first)
+        store.setVisibleInUI(true)
+        let panelId = try #require(store.newSurface(kind: .terminal, inPane: rootPane, focus: true))
+        let tabId = try #require(store.surfaceId(forPanelId: panelId))
+        let terminal = try #require(store.panel(for: tabId) as? TerminalPanel)
+
+        let window = Self.portalWindow()
+        defer { Self.closePortalWindow(window) }
+        let anchor = NSView(frame: NSRect(x: 24, y: 24, width: 240, height: 160))
+        window.contentView?.addSubview(anchor)
+        TerminalWindowPortalRegistry.bind(
+            hostedView: terminal.hostedView,
+            to: anchor,
+            visibleInUI: true,
+            expectedSurfaceId: terminal.surface.id,
+            expectedGeneration: terminal.surface.portalBindingGeneration()
+        )
+        anchor.removeFromSuperview()
+        let reattachTokenBefore = terminal.viewReattachToken
+
+        _ = store.debugReconcileDockPortalsForTesting()
+
+        #expect(terminal.viewReattachToken > reattachTokenBefore)
+    }
+
+    @Test("Browser unbound reconcile binds imperatively")
+    @MainActor
+    func dockBrowserUnboundReconcileBindsImperatively() throws {
+        let store = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { nil },
+            browserAvailabilityProvider: { true }
+        )
+        defer { store.closeAllPanels() }
+        let rootPane = try #require(store.bonsplitController.allPaneIds.first)
+        store.setVisibleInUI(true)
+        let panelId = try #require(store.newSurface(kind: .browser, inPane: rootPane, focus: true))
+        let tabId = try #require(store.surfaceId(forPanelId: panelId))
+        let browser = try #require(store.panel(for: tabId) as? BrowserPanel)
+
+        let window = Self.portalWindow()
+        defer { Self.closePortalWindow(window) }
+        Self.installBrowserAnchor(browser, in: window)
+        #expect(BrowserWindowPortalRegistry.debugSnapshot(for: browser.webView) == nil)
+
+        _ = store.debugReconcileDockPortalsForTesting()
+
+        #expect(BrowserWindowPortalRegistry.isWebView(browser.webView, boundTo: browser.portalAnchorView))
+        #expect(BrowserWindowPortalRegistry.debugSnapshot(for: browser.webView)?.visibleInUI == true)
+    }
+
+    @Test("Healthy browser reconcile does not mutate portal registry")
+    @MainActor
+    func dockBrowserHealthyReconcileIsPortalNoOp() throws {
+        let store = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { nil },
+            browserAvailabilityProvider: { true }
+        )
+        defer { store.closeAllPanels() }
+        let rootPane = try #require(store.bonsplitController.allPaneIds.first)
+        store.setVisibleInUI(true)
+        let panelId = try #require(store.newSurface(kind: .browser, inPane: rootPane, focus: true))
+        let tabId = try #require(store.surfaceId(forPanelId: panelId))
+        let browser = try #require(store.panel(for: tabId) as? BrowserPanel)
+
+        let window = Self.portalWindow()
+        defer { Self.closePortalWindow(window) }
+        Self.installBrowserAnchor(browser, in: window)
+        BrowserWindowPortalRegistry.bind(
+            webView: browser.webView,
+            to: browser.portalAnchorView,
+            visibleInUI: true,
+            zPriority: 1
+        )
+        BrowserWindowPortalRegistry.synchronizeForAnchor(browser.portalAnchorView)
+        #expect(BrowserWindowPortalRegistry.isWebView(browser.webView, boundTo: browser.portalAnchorView))
+        #expect(BrowserWindowPortalRegistry.debugSnapshot(for: browser.webView)?.containerHidden == false)
+
+        var registryChangeCount = 0
+        let observer = NotificationCenter.default.addObserver(
+            forName: .browserPortalRegistryDidChange,
+            object: browser.webView,
+            queue: nil
+        ) { _ in
+            registryChangeCount += 1
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        store.debugResetDockPortalReconcileStateForTesting()
+        store.applyVisibility(to: browser)
+        #expect(store.debugDockPortalReconcileScheduleCountForTesting() == 0)
+
+        let needsFollowUp = store.debugReconcileDockPortalsForTesting()
+
+        #expect(!needsFollowUp)
+        #expect(registryChangeCount == 0)
+    }
+
+    @Test("Move into Dock schedules portal reconcile")
+    @MainActor
+    func moveIntoDockSchedulesPortalReconcile() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let previousAppDelegate = AppDelegate.shared
+            let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+            let appDelegate = AppDelegate()
+            let manager = TabManager(autoWelcomeIfNeeded: false)
+            AppDelegate.shared = appDelegate
+            appDelegate.tabManager = manager
+            TerminalController.shared.setActiveTabManager(manager)
+            let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+            defer {
+                TerminalController.shared.setActiveTabManager(previousManager)
+                appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+                manager.tabs.forEach { $0.teardownAllPanels() }
+                AppDelegate.shared = previousAppDelegate
+            }
+
+            let workspace = try #require(manager.tabs.first)
+            let sourcePanel = try #require(workspace.panels.values.first)
+            let sourceTabId = try #require(workspace.surfaceIdFromPanelId(sourcePanel.id))
+            let dock = workspace.dockSplit
+            let rootPane = try #require(dock.bonsplitController.allPaneIds.first)
+            dock.setVisibleInUI(true)
+            dock.debugResetDockPortalReconcileStateForTesting()
+
+            let moved = appDelegate.moveSurfaceIntoDock(
+                sourceTabId: sourceTabId.uuid,
+                destinationDock: dock,
+                destination: .insert(targetPane: rootPane, targetIndex: nil)
+            )
+
+            #expect(moved)
+            #expect(dock.debugDockPortalReconcileScheduleCountForTesting() > 0)
+        }
+    }
+
+    @Test("Move Dock surface to workspace reconciles destination")
+    @MainActor
+    func moveDockSurfaceToWorkspaceReconcilesDestination() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let previousAppDelegate = AppDelegate.shared
+            let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+            let appDelegate = AppDelegate()
+            let manager = TabManager(autoWelcomeIfNeeded: false)
+            AppDelegate.shared = appDelegate
+            appDelegate.tabManager = manager
+            TerminalController.shared.setActiveTabManager(manager)
+            let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+            defer {
+                TerminalController.shared.setActiveTabManager(previousManager)
+                appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+                manager.tabs.forEach { $0.teardownAllPanels() }
+                AppDelegate.shared = previousAppDelegate
+            }
+
+            let sourceWorkspace = try #require(manager.tabs.first)
+            let destinationWorkspace = manager.addWorkspace(select: false, eagerLoadTerminal: false)
+            let dock = sourceWorkspace.dockSplit
+            let rootPane = try #require(dock.bonsplitController.allPaneIds.first)
+            dock.setVisibleInUI(true)
+            let dockPanelId = try #require(dock.newSurface(kind: .terminal, inPane: rootPane, focus: true))
+            dock.debugResetDockPortalReconcileStateForTesting()
+
+            let moved = appDelegate.moveDockSurfaceToWorkspace(
+                sourceDock: dock,
+                panelId: dockPanelId,
+                toWorkspace: destinationWorkspace.id,
+                targetPane: nil,
+                targetIndex: nil,
+                splitTarget: nil,
+                focus: true,
+                focusWindow: false
+            )
+
+            #expect(moved)
+            #expect(destinationWorkspace.panels[dockPanelId] != nil)
+            #expect(dock.debugDockPortalReconcileScheduleCountForTesting() > 0)
+        }
+    }
+
     @MainActor
     private static func detachedBrowserTransfer(
         panel: BrowserPanel,
