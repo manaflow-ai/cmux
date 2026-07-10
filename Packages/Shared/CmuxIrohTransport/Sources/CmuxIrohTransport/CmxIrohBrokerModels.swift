@@ -120,7 +120,7 @@ public struct CmxIrohBrokerBinding: Decodable, Equatable, Sendable {
 }
 
 /// Broker-published Ed25519 key used to verify grants and attestations locally.
-public struct CmxIrohGrantVerificationKey: Decodable, Equatable, Sendable {
+public struct CmxIrohGrantVerificationKey: Codable, Equatable, Sendable {
     public let kid: String
     public let alg: String
     public let spkiDerBase64: String
@@ -133,7 +133,7 @@ public struct CmxIrohGrantVerificationKey: Decodable, Equatable, Sendable {
 }
 
 /// Current and previous broker keys accepted during a staged signing-key rotation.
-public struct CmxIrohGrantVerificationKeySet: Decodable, Equatable, Sendable {
+public struct CmxIrohGrantVerificationKeySet: Codable, Equatable, Sendable {
     public let version: Int
     public let currentKeyID: String
     public let keys: [CmxIrohGrantVerificationKey]
@@ -353,7 +353,7 @@ public struct CmxIrohPairGrantResponse: Decodable, Equatable, Sendable {
 }
 
 /// Backend-signed endpoint/account proof cached for offline same-account pairing.
-public struct CmxIrohEndpointAttestationResponse: Decodable, Equatable, Sendable {
+public struct CmxIrohEndpointAttestationResponse: Codable, Equatable, Sendable {
     public let attestationVersion: Int
     public let attestation: String
     public let expiresAt: String
