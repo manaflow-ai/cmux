@@ -81,6 +81,40 @@ struct CmxIrohClientSessionTests {
     }
 
     @Test
+    func privateFallbackIsNotDialedWhenItsNetworkStateCannotBeRevalidated() async throws {
+        let control = controlStream(decision: .accepted)
+        let connection = TestIrohConnection(
+            remoteIdentity: remoteIdentity,
+            bidirectionalStreams: [control.stream]
+        )
+        let endpoint = TestDialingIrohEndpoint(
+            localIdentity: localIdentity,
+            dialResults: [
+                .failure(.unsupported),
+                .connection(connection),
+            ]
+        )
+        let publicHint = try publicRelayHint()
+        let privateHint = try tailscaleHint()
+        let session = try CmxIrohClientSession(
+            endpoint: endpoint,
+            targetIdentity: remoteIdentity,
+            dialPlan: try testIrohDialPlan(
+                publicPaths: [publicHint],
+                privateFallbackPaths: [privateHint]
+            ),
+            credential: credential
+        )
+
+        await #expect(throws: (any Error).self) {
+            try await session.connect()
+        }
+
+        let dialed = await endpoint.observedDialedAddresses()
+        #expect(dialed.map(\.pathHints) == [[publicHint]])
+    }
+
+    @Test
     func mismatchedTLSIdentityClosesBeforeOpeningAControlStream() async throws {
         let attackerIdentity = try CmxIrohPeerIdentity(
             endpointID: String(repeating: "ef", count: 32)
