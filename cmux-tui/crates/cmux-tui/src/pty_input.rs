@@ -605,6 +605,22 @@ mod tests {
     }
 
     #[test]
+    fn failed_press_releases_its_reserved_queue_slot() {
+        let (failure_tx, failure_rx) = std::sync::mpsc::channel();
+        let dispatcher = PtyInputDispatcher::spawn(move |failure| {
+            failure_tx.send(failure).unwrap();
+        })
+        .unwrap();
+
+        assert_eq!(
+            dispatcher.enqueue(event(7, 1, PtyInputKind::Press)),
+            PtyInputEnqueueResult::Accepted
+        );
+        failure_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert_eq!(dispatcher.sender.queue.state.lock().unwrap().release_reservations, 0);
+    }
+
+    #[test]
     fn oversized_input_is_distinguished_from_queue_saturation() {
         let dispatcher = PtyInputDispatcher::spawn(|_| {}).unwrap();
         let mut oversized = event(1, 1, PtyInputKind::Ordered);
