@@ -369,14 +369,9 @@ extension AppDelegate {
         var titles: [UUID: String] = [:]
 
         func appendTitles(from manager: TabManager) {
-            if let requestedTabIds {
-                let unresolvedIds = requestedTabIds.subtracting(titles.keys)
-                titles.merge(manager.resolvedWorkspaceDisplayTitles(for: unresolvedIds)) { current, _ in current }
-                return
-            }
-            for tab in manager.tabs where titles[tab.id] == nil {
-                titles[tab.id] = manager.resolvedWorkspaceDisplayTitle(for: tab)
-            }
+            let candidateIds = requestedTabIds ?? Set(manager.tabs.map(\.id))
+            let unresolvedIds = candidateIds.subtracting(titles.keys)
+            titles.merge(manager.resolvedWorkspaceDisplayTitles(for: unresolvedIds)) { current, _ in current }
         }
 
         for context in mainWindowContexts.values {
