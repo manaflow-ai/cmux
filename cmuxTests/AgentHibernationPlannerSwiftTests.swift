@@ -1,4 +1,3 @@
-import AppKit
 import Darwin
 import Foundation
 import os
@@ -489,7 +488,7 @@ struct AgentHibernationPlannerSwiftTests {
 
     @MainActor
     @Test
-    func postSnapshotLiveProcessAbortsConfirmedTeardown() async throws {
+    func processDetectedWhileRestoreMonitorStopsAbortsConfirmedTeardown() async throws {
         let controller = AgentHibernationController.shared
         let wasEnabled = AgentHibernationTrackingGate.isEnabled()
         let previousAppDelegate = AppDelegate.shared
@@ -502,81 +501,113 @@ struct AgentHibernationPlannerSwiftTests {
             resetSharedHibernationState(controller)
         }
 
-        let firstLoadStarted = DispatchSemaphore(value: 0)
-        let releaseFirstLoad = DispatchSemaphore(value: 0)
-        let successorLoadStarted = DispatchSemaphore(value: 0)
-        let releaseSuccessorLoad = DispatchSemaphore(value: 0)
-        let postSnapshotLoaderInvoked = DispatchSemaphore(value: 0)
-        defer {
-            releaseFirstLoad.signal()
-            releaseSuccessorLoad.signal()
-        }
+        let testDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-teardown-cancellation-barrier-\(UUID().uuidString)", isDirectory: true)
+        let configRoot = testDirectory.appendingPathComponent("claude-config", isDirectory: true)
+        let workingDirectory = "/tmp/cmux-teardown-cancellation-barrier-\(UUID().uuidString)"
+        let sessionId = "teardown-cancellation-barrier-\(UUID().uuidString)"
+        let transcriptURL = configRoot
+            .appendingPathComponent("projects", isDirectory: true)
+            .appendingPathComponent(
+                RestorableAgentSessionIndex.encodeClaudeProjectDir(workingDirectory),
+                isDirectory: true
+            )
+            .appendingPathComponent("\(sessionId).jsonl", isDirectory: false)
+        try FileManager.default.createDirectory(
+            at: transcriptURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try #"{"type":"user","message":{"role":"user","content":"keep this turn"}}"#.write(
+            to: transcriptURL,
+            atomically: true,
+            encoding: .utf8
+        )
+        defer { try? FileManager.default.removeItem(at: testDirectory) }
 
-        let workspace = Workspace(initialTerminalCommand: "/bin/sleep 60")
+        let workspace = Workspace()
         let workspaceId = workspace.id
         let panelId = try #require(workspace.focusedPanelId)
         let panel = try #require(workspace.panels[panelId] as? TerminalPanel)
-        let terminalWindow = try Self.hostTerminalPanel(panel)
-        defer {
-            panel.hostedView.removeFromSuperview()
-            terminalWindow.orderOut(nil)
-        }
         let panelKey = AgentHibernationPanelKey(workspaceId: workspaceId, panelId: panelId)
         let agent = SessionRestorableAgentSnapshot(
-            kind: .codex,
-            sessionId: "post-snapshot-live-process",
-            workingDirectory: "/tmp/cmux-agent-hibernation",
-            launchCommand: nil
+            kind: .claude,
+            sessionId: sessionId,
+            workingDirectory: workingDirectory,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "claude",
+                executablePath: "/usr/local/bin/claude",
+                arguments: ["/usr/local/bin/claude"],
+                workingDirectory: workingDirectory,
+                environment: ["CLAUDE_CONFIG_DIR": configRoot.path],
+                capturedAt: nil,
+                source: nil
+            )
         )
         workspace.setRestoredAgentSnapshotForTesting(agent, panelId: panelId)
-        workspace.setAgentLifecycle(key: "codex.post-snapshot-test", panelId: panelId, lifecycle: .idle)
+        workspace.setAgentLifecycle(key: "claude.cancellation-barrier", panelId: panelId, lifecycle: .idle)
+        #expect(
+            AgentHibernationTranscriptGuard.resolveTranscriptPath(agent: agent, panelKey: panelKey) ==
+                transcriptURL.path
+        )
 
-        let preBoundaryIndex = RestorableAgentSessionIndex.empty
-        let postBoundaryIndex = Self.indexWithLiveProcess(
+        let scopedChild = Process()
+        scopedChild.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        scopedChild.arguments = ["60"]
+        var childEnvironment = ProcessInfo.processInfo.environment
+        childEnvironment["CMUX_WORKSPACE_ID"] = workspaceId.uuidString
+        childEnvironment["CMUX_SURFACE_ID"] = panelId.uuidString
+        scopedChild.environment = childEnvironment
+        let childExited = DispatchSemaphore(value: 0)
+        scopedChild.terminationHandler = { _ in childExited.signal() }
+        try scopedChild.run()
+        let childProcessID = Int(scopedChild.processIdentifier)
+        defer {
+            if scopedChild.isRunning {
+                scopedChild.terminate()
+                scopedChild.waitUntilExit()
+            }
+        }
+
+        let processDetectedIndex = Self.indexWithLiveProcess(
             workspaceId: workspaceId,
             panelId: panelId,
-            agent: agent
+            agent: agent,
+            processID: childProcessID
         )
-        #expect(!preBoundaryIndex.hasLiveProcess(workspaceId: workspaceId, panelId: panelId))
-        #expect(postBoundaryIndex.hasLiveProcess(workspaceId: workspaceId, panelId: panelId))
+        #expect(processDetectedIndex.hasLiveProcess(workspaceId: workspaceId, panelId: panelId))
 
         let loadCount = OSAllocatedUnfairLock(initialState: 0)
-        let hookDirectory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-post-snapshot-teardown-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: hookDirectory) }
-        let sharedIndex = SharedLiveAgentIndex(
-            indexLoader: {
-                let invocation = loadCount.withLock { count in
-                    count += 1
-                    return count
-                }
-                if invocation == 1 {
-                    firstLoadStarted.signal()
-                    releaseFirstLoad.wait()
-                    return (
-                        index: preBoundaryIndex,
-                        liveAgentProcessFingerprint: [],
-                        processScopeFingerprint: [],
-                        forkValidatedPanels: []
-                    )
-                }
-                successorLoadStarted.signal()
-                releaseSuccessorLoad.wait()
-                return (
-                    index: postBoundaryIndex,
-                    liveAgentProcessFingerprint: [],
-                    processScopeFingerprint: [],
-                    forkValidatedPanels: []
-                )
-            },
-            hookStoreDirectoryProvider: { hookDirectory.path }
-        )
-
-        sharedIndex.scheduleRefreshIfStale()
-        #expect(await Self.wait(for: firstLoadStarted))
+        let monitorReady = DispatchSemaphore(value: 0)
+        let cancellationObserved = DispatchSemaphore(value: 0)
+        let releaseMonitor = DispatchSemaphore(value: 0)
+        let olderMonitorRequestID = UUID()
+        let olderMonitorTask = Task.detached {
+            await withTaskCancellationHandler {
+                monitorReady.signal()
+                releaseMonitor.wait()
+            } onCancel: {
+                cancellationObserved.signal()
+            }
+        }
+        defer {
+            releaseMonitor.signal()
+            olderMonitorTask.cancel()
+            controller.clearPostTeardownRestoreTask(
+                transcriptPath: transcriptURL.path,
+                requestID: olderMonitorRequestID
+            )
+        }
+        #expect(await Self.wait(for: monitorReady))
+        #expect(controller.storePostTeardownRestoreTask(
+            olderMonitorTask,
+            transcriptPath: transcriptURL.path,
+            requestID: olderMonitorRequestID,
+            cancellationState: AgentHibernationController.PostTeardownRestoreCancellationState()
+        ))
 
         controller.postSnapshotValidationIndexSequence = 0
         AgentHibernationTrackingGate.setEnabled(true)
+        let confirmationFingerprint = "headless-runtime-fingerprint"
         let record = AgentHibernationRecord(
             key: panelKey,
             workspace: workspace,
@@ -587,12 +618,8 @@ struct AgentHibernationPlannerSwiftTests {
             lastActivityAt: 0,
             isProtected: false,
             hasLiveProcess: false,
-            processIDs: []
+            processIDs: [childProcessID]
         )
-        try #require(Self.waitForCondition {
-            controller.hibernationFingerprint(for: record) != nil
-        })
-        let confirmationFingerprint = try #require(controller.hibernationFingerprint(for: record))
         let request = AgentHibernationController.ConfirmedTeardownRequest(
             record: record,
             confirmationFingerprint: confirmationFingerprint,
@@ -602,34 +629,39 @@ struct AgentHibernationPlannerSwiftTests {
             generation: controller.teardownValidationGeneration
         )
 
-        let postSnapshotHadLiveProcess = OSAllocatedUnfairLock(initialState: false)
-        let observedValidationSequence = OSAllocatedUnfairLock(initialState: UInt64(0))
         let teardownTask = controller.beginConfirmedTeardowns(
             [request],
             postSnapshotIndexLoader: {
-                let sequence = await MainActor.run {
-                    controller.postSnapshotValidationIndexSequence
+                let invocation = loadCount.withLock { count in
+                    count += 1
+                    return count
                 }
-                observedValidationSequence.withLock { $0 = sequence }
-                postSnapshotLoaderInvoked.signal()
-                let result = await sharedIndex.scopedIndexCapturedAfterRequest()
-                postSnapshotHadLiveProcess.withLock {
-                    $0 = result.hasLiveProcess(workspaceId: workspaceId, panelId: panelId)
-                }
-                return result
+                return invocation == 1 ? .empty : processDetectedIndex
+            },
+            runtimeObservationProvider: { _ in
+                AgentHibernationController.ConfirmedTeardownRuntimeObservation(
+                    hasLiveSurface: true,
+                    fingerprint: confirmationFingerprint
+                )
             }
         )
-        #expect(await Self.wait(for: postSnapshotLoaderInvoked))
-        #expect(observedValidationSequence.withLock { $0 } == 1)
-
-        releaseFirstLoad.signal()
-        #expect(await Self.wait(for: successorLoadStarted))
-        releaseSuccessorLoad.signal()
+        #expect(await Self.wait(for: cancellationObserved))
+        #expect(loadCount.withLock { $0 } == 1)
+        releaseMonitor.signal()
         await teardownTask.value
 
-        #expect(postSnapshotHadLiveProcess.withLock { $0 })
-        #expect(!panel.isAgentHibernated, "The post-snapshot live process must abort destructive teardown.")
         #expect(loadCount.withLock { $0 } == 2)
+        #expect(
+            !panel.isAgentHibernated,
+            "A process detected after monitor quiescence must abort destructive teardown."
+        )
+        #expect(
+            !(await Self.wait(for: childExited, timeout: 0.25)),
+            "The scoped process detected after monitor quiescence must not receive SIGTERM."
+        )
+
+        controller.cancelPostTeardownRestoreTasks()
+        await controller.drainCancelledPostTeardownRestoreTasks()
     }
 
     @MainActor
@@ -648,45 +680,6 @@ struct AgentHibernationPlannerSwiftTests {
         controller.postSnapshotValidationIndexTask = nil
     }
 
-    @MainActor
-    private static func hostTerminalPanel(_ panel: TerminalPanel) throws -> NSWindow {
-        _ = NSApplication.shared
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
-        )
-        let contentView = try #require(window.contentView)
-        let hostedView = panel.hostedView
-        hostedView.frame = contentView.bounds
-        hostedView.autoresizingMask = [.width, .height]
-        contentView.addSubview(hostedView)
-        window.makeKeyAndOrderFront(nil)
-        window.displayIfNeeded()
-        contentView.layoutSubtreeIfNeeded()
-        hostedView.setVisibleInUI(true)
-        hostedView.setActive(true)
-        try #require(waitForCondition { panel.surface.surface != nil })
-        return window
-    }
-
-    @MainActor
-    private static func waitForCondition(
-        timeout: TimeInterval = 5,
-        pollInterval: TimeInterval = 0.01,
-        _ condition: () -> Bool
-    ) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if condition() {
-                return true
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(pollInterval))
-        }
-        return condition()
-    }
-
     nonisolated private static func wait(
         for semaphore: DispatchSemaphore,
         timeout: TimeInterval = 10
@@ -699,10 +692,10 @@ struct AgentHibernationPlannerSwiftTests {
     nonisolated private static func indexWithLiveProcess(
         workspaceId: UUID,
         panelId: UUID,
-        agent: SessionRestorableAgentSnapshot
+        agent: SessionRestorableAgentSnapshot,
+        processID: Int
     ) -> RestorableAgentSessionIndex {
         let key = RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId)
-        let processID = 987_654
         let detected: RestorableAgentSessionIndex.ProcessDetectedSnapshotEntry = (
             snapshot: agent,
             updatedAt: 42,
