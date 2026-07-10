@@ -977,17 +977,34 @@ jobs:
             CMUXAgentLaunch
           )
           run_swift_package_tests() {
-            local pkgdir="$1"
-            shift
+            local pkg="$1"
+            local pkgdir="$2"
+            shift 2
             local test_status=0
-            local tolerated_diagnostics='unexpected binary|doesn.t contain a version for the current architecture|incompatible architecture|dlopen_preflight'
             local output
             output="$(swift test --package-path "$pkgdir" "$@" 2>&1)" || test_status=$?
             printf '%s\n' "$output"
             if [ "$test_status" -eq 0 ]; then
               return 0
             fi
-            if printf '%s\n' "$output" | grep -Eq 'Test run with [0-9]+ tests( in [0-9]+ suites)? passed' \
+
+            local expected_summary
+            local tolerated_diagnostics
+            case "$pkg" in
+            CMUXAuthCore)
+              expected_summary='Test run with 15 tests in 2 suites passed'
+              tolerated_diagnostics='CMUXAuthCorePackageTests\.xctest|doesn.t contain a version for the current architecture|incompatible architecture|dlopen_preflight'
+              ;;
+            CmuxTerminal|CmuxTerminalCore)
+              expected_summary='Test run with [0-9]+ tests( in [0-9]+ suites)? passed'
+              tolerated_diagnostics='unexpected binary'
+              ;;
+            *)
+              return "$test_status"
+              ;;
+            esac
+
+            if printf '%s\n' "$output" | grep -Eq "$expected_summary" \
               && ! printf '%s\n' "$output" | grep -Eq 'with [1-9][0-9]* failures?' \
               && printf '%s\n' "$output" | grep -Eq "$tolerated_diagnostics" \
               && ! printf '%s\n' "$output" | grep -E '(^|[^a-zA-Z])error:' | grep -Ev "$tolerated_diagnostics"; then
@@ -999,9 +1016,9 @@ jobs:
           # SwiftPM emits an error-severity diagnostic while planning the
           # GhosttyKit binaryTarget (the xcframework's static archive is not
           # lib-prefixed: "unexpected binary name"/"unexpected binary
-          # framework"). SwiftPM/XCTest can also emit an incompatible-architecture
-          # bundle diagnostic after Swift Testing already reports all tests
-          # passed. Tolerate only those known nonzero runner diagnostics.
+          # framework"). CMUXAuthCore can also emit a known x86_64 XCTest bundle
+          # probe diagnostic after Swift Testing reports its exact full suite.
+          # Tolerate only those scoped nonzero runner diagnostics.
           for pkg in "${PACKAGES[@]}"; do
             # Packages live under group folders (Packages/{Shared,iOS,macOS}/);
             # resolve the actual directory so this list stays group-agnostic.
@@ -1025,11 +1042,11 @@ jobs:
               while IFS= read -r suite; do
                 [ -n "$suite" ] || continue
                 echo "swift test $pkgdir --filter $suite"
-                run_swift_package_tests "$pkgdir" --filter "$suite"
+                run_swift_package_tests "$pkg" "$pkgdir" --filter "$suite"
               done <<< "$suite_list"
               ;;
             *)
-              run_swift_package_tests "$pkgdir"
+              run_swift_package_tests "$pkg" "$pkgdir"
               ;;
             esac
             echo "::endgroup::"

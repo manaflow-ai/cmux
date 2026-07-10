@@ -116,6 +116,17 @@ extension Workspace {
         return panelDirectories[sourcePanelId]
     }
 
+    func currentDirectoryForTerminalStartup(sourcePanelId: UUID?) -> String? {
+        guard sourcePanelId.map({ isRemoteTerminalSurface($0) }) != true else {
+            return Self.safeLocalTerminalStartupWorkingDirectory()
+        }
+        return currentDirectory
+    }
+
+    nonisolated static func safeLocalTerminalStartupWorkingDirectory() -> String {
+        normalizedTerminalWorkingDirectory(FileManager.default.homeDirectoryForCurrentUser.path) ?? NSHomeDirectory()
+    }
+
     func inheritedTerminalWorkingDirectory(fromPanelId panelId: UUID?) -> String? {
         guard let panelId, let terminalPanel = terminalPanel(for: panelId) else { return nil }
         let surface = terminalPanel.surface

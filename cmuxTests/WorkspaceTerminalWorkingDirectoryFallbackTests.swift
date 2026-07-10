@@ -245,7 +245,7 @@ import Testing
             workingDirectoryFallbackSourcePanelId: sourcePanelId
         ))
 
-        #expect(panel.requestedWorkingDirectory == nil)
+        #expect(panel.requestedWorkingDirectory == Workspace.safeLocalTerminalStartupWorkingDirectory())
         #expect(panel.surface.debugInitialCommand() != nil)
     }
 
@@ -265,7 +265,7 @@ import Testing
             focus: false
         ))
 
-        #expect(panel.requestedWorkingDirectory == nil)
+        #expect(panel.requestedWorkingDirectory == Workspace.safeLocalTerminalStartupWorkingDirectory())
         #expect(panel.surface.debugInitialCommand() != nil)
     }
 
@@ -289,7 +289,7 @@ import Testing
             workingDirectoryFallbackSourcePanelId: remotePanel.id
         ))
 
-        #expect(panel.requestedWorkingDirectory != remoteDirectory)
+        #expect(panel.requestedWorkingDirectory == Workspace.safeLocalTerminalStartupWorkingDirectory())
         #expect(panel.surface.debugInitialCommand() == explicitCommand)
     }
 
@@ -312,7 +312,7 @@ import Testing
             initialCommand: explicitCommand
         ))
 
-        #expect(panel.requestedWorkingDirectory != remoteDirectory)
+        #expect(panel.requestedWorkingDirectory == Workspace.safeLocalTerminalStartupWorkingDirectory())
         #expect(panel.surface.debugInitialCommand() == explicitCommand)
     }
 

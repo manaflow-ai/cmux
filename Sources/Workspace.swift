@@ -6760,7 +6760,7 @@ final class Workspace: Identifiable, ObservableObject {
             panelDirectoryForTerminalStartup(sourcePanelId: sourcePanelId),
             liveForegroundWorkingDirectoryForTerminalStartup(sourcePanelId: sourcePanelId),
             sourcePanelId.flatMap { terminalPanel(for: $0)?.requestedWorkingDirectory },
-            currentDirectory,
+            currentDirectoryForTerminalStartup(sourcePanelId: sourcePanelId),
         ].lazy.compactMap(Self.normalizedTerminalWorkingDirectory).first
     }
 
@@ -7133,8 +7133,9 @@ final class Workspace: Identifiable, ObservableObject {
             base: startupEnvironmentWithRemoteSession,
             remoteStartupCommand: remoteStartupCommandForEnvironment
         )
+        let suppressInheritedStartupWorkingDirectory = isRemoteStartupCommand || (explicitInitialCommand != nil && isRemoteTerminalSurface(panelId))
         if startupCommand != nil {
-            inheritedConfig = Self.terminalStartupConfigTemplate(inheritedConfig, waitAfterCommand: true, clearWorkingDirectory: isRemoteStartupCommand)
+            inheritedConfig = Self.terminalStartupConfigTemplate(inheritedConfig, waitAfterCommand: true, clearWorkingDirectory: suppressInheritedStartupWorkingDirectory)
         }
 #if DEBUG
         dlog(
@@ -7149,7 +7150,7 @@ final class Workspace: Identifiable, ObservableObject {
                 ? inheritedConfig?.workingDirectory
                 : inheritedTerminalWorkingDirectory(fromPanelId: panelId))
         let splitWorkingDirectory = isRemoteStartupCommand
-            ? Self.normalizedTerminalWorkingDirectory(workingDirectory)
+            ? Self.normalizedTerminalWorkingDirectory(workingDirectory) ?? Self.safeLocalTerminalStartupWorkingDirectory()
             : resolvedTerminalStartupWorkingDirectory(
                 requestedWorkingDirectory: workingDirectory, sourcePanelId: panelId,
                 inheritedWorkingDirectory: splitInheritedWorkingDirectory
@@ -7432,15 +7433,16 @@ final class Workspace: Identifiable, ObservableObject {
                 ? inheritedConfig?.workingDirectory
                 : inheritedTerminalWorkingDirectory(fromPanelId: fallbackSourcePanelId))
             : nil
+        let suppressInheritedStartupWorkingDirectory = isRemoteStartupCommand || (explicitInitialCommand != nil && inheritedConfigSourcePanelId.map { isRemoteTerminalSurface($0) } == true)
         if startupCommand != nil {
-            inheritedConfig = Self.terminalStartupConfigTemplate(inheritedConfig, waitAfterCommand: true, clearWorkingDirectory: isRemoteStartupCommand)
+            inheritedConfig = Self.terminalStartupConfigTemplate(inheritedConfig, waitAfterCommand: true, clearWorkingDirectory: suppressInheritedStartupWorkingDirectory)
         }
         let requestedWorkingDirectory = shouldInheritWorkingDirectoryFallback
             ? resolvedTerminalStartupWorkingDirectory(
                 requestedWorkingDirectory: workingDirectory, sourcePanelId: fallbackSourcePanelId,
                 inheritedWorkingDirectory: inheritedWorkingDirectory
             )
-            : workingDirectory
+            : (suppressInheritedStartupWorkingDirectory ? Self.normalizedTerminalWorkingDirectory(workingDirectory) ?? Self.safeLocalTerminalStartupWorkingDirectory() : workingDirectory)
         if shouldInheritWorkingDirectoryFallback {
             inheritedConfig = Self.terminalStartupConfigTemplate(inheritedConfig, clearWorkingDirectory: true)
         }
