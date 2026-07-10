@@ -196,7 +196,7 @@ extension AppDelegate {
                 diffViewerRequestPath: diffViewerComponents?.requestPath
             )
         case .markdown, .filePreview, .rightSidebarTool, .customSidebar, .agentSession,
-             .project, .extensionBrowser, .workspaceTodo, .cloudVMLoading:
+             .project, .extensionBrowser, .cloudVMLoading:
             return nil
         }
 
@@ -225,8 +225,7 @@ extension AppDelegate {
             rightSidebarTool: nil,
             customSidebar: nil,
             agentSession: nil,
-            project: nil,
-            workspaceTodo: nil
+            project: nil
         )
     }
 }

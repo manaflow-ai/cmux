@@ -47,7 +47,7 @@ final class SurfacePipController {
         case .terminal, .browser:
             return true
         case .markdown, .filePreview, .rightSidebarTool, .customSidebar, .agentSession,
-             .project, .extensionBrowser, .workspaceTodo, .cloudVMLoading:
+             .project, .extensionBrowser, .cloudVMLoading:
             return false
         }
     }
