@@ -382,6 +382,16 @@ private struct WorkspaceTodoPaneItemRow: View {
 
     private var isCompleted: Bool { item.state == .completed }
 
+    /// Distance above a text line's baseline to its optical vertical center
+    /// (`(ascender + descender) / 2`), so the checkbox's
+    /// `.alignmentGuide(.firstTextBaseline)` centers on the item text's FIRST
+    /// line specifically — not the whole multi-line block, and not the
+    /// baseline itself.
+    private var firstLineCenterOffset: CGFloat {
+        let font = NSFont.systemFont(ofSize: itemFontSize)
+        return (font.ascender + font.descender) / 2
+    }
+
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 7) {
             Button {
@@ -395,6 +405,7 @@ private struct WorkspaceTodoPaneItemRow: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + firstLineCenterOffset }
             .safeHelp(
                 isCompleted
                     ? String(localized: "sidebar.checklist.uncheckTooltip", defaultValue: "Mark as pending")
@@ -413,11 +424,22 @@ private struct WorkspaceTodoPaneItemRow: View {
                 .onExitCommand(perform: actions.cancelEdit)
                 .accessibilityIdentifier("WorkspaceTodoPaneEditItemField")
             } else {
+                // No `lineLimit` — items wrap across multiple lines. Without
+                // `.fixedSize(horizontal: false, ...)` Text can report its
+                // ideal (unwrapped) single-line width as accepted inside this
+                // HStack + Spacer + ScrollView nesting, so long items overflow
+                // past the pane's edge instead of wrapping (see the sidebar's
+                // matching fix in SidebarWorkspaceChecklistView.swift /
+                // SidebarWorkspaceChecklistPopover.swift). The checkbox above
+                // aligns to this Text's FIRST line only (`.firstTextBaseline`,
+                // offset by `firstLineCenterOffset`), not the whole block.
                 Text(item.text)
                     .font(.system(size: itemFontSize))
                     .foregroundColor(isCompleted ? .secondary : .primary)
                     .strikethrough(isCompleted)
                     .opacity(isCompleted ? 0.6 : 1)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
                     .contentShape(Rectangle())
                     .onTapGesture { actions.beginEdit() }
             }
