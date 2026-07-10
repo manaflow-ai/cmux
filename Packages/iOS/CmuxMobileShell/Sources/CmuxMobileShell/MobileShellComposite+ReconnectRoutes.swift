@@ -165,7 +165,8 @@ extension MobileShellComposite {
     ///
     /// Constrained tickets prove only the dialed endpoint, not that other stored
     /// endpoints disappeared. Prefer the freshly connected route when an id or
-    /// endpoint collides, then keep the remaining stored fallbacks.
+    /// endpoint collides, coalesce usable hints for one Iroh peer, then keep the
+    /// remaining stored fallbacks.
     static func mergedReconnectRoutes(
         ticketRoutes: [CmxAttachRoute],
         storedRoutes: [CmxAttachRoute],
@@ -174,43 +175,72 @@ extension MobileShellComposite {
         var merged: [CmxAttachRoute] = []
         var seenIDs = Set<String>()
         var seenEndpoints = Set<String>()
+        var peerRouteIndex: [CmxIrohPeerIdentity: Int] = [:]
 
-        func endpointKey(_ route: CmxAttachRoute) -> String {
-            switch route.endpoint {
-            case let .hostPort(host, port):
-                return "host:\(host)\u{1F}\(port)"
-            case let .peer(identity, pathHints):
-                // Freshness is route state, not endpoint identity. The fresh
-                // ticket route is inserted first and replaces this stored path.
-                let hintKey = pathHints.map { hint in
-                    let profileKey = hint.networkProfile.map {
-                        "\($0.source.rawValue):\($0.profileID)"
-                    } ?? ""
-                    return [
-                        hint.kind.rawValue,
-                        hint.value,
-                        hint.source.rawValue,
-                        hint.privacyScope.rawValue,
-                        profileKey,
-                    ].joined(separator: ":")
-                }
-                .sorted()
-                .joined(separator: ",")
-                return "peer:\(identity.endpointID)\u{1F}\(hintKey)"
-            case let .url(url):
-                return "url:\(url)"
+        func hintKey(_ hint: CmxIrohPathHint) -> String {
+            let profileKey = hint.networkProfile.map {
+                "\($0.source.rawValue):\($0.profileID)"
+            } ?? ""
+            return [
+                hint.kind.rawValue,
+                hint.value,
+                hint.source.rawValue,
+                hint.privacyScope.rawValue,
+                profileKey,
+            ].map { "\($0.utf8.count):\($0)" }.joined()
+        }
+
+        func coalescingPeerHints(
+            into existing: CmxAttachRoute,
+            from incoming: CmxAttachRoute
+        ) -> CmxAttachRoute {
+            guard case let .peer(identity, existingHints) = existing.endpoint,
+                  case let .peer(_, incomingHints) = incoming.endpoint else {
+                return existing
             }
+            var seenHints = Set<String>()
+            // A constrained ticket is not a complete discovery snapshot. Keep
+            // other hints that remain safe and unexpired as bounded fallbacks.
+            let combinedHints = (existingHints + incomingHints).filter {
+                seenHints.insert(hintKey($0)).inserted
+            }
+            let boundedHints = Array(
+                combinedHints.prefix(CmxAttachEndpoint.maximumIrohPathHintCount)
+            )
+            return (try? CmxAttachRoute(
+                id: existing.id,
+                kind: existing.kind,
+                endpoint: .peer(identity: identity, pathHints: boundedHints),
+                priority: existing.priority
+            )) ?? existing
         }
 
         func append(_ rawRoute: CmxAttachRoute) {
             guard let route = rawRoute.disclosed(for: .authenticated, at: now) else {
                 return
             }
-            let key = endpointKey(route)
-            guard seenIDs.insert(route.id).inserted,
-                  seenEndpoints.insert(key).inserted else {
+            guard seenIDs.insert(route.id).inserted else {
                 return
             }
+            if case let .peer(identity, _) = route.endpoint {
+                if let index = peerRouteIndex[identity] {
+                    merged[index] = coalescingPeerHints(into: merged[index], from: route)
+                } else {
+                    peerRouteIndex[identity] = merged.count
+                    merged.append(route)
+                }
+                return
+            }
+            let key: String
+            switch route.endpoint {
+            case let .hostPort(host, port):
+                key = "host:\(host)\u{1F}\(port)"
+            case let .url(url):
+                key = "url:\(url)"
+            case .peer:
+                return
+            }
+            guard seenEndpoints.insert(key).inserted else { return }
             merged.append(route)
         }
 

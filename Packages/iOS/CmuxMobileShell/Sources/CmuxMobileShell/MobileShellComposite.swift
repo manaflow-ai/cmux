@@ -2939,10 +2939,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 )) ?? []
                 storedRoutes = scopedMacs.first { $0.macDeviceID == ticket.macDeviceID }?.routes ?? []
             }
-            // A fresh re-pair can also carry one route; merging here is bounded
-            // and preserves known fallbacks instead of eroding the route set.
+            // A fresh re-pair can carry one route; preserve known fallbacks instead of eroding them.
+            let routeDisclosureDate = self.runtime?.now() ?? Date()
             let routesToPersist = ticket.routes.count == 1 && !storedRoutes.isEmpty
-                ? Self.mergedReconnectRoutes(ticketRoutes: ticket.routes, storedRoutes: storedRoutes, at: self.runtime?.now() ?? Date())
+                ? Self.mergedReconnectRoutes(ticketRoutes: ticket.routes, storedRoutes: storedRoutes, at: routeDisclosureDate)
                 : ticket.routes
             do {
                 try await pairedMacStore.upsert(
@@ -2952,7 +2952,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     markActive: true,
                     stackUserID: stackUserID,
                     teamID: scope?.teamID,
-                    now: Date()
+                    now: routeDisclosureDate
                 )
                 await self.clearForgottenMacDeviceID(ticket.macDeviceID, scope: scope)
                 // A real, reconnectable Mac is now the active paired Mac: record
