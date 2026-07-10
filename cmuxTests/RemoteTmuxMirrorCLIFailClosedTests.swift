@@ -129,6 +129,46 @@ extension RemoteTmuxMirrorCLIObservabilityTests {
         }
     }
 
+    @Test func advertisedProjectedTerminalsSupportTerminalCommands() throws {
+        let harness = try Harness()
+        defer { harness.tearDown() }
+        let firstTmuxPaneID = try #require(harness.mirror.paneIDsInOrder.first)
+        let firstSurfaceID = try #require(harness.mirror.panel(forPane: firstTmuxPaneID)?.id)
+
+        let refresh = TerminalController.shared.controlSurfaceRefresh(routing: harness.routing())
+        guard case .refreshed(_, let workspaceID, let refreshedCount) = refresh else {
+            Issue.record("Expected projected terminals to refresh")
+            return
+        }
+        #expect(workspaceID == harness.workspace.id)
+        #expect(refreshedCount == harness.mirror.paneIDsInOrder.count)
+
+        let clear = TerminalController.shared.controlSurfaceClearHistory(
+            routing: harness.routing(),
+            surfaceID: firstSurfaceID,
+            hasSurfaceIDParam: true
+        )
+        switch clear {
+        case .cleared(_, let workspaceID, let surfaceID):
+            #expect(workspaceID == harness.workspace.id)
+            #expect(surfaceID == firstSurfaceID)
+        case .bindingActionUnavailable:
+            break
+        default:
+            Issue.record("Projected terminal was not resolved for clear_history")
+        }
+
+        let flash = TerminalController.shared.controlSurfaceTriggerFlash(
+            routing: harness.routing(),
+            surfaceID: firstSurfaceID
+        )
+        #expect(flash == .flashed(
+            windowID: harness.windowID,
+            workspaceID: harness.workspace.id,
+            surfaceID: firstSurfaceID
+        ))
+    }
+
     private func activeSurfaceID(in harness: Harness) throws -> UUID {
         let paneID = try #require(harness.mirror.activePaneId)
         return try #require(harness.mirror.panel(forPane: paneID)?.id)
