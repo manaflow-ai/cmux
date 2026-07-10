@@ -64,6 +64,18 @@ public struct PresenceMap: Equatable, Sendable {
         instancesByDevice[deviceId]?[tag]
     }
 
+    /// Summary for one exact app instance. Tagged iOS builds use this instead
+    /// of the device rollup so another running Mac tag cannot lend this build
+    /// its online state or build label.
+    public func instanceSummary(deviceId: String, tag: String) -> DeviceSummary? {
+        guard let instance = instance(deviceId: deviceId, tag: tag) else { return nil }
+        return DeviceSummary(
+            online: instance.online,
+            lastSeenAt: Date(timeIntervalSince1970: instance.lastSeenAt / 1000),
+            buildLabel: MacBuildChannel().label(bundleID: instance.bundleId, tag: instance.tag)
+        )
+    }
+
     /// The device's single online route-advertising instance, or `nil` when
     /// zero or 2+ online instances advertise routes. The paired-Mac store is
     /// device-level (no tag), so persisted reconnect routes may only be

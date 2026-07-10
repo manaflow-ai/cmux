@@ -14201,7 +14201,7 @@ class TerminalController {
 
         return .ok([
             "mac_device_id": MobileHostIdentity.deviceID(),
-            "mac_display_name": v2OrNull(MobileHostIdentity.displayName()),
+            "mac_display_name": v2OrNull(MobileHostIdentity.instanceDisplayName()),
             "host_service": status.payload,
             "workspace_count": workspaceCount,
             "terminal_fidelity": "render_grid",
@@ -14220,6 +14220,22 @@ class TerminalController {
         let routeKind = v2OptionalTrimmedRawString(params, "route_kind")
             ?? v2OptionalTrimmedRawString(params, "routeKind")
         let scope = v2OptionalTrimmedRawString(params, "scope")
+        let rawTarget = v2OptionalTrimmedRawString(params, "target")
+        let target: MobileAttachTarget
+        if let rawTarget {
+            guard let parsed = MobileAttachTarget(wireValue: rawTarget) else {
+                return .err(
+                    code: "invalid_request",
+                    message: "target must be ticket_only, simulator_injection, or physical_device",
+                    data: ["target": rawTarget]
+                )
+            }
+            target = parsed
+        } else {
+            // Network clients that only need a ticket predate target-aware URL
+            // minting. They preserve the full route set and receive no URL.
+            target = .ticketOnly
+        }
         // scope=mac mints a Mac-wide ticket that grants access to every
         // workspace on the host. Without this, the ticket gets pinned to
         // the workspace selected at QR-generation time, and tapping any
@@ -14266,7 +14282,8 @@ class TerminalController {
                 terminalID: resolvedTerminalID,
                 ttl: ttl,
                 routeID: routeID,
-                routeKind: routeKind
+                routeKind: routeKind,
+                target: target
             )
             return .ok(payload)
         } catch MobileAttachTicketStoreError.noRoutes {
@@ -14287,6 +14304,12 @@ class TerminalController {
                 code: "unavailable",
                 message: "Requested mobile host route is not available",
                 data: data.isEmpty ? nil : data
+            )
+        } catch MobileAttachTicketStoreError.invalidAttachURL {
+            return .err(
+                code: "unavailable",
+                message: "Selected mobile host routes cannot be represented for the requested target",
+                data: ["target": target.rawValue]
             )
         } catch {
             return .err(

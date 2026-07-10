@@ -104,7 +104,7 @@ final class MacPairedMacBackupPublisher {
                 macDeviceID: MobileHostIdentity.deviceID(),
                 record: MacPairedMacBackupRecordWire(
                     macDeviceID: MobileHostIdentity.deviceID(),
-                    displayName: MobileHostIdentity.displayName(),
+                    displayName: MobileHostIdentity.baseDisplayName(),
                     routes: routes,
                     createdAt: nowMs,
                     lastSeenAt: nowMs,

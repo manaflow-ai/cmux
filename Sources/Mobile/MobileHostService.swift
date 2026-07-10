@@ -326,7 +326,7 @@ final class MobileHostService {
     nonisolated static func identityStatusPayload(routesPayload: [[String: Any]]) -> [String: Any] {
         var payload = publicStatusPayload(routesPayload: routesPayload)
         payload["mac_device_id"] = MobileHostIdentity.deviceID()
-        if let displayName = MobileHostIdentity.displayName() {
+        if let displayName = MobileHostIdentity.instanceDisplayName() {
             payload["mac_display_name"] = displayName
         }
         let build = MobileHostBuildIdentity.current()
@@ -1068,7 +1068,8 @@ final class MobileHostService {
         terminalID: String?,
         ttl: TimeInterval,
         routeID: String? = nil,
-        routeKind: String? = nil
+        routeKind: String? = nil,
+        target: MobileAttachTarget = .ticketOnly
     ) async throws -> [String: Any] {
         let routes: [CmxAttachRoute]
         if let listenerPort {
@@ -1076,11 +1077,12 @@ final class MobileHostService {
         } else {
             routes = []
         }
-        let selectedRoutes = try Self.filteredRoutes(
+        let filteredRoutes = try Self.filteredRoutes(
             routes,
             routeID: routeID,
             routeKind: routeKind
         )
+        let selectedRoutes = try target.selectRoutes(from: filteredRoutes)
         let ticket = try ticketStore.createTicket(
             workspaceID: workspaceID,
             terminalID: terminalID,
@@ -1092,7 +1094,7 @@ final class MobileHostService {
             macAppVersion: MobileHostBuildIdentity.current().appVersion,
             macAppBuild: MobileHostBuildIdentity.current().appBuild
         )
-        return try ticketStore.payload(for: ticket)
+        return try ticketStore.payload(for: ticket, target: target)
     }
 
     private static func filteredRoutes(

@@ -47,4 +47,12 @@ public struct MobileIOSBuildScope: Sendable, Equatable {
     public var serializedScope: String {
         "ios:\(storageComponent)"
     }
+
+    /// Presentation name for a Mac shown by this tagged iOS build. The suffix
+    /// comes from the running iOS bundle, so restored or offline device-level
+    /// records remain distinguishable before a fresh host handshake arrives.
+    public func computerDisplayName(_ baseName: String) -> String {
+        let suffix = " (\(value))"
+        return baseName.hasSuffix(suffix) ? baseName : baseName + suffix
+    }
 }

@@ -50,9 +50,16 @@ struct MacComputerDetailView: View {
         store.macConnectionStatuses[macDeviceID]
     }
     private var presence: PresenceMap.DeviceSummary? {
-        store.presenceSummary(for: macDeviceID)
+        store.presenceSummary(
+            for: macDeviceID,
+            instanceTag: MobileIOSBuildScope.current()?.value
+        )
     }
     private var isForeground: Bool { store.connectedMacDeviceID == macDeviceID }
+    private var displayTitle: String {
+        let baseName = pairedMac?.resolvedName ?? macDeviceID
+        return MobileIOSBuildScope.current()?.computerDisplayName(baseName) ?? baseName
+    }
     private var workspaceCount: Int {
         store.workspaceCount(for: macDeviceID)
     }
@@ -65,7 +72,7 @@ struct MacComputerDetailView: View {
             identitySection
             actionsSection
         }
-        .navigationTitle(pairedMac?.resolvedName ?? macDeviceID)
+        .navigationTitle(displayTitle)
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
             guard !didLoadEdits else { return }
@@ -80,7 +87,7 @@ struct MacComputerDetailView: View {
             }
         }
         .confirmationDialog(
-            "\(L10n.string("mobile.computers.removeTitlePrefix", defaultValue: "Remove")) \(pairedMac?.displayName ?? macDeviceID)?",
+            "\(L10n.string("mobile.computers.removeTitlePrefix", defaultValue: "Remove")) \(displayTitle)?",
             isPresented: $pendingRemoval,
             titleVisibility: .visible
         ) {
