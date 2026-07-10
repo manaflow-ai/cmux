@@ -800,10 +800,12 @@ final class WindowTerminalPortal: NSObject {
     }
 
     private func synchronizeLayoutHierarchy() {
-        installedContainerView?.layoutSubtreeIfNeeded()
-        installedReferenceView?.layoutSubtreeIfNeeded()
-        hostView.superview?.layoutSubtreeIfNeeded()
-        hostView.layoutSubtreeIfNeeded()
+        // The installed container owns both the reference view and portal host. One
+        // subtree layout there is sufficient; laying out each descendant separately
+        // amplifies one geometry consumer into multiple AppKit layout traversals.
+        if let layoutRoot = installedContainerView ?? installedReferenceView ?? hostView.superview {
+            layoutRoot.layoutSubtreeIfNeeded()
+        }
         _ = synchronizeHostFrameToReference()
     }
 
@@ -837,10 +839,20 @@ final class WindowTerminalPortal: NSObject {
     }
 
     fileprivate func synchronizeAllEntriesFromExternalGeometryChange() {
-        guard ensureInstalled() else { return }
-        synchronizeLayoutHierarchy()
-        synchronizeAllHostedViews(excluding: nil)
+        // Resize/split notifications are delivered after AppKit has laid out the
+        // hierarchy. Consume those current frames without feeding another ancestor
+        // layout pass back into the same notification cycle.
+        guard synchronizeAllHostedViews(excluding: nil, syncLayout: false) else { return }
         reconcileVisibleHostedViewsAfterGeometrySync(reason: "portal.externalGeometrySync")
+    }
+
+    @discardableResult
+    private func prepareForHostedViewSynchronization(syncLayout: Bool) -> Bool {
+        guard ensureInstalled(syncLayout: false) else { return false }
+        if syncLayout {
+            synchronizeLayoutHierarchy()
+        }
+        return true
     }
 
     private func ensureDividerOverlayOnTop() {
@@ -1121,7 +1133,7 @@ final class WindowTerminalPortal: NSObject {
         zPriority: Int = 0,
         deferLayoutSynchronization: Bool = false
     ) {
-        guard ensureInstalled(syncLayout: !deferLayoutSynchronization) else { return }
+        guard prepareForHostedViewSynchronization(syncLayout: !deferLayoutSynchronization) else { return }
 
         let hostedId = ObjectIdentifier(hostedView)
         let anchorId = ObjectIdentifier(anchorView)
@@ -1222,38 +1234,26 @@ final class WindowTerminalPortal: NSObject {
 
         ensureDividerOverlayOnTop()
 
-        if deferLayoutSynchronization {
-            // Bind calls from SwiftUI NSViewRepresentable update/layout callbacks
-            // must not force ancestor layout synchronously. Still reconcile the
-            // portal entry from already-current host geometry so resize/visibility
-            // does not lag until a later external observer turn.
-            synchronizeHostedView(withId: hostedId, syncLayout: false)
-            scheduleDeferredFullSynchronizeAll()
-        } else {
-            synchronizeHostedView(withId: hostedId)
-            scheduleDeferredFullSynchronizeAll()
-        }
+        // The portal was prepared once at the start of this bind. Reconcile the
+        // new entry without repeating installation or ancestor layout work.
+        synchronizePreparedHostedView(withId: hostedId)
+        scheduleDeferredFullSynchronizeAll()
         pruneDeadEntries()
     }
 
     func synchronizeHostedViewForAnchor(_ anchorView: NSView, syncLayout: Bool = true) {
-        guard ensureInstalled(syncLayout: syncLayout) else { return }
-        if syncLayout {
-            synchronizeLayoutHierarchy()
-        } else {
-            _ = synchronizeHostFrameToReference()
-        }
+        guard prepareForHostedViewSynchronization(syncLayout: syncLayout) else { return }
         pruneDeadEntries()
         let anchorId = ObjectIdentifier(anchorView)
         let primaryHostedId = hostedByAnchorId[anchorId]
         if let primaryHostedId {
-            synchronizeHostedView(withId: primaryHostedId, syncLayout: syncLayout)
+            synchronizePreparedHostedView(withId: primaryHostedId)
         }
 
         // Failsafe: during aggressive divider drags/structural churn, one anchor can miss a
         // geometry callback while another fires. Reconcile all mapped hosted views so no stale
         // frame remains "stuck" onscreen until the next interaction.
-        synchronizeAllHostedViews(excluding: primaryHostedId, syncLayout: syncLayout)
+        synchronizePreparedHostedViews(excluding: primaryHostedId)
         reconcileVisibleHostedViewsAfterGeometrySync(reason: "portal.anchorGeometrySync")
         scheduleDeferredFullSynchronizeAll()
     }
@@ -1277,18 +1277,22 @@ final class WindowTerminalPortal: NSObject {
         }
     }
 
-    private func synchronizeAllHostedViews(excluding hostedIdToSkip: ObjectIdentifier?, syncLayout: Bool = true) {
-        guard ensureInstalled(syncLayout: syncLayout) else { return }
-        if syncLayout {
-            synchronizeLayoutHierarchy()
-        } else {
-            _ = synchronizeHostFrameToReference()
-        }
+    @discardableResult
+    private func synchronizeAllHostedViews(
+        excluding hostedIdToSkip: ObjectIdentifier?,
+        syncLayout: Bool = true
+    ) -> Bool {
+        guard prepareForHostedViewSynchronization(syncLayout: syncLayout) else { return false }
         pruneDeadEntries()
+        synchronizePreparedHostedViews(excluding: hostedIdToSkip)
+        return true
+    }
+
+    private func synchronizePreparedHostedViews(excluding hostedIdToSkip: ObjectIdentifier?) {
         let hostedIds = Array(entriesByHostedId.keys)
         for hostedId in hostedIds {
             if hostedId == hostedIdToSkip { continue }
-            synchronizeHostedView(withId: hostedId, syncLayout: syncLayout)
+            synchronizePreparedHostedView(withId: hostedId)
         }
     }
 
@@ -1324,8 +1328,7 @@ final class WindowTerminalPortal: NSObject {
         return true
     }
 
-    private func synchronizeHostedView(withId hostedId: ObjectIdentifier, syncLayout: Bool = true) {
-        guard ensureInstalled(syncLayout: syncLayout) else { return }
+    private func synchronizePreparedHostedView(withId hostedId: ObjectIdentifier) {
         guard var entry = entriesByHostedId[hostedId] else { return }
         guard let hostedView = entry.hostedView else {
             entriesByHostedId.removeValue(forKey: hostedId)
@@ -1759,6 +1762,7 @@ final class WindowTerminalPortal: NSObject {
     func debugHostedSubviewCount() -> Int {
         hostView.subviews.count
     }
+
 #endif
 
     private func hostedScrollViewAtWindowPoint(_ windowPoint: NSPoint) -> (view: GhosttySurfaceScrollView, point: NSPoint)? {

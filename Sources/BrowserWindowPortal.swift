@@ -1942,24 +1942,11 @@ final class WindowBrowserPortal: NSObject {
     }
 
     private func synchronizeAllEntriesFromExternalGeometryChange() {
-        guard ensureInstalled() else { return }
-        installedContainerView?.layoutSubtreeIfNeeded()
-        installedReferenceView?.layoutSubtreeIfNeeded()
-        hostView.superview?.layoutSubtreeIfNeeded()
-        hostView.layoutSubtreeIfNeeded()
-        synchronizeAllWebViews(excluding: nil, source: "externalGeometry")
-
-        for entry in entriesByWebViewId.values {
-            guard let webView = entry.webView,
-                  let containerView = entry.containerView,
-                  !containerView.isHidden else { continue }
-            guard webView.superview === containerView else { continue }
-            invalidateHostedWebViewGeometry(
-                webView,
-                in: containerView,
-                reason: "externalGeometry"
-            )
-        }
+        // AppKit posts resize/split notifications after completing its layout pass.
+        // Consume those current frames without forcing the ancestor hierarchy back
+        // through layout. synchronizeWebView invalidates WebKit only when a visible
+        // entry's frame, bounds, attachment, or presentation state actually changed.
+        _ = synchronizeAllWebViews(excluding: nil, source: "externalGeometry")
     }
 
     @discardableResult
@@ -2817,7 +2804,7 @@ final class WindowBrowserPortal: NSObject {
     func forceRefreshWebView(withId webViewId: ObjectIdentifier, reason: String) {
         guard ensureInstalled() else { return }
         let refreshSource = "forceRefresh:\(reason)"
-        synchronizeWebView(
+        synchronizePreparedWebView(
             withId: webViewId,
             source: refreshSource,
             forcePresentationRefresh: true
@@ -2974,7 +2961,7 @@ final class WindowBrowserPortal: NSObject {
             hostView.addSubview(containerView, positioned: .above, relativeTo: nil)
         }
 
-        synchronizeWebView(
+        synchronizePreparedWebView(
             withId: webViewId,
             source: "bind",
             forcePresentationRefresh: didChangeAnchor
@@ -2983,11 +2970,15 @@ final class WindowBrowserPortal: NSObject {
     }
 
     func synchronizeWebViewForAnchor(_ anchorView: NSView) {
+        guard ensureInstalled() else { return }
         pruneDeadEntries()
         let anchorId = ObjectIdentifier(anchorView)
         let primaryWebViewId = webViewByAnchorId[anchorId]
         if let primaryWebViewId {
-            synchronizeWebView(withId: primaryWebViewId, source: "anchorPrimary")
+            synchronizePreparedWebView(
+                withId: primaryWebViewId,
+                source: "anchorPrimary"
+            )
         }
 
         // During rapid geometry changes (e.g. divider drag), syncing every web view
@@ -3014,14 +3005,22 @@ final class WindowBrowserPortal: NSObject {
         }
     }
 
-    private func synchronizeAllWebViews(excluding webViewIdToSkip: ObjectIdentifier?, source: String) {
-        guard ensureInstalled() else { return }
+    @discardableResult
+    private func synchronizeAllWebViews(
+        excluding webViewIdToSkip: ObjectIdentifier?,
+        source: String
+    ) -> Bool {
+        guard ensureInstalled() else { return false }
         pruneDeadEntries()
         let webViewIds = Array(entriesByWebViewId.keys)
         for webViewId in webViewIds {
             if webViewId == webViewIdToSkip { continue }
-            synchronizeWebView(withId: webViewId, source: source)
+            synchronizePreparedWebView(
+                withId: webViewId,
+                source: source
+            )
         }
+        return true
     }
 
     private func resetTransientRecoveryRetryIfNeeded(forWebViewId webViewId: ObjectIdentifier, entry: inout Entry) {
@@ -3071,6 +3070,18 @@ final class WindowBrowserPortal: NSObject {
         forcePresentationRefresh: Bool = false
     ) {
         guard ensureInstalled() else { return }
+        synchronizePreparedWebView(
+            withId: webViewId,
+            source: source,
+            forcePresentationRefresh: forcePresentationRefresh
+        )
+    }
+
+    private func synchronizePreparedWebView(
+        withId webViewId: ObjectIdentifier,
+        source: String,
+        forcePresentationRefresh: Bool = false
+    ) {
         guard var entry = entriesByWebViewId[webViewId] else { return }
         guard let webView = entry.webView else {
             entriesByWebViewId.removeValue(forKey: webViewId)
@@ -3667,6 +3678,7 @@ final class WindowBrowserPortal: NSObject {
     func debugHostedSubviewCount() -> Int {
         hostView.subviews.count
     }
+
 #endif
 
     func debugSnapshot(forWebViewId webViewId: ObjectIdentifier) -> BrowserWindowPortalRegistry.DebugSnapshot? {
