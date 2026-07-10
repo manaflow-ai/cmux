@@ -165,7 +165,7 @@ jobs:
           FINAL_BUILD_NUMBER: ${{ steps.upload.outputs.final_build_number }}
         run: |
           set -euo pipefail
-          VERSION="$(sed -nE 's/^[[:space:]]*MARKETING_VERSION[[:space:]]*=[[:space:]]*([^[:space:]]+).*/\1/p' ios/Config/Shared.xcconfig | head -n 1)"
+          VERSION="$(sed -nE 's/^[[:space:]]*CMUX_IOS_APPSTORE_MARKETING_VERSION[[:space:]]*=[[:space:]]*([^[:space:]]+).*/\1/p' ios/Config/Shared.xcconfig | tail -n 1)"
           ./ios/scripts/validate-app-store-release.sh \
             --app "$ASC_APP_ID" \
             --version "$VERSION" \

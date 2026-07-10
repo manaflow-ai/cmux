@@ -40,8 +40,8 @@ on:
     # TestFlight beta lane within ~2h of landing on main, and a failed or missed
     # run retries the not-yet-uploaded commit instead of permanently stranding
     # it. These uploads are external-eligible too, and reuse
-    # the checked-in iOS MARKETING_VERSION so external testers receive new builds
-    # under the already-approved version until that version is intentionally bumped.
+    # CMUX_IOS_BETA_MARKETING_VERSION so external testers receive new builds under
+    # the already-approved beta version until that version is intentionally bumped.
     #
     # Why ~2h and not a push trigger / per-commit: a per-push lane needs either a
     # shared concurrency group (which cancels superseded pending runs into red
@@ -102,7 +102,7 @@ jobs:
             //
             // Manual marketing-version-override uploads are deliberately excluded
             // from this canonical lane. They ship the current main SHA under an
-            // operator-selected MARKETING_VERSION as a one-off escape hatch, but
+            // operator-selected beta marketing version as a one-off escape hatch, but
             // they must NOT suppress the next scheduled canonical beta for the
             // same commit. Override runs upload a dedicated
             // ios-testflight-build-metadata-override artifact instead of the
@@ -475,14 +475,14 @@ jobs:
           # of the per-build "What to Test" commit range. Empty on the very first
           # run / a missing history, where the generator falls back gracefully.
           LAST_UPLOADED_SHA: ${{ needs.decide.outputs.last_uploaded_sha }}
-          # Optional manual one-off override that reuses an older approved
-          # MARKETING_VERSION so external testers can install it immediately.
+          # Optional manual one-off override that reuses an older approved beta
+          # marketing version so external testers can install it immediately.
           INPUT_MARKETING_VERSION_OVERRIDE: ${{ github.event.inputs.marketing_version_override }}
         run: |
           set -euo pipefail
           if [ -n "${INPUT_MARKETING_VERSION_OVERRIDE:-}" ]; then
             # One-time operator escape hatch: upload latest main as another build
-            # of an already-approved MARKETING_VERSION, which avoids starting a
+            # of an already-approved beta marketing version, which avoids starting a
             # fresh Beta App Review for that version. This path intentionally
             # skips changelog-driven notes because ios/CHANGELOG.md tracks the
             # current release line, not the reused older version.
@@ -495,7 +495,7 @@ jobs:
               --marketing-version "$INPUT_MARKETING_VERSION_OVERRIDE" \
               --skip-notes
           else
-            # Reuse the checked-in iOS MARKETING_VERSION for scheduled betas.
+            # Reuse the checked-in CMUX_IOS_BETA_MARKETING_VERSION for scheduled betas.
             # External TestFlight only requires Beta App Review once per marketing
             # version, so staying on the approved version lets CI keep publishing
             # main-tracking builds automatically while the next version remains
@@ -543,10 +543,10 @@ jobs:
             if [ -n "${INPUT_MARKETING_VERSION_OVERRIDE:-}" ]; then
               echo "- marketing version override: \`${INPUT_MARKETING_VERSION_OVERRIDE}\`"
             else
-              echo "- marketing version: checked-in iOS MARKETING_VERSION"
+              echo "- marketing version: checked-in beta marketing version"
             fi
             echo "- build number (CFBundleVersion): \`${BUILD_NUMBER}\`"
-            echo "- audience: internal testers immediately, external testers automatically after external-group assignment; new MARKETING_VERSIONs are auto-submitted for Apple Beta App Review"
+            echo "- audience: internal testers immediately, external testers automatically after external-group assignment; new beta marketing versions are auto-submitted for Apple Beta App Review"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Persist uploaded build metadata
