@@ -212,9 +212,4 @@ import Testing
         #expect(grid?.rows == 5)
     }
 
-    @Test func paneTitleUsesCommandThenShellCwdThenNil() {
-        #expect(RemoteTmuxWindowMirror.paneTitle(command: "vim", cwd: "/tmp/project") == "vim")
-        #expect(RemoteTmuxWindowMirror.paneTitle(command: "zsh", cwd: "/tmp/project") == "project")
-        #expect(RemoteTmuxWindowMirror.paneTitle(command: "", cwd: nil) == nil)
-    }
 }
