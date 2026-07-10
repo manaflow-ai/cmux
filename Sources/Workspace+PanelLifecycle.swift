@@ -148,14 +148,20 @@ extension Workspace {
     @discardableResult
     func clearStaleAgentPIDs(refreshPorts: Bool = true) -> Bool {
         var didChange = false
+        var prunedPanelIds: Set<UUID> = []
         for (key, pid) in agentPIDs where !isRecordedAgentPIDLive(key: key, pid: pid) {
+            let ownedPanelId = agentPIDPanelIdsByKey[key]
             if clearAgentPID(key: key, clearStatus: true, refreshPorts: false) {
                 didChange = true
+                if let ownedPanelId { prunedPanelIds.insert(ownedPanelId) }
             }
         }
         if didChange {
             if refreshPorts { refreshTrackedAgentPorts() }
             AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: id)
+            for panelId in prunedPanelIds {
+                invalidateRestoredAgentSnapshotForProvenAgentExit(panelId: panelId)
+            }
         }
         return didChange
     }
@@ -179,6 +185,7 @@ extension Workspace {
         if didChange {
             if refreshPorts { refreshTrackedAgentPorts() }
             AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: id, surfaceId: panelId)
+            invalidateRestoredAgentSnapshotForProvenAgentExit(panelId: panelId)
         }
         return didChange
     }

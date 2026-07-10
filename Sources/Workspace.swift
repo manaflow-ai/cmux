@@ -409,19 +409,7 @@ extension Workspace {
             clearRestoredAgentSnapshot(panelId: panelId)
         }
         if let compatibleRestorableAgent = compatibleIndexedRestorableAgent {
-            let fingerprint = TabManager.restorableAgentSnapshotFingerprint(compatibleRestorableAgent)
-            if invalidatedRestoredAgentFingerprintsByPanelId[panelId] == fingerprint {
-                clearRestoredAgentSnapshot(panelId: panelId)
-            } else {
-                restoredAgentSnapshotsByPanelId[panelId] = compatibleRestorableAgent
-                if restoredAgentResumeStatesByPanelId[panelId] == nil {
-                    restoredAgentResumeStatesByPanelId[panelId] = restoredAgentResumeStateForAcceptedSnapshot(
-                        panelId: panelId
-                    )
-                }
-                invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: panelId)
-                syncTerminalTabAgentIconAsset(forPanelId: panelId)
-            }
+            adoptIndexedRestorableAgentSnapshot(compatibleRestorableAgent, panelId: panelId)
         }
         let hibernationState = (panel as? TerminalPanel)?.agentHibernationState
         let effectiveHibernationState = hibernationState.flatMap { state in
@@ -4588,12 +4576,6 @@ final class Workspace: Identifiable, ObservableObject {
         return didResume
     }
 
-    private func restoredAgentResumeStateForAcceptedSnapshot(panelId: UUID) -> RestoredAgentResumeState {
-        panelShellActivityStates[panelId] == .commandRunning
-            ? .observedAgentCommandRunning
-            : .manualResumeAvailable
-    }
-
     private func updateRestoredAgentResumeState(
         panelId: UUID,
         restoredAgent: SessionRestorableAgentSnapshot,
@@ -4640,7 +4622,7 @@ final class Workspace: Identifiable, ObservableObject {
         }
     }
 
-    private func invalidateRestoredAgentSnapshot(
+    func invalidateRestoredAgentSnapshot(
         panelId: UUID,
         restoredAgent: SessionRestorableAgentSnapshot
     ) {
