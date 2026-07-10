@@ -2,6 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import {
   docsCanonicalOrigin,
   docsChannel,
+  docsChannelUrl,
   nightlyDocsOrigin,
   releaseDocsOrigin,
 } from "../app/lib/docs-channel";
@@ -16,6 +17,12 @@ afterEach(() => {
   process.env.CMUX_DOCS_CHANNEL = saved.channel;
   process.env.CMUX_RELEASE_DOCS_ORIGIN = saved.release;
   process.env.CMUX_NIGHTLY_DOCS_ORIGIN = saved.nightly;
+});
+
+test("channel switching preserves localized path, query, and hash", () => {
+  expect(
+    docsChannelUrl("https://nightly-docs.cmux.com", "/ja/docs/base", "?q=base", "#install"),
+  ).toBe("https://nightly-docs.cmux.com/ja/docs/base?q=base#install");
 });
 
 test("release docs are the canonical default", () => {
