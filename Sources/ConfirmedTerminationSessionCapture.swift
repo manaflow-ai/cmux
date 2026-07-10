@@ -3,7 +3,6 @@ import Foundation
 @MainActor
 final class ConfirmedTerminationSessionCapture {
     typealias Capture = @MainActor () async -> ProcessDetectedResumeIndexes?
-    typealias Completion = @MainActor (ProcessDetectedResumeIndexes?) -> Void
 
     private let watchdog: TerminationWatchdog
 
@@ -11,17 +10,12 @@ final class ConfirmedTerminationSessionCapture {
         self.watchdog = watchdog
     }
 
-    func start(
-        persistCoreSnapshot: @escaping @MainActor () -> Void,
-        capture: @escaping Capture,
-        completion: @escaping Completion
-    ) -> Task<Void, Never> {
+    func prepare(persistCoreSnapshot: @MainActor () -> Void) {
         persistCoreSnapshot()
         watchdog.arm()
-        return Task { @MainActor in
-            let resumeIndexes = await capture()
-            guard !Task.isCancelled else { return }
-            completion(resumeIndexes)
-        }
+    }
+
+    func capture(using operation: Capture) async -> ProcessDetectedResumeIndexes? {
+        await operation()
     }
 }

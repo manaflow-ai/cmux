@@ -41,17 +41,18 @@ struct ProcessDetectedResumeIndexCoordinationTests {
         )
         let capture = ConfirmedTerminationSessionCapture(watchdog: watchdog)
 
-        let task = capture.start(
-            persistCoreSnapshot: {
-                events.withLock { $0.append("core") }
-                #expect(coordinator.current() == nil)
-            },
-            capture: {
+        capture.prepare {
+            events.withLock { $0.append("core") }
+            #expect(coordinator.current() == nil)
+        }
+        let task = Task { @MainActor in
+            _ = await capture.capture {
                 events.withLock { $0.append("capture") }
                 return await coordinator.load(coordinatedBy: sharedIndex)
-            },
-            completion: { _ in events.withLock { $0.append("complete") } }
-        )
+            }
+            guard !Task.isCancelled else { return }
+            events.withLock { $0.append("complete") }
+        }
 
         #expect(loadCount.withLock { $0 } == 0)
         #expect(events.withLock { $0 } == ["core", "watchdog"])
@@ -361,15 +362,18 @@ struct ProcessDetectedResumeIndexCoordinationTests {
         )
         let capture = ConfirmedTerminationSessionCapture(watchdog: watchdog)
 
-        let task = capture.start(
-            persistCoreSnapshot: { didPersistCoreSnapshot.withLock { $0 = true } },
-            capture: {
+        capture.prepare {
+            didPersistCoreSnapshot.withLock { $0 = true }
+        }
+        let task = Task { @MainActor in
+            _ = await capture.capture {
                 captureStarted.signal()
                 _ = await Self.wait(for: releaseCapture)
                 return nil
-            },
-            completion: { _ in didComplete.withLock { $0 = true } }
-        )
+            }
+            guard !Task.isCancelled else { return }
+            didComplete.withLock { $0 = true }
+        }
 
         #expect(didPersistCoreSnapshot.withLock { $0 })
         let fire = scheduledFire.withLock { $0 }

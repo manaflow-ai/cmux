@@ -175,12 +175,12 @@ struct ClosedItemHistoryAgentEnrichmentTests {
         ))
 
         #expect(!panel.hostedView.debugPortalVisibleInUI)
-        #expect(panel.debugRuntimeTeardownCountForTesting == 0)
+        #expect(!panel.didTeardownRuntimeForClose)
         await captureGate.open()
         await closeTask.value
-        #expect(panel.debugRuntimeTeardownCountForTesting == 1)
+        #expect(panel.didTeardownRuntimeForClose)
         panel.close()
-        #expect(panel.debugRuntimeTeardownCountForTesting == 1)
+        #expect(panel.didTeardownRuntimeForClose)
     }
 
     @Test

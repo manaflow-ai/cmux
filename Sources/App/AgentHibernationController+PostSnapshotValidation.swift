@@ -28,20 +28,16 @@ extension AgentHibernationController {
         }
         let requestID = UUID()
         let startSequence = postSnapshotValidationIndexSequence
-        let task = Task.detached(priority: .utility) { [weak self] () -> RestorableAgentSessionIndex? in
+        let task = Task { @MainActor [weak self] () -> RestorableAgentSessionIndex? in
             _ = await predecessor?.value
-            guard !Task.isCancelled else { return nil }
-            let shouldCapture = await MainActor.run {
-                guard let self,
-                      var inFlight = self.postSnapshotValidationIndexTask,
-                      inFlight.requestID == requestID else {
-                    return false
-                }
-                inFlight.hasStartedCapture = true
-                self.postSnapshotValidationIndexTask = inFlight
-                return true
+            guard let self,
+                  !Task.isCancelled,
+                  var inFlight = self.postSnapshotValidationIndexTask,
+                  inFlight.requestID == requestID else {
+                return nil
             }
-            guard shouldCapture, !Task.isCancelled else { return nil }
+            inFlight.hasStartedCapture = true
+            self.postSnapshotValidationIndexTask = inFlight
             return await loader()
         }
         postSnapshotValidationIndexTask = PostSnapshotValidationIndexTask(
