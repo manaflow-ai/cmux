@@ -189,6 +189,67 @@ struct SimulatorMutationGateTests {
         ).withLocks([key]) {}
     }
 
+    @Test("Cancellation completes while another owner still holds the lock")
+    func cancellationDoesNotWaitForCurrentOwner() async throws {
+        let directory = temporaryLockDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let releaseFirst = TestMutationLatch()
+        let firstEntered = TestMutationLatch()
+        let fileSystem = TestMutationLockFileSystem()
+        let firstOwner = SimulatorMutationGate(
+            lockDirectory: directory,
+            fileSystem: fileSystem
+        )
+        let waitingOwner = SimulatorMutationGate(
+            lockDirectory: directory,
+            fileSystem: fileSystem
+        )
+        let key = SimulatorMutationKey.tcc(deviceIdentifier: "DEVICE")
+
+        let first = Task {
+            try await firstOwner.withLocks([key]) {
+                await firstEntered.open()
+                await releaseFirst.wait()
+            }
+        }
+        await firstEntered.wait()
+        let cancelled = Task {
+            try await waitingOwner.withLocks([key]) {}
+        }
+        await fileSystem.waitUntilAttemptCount(2)
+        cancelled.cancel()
+
+        let cancelledBeforeDeadline = await withTaskGroup(
+            of: Bool.self,
+            returning: Bool.self
+        ) { group in
+            group.addTask {
+                _ = try? await cancelled.value
+                return true
+            }
+            group.addTask {
+                try? await ContinuousClock().sleep(for: .milliseconds(250))
+                return false
+            }
+            let firstResult = await group.next() ?? false
+            if !firstResult {
+                await releaseFirst.open()
+            }
+            group.cancelAll()
+            while await group.next() != nil {}
+            return firstResult
+        }
+
+        if cancelledBeforeDeadline {
+            await releaseFirst.open()
+        }
+        try await first.value
+        #expect(cancelledBeforeDeadline)
+        await #expect(throws: CancellationError.self) {
+            try await cancelled.value
+        }
+    }
+
     private func temporaryLockDirectory() -> URL {
         FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-mutation-gate-test-\(UUID().uuidString)")
