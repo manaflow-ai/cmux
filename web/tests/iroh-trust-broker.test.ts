@@ -142,6 +142,46 @@ describe("Iroh trust broker registration", () => {
 });
 
 describe("Iroh discovery and grants", () => {
+  test("makes owned binding revocation retry-safe without rotating LAN state twice", async () => {
+    const fixture = makeFixture();
+    const active = binding({ userId: USER_A });
+    fixture.repository.bindings.push(active);
+
+    const first = await Effect.runPromise(fixture.broker.revoke(
+      USER_A,
+      { bindingId: active.id },
+      NOW,
+    ));
+    const firstRevokedAt = active.revokedAt;
+    expect(first).toEqual({ revoked: true, lan_rendezvous_rotated: true });
+    expect(firstRevokedAt).toEqual(NOW);
+    const firstDiscovery = await Effect.runPromise(fixture.broker.discover(USER_A, NOW)) as {
+      lan_rendezvous: { generation: number };
+    };
+    expect(firstDiscovery.lan_rendezvous.generation).toBe(2);
+
+    const retry = await Effect.runPromise(fixture.broker.revoke(
+      USER_A,
+      { bindingId: active.id },
+      new Date(NOW.getTime() + 60_000),
+    ));
+    expect(retry).toEqual(first);
+    expect(active.revokedAt).toEqual(firstRevokedAt);
+    const retryDiscovery = await Effect.runPromise(fixture.broker.discover(USER_A, NOW)) as {
+      lan_rendezvous: { generation: number };
+    };
+    expect(retryDiscovery.lan_rendezvous.generation).toBe(2);
+
+    await expectEffectFailure(
+      fixture.broker.revoke(USER_B, { bindingId: active.id }, NOW),
+      "IrohNotFoundError",
+    );
+    await expectEffectFailure(
+      fixture.broker.revoke(USER_A, { bindingId: randomUUID() }, NOW),
+      "IrohNotFoundError",
+    );
+  });
+
   test("never exposes another user through shared team context", async () => {
     const fixture = makeFixture();
     await Effect.runPromise(fixture.broker.register(USER_A, await fixture.signedRegistration(), NOW));

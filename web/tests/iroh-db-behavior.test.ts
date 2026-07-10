@@ -475,6 +475,23 @@ describe("Iroh trust broker database behavior", () => {
     expect(await Effect.runPromise(repo.revokeBinding({
       userId,
       bindingId: firstBindingId,
+      now: new Date(NOW.getTime() + 60_000),
+    }))).toBe(true);
+    const [retriedBinding] = await requiredSql()<Array<{ revokedAt: Date }>>`
+      select revoked_at as "revokedAt"
+      from iroh_endpoint_bindings
+      where id = ${firstBindingId}
+    `;
+    expect(retriedBinding?.revokedAt).toEqual(NOW);
+    expect((await Effect.runPromise(repo.discoverySnapshot({ userId, now: NOW }))).lanDiscoveryGeneration).toBe(2);
+    expect(await Effect.runPromise(repo.revokeBinding({
+      userId: "user-lan-other",
+      bindingId: firstBindingId,
+      now: NOW,
+    }))).toBe(false);
+    expect(await Effect.runPromise(repo.revokeBinding({
+      userId,
+      bindingId: randomUUID(),
       now: NOW,
     }))).toBe(false);
 
