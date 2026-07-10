@@ -54,6 +54,86 @@ extension SettingsWindowSharedStateSuites {
             }
         }
 
+        @Test func reentrantReplacementDuringDeminiaturizeWaitIsActivated() async {
+            await withCleanSettingsWindows {
+                var builtWindows: [SettingsTestHostWindow] = []
+                let presenter = SettingsWindowPresenter(windowFactory: { _ in
+                    let window = makePlainFactoryWindow()
+                    builtWindows.append(window)
+                    return window
+                })
+                #expect(presenter.show() == .presented)
+                guard let firstWindow = builtWindows.first else {
+                    Issue.record("expected the first show to build a window")
+                    return
+                }
+
+                // The stalled Dock reopen is interrupted by a close, and a
+                // foreign willClose observer immediately reopens Settings
+                // without activation. The outer (activating) show must adopt
+                // that replacement AND still honor its activation semantics —
+                // returning .presented for a window that was never keyed
+                // would leave the app inactive.
+                firstWindow.simulatesDockMiniaturization = true
+                firstWindow.stallsDeminiaturizeCommit = true
+                let reopener = ReopenOnSettingsTestWindowClose {
+                    _ = presenter.show(activateApp: false)
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak firstWindow] in
+                    firstWindow?.close()
+                }
+
+                let result = presenter.show()
+                reopener.stopObserving()
+
+                #expect(result == .presented)
+                #expect(builtWindows.count == 2)
+                guard builtWindows.count == 2, let replacement = builtWindows.last,
+                      replacement !== firstWindow else { return }
+                #expect(replacement.isVisible)
+                #expect(replacement.makeKeyAndOrderFrontCallCount >= 1)
+            }
+        }
+
+        @Test func reentrantShowDuringDeminiaturizeWaitCoalescesOntoTheTransition() async {
+            await withCleanSettingsWindows {
+                var builtWindows: [SettingsTestHostWindow] = []
+                let presenter = SettingsWindowPresenter(windowFactory: { _ in
+                    let window = makePlainFactoryWindow()
+                    builtWindows.append(window)
+                    return window
+                })
+                #expect(presenter.show() == .presented)
+                guard let firstWindow = builtWindows.first else {
+                    Issue.record("expected the first show to build a window")
+                    return
+                }
+
+                // A second open (repeated ⌘, / concurrent socket request)
+                // lands while the deminiaturization is still committing.
+                // `deminiaturize` has already cleared `isMiniaturized`, so
+                // without in-flight tracking the re-entrant show would see a
+                // plain invisible window and demolish the live transition —
+                // destroying the unsaved edits this design preserves.
+                firstWindow.simulatesDockMiniaturization = true
+                firstWindow.asyncDeminiaturizeCommitDelay = 0.2
+                var reentrantResult: SettingsWindowShowResult?
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                    MainActor.assumeIsolated {
+                        reentrantResult = presenter.show()
+                    }
+                }
+
+                let result = presenter.show()
+
+                #expect(result == .presented)
+                #expect(reentrantResult == .presented)
+                #expect(builtWindows.count == 1)
+                #expect(firstWindow.isVisible)
+                #expect(firstWindow.identifier?.rawValue == SettingsWindowPresenter.windowIdentifier)
+            }
+        }
+
         @Test func miniaturizedSettingsWindowIsReusedAndVisibleOnReturn() async {
             await withCleanSettingsWindows {
                 var builtWindows: [SettingsTestHostWindow] = []

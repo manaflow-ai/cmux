@@ -65,18 +65,26 @@ final class SettingsWindowPresenter: NSObject {
     /// (and the window's identifier removed) in `settingsWindowWillClose` so
     /// a closed window can never absorb a future open request.
     private var settingsWindow: NSWindow?
-    private var pendingNavigationTarget: SettingsNavigationTarget?
+    // Navigation-delivery state is internal (not private) because its
+    // behavior lives in SettingsWindowNavigationDelivery.swift (split for
+    // the file-length budget); no type outside the presenter touches it.
+    var pendingNavigationTarget: SettingsNavigationTarget?
     /// Current re-entrant depth of `performShow` (close-triggered observers
     /// may re-enter). Bounded by `maxReentrantShowDepth`.
     private var activeShowDepth = 0
+    /// Window whose deminiaturization an outer `performShow` is currently
+    /// awaiting. `deminiaturize` clears `isMiniaturized` before visibility
+    /// lands, so without this a re-entrant show during the wait would see a
+    /// plain invisible window and demolish the live transition.
+    private var windowAwaitingDeminiaturize: NSWindow?
     /// Monotonic delivery token: bumped on every posted navigation so a
     /// queued fresh-window delivery can detect it was superseded by a newer
     /// targeted show and stay silent instead of navigating backwards.
-    private var navigationDeliveryGeneration = 0
+    var navigationDeliveryGeneration = 0
     /// Whether the current window's SwiftUI content has signaled (via the
     /// host root's `onAppear`) that its navigation consumer is installed;
     /// posting before then would drop the navigation on the floor.
-    private var isContentReadyForNavigation = false
+    var isContentReadyForNavigation = false
 
     override convenience init() {
         // Content readiness reports back to the presenter instance that owns
@@ -182,7 +190,10 @@ final class SettingsWindowPresenter: NSObject {
                 reusedExisting = false
             }
 
-            let wasMiniaturized = window.isMiniaturized
+            // A re-entrant show during an in-flight deminiaturization must
+            // coalesce onto the transition, not treat the (no longer
+            // miniaturized, not yet visible) window as a failed husk.
+            let wasMiniaturized = window.isMiniaturized || windowAwaitingDeminiaturize === window
             orderFrontWithoutActivation(window)
             if activateApp && !window.isVisible && NSApp.isHidden {
                 // The app being hidden can be exactly what visibility is
@@ -211,14 +222,21 @@ final class SettingsWindowPresenter: NSObject {
                 // bounded chance to land it before concluding failure, so a
                 // live window full of unsaved edits is never destroyed just
                 // because an OS version commits the transition a turn later.
+                let previousAwaiting = windowAwaitingDeminiaturize
+                windowAwaitingDeminiaturize = window
+                defer { windowAwaitingDeminiaturize = previousAwaiting }
                 awaitVisibility(of: window, timeout: Self.deminiaturizeSettleTimeout)
                 if settingsWindow !== window {
-                    // The nested pump let events change window ownership
-                    // (the user closed the window mid-animation, or a
-                    // re-entrant show replaced it). This attempt's window is
-                    // gone; report reality rather than resurrecting a window
-                    // the user just closed.
+                    // The nested pump processed a close or a re-entrant
+                    // show; this attempt's window is gone. Report reality —
+                    // never resurrect a window the user just closed — and an
+                    // adopted replacement still owes this request its
+                    // activation semantics (the re-entrant show may have
+                    // presented without activating).
                     if let current = settingsWindow, current.isVisible {
+                        if activateApp {
+                            activateAndSurface(current)
+                        }
                         deliverNavigation(reusedExistingWindow: true)
                         return .presented
                     }
@@ -269,11 +287,7 @@ final class SettingsWindowPresenter: NSObject {
         return .failed(reason: failureReason)
     }
 
-    func consumePendingNavigationTarget() -> SettingsNavigationTarget? {
-        let target = pendingNavigationTarget
-        pendingNavigationTarget = nil
-        return target
-    }
+    // Navigation delivery lives in SettingsWindowNavigationDelivery.swift.
 
     // MARK: - Window acquisition
 
@@ -414,37 +428,6 @@ final class SettingsWindowPresenter: NSObject {
         NSRunningApplication.current.activate(options: [.activateAllWindows])
         window.makeKeyAndOrderFront(nil)
         window.orderFrontRegardless()
-    }
-
-    /// Ready live content receives the navigation immediately. Until the
-    /// content signals readiness (a window can exist before its navigation
-    /// consumer is installed — fresh creation, hidden app), the target stays
-    /// pending and ``SettingsWindowHostRoot`` delivers it from `onAppear` via
-    /// `deliverPendingNavigationAfterContentAppears()`.
-    private func deliverNavigation(reusedExistingWindow: Bool) {
-        guard let target = pendingNavigationTarget else { return }
-        if reusedExistingWindow && isContentReadyForNavigation {
-            pendingNavigationTarget = nil
-            navigationDeliveryGeneration &+= 1
-            SettingsNavigationRequest.post(target)
-        }
-    }
-
-    /// Marks the content ready and delivers any pending target. The post is
-    /// deferred one main-actor hop so the content's own restore navigation
-    /// (posted from a descendant `onAppear`) cannot clobber it, and it is
-    /// generation-guarded: a newer targeted `show()` that delivered in the
-    /// meantime supersedes this queued post instead of being overridden by it.
-    func deliverPendingNavigationAfterContentAppears() {
-        isContentReadyForNavigation = true
-        guard let target = pendingNavigationTarget else { return }
-        pendingNavigationTarget = nil
-        navigationDeliveryGeneration &+= 1
-        let generation = navigationDeliveryGeneration
-        Task { @MainActor in
-            guard self.navigationDeliveryGeneration == generation else { return }
-            SettingsNavigationRequest.post(target)
-        }
     }
 
     // MARK: - Teardown
