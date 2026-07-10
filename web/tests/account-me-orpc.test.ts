@@ -5,7 +5,6 @@ import { call } from "@orpc/server";
 
 import { accountMeProcedure } from "../orpc/server/account/me";
 import { generateOpenAPIDocument } from "../orpc/server/openapi";
-import { PRO_PRODUCT_ID } from "../services/billing/pro";
 
 // The two checked-in specs the Swift client and /api/openapi.json ship must
 // stay identical to what the router generates. Resolve relative to this test
@@ -17,8 +16,8 @@ const CHECKED_IN_SPECS = [
 
 // Drives the real resolveProPlanStatus (no module mocks, so it can't leak into
 // other test files). The fake user carries no `id`, so the Stripe-subscription
-// lookup short-circuits to false without touching a database, and the fake
-// user's Stack product list alone decides Pro vs Free.
+// lookup short-circuits to false without touching a database. Its product list
+// represents the removed Stack billing grant and must no longer confer Pro.
 type FakeProduct = {
   id: string;
   subscription: { currentPeriodEnd: Date | null } | null;
@@ -31,13 +30,15 @@ function productsPage(items: FakeProduct[]) {
   return page;
 }
 
-function fakeUser(opts: { email: string | null; pro: boolean }) {
+function fakeUser(opts: { email: string | null; legacyStackPro: boolean }) {
   return {
     primaryEmail: opts.email,
     clientReadOnlyMetadata: {},
     listProducts: async () =>
       productsPage(
-        opts.pro ? [{ id: PRO_PRODUCT_ID, subscription: null, quantity: 1 }] : [],
+        opts.legacyStackPro
+          ? [{ id: "pro", subscription: null, quantity: 1 }]
+          : [],
       ),
     update: async () => undefined,
   };
@@ -48,22 +49,24 @@ function context(user: unknown) {
 }
 
 describe("account.me", () => {
-  test("returns the Pro plan (external billing) for a Stack-Pro user", async () => {
+  test("does not grant Pro from a legacy Stack product", async () => {
     const result = await call(accountMeProcedure, undefined, {
-      context: context(fakeUser({ email: "a@example.com", pro: true })),
+      context: context(
+        fakeUser({ email: "a@example.com", legacyStackPro: true }),
+      ),
     });
     expect(result).toEqual({
       userId: "",
       email: "a@example.com",
-      planId: "pro",
-      isPro: true,
-      billingManagement: "external",
+      planId: "free",
+      isPro: false,
+      billingManagement: "none",
     });
   });
 
   test("returns the Free plan and an empty email for an email-less non-subscriber", async () => {
     const result = await call(accountMeProcedure, undefined, {
-      context: context(fakeUser({ email: null, pro: false })),
+      context: context(fakeUser({ email: null, legacyStackPro: false })),
     });
     expect(result.planId).toBe("free");
     expect(result.isPro).toBe(false);
