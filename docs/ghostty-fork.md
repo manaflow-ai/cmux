@@ -12,15 +12,17 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-Current cmux pinned fork head: `1ae98c991`. It combines the previous cmux pin
+Current cmux pinned fork head: `e215e78bf`. It combines the previous cmux pin
 `dd726a9a6`, current fork `main` (`8495e581a`), and upstream
 `ghostty-org/ghostty` `main` through `7e02af879` (2026-07-09), followed by the
-render-grid preserved-page OOM fix and mutex-safe selection notifications.
+render-grid preserved-page OOM fix, lock-free selection notifications, and
+compressed-storage-preserving full scrollback reads.
 Published via
 https://github.com/manaflow-ai/ghostty/pull/96 and
 https://github.com/manaflow-ai/ghostty/pull/99 and
 https://github.com/manaflow-ai/ghostty/pull/104 and
-https://github.com/manaflow-ai/ghostty/pull/105.
+https://github.com/manaflow-ai/ghostty/pull/105 and
+https://github.com/manaflow-ai/ghostty/pull/106.
 
 ### Upstream TLDR (`d560c645..7e02af879`)
 
@@ -61,34 +63,40 @@ https://github.com/manaflow-ai/ghostty/pull/105.
    for the scope defer instead of double-freeing the prior decode.
 5. Fork CI keeps the `ubuntu-latest` aggregate-test fallback and skips
    upstream-only Vouch jobs outside `ghostty-org/ghostty`.
-6. Selection changes advance a per-screen activity token. The renderer reads
-   that token under its demand lock, releases the terminal mutex, then invokes
-   `selection_changed`. Genuine surface transitions also wake the renderer.
-   Accessibility callbacks can therefore read the selection synchronously
-   without deadlocking, and clears or endpoint adjustments do not leave stale
-   accessibility state.
+6. Selection changes and screen lifecycle transitions advance a terminal-wide
+   atomic activity epoch. Renderer wakes compare the epoch without acquiring
+   the terminal mutex, including for hidden surfaces, then invoke
+   `selection_changed`. Accessibility callbacks can therefore read the
+   selection synchronously without deadlocking or adding lock contention to
+   output-heavy surfaces.
 7. `selection_changed` is appended after every previously released C action
    tag. The old tail remains numeric value 64 and the new callback is 65, so
    existing binary embedders do not reinterpret later action payloads.
+8. `PageListFormatter` decodes compressed history into temporary owned pages
+   and frees them after formatting, so full `read-screen` and clipboard reads
+   no longer make cold history resident. Temporary decode allocation failures
+   propagate as `OutOfMemory` through Zig and C formatter APIs.
 
-Verified with Zig 0.15.2: compression and libghostty-vt compression tests,
+Verified with Zig 0.15.2: compression, formatter, selection activity, and
+libghostty-vt compression tests,
 the cmux link-click regression test, the `wasm32-freestanding` libghostty-vt
 build, a clean universal GhosttyKit build, tagged cmux reloads `gcmp` and
 `gsel2`, and live accessibility reads across select-all, endpoint adjustment,
 and clearing.
 Prebuilt archive:
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-1ae98c991919f063ee63017e9b1dee530d9fd6f2-crashsubdir-cmux-crash-v1
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-e215e78bf04df3f7cecbef665eec051a203baf6a-crashsubdir-cmux-crash-v1
 
 ### Previous pin
 
-The previous cmux pin was `dd726a9a6`, carrying the iOS external renderer-drain
-mode and IOSurface detach fixes on top of `a78fe53ef`. The initial compression
-merge for this update was `870ed36f9`; it was superseded by `4117298e4` after
-the preserved-page OOM ownership fix, by `bdf4baa80` after the selection
-notification callback fix, then by `1ae98c991` after preserving public action
-tag values. The fork's prior `main` head was
+The previous cmux pin was `1ae98c991`. It was superseded by `e215e78bf` after
+full scrollback formatting was changed to preserve compressed storage and
+selection notifications moved to a lock-free terminal-wide epoch. The initial
+compression merge for this update was `870ed36f9`; it was superseded by
+`4117298e4` after the preserved-page OOM ownership fix, by `bdf4baa80` after
+the selection notification callback fix, then by `1ae98c991` after preserving
+public action tag values. The fork's prior `main` head was
 `cc31d54ee`, which merged upstream through `d560c645`; both histories are
-ancestors of `1ae98c991`.
+ancestors of `e215e78bf`.
 
 ### Earlier pin
 
