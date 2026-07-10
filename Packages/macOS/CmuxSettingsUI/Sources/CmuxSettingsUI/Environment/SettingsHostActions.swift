@@ -1,3 +1,4 @@
+import CmuxSettings
 import Foundation
 
 /// The source that resolved a `cua-driver` binary candidate.
@@ -144,6 +145,9 @@ public protocol SettingsHostActions: AnyObject {
     /// window scene so the package can't open it directly.
     func openTerminalConfigWindow()
 
+    /// Opens the user's workspace-layout action definitions for editing.
+    func customizeWorkspaceLayouts()
+
     /// Persists an explicit menu-bar-only preference change in the host app.
     ///
     /// The host pairs the visible `app.menuBarOnly` setting with any hidden
@@ -274,6 +278,9 @@ public protocol SettingsHostActions: AnyObject {
 
     /// Opens a macOS privacy pane for Computer Use permissions.
     func openPrivacyPane(anchor: ComputerUsePrivacyPaneAnchor)
+    /// Applies the host-side OS `AppleLanguages` override for a changed app
+    /// language selection.
+    func applyLanguageOverride(_ language: AppLanguage)
 }
 
 public extension SettingsHostActions {
@@ -288,6 +295,11 @@ public extension SettingsHostActions {
     func requestAccessibilityAccess() async -> Bool { false }
     func requestScreenRecordingAccess() async -> Bool { false }
     func openPrivacyPane(anchor: ComputerUsePrivacyPaneAnchor) {}
+    /// Default no-op for package previews and tests without host layout editing.
+    func customizeWorkspaceLayouts() {}
+
+    /// Default no-op for package previews and tests without app-language ownership.
+    func applyLanguageOverride(_ language: AppLanguage) {}
 
     func openMobilePairingWindow() {}
 

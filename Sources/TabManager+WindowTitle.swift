@@ -36,10 +36,34 @@ extension TabManager {
     /// `title` is merely seeded equal to the group name at creation and would
     /// otherwise drift when the group is renamed.
     func resolvedWorkspaceDisplayTitle(for tab: Workspace) -> String {
-        if let group = workspaceGroups.first(where: { $0.anchorWorkspaceId == tab.id }) {
-            return group.name
+        let anchorGroupName = workspaceGroups.first(where: { $0.anchorWorkspaceId == tab.id })?.name
+        return resolvedWorkspaceDisplayTitle(for: tab, anchorGroupName: anchorGroupName)
+    }
+
+    func resolvedWorkspaceDisplayTitle(forWorkspaceId workspaceId: UUID) -> String? {
+        guard let workspace = workspacesById[workspaceId] else { return nil }
+        return resolvedWorkspaceDisplayTitle(for: workspace)
+    }
+
+    func resolvedWorkspaceDisplayTitles(for workspaceIds: Set<UUID>) -> [UUID: String] {
+        guard !workspaceIds.isEmpty else { return [:] }
+        let groupNamesByAnchorId = Dictionary(
+            workspaceGroups.map { ($0.anchorWorkspaceId, $0.name) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        var titles: [UUID: String] = [:]
+        titles.reserveCapacity(workspaceIds.count)
+        for workspace in tabs where workspaceIds.contains(workspace.id) {
+            titles[workspace.id] = resolvedWorkspaceDisplayTitle(
+                for: workspace,
+                anchorGroupName: groupNamesByAnchorId[workspace.id]
+            )
         }
-        return tab.title
+        return titles
+    }
+
+    private func resolvedWorkspaceDisplayTitle(for workspace: Workspace, anchorGroupName: String?) -> String {
+        anchorGroupName ?? workspace.title
     }
 
     private func windowTitle(for tab: Workspace?) -> String {
@@ -50,7 +74,7 @@ extension TabManager {
             resolvedWorkspaceDisplayTitle(for: $0)
                 .trimmingCharacters(in: .whitespacesAndNewlines)
         } ?? ""
-        let activeDirectory = tab?.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let activeDirectory = activeWindowTitleDirectory(for: tab)
         let resolvedTitle = template.resolved(context: WindowTitleTemplateContext(
             defaultTitle: defaultTitle,
             activeWorkspace: workspaceTitle.isEmpty ? defaultTitle : workspaceTitle,
@@ -66,7 +90,23 @@ extension TabManager {
         guard let tab else { return "cmux" }
         let trimmedTitle = resolvedWorkspaceDisplayTitle(for: tab).trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmedTitle.isEmpty { return trimmedTitle }
-        let trimmedDirectory = tab.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedDirectory = activeWindowTitleDirectory(for: tab)
         return trimmedDirectory.isEmpty ? "cmux" : trimmedDirectory
+    }
+
+    private func activeWindowTitleDirectory(for tab: Workspace?) -> String {
+        guard let tab else { return "" }
+        if let focusedPanelId = tab.focusedPanelId,
+           tab.allowsLocalDirectoryFallback(panelId: focusedPanelId) {
+            return trimmedWindowTitleDirectory(tab.reportedPanelDirectory(panelId: focusedPanelId))
+                ?? trimmedWindowTitleDirectory(tab.terminalPanel(for: focusedPanelId)?.requestedWorkingDirectory)
+                ?? (tab.isRemoteWorkspace ? "" : trimmedWindowTitleDirectory(tab.presentedCurrentDirectory) ?? "")
+        }
+        return trimmedWindowTitleDirectory(tab.presentedCurrentDirectory) ?? ""
+    }
+
+    private func trimmedWindowTitleDirectory(_ directory: String?) -> String? {
+        let trimmed = directory?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? nil : trimmed
     }
 }

@@ -1,6 +1,7 @@
 import {
   jsonResponse,
   notFoundVm,
+  resolveVmRouteAccountScope,
   vmErrorResponse,
   withAuthedVmApiRoute,
 } from "../../../../../services/vms/routeHelpers";
@@ -60,6 +61,8 @@ export async function POST(
         : 30_000;
 
       const { id } = await params;
+      const account = resolveVmRouteAccountScope(user, request);
+      if (!account.ok) return account.response;
       setSpanAttributes(span, {
         "cmux.vm.id": id,
         "cmux.command_length": command.length,
@@ -68,6 +71,8 @@ export async function POST(
       try {
         const result = await runVmWorkflow(execVm({
           userId: user.id,
+          billingTeamId: account.entitlements.billingTeamId,
+          teamIds: user.teamIds,
           providerVmId: id,
           command,
           timeoutMs,

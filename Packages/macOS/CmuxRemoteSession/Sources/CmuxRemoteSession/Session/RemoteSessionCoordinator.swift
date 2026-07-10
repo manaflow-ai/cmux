@@ -70,8 +70,7 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
     // MARK: - Queue-confined state
     //
     // Every var below is confined to `queue` (see the isolation essay).
-    // Internal (not private) only so the coordinator's same-module extension
-    // files can reach them; nothing outside this type may touch them.
+    // Internal so the coordinator's same-module extension files can reach them.
 
     var isStopping = false
     var proxyLease: RemoteProxyLease?
@@ -428,6 +427,10 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
             reconnectSuspended = false
             reachabilityProbeGeneration &+= 1
             guard proxyEndpoint != endpoint else {
+                publishState(
+                    .connected,
+                    detail: "Connected to \(configuration.displayTarget) via shared local proxy \(endpoint.host):\(endpoint.port)"
+                )
                 recordHeartbeatActivityLocked()
                 fulfillPendingPTYBridgeStartsLocked()
                 return
@@ -537,7 +540,9 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
         requiredDaemonCapabilities.filter {
             $0 != RemoteDaemonRPCClient.requiredPTYSessionCapability &&
                 $0 != RemoteDaemonRPCClient.requiredPTYSessionTokenCapability &&
-                $0 != RemoteDaemonRPCClient.requiredPTYWriteNotificationCapability && $0 != RemoteDaemonRPCClient.requiredPTYResizeNotificationCapability
+                $0 != RemoteDaemonRPCClient.requiredPTYPersistentDaemonCapability &&
+                $0 != RemoteDaemonRPCClient.requiredPTYWriteNotificationCapability &&
+                $0 != RemoteDaemonRPCClient.requiredPTYResizeNotificationCapability
         }
     }
 

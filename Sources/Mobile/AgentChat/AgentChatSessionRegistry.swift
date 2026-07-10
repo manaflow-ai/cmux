@@ -357,7 +357,7 @@ final class AgentChatSessionRegistry {
                     }
                     continue
                 }
-                let alive = entry.pid.map { kill(pid_t($0), 0) == 0 } ?? false
+                let alive = entry.pid.map { !processIsDead($0) } ?? false
                 var record = AgentChatSessionRecord(
                     sessionID: sessionID,
                     agentKind: kind,

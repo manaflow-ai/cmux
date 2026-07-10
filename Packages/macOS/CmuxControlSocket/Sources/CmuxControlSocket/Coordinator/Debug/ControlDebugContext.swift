@@ -57,6 +57,10 @@ public protocol ControlDebugContext: AnyObject {
     /// - Returns: The raw v1 response.
     func controlDebugActivateApp() -> String
 
+    /// Shows the Pro welcome checklist window for
+    /// `debug.pro_welcome_checklist.show`.
+    func controlDebugShowProWelcomeChecklist()
+
     /// Runs the shared v1 `is_terminal_focused` body for
     /// `debug.terminal.is_focused`.
     ///

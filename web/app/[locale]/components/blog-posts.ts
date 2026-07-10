@@ -1,5 +1,13 @@
 export const blogPosts = [
   {
+    slug: "claude-code-best-worktree-manager",
+    key: "claudeCodeBestWorktreeManager",
+    title: "Claude Code Is The Best Worktree Manager",
+    date: "2026-07-03",
+    summary:
+      "Use Claude Code, Codex, scripts, and cmux primitives to build the worktree workflow your codebase actually needs.",
+  },
+  {
     slug: "cmux-home",
     key: "cmuxHome",
     title: "cmux home",

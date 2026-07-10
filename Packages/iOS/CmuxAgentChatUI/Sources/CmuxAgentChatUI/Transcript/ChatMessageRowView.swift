@@ -6,7 +6,6 @@ import SwiftUI
 /// for permissions and questions, captions for status rows.
 public struct ChatMessageRowView: View {
     private let snapshot: ChatMessageRowSnapshot
-    private let isExpanded: Bool
     private let actions: ChatRowActions
 
     @Environment(\.chatTheme) private var theme
@@ -15,11 +14,9 @@ public struct ChatMessageRowView: View {
     ///
     /// - Parameters:
     ///   - snapshot: The message plus its computed group rendering info.
-    ///   - isExpanded: Whether this row's card is expanded.
     ///   - actions: Row action bundle.
-    public init(snapshot: ChatMessageRowSnapshot, isExpanded: Bool, actions: ChatRowActions) {
+    public init(snapshot: ChatMessageRowSnapshot, actions: ChatRowActions) {
         self.snapshot = snapshot
-        self.isExpanded = isExpanded
         self.actions = actions
     }
 
@@ -31,35 +28,31 @@ public struct ChatMessageRowView: View {
                     prose: prose,
                     message: snapshot.message,
                     groupPosition: snapshot.groupPosition,
-                    showsTimestamp: snapshot.showsTimestamp
+                    showsTimestamp: snapshot.showsTimestamp,
+                    onShowCodeDetail: actions.showCodeBlockDetail
                 )
-            case .thought(let thought):
+            case .thought:
                 ChatThoughtRowView(
-                    thought: thought,
                     rowID: rowID,
-                    isExpanded: isExpanded,
-                    actions: actions
+                    onShowDetail: { actions.showMessageDetail(snapshot.message) }
                 )
             case .toolUse(let toolUse):
                 ChatToolUseRowView(
                     toolUse: toolUse,
                     rowID: rowID,
-                    isExpanded: isExpanded,
-                    actions: actions
+                    onShowDetail: { actions.showMessageDetail(snapshot.message) }
                 )
             case .terminal(let capture):
                 ChatTerminalCardView(
                     capture: capture,
                     rowID: rowID,
-                    isExpanded: isExpanded,
-                    actions: actions
+                    onShowDetail: { actions.showMessageDetail(snapshot.message) }
                 )
             case .fileEdit(let edit):
                 ChatFileEditCardView(
                     edit: edit,
                     rowID: rowID,
-                    isExpanded: isExpanded,
-                    actions: actions
+                    onShowDetail: { actions.showMessageDetail(snapshot.message) }
                 )
             case .permissionRequest(let request):
                 ChatPermissionCardView(
