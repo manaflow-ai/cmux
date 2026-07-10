@@ -56,7 +56,7 @@ interface CatalogStoreOptions {
 }
 
 const PROVIDERS = ["claude", "codex", "gemini"] as const;
-const DEFAULT_URL = "https://cmux.dev/api/agent-models";
+const DEFAULT_URL = "https://cmux.com/api/agent-models";
 const DEFAULT_CACHE = `${homedir()}/.cache/cmux-agent-chat/models.json`;
 export const AGENT_MODEL_CATALOG_TTL_MS = 60 * 60_000;
 
@@ -180,7 +180,9 @@ export class AgentModelCatalogStore {
   }
   isStale(): boolean {
     if (this.state) return this.now() - this.state.fetchedAt >= this.ttlMs;
-    return this.lastAttemptAt === 0 || this.now() - this.lastAttemptAt >= this.ttlMs;
+    // No payload yet: retry failed initial fetches quickly instead of
+    // waiting out the full TTL with only built-in fallbacks.
+    return this.lastAttemptAt === 0 || this.now() - this.lastAttemptAt >= Math.min(this.ttlMs, 60_000);
   }
   refreshIfStale(): Promise<boolean> { return this.isStale() ? this.refresh() : Promise.resolve(false); }
   async refresh(): Promise<boolean> {
