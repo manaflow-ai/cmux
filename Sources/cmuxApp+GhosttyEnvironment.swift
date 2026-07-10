@@ -1,4 +1,5 @@
 import AppKit
+import CmuxTerminal
 
 /// Ghostty-related process environment bootstrap, extracted from
 /// `cmuxApp.swift` (which is over the file-length hard cap and must not
