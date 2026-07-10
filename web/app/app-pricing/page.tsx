@@ -54,7 +54,7 @@ export default async function AppPricingPage({
   const appStorePaymentGated = isAppStoreDistributionMode(params);
   const proCheckoutURL = appPricingCheckoutURL("pro", requestOrigin, cmuxScheme);
   const teamCheckoutURL = appPricingCheckoutURL("team", requestOrigin, cmuxScheme);
-  const signInHref = appPricingSignInHref(cmuxScheme);
+  const signInHref = appPricingSignInHref(cmuxScheme, params);
   const banner = appPricingBanner(params, snapshot, signInHref);
   const appearance = appPricingAppearance(params);
   const pageBackground = appPricingPageBackground(params, appearance);
@@ -308,10 +308,23 @@ type BillingBannerModel = {
 /// the webview's session cookies, then /handler/after-sign-in hands tokens to
 /// the app through its <scheme>://auth-callback URL. The stateless callback is
 /// accepted by the app's fallback path (HostBrowserSignInFlow.handleCallbackURL).
-function appPricingSignInHref(cmuxScheme: string): string {
-  const afterSignIn = `/handler/after-sign-in?native_app_return_to=${encodeURIComponent(
-    `${cmuxScheme}://auth-callback`,
-  )}`;
+/// web_return_to lets the embedded browser navigate back to this pricing page
+/// (with its appearance params intact) once the app has consumed the callback.
+function appPricingSignInHref(
+  cmuxScheme: string,
+  params: Record<string, string | string[] | undefined>,
+): string {
+  const search = new URLSearchParams();
+  for (const [name, value] of Object.entries(params)) {
+    const first = firstParam(value);
+    if (first !== null) search.set(name, first);
+  }
+  const query = search.toString();
+  const webReturnTo = query ? `/app-pricing?${query}` : "/app-pricing";
+  const afterSignIn =
+    `/handler/after-sign-in?native_app_return_to=${encodeURIComponent(
+      `${cmuxScheme}://auth-callback`,
+    )}&web_return_to=${encodeURIComponent(webReturnTo)}`;
   return `/handler/native-sign-in?after_auth_return_to=${encodeURIComponent(afterSignIn)}`;
 }
 

@@ -12,22 +12,27 @@ import WebKit
 ///
 /// Because the stateless path accepts token-bearing callbacks, the automatic
 /// handoff is narrow and fail-closed:
-/// - Only a user-activated main-frame link participates. Anything else keeps
-///   the browser's regular navigation handling, matching every other custom
-///   scheme (and preserving the confirmation prompt those paths show).
-/// - The link must come FROM the app's own web origin (the page
-///   `/handler/after-sign-in` is served from) and target THIS build's own
-///   registered callback scheme, never a sibling build's `cmux-nightly` or
-///   `cmux-dev-*` scheme, which another app could have registered.
-/// - A user-activated auth-callback link that fails those checks is blocked
-///   outright (`.block`), not passed to the generic external-app prompt, so an
-///   untrusted page cannot hand attacker-chosen tokens to the app even with a
-///   confirming click, and the trusted page cannot route this session's tokens
-///   to a different build's handler.
+/// - Only a user-activated main-frame link whose source frame is the app's
+///   own web origin (the page `/handler/after-sign-in` is served from), and
+///   which targets THIS build's own registered callback scheme, is delivered.
+///   Never a sibling build's `cmux-nightly` or `cmux-dev-*` scheme, which
+///   another app could have registered.
+/// - EVERY other auth-callback-shaped navigation is blocked outright
+///   (`.block`), never passed to the generic external-app prompt: JS
+///   redirects, subframes, foreign source origins, and sibling schemes. The
+///   only legitimate producer of these URLs is the app's own after-sign-in
+///   page, and that flow is always a user-activated main-frame link, so
+///   anything else offering one is untrusted by construction and one
+///   confirming click on a prompt must not hand attacker-chosen tokens to the
+///   app. Popup/new-window paths apply the same rule via
+///   ``shouldBlockExternalNavigation(_:)``.
 /// - An accepted callback is delivered in-process through the app delegate's
 ///   `application(_:open:)`, never through `NSWorkspace`/LaunchServices, so
 ///   the token-bearing URL cannot be routed to whatever app currently claims
 ///   the scheme.
+/// - After delivery, the embedded flow returns the webview to the page the
+///   sign-in started from, carried in the after-sign-in page's
+///   `web_return_to` query item (same-origin relative path only).
 @MainActor
 struct BrowserAuthCallbackNavigationPolicy {
     enum Disposition {
@@ -58,16 +63,38 @@ struct BrowserAuthCallbackNavigationPolicy {
     func disposition(for navigationAction: WKNavigationAction, url: URL) -> Disposition {
         guard Self.isAuthCallbackShapedURL(url) else { return .passThrough }
         guard navigationAction.targetFrame?.isMainFrame != false,
-              navigationAction.navigationType == .linkActivated else {
-            return .passThrough
-        }
-        guard url.scheme?.lowercased() == ownCallbackScheme,
+              navigationAction.navigationType == .linkActivated,
+              url.scheme?.lowercased() == ownCallbackScheme,
               let trustedSourceOrigin,
               trustedSourceOrigin.matches(navigationAction.sourceFrame.securityOrigin),
               router.isAuthCallbackURL(url) else {
             return .block
         }
         return .deliverInApp
+    }
+
+    /// Popup/new-window navigation paths cannot express the full disposition
+    /// (they create webviews rather than decide policies), so they apply the
+    /// blanket rule: an auth-callback-shaped URL must never reach the generic
+    /// external-app prompt. The legitimate flow is always a main-frame link
+    /// handled by ``disposition(for:url:)``.
+    static func shouldBlockExternalNavigation(_ url: URL) -> Bool {
+        isAuthCallbackShapedURL(url)
+    }
+
+    /// After an accepted in-webview delivery, the embedded flow returns the
+    /// webview to where the sign-in started. The after-sign-in page carries
+    /// that location in its `web_return_to` query item; only a same-origin
+    /// relative path is honored.
+    static func webReturnURL(fromPageURL pageURL: URL?) -> URL? {
+        guard let pageURL,
+              let components = URLComponents(url: pageURL, resolvingAgainstBaseURL: false),
+              let value = components.queryItems?.first(where: { $0.name == "web_return_to" })?.value,
+              value.hasPrefix("/"),
+              !value.hasPrefix("//") else {
+            return nil
+        }
+        return URL(string: value, relativeTo: pageURL)?.absoluteURL
     }
 
     /// Delivers an accepted callback to the app's canonical URL entrypoint
@@ -106,6 +133,7 @@ extension BrowserNavigationDelegate {
         case .deliverInApp:
             clearAttemptedRequest(discardPendingBypasses: true)
             let reportTerminalCancellation = terminalPolicyCancellationReporter?(navigationAction, webView) ?? {}
+            let sourcePageURL = webView.url
             let delivered = authCallbackNavigationPolicy.deliverAuthCallbackInApp(url)
 #if DEBUG
             cmuxDebugLog(
@@ -117,6 +145,11 @@ extension BrowserNavigationDelegate {
             // Cancel even when delivery fails: WKWebView cannot render a
             // native scheme URL, so allowing it only produces an error page.
             decisionHandler(.cancel)
+            if delivered,
+               let returnURL = BrowserAuthCallbackNavigationPolicy.webReturnURL(fromPageURL: sourcePageURL) {
+                recordAttemptedRequest(URLRequest(url: returnURL))
+                _ = browserLoadRequest(URLRequest(url: returnURL), in: webView)
+            }
             return true
         case .block:
             clearAttemptedRequest(discardPendingBypasses: true)
