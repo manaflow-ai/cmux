@@ -39,18 +39,18 @@ public struct TerminalArtifactTapHitTester: Sendable {
         lines: [String],
         columns: Int
     ) -> StitchedPath {
-        var path = token.path
+        var rawPath = token.rawText
         var segments = [GridSegment(row: row, startColumn: token.startColumn, endColumn: token.endColumn)]
         var currentRow = row
-        var currentEndColumn = token.endColumn
+        var currentRawEndColumn = token.rawEndColumn
 
-        while currentEndColumn >= columns,
+        while currentRawEndColumn >= columns,
               lines[currentRow].count >= columns,
               currentRow + 1 < lines.count,
               let continuation = leadingContinuation(in: lines[currentRow + 1]) {
             currentRow += 1
-            path += continuation.text
-            currentEndColumn = continuation.endColumn
+            rawPath += continuation.text
+            currentRawEndColumn = continuation.endColumn
             segments.append(GridSegment(
                 row: currentRow,
                 startColumn: 0,
@@ -58,7 +58,7 @@ public struct TerminalArtifactTapHitTester: Sendable {
             ))
         }
 
-        let normalizedPath = TerminalArtifactPathDetector().tokens(in: path).first?.path ?? path
+        let normalizedPath = TerminalArtifactPathDetector().tokens(in: rawPath).first?.path ?? token.path
         return StitchedPath(path: normalizedPath, segments: segments)
     }
 
@@ -82,9 +82,11 @@ public struct TerminalArtifactTapHitTester: Sendable {
             let leadingTrim = raw.count - raw.drop(while: Self.leadingTrimCharacters.contains).count
             let startColumn = line.distance(from: line.startIndex, to: tokenStart) + leadingTrim
             result.append(TokenRange(
+                rawText: raw,
                 path: path,
                 startColumn: startColumn,
-                endColumn: startColumn + path.count
+                endColumn: startColumn + path.count,
+                rawEndColumn: line.distance(from: line.startIndex, to: index)
             ))
         }
         return result
@@ -108,9 +110,11 @@ public struct TerminalArtifactTapHitTester: Sendable {
     }
 
     private struct TokenRange {
+        let rawText: String
         let path: String
         let startColumn: Int
         let endColumn: Int
+        let rawEndColumn: Int
     }
 
     private struct Continuation {

@@ -24,6 +24,36 @@ struct TerminalArtifactTapHitTesterTests {
         #expect(resolved == path)
     }
 
+    @Test("stitches when a trailing period fills the head row")
+    func stitchesAfterTrailingPeriod() {
+        let head = "/tmp/artvw-project/notes."
+        let text = "\(head)\nmd remaining-output"
+
+        let resolved = TerminalArtifactTapHitTester().path(
+            in: text,
+            col: 8,
+            row: 0,
+            columns: head.count
+        )
+
+        #expect(resolved == "/tmp/artvw-project/notes.md")
+    }
+
+    @Test("trims punctuation after stitching a trailing period boundary")
+    func trimsFinalPunctuationAfterTrailingPeriod() {
+        let head = "/tmp/artvw-project/notes."
+        let text = "\(head)\nmd), remaining-output"
+
+        let resolved = TerminalArtifactTapHitTester().path(
+            in: text,
+            col: 8,
+            row: 0,
+            columns: head.count
+        )
+
+        #expect(resolved == "/tmp/artvw-project/notes.md")
+    }
+
     @Test("stitches a path wrapped across three rows")
     func stitchesThreeRows() {
         let path = "/tmp/a-very-long-project-name/another-folder/report.md"
@@ -69,6 +99,21 @@ struct TerminalArtifactTapHitTesterTests {
         )
 
         #expect(resolved == path)
+    }
+
+    @Test("does not stitch a full-width non-path line to a new word")
+    func doesNotStitchNonPathLineToNewWord() {
+        let line = "plain-output"
+        let text = "\(line)\ncontinuation"
+
+        let resolved = TerminalArtifactTapHitTester().path(
+            in: text,
+            col: 2,
+            row: 0,
+            columns: line.count
+        )
+
+        #expect(resolved == nil)
     }
 
     @Test("resolves a continuation-row tap to the full path")
