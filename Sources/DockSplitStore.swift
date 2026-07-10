@@ -35,6 +35,8 @@ final class DockSplitStore: BonsplitDelegate {
     var panels: [UUID: any Panel] = [:]
     var surfaceIdToPanelId: [TabID: UUID] = [:]
     var panelCancellables: [UUID: AnyCancellable] = [:]
+    @ObservationIgnored
+    var titleDerivedAgentStatusKeysByPanelId: [UUID: String] = [:]
     @ObservationIgnored var detachedSurfaceTransfersByPanelId: [UUID: Workspace.DetachedSurfaceTransfer] = [:]
     private var hasLoadedConfiguration = false
     private var configurationLoadTask: Task<Void, Never>?
@@ -614,8 +616,19 @@ final class DockSplitStore: BonsplitDelegate {
                     // unchanged, so a terminal re-emitting the same title does not
                     // re-render the Dock tree.
                     let resolvedTitle = terminal.displayTitle
-                    guard existing.title != resolvedTitle else { return }
-                    self.bonsplitController.updateTab(tabId, title: resolvedTitle)
+                    let didMutateTitleDerivedAgent = self.updateTitleDerivedTerminalAgentStatusKey(
+                        forPanelId: terminal.id,
+                        title: resolvedTitle
+                    )
+                    let titleUpdate: String? = existing.title == resolvedTitle ? nil : resolvedTitle
+                    let iconPayloadUpdate = didMutateTitleDerivedAgent ? self.terminalTabAgentIconPayload(forPanelId: terminal.id) : nil
+                    guard titleUpdate != nil || iconPayloadUpdate != nil else { return }
+                    self.bonsplitController.updateTab(
+                        tabId,
+                        title: titleUpdate,
+                        iconImageData: iconPayloadUpdate.map(\.imageData),
+                        iconAsset: iconPayloadUpdate.map(\.assetName)
+                    )
                 }
             panelCancellables[panel.id] = cancellable
         }
@@ -634,6 +647,7 @@ final class DockSplitStore: BonsplitDelegate {
             panelCancellables.removeValue(forKey: panelId)
             AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: workspaceId, surfaceId: panelId)
             detachedSurfaceTransfersByPanelId.removeValue(forKey: panelId)
+            titleDerivedAgentStatusKeysByPanelId.removeValue(forKey: panelId)
             if let panel = panels.removeValue(forKey: panelId) { panel.close() }
         }
     }
@@ -677,6 +691,7 @@ final class DockSplitStore: BonsplitDelegate {
         for panel in panels.values { panel.close() }
         panels.removeAll(); surfaceIdToPanelId.removeAll()
         detachedSurfaceTransfersByPanelId.removeAll()
+        titleDerivedAgentStatusKeysByPanelId.removeAll()
         panelCancellables.values.forEach { $0.cancel() }
         panelCancellables.removeAll()
     }

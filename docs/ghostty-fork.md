@@ -89,6 +89,16 @@ The corresponding prebuilt archive is published at
 https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-541e5e89db0448d5cd85a7b348d8f6a64618c900-crashsubdir-cmux-crash-v1
 and pinned in `scripts/ghosttykit-checksums.txt`.
 
+### 0a) lib-vt OSC color query replies
+
+- Files:
+  - `src/terminal/stream_terminal.zig`
+- Summary:
+  - Adds OSC 4/10/11/12 query replies to the non-termio `TerminalStream` path used by libghostty-vt consumers.
+  - Reports known palette/default/override colors through the existing `write_pty` effect in 16-bit `rgb:xxxx/xxxx/xxxx` form, preserving the query's BEL or ST terminator.
+  - Leaves unknown dynamic colors unanswered so embedders that have not supplied host defaults preserve the previous silent behavior.
+  - Upstreamability: mirrors the existing termio stream handler behavior, but scoped to lib-vt's callback-based reply mechanism.
+
 The previous cmux pinned fork head was `1b454eb99`, which retained the
 Darwin-only `ghostty_surface_set_renderer_realized` C API (a
 `display_realized` renderer-thread mailbox message that drives
@@ -249,13 +259,21 @@ tend to conflict together during rebases.
   - `1a01b36d9` (Skip fullscreen bg draw call in layer-background mode)
   - `82e20630b` (Preserve bg images in layer background mode)
   - `465a9a621` (Restore bg-image alpha in layer background mode)
+  - `fa3753c24` (Cover custom shader background source)
+  - `49f82cea4` (Preserve terminal input for custom shaders)
+  - `b0326b72a` (Cover repeatable path C queries)
+  - `f8d6c9e56` (Align background ownership with shader intent)
 - Files:
   - `src/config/Config.zig`
+  - `src/config/c_get.zig`
+  - `src/config/path.zig`
   - `src/renderer/generic.zig`
 - Summary:
   - Adds a `macos-background-from-layer` bool config (default false).
-  - When true, sets `bg_color[3] = 0` in the per-frame uniform update so the Metal renderer skips the full-screen background fill.
+  - When it selects the host layer for a plain terminal frame, sets `bg_color[3] = 0` and skips the Metal renderer's full-screen background fill.
   - Allows the host app to provide the terminal background via `CALayer.backgroundColor` for instant coverage during view resizes, avoiding alpha double-stacking.
+  - Resolves background composition from configured custom-shader intent for both alpha setup and draw emission. Shader intent takes renderer ownership before pipelines load, including glass and reload transitions, so the input texture contains the complete terminal frame.
+  - Exposes repeatable-path counts through the C config bridge so cmux disables its host backdrop for custom shaders and avoids translucent alpha double-stacking.
   - Replays the layer-background restore on top of the refreshed Ghostty base so cmux keeps the resize-coverage fix after the upstream sync.
 
 ### 8) TerminalStream kitty graphics APC handling
@@ -536,9 +554,14 @@ These files change frequently upstream; be careful when rebasing the fork:
     `ghostty_surface_select_cursor_cell` and `ghostty_surface_clear_selection` functions.
 
 - `src/renderer/generic.zig`
-  - The `macos-background-from-layer` check sits next to the glass-style check in `updateFrame`.
-    If upstream refactors the bg_color uniform update or the glass conditional, re-check that both
-    paths still zero out `bg_color[3]` correctly.
+  - The `macos-background-from-layer` composition decision is shared by the bg_color uniform update
+    and background draw pass. Preserve configured custom-shader intent as the source of truth rather
+    than the loaded-pipeline flag: shader intent overrides glass and layer-background transparency,
+    while plain layer-background mode zeroes `bg_color[3]` and skips the fullscreen fill.
+
+- `src/config/path.zig`, `src/config/c_get.zig`
+  - Preserve the repeatable-path C count used by cmux to detect configured custom-shader intent and
+    clear its host backdrop in lockstep with renderer ownership.
 
 - `src/Surface.zig`, `src/apprt/embedded.zig`, `macos/Sources/Ghostty/Surface View/SurfaceView.swift`
   - The initial `focused` plumbing has to stay aligned across the C config, embedded runtime surface,

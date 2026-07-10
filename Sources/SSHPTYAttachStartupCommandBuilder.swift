@@ -54,6 +54,7 @@ nonisolated enum SSHPTYAttachStartupCommandBuilder {
     }
 
     private static func retryingAttachLines(command: String) -> [String] {
+        // Retryable 254|255 is owned by SSHPTYAttachExitCode in the CLI target; keep in sync with CMUXCLI.sshPTYAttachRetryLoopLines.
         [
             "cmux_ssh_attach_reconnect_limit=\"${CMUX_SSH_RECONNECT_LIMIT:-20}\"",
             "case \"$cmux_ssh_attach_reconnect_limit\" in ''|*[!0-9]*) cmux_ssh_attach_reconnect_limit=20 ;; esac",
@@ -61,7 +62,8 @@ nonisolated enum SSHPTYAttachStartupCommandBuilder {
             "case \"$cmux_ssh_attach_reconnect_delay\" in ''|*[!0-9]*) cmux_ssh_attach_reconnect_delay=2 ;; esac",
             "cmux_ssh_attach_retry=0",
             "while :; do",
-            "  \(command)",
+            "  if [ \"$cmux_ssh_attach_retry\" -lt \"$cmux_ssh_attach_reconnect_limit\" ]; then cmux_ssh_attach_can_retry=1; else cmux_ssh_attach_can_retry=0; fi",
+            "  CMUX_SSH_PTY_ATTACH_WRAPPER_CAN_RETRY=\"$cmux_ssh_attach_can_retry\" \(command)",
             "  cmux_ssh_attach_status=$?",
             "  case \"$cmux_ssh_attach_status\" in 254|255) ;; *) exit \"$cmux_ssh_attach_status\" ;; esac",
             "  if [ \"$cmux_ssh_attach_retry\" -ge \"$cmux_ssh_attach_reconnect_limit\" ]; then exit \"$cmux_ssh_attach_status\"; fi",
@@ -107,6 +109,9 @@ nonisolated enum SSHPTYAttachStartupCommandBuilder {
         for option in options {
             arguments += ["-o", option]
         }
+        // The command-line `true` below conflicts with a host-configured
+        // RemoteCommand unless overridden (issue #7246).
+        arguments += SSHHostConfiguredRemoteCommand().overrideArguments
         arguments += ["-T", auth.destination, "true"]
         return arguments.map(shellQuote).joined(separator: " ")
     }

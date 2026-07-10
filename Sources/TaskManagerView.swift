@@ -1,3 +1,4 @@
+import CmuxAppKitSupportUI
 import CmuxFoundation
 import Observation
 import SwiftUI
@@ -466,11 +467,11 @@ struct CmuxTaskManagerRowView: View, Equatable {
     @ViewBuilder
     private var rowIcon: some View {
         if let agentAssetName = row.agentAssetName {
-            Image(agentAssetName)
-                .resizable()
-                .interpolation(.high)
-                .aspectRatio(contentMode: .fit)
-                .frame(width: 14, height: 14)
+            CmuxResolvedIconImage(request: CmuxResolvedIconRequest(
+                source: .asset(name: agentAssetName, bundle: .main),
+                size: NSSize(width: 14, height: 14)
+            ))
+            .frame(width: 14, height: 14)
         } else {
             Image(systemName: row.kind.systemImage)
                 .foregroundStyle(row.kind.tint)

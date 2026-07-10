@@ -280,6 +280,7 @@ extension TabItemView {
         }
         .disabled(!hasLatestNotifications(in: targetIds))
 
+        workspaceNotificationsContextMenu(targetIds)
         Divider()
         Button(copyWorkspaceIDLabel) {
             copyWorkspaceIdsToPasteboard(targetIds)

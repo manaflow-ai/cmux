@@ -1,6 +1,7 @@
 import { useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
-import { buildAlternates } from "../../../../../i18n/seo";
+import { buildAlternates } from "@/i18n/seo";
+import { SiteHeader } from "@/app/[locale]/components/site-header";
 import { LandingCTA } from "../../landing-ui";
 import { LandingFaq, LandingSchema } from "../../landing-schema";
 
@@ -20,6 +21,9 @@ export default function CursorCliPage() {
   const code = (chunks: React.ReactNode) => <code>{chunks}</code>;
   return (
     <>
+      <SiteHeader section={tl("cursorCli")} />
+      <main className="w-full max-w-3xl mx-auto px-6 py-12">
+        <div className="docs-content text-[15px]">
       <LandingSchema namespace="landing.cursorCli" path="/agents/cursor-cli" />
       <h1>{t("title")}</h1>
       <p>{t.rich("intro", { code })}</p>
@@ -46,6 +50,8 @@ export default function CursorCliPage() {
           { href: "/docs/getting-started", label: tl("getStarted") },
         ]}
       />
+        </div>
+      </main>
     </>
   );
 }

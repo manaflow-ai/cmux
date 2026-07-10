@@ -57,6 +57,11 @@ extension PullRequestPollService {
         }
 
         for key in requestedKeys {
+            if host.shouldSkipLocalGitMetadata(workspaceId: key.workspaceId, panelId: key.panelId) {
+                clearWorkspacePullRequestTracking(for: key)
+                continue
+            }
+
             let rerunPending = workspacePullRequestProbeRerunPending(for: key)
             workspacePullRequestProbeStateByKey[key] = .idle
             if rerunPending {

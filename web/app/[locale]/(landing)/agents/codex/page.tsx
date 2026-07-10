@@ -1,7 +1,8 @@
 import { useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
-import { Link } from "../../../../../i18n/navigation";
-import { buildAlternates } from "../../../../../i18n/seo";
+import { Link } from "@/i18n/navigation";
+import { buildAlternates } from "@/i18n/seo";
+import { SiteHeader } from "@/app/[locale]/components/site-header";
 import { LandingCTA } from "../../landing-ui";
 import { LandingFaq, LandingSchema } from "../../landing-schema";
 
@@ -21,6 +22,9 @@ export default function CodexCliPage() {
   const code = (chunks: React.ReactNode) => <code>{chunks}</code>;
   return (
     <>
+      <SiteHeader section={tl("codex")} />
+      <main className="w-full max-w-3xl mx-auto px-6 py-12">
+        <div className="docs-content text-[15px]">
       <LandingSchema namespace="landing.codex" path="/agents/codex" />
       <h1>{t("title")}</h1>
       <p>{t.rich("intro", { code })}</p>
@@ -59,6 +63,8 @@ export default function CodexCliPage() {
           { href: "/docs/agent-integrations/oh-my-codex", label: tl("ohMyCodex") },
         ]}
       />
+        </div>
+      </main>
     </>
   );
 }

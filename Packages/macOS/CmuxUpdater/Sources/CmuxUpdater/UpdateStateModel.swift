@@ -40,14 +40,29 @@ public final class UpdateStateModel {
     /// Creates an empty model in the ``UpdateState/idle`` state.
     public init() {}
 
+    // MARK: - cmux-originated update errors
+
+    /// The `NSError` domain for update errors that cmux itself raises (as opposed to Sparkle or
+    /// `NSURLError`). Errors in this domain carry user-ready, already-localized copy in their
+    /// `localizedDescription`.
+    public nonisolated static let updateErrorDomain = "cmux.update"
+    /// `updateErrorDomain` code for "the updater was asked to check but wasn't ready in time".
+    public nonisolated static let updaterNotReadyCode = 1
+    /// `updateErrorDomain` code for "the user asked to install but the flow never started
+    /// downloading" (the install-watchdog trip).
+    public nonisolated static let installDidNotStartCode = 2
+
     // MARK: - Change stream
 
     /// A stream that emits once whenever ``state`` or ``overrideState`` changes.
     ///
-    /// The element is `Void`: subscribers read the latest ``state``/``overrideState`` directly
-    /// (both are main-actor isolated like the subscriber), which avoids sending the
-    /// non-`Sendable` ``UpdateState`` across the stream. This is the `@Observable`-native
-    /// replacement for observing `@Published var state`.
+    /// The element is `Void`: it is a wakeup, not the payload, which avoids sending the
+    /// non-`Sendable` ``UpdateState`` across the stream. Reaction consumers that must observe
+    /// **every** transition in order call ``drainPendingChanges()`` on each wakeup instead of
+    /// re-reading the latest ``state`` — reading only the latest silently conflates
+    /// back-to-back transitions (two states landing before the consumer's task runs), which is
+    /// how a control-flow consumer can miss the `.checking` restart signal entirely. This is
+    /// the `@Observable`-native replacement for observing `@Published var state`.
     public func stateChanges() -> AsyncStream<Void> {
         AsyncStream { continuation in
             let id = UUID()
@@ -58,9 +73,40 @@ public final class UpdateStateModel {
         }
     }
 
+    /// Transitions recorded since the last ``drainPendingChanges()``, oldest first. There is one
+    /// reaction consumer (``UpdateController``); the mailbox exists for it.
+    @ObservationIgnored
+    private var pendingChanges: [UpdateStateChange] = []
+
+    /// Removes and returns every transition recorded since the last drain, oldest first.
+    ///
+    /// Call once per ``stateChanges()`` wakeup. Extra wakeups drain empty and are harmless.
+    public func drainPendingChanges() -> [UpdateStateChange] {
+        let drained = pendingChanges
+        pendingChanges.removeAll()
+        return drained
+    }
+
+    /// Discards queued transitions without invoking the reaction pipeline.
+    ///
+    /// Use at explicit control-flow boundaries where already-recorded transitions belong to the
+    /// previous operation and must not be replayed into the next one.
+    public func discardPendingChanges() {
+        pendingChanges.removeAll()
+    }
+
     private func notifyStateChanged() {
+        appendPendingChange(UpdateStateChange(state: state, overrideState: overrideState))
         for continuation in changeObservers.values {
             continuation.yield(())
+        }
+    }
+
+    private func appendPendingChange(_ change: UpdateStateChange) {
+        if let last = pendingChanges.last, last.canCoalesceProgress(with: change) {
+            pendingChanges[pendingChanges.count - 1] = change
+        } else {
+            pendingChanges.append(change)
         }
     }
 
@@ -322,8 +368,8 @@ public final class UpdateStateModel {
 /// variant (title, message, and whether the manual-download button shows) can be previewed
 /// without reproducing the real failure.
 ///
-/// Cases map one-to-one to the branches in ``UpdateStateModel/userFacingErrorTitle(for:)`` /
-/// ``UpdateStateModel/userFacingErrorMessage(for:)`` / ``UpdateStateModel/manualDownloadURL(for:)``.
+/// Cases map one-to-one to the branches in ``UpdateStateModel/userFacingErrorTitle(for:)`` and
+/// ``UpdateStateModel/userFacingErrorMessage(for:)`` plus ``UpdateManualDownloadRecovery``.
 public enum DebugUpdateErrorScenario: String, CaseIterable, Hashable, Sendable {
     /// 4005 wrapping the internal IPC-timeout (the wedged-launchd case): "Couldn't Start Updater".
     case installerAgentFailure
@@ -341,6 +387,10 @@ public enum DebugUpdateErrorScenario: String, CaseIterable, Hashable, Sendable {
     case signatureError
     /// Offline `NSURLError`: "No Internet Connection".
     case noInternet
+    /// cmux.update install-watchdog trip: "Update Didn't Start" (the install-loop guard).
+    case installDidNotStart
+    /// cmux.update readiness timeout: "Updater Not Ready".
+    case updaterNotReady
 
     /// The label shown for this scenario in the debug menu.
     public var menuTitle: String {
@@ -353,6 +403,16 @@ public enum DebugUpdateErrorScenario: String, CaseIterable, Hashable, Sendable {
         case .diskImageTranslocation: return "Disk Image / Translocated (1003)"
         case .signatureError: return "Signature Error (3001)"
         case .noInternet: return "No Internet"
+        case .installDidNotStart:
+            return String(
+                localized: "update.debug.error.installDidNotStart",
+                defaultValue: "Install Didn’t Start (watchdog)"
+            )
+        case .updaterNotReady:
+            return String(
+                localized: "update.debug.error.updaterNotReady",
+                defaultValue: "Updater Not Ready (readiness timeout)"
+            )
         }
     }
 
@@ -399,6 +459,20 @@ public enum DebugUpdateErrorScenario: String, CaseIterable, Hashable, Sendable {
         case .noInternet:
             return NSError(domain: NSURLErrorDomain, code: NSURLErrorNotConnectedToInternet, userInfo: [
                 NSLocalizedDescriptionKey: "The Internet connection appears to be offline.",
+            ])
+        case .installDidNotStart:
+            return NSError(domain: UpdateStateModel.updateErrorDomain, code: UpdateStateModel.installDidNotStartCode, userInfo: [
+                NSLocalizedDescriptionKey: String(
+                    localized: "update.error.didNotStart.message",
+                    defaultValue: "cmux couldn’t start the update. Check your internet connection and try again."
+                ),
+            ])
+        case .updaterNotReady:
+            return NSError(domain: UpdateStateModel.updateErrorDomain, code: UpdateStateModel.updaterNotReadyCode, userInfo: [
+                NSLocalizedDescriptionKey: String(
+                    localized: "update.error.notReady",
+                    defaultValue: "Updater is still starting. Try again in a moment."
+                ),
             ])
         }
     }

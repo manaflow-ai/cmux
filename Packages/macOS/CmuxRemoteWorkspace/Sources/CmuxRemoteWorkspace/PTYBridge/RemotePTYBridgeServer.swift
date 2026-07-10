@@ -12,9 +12,10 @@ import Network
 ///
 /// Wire behavior is pinned: the newline-delimited JSON handshake (token,
 /// cols/rows, client_pid), the `{"type":"ready","attachment_token":...}` and
-/// `{"type":"error","message":...}` status lines, every buffer cap, the 30s
-/// handshake and unused-bridge timeouts, the half-close semantics, and the
-/// error-message mapping in `userFacingBridgeErrorMessage` must not change.
+/// `{"type":"error","message":...}` status lines (plus optional error
+/// `code`), every buffer cap, the 30s handshake and unused-bridge timeouts,
+/// the half-close semantics, and the error-message mapping in
+/// `userFacingBridgeErrorMessage` must not change.
 ///
 /// Isolation design: every mutable property (listener, session, isStopped,
 /// and all Session state) is confined to the private serial `queue`.

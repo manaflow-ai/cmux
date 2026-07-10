@@ -217,7 +217,7 @@ extension TerminalController {
 
     // MARK: - send_text / send_key
 
-    func controlSurfaceInputStrings() -> ControlSurfaceInputStrings {
+    nonisolated func controlSurfaceInputStrings() -> ControlSurfaceInputStrings {
         ControlSurfaceInputStrings(
             inputQueueFull: String(
                 localized: "socket.terminal.inputQueueFull",
@@ -421,96 +421,13 @@ extension TerminalController {
         )
     }
 
-    // MARK: - read_text
-
-    func controlSurfaceReadText(
-        routing: ControlRoutingSelectors,
-        surfaceID: UUID?,
-        hasSurfaceIDParam: Bool,
-        includeScrollback: Bool,
-        lineLimit: Int?
-    ) -> ControlSurfaceReadTextResolution {
-        guard let tabManager = resolveTabManager(routing: routing) else {
-            return .tabManagerUnavailable
-        }
-        if let dock = windowDockForRouting(routing, tabManager: tabManager) {
-            let target = terminalPanel(
-                in: dock,
-                explicitSurfaceID: surfaceID,
-                hasSurfaceIDParam: hasSurfaceIDParam,
-                routing: routing
-            )
-            if target.invalidSurfaceID {
-                return .surfaceNotFoundForID
-            }
-            guard let surfaceId = target.surfaceID else {
-                return .noFocusedSurface
-            }
-            guard let terminalPanel = target.terminalPanel else {
-                return .surfaceNotTerminal(surfaceId)
-            }
-
-            guard let rawSnapshot = readTerminalTextRawSnapshot(
-                terminalPanel: terminalPanel,
-                includeScrollback: includeScrollback
-            ) else {
-                return .internalError(message: "Failed to read terminal text")
-            }
-            switch Self.terminalTextPayload(
-                from: rawSnapshot,
-                includeScrollback: includeScrollback,
-                lineLimit: lineLimit
-            ) {
-            case .success(let payload):
-                return .read(
-                    text: payload.text,
-                    base64: payload.base64,
-                    windowID: dockResultWindowId(for: dock, tabManager: tabManager),
-                    workspaceID: dock.workspaceId,
-                    surfaceID: surfaceId
-                )
-            case .failure(let error):
-                return .internalError(message: error.message)
-            }
-        }
-        guard let ws = resolveSurfaceWorkspace(routing: routing, tabManager: tabManager) else {
-            return .workspaceNotFound
-        }
-        let surfaceId: UUID
-        if hasSurfaceIDParam {
-            guard let id = surfaceID else { return .surfaceNotFoundForID }
-            surfaceId = id
-        } else {
-            guard let focused = ws.focusedPanelId else { return .noFocusedSurface }
-            surfaceId = focused
-        }
-        guard let terminalPanel = ws.terminalPanel(for: surfaceId) else {
-            return .surfaceNotTerminal(surfaceId)
-        }
-
-        guard let rawSnapshot = readTerminalTextRawSnapshot(
-            terminalPanel: terminalPanel,
-            includeScrollback: includeScrollback
-        ) else {
-            return .internalError(message: "Failed to read terminal text")
-        }
-        switch Self.terminalTextPayload(
-            from: rawSnapshot,
-            includeScrollback: includeScrollback,
-            lineLimit: lineLimit
-        ) {
-        case .success(let payload):
-            return .read(
-                text: payload.text,
-                base64: payload.base64,
-                windowID: v2ResolveWindowId(tabManager: tabManager),
-                workspaceID: ws.id,
-                surfaceID: surfaceId
-            )
-        case .failure(let error):
-            return .internalError(message: error.message)
-        }
-    }
+    // `surface.read_text` is no longer a coordinator witness: it moved to the
+    // socket-worker lane (issue #5757) so its full-scrollback formatting stays
+    // off the main actor. See `TerminalController.v2SurfaceReadText`, which
+    // reuses the same `windowDockForRouting` / `dockResultWindowId` /
+    // `resolveSurfaceWorkspace` / `readTerminalTextRawSnapshot` primitives
+    // (per-window docks, post-#7144) but splits the main-actor capture from
+    // the off-main formatting.
 
     // MARK: - debug.terminals
 
