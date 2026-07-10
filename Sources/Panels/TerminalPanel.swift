@@ -610,7 +610,7 @@ final class TerminalPanel: Panel, ObservableObject {
         if isTextBoxActive,
            respectForeignFirstResponder,
            textBoxInputFocusIntent == .textBox {
-            hostedView.yieldTerminalSurfaceFocusForForeignResponder(reason: "textbox.preserveFocusIntent")
+            hostedView.yieldTerminalSurfaceFocusForForeignResponder(reason: "textbox.preserveFocusIntent", refreshPolicy: refreshPolicy)
             hostedView.setActive(false)
             return true
         }
