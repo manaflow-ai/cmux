@@ -1,5 +1,6 @@
 import Foundation
 
+#if DEBUG
 struct MultiWindowNotificationUITestFixture {
     let notification1: TerminalNotification?
     let notification2: TerminalNotification?
@@ -59,3 +60,4 @@ extension AppDelegate {
         )
     }
 }
+#endif
