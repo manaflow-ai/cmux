@@ -294,6 +294,17 @@ final class BrowserWebExtensionSupport: NSObject, BrowserWebExtensionHosting {
         return webExtensionWindow(for: keyWindow)
     }
 
+    func focusedWebExtensionWindow(
+        for keyWindow: NSWindow?,
+        among openWindows: [any WKWebExtensionWindow]
+    ) -> (any WKWebExtensionWindow)? {
+        guard let focusedWindow = focusedWebExtensionWindow(for: keyWindow) else { return nil }
+        let focusedID = ObjectIdentifier(focusedWindow as AnyObject)
+        return openWindows.first {
+            ObjectIdentifier($0 as AnyObject) == focusedID
+        }
+    }
+
     private func rememberActivePanel(_ panelID: UUID) {
         guard let window = tabAdapters[panelID]?.panel?.webView.window else { return }
         activePanelIDsByWindow[ObjectIdentifier(window)] = panelID

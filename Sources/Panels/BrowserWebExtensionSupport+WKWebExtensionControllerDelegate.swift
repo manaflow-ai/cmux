@@ -8,7 +8,7 @@ extension BrowserWebExtensionSupport: WKWebExtensionControllerDelegate {
         openWindowsFor extensionContext: WKWebExtensionContext
     ) -> [any WKWebExtensionWindow] {
         let openWindows: [any WKWebExtensionWindow] = [windowAdapter] + popouts(for: extensionContext)
-        guard let focusedWindow = webExtensionController(controller, focusedWindowFor: extensionContext) else {
+        guard let focusedWindow = focusedWebExtensionWindow(for: NSApp.keyWindow, among: openWindows) else {
             return openWindows
         }
         let focusedID = ObjectIdentifier(focusedWindow as AnyObject)
@@ -21,7 +21,8 @@ extension BrowserWebExtensionSupport: WKWebExtensionControllerDelegate {
         _ controller: WKWebExtensionController,
         focusedWindowFor extensionContext: WKWebExtensionContext
     ) -> (any WKWebExtensionWindow)? {
-        focusedWebExtensionWindow(for: NSApp.keyWindow)
+        let openWindows: [any WKWebExtensionWindow] = [windowAdapter] + popouts(for: extensionContext)
+        return focusedWebExtensionWindow(for: NSApp.keyWindow, among: openWindows)
     }
 
     private func popouts(for extensionContext: WKWebExtensionContext) -> [BrowserWebExtensionPopoutWindowController] {

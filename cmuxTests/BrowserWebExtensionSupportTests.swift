@@ -65,6 +65,12 @@ struct BrowserWebExtensionSupportTests {
         #expect((support.focusedWebExtensionWindow(for: firstWindow) as AnyObject?) === support.windowAdapter)
         #expect(support.focusedWebExtensionWindow(for: unrelatedWindow) == nil)
         #expect(support.focusedWebExtensionWindow(for: nil) == nil)
+        let allowedWindows: [any WKWebExtensionWindow] = [support.windowAdapter]
+        #expect(
+            (support.focusedWebExtensionWindow(for: firstWindow, among: allowedWindows) as AnyObject?)
+                === support.windowAdapter
+        )
+        #expect(support.focusedWebExtensionWindow(for: firstWindow, among: []) == nil)
     }
 
     @Test
