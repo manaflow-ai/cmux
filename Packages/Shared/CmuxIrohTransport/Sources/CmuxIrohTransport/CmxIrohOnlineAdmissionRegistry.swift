@@ -16,6 +16,8 @@ public actor CmxIrohOnlineAdmissionRegistry {
     }
 
     private struct Monitor {
+        let lease: CmxIrohOnlineAdmissionLease
+        let onInvalidated: InvalidationHandler
         let task: Task<Void, Never>
     }
 
@@ -28,7 +30,7 @@ public actor CmxIrohOnlineAdmissionRegistry {
     /// A successful broker snapshot is reused for no more than 30 seconds.
     public static let maximumOnlineSnapshotAge: TimeInterval = 30
 
-    private let broker: any CmxIrohRegistryServing
+    private let broker: any CmxIrohDiscoveryServing
     private let managedRelayURLs: Set<String>
     private let routeContractVersion: Int
     private let verifier: CmxIrohGrantVerifier
@@ -41,7 +43,7 @@ public actor CmxIrohOnlineAdmissionRegistry {
     private var monitors: [UUID: Monitor] = [:]
 
     public init(
-        broker: any CmxIrohRegistryServing,
+        broker: any CmxIrohDiscoveryServing,
         keys: CmxIrohGrantVerificationKeySet,
         acceptor: CmxIrohGrantPeer,
         managedRelayURLs: Set<String>,
@@ -89,8 +91,11 @@ public actor CmxIrohOnlineAdmissionRegistry {
 
         do {
             let online = try await currentSnapshot()
-            guard validate(online.response, claims: claims, learnDenial: true),
-                  !isExpired(claims) else {
+            guard validate(online.response, claims: claims, learnDenial: true) else {
+                await invalidateDeniedMonitors()
+                return .denied
+            }
+            guard !isExpired(claims) else {
                 return .denied
             }
             return .accepted(
@@ -122,8 +127,18 @@ public actor CmxIrohOnlineAdmissionRegistry {
             guard let self else { return }
             await self.monitorLoop(id: id, lease: lease, onInvalidated: onInvalidated)
         }
-        monitors[id] = Monitor(task: task)
+        monitors[id] = Monitor(
+            lease: lease,
+            onInvalidated: onInvalidated,
+            task: task
+        )
         return id
+    }
+
+    /// Applies local revoke state immediately to new and already-admitted sessions.
+    public func revoke(bindingID: String) async {
+        deniedBindingIDs.insert(bindingID)
+        await invalidateDeniedMonitors()
     }
 
     /// Stops monitoring a session that has already closed normally.
@@ -185,8 +200,11 @@ public actor CmxIrohOnlineAdmissionRegistry {
         }
         do {
             let online = try await currentSnapshot()
-            guard validate(online.response, lease: lease, learnDenial: true),
-                  clock.now() < lease.expiresAt else {
+            guard validate(online.response, lease: lease, learnDenial: true) else {
+                await invalidateDeniedMonitors()
+                return .terminal
+            }
+            guard clock.now() < lease.expiresAt else {
                 return .terminal
             }
             return .active(online.fetchedAt)
@@ -311,6 +329,13 @@ public actor CmxIrohOnlineAdmissionRegistry {
     ) async {
         guard monitors.removeValue(forKey: id) != nil else { return }
         await onInvalidated()
+    }
+
+    private func invalidateDeniedMonitors() async {
+        let denied = monitors.filter { isDenied($0.value.lease) }
+        for id in denied.keys { monitors[id] = nil }
+        for monitor in denied.values { monitor.task.cancel() }
+        for monitor in denied.values { await monitor.onInvalidated() }
     }
 
     private static func isConnectivity(_ error: any Error) -> Bool {

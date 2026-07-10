@@ -1,11 +1,9 @@
 /// Trust-broker operations required by a Mac host runtime.
-public protocol CmxIrohHostBrokerServing: CmxIrohRelayTokenServing {
+public protocol CmxIrohHostBrokerServing: CmxIrohDiscoveryServing, CmxIrohRelayTokenServing {
     func register(
         prepared: CmxIrohPreparedRegistration,
         signer: CmxIrohRegistrationSigner
     ) async throws -> CmxIrohRegistrationResponse
-
-    func discover() async throws -> CmxIrohDiscoveryResponse
 
     func issueEndpointAttestation(
         bindingID: String

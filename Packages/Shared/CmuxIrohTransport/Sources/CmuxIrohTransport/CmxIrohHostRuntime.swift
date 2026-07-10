@@ -41,6 +41,7 @@ public actor CmxIrohHostRuntime {
     private let configuration: CmxIrohHostRuntimeConfiguration
     private let protocolConfiguration: CmxIrohProtocolConfiguration
     private let now: @Sendable () -> Date
+    private let admissionClock: any CmxIrohRelayClock
     private let handleTransport: TransportHandler
     private let handleBinding: BindingHandler
     private let handleDeactivation: DeactivationHandler
@@ -54,6 +55,7 @@ public actor CmxIrohHostRuntime {
     private var relayCoordinator: CmxIrohRelayCredentialCoordinator?
     private var endpointServer: CmxIrohEndpointServer?
     private var admissionController: CmxIrohAdmissionController?
+    private var onlineAdmissionRegistry: CmxIrohOnlineAdmissionRegistry?
     private var offlineSessions: CmxIrohOfflinePairingSessions?
     private var supervisorEventTask: Task<Void, Never>?
     private var registrationRefreshTask: Task<Void, Never>?
@@ -72,6 +74,7 @@ public actor CmxIrohHostRuntime {
         configuration: CmxIrohHostRuntimeConfiguration,
         protocolConfiguration: CmxIrohProtocolConfiguration = .cmuxMobileV1,
         now: @escaping @Sendable () -> Date = { Date() },
+        admissionClock: any CmxIrohRelayClock = CmxIrohSystemRelayClock(),
         handleTransport: @escaping TransportHandler,
         handleBinding: @escaping BindingHandler = { _, _, _ in },
         handleDeactivation: @escaping DeactivationHandler = { _ in },
@@ -84,6 +87,7 @@ public actor CmxIrohHostRuntime {
         self.configuration = configuration
         self.protocolConfiguration = protocolConfiguration
         self.now = now
+        self.admissionClock = admissionClock
         self.handleTransport = handleTransport
         self.handleBinding = handleBinding
         self.handleDeactivation = handleDeactivation
@@ -155,11 +159,19 @@ public actor CmxIrohHostRuntime {
             let offlineSessions = CmxIrohOfflinePairingSessions(
                 pairingEnabled: policy.pairingEnabled
             )
+            let onlineAdmissionRegistry = CmxIrohOnlineAdmissionRegistry(
+                broker: broker,
+                keys: policy.grantVerificationKeys,
+                acceptor: grantPeer(for: policy.binding),
+                managedRelayURLs: configuration.managedRelayURLs,
+                clock: admissionClock
+            )
             let admissionController = CmxIrohAdmissionController(
                 keys: policy.grantVerificationKeys,
                 acceptor: grantPeer(for: policy.binding),
                 pairingEnabled: policy.pairingEnabled,
-                offlineSessions: offlineSessions
+                offlineSessions: offlineSessions,
+                onlineRegistry: onlineAdmissionRegistry
             )
             let relayCoordinator = CmxIrohRelayCredentialCoordinator(
                 supervisor: supervisor,
@@ -171,6 +183,7 @@ public actor CmxIrohHostRuntime {
             )
 
             self.offlineSessions = offlineSessions
+            self.onlineAdmissionRegistry = onlineAdmissionRegistry
             self.admissionController = admissionController
             self.relayCoordinator = relayCoordinator
             localBinding = policy.binding
@@ -553,6 +566,7 @@ public actor CmxIrohHostRuntime {
             protocolConfiguration: protocolConfiguration
         )
         let peer = try await session.admit()
+        let onlineLease = try await session.admittedOnlineLease()
         guard await isCurrent(revision: revision, runtimeGeneration: runtimeGeneration) else {
             await session.close()
             throw CmxIrohHostRuntimeError.superseded
@@ -563,10 +577,21 @@ public actor CmxIrohHostRuntime {
                 runtimeGeneration: runtimeGeneration
             ) ?? false
         }
+        let monitorID: UUID?
+        if let onlineLease, let onlineAdmissionRegistry {
+            monitorID = await onlineAdmissionRegistry.monitor(onlineLease) {
+                await session.close()
+            }
+        } else {
+            monitorID = nil
+        }
         await handleTransport(
             CmxIrohAdmittedServerSession(peer: peer, session: session),
             isCurrent
         )
+        if let monitorID {
+            await onlineAdmissionRegistry?.stopMonitoring(monitorID)
+        }
     }
 
     private func isCurrent(revision: UInt64, runtimeGeneration: UInt64) async -> Bool {
@@ -666,6 +691,8 @@ public actor CmxIrohHostRuntime {
         relayCoordinator = nil
         await offlineSessions?.invalidate()
         offlineSessions = nil
+        await onlineAdmissionRegistry?.stop()
+        onlineAdmissionRegistry = nil
         admissionController = nil
         let bindingID = localBinding?.bindingID
         localBinding = nil

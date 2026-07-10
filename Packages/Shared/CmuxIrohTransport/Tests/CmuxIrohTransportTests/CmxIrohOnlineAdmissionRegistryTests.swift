@@ -35,7 +35,48 @@ struct CmxIrohOnlineAdmissionRegistryTests {
         )
 
         #expect(authorization == .denied)
+        #expect(
+            await registry.authorizePairGrant(
+                fixture.grant(),
+                authenticatedPeerID: fixture.acceptor.endpointID
+            ) == .denied
+        )
         #expect(await broker.callCount() == 0)
+    }
+
+    @Test
+    func onlineSnapshotIsSharedForLessThanThirtySecondsOnly() async throws {
+        let fixture = try OnlineAdmissionFixture()
+        let clock = OnlineAdmissionManualClock(now: fixture.now)
+        let broker = OnlineAdmissionBroker(responses: [
+            .success(try fixture.discovery()),
+            .success(try fixture.discovery()),
+        ])
+        let registry = fixture.registry(broker: broker, clock: clock)
+
+        #expect(
+            await registry.authorizePairGrant(
+                fixture.grant(),
+                authenticatedPeerID: fixture.initiator.endpointID
+            ).isAccepted
+        )
+        clock.advance(by: 29)
+        #expect(
+            await registry.authorizePairGrant(
+                fixture.grant(),
+                authenticatedPeerID: fixture.initiator.endpointID
+            ).isAccepted
+        )
+        #expect(await broker.callCount() == 1)
+
+        clock.advance(by: 1)
+        #expect(
+            await registry.authorizePairGrant(
+                fixture.grant(),
+                authenticatedPeerID: fixture.initiator.endpointID
+            ).isAccepted
+        )
+        #expect(await broker.callCount() == 2)
     }
 
     @Test
@@ -182,6 +223,17 @@ struct CmxIrohOnlineAdmissionRegistryTests {
             .success(try fixture.discovery()),
             .success(try fixture.discovery(includeInitiator: false)),
         ])
+        let endpoint = TestIrohEndpoint(identity: fixture.acceptor.endpointID)
+        let supervisor = CmxIrohEndpointSupervisor(
+            factory: TestIrohEndpointFactory(endpoints: [endpoint]),
+            configuration: try CmxIrohEndpointConfiguration(
+                secretKey: CmxIrohSecretKey(bytes: Data(repeating: 6, count: 32)),
+                alpns: [CmxIrohProtocolConfiguration.cmuxMobileV1.alpn],
+                managedRelayURLs: [fixture.relayURL],
+                relays: []
+            )
+        )
+        _ = try await supervisor.activate()
         let registry = fixture.registry(broker: broker, clock: clock)
         let lease = try #require(
             await registry.authorizePairGrant(
@@ -190,7 +242,6 @@ struct CmxIrohOnlineAdmissionRegistryTests {
             ).lease
         )
         let closeRecorder = OnlineAdmissionCloseRecorder()
-        let endpointRecorder = OnlineAdmissionEndpointRecorder()
         _ = await registry.monitor(lease) {
             await closeRecorder.close()
         }
@@ -200,13 +251,16 @@ struct CmxIrohOnlineAdmissionRegistryTests {
         await closeRecorder.waitUntilClosed()
 
         #expect(await closeRecorder.count() == 1)
-        #expect(await endpointRecorder.closeCount() == 0)
+        let activeEndpoint = try await supervisor.activeEndpoint()
+        #expect(await activeEndpoint.identity() == fixture.acceptor.endpointID)
+        #expect(await endpoint.observedCloseCallCount() == 0)
         #expect(
             await registry.authorizePairGrant(
                 fixture.grant(),
                 authenticatedPeerID: fixture.initiator.endpointID
             ) == .denied
         )
+        await supervisor.deactivate()
     }
 
     @Test
@@ -235,6 +289,37 @@ struct CmxIrohOnlineAdmissionRegistryTests {
 
         #expect(await closeRecorder.count() == 0)
         await registry.stop()
+    }
+
+    @Test
+    func localRevokeImmediatelyClosesAndSticks() async throws {
+        let fixture = try OnlineAdmissionFixture()
+        let broker = OnlineAdmissionBroker(responses: [
+            .success(try fixture.discovery()),
+        ])
+        let registry = fixture.registry(broker: broker)
+        let lease = try #require(
+            await registry.authorizePairGrant(
+                fixture.grant(),
+                authenticatedPeerID: fixture.initiator.endpointID
+            ).lease
+        )
+        let closeRecorder = OnlineAdmissionCloseRecorder()
+        _ = await registry.monitor(lease) {
+            await closeRecorder.close()
+        }
+
+        await registry.revoke(bindingID: fixture.initiator.bindingID)
+        await closeRecorder.waitUntilClosed()
+
+        #expect(await closeRecorder.count() == 1)
+        #expect(
+            await registry.authorizePairGrant(
+                fixture.grant(),
+                authenticatedPeerID: fixture.initiator.endpointID
+            ) == .denied
+        )
+        #expect(await broker.callCount() == 1)
     }
 
     @Test
@@ -420,11 +505,6 @@ private actor OnlineAdmissionCloseRecorder {
         if closes > 0 { return }
         await withCheckedContinuation { waiters.append($0) }
     }
-}
-
-private actor OnlineAdmissionEndpointRecorder {
-    private var closes = 0
-    func closeCount() -> Int { closes }
 }
 
 private struct OnlineAdmissionFixture {

@@ -47,6 +47,7 @@ public actor CmxIrohAdmissionController: CmxIrohAdmissionAuthorizing {
     public func revoke(bindingID: String) async {
         revokedBindingIDs.insert(bindingID)
         await offlineSessions.revoke(bindingID: bindingID)
+        await onlineRegistry?.revoke(bindingID: bindingID)
     }
 
     public func authorize(
