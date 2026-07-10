@@ -74,7 +74,7 @@ extension Workspace {
                 sessionPanelSnapshot(
                     panelId: panelId,
                     includeScrollback: includeScrollback,
-                    restorableAgent: restorableAgentIndex?.snapshot(workspaceId: id, panelId: panelId),
+                    restorableAgentObservation: restorableAgentIndex?.entry(workspaceId: id, panelId: panelId),
                     resumeBinding: effectiveSurfaceResumeBinding(
                         panelId: panelId,
                         surfaceResumeBindingIndex: surfaceResumeBindingIndex
@@ -394,33 +394,40 @@ extension Workspace {
     private func sessionPanelSnapshot(
         panelId: UUID,
         includeScrollback: Bool,
-        restorableAgent: SessionRestorableAgentSnapshot?,
+        restorableAgentObservation: RestorableAgentSessionIndex.Entry?,
         resumeBinding: SurfaceResumeBindingSnapshot?
     ) -> SessionPanelSnapshot? {
         guard let panel = panels[panelId] else { return nil }
 
-        let compatibleIndexedRestorableAgent = restorableAgent.flatMap {
+        let indexedRestorableAgent = restorableAgentObservation?.snapshot
+        let compatibleIndexedRestorableAgent = indexedRestorableAgent.flatMap {
             Self.restorableAgentForSessionRestore(
                 $0,
                 resumeBinding: resumeBinding
             )
         }
-        if restorableAgent != nil, compatibleIndexedRestorableAgent == nil {
+        if indexedRestorableAgent != nil, compatibleIndexedRestorableAgent == nil {
             clearRestoredAgentSnapshot(panelId: panelId)
         }
-        if let compatibleRestorableAgent = compatibleIndexedRestorableAgent {
-            let fingerprint = TabManager.restorableAgentSnapshotFingerprint(compatibleRestorableAgent)
-            if invalidatedRestoredAgentFingerprintsByPanelId[panelId] == fingerprint {
-                clearRestoredAgentSnapshot(panelId: panelId)
-            } else {
-                restoredAgentSnapshotsByPanelId[panelId] = compatibleRestorableAgent
-                if restoredAgentResumeStatesByPanelId[panelId] == nil {
-                    restoredAgentResumeStatesByPanelId[panelId] = restoredAgentResumeStateForAcceptedSnapshot(
-                        panelId: panelId
-                    )
+        if let compatibleRestorableAgent = compatibleIndexedRestorableAgent,
+           let restorableAgentObservation {
+            reconcileCompletedRestoredAgent(
+                panelId: panelId,
+                observation: restorableAgentObservation
+            )
+            if restoredAgentResumeStatesByPanelId[panelId] != .completedAgentExit {
+                let fingerprint = TabManager.restorableAgentSnapshotFingerprint(compatibleRestorableAgent)
+                if invalidatedRestoredAgentFingerprintsByPanelId[panelId] == fingerprint {
+                    clearRestoredAgentSnapshot(panelId: panelId)
+                } else {
+                    restoredAgentSnapshotsByPanelId[panelId] = compatibleRestorableAgent
+                    if restoredAgentResumeStatesByPanelId[panelId] == nil {
+                        restoredAgentResumeStatesByPanelId[panelId] = restoredAgentResumeStateForAcceptedSnapshot(
+                            panelId: panelId
+                        )
+                    }
+                    invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: panelId)
                 }
-                invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: panelId)
-                syncTerminalTabAgentIconAsset(forPanelId: panelId)
             }
         }
         let hibernationState = (panel as? TerminalPanel)?.agentHibernationState
@@ -430,7 +437,8 @@ extension Workspace {
                 resumeBinding: resumeBinding
             ) == nil ? nil : state
         }
-        let effectiveRestorableAgent = Self.restorableAgentForSessionRestore(
+        let restoredAgentCompleted = restoredAgentResumeStatesByPanelId[panelId] == .completedAgentExit
+        let effectiveRestorableAgent = restoredAgentCompleted ? nil : Self.restorableAgentForSessionRestore(
             effectiveHibernationState?.agent ?? restoredAgentSnapshotsByPanelId[panelId],
             resumeBinding: resumeBinding
         )
@@ -738,11 +746,11 @@ extension Workspace {
         // cmux-launched agents reopen correctly regardless of cache freshness.
         let agentIndex = SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
             ?? RestorableAgentSessionIndex.load()
-        let restorableAgent = agentIndex.snapshot(workspaceId: id, panelId: panelId)
+        let restorableAgentObservation = agentIndex.entry(workspaceId: id, panelId: panelId)
         guard let snapshot = sessionPanelSnapshot(
             panelId: panelId,
             includeScrollback: true,
-            restorableAgent: restorableAgent,
+            restorableAgentObservation: restorableAgentObservation,
             resumeBinding: effectiveSurfaceResumeBinding(
                 panelId: panelId,
                 surfaceResumeBindingIndex: nil
@@ -1544,7 +1552,7 @@ extension Workspace {
                 restoredTerminalScrollbackByPanelId.removeValue(forKey: terminalPanel.id)
             }
             if let restorableAgent {
-                seedSessionRestoredAgentIconState(
+                seedSessionRestoredAgentState(
                     panelId: terminalPanel.id,
                     restorableAgent: restorableAgent,
                     willRunStartupCommand: restoredAgentWillRunStartupCommand,
@@ -1559,7 +1567,7 @@ extension Workspace {
                     )
                 }
             } else {
-                seedSessionRestoredAgentIconState(
+                seedSessionRestoredAgentState(
                     panelId: terminalPanel.id,
                     restorableAgent: nil,
                     willRunStartupCommand: restoredAgentWillRunStartupCommand,
@@ -2193,7 +2201,6 @@ final class Workspace: Identifiable, ObservableObject {
         set { sidebarMetadata.panelDirectoryDisplayLabels = newValue }
     }
     @Published var panelTitles: [UUID: String] = [:]
-    var titleDerivedAgentStatusKeysByPanelId: [UUID: String] = [:]
     @Published var panelCustomTitles: [UUID: String] = [:]
     /// Provenance of entries in `panelCustomTitles` (see ``CustomTitleSource``).
     /// An entry may be absent for a title carried across panel moves or
@@ -2347,7 +2354,11 @@ final class Workspace: Identifiable, ObservableObject {
     var debugSessionSnapshotScrollbackFallbackPanelIds: Set<UUID> = []
     var debugSessionSnapshotSyntheticScrollbackByPanelId: [UUID: String] = [:]
 #endif
-    var restoredAgentSnapshotsByPanelId: [UUID: SessionRestorableAgentSnapshot] = [:]
+    let restoredAgentLifecycle = RestoredAgentLifecycleCoordinator()
+    var restoredAgentSnapshotsByPanelId: [UUID: SessionRestorableAgentSnapshot] {
+        get { restoredAgentLifecycle.snapshotsByPanelId }
+        set { restoredAgentLifecycle.snapshotsByPanelId = newValue }
+    }
     var surfaceResumeBindingsByPanelId: [UUID: SurfaceResumeBindingSnapshot] = [:]
     private var restoredGuardedWorkingDirectoriesByPanelId: [UUID: String] = [:]
     /// The session directory each restored auto-resume launcher targets, kept
@@ -2358,13 +2369,16 @@ final class Workspace: Identifiable, ObservableObject {
     /// `Workspace+PanelLifecycle` can clear it on panel close.
     var restoredResumeSessionWorkingDirectoriesByPanelId: [UUID: String] = [:]
     enum RestoredAgentResumeState: Equatable {
-        case manualResumeAvailable
-        case awaitingAutoResumeCommand
-        case autoResumeCommandRunning
-        case observedAgentCommandRunning
+        case manualResumeAvailable, awaitingAutoResumeCommand, autoResumeCommandRunning, observedAgentCommandRunning, completedAgentExit
     }
-    var restoredAgentResumeStatesByPanelId: [UUID: RestoredAgentResumeState] = [:]
-    var invalidatedRestoredAgentFingerprintsByPanelId: [UUID: Int] = [:]
+    var restoredAgentResumeStatesByPanelId: [UUID: RestoredAgentResumeState] {
+        get { restoredAgentLifecycle.resumeStatesByPanelId }
+        set { restoredAgentLifecycle.resumeStatesByPanelId = newValue }
+    }
+    var invalidatedRestoredAgentFingerprintsByPanelId: [UUID: Int] {
+        get { restoredAgentLifecycle.invalidatedFingerprintsByPanelId }
+        set { restoredAgentLifecycle.invalidatedFingerprintsByPanelId = newValue }
+    }
     private var pendingTerminalInputObserversByPanelId: [UUID: [WorkspacePendingTerminalInputObserver]] = [:]
     private let sessionRestorePolicy: WorkspaceSessionRestorePolicyService<SurfaceResumeBindingSnapshot>
 
@@ -3097,7 +3111,19 @@ final class Workspace: Identifiable, ObservableObject {
             queue: nil
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
-                self?.objectWillChange.send()
+                guard let self else { return }
+                if let index = SharedLiveAgentIndex.shared.index {
+                    let completedPanelIds = self.restoredAgentResumeStatesByPanelId.compactMap { panelId, state in
+                        state == .completedAgentExit ? panelId : nil
+                    }
+                    for panelId in completedPanelIds {
+                        guard let observation = index.entry(workspaceId: self.id, panelId: panelId) else {
+                            continue
+                        }
+                        self.reconcileCompletedRestoredAgent(panelId: panelId, observation: observation)
+                    }
+                }
+                self.objectWillChange.send()
             }
         }
     }
@@ -4499,6 +4525,7 @@ final class Workspace: Identifiable, ObservableObject {
         } else {
             updateBindingOnlyRestoredAgentResumeState(panelId: panelId, shellState: state)
         }
+        if state == .promptIdle { _ = clearStaleAgentPIDs(panelId: panelId, refreshPorts: true) }
 #if DEBUG
         cmuxDebugLog(
             "surface.shellState workspace=\(id.uuidString.prefix(5)) " +
@@ -4511,7 +4538,12 @@ final class Workspace: Identifiable, ObservableObject {
         panelId: UUID,
         index: RestorableAgentSessionIndex
     ) -> SessionRestorableAgentSnapshot? {
-        guard let snapshot = restoredAgentSnapshotsByPanelId[panelId] ?? index.snapshot(workspaceId: id, panelId: panelId),
+        let observation = index.entry(workspaceId: id, panelId: panelId)
+        if let observation {
+            reconcileCompletedRestoredAgent(panelId: panelId, observation: observation)
+        }
+        guard restoredAgentResumeStatesByPanelId[panelId] != .completedAgentExit,
+              let snapshot = restoredAgentSnapshotsByPanelId[panelId] ?? observation?.snapshot,
               snapshot.resumeCommand != nil else {
             return nil
         }
@@ -4542,7 +4574,6 @@ final class Workspace: Identifiable, ObservableObject {
         if !keys.isEmpty {
             refreshTrackedAgentPorts()
         }
-        syncTerminalTabAgentIconAsset(forPanelId: panelId)
         terminalPanel.enterAgentHibernation(agent: agent, lastActivityAt: lastActivityAt)
     }
 
@@ -4579,89 +4610,6 @@ final class Workspace: Identifiable, ObservableObject {
             didResume = resumeAgentHibernation(panelId: panelId, focus: false) || didResume
         }
         return didResume
-    }
-
-    private func restoredAgentResumeStateForAcceptedSnapshot(panelId: UUID) -> RestoredAgentResumeState {
-        panelShellActivityStates[panelId] == .commandRunning
-            ? .observedAgentCommandRunning
-            : .manualResumeAvailable
-    }
-
-    private func updateRestoredAgentResumeState(
-        panelId: UUID,
-        restoredAgent: SessionRestorableAgentSnapshot,
-        shellState: PanelShellActivityState
-    ) {
-        switch shellState {
-        case .commandRunning:
-            switch restoredAgentResumeStatesByPanelId[panelId] {
-            case .some(.awaitingAutoResumeCommand):
-                restoredAgentResumeStatesByPanelId[panelId] = .autoResumeCommandRunning
-            case .some(.autoResumeCommandRunning), .some(.observedAgentCommandRunning):
-                break
-            case .some(.manualResumeAvailable), nil:
-                invalidateRestoredAgentSnapshot(panelId: panelId, restoredAgent: restoredAgent)
-            }
-        case .promptIdle:
-            switch restoredAgentResumeStatesByPanelId[panelId] {
-            case .some(.autoResumeCommandRunning), .some(.observedAgentCommandRunning):
-                invalidateRestoredAgentSnapshot(panelId: panelId, restoredAgent: restoredAgent)
-            case .some(.awaitingAutoResumeCommand), .some(.manualResumeAvailable), nil:
-                break
-            }
-        case .unknown:
-            break
-        }
-    }
-
-    private func updateBindingOnlyRestoredAgentResumeState(
-        panelId: UUID,
-        shellState: PanelShellActivityState
-    ) {
-        switch (shellState, restoredAgentResumeStatesByPanelId[panelId]) {
-        case (.commandRunning, .some(.awaitingAutoResumeCommand)):
-            restoredAgentResumeStatesByPanelId[panelId] = .autoResumeCommandRunning
-        case (.promptIdle, .some(.autoResumeCommandRunning)),
-             (.promptIdle, .some(.observedAgentCommandRunning)):
-            restoredAgentResumeStatesByPanelId.removeValue(forKey: panelId)
-            restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
-            if surfaceResumeBindingsByPanelId[panelId]?.isAgentHookBinding == true {
-                surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
-            }
-        default:
-            break
-        }
-    }
-
-    private func invalidateRestoredAgentSnapshot(
-        panelId: UUID,
-        restoredAgent: SessionRestorableAgentSnapshot
-    ) {
-        let fingerprint = TabManager.restorableAgentSnapshotFingerprint(restoredAgent)
-        invalidatedRestoredAgentFingerprintsByPanelId[panelId] = fingerprint
-        clearRestoredAgentResumeBinding(panelId: panelId, restoredAgent: restoredAgent)
-        clearRestoredAgentSnapshot(panelId: panelId)
-#if DEBUG
-        cmuxDebugLog(
-            "session.restore.agent.invalidate panel=\(panelId.uuidString.prefix(5)) " +
-            "kind=\(restoredAgent.kind.rawValue) session=\(restoredAgent.sessionId.prefix(8))"
-        )
-#endif
-    }
-
-    private func clearRestoredAgentResumeBinding(
-        panelId: UUID,
-        restoredAgent: SessionRestorableAgentSnapshot
-    ) {
-        guard let binding = surfaceResumeBindingsByPanelId[panelId],
-              binding.source == "agent-hook" else {
-            return
-        }
-        let checkpointId = binding.checkpointId?.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard checkpointId == nil || checkpointId == restoredAgent.sessionId else {
-            return
-        }
-        surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
     }
 
     @discardableResult
@@ -4898,7 +4846,6 @@ final class Workspace: Identifiable, ObservableObject {
         remoteDirectoryTrustRequiredPanelIds = remoteDirectoryTrustRequiredPanelIds.filter { validSurfaceIds.contains($0) }
         remoteDirectoryReportPanelIds = remoteDirectoryReportPanelIds.filter { validSurfaceIds.contains($0) }
         panelTitles = panelTitles.filter { validSurfaceIds.contains($0.key) }
-        titleDerivedAgentStatusKeysByPanelId = titleDerivedAgentStatusKeysByPanelId.filter { validSurfaceIds.contains($0.key) }
         panelCustomTitles = panelCustomTitles.filter { validSurfaceIds.contains($0.key) }
         panelCustomTitleSources = panelCustomTitleSources.filter { validSurfaceIds.contains($0.key) }
         pinnedPanelIds = pinnedPanelIds.filter { validSurfaceIds.contains($0) }
@@ -7718,13 +7665,12 @@ final class Workspace: Identifiable, ObservableObject {
         panels[pair.key] = replacementPanel
         panelTitles[pair.key] = replacementPanel.displayTitle
         seedTerminalInheritanceFontPoints(panelId: pair.key, configTemplate: inheritedConfig)
-        let iconPayload = terminalTabAgentIconPayload(forPanelId: pair.key)
         bonsplitController.updateTab(
             tabId,
             title: replacementPanel.displayTitle,
             icon: .some(replacementPanel.displayIcon),
-            iconImageData: .some(iconPayload.imageData),
-            iconAsset: .some(iconPayload.assetName),
+            iconImageData: .some(nil),
+            iconAsset: .some(nil),
             kind: .some(SurfaceKind.terminal.rawValue),
             hasCustomTitle: false,
             isDirty: replacementPanel.isDirty,
@@ -7855,13 +7801,12 @@ final class Workspace: Identifiable, ObservableObject {
         bindSurface(tabId, toPanelId: panelId)
         seedTerminalInheritanceFontPoints(panelId: panelId, configTemplate: inheritedConfig)
         let resolvedTitle = resolvedPanelTitle(panelId: panelId, fallback: replacementPanel.displayTitle)
-        let iconPayload = terminalTabAgentIconPayload(forPanelId: panelId)
         bonsplitController.updateTab(
             tabId,
             title: resolvedTitle,
             icon: .some(replacementPanel.displayIcon),
-            iconImageData: .some(iconPayload.imageData),
-            iconAsset: .some(iconPayload.assetName),
+            iconImageData: .some(nil),
+            iconAsset: .some(nil),
             kind: .some(SurfaceKind.terminal.rawValue),
             hasCustomTitle: customTitle != nil,
             isDirty: replacementPanel.isDirty,
@@ -9252,7 +9197,9 @@ final class Workspace: Identifiable, ObservableObject {
             surfaceTTYNames.removeValue(forKey: detached.panelId)
         }
         syncRemotePortScanTTYs()
-        seedTitleDerivedTerminalAgentState(from: detached)
+        if let cachedTitle = detached.cachedTitle {
+            panelTitles[detached.panelId] = cachedTitle
+        }
         if let customTitle = detached.customTitle {
             panelCustomTitles[detached.panelId] = customTitle
             panelCustomTitleSources[detached.panelId] = detached.customTitleSource ?? .user
@@ -9276,13 +9223,12 @@ final class Workspace: Identifiable, ObservableObject {
         }
         let detachedBrowserMuted = (detached.panel as? BrowserPanel)?.isMuted ?? false
         let detachedBrowserPlayingAudio = (detached.panel as? BrowserPanel)?.isPlayingAudio ?? false
-        let detachedIconPayload = terminalTabAgentIconPayload(forDetached: detached)
+        let detachedIconImageData = detached.panel is TerminalPanel ? nil : detached.iconImageData
         guard let newTabId = bonsplitController.createTab(
             title: detached.title,
             hasCustomTitle: detached.customTitle?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false,
             icon: detached.icon,
-            iconImageData: detachedIconPayload.imageData,
-            iconAsset: detachedIconPayload.assetName,
+            iconImageData: detachedIconImageData,
             kind: detached.kind,
             isDirty: detached.panel.isDirty,
             isLoading: detached.isLoading,
@@ -9298,7 +9244,6 @@ final class Workspace: Identifiable, ObservableObject {
             surfaceTTYNames.removeValue(forKey: detached.panelId)
             surfaceResumeBindingsByPanelId.removeValue(forKey: detached.panelId)
             restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: detached.panelId)
-            titleDerivedAgentStatusKeysByPanelId.removeValue(forKey: detached.panelId)
             syncRemotePortScanTTYs()
             panelTitles.removeValue(forKey: detached.panelId)
             panelCustomTitles.removeValue(forKey: detached.panelId)
@@ -9359,7 +9304,6 @@ final class Workspace: Identifiable, ObservableObject {
             surfaceResumeBindingsByPanelId.removeValue(forKey: detached.panelId)
         }
         adoptDetachedAgentRuntimeState(detached.agentRuntime)
-        syncTerminalTabAgentIconAsset(forPanelId: detached.panelId)
         if let markdownPanel = detached.panel as? MarkdownPanel,
            panelSubscriptions[markdownPanel.id] == nil {
             installMarkdownPanelSubscription(markdownPanel)
@@ -11249,10 +11193,22 @@ final class Workspace: Identifiable, ObservableObject {
     /// `SharedLiveAgentIndex` for a process-sensitive snapshot so live panel remaps do not
     /// inherit the stale-tolerant cache used by close-history restore paths.
     func forkableAgentSnapshot(forPanelId panelId: UUID) -> SessionRestorableAgentSnapshot? {
-        if let snapshot = restoredAgentSnapshotsByPanelId[panelId] {
+        if let snapshot = restoredAgentSnapshotForContinuation(panelId: panelId) {
             return snapshot
         }
-        return SharedLiveAgentIndex.shared.snapshotForForkAvailability(workspaceId: id, panelId: panelId)
+        guard let snapshot = SharedLiveAgentIndex.shared.snapshotForForkAvailability(
+            workspaceId: id,
+            panelId: panelId
+        ) else {
+            return nil
+        }
+        if let observation = SharedLiveAgentIndex.shared.index?.entry(
+            workspaceId: id,
+            panelId: panelId
+        ) {
+            reconcileCompletedRestoredAgent(panelId: panelId, observation: observation)
+        }
+        return allowsAgentContinuation(forPanelId: panelId) ? snapshot : nil
     }
 
     /// Fork the panel's agent conversation into a brand-new sibling tab placed immediately
@@ -12192,6 +12148,8 @@ extension Workspace: BonsplitDelegate {
                 restoredUnreadIndicator: restoredUnreadPanelIndicators[panelId],
                 restorableAgent: restorableAgent,
                 restorableAgentResumeState: restorableAgentResumeState,
+                restoredAgentCompletedGeneration: restoredAgentLifecycle.completedGeneration(panelId: panelId),
+                shellActivityState: panelShellActivityStates[panelId],
                 restoredResumeSessionWorkingDirectory: restoredResumeSessionWorkingDirectoriesByPanelId[panelId],
                 resumeBinding: resumeBinding,
                 agentRuntime: agentRuntime,

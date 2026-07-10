@@ -136,6 +136,10 @@ extension DockSplitStore {
         let transferTitle = trimmedCustomTitle?.isEmpty == false
             ? preservedTransfer?.customTitle
             : panel.displayTitle
+        let panelShellActivityState = (panel as? TerminalPanel)?.shellActivity.state
+        let transferredShellActivityState = panelShellActivityState == .unknown
+            ? preservedTransfer?.shellActivityState
+            : panelShellActivityState
 
         // Drop our ownership first: once the tab close fires `reconcilePanels`,
         // a still-tracked panel would be `panel.close()`d (killing the process).
@@ -143,7 +147,6 @@ extension DockSplitStore {
         panelCancellables.removeValue(forKey: panelId)
         surfaceIdToPanelId.removeValue(forKey: tabId)
         panels.removeValue(forKey: panelId)
-        let preservedTitleDerivedAgentStatusKey = titleDerivedAgentStatusKeysByPanelId.removeValue(forKey: panelId)
 
         forceCloseDockTabIds.insert(tabId)
         defer { forceCloseDockTabIds.remove(tabId) }
@@ -151,9 +154,6 @@ extension DockSplitStore {
             // Close rejected: re-take ownership so the Dock stays consistent.
             panels[panelId] = panel
             surfaceIdToPanelId[tabId] = panelId
-            if let preservedTitleDerivedAgentStatusKey {
-                titleDerivedAgentStatusKeysByPanelId[panelId] = preservedTitleDerivedAgentStatusKey
-            }
             if let preservedTransfer {
                 detachedSurfaceTransfersByPanelId[panelId] = preservedTransfer
             }
@@ -186,6 +186,10 @@ extension DockSplitStore {
             restoredUnreadIndicator: preservedTransfer?.restoredUnreadIndicator,
             restorableAgent: agentProvenExited ? nil : preservedTransfer?.restorableAgent,
             restorableAgentResumeState: agentProvenExited ? nil : preservedTransfer?.restorableAgentResumeState,
+            restoredAgentCompletedGeneration: agentProvenExited
+                ? nil
+                : preservedTransfer?.restoredAgentCompletedGeneration,
+            shellActivityState: transferredShellActivityState,
             restoredResumeSessionWorkingDirectory: restoredResumeSessionWorkingDirectory,
             resumeBinding: resumeBinding,
             agentRuntime: agentProvenExited ? nil : preservedTransfer?.agentRuntime,
@@ -225,22 +229,11 @@ extension DockSplitStore {
         // read is unavailable.
         detachedSurfaceTransfersByPanelId[detached.panelId] = detached
         let kind = detached.kind ?? ((panel.panelType == .browser) ? "browser" : "terminal")
-        if kind == "terminal" {
-            _ = updateTitleDerivedTerminalAgentStatusKey(
-                forPanelId: detached.panelId,
-                title: detached.cachedTitle ?? detached.panel.displayTitle
-            )
-        }
-        let restoredIconPayload: (imageData: Data?, assetName: String?) = {
-            guard detached.panel is TerminalPanel else { return (detached.iconImageData, nil) }
-            let payload = terminalTabAgentIconPayload(forPanelId: detached.panelId)
-            return (payload.imageData, payload.assetName)
-        }()
+        let restoredIconImageData = detached.panel is TerminalPanel ? nil : detached.iconImageData
         guard let newTabId = bonsplitController.createTab(
             title: detached.title,
             icon: detached.icon,
-            iconImageData: restoredIconPayload.imageData,
-            iconAsset: restoredIconPayload.assetName,
+            iconImageData: restoredIconImageData,
             kind: kind,
             isDirty: panel.isDirty,
             isLoading: detached.isLoading,
