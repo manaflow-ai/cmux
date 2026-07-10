@@ -14,16 +14,18 @@ extension MultiWindowNotificationsUITests {
 
         XCTAssertTrue(
             waitForData(
-                keys: ["notifId1", "workspaceTitle1", "notifId2", "workspaceTitle2"],
+                keys: ["tabId1", "notifId1", "workspaceTitle1", "notifId2", "workspaceTitle2"],
                 timeout: 15.0
             ),
             "Expected notification and workspace-title setup data"
         )
         guard let setup = loadData(),
+              let workspaceId1 = setup["tabId1"],
               let notificationId1 = setup["notifId1"],
               let workspaceTitle1 = setup["workspaceTitle1"],
               let notificationId2 = setup["notifId2"],
               let workspaceTitle2 = setup["workspaceTitle2"],
+              !workspaceId1.isEmpty,
               !notificationId1.isEmpty,
               !workspaceTitle1.isEmpty,
               !notificationId2.isEmpty,
@@ -53,6 +55,36 @@ extension MultiWindowNotificationsUITests {
             )
             XCTAssertEqual(workspaceHeadline.label, workspaceTitle)
         }
+
+        let renamedWorkspaceTitle = "Renamed While Notifications Are Open"
+        let renameResult = runCmuxCommand(
+            socketPath: socketPath,
+            arguments: [
+                "workspace",
+                "rename",
+                "--workspace",
+                workspaceId1,
+                "--title",
+                renamedWorkspaceTitle,
+            ],
+            responseTimeoutSeconds: 4.0,
+            cliStrategy: .bundledOnly
+        )
+        XCTAssertEqual(
+            renameResult.terminationStatus,
+            0,
+            "Expected workspace rename to succeed: \(renameResult.stderr)"
+        )
+
+        let renamedWorkspaceHeadline = app.descendants(matching: .any)
+            .matching(identifier: "NotificationPopoverRow.\(notificationId1).workspaceTitle")
+            .firstMatch
+        XCTAssertTrue(
+            waitForCondition(timeout: 6.0) {
+                renamedWorkspaceHeadline.exists && renamedWorkspaceHeadline.label == renamedWorkspaceTitle
+            },
+            "Expected the open notifications popover to refresh the renamed workspace headline"
+        )
     }
 
     func waitForWindowCount(atLeast count: Int, app: XCUIApplication, timeout: TimeInterval) -> Bool {

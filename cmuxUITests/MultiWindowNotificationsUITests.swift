@@ -4,7 +4,7 @@ import CoreGraphics
 
 final class MultiWindowNotificationsUITests: XCTestCase {
     var dataPath = ""
-    private var socketPath = ""
+    var socketPath = ""
     var launchTag = ""
 
     override func setUp() {
@@ -971,7 +971,7 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         )
     }
 
-    private func runCmuxCommand(
+    func runCmuxCommand(
         socketPath: String,
         arguments: [String],
         responseTimeoutSeconds: Double = 3.0,
@@ -1028,7 +1028,7 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         return lastPermissionFailure ?? fallbackResult
     }
 
-    private enum CmuxCLIStrategy: Equatable {
+    enum CmuxCLIStrategy: Equatable {
         case any
         case bundledOnly
     }
