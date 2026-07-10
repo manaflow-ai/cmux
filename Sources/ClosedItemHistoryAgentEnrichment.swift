@@ -1,20 +1,21 @@
 import Foundation
 
 extension ClosedItemHistoryStore {
+    @discardableResult
+    func pushPreservingAgentMetadata(
+        _ entry: ClosedItemHistoryEntry
+    ) -> Task<Void, Never> {
+        pushPreservingAgentMetadata(entry, coordinatedBy: .shared)
+    }
+
     /// Records the core close snapshot immediately, then enriches it from an
     /// off-main capture while the caller retains the terminal being closed.
     @discardableResult
     func pushPreservingAgentMetadata(
         _ entry: ClosedItemHistoryEntry,
-        coordinatedBy sharedIndex: SharedLiveAgentIndex = .shared
-    ) -> Task<Void, Never>? {
-        let cachedIndex = sharedIndex.cachedIndex()
-        let initialEntry = cachedIndex.map { entry.enrichingAgentMetadata(from: $0) } ?? entry
-        let record = ClosedItemHistoryRecord(entry: initialEntry)
-        guard cachedIndex == nil else {
-            push(record)
-            return nil
-        }
+        coordinatedBy sharedIndex: SharedLiveAgentIndex
+    ) -> Task<Void, Never> {
+        let record = ClosedItemHistoryRecord(entry: entry)
         pushPendingEnrichment(record)
         let refreshTask = sharedIndex.indexRefreshTaskForDestructiveClose()
         return Task { @MainActor [weak self] in

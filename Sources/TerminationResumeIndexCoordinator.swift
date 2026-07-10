@@ -47,13 +47,8 @@ final class TerminationResumeIndexCoordinator {
     }
 
     func current() -> ProcessDetectedResumeIndexes? {
-        current(coordinatedBy: .shared)
-    }
-
-    func current(
-        coordinatedBy sharedIndex: SharedLiveAgentIndex
-    ) -> ProcessDetectedResumeIndexes? {
-        completed ?? sharedIndex.cachedResumeIndexes()
+        guard didComplete else { return nil }
+        return completed
     }
 
 }
@@ -83,39 +78,37 @@ extension AppDelegate {
         guard terminationPreparationTask == nil else { return }
         isTerminatingApp = true
         _ = nextProcessDetectedSessionSaveGeneration()
-        terminationPreparationTask = confirmedTerminationSessionCapture.start(
-            persistCoreSnapshot: { [weak self] in
-                guard let self else { return }
-                _ = self.saveSessionSnapshotIncludingProcessDetectedIndexes(
-                    includeScrollback: true,
-                    removeWhenEmpty: false
-                )
-                ClosedItemHistoryStore.shared.flushPendingSaves()
-            },
-            capture: { [weak self] in
-                guard let self else { return nil }
-                return await self.terminationResumeIndexCoordinator.load()
-            },
-            completion: { [weak self] resumeIndexes in
-                guard let self else { return }
-                if let resumeIndexes {
-                    _ = self.saveSessionSnapshot(
-                        includeScrollback: true,
-                        removeWhenEmpty: false,
-                        restorableAgentIndex: resumeIndexes.restorableAgentIndex,
-                        surfaceResumeBindingIndex: resumeIndexes.surfaceResumeBindingIndex
-                    )
-                }
-                self.closeAllWebInspectorsBeforeAppTeardown()
-                self.terminationPreparationTask = nil
-                StartupBreadcrumbLog.append(
-                    "appDelegate.shouldTerminate.reply",
-                    fields: ["shouldQuit": "1", "reason": reason]
-                )
-                if !self.deferTerminateForMarkedRemoteTmuxKills(reason: reason) {
-                    self.replyToTerminateOnce(true)
-                }
+        confirmedTerminationSessionCapture.prepare { [weak self] in
+            guard let self else { return }
+            _ = self.saveSessionSnapshotIncludingProcessDetectedIndexes(
+                includeScrollback: true,
+                removeWhenEmpty: false
+            )
+            ClosedItemHistoryStore.shared.flushPendingSaves()
+        }
+        terminationPreparationTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            let resumeIndexes = await self.confirmedTerminationSessionCapture.capture {
+                await self.terminationResumeIndexCoordinator.load()
             }
-        )
+            guard !Task.isCancelled else { return }
+            if let resumeIndexes {
+                _ = self.saveSessionSnapshot(
+                    includeScrollback: true,
+                    removeWhenEmpty: false,
+                    restorableAgentIndex: resumeIndexes.restorableAgentIndex,
+                    surfaceResumeBindingIndex: resumeIndexes.surfaceResumeBindingIndex
+                )
+            }
+            self.closeAllWebInspectorsBeforeAppTeardown()
+            self.terminationPreparationTask = nil
+            StartupBreadcrumbLog.append(
+                "appDelegate.shouldTerminate.reply",
+                fields: ["shouldQuit": "1", "reason": reason]
+            )
+            if !self.deferTerminateForMarkedRemoteTmuxKills(reason: reason) {
+                self.replyToTerminateOnce(true)
+            }
+        }
     }
 }

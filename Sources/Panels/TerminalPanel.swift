@@ -84,7 +84,6 @@ final class TerminalPanel: Panel, ObservableObject {
     private var didDiscardTextBoxContentForClose = false
     var didTeardownRuntimeForClose = false
 #if DEBUG
-    var debugRuntimeTeardownCountForTesting = 0
     private struct DebugTextBoxInlineFixture {
         let localURL: URL?
         let beforeText: String

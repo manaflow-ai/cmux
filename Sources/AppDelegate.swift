@@ -16196,7 +16196,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             closeWindowSnapshotPruningCrashDiagnostics(
                 for: context,
                 includeScrollback: false,
-                restorableAgentIndex: SharedLiveAgentIndex.shared.cachedIndex() ?? .empty
+                restorableAgentIndex: .empty
             )
                 .isCrashDiagnostic
         } ?? false
@@ -16282,12 +16282,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
               !isApplyingSessionRestore else {
             return nil
         }
-        let restorableAgentIndex = SharedLiveAgentIndex.shared.cachedIndex()
-            ?? .empty
         guard let snapshot = closeWindowSnapshotPruningCrashDiagnostics(
             for: context,
             includeScrollback: true,
-            restorableAgentIndex: restorableAgentIndex
+            restorableAgentIndex: .empty
         ).snapshot else {
             return nil
         }

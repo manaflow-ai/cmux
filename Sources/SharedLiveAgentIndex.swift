@@ -172,7 +172,7 @@ final class SharedLiveAgentIndex {
         return cachedIndex()
     }
 
-    /// Side-effect-free cached read for render and close-snapshot paths.
+    /// Side-effect-free cached read for stale-tolerant consumers.
     func cachedIndex() -> RestorableAgentSessionIndex? {
         latestCompletedLoadResult?.index ?? index
     }
@@ -180,16 +180,13 @@ final class SharedLiveAgentIndex {
     /// Captures agent metadata off-main before the caller performs destructive teardown.
     /// Callers retain the terminal until this bounded generation resolves.
     func indexRefreshTaskForDestructiveClose() -> Task<RestorableAgentSessionIndex?, Never> {
-        if let cached = cachedIndex() {
-            return Task { cached }
-        }
         let refreshTask = requestRefresh(
             freshness: .captureAfterRequest,
             publication: .scoped,
             validating: nil
         )
-        return Task { @MainActor [weak self] in
-            await refreshTask.value?.index ?? self?.cachedIndex()
+        return Task { @MainActor in
+            await refreshTask.value?.index
         }
     }
 

@@ -1,6 +1,6 @@
 import Foundation
 
-struct TerminationResumeIndexSavePlan {
+nonisolated struct TerminationResumeIndexSavePlan {
     let restorableAgentIndex: RestorableAgentSessionIndex?
     let surfaceResumeBindingIndex: SurfaceResumeBindingIndex?
     let usesCoreSnapshotFallback: Bool

@@ -429,7 +429,9 @@ extension AgentHibernationPlannerSwiftTests {
         controller.cancelPostTeardownRestoreTasks()
         await controller.drainCancelledPostTeardownRestoreTasks()
     }
-
+    #if compiler(>=6.2)
+    @concurrent
+    #endif
     nonisolated private static func waitForTranscriptRestore(
         at url: URL,
         containing expectedText: String,
@@ -445,7 +447,6 @@ extension AgentHibernationPlannerSwiftTests {
         }
         return (try? String(contentsOf: url, encoding: .utf8).contains(expectedText)) == true
     }
-
     nonisolated private static func indexWithLiveProcess(
         workspaceId: UUID,
         panelId: UUID,

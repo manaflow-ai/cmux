@@ -36,9 +36,6 @@ extension TerminalPanel {
         retireFromUIForClose()
         guard !didTeardownRuntimeForClose else { return }
         didTeardownRuntimeForClose = true
-#if DEBUG
-        debugRuntimeTeardownCountForTesting += 1
-#endif
         surface.teardownSurface()
     }
 }

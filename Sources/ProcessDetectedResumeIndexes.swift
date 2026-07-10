@@ -36,7 +36,13 @@ struct ProcessDetectedResumeIndexes: Sendable {
 
     @MainActor
     static func loadCapturedAfterRequest(
-        coordinatedBy sharedIndex: SharedLiveAgentIndex = .shared
+    ) async -> ProcessDetectedResumeIndexes? {
+        await loadCapturedAfterRequest(coordinatedBy: .shared)
+    }
+
+    @MainActor
+    static func loadCapturedAfterRequest(
+        coordinatedBy sharedIndex: SharedLiveAgentIndex
     ) async -> ProcessDetectedResumeIndexes? {
         await sharedIndex.resumeIndexesCapturedAfterRequest()
     }

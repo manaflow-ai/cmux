@@ -41,17 +41,18 @@ struct ProcessDetectedResumeIndexCoordinationTests {
         )
         let capture = ConfirmedTerminationSessionCapture(watchdog: watchdog)
 
-        let task = capture.start(
-            persistCoreSnapshot: {
-                events.withLock { $0.append("core") }
-                #expect(coordinator.current(coordinatedBy: sharedIndex) == nil)
-            },
-            capture: {
+        capture.prepare {
+            events.withLock { $0.append("core") }
+            #expect(coordinator.current() == nil)
+        }
+        let task = Task { @MainActor in
+            _ = await capture.capture {
                 events.withLock { $0.append("capture") }
                 return await coordinator.load(coordinatedBy: sharedIndex)
-            },
-            completion: { _ in events.withLock { $0.append("complete") } }
-        )
+            }
+            guard !Task.isCancelled else { return }
+            events.withLock { $0.append("complete") }
+        }
 
         #expect(loadCount.withLock { $0 } == 0)
         #expect(events.withLock { $0 } == ["core", "watchdog"])
@@ -74,6 +75,13 @@ struct ProcessDetectedResumeIndexCoordinationTests {
             releaseSecondLoad.signal()
         }
         let loadCount = OSAllocatedUnfairLock(initialState: 0)
+        let unavailableResult: SharedLiveAgentIndexLoader.LoadResult = (
+            index: .empty,
+            surfaceResumeBindingIndex: .empty,
+            liveAgentProcessFingerprint: [],
+            processScopeFingerprint: [],
+            forkValidatedPanels: []
+        )
         let sharedIndex = SharedLiveAgentIndex(
             indexLoader: {
                 let invocation = loadCount.withLock { count in
@@ -82,13 +90,7 @@ struct ProcessDetectedResumeIndexCoordinationTests {
                 }
                 (invocation == 1 ? firstLoadStarted : secondLoadStarted).signal()
                 (invocation == 1 ? releaseFirstLoad : releaseSecondLoad).wait()
-                return (
-                    index: .empty,
-                    surfaceResumeBindingIndex: .empty,
-                    liveAgentProcessFingerprint: [],
-                    processScopeFingerprint: [],
-                    forkValidatedPanels: []
-                )
+                return unavailableResult
             },
             generationTimeoutWaiter: { await timeoutWaiter.wait() },
             hookStoreDirectoryProvider: { Self.temporaryDirectory(named: "unavailable").path }
@@ -100,6 +102,11 @@ struct ProcessDetectedResumeIndexCoordinationTests {
         await timeoutWaiter.waitUntilPendingCount(1)
         await timeoutWaiter.fireNext()
         #expect(await first.value == nil)
+        sharedIndex.latestCompletedLoadResult = unavailableResult
+        #expect(
+            coordinator.current().map { _ in true } == nil,
+            "A memoized unavailable termination capture must override an older shared cache."
+        )
 
         let second = Task { @MainActor in await coordinator.load(coordinatedBy: sharedIndex) }
         let didStartSecondLoad = await Self.wait(for: secondLoadStarted, timeout: 0.2)
@@ -196,8 +203,8 @@ struct ProcessDetectedResumeIndexCoordinationTests {
             return await terminationCoordinator.load(coordinatedBy: sharedIndex)
         }
         #expect(await Self.wait(for: terminationReachedSuspension))
-        #expect(terminationCoordinator.current(coordinatedBy: sharedIndex).map { _ in true } == nil)
-        #expect(terminationCoordinator.current(coordinatedBy: sharedIndex).map { _ in true } == nil)
+        #expect(terminationCoordinator.current().map { _ in true } == nil)
+        #expect(terminationCoordinator.current().map { _ in true } == nil)
         let startedSecondLoad = await Self.wait(for: secondLoadStarted, timeout: 0.2)
         #expect(
             !startedSecondLoad,
@@ -213,8 +220,8 @@ struct ProcessDetectedResumeIndexCoordinationTests {
         #expect(Self.bindingSession(in: resumeIndexes, workspaceId: workspaceId, panelId: panelId) == "pre-confirmation")
         #expect(Self.bindingSession(in: terminationIndexes, workspaceId: workspaceId, panelId: panelId) == "post-confirmation")
 
-        let firstWillTerminateIndexes = terminationCoordinator.current(coordinatedBy: sharedIndex)
-        let secondWillTerminateIndexes = terminationCoordinator.current(coordinatedBy: sharedIndex)
+        let firstWillTerminateIndexes = terminationCoordinator.current()
+        let secondWillTerminateIndexes = terminationCoordinator.current()
         #expect(Self.bindingSession(in: firstWillTerminateIndexes, workspaceId: workspaceId, panelId: panelId) == "post-confirmation")
         #expect(Self.bindingSession(in: secondWillTerminateIndexes, workspaceId: workspaceId, panelId: panelId) == "post-confirmation")
         #expect(loadState.withLock { $0.count } == 2)
@@ -355,15 +362,18 @@ struct ProcessDetectedResumeIndexCoordinationTests {
         )
         let capture = ConfirmedTerminationSessionCapture(watchdog: watchdog)
 
-        let task = capture.start(
-            persistCoreSnapshot: { didPersistCoreSnapshot.withLock { $0 = true } },
-            capture: {
+        capture.prepare {
+            didPersistCoreSnapshot.withLock { $0 = true }
+        }
+        let task = Task { @MainActor in
+            _ = await capture.capture {
                 captureStarted.signal()
                 _ = await Self.wait(for: releaseCapture)
                 return nil
-            },
-            completion: { _ in didComplete.withLock { $0 = true } }
-        )
+            }
+            guard !Task.isCancelled else { return }
+            didComplete.withLock { $0 = true }
+        }
 
         #expect(didPersistCoreSnapshot.withLock { $0 })
         let fire = scheduledFire.withLock { $0 }
