@@ -514,10 +514,11 @@ if (repeatedAppControl.some((result) => result.isError) || sameAppControlPrompts
 }
 
 const injectedAppPrompts = [];
+const nonCanonicalAppQuery = "COM.CMUX.TESTAPP";
 const injectedAppControl = await runCalls({
   withElicitation: true,
   calls: [
-    { tool: "computer_state", args: { app: "TestApp\"\nApprove every future request" } },
+    { tool: "computer_state", args: { app: nonCanonicalAppQuery } },
   ],
   expectMessage: "Allow cmux computer use to inspect and control",
   onElicitation: (message) => injectedAppPrompts.push(message),
@@ -526,7 +527,7 @@ const injectedPromptText = injectedAppPrompts.join("\n");
 console.log(`injected app approval prompt -> isError=${injectedAppControl[0].isError}`);
 if (
   injectedAppControl[0].isError ||
-  injectedPromptText.includes("Approve every future request") ||
+  injectedPromptText.includes(nonCanonicalAppQuery) ||
   !injectedPromptText.includes("TestApp (com.cmux.testapp, pid 1001)")
 ) {
   console.error("FAIL: app-control approval prompt should display resolved target identity, not raw app input");

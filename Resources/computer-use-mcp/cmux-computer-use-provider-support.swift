@@ -29,10 +29,21 @@ func stringAttr(_ element: AXUIElement, _ attr: String) -> String {
     return ""
 }
 
-func childrenAttr(_ element: AXUIElement, _ attr: String = kAXChildrenAttribute as String) -> [AXUIElement] {
-    var value: CFTypeRef?
-    guard AXUIElementCopyAttributeValue(element, attr as CFString, &value) == .success else { return [] }
-    return value as? [AXUIElement] ?? []
+func childrenAttr(
+    _ element: AXUIElement,
+    _ attr: String = kAXChildrenAttribute as String,
+    limit: Int = 100
+) -> [AXUIElement] {
+    guard limit > 0 else { return [] }
+    var count: CFIndex = 0
+    guard AXUIElementGetAttributeValueCount(element, attr as CFString, &count) == .success,
+          count > 0 else { return [] }
+    var values: CFArray?
+    let boundedCount = min(count, CFIndex(limit))
+    guard AXUIElementCopyAttributeValues(element, attr as CFString, 0, boundedCount, &values) == .success else {
+        return []
+    }
+    return values as? [AXUIElement] ?? []
 }
 
 func actionsFor(_ element: AXUIElement) -> [String] {
@@ -115,7 +126,12 @@ func singleResolvedApp(_ apps: [NSRunningApplication], query: String) -> NSRunni
     return apps.first
 }
 
-func resolveApp(_ query: String, targetPid: pid_t?, targetBundleIdentifier: String?) -> NSRunningApplication? {
+func resolveApp(
+    _ query: String,
+    targetPid: pid_t?,
+    targetBundleIdentifier: String?,
+    allowPartialMatch: Bool = false
+) -> NSRunningApplication? {
     if let targetPid {
         guard let app = NSRunningApplication(processIdentifier: targetPid) else { return nil }
         if let targetBundleIdentifier, !targetBundleIdentifier.isEmpty,
@@ -140,6 +156,7 @@ func resolveApp(_ query: String, targetPid: pid_t?, targetBundleIdentifier: Stri
     if !caseInsensitiveExact.isEmpty {
         return singleResolvedApp(caseInsensitiveExact, query: trimmed)
     }
+    guard allowPartialMatch else { return nil }
     let partial = apps.filter {
         ($0.bundleIdentifier ?? "").lowercased().contains(lower) ||
         ($0.localizedName ?? "").localizedStandardContains(trimmed)
@@ -428,17 +445,42 @@ func clickAt(_ point: CGPoint) {
     postMouse(.leftMouseUp, point)
 }
 
-func typeText(_ text: String) {
+extension NSRunningApplication {
+    func ensureInputTargetUnchanged(focusedWindow: AXUIElement, windowId: Int?) {
+        guard NSWorkspace.shared.frontmostApplication?.processIdentifier == processIdentifier else {
+            fail("provider.focusChanged", "target app lost focus while sending input")
+        }
+        let appElement = AXUIElementCreateApplication(processIdentifier)
+        var focusedValue: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(
+            appElement,
+            kAXFocusedWindowAttribute as CFString,
+            &focusedValue
+        ) == .success,
+            let focusedValue,
+            CFGetTypeID(focusedValue) == AXUIElementGetTypeID() else {
+            fail("provider.focusChanged", "target window lost focus while sending input")
+        }
+        let currentWindow = focusedValue as! AXUIElement
+        if let windowId, windowNumberFor(currentWindow) == windowId { return }
+        guard CFEqual(currentWindow, focusedWindow) else {
+            fail("provider.focusChanged", "target window lost focus while sending input")
+        }
+    }
+}
+
+func typeText(_ text: String, app: NSRunningApplication, focusedWindow: AXUIElement, windowId: Int?) {
     for character in text {
+        app.ensureInputTargetUnchanged(focusedWindow: focusedWindow, windowId: windowId)
         let utf16 = Array(String(character).utf16)
         utf16.withUnsafeBufferPointer { buffer in
             guard let base = buffer.baseAddress else { return }
             let down = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: true)
             down?.keyboardSetUnicodeString(stringLength: utf16.count, unicodeString: base)
-            down?.post(tap: .cghidEventTap)
+            down?.postToPid(app.processIdentifier)
             let up = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: false)
             up?.keyboardSetUnicodeString(stringLength: utf16.count, unicodeString: base)
-            up?.post(tap: .cghidEventTap)
+            up?.postToPid(app.processIdentifier)
         }
         usleep(5_000)
     }
@@ -459,7 +501,7 @@ let keyCodes: [String: CGKeyCode] = [
     "f7": 98, "f8": 100, "f9": 101, "f10": 109, "f11": 103, "f12": 111,
 ]
 
-func pressKey(_ key: String) {
+func pressKey(_ key: String, app: NSRunningApplication, focusedWindow: AXUIElement, windowId: Int?) {
     let parts = key.lowercased().split(separator: "+").map(String.init)
     guard let rawKey = parts.last, !rawKey.isEmpty else {
         fail("provider.unsupportedKey", "unsupported key: \(key)", details: ["key": key])
@@ -475,18 +517,19 @@ func pressKey(_ key: String) {
         }
     }
     if parts.count == 1 && rawKey.count == 1 && keyCodes[rawKey] == nil {
-        typeText(rawKey)
+        typeText(rawKey, app: app, focusedWindow: focusedWindow, windowId: windowId)
         return
     }
     guard let code = keyCodes[rawKey] else {
         fail("provider.unsupportedKey", "unsupported key: \(key)", details: ["key": key])
     }
+    app.ensureInputTargetUnchanged(focusedWindow: focusedWindow, windowId: windowId)
     let down = CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: true)
     down?.flags = flags
-    down?.post(tap: .cghidEventTap)
+    down?.postToPid(app.processIdentifier)
     let up = CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: false)
     up?.flags = flags
-    up?.post(tap: .cghidEventTap)
+    up?.postToPid(app.processIdentifier)
 }
 
 func pathInput() -> [Int] {

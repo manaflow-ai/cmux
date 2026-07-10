@@ -166,6 +166,8 @@ const MESSAGE_CATALOG = {
       "element actions require a fingerprint from the latest computer_state snapshot",
     providerFocusFailed:
       "cmux could not focus the target app/window for input; bring it forward and retry",
+    providerFocusChanged:
+      "the target app or window lost focus while input was being sent; re-run computer_state and retry",
     providerOperationFailed:
       "the macOS computer-use provider failed; re-run computer_state and retry",
     providerProcessFailed:
@@ -300,6 +302,8 @@ const MESSAGE_CATALOG = {
       "要素操作には最新の computer_state スナップショットのフィンガープリントが必要です",
     providerFocusFailed:
       "cmux は入力対象のアプリまたはウィンドウをフォーカスできませんでした。前面に出してから再試行してください",
+    providerFocusChanged:
+      "入力の送信中に対象アプリまたはウィンドウのフォーカスが外れました。computer_state を再実行してから再試行してください",
     providerOperationFailed:
       "macOS computer-use プロバイダーが失敗しました。computer_state を再実行してから再試行してください",
     providerProcessFailed:
@@ -394,6 +398,7 @@ const PROVIDER_ERROR_MESSAGES = {
   "provider.elementFrameMissing": "providerElementFrameMissing",
   "provider.elementMissing": "providerElementMissing",
   "provider.elementSnapshotRequired": "providerElementSnapshotRequired",
+  "provider.focusChanged": "providerFocusChanged",
   "provider.focusFailed": "providerFocusFailed",
   "provider.operationFailed": "providerOperationFailed",
   "provider.processFailed": "providerProcessFailed",
@@ -423,10 +428,6 @@ function throwIfActiveToolCancelled() {
 
 function normalizeAppName(app) {
   return typeof app === "string" ? app.trim() : "";
-}
-
-function looksLikeBundleIdentifier(app) {
-  return /^[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$/.test(app);
 }
 
 function shortErrorMessage(error) {
@@ -539,6 +540,10 @@ class FakeComputerUseProvider {
   }
 
   async listApps() {
+    return this.identities();
+  }
+
+  identities() {
     return [
       { name: "TestApp", bundleIdentifier: "com.cmux.testapp", pid: 1001 },
       { name: "QueueHoldApp", bundleIdentifier: "com.cmux.queuehold", pid: 1002 },
@@ -558,26 +563,45 @@ class FakeComputerUseProvider {
         app: "ProviderFailureApp",
       });
     }
-    const identities = {
-      TestApp: { name: "TestApp", bundleIdentifier: "com.cmux.testapp", pid: 1001 },
-      QueueHoldApp: { name: "QueueHoldApp", bundleIdentifier: "com.cmux.queuehold", pid: 1002 },
-      SlowStateApp: { name: "SlowStateApp", bundleIdentifier: "com.cmux.slowstate", pid: 1003 },
-      NoWindowIdentityApp: { name: "NoWindowIdentityApp", bundleIdentifier: "com.cmux.nowindowidentity", pid: 1004 },
-      NoScreenshotApp: { name: "NoScreenshotApp", bundleIdentifier: "com.cmux.noscreenshot", pid: 1006 },
-    };
-    return identities[app] ?? identities.TestApp;
+    const lower = app.toLowerCase();
+    const matches = this.identities().filter(
+      (identity) => identity.name.toLowerCase() === lower || identity.bundleIdentifier.toLowerCase() === lower
+    );
+    if (matches.length > 1) {
+      throw new ProviderOperationError("provider.appAmbiguous", `ambiguous app match: ${app}`, { app });
+    }
+    if (matches.length === 0) {
+      throw new ProviderOperationError("provider.appNotFound", `app not found: ${app}`, { app });
+    }
+    return matches[0];
   }
 
-  async resolveApp(app) {
+  async resolveApp(app, { allowPartialMatch = false } = {}) {
     if (app === "RotatingIdentityApp") {
       this.rotatingIdentityPid += 1;
       return { name: app, bundleIdentifier: "com.cmux.rotating", pid: this.rotatingIdentityPid };
     }
-    return this.identityForApp(app);
+    try {
+      return this.identityForApp(app);
+    } catch (error) {
+      if (!allowPartialMatch || error?.providerCode !== "provider.appNotFound") throw error;
+    }
+    const lower = app.toLowerCase();
+    const matches = this.identities().filter(
+      (identity) =>
+        identity.name.toLowerCase().includes(lower) || identity.bundleIdentifier.toLowerCase().includes(lower)
+    );
+    if (matches.length > 1) {
+      throw new ProviderOperationError("provider.appAmbiguous", `ambiguous app match: ${app}`, { app });
+    }
+    if (matches.length === 0) {
+      throw new ProviderOperationError("provider.appNotFound", `app not found: ${app}`, { app });
+    }
+    return matches[0];
   }
 
   async openApp(app) {
-    return this.resolveApp(app);
+    return this.resolveApp(app, { allowPartialMatch: true });
   }
 
   async getState(app, { includeScreenshot = true, target = null } = {}) {
@@ -776,19 +800,22 @@ class MacComputerUseProvider {
     return result.apps ?? [];
   }
 
-  async resolveApp(app) {
-    const result = await this.run({ op: "resolve_app", app });
+  async resolveApp(app, { allowPartialMatch = false } = {}) {
+    const result = await this.run({ op: "resolve_app", app, allowPartialMatch });
     return result.target ?? null;
   }
 
   async openApp(app) {
     try {
-      const args = looksLikeBundleIdentifier(app) ? ["-b", app] : ["-a", app];
+      const target = await this.resolveApp(app, { allowPartialMatch: true });
+      const args = target?.bundleIdentifier
+        ? ["-b", target.bundleIdentifier]
+        : ["-a", target?.name ?? app];
       await execFileTool("/usr/bin/open", args, {
         timeout: TIMEOUT_MS,
         env: childEnv(),
       });
-      return await this.resolveApp(app);
+      return await this.resolveApp(target?.bundleIdentifier || target?.name || app);
     } catch (error) {
       if (error instanceof ProviderOperationError) throw error;
       throw new ProviderOperationError("provider.processFailed", shortErrorMessage(error));
@@ -854,43 +881,82 @@ class ComputerUseSession {
   constructor(provider) {
     this.provider = provider;
     this.snapshots = new Map();
+    this.snapshotAliases = new Map();
     this.snapshotApps = new Set();
     this.coordinateApps = new Set();
   }
 
-  snapshot(app) {
-    return this.snapshots.get(app);
+  key(app, target = null) {
+    const retained = retainableTarget(target);
+    if (retained) {
+      return `target:${retained.pid}:${retained.bundleIdentifier || retained.name}`;
+    }
+    return this.snapshotAliases.get(normalizeAppName(app).toLowerCase()) ?? null;
   }
 
-  rememberState(app, state, { exposeElements, exposeCoordinates }) {
-    const snapshot = retainableSnapshot(state);
-    this.snapshots.delete(app);
-    this.snapshots.set(app, snapshot);
-    if (exposeElements) this.snapshotApps.add(app);
-    else this.snapshotApps.delete(app);
-    if (exposeCoordinates && snapshot.image) this.coordinateApps.add(app);
-    else this.coordinateApps.delete(app);
+  snapshot(app) {
+    const key = this.key(app);
+    return key ? this.snapshots.get(key) : undefined;
+  }
+
+  hasElementSnapshot(app) {
+    const key = this.key(app);
+    return key ? this.snapshotApps.has(key) : false;
+  }
+
+  hasCoordinateSnapshot(app) {
+    const key = this.key(app);
+    return key ? this.coordinateApps.has(key) : false;
+  }
+
+  rememberState(app, state, { exposeElements, exposeCoordinates, visibleElementIndices = new Set() }) {
+    const snapshot = retainableSnapshot(state, exposeElements ? visibleElementIndices : new Set());
+    const alias = normalizeAppName(app).toLowerCase();
+    const key = this.key(app, snapshot.target) ?? `query:${alias}`;
+    const previousKey = this.snapshotAliases.get(alias);
+    if (previousKey && previousKey !== key) this.remove(previousKey);
+    this.snapshots.delete(key);
+    this.snapshots.set(key, snapshot);
+    this.snapshotAliases.set(alias, key);
+    if (exposeElements) this.snapshotApps.add(key);
+    else this.snapshotApps.delete(key);
+    if (exposeCoordinates && snapshot.image) this.coordinateApps.add(key);
+    else this.coordinateApps.delete(key);
     this.pruneSnapshots();
   }
 
   pruneSnapshots() {
     while (this.snapshots.size > MAX_RETAINED_SNAPSHOTS) {
       const oldest = this.snapshots.keys().next().value;
-      this.snapshots.delete(oldest);
-      this.snapshotApps.delete(oldest);
-      this.coordinateApps.delete(oldest);
+      this.remove(oldest);
     }
   }
 
-  revoke(app) {
-    if (!app) return;
-    this.snapshots.delete(app);
-    this.snapshotApps.delete(app);
-    this.coordinateApps.delete(app);
+  invalidate(app, target = null) {
+    const key = this.key(app, target);
+    if (!key) return;
+    this.snapshots.delete(key);
+    this.snapshotApps.delete(key);
+    this.coordinateApps.delete(key);
+  }
+
+  remove(key) {
+    this.snapshots.delete(key);
+    this.snapshotApps.delete(key);
+    this.coordinateApps.delete(key);
+    for (const [alias, aliasKey] of this.snapshotAliases) {
+      if (aliasKey === key) this.snapshotAliases.delete(alias);
+    }
+  }
+
+  revoke(app, target = null) {
+    const key = this.key(app, target);
+    if (key) this.remove(key);
   }
 
   dispose() {
     this.snapshots.clear();
+    this.snapshotAliases.clear();
     this.snapshotApps.clear();
     this.coordinateApps.clear();
     this.provider?.dispose?.();
@@ -907,10 +973,6 @@ async function session() {
     );
   }
   return currentSession;
-}
-
-function revokeAppState(app) {
-  currentSession?.revoke(normalizeAppName(app));
 }
 
 function finiteNumberOrNull(value) {
@@ -954,7 +1016,7 @@ function targetInput(target) {
   };
 }
 
-function retainableSnapshot(state) {
+function retainableSnapshot(state, visibleElementIndices = null) {
   const bounds = retainableBounds(state?.window?.bounds);
   const imageWidth = finiteNumberOrNull(state?.image?.width);
   const imageHeight = finiteNumberOrNull(state?.image?.height);
@@ -977,7 +1039,11 @@ function retainableSnapshot(state) {
       if (bounds) retained.bounds = bounds;
       return retained;
     })
-    .filter((element) => element.index != null);
+    .filter(
+      (element) =>
+        element.index != null &&
+        (visibleElementIndices == null || visibleElementIndices.has(element.index))
+    );
   return {
     elements,
     root: state?.root ?? "app",
@@ -1110,7 +1176,7 @@ async function perceive(app) {
     return err(localizedMessage("appControlNotApproved", appControlName(normalizedApp, resolved.target)));
   }
   const s = resolved.session;
-  s.revoke(normalizedApp);
+  s.invalidate(normalizedApp, resolved.target);
   let state;
   try {
     state = await s.provider.getState(normalizedApp, { includeScreenshot: true, target: resolved.target });
@@ -1118,8 +1184,13 @@ async function perceive(app) {
     return providerError(error);
   }
   throwIfActiveToolCancelled();
-  s.rememberState(normalizedApp, state, { exposeElements: true, exposeCoordinates: !!state.image });
-  const tree = truncateTree(state.tree ?? "");
+  const visibleTree = truncateTree(state.tree ?? "");
+  s.rememberState(normalizedApp, state, {
+    exposeElements: true,
+    exposeCoordinates: !!state.image,
+    visibleElementIndices: visibleTree.elementIndices,
+  });
+  const tree = visibleTree.text;
   const content = [
     text(
       tree
@@ -1150,7 +1221,7 @@ async function appScreenshot(app) {
     return err(localizedMessage("appControlNotApproved", appControlName(normalizedApp, resolved.target)));
   }
   const s = resolved.session;
-  s.revoke(normalizedApp);
+  s.invalidate(normalizedApp, resolved.target);
   let state;
   try {
     state = await s.provider.getState(normalizedApp, { includeScreenshot: true, target: resolved.target });
@@ -1186,10 +1257,10 @@ async function callInputTool(tool, args) {
   if ((tool === "scroll" || tool === "perform_secondary_action") && !isValidElementIndex(args.element_index)) {
     return err(localizedMessage("elementRequiredInput"));
   }
-  if (hasElementIndex && !s.snapshotApps.has(app)) {
+  if (hasElementIndex && !s.hasElementSnapshot(app)) {
     return err(localizedMessage("stateSnapshotRequired", app));
   }
-  if (usesCoordinates(args) && !s.coordinateApps.has(app)) {
+  if (usesCoordinates(args) && !s.hasCoordinateSnapshot(app)) {
     return err(localizedMessage("coordinateSnapshotRequired", app));
   }
   if (!hasElementIndex && !usesCoordinates(args) && !snapshot) {
@@ -1304,8 +1375,25 @@ function firstImage(result) {
 }
 
 function truncateTree(tree) {
-  if (tree.length <= MAX_TREE) return tree;
-  return `${tree.slice(0, MAX_TREE)}\n…[truncated AX tree]`;
+  const source = String(tree ?? "");
+  let complete = source;
+  let text = source;
+  if (source.length > MAX_TREE) {
+    const prefix = source.slice(0, MAX_TREE);
+    if (source[MAX_TREE] === "\n") {
+      complete = prefix;
+    } else {
+      const lastNewline = prefix.lastIndexOf("\n");
+      complete = lastNewline >= 0 ? prefix.slice(0, lastNewline) : "";
+    }
+    text = `${complete}${complete ? "\n" : ""}…[truncated AX tree]`;
+  }
+  const elementIndices = new Set();
+  for (const line of complete.split("\n")) {
+    const match = /^\s*\[(\d+)\]/.exec(line);
+    if (match) elementIndices.add(Number(match[1]));
+  }
+  return { text, elementIndices };
 }
 
 function ok(content) {
@@ -1452,10 +1540,20 @@ const TOOLS = [
     run: async ({ app }) => {
       // `open -a` changes app focus outside the provider's snapshot loop, so it
       // gets its own approval like everything else that touches the machine.
-      const appDisplay = safeDisplayText(app);
+      const normalizedApp = normalizeAppName(app);
+      let s;
+      let target;
+      try {
+        s = await session();
+        target = retainableTarget(await s.provider.resolveApp(normalizedApp, { allowPartialMatch: true }));
+      } catch (error) {
+        return providerError(error);
+      }
+      if (!target) return err(localizedMessage("providerAppNotFound", { app: normalizedApp }));
+      const appDisplay = appControlName(normalizedApp, target);
       if (
         !(await approveLocalCapability(
-          `open:${app}`,
+          `open:${target.bundleIdentifier || target.name}:${target.pid}`,
           localizedMessage("openAppApproval", appDisplay)
         ))
       ) {
@@ -1463,16 +1561,16 @@ const TOOLS = [
       }
       // Launching or focusing can replace the key window. Drop any old
       // agent-visible state so the next input must refresh its snapshot.
-      revokeAppState(app);
+      s.revoke(normalizedApp, target);
       try {
-        const s = await session();
-        const target = retainableTarget(await s.provider.openApp(normalizeAppName(app)));
-        if (!target) {
+        const openedTarget = retainableTarget(
+          await s.provider.openApp(target.bundleIdentifier || target.name)
+        );
+        if (!openedTarget) {
           throw new ProviderOperationError("provider.appNotFound", `app not found: ${app}`, { app });
         }
-        s.revoke(target.name);
-        s.revoke(target.bundleIdentifier);
-        return ok([text(localizedMessage("openedApp", safeDisplayText(target.name || appDisplay)))]);
+        s.revoke(normalizedApp, openedTarget);
+        return ok([text(localizedMessage("openedApp", safeDisplayText(openedTarget.name || appDisplay)))]);
       } catch (error) {
         return providerError(error);
       }

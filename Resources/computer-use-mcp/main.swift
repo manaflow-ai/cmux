@@ -27,7 +27,13 @@ if op == "list_windows" {
 let appQuery = inputObject["app"] as? String ?? ""
 let targetPid = (inputObject["targetPid"] as? NSNumber).map { pid_t($0.intValue) }
 let targetBundleIdentifier = inputObject["targetBundleIdentifier"] as? String
-guard let app = resolveApp(appQuery, targetPid: targetPid, targetBundleIdentifier: targetBundleIdentifier) else {
+let allowPartialMatch = inputObject["allowPartialMatch"] as? Bool ?? false
+guard let app = resolveApp(
+    appQuery,
+    targetPid: targetPid,
+    targetBundleIdentifier: targetBundleIdentifier,
+    allowPartialMatch: allowPartialMatch
+) else {
     fail("provider.appNotFound", "app not found: \(appQuery)", details: ["app": appQuery])
 }
 
@@ -239,10 +245,20 @@ case "click_point":
     clickAt(point)
     jsonOut(["ok": true, "message": "clicked"])
 case "type_text":
-    typeText(inputObject["text"] as? String ?? "")
+    typeText(
+        inputObject["text"] as? String ?? "",
+        app: app,
+        focusedWindow: root,
+        windowId: resolvedWindowId
+    )
     jsonOut(["ok": true, "message": "typed"])
 case "press_key":
-    pressKey(inputObject["key"] as? String ?? "")
+    pressKey(
+        inputObject["key"] as? String ?? "",
+        app: app,
+        focusedWindow: root,
+        windowId: resolvedWindowId
+    )
     jsonOut(["ok": true, "message": "key sent"])
 case "scroll":
     guard let element = inputElement else { fail("provider.elementMissing", "element no longer exists") }
