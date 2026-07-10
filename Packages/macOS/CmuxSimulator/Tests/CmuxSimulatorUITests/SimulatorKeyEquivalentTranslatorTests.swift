@@ -13,10 +13,12 @@ struct SimulatorKeyEquivalentTranslatorTests {
         )
 
         #expect(action == .messages([
-            .key(SimulatorKeyEvent(usage: 0xE3, phase: .down)),
-            .key(SimulatorKeyEvent(usage: 0x06, phase: .down)),
-            .key(SimulatorKeyEvent(usage: 0x06, phase: .up)),
-            .key(SimulatorKeyEvent(usage: 0xE3, phase: .up)),
+            .keySequence([
+                SimulatorKeyEvent(usage: 0xE3, phase: .down),
+                SimulatorKeyEvent(usage: 0x06, phase: .down),
+                SimulatorKeyEvent(usage: 0x06, phase: .up),
+                SimulatorKeyEvent(usage: 0xE3, phase: .up),
+            ]),
         ]))
     }
 
@@ -28,12 +30,14 @@ struct SimulatorKeyEquivalentTranslatorTests {
         )
 
         #expect(action == .messages([
-            .key(SimulatorKeyEvent(usage: 0xE1, phase: .down)),
-            .key(SimulatorKeyEvent(usage: 0xE3, phase: .down)),
-            .key(SimulatorKeyEvent(usage: 0x0B, phase: .down)),
-            .key(SimulatorKeyEvent(usage: 0x0B, phase: .up)),
-            .key(SimulatorKeyEvent(usage: 0xE3, phase: .up)),
-            .key(SimulatorKeyEvent(usage: 0xE1, phase: .up)),
+            .keySequence([
+                SimulatorKeyEvent(usage: 0xE1, phase: .down),
+                SimulatorKeyEvent(usage: 0xE3, phase: .down),
+                SimulatorKeyEvent(usage: 0x0B, phase: .down),
+                SimulatorKeyEvent(usage: 0x0B, phase: .up),
+                SimulatorKeyEvent(usage: 0xE3, phase: .up),
+                SimulatorKeyEvent(usage: 0xE1, phase: .up),
+            ]),
         ]))
     }
 
@@ -45,12 +49,14 @@ struct SimulatorKeyEquivalentTranslatorTests {
         )
 
         #expect(action == .messages([
-            .key(SimulatorKeyEvent(usage: 0xE2, phase: .down)),
-            .key(SimulatorKeyEvent(usage: 0xE3, phase: .down)),
-            .key(SimulatorKeyEvent(usage: 0x57, phase: .down)),
-            .key(SimulatorKeyEvent(usage: 0x57, phase: .up)),
-            .key(SimulatorKeyEvent(usage: 0xE3, phase: .up)),
-            .key(SimulatorKeyEvent(usage: 0xE2, phase: .up)),
+            .keySequence([
+                SimulatorKeyEvent(usage: 0xE2, phase: .down),
+                SimulatorKeyEvent(usage: 0xE3, phase: .down),
+                SimulatorKeyEvent(usage: 0x57, phase: .down),
+                SimulatorKeyEvent(usage: 0x57, phase: .up),
+                SimulatorKeyEvent(usage: 0xE3, phase: .up),
+                SimulatorKeyEvent(usage: 0xE2, phase: .up),
+            ]),
         ]))
     }
 

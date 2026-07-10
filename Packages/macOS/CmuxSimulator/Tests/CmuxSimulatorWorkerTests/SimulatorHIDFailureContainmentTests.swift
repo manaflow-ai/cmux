@@ -7,15 +7,16 @@ import Testing
 struct SimulatorHIDFailureContainmentTests {
     @Test("React Native reload unwinds every successful key down")
     @MainActor
-    func reloadUnwindsPartialFailure() {
+    func reloadUnwindsPartialFailure() async {
         let script = HIDSendScript(outcomes: [true, true, false, true, true])
+        let sleeper = RecordingHIDSleeper()
         let transport = SimulatorHIDTransport(
             frameworkLoader: SimulatorFrameworkLoader(environment: ["DEVELOPER_DIR": "/tmp"]),
-            sleeper: ImmediateHIDSleeper(),
+            sleeper: sleeper,
             keySenderOverride: { script.send(key: $0) }
         )
 
-        #expect(!transport.reloadReactNative())
+        #expect(!(await transport.reloadReactNative()))
         #expect(script.keyEvents == [
             SimulatorKeyEvent(usage: 0xE3, phase: .down),
             SimulatorKeyEvent(usage: 0x15, phase: .down),
@@ -23,6 +24,7 @@ struct SimulatorHIDFailureContainmentTests {
             SimulatorKeyEvent(usage: 0x15, phase: .up),
             SimulatorKeyEvent(usage: 0xE3, phase: .up),
         ])
+        #expect(sleeper.durations == [.milliseconds(30), .milliseconds(30)])
         #expect(transport.heldKeys.isEmpty)
     }
 
