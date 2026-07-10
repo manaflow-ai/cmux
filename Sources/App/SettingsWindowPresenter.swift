@@ -13,12 +13,6 @@ enum SettingsWindowShowResult: Equatable {
     /// for non-activating CLI opens, which must not unhide the app
     /// (socket focus policy).
     case orderedWhileAppHidden
-    /// The window was miniaturized and is deminiaturizing from the Dock;
-    /// AppKit completes visibility with the unminiaturize animation. Not
-    /// `.presented` — the window is not visible yet — and the presenter runs
-    /// a bounded follow-up that tears the window down loudly if visibility
-    /// never arrives, so a stalled transition cannot become a silent success.
-    case deminiaturizing
     /// No window could be made visible. `reason` carries diagnostic-grade
     /// window/app state for the failure log and the CLI error payload.
     case failed(reason: String)
@@ -79,8 +73,6 @@ final class SettingsWindowPresenter: NSObject {
     /// host root's `onAppear`) that its navigation consumer is installed;
     /// posting before then would drop the navigation on the floor.
     private var isContentReadyForNavigation = false
-    /// In-flight bounded verification of a `.deminiaturizing` outcome.
-    private var deminiaturizeVerificationTask: Task<Void, Never>?
 
     override convenience init() {
         // Content readiness reports back to the presenter instance that owns
@@ -185,10 +177,23 @@ final class SettingsWindowPresenter: NSObject {
                 reusedExisting = false
             }
 
-            let wasMiniaturized = window.isMiniaturized
-            orderFront(window, activateApp: activateApp)
+            orderFrontWithoutActivation(window)
+            var didActivate = false
+            if activateApp && !window.isVisible && NSApp.isHidden {
+                // The app being hidden can be exactly what visibility is
+                // waiting on; unhiding here is the requested activation
+                // doing its job, not a pre-verification focus steal.
+                activateAndSurface(window)
+                didActivate = true
+            }
 
             if window.isVisible {
+                // Activation (unhide, activate, make key) runs only after
+                // visibility is verified, so a failed presentation can never
+                // activate the app or steal focus as a side effect.
+                if activateApp && !didActivate {
+                    activateAndSurface(window)
+                }
                 deliverNavigation(reusedExistingWindow: reusedExisting)
                 return .presented
             }
@@ -197,28 +202,12 @@ final class SettingsWindowPresenter: NSObject {
                 // unhiding the app; the window appears on unhide. Reused live
                 // content still receives the navigation now — its notification
                 // subscriptions outlive visibility, and the host root's
-                // onAppear consumer only runs for fresh windows. Checked
-                // before the deminiaturize branch: under a hidden app the
-                // animation cannot produce visibility either.
+                // onAppear consumer only runs for fresh windows.
                 deliverNavigation(reusedExistingWindow: reusedExisting)
                 Self.log.notice(
                     "settings.window.show ordered front while app is hidden; deferring visibility to unhide"
                 )
                 return .orderedWhileAppHidden
-            }
-            if wasMiniaturized && !window.isMiniaturized {
-                // Deminiaturizing from the Dock is asynchronous: the window
-                // reports `isVisible == false` on this run-loop turn while
-                // AppKit animates it in. Preserve the live window (falling
-                // through would demolish a healthy, about-to-appear window)
-                // but do not claim `.presented`; a bounded follow-up verifies
-                // visibility actually arrived.
-                deliverNavigation(reusedExistingWindow: reusedExisting)
-                beginDeminiaturizeVerification(for: window)
-                Self.log.notice(
-                    "settings.window.show deminiaturizing from the Dock; visibility follows the animation"
-                )
-                return .deminiaturizing
             }
 
             failureReason = Self.presentationFailureReason(
@@ -269,6 +258,19 @@ final class SettingsWindowPresenter: NSObject {
             // strip identity but do not close it again.
             Self.log.notice("settings.window.show candidate is mid-close; building a fresh window")
             strip(candidate)
+            return nil
+        }
+        if candidate.isMiniaturized {
+            // A Dock-miniaturized window cannot become visible synchronously
+            // (deminiaturization animates over subsequent run-loop turns), so
+            // it can never satisfy the verified visible-on-return contract.
+            // Replace it with a fresh window presented immediately — the
+            // factory path restores the saved frame — instead of returning a
+            // pending animation as success or demolishing it as a failure.
+            Self.log.notice(
+                "settings.window.show candidate is miniaturized; replacing it with a fresh window"
+            )
+            demolish(candidate)
             return nil
         }
         if let reason = Self.unusableWindowReason(
@@ -338,25 +340,25 @@ final class SettingsWindowPresenter: NSObject {
 
     // MARK: - Presentation
 
-    private func orderFront(_ window: NSWindow, activateApp: Bool) {
-        if window.isMiniaturized {
-            window.deminiaturize(nil)
-        }
+    /// Orders the window in without touching app activation, unhide, or key
+    /// status, so visibility can be verified before any focus-affecting side
+    /// effect. This alone satisfies the socket no-focus-steal contract
+    /// (`settings.open --activate=false`).
+    private func orderFrontWithoutActivation(_ window: NSWindow) {
         window.adoptCmuxPeerWindowLevel()
         clampToVisibleAreaIfNeeded(window)
-        guard activateApp else {
-            // Socket no-focus-steal contract (`settings.open --activate=false`):
-            // make the window visible without keying it, raising other cmux
-            // windows, or activating/unhiding the app.
-            window.orderFrontRegardless()
-            return
-        }
-        // Surface the preferred main window first so Settings opens layered
-        // above it — the standard "Settings in front of its app" presentation.
-        // Both windows are ordered front *as peers*, never via
-        // `addChildWindow`: a child window is pinned above its parent forever
-        // and can never recede when the user clicks the main window
-        // (https://github.com/manaflow-ai/cmux/issues/5081).
+        window.orderFrontRegardless()
+    }
+
+    /// The focus-affecting half of presentation, run only for `activateApp`
+    /// requests and only once the window is visible (or when unhiding the
+    /// app is itself what visibility is waiting on). Surfaces the preferred
+    /// main window first so Settings opens layered above it — both windows
+    /// ordered front *as peers*, never via `addChildWindow`: a child window
+    /// is pinned above its parent forever and can never recede when the user
+    /// clicks the main window
+    /// (https://github.com/manaflow-ai/cmux/issues/5081).
+    private func activateAndSurface(_ window: NSWindow) {
         if let parentWindow = AppDelegate.shared?.preferredMainWindowForSettingsPresentation(),
            parentWindow !== window {
             if parentWindow.isMiniaturized {
@@ -398,25 +400,6 @@ final class SettingsWindowPresenter: NSObject {
         Task { @MainActor in
             guard self.navigationDeliveryGeneration == generation else { return }
             SettingsNavigationRequest.post(target)
-        }
-    }
-
-    /// Bounded follow-up for `.deminiaturizing`: the unminiaturize animation
-    /// is sub-second, so a window that is still not visible well after it
-    /// should have completed — and was not re-miniaturized, and is not under
-    /// a hidden app — is a stalled transition. It is torn down loudly so the
-    /// next open self-heals with a fresh window instead of reusing the husk.
-    private func beginDeminiaturizeVerification(for window: NSWindow) {
-        deminiaturizeVerificationTask?.cancel()
-        deminiaturizeVerificationTask = Task { @MainActor [weak self, weak window] in
-            try? await Task.sleep(nanoseconds: 3_000_000_000)
-            guard !Task.isCancelled, let self, let window,
-                  window === self.settingsWindow else { return }
-            if window.isVisible || window.isMiniaturized || NSApp.isHidden { return }
-            Self.log.fault(
-                "settings.window.show deminiaturize never became visible; demolishing so the next open self-heals"
-            )
-            self.demolish(window)
         }
     }
 

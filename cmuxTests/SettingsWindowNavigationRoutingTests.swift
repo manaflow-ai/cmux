@@ -157,35 +157,62 @@ extension SettingsWindowSharedStateSuites {
             }
         }
 
-        // MARK: - Dock deminiaturize reuse
+        // MARK: - Presentation contract
 
-        @Test func reusedMiniaturizedWindowIsNotDemolishedWhileDeminiaturizing() async {
+        @Test func miniaturizedSettingsWindowIsReplacedWithAFreshVisibleWindow() async {
             await withCleanSettingsWindows {
-                var buildCount = 0
+                var builtWindows: [SettingsTestHostWindow] = []
                 let presenter = SettingsWindowPresenter(windowFactory: { _ in
-                    buildCount += 1
-                    return makePlainFactoryWindow()
+                    let window = makePlainFactoryWindow()
+                    builtWindows.append(window)
+                    return window
                 })
                 #expect(presenter.show() == .presented)
-                guard let window = visibleSettingsWindow() as? SettingsTestHostWindow else {
-                    Issue.record("expected a visible SettingsTestHostWindow after the first show")
+                guard let firstWindow = builtWindows.first else {
+                    Issue.record("expected the first show to build a window")
                     return
                 }
 
                 // The user minimizes Settings to the Dock, then reopens it.
-                window.simulatesDockMiniaturization = true
+                firstWindow.simulatesDockMiniaturization = true
 
                 let result = presenter.show()
 
-                // Deminiaturization is asynchronous: the window is not yet
-                // `isVisible` on this run-loop turn, so the honest outcome is
-                // `.deminiaturizing` (never `.presented`, whose contract is
-                // "visible now"). The live window must be reused — never
-                // demolished as a failure and never replaced by a duplicate.
-                #expect(result == .deminiaturizing)
-                #expect(buildCount == 1)
-                #expect(window.deminiaturizeCallCount == 1)
-                #expect(window.identifier?.rawValue == SettingsWindowPresenter.windowIdentifier)
+                // Deminiaturization animates over later run-loop turns, so it
+                // can never satisfy the verified visible-on-return contract.
+                // The presenter must replace the miniaturized window with a
+                // fresh, immediately visible one — never report a pending
+                // animation as success, and never report the reuse as failure.
+                #expect(result == .presented)
+                #expect(builtWindows.count == 2)
+                #expect(firstWindow.identifier == nil)
+                let visible = visibleSettingsWindow()
+                #expect(visible != nil)
+                #expect(visible !== firstWindow)
+            }
+        }
+
+        @Test func failedShowNeverActivatesOrKeysAnInvisibleWindow() async {
+            await withCleanSettingsWindows {
+                var builtWindows: [SettingsTestHostWindow] = []
+                let presenter = SettingsWindowPresenter(windowFactory: { _ in
+                    let window = makePlainFactoryWindow()
+                    window.refusesToBecomeVisible = true
+                    builtWindows.append(window)
+                    return window
+                })
+
+                guard case .failed = presenter.show() else {
+                    Issue.record("expected .failed when no window becomes visible")
+                    return
+                }
+
+                // Activation and key ordering are post-verification steps: a
+                // presentation that never became visible must not have keyed
+                // any window (the app would otherwise activate and steal
+                // focus while showing nothing).
+                #expect(!builtWindows.isEmpty)
+                #expect(builtWindows.allSatisfy { $0.makeKeyAndOrderFrontCallCount == 0 })
             }
         }
 
@@ -308,6 +335,7 @@ private final class SettingsTestHostWindow: SettingsHostWindow {
     /// the current run-loop turn.
     var simulatesDockMiniaturization = false
     private(set) var deminiaturizeCallCount = 0
+    private(set) var makeKeyAndOrderFrontCallCount = 0
     private var isAwaitingDeminiaturizeAnimation = false
 
     override var isMiniaturized: Bool { simulatesDockMiniaturization }
@@ -330,6 +358,7 @@ private final class SettingsTestHostWindow: SettingsHostWindow {
     }
 
     override func makeKeyAndOrderFront(_ sender: Any?) {
+        makeKeyAndOrderFrontCallCount += 1
         guard !refusesToBecomeVisible else { return }
         super.makeKeyAndOrderFront(sender)
     }
