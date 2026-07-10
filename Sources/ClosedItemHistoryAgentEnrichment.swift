@@ -4,7 +4,7 @@ extension ClosedItemHistoryStore {
     @discardableResult
     func pushPreservingAgentMetadata(
         _ entry: ClosedItemHistoryEntry
-    ) -> Task<Void, Never> {
+    ) -> Task<Void, Never>? {
         pushPreservingAgentMetadata(entry, coordinatedBy: .shared)
     }
 
@@ -14,8 +14,12 @@ extension ClosedItemHistoryStore {
     func pushPreservingAgentMetadata(
         _ entry: ClosedItemHistoryEntry,
         coordinatedBy sharedIndex: SharedLiveAgentIndex
-    ) -> Task<Void, Never> {
+    ) -> Task<Void, Never>? {
         let record = ClosedItemHistoryRecord(entry: entry)
+        guard entry.requiresAgentMetadataEnrichment else {
+            push(record)
+            return nil
+        }
         pushPendingEnrichment(record)
         let refreshTask = sharedIndex.indexRefreshTaskForDestructiveClose()
         return Task { @MainActor [weak self] in
@@ -58,6 +62,20 @@ final class AgentMetadataCloseDeferrer {
 }
 
 extension ClosedItemHistoryEntry {
+    var requiresAgentMetadataEnrichment: Bool {
+        switch self {
+        case .panel(let entry):
+            entry.snapshot.requiresAgentMetadataEnrichment
+        case .workspace(let entry):
+            entry.snapshot.panels.contains(where: \.requiresAgentMetadataEnrichment)
+        case .window(let entry):
+            entry.snapshot.tabManager.workspaces.contains { workspace in
+                workspace.workspaceId != nil &&
+                    workspace.panels.contains(where: \.requiresAgentMetadataEnrichment)
+            }
+        }
+    }
+
     func mergingCapturedAgentMetadata(
         from capturedEntry: ClosedItemHistoryEntry
     ) -> ClosedItemHistoryEntry {
@@ -190,6 +208,11 @@ extension ClosedItemHistoryEntry {
 }
 
 private extension SessionPanelSnapshot {
+    var requiresAgentMetadataEnrichment: Bool {
+        guard let terminal else { return false }
+        return terminal.agent == nil
+    }
+
     func mergingAgentMetadata(from captured: SessionPanelSnapshot) -> SessionPanelSnapshot {
         guard var currentTerminal = terminal,
               currentTerminal.agent == nil,
