@@ -200,6 +200,38 @@ struct WorkspaceSidebarProcessTitleObservationTests {
         withExtendedLifetime(incoming) {}
     }
 
+    @Test func settleFiringIntoCancelledContinuationRetainsChange() async {
+        let scheduler = ManualProcessTitleSettleScheduler()
+        let model = WorkspaceSidebarProcessTitleObservationModel(schedule: scheduler.schedule(delay:action:))
+        let workspace = Workspace(sidebarProcessTitleObservation: model)
+
+        // Row replacement can terminate a continuation while its entry is
+        // still registered (the dictionary cleanup hops through a MainActor
+        // task). A settle firing in that window yields .terminated; the
+        // change must be retained for the next subscriber, not treated as
+        // delivered.
+        var outgoing: AsyncStream<Void>? = model.changes()
+        workspace.applyProcessTitle("Agent title")
+        #expect(scheduler.scheduledActionCount > 0)
+        outgoing = nil
+        scheduler.fireAll()
+        #expect(
+            model.changeGeneration == 0,
+            "A settle that reached only terminated continuations delivered nothing."
+        )
+
+        for _ in 0..<20 {
+            await Task.yield()
+        }
+        let incoming = model.changes()
+        #expect(
+            model.changeGeneration == 1,
+            "The undelivered settle must replay to the next subscriber."
+        )
+        withExtendedLifetime(incoming) {}
+        _ = outgoing
+    }
+
     @Test func customTitleCancelsPendingProcessTitleRefresh() {
         let scheduler = ManualProcessTitleSettleScheduler()
         let model = WorkspaceSidebarProcessTitleObservationModel(schedule: scheduler.schedule(delay:action:))
