@@ -212,7 +212,6 @@ extension DockSplitStore {
 
         if let terminal = panel as? TerminalPanel {
             terminal.surface.setFocusPlacement(.rightSidebarDock)
-            terminal.updateWorkspaceId(workspaceId)
         } else if let browser = panel as? BrowserPanel {
             browser.updateWorkspaceId(workspaceId)
         }
@@ -254,6 +253,7 @@ extension DockSplitStore {
             return nil
         }
         surfaceIdToPanelId[newTabId] = detached.panelId
+        (panel as? TerminalPanel)?.updateWorkspaceId(workspaceId)
         if let index {
             _ = bonsplitController.reorderTab(newTabId, toIndex: index)
         }

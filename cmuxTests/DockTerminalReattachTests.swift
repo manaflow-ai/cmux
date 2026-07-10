@@ -100,6 +100,7 @@ extension DockSocketLifecycleTests {
             sourceWorkspaceId: sourceWorkspaceId
         )
         let reattachTokenBefore = panel.viewReattachToken
+        let ownershipGenerationBefore = panel.portalHostOwnershipGeneration
 
         let attachedPanelId = store.attachDetachedSurface(detached, inPane: rootPane, focus: false)
 
@@ -107,6 +108,7 @@ extension DockSocketLifecycleTests {
         #expect(panel.workspaceId == store.workspaceId)
         #expect(panel.surface.focusPlacement == .rightSidebarDock)
         #expect(panel.viewReattachToken == reattachTokenBefore + 1)
+        #expect(panel.portalHostOwnershipGeneration > ownershipGenerationBefore)
     }
 
     @Test("Focused live terminal attach into visible Dock requests one view reattach")

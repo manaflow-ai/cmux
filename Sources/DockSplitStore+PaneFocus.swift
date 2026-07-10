@@ -185,7 +185,9 @@ extension DockSplitStore {
         toPane destination: PaneID
     ) {
         applyDockSelection(tabId: tab.id, inPane: destination)
-        panel(for: tab.id)?.focus()
+        let movedPanel = panel(for: tab.id)
+        (movedPanel as? TerminalPanel)?.recordPortalHostOwnershipChange()
+        movedPanel?.focus()
         scheduleDockPortalReconcile(reason: "dock.moveTab")
     }
 

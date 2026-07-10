@@ -463,6 +463,9 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// Rebinds the surface (and its views) to a new owning workspace id.
     @MainActor
     public func updateWorkspaceId(_ newTabId: UUID) {
+        if tabId != newTabId {
+            portalLifecycleGeneration &+= 1
+        }
         tabId = newTabId
         attachedView?.tabId = newTabId
         surfaceView.tabId = newTabId

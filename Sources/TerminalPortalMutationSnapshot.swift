@@ -9,6 +9,8 @@ struct TerminalPortalMutationSnapshot {
     let paneId: PaneID
     let isActive: Bool
     let isVisibleInUI: Bool
+    let ownershipGeneration: UInt64
+    let isCurrentPaneOwner: @MainActor () -> Bool
     let portalZPriority: Int
     let showsInactiveOverlay: Bool
     let showsUnreadNotificationRing: Bool

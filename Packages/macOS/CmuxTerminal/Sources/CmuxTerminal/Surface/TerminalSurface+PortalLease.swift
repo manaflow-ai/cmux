@@ -8,7 +8,7 @@ internal import CMUXDebugLog
 // MARK: - Portal-host leases (which pane host currently owns the surface)
 
 extension TerminalSurface {
-    /// The current portal lifecycle generation (bumped on close transitions).
+    /// The current portal binding generation, bumped on ownership and close transitions.
     public func portalBindingGeneration() -> UInt64 {
         portalLifecycleGeneration
     }
@@ -40,20 +40,37 @@ extension TerminalSurface {
         lease.inWindow && lease.area > portalHostAreaThreshold
     }
 
+    /// Whether `hostId` currently owns this surface's portal lease.
+    public func isPortalHostOwner(hostId: ObjectIdentifier) -> Bool {
+        activePortalHostLease?.hostId == hostId
+    }
+
+    /// The surface ownership epoch used before host creation serials break ties.
+    public func currentPortalHostOwnershipGeneration() -> UInt64 {
+        portalLifecycleGeneration
+    }
+
     /// Makes the newest usable representable host authoritative as it claims
     /// the lease. Older coordinators can no longer reclaim the surface afterward.
     private func reservePortalHostAuthority(
         hostId: ObjectIdentifier,
         paneId: PaneID,
-        instanceSerial: UInt64
+        instanceSerial: UInt64,
+        ownershipGeneration: UInt64
     ) -> UInt64? {
         if let current = portalHostAuthority {
             if current.hostId == hostId, current.instanceSerial == instanceSerial {
-                if current.paneId == paneId.id {
+                guard ownershipGeneration >= current.ownershipGeneration else { return nil }
+                if current.paneId == paneId.id,
+                   current.ownershipGeneration == ownershipGeneration {
                     return current.generation
                 }
-            } else if instanceSerial <= current.instanceSerial {
-                return nil
+            } else {
+                guard ownershipGeneration >= current.ownershipGeneration else { return nil }
+                if ownershipGeneration == current.ownershipGeneration,
+                   instanceSerial <= current.instanceSerial {
+                    return nil
+                }
             }
         }
 
@@ -62,6 +79,7 @@ extension TerminalSurface {
             hostId: hostId,
             paneId: paneId.id,
             instanceSerial: instanceSerial,
+            ownershipGeneration: ownershipGeneration,
             generation: generation
         )
         return generation
@@ -99,8 +117,10 @@ extension TerminalSurface {
         hostId: ObjectIdentifier,
         paneId: PaneID,
         instanceSerial: UInt64,
+        ownershipGeneration: UInt64 = 0,
         inWindow: Bool,
         bounds: CGRect,
+        allowsAuthorityAcquisition: Bool = true,
         reason: String
     ) -> Bool {
         let next = PortalHostLease(
@@ -111,12 +131,25 @@ extension TerminalSurface {
             area: Self.portalHostArea(for: bounds)
         )
 
+        let alreadyOwnsLease = activePortalHostLease?.hostId == hostId
+        guard alreadyOwnsLease || allowsAuthorityAcquisition else {
+#if DEBUG
+            logDebugEvent(
+                "terminal.portal.host.skip surface=\(id.uuidString.prefix(5)) " +
+                "reason=\(reason) host=\(hostId) pane=\(paneId.id.uuidString.prefix(5)) " +
+                "cause=modelIneligible"
+            )
+#endif
+            return false
+        }
+
         if let current = activePortalHostLease {
             if current.hostId == hostId {
                 guard reservePortalHostAuthority(
                     hostId: hostId,
                     paneId: paneId,
-                    instanceSerial: instanceSerial
+                    instanceSerial: instanceSerial,
+                    ownershipGeneration: ownershipGeneration
                 ) != nil else { return false }
                 activePortalHostLease = next
                 return true
@@ -142,18 +175,23 @@ extension TerminalSurface {
                 current.paneId == paneId.id &&
                 nextUsable &&
                 next.instanceSerial > current.instanceSerial
+            let newerModelOwnerReady =
+                nextUsable &&
+                ownershipGeneration > (portalHostAuthority?.ownershipGeneration ?? 0)
             // A dragged terminal must hand off immediately when it moves to a different pane.
             // Waiting for the old host to become "worse" leaves the moved pane blank/stale.
             let shouldReplace =
                 current.paneId != paneId.id ||
                 !currentUsable ||
-                newerSamePaneHostReady
+                newerSamePaneHostReady ||
+                newerModelOwnerReady
 
             if shouldReplace {
                 guard reservePortalHostAuthority(
                     hostId: hostId,
                     paneId: paneId,
-                    instanceSerial: instanceSerial
+                    instanceSerial: instanceSerial,
+                    ownershipGeneration: ownershipGeneration
                 ) != nil else { return false }
 #if DEBUG
                 logDebugEvent(
@@ -188,7 +226,8 @@ extension TerminalSurface {
         guard reservePortalHostAuthority(
             hostId: hostId,
             paneId: paneId,
-            instanceSerial: instanceSerial
+            instanceSerial: instanceSerial,
+            ownershipGeneration: ownershipGeneration
         ) != nil else { return false }
 
         activePortalHostLease = next
