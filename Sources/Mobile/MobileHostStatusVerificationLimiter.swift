@@ -12,10 +12,14 @@ actor MobileHostStatusVerificationLimiter {
     static let shared = MobileHostStatusVerificationLimiter()
 
     private var inFlight = 0
+    private var authorizationInFlight = 0
+    private var authorizationWaiters: [CheckedContinuation<Void, Never>] = []
     private let limit: Int
+    private let authorizationLimit: Int
 
-    init(limit: Int = 2) {
+    init(limit: Int = 2, authorizationLimit: Int = 4) {
         self.limit = limit
+        self.authorizationLimit = max(1, authorizationLimit)
     }
 
     /// Take a verification slot. `false` when saturated; the caller must
@@ -32,5 +36,45 @@ actor MobileHostStatusVerificationLimiter {
     func release() {
         assert(inFlight > 0, "release without a matching acquire")
         inFlight = max(0, inFlight - 1)
+    }
+
+    /// Run an authorized-RPC Stack verification behind an awaitable shared cap.
+    /// Unlike status probes, callers wait for a slot so legitimate authorized
+    /// requests keep their normal auth semantics under the cap.
+    func withAuthorizationPermit<T: Sendable>(
+        _ operation: @Sendable () async throws -> T
+    ) async throws -> T {
+        await acquireAuthorizationPermit()
+        if Task.isCancelled {
+            releaseAuthorizationPermit()
+            throw CancellationError()
+        }
+        do {
+            let value = try await operation()
+            releaseAuthorizationPermit()
+            return value
+        } catch {
+            releaseAuthorizationPermit()
+            throw error
+        }
+    }
+
+    private func acquireAuthorizationPermit() async {
+        if authorizationInFlight < authorizationLimit {
+            authorizationInFlight += 1
+            return
+        }
+        await withCheckedContinuation { continuation in
+            authorizationWaiters.append(continuation)
+        }
+    }
+
+    private func releaseAuthorizationPermit() {
+        if authorizationWaiters.isEmpty {
+            authorizationInFlight = max(0, authorizationInFlight - 1)
+        } else {
+            let waiter = authorizationWaiters.removeFirst()
+            waiter.resume()
+        }
     }
 }

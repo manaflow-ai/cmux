@@ -2,15 +2,16 @@ import Foundation
 
 /// Mobile integration settings for pairing and syncing with cmux on iOS.
 public struct MobileCatalogSection: SettingCatalogSection {
-    /// How this Mac advertises itself to paired iOS devices: cmux-hosted iroh
-    /// (default), the user's own iroh relay, or Tailscale. A strict single
-    /// choice; the Mac publishes only the chosen lane's routes. The user picks
-    /// this during pairing/onboarding (and when adding a new Mac). Replaces the
-    /// legacy `mobile.iOSPairingHost.enabled` / `mobile.iOSIrohHost.enabled`
-    /// booleans, which ``MobileTransportModeMigration`` derives this from once.
+    /// How this Mac advertises itself to paired iOS devices: off by default,
+    /// cmux-hosted iroh, the user's own iroh relay, or Tailscale. A strict
+    /// single choice; the Mac publishes only the chosen lane's routes. The user
+    /// picks this during pairing/onboarding (and when adding a new Mac).
+    /// Replaces the legacy `mobile.iOSPairingHost.enabled` /
+    /// `mobile.iOSIrohHost.enabled` booleans, which
+    /// ``MobileTransportModeMigration`` derives this from once.
     public let iOSTransportMode = DefaultsKey<MobileTransportMode>(
         id: "mobile.iOSTransportMode",
-        defaultValue: .cmuxRelay,
+        defaultValue: .disabled,
         userDefaultsKey: "mobile.iOSTransportMode"
     )
 

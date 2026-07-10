@@ -177,6 +177,8 @@ public struct MobileSection: View {
 
     private var transportModeSubtitle: String {
         switch transportMode.current {
+        case .disabled:
+            return String(localized: "settings.mobile.transportMode.subtitle.disabled", defaultValue: "Do not listen for iPhone or iPad connections.")
         case .cmuxRelay:
             return String(localized: "settings.mobile.transportMode.subtitle.cmuxRelay", defaultValue: "iPhones and iPads attach over an encrypted iroh connection via cmux's relay. No Tailscale or shared network needed.")
         case .ownRelay:

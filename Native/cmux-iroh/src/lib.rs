@@ -51,6 +51,10 @@ use tokio::{runtime::Runtime, sync::Mutex as TokioMutex};
 /// ALPN for the cmux mobile-host protocol lane.
 const ALPN: &[u8] = b"dev.cmux.mobile.terminal/0";
 
+/// Default deadline for the first bidirectional stream after an incoming QUIC
+/// connection has completed. Matches the Swift host's first-frame deadline.
+const DEFAULT_FIRST_STREAM_ACCEPT_TIMEOUT_MS: u64 = 15_000;
+
 /// Length in bytes of an iroh (Ed25519) secret key as passed across the FFI.
 pub const CMUX_IROH_SECRET_KEY_LEN: usize = 32;
 
@@ -592,9 +596,11 @@ fn online_impl(endpoint: &EndpointInner, timeout_ms: u64) -> Result<(), FfiError
 }
 
 /// Accepts one incoming connection and its first bidirectional stream.
-/// Blocks up to `timeout_ms`; `timeout_ms == 0` blocks indefinitely. Returns
-/// null on failure/timeout. `cmux_iroh_endpoint_close` from another thread
-/// wakes a blocked accept, which then reports `EndpointClosed`.
+/// Blocks up to `timeout_ms`; `timeout_ms == 0` waits indefinitely for an
+/// incoming connection but gives the connected peer a bounded default deadline
+/// to open the first stream. Returns null on failure/timeout.
+/// `cmux_iroh_endpoint_close` from another thread wakes a blocked accept,
+/// which then reports `EndpointClosed`.
 ///
 /// # Safety
 ///
@@ -618,26 +624,52 @@ fn accept_impl(
     timeout_ms: u64,
 ) -> Result<(Connection, SendStream, RecvStream), FfiError> {
     runtime()?.block_on(async {
-        with_optional_timeout(timeout_ms, "accept", async {
-            let incoming = endpoint.endpoint.accept().await.ok_or_else(|| {
-                FfiError::new(CmuxIrohErrorKind::EndpointClosed, "endpoint closed")
-            })?;
-            let connection = incoming.await.map_err(|error| {
-                FfiError::new(
-                    CmuxIrohErrorKind::ConnectFailed,
-                    format!("incoming connection failed: {error:#}"),
-                )
-            })?;
-            let (send, recv) = connection.accept_bi().await.map_err(|error| {
-                FfiError::new(
-                    CmuxIrohErrorKind::ConnectFailed,
-                    format!("accept_bi failed: {error:#}"),
-                )
-            })?;
-            Ok((connection, send, recv))
-        })
-        .await?
+        if timeout_ms == 0 {
+            accept_connection_and_first_stream(
+                endpoint,
+                Some(DEFAULT_FIRST_STREAM_ACCEPT_TIMEOUT_MS),
+            )
+            .await
+        } else {
+            with_optional_timeout(timeout_ms, "accept", async {
+                accept_connection_and_first_stream(endpoint, None).await
+            })
+            .await?
+        }
     })
+}
+
+async fn accept_connection_and_first_stream(
+    endpoint: &EndpointInner,
+    first_stream_timeout_ms: Option<u64>,
+) -> Result<(Connection, SendStream, RecvStream), FfiError> {
+    let incoming = endpoint
+        .endpoint
+        .accept()
+        .await
+        .ok_or_else(|| FfiError::new(CmuxIrohErrorKind::EndpointClosed, "endpoint closed"))?;
+    let connection = incoming.await.map_err(|error| {
+        FfiError::new(
+            CmuxIrohErrorKind::ConnectFailed,
+            format!("incoming connection failed: {error:#}"),
+        )
+    })?;
+    let accept_bi = connection.accept_bi();
+    let stream_result = match first_stream_timeout_ms {
+        Some(timeout_ms) => tokio::time::timeout(Duration::from_millis(timeout_ms), accept_bi)
+            .await
+            .map_err(|_| {
+                FfiError::new(CmuxIrohErrorKind::Timeout, "accept first stream timed out")
+            })?,
+        None => accept_bi.await,
+    };
+    let (send, recv) = stream_result.map_err(|error| {
+        FfiError::new(
+            CmuxIrohErrorKind::ConnectFailed,
+            format!("accept_bi failed: {error:#}"),
+        )
+    })?;
+    Ok((connection, send, recv))
 }
 
 /// Dials `endpoint_id` (optionally with relay URL / direct addr hints) and

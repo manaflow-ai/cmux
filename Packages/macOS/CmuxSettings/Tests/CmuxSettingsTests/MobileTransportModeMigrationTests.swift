@@ -21,9 +21,9 @@ struct MobileTransportModeMigrationTests {
         #expect(MobileTransportModeMigration.derivedMode(hadIroh: false, hadPairing: true) == .tailscale)
     }
 
-    @Test func derivedMode_bothOffOrUnset_isCmuxRelay() {
-        #expect(MobileTransportModeMigration.derivedMode(hadIroh: false, hadPairing: false) == .cmuxRelay)
-        #expect(MobileTransportModeMigration.derivedMode(hadIroh: nil, hadPairing: nil) == .cmuxRelay)
+    @Test func derivedMode_bothOffOrUnset_isDisabled() {
+        #expect(MobileTransportModeMigration.derivedMode(hadIroh: false, hadPairing: false) == .disabled)
+        #expect(MobileTransportModeMigration.derivedMode(hadIroh: nil, hadPairing: nil) == .disabled)
     }
 
     @Test func runIfNeeded_migratesIrohOnToCmuxRelay_andClearsLegacyKeys() {
@@ -52,9 +52,21 @@ struct MobileTransportModeMigrationTests {
 
         MobileTransportModeMigration(defaults: defaults).runIfNeeded()
 
-        // No legacy keys: leave the mode unset so the catalog default applies and
-        // onboarding makes the choice explicit.
+        // No legacy keys: leave the mode unset so the catalog default stays off
+        // until onboarding or Settings records an explicit choice.
         #expect(defaults.object(forKey: MobileTransportModeMigration.modeKey) == nil)
+    }
+
+    @Test func runIfNeeded_migratesExplicitOptOutToDisabled() {
+        let defaults = makeDefaults()
+        defaults.set(false, forKey: MobileTransportModeMigration.legacyIrohKey)
+        defaults.set(false, forKey: MobileTransportModeMigration.legacyPairingKey)
+
+        MobileTransportModeMigration(defaults: defaults).runIfNeeded()
+
+        #expect(defaults.string(forKey: MobileTransportModeMigration.modeKey) == MobileTransportMode.disabled.rawValue)
+        #expect(defaults.object(forKey: MobileTransportModeMigration.legacyIrohKey) == nil)
+        #expect(defaults.object(forKey: MobileTransportModeMigration.legacyPairingKey) == nil)
     }
 
     @Test func runIfNeeded_isNoOpWhenModeAlreadySet() {

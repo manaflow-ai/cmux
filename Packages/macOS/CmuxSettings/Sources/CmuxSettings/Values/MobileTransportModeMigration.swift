@@ -31,7 +31,8 @@ public struct MobileTransportModeMigration {
         let hadPairing = defaults.object(forKey: Self.legacyPairingKey) as? Bool
 
         // Fresh install: no legacy state. Leave the key unset so the catalog
-        // default (cmuxRelay) applies and onboarding makes the choice explicit.
+        // default (disabled) preserves no-listener behavior until onboarding or
+        // Settings records an explicit choice.
         guard hadIroh != nil || hadPairing != nil else { return }
 
         let derived = Self.derivedMode(hadIroh: hadIroh, hadPairing: hadPairing)
@@ -43,7 +44,7 @@ public struct MobileTransportModeMigration {
     /// Pure mapping, exposed for tests:
     /// - iroh host on → cmuxRelay (it was already on the iroh lane).
     /// - iroh off but pairing on → tailscale (TCP/tailnet was the active lane).
-    /// - otherwise → cmuxRelay (the always-on default; onboarding confirms it).
+    /// - otherwise → disabled (preserve opt-out / unset no-listener behavior).
     static func derivedMode(hadIroh: Bool?, hadPairing: Bool?) -> MobileTransportMode {
         if hadIroh == true {
             return .cmuxRelay
@@ -51,6 +52,6 @@ public struct MobileTransportModeMigration {
         if hadPairing == true {
             return .tailscale
         }
-        return .cmuxRelay
+        return .disabled
     }
 }

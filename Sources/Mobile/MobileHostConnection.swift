@@ -8,11 +8,13 @@ actor MobileHostConnection {
     private static let maximumReceiveBufferByteCount = MobileSyncFrameCodec.defaultMaximumFrameByteCount + MobileSyncFrameCodec.headerByteCount
     private static let defaultFirstFrameTimeoutNanoseconds: UInt64 = 15 * 1_000_000_000
     private static let defaultIdleTimeoutNanoseconds: UInt64 = 30 * 1_000_000_000
+    private static let defaultMaximumInFlightRequestCount = 16
 
     private let id: UUID
     private let byteConnection: any MobileHostByteConnection
     private let firstFrameTimeoutNanoseconds: UInt64
     private let idleTimeoutNanoseconds: UInt64
+    private let maximumInFlightRequestCount: Int
     private let authorizeRequest: @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult?
     private let onAuthorizedRequest: @Sendable (MobileHostRPCRequest) async -> Void
     private let handleRequest: @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult
@@ -21,6 +23,8 @@ actor MobileHostConnection {
     private var firstFrameTimeoutTask: Task<Void, Never>?
     private var idleTimeoutTask: Task<Void, Never>?
     private var responseTasks: [UUID: Task<Void, Never>] = [:]
+    private var responseSlotsInUse = 0
+    private var responseSlotWaiters: [CheckedContinuation<Void, Never>] = []
     private var didDecodeFirstFrame = false
     private var isClosed = false
     /// stream_id -> set of topics this connection is subscribed to.
@@ -32,6 +36,7 @@ actor MobileHostConnection {
         byteConnection: any MobileHostByteConnection,
         firstFrameTimeoutNanoseconds: UInt64 = MobileHostConnection.defaultFirstFrameTimeoutNanoseconds,
         idleTimeoutNanoseconds: UInt64 = MobileHostConnection.defaultIdleTimeoutNanoseconds,
+        maximumInFlightRequestCount: Int = MobileHostConnection.defaultMaximumInFlightRequestCount,
         authorizeRequest: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult?,
         onAuthorizedRequest: @escaping @Sendable (MobileHostRPCRequest) async -> Void,
         handleRequest: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult,
@@ -41,6 +46,7 @@ actor MobileHostConnection {
         self.byteConnection = byteConnection
         self.firstFrameTimeoutNanoseconds = firstFrameTimeoutNanoseconds
         self.idleTimeoutNanoseconds = idleTimeoutNanoseconds
+        self.maximumInFlightRequestCount = max(1, maximumInFlightRequestCount)
         self.authorizeRequest = authorizeRequest
         self.onAuthorizedRequest = onAuthorizedRequest
         self.handleRequest = handleRequest
@@ -78,8 +84,14 @@ actor MobileHostConnection {
         idleTimeoutTask = nil
         let tasks = responseTasks.values
         responseTasks.removeAll()
+        responseSlotsInUse = 0
+        let waiters = responseSlotWaiters
+        responseSlotWaiters.removeAll()
         for task in tasks {
             task.cancel()
+        }
+        for waiter in waiters {
+            waiter.resume()
         }
         let previousSubscriptions = Array(subscriptions.values)
         subscriptions.removeAll()
@@ -130,7 +142,7 @@ actor MobileHostConnection {
                     guard !isClosed else {
                         return
                     }
-                    startResponseTask(for: frame)
+                    await startResponseTask(for: frame)
                 }
                 guard !isClosed else {
                     return
@@ -156,7 +168,11 @@ actor MobileHostConnection {
         }
     }
 
-    private func startResponseTask(for frame: Data) {
+    private func startResponseTask(for frame: Data) async {
+        guard !isClosed else {
+            return
+        }
+        await reserveResponseSlot()
         guard !isClosed else {
             return
         }
@@ -170,9 +186,33 @@ actor MobileHostConnection {
 
     private func finishResponseTask(_ taskID: UUID) {
         responseTasks[taskID] = nil
+        responseSlotsInUse = max(0, responseSlotsInUse - 1)
+        resumeNextResponseSlotWaiterIfPossible()
         if responseTasks.isEmpty {
             startIdleTimeout()
         }
+    }
+
+    private func reserveResponseSlot() async {
+        guard !isClosed else { return }
+        if responseSlotsInUse < maximumInFlightRequestCount {
+            responseSlotsInUse += 1
+            return
+        }
+        await withCheckedContinuation { continuation in
+            responseSlotWaiters.append(continuation)
+        }
+    }
+
+    private func resumeNextResponseSlotWaiterIfPossible() {
+        guard !isClosed,
+              responseSlotsInUse < maximumInFlightRequestCount,
+              !responseSlotWaiters.isEmpty else {
+            return
+        }
+        responseSlotsInUse += 1
+        let waiter = responseSlotWaiters.removeFirst()
+        waiter.resume()
     }
 
     private func startFirstFrameTimeout() {

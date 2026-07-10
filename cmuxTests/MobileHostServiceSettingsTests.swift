@@ -14,15 +14,25 @@ struct MobileHostServiceSettingsTests {
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        // Default (unset) → cmuxRelay: an iroh mode, so the TCP listener is off
-        // and the iroh lane is on (no custom relay).
+        // Default (unset) → disabled: preserve no-listener behavior until the
+        // pairing flow or Settings records an explicit transport choice.
         #expect(!MobileHostService.isListeningEnabled(defaults: defaults))
-        #expect(MobileHostService.isIrohHostEnabled(defaults: defaults))
+        #expect(!MobileHostService.isIrohHostEnabled(defaults: defaults))
         #expect(MobileHostService.irohRelayURL(defaults: defaults) == nil)
+
+        // Opening the pairing flow seeds the recommended relay mode explicitly.
+        MobileHostService.seedDefaultTransportModeIfUnset(defaults: defaults)
+        #expect(MobileHostService.currentTransportMode(defaults: defaults) == .cmuxRelay)
+        #expect(MobileHostService.isIrohHostEnabled(defaults: defaults))
 
         // Tailscale mode → TCP listener on, iroh off.
         defaults.set(MobileTransportMode.tailscale.rawValue, forKey: MobileHostService.transportModeDefaultsKey)
         #expect(MobileHostService.isListeningEnabled(defaults: defaults))
+        #expect(!MobileHostService.isIrohHostEnabled(defaults: defaults))
+
+        // Disabled mode → no listener lane.
+        defaults.set(MobileTransportMode.disabled.rawValue, forKey: MobileHostService.transportModeDefaultsKey)
+        #expect(!MobileHostService.isListeningEnabled(defaults: defaults))
         #expect(!MobileHostService.isIrohHostEnabled(defaults: defaults))
 
         // ownRelay mode → iroh on with the configured custom relay URL.

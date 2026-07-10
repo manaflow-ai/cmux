@@ -195,6 +195,19 @@ public actor CmxIrohByteTransport: CmxByteTransport {
 
         switch result {
         case let .success(handles):
+            if didClose || Task.isCancelled {
+                let endpointBox = handles.endpoint
+                let connectionBox = handles.connection
+                _ = await runBlocking { () -> Bool in
+                    cmux_iroh_connection_close(connectionBox.value)
+                    cmux_iroh_endpoint_close(endpointBox.value)
+                    return true
+                }
+                if didClose {
+                    throw CmxIrohByteTransportError.alreadyClosed
+                }
+                throw CancellationError()
+            }
             endpoint = handles.endpoint.value
             let openedStream = CmxIrohByteStream(
                 connection: handles.connection.value,

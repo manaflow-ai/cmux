@@ -535,10 +535,7 @@ final class MobileHostService {
     /// transport picker overwrites it with the user's explicit choice.
     nonisolated static func seedDefaultTransportModeIfUnset(defaults: UserDefaults = .standard) {
         guard defaults.object(forKey: transportModeDefaultsKey) == nil else { return }
-        defaults.set(
-            SettingCatalog().mobile.iOSTransportMode.defaultValue.rawValue,
-            forKey: transportModeDefaultsKey
-        )
+        defaults.set(MobileTransportMode.cmuxRelay.rawValue, forKey: transportModeDefaultsKey)
     }
 
     /// Persists the user's transport-mode choice (from the pairing window or
@@ -794,6 +791,9 @@ final class MobileHostService {
         }
 
         // TCP/Tailscale lane.
+        guard mode == .tailscale else {
+            return
+        }
         guard listener == nil else {
             return
         }
@@ -1046,6 +1046,7 @@ final class MobileHostService {
 
         // Same mode. The iroh lane has no live-tunable knob, but recover it if a
         // bind failure left it down (start() is idempotent when already bound).
+        // Disabled mode deliberately binds no listener and publishes no route.
         guard mode == .tailscale else {
             if mode.usesIroh, !irohLane.hasListener {
                 start()
@@ -1310,8 +1311,12 @@ final class MobileHostService {
         // mode advertises just the dial-by-EndpointId route; tailscale mode just
         // the TCP/Tailscale (and DEBUG loopback) routes. Never a mix, so a phone
         // can't silently fall back to a lane the user didn't choose.
-        if Self.currentTransportMode().usesIroh {
+        let mode = Self.currentTransportMode()
+        if mode.usesIroh {
             return irohLane.routes
+        }
+        guard mode == .tailscale else {
+            return []
         }
         return routeResolver.routes(port: port).routes
     }
@@ -1322,8 +1327,12 @@ final class MobileHostService {
     /// the port), so a cmuxRelay/ownRelay Mac can still mint a usable pairing
     /// code once its iroh route is published.
     private func activeLaneRoutes() -> [CmxAttachRoute] {
-        if Self.currentTransportMode().usesIroh {
+        let mode = Self.currentTransportMode()
+        if mode.usesIroh {
             return irohLane.hasPublishedRoute ? resolvedRoutes(port: listenerPort ?? 0) : []
+        }
+        guard mode == .tailscale else {
+            return []
         }
         return listenerPort.map { resolvedRoutes(port: $0) } ?? []
     }
@@ -1331,8 +1340,12 @@ final class MobileHostService {
     /// Whether the active lane is bound and dialable: the iroh route is
     /// published (iroh modes), or the TCP listener has a bound port (tailscale).
     private var isActiveLaneRunning: Bool {
-        if Self.currentTransportMode().usesIroh {
+        let mode = Self.currentTransportMode()
+        if mode.usesIroh {
             return irohLane.hasPublishedRoute
+        }
+        guard mode == .tailscale else {
+            return false
         }
         return listener != nil && listenerPort != nil
     }
@@ -1469,7 +1482,9 @@ final class MobileHostService {
             return ticketAuthorizationResultIfNeeded(for: request)
         }
         do {
-            try await Self.verifyStackAuthOffMainActor(auth: request.auth)
+            try await MobileHostStatusVerificationLimiter.shared.withAuthorizationPermit {
+                try await Self.verifyStackAuthOffMainActor(auth: request.auth)
+            }
             return ticketAuthorizationResultIfNeeded(for: request)
         } catch MobileHostAuthorizationError.accountMismatch {
             // The presented Stack token is valid but belongs to a different

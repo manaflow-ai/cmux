@@ -17,6 +17,8 @@ final class MobileIrohHostLane {
 
     private var listener: CmxIrohByteListener?
     private var acceptTask: Task<Void, Never>?
+    private var acceptTasks: [UUID: Task<Void, Never>] = [:]
+    private var acceptGeneration = UUID()
     private var route: CmxAttachRoute?
     private var appliedTransportMode: MobileTransportMode?
     private var appliedRelayURL: String?
@@ -80,40 +82,61 @@ final class MobileIrohHostLane {
             enableRelay: true,
             relayURL: relayURL
         )
+        let generation = UUID()
+        acceptGeneration = generation
         self.listener = listener
         acceptTask = Task { @MainActor [weak self] in
             do {
                 try await listener.start()
             } catch {
                 mobileIrohHostLog.error("iroh host listener failed to bind: \(String(describing: error), privacy: .public)")
+                // Only the CURRENT generation may clear the lane. A bind that
+                // returns after a mode change (stop() rotated the generation and
+                // started a replacement listener) throws alreadyClosed/cancelled
+                // here; without this guard its catch would null out the fresh
+                // replacement listener, leaving pairing dead. Close the stale
+                // listener (idempotent) and leave the current one intact.
+                guard let self,
+                      self.listener === listener,
+                      self.acceptGeneration == generation
+                else {
+                    await listener.close()
+                    return
+                }
                 // Clear the wedged listener so a later start() can retry, and
                 // release any pairing-readiness waiter instead of stalling it for
                 // the full timeout.
-                self?.listener = nil
-                self?.onReadinessChanged()
+                self.listener = nil
+                self.onReadinessChanged()
+                return
+            }
+            guard let self,
+                  self.listener === listener,
+                  self.acceptGeneration == generation,
+                  !Task.isCancelled
+            else {
+                await listener.close()
                 return
             }
             if let json = await listener.routeJSON() {
                 mobileIrohHostLog.info("iroh host listener ready; publishing dial-by-EndpointId route \(json, privacy: .public)")
-                self?.adoptRoute(from: json)
+                self.adoptRoute(from: json)
             } else {
                 mobileIrohHostLog.error("iroh host listener bound but produced no route")
             }
-            while !Task.isCancelled {
-                do {
-                    let stream = try await listener.accept(timeoutMilliseconds: 0)
-                    self?.accept(stream)
-                } catch {
-                    // The listener was closed (stop) or accept failed terminally.
-                    break
-                }
-            }
+            self.refillAcceptTasks(listener: listener, generation: generation)
         }
     }
 
     func stop() {
         acceptTask?.cancel()
         acceptTask = nil
+        acceptGeneration = UUID()
+        let tasks = acceptTasks.values
+        acceptTasks.removeAll()
+        for task in tasks {
+            task.cancel()
+        }
         if let listener {
             Task { await listener.close() }
         }
@@ -140,6 +163,52 @@ final class MobileIrohHostLane {
         // and it releases any pairing-readiness waiter (see ensureListeningAndReady).
         onRouteSetChanged()
         onReadinessChanged()
+    }
+
+    private func refillAcceptTasks(listener: CmxIrohByteListener, generation: UUID) {
+        guard self.listener === listener, acceptGeneration == generation else { return }
+        while acceptTasks.count < maximumActiveConnectionCount {
+            startAcceptTask(listener: listener, generation: generation)
+        }
+    }
+
+    private func startAcceptTask(listener: CmxIrohByteListener, generation: UUID) {
+        let taskID = UUID()
+        acceptTasks[taskID] = Task { [weak self, listener] in
+            let acceptedStream: CmxIrohByteStream?
+            do {
+                acceptedStream = try await listener.accept(timeoutMilliseconds: 0)
+            } catch {
+                acceptedStream = nil
+            }
+            await MainActor.run {
+                self?.finishAcceptTask(
+                    taskID,
+                    listener: listener,
+                    generation: generation,
+                    stream: acceptedStream
+                )
+            }
+        }
+    }
+
+    private func finishAcceptTask(
+        _ taskID: UUID,
+        listener: CmxIrohByteListener,
+        generation: UUID,
+        stream: CmxIrohByteStream?
+    ) {
+        acceptTasks[taskID] = nil
+        guard self.listener === listener, acceptGeneration == generation else {
+            if let stream {
+                Task { await stream.close() }
+            }
+            return
+        }
+        if let stream {
+            accept(stream)
+        }
+        refillAcceptTasks(listener: listener, generation: generation)
     }
 
     private func accept(_ stream: CmxIrohByteStream) {

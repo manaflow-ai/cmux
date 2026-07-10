@@ -114,6 +114,17 @@ public actor CmxIrohByteListener {
 
         switch result {
         case let .success(box):
+            if didClose || Task.isCancelled {
+                let endpointBox = box
+                _ = await runBlocking { () -> Bool in
+                    cmux_iroh_endpoint_close(endpointBox.value)
+                    return true
+                }
+                if didClose {
+                    throw CmxIrohByteTransportError.alreadyClosed
+                }
+                throw CancellationError()
+            }
             endpoint = box.value
         case let .failure(error):
             throw error
