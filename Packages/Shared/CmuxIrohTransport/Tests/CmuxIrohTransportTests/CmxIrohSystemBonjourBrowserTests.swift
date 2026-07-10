@@ -53,7 +53,7 @@ struct CmxIrohSystemBonjourBrowserTests {
         let aliases = canonicalAliases(count: 2)
 
         await dnsService.emitAdded(serviceName: aliases[0])
-        #expect(await clock.pendingSleepCount() == 1)
+        await clock.waitForPendingSleepCount(1)
 
         await clock.advance(by: 5)
         await dnsService.waitForResolveCancellationCount(1)
@@ -116,7 +116,7 @@ struct CmxIrohSystemBonjourBrowserTests {
         for alias in aliases {
             await dnsService.emitAdded(serviceName: alias)
         }
-        #expect(await clock.pendingSleepCount() == 3)
+        await clock.waitForPendingSleepCount(3)
 
         await browser.stop()
         await dnsService.waitForResolveCancellationCount(3)
@@ -218,7 +218,7 @@ private final class TestBonjourDNSService: CmxIrohBonjourDNSService, @unchecked 
         await handler?(
             DNSServiceFlags(kDNSServiceFlagsAdd),
             interfaceIndex,
-            kDNSServiceErr_NoError,
+            Int32(kDNSServiceErr_NoError),
             serviceName,
             "\(CmxIrohLANAdvertisement.serviceType).",
             CmxIrohLANAdvertisement.domain
@@ -230,7 +230,7 @@ private final class TestBonjourDNSService: CmxIrohBonjourDNSService, @unchecked 
             resolves.values.first(where: { $0.serviceName == serviceName })?.handler
         }
         await handler?(
-            kDNSServiceErr_NoError,
+            Int32(kDNSServiceErr_NoError),
             interfaceIndex,
             "h-\(serviceName).local.",
             50_906,
@@ -306,6 +306,10 @@ private struct TestBonjourClock: CmxIrohBonjourClock {
         await state.pendingSleepCount()
     }
 
+    func waitForPendingSleepCount(_ expectedCount: Int) async {
+        await state.waitForPendingSleepCount(expectedCount)
+    }
+
     func waitUntilIdle() async {
         await state.waitUntilIdle()
     }
@@ -318,6 +322,9 @@ private actor TestBonjourClockState {
     }
 
     private var sleepers: [UUID: Sleeper] = [:]
+    private var countWaiters: [
+        (expectedCount: Int, continuation: CheckedContinuation<Void, Never>)
+    ] = []
     private var idleWaiters: [CheckedContinuation<Void, Never>] = []
 
     func sleep(until deadline: Date) async throws {
@@ -325,6 +332,7 @@ private actor TestBonjourClockState {
         try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
                 sleepers[id] = Sleeper(deadline: deadline, continuation: continuation)
+                resumeCountWaitersIfNeeded()
             }
         } onCancel: {
             Task { await self.cancel(id: id) }
@@ -339,6 +347,13 @@ private actor TestBonjourClockState {
     }
 
     func pendingSleepCount() -> Int { sleepers.count }
+
+    func waitForPendingSleepCount(_ expectedCount: Int) async {
+        guard sleepers.count < expectedCount else { return }
+        await withCheckedContinuation { continuation in
+            countWaiters.append((expectedCount, continuation))
+        }
+    }
 
     func waitUntilIdle() async {
         guard !sleepers.isEmpty else { return }
@@ -356,5 +371,11 @@ private actor TestBonjourClockState {
         let waiters = idleWaiters
         idleWaiters.removeAll(keepingCapacity: false)
         for waiter in waiters { waiter.resume() }
+    }
+
+    private func resumeCountWaitersIfNeeded() {
+        let ready = countWaiters.filter { sleepers.count >= $0.expectedCount }
+        countWaiters.removeAll { sleepers.count >= $0.expectedCount }
+        for waiter in ready { waiter.continuation.resume() }
     }
 }
