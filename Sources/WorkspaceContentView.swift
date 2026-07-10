@@ -662,7 +662,8 @@ extension WorkspaceContentView {
                 parts.append("textBoxPendingLaunchCommand:\(pendingLaunchCommand)")
             }
         }
-        if let restoredAgent = workspace.restoredAgentSnapshotsByPanelId[panel.id] {
+        if workspace.restoredAgentResumeStatesByPanelId[panel.id] != .completedAgentExit,
+           let restoredAgent = workspace.restoredAgentSnapshotsByPanelId[panel.id] {
             parts.append("restoredAgent:\(restoredAgent.kind.rawValue)")
         }
         if let agentPIDKeys = workspace.agentPIDKeysByPanelId[panel.id], !agentPIDKeys.isEmpty {
