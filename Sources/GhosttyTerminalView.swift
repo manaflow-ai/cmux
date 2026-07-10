@@ -2781,7 +2781,7 @@ class GhosttyApp {
             performOnMain { self.ringBell() }
             return true
         case GHOSTTY_ACTION_SELECTION_CHANGED:
-            Task { @MainActor in surfaceView.handleSelectionChangedAction() }
+            surfaceView.selectionAccessibilityNotifier.request()
             return true
         case GHOSTTY_ACTION_GOTO_SPLIT:
             guard let tabId = surfaceView.tabId,
@@ -3429,7 +3429,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private let _scrollbarLock = NSLock()
     private var _renderedFrameFlushScheduled = false
     private let _renderedFrameLock = NSLock()
-    let selectionAccessibilityNotifier = TerminalSelectionAccessibilityNotifier()
+    nonisolated let selectionAccessibilityNotifier = TerminalSelectionAccessibilityNotifier()
     var cellSize: CGSize = .zero
     private var lastKnownMousePointInView: NSPoint?
     private var ghosttyMouseShape: ghostty_action_mouse_shape_e = GHOSTTY_MOUSE_SHAPE_TEXT
@@ -3699,6 +3699,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     private func setup() {
+        selectionAccessibilityNotifier.attach(element: self)
         // GhosttyMetalLayer provides render stats and opt-in frame notifications for
         // input sequencing that needs to wait for terminal redraws.
         wantsLayer = true

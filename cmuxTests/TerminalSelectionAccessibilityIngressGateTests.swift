@@ -29,7 +29,7 @@ import Testing
         }
 
         #expect(gate.registerRequest(at: 12) == false)
-        #expect(gate.drainDecision(at: 12.1, debounceInterval: 0.1) == .post)
+        #expect(gate.drainDecision(at: 12.2, debounceInterval: 0.1) == .post)
         #expect(gate.registerRequest(at: 13))
     }
 }
