@@ -1,6 +1,6 @@
 # Event Contract
 
-This file specifies event lines emitted by protocol v5 and proposed protocol v6. Event lines are JSON objects with an `event` string and no response envelope.
+This file specifies event lines emitted by protocol v7, including compatibility notes for fields and attach behavior introduced in earlier versions. Event lines are JSON objects with an `event` string and no response envelope.
 
 Implemented event lines can appear on two stream types:
 
@@ -16,7 +16,9 @@ Events and command responses share one JSON-lines connection. Clients must route
 
 The socket writes each response or event as one complete JSON line. Lines are not interleaved at the byte level.
 
-For a single subscription, events are delivered in the order the mux broadcasts them. The server does not create a total order across unrelated producer threads beyond the order in which events enter the mux broadcaster.
+For a single subscription, ordinary events are delivered in the order the mux broadcasts them. The server does not create a total order across unrelated producer threads beyond the order in which events enter the mux broadcaster.
+
+Protocol v7 treats `title-changed` as a latest-state notification. A slow subscriber retains at most one pending title per surface. Repeated pending titles for the same surface coalesce to the newest `title` and take the newest event's position relative to ordinary events. Subscribers are independent, and a pending title is discarded when its surface exits.
 
 `subscribe` registers the event receiver before the command response is written. A client must not treat the `subscribe` response as an event-stream barrier.
 
@@ -171,19 +173,20 @@ Example:
 | event | `title-changed` |
 | status | implemented |
 | since | protocol 5 |
+| `title` field | protocol 7 |
 
 Payload:
 
 ```text
-object{event:"title-changed",surface:Id}
+object{event:"title-changed",surface:Id,title:string}
 ```
 
-Meaning: A surface title changed. The event does not include the new title. Clients should call `list-workspaces` to read the current tab title.
+Meaning: A surface title changed. Protocol v7 includes the authoritative current title, so clients can update that surface directly without fetching the workspace tree. Protocol v5-v6 events omit `title`; clients connected to those versions must call `list-workspaces`.
 
 Example:
 
 ```json
-{"event":"title-changed","surface":1}
+{"event":"title-changed","surface":1,"title":"build logs"}
 ```
 
 ### bell
@@ -394,7 +397,7 @@ Example:
 | --- | --- |
 | event | `agent-state-changed` |
 | status | proposed |
-| since | proposed protocol 6 |
+| since | proposed protocol 8 |
 
 Payload:
 
@@ -424,7 +427,7 @@ Example:
 | --- | --- |
 | event | `notification` |
 | status | proposed |
-| since | proposed protocol 6 |
+| since | proposed protocol 8 |
 
 Payload:
 
@@ -450,7 +453,7 @@ Example:
 
 ## Proposed Subscribe Filters
 
-Protocol v6 extends `subscribe` with optional filters:
+Proposed protocol v8 extends `subscribe` with optional filters:
 
 Params:
 

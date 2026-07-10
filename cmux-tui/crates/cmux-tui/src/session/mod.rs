@@ -12,10 +12,9 @@ pub(crate) mod tree;
 
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
-use std::sync::mpsc::Receiver;
 
 use cmux_tui_core::{
-    BrowserFrame, BrowserStatus, DefaultColors, Mux, MuxEvent, PaneId, ScreenId,
+    BrowserFrame, BrowserStatus, DefaultColors, Mux, MuxEventReceiver, PaneId, ScreenId,
     SidebarPluginStatus, SplitDir, Surface, SurfaceId, SurfaceKind, WorkspaceId, ZoomMode,
 };
 use ghostty_vt::{RenderState, Terminal};
@@ -146,7 +145,7 @@ impl Session {
         }
     }
 
-    pub fn events(&self) -> Receiver<MuxEvent> {
+    pub fn events(&self) -> MuxEventReceiver {
         match self {
             Session::Local(mux) => mux.subscribe(),
             Session::Remote(remote) => remote.subscribe(),
@@ -274,19 +273,21 @@ impl Session {
         url: String,
         pane: Option<PaneId>,
         size: Option<(u16, u16)>,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<SurfaceId> {
         match self {
-            Session::Local(mux) => mux.new_browser_tab(url, pane, size).map(|_| ()),
+            Session::Local(mux) => mux.new_browser_tab(url, pane, size).map(|surface| surface.id),
             Session::Remote(remote) => {
                 if !remote.supports_browser_attach() {
                     anyhow::bail!("browser panes are not supported over attach yet");
                 }
-                remote
-                    .request(with_size(
-                        json!({"cmd": "new-browser-tab", "url": url, "pane": pane}),
-                        size,
-                    ))
-                    .map(|_| ())
+                let result = remote.request(with_size(
+                    json!({"cmd": "new-browser-tab", "url": url, "pane": pane}),
+                    size,
+                ))?;
+                result
+                    .get("surface")
+                    .and_then(serde_json::Value::as_u64)
+                    .ok_or_else(|| anyhow::anyhow!("remote browser creation omitted its surface"))
             }
         }
     }

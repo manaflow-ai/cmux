@@ -6,21 +6,21 @@ use std::fs;
 use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::mpsc::{Receiver, Sender, channel};
+use std::sync::mpsc::{Sender, channel};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use base64::Engine;
 use cmux_tui_core::{
-    BrowserFrame, BrowserSource, BrowserStatus, DefaultColors, MuxEvent, Rgb, SurfaceId,
-    SurfaceKind, platform::transport,
+    BrowserFrame, BrowserSource, BrowserStatus, DefaultColors, MuxEvent, MuxEventBroadcaster,
+    MuxEventReceiver, Rgb, SurfaceId, SurfaceKind, platform::transport,
 };
 use ghostty_vt::{Callbacks, RenderState, Terminal};
 use serde_json::{Value, json};
 
 use super::tree::{TreeView, parse_tree};
 
-const SUPPORTED_PROTOCOL_VERSION: u64 = 6;
+const SUPPORTED_PROTOCOL_VERSION: u64 = 7;
 
 #[derive(Debug)]
 pub(crate) enum RemoteRequestError {
@@ -292,7 +292,7 @@ pub struct RemoteSession {
     tree: Mutex<RemoteTreeCache>,
     tree_refresh: Mutex<()>,
     tree_stale: AtomicBool,
-    subscribers: Mutex<Vec<Sender<MuxEvent>>>,
+    subscribers: MuxEventBroadcaster,
     frame_logs: Mutex<HashMap<SurfaceId, Vec<String>>>,
 }
 
@@ -315,7 +315,7 @@ impl RemoteSession {
             tree: Mutex::new(RemoteTreeCache::default()),
             tree_refresh: Mutex::new(()),
             tree_stale: AtomicBool::new(true),
-            subscribers: Mutex::new(Vec::new()),
+            subscribers: MuxEventBroadcaster::default(),
             frame_logs: Mutex::new(HashMap::new()),
         });
 
@@ -342,7 +342,7 @@ impl RemoteSession {
         let protocol = ident.get("protocol").and_then(|v| v.as_u64()).unwrap_or(0);
         if protocol != SUPPORTED_PROTOCOL_VERSION {
             anyhow::bail!(
-                "unsupported cmux-tui protocol {protocol}; this client requires protocol 6; restart the cmux-tui server"
+                "unsupported cmux-tui protocol {protocol}; this client requires protocol 7; restart the cmux-tui server"
             );
         }
         session.request(json!({"cmd": "subscribe"}))?;
@@ -350,14 +350,11 @@ impl RemoteSession {
     }
 
     fn emit(&self, event: MuxEvent) {
-        let mut subs = self.subscribers.lock().unwrap();
-        subs.retain(|tx| tx.send(event.clone()).is_ok());
+        self.subscribers.emit(event);
     }
 
-    pub fn subscribe(&self) -> Receiver<MuxEvent> {
-        let (tx, rx) = channel();
-        self.subscribers.lock().unwrap().push(tx);
-        rx
+    pub fn subscribe(&self) -> MuxEventReceiver {
+        self.subscribers.subscribe()
     }
 
     fn handle_line(self: &Arc<Self>, value: Value) {

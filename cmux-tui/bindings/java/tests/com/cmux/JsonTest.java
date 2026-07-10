@@ -32,6 +32,18 @@ public final class JsonTest {
         assertReject("\"\\u１２３4\"");
         assertStringifyReject(Double.NaN);
         assertStringifyReject(Double.POSITIVE_INFINITY);
+
+        CmuxEvent event = CmuxEvent.from((Map<String, Object>) Json.parse(
+            "{\"event\":\"title-changed\",\"surface\":7,\"title\":\"build logs\"}"
+        ));
+        assertTrue(event instanceof TitleChangedEvent, "title event type");
+        TitleChangedEvent title = (TitleChangedEvent) event;
+        assertEquals(7L, title.surface(), "title event surface");
+        assertEquals("build logs", title.title(), "title event title");
+        TitleChangedEvent legacyTitle = (TitleChangedEvent) CmuxEvent.from(
+            (Map<String, Object>) Json.parse("{\"event\":\"title-changed\",\"surface\":7}")
+        );
+        assertEquals(null, legacyTitle.title(), "legacy title event title");
     }
 
     private static void assertReject(String input) {

@@ -1,6 +1,6 @@
 # Control Socket Protocol
 
-As of protocol v6, every server speaks JSON Lines over a Unix domain socket. Send one JSON object per line. Every request receives one response line. `subscribe` and `attach-surface` also push event lines on the same connection.
+As of protocol v7, every server speaks JSON Lines over a Unix domain socket. Send one JSON object per line. Every request receives one response line. `subscribe` and `attach-surface` also push event lines on the same connection.
 
 For shell use, prefer `cmux-tui <verb>`; it wraps the same socket commands and preserves JSON output with `--json`.
 
@@ -14,7 +14,7 @@ $TMPDIR/cmux-tui-<uid>/<session>.sock
 
 ```json
 {"id":1,"cmd":"identify"}
-{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"...","protocol":6,"session":"main","pid":12345}}
+{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"...","protocol":7,"session":"main","pid":12345}}
 ```
 
 Responses have this shape:
@@ -93,13 +93,15 @@ Subscribed event lines are:
 {"event":"surface-output","surface":4}
 {"event":"surface-resized","surface":4,"cols":120,"rows":40}
 {"event":"surface-exited","surface":4}
-{"event":"title-changed","surface":4}
+{"event":"title-changed","surface":4,"title":"build logs"}
 {"event":"bell","surface":4}
 {"event":"tree-changed"}
 {"event":"empty"}
 ```
 
 `surface-resized` reports the final clamped cell size and is emitted only when the surface size actually changes.
+
+Protocol v7 `title-changed` carries the authoritative current `title`. Slow subscribers coalesce repeated pending title changes per surface to the latest value.
 
 ## Attach Surface
 
@@ -132,7 +134,7 @@ When the stream ends, it sends:
 
 ## Client Compatibility
 
-The remote TUI requires protocol v6. It refuses servers reporting any other protocol version because attach streams need resize markers carrying replay data.
+The remote TUI requires protocol v7. It refuses servers reporting any other protocol version because it relies on resized attach replays and authoritative title events.
 
 Attach clients mirror PTY surfaces locally. On first render, a client can resize the server surface before requesting `attach-surface`, so the initial VT replay is captured at the visible geometry.
 
@@ -140,4 +142,4 @@ When several attach clients render the same surface at different sizes, sizing f
 
 ## Browser Limitations
 
-Browser surfaces appear in `list-workspaces` as `kind: "browser"` with `browser_source: "external"` or `"launched"`. PTY and VT commands against browser surfaces return errors. `attach-surface` does not stream browser pixels as of protocol v6, and the remote TUI shows a placeholder for browser panes.
+Browser surfaces appear in `list-workspaces` as `kind: "browser"` with `browser_source: "external"` or `"launched"`. PTY and VT commands against browser surfaces return errors. `attach-surface` does not stream browser pixels as of protocol v7, and the remote TUI shows a placeholder for browser panes.

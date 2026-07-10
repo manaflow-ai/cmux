@@ -9,7 +9,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::io::Write;
 use std::ops::Deref;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -63,16 +63,34 @@ pub enum AppEvent {
 }
 
 pub enum SessionMutationOutcome {
-    Success { tree: Option<TreeView>, completion: Option<SessionCompletion> },
-    IdentityRefreshSucceeded(TreeView),
-    CommittedTreeStale { error: Option<String>, completion: Option<SessionCompletion> },
+    Success {
+        tree: Option<TreeView>,
+    },
+    AuthoritativeMutationSucceeded {
+        tree: TreeView,
+        authoritative_generation: u64,
+        completion: Option<SessionCompletion>,
+    },
+    IdentityRefreshSucceeded {
+        tree: TreeView,
+        authoritative_generation: u64,
+    },
+    CommittedTreeStale {
+        error: Option<String>,
+        completion: Option<SessionCompletion>,
+    },
     IdentityRefreshFailed(String),
     Failed(String),
     Canceled,
 }
 
-pub enum SessionCompletion {
-    BrowserTabCreated { pane: Option<PaneId> },
+pub struct SessionCompletion {
+    mutation_generation: u64,
+    action: SessionCompletionAction,
+}
+
+enum SessionCompletionAction {
+    BrowserTabCreated { surface: SurfaceId },
 }
 
 struct PendingSessionMutation {
@@ -115,6 +133,7 @@ pub struct OrderedSession {
     events: Sender<AppEvent>,
     remote: bool,
     pending_mutations: Arc<AtomicUsize>,
+    committed_mutation_generation: Arc<AtomicU64>,
     remote_refresh_queued: Arc<AtomicBool>,
     remote_background_dirty: Arc<AtomicBool>,
 }
@@ -128,6 +147,7 @@ impl OrderedSession {
             events,
             remote,
             pending_mutations: Arc::new(AtomicUsize::new(0)),
+            committed_mutation_generation: Arc::new(AtomicU64::new(0)),
             remote_refresh_queued: Arc::new(AtomicBool::new(false)),
             remote_background_dirty: Arc::new(AtomicBool::new(false)),
         }
@@ -160,6 +180,7 @@ impl OrderedSession {
         }
         self.inner.invalidate_remote_tree();
         let session = self.inner.clone();
+        let authoritative_generation = self.committed_mutation_generation.load(Ordering::Acquire);
         let pending = self.pending_mutation();
         let claim = RemoteRefreshClaim(self.remote_refresh_queued.clone());
         let spawn =
@@ -168,7 +189,10 @@ impl OrderedSession {
                 drop(claim);
                 match result {
                     Ok(tree) => {
-                        pending.settle(SessionMutationOutcome::IdentityRefreshSucceeded(tree));
+                        pending.settle(SessionMutationOutcome::IdentityRefreshSucceeded {
+                            tree,
+                            authoritative_generation,
+                        });
                     }
                     Err(error) => {
                         pending.settle(SessionMutationOutcome::IdentityRefreshFailed(
@@ -227,31 +251,48 @@ impl OrderedSession {
         label: &'static str,
         operation: impl FnOnce(Session) -> anyhow::Result<()> + Send + 'static,
     ) {
-        self.enqueue_with_completion(label, operation, None);
+        self.enqueue_with_completion(label, move |session| {
+            operation(session)?;
+            Ok(None)
+        });
     }
 
     fn enqueue_with_completion(
         &self,
         label: &'static str,
-        operation: impl FnOnce(Session) -> anyhow::Result<()> + Send + 'static,
-        completion: Option<SessionCompletion>,
+        operation: impl FnOnce(Session) -> anyhow::Result<Option<SessionCompletionAction>>
+        + Send
+        + 'static,
     ) {
         let session = self.inner.clone();
         let pending = self.pending_mutation();
         let remote = self.remote;
+        let committed_mutation_generation = self.committed_mutation_generation.clone();
         self.operations.enqueue_session_mutation(label, self.remote, move || {
-            if let Err(error) = operation(session.clone()) {
-                pending.settle(SessionMutationOutcome::Failed(error.to_string()));
-                return Err(error);
-            }
+            let completion = match operation(session.clone()) {
+                Ok(completion) => completion,
+                Err(error) => {
+                    pending.settle(SessionMutationOutcome::Failed(error.to_string()));
+                    return Err(error);
+                }
+            };
+            let mutation_generation =
+                committed_mutation_generation.fetch_add(1, Ordering::AcqRel) + 1;
+            let completion =
+                completion.map(|action| SessionCompletion { mutation_generation, action });
             session.invalidate_remote_tree();
             if remote {
                 pending
                     .settle(SessionMutationOutcome::CommittedTreeStale { error: None, completion });
             } else {
                 match session.refresh_tree() {
-                    Ok(tree) => pending
-                        .settle(SessionMutationOutcome::Success { tree: Some(tree), completion }),
+                    Ok(tree) => {
+                        pending.settle(SessionMutationOutcome::AuthoritativeMutationSucceeded {
+                            tree,
+                            authoritative_generation: mutation_generation,
+                            completion,
+                        });
+                    }
                     Err(error) => pending.settle(SessionMutationOutcome::CommittedTreeStale {
                         error: Some(error.to_string()),
                         completion,
@@ -271,6 +312,7 @@ impl OrderedSession {
         reassert: bool,
     ) {
         let pending = self.pending_mutation();
+        let committed_mutation_generation = self.committed_mutation_generation.clone();
         self.operations.enqueue_coalescing_mutation(
             "resize PTY surface",
             ("surface resize", surface_id),
@@ -281,7 +323,8 @@ impl OrderedSession {
                 } else {
                     surface.resize(cols, rows)?;
                 }
-                pending.settle(SessionMutationOutcome::Success { tree: None, completion: None });
+                committed_mutation_generation.fetch_add(1, Ordering::AcqRel);
+                pending.settle(SessionMutationOutcome::Success { tree: None });
                 Ok(())
             },
         );
@@ -298,11 +341,10 @@ impl OrderedSession {
         pane: Option<PaneId>,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<()> {
-        self.enqueue_with_completion(
-            "create browser tab",
-            move |session| session.new_browser_tab(url, pane, size),
-            Some(SessionCompletion::BrowserTabCreated { pane }),
-        );
+        self.enqueue_with_completion("create browser tab", move |session| {
+            let surface = session.new_browser_tab(url, pane, size)?;
+            Ok(Some(SessionCompletionAction::BrowserTabCreated { surface }))
+        });
         Ok(())
     }
 
@@ -361,6 +403,7 @@ impl OrderedSession {
         };
         let pending = self.pending_mutation();
         let remote = self.remote;
+        let committed_mutation_generation = self.committed_mutation_generation.clone();
         self.operations.enqueue_coalescing_mutation(
             "resize pane split",
             (direction, pane),
@@ -370,15 +413,14 @@ impl OrderedSession {
                     pending.settle(SessionMutationOutcome::Failed(error.to_string()));
                     return Err(error);
                 }
+                committed_mutation_generation.fetch_add(1, Ordering::AcqRel);
                 if remote {
-                    pending
-                        .settle(SessionMutationOutcome::Success { tree: None, completion: None });
+                    pending.settle(SessionMutationOutcome::Success { tree: None });
                 } else {
                     match session.refresh_tree() {
-                        Ok(tree) => pending.settle(SessionMutationOutcome::Success {
-                            tree: Some(tree),
-                            completion: None,
-                        }),
+                        Ok(tree) => {
+                            pending.settle(SessionMutationOutcome::Success { tree: Some(tree) });
+                        }
                         Err(error) => {
                             pending.settle(SessionMutationOutcome::CommittedTreeStale {
                                 error: Some(error.to_string()),
@@ -1239,12 +1281,37 @@ impl App {
     }
 
     fn apply_session_completion(&mut self, completion: SessionCompletion) {
-        match completion {
-            SessionCompletion::BrowserTabCreated { pane } => {
-                if let Some(pane) = pane.or_else(|| self.active_pane()) {
+        match completion.action {
+            SessionCompletionAction::BrowserTabCreated { surface } => {
+                let pane = self
+                    .tree
+                    .workspaces
+                    .iter()
+                    .flat_map(|workspace| workspace.screens.iter())
+                    .flat_map(|screen| screen.panes.iter())
+                    .find(|pane| {
+                        pane.active_surface() == Some(surface)
+                            && pane
+                                .tabs
+                                .get(pane.active_tab)
+                                .is_some_and(|tab| tab.kind == SurfaceKind::Browser)
+                    })
+                    .map(|pane| pane.id);
+                if let Some(pane) = pane {
                     self.focus_omnibar_with_buffer(pane, String::new(), false);
                 }
             }
+        }
+    }
+
+    fn apply_session_completions_through(&mut self, authoritative_generation: u64) {
+        while self
+            .pending_session_completions
+            .front()
+            .is_some_and(|completion| completion.mutation_generation <= authoritative_generation)
+        {
+            let completion = self.pending_session_completions.pop_front().unwrap();
+            self.apply_session_completion(completion);
         }
     }
 
@@ -1558,6 +1625,11 @@ impl App {
             }
             AppEvent::Mux(_) => Ok(RenderAction::Draw),
             AppEvent::PtyOperationFailed(failure) => {
+                if failure.kind == Some(PtyInputKind::Motion)
+                    && failure.delivery == PtyOperationDelivery::KnownNotDelivered
+                {
+                    self.mouse_encoder.reset_motion_dedupe();
+                }
                 let failed_active_press = failure.kind == Some(PtyInputKind::Press)
                     && failure.delivery == PtyOperationDelivery::KnownNotDelivered
                     && failure.surface_id.is_some_and(|surface| {
@@ -1572,24 +1644,31 @@ impl App {
             AppEvent::SessionMutationSettled(outcome) => {
                 self.session.settle_pending_mutation();
                 match outcome {
-                    SessionMutationOutcome::Success { tree, completion } => {
+                    SessionMutationOutcome::Success { tree } => {
                         if let Some(tree) = tree {
                             self.tree = tree;
                         }
                         self.routing_refresh_retries_remaining = 0;
-                        if let Some(completion) = completion {
-                            self.apply_session_completion(completion);
-                        }
-                        while let Some(completion) = self.pending_session_completions.pop_front() {
-                            self.apply_session_completion(completion);
-                        }
                     }
-                    SessionMutationOutcome::IdentityRefreshSucceeded(tree) => {
+                    SessionMutationOutcome::AuthoritativeMutationSucceeded {
+                        tree,
+                        authoritative_generation,
+                        completion,
+                    } => {
                         self.tree = tree;
                         self.routing_refresh_retries_remaining = 0;
-                        while let Some(completion) = self.pending_session_completions.pop_front() {
-                            self.apply_session_completion(completion);
+                        if let Some(completion) = completion {
+                            self.pending_session_completions.push_back(completion);
                         }
+                        self.apply_session_completions_through(authoritative_generation);
+                    }
+                    SessionMutationOutcome::IdentityRefreshSucceeded {
+                        tree,
+                        authoritative_generation,
+                    } => {
+                        self.tree = tree;
+                        self.routing_refresh_retries_remaining = 0;
+                        self.apply_session_completions_through(authoritative_generation);
                         self.complete_remote_tree_refresh(true);
                     }
                     SessionMutationOutcome::CommittedTreeStale { error, completion } => {
@@ -1645,9 +1724,6 @@ impl App {
                     Ok(tree) => {
                         self.tree = tree;
                         self.routing_refresh_retries_remaining = 0;
-                        while let Some(completion) = self.pending_session_completions.pop_front() {
-                            self.apply_session_completion(completion);
-                        }
                     }
                     Err(error) => {
                         self.status_message = Some(format!("refresh remote tree failed: {error}"));
@@ -3215,7 +3291,20 @@ impl App {
         kind: PtyInputKind,
     ) -> bool {
         let result = self.pty_input.enqueue(PtyInputEvent::input(surface_id, surface, bytes, kind));
+        self.rollback_mouse_motion_for_enqueue_failure(kind, result);
         self.handle_pty_enqueue_result(result)
+    }
+
+    fn rollback_mouse_motion_for_enqueue_failure(
+        &mut self,
+        kind: PtyInputKind,
+        result: PtyInputEnqueueResult,
+    ) {
+        if kind == PtyInputKind::Motion
+            && matches!(result, PtyInputEnqueueResult::Saturated | PtyInputEnqueueResult::Failed)
+        {
+            self.mouse_encoder.reset_motion_dedupe();
+        }
     }
 
     fn handle_pty_enqueue_result(&mut self, result: PtyInputEnqueueResult) -> bool {
@@ -4284,8 +4373,8 @@ fn browser_key_mapping(
 #[cfg(test)]
 mod tests {
     use super::{
-        App, AppEvent, Drag, OrderedSession, PaneArea, browser_content_size_for_rect,
-        browser_hover_forward_allowed, pane_parts_for_rect,
+        App, AppEvent, Drag, OrderedSession, PaneArea, SessionCompletion, SessionCompletionAction,
+        browser_content_size_for_rect, browser_hover_forward_allowed, pane_parts_for_rect,
     };
     use std::collections::{HashMap, VecDeque};
     use std::sync::atomic::Ordering;
@@ -4293,11 +4382,13 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
 
-    use cmux_tui_core::{BrowserStatus, Mux, Node, Rect, SurfaceKind, SurfaceOptions};
+    use cmux_tui_core::{BrowserStatus, Mux, Node, Rect, SurfaceId, SurfaceKind, SurfaceOptions};
     use crossterm::event::{
         Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
     };
-    use ghostty_vt::{KeyEncoder, MouseEncoder, RenderState};
+    use ghostty_vt::{
+        Callbacks, KeyEncoder, Mods, MouseAction, MouseEncoder, MouseInput, RenderState,
+    };
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
 
@@ -4516,6 +4607,64 @@ mod tests {
     }
 
     #[test]
+    fn rejected_motion_enqueue_rolls_back_mouse_encoder_dedupe() {
+        let mux = Mux::new("motion-enqueue-rollback-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let mut terminal = ghostty_vt::Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+        terminal.vt_write(b"\x1b[?1003h\x1b[?1006h");
+        let input = test_mouse_motion();
+
+        assert!(!encode_test_mouse_motion(&mut app, &terminal, input).is_empty());
+        assert!(encode_test_mouse_motion(&mut app, &terminal, input).is_empty());
+
+        app.rollback_mouse_motion_for_enqueue_failure(
+            PtyInputKind::Motion,
+            PtyInputEnqueueResult::Saturated,
+        );
+        assert!(!encode_test_mouse_motion(&mut app, &terminal, input).is_empty());
+        assert!(encode_test_mouse_motion(&mut app, &terminal, input).is_empty());
+
+        app.rollback_mouse_motion_for_enqueue_failure(
+            PtyInputKind::Motion,
+            PtyInputEnqueueResult::Failed,
+        );
+        assert!(!encode_test_mouse_motion(&mut app, &terminal, input).is_empty());
+    }
+
+    #[test]
+    fn canceled_known_undelivered_motion_rolls_back_mouse_encoder_dedupe() {
+        let mux = Mux::new("motion-cancel-rollback-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let mut terminal = ghostty_vt::Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+        terminal.vt_write(b"\x1b[?1003h\x1b[?1006h");
+        let input = test_mouse_motion();
+
+        assert!(!encode_test_mouse_motion(&mut app, &terminal, input).is_empty());
+        assert!(encode_test_mouse_motion(&mut app, &terminal, input).is_empty());
+        app.handle(AppEvent::PtyOperationFailed(PtyOperationFailure {
+            surface_id: Some(42),
+            kind: Some(PtyInputKind::Motion),
+            label: "PTY input",
+            error: "remote session did not respond".to_string(),
+            lane_failed: false,
+            delivery: PtyOperationDelivery::Ambiguous,
+        }))
+        .unwrap();
+        assert!(encode_test_mouse_motion(&mut app, &terminal, input).is_empty());
+
+        app.handle(AppEvent::PtyOperationFailed(PtyOperationFailure {
+            surface_id: Some(42),
+            kind: Some(PtyInputKind::Motion),
+            label: "PTY input",
+            error: "canceled before delivery".to_string(),
+            lane_failed: false,
+            delivery: PtyOperationDelivery::KnownNotDelivered,
+        }))
+        .unwrap();
+        assert!(!encode_test_mouse_motion(&mut app, &terminal, input).is_empty());
+    }
+
+    #[test]
     fn lane_failure_clears_pty_drag_after_nonpress_failure() {
         let mux = Mux::new("lane-failure-drag-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
@@ -4605,7 +4754,10 @@ mod tests {
         app.session.remote_background_dirty.store(true, Ordering::Release);
 
         app.handle(AppEvent::SessionMutationSettled(
-            super::SessionMutationOutcome::IdentityRefreshSucceeded(TreeView::default()),
+            super::SessionMutationOutcome::IdentityRefreshSucceeded {
+                tree: TreeView::default(),
+                authoritative_generation: 0,
+            },
         ))
         .unwrap();
 
@@ -4615,6 +4767,78 @@ mod tests {
             events.recv_timeout(Duration::from_secs(1)).unwrap(),
             AppEvent::RemoteTreeUpdated(Ok(_))
         ));
+    }
+
+    #[test]
+    fn browser_completion_waits_for_its_authoritative_identity_generation() {
+        let mux = Mux::new("browser-completion-generation-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let surface = 41;
+        app.pane_areas.push(browser_completion_area(surface));
+        app.pending_session_completions.push_back(SessionCompletion {
+            mutation_generation: 4,
+            action: SessionCompletionAction::BrowserTabCreated { surface },
+        });
+        let tree = browser_completion_tree(surface, surface);
+
+        app.handle(AppEvent::RemoteTreeUpdated(Ok(tree.clone()))).unwrap();
+        assert_eq!(app.pending_session_completions.len(), 1);
+        assert!(app.omnibar.is_none());
+
+        app.session.pending_mutations.store(1, Ordering::Release);
+        app.handle(AppEvent::SessionMutationSettled(super::SessionMutationOutcome::Success {
+            tree: None,
+        }))
+        .unwrap();
+        assert_eq!(app.pending_session_completions.len(), 1);
+        assert!(app.omnibar.is_none());
+
+        app.session.pending_mutations.store(1, Ordering::Release);
+        app.handle(AppEvent::SessionMutationSettled(
+            super::SessionMutationOutcome::IdentityRefreshSucceeded {
+                tree: tree.clone(),
+                authoritative_generation: 3,
+            },
+        ))
+        .unwrap();
+        assert_eq!(app.pending_session_completions.len(), 1);
+        assert!(app.omnibar.is_none());
+
+        app.session.pending_mutations.store(1, Ordering::Release);
+        app.handle(AppEvent::SessionMutationSettled(
+            super::SessionMutationOutcome::IdentityRefreshSucceeded {
+                tree,
+                authoritative_generation: 4,
+            },
+        ))
+        .unwrap();
+        assert!(app.pending_session_completions.is_empty());
+        assert_eq!(app.omnibar.as_ref().map(|state| state.surface), Some(surface));
+    }
+
+    #[test]
+    fn browser_completion_fails_closed_when_created_surface_is_not_active() {
+        let mux = Mux::new("browser-completion-inactive-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let created_surface = 41;
+        let active_surface = 42;
+        app.pane_areas.push(browser_completion_area(active_surface));
+        app.pending_session_completions.push_back(SessionCompletion {
+            mutation_generation: 4,
+            action: SessionCompletionAction::BrowserTabCreated { surface: created_surface },
+        });
+        app.session.pending_mutations.store(1, Ordering::Release);
+
+        app.handle(AppEvent::SessionMutationSettled(
+            super::SessionMutationOutcome::IdentityRefreshSucceeded {
+                tree: browser_completion_tree(created_surface, active_surface),
+                authoritative_generation: 4,
+            },
+        ))
+        .unwrap();
+
+        assert!(app.pending_session_completions.is_empty());
+        assert!(app.omnibar.is_none());
     }
 
     #[test]
@@ -4992,6 +5216,82 @@ mod tests {
         );
 
         mux.close_surface(surface.id);
+    }
+
+    fn test_mouse_motion() -> MouseInput {
+        MouseInput {
+            action: MouseAction::Motion,
+            button: None,
+            mods: Mods::default(),
+            position: (36.0, 40.0),
+            screen_size: (640, 384),
+            cell_size: (8, 16),
+            any_button_pressed: false,
+        }
+    }
+
+    fn encode_test_mouse_motion(
+        app: &mut App,
+        terminal: &ghostty_vt::Terminal,
+        input: MouseInput,
+    ) -> Vec<u8> {
+        let mut output = Vec::new();
+        app.mouse_encoder.sync_from_terminal(terminal);
+        app.mouse_encoder.encode(input, &mut output).unwrap();
+        output
+    }
+
+    fn browser_completion_area(surface: SurfaceId) -> PaneArea {
+        PaneArea {
+            pane: 2,
+            surface,
+            rect: Rect { x: 0, y: 0, width: 40, height: 12 },
+            bar: Some(Rect { x: 0, y: 0, width: 40, height: 1 }),
+            omnibar: Some(Rect { x: 0, y: 1, width: 40, height: 1 }),
+            content: Rect { x: 0, y: 2, width: 40, height: 10 },
+            track: None,
+        }
+    }
+
+    fn browser_completion_tree(created_surface: SurfaceId, active_surface: SurfaceId) -> TreeView {
+        let tab = |surface| TabView {
+            surface,
+            short_id: format!("{surface:06}"),
+            name: None,
+            title: String::new(),
+            kind: SurfaceKind::Browser,
+            browser_source: None,
+            browser_frames_stalled: false,
+            notification: None,
+        };
+        let mut tabs = vec![tab(created_surface)];
+        if active_surface != created_surface {
+            tabs.push(tab(active_surface));
+        }
+        TreeView {
+            active_workspace: 0,
+            workspaces: vec![WorkspaceView {
+                id: 4,
+                short_id: "000004".to_string(),
+                name: "work".to_string(),
+                active_screen: 0,
+                screens: vec![ScreenView {
+                    id: 3,
+                    short_id: "000003".to_string(),
+                    name: None,
+                    layout: Node::Leaf(2),
+                    active_pane: 2,
+                    zoomed_pane: None,
+                    panes: vec![PaneView {
+                        id: 2,
+                        short_id: "000002".to_string(),
+                        name: None,
+                        tabs,
+                        active_tab: usize::from(active_surface != created_surface),
+                    }],
+                }],
+            }],
+        }
     }
 
     fn test_app(session: Session) -> App {

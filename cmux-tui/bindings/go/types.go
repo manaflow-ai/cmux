@@ -131,6 +131,13 @@ type SurfaceEvent struct {
 
 func (e SurfaceEvent) EventName() string { return e.Event }
 
+type TitleChangedEvent struct {
+	Surface uint64  `json:"surface"`
+	Title   *string `json:"title"`
+}
+
+func (TitleChangedEvent) EventName() string { return "title-changed" }
+
 type SurfaceResizedEvent struct {
 	Surface uint64 `json:"surface"`
 	Cols    uint16 `json:"cols"`

@@ -7,7 +7,7 @@
         {
           "type": "command",
           "request": { "id": 1, "cmd": "identify" },
-          "expect": { "id": 1, "ok": true, "data": { "app": "cmux-tui", "protocol": 6 } },
+          "expect": { "id": 1, "ok": true, "data": { "app": "cmux-tui", "protocol": 7 } },
           "match": "partial"
         }
       ]
@@ -18,7 +18,7 @@
         {
           "type": "command",
           "request": { "id": 1, "cmd": "ping" },
-          "expect": { "id": 1, "ok": true, "data": { "ok": true, "protocol": 6 } },
+          "expect": { "id": 1, "ok": true, "data": { "ok": true, "protocol": 7 } },
           "match": "partial"
         },
         {
@@ -187,6 +187,38 @@
           "stream": "events",
           "expect": [
             { "event": "tree-changed" }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "subscribe-title-changed-carries-title",
+      "steps": [
+        {
+          "type": "command",
+          "request": { "id": 1, "cmd": "new-workspace", "name": "conf-title", "cols": 80, "rows": 24 },
+          "expect": { "id": 1, "ok": true },
+          "match": "partial",
+          "bind": { "surface0": "data.surface" }
+        },
+        {
+          "type": "stream",
+          "name": "events",
+          "request": { "id": 2, "cmd": "subscribe" },
+          "expect": { "id": 2, "ok": true },
+          "match": "partial"
+        },
+        {
+          "type": "command",
+          "request": { "id": 3, "cmd": "send", "surface": "$surface0", "text": "printf '\\033]2;conformance title\\007'; sleep 1\r" },
+          "expect": { "id": 3, "ok": true },
+          "match": "partial"
+        },
+        {
+          "type": "expect_events",
+          "stream": "events",
+          "expect": [
+            { "event": "title-changed", "surface": "$surface0", "title": "conformance title" }
           ]
         }
       ]

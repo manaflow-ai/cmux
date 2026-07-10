@@ -9,6 +9,7 @@
 //! themselves, which is what makes the backend attachable.
 
 mod browser;
+mod event_bus;
 mod model;
 mod mux;
 mod short_id;
@@ -19,6 +20,7 @@ pub mod platform;
 pub mod server;
 
 pub use browser::normalize_url;
+pub use event_bus::{MuxEventBroadcaster, MuxEventReceiver};
 pub use layout::{
     LayoutResult, Rect, SplitEdge, SplitResize, directional_neighbor, layout_screen,
     split_for_pane_edge, split_sides,

@@ -3,11 +3,11 @@
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use crate::browser::{self, BrowserBootstrap, BrowserRuntime};
+use crate::event_bus::{MuxEventBroadcaster, MuxEventReceiver};
 use crate::layout::{Rect, layout_screen};
 use crate::model::{Node, Pane, Screen, State, Workspace};
 use crate::surface::{DefaultColors, Surface, SurfaceOptions};
@@ -223,7 +223,7 @@ struct SidebarPluginRuntime {
 /// The multiplexer. Shared by frontends and the control socket server.
 pub struct Mux {
     state: Mutex<State>,
-    subscribers: Mutex<Vec<Sender<MuxEvent>>>,
+    subscribers: MuxEventBroadcaster,
     next_id: AtomicU64,
     next_notification_id: AtomicU64,
     next_active_at: AtomicU64,
@@ -259,7 +259,7 @@ impl Mux {
                 panes: HashMap::new(),
                 surfaces: HashMap::new(),
             }),
-            subscribers: Mutex::new(Vec::new()),
+            subscribers: MuxEventBroadcaster::default(),
             next_id: AtomicU64::new(1),
             next_notification_id: AtomicU64::new(1),
             next_active_at: AtomicU64::new(1),
@@ -296,15 +296,12 @@ impl Mux {
         self.next_notification_id.fetch_add(1, Ordering::Relaxed)
     }
 
-    pub fn subscribe(&self) -> Receiver<MuxEvent> {
-        let (tx, rx) = channel();
-        self.subscribers.lock().unwrap().push(tx);
-        rx
+    pub fn subscribe(&self) -> MuxEventReceiver {
+        self.subscribers.subscribe()
     }
 
     pub fn emit(&self, event: MuxEvent) {
-        let mut subs = self.subscribers.lock().unwrap();
-        subs.retain(|tx| tx.send(event.clone()).is_ok());
+        self.subscribers.emit(event);
     }
 
     fn spawn_surface_with_command(

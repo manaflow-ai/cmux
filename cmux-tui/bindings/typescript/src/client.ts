@@ -295,7 +295,7 @@ export class CmuxClient {
 
   async attachSurface(surface: number): Promise<CmuxStream<AttachEvent>> {
     const protocol = this.protocol ?? (await this.identify()).protocol;
-    if (protocol > 6 || (protocol > 5 && !this.allowProtocolV6Attach)) {
+    if (protocol > 7 || (protocol > 5 && !this.allowProtocolV6Attach)) {
       throw new CmuxProtocolError(`unsupported attach protocol ${protocol}`);
     }
     return CmuxStream.open<AttachEvent>(this.socketPath, this.timeoutMs, { id: this.nextId(), cmd: "attach-surface", surface });

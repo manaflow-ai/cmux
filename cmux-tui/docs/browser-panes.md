@@ -49,6 +49,6 @@ The default launched profile is `~/Library/Application Support/cmux-tui/chrome-p
 
 ## Limitations
 
-Browser panes are local-only as of protocol v6. `attach-surface` returns an error for browser surfaces, attach clients do not receive browser frame streams, and a remote TUI shows a placeholder for browser panes.
+Browser panes are local-only as of protocol v7. `attach-surface` returns an error for browser surfaces, attach clients do not receive browser frame streams, and a remote TUI shows a placeholder for browser panes.
 
 Headful external Chrome can throttle screencast frames when the window or tab is hidden or occluded. Chrome 136 and newer do not allow `--remote-debugging-port` with the default user data directory, so reusable everyday Chrome profiles may not expose CDP.

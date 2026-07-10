@@ -10,7 +10,7 @@ async function main(): Promise<void> {
   try {
     const identify = await client.identify();
     assert(identify.app === "cmux-tui", `unexpected app ${identify.app}`);
-    assert(identify.protocol >= 5 && identify.protocol <= 6, `unsupported protocol ${identify.protocol}`);
+    assert(identify.protocol >= 5 && identify.protocol <= 7, `unsupported protocol ${identify.protocol}`);
 
     const created = await client.newWorkspace({ name: marker, cols: 80, rows: 24 });
     await client.send(created.surface, { text: `printf '${marker}\\n'\r` });
@@ -24,6 +24,10 @@ async function main(): Promise<void> {
 
     await client.renameSurface(created.surface, `${marker}-renamed`);
     const events = await client.subscribe();
+    const title = `${marker}-title`;
+    await client.send(created.surface, { text: `printf '\\033]2;${title}\\007'; sleep 1\r` });
+    const titleChanged = await nextTitleChanged(events, created.surface, title, 1000);
+    assert(titleChanged.title === title, `bad title event ${JSON.stringify(titleChanged)}`);
     await client.resizeSurface(created.surface, 100, 31);
     const resized = await nextSurfaceResized(events, created.surface, 1000);
     assert(resized.cols === 100 && resized.rows === 31, `bad resize event ${JSON.stringify(resized)}`);
@@ -56,6 +60,28 @@ async function main(): Promise<void> {
   } finally {
     await client.close().catch(() => undefined);
   }
+}
+
+async function nextTitleChanged(
+  events: Awaited<ReturnType<CmuxClient["subscribe"]>>,
+  surface: number,
+  title: string,
+  timeoutMs: number,
+): Promise<{ event: "title-changed"; surface: number; title: string }> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const event = await events.next(Math.max(1, deadline - Date.now()));
+    if (
+      event.event === "title-changed" &&
+      "surface" in event &&
+      event.surface === surface &&
+      "title" in event &&
+      event.title === title
+    ) {
+      return { event: "title-changed", surface: event.surface, title: event.title };
+    }
+  }
+  throw new Error("title-changed event not observed");
 }
 
 async function waitForMarker(client: CmuxClient, surface: number, marker: string): Promise<void> {

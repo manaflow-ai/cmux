@@ -58,7 +58,7 @@ export type SubscribeEvent =
   | { event: "surface-output"; surface: number }
   | { event: "surface-resized"; surface: number; cols: number; rows: number }
   | { event: "surface-exited"; surface: number }
-  | { event: "title-changed"; surface: number }
+  | { event: "title-changed"; surface: number; title?: string }
   | { event: "bell"; surface: number }
   | { event: "empty" }
   | UnknownEvent;

@@ -174,6 +174,12 @@ pub struct SurfaceEvent {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+pub struct TitleChangedEvent {
+    pub surface: u64,
+    pub title: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
 pub struct SurfaceResizedEvent {
     pub surface: u64,
     pub cols: u16,
@@ -215,7 +221,7 @@ pub enum Event {
     SurfaceOutput(SurfaceEvent),
     SurfaceResized(SurfaceResizedEvent),
     SurfaceExited(SurfaceEvent),
-    TitleChanged(SurfaceEvent),
+    TitleChanged(TitleChangedEvent),
     Bell(SurfaceEvent),
     Empty,
     VtState(VtStateEvent),
@@ -512,7 +518,7 @@ impl CmuxClient {
             Some(protocol) => protocol,
             None => self.identify()?.protocol,
         };
-        if protocol > 6 || (protocol > 5 && !self.config.allow_protocol_v6_attach) {
+        if protocol > 7 || (protocol > 5 && !self.config.allow_protocol_v6_attach) {
             return Err(CmuxError::ProtocolVersion(format!(
                 "unsupported attach protocol {protocol}"
             )));
@@ -716,5 +722,34 @@ fn insert_opt<T: Serialize>(params: &mut Map<String, Value>, key: &str, value: O
             key.to_string(),
             serde_json::to_value(value).expect("serializing command parameter must not fail"),
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn title_changed_decodes_authoritative_title() {
+        let event = parse_event(serde_json::json!({
+            "event": "title-changed",
+            "surface": 7,
+            "title": "build logs",
+        }));
+
+        assert!(matches!(
+            event,
+            Event::TitleChanged(TitleChangedEvent { surface: 7, title })
+                if title.as_deref() == Some("build logs")
+        ));
+
+        let legacy = parse_event(serde_json::json!({
+            "event": "title-changed",
+            "surface": 7,
+        }));
+        assert!(matches!(
+            legacy,
+            Event::TitleChanged(TitleChangedEvent { surface: 7, title: None })
+        ));
     }
 }

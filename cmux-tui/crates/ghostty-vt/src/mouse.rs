@@ -83,6 +83,12 @@ impl MouseEncoder {
         self.terminal_state = Some(state);
     }
 
+    /// Forget the last encoded motion cell so an event that was not delivered
+    /// can be encoded again at the same coordinates.
+    pub fn reset_motion_dedupe(&mut self) {
+        unsafe { sys::ghostty_mouse_encoder_reset(self.encoder) };
+    }
+
     pub fn encode(&mut self, input: MouseInput, out: &mut Vec<u8>) -> Result<()> {
         let action = match input.action {
             MouseAction::Press => sys::GHOSTTY_MOUSE_ACTION_PRESS,
@@ -281,5 +287,24 @@ mod tests {
         event.cell_size = (4, 8);
         encoder.encode(event, &mut out).unwrap();
         assert_eq!(out, b"\x1b[<35;10;6M");
+    }
+
+    #[test]
+    fn reset_allows_same_cell_motion_to_be_encoded_again() {
+        let mut terminal = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+        terminal.vt_write(b"\x1b[?1003h\x1b[?1006h");
+        let mut encoder = MouseEncoder::new().unwrap();
+        encoder.sync_from_terminal(&terminal);
+        let event = input(MouseAction::Motion, None);
+        let mut out = Vec::new();
+
+        encoder.encode(event, &mut out).unwrap();
+        out.clear();
+        encoder.encode(event, &mut out).unwrap();
+        assert!(out.is_empty());
+
+        encoder.reset_motion_dedupe();
+        encoder.encode(event, &mut out).unwrap();
+        assert_eq!(out, b"\x1b[<35;5;3M");
     }
 }

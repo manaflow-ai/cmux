@@ -1,6 +1,6 @@
 # Transport Contract
 
-The command schema is transport-independent. Protocol v5 implements a Unix domain socket JSON-lines transport. Protocol v6 proposes HTTP, SSE, and WebSocket transports that preserve the same command and event payloads.
+The command schema is transport-independent. Protocol v5 implements a Unix domain socket JSON-lines transport. Proposed protocol v8 adds HTTP, SSE, and WebSocket transports that preserve the same command and event payloads.
 
 ## Unix Socket
 
@@ -69,7 +69,7 @@ Access to the Unix socket is equivalent to access to the mux session. A client c
 
 ### Optional Socket Token
 
-Protocol v6 may add an optional token to the socket transport for parity with HTTP. Filesystem permissions remain the primary protection. The exact framing is deferred until the v6 implementation.
+Protocol v8 may add an optional token to the socket transport for parity with HTTP. Filesystem permissions remain the primary protection. The exact framing is deferred until that implementation.
 
 A compatible deferred design is an initial auth line before any command:
 
@@ -85,7 +85,7 @@ If auth fails, the server responds with `{"ok":false,"error":"invalid token"}` a
 | Field | Value |
 | --- | --- |
 | status | proposed |
-| since | proposed protocol 6 |
+| since | proposed protocol 8 |
 
 HTTP is opt-in. The server binds localhost by default when enabled:
 
@@ -158,7 +158,7 @@ The attach ordering contract is identical to the socket `attach-surface` command
 | Field | Value |
 | --- | --- |
 | status | proposed |
-| since | proposed protocol 6 |
+| since | proposed protocol 8 |
 
 When HTTP is enabled securely, the server mints one token per mux session at:
 
