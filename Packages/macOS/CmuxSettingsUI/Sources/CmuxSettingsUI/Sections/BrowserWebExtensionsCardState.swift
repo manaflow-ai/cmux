@@ -16,6 +16,14 @@ struct BrowserWebExtensionsCardState {
         supported && hasObservedValue && isDiscoveryComplete
     }
 
+    /// The "no extensions added" empty row must wait for the JSON stream's
+    /// first value: until then the observed entries are only the default `[]`,
+    /// not the persisted state, and configured extensions would flash as
+    /// missing.
+    func shouldShowEmptyState(entries: [BrowserWebExtensionEntry], hasObservedValue: Bool) -> Bool {
+        entries.isEmpty && hasObservedValue
+    }
+
     mutating func completeDiscovery(_ discovered: [SettingsDiscoveredBrowserExtension]) {
         self.discovered = discovered
         isDiscoveryComplete = true

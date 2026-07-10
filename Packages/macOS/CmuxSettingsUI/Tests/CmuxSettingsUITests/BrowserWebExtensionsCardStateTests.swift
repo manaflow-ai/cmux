@@ -19,6 +19,17 @@ struct BrowserWebExtensionsCardStateTests {
     }
 
     @Test
+    func emptyStateWaitsForFirstObservedValue() {
+        let state = BrowserWebExtensionsCardState()
+
+        // Before the JSON stream delivers a value, empty entries only reflect
+        // the model default — not "no extensions added".
+        #expect(!state.shouldShowEmptyState(entries: [], hasObservedValue: false))
+        #expect(state.shouldShowEmptyState(entries: [], hasObservedValue: true))
+        #expect(!state.shouldShowEmptyState(entries: [entry(id: "existing")], hasObservedValue: true))
+    }
+
+    @Test
     func matchingWriteFailureRollsBackAndSurfacesError() {
         let observed = [entry(id: "existing")]
         let pending = observed + [entry(id: "new")]

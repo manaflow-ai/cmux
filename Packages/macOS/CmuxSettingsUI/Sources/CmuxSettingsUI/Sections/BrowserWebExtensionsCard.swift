@@ -28,7 +28,10 @@ struct BrowserWebExtensionsCard: View {
                     SettingsCardDivider()
                     entryRow(entry, isEnabled: enabledByID[entry.id] ?? entry.enabled)
                 }
-                if entries.isEmpty {
+                if cardState.shouldShowEmptyState(
+                    entries: entries,
+                    hasObservedValue: model.hasObservedValue
+                ) {
                     SettingsCardDivider()
                     emptyRow
                 }
