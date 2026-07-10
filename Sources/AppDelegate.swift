@@ -1550,7 +1550,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
     }
 
-
 #if DEBUG
     private func writeUITestDiagnosticsIfNeeded(stage: String) {
         let env = ProcessInfo.processInfo.environment
@@ -13736,6 +13735,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             )
 #endif
             return requestEditWorkspaceDescriptionViaCommandPalette(
+                preferredWindow: commandPaletteTargetWindow ?? event.window ?? shortcutRoutingActiveWindow
+            )
+        }
+
+        if matchConfiguredShortcut(event: event, action: .markWorkspaceDone) {
+            return handleMarkWorkspaceDoneShortcut(
+                preferredWindow: commandPaletteTargetWindow ?? event.window ?? shortcutRoutingActiveWindow
+            )
+        }
+
+        if matchConfiguredShortcut(event: event, action: .cycleWorkspaceStatus) {
+            return handleCycleWorkspaceStatusShortcut(
                 preferredWindow: commandPaletteTargetWindow ?? event.window ?? shortcutRoutingActiveWindow
             )
         }
