@@ -48,6 +48,27 @@ struct SettingsWindowNavigationRoutingTests {
         }
     }
 
+    @Test func targetedReuseBeforeContentReadyKeepsNavigationPending() async {
+        await withCleanSettingsWindows {
+            let presenter = SettingsWindowPresenter(windowFactory: { makePlainFactoryWindow() })
+            let recorder = SettingsNavigationTargetRecorder()
+
+            // Two targeted opens land before the content ever signals
+            // readiness (e.g. rapid CLI opens while the window is still
+            // mounting). Nothing may be posted into the void; the latest
+            // target must survive until the content appears.
+            #expect(presenter.show(navigationTarget: .browserImport) == .presented)
+            #expect(presenter.show(navigationTarget: .keyboardShortcuts) == .presented)
+            #expect(recorder.receivedTargets.isEmpty)
+
+            presenter.deliverPendingNavigationAfterContentAppears()
+            await drainMainQueue()
+            recorder.stopObserving()
+
+            #expect(recorder.receivedTargets == [.keyboardShortcuts])
+        }
+    }
+
     @Test func sidebarToggleRoutesToKeySettingsWindow() async {
         await withCleanSettingsWindows {
             let presenter = SettingsWindowPresenter(windowFactory: { makePlainFactoryWindow() })

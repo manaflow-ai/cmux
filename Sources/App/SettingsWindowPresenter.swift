@@ -62,6 +62,11 @@ final class SettingsWindowPresenter: NSObject {
     /// queued fresh-window delivery can detect it was superseded by a newer
     /// targeted show and stay silent instead of navigating backwards.
     private var navigationDeliveryGeneration = 0
+    /// Whether the current window's SwiftUI content has signaled (via the
+    /// host root's `onAppear`) that its navigation consumer is installed. An
+    /// `NSWindow` existing is not enough: posting before this is set would
+    /// drop the navigation on the floor.
+    private var isContentReadyForNavigation = false
 
     override convenience init() {
         self.init(windowFactory: { SettingsWindowFactory.makeSettingsWindow() })
@@ -276,6 +281,7 @@ final class SettingsWindowPresenter: NSObject {
             object: window
         )
         settingsWindow = window
+        isContentReadyForNavigation = false
         return window
     }
 
@@ -327,13 +333,14 @@ final class SettingsWindowPresenter: NSObject {
         """
     }
 
-    /// Existing live content receives the navigation immediately; a freshly
-    /// created window keeps it pending, and ``SettingsWindowHostRoot`` calls
-    /// `deliverPendingNavigationAfterContentAppears()` once the content's
-    /// notification subscriptions exist.
+    /// Ready live content receives the navigation immediately. Until the
+    /// content signals readiness (a window can exist before its navigation
+    /// consumer is installed — fresh creation, hidden app), the target stays
+    /// pending and ``SettingsWindowHostRoot`` delivers it from `onAppear` via
+    /// `deliverPendingNavigationAfterContentAppears()`.
     private func deliverNavigation(reusedExistingWindow: Bool) {
         guard let target = pendingNavigationTarget else { return }
-        if reusedExistingWindow {
+        if reusedExistingWindow && isContentReadyForNavigation {
             pendingNavigationTarget = nil
             navigationDeliveryGeneration &+= 1
             SettingsNavigationRequest.post(target)
@@ -344,13 +351,13 @@ final class SettingsWindowPresenter: NSObject {
         shared.deliverPendingNavigationAfterContentAppears()
     }
 
-    /// Delivers a fresh window's pending target once its content is live. The
-    /// post is deferred one main-actor hop so the content's own restore
-    /// navigation (posted from a descendant `onAppear`) cannot clobber it, and
-    /// it is generation-guarded: a newer targeted `show()` that delivered in
-    /// the meantime supersedes this queued post instead of being overridden by
-    /// it.
+    /// Marks the content ready and delivers any pending target. The post is
+    /// deferred one main-actor hop so the content's own restore navigation
+    /// (posted from a descendant `onAppear`) cannot clobber it, and it is
+    /// generation-guarded: a newer targeted `show()` that delivered in the
+    /// meantime supersedes this queued post instead of being overridden by it.
     func deliverPendingNavigationAfterContentAppears() {
+        isContentReadyForNavigation = true
         guard let target = pendingNavigationTarget else { return }
         pendingNavigationTarget = nil
         navigationDeliveryGeneration &+= 1
@@ -383,6 +390,7 @@ final class SettingsWindowPresenter: NSObject {
         window.identifier = nil
         if settingsWindow === window {
             settingsWindow = nil
+            isContentReadyForNavigation = false
         }
     }
 
@@ -403,6 +411,7 @@ final class SettingsWindowPresenter: NSObject {
         // classes). The next show() builds a fresh window from scratch.
         window.identifier = nil
         settingsWindow = nil
+        isContentReadyForNavigation = false
         window.contentViewController = nil
         window.contentView = nil
     }

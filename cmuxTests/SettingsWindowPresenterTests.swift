@@ -247,10 +247,12 @@ struct SettingsWindowPresenterTests {
 
     // MARK: - Navigation delivery
 
-    @Test func navigationPostsImmediatelyForExistingVisibleWindow() {
+    @Test func navigationPostsImmediatelyForReadyExistingWindow() {
         withCleanSettingsWindows {
             let presenter = SettingsWindowPresenter(windowFactory: { makeFactoryWindow() })
             #expect(presenter.show() == .presented)
+            // The content signals readiness from the host root's onAppear.
+            presenter.deliverPendingNavigationAfterContentAppears()
 
             let recorder = SettingsNavigationRecorder()
             #expect(presenter.show(navigationTarget: .browserImport) == .presented)
