@@ -16,6 +16,7 @@ struct TerminalInlineImageOverlayItem: Sendable {
 final class TerminalInlineImageOverlayView: NSView {
     var openPreview: ((URL) -> Void)?
     private var thumbnailViews: [UUID: TerminalInlineImageThumbnailView] = [:]
+    private var isInteractionSuspended = false
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -28,7 +29,15 @@ final class TerminalInlineImageOverlayView: NSView {
         return nil
     }
 
+    /// Blocks hit-testing until the next `update(items:)` or `clear()` so a
+    /// stale thumbnail cannot open Quick Look for a row that has scrolled or
+    /// mutated out from under the overlay while a rescan is pending.
+    func suspendInteraction() {
+        isInteractionSuspended = true
+    }
+
     func update(items: [TerminalInlineImageOverlayItem]) {
+        isInteractionSuspended = false
         guard !items.isEmpty else {
             clear()
             return
@@ -58,10 +67,11 @@ final class TerminalInlineImageOverlayView: NSView {
         }
         thumbnailViews.removeAll()
         isHidden = true
+        isInteractionSuspended = false
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
-        guard !isHidden else { return nil }
+        guard !isHidden, !isInteractionSuspended else { return nil }
         // `point` arrives in the superview's coordinate space; subviews'
         // hitTest expects a point in this view's coordinate space (their
         // superview). Convert once, and let clicks outside any thumbnail fall

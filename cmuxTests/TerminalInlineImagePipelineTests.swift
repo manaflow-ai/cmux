@@ -167,6 +167,36 @@ struct TerminalInlineImagePipelineTests {
         #expect(scheduledTickCount.withLock { $0 } == 1)
     }
 
+    @MainActor
+    @Test
+    func outputServiceDoubleReleaseDoesNotStrandOtherSurfaceDemand() {
+        let center = NotificationCenter()
+        let scheduledTickCount = OSAllocatedUnfairLock(initialState: 0)
+        let tickDemand = RenderDemandCounter()
+        let service = TerminalInlineImageOutputService(
+            notificationCenter: center,
+            scheduleTick: {
+                scheduledTickCount.withLock { $0 += 1 }
+            },
+            retainTickDemand: {
+                tickDemand.retain()
+            }
+        )
+        let releasedSurfaceID = UUID()
+        let retainedSurfaceID = UUID()
+
+        let releaseFirst = service.retainNotifications(for: releasedSurfaceID)
+        let releaseSecond = service.retainNotifications(for: retainedSurfaceID)
+        releaseFirst()
+        releaseFirst()
+
+        service.noteSurfaceOutput(surfaceID: retainedSurfaceID)
+        #expect(scheduledTickCount.withLock { $0 } == 1)
+        releaseSecond()
+        service.noteSurfaceOutput(surfaceID: retainedSurfaceID)
+        #expect(scheduledTickCount.withLock { $0 } == 1)
+    }
+
     @Test
     func thumbnailCacheDeduplicatesConcurrentRequestsForOneFileVersion() async {
         let probe = TerminalInlineImageThumbnailDecodeProbe()

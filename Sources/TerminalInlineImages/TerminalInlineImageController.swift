@@ -116,6 +116,14 @@ final class TerminalInlineImageController: TerminalInlineImageScanCoordinatorDel
     func notePotentialLocalGridMutation() {
         guard activeSession != nil else { return }
         renderedFrameGate.noteGridMutation()
+        suspendStaleOverlayInteraction()
+    }
+
+    /// A dirty grid means the applied annotations may no longer match the rows
+    /// under them; block clicks synchronously until the next scan result
+    /// repopulates the overlay.
+    private func suspendStaleOverlayInteraction() {
+        overlayView?.suspendInteraction()
     }
 
     private func setEnabled(_ enabled: Bool) {
@@ -146,6 +154,7 @@ final class TerminalInlineImageController: TerminalInlineImageScanCoordinatorDel
             queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated {
+                self?.suspendStaleOverlayInteraction()
                 self?.requestScanForActiveSession(paced: true)
             }
         })
@@ -155,6 +164,7 @@ final class TerminalInlineImageController: TerminalInlineImageScanCoordinatorDel
             queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated {
+                self?.suspendStaleOverlayInteraction()
                 self?.requestScanForActiveSession()
             }
         })
@@ -203,10 +213,12 @@ final class TerminalInlineImageController: TerminalInlineImageScanCoordinatorDel
                 self.requestScanForActiveSession(paced: true)
             },
             onOutput: { [weak self] in
+                self?.suspendStaleOverlayInteraction()
                 self?.requestScanForActiveSession(paced: true)
             },
             onBindingAction: { [weak self] in
                 self?.renderedFrameGate.noteGridMutation()
+                self?.suspendStaleOverlayInteraction()
             }
         )
     }
