@@ -131,6 +131,50 @@ import Testing
         #expect(controlIDs.count == 4)
         #expect(Set(controlIDs).count == controlIDs.count)
     }
+
+    @Test("session pane identities stay unique and stable across a window split")
+    func sessionPaneIdentitiesStayUniqueAndStableAcrossAWindowSplit() throws {
+        let harness = try Harness(
+            initialWindowLines: [
+                "@1 f92f,80x24,0,0,11 f92f,80x24,0,0,11 [] editor",
+                "@2 abcd,80x24,0,0,44 abcd,80x24,0,0,44 [] logs",
+            ],
+            initialRects: [
+                "%11 0 0 80 24 1 off :zsh",
+                "%44 0 0 80 24 0 off :zsh",
+            ]
+        )
+        defer { harness.tearDown() }
+
+        let editorPanel = try #require(harness.singlePanePanel(tmuxPaneID: 11))
+        let logsPanel = try #require(harness.singlePanePanel(tmuxPaneID: 44))
+        let editorSurfaceID = editorPanel.id
+        let logsSurfaceID = logsPanel.id
+        let editorControlID = try #require(harness.controlPaneID(surfaceID: editorSurfaceID))
+        let logsControlID = try #require(harness.controlPaneID(surfaceID: logsSurfaceID))
+        #expect(editorControlID != logsControlID)
+
+        try harness.publishLayout(
+            "beef,80x24,0,0[80x12,0,0,11,80x11,0,13,22]",
+            rects: [
+                "%11 0 0 80 12 1 off :zsh",
+                "%22 0 13 80 11 0 off :zsh",
+                "%44 0 0 80 24 0 off :zsh",
+            ]
+        )
+
+        let mirror = try #require(harness.windowMirror(windowID: 1))
+        #expect(mirror.panel(forPane: 11) === editorPanel)
+        #expect(mirror.panel(forPane: 11)?.id == editorSurfaceID)
+        #expect(harness.singlePanePanel(tmuxPaneID: 44) === logsPanel)
+        #expect(harness.controlPaneID(surfaceID: editorSurfaceID) == editorControlID)
+        #expect(harness.controlPaneID(surfaceID: logsSurfaceID) == logsControlID)
+        let addedControlID = try #require(
+            mirror.panel(forPane: 22).flatMap { harness.controlPaneID(surfaceID: $0.id) }
+        )
+        #expect(addedControlID != editorControlID)
+        #expect(addedControlID != logsControlID)
+    }
 }
 
 @MainActor
@@ -144,6 +188,7 @@ private final class Harness {
 
     init(
         initialLayout: String = "f92f,80x24,0,0,11",
+        initialWindowLines: [String]? = nil,
         initialRects: [String] = ["%11 0 0 80 24 1 off :zsh"]
     ) throws {
         connection = RemoteTmuxControlConnection(
@@ -164,7 +209,7 @@ private final class Harness {
         )
         connection.handleMessageForTesting(.commandResult(
             commandNumber: 1,
-            lines: ["@1 \(initialLayout) \(initialLayout) [] editor"],
+            lines: initialWindowLines ?? ["@1 \(initialLayout) \(initialLayout) [] editor"],
             isError: false
         ))
         connection.handleMessageForTesting(.commandResult(
@@ -190,6 +235,17 @@ private final class Harness {
         workspace.panels.keys.lazy.compactMap {
             workspace.remoteTmuxWindowMirror(forPanelId: $0)
         }.first
+    }
+
+    func windowMirror(windowID: Int) -> RemoteTmuxWindowMirror? {
+        workspace.panels.keys.lazy.compactMap {
+            workspace.remoteTmuxWindowMirror(forPanelId: $0)
+        }.first(where: { $0.windowId == windowID })
+    }
+
+    func controlPaneID(surfaceID: UUID) -> UUID? {
+        TerminalController.shared.controlPaneList(workspace: workspace, tabManager: manager)
+            .panes.first(where: { $0.surfaceIDs.contains(surfaceID) })?.paneID
     }
 
     func singlePanePanel(tmuxPaneID: Int) -> TerminalPanel? {
