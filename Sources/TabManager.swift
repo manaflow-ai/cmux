@@ -2000,23 +2000,23 @@ class TabManager: ObservableObject {
         if workspace.isRemoteTmuxMirror {
             AppDelegate.shared?.remoteTmuxController.handleWorkspaceClosed(workspaceId: workspace.id)
         }
+        var agentMetadataCaptureTask: Task<Void, Never>?
         if recordHistory,
            workspace.isRestorableInSessionSnapshot,
            let index = tabs.firstIndex(where: { $0.id == workspace.id }) {
-            // During launch prewarm, omit optional agent metadata instead of blocking
-            // this main-actor close path on a full process and hook-store scan.
+            let cachedAgentIndex = SharedLiveAgentIndex.shared.cachedIndex()
             let snapshot = workspace.sessionSnapshot(
                 includeScrollback: true,
-                restorableAgentIndex: SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
-                    ?? .empty
+                restorableAgentIndex: cachedAgentIndex ?? .empty
             )
-            ClosedItemHistoryStore.shared.push(.workspace(ClosedWorkspaceHistoryEntry(
+            agentMetadataCaptureTask = ClosedItemHistoryStore.shared.pushPreservingAgentMetadata(.workspace(ClosedWorkspaceHistoryEntry(
                 workspaceId: workspace.id,
                 windowId: AppDelegate.shared?.windowId(for: self),
                 workspaceIndex: index,
                 snapshot: snapshot
             )))
         }
+        workspace.deferAllPanelClosesUntilAgentMetadataCaptured(agentMetadataCaptureTask)
         sidebarGitMetadataService.clearWorkspaceGitProbes(workspaceId: workspace.id)
         pullRequestProbing.clearWorkspacePullRequestTracking(workspaceId: workspace.id)
         sidebarMultiSelection.removeFromSelection(workspace.id)

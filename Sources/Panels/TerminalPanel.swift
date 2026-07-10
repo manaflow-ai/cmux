@@ -80,9 +80,11 @@ final class TerminalPanel: Panel, ObservableObject {
     private var textBoxInputFocusIntent: TextBoxInputFocusIntent = .hidden
     private var preservedTextBoxAttributedContent: NSAttributedString?
     private var restoredTextBoxDraft: SessionTextBoxInputDraftSnapshot?
-    private var isClosingPanel = false
+    var isClosingPanel = false
     private var didDiscardTextBoxContentForClose = false
+    var didTeardownRuntimeForClose = false
 #if DEBUG
+    var debugRuntimeTeardownCountForTesting = 0
     private struct DebugTextBoxInlineFixture {
         let localURL: URL?
         let beforeText: String
@@ -429,7 +431,7 @@ final class TerminalPanel: Panel, ObservableObject {
         self.textBoxInputView = nil
     }
 
-    private func discardTextBoxContentForClose(from textBoxInputView: TextBoxInputTextView? = nil) {
+    func discardTextBoxContentForClose(from textBoxInputView: TextBoxInputTextView? = nil) {
         didDiscardTextBoxContentForClose = true
         let currentTextView = textBoxInputView ?? self.textBoxInputView
         let attachmentsToCleanup = currentTextView?.inlineAttachments() ?? textBoxAttachments
@@ -654,36 +656,6 @@ final class TerminalPanel: Panel, ObservableObject {
         // by a runloop tick, and `requestFocus` retries that are already executing can otherwise
         // schedule new work items that fire after we navigate away.
         hostedView.setActive(false)
-    }
-
-    func close() {
-        isClosingPanel = true
-        discardTextBoxContentForClose()
-        // The surface will be cleaned up by its deinit
-        // Detach from the window portal on real close so stale hosted views
-        // cannot remain above browser panes after split close.
-        surface.beginPortalCloseLifecycle(reason: "panel.close")
-#if DEBUG
-        let frame = String(format: "%.1fx%.1f", hostedView.frame.width, hostedView.frame.height)
-        let bounds = String(format: "%.1fx%.1f", hostedView.bounds.width, hostedView.bounds.height)
-        cmuxDebugLog(
-            "surface.panel.close.begin panel=\(id.uuidString.prefix(5)) " +
-            "workspace=\(workspaceId.uuidString.prefix(5)) runtimeSurface=\(surface.surface != nil ? 1 : 0) " +
-            "inWindow=\(surface.isViewInWindow ? 1 : 0) hasSuperview=\(hostedView.superview != nil ? 1 : 0) " +
-            "hidden=\(hostedView.isHidden ? 1 : 0) frame=\(frame) bounds=\(bounds)"
-        )
-#endif
-        unfocus()
-        hostedView.setVisibleInUI(false, refreshPolicy: .deferredToPortal)
-        TerminalWindowPortalRegistry.detach(hostedView: hostedView)
-#if DEBUG
-        cmuxDebugLog(
-            "surface.panel.close.end panel=\(id.uuidString.prefix(5)) " +
-            "inWindow=\(surface.isViewInWindow ? 1 : 0) hasSuperview=\(hostedView.superview != nil ? 1 : 0) " +
-            "hidden=\(hostedView.isHidden ? 1 : 0)"
-        )
-#endif
-        surface.teardownSurface()
     }
 
     func enterAgentHibernation(

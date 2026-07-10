@@ -12,7 +12,7 @@ extension Workspace {
     ) -> SessionRestorableAgentSnapshot? {
         restoredAgentLifecycle.continuationSnapshot(
             panelId: panelId,
-            observation: SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()?.entry(
+            observation: SharedLiveAgentIndex.shared.cachedIndex()?.entry(
                 workspaceId: id,
                 panelId: panelId
             ),
@@ -40,7 +40,7 @@ extension Workspace {
         })
         restoredAgentLifecycle.markCompleted(
             panelId: panelId,
-            observation: SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()?.entry(
+            observation: SharedLiveAgentIndex.shared.cachedIndex()?.entry(
                 workspaceId: id,
                 panelId: panelId
             ),

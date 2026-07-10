@@ -6,27 +6,49 @@ import Foundation
 final class SharedLiveAgentIndex {
     static let shared = SharedLiveAgentIndex()
 
-    private typealias LoadResult = SharedLiveAgentIndexLoader.LoadResult
-    private typealias PanelKey = RestorableAgentSessionIndex.PanelKey
+    typealias LoadResult = SharedLiveAgentIndexLoader.LoadResult
+    typealias PanelKey = RestorableAgentSessionIndex.PanelKey
+    typealias GenerationTimeoutWaiter = @Sendable () async -> Bool
+
+    enum RefreshOutcome {
+        case result(LoadResult)
+        case unavailable
+
+        var loadResult: LoadResult? {
+            switch self {
+            case .result(let result): result
+            case .unavailable: nil
+            }
+        }
+    }
 
     private(set) var index: RestorableAgentSessionIndex?
     private var loadedAt: Date?
-    private var latestCompletedLoadResult: LoadResult?
-    private var latestCompletedAt: Date?
+    var latestCompletedLoadResult: LoadResult?
+    var latestCompletedAt: Date?
     private var liveAgentProcessFingerprint: Set<String> = []
-    private var refreshGenerationsByID: [UUID: RefreshGeneration] = [:]
-    private var refreshTasksByID: [UUID: Task<LoadResult?, Never>] = [:]
-    private var refreshTailID: UUID?
-    private var pendingForkValidationGenerationByPanelID: [UUID: UUID] = [:]
+    var refreshGenerationsByID: [UUID: RefreshGeneration] = [:]
+    var refreshTasksByID: [UUID: Task<LoadResult?, Never>] = [:]
+    var refreshWorkTasksByID: [UUID: Task<Void, Never>] = [:]
+    var refreshTimeoutTasksByID: [UUID: Task<Void, Never>] = [:]
+    var refreshOutcomeContinuationsByID: [UUID: CheckedContinuation<LoadResult?, Never>] = [:]
+    var refreshOutcomesByID: [UUID: RefreshOutcome] = [:]
+    var resolvedRefreshOutcomeGenerationIDs = Set<UUID>()
+    var capturingGenerationIDs = Set<UUID>()
+    var refreshTailID: UUID?
+    var nextRefreshOrdinal: UInt64 = 0
+    var latestCompletedOrdinal: UInt64 = 0
+    var pendingForkValidationGenerationByPanelID: [UUID: UUID] = [:]
     private var validatedForkPanelProbeCompletedAt: [PanelKey: Date] = [:]
     private var validatedForkPanels = Set<PanelKey>()
     private var validatedMissingForkPanels: [PanelKey: Date] = [:]
     private var processScopeFingerprint: Set<String> = []
-    private var changePending = false
+    var changePending = false
     private var deferredReloadTimer: DispatchSourceTimer?
 
     private static let cacheTTL: TimeInterval = 60.0
     private static let forkAvailabilityProbeTTL: TimeInterval = 15.0
+    static let maximumConcurrentPhysicalLoads = 2
     // Floor between event-driven reloads so chatty hook stores cannot keep the
     // measured ~350ms-1.8s loader running at near-continuous duty cycle.
     private static let minEventReloadInterval: TimeInterval = 5.0
@@ -35,13 +57,31 @@ final class SharedLiveAgentIndex {
     // DispatchSource file watching requires a delivery queue; state hops back to MainActor.
     private let watchQueue = DispatchQueue(label: "com.cmuxterm.app.sharedLiveAgentIndexWatch")
 
-    private let indexLoader: @Sendable () -> SharedLiveAgentIndexLoader.LoadResult
+    let indexLoader: @Sendable () -> SharedLiveAgentIndexLoader.LoadResult
+    private let processScopeFingerprintProvider: @Sendable () -> Set<String>
+    let generationTimeoutWaiter: GenerationTimeoutWaiter
     private let hookStoreDirectoryProvider: @MainActor () -> String
-    private let dateProvider: @MainActor () -> Date
+    let dateProvider: @MainActor () -> Date
 
     init(
         indexLoader: @escaping @Sendable () -> SharedLiveAgentIndexLoader.LoadResult = {
             SharedLiveAgentIndexLoader().loadResultSynchronously()
+        },
+        processScopeFingerprintProvider: @escaping @Sendable () -> Set<String> = {
+            SharedLiveAgentIndexLoader.processScopeFingerprint(
+                from: CmuxTopProcessSnapshot.captureCached(
+                    includeProcessDetails: false,
+                    maximumAge: 5
+                )
+            )
+        },
+        generationTimeoutWaiter: @escaping @Sendable () async -> Bool = {
+            do {
+                try await ContinuousClock().sleep(for: .seconds(5))
+                return true
+            } catch {
+                return false
+            }
         },
         hookStoreDirectoryProvider: @escaping @MainActor () -> String = {
             RestorableAgentKind.claude.hookStoreFileURL().deletingLastPathComponent().path
@@ -51,6 +91,8 @@ final class SharedLiveAgentIndex {
         }
     ) {
         self.indexLoader = indexLoader
+        self.processScopeFingerprintProvider = processScopeFingerprintProvider
+        self.generationTimeoutWaiter = generationTimeoutWaiter
         self.hookStoreDirectoryProvider = hookStoreDirectoryProvider
         self.dateProvider = dateProvider
     }
@@ -58,6 +100,15 @@ final class SharedLiveAgentIndex {
     deinit {
         for task in refreshTasksByID.values {
             task.cancel()
+        }
+        for task in refreshWorkTasksByID.values {
+            task.cancel()
+        }
+        for task in refreshTimeoutTasksByID.values {
+            task.cancel()
+        }
+        for continuation in refreshOutcomeContinuationsByID.values {
+            continuation.resume(returning: nil)
         }
         deferredReloadTimer?.cancel()
         directoryWatchSource?.cancel()
@@ -130,7 +181,28 @@ final class SharedLiveAgentIndex {
     /// Current cached index. Never blocks.
     func currentIndexSchedulingRefresh() -> RestorableAgentSessionIndex? {
         scheduleRefreshIfStale()
-        return latestCompletedLoadResult?.index ?? index
+        return cachedIndex()
+    }
+
+    /// Side-effect-free cached read for render and close-snapshot paths.
+    func cachedIndex() -> RestorableAgentSessionIndex? {
+        latestCompletedLoadResult?.index ?? index
+    }
+
+    /// Captures agent metadata off-main before the caller performs destructive teardown.
+    /// Callers retain the terminal until this bounded generation resolves.
+    func indexRefreshTaskForDestructiveClose() -> Task<RestorableAgentSessionIndex?, Never> {
+        if let cached = cachedIndex() {
+            return Task { cached }
+        }
+        let refreshTask = requestRefresh(
+            freshness: .captureAfterRequest,
+            publication: .scoped,
+            validating: nil
+        )
+        return Task { @MainActor [weak self] in
+            await refreshTask.value?.index ?? self?.cachedIndex()
+        }
     }
 
     /// Returns the cached index after awaiting any stale refresh this call schedules.
@@ -156,15 +228,52 @@ final class SharedLiveAgentIndex {
         return await task.value?.index ?? .empty
     }
 
+    /// Returns combined indexes from a generation whose physical capture starts after this request.
+    func resumeIndexesCapturedAfterRequest() async -> ProcessDetectedResumeIndexes? {
+        ensureWatchingHookStoreDirectory()
+        let task = requestRefresh(
+            freshness: .captureAfterRequest,
+            publication: .scoped,
+            validating: nil
+        )
+        guard let result = await task.value else { return nil }
+        return ProcessDetectedResumeIndexes(result)
+    }
+
     /// Returns a recent combined result, joins the active generation, or starts one when stale.
     func resumeIndexesRefreshingIfNeeded(
         maximumAge: TimeInterval = 60
     ) async -> ProcessDetectedResumeIndexes? {
         ensureWatchingHookStoreDirectory()
-        if let latestCompletedLoadResult,
+        if refreshTailID != nil {
+            let task = requestRefresh(
+                freshness: .joinCurrentGeneration,
+                publication: .scoped,
+                validating: nil
+            )
+            return await task.value.map(ProcessDetectedResumeIndexes.init)
+                ?? latestCompletedLoadResult.map(ProcessDetectedResumeIndexes.init)
+        }
+        if case .some = latestCompletedLoadResult,
            let latestCompletedAt,
            dateProvider().timeIntervalSince(latestCompletedAt) < maximumAge {
-            return ProcessDetectedResumeIndexes(latestCompletedLoadResult)
+            let processScopeFingerprintProvider = self.processScopeFingerprintProvider
+            let currentProcessScopeFingerprint = await Task.detached(priority: .utility) {
+                processScopeFingerprintProvider()
+            }.value
+            if let currentResult = self.latestCompletedLoadResult,
+               let currentCompletedAt = self.latestCompletedAt,
+               dateProvider().timeIntervalSince(currentCompletedAt) < maximumAge,
+               currentResult.processScopeFingerprint == currentProcessScopeFingerprint {
+                return ProcessDetectedResumeIndexes(currentResult)
+            }
+            let task = requestRefresh(
+                freshness: .captureAfterRequest,
+                publication: .scoped,
+                validating: nil
+            )
+            return await task.value.map(ProcessDetectedResumeIndexes.init)
+                ?? self.latestCompletedLoadResult.map(ProcessDetectedResumeIndexes.init)
         }
         let task = requestRefresh(
             freshness: .joinCurrentGeneration,
@@ -178,9 +287,14 @@ final class SharedLiveAgentIndex {
     }
 
     /// Returns the newest completed coordinated capture immediately on the main actor.
+    func cachedResumeIndexes() -> ProcessDetectedResumeIndexes? {
+        latestCompletedLoadResult.map(ProcessDetectedResumeIndexes.init)
+    }
+
+    /// Returns the newest completed coordinated capture and schedules a refresh if stale.
     func currentResumeIndexesSchedulingRefresh() -> ProcessDetectedResumeIndexes? {
         scheduleRefreshIfStale()
-        return latestCompletedLoadResult.map(ProcessDetectedResumeIndexes.init)
+        return cachedResumeIndexes()
     }
 
     func scheduleRefreshIfStale(
@@ -205,7 +319,11 @@ final class SharedLiveAgentIndex {
 
     private func refreshTaskIfStale(validating panelKey: PanelKey? = nil) -> Task<LoadResult?, Never>? {
         ensureWatchingHookStoreDirectory()
-        let freshestCompletedAt = [loadedAt, latestCompletedAt].compactMap { $0 }.max()
+        let freshestCompletedAt = if panelKey == nil {
+            [loadedAt, latestCompletedAt].compactMap { $0 }.max()
+        } else {
+            loadedAt
+        }
         if let freshestCompletedAt,
            dateProvider().timeIntervalSince(freshestCompletedAt) < Self.cacheTTL {
             return nil
@@ -226,59 +344,7 @@ final class SharedLiveAgentIndex {
         )
     }
 
-    private func requestRefresh(
-        freshness: RefreshFreshness,
-        publication: RefreshPublication,
-        validating panelKey: PanelKey?
-    ) -> Task<LoadResult?, Never> {
-        if let refreshTailID,
-           var generation = refreshGenerationsByID[refreshTailID],
-           let task = refreshTasksByID[refreshTailID],
-           freshness == .joinCurrentGeneration || generation.phase == .queued {
-            generation.publication.include(publication)
-            if let panelKey {
-                generation.validationPanelsByPanelID[panelKey.panelId] = panelKey
-                pendingForkValidationGenerationByPanelID[panelKey.panelId] = generation.id
-            }
-            refreshGenerationsByID[refreshTailID] = generation
-            return task
-        }
-
-        let predecessor = refreshTailID.flatMap { refreshTasksByID[$0] }
-        let generationID = UUID()
-        var validationPanelsByPanelID: [UUID: PanelKey] = [:]
-        if let panelKey {
-            validationPanelsByPanelID[panelKey.panelId] = panelKey
-            pendingForkValidationGenerationByPanelID[panelKey.panelId] = generationID
-        }
-
-        refreshGenerationsByID[generationID] = RefreshGeneration(
-            id: generationID,
-            phase: .queued,
-            publication: publication,
-            validationPanelsByPanelID: validationPanelsByPanelID
-        )
-        let task = Task { @MainActor [weak self] () -> LoadResult? in
-            _ = await predecessor?.value
-            guard let self, !Task.isCancelled else { return nil }
-            guard var generation = self.refreshGenerationsByID[generationID] else { return nil }
-            generation.phase = .capturing
-            self.refreshGenerationsByID[generationID] = generation
-
-            let indexLoader = self.indexLoader
-            let result = await Task.detached(priority: .utility) {
-                indexLoader()
-            }.value
-            guard !Task.isCancelled else { return result }
-            self.completeRefresh(generationID: generationID, result: result)
-            return result
-        }
-        refreshTasksByID[generationID] = task
-        refreshTailID = generationID
-        return task
-    }
-
-    private func startBackgroundRefresh() {
+    func startBackgroundRefresh() {
         deferredReloadTimer?.cancel()
         deferredReloadTimer = nil
         _ = requestRefresh(
@@ -288,33 +354,13 @@ final class SharedLiveAgentIndex {
         )
     }
 
-    private func completeRefresh(generationID: UUID, result: LoadResult) {
-        guard let generation = refreshGenerationsByID.removeValue(forKey: generationID) else {
-            return
-        }
-        refreshTasksByID.removeValue(forKey: generationID)
-        if refreshTailID == generationID {
-            refreshTailID = nil
-        }
-        latestCompletedLoadResult = result
-        latestCompletedAt = dateProvider()
-
-        if generation.publication == .workspace {
-            applyReloadedResult(
-                result,
-                validationPanelsByPanelID: generation.validationPanelsByPanelID,
-                generationID: generationID
-            )
-            NotificationCenter.default.post(name: .sharedLiveAgentIndexDidChange, object: self)
-        }
-
-        if refreshTailID == nil, changePending {
-            changePending = false
-            handleHookStoreChange()
-        }
+    func invalidatePublishedForkValidations() {
+        validatedForkPanels.removeAll()
+        validatedForkPanelProbeCompletedAt.removeAll()
+        validatedMissingForkPanels.removeAll()
     }
 
-    private func applyReloadedResult(
+    func applyReloadedResult(
         _ result: LoadResult,
         validationPanelsByPanelID: [UUID: PanelKey],
         generationID: UUID
@@ -392,7 +438,7 @@ final class SharedLiveAgentIndex {
         return validatedForkPanels.first { $0.panelId == panelKey.panelId }
     }
 
-    private func handleHookStoreChange() {
+    func handleHookStoreChange() {
         if refreshTailID != nil {
             changePending = true
             return

@@ -12,6 +12,37 @@ import Testing
 @Suite(.serialized)
 struct SharedLiveAgentIndexLoadCoalescingTests {
     @Test
+    func loaderCapturesProcessTopologyBeforeRegistryIO() {
+        let callOrder = OSAllocatedUnfairLock(initialState: [String]())
+        let homeDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-loader-order-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: homeDirectory) }
+        let loader = SharedLiveAgentIndexLoader(
+            homeDirectory: homeDirectory.path,
+            registryLoader: { _, _ in
+                callOrder.withLock { $0.append("registry") }
+                return CmuxVaultAgentRegistry(registrations: [])
+            },
+            processSnapshotProvider: {
+                callOrder.withLock { $0.append("snapshot") }
+                return CmuxTopProcessSnapshot(
+                    processes: [],
+                    sampledAt: Date(timeIntervalSince1970: 42),
+                    includesProcessDetails: true
+                )
+            },
+            capturedAtProvider: {
+                callOrder.withLock { $0.append("capturedAt") }
+                return 42
+            }
+        )
+
+        _ = loader.loadResultSynchronously()
+
+        #expect(callOrder.withLock { $0 } == ["snapshot", "capturedAt", "registry"])
+    }
+
+    @Test
     func indexRefreshingIfNeededAwaitsColdLoadWithoutStartingAnotherScan() async {
         let loadStarted = DispatchSemaphore(value: 0)
         let releaseLoad = DispatchSemaphore(value: 0)

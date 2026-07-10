@@ -1,0 +1,191 @@
+import Foundation
+
+extension SharedLiveAgentIndex {
+    func requestRefresh(
+        freshness: RefreshFreshness,
+        publication: RefreshPublication,
+        validating panelKey: PanelKey?
+    ) -> Task<LoadResult?, Never> {
+        if let refreshTailID,
+           var generation = refreshGenerationsByID[refreshTailID],
+           let task = refreshTasksByID[refreshTailID],
+           (freshness == .joinCurrentGeneration && generation.phase != .timedOut)
+               || generation.phase == .queued {
+            generation.publication.include(publication)
+            if let panelKey {
+                generation.validationPanelsByPanelID[panelKey.panelId] = panelKey
+                pendingForkValidationGenerationByPanelID[panelKey.panelId] = generation.id
+            }
+            refreshGenerationsByID[refreshTailID] = generation
+            return task
+        }
+
+        guard refreshGenerationsByID.count < Self.maximumConcurrentPhysicalLoads else {
+            return Task { nil }
+        }
+
+        let predecessor = refreshTailID.flatMap { refreshTasksByID[$0] }
+        let generationID = UUID()
+        nextRefreshOrdinal &+= 1
+        var validationPanelsByPanelID: [UUID: PanelKey] = [:]
+        if let panelKey {
+            validationPanelsByPanelID[panelKey.panelId] = panelKey
+            pendingForkValidationGenerationByPanelID[panelKey.panelId] = generationID
+        }
+
+        refreshGenerationsByID[generationID] = RefreshGeneration(
+            id: generationID,
+            ordinal: nextRefreshOrdinal,
+            phase: .queued,
+            publication: publication,
+            validationPanelsByPanelID: validationPanelsByPanelID
+        )
+        let task = Task { @MainActor [weak self] () -> LoadResult? in
+            guard let self else { return nil }
+            return await self.consumeRefreshOutcome(generationID: generationID)
+        }
+        refreshTasksByID[generationID] = task
+        refreshTailID = generationID
+
+        let generationTimeoutWaiter = self.generationTimeoutWaiter
+        refreshTimeoutTasksByID[generationID] = Task { @MainActor [weak self] in
+            let didTimeOut = await generationTimeoutWaiter()
+            guard didTimeOut, !Task.isCancelled else { return }
+            self?.handleRefreshTimeout(generationID: generationID)
+        }
+
+        let workTask = Task { @MainActor [weak self] in
+            _ = await predecessor?.value
+            guard let self, !Task.isCancelled else { return }
+            guard var generation = self.refreshGenerationsByID[generationID] else { return }
+            assert(self.capturingGenerationIDs.count < Self.maximumConcurrentPhysicalLoads)
+            generation.phase = .capturing
+            self.refreshGenerationsByID[generationID] = generation
+            self.capturingGenerationIDs.insert(generationID)
+
+            let indexLoader = self.indexLoader
+            let result = await Task.detached(priority: .utility) {
+                indexLoader()
+            }.value
+            self.completeRefresh(generationID: generationID, result: result)
+        }
+        refreshWorkTasksByID[generationID] = workTask
+        return task
+    }
+
+    private func consumeRefreshOutcome(generationID: UUID) async -> LoadResult? {
+        if let outcome = refreshOutcomesByID.removeValue(forKey: generationID) {
+            return outcome.loadResult
+        }
+        return await withCheckedContinuation { continuation in
+            if let outcome = refreshOutcomesByID.removeValue(forKey: generationID) {
+                continuation.resume(returning: outcome.loadResult)
+            } else {
+                refreshOutcomeContinuationsByID[generationID] = continuation
+            }
+        }
+    }
+
+    private func resolveRefreshOutcome(
+        generationID: UUID,
+        outcome: RefreshOutcome
+    ) {
+        guard resolvedRefreshOutcomeGenerationIDs.insert(generationID).inserted else { return }
+        if let continuation = refreshOutcomeContinuationsByID.removeValue(forKey: generationID) {
+            continuation.resume(returning: outcome.loadResult)
+        } else {
+            refreshOutcomesByID[generationID] = outcome
+        }
+    }
+
+    private func handleRefreshTimeout(generationID: UUID) {
+        guard var generation = refreshGenerationsByID[generationID] else { return }
+        if generation.phase == .queued {
+            refreshGenerationsByID.removeValue(forKey: generationID)
+            refreshWorkTasksByID.removeValue(forKey: generationID)?.cancel()
+            refreshTimeoutTasksByID.removeValue(forKey: generationID)
+            resolveRefreshOutcome(generationID: generationID, outcome: .unavailable)
+            resolvedRefreshOutcomeGenerationIDs.remove(generationID)
+            refreshTasksByID.removeValue(forKey: generationID)
+            if refreshTailID == generationID {
+                refreshTailID = nil
+            }
+            clearPendingForkValidations(
+                validationPanelsByPanelID: generation.validationPanelsByPanelID,
+                generationID: generationID
+            )
+            drainPendingHookStoreChangeIfPossible()
+            return
+        }
+        guard generation.phase == .capturing else { return }
+        generation.phase = .timedOut
+        refreshGenerationsByID[generationID] = generation
+        resolveRefreshOutcome(generationID: generationID, outcome: .unavailable)
+        clearPendingForkValidations(
+            validationPanelsByPanelID: generation.validationPanelsByPanelID,
+            generationID: generationID
+        )
+        drainPendingHookStoreChangeIfPossible()
+    }
+
+    private func completeRefresh(generationID: UUID, result: LoadResult) {
+        guard let generation = refreshGenerationsByID.removeValue(forKey: generationID) else {
+            return
+        }
+        refreshTimeoutTasksByID.removeValue(forKey: generationID)?.cancel()
+        refreshWorkTasksByID.removeValue(forKey: generationID)
+        capturingGenerationIDs.remove(generationID)
+        resolveRefreshOutcome(generationID: generationID, outcome: .result(result))
+        resolvedRefreshOutcomeGenerationIDs.remove(generationID)
+        refreshTasksByID.removeValue(forKey: generationID)
+        if refreshTailID == generationID {
+            refreshTailID = nil
+        }
+        if generation.ordinal >= latestCompletedOrdinal {
+            latestCompletedOrdinal = generation.ordinal
+            latestCompletedLoadResult = result
+            latestCompletedAt = dateProvider()
+
+            if generation.publication == .workspace {
+                applyReloadedResult(
+                    result,
+                    validationPanelsByPanelID: generation.validationPanelsByPanelID,
+                    generationID: generationID
+                )
+                NotificationCenter.default.post(name: .sharedLiveAgentIndexDidChange, object: self)
+            } else {
+                invalidatePublishedForkValidations()
+            }
+        } else {
+            clearPendingForkValidations(
+                validationPanelsByPanelID: generation.validationPanelsByPanelID,
+                generationID: generationID
+            )
+        }
+
+        drainPendingHookStoreChangeIfPossible()
+    }
+
+    private func clearPendingForkValidations(
+        validationPanelsByPanelID: [UUID: PanelKey],
+        generationID: UUID
+    ) {
+        for panelID in validationPanelsByPanelID.keys
+        where pendingForkValidationGenerationByPanelID[panelID] == generationID {
+            pendingForkValidationGenerationByPanelID.removeValue(forKey: panelID)
+        }
+    }
+
+    private func drainPendingHookStoreChangeIfPossible() {
+        guard changePending,
+              refreshGenerationsByID.count < Self.maximumConcurrentPhysicalLoads else {
+            return
+        }
+        if let refreshTailID,
+           refreshGenerationsByID[refreshTailID]?.phase != .timedOut {
+            return
+        }
+        changePending = false
+        startBackgroundRefresh()
+    }
+}
