@@ -217,6 +217,44 @@ import Testing
         #expect(Set(merged.map(\.id)) == ["iroh-site-a", "iroh-site-b"])
     }
 
+    @Test func reconnectDedupReplacesStaleFreshnessForSameIrohPath() throws {
+        let endpointID = try CmxIrohPeerIdentity(
+            endpointID: String(repeating: "a", count: 64)
+        )
+        func route(id: String, observedAt: Date) throws -> CmxAttachRoute {
+            try CmxAttachRoute(
+                id: id,
+                kind: .iroh,
+                endpoint: .peer(
+                    identity: endpointID,
+                    pathHints: [
+                        try CmxIrohPathHint(
+                            kind: .directAddress,
+                            value: "10.0.0.4:49152",
+                            source: .customVPN,
+                            privacyScope: .privateNetwork,
+                            observedAt: observedAt,
+                            expiresAt: observedAt.addingTimeInterval(300),
+                            networkProfile: CmxIrohNetworkProfileKey(
+                                source: .customVPN,
+                                profileID: "site-a"
+                            )
+                        ),
+                    ]
+                )
+            )
+        }
+        let fresh = try route(id: "fresh", observedAt: Date(timeIntervalSince1970: 2_000))
+        let stale = try route(id: "stale", observedAt: Date(timeIntervalSince1970: 1_000))
+
+        let merged = MobileShellComposite.mergedReconnectRoutes(
+            ticketRoutes: [fresh],
+            storedRoutes: [stale]
+        )
+
+        #expect(merged.map(\.id) == ["fresh"])
+    }
+
     @Test func reconnectActiveMacFallsThroughStaleRouteToGoodRouteInOneAttempt() async throws {
         let clock = TestClock()
         let router = LivenessHostRouter()
