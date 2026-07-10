@@ -72,6 +72,56 @@ final class AppDelegateSurfaceResumeTerminalIdTests: XCTestCase {
         XCTAssertNil(workspace.surfaceResumeBinding(panelId: splitPanel.id))
     }
 
+    func testSurfaceResumeSetAcceptsStableSurfaceIdForRestoredAgentBinding() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        defer { AppDelegate.shared = previousAppDelegate }
+
+        let windowId = UUID()
+        let window = makeMainWindow(id: windowId)
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            app.unregisterMainWindowContextForTesting(windowId: windowId)
+            window.orderOut(nil)
+        }
+
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        app.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        TerminalController.shared.setActiveTabManager(manager)
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let focusedPanel = try XCTUnwrap(workspace.focusedTerminalPanel)
+        let splitPanel = try XCTUnwrap(workspace.newTerminalSplit(
+            from: focusedPanel.id,
+            orientation: .horizontal,
+            focus: false
+        ))
+        XCTAssertNotEqual(splitPanel.stableSurfaceId, splitPanel.id)
+
+        let setResult = try v2Result(method: "surface.resume.set", params: [
+            "window_id": windowId.uuidString,
+            "workspace_id": workspace.id.uuidString,
+            "surface_id": splitPanel.stableSurfaceId.uuidString,
+            "kind": "codex",
+            "source": "agent-hook",
+            "auto_resume": true,
+            "command": "codex resume stable-target",
+            "checkpoint_id": "stable-target",
+        ])
+
+        XCTAssertEqual(setResult["surface_id"] as? String, splitPanel.id.uuidString)
+        XCTAssertNil(workspace.surfaceResumeBinding(panelId: focusedPanel.id))
+        XCTAssertEqual(workspace.surfaceResumeBinding(panelId: splitPanel.id)?.command, "codex resume stable-target")
+    }
+
     private func makeMainWindow(id: UUID) -> NSWindow {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
