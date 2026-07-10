@@ -44,7 +44,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         var config = CEFConfiguration(rootCachePath: rootCache)
         config.remoteDebuggingPort = Int(ProcessInfo.processInfo.environment["CEFDEMO_DEBUG_PORT"] ?? "") ?? 0
         config.logFile = rootCache.appendingPathComponent("cef.log")
-        if let extensionsRoot = Bundle.main.resourceURL?.appendingPathComponent("Extensions"),
+        if ProcessInfo.processInfo.environment["CEFDEMO_NO_EXTENSIONS"] != "1",
+           let extensionsRoot = Bundle.main.resourceURL?.appendingPathComponent("Extensions"),
            let entries = try? fm.contentsOfDirectory(at: extensionsRoot, includingPropertiesForKeys: nil) {
             config.extensionDirectories = entries.filter { url in
                 fm.fileExists(atPath: url.appendingPathComponent("manifest.json").path)
@@ -144,6 +145,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             devToolsPicker.selectItem(at: devToolsMode)
             devToolsChanged(devToolsPicker)
         }
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        // Last statement of the quit flow: Chromium's atexit handlers DCHECK
+        // even after a clean drain, so end the process without them.
+        CEFApp.shared.finalizeProcessExitIfNeeded()
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {

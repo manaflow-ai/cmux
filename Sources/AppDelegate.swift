@@ -1,4 +1,5 @@
 import AppKit
+import CEFKit
 import CmuxAppKitSupportUI
 import CmuxAuthRuntime
 import CmuxBrowser
@@ -2021,6 +2022,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         unregisterDisplayReconfigurationCallbackIfNeeded()
         StartupBreadcrumbLog.append("appDelegate.willTerminate.complete")
         enableSuddenTerminationIfNeeded()
+        // Must stay last: when the Chromium (CEF) debug browser was used this
+        // session, Chromium's atexit handlers crash the exiting process
+        // (SIGTRAP) even after a clean browser drain, so the process ends
+        // here without them. No-op otherwise.
+        CEFApp.shared.finalizeProcessExitIfNeeded()
     }
 
     func applicationWillResignActive(_ notification: Notification) {

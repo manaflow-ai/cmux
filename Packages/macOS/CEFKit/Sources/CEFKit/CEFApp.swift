@@ -37,6 +37,7 @@ public final class CEFApp {
 
     public private(set) var isInitialized = false
     public private(set) var isContextInitialized = false
+    public private(set) var wasEverInitialized = false
     public private(set) var remoteDebuggingPort = 0
     var rootCachePath: URL?
 
@@ -121,6 +122,7 @@ public final class CEFApp {
             throw CEFAppError.initializeFailed
         }
         isInitialized = true
+        wasEverInitialized = true
     }
 
     /// Runs `action` once the CEF context is ready (immediately if it already
@@ -133,17 +135,39 @@ public final class CEFApp {
         }
     }
 
+    /// Full cef_shutdown. NOTE: with the chrome bootstrap this reliably
+    /// DCHECKs in debug/beta CEF builds even after every browser has closed
+    /// (browser_context.cc all_.empty() — the global browser context never
+    /// finishes releasing). The termination path therefore uses quiesce() +
+    /// finalizeProcessExitIfNeeded() instead, the same skip-C++-teardown
+    /// strategy Chrome itself ships with; this method remains for hosts that
+    /// want to try a full teardown anyway.
     public func shutdown() {
         guard isInitialized else { return }
         CEFMessagePump.shared.stop()
-        // cef_shutdown DCHECKs if any wrapper still holds a cef reference:
-        // drop live profile contexts and our held browser-process-handler
-        // reference first.
         CEFProfile.invalidateAllLiveProfiles()
         appHandler?.releaseHeldReferences()
         CEFRuntime.shutdown()
         isInitialized = false
         isContextInitialized = false
+    }
+
+    /// Stops driving CEF without tearing it down (used on the way out of the
+    /// process, where finalizeProcessExitIfNeeded ends things).
+    private func quiesce() {
+        CEFMessagePump.shared.stop()
+        isInitialized = false
+        isContextInitialized = false
+    }
+
+    /// Ends the process without running atexit handlers. Call at the very
+    /// end of the host's applicationWillTerminate when CEF was used this
+    /// session: Chromium's atexit/static-destructor path DCHECKs (SIGTRAP)
+    /// even after a clean browser drain, and production Chrome itself exits
+    /// this way. No-op if CEF never initialized.
+    public func finalizeProcessExitIfNeeded() {
+        guard wasEverInitialized else { return }
+        _exit(0)
     }
 
     /// Number of live CEF browsers (created and not yet destroyed).
@@ -156,8 +180,24 @@ public final class CEFApp {
         liveBrowserCount = max(0, liveBrowserCount - 1)
         if liveBrowserCount == 0, let completion = terminationCompletion {
             terminationCompletion = nil
-            shutdown()
-            completion()
+            // browserDidStop runs inside the last browser's on_before_close,
+            // which fires BEFORE destruction finishes; cef_shutdown on this
+            // stack is a fatal DCHECK (browser_platform_delegate.cc
+            // !web_contents_). Defer a turn, release profile contexts, and
+            // drain the deferred UI-thread destruction tasks (browser
+            // contexts are destroyed via DeleteSoon; shutting down while one
+            // is still registered is a fatal DCHECK, browser_context.cc
+            // all_.empty()).
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                CEFProfile.invalidateAllLiveProfiles()
+                for _ in 0..<20 {
+                    CEFRuntime.doMessageLoopWork()
+                    RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01))
+                }
+                self.quiesce()
+                completion()
+            }
         }
     }
 
@@ -177,7 +217,7 @@ public final class CEFApp {
     public func prepareForTermination(onReady: @escaping () -> Void) -> Bool {
         guard isInitialized else { return true }
         if liveBrowserCount == 0 {
-            shutdown()
+            quiesce()
             return true
         }
         if terminationCompletion == nil {
