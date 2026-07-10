@@ -41,14 +41,27 @@ final class FileSystemEventStream: @unchecked Sendable {
     /// stream is recovered from the context's `info` pointer instead — passed
     /// *unretained* (see the type's "Context lifetime" note), so this uses
     /// `takeUnretainedValue()` and never adjusts the reference count.
-    private static let callback: FSEventStreamCallback = { _, info, _, _, _, _ in
-        guard let info else { return }
-        Unmanaged<FileSystemEventStream>.fromOpaque(info).takeUnretainedValue().onEvent()
+    private static let callback: FSEventStreamCallback = {
+        _, info, eventCount, _, eventFlags, eventIDs in
+        guard let info, eventCount > 0 else { return }
+        var latestEventID = eventIDs[0]
+        var combinedFlags: FSEventStreamEventFlags = 0
+        for index in 0..<eventCount {
+            latestEventID = max(latestEventID, eventIDs[index])
+            combinedFlags |= eventFlags[index]
+        }
+        Unmanaged<FileSystemEventStream>
+            .fromOpaque(info)
+            .takeUnretainedValue()
+            .onEvent(eventIdentity(
+                latestEventID: latestEventID,
+                flags: combinedFlags
+            ))
     }
 
     /// The non-blocking sink invoked on the shared queue for each coalesced batch
     /// of filesystem events.
-    private let onEvent: @Sendable () -> Void
+    private let onEvent: @Sendable (FileWatchEventIdentity) -> Void
     private var stream: FSEventStreamRef?
 
     /// Creates and starts a stream for `paths`.
@@ -60,7 +73,11 @@ final class FileSystemEventStream: @unchecked Sendable {
     ///     coalesced batch of filesystem events.
     /// - Returns: `nil` if `paths` is empty or the underlying `FSEventStream`
     ///   could not be created or started.
-    init?(paths: [String], latency: TimeInterval, onEvent: @escaping @Sendable () -> Void) {
+    init?(
+        paths: [String],
+        latency: TimeInterval,
+        onEvent: @escaping @Sendable (FileWatchEventIdentity) -> Void
+    ) {
         guard !paths.isEmpty else { return nil }
         self.onEvent = onEvent
         self.stream = nil
@@ -90,6 +107,22 @@ final class FileSystemEventStream: @unchecked Sendable {
             stop()
             return nil
         }
+    }
+
+    static func eventIdentity(
+        latestEventID: FSEventStreamEventId,
+        flags: FSEventStreamEventFlags
+    ) -> FileWatchEventIdentity {
+        if flags & FSEventStreamEventFlags(kFSEventStreamEventFlagEventIdsWrapped) != 0 {
+            return .eventIDsWrapped
+        }
+        let conservativeFlags = FSEventStreamEventFlags(kFSEventStreamEventFlagMustScanSubDirs)
+            | FSEventStreamEventFlags(kFSEventStreamEventFlagUserDropped)
+            | FSEventStreamEventFlags(kFSEventStreamEventFlagKernelDropped)
+        if flags & conservativeFlags != 0 {
+            return .mustRescan
+        }
+        return .stable(FileWatchEventID(rawValue: latestEventID))
     }
 
     /// Stops and tears down the stream. Idempotent.

@@ -1,7 +1,7 @@
 import Foundation
 
 /// Watches a set of filesystem paths recursively and reports changes as a
-/// coalesced `AsyncStream<Void>`.
+/// coalesced `AsyncStream<FileWatchEventIdentity>`.
 ///
 /// Construct one with the paths to watch (the caller resolves which paths matter
 /// for its domain) and consume ``events`` to react to changes:
@@ -38,19 +38,26 @@ public actor RecursivePathWatcher {
     /// recreating an equivalent watcher.
     public nonisolated let watchedPaths: [String]
 
-    /// Stream of coalesced change events. Yields one element per throttle window
-    /// in which at least one filesystem event affected a watched path. Finishes
-    /// when ``stop()`` is called or the watcher is deallocated.
-    public nonisolated let events: AsyncStream<Void>
+    /// Stream of coalesced change events with their FSEvents watermark.
+    ///
+    /// Independent watchers of the same path set receive the same identifier
+    /// for the same underlying event, allowing process-wide consumers to
+    /// coalesce duplicate delivery without a timing heuristic. The single
+    /// newest-element buffer bounds memory while a consumer is busy. Stable IDs
+    /// are cumulative watermarks; once a dropped/wrapped batch occurs, this
+    /// watcher stays conservative so that signal cannot be overwritten.
+    public nonisolated let events: AsyncStream<FileWatchEventIdentity>
 
-    private let continuation: AsyncStream<Void>.Continuation
+    private let continuation: AsyncStream<FileWatchEventIdentity>.Continuation
     private let clock: any FileWatchClock
     // nil only for the test-throttle initializer, which drives the throttle
     // directly without a real FSEventStream.
     private let eventStream: FileSystemEventStream?
     // Finishing this ends the pump task (see init); raw FS events flow through it.
-    private let rawContinuation: AsyncStream<Void>.Continuation
+    private let rawContinuation: AsyncStream<FileWatchEventIdentity>.Continuation
     private var throttleTask: Task<Void, Never>?
+    private var pendingEventIdentity: FileWatchEventIdentity?
+    private var conservativeEventIdentity: FileWatchEventIdentity?
     private var isStopped = false
 
     /// The `FSEventStream` coalescing latency, in seconds.
@@ -75,10 +82,12 @@ public actor RecursivePathWatcher {
         guard !paths.isEmpty else { return nil }
         self.watchedPaths = paths
         self.clock = clock
-        let (events, eventsContinuation) = AsyncStream<Void>.makeStream()
+        let (events, eventsContinuation) = AsyncStream<FileWatchEventIdentity>.makeStream(
+            bufferingPolicy: .bufferingNewest(1)
+        )
         self.events = events
         self.continuation = eventsContinuation
-        let (rawEvents, rawContinuation) = AsyncStream<Void>.makeStream()
+        let (rawEvents, rawContinuation) = AsyncStream<FileWatchEventIdentity>.makeStream()
         self.rawContinuation = rawContinuation
 
         // The sink captures `rawContinuation` (a Sendable value), not `self`, so
@@ -87,7 +96,7 @@ public actor RecursivePathWatcher {
         guard let eventStream = FileSystemEventStream(
             paths: paths,
             latency: Self.streamLatency,
-            onEvent: { rawContinuation.yield(()) }
+            onEvent: { identity in rawContinuation.yield(identity) }
         ) else {
             eventsContinuation.finish()
             rawContinuation.finish()
@@ -99,8 +108,8 @@ public actor RecursivePathWatcher {
         // init touches no isolated state after `self` escapes into the task; it
         // holds `self` weakly and ends when `rawEvents` finishes (stop/deinit).
         Task { [weak self] in
-            for await _ in rawEvents {
-                await self?.handleRawEvent()
+            for await identity in rawEvents {
+                await self?.handleRawEvent(identity: identity)
             }
         }
     }
@@ -113,10 +122,12 @@ public actor RecursivePathWatcher {
     init(testThrottleClock clock: any FileWatchClock) {
         self.watchedPaths = []
         self.clock = clock
-        let (events, eventsContinuation) = AsyncStream<Void>.makeStream()
+        let (events, eventsContinuation) = AsyncStream<FileWatchEventIdentity>.makeStream(
+            bufferingPolicy: .bufferingNewest(1)
+        )
         self.events = events
         self.continuation = eventsContinuation
-        let (_, rawContinuation) = AsyncStream<Void>.makeStream()
+        let (_, rawContinuation) = AsyncStream<FileWatchEventIdentity>.makeStream()
         self.rawContinuation = rawContinuation
         self.eventStream = nil
     }
@@ -144,8 +155,22 @@ public actor RecursivePathWatcher {
     /// Leading-edge throttle entry point. The first event of a window arms one
     /// delay; events arriving while it is pending are no-ops (the `throttleTask
     /// == nil` guard), so a burst yields a single ``events`` element.
-    private func handleRawEvent() {
-        guard !isStopped, throttleTask == nil else { return }
+    private func handleRawEvent(identity: FileWatchEventIdentity) {
+        guard !isStopped else { return }
+        switch identity {
+        case .stable:
+            break
+        case .mustRescan:
+            if conservativeEventIdentity != .eventIDsWrapped {
+                conservativeEventIdentity = .mustRescan
+            }
+        case .eventIDsWrapped:
+            conservativeEventIdentity = .eventIDsWrapped
+        }
+        let effectiveIdentity = conservativeEventIdentity ?? identity
+        pendingEventIdentity = pendingEventIdentity?.merged(with: effectiveIdentity)
+            ?? effectiveIdentity
+        guard throttleTask == nil else { return }
         let clock = self.clock
         let interval = Self.throttleInterval
         throttleTask = Task { [weak self] in
@@ -156,13 +181,28 @@ public actor RecursivePathWatcher {
 
     private func flushThrottle() {
         throttleTask = nil
-        guard !isStopped else { return }
-        continuation.yield(())
+        guard !isStopped, let identity = pendingEventIdentity else { return }
+        pendingEventIdentity = nil
+        continuation.yield(identity)
     }
 
     /// Feeds a synthetic filesystem event into the throttle. Test-only seam used
     /// by ``init(testThrottleClock:)``-constructed watchers.
     func simulateFileSystemEventForTesting() {
-        handleRawEvent()
+        handleRawEvent(identity: .stable(FileWatchEventID(rawValue: 0)))
+    }
+
+    func simulateFileSystemEventForTesting(id: FileWatchEventID) {
+        handleRawEvent(identity: .stable(id))
+    }
+
+    func simulateFileSystemEventForTesting(identity: FileWatchEventIdentity) {
+        handleRawEvent(identity: identity)
+    }
+
+    func waitForThrottleFlushForTesting() async {
+        while throttleTask != nil {
+            await Task.yield()
+        }
     }
 }
