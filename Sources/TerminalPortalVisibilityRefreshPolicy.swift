@@ -74,11 +74,15 @@ extension GhosttyTerminalView {
         snapshot: TerminalPortalMutationSnapshot
     ) {
         let hostId = ObjectIdentifier(host)
+        if coordinator.latestRequestedPortalHostOwnershipGeneration == nil {
+            coordinator.latestRequestedPortalHostOwnershipGeneration = snapshot.ownershipGeneration
+        }
         coordinator.committedPortalHandlerAttachGeneration = snapshot.attachGeneration
         let callbackIsCurrent = {
             @MainActor [weak host, weak terminalSurface, weak coordinator] in
             guard let host, let terminalSurface, let coordinator,
                   coordinator.committedPortalHandlerAttachGeneration == snapshot.attachGeneration,
+                  coordinator.latestRequestedPortalHostOwnershipGeneration == snapshot.ownershipGeneration,
                   terminalSurface.isPortalHostOwner(hostId: ObjectIdentifier(host)),
                   terminalSurface.canAcceptPortalBinding(
                       expectedSurfaceId: snapshot.expectedSurfaceId,
@@ -99,6 +103,23 @@ extension GhosttyTerminalView {
                 guard callbackIsCurrent() else { return }
                 snapshot.onTriggerFlash?()
             }
+        )
+    }
+
+    static func refreshPortalHostHandlersIfOwned(
+        host: TerminalPortalHostContainerView,
+        hostedView: GhosttySurfaceScrollView,
+        terminalSurface: TerminalSurface,
+        coordinator: Coordinator,
+        snapshot: TerminalPortalMutationSnapshot
+    ) {
+        guard terminalSurface.isPortalHostOwner(hostId: ObjectIdentifier(host)) else { return }
+        installPortalHostHandlers(
+            host: host,
+            hostedView: hostedView,
+            terminalSurface: terminalSurface,
+            coordinator: coordinator,
+            snapshot: snapshot
         )
     }
 

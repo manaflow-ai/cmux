@@ -12047,6 +12047,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
     final class Coordinator {
         var attachGeneration: Int = 0
         var committedPortalHandlerAttachGeneration: Int?
+        var latestRequestedPortalHostOwnershipGeneration: UInt64?
         var transientCandidateRegistrationToken: UInt64 = 0
         var desiredIsActive = true, desiredIsVisibleInUI = true
         var desiredPortalZPriority: Int = 0
@@ -12298,6 +12299,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
         coordinator.desiredIsActive = isActive
         coordinator.desiredIsVisibleInUI = isVisibleInUI
         coordinator.desiredPortalZPriority = portalZPriority
+        coordinator.latestRequestedPortalHostOwnershipGeneration = ownershipGeneration
         coordinator.hostedView = hostedView
         let capturedIsActive = isActive
         let capturedIsVisibleInUI = isVisibleInUI
@@ -12373,6 +12375,13 @@ struct GhosttyTerminalView: NSViewRepresentable {
             coordinator.portalMutationScheduler.cancel()
             return
         }
+        Self.refreshPortalHostHandlersIfOwned(
+            host: host,
+            hostedView: hostedView,
+            terminalSurface: terminalSurface,
+            coordinator: coordinator,
+            snapshot: snapshot
+        )
         host.onDidMoveToWindow = { [weak host, weak hostedView, weak terminalSurface, weak coordinator] in
             guard let host, let hostedView, let terminalSurface, let coordinator else { return }
             Self.schedulePortalMutation(
@@ -12408,6 +12417,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
     static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
         coordinator.attachGeneration += 1
         coordinator.committedPortalHandlerAttachGeneration = nil
+        coordinator.latestRequestedPortalHostOwnershipGeneration = nil
         coordinator.portalMutationScheduler.cancel()
         coordinator.desiredIsActive = false
         coordinator.desiredIsVisibleInUI = false
