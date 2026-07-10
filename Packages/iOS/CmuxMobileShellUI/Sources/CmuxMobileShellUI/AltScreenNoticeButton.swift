@@ -24,7 +24,10 @@ struct AltScreenNoticeButton: View {
                 }
                 .scrollBounceBehavior(.basedOnSize)
             }
-            .frame(width: AltScreenNoticePresentationSizing.width)
+            .frame(
+                idealWidth: AltScreenNoticePresentationSizing.maxWidth,
+                maxWidth: AltScreenNoticePresentationSizing.maxWidth
+            )
             .presentationSizing(AltScreenNoticePresentationSizing())
             .presentationCompactAdaptation(.popover)
         }
@@ -75,7 +78,7 @@ struct AltScreenNoticeButton: View {
     private var explanation: String {
         L10n.string(
             "mobile.altScreenNotice.explanation",
-            defaultValue: "A full-screen terminal app is running. It mirrors the Mac terminal's exact size, so it may not fill this screen. In Claude Code or Codex, run `/tui default` to exit full-screen mode."
+            defaultValue: "Full-screen mode mirrors the Mac terminal's exact size, so it may not fill this screen. Claude Code: `/tui default`. Codex: restart with `codex --no-alt-screen`."
         )
     }
 
@@ -96,15 +99,15 @@ struct AltScreenNoticeButton: View {
 /// The system can still clamp the proposal on compact-height screens, where
 /// `ViewThatFits` selects the scrollable fallback above.
 private struct AltScreenNoticePresentationSizing: PresentationSizing {
-    static let width: CGFloat = 340
+    static let maxWidth: CGFloat = 340
 
     func proposedSize(
         for root: PresentationSizingRoot,
         context _: PresentationSizingContext
     ) -> ProposedViewSize {
         let contentSize = root.sizeThatFits(
-            ProposedViewSize(width: Self.width, height: nil)
+            ProposedViewSize(width: Self.maxWidth, height: nil)
         )
-        return ProposedViewSize(width: Self.width, height: contentSize.height)
+        return ProposedViewSize(width: Self.maxWidth, height: contentSize.height)
     }
 }
