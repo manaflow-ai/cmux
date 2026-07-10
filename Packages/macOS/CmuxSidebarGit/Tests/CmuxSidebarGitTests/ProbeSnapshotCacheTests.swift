@@ -1,13 +1,118 @@
 import Foundation
 import Testing
-import CmuxGit
+@testable import CmuxGit
 @testable import CmuxSidebarGit
+
+private final class GatedCountingSidebarGitFileStatusReader: GitFileStatusReading, @unchecked Sendable {
+    private let condition = NSCondition()
+    private let systemReader = SystemGitFileStatusReader()
+    private let gatedPath: String
+    private var callsByPath: [String: Int] = [:]
+    private var isGateOpen = false
+    private var countWaiters: [(path: String, minimumCount: Int, continuation: CheckedContinuation<Void, Never>)] = []
+
+    init(gatedPath: String) {
+        self.gatedPath = gatedPath
+    }
+
+    func status(atPath path: String) -> GitFileStatus? {
+        condition.lock()
+        callsByPath[path, default: 0] += 1
+        let readyWaiters = countWaiters.filter {
+            $0.path == path && callsByPath[path, default: 0] >= $0.minimumCount
+        }
+        countWaiters.removeAll { waiter in
+            readyWaiters.contains { $0.path == waiter.path && $0.minimumCount == waiter.minimumCount }
+        }
+        for waiter in readyWaiters {
+            waiter.continuation.resume()
+        }
+        while path == gatedPath, !isGateOpen {
+            condition.wait()
+        }
+        condition.unlock()
+        return systemReader.status(atPath: path)
+    }
+
+    func waitForCallCount(atPath path: String, atLeast minimumCount: Int) async {
+        await withCheckedContinuation { continuation in
+            condition.lock()
+            if callsByPath[path, default: 0] >= minimumCount {
+                condition.unlock()
+                continuation.resume()
+            } else {
+                countWaiters.append((path, minimumCount, continuation))
+                condition.unlock()
+            }
+        }
+    }
+
+    func callCount(atPath path: String) -> Int {
+        condition.lock()
+        defer { condition.unlock() }
+        return callsByPath[path] ?? 0
+    }
+
+    func openGate() {
+        condition.lock()
+        isGateOpen = true
+        condition.broadcast()
+        condition.unlock()
+    }
+}
+
+private actor TwoWindowMetadataBarrier: WorkspaceGitMetadataReading {
+    private let service: GitMetadataService
+    private var arrivalCount = 0
+    private var arrivalWaiters: [CheckedContinuation<Void, Never>] = []
+    private var releaseWaiters: [CheckedContinuation<Void, Never>] = []
+
+    init(service: GitMetadataService) {
+        self.service = service
+    }
+
+    func workspaceMetadata(for directory: String) async -> GitWorkspaceMetadata {
+        await workspaceMetadata(for: directory, trackedPathEventGeneration: nil)
+    }
+
+    func workspaceMetadata(
+        for directory: String,
+        trackedPathEventGeneration: GitTrackedPathEventGeneration?
+    ) async -> GitWorkspaceMetadata {
+        arrivalCount += 1
+        while !arrivalWaiters.isEmpty {
+            arrivalWaiters.removeFirst().resume()
+        }
+        if arrivalCount < 2 {
+            await withCheckedContinuation { continuation in
+                releaseWaiters.append(continuation)
+            }
+        } else {
+            while !releaseWaiters.isEmpty {
+                releaseWaiters.removeFirst().resume()
+            }
+        }
+        return await service.workspaceMetadata(
+            for: directory,
+            trackedPathEventGeneration: trackedPathEventGeneration
+        )
+    }
+
+    func waitForBothWindows() async {
+        while arrivalCount < 2 {
+            await withCheckedContinuation { continuation in
+                arrivalWaiters.append(continuation)
+            }
+        }
+    }
+}
 
 private actor SequencedGatedMetadataReader: WorkspaceGitMetadataReading {
     private let metadataByProbe: [GitWorkspaceMetadata]
     private var startedProbeCount = 0
     private var releasedProbeIndexes: Set<Int> = []
     private var gateWaitersByProbeIndex: [Int: CheckedContinuation<Void, Never>] = [:]
+    private var probeCountWaiters: [(minimumCount: Int, continuation: CheckedContinuation<Void, Never>)] = []
 
     init(metadataByProbe: [GitWorkspaceMetadata]) {
         self.metadataByProbe = metadataByProbe
@@ -23,6 +128,11 @@ private actor SequencedGatedMetadataReader: WorkspaceGitMetadataReading {
     ) async -> GitWorkspaceMetadata {
         let probeIndex = startedProbeCount
         startedProbeCount += 1
+        let readyCountWaiters = probeCountWaiters.filter { startedProbeCount >= $0.minimumCount }
+        probeCountWaiters.removeAll { startedProbeCount >= $0.minimumCount }
+        for waiter in readyCountWaiters {
+            waiter.continuation.resume()
+        }
         if !releasedProbeIndexes.contains(probeIndex) {
             await withCheckedContinuation { continuation in
                 if releasedProbeIndexes.contains(probeIndex) {
@@ -40,14 +150,16 @@ private actor SequencedGatedMetadataReader: WorkspaceGitMetadataReading {
         gateWaitersByProbeIndex.removeValue(forKey: index)?.resume()
     }
 
-    func waitForProbeCount(_ minimumCount: Int, maxYields: Int = 5_000) async -> Bool {
-        for _ in 0..<maxYields {
-            if startedProbeCount >= minimumCount {
-                return true
+    func waitForProbeCount(_ minimumCount: Int) async {
+        while startedProbeCount < minimumCount {
+            await withCheckedContinuation { continuation in
+                probeCountWaiters.append((minimumCount, continuation))
             }
-            await Task.yield()
         }
-        return startedProbeCount >= minimumCount
+    }
+
+    var probeCount: Int {
+        startedProbeCount
     }
 }
 
@@ -79,31 +191,102 @@ private actor SequencedGatedMetadataReader: WorkspaceGitMetadataReading {
         return predicate()
     }
 
-    @Test func consecutiveFallbackRoundsUseDistinctSnapshotAuthority() throws {
+    @Test(.timeLimit(.minutes(1)))
+    func consecutiveFallbackTicksUseDistinctSnapshotAuthority() async throws {
         let directory = "/tmp/repo"
         let host = RecordingSidebarGitHost()
+        let (workspaceId, panelId) = host.addWorkspace(panelDirectory: directory)
+        let key = WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: panelId)
+        let reader = GatedMetadataReader(metadata: .repository(branch: "feature/x"))
+        let clock = ManualGitPollClock()
         let service = makeService(
             host: host,
-            reader: GatedMetadataReader(metadata: .repository(branch: "feature/x")),
-            clock: ManualGitPollClock()
+            reader: reader,
+            clock: clock
         )
-
+        service.workspaceGitTrackedDirectoryByKey[key] = directory
         service.markWorkspaceGitSnapshotCacheEligible(directory: directory)
+        var events = host.projectionEvents().makeAsyncIterator()
 
-        let firstRound = try #require(
-            service.trackedPathEventGenerationForSnapshot(
-                directory: directory,
-                reason: "fallbackTimer"
-            )
-        )
-        let secondRound = try #require(
-            service.trackedPathEventGenerationForSnapshot(
-                directory: directory,
-                reason: "fallbackTimer"
-            )
-        )
+        service.refreshTrackedWorkspaceGitMetadata(reason: "fallbackTimer")
+        await clock.waitForSleeper(duration: 0)
+        await clock.resumeNext(duration: 0)
+        while let event = await events.next() {
+            if case .gitBranch = event { break }
+        }
+        service.refreshTrackedWorkspaceGitMetadata(reason: "fallbackTimer")
+        await clock.waitForSleeper(duration: 0)
+        await clock.resumeNext(duration: 0)
+        while let event = await events.next() {
+            if case .gitBranch = event { break }
+        }
 
+        let generations = await reader.probedTrackedPathEventGenerations.compactMap { $0 }
+        let firstRound = try #require(generations.first)
+        let secondRound = try #require(generations.last)
+        #expect(generations.count == 2)
         #expect(firstRound != secondRound)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func twoSidebarWindowsShareOneFallbackScanForNestedDirectories() async throws {
+        let testFileURL = URL(fileURLWithPath: #filePath)
+        let firstDirectory = testFileURL.deletingLastPathComponent().path
+        let secondDirectory = testFileURL.deletingLastPathComponent().deletingLastPathComponent().path
+        let fileStatusReader = GatedCountingSidebarGitFileStatusReader(gatedPath: testFileURL.path)
+        let sharedCache = GitTrackedChangesSnapshotCache()
+        let sharedGitMetadataService = GitMetadataService(
+            fileStatusReader: fileStatusReader,
+            trackedChangesSnapshotCache: sharedCache
+        )
+        let readerBarrier = TwoWindowMetadataBarrier(service: sharedGitMetadataService)
+        let firstHost = RecordingSidebarGitHost()
+        let secondHost = RecordingSidebarGitHost()
+        let (firstWorkspaceId, firstPanelId) = firstHost.addWorkspace(panelDirectory: firstDirectory)
+        let (secondWorkspaceId, secondPanelId) = secondHost.addWorkspace(panelDirectory: secondDirectory)
+        let firstKey = WorkspaceGitProbeKey(workspaceId: firstWorkspaceId, panelId: firstPanelId)
+        let secondKey = WorkspaceGitProbeKey(workspaceId: secondWorkspaceId, panelId: secondPanelId)
+        let firstClock = ManualGitPollClock()
+        let secondClock = ManualGitPollClock()
+        let firstService = SidebarGitMetadataService(
+            workspaceGitMetadataReader: readerBarrier,
+            gitMetadataService: sharedGitMetadataService,
+            pullRequestProbing: RecordingPullRequestProbing(),
+            probeLimiter: WorkspaceGitMetadataProbeLimiter(limit: 2),
+            clock: firstClock
+        )
+        let secondService = SidebarGitMetadataService(
+            workspaceGitMetadataReader: readerBarrier,
+            gitMetadataService: sharedGitMetadataService,
+            pullRequestProbing: RecordingPullRequestProbing(),
+            probeLimiter: WorkspaceGitMetadataProbeLimiter(limit: 2),
+            clock: secondClock
+        )
+        firstService.attach(host: firstHost)
+        secondService.attach(host: secondHost)
+        firstService.workspaceGitTrackedDirectoryByKey[firstKey] = firstDirectory
+        secondService.workspaceGitTrackedDirectoryByKey[secondKey] = secondDirectory
+        firstService.markWorkspaceGitSnapshotCacheEligible(directory: firstDirectory)
+        secondService.markWorkspaceGitSnapshotCacheEligible(directory: secondDirectory)
+        defer {
+            fileStatusReader.openGate()
+            firstService.clearWorkspaceGitProbes(workspaceId: firstWorkspaceId)
+            secondService.clearWorkspaceGitProbes(workspaceId: secondWorkspaceId)
+        }
+
+        firstService.refreshTrackedWorkspaceGitMetadata(reason: "fallbackTimer")
+        secondService.refreshTrackedWorkspaceGitMetadata(reason: "fallbackTimer")
+        await firstClock.waitForSleeper(duration: 0)
+        await secondClock.waitForSleeper(duration: 0)
+        await firstClock.resumeNext(duration: 0)
+        await secondClock.resumeNext(duration: 0)
+        await readerBarrier.waitForBothWindows()
+        await fileStatusReader.waitForCallCount(atPath: testFileURL.path, atLeast: 1)
+        for _ in 0..<1_000 {
+            await Task.yield()
+        }
+
+        #expect(fileStatusReader.callCount(atPath: testFileURL.path) == 1)
     }
 
     @Test(.timeLimit(.minutes(1)))
@@ -426,7 +609,7 @@ private actor SequencedGatedMetadataReader: WorkspaceGitMetadataReading {
         )
         await clock.waitForSleeper()
         await clock.resumeNext()
-        #expect(await reader.waitForProbeCount(1))
+        await reader.waitForProbeCount(1)
 
         service.recordWorkspaceGitMetadataFilesystemEvent(for: key)
         service.scheduleWorkspaceGitMetadataRefreshIfPossible(
@@ -439,14 +622,14 @@ private actor SequencedGatedMetadataReader: WorkspaceGitMetadataReading {
         #expect(await waitUntil { service.workspaceGitProbeRerunPending(for: key) })
 
         await reader.releaseProbe(at: 0)
-        for _ in 0..<3 {
-            if await reader.waitForProbeCount(2, maxYields: 100) {
-                break
+        while await reader.probeCount < 2 {
+            if await clock.pendingSleeperCount > 0 {
+                await clock.resumeNext(duration: 0)
+            } else {
+                await Task.yield()
             }
-            await clock.waitForSleeper()
-            await clock.resumeNext()
         }
-        #expect(await reader.waitForProbeCount(2))
+        await reader.waitForProbeCount(2)
 
         #expect(host.workspaces[0].state.panels[panelId]?.branch == nil)
 
