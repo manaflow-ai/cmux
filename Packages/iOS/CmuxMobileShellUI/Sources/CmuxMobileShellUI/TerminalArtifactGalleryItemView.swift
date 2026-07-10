@@ -18,6 +18,10 @@ struct TerminalArtifactGalleryItemView: View {
     let open: () -> Void
 
     @State private var thumbnail: ChatArtifactThumbnail?
+    @ScaledMetric(relativeTo: .subheadline) private var gridNameMinHeight: CGFloat = 38
+    @ScaledMetric(relativeTo: .caption2) private var gridMetadataMinHeight: CGFloat = 28
+    @ScaledMetric(relativeTo: .body) private var gridSymbolSize: CGFloat = 48
+    @ScaledMetric(relativeTo: .body) private var listSymbolSize: CGFloat = 22
 
     var body: some View {
         Button(action: open) {
@@ -78,7 +82,7 @@ struct TerminalArtifactGalleryItemView: View {
                 .foregroundStyle(.primary)
                 .lineLimit(2)
                 .multilineTextAlignment(.center)
-                .frame(maxWidth: .infinity, minHeight: 38, alignment: .top)
+                .frame(maxWidth: .infinity, minHeight: gridNameMinHeight, alignment: .top)
 
             Text(metadata ?? "")
                 .font(.caption2)
@@ -86,7 +90,7 @@ struct TerminalArtifactGalleryItemView: View {
                 .lineLimit(2)
                 .multilineTextAlignment(.center)
                 .opacity(metadata == nil ? 0 : 1)
-                .frame(maxWidth: .infinity, minHeight: 28, alignment: .top)
+                .frame(maxWidth: .infinity, minHeight: gridMetadataMinHeight, alignment: .top)
         }
         .frame(maxWidth: .infinity, alignment: .center)
         .contentShape(Rectangle())
@@ -94,33 +98,43 @@ struct TerminalArtifactGalleryItemView: View {
 
     @ViewBuilder
     private var preview: some View {
-        if artifact.kind == .image {
-            ZStack {
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(Color(uiColor: .secondarySystemBackground))
-
-                if let thumbnail,
-                   let image = UIImage(data: thumbnail.data) {
-                    Image(uiImage: image)
-                        .resizable()
-                        .scaledToFit()
-                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                } else {
-                    placeholderSymbol
-                }
+        switch layout {
+        case .grid:
+            framedPreview
+        case .list:
+            if artifact.kind == .image {
+                framedPreview
+            } else {
+                placeholderSymbol
             }
-            .clipped()
+        }
+    }
+
+    private var framedPreview: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Color(uiColor: .secondarySystemBackground))
+
+            previewContent
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+
+    @ViewBuilder
+    private var previewContent: some View {
+        if let thumbnail,
+           let image = UIImage(data: thumbnail.data) {
+            Image(uiImage: image)
+                .resizable()
+                .scaledToFit()
         } else {
-            // Give the bare glyph the same square footprint an image thumbnail
-            // occupies so grid rows mixing images and doc glyphs stay aligned.
             placeholderSymbol
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
     private var placeholderSymbol: some View {
         Image(systemName: symbolName)
-            .font(.system(size: layout == .grid ? 48 : 22, weight: .regular))
+            .font(.system(size: layout == .grid ? gridSymbolSize : listSymbolSize, weight: .regular))
             .symbolRenderingMode(.hierarchical)
             .foregroundStyle(symbolTint)
     }

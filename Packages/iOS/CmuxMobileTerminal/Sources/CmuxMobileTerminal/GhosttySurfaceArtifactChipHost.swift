@@ -39,7 +39,7 @@ final class GhosttySurfaceArtifactChipHost {
             withHorizontalFittingPriority: .fittingSizeLevel,
             verticalFittingPriority: .fittingSizeLevel
         )
-        let width = min(maxWidth, max(120, fitting.width))
+        let width = min(maxWidth, max(88, fitting.width))
         let height = max(44, fitting.height)
         container.frame = CGRect(
             x: (bounds.width - width) / 2,

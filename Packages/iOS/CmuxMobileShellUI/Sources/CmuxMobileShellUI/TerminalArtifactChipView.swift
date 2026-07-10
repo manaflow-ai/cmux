@@ -10,7 +10,7 @@ struct TerminalArtifactChipView: View {
         Button(action: onTap) {
             HStack(spacing: 8) {
                 Image(systemName: "photo.on.rectangle")
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(.subheadline.weight(.semibold))
 
                 Text(localizedCount)
                     .font(.subheadline.weight(.semibold))
@@ -23,12 +23,7 @@ struct TerminalArtifactChipView: View {
             .foregroundStyle(.primary)
             .padding(.horizontal, 14)
             .frame(minHeight: 44)
-            .background(.regularMaterial, in: Capsule())
-            .overlay {
-                Capsule()
-                    .strokeBorder(.primary.opacity(0.08), lineWidth: 0.5)
-            }
-            .shadow(color: .black.opacity(0.2), radius: 8, y: 3)
+            .modifier(TerminalArtifactChipSurfaceModifier())
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)

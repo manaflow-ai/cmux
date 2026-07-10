@@ -65,39 +65,48 @@ struct TerminalArtifactFilesSheet: View {
         }
     }
 
+    // A single toolbar button that opens a menu, so it sits natively on the
+    // nav bar's glass instead of stacking a segmented control's own material on
+    // top of it (glass-on-glass).
     private var viewModePicker: some View {
-        Picker(
-            String(
-                localized: "terminal.artifact.gallery.view_mode",
-                defaultValue: "View",
-                bundle: .module
-            ),
-            selection: $viewMode
-        ) {
-            Label(
+        Menu {
+            Picker(
                 String(
-                    localized: "terminal.artifact.gallery.view_mode.list",
-                    defaultValue: "List",
+                    localized: "terminal.artifact.gallery.view_mode",
+                    defaultValue: "View",
                     bundle: .module
                 ),
-                systemImage: "list.bullet"
-            )
-            .labelStyle(.iconOnly)
-            .tag(ViewMode.list)
+                selection: $viewMode
+            ) {
+                Label(
+                    String(
+                        localized: "terminal.artifact.gallery.view_mode.list",
+                        defaultValue: "List",
+                        bundle: .module
+                    ),
+                    systemImage: "list.bullet"
+                )
+                .tag(ViewMode.list)
 
-            Label(
-                String(
-                    localized: "terminal.artifact.gallery.view_mode.grid",
-                    defaultValue: "Icons",
+                Label(
+                    String(
+                        localized: "terminal.artifact.gallery.view_mode.grid",
+                        defaultValue: "Icons",
+                        bundle: .module
+                    ),
+                    systemImage: "square.grid.2x2"
+                )
+                .tag(ViewMode.grid)
+            }
+            .pickerStyle(.inline)
+        } label: {
+            Image(systemName: viewMode == .list ? "list.bullet" : "square.grid.2x2")
+                .accessibilityLabel(String(
+                    localized: "terminal.artifact.gallery.view_mode",
+                    defaultValue: "View",
                     bundle: .module
-                ),
-                systemImage: "square.grid.2x2"
-            )
-            .labelStyle(.iconOnly)
-            .tag(ViewMode.grid)
+                ))
         }
-        .pickerStyle(.segmented)
-        .frame(width: 112)
     }
 
     @ViewBuilder
