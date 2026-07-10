@@ -29,6 +29,41 @@ indirect enum RemoteTmuxNativeSplitTree: Sendable {
         }
     }
 
+    /// Finds a pane and records whether the right-associated native tree gives
+    /// it a split ancestor and resizable border along `orientation`.
+    func paneResizeContext(
+        paneID: Int,
+        orientation: SplitOrientation
+    ) -> (
+        pane: RemoteTmuxLayoutNode,
+        hasSplitAncestor: Bool,
+        hasLeadingBorder: Bool,
+        hasTrailingBorder: Bool
+    )? {
+        switch self {
+        case .atomic(let layout):
+            guard case .pane(let candidateID) = layout.content,
+                  candidateID == paneID else { return nil }
+            return (layout, false, false, false)
+        case .split(_, let splitOrientation, let first, let second):
+            if var context = first.paneResizeContext(paneID: paneID, orientation: orientation) {
+                if splitOrientation == orientation {
+                    context.hasSplitAncestor = true
+                    context.hasTrailingBorder = true
+                }
+                return context
+            }
+            guard var context = second.paneResizeContext(paneID: paneID, orientation: orientation) else {
+                return nil
+            }
+            if splitOrientation == orientation {
+                context.hasSplitAncestor = true
+                context.hasLeadingBorder = true
+            }
+            return context
+        }
+    }
+
     private static func joined(
         children: [RemoteTmuxLayoutNode],
         orientation: SplitOrientation

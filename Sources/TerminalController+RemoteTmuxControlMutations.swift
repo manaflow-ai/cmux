@@ -249,18 +249,28 @@ extension TerminalController {
                 defaultValue: "The remote tmux pane is not ready to resize; wait for it to become available and retry."
             )
         )
-        guard let sample = location.pane.panel.surface.rawSizingSample() else {
+        guard let metrics = location.mirror.nativeLayoutMetrics() else {
             return unavailable
         }
+        let splitTree = RemoteTmuxNativeSplitTree(layout: location.mirror.layout)
         if let axis = inputs.absoluteAxis, let targetPixels = inputs.targetPixels {
             guard targetPixels.isFinite else {
                 return unavailable
             }
-            let cellPixels = axis == "horizontal" ? sample.cellWidthPx : sample.cellHeightPx
-            guard cellPixels > 0 else { return unavailable }
-            let targetCells = max(
-                1,
-                NSNumber(value: (targetPixels / Double(cellPixels)).rounded()).intValue
+            let orientation: SplitOrientation = axis == "horizontal" ? .horizontal : .vertical
+            guard let context = splitTree.paneResizeContext(
+                paneID: location.pane.tmuxPaneID,
+                orientation: orientation
+            ) else {
+                return unavailable
+            }
+            guard context.hasSplitAncestor else {
+                return .noAbsoluteSplitAncestor(paneID: paneID, absoluteAxis: axis)
+            }
+            let targetCells = metrics.requestedTmuxSpan(
+                pane: context.pane,
+                orientation: orientation,
+                outerExtent: CGFloat(targetPixels)
             )
             guard location.mirror.requestResizePane(
                 location.pane.tmuxPaneID,
@@ -278,20 +288,39 @@ extension TerminalController {
             )
         }
 
-        guard let direction = inputs.direction else {
+        guard let directionRaw = inputs.direction,
+              let direction = V2PaneResizeDirection(rawValue: directionRaw) else {
             return unavailable
         }
-        let cellPixels = direction == "left" || direction == "right"
-            ? sample.cellWidthPx
-            : sample.cellHeightPx
-        guard cellPixels > 0 else { return unavailable }
-        let amountCells = max(
-            1,
-            NSNumber(value: (Double(inputs.amount) / Double(cellPixels)).rounded()).intValue
+        let orientation: SplitOrientation = direction.splitOrientation == "horizontal"
+            ? .horizontal
+            : .vertical
+        guard let context = splitTree.paneResizeContext(
+            paneID: location.pane.tmuxPaneID,
+            orientation: orientation
+        ) else {
+            return unavailable
+        }
+        guard context.hasSplitAncestor else {
+            return .noOrientationSplitAncestor(
+                paneID: paneID,
+                orientation: direction.splitOrientation,
+                direction: directionRaw
+            )
+        }
+        let hasRequestedBorder = direction.requiresPaneInFirstChild
+            ? context.hasTrailingBorder
+            : context.hasLeadingBorder
+        guard hasRequestedBorder else {
+            return .noAdjacentBorder(paneID: paneID, direction: directionRaw)
+        }
+        let amountCells = metrics.requestedTmuxCellDelta(
+            pointDelta: CGFloat(inputs.amount),
+            orientation: orientation
         )
         guard location.mirror.requestResizePane(
             location.pane.tmuxPaneID,
-            direction: direction,
+            direction: directionRaw,
             amountCells: amountCells
         ) else {
             return unavailable
@@ -300,7 +329,7 @@ extension TerminalController {
             windowID: v2ResolveWindowId(tabManager: tabManager),
             workspaceID: workspace.id,
             paneID: paneID,
-            direction: direction,
+            direction: directionRaw,
             amount: inputs.amount
         )
     }

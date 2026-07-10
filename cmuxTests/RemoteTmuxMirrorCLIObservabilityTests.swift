@@ -343,7 +343,9 @@ struct RemoteTmuxMirrorCLIObservabilityTests {
             focusAwayFromMirror: Bool = false,
             addPeerSurface: Bool = false,
             activeTmuxPaneID: Int? = 22,
-            connectedTransport: Bool = false
+            connectedTransport: Bool = false,
+            geometryScale: CGFloat = 2,
+            mirrorLayout: RemoteTmuxLayoutNode? = nil
         ) throws {
             appDelegate = try #require(AppDelegate.shared)
             windowID = appDelegate.createMainWindow()
@@ -392,7 +394,7 @@ struct RemoteTmuxMirrorCLIObservabilityTests {
                 controlPipe = nil
                 controlWriter = nil
             }
-            let layout = RemoteTmuxLayoutNode(
+            let layout = mirrorLayout ?? RemoteTmuxLayoutNode(
                 width: 80,
                 height: 24,
                 x: 0,
@@ -402,11 +404,19 @@ struct RemoteTmuxMirrorCLIObservabilityTests {
                     RemoteTmuxLayoutNode(width: 39, height: 24, x: 41, y: 0, content: .pane(22)),
                 ])
             )
+            let geometry = RemoteTmuxMirrorGeometry(
+                cellWidthPx: Int(8 * geometryScale),
+                cellHeightPx: Int(17 * geometryScale),
+                surfacePadWidthPx: Int(4 * geometryScale),
+                surfacePadHeightPx: Int(4 * geometryScale),
+                scale: geometryScale
+            )
             mirror = RemoteTmuxWindowMirror(
                 windowId: 3,
                 panelId: outerPanelID,
                 connection: connection,
                 layout: layout,
+                geometrySource: { geometry },
                 onControlPaneRemoved: { paneID, surfaceID in
                     TerminalController.shared.cleanupSurfaceState(
                         surfaceIds: [surfaceID],
