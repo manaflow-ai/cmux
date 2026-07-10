@@ -86,14 +86,14 @@ fn surface_resize_reports_whether_the_size_changed() {
     let mux = Mux::new(unique_session("test-resize-bool"), shell_opts("sleep 30"));
     let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
 
-    assert!(!surface.resize(80, 24));
+    assert!(!surface.resize(80, 24).unwrap());
     assert_eq!(surface.size(), (80, 24));
-    assert!(surface.resize(100, 40));
+    assert!(surface.resize(100, 40).unwrap());
     assert_eq!(surface.size(), (100, 40));
-    assert!(!surface.resize(100, 40));
-    assert!(surface.resize(0, 0));
+    assert!(!surface.resize(100, 40).unwrap());
+    assert!(surface.resize(0, 0).unwrap());
     assert_eq!(surface.size(), (1, 1));
-    assert!(!surface.resize(0, 0));
+    assert!(!surface.resize(0, 0).unwrap());
 
     mux.close_surface(surface.id);
 }

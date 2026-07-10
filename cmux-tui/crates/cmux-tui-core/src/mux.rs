@@ -710,7 +710,7 @@ impl Mux {
         let Some(surface) = self.surface(id) else {
             anyhow::bail!("unknown surface {id}");
         };
-        if !surface.resize(cols, rows) {
+        if !surface.resize(cols, rows)? {
             return Ok(false);
         }
         let (cols, rows) = surface.size();

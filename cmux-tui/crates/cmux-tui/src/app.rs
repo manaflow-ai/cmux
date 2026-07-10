@@ -34,7 +34,9 @@ use ghostty_vt::{
 use ratatui::Terminal as RatatuiTerminal;
 use ratatui::backend::CrosstermBackend;
 
-use crate::browser_input::{BrowserInputDispatcher, BrowserInputEvent, BrowserInputKind};
+use crate::browser_input::{
+    BrowserInputDispatcher, BrowserInputEvent, BrowserInputKind, BrowserResizeFailure,
+};
 use crate::config::{Action, ChromeTheme, Config, ScrollbarPosition};
 use crate::keys;
 use crate::pty_input::{
@@ -57,6 +59,7 @@ pub enum AppEvent {
     Mux(MuxEvent),
     MuxTitlesReady,
     Input(Event),
+    BrowserResizeFailed(BrowserResizeFailure),
     PtyOperationFailed(PtyOperationFailure),
     SessionMutationSettled(SessionMutationOutcome),
     RemoteTreeUpdated { refresh_sequence: u64, result: Result<TreeView, String> },
@@ -389,6 +392,7 @@ impl OrderedSession {
         let spawn =
             std::thread::Builder::new().name("remote-tree-refresh".into()).spawn(move || {
                 let result = session.refresh_tree();
+                drop(claim);
                 match result {
                     Ok(tree) => {
                         pending.settle(SessionMutationOutcome::IdentityRefreshSucceeded {
@@ -404,7 +408,6 @@ impl OrderedSession {
                         });
                     }
                 }
-                drop(claim);
             });
         if let Err(error) = spawn {
             self.remote_refresh_queued.store(false, Ordering::Release);
@@ -436,8 +439,8 @@ impl OrderedSession {
         let spawn =
             std::thread::Builder::new().name("remote-tree-refresh".into()).spawn(move || {
                 let result = session.refresh_tree().map_err(|error| error.to_string());
-                let _ = events.send(AppEvent::RemoteTreeUpdated { refresh_sequence, result });
                 drop(claim);
+                let _ = events.send(AppEvent::RemoteTreeUpdated { refresh_sequence, result });
             });
         if let Err(error) = spawn {
             self.remote_refresh_queued.store(false, Ordering::Release);
@@ -1364,7 +1367,10 @@ pub fn run(
     let encoder = KeyEncoder::new()?;
     let mouse_encoder = MouseEncoder::new()?;
     let (tx, rx) = channel::<AppEvent>();
-    let browser_input = BrowserInputDispatcher::spawn()?;
+    let browser_failure_tx = tx.clone();
+    let browser_input = BrowserInputDispatcher::spawn(move |failure| {
+        let _ = browser_failure_tx.send(AppEvent::BrowserResizeFailed(failure));
+    })?;
     let failure_tx = tx.clone();
     let pty_input = PtyInputDispatcher::spawn(move |failure| {
         let _ = failure_tx.send(AppEvent::PtyOperationFailed(failure));
@@ -1837,6 +1843,7 @@ impl App {
                 return;
             }
             self.cell_pixels = next;
+            self.browser_input.clear_resize_failures();
             self.session.set_cell_pixel_size(next.0, next.1);
         }
     }
@@ -1925,6 +1932,12 @@ impl App {
                     continue;
                 }
                 if let Some(surface) = self.session.surface(tab.surface) {
+                    let desired = (content.width, content.height);
+                    if surface.kind() == SurfaceKind::Browser
+                        && self.browser_input.resize_failed(tab.surface, desired)
+                    {
+                        continue;
+                    }
                     let needs = surface.resize_needed(content.width, content.height, false);
                     if let SurfaceResizeDecision::NeedsQueue(claim) =
                         self.session.surface_resize_decision(
@@ -2080,6 +2093,7 @@ impl App {
                 if self.last_browser_hover.is_some_and(|(surface, _, _)| surface == id) {
                     self.last_browser_hover = None;
                 }
+                self.browser_input.forget_surface(id);
                 Ok(RenderAction::Draw)
             }
             AppEvent::Mux(MuxEvent::Status(message)) => {
@@ -2105,6 +2119,13 @@ impl App {
                 }
             }
             AppEvent::Mux(_) => Ok(RenderAction::Draw),
+            AppEvent::BrowserResizeFailed(failure) => {
+                self.status_message = Some(format!(
+                    "browser surface {} resize to {}x{} failed: {}",
+                    failure.surface_id, failure.cols, failure.rows, failure.error
+                ));
+                Ok(RenderAction::Draw)
+            }
             AppEvent::PtyOperationFailed(failure) => {
                 if failure.label == "relaunch sidebar plugin" {
                     self.sidebar_focus_pending = false;
@@ -2401,15 +2422,21 @@ impl App {
         {
             let rect = self.sidebar_plugin_rect();
             if rect.width > 0 && rect.height > 0 {
+                let desired = (rect.width, rect.height);
                 let needs_barrier = surface.resize_needed(rect.width, rect.height, true);
-                if let Some(surface_id) = self.sidebar_plugin_surface {
+                if let Some(surface_id) = self.sidebar_plugin_surface
+                    && !(surface.kind() == SurfaceKind::Browser
+                        && self.browser_input.resize_failed(surface_id, desired))
+                {
                     match self.session.surface_resize_decision(
                         surface_id,
                         (rect.width, rect.height),
                         needs_barrier,
                     ) {
                         SurfaceResizeDecision::Noop => {
-                            let _ = surface.reassert_size(rect.width, rect.height);
+                            if surface.kind() != SurfaceKind::Browser {
+                                let _ = surface.reassert_size(rect.width, rect.height);
+                            }
                         }
                         SurfaceResizeDecision::AlreadyClaimed => {}
                         SurfaceResizeDecision::NeedsQueue(claim)
@@ -2439,6 +2466,12 @@ impl App {
                 return;
             }
             if let Some(surface) = self.session.surface(area.surface) {
+                let desired = (area.content.width, area.content.height);
+                if surface.kind() == SurfaceKind::Browser
+                    && self.browser_input.resize_failed(area.surface, desired)
+                {
+                    continue;
+                }
                 let needs_barrier =
                     surface.resize_needed(area.content.width, area.content.height, true);
                 match self.session.surface_resize_decision(
@@ -2447,7 +2480,9 @@ impl App {
                     needs_barrier,
                 ) {
                     SurfaceResizeDecision::Noop => {
-                        let _ = surface.reassert_size(area.content.width, area.content.height);
+                        if surface.kind() != SurfaceKind::Browser {
+                            let _ = surface.reassert_size(area.content.width, area.content.height);
+                        }
                     }
                     SurfaceResizeDecision::AlreadyClaimed => {}
                     SurfaceResizeDecision::NeedsQueue(claim)
@@ -6518,7 +6553,7 @@ mod tests {
             cell_pixels: (8, 16),
             pointer_shape: false,
             last_browser_hover: None,
-            browser_input: BrowserInputDispatcher::spawn().unwrap(),
+            browser_input: BrowserInputDispatcher::spawn(|_| {}).unwrap(),
             pty_input,
             deferred_input: VecDeque::new(),
             routing_refresh_pending: false,

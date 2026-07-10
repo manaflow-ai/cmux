@@ -512,14 +512,7 @@ impl Surface {
     /// Resize this surface. PTYs receive cell dimensions; browsers also
     /// use the last configured cell pixel size for CDP device metrics.
     /// Returns whether the final clamped size actually changed.
-    pub fn resize(&self, cols: u16, rows: u16) -> bool {
-        self.try_resize(cols, rows).unwrap_or_else(|error| {
-            eprintln!("cmux-tui: surface resize failed for surface {}: {error}", self.id);
-            false
-        })
-    }
-
-    pub fn try_resize(&self, cols: u16, rows: u16) -> anyhow::Result<bool> {
+    pub fn resize(&self, cols: u16, rows: u16) -> anyhow::Result<bool> {
         match self {
             Surface::Pty(pty) => Ok(pty.resize(cols, rows)),
             Surface::Browser(browser) => {
@@ -527,6 +520,14 @@ impl Surface {
                 browser.try_resize(cols, rows)?;
                 Ok(browser.size() != before)
             }
+        }
+    }
+
+    pub fn resize_needed(&self, cols: u16, rows: u16) -> bool {
+        let desired = (cols.max(1), rows.max(1));
+        match self {
+            Surface::Pty(pty) => *pty.size.lock().unwrap() != desired,
+            Surface::Browser(browser) => browser.resize_needed(desired.0, desired.1),
         }
     }
 

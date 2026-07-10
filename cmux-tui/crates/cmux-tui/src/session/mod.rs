@@ -614,7 +614,7 @@ impl SurfaceHandle {
         let desired = (cols.max(1), rows.max(1));
         match self {
             SurfaceHandle::Local(surface) => {
-                let _ = surface.try_resize(desired.0, desired.1)?;
+                let _ = surface.resize(desired.0, desired.1)?;
                 Ok(())
             }
             SurfaceHandle::Remote(surface, session) => {
@@ -638,7 +638,7 @@ impl SurfaceHandle {
     pub fn resize_needed(&self, cols: u16, rows: u16, user_interaction: bool) -> bool {
         let desired = (cols.max(1), rows.max(1));
         match self {
-            SurfaceHandle::Local(surface) => surface.size() != desired,
+            SurfaceHandle::Local(surface) => surface.resize_needed(desired.0, desired.1),
             SurfaceHandle::Remote(surface, _) => resize_action(
                 desired,
                 surface.asserted_size(),
@@ -653,7 +653,7 @@ impl SurfaceHandle {
         let desired = (cols.max(1), rows.max(1));
         match self {
             SurfaceHandle::Local(surface) => {
-                let _ = surface.try_resize(desired.0, desired.1)?;
+                let _ = surface.resize(desired.0, desired.1)?;
                 Ok(())
             }
             SurfaceHandle::Remote(surface, session) => {

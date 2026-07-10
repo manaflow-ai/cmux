@@ -17,9 +17,10 @@
 //!   UI. The latest rejected resize per surface and uninterrupted resize
 //!   run is retained so geometry catches up without crossing later input.
 //!
-//! Results are intentionally discarded: browser input has no caller
-//! that can act on a per-event error, and the surface's own status
-//! (`BrowserStatus`) is what the UI reports.
+//! Ordinary input errors are reported by the surface's own status. Resize
+//! failures are retained per surface and reported to the app because retrying a
+//! persistently failing CDP geometry update ahead of every input would stall the
+//! browser lane.
 
 use std::collections::HashMap;
 use std::sync::mpsc::{Receiver, SyncSender, TrySendError, sync_channel};
@@ -38,6 +39,14 @@ pub struct BrowserInputEvent {
     pub surface_id: SurfaceId,
     pub surface: SurfaceHandle,
     pub kind: BrowserInputKind,
+}
+
+#[derive(Debug, Clone)]
+pub struct BrowserResizeFailure {
+    pub surface_id: SurfaceId,
+    pub cols: u16,
+    pub rows: u16,
+    pub error: String,
 }
 
 pub enum BrowserInputKind {
@@ -92,12 +101,20 @@ impl BrowserInputKind {
     fn is_resize(&self) -> bool {
         matches!(self, BrowserInputKind::Resize { .. })
     }
+
+    fn resize_dimensions(&self) -> Option<(u16, u16)> {
+        match self {
+            BrowserInputKind::Resize { cols, rows, .. } => Some((*cols, *rows)),
+            _ => None,
+        }
+    }
 }
 
 pub struct BrowserInputDispatcher {
     tx: SyncSender<SequencedBrowserInputEvent>,
     order: Arc<Mutex<BrowserEnqueueOrder>>,
     latest_resizes: Arc<Mutex<HashMap<(SurfaceId, u64), SequencedBrowserInputEvent>>>,
+    failed_resizes: Arc<Mutex<HashMap<SurfaceId, (u16, u16)>>>,
 }
 
 #[cfg(test)]
@@ -106,16 +123,21 @@ pub(crate) struct BlockedBrowserInput {
 }
 
 impl BrowserInputDispatcher {
-    pub fn spawn() -> anyhow::Result<Self> {
+    pub fn spawn(
+        on_resize_failure: impl Fn(BrowserResizeFailure) + Send + Sync + 'static,
+    ) -> anyhow::Result<Self> {
         let (tx, rx) = sync_channel(QUEUE_CAPACITY);
         let order = Arc::new(Mutex::new(BrowserEnqueueOrder::default()));
         let latest_resizes = Arc::new(Mutex::new(HashMap::new()));
+        let failed_resizes = Arc::new(Mutex::new(HashMap::new()));
         let worker_order = order.clone();
         let worker_resizes = latest_resizes.clone();
-        std::thread::Builder::new()
-            .name("mux-browser-input".into())
-            .spawn(move || worker(rx, worker_order, worker_resizes))?;
-        Ok(BrowserInputDispatcher { tx, order, latest_resizes })
+        let worker_failures = failed_resizes.clone();
+        let on_resize_failure = Arc::new(on_resize_failure);
+        std::thread::Builder::new().name("mux-browser-input".into()).spawn(move || {
+            worker(rx, worker_order, worker_resizes, worker_failures, on_resize_failure);
+        })?;
+        Ok(BrowserInputDispatcher { tx, order, latest_resizes, failed_resizes })
     }
 
     #[cfg(test)]
@@ -126,6 +148,7 @@ impl BrowserInputDispatcher {
                 tx,
                 order: Arc::new(Mutex::new(BrowserEnqueueOrder::default())),
                 latest_resizes: Arc::new(Mutex::new(HashMap::new())),
+                failed_resizes: Arc::new(Mutex::new(HashMap::new())),
             },
             BlockedBrowserInput { _rx: rx },
         )
@@ -135,6 +158,11 @@ impl BrowserInputDispatcher {
     /// resize per surface and input-delimited run, and drops other input.
     pub fn enqueue(&self, event: BrowserInputEvent) {
         let is_resize = event.kind.is_resize();
+        if let Some(desired) = event.kind.resize_dimensions()
+            && self.resize_failed(event.surface_id, desired)
+        {
+            return;
+        }
         let mut order = self.order.lock().unwrap();
         let sequence = order.next_sequence;
         order.next_sequence = order.next_sequence.saturating_add(1);
@@ -152,12 +180,26 @@ impl BrowserInputDispatcher {
             Ok(()) | Err(TrySendError::Full(_)) | Err(TrySendError::Disconnected(_)) => {}
         }
     }
+
+    pub fn resize_failed(&self, surface_id: SurfaceId, desired: (u16, u16)) -> bool {
+        self.failed_resizes.lock().unwrap().get(&surface_id) == Some(&desired)
+    }
+
+    pub fn forget_surface(&self, surface_id: SurfaceId) {
+        self.failed_resizes.lock().unwrap().remove(&surface_id);
+    }
+
+    pub fn clear_resize_failures(&self) {
+        self.failed_resizes.lock().unwrap().clear();
+    }
 }
 
 fn worker(
     rx: Receiver<SequencedBrowserInputEvent>,
     order: Arc<Mutex<BrowserEnqueueOrder>>,
     latest_resizes: Arc<Mutex<HashMap<(SurfaceId, u64), SequencedBrowserInputEvent>>>,
+    failed_resizes: Arc<Mutex<HashMap<SurfaceId, (u16, u16)>>>,
+    on_resize_failure: Arc<dyn Fn(BrowserResizeFailure) + Send + Sync>,
 ) {
     while let Ok(event) = rx.recv() {
         let mut batch = vec![event];
@@ -165,7 +207,30 @@ fn worker(
         let mut batch = batch.into_iter().map(|event| event.event).collect::<Vec<_>>();
         coalesce_browser_events(&mut batch);
         for event in batch {
-            let _ = dispatch(&event);
+            let desired = event.kind.resize_dimensions();
+            if desired.is_some_and(|desired| {
+                failed_resizes.lock().unwrap().get(&event.surface_id) == Some(&desired)
+            }) {
+                continue;
+            }
+            let result = dispatch(&event);
+            let Some((cols, rows)) = desired else { continue };
+            match result {
+                Ok(()) => {
+                    failed_resizes.lock().unwrap().remove(&event.surface_id);
+                }
+                Err(error) => {
+                    failed_resizes.lock().unwrap().insert(event.surface_id, (cols, rows));
+                    let failure = BrowserResizeFailure {
+                        surface_id: event.surface_id,
+                        cols,
+                        rows,
+                        error: error.to_string(),
+                    };
+                    drop(event);
+                    on_resize_failure(failure);
+                }
+            }
         }
     }
 }
@@ -389,6 +454,7 @@ mod tests {
             tx,
             order: Arc::new(Mutex::new(BrowserEnqueueOrder::default())),
             latest_resizes: latest_resizes.clone(),
+            failed_resizes: Arc::new(Mutex::new(HashMap::new())),
         };
 
         dispatcher.enqueue(click_event(1));
@@ -420,6 +486,7 @@ mod tests {
             tx,
             order: Arc::new(Mutex::new(BrowserEnqueueOrder::default())),
             latest_resizes: latest_resizes.clone(),
+            failed_resizes: Arc::new(Mutex::new(HashMap::new())),
         };
         let accepted = Arc::new(AtomicBool::new(false));
         dispatcher.enqueue(resize_event_with_probe(1, 80, accepted.clone()));
@@ -454,6 +521,28 @@ mod tests {
     }
 
     #[test]
+    fn failed_resize_is_reported_and_same_geometry_is_suppressed() {
+        let (failure_tx, failure_rx) = std::sync::mpsc::channel();
+        let dispatcher = BrowserInputDispatcher::spawn(move |failure| {
+            failure_tx.send(failure).unwrap();
+        })
+        .unwrap();
+
+        dispatcher.enqueue(resize_event(7, 100));
+        let failure = failure_rx.recv_timeout(std::time::Duration::from_secs(1)).unwrap();
+        assert_eq!((failure.surface_id, failure.cols, failure.rows), (7, 100, 24));
+        assert!(dispatcher.resize_failed(7, (100, 24)));
+
+        let dropped = Arc::new(AtomicBool::new(false));
+        dispatcher.enqueue(resize_event_with_probe(7, 100, dropped.clone()));
+        assert!(dropped.load(Ordering::Acquire));
+        assert!(failure_rx.try_recv().is_err());
+
+        dispatcher.forget_surface(7);
+        assert!(!dispatcher.resize_failed(7, (100, 24)));
+    }
+
+    #[test]
     fn dropped_resize_slot_delivers_latest_geometry_after_queued_input() {
         let mut batch = vec![sequenced(0, click_event(1))];
         let latest = HashMap::from([((1, 0), sequenced(1, resize_event(1, 132)))]);
@@ -473,6 +562,7 @@ mod tests {
             tx,
             order: Arc::new(Mutex::new(BrowserEnqueueOrder::default())),
             latest_resizes: latest_resizes.clone(),
+            failed_resizes: Arc::new(Mutex::new(HashMap::new())),
         };
 
         dispatcher.enqueue(click_event(1));

@@ -210,7 +210,7 @@
         },
         {
           "type": "command",
-          "request": { "id": 3, "cmd": "send", "surface": "$surface0", "text": "printf '\\033]2;conformance title\\007'; sleep 1\r" },
+          "request": { "id": 3, "cmd": "send", "surface": "$surface0", "text": "printf '\\033]2;conformance title\\007'; sleep 30\r" },
           "expect": { "id": 3, "ok": true },
           "match": "partial"
         },
@@ -220,6 +220,12 @@
           "expect": [
             { "event": "title-changed", "surface": "$surface0", "title": "conformance title" }
           ]
+        },
+        {
+          "type": "command",
+          "request": { "id": 4, "cmd": "send", "surface": "$surface0", "text": "\u0003" },
+          "expect": { "id": 4, "ok": true },
+          "match": "partial"
         }
       ]
     },

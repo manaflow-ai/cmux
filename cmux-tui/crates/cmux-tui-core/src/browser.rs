@@ -648,14 +648,21 @@ impl BrowserSurface {
         let cell = *self.cell_pixels.lock().unwrap();
         let pixel_w = cols as u32 * cell.0.max(1) as u32;
         let pixel_h = rows as u32 * cell.1.max(1) as u32;
-        let (unchanged, capture_w, capture_h, capture_scale, capture_pixels) = {
+        let (unchanged, capture_w, capture_h, capture_scale, capture_pixels, frame_generation) = {
             let state = self.state.lock().unwrap();
             let capture_scale = capture_scale_for(pixel_w, pixel_h, self.capture_options);
             let capture_pixels = scaled_pixels(pixel_w, pixel_h, capture_scale);
             let unchanged = state.size == (cols, rows)
                 && state.pane_pixels == (pixel_w, pixel_h)
                 && state.capture_pixels == capture_pixels;
-            (unchanged, capture_pixels.0, capture_pixels.1, capture_scale, capture_pixels)
+            (
+                unchanged,
+                capture_pixels.0,
+                capture_pixels.1,
+                capture_scale,
+                capture_pixels,
+                state.next_frame_seq,
+            )
         };
         if unchanged {
             return Ok(());
@@ -666,14 +673,29 @@ impl BrowserSurface {
             session.runtime.client.start_screencast(&session.session_id, capture_w, capture_h)?;
         }
         let mut state = self.state.lock().unwrap();
-        state.size = (cols, rows);
-        state.pane_pixels = (pixel_w, pixel_h);
-        state.capture_pixels = capture_pixels;
-        state.capture_scale = capture_scale;
-        state.live_since = Some(Instant::now());
-        state.last_frame_at = None;
-        state.stall_nudged = false;
+        commit_resize_state(
+            &mut state,
+            (cols, rows),
+            (pixel_w, pixel_h),
+            capture_pixels,
+            capture_scale,
+            frame_generation,
+            Instant::now(),
+        );
         Ok(())
+    }
+
+    pub(crate) fn resize_needed(&self, cols: u16, rows: u16) -> bool {
+        let (cols, rows) = (cols.max(1), rows.max(1));
+        let cell = *self.cell_pixels.lock().unwrap();
+        let pixel_w = cols as u32 * cell.0.max(1) as u32;
+        let pixel_h = rows as u32 * cell.1.max(1) as u32;
+        let capture_scale = capture_scale_for(pixel_w, pixel_h, self.capture_options);
+        let capture_pixels = scaled_pixels(pixel_w, pixel_h, capture_scale);
+        let state = self.state.lock().unwrap();
+        state.size != (cols, rows)
+            || state.pane_pixels != (pixel_w, pixel_h)
+            || state.capture_pixels != capture_pixels
     }
 
     pub fn attach_frames(&self) -> (BrowserAttachState, BrowserFrameStream) {
@@ -967,6 +989,26 @@ impl BrowserSurface {
     }
 }
 
+fn commit_resize_state(
+    state: &mut BrowserState,
+    size: (u16, u16),
+    pane_pixels: (u32, u32),
+    capture_pixels: (u32, u32),
+    capture_scale: f64,
+    frame_generation: u64,
+    now: Instant,
+) {
+    state.size = size;
+    state.pane_pixels = pane_pixels;
+    state.capture_pixels = capture_pixels;
+    state.capture_scale = capture_scale;
+    state.live_since = Some(now);
+    if state.next_frame_seq == frame_generation {
+        state.last_frame_at = None;
+        state.stall_nudged = false;
+    }
+}
+
 fn browser_attach_state_locked(
     state: &BrowserState,
     now: Instant,
@@ -1134,7 +1176,7 @@ fn percent_encode_query(input: &str) -> String {
 mod tests {
     use super::{
         BrowserCaptureOptions, BrowserFrame, BrowserSource, BrowserStatus, capture_scale_for,
-        new_surface, normalize_url, runtime_endpoint, scaled_pixels,
+        commit_resize_state, new_surface, normalize_url, runtime_endpoint, scaled_pixels,
     };
     use crate::SurfaceOptions;
     use std::io::{Read, Write};
@@ -1393,6 +1435,41 @@ mod tests {
         assert_eq!(state.last_frame_at, None);
         assert!(!state.stall_nudged);
         assert!(!super::frames_stalled_locked(&state, Instant::now(), false));
+    }
+
+    #[test]
+    fn cell_pixel_mismatch_requires_browser_resize() {
+        let opts = SurfaceOptions::default();
+        let surface = new_surface(1, "https://example.test".into(), (10, 5), (8, 16), &opts);
+        let browser = surface.as_browser().expect("browser surface");
+        assert!(!browser.resize_needed(10, 5));
+
+        *browser.cell_pixels.lock().unwrap() = (9, 16);
+        assert!(browser.resize_needed(10, 5));
+    }
+
+    #[test]
+    fn resize_commit_preserves_frame_delivered_during_cdp_round_trip() {
+        let opts = SurfaceOptions::default();
+        let surface = new_surface(1, "https://example.test".into(), (10, 5), (8, 16), &opts);
+        let browser = surface.as_browser().expect("browser surface");
+        let frame_generation = browser.state.lock().unwrap().next_frame_seq;
+        browser.store_frame(test_frame(1));
+        let delivered_at = browser.state.lock().unwrap().last_frame_at;
+
+        let mut state = browser.state.lock().unwrap();
+        commit_resize_state(
+            &mut state,
+            (11, 5),
+            (88, 80),
+            (88, 80),
+            1.0,
+            frame_generation,
+            Instant::now(),
+        );
+
+        assert_eq!(state.last_frame_at, delivered_at);
+        assert!(!state.stall_nudged);
     }
 
     #[test]
