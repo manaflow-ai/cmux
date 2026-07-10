@@ -5503,6 +5503,7 @@ struct WebViewRepresentable: NSViewRepresentable {
         private static let adaptiveBottomDockRequestCooldown: TimeInterval = 0.25
         private var trackingArea: NSTrackingArea?
         private var activeDividerCursorKind: DividerCursorKind?
+        private let dividerCursorOcclusion = PortalDividerCursorOcclusion()
         private var hostedInspectorDividerDrag: HostedInspectorDividerDragState?
         private var preferredHostedInspectorWidth: CGFloat?
         private var preferredHostedInspectorWidthFraction: CGFloat?
@@ -6664,6 +6665,10 @@ struct WebViewRepresentable: NSViewRepresentable {
             }
             guard resolvedHostedInspectorHit != nil else {
                 clearActiveDividerCursor(restoreArrow: true)
+                return
+            }
+            guard dividerCursorOcclusion.mayAssertDividerCursor(in: window) else {
+                clearActiveDividerCursor(restoreArrow: false)
                 return
             }
             activeDividerCursorKind = .vertical
