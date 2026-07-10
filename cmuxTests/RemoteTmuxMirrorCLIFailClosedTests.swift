@@ -132,25 +132,34 @@ extension RemoteTmuxMirrorCLIObservabilityTests {
         }
     }
 
-    @Test func bonsplitOnlyPaneMutationsRejectProjectedPaneIDs() throws {
+    @Test func unsupportedBonsplitOnlyPaneMutationsRejectProjectedPaneIDs() throws {
         let harness = try Harness(focusAwayFromMirror: true)
         defer { harness.tearDown() }
         let tmuxPaneID = try #require(harness.mirror.paneIDsInOrder.first)
         let paneID = try #require(harness.mirror.syntheticPaneID(forPane: tmuxPaneID)?.id)
         let surfaceID = try #require(harness.mirror.panel(forPane: tmuxPaneID)?.id)
         let focusedBefore = harness.workspace.bonsplitController.focusedPaneId?.id
+        let treeBefore = harness.workspace.bonsplitController.treeSnapshot()
 
-        let resize = TerminalController.shared.controlPaneResize(
-            routing: harness.routing(paneID: paneID),
-            inputs: ControlPaneResizeInputs(
-                paneID: paneID,
-                absoluteAxis: nil,
-                targetPixels: nil,
-                direction: "right",
-                amount: 1
+        let resize = ControlCommandCoordinator(context: TerminalController.shared).handle(
+            ControlRequest(
+                id: .int(1),
+                method: "pane.resize",
+                params: [
+                    "workspace_id": .string(harness.workspace.id.uuidString),
+                    "pane_id": .string(paneID.uuidString),
+                    "direction": .string("right"),
+                    "amount": .int(10),
+                ]
             )
         )
-        #expect(resize == .paneNotFound(paneID))
+        guard case .err(let code, _, let data)? = resize else {
+            Issue.record("Disconnected mirror pane resize did not fail: \(String(describing: resize))")
+            return
+        }
+        #expect(code == "unavailable")
+        #expect(data == .object(["pane_id": .string(paneID.uuidString)]))
+        #expect(harness.workspace.bonsplitController.treeSnapshot() == treeBefore)
 
         let breakResult = TerminalController.shared.controlPaneBreak(
             routing: harness.routing(paneID: paneID),

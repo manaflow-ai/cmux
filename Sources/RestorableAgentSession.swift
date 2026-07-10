@@ -963,7 +963,7 @@ struct RestorableAgentSessionIndex: Sendable {
     private let entriesByPanel: [PanelKey: Entry]
     private let entriesByPanelId: [UUID: Entry]
 
-    private func entry(workspaceId: UUID, panelId: UUID) -> Entry? {
+    func entry(workspaceId: UUID, panelId: UUID) -> Entry? {
         entriesByPanel[PanelKey(workspaceId: workspaceId, panelId: panelId)] ?? entriesByPanelId[panelId]
     }
 

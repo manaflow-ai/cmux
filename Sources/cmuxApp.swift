@@ -43,7 +43,6 @@ struct cmuxApp: App {
     /// hosted-browser sign-in flow). Constructed once at app launch and
     /// injected into AppDelegate and the auth-consuming services.
     private let authComposition: MacAuthComposition
-    private let resolvedIconAppearanceObserver = ResolvedIconAppearanceObserver()
     @StateObject private var tabManager: TabManager
     @StateObject private var notificationStore = TerminalNotificationStore.shared
     @StateObject var closedItemHistoryStore = ClosedItemHistoryStore.shared
@@ -1120,7 +1119,6 @@ struct cmuxApp: App {
         appDelegate.scheduleInitialMainWindowBootstrap(debugSource: "swiftUIBootstrap")
         appDelegate.installReloadConfigurationMenuItemAction()
         applyAppearance()
-        resolvedIconAppearanceObserver.startObserving()
     }
 
     private var currentSocketMode: SocketControlMode {
