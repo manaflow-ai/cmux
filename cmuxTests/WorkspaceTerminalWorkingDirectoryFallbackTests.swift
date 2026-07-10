@@ -234,6 +234,7 @@ import Testing
         let remoteCommand = "ssh seepine@192.168.5.20"
 
         workspace.configureRemoteConnection(sshRemoteConfiguration(command: remoteCommand), autoConnect: false)
+        #expect(workspace.currentDirectoryForTerminalStartup(sourcePanelId: nil) == Workspace.safeLocalTerminalStartupWorkingDirectory())
         workspace.panelShellActivityStates[sourcePanelId] = .promptIdle
         workspace.foregroundProcessWorkingDirectoryProvider = { panelId in
             panelId == sourcePanelId ? liveDirectory : nil

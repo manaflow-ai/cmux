@@ -117,6 +117,9 @@ extension Workspace {
     }
 
     func currentDirectoryForTerminalStartup(sourcePanelId: UUID?) -> String? {
+        guard !usesRemoteDirectoryProvenance else {
+            return Self.safeLocalTerminalStartupWorkingDirectory()
+        }
         guard sourcePanelId.map({ isRemoteTerminalSurface($0) }) != true else {
             return Self.safeLocalTerminalStartupWorkingDirectory()
         }
