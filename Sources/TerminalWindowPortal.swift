@@ -1077,9 +1077,9 @@ final class WindowTerminalPortal: NSObject {
             "anchor=\(portalDebugToken(entry.anchorView)) hadSuperview=\(hadSuperview)"
         )
 #endif
-        if let hostedView = entry.hostedView, hostedView.superview === hostView {
-            hostedView.removeFromSuperview()
-        }
+        guard let hostedView = entry.hostedView else { return }
+        hostedView.isHidden = true
+        if hostedView.superview === hostView { hostedView.removeFromSuperview() }
     }
 
     /// Hide a portal entry for permanent workspace unmounts without detaching it.
@@ -1738,7 +1738,7 @@ final class WindowTerminalPortal: NSObject {
     }
 
     func debugHostedSubviewCount() -> Int {
-        hostView.subviews.count
+        hostView.subviews.count { $0 is GhosttySurfaceScrollView }
     }
 #endif
 

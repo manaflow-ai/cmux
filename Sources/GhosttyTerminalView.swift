@@ -10199,7 +10199,7 @@ final class GhosttySurfaceScrollView: NSView {
     func ensureFocus(
         for tabId: UUID,
         surfaceId: UUID,
-        respectForeignFirstResponder: Bool = true
+        respectForeignFirstResponder: Bool = true, refreshPolicy: TerminalPortalVisibilityRefreshPolicy = .immediate
     ) {
         let hasUsablePortalGeometry: Bool = {
             let size = bounds.size
@@ -10256,7 +10256,7 @@ final class GhosttySurfaceScrollView: NSView {
             }
             if let fr = window.firstResponder as? NSView,
                fr === surfaceView || fr.isDescendant(of: surfaceView) {
-                reassertTerminalSurfaceFocus(reason: "ensureFocus.dock.alreadyFirstResponder")
+                reassertTerminalSurfaceFocus(reason: "ensureFocus.dock.alreadyFirstResponder", refreshPolicy: refreshPolicy)
                 return
             }
             if respectForeignFirstResponder,
@@ -10278,7 +10278,7 @@ final class GhosttySurfaceScrollView: NSView {
             )
 #endif
             if isSurfaceViewFirstResponder() {
-                reassertTerminalSurfaceFocus(reason: "ensureFocus.dock.afterMakeFirstResponder")
+                reassertTerminalSurfaceFocus(reason: "ensureFocus.dock.afterMakeFirstResponder", refreshPolicy: refreshPolicy)
             }
             return
         }
@@ -10327,7 +10327,7 @@ final class GhosttySurfaceScrollView: NSView {
 
         if let fr = window.firstResponder as? NSView,
            fr === surfaceView || fr.isDescendant(of: surfaceView) {
-            reassertTerminalSurfaceFocus(reason: "ensureFocus.alreadyFirstResponder")
+            reassertTerminalSurfaceFocus(reason: "ensureFocus.alreadyFirstResponder", refreshPolicy: refreshPolicy)
             return
         }
 
@@ -10371,7 +10371,7 @@ final class GhosttySurfaceScrollView: NSView {
         if !isSurfaceViewFirstResponder() {
             scheduleAutomaticFirstResponderApply(reason: "ensureFocus.afterMakeFirstResponder")
         } else {
-            reassertTerminalSurfaceFocus(reason: "ensureFocus.afterMakeFirstResponder")
+            reassertTerminalSurfaceFocus(reason: "ensureFocus.afterMakeFirstResponder", refreshPolicy: refreshPolicy)
         }
     }
 
@@ -10605,7 +10605,7 @@ final class GhosttySurfaceScrollView: NSView {
         return true
     }
 
-    private func reassertTerminalSurfaceFocus(reason: String, force: Bool = false) {
+    private func reassertTerminalSurfaceFocus(reason: String, force: Bool = false, refreshPolicy: TerminalPortalVisibilityRefreshPolicy = .immediate) {
         guard prepareTerminalSurfaceFocusReassertion(reason: reason, force: force) else { return }
         guard let terminalSurface = surfaceView.terminalSurface else { return }
         if terminalSurface.surface == nil {
@@ -10616,10 +10616,11 @@ final class GhosttySurfaceScrollView: NSView {
 #endif
         terminalSurface.setFocus(true, force: force)
         pendingSuppressedFirstResponderFocusReapply = false
-        refreshSurfaceAfterFocusIfNeeded(reason: reason)
+        refreshSurfaceAfterFocusIfNeeded(reason: reason, refreshPolicy: refreshPolicy)
     }
 
-    private func refreshSurfaceAfterFocusIfNeeded(reason: String) {
+    private func refreshSurfaceAfterFocusIfNeeded(reason: String, refreshPolicy: TerminalPortalVisibilityRefreshPolicy) {
+        if case .deferredToPortal = refreshPolicy { return }
         guard let terminalSurface = surfaceView.terminalSurface,
               isActive,
               let window = uiWindow,

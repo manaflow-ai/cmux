@@ -107,18 +107,24 @@ extension DockSplitStore {
         }
     }
 
-    func applyFocusedDockSelection() {
+    func applyFocusedDockSelection(
+        focusRefreshPolicy: TerminalPortalVisibilityRefreshPolicy = .immediate
+    ) {
         guard let paneId = bonsplitController.focusedPaneId,
               let tabId = bonsplitController.selectedTab(inPane: paneId)?.id else {
             applyVisibilityToAllPanels()
             scheduleDockPortalReconcile(reason: "dock.selection.empty")
             return
         }
-        applyDockSelection(tabId: tabId, inPane: paneId)
+        applyDockSelection(tabId: tabId, inPane: paneId, focusRefreshPolicy: focusRefreshPolicy)
         scheduleDockPortalReconcile(reason: "dock.selection.focused")
     }
 
-    func applyDockSelection(tabId: TabID, inPane pane: PaneID) {
+    func applyDockSelection(
+        tabId: TabID,
+        inPane pane: PaneID,
+        focusRefreshPolicy: TerminalPortalVisibilityRefreshPolicy = .immediate
+    ) {
         applyVisibilityToAllPanels()
         guard paneIsRenderedInVisibleDock(pane),
               bonsplitController.focusedPaneId == pane,
@@ -131,7 +137,11 @@ extension DockSplitStore {
                 panel.unfocus()
             }
         }
-        selectedPanel.focus()
+        if let terminal = selectedPanel as? TerminalPanel {
+            terminal.focus(refreshPolicy: focusRefreshPolicy)
+        } else {
+            selectedPanel.focus()
+        }
     }
 
     func splitTabBar(_ controller: BonsplitController, didSelectTab tab: Bonsplit.Tab, inPane pane: PaneID) {
