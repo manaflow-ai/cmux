@@ -327,6 +327,41 @@ struct PortScannerSharedSnapshotTests {
     }
 
     @Test
+    func panelMutationRejectsGenerationAdvancedWhileMainActorIsBusy() async {
+        let gate = PortScanner.ResultGenerationGate()
+        gate.advancePanel(to: 1)
+        let barrier = MainActorQueueBarrier()
+        barrier.blockMainActor()
+        await barrier.waitUntilBlocked()
+
+        let mutation = Task { @MainActor in
+            gate.applyPanel(ifCurrent: 1) { true }
+        }
+        gate.advancePanel(to: 2)
+        barrier.releaseMainActor()
+
+        #expect(await mutation.value == nil)
+    }
+
+    @Test
+    func agentMutationRejectsGenerationAdvancedWhileMainActorIsBusy() async {
+        let workspaceId = UUID()
+        let gate = PortScanner.ResultGenerationGate()
+        gate.advanceAgent(workspaceId: workspaceId, to: 1)
+        let barrier = MainActorQueueBarrier()
+        barrier.blockMainActor()
+        await barrier.waitUntilBlocked()
+
+        let mutation = Task { @MainActor in
+            gate.applyAgent(workspaceId: workspaceId, ifCurrent: 1) { true }
+        }
+        gate.advanceAgent(workspaceId: workspaceId, to: 2)
+        barrier.releaseMainActor()
+
+        #expect(await mutation.value == nil)
+    }
+
+    @Test
     func processTreeExpansionIncludesForksAndDetachedAgentRoots() {
         let firstWorkspace = UUID()
         let detachedWorkspace = UUID()
@@ -523,6 +558,31 @@ struct PortScannerSharedSnapshotTests {
 
     private func currentPOSIXError() -> POSIXError {
         POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+    }
+}
+
+private final class MainActorQueueBarrier: @unchecked Sendable {
+    private let entered = DispatchSemaphore(value: 0)
+    private let release = DispatchSemaphore(value: 0)
+
+    func blockMainActor() {
+        DispatchQueue.main.async { [self] in
+            entered.signal()
+            release.wait()
+        }
+    }
+
+    func waitUntilBlocked() async {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global().async { [self] in
+                entered.wait()
+                continuation.resume()
+            }
+        }
+    }
+
+    func releaseMainActor() {
+        release.signal()
     }
 }
 

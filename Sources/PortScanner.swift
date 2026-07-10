@@ -1,5 +1,6 @@
 import CmuxFoundation
 import Foundation
+import os
 
 /// Batched port scanner that replaces per-shell process and socket scanning.
 ///
@@ -16,6 +17,65 @@ import Foundation
 final class PortScanner: @unchecked Sendable {
     static let shared = PortScanner()
 
+    /// Serializes generation advances with the corresponding main-actor UI
+    /// mutation. A worker-queue validation alone is insufficient because a
+    /// newer scan can advance while the accepted result is queued for MainActor.
+    final class ResultGenerationGate: @unchecked Sendable {
+        private struct State {
+            var panelRevision: UInt64 = 0
+            var agentRevisionByWorkspace: [UUID: UInt64] = [:]
+        }
+
+        private let state = OSAllocatedUnfairLock(initialState: State())
+
+        func advancePanel(to revision: UInt64) {
+            state.withLock { state in
+                state.panelRevision = revision
+            }
+        }
+
+        func advanceAgent(workspaceId: UUID, to revision: UInt64) {
+            state.withLock { state in
+                state.agentRevisionByWorkspace[workspaceId] = revision
+            }
+        }
+
+        /// The callback runs while generation ownership is held, so an advance
+        /// cannot interleave between the final check and the UI mutation.
+        @MainActor
+        func applyPanel<Result>(
+            ifCurrent revision: UInt64,
+            _ callback: () -> Result
+        ) -> Result? {
+            state.withLock { state in
+                guard PortScanner.acceptsResult(
+                    currentRevision: state.panelRevision,
+                    expectedRevision: revision,
+                    staleMetric: .portPanelRevision
+                ) else { return nil }
+                return callback()
+            }
+        }
+
+        /// The callback runs while generation ownership is held, so an advance
+        /// cannot interleave between the final check and the UI mutation.
+        @MainActor
+        func applyAgent<Result>(
+            workspaceId: UUID,
+            ifCurrent revision: UInt64,
+            _ callback: () -> Result
+        ) -> Result? {
+            state.withLock { state in
+                guard PortScanner.acceptsResult(
+                    currentRevision: state.agentRevisionByWorkspace[workspaceId, default: 0],
+                    expectedRevision: revision,
+                    staleMetric: .portAgentRevision
+                ) else { return nil }
+                return callback()
+            }
+        }
+    }
+
     /// Callback delivers `(workspaceId, panelId, ports)` on the main actor.
     var onPortsUpdated: (@MainActor (_ workspaceId: UUID, _ panelId: UUID, _ ports: [Int]) -> Void)?
     /// Callback delivers workspace-scoped ports owned by tracked agents.
@@ -27,6 +87,7 @@ final class PortScanner: @unchecked Sendable {
 
     private let queue = DispatchQueue(label: "com.cmux.port-scanner", qos: .utility)
     private let portScanSnapshotStore = PortScanSnapshotStore()
+    private let resultGenerationGate = ResultGenerationGate()
 
     /// TTY name per (workspace, panel).
     private var ttyNames: [PanelKey: String] = [:]
@@ -75,14 +136,18 @@ final class PortScanner: @unchecked Sendable {
             let key = PanelKey(workspaceId: workspaceId, panelId: panelId)
             guard ttyNames[key] != ttyName else { return }
             ttyNames[key] = ttyName
+            advancePanelRevision()
         }
     }
 
     func unregisterPanel(workspaceId: UUID, panelId: UUID) {
         queue.async { [self] in
             let key = PanelKey(workspaceId: workspaceId, panelId: panelId)
-            ttyNames.removeValue(forKey: key)
+            let removedTTY = ttyNames.removeValue(forKey: key)
             pendingKicks.remove(key)
+            if removedTTY != nil {
+                advancePanelRevision()
+            }
         }
     }
 
@@ -174,8 +239,7 @@ final class PortScanner: @unchecked Sendable {
         pendingKicks.removeAll()
 
         let workspaceIds = Set(panelSnapshot.keys.map(\.workspaceId))
-        panelScanRevision &+= 1
-        let scanRevision = panelScanRevision
+        let scanRevision = advancePanelRevision()
         let agentRevisions = nextAgentRevisions(for: workspaceIds)
         guard let agentPIDsProvider, !workspaceIds.isEmpty else {
             finishScan(
@@ -260,6 +324,7 @@ final class PortScanner: @unchecked Sendable {
                 }
                 self.deliverResults(
                     livePanelResults,
+                    panelRevision: scanRevision,
                     workspaceIds: workspaceIds,
                     agentPortsByWorkspace: scanResult.agentPortsByWorkspace,
                     agentRevisions: agentRevisions
@@ -414,28 +479,31 @@ final class PortScanner: @unchecked Sendable {
 
     private func deliverResults(
         _ panelResults: [(PanelKey, [Int])],
+        panelRevision: UInt64,
         workspaceIds: Set<UUID>,
         agentPortsByWorkspace: [UUID: Set<Int>],
         agentRevisions: [UUID: UInt64]
     ) {
         let panelCallback = onPortsUpdated
         if let panelCallback {
-            Task { @MainActor in
+            Task { @MainActor [resultGenerationGate] in
+                resultGenerationGate.applyPanel(ifCurrent: panelRevision) {
 #if DEBUG
-                let applyMetricsToken = ProcessPerformanceMetrics.shared.operationStarted(
-                    .portApply,
-                    inputCount: panelResults.count
-                )
+                    let applyMetricsToken = ProcessPerformanceMetrics.shared.operationStarted(
+                        .portApply,
+                        inputCount: panelResults.count
+                    )
 #endif
-                for (key, ports) in panelResults {
-                    panelCallback(key.workspaceId, key.panelId, ports)
+                    for (key, ports) in panelResults {
+                        panelCallback(key.workspaceId, key.panelId, ports)
+                    }
+#if DEBUG
+                    ProcessPerformanceMetrics.shared.operationCompleted(
+                        applyMetricsToken,
+                        outputCount: panelResults.count
+                    )
+#endif
                 }
-#if DEBUG
-                ProcessPerformanceMetrics.shared.operationCompleted(
-                    applyMetricsToken,
-                    outputCount: panelResults.count
-                )
-#endif
             }
         }
         deliverAgentResults(
@@ -467,7 +535,12 @@ final class PortScanner: @unchecked Sendable {
 #endif
             let appliedResults = await MainActor.run {
                 validatedResults.filter { result in
-                    agentCallback(result.workspaceId, result.ports)
+                    self.resultGenerationGate.applyAgent(
+                        workspaceId: result.workspaceId,
+                        ifCurrent: result.revision
+                    ) {
+                        agentCallback(result.workspaceId, result.ports)
+                    } ?? false
                 }
             }
 #if DEBUG
@@ -552,7 +625,15 @@ final class PortScanner: @unchecked Sendable {
     private func nextAgentRevision(for workspaceId: UUID) -> UInt64 {
         let nextRevision = agentRevisionByWorkspace[workspaceId, default: 0] &+ 1
         agentRevisionByWorkspace[workspaceId] = nextRevision
+        resultGenerationGate.advanceAgent(workspaceId: workspaceId, to: nextRevision)
         return nextRevision
+    }
+
+    @discardableResult
+    private func advancePanelRevision() -> UInt64 {
+        panelScanRevision &+= 1
+        resultGenerationGate.advancePanel(to: panelScanRevision)
+        return panelScanRevision
     }
 
 #if DEBUG
