@@ -367,6 +367,11 @@ final class RemoteTmuxWindowMirror {
         if activePaneId != paneId { activePaneId = paneId }
     }
 
+    /// Routes an accepted control-plane mutation through the owned connection.
+    func sendControlCommand(_ command: String) -> Bool {
+        connection?.send(command) ?? false
+    }
+
     /// The pane's last-known foreground classification (alt-screen flag +
     /// `pane_current_command`), driving the kill-pane close confirmation.
     /// `nil` when the pane was never classified (closes without a dialog).
