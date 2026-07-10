@@ -27,7 +27,7 @@ final class RestoredAgentLifecycleCoordinator {
             }
             for (panelId, state) in resumeStatesByPanelId where state == .completedAgentExit {
                 guard completedGenerationsByPanelId[panelId] == nil,
-                      let snapshot = snapshotsByPanelId[panelId] else {
+                      snapshotsByPanelId[panelId] != nil else {
                     continue
                 }
                 completedGenerationsByPanelId[panelId] = RestoredAgentCompletedGeneration(
