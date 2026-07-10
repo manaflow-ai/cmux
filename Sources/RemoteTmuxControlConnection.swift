@@ -49,6 +49,9 @@ final class RemoteTmuxControlConnection {
     var windowsByID: [Int: RemoteTmuxWindow] = [:]
     var windowOrder: [Int] = []
     var publishedWindowIdByPane: [Int: Int] = [:]
+    /// Pane identities whose ownership is temporarily undecidable after their
+    /// source window closes, retained until `list-windows` supplies a complete snapshot.
+    var paneIDsRetainedUntilWindowList: Set<Int> = []
     var activePaneByWindow: [Int: Int] = [:]
     var paneOutputByteCounts: [Int: Int] = [:]
     var totalOutputBytes = 0
@@ -718,6 +721,9 @@ final class RemoteTmuxControlConnection {
             record("window-add @\(id)")
             requestWindows()
         case let .windowClose(id):
+            let closingPaneIDs = Set(windowsByID[id]?.paneIDsInOrder ?? [])
+                .union(pendingLayouts[id]?.node.paneIDsInOrder ?? [])
+            paneIDsRetainedUntilWindowList.formUnion(closingPaneIDs)
             // Release the closed window's per-window sizing state: a stale
             // entry would be replayed by the reconnect reseed, and a pending
             // debounce could still fire at a dead @id target.

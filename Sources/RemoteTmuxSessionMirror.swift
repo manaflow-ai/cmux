@@ -202,6 +202,7 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
 
     private func rebuildTopology(in workspace: Workspace) {
         let livePanes = Set(connection.windowsByID.values.flatMap { $0.paneIDsInOrder })
+            .union(connection.paneIDsRetainedUntilWindowList)
         let pendingPanes = Set(connection.pendingLayouts.values.flatMap { $0.node.paneIDsInOrder })
         reconcileControlPaneIdentities(livePaneIDs: livePanes.union(pendingPanes))
         windowIdByPane = connection.publishedWindowIdByPane

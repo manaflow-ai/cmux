@@ -151,6 +151,9 @@ extension RemoteTmuxControlConnection {
                         zoomed: window.zoomed, name: window.name
                     )
                 }
+                // The complete snapshot decides whether panes from a recently
+                // closed window moved elsewhere or were actually destroyed.
+                paneIDsRetainedUntilWindowList.removeAll()
                 // Per-window sizing state must not outlive the topology: a
                 // stale pin would be replayed by the reconnect reseed, and a
                 // pending debounce could fire at a dead @id.

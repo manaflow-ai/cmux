@@ -302,6 +302,8 @@ import Testing
         let stablePaneID = try #require(harness.controlPaneID(surfaceID: oldSurfaceID))
 
         harness.connection.handleMessageForTesting(.windowClose(windowId: 1))
+        harness.connection.handleMessageForTesting(.windowRenamed(windowId: 2, name: "renamed"))
+        #expect(harness.sessionMirror.controlPaneID(forPane: 11)?.id == stablePaneID)
         let layout = "cafe,80x24,0,0[80x12,0,0,44,80x11,0,13,11]"
         harness.connection.handleMessageForTesting(.layoutChange(
             windowId: 2, layout: layout, visibleLayout: layout, zoomed: false
