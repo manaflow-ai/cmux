@@ -2,6 +2,42 @@ public import Foundation
 public import GhosttyKit
 internal import OSLog
 
+struct TerminalRendererProfilingStateSnapshot: Equatable, Sendable {
+    let visible: Bool
+    let focused: Bool
+}
+
+/// Lock-backed content-free renderer state shared by the UI and renderer
+/// threads. Reads wait for the tiny UI write critical section instead of
+/// dropping a structural renderer event from the trace.
+final class TerminalRendererProfilingStateStore: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: TerminalRendererProfilingStateSnapshot
+
+    init(visible: Bool = true, focused: Bool = false) {
+        self.value = TerminalRendererProfilingStateSnapshot(
+            visible: visible,
+            focused: focused
+        )
+    }
+
+    func update(visible: Bool, focused: Bool) {
+        lock.lock()
+        value = TerminalRendererProfilingStateSnapshot(
+            visible: visible,
+            focused: focused
+        )
+        lock.unlock()
+    }
+
+    @inline(__always)
+    func snapshot() -> TerminalRendererProfilingStateSnapshot {
+        lock.lock()
+        defer { lock.unlock() }
+        return value
+    }
+}
+
 /// The retained userdata handed to libghostty surface callbacks.
 ///
 /// One context is allocated per runtime surface and passed to
@@ -16,10 +52,8 @@ internal import OSLog
 /// hopping to the main actor. The owner releases the context only after the
 /// runtime surface has been freed.
 public final class GhosttySurfaceCallbackContext {
-    private let rendererStateLock = NSLock()
+    private let rendererState = TerminalRendererProfilingStateStore()
     private let rendererEventSignposts = TerminalRendererProfilingSignposts()
-    nonisolated(unsafe) private var rendererVisible = true
-    nonisolated(unsafe) private var rendererFocused = false
     nonisolated(unsafe) private var rendererEventPairing = TerminalRendererEventPairing()
     nonisolated(unsafe) private var rendererUpdateState: OSSignpostIntervalState?
     nonisolated(unsafe) private var rendererDrawState: OSSignpostIntervalState?
@@ -72,27 +106,22 @@ public final class GhosttySurfaceCallbackContext {
 
     /// Publishes content-free UI state for the renderer callback.
     public func updateRendererProfilingState(visible: Bool, focused: Bool) {
-        rendererStateLock.lock()
-        rendererVisible = visible
-        rendererFocused = focused
-        rendererStateLock.unlock()
+        guard rendererEventSignposts.collectionRequested else { return }
+        rendererState.update(visible: visible, focused: focused)
     }
 
     /// Records an exact Ghostty renderer event synchronously on its calling renderer thread.
     @inline(__always)
     public func recordRendererEvent(_ event: ghostty_renderer_event_e) {
         guard rendererEventSignposts.isEnabled,
-              let event = TerminalRendererProfilingEvent(event),
-              rendererStateLock.try() else { return }
-        let visible = rendererVisible
-        let focused = rendererFocused
-        rendererStateLock.unlock()
+              let event = TerminalRendererProfilingEvent(event) else { return }
+        let state = rendererState.snapshot()
 
         guard let action = rendererEventPairing.consume(event) else { return }
         let metadata = TerminalRendererEventProfilingMetadata(
             identity: rendererProfilingIdentity,
-            visible: visible,
-            focused: focused,
+            visible: state.visible,
+            focused: state.focused,
             event: event
         )
         switch action {

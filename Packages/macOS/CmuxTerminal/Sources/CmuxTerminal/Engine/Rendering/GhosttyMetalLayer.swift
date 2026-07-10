@@ -48,6 +48,7 @@ public final class GhosttyMetalLayer: CAMetalLayer {
         focused: Bool,
         wakeReason: TerminalRendererProfilingWakeReason
     ) {
+        guard profilingSignposts.collectionRequested else { return }
         lock.lock()
         profilingIdentity = identity
         profilingVisible = visible
@@ -111,7 +112,10 @@ public final class GhosttyMetalLayer: CAMetalLayer {
             }
         }
 
-        guard renderDemand?.isActive == true || profilingEnabled else { return drawable }
+        guard TerminalRenderedFrameDeliveryPolicy.shouldEnqueue(
+            renderDemandActive: renderDemand?.isActive == true,
+            profilingEnabled: profilingEnabled
+        ) else { return drawable }
         if let frameReceiver {
             // Hop to the main actor exactly like the legacy
             // DispatchQueue.main.async dispatch (the main-actor executor is

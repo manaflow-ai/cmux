@@ -3544,7 +3544,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     func enqueueRenderedFrameUpdate() {
         let profilingEnabled = rendererProfilingSignposts.isEnabled
-        guard GhosttyApp.renderedFrameNotificationDemand.isActive || profilingEnabled else { return }
+        guard TerminalRenderedFrameDeliveryPolicy.shouldEnqueue(
+            renderDemandActive: GhosttyApp.renderedFrameNotificationDemand.isActive,
+            profilingEnabled: profilingEnabled
+        ) else { return }
 
         _renderedFrameLock.lock()
         rendererProfilingCoalescedUpdateCount += 1
