@@ -439,7 +439,7 @@ extension AgentHibernationController {
     ) async -> Bool {
         guard ifStillQualifies() else { return false }
         await cancelPostTeardownRestoreTaskForReplacement(transcriptPath: transcriptPath)
-        return true
+        return ifStillQualifies()
     }
 
     func cancelPostTeardownRestoreTasks() {
