@@ -48,21 +48,71 @@ struct SimulatorWorkerClientTests {
         #expect(decoded == application)
     }
 
-    @Test("Attachment is framed with a responsiveness ping")
-    func sendsAttachmentAndPing() async throws {
+    @Test("Attachment defers its responsiveness ping until streaming")
+    func attachmentDefersPingUntilStreaming() async throws {
         let launcher = TestWorkerLauncher()
         let client = makeClient(launcher: launcher)
+        let events = await client.subscribe()
+        var iterator = events.makeAsyncIterator()
         let geometry = SimulatorSurfaceGeometry(width: 800, height: 600, scale: 2)
 
         await client.send(.attach(udid: "DEVICE", geometry: geometry))
+        await client.send(.resize(geometry))
 
         let endpoint = try #require(launcher.endpoint(at: 0))
-        let messages = endpoint.inboundMessages()
+        var messages = endpoint.inboundMessages()
         #expect(messages.first == .attach(udid: "DEVICE", geometry: geometry))
-        guard case .ping = messages.last else {
-            Issue.record("Expected an ordered responsiveness ping")
-            return
+        #expect(!messages.contains { if case .ping = $0 { true } else { false } })
+
+        endpoint.emit(.status(.streaming))
+        #expect(await iterator.next() == .message(.status(.streaming)))
+        for _ in 0..<10_000 {
+            messages = endpoint.inboundMessages()
+            if messages.contains(where: { if case .ping = $0 { true } else { false } }) {
+                break
+            }
+            await Task.yield()
         }
+        #expect(messages.contains { if case .ping = $0 { true } else { false } })
+        await client.stop()
+    }
+
+    @Test("A pending text sequence defers probes until its correlated completion")
+    func textInputDefersResponsivenessProbe() async throws {
+        let launcher = TestWorkerLauncher()
+        let client = makeClient(launcher: launcher)
+        let requestIdentifier = UUID()
+        let sequence = try SimulatorUSKeyboardTextEncoder.encode("a")
+
+        let inputTask = Task {
+            await client.send(.typeText(requestID: requestIdentifier, sequence: sequence))
+        }
+        var launchedEndpoint: TestWorkerEndpoint?
+        for _ in 0..<10_000 {
+            launchedEndpoint = launcher.endpoint(at: 0)
+            if launchedEndpoint?.inboundMessages().contains(where: {
+                if case .typeText = $0 { true } else { false }
+            }) == true { break }
+            await Task.yield()
+        }
+        let endpoint = try #require(launchedEndpoint)
+
+        await client.send(.resize(SimulatorSurfaceGeometry(width: 700, height: 500, scale: 2)))
+        #expect(!endpoint.inboundMessages().contains {
+            if case .ping = $0 { true } else { false }
+        })
+
+        endpoint.emit(.textInput(requestID: requestIdentifier, succeeded: true))
+        await inputTask.value
+        var messages: [SimulatorWorkerInbound] = []
+        for _ in 0..<10_000 {
+            messages = endpoint.inboundMessages()
+            if messages.contains(where: { if case .ping = $0 { true } else { false } }) {
+                break
+            }
+            await Task.yield()
+        }
+        #expect(messages.contains { if case .ping = $0 { true } else { false } })
         await client.stop()
     }
 
