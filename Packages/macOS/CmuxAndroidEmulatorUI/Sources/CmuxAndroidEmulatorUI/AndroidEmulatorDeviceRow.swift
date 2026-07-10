@@ -1,0 +1,71 @@
+import CmuxAndroidEmulator
+import SwiftUI
+
+/// Value-only row for one Android Virtual Device.
+struct AndroidEmulatorDeviceRow: View {
+    let device: AndroidVirtualDevice
+    let isLaunching: Bool
+    let isStopping: Bool
+    let onLaunch: () -> Void
+    let onStop: (String) -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: device.state.isRunning ? "play.circle.fill" : "circle")
+                .font(.system(size: 18))
+                .foregroundStyle(device.state.isRunning ? Color.green : Color.secondary)
+                .frame(width: 22)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(device.name)
+                    .font(.system(size: 13, weight: .medium))
+                    .lineLimit(1)
+
+                Text(statusText)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer(minLength: 12)
+
+            if isLaunching || isStopping {
+                ProgressView()
+                    .controlSize(.small)
+                    .accessibilityLabel(statusText)
+            } else if let serial = device.state.serial {
+                Button(String(localized: "androidEmulator.action.stop", defaultValue: "Stop", bundle: .module)) {
+                    onStop(serial)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            } else {
+                Button(String(localized: "androidEmulator.action.launch", defaultValue: "Launch", bundle: .module)) {
+                    onLaunch()
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    private var statusText: String {
+        if isLaunching {
+            return String(localized: "androidEmulator.status.launching", defaultValue: "Launching…", bundle: .module)
+        }
+        if isStopping {
+            return String(localized: "androidEmulator.status.stopping", defaultValue: "Stopping…", bundle: .module)
+        }
+        switch device.state {
+        case .stopped:
+            return String(localized: "androidEmulator.status.stopped", defaultValue: "Stopped", bundle: .module)
+        case .running(let serial, let connectionState):
+            let format = String(
+                localized: "androidEmulator.status.running",
+                defaultValue: "Running · %@ · %@",
+                bundle: .module
+            )
+            return String(format: format, serial, connectionState)
+        }
+    }
+}

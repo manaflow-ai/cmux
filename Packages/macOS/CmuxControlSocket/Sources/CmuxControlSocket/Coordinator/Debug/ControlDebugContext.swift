@@ -61,6 +61,9 @@ public protocol ControlDebugContext: AnyObject {
     /// `debug.pro_welcome_checklist.show`.
     func controlDebugShowProWelcomeChecklist()
 
+    /// Shows the Android emulator picker for `debug.android_emulators.show`.
+    func controlDebugShowAndroidEmulators()
+
     /// Runs the shared v1 `is_terminal_focused` body for
     /// `debug.terminal.is_focused`.
     ///

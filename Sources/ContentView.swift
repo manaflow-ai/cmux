@@ -6350,6 +6350,20 @@ struct ContentView: View {
         )
         contributions.append(
             CommandPaletteCommandContribution(
+                commandId: "palette.androidEmulators",
+                title: constant(String(
+                    localized: "command.androidEmulators.title",
+                    defaultValue: "Open Android Emulators…"
+                )),
+                subtitle: constant(String(
+                    localized: "command.androidEmulators.subtitle",
+                    defaultValue: "Developer Tools"
+                )),
+                keywords: ["android", "emulator", "avd", "device", "studio", "sdk"]
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
                 commandId: "palette.uninstallCLI",
                 title: constant(String(localized: "command.uninstallCLI.title", defaultValue: "Shell Command: Uninstall 'cmux' from PATH")),
                 subtitle: constant(String(localized: "command.uninstallCLI.subtitle", defaultValue: "CLI")),
@@ -7593,6 +7607,9 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.uninstallCLI") {
             AppDelegate.shared?.uninstallCmuxCLIInPath(nil)
+        }
+        registry.register(commandId: "palette.androidEmulators") {
+            AppDelegate.shared?.showAndroidEmulators()
         }
         registry.register(commandId: "palette.newTerminalTab") {
             if !executeConfiguredAction(id: CmuxSurfaceTabBarBuiltInAction.newTerminal.configID) {

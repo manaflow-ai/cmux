@@ -879,6 +879,9 @@ struct cmuxApp: App {
             Button(String(localized: "menu.window.taskManager", defaultValue: "Task Manager...")) {
                 TaskManagerWindowController.shared.show()
             }
+            Button(String(localized: "menu.window.androidEmulators", defaultValue: "Android Emulators...")) {
+                appDelegate.showAndroidEmulators()
+            }
         }
         helpCommands
         historyCommands
