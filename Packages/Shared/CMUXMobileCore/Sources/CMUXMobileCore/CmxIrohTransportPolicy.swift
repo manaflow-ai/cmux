@@ -1,42 +1,5 @@
 import Foundation
 
-/// The two ordered attempts for reaching an Iroh peer.
-///
-/// Callers must finish or cancel the public/native attempt before starting the
-/// private-network fallback. The type intentionally has no flattened hint
-/// list, so private routes cannot accidentally enter Iroh's first dial.
-public struct CmxIrohDialPlan: Equatable, Sendable {
-    /// Iroh-native public direct and relay paths used for the first attempt.
-    public let publicPaths: [CmxIrohPathHint]
-    /// Active-profile private/LAN paths used only after the first attempt fails.
-    public let privateFallbackPaths: [CmxIrohPathHint]
-
-    /// Creates an explicit public-first, private-fallback dial plan.
-    ///
-    /// - Parameters:
-    ///   - publicPaths: Iroh-native paths permitted on the first attempt.
-    ///   - privateFallbackPaths: Profile-gated paths permitted only after failure.
-    public init(
-        publicPaths: [CmxIrohPathHint],
-        privateFallbackPaths: [CmxIrohPathHint]
-    ) {
-        self.publicPaths = publicPaths
-        self.privateFallbackPaths = privateFallbackPaths
-    }
-}
-
-/// The disclosure boundary applied before serializing attach routes.
-public enum CmxAttachRouteDisclosure: Equatable, Sendable {
-    /// Same-account registry, presence, or local persistence.
-    case authenticated
-    /// An unauthenticated network status response.
-    case publicStatus
-    /// A scannable pairing payload.
-    case pairingQRCode
-    /// The paired-Mac server backup.
-    case pairedMacCloudBackup
-}
-
 extension CmxAttachEndpoint {
     /// Creates an Iroh endpoint from the legacy peer fields.
     ///
@@ -58,22 +21,22 @@ extension CmxAttachEndpoint {
     ) throws -> Self {
         var pathHints: [CmxIrohPathHint] = []
         if let relayHint {
-            pathHints.append(.legacy(
-                kind: .relayIdentifier,
+            pathHints.append(CmxIrohPathHint(
+                legacyKind: .relayIdentifier,
                 value: relayHint,
                 privacyScope: .publicInternet
             ))
         }
         pathHints.append(contentsOf: directAddrs.map { address in
-            .legacy(
-                kind: .directAddress,
+            CmxIrohPathHint(
+                legacyKind: .directAddress,
                 value: address,
                 privacyScope: .privateNetwork
             )
         })
         if let relayURL {
-            pathHints.append(.legacy(
-                kind: .relayURL,
+            pathHints.append(CmxIrohPathHint(
+                legacyKind: .relayURL,
                 value: relayURL,
                 privacyScope: .publicInternet
             ))

@@ -17,27 +17,18 @@ public struct CmxIrohPeerIdentity: Codable, Equatable, Hashable, Sendable {
     /// peer cannot acquire multiple persistence or deduplication identities.
     /// - Parameter endpointID: The stable Iroh endpoint identifier.
     public init(endpointID: String) throws {
-        guard Self.isCanonical(endpointID) else {
+        guard endpointID.utf8.count == 64,
+              endpointID.utf8.allSatisfy({ byte in
+                  (48...57).contains(byte) || (97...102).contains(byte)
+              }) else {
             throw CmxIrohPeerIdentityError.nonCanonicalEndpointID
         }
         self.endpointID = endpointID
     }
 
+    /// Decodes and validates a canonical Iroh EndpointID.
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         try self.init(endpointID: container.decode(String.self, forKey: .endpointID))
     }
-
-    /// Whether a string is Iroh's canonical EndpointID display form.
-    public static func isCanonical(_ value: String) -> Bool {
-        value.utf8.count == 64 && value.utf8.allSatisfy { byte in
-            (48...57).contains(byte) || (97...102).contains(byte)
-        }
-    }
-}
-
-/// Validation failures for Iroh peer identity values.
-public enum CmxIrohPeerIdentityError: Error, Equatable, Sendable {
-    /// The value was not exactly 64 lowercase hexadecimal characters.
-    case nonCanonicalEndpointID
 }

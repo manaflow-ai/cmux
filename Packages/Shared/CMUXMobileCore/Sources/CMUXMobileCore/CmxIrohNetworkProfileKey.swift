@@ -20,13 +20,24 @@ public struct CmxIrohNetworkProfileKey: Codable, Equatable, Hashable, Sendable {
     /// - Throws: ``CmxIrohNetworkProfileKeyError/invalidProfileID`` when the
     ///   identifier cannot be represented safely on the wire.
     public init(source: CmxIrohPathHintSource, profileID: String) throws {
-        guard Self.isSafeIdentifier(profileID) else {
+        guard !profileID.isEmpty,
+              profileID.utf8.count <= 128,
+              profileID.utf8.allSatisfy({ byte in
+                  (48...57).contains(byte)
+                      || (65...90).contains(byte)
+                      || (97...122).contains(byte)
+                      || byte == 45
+                      || byte == 46
+                      || byte == 58
+                      || byte == 95
+              }) else {
             throw CmxIrohNetworkProfileKeyError.invalidProfileID
         }
         self.source = source
         self.profileID = profileID
     }
 
+    /// Decodes and validates a provider-qualified profile key.
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         try self.init(
@@ -34,26 +45,4 @@ public struct CmxIrohNetworkProfileKey: Codable, Equatable, Hashable, Sendable {
             profileID: container.decode(String.self, forKey: .profileID)
         )
     }
-
-    private static func isSafeIdentifier(_ value: String) -> Bool {
-        guard !value.isEmpty, value.utf8.count <= 128 else {
-            return false
-        }
-        return value.utf8.allSatisfy { byte in
-            (48...57).contains(byte)
-                || (65...90).contains(byte)
-                || (97...122).contains(byte)
-                || byte == 45
-                || byte == 46
-                || byte == 58
-                || byte == 95
-        }
-    }
-}
-
-/// Validation failures for provider-qualified network profiles.
-public enum CmxIrohNetworkProfileKeyError: Error, Equatable, Sendable {
-    /// The provider-local identifier was empty, too long, or contained unsafe
-    /// wire characters.
-    case invalidProfileID
 }

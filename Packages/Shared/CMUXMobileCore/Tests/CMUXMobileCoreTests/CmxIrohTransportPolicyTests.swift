@@ -30,8 +30,8 @@ private func profile(
         source: .native,
         privacyScope: .publicInternet
     )
-    let legacyIdentifier = CmxIrohPathHint.legacy(
-        kind: .relayIdentifier,
+    let legacyIdentifier = CmxIrohPathHint(
+        legacyKind: .relayIdentifier,
         value: "use1",
         privacyScope: .publicInternet
     )
