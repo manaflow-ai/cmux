@@ -77,6 +77,21 @@ import WebKit
         #expect(store.proxyConfigurations.count == 2)
     }
 
+    @Test("Allowed navigations revalidate proxy routing before WebKit proceeds")
+    @MainActor
+    func allowedNavigationsRevalidateProxyRouting() {
+        let webView = WKWebView(frame: .zero)
+        let delegate = BrowserNavigationDelegate()
+        var revalidatedWebView: WKWebView?
+        var resolvedPolicy: WKNavigationActionPolicy?
+        delegate.willAllowNavigation = { revalidatedWebView = $0 }
+
+        delegate.allowNavigation(webView) { resolvedPolicy = $0 }
+
+        #expect(revalidatedWebView === webView)
+        #expect(resolvedPolicy == .allow)
+    }
+
     private func systemProxyMirror() -> BrowserSystemProxyMirror? {
         BrowserSystemProxyMirror(systemProxySettings: [
             kCFNetworkProxiesSOCKSEnable as String: 1,
