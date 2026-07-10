@@ -377,6 +377,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		F73320000000000000000008 /* ClosedItemHistoryAgentEnrichmentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F73320000000000000000007 /* ClosedItemHistoryAgentEnrichmentTests.swift */; };
 		F7332000000000000000000A /* ClosedItemHistoryMenuItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = F73320000000000000000009 /* ClosedItemHistoryMenuItem.swift */; };
 		C1A5E0000000000000000001 /* ClosedItemHistoryMenuProjection.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A5E0000000000000000002 /* ClosedItemHistoryMenuProjection.swift */; };
+		C1A5E1000000000000000001 /* ClosedItemHistoryMenuProjectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A5E1000000000000000002 /* ClosedItemHistoryMenuProjectionTests.swift */; };
 		F73320000000000000000012 /* ClosedItemHistoryMenuSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = F73320000000000000000011 /* ClosedItemHistoryMenuSnapshot.swift */; };
 		F73320000000000000000010 /* ClosedItemHistoryPendingEnrichmentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7332000000000000000000F /* ClosedItemHistoryPendingEnrichmentTests.swift */; };
 		7375A0037375A0037375A003 /* ClosedMainWindowRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7375A0047375A0047375A004 /* ClosedMainWindowRoutingTests.swift */; };
@@ -2173,6 +2174,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		F73320000000000000000007 /* ClosedItemHistoryAgentEnrichmentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClosedItemHistoryAgentEnrichmentTests.swift; sourceTree = "<group>"; };
 		F73320000000000000000009 /* ClosedItemHistoryMenuItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClosedItemHistoryMenuItem.swift; sourceTree = "<group>"; };
 		C1A5E0000000000000000002 /* ClosedItemHistoryMenuProjection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClosedItemHistoryMenuProjection.swift; sourceTree = "<group>"; };
+		C1A5E1000000000000000002 /* ClosedItemHistoryMenuProjectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClosedItemHistoryMenuProjectionTests.swift; sourceTree = "<group>"; };
 		F73320000000000000000011 /* ClosedItemHistoryMenuSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClosedItemHistoryMenuSnapshot.swift; sourceTree = "<group>"; };
 		F7332000000000000000000F /* ClosedItemHistoryPendingEnrichmentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClosedItemHistoryPendingEnrichmentTests.swift; sourceTree = "<group>"; };
 		7375A0047375A0047375A004 /* ClosedMainWindowRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClosedMainWindowRoutingTests.swift; sourceTree = "<group>"; };
@@ -5045,6 +5047,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				F73320000000000000000005 /* SharedLiveAgentIndexStallRecoveryTests.swift */,
 				F73320000000000000000007 /* ClosedItemHistoryAgentEnrichmentTests.swift */,
 				F7332000000000000000000F /* ClosedItemHistoryPendingEnrichmentTests.swift */,
+				C1A5E1000000000000000002 /* ClosedItemHistoryMenuProjectionTests.swift */,
 				D7332C030000000000000002 /* SharedLiveAgentIndexScopedRefreshTests.swift */,
 				D7332C0B0000000000000002 /* ProcessDetectedResumeIndexCoordinationTests.swift */,
 				F0ACC0DE0000000000000006 /* WorkspaceForkConversationContextMenuTests.swift */,
@@ -7066,6 +7069,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 					773600000000000000000001 /* CLIWindowCommandMockServer.swift in Sources */,
 					773600000000000000000003 /* CLIWindowHandleRoutingTests.swift in Sources */,
 				F73320000000000000000008 /* ClosedItemHistoryAgentEnrichmentTests.swift in Sources */,
+				C1A5E1000000000000000001 /* ClosedItemHistoryMenuProjectionTests.swift in Sources */,
 				F73320000000000000000010 /* ClosedItemHistoryPendingEnrichmentTests.swift in Sources */,
 				7375A0037375A0037375A003 /* ClosedMainWindowRoutingTests.swift in Sources */,
 				C75740010000000000000001 /* CloudVMMenuItemMetricsTests.swift in Sources */,
