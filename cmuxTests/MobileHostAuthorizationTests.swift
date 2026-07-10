@@ -1422,10 +1422,14 @@ struct MobileHostAuthorizationTests {
     }
     @Test func testMobileHostConnectionClosesBeforeStartingAnUnboundedRPCBatch() async throws {
         let transport = RecordingMobileHostByteTransport()
+        let invocationRecorder = MobileHostAuthorizationInvocationRecorder()
         let session = MobileHostConnection(
             id: UUID(),
             transport: transport,
-            authorizeRequest: { _ in nil },
+            authorizeRequest: { _ in
+                await invocationRecorder.record()
+                return nil
+            },
             onAuthorizedRequest: { _ in },
             handleRequest: { _ in .ok([:]) },
             onClose: { _ in }
@@ -1441,6 +1445,7 @@ struct MobileHostAuthorizationTests {
         await session.debugHandleReceiveDataForTesting(batch)
 
         #expect(await transport.observedCloseCount() == 1)
+        #expect(await invocationRecorder.count() == 0)
     }
     // MARK: - Advertised mobile host capabilities
     @Test func testMobileHostAdvertisesWorkspaceActionCapabilities() {
