@@ -278,7 +278,6 @@ struct TerminalPortalDropZoneVisibilityTests {
             workingDirectory: nil
         )
         defer { surface.releaseSurfaceForTesting() }
-        surface.hostedView.frame = CGRect(x: 0, y: 0, width: 400, height: 300)
         let pane = PaneID()
         let rootView = GhosttyTerminalView(
             terminalSurface: surface,
