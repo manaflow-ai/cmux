@@ -240,7 +240,7 @@ extension ControlWorkspaceGroupContext {
 extension ControlWorkspaceContext {
     func controlWorkspaceStrings() -> ControlWorkspaceStrings {
         ControlWorkspaceStrings(
-            closeProtected: "",
+            closeProtected: "", closeFailed: "",
             reorderManyMissingOrder: "",
             reorderManyDuplicateWorkspace: "",
             reorderManyWorkspaceNotFound: "",
