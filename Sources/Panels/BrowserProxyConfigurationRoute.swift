@@ -5,13 +5,13 @@ import ObjectiveC
 import WebKit
 
 private var browserProxyConfigurationApplicationStateKey: UInt8 = 0
-private var browserProxyConfigurationNetworkProcessMonitorKey: UInt8 = 0
 
 /// The semantic network route applied to a browser website data store.
 ///
 /// Application state is retained on the shared data store so equivalent
-/// explicit routes can coalesce without treating direct routing as a durable
-/// WebKit state.
+/// routes can coalesce. Direct routing after an explicit proxy deliberately
+/// does not coalesce because WebKit retains the explicit C++ payload across
+/// NetworkProcess restarts even after `proxyConfigurations` is cleared.
 struct BrowserProxyConfigurationRoute {
     private let configurations: [ProxyConfiguration]
     private let identity: String
@@ -60,46 +60,23 @@ struct BrowserProxyConfigurationRoute {
 
     @MainActor
     @discardableResult
-    func apply(
-        to websiteDataStore: WKWebsiteDataStore,
-        networkProcessIdentifier: (() -> Int?)? = nil
-    ) -> Bool {
-        let currentNetworkProcessIdentifier = networkProcessIdentifier ?? {
-            BrowserWebKitNetworkProcessIdentifier.current(for: websiteDataStore)
-        }
+    func apply(to websiteDataStore: WKWebsiteDataStore) -> Bool {
         let state = applicationState(for: websiteDataStore)
         if isDirect {
             switch state {
             case .pristineDirect where websiteDataStore.proxyConfigurations.isEmpty:
                 return false
             case .pristineDirect, .explicit:
-                // WebKit clears only the live NetworkProcess configuration.
-                // It retains the last explicit payload and can restore it after
-                // that process relaunches, so retain the process generation that
-                // received this clear and reapply only after it changes.
-                let identifier = currentNetworkProcessIdentifier()
                 websiteDataStore.proxyConfigurations = []
-                storeApplicationState(
-                    .directAfterExplicit(networkProcessIdentifier: identifier),
-                    on: websiteDataStore
-                )
-                monitorDirectRouteProcess(identifier, on: websiteDataStore)
+                storeApplicationState(.directAfterExplicit, on: websiteDataStore)
                 return true
-            case .directAfterExplicit(let appliedIdentifier):
-                let currentIdentifier = currentNetworkProcessIdentifier()
-                if let appliedIdentifier,
-                   let currentIdentifier,
-                   appliedIdentifier == currentIdentifier {
-                    return false
-                }
-                // If the guarded selector is unavailable, correctness wins over
-                // coalescing for this uncommon post-explicit state.
+            case .directAfterExplicit:
+                // `WebsiteDataStore::clearProxyConfigData()` does not clear
+                // WebKit's retained `m_proxyConfigData`. Preserve the old
+                // behavior of clearing on every existing route-application
+                // entrypoint so a relaunched NetworkProcess cannot make later
+                // panes keep using the obsolete explicit proxy.
                 websiteDataStore.proxyConfigurations = []
-                storeApplicationState(
-                    .directAfterExplicit(networkProcessIdentifier: currentIdentifier),
-                    on: websiteDataStore
-                )
-                monitorDirectRouteProcess(currentIdentifier, on: websiteDataStore)
                 return true
             }
         }
@@ -107,7 +84,6 @@ struct BrowserProxyConfigurationRoute {
         if state == .explicit(identity: identity) {
             return false
         }
-        cancelDirectRouteProcessMonitor(on: websiteDataStore)
         websiteDataStore.proxyConfigurations = configurations
         storeApplicationState(.explicit(identity: identity), on: websiteDataStore)
         return true
@@ -134,46 +110,6 @@ struct BrowserProxyConfigurationRoute {
             state,
             .OBJC_ASSOCIATION_RETAIN_NONATOMIC
         )
-    }
-
-    @MainActor
-    private func monitorDirectRouteProcess(
-        _ processIdentifier: Int?,
-        on websiteDataStore: WKWebsiteDataStore
-    ) {
-        let monitor: BrowserProxyConfigurationNetworkProcessMonitor
-        if let existing = objc_getAssociatedObject(
-            websiteDataStore,
-            &browserProxyConfigurationNetworkProcessMonitorKey
-        ) as? BrowserProxyConfigurationNetworkProcessMonitor {
-            monitor = existing
-        } else {
-            monitor = BrowserProxyConfigurationNetworkProcessMonitor()
-            objc_setAssociatedObject(
-                websiteDataStore,
-                &browserProxyConfigurationNetworkProcessMonitorKey,
-                monitor,
-                .OBJC_ASSOCIATION_RETAIN_NONATOMIC
-            )
-        }
-        monitor.observe(processIdentifier: processIdentifier) { [weak websiteDataStore] in
-            guard let websiteDataStore else { return }
-            guard case .directAfterExplicit(let appliedIdentifier) = self.applicationState(for: websiteDataStore),
-                  appliedIdentifier == processIdentifier else { return }
-            self.storeApplicationState(
-                .directAfterExplicit(networkProcessIdentifier: nil),
-                on: websiteDataStore
-            )
-        }
-    }
-
-    @MainActor
-    private func cancelDirectRouteProcessMonitor(on websiteDataStore: WKWebsiteDataStore) {
-        let monitor = objc_getAssociatedObject(
-            websiteDataStore,
-            &browserProxyConfigurationNetworkProcessMonitorKey
-        ) as? BrowserProxyConfigurationNetworkProcessMonitor
-        monitor?.cancel()
     }
 
     private static func mirroredSystemIdentity(_ mirror: BrowserSystemProxyMirror) -> String {

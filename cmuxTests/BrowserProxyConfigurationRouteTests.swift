@@ -53,17 +53,15 @@ import WebKit
         #expect(store.proxyConfigurations.isEmpty)
     }
 
-    @Test("Direct routing coalesces within one NetworkProcess generation")
+    @Test("Direct routing after an explicit proxy keeps clearing retained WebKit state")
     @MainActor
-    func directRouteCoalescesWithinNetworkProcessGeneration() throws {
+    func directRouteAfterExplicitProxyDoesNotCoalesce() throws {
         let store = WKWebsiteDataStore.nonPersistent()
         let mirror = try #require(systemProxyMirror())
         _ = BrowserProxyConfigurationRoute.mirroredSystem(mirror).apply(to: store)
 
-        #expect(BrowserProxyConfigurationRoute.direct.apply(to: store, networkProcessIdentifier: { 101 }))
-        #expect(!BrowserProxyConfigurationRoute.direct.apply(to: store, networkProcessIdentifier: { 101 }))
-        #expect(BrowserProxyConfigurationRoute.direct.apply(to: store, networkProcessIdentifier: { 202 }))
-        #expect(!BrowserProxyConfigurationRoute.direct.apply(to: store, networkProcessIdentifier: { 202 }))
+        #expect(BrowserProxyConfigurationRoute.direct.apply(to: store))
+        #expect(BrowserProxyConfigurationRoute.direct.apply(to: store))
         #expect(store.proxyConfigurations.isEmpty)
     }
 
@@ -75,21 +73,6 @@ import WebKit
         #expect(route.apply(to: store))
         #expect(!route.apply(to: store))
         #expect(store.proxyConfigurations.count == 2)
-    }
-
-    @Test("Allowed navigations revalidate proxy routing before WebKit proceeds")
-    @MainActor
-    func allowedNavigationsRevalidateProxyRouting() {
-        let webView = WKWebView(frame: .zero)
-        let delegate = BrowserNavigationDelegate()
-        var revalidatedWebView: WKWebView?
-        var resolvedPolicy: WKNavigationActionPolicy?
-        delegate.willAllowNavigation = { revalidatedWebView = $0 }
-
-        delegate.allowNavigation(webView) { resolvedPolicy = $0 }
-
-        #expect(revalidatedWebView === webView)
-        #expect(resolvedPolicy == .allow)
     }
 
     private func systemProxyMirror() -> BrowserSystemProxyMirror? {

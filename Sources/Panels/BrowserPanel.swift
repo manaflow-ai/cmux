@@ -3730,18 +3730,13 @@ final class BrowserPanel: Panel, ObservableObject {
         navigationDelegate.didClearPDFDocument = { [weak self] in
             MainActor.assumeIsolated { self?.clearRenderedPDFDocument() }
         }
+
         navigationDelegate.didStartProvisionalNavigation = { [weak self] webView in
             MainActor.assumeIsolated {
                 guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
                 self.isMainFrameProvisionalNavigationActive = true
                 self.refreshBackgroundAppearance()
                 self.applyMuteState(to: webView, reason: "navigationStart")
-            }
-        }
-        navigationDelegate.willAllowNavigation = { [weak self] webView in
-            MainActor.assumeIsolated {
-                guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
-                self.applyProxyConfigurationIfAvailable()
             }
         }
         navigationDelegate.didCommit = { [weak self] webView in
@@ -4380,17 +4375,7 @@ final class BrowserPanel: Panel, ObservableObject {
     func setRemoteProxyEndpoint(_ endpoint: BrowserProxyEndpoint?) {
         guard !bypassesRemoteWorkspaceProxy else { return }
         guard remoteProxyEndpoint != endpoint else { return }
-        let shouldSuspendNetworking = usesRemoteWorkspaceProxy && remoteProxyEndpoint != nil
-            && endpoint == nil
-            && !hiddenWebViewDiscardManager.isDiscardedForMemory
         remoteProxyEndpoint = endpoint
-        if shouldSuspendNetworking {
-            replaceWebViewPreservingState(
-                from: webView, websiteDataStore: websiteDataStore,
-                reason: "remote_proxy_unavailable",
-                waitForManualRecovery: isMainFrameProvisionalNavigationActive
-            )
-        }
         applyProxyConfigurationIfAvailable()
         resumePendingRemoteNavigationIfNeeded()
     }
@@ -4403,7 +4388,7 @@ final class BrowserPanel: Panel, ObservableObject {
     private func applyProxyConfigurationIfAvailable() {
         guard #available(macOS 14.0, *) else { return }
 
-        // Keep the last SSH route while endpoint loss suspends the WebView and queues navigation.
+        // Keep the last SSH route while its endpoint is pending or unavailable.
         guard !usesRemoteWorkspaceProxy || remoteProxyEndpoint != nil else { return }
         let route = remoteProxyEndpoint.map {
             BrowserProxyConfigurationRoute.remoteWorkspace(host: $0.host, port: $0.port)

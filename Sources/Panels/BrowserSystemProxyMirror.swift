@@ -1,7 +1,6 @@
 import CFNetwork
 import Foundation
 import Network
-import WebKit
 
 /// An explicit browser proxy mirrored from the macOS system proxy settings,
 /// with hostname exclusions so loopback and proxy-bypass-list hosts connect
@@ -268,6 +267,21 @@ struct BrowserSystemProxyMirror: Equatable {
 }
 
 extension BrowserSystemProxyMirror {
+    /// Reads the live macOS proxy settings and builds the configurations a
+    /// local-workspace `WKWebsiteDataStore` should use: the mirrored system
+    /// proxy with loopback excluded, or empty — WebKit's system-proxy
+    /// fallback, unchanged behavior — when no faithful mirror exists.
+    static func currentProxyConfigurations() -> [ProxyConfiguration] {
+        guard let rawSettings = CFNetworkCopySystemProxySettings()?.takeRetainedValue() else {
+            return []
+        }
+        guard let settings = rawSettings as NSDictionary as? [String: Any],
+              let mirror = BrowserSystemProxyMirror(systemProxySettings: settings) else {
+            return []
+        }
+        return mirror.proxyConfigurations()
+    }
+
     /// Builds the Network.framework configurations to set on a
     /// `WKWebsiteDataStore`.
     ///

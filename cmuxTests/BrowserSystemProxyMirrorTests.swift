@@ -2,7 +2,6 @@ import CFNetwork
 import Foundation
 import Network
 import Testing
-import WebKit
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -444,5 +443,4 @@ import WebKit
         #expect(enumeratedExcludedDomains(configuration) == mirror.excludedDomains)
         #expect(configuration.allowFailover == false)
     }
-
 }
