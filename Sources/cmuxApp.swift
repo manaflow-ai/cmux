@@ -1480,6 +1480,7 @@ private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
     "cmux.titlebarLayoutDebug",
     "cmux.devWindowDisplay",
     "cmux.mobilePairingWindow",
+    "cmux.androidEmulators",
 ]
 
 /// Returns whether the given window should handle the standard close shortcut
