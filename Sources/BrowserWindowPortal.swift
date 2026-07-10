@@ -131,7 +131,6 @@ final class WindowBrowserHostView: NSView {
             removeTrackingArea(trackingArea)
         }
         clearActiveDividerCursor(restoreArrow: false)
-        // hostedInspectorDragFrameSilencer restores in its own deinit.
     }
 
 #if DEBUG
@@ -484,12 +483,9 @@ final class WindowBrowserHostView: NSView {
             ),
             reason: "drag"
         )
-        // Do NOT sync the attachment size to WebKit per drag event: the
-        // frontend's JS queue backs up during fast scrubs and every queued
-        // setAttachedWindow* call echoes back as a stale WebKit frame apply
-        // (verified in the debug log), yanking the divider backwards. The
-        // frame-notification silencer keeps WebKit passive; one sync on
-        // mouseUp reconciles it.
+        // Do not sync the attachment size to WebKit per drag event: queued
+        // setAttachedWindow* calls echo back as stale WebKit frame applies
+        // during fast scrubs. One sync on mouseUp reconciles WebKit.
         updateDividerCursor(
             at: convert(event.locationInWindow, from: nil),
             dividerHit: nil,
@@ -521,8 +517,7 @@ final class WindowBrowserHostView: NSView {
             )
             HostedInspectorAttachedSizeSync.sync(
                 pageWebView: dragState.slotView.hostedInspectorPageWebViewForAttachedSizeSync,
-                dockSide: dragState.dockSide,
-                extent: finalExtent
+                dockSide: dragState.dockSide, extent: finalExtent
             )
 #if DEBUG
             cmuxDebugLog(
@@ -912,10 +907,7 @@ final class WindowBrowserHostView: NSView {
     fileprivate func reapplyHostedInspectorDividerIfNeeded(in slot: WindowBrowserSlotView, reason: String) -> Bool {
         guard !slot.isHostedInspectorDividerDragActive else {
 #if DEBUG
-            cmuxDebugLog(
-                "browser.portal.manualInspectorDrag stage=skipReapply slot=\(browserPortalDebugToken(slot)) " +
-                "reason=\(reason)"
-            )
+            cmuxDebugLog("browser.portal.manualInspectorDrag stage=skipReapply slot=\(browserPortalDebugToken(slot)) reason=\(reason)")
 #endif
             return false
         }
@@ -923,7 +915,15 @@ final class WindowBrowserHostView: NSView {
         guard let preferredExtent = slot.resolvedPreferredHostedInspectorExtent(
             dockSide: hit.dockSide,
             in: hit.containerView.bounds
-        ) else { return false }
+        ) else {
+            // A stored extent for the other dock axis (post-redock) must not
+            // block adopting this axis's current layout as its preference.
+            let currentExtent = hit.dockSide.inspectorExtent(inspectorFrame: hit.inspectorView.frame, in: hit.containerView.bounds)
+            if currentExtent > 1 {
+                slot.recordPreferredHostedInspectorExtent(currentExtent, dockSide: hit.dockSide, containerBounds: hit.containerView.bounds)
+            }
+            return false
+        }
         let oldPageFrame = hit.pageView.frame
         let oldInspectorFrame = hit.inspectorView.frame
         _ = applyHostedInspectorDividerExtent(
