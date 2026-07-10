@@ -16,13 +16,25 @@ struct AltScreenNoticeButton: View {
         .accessibilityLabel(buttonAccessibilityLabel)
         .accessibilityIdentifier("MobileTerminalAltScreenNoticeButton")
         .popover(isPresented: $isPresentingExplanation) {
-            popoverContent
-                .presentationCompactAdaptation(.popover)
+            ViewThatFits(in: .vertical) {
+                popoverContent
+
+                ScrollView {
+                    popoverContent
+                }
+                .scrollBounceBehavior(.basedOnSize)
+            }
+            .frame(
+                idealWidth: AltScreenNoticePresentationSizing.maxWidth,
+                maxWidth: AltScreenNoticePresentationSizing.maxWidth
+            )
+            .presentationSizing(AltScreenNoticePresentationSizing())
+            .presentationCompactAdaptation(.popover)
         }
     }
 
     private var popoverContent: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 12) {
             Label {
                 Text(title)
                     .fixedSize(horizontal: false, vertical: true)
@@ -39,11 +51,13 @@ struct AltScreenNoticeButton: View {
 
             Button(action: dismissFromPopover) {
                 Text(dismissActionTitle)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             .font(.footnote.weight(.medium))
+            .accessibilityIdentifier("MobileTerminalAltScreenNoticeDismissPermanentlyButton")
         }
         .padding(16)
-        .frame(maxWidth: 320, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .multilineTextAlignment(.leading)
     }
 
@@ -64,7 +78,7 @@ struct AltScreenNoticeButton: View {
     private var explanation: String {
         L10n.string(
             "mobile.altScreenNotice.explanation",
-            defaultValue: "A full-screen terminal app is running in this session. Full-screen apps mirror the Mac terminal's exact size, so the view may not fill this screen."
+            defaultValue: "Full-screen mode mirrors the Mac terminal's exact size, so it may not fill this screen. Claude Code: `/tui default`. Codex: restart with `codex --no-alt-screen`."
         )
     }
 

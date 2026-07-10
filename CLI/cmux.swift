@@ -23067,46 +23067,46 @@ struct CMUXCLI {
                 return
             }
 
-            if !hasDirectionalFlags, let absWidth = parsed.value("-x").flatMap({ Int($0.replacingOccurrences(of: "%", with: "")) }) {
-                // Absolute width: resize-pane -t <pane> -x <columns>
-                // Compute pixel delta from current width to desired width.
-                try tmuxResizePaneToCells(
+            if !hasDirectionalFlags, let absWidth = parsed.value("-x") {
+                try tmuxResizePaneToSize(
                     workspaceId: target.workspaceId,
                     paneId: target.paneId,
-                    targetCells: absWidth,
-                    currentCellsKey: "columns",
-                    cellSizeKey: "cell_width_px",
+                    targetSize: absWidth,
+                    absoluteAxis: "horizontal",
                     client: client
                 )
-            } else if !hasDirectionalFlags, let absHeight = parsed.value("-y").flatMap({ Int($0.replacingOccurrences(of: "%", with: "")) }) {
-                try tmuxResizePaneToCells(
+            } else if !hasDirectionalFlags, let absHeight = parsed.value("-y") {
+                try tmuxResizePaneToSize(
                     workspaceId: target.workspaceId,
                     paneId: target.paneId,
-                    targetCells: absHeight,
-                    currentCellsKey: "rows",
-                    cellSizeKey: "cell_height_px",
+                    targetSize: absHeight,
+                    absoluteAxis: "vertical",
                     client: client
                 )
             } else if hasDirectionalFlags {
-                let direction: String
-                if parsed.hasFlag("-L") {
-                    direction = "left"
-                } else if parsed.hasFlag("-U") {
-                    direction = "up"
-                } else if parsed.hasFlag("-D") {
-                    direction = "down"
-                } else {
-                    direction = "right"
+                let directionFlag = ["-L", "-U", "-D", "-R"]
+                    .first(where: parsed.hasFlag) ?? "-R"
+                let direction: String = switch directionFlag {
+                case "-L": "left"
+                case "-U": "up"
+                case "-D": "down"
+                default: "right"
                 }
-                let rawAmount = (parsed.value("-x") ?? parsed.value("-y") ?? "5")
+                let firstPositional = parsed.positional.first
+                let attachedAmount = firstPositional.flatMap { raw in
+                    raw.hasPrefix(directionFlag) && raw.count > directionFlag.count
+                        ? String(raw.dropFirst(directionFlag.count)) : nil
+                }
+                let rawAmount = (attachedAmount ?? firstPositional ?? parsed.value("-x") ?? parsed.value("-y") ?? "1")
                     .replacingOccurrences(of: "%", with: "")
-                let amount = Int(rawAmount) ?? 5
-                _ = try client.sendV2(method: "pane.resize", params: [
-                    "workspace_id": target.workspaceId,
-                    "pane_id": target.paneId,
-                    "direction": direction,
-                    "amount": max(1, amount)
-                ])
+                let amount = Int(rawAmount) ?? 1
+                try tmuxResizePaneByCells(
+                    workspaceId: target.workspaceId,
+                    paneId: target.paneId,
+                    direction: direction,
+                    amountCells: max(1, amount),
+                    client: client
+                )
             }
 
         case "wait-for":
