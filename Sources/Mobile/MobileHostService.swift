@@ -158,6 +158,34 @@ private final class MobileHostConnectionRegistry: @unchecked Sendable {
         return values
     }
 
+    func removeStackBearerConnections() -> [MobileHostConnection] {
+        removeConnections { authorization in
+            authorization == .stackBearer
+        }
+    }
+
+    func removeIrohConnections(bindingID: String) -> [MobileHostConnection] {
+        removeConnections { authorization in
+            guard case let .irohAdmission(peer) = authorization else {
+                return false
+            }
+            return peer.bindingID == bindingID
+        }
+    }
+
+    private func removeConnections(
+        where shouldRemove: (MobileHostConnectionAuthorizationContext) -> Bool
+    ) -> [MobileHostConnection] {
+        lock.lock()
+        let selected = connections.filter { shouldRemove($0.value.authorization) }
+        for id in selected.keys { connections[id] = nil }
+        lock.unlock()
+        if !selected.isEmpty {
+            NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
+        }
+        return selected.values.map(\.connection)
+    }
+
     /// Snapshot of current connections — caller fans out event delivery
     /// without holding the registry lock across `await`.
     func snapshot() -> [MobileHostConnection] {
@@ -179,26 +207,71 @@ private final class MobileHostConnectionRegistry: @unchecked Sendable {
     }
 }
 
-private enum MobileHostPublicStatusCache {
+enum MobileHostPublicStatusCache {
     private static let lock = NSLock()
-    private nonisolated(unsafe) static var routes: [CmxAttachRoute] = []
+    private nonisolated(unsafe) static var legacyRoutes: [CmxAttachRoute] = []
+    private nonisolated(unsafe) static var irohRoute: CmxAttachRoute?
 
     static func update(routes nextRoutes: [CmxAttachRoute]) {
         lock.lock()
-        routes = nextRoutes
+        legacyRoutes = nextRoutes
         lock.unlock()
         NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
     }
 
+    static func update(irohBinding binding: CmxIrohBrokerBinding?) {
+        lock.lock()
+        if let binding {
+            irohRoute = try? CmxAttachRoute(
+                id: CmxAttachTransportKind.iroh.rawValue,
+                kind: .iroh,
+                endpoint: .peer(
+                    identity: binding.endpointID,
+                    pathHints: binding.pathHints
+                ),
+                priority: 0
+            )
+        } else {
+            irohRoute = nil
+        }
+        lock.unlock()
+        NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
+    }
+
+    static func removeAll() {
+        lock.lock()
+        legacyRoutes = []
+        irohRoute = nil
+        lock.unlock()
+        NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
+    }
+
+    static func snapshot() -> [CmxAttachRoute] {
+        lock.lock()
+        defer { lock.unlock() }
+        return mergedRoutesLocked()
+    }
+
+    static func hasIrohRoute() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return irohRoute != nil
+    }
+
     static func result(includeIdentity: Bool = false) -> MobileHostRPCResult {
         lock.lock()
-        let cachedRoutes = routes
+        let cachedRoutes = mergedRoutesLocked()
         lock.unlock()
         return .ok(
             includeIdentity
                 ? MobileHostService.identityStatusPayload(routes: cachedRoutes)
                 : MobileHostService.publicStatusPayload(routes: cachedRoutes)
         )
+    }
+
+    private static func mergedRoutesLocked() -> [CmxAttachRoute] {
+        let routes = irohRoute.map { [$0] } ?? []
+        return routes + legacyRoutes
     }
 }
 
@@ -440,6 +513,19 @@ final class MobileHostService {
     /// Inject the auth dependency. Call once at the composition root.
     func configure(auth: AuthCoordinator) {
         self.auth = auth
+        MobileHostIrohRuntime.shared.configure(auth: auth)
+    }
+
+    func updateIrohBinding(_ binding: CmxIrohBrokerBinding?) {
+        MobileHostPublicStatusCache.update(irohBinding: binding)
+    }
+
+    func closeIrohConnections(bindingID: String) {
+        for connection in MobileHostConnectionRegistry.shared.removeIrohConnections(
+            bindingID: bindingID
+        ) {
+            Task { await connection.close(reason: "iroh binding deactivated") }
+        }
     }
 
     /// The signed-in local user's id, awaiting launch session restore first so
@@ -696,7 +782,6 @@ final class MobileHostService {
             // never reaches `.ready`; wiring the real accept path (with this
             // generation) also means no connection is dropped once it's adopted.
             candidate.newConnectionHandler = { connection in
-                MobileHostRequestActivity.beginConnection()
                 Self.acceptConnectionOffMain(connection, generation: generation)
             }
             candidate.start(queue: queue)
@@ -728,11 +813,10 @@ final class MobileHostService {
         for connection in activeConnections.values {
             Task { await connection.close(reason: "pairing port changed") }
         }
-        for connection in MobileHostConnectionRegistry.shared.removeAll() {
+        for connection in MobileHostConnectionRegistry.shared.removeStackBearerConnections() {
             Task { await connection.close(reason: "pairing port changed") }
         }
         activeConnections.removeAll()
-        clientIDsByConnectionID.removeAll()
 
         listener = candidate
         listenerGeneration = generation
@@ -767,6 +851,7 @@ final class MobileHostService {
             mobileHostLog.info("mobile host listener disabled; not binding")
             return
         }
+        MobileHostIrohRuntime.shared.setDesiredActive(true)
         guard listener == nil else {
             return
         }
@@ -813,7 +898,6 @@ final class MobileHostService {
                 }
             }
             nextListener.newConnectionHandler = { connection in
-                MobileHostRequestActivity.beginConnection()
                 Self.acceptConnectionOffMain(connection, generation: generation)
             }
             listener = nextListener
@@ -849,6 +933,18 @@ final class MobileHostService {
     }
 
     func stop() {
+        MobileHostIrohRuntime.shared.setDesiredActive(false)
+        stopLegacyListener(reason: "service stopped")
+        for connection in MobileHostConnectionRegistry.shared.removeAll() {
+            Task { await connection.close(reason: "service stopped") }
+        }
+        MobileHostEventSubscriptionTracker.reset()
+        MobileHostPublicStatusCache.removeAll()
+        TerminalController.shared.clearAllMobileViewportReports(reason: "mobile.host.stopped")
+        drainReadinessWaiters()
+    }
+
+    private func stopLegacyListener(reason: String) {
         stopNetworkPathMonitor()
         listenerGeneration = UUID()
         listenerUsesEphemeralFallback = false
@@ -859,22 +955,17 @@ final class MobileHostService {
         listenerPort = nil
         appliedPreferredPort = nil
         for connection in activeConnections.values {
-            Task { await connection.close(reason: "service stopped") }
+            Task { await connection.close(reason: reason) }
         }
-        for connection in MobileHostConnectionRegistry.shared.removeAll() {
-            Task { await connection.close(reason: "service stopped") }
+        for connection in MobileHostConnectionRegistry.shared.removeStackBearerConnections() {
+            Task { await connection.close(reason: reason) }
         }
         activeConnections.removeAll()
-        clientIDsByConnectionID.removeAll()
-        MobileHostEventSubscriptionTracker.reset()
         MobileHostPublicStatusCache.update(routes: [])
-        TerminalController.shared.clearAllMobileViewportReports(reason: "mobile.host.stopped")
-        drainReadinessWaiters()
     }
 
     func statusSnapshot() -> MobileHostServiceStatus {
-        let routes = listenerPort.map { routeResolver.routes(port: $0).routes } ?? []
-        return makeStatus(routes: routes)
+        makeStatus(routes: MobileHostPublicStatusCache.snapshot())
     }
 
     /// Emits the current ``MobileHostServiceStatus`` immediately, then a fresh
@@ -960,7 +1051,8 @@ final class MobileHostService {
     }
 
     private func makeStatus(routes: [CmxAttachRoute]) -> MobileHostServiceStatus {
-        let isRunning = listener != nil && listenerPort != nil
+        let isRunning = (listener != nil && listenerPort != nil)
+            || MobileHostPublicStatusCache.hasIrohRoute()
         return MobileHostServiceStatus(
             isRunning: isRunning,
             port: listenerPort,
@@ -1009,7 +1101,7 @@ final class MobileHostService {
     }
 
     private func restart() {
-        stop()
+        stopLegacyListener(reason: "pairing port changed")
         start()
     }
 
@@ -1022,7 +1114,6 @@ final class MobileHostService {
             guard canAccept else {
                 mobileHostLog.info("mobile host rejected stale listener connection")
                 connection.cancel()
-                MobileHostRequestActivity.endConnection()
                 return
             }
 
@@ -1037,7 +1128,6 @@ final class MobileHostService {
             if Self.isLoopbackConnection(connection) {
                 mobileHostLog.error("mobile host rejected loopback connection in release build")
                 connection.cancel()
-                MobileHostRequestActivity.endConnection()
                 return
             }
             #endif
@@ -1060,6 +1150,7 @@ final class MobileHostService {
         authorization: MobileHostConnectionAuthorizationContext,
         isCurrent: @escaping @Sendable () async -> Bool
     ) async {
+        MobileHostRequestActivity.beginConnection()
         guard await isCurrent() else {
             mobileHostLog.info("mobile host rejected stale transport")
             await transport.close()
@@ -1167,12 +1258,7 @@ final class MobileHostService {
         routeID: String? = nil,
         routeKind: String? = nil
     ) async throws -> [String: Any] {
-        let routes: [CmxAttachRoute]
-        if let listenerPort {
-            routes = routeResolver.routes(port: listenerPort).routes
-        } else {
-            routes = []
-        }
+        let routes = MobileHostPublicStatusCache.snapshot()
         let selectedRoutes = try Self.filteredRoutes(
             routes,
             routeID: routeID,
@@ -1688,6 +1774,7 @@ final class MobileHostService {
     }
 
     private func handleNetworkPathChange() {
+        MobileHostIrohRuntime.shared.retryIfNeeded()
         // The cached Tailscale hosts (and any in-flight resolution) may describe
         // the previous network; drop them on EVERY path observation so no later
         // refresh can be satisfied from, or raced by, old-path state. This must
@@ -1718,6 +1805,10 @@ final class MobileHostService {
 
 #if DEBUG
 extension MobileHostService {
+    func debugStopLegacyListenerForTesting() {
+        stopLegacyListener(reason: "test legacy listener restart")
+    }
+
     func debugResetMobileLifecycleStateForTesting() {
         listenerGeneration = UUID()
         listenerUsesEphemeralFallback = false
