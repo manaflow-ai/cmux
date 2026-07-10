@@ -27,6 +27,11 @@ extension CLITmuxCompatRemoteSplitTests {
         #expect((explicit["amount"] as? NSNumber)?.intValue == 56)
         #expect((explicit["amount_cells"] as? NSNumber)?.intValue == 7)
 
+        let attached = try captureResize(arguments: ["-L7"])
+        #expect(attached["direction"] as? String == "left")
+        #expect((attached["amount"] as? NSNumber)?.intValue == 56)
+        #expect((attached["amount_cells"] as? NSNumber)?.intValue == 7)
+
         let defaulted = try captureResize(arguments: ["-R"])
         #expect(defaulted["direction"] as? String == "right")
         #expect((defaulted["amount"] as? NSNumber)?.intValue == 8)

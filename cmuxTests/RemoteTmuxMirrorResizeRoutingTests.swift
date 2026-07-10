@@ -215,6 +215,50 @@ extension RemoteTmuxMirrorCLIObservabilityTests {
         #expect(commands.contains("resize-pane -t @3.%11 -L 2\n"))
     }
 
+    @Test func paneResizeTargetsTheAncestorThatOwnsANestedTrailingBorder() throws {
+        let layout = RemoteTmuxLayoutNode(
+            width: 120, height: 48, x: 0, y: 0,
+            content: .horizontal([
+                RemoteTmuxLayoutNode(
+                    width: 80, height: 48, x: 0, y: 0,
+                    content: .vertical([
+                        RemoteTmuxLayoutNode(
+                            width: 80, height: 23, x: 0, y: 0,
+                            content: .horizontal([
+                                RemoteTmuxLayoutNode(width: 39, height: 23, x: 0, y: 0, content: .pane(11)),
+                                RemoteTmuxLayoutNode(width: 40, height: 23, x: 40, y: 0, content: .pane(22)),
+                            ])
+                        ),
+                        RemoteTmuxLayoutNode(width: 80, height: 24, x: 0, y: 24, content: .pane(33)),
+                    ])
+                ),
+                RemoteTmuxLayoutNode(width: 39, height: 48, x: 81, y: 0, content: .pane(44)),
+            ])
+        )
+        let harness = try Harness(connectedTransport: true, mirrorLayout: layout)
+        defer { harness.tearDown() }
+        let paneID = try #require(harness.mirror.syntheticPaneID(forPane: 22)?.id)
+
+        let result = ControlCommandCoordinator(context: TerminalController.shared).handle(
+            ControlRequest(
+                id: .int(1),
+                method: "pane.resize",
+                params: [
+                    "workspace_id": .string(harness.workspace.id.uuidString),
+                    "pane_id": .string(paneID.uuidString),
+                    "direction": .string("right"),
+                    "amount": .int(8),
+                ]
+            )
+        )
+        guard case .ok? = result else {
+            Issue.record("Nested trailing-border resize failed: \(String(describing: result))")
+            return
+        }
+        let commands = try readControlCommands(harness)
+        #expect(commands == "resize-pane -t @3.%33 -R 1\n")
+    }
+
     @Test func paneResizeRejectsMalformedExplicitUnitValues() throws {
         let harness = try Harness(connectedTransport: true)
         defer { harness.tearDown() }

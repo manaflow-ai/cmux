@@ -441,10 +441,13 @@ func TestTmuxCorpusResizePaneDispatchesAbsoluteAndDirectionalResize(t *testing.T
 	if err := dispatchTmuxCommand(rc, "resize-pane", []string{"-t", "pane:1", "-R"}); err != nil {
 		t.Fatalf("resize-pane default directional: %v", err)
 	}
+	if err := dispatchTmuxCommand(rc, "resize-pane", []string{"-t", "pane:1", "-L7"}); err != nil {
+		t.Fatalf("resize-pane attached directional: %v", err)
+	}
 
 	resizeRequests := recorder.requestsFor("pane.resize")
-	if len(resizeRequests) != 4 {
-		t.Fatalf("pane.resize requests = %d, want 4", len(resizeRequests))
+	if len(resizeRequests) != 5 {
+		t.Fatalf("pane.resize requests = %d, want 5", len(resizeRequests))
 	}
 	if got := resizeRequests[0].Params["absolute_axis"]; got != "horizontal" {
 		t.Fatalf("absolute resize axis = %v, want horizontal", got)
@@ -490,6 +493,15 @@ func TestTmuxCorpusResizePaneDispatchesAbsoluteAndDirectionalResize(t *testing.T
 	}
 	if got := asInt(t, resizeRequests[3].Params["amount"], "default directional resize amount"); got != 4 {
 		t.Fatalf("default directional resize amount = %v, want 4", got)
+	}
+	if got := resizeRequests[4].Params["direction"]; got != "left" {
+		t.Fatalf("attached directional resize direction = %v, want left", got)
+	}
+	if got := asInt(t, resizeRequests[4].Params["amount_cells"], "attached directional resize cells"); got != 7 {
+		t.Fatalf("attached directional resize cells = %v, want 7", got)
+	}
+	if got := asInt(t, resizeRequests[4].Params["amount"], "attached directional resize amount"); got != 28 {
+		t.Fatalf("attached directional resize amount = %v, want 28", got)
 	}
 }
 
