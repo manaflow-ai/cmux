@@ -19,7 +19,3 @@ public protocol UpdateActionDelegate: AnyObject {
     /// relaunched instance starts cleanly.
     func updaterWillRelaunchApplication()
 }
-
-public extension UpdateActionDelegate {
-    func updaterPreparesToRelaunchApplication() async {}
-}

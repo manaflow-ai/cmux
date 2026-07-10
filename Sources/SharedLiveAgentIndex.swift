@@ -259,6 +259,8 @@ final class SharedLiveAgentIndex {
                currentResult.processScopeFingerprint == currentProcessScopeFingerprint {
                 return ProcessDetectedResumeIndexes(currentResult)
             }
+            self.latestCompletedLoadResult = nil
+            self.latestCompletedAt = nil
             let task = requestRefresh(
                 freshness: .captureAfterRequest,
                 publication: .scoped,

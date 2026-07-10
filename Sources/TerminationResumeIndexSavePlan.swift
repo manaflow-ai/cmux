@@ -19,7 +19,7 @@ nonisolated struct TerminationResumeIndexSavePlan {
         case .pending:
             resumeIndexes = cachedResumeIndexes()
         case .completed(let completedIndexes):
-            resumeIndexes = completedIndexes ?? cachedResumeIndexes()
+            resumeIndexes = completedIndexes
         }
         if let resumeIndexes {
             return TerminationResumeIndexSavePlan(
@@ -40,21 +40,21 @@ nonisolated struct TerminationResumeIndexSavePlan {
 
 nonisolated struct UpdateRelaunchResumeIndexResolver {
     private let cachedIndexes: () -> ProcessDetectedResumeIndexes?
-    private let loadSynchronously: () -> ProcessDetectedResumeIndexes
 
     init(
-        cachedIndexes: @escaping () -> ProcessDetectedResumeIndexes?,
-        loadSynchronously: @escaping () -> ProcessDetectedResumeIndexes
+        cachedIndexes: @escaping () -> ProcessDetectedResumeIndexes?
     ) {
         self.cachedIndexes = cachedIndexes
-        self.loadSynchronously = loadSynchronously
     }
 
     func resolve(
-        completedTerminationIndexes: ProcessDetectedResumeIndexes?
+        coordinatedBy authority: TerminationResumeIndexAuthority
     ) -> ProcessDetectedResumeIndexes? {
-        completedTerminationIndexes
-            ?? cachedIndexes()
-            ?? loadSynchronously()
+        switch authority {
+        case .pending:
+            return cachedIndexes()
+        case .completed(let completedIndexes):
+            return completedIndexes
+        }
     }
 }

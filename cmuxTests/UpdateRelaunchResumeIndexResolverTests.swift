@@ -9,7 +9,7 @@ import Testing
 @Suite
 struct UpdateRelaunchResumeIndexResolverTests {
     @Test
-    func completedThenCachedThenColdIndexesAreResolvedInOrder() {
+    func completedAuthorityThenPendingCacheAreResolvedWithoutColdScan() {
         let indexes = ProcessDetectedResumeIndexes(
             restorableAgentIndex: .empty,
             surfaceResumeBindingIndex: .empty
@@ -20,38 +20,28 @@ struct UpdateRelaunchResumeIndexResolverTests {
             cachedIndexes: {
                 events.append("completed-cache")
                 return indexes
-            },
-            loadSynchronously: {
-                events.append("completed-load")
-                return indexes
             }
         )
-        let completed = completedResolver.resolve(completedTerminationIndexes: indexes)
+        let completed = completedResolver.resolve(coordinatedBy: .completed(indexes))
+        let unavailable = completedResolver.resolve(coordinatedBy: .completed(nil))
         let cachedResolver = UpdateRelaunchResumeIndexResolver(
             cachedIndexes: {
                 events.append("cache-hit")
                 return indexes
-            },
-            loadSynchronously: {
-                events.append("cached-load")
-                return indexes
             }
         )
-        let cached = cachedResolver.resolve(completedTerminationIndexes: nil)
+        let cached = cachedResolver.resolve(coordinatedBy: .pending)
         let coldResolver = UpdateRelaunchResumeIndexResolver(
             cachedIndexes: {
                 events.append("cache-miss")
                 return nil
-            },
-            loadSynchronously: {
-                events.append("cold-load")
-                return indexes
             }
         )
-        let cold = coldResolver.resolve(completedTerminationIndexes: nil)
+        let cold = coldResolver.resolve(coordinatedBy: .pending)
 
         #expect(
             completed.map { _ in true } == true
+                && unavailable.map { _ in true } == nil
                 && cached.map { _ in true } == true
                 && cold.map { _ in true } == nil
                 && events == ["cache-hit", "cache-miss"]
