@@ -36,6 +36,33 @@ import Testing
         #expect(derived.first { $0.macDeviceID == "mac-b" }?.macDisplayName == "Beta")
     }
 
+    @Test func colorIndexStaysStableWhenLiveMacSetCollapsesDuringSwitch() {
+        let aggregation = MobileWorkspaceAggregation()
+        let settledStates = [
+            "mac-a": state("mac-a", name: "Alpha", ["a1"]),
+            "mac-b": state("mac-b", name: "Beta", ["b1"]),
+        ]
+        let settledIndex = aggregation.machineColorIndex(statesByMac: settledStates)
+        let macAIndex = settledIndex["mac-a"]
+        let macBIndex = settledIndex["mac-b"]
+
+        let collapsedToSwitchedMac = [
+            "mac-b": state("mac-b", name: "Beta", ["b1"]),
+        ]
+        let collapsedIndex = aggregation.machineColorIndex(statesByMac: collapsedToSwitchedMac)
+        #expect(collapsedIndex["mac-b"] == macBIndex)
+
+        let restoredIndex = aggregation.machineColorIndex(statesByMac: settledStates)
+        #expect(restoredIndex["mac-a"] == macAIndex)
+        #expect(restoredIndex["mac-b"] == macBIndex)
+
+        var withTransientThirdMac = settledStates
+        withTransientThirdMac["mac-c"] = state("mac-c", name: "Gamma", ["c1"])
+        let transientIndex = aggregation.machineColorIndex(statesByMac: withTransientThirdMac)
+        #expect(transientIndex["mac-a"] == macAIndex)
+        #expect(transientIndex["mac-b"] == macBIndex)
+    }
+
     @Test func colorIndexIgnoresEmptyMacKeys() {
         let states = [
             "": state("", name: nil, ["x"]),
