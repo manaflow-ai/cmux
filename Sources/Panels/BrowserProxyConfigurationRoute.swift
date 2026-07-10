@@ -13,10 +13,6 @@ private var browserProxyConfigurationApplicationStateKey: UInt8 = 0
 /// does not coalesce because WebKit retains the explicit C++ payload across
 /// NetworkProcess restarts even after `proxyConfigurations` is cleared.
 struct BrowserProxyConfigurationRoute {
-    @MainActor private static var persistentApplicationStates: [
-        String: BrowserProxyConfigurationApplicationState
-    ] = [:]
-
     private let configurations: [ProxyConfiguration]
     private let identity: String
     private let isDirect: Bool
@@ -97,9 +93,6 @@ struct BrowserProxyConfigurationRoute {
     private func applicationState(
         for websiteDataStore: WKWebsiteDataStore
     ) -> BrowserProxyConfigurationApplicationState {
-        if let key = persistentDataStoreKey(for: websiteDataStore) {
-            return Self.persistentApplicationStates[key] ?? .pristineDirect
-        }
         return objc_getAssociatedObject(
             websiteDataStore,
             &browserProxyConfigurationApplicationStateKey
@@ -111,24 +104,12 @@ struct BrowserProxyConfigurationRoute {
         _ state: BrowserProxyConfigurationApplicationState,
         on websiteDataStore: WKWebsiteDataStore
     ) {
-        if let key = persistentDataStoreKey(for: websiteDataStore) {
-            Self.persistentApplicationStates[key] = state
-            return
-        }
         objc_setAssociatedObject(
             websiteDataStore,
             &browserProxyConfigurationApplicationStateKey,
             state,
             .OBJC_ASSOCIATION_RETAIN_NONATOMIC
         )
-    }
-
-    @MainActor
-    private func persistentDataStoreKey(
-        for websiteDataStore: WKWebsiteDataStore
-    ) -> String? {
-        guard websiteDataStore.isPersistent else { return nil }
-        return websiteDataStore.identifier.map { "identified:\($0.uuidString)" } ?? "default"
     }
 
     private static func mirroredSystemIdentity(_ mirror: BrowserSystemProxyMirror) -> String {
