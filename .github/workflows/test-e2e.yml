@@ -444,7 +444,11 @@ jobs:
             ) </dev/null >/tmp/screencapture.log 2>&1 &
             RECORD_PID=$!
             echo "RECORD_PID=$RECORD_PID" >> "$GITHUB_ENV"
-            kill -0 "$RECORD_PID"
+            if ! kill -0 "$RECORD_PID"; then
+              echo "::error::Frame recorder process died before initializing"
+              cat /tmp/screencapture.log || true
+              exit 1
+            fi
             for _ in {1..50}; do
               [ -f "$RECORD_READY" ] && break
               sleep 0.1
