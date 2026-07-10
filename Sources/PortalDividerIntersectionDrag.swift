@@ -9,6 +9,9 @@ import AppKit
 /// keys off the live pointer event over the divider) and persist positions.
 @MainActor
 final class PortalDividerIntersectionDragController {
+    // Nested types do not inherit the enclosing class's @MainActor, and
+    // `resolvedSplitView` reads MainActor-isolated NSView state.
+    @MainActor
     private struct AxisDrag {
         weak var splitView: NSSplitView?
         weak var window: NSWindow?

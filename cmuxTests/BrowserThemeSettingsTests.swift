@@ -1,6 +1,5 @@
 import Foundation
-import class XCTest.XCTestCase
-import func XCTest.XCTAssertEqual
+import XCTest
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
