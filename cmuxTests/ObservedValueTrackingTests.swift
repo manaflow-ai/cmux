@@ -110,6 +110,25 @@ struct ObservedValueTrackingTests {
         #expect(weakProbe == nil, "Off-main cancel() must release onChange captures")
     }
 
+    /// A change queues the bridge's re-arm task on the main actor; an off-main
+    /// cancel() that returns BEFORE that task runs must still win. Without the
+    /// synchronous cancel fence, the queued re-arm observes live callbacks and
+    /// delivers after cancellation has completed on the calling thread.
+    @Test func offMainCancelBeatsAlreadyQueuedRearm() async {
+        let model = ObservedValueTrackingTestModel()
+        var received: [Int] = []
+        let token = observeTrackedValue({ model.value }) { received.append($0) }
+        #expect(received == [0])
+
+        // Queue the re-arm delivery, then complete an off-main cancel before
+        // yielding the main actor to it.
+        model.value = 1
+        await Task.detached { token.cancel() }.value
+
+        await drainMainActor(until: { false }, maxIterations: 50)
+        #expect(received == [0], "A delivery must not land after cancel() has returned")
+    }
+
     @Test func deliversChangesAndStopsAfterCancel() async {
         let model = ObservedValueTrackingTestModel()
         var received: [Int] = []

@@ -13,6 +13,31 @@ import Observation
 @MainActor
 private protocol ObservedValueCancellation: AnyObject, Sendable {
     func cancelObservation()
+    /// Synchronous, thread-safe "cancelled" mark. `cancel()` sets this before
+    /// (possibly asynchronously) running `cancelObservation`, so a re-arm task
+    /// that was already queued on the main actor cannot deliver after
+    /// `cancel()` has returned on another thread.
+    nonisolated func markCancelled()
+}
+
+/// Lock-guarded because it must be settable synchronously from whatever thread
+/// calls `cancel()` (Combine's `receiveCancel` contract) and readable on the
+/// main actor; an actor hop here would reintroduce the post-cancel window.
+private final class ObservedValueCancelFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = false
+
+    func set() {
+        lock.lock()
+        value = true
+        lock.unlock()
+    }
+
+    var isSet: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return value
+    }
 }
 
 @MainActor
@@ -21,6 +46,11 @@ private final class ObservedValueCoordinator<V: Equatable>: ObservedValueCancell
     private var onChange: (@MainActor (V) -> Void)?
     private var hasDelivered = false
     private var lastDelivered: V?
+    private let cancelFlag = ObservedValueCancelFlag()
+
+    nonisolated func markCancelled() {
+        cancelFlag.set()
+    }
 
     init(
         read: @escaping @MainActor () -> V,
@@ -37,7 +67,7 @@ private final class ObservedValueCoordinator<V: Equatable>: ObservedValueCancell
     }
 
     func arm(shouldDeliver: Bool) {
-        guard let read else { return }
+        guard !cancelFlag.isSet, let read else { return }
         let value = withObservationTracking {
             read()
         } onChange: { [weak self] in
@@ -46,7 +76,7 @@ private final class ObservedValueCoordinator<V: Equatable>: ObservedValueCancell
             }
         }
 
-        guard self.read != nil else { return }
+        guard self.read != nil, !cancelFlag.isSet else { return }
         if shouldDeliver {
             deliver(value)
         }
@@ -92,6 +122,10 @@ final class ObservationToken: @unchecked Sendable {
 
     func cancel() {
         guard let coordinator = takeCoordinator() else { return }
+        // Synchronously fence off any re-arm task already queued on the main
+        // actor, so no delivery can happen after this call returns even when
+        // the capture teardown below has to hop actors.
+        coordinator.markCancelled()
         if Thread.isMainThread {
             MainActor.assumeIsolated { coordinator.cancelObservation() }
         } else {
