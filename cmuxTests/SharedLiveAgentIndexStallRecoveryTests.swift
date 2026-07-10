@@ -381,7 +381,7 @@ struct SharedLiveAgentIndexStallRecoveryTests {
             .appendingPathComponent("cmux-shared-index-stall-\(UUID().uuidString)", isDirectory: true)
     }
 
-    private static func loadResult(
+    nonisolated private static func loadResult(
         workspaceId: UUID = UUID(),
         panelId: UUID = UUID(),
         sessionId: String
