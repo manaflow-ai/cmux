@@ -166,7 +166,7 @@
     },
     "billing": {
       "plan": {
-        "heading": "Dein Tarif",
+        "heading": "Dein persönlicher Tarif",
         "free": "Kostenlos",
         "pro": "Pro",
         "loading": "Wird geladen…"

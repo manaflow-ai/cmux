@@ -166,7 +166,7 @@
     },
     "billing": {
       "plan": {
-        "heading": "你的方案",
+        "heading": "你的个人方案",
         "free": "免费",
         "pro": "Pro",
         "loading": "加载中…"

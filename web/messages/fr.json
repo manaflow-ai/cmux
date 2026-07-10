@@ -166,7 +166,7 @@
     },
     "billing": {
       "plan": {
-        "heading": "Votre forfait",
+        "heading": "Votre forfait personnel",
         "free": "Gratuit",
         "pro": "Pro",
         "loading": "Chargement…"

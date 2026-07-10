@@ -166,7 +166,7 @@
     },
     "billing": {
       "plan": {
-        "heading": "Vaš plan",
+        "heading": "Vaš lični plan",
         "free": "Besplatno",
         "pro": "Pro",
         "loading": "Učitavanje…"

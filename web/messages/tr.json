@@ -166,7 +166,7 @@
     },
     "billing": {
       "plan": {
-        "heading": "Planınız",
+        "heading": "Kişisel planınız",
         "free": "Ücretsiz",
         "pro": "Pro",
         "loading": "Yükleniyor…"

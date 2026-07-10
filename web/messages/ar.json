@@ -166,7 +166,7 @@
     },
     "billing": {
       "plan": {
-        "heading": "خطتك",
+        "heading": "خطتك الشخصية",
         "free": "مجاني",
         "pro": "Pro",
         "loading": "جارٍ التحميل…"

@@ -166,7 +166,7 @@
     },
     "billing": {
       "plan": {
-        "heading": "Din plan",
+        "heading": "Din personlige plan",
         "free": "Gratis",
         "pro": "Pro",
         "loading": "Indlæser…"

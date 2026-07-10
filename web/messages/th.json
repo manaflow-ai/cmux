@@ -166,7 +166,7 @@
     },
     "billing": {
       "plan": {
-        "heading": "แผนของคุณ",
+        "heading": "แผนส่วนตัวของคุณ",
         "free": "ฟรี",
         "pro": "Pro",
         "loading": "กำลังโหลด…"

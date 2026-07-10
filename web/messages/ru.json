@@ -166,7 +166,7 @@
     },
     "billing": {
       "plan": {
-        "heading": "Ваш план",
+        "heading": "Ваш личный план",
         "free": "Бесплатно",
         "pro": "Pro",
         "loading": "Загрузка…"

@@ -166,7 +166,7 @@
     },
     "billing": {
       "plan": {
-        "heading": "내 플랜",
+        "heading": "내 개인 플랜",
         "free": "무료",
         "pro": "Pro",
         "loading": "불러오는 중…"

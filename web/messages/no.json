@@ -166,7 +166,7 @@
     },
     "billing": {
       "plan": {
-        "heading": "Abonnementet ditt",
+        "heading": "Ditt personlige abonnement",
         "free": "Gratis",
         "pro": "Pro",
         "loading": "Laster…"

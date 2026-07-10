@@ -166,7 +166,7 @@
     },
     "billing": {
       "plan": {
-        "heading": "Il tuo piano",
+        "heading": "Il tuo piano personale",
         "free": "Gratis",
         "pro": "Pro",
         "loading": "Caricamento…"
