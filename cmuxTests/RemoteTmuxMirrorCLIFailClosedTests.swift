@@ -132,6 +132,47 @@ extension RemoteTmuxMirrorCLIObservabilityTests {
         }
     }
 
+    /// Regression for #7831: pane IDs advertised by the mirror topology must
+    /// stay actionable through the real `pane.resize` coordinator path, and the
+    /// mutation must reach the remote tmux control stream rather than Bonsplit.
+    @Test func paneResizeRoutesProjectedPaneToRemoteTmux() throws {
+        let harness = try Harness(connectedTransport: true)
+        defer { harness.tearDown() }
+        let tmuxPaneID = try #require(harness.mirror.paneIDsInOrder.first)
+        let paneID = try #require(harness.mirror.syntheticPaneID(forPane: tmuxPaneID)?.id)
+
+        let result = ControlCommandCoordinator(context: TerminalController.shared).handle(
+            ControlRequest(
+                id: .int(1),
+                method: "pane.resize",
+                params: [
+                    "workspace_id": .string(harness.workspace.id.uuidString),
+                    "pane_id": .string(paneID.uuidString),
+                    "direction": .string("right"),
+                    "amount": .int(10),
+                ]
+            )
+        )
+
+        guard case .ok(let payload)? = result else {
+            Issue.record("Projected mirror pane resize failed: \(String(describing: result))")
+            return
+        }
+        let response = try #require(payload.foundationObject as? [String: Any])
+        #expect(response["pane_id"] as? String == paneID.uuidString)
+        #expect(response["direction"] as? String == "right")
+        #expect(response["amount"] as? Int == 10)
+
+        let writer = try #require(harness.controlWriter)
+        let pipe = try #require(harness.controlPipe)
+        writer.close()
+        let commands = String(
+            decoding: try pipe.fileHandleForReading.readToEnd() ?? Data(),
+            as: UTF8.self
+        )
+        #expect(commands.contains("resize-pane -t @3.%\(tmuxPaneID) -R 10\n"))
+    }
+
     @Test func bonsplitOnlyPaneMutationsRejectProjectedPaneIDs() throws {
         let harness = try Harness(focusAwayFromMirror: true)
         defer { harness.tearDown() }
