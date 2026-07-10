@@ -15,6 +15,7 @@ struct QuitConfirmationAlertPresenterTests {
         #expect(
             AppDelegate.pendingTerminateReply(
                 isAwaitingTerminateKills: true,
+                isAwaitingSessionCapture: false,
                 hasActiveQuitConfirmation: false,
                 activeQuitConfirmationOwnsTerminateRequest: false
             ) == .terminateLater
@@ -22,6 +23,15 @@ struct QuitConfirmationAlertPresenterTests {
         #expect(
             AppDelegate.pendingTerminateReply(
                 isAwaitingTerminateKills: false,
+                isAwaitingSessionCapture: true,
+                hasActiveQuitConfirmation: false,
+                activeQuitConfirmationOwnsTerminateRequest: false
+            ) == .terminateLater
+        )
+        #expect(
+            AppDelegate.pendingTerminateReply(
+                isAwaitingTerminateKills: false,
+                isAwaitingSessionCapture: false,
                 hasActiveQuitConfirmation: true,
                 activeQuitConfirmationOwnsTerminateRequest: true
             ) == .terminateLater
@@ -29,6 +39,7 @@ struct QuitConfirmationAlertPresenterTests {
         #expect(
             AppDelegate.pendingTerminateReply(
                 isAwaitingTerminateKills: false,
+                isAwaitingSessionCapture: false,
                 hasActiveQuitConfirmation: true,
                 activeQuitConfirmationOwnsTerminateRequest: false
             ) == .terminateCancel
@@ -36,6 +47,7 @@ struct QuitConfirmationAlertPresenterTests {
         #expect(
             AppDelegate.pendingTerminateReply(
                 isAwaitingTerminateKills: false,
+                isAwaitingSessionCapture: false,
                 hasActiveQuitConfirmation: false,
                 activeQuitConfirmationOwnsTerminateRequest: false
             ) == nil

@@ -89,10 +89,11 @@ final class QuitConfirmationAlertPresenter: NSObject, NSWindowDelegate {
 extension AppDelegate {
     static func pendingTerminateReply(
         isAwaitingTerminateKills: Bool,
+        isAwaitingSessionCapture: Bool,
         hasActiveQuitConfirmation: Bool,
         activeQuitConfirmationOwnsTerminateRequest: Bool
     ) -> NSApplication.TerminateReply? {
-        if isAwaitingTerminateKills { return .terminateLater }
+        if isAwaitingTerminateKills || isAwaitingSessionCapture { return .terminateLater }
         guard hasActiveQuitConfirmation else { return nil }
         return activeQuitConfirmationOwnsTerminateRequest ? .terminateLater : .terminateCancel
     }

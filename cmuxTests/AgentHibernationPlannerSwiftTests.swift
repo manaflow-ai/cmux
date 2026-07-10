@@ -307,6 +307,7 @@ struct AgentHibernationPlannerSwiftTests {
         let olderLoadStarted = DispatchSemaphore(value: 0)
         let releaseOlderLoad = DispatchSemaphore(value: 0)
         let replacementLoadStarted = DispatchSemaphore(value: 0)
+        let redundantLoadStarted = DispatchSemaphore(value: 0)
         defer { releaseOlderLoad.signal() }
         let olderTask = Task.detached { () -> RestorableAgentSessionIndex in
             olderLoadStarted.signal()
@@ -329,6 +330,18 @@ struct AgentHibernationPlannerSwiftTests {
                 return .empty
             }
         )
+        let queuedRequestID = controller.postSnapshotValidationIndexTask?.requestID
+        controller.postSnapshotValidationIndexSequence = 3
+        let joinedReplacementTask = controller.sharedPostSnapshotValidationIndexTask(
+            minimumStartSequence: 3,
+            loader: {
+                redundantLoadStarted.signal()
+                return .empty
+            }
+        )
+        #expect(controller.postSnapshotValidationIndexTask?.requestID == queuedRequestID)
+        #expect(controller.postSnapshotValidationIndexTask?.startSequence == 3)
+        #expect(controller.postSnapshotValidationIndexTask?.hasStartedCapture == false)
         let replacementStartedBeforeOlderLoadFinished = await Self.wait(
             for: replacementLoadStarted,
             timeout: 0.2
@@ -341,7 +354,12 @@ struct AgentHibernationPlannerSwiftTests {
 
         releaseOlderLoad.signal()
         #expect(await Self.wait(for: replacementLoadStarted))
+        #expect(
+            !(await Self.wait(for: redundantLoadStarted, timeout: 0.2)),
+            "Later boundaries must join the one queued successor instead of adding a serial backlog."
+        )
         _ = await replacementTask.value
+        _ = await joinedReplacementTask.value
     }
 
     @MainActor
@@ -437,6 +455,7 @@ struct AgentHibernationPlannerSwiftTests {
 
     @MainActor
     func resetSharedHibernationState(_ controller: AgentHibernationController) {
+        controller.cancelEvaluationTask()
         controller.activityByPanel.removeAll(keepingCapacity: false)
         controller.terminalInputByPanel.removeAll(keepingCapacity: false)
         controller.lifecycleChangeByPanel.removeAll(keepingCapacity: false)

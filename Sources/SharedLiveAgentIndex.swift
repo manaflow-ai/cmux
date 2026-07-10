@@ -11,6 +11,8 @@ final class SharedLiveAgentIndex {
 
     private(set) var index: RestorableAgentSessionIndex?
     private var loadedAt: Date?
+    private var latestCompletedLoadResult: LoadResult?
+    private var latestCompletedAt: Date?
     private var liveAgentProcessFingerprint: Set<String> = []
     private var refreshGenerationsByID: [UUID: RefreshGeneration] = [:]
     private var refreshTasksByID: [UUID: Task<LoadResult?, Never>] = [:]
@@ -64,7 +66,8 @@ final class SharedLiveAgentIndex {
     /// Read the cached snapshot for stale-tolerant callers. Never blocks.
     func snapshot(workspaceId: UUID, panelId: UUID) -> SessionRestorableAgentSnapshot? {
         scheduleRefreshIfStale()
-        return index?.snapshot(workspaceId: workspaceId, panelId: panelId)
+        return (latestCompletedLoadResult?.index ?? index)?
+            .snapshot(workspaceId: workspaceId, panelId: panelId)
     }
 
     /// Read the cached snapshot for the Fork Conversation context menu. Never blocks.
@@ -127,18 +130,18 @@ final class SharedLiveAgentIndex {
     /// Current cached index. Never blocks.
     func currentIndexSchedulingRefresh() -> RestorableAgentSessionIndex? {
         scheduleRefreshIfStale()
-        return index
+        return latestCompletedLoadResult?.index ?? index
     }
 
     /// Returns the cached index after awaiting any stale refresh this call schedules.
     func indexRefreshingIfNeeded() async -> RestorableAgentSessionIndex? {
         guard let task = refreshTaskIfStale() else {
-            return index
+            return latestCompletedLoadResult?.index ?? index
         }
         // Later interactive successors intentionally do not extend this stale-tolerant
         // read. Hibernation performs a separate post-snapshot scoped capture before
         // teardown, while following an open-ended probe stream could starve its tick.
-        return await task.value?.index ?? index
+        return await task.value?.index ?? latestCompletedLoadResult?.index ?? index
     }
 
     /// Returns an immutable index from a capture that starts after this request,
@@ -151,6 +154,33 @@ final class SharedLiveAgentIndex {
             validating: nil
         )
         return await task.value?.index ?? .empty
+    }
+
+    /// Returns a recent combined result, joins the active generation, or starts one when stale.
+    func resumeIndexesRefreshingIfNeeded(
+        maximumAge: TimeInterval = 60
+    ) async -> ProcessDetectedResumeIndexes? {
+        ensureWatchingHookStoreDirectory()
+        if let latestCompletedLoadResult,
+           let latestCompletedAt,
+           dateProvider().timeIntervalSince(latestCompletedAt) < maximumAge {
+            return ProcessDetectedResumeIndexes(latestCompletedLoadResult)
+        }
+        let task = requestRefresh(
+            freshness: .joinCurrentGeneration,
+            publication: .scoped,
+            validating: nil
+        )
+        if let result = await task.value {
+            return ProcessDetectedResumeIndexes(result)
+        }
+        return latestCompletedLoadResult.map(ProcessDetectedResumeIndexes.init)
+    }
+
+    /// Returns the newest completed coordinated capture immediately on the main actor.
+    func currentResumeIndexesSchedulingRefresh() -> ProcessDetectedResumeIndexes? {
+        scheduleRefreshIfStale()
+        return latestCompletedLoadResult.map(ProcessDetectedResumeIndexes.init)
     }
 
     func scheduleRefreshIfStale(
@@ -175,7 +205,9 @@ final class SharedLiveAgentIndex {
 
     private func refreshTaskIfStale(validating panelKey: PanelKey? = nil) -> Task<LoadResult?, Never>? {
         ensureWatchingHookStoreDirectory()
-        if let loadedAt, dateProvider().timeIntervalSince(loadedAt) < Self.cacheTTL {
+        let freshestCompletedAt = [loadedAt, latestCompletedAt].compactMap { $0 }.max()
+        if let freshestCompletedAt,
+           dateProvider().timeIntervalSince(freshestCompletedAt) < Self.cacheTTL {
             return nil
         }
         return requestRefresh(
@@ -264,6 +296,8 @@ final class SharedLiveAgentIndex {
         if refreshTailID == generationID {
             refreshTailID = nil
         }
+        latestCompletedLoadResult = result
+        latestCompletedAt = dateProvider()
 
         if generation.publication == .workspace {
             applyReloadedResult(

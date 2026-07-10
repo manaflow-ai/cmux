@@ -1094,9 +1094,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var didReplyToTerminate = false
     // True while remote tmux kill-before-quit owns the terminate reply.
     private var isAwaitingTerminateKills = false
+    let terminationResumeIndexCoordinator = TerminationResumeIndexCoordinator()
+    var terminationPreparationTask: Task<Void, Never>?
     private var terminateKillWatchdogTask: Task<Void, Never>?
     /// Force-exits if AppKit's terminate gauntlet wedges (#6758).
-    private let terminationWatchdog = TerminationWatchdog()
+    let terminationWatchdog = TerminationWatchdog()
+    lazy var confirmedTerminationSessionCapture = ConfirmedTerminationSessionCapture(watchdog: terminationWatchdog)
     private var activeQuitConfirmationAlertPresenter: QuitConfirmationAlertPresenter?
     private var activeQuitConfirmationOwnsTerminateRequest = false
     private var didInstallLifecycleSnapshotObservers = false
@@ -1820,7 +1823,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     /// Sole caller of `NSApp.reply(toApplicationShouldTerminate:)`.
-    private func replyToTerminateOnce(_ shouldTerminate: Bool) {
+    func replyToTerminateOnce(_ shouldTerminate: Bool) {
         guard !didReplyToTerminate else { return }
         didReplyToTerminate = true
         NSApp.reply(toApplicationShouldTerminate: shouldTerminate)
@@ -1833,7 +1836,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
-    private func deferTerminateForMarkedRemoteTmuxKills(reason: String) -> Bool {
+    func deferTerminateForMarkedRemoteTmuxKills(reason: String) -> Bool {
         let markedForKill = remoteTmuxController.windowsMarkedForKillOnClose()
         guard !markedForKill.isEmpty else { return false }
         if !isAwaitingTerminateKills {
@@ -1858,18 +1861,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         for windowId in remoteTmuxController.windowsMarkedForKillOnClose() {
             remoteTmuxController.consumeKillSessionsOnWindowClose(windowId: windowId)
         }
-    }
-
-    private func prepareForConfirmedAppTermination() {
-        isTerminatingApp = true
-        _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
-        ClosedItemHistoryStore.shared.flushPendingSaves()
-        // Quit is committed and the critical state is now on disk. Bound the
-        // remainder of the terminate sequence so a blocked Apple will-terminate
-        // observer (e.g. CFPasteboardResolveAllPromisedData, #6758) can't hang
-        // the main thread for ~30s. Idempotent and a no-op if the process exits
-        // first.
-        terminationWatchdog.arm()
     }
 
     private func presentQuitConfirmationAlert(
@@ -1898,13 +1889,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         let shouldQuit = response == .alertFirstButtonReturn
         if shouldQuit {
-            prepareForConfirmedAppTermination()
             isQuitWarningConfirmed = true
-            closeAllWebInspectorsBeforeAppTeardown()
-            StartupBreadcrumbLog.append("appDelegate.shouldTerminate.reply", fields: ["shouldQuit": "1"])
-            if deferTerminateForMarkedRemoteTmuxKills(reason: "confirmedDialog") {
-                return
-            }
+            beginConfirmedAppTermination(reason: "confirmedDialog")
+            return
         } else {
             // Reset so that the next quit attempt can show the dialog again.
             isTerminatingApp = false
@@ -1917,6 +1904,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         if let reply = Self.pendingTerminateReply(
             isAwaitingTerminateKills: isAwaitingTerminateKills,
+            isAwaitingSessionCapture: terminationPreparationTask != nil,
             hasActiveQuitConfirmation: activeQuitConfirmationAlertPresenter != nil,
             activeQuitConfirmationOwnsTerminateRequest: activeQuitConfirmationOwnsTerminateRequest
         ) {
@@ -1945,8 +1933,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             hasDirtyWorkspaces: hasDirtyWorkspaces,
             isDevBuild: buildFlavor == .dev
         ) {
-            prepareForConfirmedAppTermination()
-            closeAllWebInspectorsBeforeAppTeardown()
             let reason: String
             if isQuitWarningConfirmed {
                 reason = "confirmed"
@@ -1955,13 +1941,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             } else {
                 reason = "policy"
             }
-            // Explicit last-tab closes kill marked remote sessions before quit.
-            // Plain app/window quits have no marker and only detach.
-            if deferTerminateForMarkedRemoteTmuxKills(reason: reason) {
-                return .terminateLater
-            }
-            StartupBreadcrumbLog.append("appDelegate.shouldTerminate.terminateNow", fields: ["reason": reason])
-            return .terminateNow
+            beginConfirmedAppTermination(reason: reason)
+            StartupBreadcrumbLog.append("appDelegate.shouldTerminate.captureLater", fields: ["reason": reason])
+            return .terminateLater
         }
 
         // Show the same confirmation dialog used by the Cmd+Q shortcut path,
@@ -1977,14 +1959,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     @discardableResult
-    private func closeAllWebInspectorsBeforeAppTeardown() -> Int {
+    func closeAllWebInspectorsBeforeAppTeardown() -> Int {
         WebViewInspectorTeardown.closeAllInspectors(in: NSApp.windows)
     }
 
     func applicationWillTerminate(_ notification: Notification) {
         StartupBreadcrumbLog.append("appDelegate.willTerminate.begin")
         // Backstop for any terminate path that did not route through
-        // prepareForConfirmedAppTermination() (idempotent with the primary arm).
+        // beginConfirmedAppTermination(reason:) (idempotent with the primary arm).
         // Apple's promised-pasteboard observer can fire before this delegate
         // method, so the primary arm above is what bounds #6758; this only
         // widens coverage to other entrypoints.
@@ -3767,7 +3749,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 self.isTerminatingApp = true
-                _ = self.saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
+                _ = await self.saveSessionSnapshotAfterCoordinatingProcessDetectedIndexes(
+                    includeScrollback: true,
+                    removeWhenEmpty: false
+                )
                 ClosedItemHistoryStore.shared.flushPendingSaves()
             }
         }
@@ -3781,7 +3766,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 if self.isTerminatingApp {
-                    _ = self.saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
+                    _ = await self.saveSessionSnapshotAfterCoordinatingProcessDetectedIndexes(
+                        includeScrollback: true,
+                        removeWhenEmpty: false
+                    )
                     ClosedItemHistoryStore.shared.flushPendingSaves()
                 } else {
                     self.saveSessionSnapshotAfterLoadingProcessDetectedIndexes(includeScrollback: false)
@@ -3968,7 +3956,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     @discardableResult
-    private func saveSessionSnapshot(
+    func saveSessionSnapshot(
         includeScrollback: Bool,
         removeWhenEmpty: Bool = false,
         preserveManualRestoreBackupOnMissingPrimary: Bool = false,
@@ -4187,8 +4175,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
         let fingerprintStart = ProcessInfo.processInfo.systemUptime
 #endif
-        let resumeIndexes = await ProcessDetectedResumeIndexes.load()
-        guard !isTerminatingApp,
+        guard let resumeIndexes = await ProcessDetectedResumeIndexes.load(),
+              !isTerminatingApp,
               isCurrentProcessDetectedSessionSaveGeneration(generation) else {
 #if DEBUG
             cmuxDebugLog(
@@ -4240,16 +4228,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     @discardableResult
-    private func saveSessionSnapshotIncludingProcessDetectedIndexes(
+    func saveSessionSnapshotIncludingProcessDetectedIndexes(
         includeScrollback: Bool,
         removeWhenEmpty: Bool = false
     ) -> Bool {
-        let resumeIndexes = ProcessDetectedResumeIndexes.loadSynchronously()
+        let plan = TerminationResumeIndexSavePlan.resolve(
+            terminationResumeIndexCoordinator.current()
+        )
+        if plan.usesCoreSnapshotFallback {
+            StartupBreadcrumbLog.append("session.save.degraded", fields: [
+                "reason": "processDetectedIndexesUnavailableUsingCoreSnapshot",
+                "includeScrollback": includeScrollback ? "1" : "0",
+            ])
+        }
         return saveSessionSnapshot(
             includeScrollback: includeScrollback,
             removeWhenEmpty: removeWhenEmpty,
-            restorableAgentIndex: resumeIndexes.restorableAgentIndex,
-            surfaceResumeBindingIndex: resumeIndexes.surfaceResumeBindingIndex
+            restorableAgentIndex: plan.resumeIndexes.restorableAgentIndex,
+            surfaceResumeBindingIndex: plan.resumeIndexes.surfaceResumeBindingIndex
         )
     }
 
@@ -4260,8 +4256,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     ) {
         let generation = nextProcessDetectedSessionSaveGeneration()
         Task { @MainActor [weak self] in
-            let resumeIndexes = await ProcessDetectedResumeIndexes.load()
-            guard let self,
+            guard let resumeIndexes = await ProcessDetectedResumeIndexes.load(),
+                  let self,
                   !self.isTerminatingApp,
                   self.isCurrentProcessDetectedSessionSaveGeneration(generation) else { return }
             _ = self.saveSessionSnapshot(
@@ -4275,7 +4271,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     @discardableResult
-    private func nextProcessDetectedSessionSaveGeneration() -> UInt64 {
+    func nextProcessDetectedSessionSaveGeneration() -> UInt64 {
         processDetectedSessionSaveGeneration &+= 1
         return processDetectedSessionSaveGeneration
     }
@@ -4406,7 +4402,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let contexts = sortedMainWindowContextsForSessionSnapshot()
 
         guard !contexts.isEmpty else { return (nil, false) }
-        let restorableAgentIndex = suppliedRestorableAgentIndex ?? RestorableAgentSessionIndex.load()
+        let restorableAgentIndex = suppliedRestorableAgentIndex
+            ?? SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
+            ?? .empty
 
         var windows: [SessionWindowSnapshot] = []
         var removedCrashDiagnosticState = false
@@ -16284,7 +16282,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return
         }
         let restorableAgentIndex = SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
-            ?? RestorableAgentSessionIndex.load()
+            ?? .empty
         guard let snapshot = closeWindowSnapshotPruningCrashDiagnostics(
             for: context,
             includeScrollback: true,

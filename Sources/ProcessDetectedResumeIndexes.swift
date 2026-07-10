@@ -4,47 +4,33 @@ struct ProcessDetectedResumeIndexes: Sendable {
     let restorableAgentIndex: RestorableAgentSessionIndex
     let surfaceResumeBindingIndex: SurfaceResumeBindingIndex
 
-    static func load(
-        homeDirectory: String = NSHomeDirectory(),
-        fileManager: FileManager = .default
-    ) async -> ProcessDetectedResumeIndexes {
-        await Task.detached(priority: .utility) {
-            loadSynchronously(homeDirectory: homeDirectory, fileManager: fileManager, maximumSnapshotAge: 5)
-        }.value
+    init(
+        restorableAgentIndex: RestorableAgentSessionIndex,
+        surfaceResumeBindingIndex: SurfaceResumeBindingIndex
+    ) {
+        self.restorableAgentIndex = restorableAgentIndex
+        self.surfaceResumeBindingIndex = surfaceResumeBindingIndex
     }
 
-    static func loadSynchronously(
-        homeDirectory: String = NSHomeDirectory(),
-        fileManager: FileManager = .default,
-        maximumSnapshotAge: TimeInterval? = nil
-    ) -> ProcessDetectedResumeIndexes {
-        let capturedAt = Date().timeIntervalSince1970
-        let processSnapshot = if let maximumSnapshotAge {
-            CmuxTopProcessSnapshot.captureCached(includeProcessDetails: true, maximumAge: maximumSnapshotAge)
-        } else {
-            CmuxTopProcessSnapshot.capture(includeProcessDetails: true)
-        }
-        let registry = CmuxVaultAgentRegistry.load(homeDirectory: homeDirectory, fileManager: fileManager)
-        let detectedSnapshots = RestorableAgentSessionIndex.processDetectedSnapshots(
-            registry: registry,
-            fileManager: fileManager,
-            processSnapshot: processSnapshot,
-            capturedAt: capturedAt
+    init(_ loadResult: SharedLiveAgentIndexLoader.LoadResult) {
+        self.init(
+            restorableAgentIndex: loadResult.index,
+            surfaceResumeBindingIndex: loadResult.surfaceResumeBindingIndex
         )
-        let restorableAgentIndex = RestorableAgentSessionIndex.load(
-            homeDirectory: homeDirectory,
-            fileManager: fileManager,
-            registry: registry,
-            detectedSnapshots: detectedSnapshots
-        )
-        let detectedBindings = SurfaceResumeBindingIndex.processDetectedTmuxBindings(
-            fileManager: fileManager,
-            processSnapshot: processSnapshot,
-            capturedAt: capturedAt
-        )
-        return ProcessDetectedResumeIndexes(
-            restorableAgentIndex: restorableAgentIndex,
-            surfaceResumeBindingIndex: SurfaceResumeBindingIndex(bindingsByPanel: detectedBindings.mapValues(\.binding))
-        )
+    }
+
+    @MainActor
+    static func load(
+        maximumAge: TimeInterval = 60
+    ) async -> ProcessDetectedResumeIndexes? {
+        await load(coordinatedBy: .shared, maximumAge: maximumAge)
+    }
+
+    @MainActor
+    static func load(
+        coordinatedBy sharedIndex: SharedLiveAgentIndex,
+        maximumAge: TimeInterval = 60
+    ) async -> ProcessDetectedResumeIndexes? {
+        await sharedIndex.resumeIndexesRefreshingIfNeeded(maximumAge: maximumAge)
     }
 }

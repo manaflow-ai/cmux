@@ -27,6 +27,7 @@ extension SharedLiveAgentIndexLoadCoalescingTests {
             indexLoader: {
                 (
                     index: loadedIndex,
+                    surfaceResumeBindingIndex: .empty,
                     liveAgentProcessFingerprint: [],
                     processScopeFingerprint: [],
                     forkValidatedPanels: []
@@ -97,6 +98,7 @@ extension SharedLiveAgentIndexLoadCoalescingTests {
                     releaseFirstLoad.wait()
                     return (
                         index: firstIndex,
+                        surfaceResumeBindingIndex: .empty,
                         liveAgentProcessFingerprint: [],
                         processScopeFingerprint: [],
                         forkValidatedPanels: []
@@ -106,6 +108,7 @@ extension SharedLiveAgentIndexLoadCoalescingTests {
                 releaseSuccessorLoad.wait()
                 return (
                     index: successorIndex,
+                    surfaceResumeBindingIndex: .empty,
                     liveAgentProcessFingerprint: [],
                     processScopeFingerprint: [],
                     forkValidatedPanels: []
@@ -183,6 +186,7 @@ extension SharedLiveAgentIndexLoadCoalescingTests {
                     releaseFirstLoad.wait()
                     return (
                         index: joinedIndex,
+                        surfaceResumeBindingIndex: .empty,
                         liveAgentProcessFingerprint: [],
                         processScopeFingerprint: [],
                         forkValidatedPanels: []
@@ -192,6 +196,7 @@ extension SharedLiveAgentIndexLoadCoalescingTests {
                 releaseSuccessorLoad.wait()
                 return (
                     index: successorIndex,
+                    surfaceResumeBindingIndex: .empty,
                     liveAgentProcessFingerprint: [],
                     processScopeFingerprint: [],
                     forkValidatedPanels: []

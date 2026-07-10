@@ -4,6 +4,7 @@ import Foundation
 struct SharedLiveAgentIndexLoader {
     typealias LoadResult = (
         index: RestorableAgentSessionIndex,
+        surfaceResumeBindingIndex: SurfaceResumeBindingIndex,
         liveAgentProcessFingerprint: Set<String>,
         processScopeFingerprint: Set<String>,
         forkValidatedPanels: Set<RestorableAgentSessionIndex.PanelKey>
@@ -55,28 +56,47 @@ struct SharedLiveAgentIndexLoader {
         let resolvedRegistry = registry
             ?? CmuxVaultAgentRegistry.load(homeDirectory: homeDirectory, fileManager: fileManager)
         let processSnapshot = processSnapshotProvider()
+        let capturedAt = capturedAtProvider()
+        var processArgumentsByPID: [Int: CmuxTopProcessArguments?] = [:]
+        func cachedProcessArguments(_ processID: Int) -> CmuxTopProcessArguments? {
+            if let cached = processArgumentsByPID[processID] {
+                return cached
+            }
+            let resolved = processArgumentsProvider(processID)
+            processArgumentsByPID.updateValue(resolved, forKey: processID)
+            return resolved
+        }
         let detectedSnapshots = RestorableAgentSessionIndex.processDetectedSnapshots(
             registry: resolvedRegistry,
             fileManager: fileManager,
             processSnapshot: processSnapshot,
-            capturedAt: capturedAtProvider(),
-            processArgumentsProvider: processArgumentsProvider
+            capturedAt: capturedAt,
+            processArgumentsProvider: cachedProcessArguments
         )
         let index = RestorableAgentSessionIndex.load(
             homeDirectory: homeDirectory,
             fileManager: fileManager,
             registry: resolvedRegistry,
             detectedSnapshots: detectedSnapshots,
-            processArgumentsProvider: processArgumentsProvider,
+            processArgumentsProvider: cachedProcessArguments,
             processIdentityProvider: processIdentityProvider
+        )
+        let detectedBindings = SurfaceResumeBindingIndex.processDetectedTmuxBindings(
+            fileManager: fileManager,
+            processSnapshot: processSnapshot,
+            capturedAt: capturedAt,
+            processArgumentsProvider: cachedProcessArguments
         )
         return (
             index: index,
+            surfaceResumeBindingIndex: SurfaceResumeBindingIndex(
+                bindingsByPanel: detectedBindings.mapValues(\.binding)
+            ),
             liveAgentProcessFingerprint: index.liveAgentProcessFingerprint(),
             processScopeFingerprint: Self.processScopeFingerprint(from: processSnapshot),
             forkValidatedPanels: Self.forkValidatedPanels(
                 in: index,
-                processArgumentsProvider: processArgumentsProvider,
+                processArgumentsProvider: cachedProcessArguments,
                 processIdentityProvider: processIdentityProvider,
                 validator: cachedAgentProcessValidator
             )

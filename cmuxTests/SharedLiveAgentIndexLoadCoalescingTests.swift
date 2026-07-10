@@ -36,6 +36,7 @@ struct SharedLiveAgentIndexLoadCoalescingTests {
                 releaseLoad.wait()
                 return (
                     index: loadedIndex,
+                    surfaceResumeBindingIndex: .empty,
                     liveAgentProcessFingerprint: [],
                     processScopeFingerprint: [],
                     forkValidatedPanels: []
@@ -156,6 +157,7 @@ struct SharedLiveAgentIndexLoadCoalescingTests {
                     releaseFirstLoad.wait()
                     return (
                         index: staleIndex,
+                        surfaceResumeBindingIndex: .empty,
                         liveAgentProcessFingerprint: [],
                         processScopeFingerprint: [],
                         forkValidatedPanels: [latePanelKey]
@@ -165,6 +167,7 @@ struct SharedLiveAgentIndexLoadCoalescingTests {
                 releaseSuccessorLoad.wait()
                 return (
                     index: lateIndex,
+                    surfaceResumeBindingIndex: .empty,
                     liveAgentProcessFingerprint: [],
                     processScopeFingerprint: [],
                     forkValidatedPanels: [latePanelKey]
@@ -249,6 +252,7 @@ struct SharedLiveAgentIndexLoadCoalescingTests {
                 }
                 return (
                     index: refreshedIndex,
+                    surfaceResumeBindingIndex: .empty,
                     liveAgentProcessFingerprint: [],
                     processScopeFingerprint: [],
                     forkValidatedPanels: []
@@ -337,6 +341,7 @@ struct SharedLiveAgentIndexLoadCoalescingTests {
     nonisolated private static var emptyLoadResult: SharedLiveAgentIndexLoader.LoadResult {
         (
             index: .empty,
+            surfaceResumeBindingIndex: .empty,
             liveAgentProcessFingerprint: [],
             processScopeFingerprint: [],
             forkValidatedPanels: []
