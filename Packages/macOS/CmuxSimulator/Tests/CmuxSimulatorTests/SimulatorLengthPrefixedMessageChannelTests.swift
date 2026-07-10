@@ -57,6 +57,22 @@ struct SimulatorLengthPrefixedMessageChannelTests {
         }
     }
 
+    @Test("A closed worker pipe reports EPIPE without terminating the host")
+    func closedWorkerPipeDoesNotRaiseSIGPIPE() {
+        var descriptors = [Int32](repeating: 0, count: 2)
+        #expect(pipe(&descriptors) == 0)
+        let channel = SimulatorLengthPrefixedMessageChannel(
+            readFD: -1,
+            writeFD: descriptors[1]
+        )
+        close(descriptors[0])
+        defer { close(descriptors[1]) }
+
+        #expect(throws: SimulatorChannelError.writeFailed) {
+            try channel.sendMessage(Data("worker exited".utf8))
+        }
+    }
+
     @Test("The bounded frame queue preserves FIFO order and rejects overflow")
     func boundedQueueOverflows() async {
         let queue = SimulatorBoundedMessageQueue<Int>(limit: 3)
