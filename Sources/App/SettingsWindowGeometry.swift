@@ -1,9 +1,25 @@
 import AppKit
 
-/// Pure multi-monitor recovery geometry for the Settings window, split out of
-/// `SettingsWindowPresenter` (which stays under the Swift file-length budget)
-/// and kept as extensions so call sites and tests address one type.
+/// Pure multi-monitor recovery geometry and window-usability policy for the
+/// Settings window, split out of `SettingsWindowPresenter` (which stays under
+/// the Swift file-length budget) and kept as extensions so call sites and
+/// tests address one type.
 extension SettingsWindowPresenter {
+    /// Pure usability policy so the self-healing decision is unit-testable.
+    static func unusableWindowReason(
+        hasContent: Bool,
+        frame: NSRect,
+        minimumSize: NSSize
+    ) -> String? {
+        if !hasContent {
+            return "window has no content (deallocated or unloaded content view)"
+        }
+        if frame.width < minimumSize.width / 2 || frame.height < minimumSize.height / 2 {
+            return "window frame is degenerate (\(Int(frame.width))x\(Int(frame.height)))"
+        }
+        return nil
+    }
+
     /// Pure selection of the visible-screen frame the settings window should be
     /// clamped into. When the window's saved frame is off every active screen
     /// (e.g. restored onto a now-disconnected display in a multi-monitor setup)

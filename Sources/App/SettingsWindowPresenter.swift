@@ -45,6 +45,9 @@ final class SettingsWindowPresenter: NSObject {
     /// is synchronous, so more attempts cannot help: if two consecutive fresh
     /// windows refuse to order in, AppKit itself is wedged and we fail loudly.
     static let maxPresentAttempts = 2
+    /// Maximum re-entrant `show()` depth reached through close-triggered
+    /// observers before the presenter fails loudly instead of recursing.
+    static let maxReentrantShowDepth = 3
 
     static let shared = SettingsWindowPresenter()
     /// Release-safe diagnostics so intermittent "Settings won't open" reports
@@ -58,6 +61,9 @@ final class SettingsWindowPresenter: NSObject {
     /// a closed window can never absorb a future open request.
     private var settingsWindow: NSWindow?
     private var pendingNavigationTarget: SettingsNavigationTarget?
+    /// Current re-entrant depth of `performShow` (close-triggered observers
+    /// may re-enter). Bounded by `maxReentrantShowDepth`.
+    private var activeShowDepth = 0
     /// Monotonic delivery token: bumped on every posted navigation so a
     /// queued fresh-window delivery can detect it was superseded by a newer
     /// targeted show and stay silent instead of navigating backwards.
@@ -136,11 +142,29 @@ final class SettingsWindowPresenter: NSObject {
             pendingNavigationTarget = navigationTarget
         }
 
+        // `demolish` closes windows synchronously, and a foreign willClose
+        // observer may re-enter show() from inside that close (a supported
+        // pattern). The depth bound is the safety valve that keeps a
+        // pathological reopen-on-close observer combined with persistent
+        // presentation failure from recursing without limit.
+        activeShowDepth += 1
+        defer { activeShowDepth -= 1 }
+        if activeShowDepth > Self.maxReentrantShowDepth {
+            let reason = "re-entrant settings show exceeded depth \(Self.maxReentrantShowDepth) during teardown recovery"
+            Self.log.fault("settings.window.show \(reason, privacy: .public)")
+            return .failed(reason: reason)
+        }
+
         var failureReason = "settings window was never presented"
         for attempt in 1...Self.maxPresentAttempts {
             let window: NSWindow
             let reusedExisting: Bool
-            if attempt == 1, let existing = usableExistingWindow() {
+            // Checked on every attempt, not just the first: attempt 1's
+            // demolish strips the failed window before closing it, so it can
+            // never be rediscovered here — but a re-entrant show() from that
+            // close may already have created a healthy replacement, which
+            // must be adopted instead of duplicated.
+            if let existing = usableExistingWindow() {
                 Self.logExistingWindowState(existing)
                 adopt(existing)
                 window = existing
@@ -223,21 +247,6 @@ final class SettingsWindowPresenter: NSObject {
             return nil
         }
         return candidate
-    }
-
-    /// Pure usability policy so the self-healing decision is unit-testable.
-    static func unusableWindowReason(
-        hasContent: Bool,
-        frame: NSRect,
-        minimumSize: NSSize
-    ) -> String? {
-        if !hasContent {
-            return "window has no content (deallocated or unloaded content view)"
-        }
-        if frame.width < minimumSize.width / 2 || frame.height < minimumSize.height / 2 {
-            return "window frame is degenerate (\(Int(frame.width))x\(Int(frame.height)))"
-        }
-        return nil
     }
 
     /// Tracks a window discovered by identifier scan (e.g. after presenter

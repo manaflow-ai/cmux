@@ -126,6 +126,68 @@ struct SettingsWindowNavigationRoutingTests {
         }
     }
 
+    // MARK: - Re-entrant teardown recovery
+
+    @Test func reentrantReopenDuringTeardownAdoptsReplacementWindow() async {
+        await withCleanSettingsWindows {
+            var buildCount = 0
+            let presenter = SettingsWindowPresenter(windowFactory: {
+                buildCount += 1
+                let window = makePlainFactoryWindow()
+                // Only the first window refuses to present, forcing a
+                // demolish whose close re-enters show() via the observer.
+                window.refusesToBecomeVisible = buildCount == 1
+                return window
+            })
+            let reopener = ReopenOnSettingsTestWindowClose {
+                _ = presenter.show()
+            }
+
+            let result = presenter.show()
+            reopener.stopObserving()
+
+            // The outer retry must adopt the window the re-entrant show
+            // created, not build a duplicate next to it.
+            #expect(result == .presented)
+            #expect(buildCount == 2)
+            let visibleCount = NSApp.windows.filter {
+                $0.identifier?.rawValue == SettingsWindowPresenter.windowIdentifier && $0.isVisible
+            }.count
+            #expect(visibleCount == 1)
+        }
+    }
+
+    @Test func pathologicalReopenOnCloseFailsLoudlyInsteadOfRecursing() async {
+        await withCleanSettingsWindows {
+            var buildCount = 0
+            let presenter = SettingsWindowPresenter(windowFactory: {
+                buildCount += 1
+                let window = makePlainFactoryWindow()
+                window.refusesToBecomeVisible = true
+                return window
+            })
+            let reopener = ReopenOnSettingsTestWindowClose {
+                _ = presenter.show()
+            }
+
+            let result = presenter.show()
+            reopener.stopObserving()
+
+            // Every window refuses to present and every close re-enters
+            // show(): the depth bound must convert this into a loud failure
+            // with a bounded number of attempts, never a runaway recursion.
+            guard case .failed = result else {
+                Issue.record("expected .failed, got \(result)")
+                return
+            }
+            #expect(buildCount < 20)
+            let visibleCount = NSApp.windows.filter {
+                $0.identifier?.rawValue == SettingsWindowPresenter.windowIdentifier && $0.isVisible
+            }.count
+            #expect(visibleCount == 0)
+        }
+    }
+
     // MARK: - Helpers
 
     private func visibleSettingsWindow() -> NSWindow? {
@@ -160,8 +222,8 @@ struct SettingsWindowNavigationRoutingTests {
 }
 
 @MainActor
-private func makePlainFactoryWindow() -> SettingsHostWindow {
-    let window = SettingsHostWindow(
+private func makePlainFactoryWindow() -> SettingsTestHostWindow {
+    let window = SettingsTestHostWindow(
         contentRect: NSRect(x: 0, y: 0, width: 980, height: 680),
         styleMask: [.titled, .closable, .miniaturizable, .resizable],
         backing: .buffered,
@@ -170,6 +232,53 @@ private func makePlainFactoryWindow() -> SettingsHostWindow {
     window.isReleasedWhenClosed = false
     window.contentViewController = NSViewController()
     return window
+}
+
+@MainActor
+private final class SettingsTestHostWindow: SettingsHostWindow {
+    var refusesToBecomeVisible = false
+
+    override var isVisible: Bool {
+        refusesToBecomeVisible ? false : super.isVisible
+    }
+
+    override func makeKeyAndOrderFront(_ sender: Any?) {
+        guard !refusesToBecomeVisible else { return }
+        super.makeKeyAndOrderFront(sender)
+    }
+
+    override func orderFrontRegardless() {
+        guard !refusesToBecomeVisible else { return }
+        super.orderFrontRegardless()
+    }
+}
+
+/// Re-enters the given closure from any `SettingsTestHostWindow`'s willClose
+/// notification (the presenter's demolish closes windows synchronously).
+@MainActor
+private final class ReopenOnSettingsTestWindowClose: NSObject {
+    private let reopen: () -> Void
+
+    init(reopen: @escaping () -> Void) {
+        self.reopen = reopen
+        super.init()
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(windowWillClose(_:)),
+            name: NSWindow.willCloseNotification,
+            object: nil
+        )
+    }
+
+    func stopObserving() {
+        NotificationCenter.default.removeObserver(self)
+    }
+
+    @objc
+    private func windowWillClose(_ notification: Notification) {
+        guard notification.object is SettingsTestHostWindow else { return }
+        reopen()
+    }
 }
 
 /// Records `SettingsNavigationRequest` posts on the main actor.
