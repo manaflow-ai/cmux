@@ -141,7 +141,12 @@ extension SharedLiveAgentIndex {
         if refreshTailID == generationID {
             refreshTailID = nil
         }
-        if generation.ordinal >= latestCompletedOrdinal {
+        if generation.phase == .timedOut {
+            clearPendingForkValidations(
+                validationPanelsByPanelID: generation.validationPanelsByPanelID,
+                generationID: generationID
+            )
+        } else if generation.ordinal >= latestCompletedOrdinal {
             latestCompletedOrdinal = generation.ordinal
             latestCompletedLoadResult = result
             latestCompletedAt = dateProvider()

@@ -16,7 +16,9 @@ struct TerminationResumeIndexSavePlan {
             )
         }
         return TerminationResumeIndexSavePlan(
-            restorableAgentIndex: nil,
+            // An explicit empty process augmentation keeps the core snapshot
+            // path from scheduling a second cold shared-index refresh.
+            restorableAgentIndex: .empty,
             surfaceResumeBindingIndex: nil,
             usesCoreSnapshotFallback: true
         )
