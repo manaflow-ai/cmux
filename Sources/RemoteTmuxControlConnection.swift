@@ -78,6 +78,7 @@ final class RemoteTmuxControlConnection {
     /// the cached classification instead of hanging until a reconnect that may
     /// never come.
     var activityQueryCompletions: [UUID: ([Int: PaneForegroundState]?) -> Void] = [:]
+    var newWindowCompletions: [UUID: (Int?) -> Void] = [:]
 
     private var process: Process?
     private var stdinWriter: RemoteTmuxControlPipeWriter?
@@ -361,8 +362,9 @@ final class RemoteTmuxControlConnection {
         initialBatchAwaiting = nil
         initialBatchStaged.removeAll()
         // Normally already flushed by beginReconnecting; kept here so a future
-        // caller of spawnProcess can't strand a close decision.
+        // caller of spawnProcess can't strand command decisions.
         failPendingActivityQueries()
+        failPendingNewWindowRequests()
         attachBlockDrained = false
         stderrBuffer = ""
         enterReceived = false
@@ -459,12 +461,6 @@ final class RemoteTmuxControlConnection {
         if stderrBuffer.utf8.count > Self.maxStderrBytes {
             stderrBuffer = String(decoding: Array(stderrBuffer.utf8.suffix(Self.maxStderrBytes)), as: UTF8.self)
         }
-    }
-
-    /// Sends a tmux command on the control stream (newline-terminated).
-    @discardableResult
-    func send(_ command: String) -> Bool {
-        sendInternal(command, kind: .other)
     }
 
     /// The last size any writer requested per window — per-window dedup
@@ -694,6 +690,7 @@ final class RemoteTmuxControlConnection {
     /// (``stop()``) and a genuine remote end (`%exit`).
     private func cancelScheduledWork() {
         failPendingActivityQueries()
+        failPendingNewWindowRequests()
         reconnectTask?.cancel()
         reconnectTask = nil
         cancelSizingFollowUps()
@@ -825,6 +822,7 @@ final class RemoteTmuxControlConnection {
         // The stream is dead: a close decision awaiting an activity query must
         // not hang for the whole backoff window — fail it onto the cache now.
         failPendingActivityQueries()
+        failPendingNewWindowRequests()
         cancelSizingFollowUps()
         pendingPostAttachAction = nil
         teardownProcessHandles()
