@@ -1956,7 +1956,7 @@ func tmuxResizePane(rc *rpcContext, args []string) error {
 				break
 			}
 		}
-		_, err := rc.call("pane.resize", map[string]any{
+		_, err = rc.call("pane.resize", map[string]any{
 			"workspace_id": wsId,
 			"pane_id":      paneId,
 			"direction":    dir,
