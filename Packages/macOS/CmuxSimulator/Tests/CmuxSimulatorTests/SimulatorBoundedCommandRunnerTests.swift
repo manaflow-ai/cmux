@@ -31,6 +31,38 @@ struct SimulatorBoundedCommandRunnerTests {
         #expect(result.errorWasTruncated)
     }
 
+    @Test("Concurrent captures retain their pipe readers until every child exits")
+    func concurrentCaptureReaderLifetime() async {
+        let results = await withTaskGroup(
+            of: SimulatorBoundedCommandResult.self,
+            returning: [SimulatorBoundedCommandResult].self
+        ) { group in
+            for _ in 0..<32 {
+                group.addTask {
+                    await SimulatorBoundedCommandRunner().runBounded(
+                        directory: FileManager.default.currentDirectoryPath,
+                        executable: "/bin/sh",
+                        arguments: [
+                            "-c",
+                            "dd if=/dev/zero bs=65536 count=4 2>/dev/null; dd if=/dev/zero bs=65536 count=4 1>&2 2>/dev/null",
+                        ],
+                        timeout: 5,
+                        standardOutputLimit: 1_024,
+                        standardErrorLimit: 512
+                    )
+                }
+            }
+            return await group.reduce(into: []) { $0.append($1) }
+        }
+
+        #expect(results.count == 32)
+        #expect(results.allSatisfy { $0.exitStatus == 0 })
+        #expect(results.allSatisfy { $0.standardOutput.count == 1_024 })
+        #expect(results.allSatisfy { $0.standardError.count == 512 })
+        #expect(results.allSatisfy { $0.outputWasTruncated })
+        #expect(results.allSatisfy { $0.errorWasTruncated })
+    }
+
     @Test("Cancellation terminates a child launched in the cancellation race")
     func boundedProcessCancellation() async throws {
         let gate = BoundedLaunchRaceGate()
