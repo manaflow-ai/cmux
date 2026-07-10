@@ -69,6 +69,11 @@ final class MobileHostIrohRuntime {
     private let identities = CmxIrohIdentityRepository()
     private let brokerCredentials = CmxIrohBrokerCredentialRepository()
     private let hostPolicies = CmxIrohHostPolicyCache()
+    private let pendingRevocations = CmxIrohPendingRevocationOutbox(
+        secureStore: CmxIrohKeychainCredentialStore(
+            service: "com.cmuxterm.iroh.pending-revocations.v1"
+        )
+    )
     private let lanPublisher = CmxIrohLANHostPublisher()
     private let authObserver = MobileHostIrohAuthObserver()
 
@@ -80,7 +85,10 @@ final class MobileHostIrohRuntime {
     private var observedAccountID: String?
     private var activeAccountID: String?
     private var activeAppInstanceID: String?
+    private var lastKnownAccountID: String?
+    private var lastKnownTag: String?
     private var lastKnownBindingID: String?
+    private var preparedRevocation: CmxIrohPendingRevocation?
     private var lifecycleRevision: UInt64 = 0
 
     private init() {}
@@ -94,8 +102,15 @@ final class MobileHostIrohRuntime {
             let states = self.authObserver.states(for: auth)
             for await state in states {
                 guard !Task.isCancelled else { return }
+                let previousAccountID = self.observedAccountID
                 self.observedAccountID = state.accountID
-                self.scheduleReconcile(eraseAccountState: state.accountID == nil)
+                self.scheduleReconcile(
+                    eraseAccountState: state.accountID == nil
+                        || (previousAccountID != nil
+                            && previousAccountID != state.accountID)
+                        || (self.activeAccountID != nil
+                            && self.activeAccountID != state.accountID)
+                )
             }
         }
     }
@@ -131,19 +146,18 @@ final class MobileHostIrohRuntime {
         refreshToken: String?
     ) async {
         observedAccountID = nil
-        let bindingID = lastKnownBindingID
+        let pending = currentPendingRevocation() ?? preparedRevocation
         let transition = scheduleReconcile(eraseAccountState: true)
         await transition.value
 
-        guard let bindingID,
+        guard let pending,
               let accessToken,
               !accessToken.isEmpty,
               let refreshToken,
-              !refreshToken.isEmpty else {
-            lastKnownBindingID = nil
-            return
-        }
+              !refreshToken.isEmpty else { return }
         do {
+            // Retry persistence in case the pre-wipe Keychain attempt failed.
+            try await pendingRevocations.enqueue(pending)
             let broker = try CmxIrohTrustBrokerClient(
                 baseURL: AuthEnvironment.vmAPIBaseURL,
                 tokenSource: CmxIrohBrokerTokenSource(
@@ -151,13 +165,19 @@ final class MobileHostIrohRuntime {
                     refreshToken: { refreshToken }
                 )
             )
-            try await broker.revoke(bindingID: bindingID)
+            try await pendingRevocations.revokePending(
+                accountID: pending.accountID,
+                beforeRegisteringTag: pending.tag,
+                using: broker
+            )
+            if preparedRevocation == pending {
+                preparedRevocation = nil
+            }
         } catch {
             mobileHostIrohLog.error(
                 "Iroh binding revoke failed: \(String(describing: error), privacy: .private)"
             )
         }
-        lastKnownBindingID = nil
     }
 
     @discardableResult
@@ -189,6 +209,9 @@ final class MobileHostIrohRuntime {
         eraseAccountState: Bool,
         revision: UInt64
     ) async {
+        if eraseAccountState {
+            await enqueuePendingRevocationBeforeLocalWipe()
+        }
         if activeAccountID != targetAccountID || targetAccountID == nil {
             let previousRuntime = runtime
             runtime = nil
@@ -258,6 +281,8 @@ final class MobileHostIrohRuntime {
         let cachedRelay: CmxIrohRelayTokenResponse?
         if let cachedBinding, bindingMatches {
             lastKnownBindingID = cachedBinding.bindingID
+            lastKnownAccountID = accountID
+            lastKnownTag = tag
             cachedRelay = try await brokerCredentials.loadRelayCredential(
                 accountID: accountID,
                 binding: cachedBinding,
@@ -291,6 +316,8 @@ final class MobileHostIrohRuntime {
         }
         if let cachedHostPolicy {
             lastKnownBindingID = cachedHostPolicy.binding.bindingID
+            lastKnownAccountID = accountID
+            lastKnownTag = tag
         }
 
         let broker = try CmxIrohTrustBrokerClient(
@@ -309,6 +336,7 @@ final class MobileHostIrohRuntime {
             )
         )
         let configuration = CmxIrohHostRuntimeConfiguration(
+            accountID: accountID,
             deviceID: deviceID,
             appInstanceID: appInstanceID,
             tag: tag,
@@ -334,6 +362,7 @@ final class MobileHostIrohRuntime {
             factory: CmxIrohLibEndpointFactory(),
             broker: broker,
             configuration: configuration,
+            pendingRevocations: pendingRevocations,
             handleTransport: { session, isCurrent in
                 let eventWriter = MobileHostIrohServerEventWriter(
                     session: session
@@ -380,6 +409,11 @@ final class MobileHostIrohRuntime {
                 await MainActor.run {
                     guard let self, revision == self.lifecycleRevision else { return }
                     self.lastKnownBindingID = binding.bindingID
+                    self.lastKnownAccountID = accountID
+                    self.lastKnownTag = tag
+                    if self.preparedRevocation?.accountID == accountID {
+                        self.preparedRevocation = nil
+                    }
                     MobileHostService.shared.updateIrohBinding(binding)
                 }
             },
@@ -431,6 +465,37 @@ final class MobileHostIrohRuntime {
         runtime = hostRuntime
         activeAccountID = accountID
         activeAppInstanceID = appInstanceID
+        if preparedRevocation?.accountID == accountID {
+            preparedRevocation = nil
+        }
+    }
+
+    private func enqueuePendingRevocationBeforeLocalWipe() async {
+        guard let pending = currentPendingRevocation() else { return }
+        preparedRevocation = pending
+        do {
+            try await pendingRevocations.enqueue(pending)
+            if lastKnownBindingID == pending.bindingID {
+                lastKnownBindingID = nil
+                lastKnownAccountID = nil
+                lastKnownTag = nil
+            }
+        } catch {
+            mobileHostIrohLog.error(
+                "Iroh binding revocation queue failed: \(String(describing: error), privacy: .private)"
+            )
+        }
+    }
+
+    private func currentPendingRevocation() -> CmxIrohPendingRevocation? {
+        guard let accountID = lastKnownAccountID ?? activeAccountID,
+              let tag = lastKnownTag,
+              let bindingID = lastKnownBindingID else { return nil }
+        return try? CmxIrohPendingRevocation(
+            accountID: accountID,
+            tag: tag,
+            bindingID: bindingID
+        )
     }
 
     private static func currentTag(

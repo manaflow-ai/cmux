@@ -64,6 +64,7 @@ struct CmxIrohHostRuntimeTests {
             factory: factory,
             broker: broker,
             configuration: fixture.configuration,
+            pendingRevocations: fixture.pendingRevocations(),
             handleTransport: { session, _ in await session.close() },
             handleDeactivation: { bindingID in
                 await deactivations.record(bindingID)
@@ -122,6 +123,7 @@ struct CmxIrohHostRuntimeTests {
             configuration: fixture.configuration(
                 bindPolicy: .required(bindAddress)
             ),
+            pendingRevocations: fixture.pendingRevocations(),
             handleTransport: { session, _ in await session.close() }
         )
 
@@ -151,6 +153,7 @@ struct CmxIrohHostRuntimeTests {
             factory: factory,
             broker: broker,
             configuration: fixture.configuration(cachedHostPolicy: cachedPolicy),
+            pendingRevocations: fixture.pendingRevocations(),
             now: { cachedFixture.now },
             handleTransport: { session, _ in await session.close() },
             handleBinding: { _, _, _ in await bindings.record() }
@@ -177,6 +180,7 @@ struct CmxIrohHostRuntimeTests {
                 discovery: fixture.discovery
             ),
             configuration: fixture.configuration,
+            pendingRevocations: fixture.pendingRevocations(),
             handleTransport: { session, _ in await session.close() },
             handleLANRefresh: { await recorder.record() }
         )
@@ -210,6 +214,7 @@ struct CmxIrohHostRuntimeTests {
                 subsequentDiscoveries: [refreshedDiscovery]
             ),
             configuration: fixture.configuration,
+            pendingRevocations: fixture.pendingRevocations(),
             handleTransport: { session, _ in await session.close() },
             handleLANPolicy: { context, directAddresses in
                 await policies.record(
@@ -254,6 +259,7 @@ struct CmxIrohHostRuntimeTests {
             configuration: fixture.configuration(
                 cachedHostPolicy: try cachedFixture.policy()
             ),
+            pendingRevocations: fixture.pendingRevocations(),
             now: { cachedFixture.now },
             handleTransport: { session, _ in await session.close() }
         )
@@ -295,6 +301,7 @@ struct CmxIrohHostRuntimeTests {
             configuration: fixture.configuration(
                 cachedHostPolicy: try cachedFixture.policy()
             ),
+            pendingRevocations: fixture.pendingRevocations(),
             now: { cachedFixture.now },
             handleTransport: { session, _ in await session.close() },
             handleBinding: { _, _, _ in await bindings.record() }
@@ -326,6 +333,7 @@ struct CmxIrohHostRuntimeTests {
                     publishedKeySet: cachedFixture.alternateKeySet
                 )
             ),
+            pendingRevocations: fixture.pendingRevocations(),
             now: { cachedFixture.now },
             handleTransport: { session, _ in await session.close() }
         )
@@ -359,6 +367,7 @@ struct CmxIrohHostRuntimeTests {
             configuration: fixture.configuration(
                 cachedHostPolicy: try cachedFixture.policy()
             ),
+            pendingRevocations: fixture.pendingRevocations(),
             now: { cachedFixture.now },
             handleTransport: { session, _ in await session.close() }
         )
@@ -391,6 +400,7 @@ struct CmxIrohHostRuntimeTests {
             configuration: fixture.configuration(
                 cachedHostPolicy: try cachedFixture.policy()
             ),
+            pendingRevocations: fixture.pendingRevocations(),
             now: { cachedFixture.now },
             handleTransport: { session, _ in await session.close() }
         )
@@ -423,6 +433,7 @@ struct CmxIrohHostRuntimeTests {
             configuration: fixture.configuration(
                 cachedHostPolicy: try cachedFixture.policy()
             ),
+            pendingRevocations: fixture.pendingRevocations(),
             now: { cachedFixture.now },
             handleTransport: { session, _ in await session.close() }
         )
@@ -501,6 +512,12 @@ private struct HostRuntimeFixture {
             binding: binding ?? CmxIrohBrokerBindingMetadata(binding: self.binding),
             pairingEnabled: self.binding.pairingEnabled,
             capabilities: self.binding.capabilities
+        )
+    }
+
+    func pendingRevocations() -> CmxIrohPendingRevocationOutbox {
+        CmxIrohPendingRevocationOutbox(
+            secureStore: TestSecureCredentialStore()
         )
     }
 

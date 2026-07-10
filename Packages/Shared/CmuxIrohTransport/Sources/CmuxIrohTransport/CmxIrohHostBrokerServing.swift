@@ -1,5 +1,7 @@
 /// Trust-broker operations required by a Mac host runtime.
-public protocol CmxIrohHostBrokerServing: CmxIrohDiscoveryServing, CmxIrohRelayTokenServing {
+public protocol CmxIrohHostBrokerServing: CmxIrohDiscoveryServing,
+    CmxIrohRelayTokenServing, CmxIrohBindingRevoking
+{
     func register(
         prepared: CmxIrohPreparedRegistration,
         signer: CmxIrohRegistrationSigner
@@ -8,8 +10,6 @@ public protocol CmxIrohHostBrokerServing: CmxIrohDiscoveryServing, CmxIrohRelayT
     func issueEndpointAttestation(
         bindingID: String
     ) async throws -> CmxIrohEndpointAttestationResponse
-
-    func revoke(bindingID: String) async throws
 }
 
 extension CmxIrohTrustBrokerClient: CmxIrohHostBrokerServing {}

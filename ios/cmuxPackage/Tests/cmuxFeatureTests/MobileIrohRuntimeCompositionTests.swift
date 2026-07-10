@@ -26,6 +26,11 @@ struct MobileIrohRuntimeCompositionTests {
                 secureStore: CmxIrohKeychainCredentialStore(service: "\(suiteName).relay"),
                 installState: installState
             ),
+            pendingRevocations: CmxIrohPendingRevocationOutbox(
+                secureStore: CmxIrohKeychainCredentialStore(
+                    service: "\(suiteName).pending-revocations"
+                )
+            ),
             endpointFactory: MobileIrohNeverEndpointFactory(),
             brokerFactory: { _ in throw TestCompositionError.unavailable },
             deviceID: { "123e4567-e89b-42d3-a456-426614174040" },

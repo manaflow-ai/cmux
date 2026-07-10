@@ -19,6 +19,7 @@ struct CmxIrohClientRuntimeTests {
             factory: factory,
             broker: broker,
             configuration: fixture.configuration,
+            pendingRevocations: fixture.pendingRevocations(),
             now: { fixture.now },
             handleBinding: { _, _ in await recorder.recordBinding() },
             handleRelayCredential: { _, _ in await recorder.recordRelay() }
@@ -60,6 +61,7 @@ struct CmxIrohClientRuntimeTests {
             factory: TestIrohEndpointFactory(endpoints: [endpoint]),
             broker: broker,
             configuration: fixture.configuration,
+            pendingRevocations: fixture.pendingRevocations(),
             now: { fixture.now }
         )
 
@@ -85,6 +87,7 @@ struct CmxIrohClientRuntimeTests {
             factory: factory,
             broker: broker,
             configuration: fixture.configuration,
+            pendingRevocations: fixture.pendingRevocations(),
             now: { fixture.now }
         )
         try await runtime.start()
@@ -116,6 +119,7 @@ struct CmxIrohClientRuntimeTests {
             factory: factory,
             broker: broker,
             configuration: fixture.configuration,
+            pendingRevocations: fixture.pendingRevocations(),
             now: { fixture.now }
         )
         try await runtime.start()
@@ -148,6 +152,7 @@ struct CmxIrohClientRuntimeTests {
             factory: TestIrohEndpointFactory(endpoints: [endpoint]),
             broker: broker,
             configuration: fixture.configuration,
+            pendingRevocations: fixture.pendingRevocations(),
             offlinePolicyCache: CmxIrohClientOfflinePolicyCache(
                 secureStore: offlineStore
             ),
@@ -188,6 +193,7 @@ struct CmxIrohClientRuntimeTests {
             factory: TestIrohEndpointFactory(endpoints: [endpoint]),
             broker: broker,
             configuration: fixture.configuration,
+            pendingRevocations: fixture.pendingRevocations(),
             offlinePolicyCache: CmxIrohClientOfflinePolicyCache(
                 secureStore: offlineStore
             ),
@@ -233,11 +239,12 @@ struct CmxIrohClientRuntimeTests {
             ),
             now: { fixture.now },
             handleLocalDeactivation: {
+                let endpointWasClosed = await endpoint.observedCloseCallCount() == 1
+                let pendingCount = try? await pendingRevocations.pending(
+                    accountID: fixture.configuration.accountID
+                ).count
                 await recorder.recordLocalWipe(
-                    endpointWasClosed: await endpoint.observedCloseCallCount() == 1
-                        && (try? await pendingRevocations.pending(
-                            accountID: fixture.configuration.accountID
-                        ).count) == 1
+                    endpointWasClosed: endpointWasClosed && pendingCount == 1
                 )
             }
         )
@@ -359,6 +366,9 @@ struct CmxIrohClientRuntimeTests {
             ),
             broker: broker,
             configuration: configuration,
+            pendingRevocations: CmxIrohPendingRevocationOutbox(
+                secureStore: TestSecureCredentialStore()
+            ),
             offlinePolicyCache: cache,
             now: { fixture.now },
             handleCachedBindings: { bindings, _ in
@@ -394,6 +404,7 @@ struct CmxIrohClientRuntimeTests {
             ),
             broker: broker,
             configuration: fixture.configuration,
+            pendingRevocations: fixture.pendingRevocations(),
             offlinePolicyCache: CmxIrohClientOfflinePolicyCache(secureStore: store),
             now: { fixture.now }
         )

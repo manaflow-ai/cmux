@@ -53,6 +53,12 @@ struct ClientRuntimeTestFixture {
         )
     }
 
+    func pendingRevocations() -> CmxIrohPendingRevocationOutbox {
+        CmxIrohPendingRevocationOutbox(
+            secureStore: TestSecureCredentialStore()
+        )
+    }
+
     static func binding(
         endpointID: String,
         bindingID: String = "123e4567-e89b-42d3-a456-426614174020",

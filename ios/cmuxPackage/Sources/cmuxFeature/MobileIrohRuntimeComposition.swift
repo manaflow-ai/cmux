@@ -38,6 +38,7 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
     private let appInstances: CmxIrohAppInstanceRepository
     private let identities: CmxIrohIdentityRepository
     private let brokerCredentials: CmxIrohBrokerCredentialRepository
+    private let pendingRevocations: CmxIrohPendingRevocationOutbox
     private let offlinePolicies: CmxIrohClientOfflinePolicyCache
     private let endpointFactory: any CmxIrohEndpointFactory
     private let brokerFactory: BrokerFactory
@@ -56,6 +57,8 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
     private var runtime: CmxIrohClientRuntime?
     private var observedAccountID: String?
     private var activeAccountID: String?
+    private var lastKnownBindingAccountID: String?
+    private var lastKnownBindingTag: String?
     private var lastKnownBindingID: String?
     private var lifecycleRevision: UInt64 = 0
     private var signOutPreparing = false
@@ -105,6 +108,11 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
                 secureStore: CmxIrohKeychainCredentialStore(),
                 installState: installState
             ),
+            pendingRevocations: CmxIrohPendingRevocationOutbox(
+                secureStore: CmxIrohKeychainCredentialStore(
+                    service: "com.cmuxterm.iroh.pending-revocations.v1"
+                )
+            ),
             endpointFactory: CmxIrohLibEndpointFactory(),
             brokerFactory: { tokenSource in
                 guard let baseURL else {
@@ -138,6 +146,7 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
         appInstances: CmxIrohAppInstanceRepository,
         identities: CmxIrohIdentityRepository,
         brokerCredentials: CmxIrohBrokerCredentialRepository,
+        pendingRevocations: CmxIrohPendingRevocationOutbox,
         offlinePolicies: CmxIrohClientOfflinePolicyCache = CmxIrohClientOfflinePolicyCache(),
         endpointFactory: any CmxIrohEndpointFactory,
         brokerFactory: @escaping BrokerFactory,
@@ -154,6 +163,7 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
         self.appInstances = appInstances
         self.identities = identities
         self.brokerCredentials = brokerCredentials
+        self.pendingRevocations = pendingRevocations
         self.offlinePolicies = offlinePolicies
         self.endpointFactory = endpointFactory
         self.brokerFactory = brokerFactory
@@ -262,6 +272,7 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
     /// - Returns: The prior binding needed by the captured-token remote hook.
     public func prepareSignOut() async -> CmxIrohClientSignOutPreparation {
         signOutPreparing = true
+        let fallbackAccountID = activeAccountID ?? observedAccountID
         observedAccountID = nil
         lifecycleRevision &+= 1
         let previous = transitionTask
@@ -274,12 +285,21 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
         runtime = nil
         activeAccountID = nil
         let fallbackBindingID = lastKnownBindingID
-        lastKnownBindingID = nil
         if let previousRuntime {
-            return await previousRuntime.deactivateForSignOut()
+            let preparation = await previousRuntime.deactivateForSignOut()
+            if preparation.wasPersisted {
+                clearLastKnownBinding()
+            } else if preparation.pendingRevocation != nil {
+                mobileIrohLog.error("Iroh binding revocation queue failed")
+            }
+            return preparation
         }
+        let preparation = await enqueueFallbackRevocation(
+            accountID: fallbackAccountID,
+            bindingID: fallbackBindingID
+        )
         await wipeLocalState()
-        return CmxIrohClientSignOutPreparation(bindingID: fallbackBindingID)
+        return preparation
     }
 
     /// Best-effort revokes the prepared binding with auth's captured token pair.
@@ -296,7 +316,7 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
         refreshToken: String?
     ) async {
         defer { finishSignOutPreparation() }
-        guard preparation.bindingID != nil,
+        guard preparation.pendingRevocation != nil,
               let accessToken,
               !accessToken.isEmpty,
               let refreshToken,
@@ -308,7 +328,11 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
                     refreshToken: { refreshToken }
                 )
             )
-            try await preparation.revoke(using: broker)
+            try await preparation.revoke(
+                using: broker,
+                pendingRevocations: pendingRevocations
+            )
+            clearLastKnownBinding()
         } catch is CancellationError {
             return
         } catch {
@@ -404,16 +428,27 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
             let shouldErase = eraseAccountState
                 && (targetAccountID == nil || activeAccountID != targetAccountID)
             let previousRuntime = runtime
+            let previousAccountID = activeAccountID
+            let fallbackBindingID = lastKnownBindingID
             runtime = nil
             activeAccountID = nil
             await lanPeerDiscovery?.stop()
             if let previousRuntime {
                 if shouldErase {
-                    _ = await previousRuntime.deactivateForSignOut()
+                    let preparation = await previousRuntime.deactivateForSignOut()
+                    if preparation.wasPersisted {
+                        clearLastKnownBinding()
+                    } else if preparation.pendingRevocation != nil {
+                        mobileIrohLog.error("Iroh binding revocation queue failed")
+                    }
                 } else {
                     await previousRuntime.stop()
                 }
             } else if shouldErase {
+                _ = await enqueueFallbackRevocation(
+                    accountID: previousAccountID,
+                    bindingID: fallbackBindingID
+                )
                 await wipeLocalState()
             }
         }
@@ -460,6 +495,8 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
         let cachedRelay: CmxIrohRelayTokenResponse?
         if let cachedBinding, bindingMatches {
             lastKnownBindingID = cachedBinding.bindingID
+            lastKnownBindingAccountID = accountID
+            lastKnownBindingTag = tag
             cachedRelay = try await brokerCredentials.loadRelayCredential(
                 accountID: accountID,
                 binding: cachedBinding,
@@ -510,6 +547,7 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
             factory: endpointFactory,
             broker: broker,
             configuration: configuration,
+            pendingRevocations: pendingRevocations,
             offlinePolicyCache: offlinePolicies,
             networkPathSnapshot: networkPathSnapshot,
             lanFallback: { target, bindings, rendezvous in
@@ -546,6 +584,8 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
                     guard let self,
                           revision == self.lifecycleRevision else { return }
                     self.lastKnownBindingID = binding.bindingID
+                    self.lastKnownBindingAccountID = accountID
+                    self.lastKnownBindingTag = self.tag
                 }
             },
             handleCachedBindings: { bindings, _ in
@@ -576,7 +616,7 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
                           revision == self.lifecycleRevision,
                           self.activeAccountID == accountID else { return }
                     self.runtime = nil
-                    self.lastKnownBindingID = nil
+                    self.clearLastKnownBinding()
                 }
             }
         )
@@ -610,6 +650,51 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
         try? await offlinePolicies.deactivate()
         try? await identities.deactivate()
         await appInstances.deactivate()
+    }
+
+    private func enqueueFallbackRevocation(
+        accountID: String?,
+        bindingID: String?
+    ) async -> CmxIrohClientSignOutPreparation {
+        guard let accountID,
+              let bindingID,
+              lastKnownBindingAccountID == nil
+                  || lastKnownBindingAccountID == accountID,
+              lastKnownBindingTag == nil || lastKnownBindingTag == tag,
+              let pending = try? CmxIrohPendingRevocation(
+                  accountID: accountID,
+                  tag: tag,
+                  bindingID: bindingID
+              ) else {
+            return CmxIrohClientSignOutPreparation(
+                pendingRevocation: nil,
+                wasPersisted: true
+            )
+        }
+        do {
+            try await pendingRevocations.enqueue(pending)
+            if lastKnownBindingID == bindingID {
+                clearLastKnownBinding()
+            }
+            return CmxIrohClientSignOutPreparation(
+                pendingRevocation: pending,
+                wasPersisted: true
+            )
+        } catch {
+            mobileIrohLog.error(
+                "Iroh binding revocation queue failed: \(String(describing: error), privacy: .private)"
+            )
+            return CmxIrohClientSignOutPreparation(
+                pendingRevocation: pending,
+                wasPersisted: false
+            )
+        }
+    }
+
+    private func clearLastKnownBinding() {
+        lastKnownBindingID = nil
+        lastKnownBindingAccountID = nil
+        lastKnownBindingTag = nil
     }
 
     func currentNetworkPathSnapshot() async throws -> CmxIrohNetworkPathSnapshot {

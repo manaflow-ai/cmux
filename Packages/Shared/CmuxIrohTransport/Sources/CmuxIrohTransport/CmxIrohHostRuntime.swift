@@ -39,6 +39,7 @@ public actor CmxIrohHostRuntime {
     private let factory: any CmxIrohEndpointFactory
     private let broker: any CmxIrohHostBrokerServing
     private let configuration: CmxIrohHostRuntimeConfiguration
+    private let pendingRevocations: CmxIrohPendingRevocationOutbox
     private let protocolConfiguration: CmxIrohProtocolConfiguration
     private let now: @Sendable () -> Date
     private let admissionClock: any CmxIrohRelayClock
@@ -72,6 +73,7 @@ public actor CmxIrohHostRuntime {
         factory: any CmxIrohEndpointFactory,
         broker: any CmxIrohHostBrokerServing,
         configuration: CmxIrohHostRuntimeConfiguration,
+        pendingRevocations: CmxIrohPendingRevocationOutbox,
         protocolConfiguration: CmxIrohProtocolConfiguration = .cmuxMobileV1,
         now: @escaping @Sendable () -> Date = { Date() },
         admissionClock: any CmxIrohRelayClock = CmxIrohSystemRelayClock(),
@@ -85,6 +87,7 @@ public actor CmxIrohHostRuntime {
         self.factory = factory
         self.broker = broker
         self.configuration = configuration
+        self.pendingRevocations = pendingRevocations
         self.protocolConfiguration = protocolConfiguration
         self.now = now
         self.admissionClock = admissionClock
@@ -277,6 +280,12 @@ public actor CmxIrohHostRuntime {
         revision: UInt64,
         allowCachedFallback: Bool
     ) async throws -> ResolvedPolicy {
+        try await pendingRevocations.revokePending(
+            accountID: configuration.accountID,
+            beforeRegisteringTag: configuration.tag,
+            using: broker
+        )
+        try requireCurrent(revision)
         let endpoint = try await supervisor.activeEndpoint()
         let address = await endpoint.address()
         guard address.identity == expectedEndpointID else {

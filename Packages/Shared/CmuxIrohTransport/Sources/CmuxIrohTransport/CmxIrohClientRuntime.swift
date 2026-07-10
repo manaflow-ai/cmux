@@ -48,6 +48,7 @@ public actor CmxIrohClientRuntime {
     private let sessionPool: CmxIrohClientSessionPool
     private let broker: any CmxIrohClientBrokerServing
     private let configuration: CmxIrohClientRuntimeConfiguration
+    private let pendingRevocations: CmxIrohPendingRevocationOutbox
     private let protocolConfiguration: CmxIrohProtocolConfiguration
     private let offlinePolicyCache: CmxIrohClientOfflinePolicyCache?
     private let networkPathSnapshot: @Sendable () async throws -> CmxIrohNetworkPathSnapshot
@@ -81,6 +82,7 @@ public actor CmxIrohClientRuntime {
     ///   - factory: The production Iroh binding or a test endpoint factory.
     ///   - broker: The authenticated registration, discovery, grant, and relay client.
     ///   - configuration: Stable account-and-build-scoped endpoint inputs.
+    ///   - pendingRevocations: Device-only bindings that must be revoked before registration.
     ///   - protocolConfiguration: The cmux ALPN and stream framing configuration.
     ///   - networkPathSnapshot: A generation-aware view of positively identified
     ///     private-network profiles. An empty profile set disables explicit hints.
@@ -94,6 +96,7 @@ public actor CmxIrohClientRuntime {
         factory: any CmxIrohEndpointFactory,
         broker: any CmxIrohClientBrokerServing,
         configuration: CmxIrohClientRuntimeConfiguration,
+        pendingRevocations: CmxIrohPendingRevocationOutbox,
         protocolConfiguration: CmxIrohProtocolConfiguration = .cmuxMobileV1,
         offlinePolicyCache: CmxIrohClientOfflinePolicyCache? = nil,
         networkPathSnapshot: @escaping @Sendable () async throws -> CmxIrohNetworkPathSnapshot = {
@@ -132,6 +135,7 @@ public actor CmxIrohClientRuntime {
         self.sessionPool = sessionPool
         self.broker = broker
         self.configuration = configuration
+        self.pendingRevocations = pendingRevocations
         self.protocolConfiguration = protocolConfiguration
         self.offlinePolicyCache = offlinePolicyCache
         self.networkPathSnapshot = networkPathSnapshot
@@ -291,8 +295,26 @@ public actor CmxIrohClientRuntime {
     ///
     /// - Returns: The prior binding identifier for best-effort broker revocation.
     public func deactivateForSignOut() async -> CmxIrohClientSignOutPreparation {
+        let pendingRevocation = localBinding.flatMap { binding in
+            try? CmxIrohPendingRevocation(
+                accountID: configuration.accountID,
+                tag: configuration.tag,
+                bindingID: binding.bindingID
+            )
+        }
+        var wasPersisted = pendingRevocation == nil
+        if let pendingRevocation {
+            do {
+                try await pendingRevocations.enqueue(pendingRevocation)
+                wasPersisted = true
+            } catch {
+                // Local identity teardown must not wait on Keychain recovery.
+                // The returned preparation retries this enqueue before DELETE.
+            }
+        }
         let preparation = CmxIrohClientSignOutPreparation(
-            bindingID: localBinding?.bindingID
+            pendingRevocation: pendingRevocation,
+            wasPersisted: wasPersisted
         )
         desiredActive = false
         lifecycleRevision &+= 1
@@ -311,6 +333,12 @@ public actor CmxIrohClientRuntime {
         expectedEndpointID: CmxIrohPeerIdentity,
         revision: UInt64
     ) async throws -> ResolvedPolicy {
+        try await pendingRevocations.revokePending(
+            accountID: configuration.accountID,
+            beforeRegisteringTag: configuration.tag,
+            using: broker
+        )
+        try requireCurrent(revision)
         let endpoint = try await supervisor.activeEndpoint()
         let address = await endpoint.address()
         guard address.identity == expectedEndpointID else {

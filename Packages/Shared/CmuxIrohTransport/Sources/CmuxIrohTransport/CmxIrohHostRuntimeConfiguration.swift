@@ -1,5 +1,8 @@
 /// Stable, account-scoped inputs for one Mac Iroh host lifecycle.
 public struct CmxIrohHostRuntimeConfiguration: Equatable, Sendable {
+    /// The authenticated account scope used only for pending-revocation isolation.
+    public let accountID: String
+
     public let deviceID: String
     public let appInstanceID: String
     public let tag: String
@@ -17,6 +20,7 @@ public struct CmxIrohHostRuntimeConfiguration: Equatable, Sendable {
     /// Creates stable inputs for one Mac host runtime lifecycle.
     ///
     /// - Parameters:
+    ///   - accountID: The exact account that owns this host binding.
     ///   - deviceID: The account device's lowercase UUID.
     ///   - appInstanceID: The current app-instance UUID.
     ///   - tag: The broker registration build tag.
@@ -29,6 +33,7 @@ public struct CmxIrohHostRuntimeConfiguration: Equatable, Sendable {
     ///   - cachedRelayCredential: A validated relay bootstrap for this endpoint.
     ///   - cachedHostPolicy: A policy previously verified by ``CmxIrohHostPolicyCache``.
     public init(
+        accountID: String,
         deviceID: String,
         appInstanceID: String,
         tag: String,
@@ -41,6 +46,7 @@ public struct CmxIrohHostRuntimeConfiguration: Equatable, Sendable {
         cachedRelayCredential: CmxIrohRelayTokenResponse? = nil,
         cachedHostPolicy: CmxIrohCachedHostPolicy? = nil
     ) {
+        self.accountID = accountID
         self.deviceID = deviceID.lowercased()
         self.appInstanceID = appInstanceID.lowercased()
         self.tag = tag
