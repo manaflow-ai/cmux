@@ -353,12 +353,13 @@ extension Workspace {
         // is recorded shows the generic terminal icon; fixing that means
         // carrying the registration into live agent state at the lifecycle
         // recording boundary (TerminalController), not loading config here.
-        let snapshot = restoredAgentSnapshotsByPanelId[panelId].flatMap { snapshot in
-            restoredAgentResumeStatesByPanelId[panelId]?.allowsRestoredAgentTabIconFallback == true
+        let restoredSnapshot = restoredAgentSnapshotsByPanelId[panelId]
+        let snapshot = restoredSnapshot.flatMap { snapshot in
+            (restoredAgentResumeStatesByPanelId[panelId] ?? .manualResumeAvailable).allowsRestoredAgentTabIconFallback
                 ? snapshot
                 : nil
         }
-        let registration = snapshot?.registration
+        let registration = restoredSnapshot?.registration
         let titleDerivedStatusKey = allowsObservedAgentEvidence ? titleDerivedAgentStatusKeysByPanelId[panelId] : nil
         return TerminalTabAgentIconResolver().assetName(
             liveAgents: liveAgents,
@@ -438,10 +439,12 @@ extension DockSplitStore {
     /// state, dropping proven-exited agents, when the surface leaves the Dock.
     func terminalTabAgentIconAsset(forPanelId panelId: UUID) -> String? {
         let transfer = detachedSurfaceTransfersByPanelId[panelId]
-        let restorableAgent = transfer?.restorableAgentResumeState?.allowsRestoredAgentTabIconFallback == true
-            ? transfer?.restorableAgent
+        let restoredSnapshot = transfer?.restorableAgent
+        let resumeState = transfer?.restorableAgentResumeState ?? (restoredSnapshot == nil ? nil : .manualResumeAvailable)
+        let restorableAgent = resumeState?.allowsRestoredAgentTabIconFallback == true
+            ? restoredSnapshot
             : nil
-        let registration = restorableAgent?.registration
+        let registration = restoredSnapshot?.registration
         let shellActivityState = (transfer?.panel as? TerminalPanel)?.shellActivity.state ?? .unknown
         let allowsObservedAgentEvidence = shellActivityState != .promptIdle
         let agentRuntime = allowsObservedAgentEvidence ? transfer?.agentRuntime : nil

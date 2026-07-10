@@ -41,16 +41,7 @@ struct TerminalTabAgentIconTests {
         #expect(asset == expectedAsset)
     }
 
-    @Test(arguments: [
-        "amp",
-        "gemini",
-        "cursor",
-        "copilot",
-        "codebuddy",
-        "factory",
-        "kiro",
-        "qoder",
-    ])
+    @Test(arguments: ["amp", "gemini", "cursor", "copilot", "codebuddy", "factory", "kiro", "qoder"])
     func unsupportedAgentsUseSystemTerminalIcon(statusKey: String) {
         let asset = TerminalTabAgentIconResolver().assetName(
             liveAgents: [liveAgent(statusKey)],
@@ -360,6 +351,14 @@ struct TerminalTabAgentIconTests {
         )
 
         #expect(asset == "AgentIcons/HermesAgent")
+    }
+
+    @MainActor
+    @Test func restoredSnapshotWithoutResumeStateUsesRestoreIcon() throws {
+        let workspace = Workspace()
+        let panel = try #require(workspace.focusedTerminalPanel)
+        workspace.setRestoredAgentSnapshotForTesting(restoredAgentSnapshot(kind: .opencode), panelId: panel.id)
+        #expect(workspace.terminalTabAgentIconAsset(forPanelId: panel.id) == "AgentIcons/OpenCode")
     }
 
     @MainActor
