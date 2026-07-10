@@ -92,12 +92,13 @@ jobs:
       - name: Validate macOS runner guards
         run: ./tests/test_ci_self_hosted_guard.sh
 
-      - name: Validate MACOS_RUNNER_15 routing variable
+      - name: Validate macOS lane routing variables
         env:
-          MACOS_RUNNER_15_VALUE: ${{ vars.MACOS_RUNNER_15 }}
+          MACOS_RUNNER_DUAL_XCODE_VALUE: ${{ vars.MACOS_RUNNER_DUAL_XCODE }}
+          MACOS_RUNNER_APP_HOST_VALUE: ${{ vars.MACOS_RUNNER_APP_HOST }}
         run: ./scripts/ci/check-macos-runner-routing.sh
 
-      - name: Validate MACOS_RUNNER_15 routing guard behavior
+      - name: Validate macOS lane routing guard behavior
         run: ./tests/test_ci_macos_runner_routing_guard.sh
 
       - name: Validate release SDK build lane
@@ -408,9 +409,15 @@ jobs:
     name: app-host unit tests (${{ matrix.shard }}/4)
     # App-host XCTest needs a runner that can broker testmanagerd control
     # sessions. Validated head-to-head that warp-macos-15-arm64-6x runs the
-    # full app-host suite with 0 unexpected failures, so route through the
-    # shared MACOS_RUNNER_15 var like the other macOS jobs.
-    runs-on: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}
+    # full app-host suite with 0 unexpected failures.
+    # Routed through a dedicated lane variable, NOT the shared MACOS_RUNNER_15:
+    # the 2026-07-10 Tart cutover flipped MACOS_RUNNER_15 to tart-macos-15 and
+    # a poisoned tart slot (tart-cmux-austins-mac-mini-1) repeatedly failed
+    # shard 4 on main. Point MACOS_RUNNER_APP_HOST at a new runner type only
+    # after all four shards prove green on it; the routing guard in
+    # workflow-guard-tests (scripts/ci/check-macos-runner-routing.sh) enforces
+    # the validated allowlist.
+    runs-on: ${{ vars.MACOS_RUNNER_APP_HOST || 'warp-macos-15-arm64-6x' }}
     timeout-minutes: 75
     strategy:
       fail-fast: false
@@ -835,7 +842,15 @@ jobs:
     # transitive skip otherwise marks every macOS job skipped even when
     # linux-preflight itself succeeds. Require the direct needs explicitly.
     if: ${{ !cancelled() && needs.changes.result == 'success' && needs.linux-preflight.result == 'success' && needs.changes.outputs.macos == 'true' }}
-    runs-on: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}
+    # Needs a dual-Xcode image: an SDK-15 Xcode (16.x) for the universal
+    # Ghostty CLI helper plus the pinned SDK-26 Xcode for the package tests.
+    # Routed through a dedicated lane variable, NOT the shared MACOS_RUNNER_15:
+    # the 2026-07-10 Tart cutover flipped MACOS_RUNNER_15 to tart-macos-15,
+    # whose image ships only SDK-26 Xcodes, and this job died on every branch
+    # with "No Xcode.app found ... with macOS SDK major 15". The routing guard
+    # in workflow-guard-tests (scripts/ci/check-macos-runner-routing.sh)
+    # enforces the validated dual-Xcode allowlist for this variable.
+    runs-on: ${{ vars.MACOS_RUNNER_DUAL_XCODE || 'warp-macos-15-arm64-6x' }}
     timeout-minutes: 40
     env:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_15 }}
