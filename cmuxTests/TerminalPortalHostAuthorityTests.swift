@@ -160,6 +160,9 @@ struct TerminalPortalHostAuthorityTests {
         )
         let staleFocusHandler = surface.hostedView.surfaceView.onFocus
 
+        surface.updateWorkspaceId(UUID())
+        staleFocusHandler?()
+        #expect(focusCount == 0)
         #expect(surface.preparePortalHostReplacementIfOwned(
             hostId: ObjectIdentifier(oldHost),
             reason: "test.callback.retire"
