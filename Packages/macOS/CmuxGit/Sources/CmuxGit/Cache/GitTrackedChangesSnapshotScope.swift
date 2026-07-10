@@ -10,6 +10,8 @@ public actor GitTrackedChangesSnapshotScope {
     private struct RepositoryState {
         var epoch = UUID()
         var revision: UInt64 = 0
+        var lastStableWatcherEventID: GitTrackedPathEventID?
+        var stableWatcherEventIDsAreReliable = true
     }
 
     private let snapshotCache: GitTrackedChangesSnapshotCache
@@ -55,9 +57,30 @@ public actor GitTrackedChangesSnapshotScope {
     /// Advances repository revision before watcher-triggered work is queued.
     @discardableResult
     public func recordWatcherEvent(
-        for repositoryIdentity: GitTrackedChangesRepositoryIdentity
+        for repositoryIdentity: GitTrackedChangesRepositoryIdentity,
+        source: GitTrackedPathEventSource = .unknown
     ) -> GitTrackedChangesSnapshotAuthority {
         var state = state(for: repositoryIdentity)
+        switch source {
+        case .stable(let eventID):
+            if state.stableWatcherEventIDsAreReliable,
+               let lastEventID = state.lastStableWatcherEventID,
+               eventID <= lastEventID {
+                return snapshotAuthority(
+                    repositoryIdentity: repositoryIdentity,
+                    state: state,
+                    fallbackRoundID: nil
+                )
+            }
+            if state.stableWatcherEventIDsAreReliable {
+                state.lastStableWatcherEventID = eventID
+            }
+        case .unknown:
+            break
+        case .sequenceReset:
+            state.lastStableWatcherEventID = nil
+            state.stableWatcherEventIDsAreReliable = false
+        }
         if state.revision == .max {
             state.epoch = UUID()
             state.revision = 0
@@ -65,10 +88,9 @@ public actor GitTrackedChangesSnapshotScope {
             state.revision += 1
         }
         store(state, for: repositoryIdentity)
-        return GitTrackedChangesSnapshotAuthority(
+        return snapshotAuthority(
             repositoryIdentity: repositoryIdentity,
-            repositoryEpoch: state.epoch,
-            repositoryRevision: state.revision,
+            state: state,
             fallbackRoundID: nil
         )
     }
@@ -129,6 +151,19 @@ public actor GitTrackedChangesSnapshotScope {
         let state = RepositoryState()
         store(state, for: identity)
         return state
+    }
+
+    private func snapshotAuthority(
+        repositoryIdentity: GitTrackedChangesRepositoryIdentity,
+        state: RepositoryState,
+        fallbackRoundID: GitFallbackRoundID?
+    ) -> GitTrackedChangesSnapshotAuthority {
+        GitTrackedChangesSnapshotAuthority(
+            repositoryIdentity: repositoryIdentity,
+            repositoryEpoch: state.epoch,
+            repositoryRevision: state.revision,
+            fallbackRoundID: fallbackRoundID
+        )
     }
 
     private func store(

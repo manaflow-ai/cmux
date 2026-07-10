@@ -86,12 +86,23 @@ extension SidebarGitMetadataService {
             moveWorkspaceGitSnapshotCacheEligibility(for: key, to: request.directory)
             let events = watcher.events
             workspaceGitMetadataWatcherRefreshTasksByWatchedPathsKey[watchedPathsKey] = Task { @MainActor [weak self] in
-                for await _ in events {
+                for await sourceIdentity in events {
                     guard let self else { break }
                     let keys = self.recordWorkspaceGitMetadataFilesystemEvent(
                         forWatchedPathsKey: watchedPathsKey
                     )
-                    let requestsByDirectory = await self.watcherEventRequests(for: keys)
+                    let sourceEvent: GitTrackedPathEventSource = switch sourceIdentity {
+                    case .stable(let eventID):
+                        .stable(GitTrackedPathEventID(rawValue: eventID.rawValue))
+                    case .mustRescan:
+                        .unknown
+                    case .eventIDsWrapped:
+                        .sequenceReset
+                    }
+                    let requestsByDirectory = await self.watcherEventRequests(
+                        for: keys,
+                        sourceEvent: sourceEvent
+                    )
                     for key in keys {
                         let directory = self.workspaceGitMetadataWatcherSourceDirectoryByKey[key]
                             ?? self.workspaceGitTrackedDirectoryByKey[key]
@@ -113,7 +124,8 @@ extension SidebarGitMetadataService {
     }
 
     private func watcherEventRequests(
-        for keys: [WorkspaceGitProbeKey]
+        for keys: [WorkspaceGitProbeKey],
+        sourceEvent: GitTrackedPathEventSource
     ) async -> [String: GitTrackedChangesSnapshotRequest] {
         let directories = Set(keys.compactMap { key in
             (workspaceGitMetadataWatcherSourceDirectoryByKey[key]
@@ -140,7 +152,8 @@ extension SidebarGitMetadataService {
         ] = [:]
         for identity in Set(identityByDirectory.values) {
             authorityByIdentity[identity] = await gitMetadataService.recordTrackedPathEvent(
-                for: identity
+                for: identity,
+                sourceEvent: sourceEvent
             )
         }
 

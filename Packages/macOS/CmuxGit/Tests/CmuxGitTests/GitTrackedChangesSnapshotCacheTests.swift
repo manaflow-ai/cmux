@@ -130,11 +130,11 @@ private final class BlockingSnapshotLoadGate: @unchecked Sendable {
         let sourceEventID = GitTrackedPathEventID(rawValue: 8_080)
         let firstAuthority = await firstWindow.recordTrackedPathEvent(
             for: identity,
-            sourceEventID: sourceEventID
+            sourceEvent: .stable(sourceEventID)
         )
         let secondAuthority = await secondWindow.recordTrackedPathEvent(
             for: identity,
-            sourceEventID: sourceEventID
+            sourceEvent: .stable(sourceEventID)
         )
         let startGate = ConcurrentOperationStartGate(expectedCount: 2)
         let snapshotsTask = Task {
@@ -166,6 +166,66 @@ private final class BlockingSnapshotLoadGate: @unchecked Sendable {
         reader.openGate()
         #expect(await snapshotsTask.value.count == 2)
         #expect(reader.callCount(atPath: filePath) == 1)
+
+        let newerAuthority = await firstWindow.recordTrackedPathEvent(
+            for: identity,
+            sourceEvent: .stable(GitTrackedPathEventID(rawValue: 8_081))
+        )
+        #expect(newerAuthority != firstAuthority)
+        _ = await firstWindow.gitTrackedChangesSnapshot(
+            repository: repository,
+            snapshotRequest: .watcherEvent(newerAuthority)
+        )
+        #expect(reader.callCount(atPath: filePath) == 2)
+
+        let olderAuthority = await secondWindow.recordTrackedPathEvent(
+            for: identity,
+            sourceEvent: .stable(GitTrackedPathEventID(rawValue: 8_079))
+        )
+        #expect(olderAuthority == newerAuthority)
+        _ = await secondWindow.gitTrackedChangesSnapshot(
+            repository: repository,
+            snapshotRequest: .watcherEvent(olderAuthority)
+        )
+        #expect(reader.callCount(atPath: filePath) == 2)
+
+        let unknownAuthority = await firstWindow.recordTrackedPathEvent(
+            for: identity,
+            sourceEvent: .unknown
+        )
+        #expect(unknownAuthority != olderAuthority)
+        _ = await firstWindow.gitTrackedChangesSnapshot(
+            repository: repository,
+            snapshotRequest: .watcherEvent(unknownAuthority)
+        )
+        #expect(reader.callCount(atPath: filePath) == 3)
+
+        let secondUnknownAuthority = await secondWindow.recordTrackedPathEvent(
+            for: identity,
+            sourceEvent: .unknown
+        )
+        #expect(secondUnknownAuthority != unknownAuthority)
+        _ = await secondWindow.gitTrackedChangesSnapshot(
+            repository: repository,
+            snapshotRequest: .watcherEvent(secondUnknownAuthority)
+        )
+        #expect(reader.callCount(atPath: filePath) == 4)
+
+        let resetAuthority = await firstWindow.recordTrackedPathEvent(
+            for: identity,
+            sourceEvent: .sequenceReset
+        )
+        let postResetAuthority = await firstWindow.recordTrackedPathEvent(
+            for: identity,
+            sourceEvent: .stable(GitTrackedPathEventID(rawValue: 1))
+        )
+        let duplicatePostResetAuthority = await secondWindow.recordTrackedPathEvent(
+            for: identity,
+            sourceEvent: .stable(GitTrackedPathEventID(rawValue: 1))
+        )
+        #expect(resetAuthority != secondUnknownAuthority)
+        #expect(postResetAuthority != resetAuthority)
+        #expect(duplicatePostResetAuthority != postResetAuthority)
     }
 
     @Test func laterFallbackRescansAndCatchesMissedWatcherEvent() async throws {

@@ -1,3 +1,4 @@
+import CoreServices
 import Foundation
 import Testing
 
@@ -72,7 +73,7 @@ private actor GateClock: FileWatchClock {
         #expect(await clock.sleeperCount == 1)
 
         await clock.releaseOne()
-        let first: Void? = await iterator.next()
+        let first: FileWatchEventIdentity? = await iterator.next()
         #expect(first != nil)
 
         // Window 2: the throttle re-arms after the previous flush.
@@ -83,11 +84,11 @@ private actor GateClock: FileWatchClock {
         #expect(await clock.sleeperCount == 1)
 
         await clock.releaseOne()
-        let second: Void? = await iterator.next()
+        let second: FileWatchEventIdentity? = await iterator.next()
         #expect(second != nil)
 
         await watcher.stop()
-        let afterStop: Void? = await iterator.next()
+        let afterStop: FileWatchEventIdentity? = await iterator.next()
         #expect(afterStop == nil)
     }
 
@@ -99,15 +100,15 @@ private actor GateClock: FileWatchClock {
 
         await watcher.stop()
         await watcher.simulateFileSystemEventForTesting()
-        let next: Void? = await iterator.next()
+        let next: FileWatchEventIdentity? = await iterator.next()
         #expect(next == nil)
         #expect(await clock.sleeperCount == 0)
     }
 
-    @Test func identifiedEventsEmitLatestStableIDFromThrottleWindow() async {
+    @Test func eventsEmitLatestStableIDFromThrottleWindow() async {
         let clock = GateClock()
         let watcher = RecursivePathWatcher(testThrottleClock: clock)
-        var iterator = watcher.identifiedEvents.makeAsyncIterator()
+        var iterator = watcher.events.makeAsyncIterator()
 
         await watcher.simulateFileSystemEventForTesting(
             id: FileWatchEventID(rawValue: 41)
@@ -121,7 +122,83 @@ private actor GateClock: FileWatchClock {
         await clock.waitForSleeper()
         await clock.releaseOne()
 
-        #expect(await iterator.next() == FileWatchEventID(rawValue: 43))
+        #expect(await iterator.next() == .stable(FileWatchEventID(rawValue: 43)))
         await watcher.stop()
+    }
+
+    @Test func droppedAndWrappedBatchesStayConservative() async {
+        let userDropped = FileSystemEventStream.eventIdentity(
+            latestEventID: 100,
+            flags: FSEventStreamEventFlags(kFSEventStreamEventFlagUserDropped)
+        )
+        let kernelDropped = FileSystemEventStream.eventIdentity(
+            latestEventID: 101,
+            flags: FSEventStreamEventFlags(kFSEventStreamEventFlagKernelDropped)
+        )
+        let mustScan = FileSystemEventStream.eventIdentity(
+            latestEventID: 102,
+            flags: FSEventStreamEventFlags(kFSEventStreamEventFlagMustScanSubDirs)
+        )
+        let wrapped = FileSystemEventStream.eventIdentity(
+            latestEventID: 1,
+            flags: FSEventStreamEventFlags(kFSEventStreamEventFlagEventIdsWrapped)
+        )
+
+        #expect(userDropped == .mustRescan)
+        #expect(kernelDropped == .mustRescan)
+        #expect(mustScan == .mustRescan)
+        #expect(wrapped == .eventIDsWrapped)
+    }
+
+    @Test func conservativeIdentityDominatesThrottleWindow() async {
+        let clock = GateClock()
+        let watcher = RecursivePathWatcher(testThrottleClock: clock)
+        var iterator = watcher.events.makeAsyncIterator()
+
+        await watcher.simulateFileSystemEventForTesting(
+            id: FileWatchEventID(rawValue: 50)
+        )
+        await watcher.simulateFileSystemEventForTesting(identity: .mustRescan)
+        await watcher.simulateFileSystemEventForTesting(
+            id: FileWatchEventID(rawValue: 51)
+        )
+        await clock.waitForSleeper()
+        await clock.releaseOne()
+        #expect(await iterator.next() == .mustRescan)
+
+        await watcher.simulateFileSystemEventForTesting(
+            id: FileWatchEventID(rawValue: 52)
+        )
+        await watcher.simulateFileSystemEventForTesting(identity: .eventIDsWrapped)
+        await clock.waitForSleeper()
+        await clock.releaseOne()
+        #expect(await iterator.next() == .eventIDsWrapped)
+
+        await watcher.simulateFileSystemEventForTesting(
+            id: FileWatchEventID(rawValue: 1)
+        )
+        await clock.waitForSleeper()
+        await clock.releaseOne()
+        #expect(await iterator.next() == .eventIDsWrapped)
+        await watcher.stop()
+    }
+
+    @Test func unconsumedStreamRetainsOnlyNewestStableWatermark() async {
+        let clock = GateClock()
+        let watcher = RecursivePathWatcher(testThrottleClock: clock)
+
+        for rawID in 1...100 {
+            await watcher.simulateFileSystemEventForTesting(
+                id: FileWatchEventID(rawValue: UInt64(rawID))
+            )
+            await clock.waitForSleeper()
+            await clock.releaseOne()
+            await watcher.waitForThrottleFlushForTesting()
+        }
+
+        var iterator = watcher.events.makeAsyncIterator()
+        #expect(await iterator.next() == .stable(FileWatchEventID(rawValue: 100)))
+        await watcher.stop()
+        #expect(await iterator.next() == nil)
     }
 }

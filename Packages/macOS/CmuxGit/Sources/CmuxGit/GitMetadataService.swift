@@ -183,10 +183,12 @@ public struct GitMetadataService: Sendable {
 
     /// Advances shared repository revision before watcher work is scheduled.
     public nonisolated func recordTrackedPathEvent(
-        for repositoryIdentity: GitTrackedChangesRepositoryIdentity
+        for repositoryIdentity: GitTrackedChangesRepositoryIdentity,
+        sourceEvent: GitTrackedPathEventSource = .unknown
     ) async -> GitTrackedChangesSnapshotAuthority {
         await trackedChangesSnapshotScope.recordWatcherEvent(
-            for: repositoryIdentity
+            for: repositoryIdentity,
+            source: sourceEvent
         )
     }
 
