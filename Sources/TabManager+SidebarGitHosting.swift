@@ -20,71 +20,71 @@ extension TabManager: SidebarGitHosting {
     }
 
     func workspaceExists(_ workspaceId: UUID) -> Bool {
-        tabs.contains(where: { $0.id == workspaceId })
+        workspacesById[workspaceId] != nil
     }
 
     func isRemoteWorkspace(_ workspaceId: UUID) -> Bool? {
-        guard let workspace = tabs.first(where: { $0.id == workspaceId }) else { return nil }
+        guard let workspace = workspacesById[workspaceId] else { return nil }
         return workspace.isRemoteWorkspace || workspace.isRemoteTmuxMirror
     }
 
     func panelIds(in workspaceId: UUID) -> [UUID] {
-        guard let workspace = tabs.first(where: { $0.id == workspaceId }) else { return [] }
+        guard let workspace = workspacesById[workspaceId] else { return [] }
         return Array(workspace.panels.keys)
     }
 
     func panelExists(workspaceId: UUID, panelId: UUID) -> Bool {
-        tabs.first(where: { $0.id == workspaceId })?.panels[panelId] != nil
+        workspacesById[workspaceId]?.panels[panelId] != nil
     }
 
     func hasTerminalPanel(workspaceId: UUID, panelId: UUID) -> Bool {
-        tabs.first(where: { $0.id == workspaceId })?.terminalPanel(for: panelId) != nil
+        workspacesById[workspaceId]?.terminalPanel(for: panelId) != nil
     }
 
     func isRemoteTerminalPanel(workspaceId: UUID, panelId: UUID) -> Bool {
-        tabs.first(where: { $0.id == workspaceId })?.isRemoteTerminalSurface(panelId) == true
+        workspacesById[workspaceId]?.isRemoteTerminalSurface(panelId) == true
     }
 
     func gitProbeDirectory(workspaceId: UUID, panelId: UUID) -> String? {
-        guard let workspace = tabs.first(where: { $0.id == workspaceId }) else { return nil }
+        guard let workspace = workspacesById[workspaceId] else { return nil }
         return gitProbeDirectory(for: workspace, panelId: panelId)
     }
 
     func hasTrustedRemotePanelDirectory(workspaceId: UUID, panelId: UUID) -> Bool {
-        guard let workspace = tabs.first(where: { $0.id == workspaceId }) else { return false }
+        guard let workspace = workspacesById[workspaceId] else { return false }
         return workspace.remoteDirectoryReportPanelIds.contains(panelId)
     }
 
     func panelGitBranch(workspaceId: UUID, panelId: UUID) -> SidebarPanelGitBranch? {
-        guard let state = tabs.first(where: { $0.id == workspaceId })?.panelGitBranches[panelId] else {
+        guard let state = workspacesById[workspaceId]?.panelGitBranches[panelId] else {
             return nil
         }
         return SidebarPanelGitBranch(branch: state.branch, isDirty: state.isDirty)
     }
 
     func panelGitBranchPanelIds(in workspaceId: UUID) -> Set<UUID> {
-        guard let workspace = tabs.first(where: { $0.id == workspaceId }) else { return [] }
+        guard let workspace = workspacesById[workspaceId] else { return [] }
         return Set(workspace.panelGitBranches.keys)
     }
 
     func panelPullRequestBadge(workspaceId: UUID, panelId: UUID) -> SidebarPullRequestBadge? {
-        guard let state = tabs.first(where: { $0.id == workspaceId })?.panelPullRequests[panelId] else {
+        guard let state = workspacesById[workspaceId]?.panelPullRequests[panelId] else {
             return nil
         }
         return state.sidebarPullRequestBadge
     }
 
     func panelPullRequestPanelIds(in workspaceId: UUID) -> Set<UUID> {
-        guard let workspace = tabs.first(where: { $0.id == workspaceId }) else { return [] }
+        guard let workspace = workspacesById[workspaceId] else { return [] }
         return Set(workspace.panelPullRequests.keys)
     }
 
     func focusedPanelId(in workspaceId: UUID) -> UUID? {
-        tabs.first(where: { $0.id == workspaceId })?.focusedPanelId
+        workspacesById[workspaceId]?.focusedPanelId
     }
 
     func hasWorkspaceLevelGitSignal(_ workspaceId: UUID) -> Bool {
-        guard let workspace = tabs.first(where: { $0.id == workspaceId }) else { return false }
+        guard let workspace = workspacesById[workspaceId] else { return false }
         return workspace.gitBranch != nil || workspace.pullRequest != nil
     }
 
@@ -96,7 +96,7 @@ extension TabManager: SidebarGitHosting {
 
     @discardableResult
     func updatePanelDirectory(workspaceId: UUID, panelId: UUID, directory: String, displayLabel: String?) -> Bool {
-        guard let workspace = tabs.first(where: { $0.id == workspaceId }) else { return false }
+        guard let workspace = workspacesById[workspaceId] else { return false }
         return workspace.updatePanelDirectory(panelId: panelId, directory: directory, displayLabel: displayLabel)
     }
 
@@ -110,7 +110,7 @@ extension TabManager: SidebarGitHosting {
     }
 
     func updateReportedSurfaceDirectory(tabId: UUID, surfaceId: UUID, directory: String, displayLabel: String? = nil) {
-        if let workspace = tabs.first(where: { $0.id == tabId }),
+        if let workspace = workspacesById[tabId],
            !workspace.allowsLocalDirectoryFallback(panelId: surfaceId) {
             updateRemoteSurfaceDirectory(tabId: tabId, surfaceId: surfaceId, directory: directory, displayLabel: displayLabel)
         } else {
@@ -120,21 +120,21 @@ extension TabManager: SidebarGitHosting {
 
     @discardableResult
     func updateRemotePanelDirectory(workspaceId: UUID, panelId: UUID, directory: String, displayLabel: String?) -> Bool {
-        guard let workspace = tabs.first(where: { $0.id == workspaceId }) else { return false }
+        guard let workspace = workspacesById[workspaceId] else { return false }
         return workspace.updateRemotePanelDirectory(panelId: panelId, directory: directory, displayLabel: displayLabel)
     }
 
     func updatePanelGitBranch(workspaceId: UUID, panelId: UUID, branch: String, isDirty: Bool) {
-        tabs.first(where: { $0.id == workspaceId })?
+        workspacesById[workspaceId]?
             .updatePanelGitBranch(panelId: panelId, branch: branch, isDirty: isDirty)
     }
 
     func clearPanelGitBranch(workspaceId: UUID, panelId: UUID) {
-        tabs.first(where: { $0.id == workspaceId })?.clearPanelGitBranch(panelId: panelId)
+        workspacesById[workspaceId]?.clearPanelGitBranch(panelId: panelId)
     }
 
     func updatePanelPullRequest(workspaceId: UUID, panelId: UUID, badge: SidebarPullRequestBadge) {
-        tabs.first(where: { $0.id == workspaceId })?.updatePanelPullRequest(
+        workspacesById[workspaceId]?.updatePanelPullRequest(
             panelId: panelId,
             number: badge.number,
             label: badge.label,
@@ -147,7 +147,7 @@ extension TabManager: SidebarGitHosting {
     }
 
     func clearPanelPullRequest(workspaceId: UUID, panelId: UUID) {
-        tabs.first(where: { $0.id == workspaceId })?.clearPanelPullRequest(panelId: panelId)
+        workspacesById[workspaceId]?.clearPanelPullRequest(panelId: panelId)
     }
 
     func schedulePanelGitMetadataProbe(workspaceId: UUID, panelId: UUID, reason: String) {

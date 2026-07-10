@@ -14,7 +14,8 @@ public protocol PullRequestProbing: AnyObject {
     /// Must be called once, before any scheduling entry point.
     func attach(host: any SidebarGitHosting)
     /// Requests a refresh for one panel (marks its poll deadline immediate,
-    /// or queues a rerun if a refresh is already in flight).
+    /// or queues a rerun if a refresh is already in flight). Requests made in
+    /// one main-actor turn share one whole-window planning pass.
     func scheduleWorkspacePullRequestRefresh(workspaceId: UUID, panelId: UUID, reason: String)
     /// Runs one refresh pass over every tracked panel whose deadline is due.
     func refreshTrackedWorkspacePullRequestsIfNeeded(reason: String)

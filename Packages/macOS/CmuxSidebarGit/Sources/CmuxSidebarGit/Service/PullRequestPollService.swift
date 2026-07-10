@@ -55,6 +55,10 @@ public final class PullRequestPollService: PullRequestProbing {
     var workspacePullRequestRepoCacheBySlug: [String: WorkspacePullRequestRepoCacheEntry] = [:]
     var workspacePullRequestPollTask: Task<Void, Never>?
     var workspacePullRequestRefreshTask: Task<Void, Never>?
+    var workspacePullRequestScheduledRefreshTask: Task<Void, Never>?
+    var workspacePullRequestScheduledRefreshReason: String?
+    var workspacePullRequestScheduledRefreshShouldBypassRepoCache = false
+    var workspacePullRequestFollowUpRequested = false
     var workspacePullRequestFollowUpShouldBypassRepoCache = false
     var lastSidebarPullRequestPollingEnabled = false
 
@@ -83,6 +87,7 @@ public final class PullRequestPollService: PullRequestProbing {
     deinit {
         workspacePullRequestPollTask?.cancel()
         workspacePullRequestRefreshTask?.cancel()
+        workspacePullRequestScheduledRefreshTask?.cancel()
     }
 
     /// Wires the host and captures the initial polling-setting value
@@ -158,6 +163,18 @@ public final class PullRequestPollService: PullRequestProbing {
         reason: String,
         allowCachedResultsOverride: Bool?
     ) {
+        let scheduledRefreshShouldBypassRepoCache: Bool = {
+            guard let scheduledTask = workspacePullRequestScheduledRefreshTask else { return false }
+            scheduledTask.cancel()
+            workspacePullRequestScheduledRefreshTask = nil
+            workspacePullRequestScheduledRefreshReason = nil
+            let shouldBypassRepoCache = workspacePullRequestScheduledRefreshShouldBypassRepoCache
+            workspacePullRequestScheduledRefreshShouldBypassRepoCache = false
+            return shouldBypassRepoCache
+        }()
+        let effectiveAllowCachedResultsOverride = scheduledRefreshShouldBypassRepoCache
+            ? false
+            : allowCachedResultsOverride
         guard let host else { return }
         guard !host.mobileHostHasRecentActivity(within: mobileHostDeferral.quietInterval) else {
             deferWorkspacePullRequestRefreshForMobileHost()
@@ -243,7 +260,7 @@ public final class PullRequestPollService: PullRequestProbing {
         }
 
         let cacheBySlug = workspacePullRequestRepoCacheBySlug
-        let allowCachedResults = allowCachedResultsOverride
+        let allowCachedResults = effectiveAllowCachedResultsOverride
             ?? PullRequestProbeService.refreshAllowsRepoCache(reason: reason)
         let gitMetadataService = gitMetadataService
         let probeService = probeService
@@ -323,6 +340,43 @@ public final class PullRequestPollService: PullRequestProbing {
             "panel=\(panelId.uuidString.prefix(5)) reason=\(reason)"
         )
 #endif
-        refreshTrackedWorkspacePullRequestsIfNeeded(reason: reason)
+        if workspacePullRequestRefreshTask != nil {
+            workspacePullRequestFollowUpRequested = true
+            return
+        }
+        scheduleWorkspacePullRequestPlanning(
+            reason: reason,
+            shouldBypassRepoCache: shouldBypassRepoCache
+        )
+    }
+
+    private func scheduleWorkspacePullRequestPlanning(
+        reason: String,
+        shouldBypassRepoCache: Bool
+    ) {
+        workspacePullRequestScheduledRefreshReason = reason
+        workspacePullRequestScheduledRefreshShouldBypassRepoCache =
+            workspacePullRequestScheduledRefreshShouldBypassRepoCache || shouldBypassRepoCache
+        guard workspacePullRequestScheduledRefreshTask == nil else { return }
+
+        // A task on the same actor starts after this synchronous event turn, so every
+        // per-panel request from one git snapshot shares one whole-window planning pass.
+        workspacePullRequestScheduledRefreshTask = Task { @MainActor [weak self] in
+            guard let self, !Task.isCancelled else { return }
+            self.runScheduledWorkspacePullRequestPlanning()
+        }
+    }
+
+    private func runScheduledWorkspacePullRequestPlanning() {
+        workspacePullRequestScheduledRefreshTask = nil
+        let reason = workspacePullRequestScheduledRefreshReason ?? "scheduled"
+        let shouldBypassRepoCache = workspacePullRequestScheduledRefreshShouldBypassRepoCache
+        workspacePullRequestScheduledRefreshReason = nil
+        workspacePullRequestScheduledRefreshShouldBypassRepoCache = false
+
+        refreshTrackedWorkspacePullRequestsIfNeeded(
+            reason: reason,
+            allowCachedResultsOverride: shouldBypassRepoCache ? false : nil
+        )
     }
 }
