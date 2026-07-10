@@ -219,16 +219,22 @@ extension MobileShellComposite {
             guard let route = rawRoute.disclosed(for: .authenticated, at: now) else {
                 return
             }
-            guard seenIDs.insert(route.id).inserted else {
-                return
-            }
             if case let .peer(identity, _) = route.endpoint {
                 if let index = peerRouteIndex[identity] {
+                    // Stable Iroh route ids may collide before the stored route
+                    // contributes still-usable hints for the same peer.
+                    seenIDs.insert(route.id)
                     merged[index] = coalescingPeerHints(into: merged[index], from: route)
                 } else {
+                    guard seenIDs.insert(route.id).inserted else {
+                        return
+                    }
                     peerRouteIndex[identity] = merged.count
                     merged.append(route)
                 }
+                return
+            }
+            guard seenIDs.insert(route.id).inserted else {
                 return
             }
             let key: String
