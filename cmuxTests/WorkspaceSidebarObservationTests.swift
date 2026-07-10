@@ -126,7 +126,14 @@ struct WorkspaceSidebarObservationTests {
         )
     }
 
-    @Test func sidebarImmediateObservationPublisherDeliversFirstChangeInCurrentRunLoopCycle() {
+    // Async: the observation re-arm hop is a MainActor Task, and a Swift
+    // Testing @MainActor test occupies the main actor for its whole body, so
+    // pumpMainRunLoop can never execute that Task (nested run loops do not
+    // drain the occupied actor). Awaiting suspends the test job and releases
+    // the actor instead. Strict same-run-loop-turn timing cannot be expressed
+    // from inside a main-actor test job (plan D3 fallback): assert the leading
+    // edge is delivered within the bounded drain below.
+    @Test func sidebarImmediateObservationPublisherDeliversFirstChangeInCurrentRunLoopCycle() async {
         let workspace = Workspace()
 
         var publishCount = 0
@@ -137,15 +144,18 @@ struct WorkspaceSidebarObservationTests {
         publishCount = 0
 
         workspace.title = "User Edit"
-        pumpMainRunLoop(until: { publishCount == 1 }, timeout: 0.2)
+        await drainMainActor(until: { publishCount == 1 })
 
         #expect(
             publishCount == 1,
-            "The first immediate-field change after subscribing must reach the sidebar in the current run-loop cycle; coalescing may only defer the tail of a burst."
+            "The first immediate-field change after subscribing must reach the sidebar after at most the observation re-read hop; coalescing may only defer the tail of a burst."
         )
     }
 
-    @Test func sidebarImmediateObservationPublisherCoalescesTitleBursts() {
+    // Async for the same reason as the leading-edge test above: the re-arm
+    // hop and the RunLoop.main coalesce timer only make progress while the
+    // test job is suspended off the main actor.
+    @Test func sidebarImmediateObservationPublisherCoalescesTitleBursts() async {
         let workspace = Workspace()
 
         var publishCount = 0
@@ -156,7 +166,7 @@ struct WorkspaceSidebarObservationTests {
         publishCount = 0
 
         workspace.title = "Agent Turn Leading"
-        pumpMainRunLoop(until: { publishCount == 1 }, timeout: 0.2)
+        await drainMainActor(until: { publishCount == 1 })
 
         #expect(
             publishCount == 1,
@@ -164,14 +174,17 @@ struct WorkspaceSidebarObservationTests {
         )
 
         workspace.title = "Agent Turn Trailing"
-        RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+        // Let the second value's re-read hop reach the coalescer, staying well
+        // inside the 50ms window so the trailing timer has not fired yet.
+        await Task.yield()
+        try? await Task.sleep(nanoseconds: 10_000_000)
 
         #expect(
             publishCount == 1,
             "A second delivered value inside the open coalesce window should be held as the pending trailing value."
         )
 
-        pumpMainRunLoop(until: { publishCount == 2 }, timeout: 0.3)
+        await drainMainActor(until: { publishCount == 2 })
 
         #expect(
             publishCount == 2,
@@ -385,10 +398,14 @@ struct WorkspaceSidebarObservationTests {
     }
 }
 
-private func pumpMainRunLoop(until condition: () -> Bool, timeout: TimeInterval) {
-    let deadline = Date().addingTimeInterval(timeout)
-    while !condition(), Date() < deadline {
-        RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.01))
+// Suspends the calling main-actor test job in short slices so pending
+// MainActor Tasks (the observation re-arm hop) and RunLoop.main scheduler
+// timers (the coalesce window) can run. Bounded: ~200 x 2ms = 400ms max.
+@MainActor
+private func drainMainActor(until condition: () -> Bool, maxIterations: Int = 200) async {
+    for _ in 0..<maxIterations where !condition() {
+        await Task.yield()
+        try? await Task.sleep(nanoseconds: 2_000_000)
     }
 }
 
