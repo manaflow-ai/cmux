@@ -75,10 +75,16 @@ actor GatedMetadataReader: WorkspaceGitMetadataReading {
 /// Records every call the git metadata service makes into the PR seam.
 @MainActor
 final class RecordingPullRequestProbing: PullRequestProbing {
+    private struct SourceIdentity: Equatable {
+        let directory: String
+        let branch: String
+    }
+
     private(set) var scheduledRefreshes: [(workspaceId: UUID, panelId: UUID, reason: String)] = []
     private(set) var clearedTrackingKeys: [(workspaceId: UUID, panelId: UUID)] = []
     private(set) var clearedTrackingWorkspaceIds: [UUID] = []
     var trackedPanelIdsByWorkspace: [UUID: Set<UUID>] = [:]
+    private var sourceByKey: [WorkspaceGitProbeKey: SourceIdentity] = [:]
     private(set) var resetCount = 0
 
     func attach(host: any SidebarGitHosting) {}
@@ -86,21 +92,46 @@ final class RecordingPullRequestProbing: PullRequestProbing {
         scheduledRefreshes.append((workspaceId, panelId, reason))
         trackedPanelIdsByWorkspace[workspaceId, default: []].insert(panelId)
     }
+    func seedWorkspacePullRequestRefreshIfNeeded(
+        workspaceId: UUID,
+        panelId: UUID,
+        directory: String,
+        branch: String,
+        reason: String
+    ) {
+        guard let normalizedBranch = GitMetadataService.normalizedBranchName(branch) else { return }
+        let key = WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: panelId)
+        let source = SourceIdentity(
+            directory: directory.normalizedGitProbeDirectory,
+            branch: normalizedBranch
+        )
+        guard sourceByKey[key] != source else { return }
+        sourceByKey[key] = source
+        guard !PullRequestProbeService.shouldSkipLookup(branch: normalizedBranch) else { return }
+        scheduleWorkspacePullRequestRefresh(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            reason: reason
+        )
+    }
     func refreshTrackedWorkspacePullRequestsIfNeeded(reason: String) {}
     func sidebarPullRequestPollingSettingsDidChange() {}
     func handleWorkspacePullRequestCommandHint(workspaceId: UUID, panelId: UUID, action: String, target: String?) {}
     func clearWorkspacePullRequestTracking(workspaceId: UUID, panelId: UUID) {
         clearedTrackingKeys.append((workspaceId, panelId))
         trackedPanelIdsByWorkspace[workspaceId]?.remove(panelId)
+        sourceByKey.removeValue(forKey: WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: panelId))
     }
     func clearWorkspacePullRequestMetadata(workspaceId: UUID, panelId: UUID) {}
     func clearWorkspacePullRequestTracking(workspaceId: UUID) {
         clearedTrackingWorkspaceIds.append(workspaceId)
         trackedPanelIdsByWorkspace[workspaceId] = []
+        sourceByKey = sourceByKey.filter { $0.key.workspaceId != workspaceId }
     }
     func resetWorkspacePullRequestRefreshState() {
         resetCount += 1
         trackedPanelIdsByWorkspace.removeAll()
+        sourceByKey.removeAll()
     }
     func workspacePullRequestTrackedPanelIds(workspaceId: UUID) -> Set<UUID> {
         trackedPanelIdsByWorkspace[workspaceId] ?? []

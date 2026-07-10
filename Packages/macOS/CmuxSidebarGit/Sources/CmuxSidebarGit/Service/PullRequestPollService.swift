@@ -56,6 +56,8 @@ public final class PullRequestPollService: PullRequestProbing {
     var workspacePullRequestPollTask: Task<Void, Never>?
     var workspacePullRequestRefreshTask: Task<Void, Never>?
     var workspacePullRequestFollowUpShouldBypassRepoCache = false
+    var workspacePullRequestSourceByKey: [WorkspaceGitProbeKey: SourceIdentity] = [:]
+    var workspacePullRequestSeedRefreshTask: Task<Void, Never>?
     var lastSidebarPullRequestPollingEnabled = false
 
     /// Creates the poll service.
@@ -83,6 +85,7 @@ public final class PullRequestPollService: PullRequestProbing {
     deinit {
         workspacePullRequestPollTask?.cancel()
         workspacePullRequestRefreshTask?.cancel()
+        workspacePullRequestSeedRefreshTask?.cancel()
     }
 
     /// Wires the host and captures the initial polling-setting value
@@ -151,6 +154,8 @@ public final class PullRequestPollService: PullRequestProbing {
     // MARK: Refresh pass
 
     public func refreshTrackedWorkspacePullRequestsIfNeeded(reason: String) {
+        workspacePullRequestSeedRefreshTask?.cancel()
+        workspacePullRequestSeedRefreshTask = nil
         refreshTrackedWorkspacePullRequestsIfNeeded(reason: reason, allowCachedResultsOverride: nil)
     }
 
@@ -172,6 +177,7 @@ public final class PullRequestPollService: PullRequestProbing {
         let now = Date()
         var candidateSeeds: [WorkspacePullRequestCandidateSeed] = []
         var requestedKeys: [WorkspaceGitProbeKey] = []
+        var requestedSourceByKey: [WorkspaceGitProbeKey: SourceIdentity] = [:]
         var validKeys: Set<WorkspaceGitProbeKey> = []
 
         for workspaceId in host.orderedWorkspaceIds() {
@@ -186,13 +192,23 @@ public final class PullRequestPollService: PullRequestProbing {
                         ?? host.panelPullRequestBadge(workspaceId: workspaceId, panelId: panelId)?.branch
                 )
                 guard let branch else {
+                    workspacePullRequestSourceByKey.removeValue(forKey: key)
                     clearWorkspacePullRequestTracking(for: key)
                     continue
                 }
 
+                let source = SourceIdentity(
+                    directory: host.gitProbeDirectory(workspaceId: workspaceId, panelId: panelId)?
+                        .normalizedGitProbeDirectory ?? "",
+                    branch: branch
+                )
+                workspacePullRequestSourceByKey[key] = source
+
                 if PullRequestProbeService.shouldSkipLookup(branch: branch) {
-                    host.clearPanelPullRequest(workspaceId: workspaceId, panelId: panelId)
-                    clearWorkspacePullRequestTracking(for: key)
+                    if host.panelPullRequestBadge(workspaceId: workspaceId, panelId: panelId) != nil {
+                        host.clearPanelPullRequest(workspaceId: workspaceId, panelId: panelId)
+                    }
+                    clearWorkspacePullRequestTracking(for: key, preservingSource: true)
                     continue
                 }
 
@@ -220,6 +236,7 @@ public final class PullRequestPollService: PullRequestProbing {
                 )
                 candidateSeeds.append(candidateSeed)
                 requestedKeys.append(key)
+                requestedSourceByKey[key] = source
             }
         }
 
@@ -242,44 +259,18 @@ public final class PullRequestPollService: PullRequestProbing {
             workspacePullRequestProbeStateByKey[key] = .inFlight(rerunPending: false)
         }
 
-        let cacheBySlug = workspacePullRequestRepoCacheBySlug
-        let allowCachedResults = allowCachedResultsOverride
-            ?? PullRequestProbeService.refreshAllowsRepoCache(reason: reason)
-        let gitMetadataService = gitMetadataService
-        let probeService = probeService
-        let seeds = candidateSeeds
-        let keys = requestedKeys
-        workspacePullRequestRefreshTask = Task.detached(priority: .utility) { [weak self] in
-            let candidateResolution = await probeService.resolveCandidateSeeds(
-                seeds,
-                gitMetadata: gitMetadataService
-            )
-            guard !Task.isCancelled else { return }
-            let repoResults = await probeService.fetchRepoResults(
-                repoDirectoriesBySlug: candidateResolution.repoDirectoriesBySlug,
-                candidateBranchesByRepo: candidateResolution.candidateBranchesByRepo,
-                cacheBySlug: cacheBySlug,
+        startWorkspacePullRequestRefresh(
+            RefreshRequest(
+                seeds: candidateSeeds,
+                keys: requestedKeys,
+                sources: requestedSourceByKey,
+                cacheBySlug: workspacePullRequestRepoCacheBySlug,
                 now: now,
-                allowCachedResults: allowCachedResults
+                allowCachedResults: allowCachedResultsOverride
+                    ?? PullRequestProbeService.refreshAllowsRepoCache(reason: reason),
+                reason: reason
             )
-            let results = PullRequestProbeService.resolveRefreshResults(
-                candidates: candidateResolution.candidates,
-                repoResults: repoResults
-            )
-            guard !Task.isCancelled else { return }
-            await MainActor.run { [weak self] in
-                guard let self else { return }
-                guard !Task.isCancelled else { return }
-                self.workspacePullRequestRefreshTask = nil
-                self.applyWorkspacePullRequestRefreshResults(
-                    results,
-                    repoResults: repoResults,
-                    requestedKeys: keys,
-                    now: Date(),
-                    reason: reason
-                )
-            }
-        }
+        )
     }
 
     func shouldRefreshWorkspacePullRequest(
@@ -300,6 +291,8 @@ public final class PullRequestPollService: PullRequestProbing {
         panelId: UUID,
         reason: String
     ) {
+        workspacePullRequestSeedRefreshTask?.cancel()
+        workspacePullRequestSeedRefreshTask = nil
         let key = WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: panelId)
         guard sidebarPullRequestPollingEnabled else {
             clearWorkspacePullRequestMetadata(for: key)
