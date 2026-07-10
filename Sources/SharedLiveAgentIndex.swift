@@ -15,6 +15,7 @@ final class SharedLiveAgentIndex {
     private var validatedForkPanels = Set<RestorableAgentSessionIndex.PanelKey>()
     private var validatedMissingForkPanels: [RestorableAgentSessionIndex.PanelKey: Date] = [:]
     private var pendingForkValidationPanels = Set<RestorableAgentSessionIndex.PanelKey>()
+    private var forkAvailabilityRefreshValidationPanels = Set<RestorableAgentSessionIndex.PanelKey>()
     private var processScopeFingerprint: Set<String> = []
     private var changePending = false
     private var deferredReloadTimer: DispatchSourceTimer?
@@ -140,9 +141,9 @@ final class SharedLiveAgentIndex {
 
     func refreshForkAvailabilityNow(workspaceId: UUID? = nil, panelId: UUID? = nil) async {
         if let workspaceId, let panelId {
-            pendingForkValidationPanels.insert(
-                RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId)
-            )
+            let panelKey = RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId)
+            pendingForkValidationPanels.insert(panelKey)
+            forkAvailabilityRefreshValidationPanels.insert(panelKey)
         }
         await forkAvailabilityRefreshTaskForCurrentState().value
         // A caller can join after the loader produced its index but before the
@@ -153,6 +154,7 @@ final class SharedLiveAgentIndex {
 
     private func requestForkAvailabilityRefresh(validating panelKey: RestorableAgentSessionIndex.PanelKey) {
         pendingForkValidationPanels.insert(panelKey)
+        forkAvailabilityRefreshValidationPanels.insert(panelKey)
         _ = forkAvailabilityRefreshTaskForCurrentState()
     }
 
@@ -165,7 +167,10 @@ final class SharedLiveAgentIndex {
             _ = await predecessor?.value
             guard let self else { return }
             guard !Task.isCancelled else { return }
+            // The predecessor may have consumed these keys against pre-request state.
+            self.pendingForkValidationPanels.formUnion(self.forkAvailabilityRefreshValidationPanels)
             await self.reload(forcePublish: true)
+            self.forkAvailabilityRefreshValidationPanels.removeAll()
             self.forkAvailabilityRefreshTask = nil
             NotificationCenter.default.post(name: .sharedLiveAgentIndexDidChange, object: self)
             if self.changePending {
