@@ -1,12 +1,12 @@
 @testable import CmuxIrohTransport
 
 actor TestIrohEndpointFactory: CmxIrohEndpointFactory {
-    private var endpoints: [TestIrohEndpoint]
+    private var endpoints: [any CmxIrohEndpoint]
     private var configurations: [CmxIrohEndpointConfiguration] = []
     private let bindStream: AsyncStream<Int>
     private let bindContinuation: AsyncStream<Int>.Continuation
 
-    init(endpoints: [TestIrohEndpoint]) {
+    init(endpoints: [any CmxIrohEndpoint]) {
         self.endpoints = endpoints
         let binds = AsyncStream<Int>.makeStream()
         bindStream = binds.stream

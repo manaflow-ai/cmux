@@ -1,0 +1,108 @@
+import CMUXMobileCore
+import Foundation
+import Testing
+@testable import CmuxIrohTransport
+
+@Suite
+struct CmxIrohByteTransportTests {
+    @Test
+    func factoryConnectsIrohRouteThroughInjectedSupervisorAndContext() async throws {
+        let localIdentity = try CmxIrohPeerIdentity(
+            endpointID: String(repeating: "ab", count: 32)
+        )
+        let remoteIdentity = try CmxIrohPeerIdentity(
+            endpointID: String(repeating: "cd", count: 32)
+        )
+        let controlReceive = TestIrohReceiveStream(
+            buffer: CmxIrohAdmissionAckCodec().encode(.accepted) + Data("response".utf8)
+        )
+        let controlSend = TestIrohSendStream()
+        let connection = TestIrohConnection(
+            remoteIdentity: remoteIdentity,
+            bidirectionalStreams: [
+                CmxIrohBidirectionalStream(
+                    receiveStream: controlReceive,
+                    sendStream: controlSend
+                ),
+            ]
+        )
+        let endpoint = TestDialingIrohEndpoint(
+            localIdentity: localIdentity,
+            dialResults: [.connection(connection)]
+        )
+        let endpointFactory = TestIrohEndpointFactory(endpoints: [endpoint])
+        let supervisor = CmxIrohEndpointSupervisor(
+            factory: endpointFactory,
+            configuration: try endpointConfiguration()
+        )
+        _ = try await supervisor.activate()
+        let credential = try CmxIrohAdmissionCredential.pairGrant("e30.e30.AA")
+        let contextProvider = TestIrohClientContextProvider(
+            context: CmxIrohClientContext(
+                dialPlan: CmxIrohDialPlan(publicPaths: [], privateFallbackPaths: []),
+                credential: credential
+            )
+        )
+        let route = try CmxAttachRoute(
+            id: "iroh",
+            kind: .iroh,
+            endpoint: .peer(identity: remoteIdentity, pathHints: []),
+            priority: 0
+        )
+        let factory = CmxIrohByteTransportFactory(
+            supervisor: supervisor,
+            contextProvider: contextProvider
+        )
+        let transport = try factory.makeTransport(for: route)
+
+        try await transport.connect()
+        try await transport.send(Data("request".utf8))
+
+        #expect(try await transport.receive() == Data("response".utf8))
+        #expect(await contextProvider.routes() == [route])
+        let sent = await controlSend.observedSentBuffers()
+        #expect(sent.count == 2)
+        #expect(sent[1] == Data("request".utf8))
+    }
+
+    @Test
+    func factoryRejectsLegacyHostPortRoutes() throws {
+        let localIdentity = try CmxIrohPeerIdentity(
+            endpointID: String(repeating: "ab", count: 32)
+        )
+        let endpoint = TestIrohEndpoint(identity: localIdentity)
+        let supervisor = CmxIrohEndpointSupervisor(
+            factory: TestIrohEndpointFactory(endpoints: [endpoint]),
+            configuration: try endpointConfiguration()
+        )
+        let provider = TestIrohClientContextProvider(
+            context: CmxIrohClientContext(
+                dialPlan: CmxIrohDialPlan(publicPaths: [], privateFallbackPaths: []),
+                credential: try .pairGrant("e30.e30.AA")
+            )
+        )
+        let factory = CmxIrohByteTransportFactory(
+            supervisor: supervisor,
+            contextProvider: provider
+        )
+        let tailscale = try CmxAttachRoute(
+            id: "tailscale",
+            kind: .tailscale,
+            endpoint: .hostPort(host: "100.64.0.1", port: 42),
+            priority: 0
+        )
+
+        #expect(throws: CmxIrohByteTransportError.unsupportedRouteKind(.tailscale)) {
+            try factory.makeTransport(for: tailscale)
+        }
+    }
+
+    private func endpointConfiguration() throws -> CmxIrohEndpointConfiguration {
+        try CmxIrohEndpointConfiguration(
+            secretKey: CmxIrohSecretKey(bytes: Data(repeating: 1, count: 32)),
+            alpns: [CmxIrohProtocolConfiguration.cmuxMobileV1.alpn],
+            managedRelayURLs: [],
+            relays: []
+        )
+    }
+}

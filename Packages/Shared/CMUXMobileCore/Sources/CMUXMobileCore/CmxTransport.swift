@@ -20,7 +20,12 @@ public struct CmxIrohDialPlan: Equatable, Sendable {
     /// Active-profile private/LAN paths used only after the first attempt fails.
     public let privateFallbackPaths: [CmxIrohPathHint]
 
-    init(
+    /// Creates an explicit public-first, private-fallback dial plan.
+    ///
+    /// - Parameters:
+    ///   - publicPaths: Iroh-native paths permitted on the first attempt.
+    ///   - privateFallbackPaths: Profile-gated paths permitted only after failure.
+    public init(
         publicPaths: [CmxIrohPathHint],
         privateFallbackPaths: [CmxIrohPathHint]
     ) {
