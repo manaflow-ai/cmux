@@ -101,6 +101,40 @@ struct CmxIrohClientSessionPoolTests {
     }
 
     @Test
+    func remoteConnectionCloseEvictsPooledSessionBeforeRedial() async throws {
+        let fixture = try PoolFixture()
+        let firstConnection = TestIrohConnection(
+            remoteIdentity: fixture.remoteIdentity,
+            bidirectionalStreams: [fixture.controlStream()]
+        )
+        let secondConnection = TestIrohConnection(
+            remoteIdentity: fixture.remoteIdentity,
+            bidirectionalStreams: [fixture.controlStream()]
+        )
+        let endpoint = TestDialingIrohEndpoint(
+            localIdentity: fixture.localIdentity,
+            dialResults: [
+                .connection(firstConnection),
+                .connection(secondConnection),
+            ]
+        )
+        let pool = try await fixture.pool(endpoint: endpoint, generation: 1)
+        let factory = CmxIrohByteTransportFactory(sessionPool: pool)
+        let first = try factory.makeTransport(for: fixture.request)
+        try await first.connect()
+        for _ in 0 ..< 100 { await Task.yield() }
+
+        await firstConnection.close(errorCode: 99, reason: "peer_closed")
+        for _ in 0 ..< 100 { await Task.yield() }
+
+        let replacement = try factory.makeTransport(for: fixture.request)
+        try await replacement.connect()
+        #expect(await endpoint.observedDialedAddresses().count == 2)
+        #expect(await secondConnection.observedCloseCallCount() == 0)
+        await replacement.close()
+    }
+
+    @Test
     func endpointGenerationChangeClosesOldSessionBeforeRedial() async throws {
         let fixture = try PoolFixture()
         let firstConnection = TestIrohConnection(
