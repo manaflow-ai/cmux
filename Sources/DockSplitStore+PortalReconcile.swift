@@ -178,7 +178,7 @@ extension DockSplitStore {
     private func reconcileVisibleDockTerminalPortal(_ terminal: TerminalPanel) -> Bool {
         var needsFollowUpPass = false
         let hostedView = terminal.hostedView
-        hostedView.setVisibleInUI(true)
+        hostedView.setVisibleInUI(true, refreshPolicy: .deferredToPortal)
         hostedView.setActive(panelIsActiveInVisibleDockPane(terminal.id))
 
         let needsPortalReattach = TerminalWindowPortalRegistry

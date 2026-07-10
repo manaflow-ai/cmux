@@ -24,6 +24,20 @@ struct TerminalPortalPresentationRefreshTracker {
 }
 
 extension WindowTerminalPortal {
+    /// Updates portal stacking state without changing whether the entry is visible.
+    func updateEntryPriority(forHostedId hostedId: ObjectIdentifier, zPriority: Int) {
+        guard var entry = entriesByHostedId[hostedId], entry.zPriority != zPriority else { return }
+        entry.zPriority = zPriority
+        entriesByHostedId[hostedId] = entry
+    }
+
+    /// Preserves a still-live detached anchor only for an explicitly announced host rebuild.
+    func prepareEntryForTransientReattach(forHostedId hostedId: ObjectIdentifier) {
+        guard var entry = entriesByHostedId[hostedId] else { return }
+        entry.allowsTransientAnchorRecovery = true
+        entriesByHostedId[hostedId] = entry
+    }
+
     func requestPresentationRefresh(forHostedId hostedId: ObjectIdentifier) {
         presentationRefreshTracker.request(for: hostedId)
     }

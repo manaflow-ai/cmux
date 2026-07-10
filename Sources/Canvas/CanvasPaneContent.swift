@@ -55,7 +55,7 @@ final class CanvasPaneContentMount: CanvasPaneContentMounting {
             // terminal at the viewport edge. Detach and parent directly so
             // the clip view crops instead.
             TerminalWindowPortalRegistry.detach(hostedView: hostedView)
-            hostedView.setVisibleInUI(true)
+            hostedView.setVisibleInUI(true, refreshPolicy: .immediate)
             hostedView.setFocusHandler { [weak self] in
                 guard let self else { return }
                 self.onFocusPanel?(self.panelId)

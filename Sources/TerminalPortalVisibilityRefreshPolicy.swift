@@ -42,7 +42,21 @@ enum TerminalPortalVisibilityRefreshPolicy {
 }
 
 extension GhosttySurfaceScrollView {
-    func setVisibleInUI(_ visible: Bool) {
-        setVisibleInUI(visible, refreshPolicy: .immediate)
+    func setPortalHostHandlers(
+        ownerHostId: ObjectIdentifier,
+        focusHandler: (() -> Void)?,
+        triggerFlashHandler: (() -> Void)?
+    ) {
+        setFocusHandler(focusHandler)
+        setTriggerFlashHandler(triggerFlashHandler)
+        portalCallbackOwnerHostId = ownerHostId
+    }
+
+    func clearPortalHostHandlersIfOwned(ownerHostId: ObjectIdentifier) {
+        guard portalCallbackOwnerHostId == ownerHostId else { return }
+        portalCallbackOwnerHostId = nil
+        setFocusHandler(nil)
+        setTriggerFlashHandler(nil)
+        setDropZoneOverlay(zone: nil)
     }
 }

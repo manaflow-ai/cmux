@@ -8196,6 +8196,7 @@ final class GhosttySurfaceScrollView: NSView {
     private var isActive = true
     private var lastFocusRefreshAt: CFTimeInterval = 0
     private var lastRequestedPortalOcclusionVisible: Bool?
+    var portalCallbackOwnerHostId: ObjectIdentifier?
     private var activeDropZone: DropZone?
     private var pendingDropZone: DropZone?
     private var dropZoneOverlayAnimationGeneration: UInt64 = 0
@@ -8382,7 +8383,10 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     func prepareOwnedPortalHostForTransientReattach(hostId: ObjectIdentifier, reason: String) {
-        surfaceView.terminalSurface?.preparePortalHostReplacementIfOwned(
+        guard let terminalSurface = surfaceView.terminalSurface,
+              terminalSurface.isPortalHostOwner(hostId: hostId) else { return }
+        TerminalWindowPortalRegistry.prepareForTransientReattach(hostedView: self)
+        terminalSurface.preparePortalHostReplacementIfOwned(
             hostId: hostId,
             reason: reason
         )
@@ -9194,6 +9198,7 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     func setFocusHandler(_ handler: (() -> Void)?) {
+        portalCallbackOwnerHostId = nil
         guard let handler else {
             surfaceView.onFocus = nil
             return
@@ -9213,6 +9218,7 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     func setTriggerFlashHandler(_ handler: (() -> Void)?) {
+        portalCallbackOwnerHostId = nil
         surfaceView.onTriggerFlash = handler
     }
 
@@ -12186,8 +12192,11 @@ struct GhosttyTerminalView: NSViewRepresentable {
             expectedGeneration: snapshot.expectedSurfaceGeneration
         ) else { return }
         hostedView.attachSurface(terminalSurface)
-        hostedView.setFocusHandler { snapshot.onFocus?(snapshot.expectedSurfaceId) }
-        hostedView.setTriggerFlashHandler(snapshot.onTriggerFlash)
+        hostedView.setPortalHostHandlers(
+            ownerHostId: hostId,
+            focusHandler: { snapshot.onFocus?(snapshot.expectedSurfaceId) },
+            triggerFlashHandler: snapshot.onTriggerFlash
+        )
         hostedView.setPaneDropContext(TerminalPaneDropContext(
             workspaceId: terminalSurface.tabId,
             panelId: snapshot.expectedSurfaceId,
@@ -12480,9 +12489,9 @@ struct GhosttyTerminalView: NSViewRepresentable {
             }
         }
 
-        hostedView?.setFocusHandler(nil)
-        hostedView?.setTriggerFlashHandler(nil)
-        hostedView?.setDropZoneOverlay(zone: nil)
+        if let host = nsView as? TerminalPortalHostContainerView {
+            hostedView?.clearPortalHostHandlersIfOwned(ownerHostId: ObjectIdentifier(host))
+        }
         coordinator.hostedView = nil
         coordinator.portalPresentationResolver = nil
 

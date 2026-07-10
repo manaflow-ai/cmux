@@ -208,7 +208,7 @@ extension DockSplitStore {
         let shouldBeActive = panelIsActiveInVisibleDockPane(panel.id)
         if let terminal = panel as? TerminalPanel {
             if shouldBeVisible {
-                terminal.hostedView.setVisibleInUI(true)
+                terminal.hostedView.setVisibleInUI(true, refreshPolicy: .deferredToPortal)
                 terminal.hostedView.setActive(shouldBeActive)
                 let needsPortalReattach = TerminalWindowPortalRegistry
                     .updateEntryVisibility(for: terminal.hostedView, visibleInUI: true)
@@ -217,7 +217,7 @@ extension DockSplitStore {
                 }
             } else {
                 terminal.unfocus()
-                terminal.hostedView.setVisibleInUI(false)
+                terminal.hostedView.setVisibleInUI(false, refreshPolicy: .deferredToPortal)
                 TerminalWindowPortalRegistry.hideHostedView(terminal.hostedView)
             }
         } else if let browser = panel as? BrowserPanel {

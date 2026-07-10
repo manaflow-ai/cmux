@@ -674,7 +674,7 @@ final class TerminalPanel: Panel, ObservableObject {
         )
 #endif
         unfocus()
-        hostedView.setVisibleInUI(false)
+        hostedView.setVisibleInUI(false, refreshPolicy: .deferredToPortal)
         TerminalWindowPortalRegistry.detach(hostedView: hostedView)
 #if DEBUG
         cmuxDebugLog(
@@ -698,7 +698,7 @@ final class TerminalPanel: Panel, ObservableObject {
         )
         unfocus()
         searchState = nil
-        hostedView.setVisibleInUI(false)
+        hostedView.setVisibleInUI(false, refreshPolicy: .deferredToPortal)
         TerminalWindowPortalRegistry.detach(hostedView: hostedView)
         surface.suspendRuntimeSurfaceForAgentHibernation(reason: "agentHibernation")
         requestViewReattach()

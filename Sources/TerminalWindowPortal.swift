@@ -653,6 +653,7 @@ final class WindowTerminalPortal: NSObject {
         var visibleInUI: Bool
         var zPriority: Int
         var transientRecoveryRetriesRemaining: Int
+        var allowsTransientAnchorRecovery: Bool
     }
 
     var entriesByHostedId: [ObjectIdentifier: Entry] = [:]
@@ -1110,13 +1111,6 @@ final class WindowTerminalPortal: NSObject {
         return needsReattach
     }
 
-    /// Updates portal stacking state without changing whether the entry is visible.
-    func updateEntryPriority(forHostedId hostedId: ObjectIdentifier, zPriority: Int) {
-        guard var entry = entriesByHostedId[hostedId], entry.zPriority != zPriority else { return }
-        entry.zPriority = zPriority
-        entriesByHostedId[hostedId] = entry
-    }
-
     func isHostedViewBoundToAnchor(withId hostedId: ObjectIdentifier, anchorView: NSView) -> Bool {
         guard let entry = entriesByHostedId[hostedId], let boundAnchor = entry.anchorView else { return false }
         return boundAnchor === anchorView
@@ -1172,7 +1166,8 @@ final class WindowTerminalPortal: NSObject {
             anchorView: anchorView,
             visibleInUI: visibleInUI,
             zPriority: zPriority,
-            transientRecoveryRetriesRemaining: 0
+            transientRecoveryRetriesRemaining: 0,
+            allowsTransientAnchorRecovery: false
         )
 
         let didChangeAnchor: Bool = {
@@ -1629,7 +1624,9 @@ final class WindowTerminalPortal: NSObject {
         let currentWindow = window
         let deadHostedIds = entriesByHostedId.compactMap { hostedId, entry -> ObjectIdentifier? in
             guard entry.hostedView != nil else { return hostedId }
-            guard let anchor = entry.anchorView else { return hostedId }
+            guard let anchor = entry.anchorView else {
+                return entry.visibleInUI && entry.allowsTransientAnchorRecovery ? nil : hostedId
+            }
 
             let anchorInvalidForCurrentHost =
                 anchor.window !== currentWindow ||
@@ -1637,9 +1634,8 @@ final class WindowTerminalPortal: NSObject {
                 (installedReferenceView.map { !anchor.isDescendant(of: $0) } ?? false)
             if anchorInvalidForCurrentHost {
                 // During aggressive tab drag/reorder churn, SwiftUI/AppKit can briefly
-                // detach/rehome anchor hosts while the terminal should stay visible.
-                // Avoid pruning those visible entries so sync/bind recovery can reattach.
-                return entry.visibleInUI ? nil : hostedId
+                // detach/rehome an explicitly retiring host while the terminal should stay visible.
+                return entry.visibleInUI && entry.allowsTransientAnchorRecovery ? nil : hostedId
             }
             return nil
         }
@@ -2124,6 +2120,12 @@ enum TerminalWindowPortalRegistry {
         let hostedId = ObjectIdentifier(hostedView)
         guard let windowId = hostedToWindowId[hostedId], let portal = portalsByWindowId[windowId] else { return }
         portal.updateEntryPriority(forHostedId: hostedId, zPriority: zPriority)
+    }
+
+    static func prepareForTransientReattach(hostedView: GhosttySurfaceScrollView) {
+        let hostedId = ObjectIdentifier(hostedView)
+        guard let windowId = hostedToWindowId[hostedId], let portal = portalsByWindowId[windowId] else { return }
+        portal.prepareEntryForTransientReattach(forHostedId: hostedId)
     }
 
     static func isHostedView(_ hostedView: GhosttySurfaceScrollView, boundTo anchorView: NSView) -> Bool {

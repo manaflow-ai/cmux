@@ -1,5 +1,6 @@
 @preconcurrency import XCTest
 import AppKit
+import Bonsplit
 import CmuxTerminal
 
 #if canImport(cmux_DEV)
@@ -8,7 +9,53 @@ import CmuxTerminal
 @testable import cmux
 #endif
 
+// Test-only compatibility for fixtures that intentionally request an immediate reveal.
+extension GhosttySurfaceScrollView {
+    func setVisibleInUI(_ visible: Bool) {
+        setVisibleInUI(visible, refreshPolicy: .immediate)
+    }
+}
+
 extension TerminalWindowPortalLifecycleTests {
+
+    @MainActor
+    func testStaleHostDismantleDoesNotClearNewHostCallbacks() {
+        let surface = TerminalSurface(
+            tabId: UUID(), context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil, workingDirectory: nil
+        )
+        let hostedView = surface.hostedView
+        let oldHost = TerminalPortalHostContainerView(frame: .zero)
+        let newHost = NSView()
+        let pane = PaneID()
+        let coordinator = GhosttyTerminalView.Coordinator()
+        coordinator.hostedView = hostedView
+        var focusCount = 0
+        var flashCount = 0
+
+        XCTAssertTrue(surface.claimPortalHost(
+            hostId: ObjectIdentifier(oldHost), paneId: pane, ownershipGeneration: 1,
+            inWindow: true, bounds: CGRect(x: 0, y: 0, width: 400, height: 300),
+            reason: "test.old.bind"
+        ))
+        XCTAssertTrue(surface.claimPortalHost(
+            hostId: ObjectIdentifier(newHost), paneId: pane, ownershipGeneration: 2,
+            inWindow: true, bounds: CGRect(x: 0, y: 0, width: 400, height: 300),
+            reason: "test.new.bind"
+        ))
+        hostedView.setPortalHostHandlers(
+            ownerHostId: ObjectIdentifier(newHost),
+            focusHandler: { focusCount += 1 },
+            triggerFlashHandler: { flashCount += 1 }
+        )
+
+        GhosttyTerminalView.dismantleNSView(oldHost, coordinator: coordinator)
+        hostedView.surfaceView.onFocus?()
+        hostedView.surfaceView.onTriggerFlash?()
+
+        XCTAssertEqual(focusCount, 1)
+        XCTAssertEqual(flashCount, 1)
+    }
 
     @MainActor
     func testDockVisibilityRevealDefersRefreshToPortalReconcile() throws {
@@ -46,6 +93,42 @@ extension TerminalWindowPortalLifecycleTests {
             0,
             "Dock activation must leave redraw to its scheduled portal reconcile"
         )
+    }
+
+    @MainActor
+    func testTransientReattachDistinguishesAnnouncedAndOrphanedNilAnchors() throws {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 340),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        let contentView = try XCTUnwrap(window.contentView)
+        let surface = TerminalSurface(
+            tabId: UUID(), context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil, workingDirectory: nil
+        )
+        let orphanedAnchor = NSView(frame: NSRect(x: 20, y: 20, width: 360, height: 240))
+        contentView.addSubview(orphanedAnchor)
+        let portal = WindowTerminalPortal(window: window)
+        let hostedId = ObjectIdentifier(surface.hostedView)
+        portal.bind(hostedView: surface.hostedView, to: orphanedAnchor, visibleInUI: true)
+        var entry = try XCTUnwrap(portal.entriesByHostedId[hostedId])
+        entry.anchorView = nil
+        portal.entriesByHostedId[hostedId] = entry
+        portal.pruneDeadEntries()
+        XCTAssertEqual(portal.debugEntryCount(), 0)
+
+        let transientAnchor = NSView(frame: NSRect(x: 20, y: 20, width: 360, height: 240))
+        contentView.addSubview(transientAnchor)
+        portal.bind(hostedView: surface.hostedView, to: transientAnchor, visibleInUI: true)
+        portal.prepareEntryForTransientReattach(forHostedId: hostedId)
+        entry = try XCTUnwrap(portal.entriesByHostedId[hostedId])
+        entry.anchorView = nil
+        portal.entriesByHostedId[hostedId] = entry
+        portal.pruneDeadEntries()
+        XCTAssertEqual(portal.debugEntryCount(), 1)
     }
 
     @MainActor
