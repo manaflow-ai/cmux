@@ -22,8 +22,11 @@ struct ShellIntegrationSendTransportTests {
     /// runtimes of ~11s point at VM scheduling, not the change). The
     /// regression class this guards, Homebrew GNU nc shadowing the system
     /// client, lives on developer machines, where this test always runs.
+    /// GITHUB_ACTIONS does not survive into the elevated app-host process, so
+    /// detect the CI machines by their console user: every CI runner image
+    /// executes tests as `runner`, and no developer or fleet Mac does.
     @Test(.enabled(
-        if: ProcessInfo.processInfo.environment["GITHUB_ACTIONS"] == nil,
+        if: NSUserName() != "runner",
         "subprocess unix-socket delivery is flaky on CI app-host runners; run locally or on a fleet Mac"
     ))
     func sendDeliversPayloadDespiteShadowedPathNC() throws {
