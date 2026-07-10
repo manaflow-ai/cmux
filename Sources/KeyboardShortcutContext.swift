@@ -2,6 +2,12 @@ import AppKit
 import CmuxSettings
 import WebKit
 
+enum BrowserFocusModeKeyDecision: Equatable {
+    case inactive
+    case forwardToWebView
+    case consume
+}
+
 struct ShortcutEventFocusContext {
     let browserPanel: BrowserPanel?
     let markdownPanel: MarkdownPanel?

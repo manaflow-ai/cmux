@@ -289,6 +289,11 @@ final class BrowserWebExtensionSupport: NSObject, BrowserWebExtensionHosting {
         return activePanelID(in: window) == nil ? nil : windowAdapter
     }
 
+    func focusedWebExtensionWindow(for keyWindow: NSWindow?) -> (any WKWebExtensionWindow)? {
+        guard let keyWindow else { return nil }
+        return webExtensionWindow(for: keyWindow)
+    }
+
     private func rememberActivePanel(_ panelID: UUID) {
         guard let window = tabAdapters[panelID]?.panel?.webView.window else { return }
         activePanelIDsByWindow[ObjectIdentifier(window)] = panelID
@@ -388,5 +393,48 @@ final class BrowserWebExtensionSupport: NSObject, BrowserWebExtensionHosting {
         popouts.removeAll { $0 === popout }
         controller.didCloseTab(popout.tab, windowIsClosing: true)
         controller.didCloseWindow(popout)
+    }
+}
+
+/// Creates the app-wide web-extension host at launch on OS versions that
+/// support `WKWebExtensionController`; returns nil elsewhere.
+@MainActor
+func makeBrowserWebExtensionHostAtLaunch(
+    jsonStore: JSONConfigStore,
+    catalog: SettingCatalog
+) -> (any BrowserWebExtensionHosting)? {
+    guard #available(macOS 15.4, *) else { return nil }
+    let support = BrowserWebExtensionSupport()
+    support.configure(jsonStore: jsonStore, catalog: catalog)
+    StartupBreadcrumbLog.append("app.init.browserWebExtensions.configured")
+    return support
+}
+
+extension BrowserPanel {
+    func noteWebExtensionActivated() {
+        browserWebExtensionHost?.noteActivated(panelID: id)
+    }
+
+    func performWebExtensionCommand(for event: NSEvent) -> Bool {
+        guard let browserWebExtensionHost else { return false }
+        noteWebExtensionActivated()
+        return browserWebExtensionHost.performCommand(for: event)
+    }
+
+    func registerWebExtensionIfNeeded() {
+        guard !isRegisteredForWebExtensions, let browserWebExtensionHost else { return }
+        isRegisteredForWebExtensions = true
+        browserWebExtensionHost.register(panel: self)
+    }
+
+    func unregisterWebExtensionIfNeeded() {
+        guard isRegisteredForWebExtensions else { return }
+        isRegisteredForWebExtensions = false
+        browserWebExtensionHost?.unregister(panelID: id)
+    }
+
+    @available(macOS 15.4, *)
+    var browserWebExtensionSupport: BrowserWebExtensionSupport? {
+        browserWebExtensionHost as? BrowserWebExtensionSupport
     }
 }

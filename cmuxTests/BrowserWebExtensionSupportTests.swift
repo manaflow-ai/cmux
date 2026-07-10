@@ -10,7 +10,7 @@ import WebKit
 @testable import cmux
 #endif
 
-@Suite
+@Suite(.serialized)
 struct BrowserWebExtensionSupportTests {
     @MainActor
     @Test
@@ -62,6 +62,9 @@ struct BrowserWebExtensionSupportTests {
         #expect((support.webExtensionWindow(for: firstWindow) as AnyObject?) === support.windowAdapter)
         let unrelatedWindow = NSWindow()
         #expect(support.webExtensionWindow(for: unrelatedWindow) == nil)
+        #expect((support.focusedWebExtensionWindow(for: firstWindow) as AnyObject?) === support.windowAdapter)
+        #expect(support.focusedWebExtensionWindow(for: unrelatedWindow) == nil)
+        #expect(support.focusedWebExtensionWindow(for: nil) == nil)
     }
 
     @Test
@@ -450,6 +453,16 @@ struct BrowserWebExtensionSupportTests {
         #expect(candidates.first?.path == "/Applications/Bitwarden.app/Contents/PlugIns/safari.appex")
         #expect(candidates.last?.version == "1.2.3")
         #expect(candidates.last?.path == "/Applications/Example App.app/Contents/PlugIns/Example Extension.appex")
+    }
+
+    @Test
+    func pluginkitQueriesOnlyTheElectedExtensionVersion() {
+        #expect(BrowserWebExtensionDiscoveryService.pluginkitArguments == [
+            "-m",
+            "-p",
+            "com.apple.Safari.web-extension",
+            "-v",
+        ])
     }
 }
 

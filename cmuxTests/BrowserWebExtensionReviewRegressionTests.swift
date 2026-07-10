@@ -19,8 +19,12 @@ struct BrowserWebExtensionReviewRegressionTests {
         BrowserAvailabilitySettings.setDisabled(false)
         defer { BrowserAvailabilitySettings.setDisabled(wasBrowserDisabled) }
 
+        let appDelegate = try #require(AppDelegate.shared)
+        let previousTabManager = appDelegate.tabManager
+        defer { appDelegate.tabManager = previousTabManager }
         let support = BrowserWebExtensionSupport()
         let tabManager = TabManager(browserWebExtensionHost: support)
+        appDelegate.tabManager = tabManager
         let workspace = try #require(tabManager.selectedWorkspace)
         #expect(workspace.panels.values.allSatisfy { !($0 is BrowserPanel) })
 
@@ -32,9 +36,10 @@ struct BrowserWebExtensionReviewRegressionTests {
         )
 
         let panel = try #require(adapter?.panel)
-        defer { _ = workspace.closePanel(panel.id, force: true) }
         #expect(panel.workspaceId == workspace.id)
         #expect(workspace.panels[panel.id] === panel)
+        #expect(support.closeBrowserTab(panelID: panel.id, workspaceID: workspace.id))
+        #expect(workspace.panels[panel.id] == nil)
     }
 
     @MainActor

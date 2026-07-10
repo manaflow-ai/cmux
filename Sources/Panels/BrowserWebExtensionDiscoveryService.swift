@@ -26,6 +26,7 @@ struct BrowserWebExtensionCandidate: Identifiable, Hashable, Sendable {
 actor BrowserWebExtensionDiscoveryService {
     private static let pluginkitURL = URL(fileURLWithPath: "/usr/bin/pluginkit")
     private static let pluginkitTimeout: Duration = .seconds(10)
+    static let pluginkitArguments = ["-m", "-p", "com.apple.Safari.web-extension", "-v"]
     private var activePluginkitProcess: Process?
     private var activePluginkitStdout: Pipe?
 
@@ -39,7 +40,7 @@ actor BrowserWebExtensionDiscoveryService {
         return Self.parse(pluginkitOutput: output)
     }
 
-    /// Parses `pluginkit -m -A -v` output. The tool is human-readable rather
+    /// Parses `pluginkit -m -v` output. The tool is human-readable rather
     /// than a documented TSV format, so each line is parsed by extracting the
     /// `.appex` path first, then reading the leading identifier/version field.
     static func parse(pluginkitOutput: String) -> [BrowserWebExtensionCandidate] {
@@ -120,7 +121,7 @@ actor BrowserWebExtensionDiscoveryService {
     private func startPluginkitProcess() throws {
         let process = Process()
         process.executableURL = Self.pluginkitURL
-        process.arguments = ["-m", "-p", "com.apple.Safari.web-extension", "-A", "-v"]
+        process.arguments = Self.pluginkitArguments
         let stdout = Pipe()
         process.standardOutput = stdout
         // Discard rather than pipe stderr: an undrained pipe could block the

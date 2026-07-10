@@ -63,6 +63,15 @@ final class BrowserWebExtensionTabAdapter: NSObject, WKWebExtensionTab {
         completionHandler(focusOwningCmuxTab() ? nil : webExtensionTabError(code: 3))
     }
 
+    func close(for context: WKWebExtensionContext, completionHandler: @escaping (Error?) -> Void) {
+        guard let panel,
+              support?.closeBrowserTab(panelID: panelID, workspaceID: panel.workspaceId) == true else {
+            completionHandler(webExtensionTabError(code: 3))
+            return
+        }
+        completionHandler(nil)
+    }
+
     func loadURL(_ url: URL, for context: WKWebExtensionContext, completionHandler: @escaping (Error?) -> Void) {
         guard let panel,
               let support,

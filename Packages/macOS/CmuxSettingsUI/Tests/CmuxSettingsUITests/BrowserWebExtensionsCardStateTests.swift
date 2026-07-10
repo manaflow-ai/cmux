@@ -46,7 +46,7 @@ struct BrowserWebExtensionsCardStateTests {
 
         let externallyUpdated = [entry(id: "external")]
         state.reconcileObservedEntries(externallyUpdated)
-        #expect(!state.hasWriteError)
+        #expect(state.hasWriteError)
 
         state.beginWrite(entries: pending, writeID: 3)
         #expect(!state.hasWriteError)
@@ -65,6 +65,33 @@ struct BrowserWebExtensionsCardStateTests {
         state.reconcileObservedEntries(pending)
         #expect(state.effectiveEntries(observed: pending) == pending)
         #expect(state.pendingWriteID == nil)
+    }
+
+    @Test
+    func successfulWriteClearsPendingWithoutObservedSignal() {
+        let observed = [entry(id: "existing")]
+        let pending = observed + [entry(id: "new")]
+        var state = BrowserWebExtensionsCardState()
+        state.beginWrite(entries: pending, writeID: 1)
+
+        state.reconcileWriteResult(completedWriteID: 1, failed: false)
+        #expect(state.pendingWriteID == nil)
+
+        let externallyUpdated = [entry(id: "external")]
+        #expect(state.effectiveEntries(observed: externallyUpdated) == externallyUpdated)
+    }
+
+    @Test
+    func staleSuccessfulWriteDoesNotClearNewerPendingWrite() {
+        let first = [entry(id: "first")]
+        let second = [entry(id: "second")]
+        var state = BrowserWebExtensionsCardState()
+        state.beginWrite(entries: first, writeID: 1)
+        state.beginWrite(entries: second, writeID: 2)
+
+        state.reconcileWriteResult(completedWriteID: 1, failed: false)
+        #expect(state.pendingWriteID == 2)
+        #expect(state.effectiveEntries(observed: []) == second)
     }
 
     private func entry(id: String) -> BrowserWebExtensionEntry {

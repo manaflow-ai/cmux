@@ -35,8 +35,8 @@
 2882	Sources/Update/UpdateTitlebarAccessory.swift
 2876	cmuxTests/CMUXOpenCommandTests.swift
 2875	Sources/SessionIndexView.swift
-2581	Sources/KeyboardShortcutSettings.swift
-2571	Sources/Panels/CmuxWebView.swift
+2611	Sources/KeyboardShortcutSettings.swift
+2562	Sources/Panels/CmuxWebView.swift
 2546	cmuxTests/WorkspaceManualUnreadTests.swift
 2524	cmuxTests/CommandPaletteSearchEngineTests.swift
 2403	Sources/Mobile/MobileHostService.swift
@@ -112,7 +112,6 @@
 897	Sources/DockSplitStore.swift
 896	Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/AppSection.swift
 885	cmuxTests/SidebarWorkspaceDropPlannerTests.swift
-
 871	cmuxTests/ClaudeHookSurfaceResolutionSwiftTests.swift
 868	Sources/Panels/BrowserScreenshotSnapshotter.swift
 864	Packages/Shared/CmuxAgentChat/Sources/CmuxAgentChat/Store/ChatConversationStore.swift
@@ -148,7 +147,6 @@
 706	CLI/CMUXCLI+Config.swift
 699	cmuxTests/TerminalNotificationClearAllTests.swift
 698	cmuxTests/RestorableAgentHookProviderResumeTests.swift
-
 696	cmuxTests/KeyboardShortcutContextTests.swift
 691	Sources/NotificationSoundSettings.swift
 691	cmuxTests/TaskManagerResourcesTests.swift
@@ -174,7 +172,6 @@
 650	Packages/macOS/CmuxBrowser/Sources/CmuxBrowser/Import/Detection/BrowserInstalledBrowserDetector.swift
 650	Sources/Panels/MarkdownRemoteImageLoader.swift
 648	cmuxTests/TerminalNotificationQueueTests.swift
-
 644	Packages/macOS/CMUXAgentLaunch/Tests/CMUXAgentLaunchTests/AgentLaunchSanitizerTests.swift
 641	cmuxTests/CommandPaletteNucleoFFITests.swift
 638	cmuxTests/RemoteTmuxControlParserTests.swift
@@ -184,7 +181,6 @@
 630	Packages/macOS/CmuxSettings/Sources/CmuxSettings/Values/ShortcutWhenClause.swift
 624	Sources/SettingsNavigation.swift
 623	Packages/macOS/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Surface/ControlCommandCoordinator+Surface.swift
-
 620	cmuxTests/FinderFileDropRegressionTests.swift
 608	Sources/TextBoxSubmitActions.swift
 608	cmuxUITests/FeedSidebarUITests.swift

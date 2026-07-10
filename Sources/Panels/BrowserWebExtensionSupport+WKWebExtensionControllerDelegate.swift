@@ -21,7 +21,7 @@ extension BrowserWebExtensionSupport: WKWebExtensionControllerDelegate {
         _ controller: WKWebExtensionController,
         focusedWindowFor extensionContext: WKWebExtensionContext
     ) -> (any WKWebExtensionWindow)? {
-        popouts(for: extensionContext).first(where: \.isKeyWindow) ?? windowAdapter
+        focusedWebExtensionWindow(for: NSApp.keyWindow)
     }
 
     private func popouts(for extensionContext: WKWebExtensionContext) -> [BrowserWebExtensionPopoutWindowController] {
@@ -270,6 +270,18 @@ extension BrowserWebExtensionSupport: WKWebExtensionControllerDelegate {
         guard let dock = dockContainingPanel(panelID) else { return false }
         dock.focusPanel(panelID)
         return true
+    }
+
+    func closeBrowserTab(panelID: UUID, workspaceID: UUID) -> Bool {
+        if let workspace = AppDelegate.shared?.workspaceContainingPanel(
+            panelId: panelID,
+            preferredWorkspaceId: workspaceID
+        )?.workspace {
+            workspace.markCloseHistoryEligible(panelId: panelID)
+            return workspace.closePanel(panelID, force: true)
+        }
+        guard let dock = dockContainingPanel(panelID) else { return false }
+        return dock.closePanel(panelID, force: true)
     }
 
     private func dockContainingPanel(_ panelID: UUID) -> DockSplitStore? {

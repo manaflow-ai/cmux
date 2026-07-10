@@ -51,12 +51,6 @@ struct BrowserImageCopyPasteboardPayload {
     let sourceURL: URL?
 }
 
-enum BrowserFocusModeKeyDecision: Equatable {
-    case inactive
-    case forwardToWebView
-    case consume
-}
-
 enum BrowserImageCopyPasteboardBuilder {
     private static let pngPasteboardType = NSPasteboard.PasteboardType(UTType.png.identifier)
     private static let tiffPasteboardType = NSPasteboard.PasteboardType(UTType.tiff.identifier)
@@ -676,12 +670,7 @@ final class CmuxWebView: WKWebView {
             return finish(AppDelegate.shared?.handleBrowserSurfaceKeyEquivalent(event) == true)
         }
 
-        // Manifest commands may use Control or Option, so dispatch them before
-        // the Command-only cmux menu-equivalent guard.
-        if #available(macOS 15.4, *),
-           let appDelegate = AppDelegate.shared,
-           appDelegate.shouldOfferBrowserWebExtensionCommand(event),
-           appDelegate.shortcutEventBrowserPanel(event)?.performWebExtensionCommand(for: event) == true {
+        if cmuxPerformBrowserWebExtensionCommandKeyEquivalent(event) {
             return finish(true)
         }
 
