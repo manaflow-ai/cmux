@@ -1,0 +1,10 @@
+import Foundation
+@testable import CmuxIrohTransport
+
+extension CmxIrohProtocolConfiguration {
+    static let testApplicationLanes = CmxIrohProtocolConfiguration(
+        alpn: Data("cmux/mobile/1".utf8),
+        maximumHeaderByteCount: 16 * 1_024,
+        maximumConcurrentClientApplicationLaneCount: 16
+    )
+}

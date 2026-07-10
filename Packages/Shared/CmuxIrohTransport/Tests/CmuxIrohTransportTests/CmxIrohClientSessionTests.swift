@@ -408,7 +408,8 @@ struct CmxIrohClientSessionTests {
             endpoint: endpoint,
             targetIdentity: remoteIdentity,
             dialPlan: try testIrohDialPlan(),
-            credential: credential
+            credential: credential,
+            protocolConfiguration: .testApplicationLanes
         )
         try await session.connect()
         let lane = CmxIrohLane.terminal(
@@ -422,6 +423,38 @@ struct CmxIrohClientSessionTests {
         let sent = await terminalSend.observedSentBuffers()
         #expect(sent.count == 1)
         #expect(try CmxIrohStreamHeaderCodec().decodePrefix(sent[0]).header.lane == lane)
+    }
+
+    @Test
+    func productionV1RejectsReservedApplicationLaneBeforeOpeningAStream() async throws {
+        let control = controlStream(decision: .accepted)
+        let connection = TestIrohConnection(
+            remoteIdentity: remoteIdentity,
+            bidirectionalStreams: [control.stream]
+        )
+        let endpoint = TestDialingIrohEndpoint(
+            localIdentity: localIdentity,
+            dialResults: [.connection(connection)]
+        )
+        let session = try CmxIrohClientSession(
+            endpoint: endpoint,
+            targetIdentity: remoteIdentity,
+            dialPlan: try testIrohDialPlan(),
+            credential: credential
+        )
+        try await session.connect()
+
+        await #expect(throws: CmxIrohClientSessionError.applicationLanesUnavailable) {
+            _ = try await session.openBidirectionalLane(
+                .artifact(
+                    resourceID: CmxIrohResourceID("artifact:reserved"),
+                    offset: 0
+                ),
+                priority: 10
+            )
+        }
+
+        #expect(await connection.observedBidirectionalStreamOpenCount() == 1)
     }
 
     @Test

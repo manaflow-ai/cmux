@@ -30,13 +30,12 @@ struct CmxIrohServerSessionTests {
         )
         let session = try CmxIrohServerSession(
             connection: connection,
-            authorizer: fixture.authorizer
+            authorizer: fixture.authorizer,
+            protocolConfiguration: .testApplicationLanes
         )
 
         let admittedPeer = try await session.admit()
-        // Terminal and artifact streams have no production dispatcher yet, so
-        // admission keeps only the already-accepted control stream credited.
-        #expect(await connection.observedIncomingStreamLimits() == ["1:0"])
+        #expect(await connection.observedIncomingStreamLimits() == ["1:0", "17:0"])
         #expect(await connection.observedNatTraversalAuthorizationAttemptCount() == 1)
         #expect(await connection.observedNatTraversalActivationCount() == 1)
         #expect(admittedPeer == fixture.admittedPeer)
@@ -46,6 +45,7 @@ struct CmxIrohServerSessionTests {
             "control.send",
             "connection.authorizeNatTraversal",
             "control.send",
+            "connection.limits:17:0",
         ])
         #expect(try await session.receiveControl() == Data("rpc".utf8))
         let inbound = try await session.acceptBidirectionalLane()
@@ -61,6 +61,78 @@ struct CmxIrohServerSessionTests {
         #expect(try CmxIrohAdmissionAckCodec().decodePrefix(acceptedPending) == .accepted)
         #expect(serverReady == admissionFrame(status: 3))
         #expect(await connection.observedCloseCallCount() == 0)
+    }
+
+    @Test
+    func productionV1DoesNotGrantOrConsumeReservedApplicationLanes() async throws {
+        let fixture = try ServerFixture(decision: .accepted)
+        let connection = TestIrohConnection(
+            remoteIdentity: fixture.peerID,
+            bidirectionalStreams: [
+                fixture.controlStream,
+                CmxIrohBidirectionalStream(
+                    receiveStream: TestIrohReceiveStream(buffer: Data()),
+                    sendStream: TestIrohSendStream()
+                ),
+            ]
+        )
+        let session = try CmxIrohServerSession(
+            connection: connection,
+            authorizer: fixture.authorizer
+        )
+
+        _ = try await session.admit()
+
+        await #expect(throws: CmxIrohServerSessionError.applicationLanesUnavailable) {
+            _ = try await session.acceptBidirectionalLane()
+        }
+        await #expect(throws: CmxIrohServerSessionError.applicationLanesUnavailable) {
+            _ = try await session.openSendLane(
+                .artifact(
+                    resourceID: CmxIrohResourceID("artifact:reserved"),
+                    offset: 0
+                ),
+                priority: 10
+            )
+        }
+        #expect(await connection.observedIncomingStreamLimits() == ["1:0"])
+        #expect(await connection.observedBidirectionalStreamOpenCount() == 1)
+    }
+
+    @Test
+    func applicationLaneHeaderTimeoutStopsTheStream() async throws {
+        let fixture = try ServerFixture(decision: .accepted)
+        let stalledReceive = TestBlockingIrohReceiveStream(buffer: Data())
+        let stalledSend = TestIrohSendStream()
+        let clock = ServerSessionManualClock()
+        let connection = TestIrohConnection(
+            remoteIdentity: fixture.peerID,
+            bidirectionalStreams: [
+                fixture.controlStream,
+                CmxIrohBidirectionalStream(
+                    receiveStream: stalledReceive,
+                    sendStream: stalledSend
+                ),
+            ]
+        )
+        let session = try CmxIrohServerSession(
+            connection: connection,
+            authorizer: fixture.authorizer,
+            protocolConfiguration: .testApplicationLanes,
+            streamHeaderClock: clock,
+            streamHeaderTimeout: 1
+        )
+        _ = try await session.admit()
+        let accept = Task { try await session.acceptBidirectionalLane() }
+        await clock.waitUntilSleeping()
+
+        await clock.fire()
+
+        await #expect(throws: CmxIrohServerSessionError.streamHeaderTimedOut) {
+            try await accept.value
+        }
+        #expect(await stalledSend.observedResetCodes() == [1])
+        #expect(await stalledReceive.observedStoppedCodes() == [1])
     }
 
     @Test
@@ -419,6 +491,42 @@ private func admissionFrame(status: UInt8, code: UInt16 = 0) -> Data {
     let bigEndian = code.bigEndian
     withUnsafeBytes(of: bigEndian) { frame.append(contentsOf: $0) }
     return frame
+}
+
+private actor ServerSessionManualClock: CmxIrohRelayClock {
+    private var sleeper: CheckedContinuation<Void, Never>?
+    private var sleepWaiters: [CheckedContinuation<Void, Never>] = []
+
+    nonisolated func now() -> Date {
+        Date(timeIntervalSince1970: 1_800_000_000)
+    }
+
+    func sleep(until _: Date) async throws {
+        let waiters = sleepWaiters
+        sleepWaiters.removeAll()
+        for waiter in waiters { waiter.resume() }
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { sleeper = $0 }
+        } onCancel: {
+            Task { await self.cancelSleep() }
+        }
+        try Task.checkCancellation()
+    }
+
+    func waitUntilSleeping() async {
+        if sleeper != nil { return }
+        await withCheckedContinuation { sleepWaiters.append($0) }
+    }
+
+    func fire() {
+        sleeper?.resume()
+        sleeper = nil
+    }
+
+    private func cancelSleep() {
+        sleeper?.resume()
+        sleeper = nil
+    }
 }
 
 private actor FixedAdmissionAuthorizer: CmxIrohAdmissionAuthorizing {

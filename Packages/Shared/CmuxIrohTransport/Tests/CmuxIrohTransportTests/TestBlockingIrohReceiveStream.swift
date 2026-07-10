@@ -5,6 +5,7 @@ actor TestBlockingIrohReceiveStream: CmxIrohReceiveStream {
     private var buffer: Data
     private var waiter: CheckedContinuation<Data?, any Error>?
     private var cancelled = false
+    private var stoppedCodes: [UInt64] = []
     private let blockedStream: AsyncStream<Void>
     private let blockedContinuation: AsyncStream<Void>.Continuation
 
@@ -40,13 +41,18 @@ actor TestBlockingIrohReceiveStream: CmxIrohReceiveStream {
         }
     }
 
-    func stop(errorCode _: UInt64) {
+    func stop(errorCode: UInt64) {
+        stoppedCodes.append(errorCode)
         waiter?.resume(returning: nil)
         waiter = nil
     }
 
     func blockedEvents() -> AsyncStream<Void> {
         blockedStream
+    }
+
+    func observedStoppedCodes() -> [UInt64] {
+        stoppedCodes
     }
 
     private func cancelWaiter() {
