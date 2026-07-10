@@ -57,6 +57,29 @@ struct SimulatorLengthPrefixedMessageChannelTests {
         }
     }
 
+    @Test("A backpressured frame completes intact once its peer drains")
+    func backpressuredFrameCompletes() throws {
+        var descriptors = [Int32](repeating: 0, count: 2)
+        #expect(pipe(&descriptors) == 0)
+        defer { descriptors.forEach { close($0) } }
+
+        do {
+            let host = SimulatorLengthPrefixedMessageChannel(
+                readFD: -1,
+                writeFD: descriptors[1],
+                nonblockingWrites: true
+            )
+            let worker = SimulatorLengthPrefixedMessageChannel(
+                readFD: descriptors[0],
+                writeFD: -1
+            )
+            let payload = Data(repeating: 0x5a, count: 1024 * 1024)
+
+            try host.sendMessage(payload)
+            #expect(worker.receiveMessage() == payload)
+        }
+    }
+
     @Test("A closed worker pipe reports EPIPE without terminating the host")
     func closedWorkerPipeDoesNotRaiseSIGPIPE() {
         var descriptors = [Int32](repeating: 0, count: 2)
