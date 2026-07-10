@@ -144,6 +144,97 @@ struct CmxIrohOfflinePairingSessionsTests {
             now: fixture.now
         )
     }
+
+    @Test
+    func admissionControllerVerifiesOfflineProofBeforeBrokerTraffic() async throws {
+        let fixture = try OfflineFixture()
+        let sessions = fixture.sessions()
+        let broker = OfflineAdmissionBroker(
+            responses: [.success(try fixture.discovery())]
+        )
+        let controller = fixture.controller(sessions: sessions, broker: broker)
+        let invitation = try await fixture.invitation(from: sessions)
+        let attestation = try fixture.initiatorAttestation()
+        let wrongProof = try CmxIrohAdmissionCredential.offlinePairing(
+            endpointAttestation: attestation,
+            invitationID: CmxIrohResourceID(invitation.sessionID),
+            proof: Data(repeating: 0xff, count: 32)
+        )
+
+        #expect(
+            await controller.authorize(
+                credential: wrongProof,
+                authenticatedPeerID: fixture.initiator.endpointID
+            ) == .denied(code: 1)
+        )
+        #expect(await broker.callCount() == 0)
+
+        let correct = try invitation.admissionCredential(
+            initiatorAttestation: attestation
+        )
+        #expect(
+            await controller.authorize(
+                credential: correct,
+                authenticatedPeerID: fixture.acceptor.endpointID
+            ) == .denied(code: 1)
+        )
+        #expect(await broker.callCount() == 0)
+    }
+
+    @Test
+    func admissionControllerReturnsMonitoredOfflineLease() async throws {
+        let fixture = try OfflineFixture()
+        let sessions = fixture.sessions()
+        let broker = OfflineAdmissionBroker(
+            responses: [.success(try fixture.discovery())]
+        )
+        let controller = fixture.controller(sessions: sessions, broker: broker)
+        let invitation = try await fixture.invitation(from: sessions)
+        let credential = try invitation.admissionCredential(
+            initiatorAttestation: try fixture.initiatorAttestation()
+        )
+
+        let authorization = await controller.authorize(
+            credential: credential,
+            authenticatedPeerID: fixture.initiator.endpointID
+        )
+
+        guard case let .accepted(peer, onlineLease: lease?) = authorization else {
+            Issue.record("Expected monitored offline authorization")
+            return
+        }
+        #expect(peer.endpointID == fixture.initiator.endpointID)
+        #expect(lease.expiresAt == fixture.now.addingTimeInterval(3_600))
+        #expect(await broker.callCount() == 1)
+    }
+
+    @Test
+    func onlineMissingBindingDeniesAfterConsumingOfflineProof() async throws {
+        let fixture = try OfflineFixture()
+        let sessions = fixture.sessions()
+        let broker = OfflineAdmissionBroker(
+            responses: [.success(try fixture.discovery(includeInitiator: false))]
+        )
+        let controller = fixture.controller(sessions: sessions, broker: broker)
+        let invitation = try await fixture.invitation(from: sessions)
+        let credential = try invitation.admissionCredential(
+            initiatorAttestation: try fixture.initiatorAttestation()
+        )
+
+        #expect(
+            await controller.authorize(
+                credential: credential,
+                authenticatedPeerID: fixture.initiator.endpointID
+            ) == .denied(code: 1)
+        )
+        #expect(
+            await controller.authorize(
+                credential: credential,
+                authenticatedPeerID: fixture.initiator.endpointID
+            ) == .denied(code: 1)
+        )
+        #expect(await broker.callCount() == 1)
+    }
 }
 
 private struct OfflineFixture: Sendable {
@@ -157,6 +248,7 @@ private struct OfflineFixture: Sendable {
     let acceptor: CmxIrohEndpointExpectation
     let now = Date(timeIntervalSince1970: 1_800_000_000)
     let nowSeconds: Int64 = 1_800_000_000
+    let relayURL = "https://use1-1.relay.lawrence.cmux.iroh.link/"
 
     init(signingKey: SigningKey = .current) throws {
         currentKey = try Curve25519.Signing.PrivateKey(
@@ -220,6 +312,51 @@ private struct OfflineFixture: Sendable {
         try attestation(for: initiator)
     }
 
+    func controller(
+        sessions: CmxIrohOfflinePairingSessions,
+        broker: OfflineAdmissionBroker
+    ) -> CmxIrohAdmissionController {
+        let acceptor = grantPeer(for: acceptor, tag: "mac")
+        let registry = CmxIrohOnlineAdmissionRegistry(
+            broker: broker,
+            keys: keySet,
+            acceptor: acceptor,
+            managedRelayURLs: [relayURL],
+            clock: OfflineAdmissionFixedClock(now: now)
+        )
+        return CmxIrohAdmissionController(
+            keys: keySet,
+            acceptor: acceptor,
+            pairingEnabled: true,
+            offlineSessions: sessions,
+            onlineRegistry: registry,
+            now: { now }
+        )
+    }
+
+    func discovery(includeInitiator: Bool = true) throws -> CmxIrohDiscoveryResponse {
+        var bindings: [[String: Any]] = []
+        if includeInitiator {
+            bindings.append(bindingObject(endpoint: initiator, tag: "ios", pairable: true))
+        }
+        bindings.append(bindingObject(endpoint: acceptor, tag: "mac", pairable: true))
+        return try JSONDecoder().decode(
+            CmxIrohDiscoveryResponse.self,
+            from: JSONSerialization.data(withJSONObject: [
+                "route_contract_version": 1,
+                "bindings": bindings,
+                "relay_fleet": [relayURL],
+                "lan_rendezvous": [
+                    "generation": 1,
+                    "key": Data(repeating: 4, count: 32).base64URL,
+                ],
+                "grant_verification_keys": try JSONSerialization.jsonObject(
+                    with: JSONEncoder().encode(keySet)
+                ),
+            ])
+        )
+    }
+
     private func attestation(for endpoint: CmxIrohEndpointExpectation) throws -> String {
         let claims: [String: Any] = [
             "version": 1,
@@ -268,6 +405,70 @@ private struct OfflineFixture: Sendable {
             alg: "EdDSA",
             spkiDerBase64: (prefix + key.publicKey.rawRepresentation).base64EncodedString()
         )
+    }
+
+    private func grantPeer(
+        for endpoint: CmxIrohEndpointExpectation,
+        tag: String
+    ) -> CmxIrohGrantPeer {
+        CmxIrohGrantPeer(
+            bindingID: endpoint.bindingID,
+            deviceID: endpoint.deviceID,
+            tag: tag,
+            platform: endpoint.platform,
+            endpointID: endpoint.endpointID,
+            identityGeneration: endpoint.identityGeneration
+        )
+    }
+
+    private func bindingObject(
+        endpoint: CmxIrohEndpointExpectation,
+        tag: String,
+        pairable: Bool
+    ) -> [String: Any] {
+        [
+            "binding_id": endpoint.bindingID,
+            "device_id": endpoint.deviceID,
+            "app_instance_id": endpoint.platform == .ios
+                ? "123e4567-e89b-42d3-a456-426614174030"
+                : "123e4567-e89b-42d3-a456-426614174031",
+            "tag": tag,
+            "platform": endpoint.platform.rawValue,
+            "display_name": NSNull(),
+            "endpoint_id": endpoint.endpointID.endpointID,
+            "identity_generation": endpoint.identityGeneration,
+            "pairing_enabled": pairable,
+            "capabilities": ["multistream-v1"],
+            "path_hints": [],
+            "last_seen_at": "2027-01-15T08:00:00Z",
+        ]
+    }
+}
+
+private actor OfflineAdmissionBroker: CmxIrohDiscoveryServing {
+    private var responses: [Result<CmxIrohDiscoveryResponse, CmxIrohTrustBrokerClientError>]
+    private var calls = 0
+
+    init(responses: [Result<CmxIrohDiscoveryResponse, CmxIrohTrustBrokerClientError>]) {
+        self.responses = responses
+    }
+
+    func discover() throws -> CmxIrohDiscoveryResponse {
+        calls += 1
+        guard !responses.isEmpty else { throw CmxIrohTrustBrokerClientError.invalidResponse }
+        return try responses.removeFirst().get()
+    }
+
+    func callCount() -> Int { calls }
+}
+
+private struct OfflineAdmissionFixedClock: CmxIrohRelayClock {
+    let current: Date
+
+    init(now: Date) { current = now }
+    func now() -> Date { current }
+    func sleep(until _: Date) async throws {
+        try await Task<Never, Never>.sleep(for: .seconds(24 * 60 * 60))
     }
 }
 

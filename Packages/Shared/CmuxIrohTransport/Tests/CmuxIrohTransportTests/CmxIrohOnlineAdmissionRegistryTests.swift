@@ -24,6 +24,134 @@ struct CmxIrohOnlineAdmissionRegistryTests {
     }
 
     @Test
+    func activeOfflinePairAcceptsUntilEarlierAttestationExpiry() async throws {
+        let fixture = try OnlineAdmissionFixture()
+        let broker = OnlineAdmissionBroker(responses: [.success(try fixture.discovery())])
+        let registry = fixture.registry(broker: broker)
+
+        let authorization = await registry.authorizeOfflinePair(
+            try fixture.offlinePair(initiatorLifetime: 90, acceptorLifetime: 45)
+        )
+
+        let lease = try #require(authorization.lease)
+        #expect(lease.peer == CmxIrohAdmittedPeer(peer: fixture.initiator))
+        #expect(lease.expiresAt == fixture.now.addingTimeInterval(45))
+        #expect(await broker.callCount() == 1)
+    }
+
+    @Test
+    func connectivityAllowsVerifiedOfflinePairUntilEarlierExpiry() async throws {
+        let fixture = try OnlineAdmissionFixture()
+        let clock = OnlineAdmissionManualClock(now: fixture.now)
+        let broker = OnlineAdmissionBroker(responses: [.failure(.connectivity)])
+        let registry = fixture.registry(broker: broker, clock: clock)
+        let pair = try fixture.offlinePair(initiatorLifetime: 90, acceptorLifetime: 20)
+        let lease = try #require(
+            await registry.authorizeOfflinePair(pair).lease
+        )
+        let closeRecorder = OnlineAdmissionCloseRecorder()
+        _ = await registry.monitor(lease) { await closeRecorder.close() }
+        await clock.waitUntilSleeping()
+
+        #expect(clock.sleepingDeadlines() == [fixture.now.addingTimeInterval(20)])
+        clock.advance(by: 20)
+        await closeRecorder.waitUntilClosed()
+
+        #expect(await closeRecorder.count() == 1)
+        #expect(await registry.authorizeOfflinePair(pair) == .denied)
+        #expect(await broker.callCount() == 1)
+    }
+
+    @Test(arguments: [
+        CmxIrohTrustBrokerClientError.missingAuthentication,
+        .invalidAuthentication,
+        .rejected(statusCode: 503, code: "unavailable"),
+        .invalidResponse,
+    ])
+    func terminalBrokerFailuresDenyVerifiedOfflinePair(
+        _ error: CmxIrohTrustBrokerClientError
+    ) async throws {
+        let fixture = try OnlineAdmissionFixture()
+        let broker = OnlineAdmissionBroker(responses: [.failure(error)])
+
+        #expect(
+            await fixture.registry(broker: broker).authorizeOfflinePair(
+                try fixture.offlinePair()
+            ) == .denied
+        )
+    }
+
+    @Test
+    func contractMismatchDeniesVerifiedOfflinePair() async throws {
+        let fixture = try OnlineAdmissionFixture()
+        let broker = OnlineAdmissionBroker(
+            responses: [.success(try fixture.discovery(routeContractVersion: 2))]
+        )
+
+        #expect(
+            await fixture.registry(broker: broker).authorizeOfflinePair(
+                try fixture.offlinePair()
+            ) == .denied
+        )
+    }
+
+    @Test
+    func missingOfflineBindingLearnsRevocationAcrossConnectivity() async throws {
+        let fixture = try OnlineAdmissionFixture()
+        let broker = OnlineAdmissionBroker(
+            responses: [.success(try fixture.discovery(includeInitiator: false))]
+        )
+        let registry = fixture.registry(broker: broker)
+        let pair = try fixture.offlinePair()
+
+        #expect(await registry.authorizeOfflinePair(pair) == .denied)
+        await broker.replaceResponses([.failure(.connectivity)])
+        #expect(await registry.authorizeOfflinePair(pair) == .denied)
+        #expect(await broker.callCount() == 1)
+    }
+
+    @Test
+    func offlineLeaseRefreshesAtSnapshotAgeThirtyAndClosesWithoutEndpointRestart() async throws {
+        let fixture = try OnlineAdmissionFixture()
+        let clock = OnlineAdmissionManualClock(now: fixture.now)
+        let broker = OnlineAdmissionBroker(responses: [
+            .success(try fixture.discovery()),
+            .success(try fixture.discovery(includeInitiator: false)),
+        ])
+        let endpoint = TestIrohEndpoint(identity: fixture.acceptor.endpointID)
+        let supervisor = CmxIrohEndpointSupervisor(
+            factory: TestIrohEndpointFactory(endpoints: [endpoint]),
+            configuration: try CmxIrohEndpointConfiguration(
+                secretKey: CmxIrohSecretKey(bytes: Data(repeating: 6, count: 32)),
+                alpns: [CmxIrohProtocolConfiguration.cmuxMobileV1.alpn],
+                managedRelayURLs: [fixture.relayURL],
+                relays: []
+            )
+        )
+        _ = try await supervisor.activate()
+        let registry = fixture.registry(broker: broker, clock: clock)
+        let lease = try #require(
+            await registry.authorizeOfflinePair(
+                try fixture.offlinePair(initiatorLifetime: 120, acceptorLifetime: 120)
+            ).lease
+        )
+        let closeRecorder = OnlineAdmissionCloseRecorder()
+        _ = await registry.monitor(lease) { await closeRecorder.close() }
+        await clock.waitUntilSleeping()
+
+        #expect(clock.sleepingDeadlines() == [fixture.now.addingTimeInterval(30)])
+        clock.advance(by: 30)
+        await closeRecorder.waitUntilClosed()
+
+        #expect(await broker.callCount() == 2)
+        #expect(await closeRecorder.count() == 1)
+        let activeEndpoint = try await supervisor.activeEndpoint()
+        #expect(await activeEndpoint.identity() == fixture.acceptor.endpointID)
+        #expect(await endpoint.observedCloseCallCount() == 0)
+        await supervisor.deactivate()
+    }
+
+    @Test
     func forgedGrantCannotInduceBrokerTraffic() async throws {
         let fixture = try OnlineAdmissionFixture()
         let broker = OnlineAdmissionBroker(responses: [.success(try fixture.discovery())])
@@ -466,6 +594,10 @@ private final class OnlineAdmissionManualClock: CmxIrohRelayClock, @unchecked Se
         }
     }
 
+    func sleepingDeadlines() -> [Date] {
+        withLock { $0.sleepers.values.map(\.0).sorted() }
+    }
+
     func advance(by seconds: TimeInterval) {
         let ready = withLock { state -> [(Date, CheckedContinuation<Void, any Error>)] in
             state.date = state.date.addingTimeInterval(seconds)
@@ -601,6 +733,24 @@ private struct OnlineAdmissionFixture {
         return "\(encodedHeader).\(encodedPayload).\(signature.base64URL)"
     }
 
+    func offlinePair(
+        initiatorLifetime: Int64 = 300,
+        acceptorLifetime: Int64 = 300
+    ) throws -> CmxIrohVerifiedOfflinePair {
+        CmxIrohVerifiedOfflinePair(
+            initiator: try attestationClaims(
+                peer: initiator,
+                lifetime: initiatorLifetime,
+                attestationID: "123e4567-e89b-42d3-a456-426614174020"
+            ),
+            acceptor: try attestationClaims(
+                peer: acceptor,
+                lifetime: acceptorLifetime,
+                attestationID: "123e4567-e89b-42d3-a456-426614174021"
+            )
+        )
+    }
+
     func discovery(
         routeContractVersion: Int = 1,
         relayFleet: [String]? = nil,
@@ -678,6 +828,32 @@ private struct OnlineAdmissionFixture {
             "endpointId": peer.endpointID.endpointID,
             "identityGeneration": peer.identityGeneration,
         ]
+    }
+
+    private func attestationClaims(
+        peer: CmxIrohGrantPeer,
+        lifetime: Int64,
+        attestationID: String
+    ) throws -> CmxIrohEndpointAttestationClaims {
+        let seconds = Int64(now.timeIntervalSince1970)
+        return try JSONDecoder().decode(
+            CmxIrohEndpointAttestationClaims.self,
+            from: JSONSerialization.data(withJSONObject: [
+                "version": 1,
+                "jti": attestationID,
+                "sub": Data(repeating: 7, count: 32).base64URL,
+                "bindingId": peer.bindingID,
+                "deviceId": peer.deviceID,
+                "endpointId": peer.endpointID.endpointID,
+                "identityGeneration": peer.identityGeneration,
+                "platform": peer.platform.rawValue,
+                "iat": seconds,
+                "nbf": seconds,
+                "exp": seconds + lifetime,
+                "alpn": "cmux/mobile/1",
+                "scope": "cmux.offline-pair.same-account",
+            ])
+        )
     }
 }
 
