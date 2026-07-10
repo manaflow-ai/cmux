@@ -48,6 +48,121 @@ struct CmxIrohEndpointServerTests {
         await server.stop()
         await supervisor.deactivate()
     }
+
+    @Test
+    func admissionTimeoutClosesTheConnectionAndReleasesCapacity() async throws {
+        let localIdentity = try CmxIrohPeerIdentity(
+            endpointID: String(repeating: "c", count: 64)
+        )
+        let remoteIdentity = try CmxIrohPeerIdentity(
+            endpointID: String(repeating: "d", count: 64)
+        )
+        let endpoint = TestAcceptingIrohEndpoint(identity: localIdentity)
+        let supervisor = CmxIrohEndpointSupervisor(
+            factory: TestIrohEndpointFactory(endpoints: [endpoint]),
+            configuration: try CmxIrohEndpointConfiguration(
+                secretKey: CmxIrohSecretKey(bytes: Data(repeating: 2, count: 32)),
+                alpns: [CmxIrohProtocolConfiguration.cmuxMobileV1.alpn],
+                managedRelayURLs: [],
+                relays: []
+            )
+        )
+        _ = try await supervisor.activate()
+        let clock = EndpointServerManualClock()
+        let blocker = EndpointServerHandlerBlocker()
+        let recorder = EndpointServerRecorder()
+        let server = CmxIrohEndpointServer(
+            supervisor: supervisor,
+            maximumPendingAdmissions: 1,
+            admissionTimeout: 15,
+            clock: clock
+        ) { connection, generation in
+            await recorder.record(
+                identity: await connection.remoteIdentity(),
+                generation: generation
+            )
+            await blocker.wait()
+        }
+        let first = TestIrohConnection(
+            remoteIdentity: remoteIdentity,
+            bidirectionalStreams: []
+        )
+        var firstCloses = await first.closeEvents().makeAsyncIterator()
+
+        await server.start()
+        await endpoint.enqueue(first)
+        _ = await recorder.next()
+        await clock.waitUntilSleeping()
+        await clock.fire()
+
+        let close = try #require(await firstCloses.next())
+        #expect(close.reason == "admission_timeout")
+
+        let second = TestIrohConnection(
+            remoteIdentity: remoteIdentity,
+            bidirectionalStreams: []
+        )
+        await endpoint.enqueue(second)
+        let admittedAfterTimeout = await recorder.next()
+        #expect(admittedAfterTimeout.identity == remoteIdentity)
+
+        await blocker.releaseAll()
+        await server.stop()
+        await supervisor.deactivate()
+    }
+}
+
+private actor EndpointServerHandlerBlocker {
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+    private var released = false
+
+    func wait() async {
+        guard !released else { return }
+        await withCheckedContinuation { waiters.append($0) }
+    }
+
+    func releaseAll() {
+        released = true
+        let pending = waiters
+        waiters.removeAll()
+        for waiter in pending { waiter.resume() }
+    }
+}
+
+private actor EndpointServerManualClock: CmxIrohRelayClock {
+    private var sleeper: CheckedContinuation<Void, Never>?
+    private var sleepWaiters: [CheckedContinuation<Void, Never>] = []
+
+    nonisolated func now() -> Date {
+        Date(timeIntervalSince1970: 1_800_000_000)
+    }
+
+    func sleep(until _: Date) async throws {
+        let waiters = sleepWaiters
+        sleepWaiters.removeAll()
+        for waiter in waiters { waiter.resume() }
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { sleeper = $0 }
+        } onCancel: {
+            Task { await self.cancelSleep() }
+        }
+        try Task.checkCancellation()
+    }
+
+    func waitUntilSleeping() async {
+        if sleeper != nil { return }
+        await withCheckedContinuation { sleepWaiters.append($0) }
+    }
+
+    func fire() {
+        sleeper?.resume()
+        sleeper = nil
+    }
+
+    private func cancelSleep() {
+        sleeper?.resume()
+        sleeper = nil
+    }
 }
 
 private actor EndpointServerRecorder {

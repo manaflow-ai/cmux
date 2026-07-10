@@ -6,6 +6,8 @@ actor TestIrohConnection: CmxIrohConnection {
     private var bidirectionalStreams: [CmxIrohBidirectionalStream]
     private var receiveStreams: [any CmxIrohReceiveStream]
     private var closeCalls: [(code: UInt64, reason: String)] = []
+    private let closeStream: AsyncStream<(code: UInt64, reason: String)>
+    private let closeContinuation: AsyncStream<(code: UInt64, reason: String)>.Continuation
 
     init(
         remoteIdentity: CmxIrohPeerIdentity,
@@ -15,6 +17,9 @@ actor TestIrohConnection: CmxIrohConnection {
         peerIdentity = remoteIdentity
         self.bidirectionalStreams = bidirectionalStreams
         self.receiveStreams = receiveStreams
+        let closes = AsyncStream<(code: UInt64, reason: String)>.makeStream()
+        closeStream = closes.stream
+        closeContinuation = closes.continuation
     }
 
     func remoteIdentity() -> CmxIrohPeerIdentity {
@@ -48,9 +53,14 @@ actor TestIrohConnection: CmxIrohConnection {
 
     func close(errorCode: UInt64, reason: String) {
         closeCalls.append((errorCode, reason))
+        closeContinuation.yield((errorCode, reason))
     }
 
     func observedCloseCallCount() -> Int {
         closeCalls.count
+    }
+
+    func closeEvents() -> AsyncStream<(code: UInt64, reason: String)> {
+        closeStream
     }
 }
