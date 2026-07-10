@@ -433,9 +433,25 @@ extension SidebarGitMetadataService {
         let isPullRequestRefreshTracked = pullRequestProbing
             .workspacePullRequestTrackedPanelIds(workspaceId: probeKey.workspaceId)
             .contains(probeKey.panelId)
-        if let nextBranch,
-           shouldTrackPullRequests,
-           previousBranchState?.branch != nextBranch || !isPullRequestRefreshTracked {
+        let shouldSkipPullRequestLookup = nextBranch.map {
+            PullRequestProbeService.shouldSkipLookup(branch: $0)
+        } ?? false
+        if shouldTrackPullRequests, shouldSkipPullRequestLookup {
+            if host.panelPullRequestBadge(
+                workspaceId: probeKey.workspaceId,
+                panelId: probeKey.panelId
+            ) != nil {
+                host.clearPanelPullRequest(workspaceId: probeKey.workspaceId, panelId: probeKey.panelId)
+            }
+            if isPullRequestRefreshTracked {
+                pullRequestProbing.clearWorkspacePullRequestTracking(
+                    workspaceId: probeKey.workspaceId,
+                    panelId: probeKey.panelId
+                )
+            }
+        } else if let nextBranch,
+                  shouldTrackPullRequests,
+                  previousBranchState?.branch != nextBranch || !isPullRequestRefreshTracked {
             pullRequestProbing.scheduleWorkspacePullRequestRefresh(
                 workspaceId: probeKey.workspaceId,
                 panelId: probeKey.panelId,
