@@ -9,8 +9,10 @@ import Testing
 struct SimulatorFramebufferPortDiscoveryTests {
     @Test("Framebuffer discovery uses the current ioPorts contract")
     func currentIOPortsContract() throws {
-        let descriptor = SimulatorFramebufferDescriptorDouble()
-        let port = SimulatorFramebufferPortDouble(descriptor: descriptor)
+        let descriptor = SimulatorFramebufferForwardingDescriptorDouble(
+            target: SimulatorFramebufferDescriptorDouble()
+        )
+        let port = SimulatorFramebufferForwardingPortDouble(descriptor: descriptor)
         let io = SimulatorFramebufferIODouble(ports: [port])
         let device = SimulatorFramebufferDeviceDouble(io: io)
         let context = try SimulatorRemoteRenderContext()
@@ -38,10 +40,10 @@ private final class SimulatorFramebufferDeviceDouble: NSObject {
 }
 
 private final class SimulatorFramebufferIODouble: NSObject {
-    private let ports: [SimulatorFramebufferPortDouble]
+    private let ports: [NSObject]
     private(set) var didRequestCurrentPorts = false
 
-    init(ports: [SimulatorFramebufferPortDouble]) {
+    init(ports: [NSObject]) {
         self.ports = ports
     }
 
@@ -55,13 +57,56 @@ private final class SimulatorFramebufferIODouble: NSObject {
 }
 
 private final class SimulatorFramebufferPortDouble: NSObject {
-    private let displayDescriptor: SimulatorFramebufferDescriptorDouble
+    private let displayDescriptor: AnyObject
 
-    init(descriptor: SimulatorFramebufferDescriptorDouble) {
+    init(descriptor: AnyObject) {
         displayDescriptor = descriptor
     }
 
     @objc dynamic func descriptor() -> AnyObject { displayDescriptor }
+}
+
+private final class SimulatorFramebufferForwardingPortDouble: NSObject {
+    private let target: SimulatorFramebufferPortDouble
+
+    init(descriptor: AnyObject) {
+        target = SimulatorFramebufferPortDouble(descriptor: descriptor)
+    }
+
+    override func responds(to selector: Selector!) -> Bool {
+        selector == NSSelectorFromString("descriptor") || super.responds(to: selector)
+    }
+
+    override func forwardingTarget(for selector: Selector!) -> Any? {
+        if selector == NSSelectorFromString("descriptor") { return target }
+        return super.forwardingTarget(for: selector)
+    }
+}
+
+private final class SimulatorFramebufferForwardingDescriptorDouble: NSObject {
+    private let target: SimulatorFramebufferDescriptorDouble
+
+    init(target: SimulatorFramebufferDescriptorDouble) {
+        self.target = target
+    }
+
+    override func responds(to selector: Selector!) -> Bool {
+        Self.forwardedSelectors.contains(selector) || super.responds(to: selector)
+    }
+
+    override func forwardingTarget(for selector: Selector!) -> Any? {
+        if Self.forwardedSelectors.contains(selector) { return target }
+        return super.forwardingTarget(for: selector)
+    }
+
+    private static let forwardedSelectors = [
+        NSSelectorFromString("framebufferSurface"),
+        NSSelectorFromString(
+            "registerScreenCallbacksWithUUID:callbackQueue:frameCallback:" +
+                "surfacesChangedCallback:propertiesChangedCallback:"
+        ),
+        NSSelectorFromString("unregisterScreenCallbacksWithUUID:"),
+    ]
 }
 
 private final class SimulatorFramebufferDescriptorDouble: NSObject {
@@ -87,8 +132,10 @@ private final class SimulatorFramebufferDescriptorDouble: NSObject {
         callbackQueue _: DispatchQueue,
         frameCallback _: @escaping @convention(block) () -> Void,
         surfacesChangedCallback _: @escaping @convention(block) () -> Void,
-        propertiesChangedCallback _: @escaping @convention(block) (AnyObject) -> Void
-    ) {}
+        propertiesChangedCallback: @escaping @convention(block) () -> Void
+    ) {
+        propertiesChangedCallback()
+    }
 
     @objc dynamic func unregisterScreenCallbacks(withUUID _: NSUUID) {}
 }
