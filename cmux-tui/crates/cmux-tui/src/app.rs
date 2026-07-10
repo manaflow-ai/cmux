@@ -155,25 +155,33 @@ impl OrderedSession {
         let session = self.inner.clone();
         let pending = self.pending_mutation();
         let claim = RemoteRefreshClaim(self.remote_refresh_queued.clone());
-        self.operations.enqueue_session_mutation("refresh remote tree", true, move || {
-            let result = session.refresh_tree();
-            drop(claim);
-            match result {
-                Ok(tree) => {
-                    pending.settle(SessionMutationOutcome::Success {
-                        tree: Some(tree),
-                        completion: None,
-                    });
-                    Ok(())
+        let spawn =
+            std::thread::Builder::new().name("remote-tree-refresh".into()).spawn(move || {
+                let result = session.refresh_tree();
+                drop(claim);
+                match result {
+                    Ok(tree) => {
+                        pending.settle(SessionMutationOutcome::Success {
+                            tree: Some(tree),
+                            completion: None,
+                        });
+                    }
+                    Err(error) => {
+                        pending.settle(SessionMutationOutcome::Failed(error.to_string()));
+                    }
                 }
-                Err(error) => {
-                    let message = error.to_string();
-                    session.clear_remote_tree_stale();
-                    pending.settle(SessionMutationOutcome::Failed(message));
-                    Err(error)
-                }
-            }
-        });
+            });
+        if let Err(error) = spawn {
+            self.remote_refresh_queued.store(false, Ordering::Release);
+            self.inner.invalidate_remote_tree();
+            let _ = self.events.send(AppEvent::PtyOperationFailed(PtyOperationFailure {
+                surface_id: None,
+                kind: None,
+                label: "remote tree refresh",
+                error: error.to_string(),
+                lane_failed: false,
+            }));
+        }
     }
 
     fn refresh_remote_tree_background(&self) {
@@ -229,19 +237,19 @@ impl OrderedSession {
                 return Err(error);
             }
             session.invalidate_remote_tree();
-            match session.refresh_tree() {
-                Ok(tree) => {
-                    pending
-                        .settle(SessionMutationOutcome::Success { tree: Some(tree), completion });
-                    Ok(())
-                }
-                Err(error) => {
-                    let message = error.to_string();
-                    session.clear_remote_tree_stale();
-                    pending.settle(SessionMutationOutcome::Failed(message));
-                    Err(error)
-                }
-            }
+            let _ =
+                std::thread::Builder::new().name("session-tree-settle".into()).spawn(move || {
+                    match session.refresh_tree() {
+                        Ok(tree) => pending.settle(SessionMutationOutcome::Success {
+                            tree: Some(tree),
+                            completion,
+                        }),
+                        Err(error) => {
+                            pending.settle(SessionMutationOutcome::Failed(error.to_string()));
+                        }
+                    }
+                });
+            Ok(())
         });
     }
 
@@ -348,21 +356,18 @@ impl OrderedSession {
                     return Err(error);
                 }
                 session.invalidate_remote_tree();
-                match session.refresh_tree() {
-                    Ok(tree) => {
-                        pending.settle(SessionMutationOutcome::Success {
+                let _ = std::thread::Builder::new().name("session-tree-settle".into()).spawn(
+                    move || match session.refresh_tree() {
+                        Ok(tree) => pending.settle(SessionMutationOutcome::Success {
                             tree: Some(tree),
                             completion: None,
-                        });
-                        Ok(())
-                    }
-                    Err(error) => {
-                        let message = error.to_string();
-                        session.clear_remote_tree_stale();
-                        pending.settle(SessionMutationOutcome::Failed(message));
-                        Err(error)
-                    }
-                }
+                        }),
+                        Err(error) => {
+                            pending.settle(SessionMutationOutcome::Failed(error.to_string()));
+                        }
+                    },
+                );
+                Ok(())
             },
         );
     }
@@ -814,6 +819,7 @@ pub struct App {
     browser_input: BrowserInputDispatcher,
     pty_input: PtyInputDispatcher,
     deferred_input: VecDeque<Event>,
+    routing_refresh_pending: bool,
     drag: Option<Drag>,
     encoder: KeyEncoder,
     mouse_encoder: MouseEncoder,
@@ -1078,6 +1084,7 @@ pub fn run(
         browser_input,
         pty_input,
         deferred_input: VecDeque::new(),
+        routing_refresh_pending: false,
         drag: None,
         encoder,
         mouse_encoder,
@@ -1166,20 +1173,41 @@ impl App {
             if self.expire_toast() {
                 action = action.merge(RenderAction::Draw);
             }
-            match action {
-                RenderAction::Draw => {
-                    let size = terminal.size()?;
-                    self.sync_layout((size.width, size.height));
-                    self.draw_terminal(terminal)?;
-                    self.emit_graphics()?;
-                }
-                RenderAction::Graphics => {
-                    self.emit_graphics()?;
-                }
-                RenderAction::None => {}
+            self.render_action(terminal, action)?;
+            if self.routing_refresh_pending {
+                self.routing_refresh_pending = false;
+                let replay = self.replay_deferred_input()?;
+                self.render_action(terminal, replay)?;
             }
         }
         Ok(())
+    }
+
+    fn render_action(
+        &mut self,
+        terminal: &mut RatatuiTerminal<CrosstermBackend<std::io::Stdout>>,
+        action: RenderAction,
+    ) -> anyhow::Result<()> {
+        match action {
+            RenderAction::Draw => {
+                let size = terminal.size()?;
+                self.sync_layout((size.width, size.height));
+                self.draw_terminal(terminal)?;
+                self.emit_graphics()?;
+            }
+            RenderAction::Graphics => self.emit_graphics()?,
+            RenderAction::None => {}
+        }
+        Ok(())
+    }
+
+    fn replay_deferred_input(&mut self) -> anyhow::Result<RenderAction> {
+        let mut action = RenderAction::None;
+        while !self.session.has_pending_mutations() && !self.session.remote_tree_is_stale() {
+            let Some(input) = self.deferred_input.pop_front() else { break };
+            action = action.merge(self.handle(AppEvent::Input(input))?);
+        }
+        Ok(action)
     }
 
     fn draw_terminal(
@@ -1400,7 +1428,7 @@ impl App {
             | AppEvent::Input(Event::Key(_) | Event::Mouse(_) | Event::Paste(_)) => {
                 self.session.refresh_remote_tree_if_stale();
             }
-            AppEvent::Mux(MuxEvent::TitleChanged(_) | MuxEvent::Notification(_)) => {
+            AppEvent::Mux(MuxEvent::Notification(_)) => {
                 self.session.refresh_remote_tree_background();
             }
             AppEvent::Mux(MuxEvent::TreeChanged) => {
@@ -1415,7 +1443,8 @@ impl App {
         let event = match event {
             AppEvent::Input(input @ (Event::Key(_) | Event::Mouse(_) | Event::Paste(_)))
                 if (self.session.has_pending_mutations()
-                    || self.session.remote_tree_is_stale())
+                    || self.session.remote_tree_is_stale()
+                    || self.routing_refresh_pending)
                     && !self.input_can_update_pending_mutation(&input) =>
             {
                 return Ok(self.defer_input(input));
@@ -1498,7 +1527,6 @@ impl App {
                         }
                     }
                     SessionMutationOutcome::Failed(error) => {
-                        self.session.inner.clear_remote_tree_stale();
                         self.deferred_input.clear();
                         self.status_message = Some(format!("session operation failed: {error}"));
                         return Ok(RenderAction::Draw);
@@ -1507,7 +1535,6 @@ impl App {
                         if self.session.has_pending_mutations() {
                             return Ok(RenderAction::None);
                         }
-                        self.session.inner.clear_remote_tree_stale();
                         self.deferred_input.clear();
                         self.status_message = Some("session operation was canceled".to_string());
                         return Ok(RenderAction::Draw);
@@ -1517,12 +1544,8 @@ impl App {
                 if self.session.has_pending_mutations() || self.session.remote_tree_is_stale() {
                     return Ok(RenderAction::Draw);
                 }
-                let mut action = RenderAction::Draw;
-                while !self.session.has_pending_mutations() {
-                    let Some(input) = self.deferred_input.pop_front() else { break };
-                    action = action.merge(self.handle(AppEvent::Input(input))?);
-                }
-                Ok(action)
+                self.routing_refresh_pending = true;
+                Ok(RenderAction::Draw)
             }
             AppEvent::RemoteTreeUpdated(result) => {
                 match result {
@@ -4404,6 +4427,9 @@ mod tests {
         let settled = events.recv_timeout(Duration::from_secs(1)).unwrap();
         assert!(matches!(settled, AppEvent::SessionMutationSettled(_)));
         app.handle(settled).unwrap();
+        assert!(app.routing_refresh_pending);
+        app.routing_refresh_pending = false;
+        app.replay_deferred_input().unwrap();
         assert!(app.deferred_input.is_empty());
         assert!(!app.session.has_pending_mutations());
     }
@@ -4716,6 +4742,7 @@ mod tests {
             browser_input: BrowserInputDispatcher::spawn().unwrap(),
             pty_input,
             deferred_input: VecDeque::new(),
+            routing_refresh_pending: false,
             drag: None,
             encoder: KeyEncoder::new().unwrap(),
             mouse_encoder: MouseEncoder::new().unwrap(),

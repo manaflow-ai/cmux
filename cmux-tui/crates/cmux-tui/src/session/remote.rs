@@ -399,6 +399,7 @@ impl RemoteSession {
             }
             Some("title-changed") => {
                 if let Some(id) = surface_id() {
+                    self.update_cached_title(id);
                     self.emit(MuxEvent::TitleChanged(id));
                 }
             }
@@ -440,6 +441,27 @@ impl RemoteSession {
             return;
         }
         self.frame_logs.lock().unwrap().entry(surface).or_default().push(line);
+    }
+
+    fn update_cached_title(&self, surface_id: SurfaceId) {
+        let title = self
+            .surfaces
+            .lock()
+            .unwrap()
+            .get(&surface_id)
+            .and_then(|surface| surface.term.lock().unwrap().title())
+            .unwrap_or_default();
+        let mut tree = self.tree.lock().unwrap();
+        if let Some(tab) = tree
+            .workspaces
+            .iter_mut()
+            .flat_map(|workspace| workspace.screens.iter_mut())
+            .flat_map(|screen| screen.panes.iter_mut())
+            .flat_map(|pane| pane.tabs.iter_mut())
+            .find(|tab| tab.surface == surface_id)
+        {
+            tab.title = title;
+        }
     }
 
     pub fn request(&self, mut cmd: Value) -> anyhow::Result<Value> {
@@ -585,6 +607,14 @@ impl RemoteSession {
             }
         };
         let tree = parse_tree(&data);
+        self.exited_surfaces.lock().unwrap().retain(|surface_id| {
+            tree.workspaces
+                .iter()
+                .flat_map(|workspace| workspace.screens.iter())
+                .flat_map(|screen| screen.panes.iter())
+                .flat_map(|pane| pane.tabs.iter())
+                .any(|tab| tab.surface == *surface_id)
+        });
         *self.tree.lock().unwrap() = tree.clone();
         let surfaces = self.surfaces.lock().unwrap().clone();
         for (id, surface) in surfaces {
@@ -603,10 +633,6 @@ impl RemoteSession {
 
     pub fn tree_is_stale(&self) -> bool {
         self.tree_stale.load(Ordering::Acquire)
-    }
-
-    pub fn clear_tree_stale(&self) {
-        self.tree_stale.store(false, Ordering::Release);
     }
 }
 

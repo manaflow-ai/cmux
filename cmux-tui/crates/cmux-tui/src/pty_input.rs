@@ -5,7 +5,7 @@
 //! motion is coalesced, and every accepted mouse press reserves its release
 //! capacity.
 
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -47,6 +47,7 @@ pub struct PtyInputEvent {
     label: &'static str,
     coalesce_key: Option<(&'static str, u64)>,
     remote: bool,
+    reservation_id: Option<u64>,
 }
 
 impl PtyInputEvent {
@@ -66,6 +67,7 @@ impl PtyInputEvent {
             label: "PTY input",
             coalesce_key: None,
             remote,
+            reservation_id: None,
         }
     }
 
@@ -84,6 +86,7 @@ impl PtyInputEvent {
             label,
             coalesce_key,
             remote,
+            reservation_id: None,
         }
     }
 }
@@ -101,11 +104,49 @@ pub struct PtyOperationFailure {
 struct QueueState {
     events: VecDeque<PtyInputEvent>,
     queued_bytes: usize,
-    release_reservations: usize,
+    release_reservations: ReleaseReservations,
     in_flight: Option<InFlightInput>,
     closed: bool,
     remote_failed: bool,
     shutdown_release_drain: bool,
+}
+
+#[derive(Default)]
+struct ReleaseReservations {
+    next_id: u64,
+    outstanding: HashMap<u64, SurfaceId>,
+}
+
+impl ReleaseReservations {
+    fn len(&self) -> usize {
+        self.outstanding.len()
+    }
+
+    fn reserve(&mut self, surface_id: SurfaceId) -> u64 {
+        self.next_id = self.next_id.wrapping_add(1);
+        let id = self.next_id;
+        self.outstanding.insert(id, surface_id);
+        id
+    }
+
+    fn consume(&mut self, surface_id: SurfaceId) -> bool {
+        let id = self
+            .outstanding
+            .iter()
+            .filter_map(|(id, surface)| (*surface == surface_id).then_some(*id))
+            .min();
+        id.is_some_and(|id| self.outstanding.remove(&id).is_some())
+    }
+
+    fn cancel_latest(&mut self) {
+        if let Some(id) = self.outstanding.keys().copied().max() {
+            self.outstanding.remove(&id);
+        }
+    }
+
+    fn clear(&mut self) {
+        self.outstanding.clear();
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -176,7 +217,7 @@ impl PtyInputDispatcher {
                 .filter(|event| event.kind == PtyInputKind::Release)
                 .collect::<VecDeque<_>>();
             state.queued_bytes = releases.iter().map(|event| event.bytes.len()).sum();
-            state.release_reservations = 0;
+            state.release_reservations.clear();
             if !releases.is_empty() {
                 state.events = releases;
                 state.shutdown_release_drain = true;
@@ -222,7 +263,7 @@ impl PtyInputSender {
 
     pub fn cancel_release_reservation(&self) {
         let mut state = self.queue.state.lock().unwrap();
-        state.release_reservations = state.release_reservations.saturating_sub(1);
+        state.release_reservations.cancel_latest();
         self.queue.changed.notify_all();
     }
 
@@ -278,7 +319,7 @@ impl Drop for PtyInputDispatcher {
         if !state.shutdown_release_drain {
             state.events.clear();
             state.queued_bytes = 0;
-            state.release_reservations = 0;
+            state.release_reservations.clear();
         }
         self.sender.queue.changed.notify_all();
     }
@@ -287,8 +328,8 @@ impl Drop for PtyInputDispatcher {
 fn enqueue_bounded(
     events: &mut VecDeque<PtyInputEvent>,
     queued_bytes: &mut usize,
-    release_reservations: &mut usize,
-    event: PtyInputEvent,
+    release_reservations: &mut ReleaseReservations,
+    mut event: PtyInputEvent,
     capacity: usize,
     max_bytes: usize,
 ) -> bool {
@@ -311,7 +352,7 @@ fn enqueue_bounded(
         let previous_len = events.back().unwrap().bytes.len();
         let projected_bytes = queued_bytes.saturating_sub(previous_len)
             + event.bytes.len()
-            + *release_reservations * RESERVED_RELEASE_BYTES;
+            + release_reservations.len() * RESERVED_RELEASE_BYTES;
         if projected_bytes > max_bytes {
             return false;
         }
@@ -324,9 +365,10 @@ fn enqueue_bounded(
         && events.back().is_some_and(|previous| {
             previous.kind == PtyInputKind::Ordered && previous.surface_id == event.surface_id
         });
-    let consumes_reservation = event.kind == PtyInputKind::Release && *release_reservations > 0;
+    let consumes_reservation = event.kind == PtyInputKind::Release
+        && release_reservations.outstanding.values().any(|surface| *surface == event.surface_id);
     let mut projected = events.len()
-        + *release_reservations
+        + release_reservations.len()
         + usize::from(!merge_stream)
         + usize::from(event.kind == PtyInputKind::Press);
     if consumes_reservation {
@@ -334,7 +376,7 @@ fn enqueue_bounded(
     }
     let mut projected_bytes = *queued_bytes
         + event.bytes.len()
-        + (*release_reservations + usize::from(event.kind == PtyInputKind::Press))
+        + (release_reservations.len() + usize::from(event.kind == PtyInputKind::Press))
             * RESERVED_RELEASE_BYTES;
     if consumes_reservation {
         projected_bytes = projected_bytes.saturating_sub(RESERVED_RELEASE_BYTES);
@@ -351,9 +393,9 @@ fn enqueue_bounded(
     }
 
     if event.kind == PtyInputKind::Press {
-        *release_reservations += 1;
+        event.reservation_id = Some(release_reservations.reserve(event.surface_id));
     } else if consumes_reservation {
-        *release_reservations -= 1;
+        release_reservations.consume(event.surface_id);
     }
 
     if merge_stream {
@@ -385,6 +427,7 @@ fn worker(queue: Arc<SharedQueue>, on_failure: Arc<dyn Fn(PtyOperationFailure) +
         let kind = (event.kind != PtyInputKind::Mutation).then_some(event.kind);
         let surface_id = kind.map(|_| event.surface_id);
         let remote = event.remote;
+        let reservation_id = event.reservation_id;
         let result = if let Some(operation) = event.mutation {
             operation()
         } else {
@@ -402,8 +445,11 @@ fn worker(queue: Arc<SharedQueue>, on_failure: Arc<dyn Fn(PtyOperationFailure) +
         });
         let mut state = queue.state.lock().unwrap();
         let mut canceled = Vec::new();
-        if failure.is_some() && kind == Some(PtyInputKind::Press) {
-            state.release_reservations = state.release_reservations.saturating_sub(1);
+        if failure.is_some()
+            && kind == Some(PtyInputKind::Press)
+            && let Some(reservation_id) = reservation_id
+        {
+            state.release_reservations.outstanding.remove(&reservation_id);
         }
         if remote_transport_failed {
             // One dispatcher belongs to one local or remote App session. A
@@ -418,7 +464,7 @@ fn worker(queue: Arc<SharedQueue>, on_failure: Arc<dyn Fn(PtyOperationFailure) +
                 lane_failed: true,
             }));
             state.queued_bytes = 0;
-            state.release_reservations = 0;
+            state.release_reservations.clear();
         } else if remote_timed_out {
             // A timeout does not prove the socket is dead. Drop stale queued
             // work so one stalled request cannot multiply into minutes of
@@ -441,7 +487,7 @@ fn worker(queue: Arc<SharedQueue>, on_failure: Arc<dyn Fn(PtyOperationFailure) +
             }
             state.queued_bytes = releases.iter().map(|event| event.bytes.len()).sum();
             state.events = releases;
-            state.release_reservations = 0;
+            state.release_reservations.clear();
         }
         state.in_flight = None;
         queue.changed.notify_all();
@@ -472,7 +518,7 @@ mod tests {
     fn consecutive_motion_on_one_surface_keeps_latest() {
         let mut events = VecDeque::new();
         let mut queued_bytes = 0;
-        let mut releases = 0;
+        let mut releases = ReleaseReservations::default();
         assert!(enqueue_bounded(
             &mut events,
             &mut queued_bytes,
@@ -497,7 +543,7 @@ mod tests {
     fn ordered_bytes_batch_without_crossing_motion_or_surfaces() {
         let mut events = VecDeque::new();
         let mut queued_bytes = 0;
-        let mut releases = 0;
+        let mut releases = ReleaseReservations::default();
         for item in [
             event(1, 1, PtyInputKind::Ordered),
             event(1, 2, PtyInputKind::Ordered),
@@ -517,7 +563,7 @@ mod tests {
     fn ordered_input_does_not_cross_a_session_mutation() {
         let mut events = VecDeque::new();
         let mut queued_bytes = 0;
-        let mut releases = 0;
+        let mut releases = ReleaseReservations::default();
         assert!(enqueue_bounded(
             &mut events,
             &mut queued_bytes,
@@ -553,7 +599,7 @@ mod tests {
     fn coalescing_mutations_replace_by_key_across_adjacent_resize_work() {
         let mut events = VecDeque::new();
         let mut queued_bytes = 0;
-        let mut releases = 0;
+        let mut releases = ReleaseReservations::default();
         for item in [
             PtyInputEvent::mutation("resize one", Some(("resize", 1)), false, || Ok(())),
             PtyInputEvent::mutation("resize two", Some(("resize", 2)), false, || Ok(())),
@@ -589,7 +635,7 @@ mod tests {
     fn accepted_press_guarantees_its_release_slot() {
         let mut events = VecDeque::new();
         let mut queued_bytes = 0;
-        let mut releases = 0;
+        let mut releases = ReleaseReservations::default();
         assert!(enqueue_bounded(
             &mut events,
             &mut queued_bytes,
@@ -598,7 +644,7 @@ mod tests {
             3,
             1024,
         ));
-        assert_eq!(releases, 1);
+        assert_eq!(releases.len(), 1);
         assert!(enqueue_bounded(
             &mut events,
             &mut queued_bytes,
@@ -623,16 +669,29 @@ mod tests {
             3,
             1024,
         ));
-        assert_eq!(releases, 0);
+        assert_eq!(releases.len(), 0);
         assert_eq!(events.len(), 3);
         assert_eq!(events.back().unwrap().bytes.as_slice(), &[4]);
+    }
+
+    #[test]
+    fn failed_consumed_press_does_not_cancel_a_newer_reservation() {
+        let mut reservations = ReleaseReservations::default();
+        let first = reservations.reserve(7);
+        assert!(reservations.consume(7));
+        let second = reservations.reserve(7);
+
+        reservations.outstanding.remove(&first);
+
+        assert_eq!(reservations.len(), 1);
+        assert!(reservations.outstanding.contains_key(&second));
     }
 
     #[test]
     fn ordered_batch_respects_byte_budget() {
         let mut events = VecDeque::new();
         let mut queued_bytes = 0;
-        let mut releases = 0;
+        let mut releases = ReleaseReservations::default();
         let mut first = event(1, 1, PtyInputKind::Ordered);
         first.bytes = vec![1; 8].into();
         assert!(enqueue_bounded(&mut events, &mut queued_bytes, &mut releases, first, 8, 10,));
@@ -674,7 +733,7 @@ mod tests {
         assert_eq!(state.events.len(), 1);
         assert_eq!(state.events[0].kind, PtyInputKind::Release);
         assert_eq!(state.queued_bytes, 1);
-        assert_eq!(state.release_reservations, 0);
+        assert_eq!(state.release_reservations.len(), 0);
         assert!(state.shutdown_release_drain);
     }
 
@@ -777,7 +836,7 @@ mod tests {
             PtyInputEnqueueResult::Accepted
         );
         failure_rx.recv_timeout(Duration::from_secs(1)).unwrap();
-        assert_eq!(dispatcher.sender.queue.state.lock().unwrap().release_reservations, 0);
+        assert_eq!(dispatcher.sender.queue.state.lock().unwrap().release_reservations.len(), 0);
     }
 
     #[test]

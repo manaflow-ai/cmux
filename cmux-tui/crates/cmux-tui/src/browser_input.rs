@@ -20,7 +20,9 @@
 //! that can act on a per-event error, and the surface's own status
 //! (`BrowserStatus`) is what the UI reports.
 
+use std::collections::HashMap;
 use std::sync::mpsc::{Receiver, SyncSender, sync_channel};
+use std::sync::{Arc, Mutex};
 
 use cmux_tui_core::SurfaceId;
 
@@ -31,12 +33,14 @@ use crate::session::SurfaceHandle;
 /// blocked worker caps queued work at a few hundred events.
 const QUEUE_CAPACITY: usize = 512;
 
+#[derive(Clone)]
 pub struct BrowserInputEvent {
     pub surface_id: SurfaceId,
     pub surface: SurfaceHandle,
     pub kind: BrowserInputKind,
 }
 
+#[derive(Clone)]
 pub enum BrowserInputKind {
     Mouse {
         event_type: &'static str,
@@ -80,23 +84,34 @@ impl BrowserInputKind {
 
 pub struct BrowserInputDispatcher {
     tx: SyncSender<BrowserInputEvent>,
+    latest_resizes: Arc<Mutex<HashMap<SurfaceId, BrowserInputEvent>>>,
 }
 
 impl BrowserInputDispatcher {
     pub fn spawn() -> anyhow::Result<Self> {
         let (tx, rx) = sync_channel(QUEUE_CAPACITY);
-        std::thread::Builder::new().name("mux-browser-input".into()).spawn(move || worker(rx))?;
-        Ok(BrowserInputDispatcher { tx })
+        let latest_resizes = Arc::new(Mutex::new(HashMap::new()));
+        let worker_resizes = latest_resizes.clone();
+        std::thread::Builder::new()
+            .name("mux-browser-input".into())
+            .spawn(move || worker(rx, worker_resizes))?;
+        Ok(BrowserInputDispatcher { tx, latest_resizes })
     }
 
     /// Queue an event; never blocks. A full queue (worker wedged inside
     /// a blocking browser call) drops the event.
     pub fn enqueue(&self, event: BrowserInputEvent) {
+        if event.kind.is_resize() {
+            self.latest_resizes.lock().unwrap().insert(event.surface_id, event.clone());
+        }
         let _ = self.tx.try_send(event);
     }
 }
 
-fn worker(rx: Receiver<BrowserInputEvent>) {
+fn worker(
+    rx: Receiver<BrowserInputEvent>,
+    latest_resizes: Arc<Mutex<HashMap<SurfaceId, BrowserInputEvent>>>,
+) {
     while let Ok(event) = rx.recv() {
         // Drain whatever queued behind the first event so mouse moves
         // can be coalesced across the batch.
@@ -104,11 +119,36 @@ fn worker(rx: Receiver<BrowserInputEvent>) {
         while let Ok(next) = rx.try_recv() {
             batch.push(next);
         }
+        let latest = std::mem::take(&mut *latest_resizes.lock().unwrap());
+        merge_latest_resizes(&mut batch, latest);
         coalesce_browser_events(&mut batch);
         for event in batch {
             dispatch(&event);
         }
     }
+}
+
+fn merge_latest_resizes(
+    batch: &mut Vec<BrowserInputEvent>,
+    mut latest: HashMap<SurfaceId, BrowserInputEvent>,
+) {
+    let mut merged = Vec::with_capacity(batch.len() + latest.len());
+    for index in 0..batch.len() {
+        let event = &batch[index];
+        if event.kind.is_resize() {
+            let has_later = batch[index + 1..]
+                .iter()
+                .any(|next| next.kind.is_resize() && next.surface_id == event.surface_id);
+            if has_later {
+                continue;
+            }
+            merged.push(latest.remove(&event.surface_id).unwrap_or_else(|| event.clone()));
+        } else {
+            merged.push(event.clone());
+        }
+    }
+    merged.extend(latest.into_values());
+    *batch = merged;
 }
 
 /// Drop a mouse move when the next event is also a mouse move on the
@@ -251,5 +291,17 @@ mod tests {
             _ => panic!("expected resize event"),
         }
         assert!(matches!(batch[1].kind, BrowserInputKind::Mouse { .. }));
+    }
+
+    #[test]
+    fn dropped_resize_slot_delivers_latest_geometry_after_queued_input() {
+        let mut batch = vec![click_event(1)];
+        let latest = HashMap::from([(1, resize_event(1, 132))]);
+
+        merge_latest_resizes(&mut batch, latest);
+
+        assert_eq!(batch.len(), 2);
+        assert!(matches!(batch[0].kind, BrowserInputKind::Mouse { .. }));
+        assert!(matches!(batch[1].kind, BrowserInputKind::Resize { cols: 132, .. }));
     }
 }
