@@ -291,15 +291,13 @@ private final class Harness {
     }
 
     var windowMirror: RemoteTmuxWindowMirror? {
-        workspace.panels.keys.lazy.compactMap {
-            self.workspace.remoteTmuxWindowMirror(forPanelId: $0)
-        }.first
+        windowMirror(windowID: nil)
     }
 
-    func windowMirror(windowID: Int) -> RemoteTmuxWindowMirror? {
+    func windowMirror(windowID: Int?) -> RemoteTmuxWindowMirror? {
         workspace.panels.keys.lazy.compactMap {
             self.workspace.remoteTmuxWindowMirror(forPanelId: $0)
-        }.first(where: { $0.windowId == windowID })
+        }.first(where: { windowID == nil || $0.windowId == windowID })
     }
 
     func controlPaneID(surfaceID: UUID) -> UUID? {
