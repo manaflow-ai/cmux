@@ -127,16 +127,16 @@ test("streamPatch reuses incremental tree collections with revisioned flushes", 
     processFile: (patchText) => ({ name: patchText, type: "modified", hunks: [] }),
   });
 
-  expect(treeSources.map((source) => source.revision)).toEqual([1, 2, 3]);
-  expect(treeSources.map((source) => source.previousRevision)).toEqual([undefined, 1, 2]);
-  expect(treeSources.map((source) => source.pathCount)).toEqual([1, 2, 3]);
-  expect(treeSources[0].paths).toBe(treeSources[2].paths);
-  expect(treeSources[0].pathToItemId).toBe(treeSources[2].pathToItemId);
-  expect(treeSources[0].statsByPath).toBe(treeSources[2].statsByPath);
-  expect(treeSources[0].treePathByItemId).toBe(treeSources[2].treePathByItemId);
-  expect(treeSources[0].gitStatus).toBe(treeSources[2].gitStatus);
-  expect(treeSources[2].paths).toEqual(["a.ts", "b.ts", "c.ts"]);
-  expect(treeSources[2].gitStatus).toEqual([
+  expect(treeSources.map((source) => source.revision)).toEqual([1, 2]);
+  expect(treeSources.map((source) => source.previousRevision)).toEqual([undefined, 1]);
+  expect(treeSources.map((source) => source.pathCount)).toEqual([1, 3]);
+  expect(treeSources[0].paths).toBe(treeSources[1].paths);
+  expect(treeSources[0].pathToItemId).toBe(treeSources[1].pathToItemId);
+  expect(treeSources[0].statsByPath).toBe(treeSources[1].statsByPath);
+  expect(treeSources[0].treePathByItemId).toBe(treeSources[1].treePathByItemId);
+  expect(treeSources[0].gitStatus).toBe(treeSources[1].gitStatus);
+  expect(treeSources[1].paths).toEqual(["a.ts", "b.ts", "c.ts"]);
+  expect(treeSources[1].gitStatus).toEqual([
     { path: "a.ts", status: "added" },
     { path: "b.ts", status: "deleted" },
   ]);

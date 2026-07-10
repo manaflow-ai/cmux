@@ -40,7 +40,8 @@ export type FileTreeSource = FileTreeRefreshSource & {
   pathCount: number;
   paths: string[];
   pathToItemId: Map<string, string>;
-  previousSource?: FileTreeSource;
+  previousRevision?: number;
+  revision: number;
   statsChanged?: boolean;
   statsByPath: Map<string, FileStats>;
   treePathByItemId: Map<string, string>;
@@ -68,10 +69,11 @@ type StreamingDiffModel = {
   diffStats: DiffStats;
   fileIndex: number;
   gitStatusByPath: Map<string, GitStatusPatchEntry>;
+  gitStatusEntries: GitStatusPatchEntry[];
+  gitStatusIndexByPath: Map<string, number>;
   itemIdByTreePath: Map<string, string>;
   itemIdToFile: Map<string, { fileOrder: number; path: string }>;
   items: DiffItem[];
-  lastTreeSource?: FileTreeSource;
   nextCollisionSuffixByBase: Map<string, number>;
   paths: string[];
   pathStateByTreePath: Map<string, PathState>;
@@ -83,6 +85,7 @@ type StreamingDiffModel = {
   pendingStatsChanged: boolean;
   statsByPath: Map<string, FileStats>;
   treePathByItemId: Map<string, string>;
+  treeRevision: number;
 };
 
 type RenameDiffItem = {
@@ -253,6 +256,8 @@ function createStreamingDiffModel(): StreamingDiffModel {
     diffStats: { addedLines: 0, deletedLines: 0, fileCount: 0, totalLinesOfCode: 0 },
     fileIndex: 0,
     gitStatusByPath: new Map(),
+    gitStatusEntries: [],
+    gitStatusIndexByPath: new Map(),
     itemIdToFile: new Map(),
     itemIdByTreePath: new Map(),
     nextCollisionSuffixByBase: new Map(),
@@ -267,6 +272,7 @@ function createStreamingDiffModel(): StreamingDiffModel {
     pendingStatsChanged: false,
     statsByPath: new Map(),
     treePathByItemId: new Map(),
+    treeRevision: 0,
   };
 }
 
@@ -376,6 +382,7 @@ function uniqueDiffItemId(model: StreamingDiffModel, baseId: string): string {
 function updateGitStatusForPath(model: StreamingDiffModel, treePath: string, changeType: string | undefined, sawDeleted: boolean): void {
   if (sawDeleted && changeType !== "deleted") {
     if (model.gitStatusByPath.delete(treePath)) {
+      removeGitStatusEntry(model, treePath);
       markGitStatusRemoved(model, treePath);
     }
     return;
@@ -383,6 +390,7 @@ function updateGitStatusForPath(model: StreamingDiffModel, treePath: string, cha
   const status = gitStatusType(changeType);
   if (status === "modified") {
     if (model.gitStatusByPath.delete(treePath)) {
+      removeGitStatusEntry(model, treePath);
       markGitStatusRemoved(model, treePath);
     }
     return;
@@ -393,8 +401,30 @@ function updateGitStatusForPath(model: StreamingDiffModel, treePath: string, cha
   }
   const entry = { path: treePath, status };
   model.gitStatusByPath.set(treePath, entry);
+  const currentIndex = model.gitStatusIndexByPath.get(treePath);
+  if (currentIndex == null) {
+    model.gitStatusIndexByPath.set(treePath, model.gitStatusEntries.length);
+    model.gitStatusEntries.push(entry);
+  } else {
+    model.gitStatusEntries[currentIndex] = entry;
+  }
   model.pendingGitStatusRemovePaths.delete(treePath);
   model.pendingGitStatusSetByPath.set(treePath, entry);
+}
+
+function removeGitStatusEntry(model: StreamingDiffModel, treePath: string): void {
+  const index = model.gitStatusIndexByPath.get(treePath);
+  if (index == null) {
+    return;
+  }
+  const lastIndex = model.gitStatusEntries.length - 1;
+  const lastEntry = model.gitStatusEntries[lastIndex];
+  model.gitStatusEntries.pop();
+  model.gitStatusIndexByPath.delete(treePath);
+  if (index !== lastIndex && lastEntry != null) {
+    model.gitStatusEntries[index] = lastEntry;
+    model.gitStatusIndexByPath.set(lastEntry.path, index);
+  }
 }
 
 function markGitStatusRemoved(model: StreamingDiffModel, treePath: string): void {
@@ -403,22 +433,22 @@ function markGitStatusRemoved(model: StreamingDiffModel, treePath: string): void
 }
 
 function createFileTreeSourceFromModel(model: StreamingDiffModel): FileTreeSource {
-  const previousSource = model.lastTreeSource;
-  const paths = [...model.paths];
+  const previousRevision = model.treeRevision === 0 ? undefined : model.treeRevision;
+  model.treeRevision += 1;
   const source: FileTreeSource = {
     diffStats: { ...model.diffStats },
-    gitStatus: Array.from(model.gitStatusByPath.values()),
+    gitStatus: model.gitStatusEntries,
     gitStatusPatch: buildGitStatusPatch(model),
-    pathCount: paths.length,
-    paths,
-    pathToItemId: new Map(model.pathToItemId),
-    previousSource,
+    pathCount: model.paths.length,
+    paths: model.paths,
+    pathToItemId: model.pathToItemId,
+    previousRevision,
+    revision: model.treeRevision,
     statsChanged: model.pendingStatsChanged,
-    statsByPath: new Map(model.statsByPath),
-    treePathByItemId: new Map(model.treePathByItemId),
+    statsByPath: model.statsByPath,
+    treePathByItemId: model.treePathByItemId,
   };
   model.pendingStatsChanged = false;
-  model.lastTreeSource = source;
   return source;
 }
 
