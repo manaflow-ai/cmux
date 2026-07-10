@@ -200,7 +200,7 @@ export function makeIrohTrustBroker(
         payloadSha256: decoded.sha256,
         signature: request.signature,
       }));
-      const binding = yield* repository.consumeChallengeAndRegister({
+      const registration = yield* repository.consumeChallengeAndRegister({
         userId,
         challengeId: challenge.id,
         nonceHash: nonceHash(request.nonce),
@@ -209,14 +209,16 @@ export function makeIrohTrustBroker(
         deviceLimitOverrideAllowed: deviceLimitOverrideAllowed(config, userId),
       });
 
-      // Registration is already committed before relay minting starts. The
-      // dedicated relay route can retry independently if this bootstrap mint
-      // fails, so provider availability can never roll back device identity.
-      const relay = yield* issueRelayToken(userId, { bindingId: binding.id }, now).pipe(
-        Effect.map((value) => ({ status: "issued" as const, ...value as object })),
-        Effect.catchAll(() => Effect.succeed({ status: "unavailable" as const })),
-      );
-      return { binding: publicBinding(binding, now), relay };
+      // New registration is already committed before relay minting starts.
+      // Refreshes keep their existing credential and use the dedicated relay
+      // route when it expires, so path-hint churn cannot consume mint quotas.
+      const relay = registration.created
+        ? yield* issueRelayToken(userId, { bindingId: registration.binding.id }, now).pipe(
+          Effect.map((value) => ({ status: "issued" as const, ...value as object })),
+          Effect.catchAll(() => Effect.succeed({ status: "unavailable" as const })),
+        )
+        : { status: "not_requested" as const };
+      return { binding: publicBinding(registration.binding, now), relay };
     }),
 
     discover: (userId, now = new Date()) => Effect.gen(function* () {

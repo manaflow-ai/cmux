@@ -45,6 +45,12 @@ device-limit override requires a server flag, an exact authenticated user-id
 allowlist match, and an exact deployment-environment allowlist match; it never
 raises the 32-binding account limit and records an audit marker on the binding.
 
+Registration bootstraps a relay credential only when it creates a binding.
+Signed refreshes of the same binding return `relay.status = "not_requested"`;
+clients retain their existing credential or use the dedicated relay-token route
+when its refresh window arrives. Platform is part of the immutable binding
+identity and requires explicit revocation before it can change.
+
 Every user-scoped mutation acquires the account-deletion advisory fence before
 any Iroh lock. If the deletion tombstone wins, no challenge, binding, grant, or
 relay audit state can be created. If an Iroh mutation wins, account deletion

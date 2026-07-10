@@ -55,6 +55,10 @@ export type IrohRetentionResult = {
 
 export type IrohBindingRecord = typeof irohEndpointBindings.$inferSelect;
 export type IrohChallengeRecord = typeof irohRegistrationChallenges.$inferSelect;
+export type IrohRegistrationCommit = {
+  readonly binding: IrohBindingRecord;
+  readonly created: boolean;
+};
 type CloudDbTransaction = Parameters<Parameters<ReturnType<typeof cloudDb>["transaction"]>[0]>[0];
 
 type RepositoryError =
@@ -88,7 +92,7 @@ export type IrohRepositoryShape = {
     readonly payload: IrohRegistrationPayload;
     readonly now: Date;
     readonly deviceLimitOverrideAllowed: boolean;
-  }) => Effect.Effect<IrohBindingRecord, RepositoryError>;
+  }) => Effect.Effect<IrohRegistrationCommit, RepositoryError>;
   readonly discoverySnapshot: (input: {
     readonly userId: string;
     readonly now: Date;
@@ -278,14 +282,14 @@ function makeLiveRepository(): IrohRepositoryShape {
             existingApp.endpointId !== input.payload.endpointId ||
             existingApp.identityGeneration !== input.payload.identityGeneration ||
             existingApp.deviceUuid !== input.payload.deviceId ||
-            existingApp.tag !== input.payload.tag
+            existingApp.tag !== input.payload.tag ||
+            existingApp.platform !== input.payload.platform
           ) {
             throw new IrohConflictError({ code: "binding_replacement_requires_revocation" });
           }
           const [updated] = await tx
             .update(irohEndpointBindings)
             .set({
-              platform: input.payload.platform,
               displayName: input.payload.displayName ?? null,
               pairingEnabled: input.payload.pairingEnabled,
               capabilities: [...input.payload.capabilities],
@@ -301,7 +305,7 @@ function makeLiveRepository(): IrohRepositoryShape {
             .set({ consumedAt: input.now })
             .where(eq(irohRegistrationChallenges.id, challenge.id));
           if (!updated) throw new Error("binding update returned no row");
-          return updated;
+          return { binding: updated, created: false };
         }
 
         const [endpointOwner] = await tx
@@ -371,7 +375,7 @@ function makeLiveRepository(): IrohRepositoryShape {
             eq(irohRegistrationChallenges.id, challenge.id),
             isNull(irohRegistrationChallenges.consumedAt),
           ));
-        return binding;
+        return { binding, created: true };
       });
     }),
 

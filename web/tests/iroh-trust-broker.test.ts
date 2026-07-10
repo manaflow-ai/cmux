@@ -473,11 +473,12 @@ class MemoryRepository implements IrohRepositoryShape {
         existing.endpointId !== input.payload.endpointId ||
         existing.identityGeneration !== input.payload.identityGeneration ||
         existing.deviceUuid !== input.payload.deviceId ||
-        existing.tag !== input.payload.tag
+        existing.tag !== input.payload.tag ||
+        existing.platform !== input.payload.platform
       ) return Effect.fail(new IrohConflictError({ code: "binding_replacement_requires_revocation" }));
       challenge.consumedAt = input.now;
       existing.pathHints = [...input.payload.pathHints];
-      return Effect.succeed(existing);
+      return Effect.succeed({ binding: existing, created: false });
     }
     if (this.bindings.some((row) => row.endpointId === input.payload.endpointId && !row.revokedAt)) {
       return Effect.fail(new IrohConflictError({ code: "endpoint_already_bound" }));
@@ -507,7 +508,7 @@ class MemoryRepository implements IrohRepositoryShape {
     });
     challenge.consumedAt = input.now;
     this.bindings.push(inserted);
-    return Effect.succeed(inserted);
+    return Effect.succeed({ binding: inserted, created: true });
   }
 
   discoverySnapshot(input: Parameters<IrohRepositoryShape["discoverySnapshot"]>[0]) {
