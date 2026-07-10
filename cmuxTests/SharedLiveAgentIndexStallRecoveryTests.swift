@@ -12,6 +12,51 @@ import Testing
 @Suite(.serialized)
 struct SharedLiveAgentIndexStallRecoveryTests {
     @Test
+    func hookChangeAfterCapturingTimeoutStartsSuccessor() async {
+        let timeoutWaiter = ManualTimeoutWaiter()
+        let firstStarted = DispatchSemaphore(value: 0)
+        let successorStarted = DispatchSemaphore(value: 0)
+        let completed = DispatchSemaphore(value: 0)
+        let releaseFirst = DispatchSemaphore(value: 0)
+        let releaseSuccessor = DispatchSemaphore(value: 0)
+        defer {
+            releaseFirst.signal()
+            releaseSuccessor.signal()
+        }
+        let loadCount = OSAllocatedUnfairLock(initialState: 0)
+        let sharedIndex = SharedLiveAgentIndex(
+            indexLoader: {
+                let invocation = loadCount.withLock { count in
+                    count += 1
+                    return count
+                }
+                (invocation == 1 ? firstStarted : successorStarted).signal()
+                (invocation == 1 ? releaseFirst : releaseSuccessor).wait()
+                completed.signal()
+                return Self.loadResult(sessionId: "post-timeout-hook-\(invocation)")
+            },
+            generationTimeoutWaiter: { await timeoutWaiter.wait() },
+            hookStoreDirectoryProvider: { Self.temporaryDirectory.path }
+        )
+        let first = Task { @MainActor in await sharedIndex.resumeIndexesCapturedAfterRequest() }
+        #expect(await SharedLiveAgentIndexLoadCoalescingTests.wait(for: firstStarted))
+        await timeoutWaiter.waitUntilPendingCount(1)
+        await timeoutWaiter.fireNext()
+        #expect((await first.value) == nil)
+        #expect(loadCount.withLock { $0 } == 1)
+
+        sharedIndex.handleHookStoreChange()
+
+        #expect(await SharedLiveAgentIndexLoadCoalescingTests.wait(for: successorStarted))
+        #expect(loadCount.withLock { $0 } == 2)
+        releaseSuccessor.signal()
+        releaseFirst.signal()
+        #expect(await SharedLiveAgentIndexLoadCoalescingTests.wait(for: completed))
+        #expect(await SharedLiveAgentIndexLoadCoalescingTests.wait(for: completed))
+        await timeoutWaiter.cancelAll()
+    }
+
+    @Test
     func capturingTimeoutDrainsPendingHookChangeIntoSuccessor() async {
         let timeoutWaiter = ManualTimeoutWaiter()
         let firstStarted = DispatchSemaphore(value: 0)
