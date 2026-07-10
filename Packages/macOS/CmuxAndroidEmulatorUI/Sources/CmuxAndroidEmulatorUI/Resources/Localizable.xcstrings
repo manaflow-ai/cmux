@@ -99,6 +99,13 @@
         "ja": { "stringUnit": { "state": "translated", "value": "ベンダーのエミュレータを起動できませんでした: %@" } }
       }
     },
+    "androidEmulator.error.launchNotConfirmed.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The AVD “%@” launched but did not appear in adb. Refresh to check again." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "AVD「%@」は起動しましたが、adbに表示されませんでした。もう一度確認するには更新してください。" } }
+      }
+    },
     "androidEmulator.error.sdkNotFound.detail": {
       "extractionState": "manual",
       "localizations": {
@@ -148,6 +155,13 @@
         "ja": { "stringUnit": { "state": "translated", "value": "停止中" } }
       }
     },
+    "androidEmulator.status.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "State unavailable" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "状態を確認できません" } }
+      }
+    },
     "androidEmulator.status.stopping": {
       "extractionState": "manual",
       "localizations": {
@@ -160,6 +174,13 @@
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "Uses Android tools already installed on this Mac." } },
         "ja": { "stringUnit": { "state": "translated", "value": "このMacにインストール済みのAndroidツールを使用します。" } }
+      }
+    },
+    "androidEmulator.error.stopNotConfirmed.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The emulator “%@” is still visible in adb. Refresh to check again." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "エミュレータ「%@」はまだadbに表示されています。もう一度確認するには更新してください。" } }
       }
     },
     "androidEmulator.title": {
@@ -179,8 +200,8 @@
     "androidEmulator.warning.adbMissing": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Android Debug Bridge is not installed. cmux can launch AVDs but cannot show or stop running devices." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "Android Debug Bridgeがインストールされていません。cmuxはAVDを起動できますが、実行中のデバイスの表示や停止はできません。" } }
+        "en": { "stringUnit": { "state": "translated", "value": "Android Debug Bridge is not installed. Install adb so cmux can safely launch and stop AVDs." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Android Debug Bridgeがインストールされていません。cmuxからAVDを安全に起動および停止するにはadbをインストールしてください。" } }
       }
     }
   },

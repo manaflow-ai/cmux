@@ -3,6 +3,9 @@ public enum AndroidVirtualDeviceState: Sendable, Equatable {
     /// The AVD is available but is not connected to Android Debug Bridge.
     case stopped
 
+    /// Android Debug Bridge could not authoritatively determine whether the AVD is running.
+    case unavailable
+
     /// The AVD is connected through Android Debug Bridge.
     case running(serial: String, connectionState: String)
 

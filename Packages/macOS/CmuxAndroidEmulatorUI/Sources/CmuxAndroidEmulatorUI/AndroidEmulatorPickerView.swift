@@ -216,7 +216,7 @@ public struct AndroidEmulatorPickerView: View {
         case .adbMissing:
             return String(
                 localized: "androidEmulator.warning.adbMissing",
-                defaultValue: "Android Debug Bridge is not installed. cmux can launch AVDs but cannot show or stop running devices.",
+                defaultValue: "Android Debug Bridge is not installed. Install adb so cmux can safely launch and stop AVDs.",
                 bundle: .module
             )
         case .adbQueryFailed(let detail):
@@ -290,6 +290,20 @@ public struct AndroidEmulatorPickerView: View {
                 bundle: .module
             )
             return String(format: format, detail)
+        case .launchNotConfirmed(let name):
+            let format = String(
+                localized: "androidEmulator.error.launchNotConfirmed.detail",
+                defaultValue: "The AVD “%@” launched but did not appear in adb. Refresh to check again.",
+                bundle: .module
+            )
+            return String(format: format, name)
+        case .stopNotConfirmed(let serial):
+            let format = String(
+                localized: "androidEmulator.error.stopNotConfirmed.detail",
+                defaultValue: "The emulator “%@” is still visible in adb. Refresh to check again.",
+                bundle: .module
+            )
+            return String(format: format, serial)
         }
     }
 }

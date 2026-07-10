@@ -35,7 +35,7 @@ import Testing
         #expect(snapshot.devices[1].state == .stopped)
     }
 
-    @Test func missingADBStillListsLaunchableAVDs() async throws {
+    @Test func missingADBMarksAVDStateUnavailable() async throws {
         let installation = AndroidSDKInstallation(
             rootURL: Self.installation.rootURL,
             emulatorURL: Self.installation.emulatorURL,
@@ -56,7 +56,7 @@ import Testing
         let snapshot = try await service.snapshot()
 
         #expect(snapshot.warning == .adbMissing)
-        #expect(snapshot.devices == [AndroidVirtualDevice(name: "Pixel_9_API_35", state: .stopped)])
+        #expect(snapshot.devices == [AndroidVirtualDevice(name: "Pixel_9_API_35", state: .unavailable)])
     }
 
     @Test func launchValidatesNameAndUsesVendorExecutable() async throws {
@@ -105,12 +105,69 @@ import Testing
             processLauncher: RecordingAndroidEmulatorLauncher()
         )
 
+        let queryCounts = await commands.nameQueryCountStream()
         let snapshotTask = Task { try await service.snapshot() }
-        try await Task.sleep(for: .milliseconds(100))
+        let reachedWorkerLimit = await Self.waitForQueryCount(4, in: queryCounts)
         await commands.releaseNameQueries()
         _ = try await snapshotTask.value
 
-        #expect(await commands.maximumConcurrentNameQueries == 2)
+        #expect(reachedWorkerLimit)
+        #expect(await commands.maximumConcurrentNameQueries == 4)
+    }
+
+    @Test func unresolvedConnectedEmulatorMarksStoppedAVDsUnavailable() async throws {
+        let installation = Self.installation
+        let commands = StubCommandRunner(results: [
+            StubCommand(
+                executable: installation.emulatorURL.path,
+                arguments: ["-list-avds"]
+            ): .success("Pixel_9_API_35\nTablet_API_35\n"),
+            StubCommand(
+                executable: installation.adbURL!.path,
+                arguments: ["devices"]
+            ): .success("List of devices attached\nemulator-5554\toffline\n"),
+            StubCommand(
+                executable: installation.adbURL!.path,
+                arguments: ["-s", "emulator-5554", "emu", "avd", "name"]
+            ): CommandResult(
+                stdout: "",
+                stderr: "offline",
+                exitStatus: 1,
+                timedOut: false,
+                executionError: nil
+            ),
+        ])
+        let service = AndroidEmulatorService(
+            sdkLocator: StubSDKLocator(resolution: .available(installation)),
+            commands: commands,
+            processLauncher: RecordingAndroidEmulatorLauncher()
+        )
+
+        let snapshot = try await service.snapshot()
+
+        #expect(snapshot.devices.map(\.state) == [.unavailable, .unavailable])
+        #expect(snapshot.warning == .adbQueryFailed(detail: "offline"))
+    }
+
+    private static func waitForQueryCount(
+        _ expectedCount: Int,
+        in counts: AsyncStream<Int>
+    ) async -> Bool {
+        await withTaskGroup(of: Bool.self) { group in
+            group.addTask {
+                for await count in counts where count >= expectedCount {
+                    return true
+                }
+                return false
+            }
+            group.addTask {
+                try? await Task.sleep(for: .seconds(2))
+                return false
+            }
+            let result = await group.next() ?? false
+            group.cancelAll()
+            return result
+        }
     }
 
     private static let installation = AndroidSDKInstallation(
@@ -197,6 +254,7 @@ private actor ConcurrentNameQueryCommandRunner: CommandRunning {
     private var releaseContinuations: [CheckedContinuation<Void, Never>] = []
     private var activeNameQueries = 0
     private(set) var maximumConcurrentNameQueries = 0
+    private var nameQueryCountContinuation: AsyncStream<Int>.Continuation?
 
     init(installation: AndroidSDKInstallation) {
         self.installation = installation
@@ -211,14 +269,18 @@ private actor ConcurrentNameQueryCommandRunner: CommandRunning {
         _ = directory
         _ = timeout
         if executable == installation.emulatorURL.path {
-            return .success("Pixel_9_API_35\nTablet_API_35\n")
+            return .success((0..<6).map { "Device_\($0)" }.joined(separator: "\n") + "\n")
         }
         if arguments == ["devices"] {
-            return .success("List of devices attached\nemulator-5554\tdevice\nemulator-5556\tdevice\n")
+            let devices = (0..<6)
+                .map { "emulator-\(5554 + ($0 * 2))\tdevice" }
+                .joined(separator: "\n")
+            return .success("List of devices attached\n\(devices)\n")
         }
 
         activeNameQueries += 1
         maximumConcurrentNameQueries = max(maximumConcurrentNameQueries, activeNameQueries)
+        nameQueryCountContinuation?.yield(activeNameQueries)
         if !nameQueriesReleased {
             await withCheckedContinuation { continuation in
                 releaseContinuations.append(continuation)
@@ -227,8 +289,16 @@ private actor ConcurrentNameQueryCommandRunner: CommandRunning {
         activeNameQueries -= 1
 
         let serial = arguments[1]
-        let avdName = serial == "emulator-5554" ? "Pixel_9_API_35" : "Tablet_API_35"
+        let port = Int(serial.dropFirst("emulator-".count)) ?? 5554
+        let avdName = "Device_\((port - 5554) / 2)"
         return .success("\(avdName)\nOK\n")
+    }
+
+    func nameQueryCountStream() -> AsyncStream<Int> {
+        let (stream, continuation) = AsyncStream.makeStream(of: Int.self)
+        nameQueryCountContinuation = continuation
+        continuation.yield(activeNameQueries)
+        return stream
     }
 
     func releaseNameQueries() {
@@ -238,5 +308,7 @@ private actor ConcurrentNameQueryCommandRunner: CommandRunning {
         for continuation in continuations {
             continuation.resume()
         }
+        nameQueryCountContinuation?.finish()
+        nameQueryCountContinuation = nil
     }
 }

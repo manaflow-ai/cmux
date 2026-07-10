@@ -3,6 +3,8 @@ import Foundation
 
 /// Android SDK adapter that lists, launches, and stops user-installed AVDs.
 public actor AndroidEmulatorService: AndroidEmulatorServicing {
+    private static let maximumConcurrentNameQueries = 4
+
     private let sdkLocator: any AndroidSDKLocating
     private let commands: any CommandRunning
     private let processLauncher: any AndroidEmulatorProcessLaunching
@@ -31,7 +33,7 @@ public actor AndroidEmulatorService: AndroidEmulatorServicing {
         guard let adbURL = installation.adbURL else {
             return AndroidEmulatorSnapshot(
                 sdkRootURL: installation.rootURL,
-                devices: avdNames.map { AndroidVirtualDevice(name: $0, state: .stopped) },
+                devices: avdNames.map { AndroidVirtualDevice(name: $0, state: .unavailable) },
                 warning: .adbMissing
             )
         }
@@ -45,54 +47,69 @@ public actor AndroidEmulatorService: AndroidEmulatorServicing {
         guard Self.succeeded(devicesResult) else {
             return AndroidEmulatorSnapshot(
                 sdkRootURL: installation.rootURL,
-                devices: avdNames.map { AndroidVirtualDevice(name: $0, state: .stopped) },
+                devices: avdNames.map { AndroidVirtualDevice(name: $0, state: .unavailable) },
                 warning: .adbQueryFailed(detail: Self.failureDetail(devicesResult))
             )
         }
 
         let connectedEmulators = Self.parseConnectedEmulators(devicesResult.stdout ?? "")
         let commands = self.commands
-        let runningByName = await withTaskGroup(
-            of: [String: AndroidVirtualDeviceState].self,
-            returning: [String: AndroidVirtualDeviceState].self
+        let identityResolution = await withTaskGroup(
+            of: Result<[String: AndroidVirtualDeviceState], AndroidEmulatorError>.self,
+            returning: ([String: AndroidVirtualDeviceState], String?).self
         ) { group in
-            for connected in connectedEmulators {
+            var pending = connectedEmulators.makeIterator()
+            for _ in 0..<min(Self.maximumConcurrentNameQueries, connectedEmulators.count) {
+                guard let connected = pending.next() else { break }
                 group.addTask {
-                    let nameResult = await commands.run(
-                        directory: installation.rootURL.path,
-                        executable: adbURL.path,
-                        arguments: ["-s", connected.serial, "emu", "avd", "name"],
-                        timeout: 3
+                    await Self.resolveConnectedEmulator(
+                        connected,
+                        installation: installation,
+                        adbURL: adbURL,
+                        commands: commands
                     )
-                    guard Self.succeeded(nameResult),
-                          let avdName = Self.parseAVDName(nameResult.stdout ?? "") else {
-                        return [:]
-                    }
-                    return [avdName: .running(
-                        serial: connected.serial,
-                        connectionState: connected.connectionState
-                    )]
                 }
             }
 
             var resolved: [String: AndroidVirtualDeviceState] = [:]
-            for await device in group {
-                resolved.merge(device) { _, latest in latest }
+            var firstFailureDetail: String?
+            while let result = await group.next() {
+                switch result {
+                case .success(let device):
+                    resolved.merge(device) { _, latest in latest }
+                case .failure(.commandFailed(_, let detail)):
+                    firstFailureDetail = firstFailureDetail ?? detail
+                case .failure(let error):
+                    firstFailureDetail = firstFailureDetail ?? String(describing: error)
+                }
+
+                if let connected = pending.next() {
+                    group.addTask {
+                        await Self.resolveConnectedEmulator(
+                            connected,
+                            installation: installation,
+                            adbURL: adbURL,
+                            commands: commands
+                        )
+                    }
+                }
             }
-            return resolved
+            return (resolved, firstFailureDetail)
         }
 
+        let runningByName = identityResolution.0
+        let fallbackState: AndroidVirtualDeviceState = identityResolution.1 == nil ? .stopped : .unavailable
         let allNames = Set(avdNames).union(runningByName.keys)
         let devices = allNames
             .map { name in
-                AndroidVirtualDevice(name: name, state: runningByName[name] ?? .stopped)
+                AndroidVirtualDevice(name: name, state: runningByName[name] ?? fallbackState)
             }
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
 
         return AndroidEmulatorSnapshot(
             sdkRootURL: installation.rootURL,
             devices: devices,
-            warning: nil
+            warning: identityResolution.1.map(AndroidEmulatorWarning.adbQueryFailed)
         )
     }
 
@@ -180,6 +197,28 @@ public actor AndroidEmulatorService: AndroidEmulatorServicing {
             .split(whereSeparator: \.isNewline)
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .first { !$0.isEmpty && $0 != "OK" }
+    }
+
+    private static func resolveConnectedEmulator(
+        _ connected: (serial: String, connectionState: String),
+        installation: AndroidSDKInstallation,
+        adbURL: URL,
+        commands: any CommandRunning
+    ) async -> Result<[String: AndroidVirtualDeviceState], AndroidEmulatorError> {
+        let nameResult = await commands.run(
+            directory: installation.rootURL.path,
+            executable: adbURL.path,
+            arguments: ["-s", connected.serial, "emu", "avd", "name"],
+            timeout: 3
+        )
+        guard succeeded(nameResult),
+              let avdName = parseAVDName(nameResult.stdout ?? "") else {
+            return .failure(.commandFailed(tool: "adb", detail: failureDetail(nameResult)))
+        }
+        return .success([avdName: .running(
+            serial: connected.serial,
+            connectionState: connected.connectionState
+        )])
     }
 
     private static func succeeded(_ result: CommandResult) -> Bool {

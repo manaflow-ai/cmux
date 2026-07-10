@@ -32,18 +32,23 @@ struct AndroidEmulatorDeviceRow: View {
                 ProgressView()
                     .controlSize(.small)
                     .accessibilityLabel(statusText)
-            } else if let serial = device.state.serial {
-                Button(String(localized: "androidEmulator.action.stop", defaultValue: "Stop", bundle: .module)) {
-                    onStop(serial)
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
             } else {
-                Button(String(localized: "androidEmulator.action.launch", defaultValue: "Launch", bundle: .module)) {
-                    onLaunch()
+                switch device.state {
+                case .stopped:
+                    Button(String(localized: "androidEmulator.action.launch", defaultValue: "Launch", bundle: .module)) {
+                        onLaunch()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                case .running(let serial, _):
+                    Button(String(localized: "androidEmulator.action.stop", defaultValue: "Stop", bundle: .module)) {
+                        onStop(serial)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                case .unavailable:
+                    EmptyView()
                 }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
             }
         }
         .padding(.vertical, 4)
@@ -59,6 +64,12 @@ struct AndroidEmulatorDeviceRow: View {
         switch device.state {
         case .stopped:
             return String(localized: "androidEmulator.status.stopped", defaultValue: "Stopped", bundle: .module)
+        case .unavailable:
+            return String(
+                localized: "androidEmulator.status.unavailable",
+                defaultValue: "State unavailable",
+                bundle: .module
+            )
         case .running(let serial, let connectionState):
             let format = String(
                 localized: "androidEmulator.status.running",
