@@ -178,6 +178,30 @@ struct ProcessDetectedResumeIndexCoordinationTests {
         #expect(loadCount.withLock { $0 } == 1)
     }
 
+    @Test
+    func unavailableTerminationIndexesPreserveCoreTerminalSnapshot() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        AppDelegate.shared = app
+        defer { AppDelegate.shared = previousAppDelegate }
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let windowId = app.registerMainWindowContextForTesting(tabManager: manager)
+        defer { app.unregisterMainWindowContextForTesting(windowId: windowId) }
+        let workspace = try #require(manager.selectedWorkspace)
+        let panelId = try #require(workspace.focusedPanelId)
+
+        let plan = TerminationResumeIndexCoordinator.savePlan(for: nil)
+        let snapshot = try #require(app.debugBuildSessionSnapshotForTesting(
+            includeScrollback: false,
+            surfaceResumeBindingIndex: plan.resumeIndexes.surfaceResumeBindingIndex
+        ))
+        let savedWorkspace = try #require(snapshot.windows.first?.tabManager.workspaces.first)
+
+        #expect(plan.usesCoreSnapshotFallback)
+        #expect(savedWorkspace.workspaceId == workspace.id)
+        #expect(savedWorkspace.panels.first(where: { $0.id == panelId })?.terminal != nil)
+    }
+
     private static var emptyLoadResult: SharedLiveAgentIndexLoader.LoadResult {
         (
             index: .empty,
