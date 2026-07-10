@@ -198,7 +198,13 @@ public actor CmxIrohTrustBrokerClient {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         }
 
-        let (data, response) = try await transport.data(for: request)
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await transport.data(for: request)
+        } catch let error as URLError where Self.isConnectivityFailure(error.code) {
+            throw CmxIrohTrustBrokerClientError.connectivity
+        }
         guard let http = response as? HTTPURLResponse else {
             throw CmxIrohTrustBrokerClientError.nonHTTPResponse
         }
@@ -235,5 +241,23 @@ public actor CmxIrohTrustBrokerClient {
     private static func isSafeHeaderValue(_ value: String) -> Bool {
         (1 ... 16 * 1_024).contains(value.utf8.count)
             && !value.unicodeScalars.contains(where: { $0.value < 0x20 || $0.value == 0x7f })
+    }
+
+    private static func isConnectivityFailure(_ code: URLError.Code) -> Bool {
+        switch code {
+        case .timedOut,
+             .cannotFindHost,
+             .cannotConnectToHost,
+             .networkConnectionLost,
+             .dnsLookupFailed,
+             .notConnectedToInternet,
+             .internationalRoamingOff,
+             .callIsActive,
+             .dataNotAllowed,
+             .cannotLoadFromNetwork:
+            true
+        default:
+            false
+        }
     }
 }

@@ -17,14 +17,17 @@ public actor CmxIrohHostRuntime {
     public typealias DeactivationHandler = @Sendable (_ bindingID: String?) async -> Void
     public typealias RelayCredentialHandler = @Sendable (
         _ response: CmxIrohRelayTokenResponse,
-        _ binding: CmxIrohBrokerBinding
+        _ binding: CmxIrohBrokerBindingMetadata
     ) async -> Void
 
     private struct ResolvedPolicy: Sendable {
-        let registration: CmxIrohRegistrationResponse
-        let discovery: CmxIrohDiscoveryResponse
-        let binding: CmxIrohBrokerBinding
+        let registration: CmxIrohRegistrationResponse?
+        let discovery: CmxIrohDiscoveryResponse?
+        let binding: CmxIrohBrokerBindingMetadata
+        let pairingEnabled: Bool
+        let grantVerificationKeys: CmxIrohGrantVerificationKeySet
         let attestation: CmxIrohEndpointAttestationResponse?
+        let relayBootstrap: CmxIrohRelayTokenResponse?
     }
 
     private let factory: any CmxIrohEndpointFactory
@@ -46,7 +49,7 @@ public actor CmxIrohHostRuntime {
     private var offlineSessions: CmxIrohOfflinePairingSessions?
     private var supervisorEventTask: Task<Void, Never>?
     private var registrationRefreshTask: Task<Void, Never>?
-    private var localBinding: CmxIrohBrokerBinding?
+    private var localBinding: CmxIrohBrokerBindingMetadata?
     private var endpointAttestation: CmxIrohEndpointAttestationResponse?
     private var currentSnapshot = CmxIrohHostRuntimeSnapshot(
         state: .inactive,
@@ -80,7 +83,7 @@ public actor CmxIrohHostRuntime {
         currentSnapshot
     }
 
-    /// Activates direct connectivity first, then atomically installs broker policy and relays.
+    /// Activates connectivity and resolves authenticated broker policy before any cached fallback.
     public func start() async throws {
         guard !desiredActive else { throw CmxIrohHostRuntimeError.alreadyActive }
         desiredActive = true
@@ -97,6 +100,7 @@ public actor CmxIrohHostRuntime {
             let endpointConfiguration = try CmxIrohEndpointConfiguration(
                 secretKey: configuration.identity.secretKey,
                 alpns: [protocolConfiguration.alpn],
+                bindPolicy: configuration.bindPolicy,
                 managedRelayURLs: configuration.managedRelayURLs,
                 relays: cachedRelays
             )
@@ -114,17 +118,18 @@ public actor CmxIrohHostRuntime {
             let policy = try await resolvePolicy(
                 supervisor: supervisor,
                 expectedEndpointID: endpointID,
-                revision: revision
+                revision: revision,
+                allowCachedFallback: true
             )
             try requireCurrent(revision)
 
             let offlineSessions = CmxIrohOfflinePairingSessions(
-                pairingEnabled: policy.binding.pairingEnabled
+                pairingEnabled: policy.pairingEnabled
             )
             let admissionController = CmxIrohAdmissionController(
-                keys: policy.discovery.grantVerificationKeys,
-                acceptor: CmxIrohGrantPeer(binding: policy.binding),
-                pairingEnabled: policy.binding.pairingEnabled,
+                keys: policy.grantVerificationKeys,
+                acceptor: grantPeer(for: policy.binding),
+                pairingEnabled: policy.pairingEnabled,
                 offlineSessions: offlineSessions
             )
             let relayCoordinator = CmxIrohRelayCredentialCoordinator(
@@ -156,18 +161,11 @@ public actor CmxIrohHostRuntime {
             endpointServer = server
             await server.start()
 
-            let bootstrap: CmxIrohRelayTokenResponse?
-            switch policy.registration.relay {
-            case let .issued(response):
-                bootstrap = response
-            case .unavailable:
-                bootstrap = configuration.cachedRelayCredential
-            }
             do {
                 try await relayCoordinator.activate(
                     bindingID: policy.binding.bindingID,
                     endpointIdentity: endpointID,
-                    bootstrap: bootstrap
+                    bootstrap: policy.relayBootstrap
                 )
             } catch {
                 // The coordinator schedules a bounded broker retry. Direct paths
@@ -180,11 +178,10 @@ public actor CmxIrohHostRuntime {
                 endpointID: endpointID,
                 bindingID: policy.binding.bindingID
             )
-            await handleBinding(
-                policy.registration,
-                policy.discovery,
-                policy.attestation
-            )
+            if let registration = policy.registration,
+               let discovery = policy.discovery {
+                await handleBinding(registration, discovery, policy.attestation)
+            }
         } catch {
             currentSnapshot = CmxIrohHostRuntimeSnapshot(
                 state: .failed,
@@ -221,7 +218,7 @@ public actor CmxIrohHostRuntime {
         return try await offlineSessions.createInvitation(
             acceptorAttestation: attestation.attestation,
             keys: attestation.grantVerificationKeys,
-            acceptor: CmxIrohEndpointExpectation(binding: binding),
+            acceptor: endpointExpectation(for: binding),
             now: now()
         )
     }
@@ -229,7 +226,8 @@ public actor CmxIrohHostRuntime {
     private func resolvePolicy(
         supervisor: CmxIrohEndpointSupervisor,
         expectedEndpointID: CmxIrohPeerIdentity,
-        revision: UInt64
+        revision: UInt64,
+        allowCachedFallback: Bool
     ) async throws -> ResolvedPolicy {
         let endpoint = try await supervisor.activeEndpoint()
         let address = await endpoint.address()
@@ -257,7 +255,18 @@ public actor CmxIrohHostRuntime {
             endpointID: expectedEndpointID.endpointID
         )
         let prepared = try signer.prepare(payload: payload)
-        let registration = try await broker.register(prepared: prepared, signer: signer)
+        let registration: CmxIrohRegistrationResponse
+        do {
+            registration = try await broker.register(prepared: prepared, signer: signer)
+        } catch {
+            return try cachedPolicy(
+                after: error,
+                expectedEndpointID: expectedEndpointID,
+                confirmedBinding: nil,
+                relayBootstrap: nil,
+                allowFallback: allowCachedFallback
+            )
+        }
         try requireCurrent(revision)
         try validateLocalBinding(registration.binding, endpointID: expectedEndpointID)
         if case let .issued(relay) = registration.relay {
@@ -267,7 +276,23 @@ public actor CmxIrohHostRuntime {
             }
         }
 
-        let discovery = try await broker.discover()
+        let discovery: CmxIrohDiscoveryResponse
+        do {
+            discovery = try await broker.discover()
+        } catch {
+            let relayBootstrap: CmxIrohRelayTokenResponse?
+            switch registration.relay {
+            case let .issued(response): relayBootstrap = response
+            case .unavailable: relayBootstrap = nil
+            }
+            return try cachedPolicy(
+                after: error,
+                expectedEndpointID: expectedEndpointID,
+                confirmedBinding: registration.binding,
+                relayBootstrap: relayBootstrap,
+                allowFallback: allowCachedFallback
+            )
+        }
         try requireCurrent(revision)
         guard discovery.routeContractVersion == payload.routeContractVersion else {
             throw CmxIrohHostRuntimeError.routeContractMismatch
@@ -289,8 +314,42 @@ public actor CmxIrohHostRuntime {
         return ResolvedPolicy(
             registration: registration,
             discovery: discovery,
-            binding: discovered,
-            attestation: attestation
+            binding: CmxIrohBrokerBindingMetadata(binding: discovered),
+            pairingEnabled: discovered.pairingEnabled,
+            grantVerificationKeys: discovery.grantVerificationKeys,
+            attestation: attestation,
+            relayBootstrap: registrationRelayBootstrap(registration)
+        )
+    }
+
+    private func cachedPolicy(
+        after error: any Error,
+        expectedEndpointID: CmxIrohPeerIdentity,
+        confirmedBinding: CmxIrohBrokerBinding?,
+        relayBootstrap: CmxIrohRelayTokenResponse?,
+        allowFallback: Bool
+    ) throws -> ResolvedPolicy {
+        guard allowFallback, Self.isConnectivityFailure(error),
+              let cached = configuration.cachedHostPolicy else {
+            throw error
+        }
+        try validateCachedPolicy(cached, endpointID: expectedEndpointID)
+        if let confirmedBinding {
+            guard CmxIrohBrokerBindingMetadata(binding: confirmedBinding) == cached.binding,
+                  confirmedBinding.pairingEnabled == cached.pairingEnabled,
+                  confirmedBinding.capabilities.count == cached.capabilities.count,
+                  Set(confirmedBinding.capabilities) == Set(cached.capabilities) else {
+                throw CmxIrohHostRuntimeError.invalidLocalBinding
+            }
+        }
+        return ResolvedPolicy(
+            registration: nil,
+            discovery: nil,
+            binding: cached.binding,
+            pairingEnabled: cached.pairingEnabled,
+            grantVerificationKeys: cached.grantVerificationKeys,
+            attestation: cached.endpointAttestation,
+            relayBootstrap: relayBootstrap ?? configuration.cachedRelayCredential
         )
     }
 
@@ -308,6 +367,38 @@ public actor CmxIrohHostRuntime {
               Set(binding.capabilities) == Set(configuration.capabilities),
               binding.capabilities.count == configuration.capabilities.count else {
             throw CmxIrohHostRuntimeError.invalidLocalBinding
+        }
+    }
+
+    private func validateCachedPolicy(
+        _ policy: CmxIrohCachedHostPolicy,
+        endpointID: CmxIrohPeerIdentity
+    ) throws {
+        let binding = policy.binding
+        guard binding.deviceID == configuration.deviceID,
+              binding.appInstanceID == configuration.appInstanceID,
+              binding.tag == configuration.tag,
+              binding.platform == .mac,
+              binding.endpointID == endpointID,
+              binding.identityGeneration == configuration.identity.generation,
+              policy.pairingEnabled == configuration.pairingEnabled,
+              policy.capabilities.count == configuration.capabilities.count,
+              Set(policy.capabilities) == Set(configuration.capabilities),
+              policy.endpointAttestation.grantVerificationKeys
+                  == policy.grantVerificationKeys else {
+            throw CmxIrohHostRuntimeError.invalidLocalBinding
+        }
+        let validationTime = now()
+        let claims = try CmxIrohGrantVerifier().verifyEndpointAttestation(
+            policy.endpointAttestation.attestation,
+            keys: policy.grantVerificationKeys,
+            expected: endpointExpectation(for: binding),
+            now: validationTime
+        )
+        guard let envelopeExpiry = Self.date(policy.endpointAttestation.expiresAt),
+              Self.seconds(envelopeExpiry) == claims.expiresAt,
+              envelopeExpiry > validationTime else {
+            throw CmxIrohHostPolicyCacheError.invalidAttestationEnvelope
         }
     }
 
@@ -359,27 +450,39 @@ public actor CmxIrohHostRuntime {
             let policy = try await resolvePolicy(
                 supervisor: supervisor,
                 expectedEndpointID: endpointID,
-                revision: revision
+                revision: revision,
+                allowCachedFallback: false
             )
             guard policy.binding.bindingID == previousBinding.bindingID else {
                 throw CmxIrohHostRuntimeError.invalidLocalBinding
             }
             await admissionController.update(
-                keys: policy.discovery.grantVerificationKeys,
-                acceptor: CmxIrohGrantPeer(binding: policy.binding),
-                pairingEnabled: policy.binding.pairingEnabled
+                keys: policy.grantVerificationKeys,
+                acceptor: grantPeer(for: policy.binding),
+                pairingEnabled: policy.pairingEnabled
             )
             try requireCurrent(revision)
             localBinding = policy.binding
             endpointAttestation = policy.attestation ?? endpointAttestation
-            await handleBinding(
-                policy.registration,
-                policy.discovery,
-                policy.attestation
-            )
+            guard let registration = policy.registration,
+                  let discovery = policy.discovery else {
+                throw CmxIrohHostRuntimeError.invalidLocalBinding
+            }
+            await handleBinding(registration, discovery, policy.attestation)
+        } catch is CancellationError {
+            return
         } catch {
-            // Preserve the last verified policy across transient broker failure.
-            // Credentials and endpoint health have independent bounded refresh.
+            guard Self.isConnectivityFailure(error) else {
+                desiredActive = false
+                currentSnapshot = CmxIrohHostRuntimeSnapshot(
+                    state: .failed,
+                    endpointID: nil,
+                    bindingID: localBinding?.bindingID
+                )
+                await tearDownComponents(notify: true)
+                return
+            }
+            // Preserve verified policy only while the authenticated broker is unreachable.
         }
     }
 
@@ -425,6 +528,63 @@ public actor CmxIrohHostRuntime {
         guard desiredActive, lifecycleRevision == revision, !Task.isCancelled else {
             throw CmxIrohHostRuntimeError.superseded
         }
+    }
+
+    private func grantPeer(
+        for binding: CmxIrohBrokerBindingMetadata
+    ) -> CmxIrohGrantPeer {
+        CmxIrohGrantPeer(
+            bindingID: binding.bindingID,
+            deviceID: binding.deviceID,
+            tag: binding.tag,
+            platform: binding.platform,
+            endpointID: binding.endpointID,
+            identityGeneration: binding.identityGeneration
+        )
+    }
+
+    private func endpointExpectation(
+        for binding: CmxIrohBrokerBindingMetadata
+    ) -> CmxIrohEndpointExpectation {
+        CmxIrohEndpointExpectation(
+            bindingID: binding.bindingID,
+            deviceID: binding.deviceID,
+            endpointID: binding.endpointID,
+            identityGeneration: binding.identityGeneration,
+            platform: binding.platform
+        )
+    }
+
+    private func registrationRelayBootstrap(
+        _ registration: CmxIrohRegistrationResponse
+    ) -> CmxIrohRelayTokenResponse? {
+        switch registration.relay {
+        case let .issued(response): response
+        case .unavailable: configuration.cachedRelayCredential
+        }
+    }
+
+    private static func isConnectivityFailure(_ error: any Error) -> Bool {
+        guard let brokerError = error as? CmxIrohTrustBrokerClientError else {
+            return false
+        }
+        return brokerError == .connectivity
+    }
+
+    private static func date(_ value: String) -> Date? {
+        let fractional = ISO8601DateFormatter()
+        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return fractional.date(from: value) ?? ISO8601DateFormatter().date(from: value)
+    }
+
+    private static func seconds(_ date: Date) -> Int64? {
+        let value = date.timeIntervalSince1970
+        guard value.isFinite,
+              value >= TimeInterval(Int64.min),
+              value <= TimeInterval(Int64.max) else {
+            return nil
+        }
+        return Int64(value.rounded(.down))
     }
 
     private func tearDownComponents(notify: Bool) async {
