@@ -5,7 +5,7 @@ import { call } from "@orpc/server";
 
 import { accountMeProcedure } from "../orpc/server/account/me";
 import { generateOpenAPIDocument } from "../orpc/server/openapi";
-import { PRO_PRODUCT_ID } from "../services/billing/pro";
+import { resolveProPlanStatus } from "../services/billing/pro";
 
 // The two checked-in specs the Swift client and /api/openapi.json ship must
 // stay identical to what the router generates. Resolve relative to this test
@@ -16,29 +16,13 @@ const CHECKED_IN_SPECS = [
 ] as const;
 
 // Drives the real resolveProPlanStatus (no module mocks, so it can't leak into
-// other test files). The fake user carries no `id`, so the Stripe-subscription
-// lookup short-circuits to false without touching a database, and the fake
-// user's Stack product list alone decides Pro vs Free.
-type FakeProduct = {
-  id: string;
-  subscription: { currentPeriodEnd: Date | null } | null;
-  quantity: number;
-};
-
-function productsPage(items: FakeProduct[]) {
-  const page = [...items] as FakeProduct[] & { nextCursor: string | null };
-  page.nextCursor = null;
-  return page;
-}
-
-function fakeUser(opts: { email: string | null; pro: boolean }) {
+// other test files). Plan resolution is Stripe-backed: an id-less fake user
+// short-circuits the Stripe-subscription lookup to Free without touching a
+// database, and the Pro path injects the subscription query directly.
+function fakeUser(opts: { email: string | null }) {
   return {
     primaryEmail: opts.email,
     clientReadOnlyMetadata: {},
-    listProducts: async () =>
-      productsPage(
-        opts.pro ? [{ id: PRO_PRODUCT_ID, subscription: null, quantity: 1 }] : [],
-      ),
     update: async () => undefined,
   };
 }
@@ -48,27 +32,46 @@ function context(user: unknown) {
 }
 
 describe("account.me", () => {
-  test("returns the Pro plan (external billing) for a Stack-Pro user", async () => {
+  test("returns the Free plan for a user with no Stripe subscription", async () => {
     const result = await call(accountMeProcedure, undefined, {
-      context: context(fakeUser({ email: "a@example.com", pro: true })),
+      context: context(fakeUser({ email: "a@example.com" })),
     });
     expect(result).toEqual({
       userId: "",
       email: "a@example.com",
-      planId: "pro",
-      isPro: true,
-      billingManagement: "external",
+      planId: "free",
+      isPro: false,
+      billingManagement: "none",
     });
   });
 
   test("returns the Free plan and an empty email for an email-less non-subscriber", async () => {
     const result = await call(accountMeProcedure, undefined, {
-      context: context(fakeUser({ email: null, pro: false })),
+      context: context(fakeUser({ email: null })),
     });
     expect(result.planId).toBe("free");
     expect(result.isPro).toBe(false);
     expect(result.email).toBe("");
     expect(result.billingManagement).toBe("none");
+  });
+
+  test("resolves Stripe-managed Pro and syncs plan metadata for an active subscription", async () => {
+    const updates: unknown[] = [];
+    const user = {
+      id: "user-1",
+      clientReadOnlyMetadata: {},
+      update: async (options: unknown) => {
+        updates.push(options);
+      },
+    };
+    const status = await resolveProPlanStatus(user, {
+      hasActiveStripeSubscription: async (stackUserId) => stackUserId === "user-1",
+    });
+    expect(status.planId).toBe("pro");
+    expect(status.isPro).toBe(true);
+    expect(status.billingManagement).toBe("stripe");
+    // The read-time reconciliation must write cmuxPlan: "pro" back to Stack.
+    expect(updates).toEqual([{ clientReadOnlyMetadata: { cmuxPlan: "pro" } }]);
   });
 
   test("rejects unauthenticated callers before resolving a plan", async () => {
