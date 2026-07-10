@@ -5872,7 +5872,7 @@ struct ContentView: View {
         commandPaletteForkableAgentAvailabilityTasksByPanelKey[panelKey] = Task {
             let index = await SharedLiveAgentIndex.shared.scopedIndexCapturedAfterRequest()
             guard !Task.isCancelled else { return }
-            let indexEntry = index.entry(workspaceId: workspaceId, panelId: panelId)
+            let indexEntry = index?.entry(workspaceId: workspaceId, panelId: panelId)
             let indexSnapshot = indexEntry?.snapshot
             let snapshot = indexSnapshot ?? fallbackSnapshot
             let supportsFork: Bool

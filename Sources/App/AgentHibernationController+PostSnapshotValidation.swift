@@ -10,9 +10,9 @@ extension AgentHibernationController {
     /// the caller's post-boundary loader.
     func sharedPostSnapshotValidationIndexTask(
         minimumStartSequence: UInt64,
-        loader: @escaping @Sendable () async -> RestorableAgentSessionIndex
-    ) -> Task<RestorableAgentSessionIndex, Never> {
-        let predecessor: Task<RestorableAgentSessionIndex, Never>?
+        loader: @escaping @Sendable () async -> RestorableAgentSessionIndex?
+    ) -> Task<RestorableAgentSessionIndex?, Never> {
+        let predecessor: Task<RestorableAgentSessionIndex?, Never>?
         if var inFlight = postSnapshotValidationIndexTask {
             if inFlight.startSequence >= minimumStartSequence {
                 return inFlight.task
@@ -28,9 +28,9 @@ extension AgentHibernationController {
         }
         let requestID = UUID()
         let startSequence = postSnapshotValidationIndexSequence
-        let task = Task.detached(priority: .utility) { [weak self] () -> RestorableAgentSessionIndex in
+        let task = Task.detached(priority: .utility) { [weak self] () -> RestorableAgentSessionIndex? in
             _ = await predecessor?.value
-            guard !Task.isCancelled else { return .empty }
+            guard !Task.isCancelled else { return nil }
             let shouldCapture = await MainActor.run {
                 guard let self,
                       var inFlight = self.postSnapshotValidationIndexTask,
@@ -41,7 +41,7 @@ extension AgentHibernationController {
                 self.postSnapshotValidationIndexTask = inFlight
                 return true
             }
-            guard shouldCapture, !Task.isCancelled else { return .empty }
+            guard shouldCapture, !Task.isCancelled else { return nil }
             return await loader()
         }
         postSnapshotValidationIndexTask = PostSnapshotValidationIndexTask(

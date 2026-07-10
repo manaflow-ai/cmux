@@ -206,14 +206,14 @@ final class SharedLiveAgentIndex {
 
     /// Returns an immutable index from a capture that starts after this request,
     /// without publishing the result or notifying process-wide UI consumers.
-    func scopedIndexCapturedAfterRequest() async -> RestorableAgentSessionIndex {
+    func scopedIndexCapturedAfterRequest() async -> RestorableAgentSessionIndex? {
         ensureWatchingHookStoreDirectory()
         let task = requestRefresh(
             freshness: .captureAfterRequest,
             publication: .scoped,
             validating: nil
         )
-        return await task.value?.index ?? .empty
+        return await task.value?.index
     }
 
     /// Returns combined indexes from a generation whose physical capture starts after this request.
