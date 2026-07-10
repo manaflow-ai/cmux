@@ -344,7 +344,7 @@ final class SharedLiveAgentIndex {
         )
     }
 
-    private func startBackgroundRefresh() {
+    func startBackgroundRefresh() {
         deferredReloadTimer?.cancel()
         deferredReloadTimer = nil
         _ = requestRefresh(

@@ -114,10 +114,7 @@ extension SharedLiveAgentIndex {
                 validationPanelsByPanelID: generation.validationPanelsByPanelID,
                 generationID: generationID
             )
-            if refreshTailID == nil, changePending {
-                changePending = false
-                handleHookStoreChange()
-            }
+            drainPendingHookStoreChangeIfPossible()
             return
         }
         guard generation.phase == .capturing else { return }
@@ -128,6 +125,7 @@ extension SharedLiveAgentIndex {
             validationPanelsByPanelID: generation.validationPanelsByPanelID,
             generationID: generationID
         )
+        drainPendingHookStoreChangeIfPossible()
     }
 
     private func completeRefresh(generationID: UUID, result: LoadResult) {
@@ -165,10 +163,7 @@ extension SharedLiveAgentIndex {
             )
         }
 
-        if refreshTailID == nil, changePending {
-            changePending = false
-            handleHookStoreChange()
-        }
+        drainPendingHookStoreChangeIfPossible()
     }
 
     private func clearPendingForkValidations(
@@ -179,5 +174,18 @@ extension SharedLiveAgentIndex {
         where pendingForkValidationGenerationByPanelID[panelID] == generationID {
             pendingForkValidationGenerationByPanelID.removeValue(forKey: panelID)
         }
+    }
+
+    private func drainPendingHookStoreChangeIfPossible() {
+        guard changePending,
+              refreshGenerationsByID.count < Self.maximumConcurrentPhysicalLoads else {
+            return
+        }
+        if let refreshTailID,
+           refreshGenerationsByID[refreshTailID]?.phase != .timedOut {
+            return
+        }
+        changePending = false
+        startBackgroundRefresh()
     }
 }

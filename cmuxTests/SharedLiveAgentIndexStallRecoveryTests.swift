@@ -12,6 +12,126 @@ import Testing
 @Suite(.serialized)
 struct SharedLiveAgentIndexStallRecoveryTests {
     @Test
+    func capturingTimeoutDrainsPendingHookChangeIntoSuccessor() async {
+        let timeoutWaiter = ManualTimeoutWaiter()
+        let firstStarted = DispatchSemaphore(value: 0)
+        let firstCompleted = DispatchSemaphore(value: 0)
+        let successorStarted = DispatchSemaphore(value: 0)
+        let successorCompleted = DispatchSemaphore(value: 0)
+        let releaseFirst = DispatchSemaphore(value: 0)
+        let releaseSuccessor = DispatchSemaphore(value: 0)
+        defer {
+            releaseFirst.signal()
+            releaseSuccessor.signal()
+        }
+        let loadCount = OSAllocatedUnfairLock(initialState: 0)
+        let sharedIndex = SharedLiveAgentIndex(
+            indexLoader: {
+                let invocation = loadCount.withLock { count in
+                    count += 1
+                    return count
+                }
+                (invocation == 1 ? firstStarted : successorStarted).signal()
+                (invocation == 1 ? releaseFirst : releaseSuccessor).wait()
+                (invocation == 1 ? firstCompleted : successorCompleted).signal()
+                return Self.loadResult(sessionId: "capturing-timeout-\(invocation)")
+            },
+            generationTimeoutWaiter: { await timeoutWaiter.wait() },
+            hookStoreDirectoryProvider: { Self.temporaryDirectory.path }
+        )
+        let first = Task { @MainActor in await sharedIndex.resumeIndexesCapturedAfterRequest() }
+        #expect(await SharedLiveAgentIndexLoadCoalescingTests.wait(for: firstStarted))
+        await timeoutWaiter.waitUntilPendingCount(1)
+
+        sharedIndex.handleHookStoreChange()
+        await timeoutWaiter.fireNext()
+
+        #expect((await first.value) == nil)
+        #expect(await SharedLiveAgentIndexLoadCoalescingTests.wait(for: successorStarted))
+        #expect(loadCount.withLock { $0 } == 2)
+        #expect(!sharedIndex.changePending)
+        releaseSuccessor.signal()
+        releaseFirst.signal()
+        #expect(await SharedLiveAgentIndexLoadCoalescingTests.wait(for: successorCompleted))
+        #expect(await SharedLiveAgentIndexLoadCoalescingTests.wait(for: firstCompleted))
+        await timeoutWaiter.cancelAll()
+    }
+
+    @Test
+    func pendingHookChangeWaitsForCapacityThenStartsAfterCompletion() async {
+        let timeoutWaiter = ManualTimeoutWaiter()
+        let firstStarted = DispatchSemaphore(value: 0)
+        let secondStarted = DispatchSemaphore(value: 0)
+        let thirdStarted = DispatchSemaphore(value: 0)
+        let completed = [
+            DispatchSemaphore(value: 0),
+            DispatchSemaphore(value: 0),
+            DispatchSemaphore(value: 0),
+        ]
+        let releaseFirst = DispatchSemaphore(value: 0)
+        let releaseSecond = DispatchSemaphore(value: 0)
+        let releaseThird = DispatchSemaphore(value: 0)
+        defer {
+            releaseFirst.signal()
+            releaseSecond.signal()
+            releaseThird.signal()
+        }
+        let loadState = OSAllocatedUnfairLock(initialState: (active: 0, maximum: 0, count: 0))
+        let sharedIndex = SharedLiveAgentIndex(
+            indexLoader: {
+                let invocation = loadState.withLock { state in
+                    state.active += 1
+                    state.maximum = max(state.maximum, state.active)
+                    state.count += 1
+                    return state.count
+                }
+                switch invocation {
+                case 1:
+                    firstStarted.signal()
+                    releaseFirst.wait()
+                case 2:
+                    secondStarted.signal()
+                    releaseSecond.wait()
+                default:
+                    thirdStarted.signal()
+                    releaseThird.wait()
+                }
+                loadState.withLock { $0.active -= 1 }
+                completed[invocation - 1].signal()
+                return Self.loadResult(sessionId: "capacity-\(invocation)")
+            },
+            generationTimeoutWaiter: { await timeoutWaiter.wait() },
+            hookStoreDirectoryProvider: { Self.temporaryDirectory.path }
+        )
+        let first = Task { @MainActor in await sharedIndex.resumeIndexesCapturedAfterRequest() }
+        #expect(await SharedLiveAgentIndexLoadCoalescingTests.wait(for: firstStarted))
+        await timeoutWaiter.waitUntilPendingCount(1)
+        await timeoutWaiter.fireNext()
+        #expect((await first.value) == nil)
+        let second = Task { @MainActor in await sharedIndex.resumeIndexesCapturedAfterRequest() }
+        #expect(await SharedLiveAgentIndexLoadCoalescingTests.wait(for: secondStarted))
+        await timeoutWaiter.waitUntilPendingCount(1)
+
+        sharedIndex.handleHookStoreChange()
+        await timeoutWaiter.fireNext()
+
+        #expect((await second.value) == nil)
+        #expect(sharedIndex.changePending)
+        #expect(loadState.withLock { $0.count } == 2)
+        releaseSecond.signal()
+        #expect(await SharedLiveAgentIndexLoadCoalescingTests.wait(for: thirdStarted))
+        #expect(!sharedIndex.changePending)
+        #expect(loadState.withLock { $0.count } == 3)
+        #expect(loadState.withLock { $0.maximum } == 2)
+        releaseThird.signal()
+        releaseFirst.signal()
+        for completion in completed {
+            #expect(await SharedLiveAgentIndexLoadCoalescingTests.wait(for: completion))
+        }
+        await timeoutWaiter.cancelAll()
+    }
+
+    @Test
     func queuedTimeoutDrainsPendingHookChangeWithoutAnotherEvent() async {
         let timeoutWaiter = ManualTimeoutWaiter()
         let firstStarted = DispatchSemaphore(value: 0)
