@@ -47,10 +47,9 @@ extension TerminalSurface {
         lease.inWindow && lease.area > portalHostAreaThreshold
     }
 
-    /// Makes the newest representable host authoritative before its deferred
-    /// portal mutation runs. An older coordinator may still have a queued task,
-    /// but it can no longer reclaim this surface after a replacement appears.
-    public func reservePortalHostAuthority(
+    /// Makes the newest usable representable host authoritative as it claims
+    /// the lease. Older coordinators can no longer reclaim the surface afterward.
+    private func reservePortalHostAuthority(
         hostId: ObjectIdentifier,
         paneId: PaneID,
         instanceSerial: UInt64
@@ -73,19 +72,6 @@ extension TerminalSurface {
             generation: generation
         )
         return generation
-    }
-
-    private func hasPortalHostAuthority(
-        hostId: ObjectIdentifier,
-        paneId: PaneID,
-        instanceSerial: UInt64,
-        generation: UInt64
-    ) -> Bool {
-        guard let current = portalHostAuthority else { return false }
-        return current.hostId == hostId &&
-            current.paneId == paneId.id &&
-            current.instanceSerial == instanceSerial &&
-            current.generation == generation
     }
 
     /// Re-arms the lease when SwiftUI is about to rebuild the owning host.
@@ -122,27 +108,8 @@ extension TerminalSurface {
         instanceSerial: UInt64,
         inWindow: Bool,
         bounds: CGRect,
-        expectedAuthorityGeneration: UInt64? = nil,
         reason: String
     ) -> Bool {
-        let authorityGeneration: UInt64
-        if let expectedAuthorityGeneration {
-            guard hasPortalHostAuthority(
-                hostId: hostId,
-                paneId: paneId,
-                instanceSerial: instanceSerial,
-                generation: expectedAuthorityGeneration
-            ) else { return false }
-            authorityGeneration = expectedAuthorityGeneration
-        } else {
-            guard let reservedGeneration = reservePortalHostAuthority(
-                hostId: hostId,
-                paneId: paneId,
-                instanceSerial: instanceSerial
-            ) else { return false }
-            authorityGeneration = reservedGeneration
-        }
-
         let next = PortalHostLease(
             hostId: hostId,
             paneId: paneId.id,
@@ -153,6 +120,11 @@ extension TerminalSurface {
 
         if let current = activePortalHostLease {
             if current.hostId == hostId {
+                guard reservePortalHostAuthority(
+                    hostId: hostId,
+                    paneId: paneId,
+                    instanceSerial: instanceSerial
+                ) != nil else { return false }
                 activePortalHostLease = next
                 return true
             }
@@ -164,7 +136,7 @@ extension TerminalSurface {
                 logDebugEvent(
                     "terminal.portal.host.skip surface=\(id.uuidString.prefix(5)) " +
                     "reason=\(reason) host=\(hostId) pane=\(paneId.id.uuidString.prefix(5)) " +
-                    "authority=\(authorityGeneration) cause=detachedOrTiny"
+                    "cause=detachedOrTiny"
                 )
 #endif
                 return false
@@ -185,6 +157,11 @@ extension TerminalSurface {
                 newerSamePaneHostReady
 
             if shouldReplace {
+                guard reservePortalHostAuthority(
+                    hostId: hostId,
+                    paneId: paneId,
+                    instanceSerial: instanceSerial
+                ) != nil else { return false }
 #if DEBUG
                 logDebugEvent(
                     "terminal.portal.host.claim surface=\(id.uuidString.prefix(5)) " +
@@ -215,6 +192,11 @@ extension TerminalSurface {
         }
 
         guard Self.portalHostIsUsable(next) else { return false }
+        guard reservePortalHostAuthority(
+            hostId: hostId,
+            paneId: paneId,
+            instanceSerial: instanceSerial
+        ) != nil else { return false }
 
         activePortalHostLease = next
 #if DEBUG

@@ -12185,11 +12185,6 @@ struct GhosttyTerminalView: NSViewRepresentable {
         reason: String
     ) {
         guard coordinator.attachGeneration == snapshot.attachGeneration else { return }
-        guard let authorityGeneration = terminalSurface.reservePortalHostAuthority(
-            hostId: ObjectIdentifier(host),
-            paneId: snapshot.paneId,
-            instanceSerial: host.instanceSerial
-        ) else { return }
         coordinator.portalMutationScheduler.schedule {
             @MainActor [weak host, weak hostedView, weak terminalSurface, weak coordinator] in
             guard let host, let hostedView, let terminalSurface, let coordinator else { return }
@@ -12204,7 +12199,6 @@ struct GhosttyTerminalView: NSViewRepresentable {
                 terminalSurface: terminalSurface,
                 coordinator: coordinator,
                 snapshot: snapshot,
-                authorityGeneration: authorityGeneration,
                 reason: reason
             )
         }
@@ -12216,7 +12210,6 @@ struct GhosttyTerminalView: NSViewRepresentable {
         terminalSurface: TerminalSurface,
         coordinator: Coordinator,
         snapshot: PortalMutationSnapshot,
-        authorityGeneration: UInt64,
         reason: String
     ) {
         guard terminalSurface.claimPortalHost(
@@ -12225,7 +12218,6 @@ struct GhosttyTerminalView: NSViewRepresentable {
             instanceSerial: host.instanceSerial,
             inWindow: host.window != nil,
             bounds: host.bounds,
-            expectedAuthorityGeneration: authorityGeneration,
             reason: reason
         ) else { return }
         guard terminalSurface.canAcceptPortalBinding(
