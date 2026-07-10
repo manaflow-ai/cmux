@@ -5651,13 +5651,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "A full-screen terminal app is running in this session. Full-screen apps mirror the Mac terminal's exact size, so the view may not fill this screen."
+            "value": "A full-screen terminal app is running. It mirrors the Mac terminal's exact size, so it may not fill this screen. In Claude Code or Codex, run `/tui default` to exit full-screen mode."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このセッションでは全画面ターミナルアプリが実行されています。全画面アプリは Mac 側ターミナルの正確なサイズをそのまま表示するため、この画面いっぱいに広がらない場合があります。"
+            "value": "全画面ターミナルアプリが実行中です。Mac 側ターミナルのサイズをそのまま表示するため、この画面いっぱいに広がらない場合があります。Claude Code または Codex で `/tui default` を実行すると全画面モードを終了できます。"
           }
         }
       }
