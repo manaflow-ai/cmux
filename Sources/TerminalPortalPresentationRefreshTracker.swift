@@ -69,8 +69,10 @@ extension WindowTerminalPortal {
         if hasUsableCandidate {
             transientRecoveryExpiryTasksByHostedId.removeValue(forKey: hostedId)?.cancel()
         } else if wasUsableCandidate {
-            clearTransientAnchorRecovery(forHostedId: hostedId, clearCandidates: false)
-            pruneDeadEntries()
+            // Geometry can pass through a tiny placeholder before the queued
+            // mutation commits. Its drain watcher owns cancellation so this
+            // callback cannot prune a still-settling replacement early.
+            return
         } else {
             reconcileTransientRecoveryExpiry(forHostedId: hostedId)
         }
@@ -82,7 +84,8 @@ extension WindowTerminalPortal {
         ownershipGeneration: UInt64? = nil
     ) {
         if let ownershipGeneration {
-            guard transientReattachCandidatesByHostedId[hostedId]?[hostId] == ownershipGeneration else {
+            if let registeredGeneration = transientReattachCandidatesByHostedId[hostedId]?[hostId],
+               registeredGeneration != ownershipGeneration {
                 return
             }
         }
@@ -91,6 +94,9 @@ extension WindowTerminalPortal {
             transientReattachCandidatesByHostedId.removeValue(forKey: hostedId)
         }
         guard let recoveryGeneration = entriesByHostedId[hostedId]?.transientAnchorRecoveryGeneration else {
+            return
+        }
+        if let ownershipGeneration, recoveryGeneration != ownershipGeneration {
             return
         }
         let hasUsableCandidate = transientReattachCandidatesByHostedId[hostedId]?.values.contains(
