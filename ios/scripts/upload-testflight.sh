@@ -637,8 +637,8 @@ else
 fi
 
 ARCHIVE_BUNDLE_IDENTIFIER="$(/usr/libexec/PlistBuddy -c 'Print :ApplicationProperties:CFBundleIdentifier' "$ARCHIVE_PATH/Info.plist" 2>/dev/null || true)"
-if [[ -n "$ARCHIVE_BUNDLE_IDENTIFIER" && "$ARCHIVE_BUNDLE_IDENTIFIER" != "$PRODUCT_BUNDLE_IDENTIFIER" ]]; then
-  echo "error: archive bundle id is '$ARCHIVE_BUNDLE_IDENTIFIER' but lane '$LANE' requires '$PRODUCT_BUNDLE_IDENTIFIER'. Re-archive for the selected lane." >&2
+if [[ "$ARCHIVE_BUNDLE_IDENTIFIER" != "$PRODUCT_BUNDLE_IDENTIFIER" ]]; then
+  echo "error: archive bundle id is '${ARCHIVE_BUNDLE_IDENTIFIER:-<absent>}' but lane '$LANE' requires '$PRODUCT_BUNDLE_IDENTIFIER'. Re-archive for the selected lane." >&2
   exit 1
 fi
 
@@ -889,6 +889,12 @@ else
   fi
   echo "automatic-signed IPA verified to carry aps-environment=production: $IPA_PATH"
 fi
+
+if ! "$SCRIPT_DIR/verify-ipa-release-identity.sh" \
+    "$IPA_PATH" "$PRODUCT_BUNDLE_IDENTIFIER" "$DEVELOPMENT_TEAM"; then
+  exit 1
+fi
+echo "final IPA identity verified for $PRODUCT_BUNDLE_IDENTIFIER: $IPA_PATH"
 
 echo "IPA_PATH=$IPA_PATH"
 
