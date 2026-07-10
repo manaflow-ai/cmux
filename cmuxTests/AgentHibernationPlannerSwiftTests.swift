@@ -86,16 +86,21 @@ struct AgentHibernationPlannerSwiftTests {
 
         let key = AgentHibernationPanelKey(workspaceId: UUID(), panelId: UUID())
         let transcriptPath = "/tmp/cmux-hibernation-monitor-\(UUID().uuidString)/../transcript.jsonl"
+        let requestID = UUID()
         let task = Task<Void, Never> {
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(60))
             }
         }
+        defer {
+            controller.clearPostTeardownRestoreTask(transcriptPath: transcriptPath, requestID: requestID)
+            task.cancel()
+        }
         AgentHibernationTrackingGate.setEnabled(true)
         controller.storePostTeardownRestoreTask(
             task,
             transcriptPath: transcriptPath,
-            requestID: UUID(),
+            requestID: requestID,
             cancellationState: AgentHibernationController.PostTeardownRestoreCancellationState()
         )
 
@@ -380,7 +385,10 @@ struct AgentHibernationPlannerSwiftTests {
         controller.lifecycleChangeByPanel.removeAll(keepingCapacity: false)
         controller.teardownValidationEpochByPanel.removeAll(keepingCapacity: false)
         controller.unableToProtectByPanel.removeAll(keepingCapacity: false)
-        controller.cancelPostTeardownRestoreTasks()
+        // Do NOT bulk-cancel the shared restore-monitor registry here: other
+        // suites run concurrently against the shared controller, and a bulk
+        // cancel would kill their in-flight monitors mid-test. Tests in this
+        // suite that store a monitor clean up their own entry by request ID.
         controller.postSnapshotValidationIndexTask?.task.cancel()
         controller.postSnapshotValidationIndexSequence = 0
         controller.postSnapshotValidationIndexTask = nil
