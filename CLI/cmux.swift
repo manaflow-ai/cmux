@@ -7808,16 +7808,16 @@ struct CMUXCLI {
             let (workspaceArg, rem1) = parseOption(rem0, name: "--workspace")
             let (_, rem2) = parseOption(rem1, name: "--window")
             let positional = rem2.first(where: { !$0.hasPrefix("--") })
-            let target = workspaceArg ?? positional
             guard let titleOpt else {
                 throw CLIError(message: "\(commandName) requires --title <new>")
             }
             title = titleOpt
-            winId = try normalizeWindowHandle(windowFromArgsOrOverride(commandArgs, windowOverride: windowOverride), client: client)
-            guard let normalizedWorkspaceId = try normalizeWorkspaceHandle(target, client: client, windowHandle: winId) else {
-                throw CLIError(message: "\(commandName): could not resolve workspace handle")
-            }
-            wsId = normalizedWorkspaceId
+            let windowRaw = windowFromArgsOrOverride(commandArgs, windowOverride: windowOverride)
+            let target = workspaceArg
+                ?? positional
+                ?? (windowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+            winId = try normalizeWindowHandle(windowRaw, client: client)
+            wsId = try resolveWorkspaceId(target, client: client, windowHandle: winId)
         }
 
         var params: [String: Any] = ["title": title, "workspace_id": wsId]
