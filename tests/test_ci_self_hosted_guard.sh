@@ -129,13 +129,18 @@ check_e2e_runner_fallbacks() {
     exit 1
   fi
 
-  if ! grep -Fq "((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') || inputs.runner) == 'tart-canary'" "$E2E_FILE"; then
-    echo "FAIL: test-e2e.yml must validate Tart identity after resolving the effective runner"
-    exit 1
-  fi
-
-  if ! grep -Fq 'test -f /etc/cmux-tart-ci' "$E2E_FILE"; then
-    echo "FAIL: test-e2e.yml must reject runners without the Tart VM identity marker"
+  if ! awk '
+    /^[[:space:]]*- name: Validate Tart canary identity$/ { in_tart_step=1; next }
+    in_tart_step && /^[[:space:]]*- name:/ { in_tart_step=0 }
+    in_tart_step && /\(\(!inputs\.runner \|\| inputs\.runner == '\''auto'\''\) && \(vars\.MACOS_RUNNER_15 \|\| '\''blacksmith-6vcpu-macos-15'\''\) \|\| inputs\.runner\) == '\''tart-canary'\''/ { saw_effective_runner=1 }
+    in_tart_step && /RUNNER_CONTEXT_NAME: \$\{\{ runner\.name \}\}/ { saw_runner_context=1 }
+    in_tart_step && /tart-cmux-\*/ { saw_runner_pattern=1 }
+    in_tart_step && /::error::tart-canary resolved to unexpected runner/ { saw_runner_reject=1 }
+    in_tart_step && /test -f \/etc\/cmux-tart-ci/ { saw_vm_marker=1 }
+    in_tart_step && /^[[:space:]]*exit 1$/ { reject_exits++ }
+    END { exit !(saw_effective_runner && saw_runner_context && saw_runner_pattern && saw_runner_reject && saw_vm_marker && reject_exits >= 2) }
+  ' "$E2E_FILE"; then
+    echo "FAIL: test-e2e.yml must validate the effective Tart runner name and immutable VM marker, failing closed for either mismatch"
     exit 1
   fi
 
