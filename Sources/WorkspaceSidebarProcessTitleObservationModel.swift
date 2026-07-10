@@ -120,9 +120,20 @@ final class WorkspaceSidebarProcessTitleObservationModel {
 
     private func publishSettledChange() {
         cancelPendingProcessTitleChange()
-        changeGeneration &+= 1
+        var delivered = false
         for continuation in changeObservers.values {
-            continuation.yield(())
+            if case .terminated = continuation.yield(()) {
+                continue
+            }
+            delivered = true
+        }
+        if delivered {
+            changeGeneration &+= 1
+        } else {
+            // Every registered continuation was already cancelled (row
+            // replacement mid-settle, before the async registry cleanup ran):
+            // nothing received the change, so keep it for the next subscriber.
+            hasUnobservedChange = true
         }
     }
 
