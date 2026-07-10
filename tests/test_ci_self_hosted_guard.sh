@@ -137,10 +137,11 @@ check_e2e_runner_fallbacks() {
     in_runner && /^        options:$/ { in_options=1; next }
     in_options && /^        [A-Za-z0-9_-]+:/ { in_options=0 }
     in_options && /^          - tart-canary$/ { canary_options++ }
+    in_options && /^          - tart-dual$/ { dual_options++ }
     in_options && /^          - tart-small$/ { small_options++ }
-    END { exit !(canary_options == 1 && small_options == 1) }
+    END { exit !(canary_options == 1 && dual_options == 1 && small_options == 1) }
   ' "$E2E_FILE"; then
-    echo "FAIL: test-e2e.yml must expose tart-canary and tart-small exactly once under workflow_dispatch.inputs.runner.options"
+    echo "FAIL: test-e2e.yml must expose tart-canary, tart-dual, and tart-small exactly once under workflow_dispatch.inputs.runner.options"
     exit 1
   fi
 
@@ -908,13 +909,20 @@ check_no_self_hosted_fleet_runners() {
     exit 1
   fi
 
-  local e2e_tart_option_line e2e_tart_small_option_line ios_tart_option_line
+  local e2e_tart_option_line e2e_tart_dual_option_line e2e_tart_small_option_line ios_tart_option_line
   e2e_tart_option_line="$(awk '
     /^      runner:$/ { in_runner=1; next }
     in_runner && /^      [A-Za-z0-9_-]+:/ { in_runner=0; in_options=0 }
     in_runner && /^        options:$/ { in_options=1; next }
     in_options && /^        [A-Za-z0-9_-]+:/ { in_options=0 }
     in_options && /^          - tart-canary$/ { print FNR }
+  ' "$E2E_FILE")"
+  e2e_tart_dual_option_line="$(awk '
+    /^      runner:$/ { in_runner=1; next }
+    in_runner && /^      [A-Za-z0-9_-]+:/ { in_runner=0; in_options=0 }
+    in_runner && /^        options:$/ { in_options=1; next }
+    in_options && /^        [A-Za-z0-9_-]+:/ { in_options=0 }
+    in_options && /^          - tart-dual$/ { print FNR }
   ' "$E2E_FILE")"
   e2e_tart_small_option_line="$(awk '
     /^      runner:$/ { in_runner=1; next }
@@ -943,6 +951,9 @@ check_no_self_hosted_fleet_runners() {
     content_without_allowed="$(printf '%s\n' "$content" | sed -E "s/($allowed)//g")"
     printf '%s\n' "$content_without_allowed" | grep -Eq "($forbidden)" || continue
     if [[ -n "$e2e_tart_option_line" ]] && [[ "$line" == "$E2E_FILE:$e2e_tart_option_line:"* ]]; then
+      continue
+    fi
+    if [[ -n "$e2e_tart_dual_option_line" ]] && [[ "$line" == "$E2E_FILE:$e2e_tart_dual_option_line:"* ]]; then
       continue
     fi
     if [[ -n "$e2e_tart_small_option_line" ]] && [[ "$line" == "$E2E_FILE:$e2e_tart_small_option_line:"* ]]; then

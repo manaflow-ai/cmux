@@ -38,6 +38,7 @@ on:
           - depot-macos-latest
           - depot-macos-14
           - tart-canary
+          - tart-dual
           - tart-small
 
 concurrency:
