@@ -1211,12 +1211,12 @@ class GhosttyApp {
         #endif
         loadCJKFontFallbackIfNeeded(config)
         let renderingModeChanged = setUsesHostLayerBackground(
-            Self.usesHostLayerBackground(for: config),
+            true,
             source: "loadDefaultConfigFilesWithLegacyFallback"
         )
-        // Let cmux own the window-level backdrop except when custom shader intent
-        // requires a complete renderer-owned input. This keeps the host backdrop
-        // and Ghostty background mutually exclusive for translucent surfaces.
+        // Let cmux own the window-level backdrop once, while Ghostty keeps
+        // rendering text, cell backgrounds, and background images. This avoids
+        // separate translucent fills for terminal and chrome surfaces.
         loadInlineGhosttyConfig(
             "macos-background-from-layer = true",
             into: config,
@@ -1761,7 +1761,6 @@ class GhosttyApp {
         }
         reloadConfigurationDepth += 1
         defer { reloadConfigurationDepth -= 1 }
-
         if reloadSettingsFromFile {
             KeyboardShortcutSettings.settingsFileStore.reload()
         }
@@ -1774,7 +1773,7 @@ class GhosttyApp {
                 AppDelegate.shared?.reloadCmuxConfigStores(source: source)
             }
         }
-        let reloadColorScheme = preferredColorScheme ?? GhosttyConfig.currentColorSchemePreference()
+        let reloadColorScheme = preferredColorScheme ?? appearanceBackedColorSchemePreference()
         guard let app else {
             logThemeAction("reload skipped source=\(source) soft=\(soft) reason=no_app")
             return
@@ -1859,8 +1858,9 @@ class GhosttyApp {
         }
     }
 
-    func synchronizeThemeWithAppearance(_: NSAppearance?, source: String) {
-        let currentColorScheme = GhosttyConfig.currentColorSchemePreference()
+    func synchronizeThemeWithAppearance(_ appearance: NSAppearance?, source: String) {
+        let (currentColorScheme, colorSchemeSource) =
+            GhosttyConfig.appearanceSyncColorSchemePreference(passedAppearance: appearance)
         let plan = Self.appearanceSynchronizationPlan(
             previousColorScheme: lastAppearanceColorScheme,
             currentColorScheme: currentColorScheme
@@ -1877,7 +1877,7 @@ class GhosttyApp {
             }
             let currentLabel: String = currentColorScheme == .dark ? "dark" : "light"
             logBackground(
-                "appearance sync source=\(source) previous=\(previousLabel) current=\(currentLabel) reload=\(plan.shouldReloadConfiguration)"
+                "appearance sync source=\(source) colorSchemeSource=\(colorSchemeSource) previous=\(previousLabel) current=\(currentLabel) reload=\(plan.shouldReloadConfiguration)"
             )
         }
         guard case let .reload(colorScheme, runtimeColorScheme) = plan else { return }
