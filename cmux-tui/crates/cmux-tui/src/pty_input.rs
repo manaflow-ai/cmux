@@ -10,7 +10,7 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
-use cmux_tui_core::SurfaceId;
+use cmux_tui_core::{SurfaceId, SurfaceKind};
 use smallvec::SmallVec;
 
 use crate::session::{SurfaceHandle, is_remote_timeout, is_remote_transport_failure};
@@ -36,6 +36,12 @@ pub enum PtyInputEnqueueResult {
     Oversized,
     Saturated,
     Failed,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PtyOperationDelivery {
+    KnownNotDelivered,
+    Ambiguous,
 }
 
 pub struct PtyInputEvent {
@@ -98,6 +104,7 @@ pub struct PtyOperationFailure {
     pub label: &'static str,
     pub error: String,
     pub lane_failed: bool,
+    pub delivery: PtyOperationDelivery,
 }
 
 #[derive(Default)]
@@ -307,6 +314,7 @@ impl PtyInputSender {
                 }
                 .into(),
                 lane_failed: result == PtyInputEnqueueResult::Failed,
+                delivery: PtyOperationDelivery::KnownNotDelivered,
             });
         }
     }
@@ -436,16 +444,29 @@ fn worker(queue: Arc<SharedQueue>, on_failure: Arc<dyn Fn(PtyOperationFailure) +
         let remote_transport_failed =
             remote && result.as_ref().err().is_some_and(is_remote_transport_failure);
         let remote_timed_out = remote && result.as_ref().err().is_some_and(is_remote_timeout);
+        // Remote writes are newline framed, so a transport write error cannot
+        // have delivered a complete command. A response timeout or rejection
+        // can follow a PTY write that already executed. Local PTY errors can
+        // likewise occur while flushing after bytes were written.
+        let known_not_delivered =
+            remote_transport_failed || (!remote && event.surface.kind() == SurfaceKind::Browser);
         let failure = result.err().map(|error| PtyOperationFailure {
             surface_id,
             kind,
             label: event.label,
             error: error.to_string(),
             lane_failed: remote_transport_failed,
+            delivery: if known_not_delivered {
+                PtyOperationDelivery::KnownNotDelivered
+            } else {
+                PtyOperationDelivery::Ambiguous
+            },
         });
         let mut state = queue.state.lock().unwrap();
         let mut canceled = Vec::new();
-        if failure.is_some()
+        if failure
+            .as_ref()
+            .is_some_and(|failure| failure.delivery == PtyOperationDelivery::KnownNotDelivered)
             && kind == Some(PtyInputKind::Press)
             && let Some(reservation_id) = reservation_id
         {
@@ -462,6 +483,7 @@ fn worker(queue: Arc<SharedQueue>, on_failure: Arc<dyn Fn(PtyOperationFailure) +
                 label: event.label,
                 error: "canceled after the remote transport failed".into(),
                 lane_failed: true,
+                delivery: PtyOperationDelivery::KnownNotDelivered,
             }));
             state.queued_bytes = 0;
             state.release_reservations.clear();
@@ -471,10 +493,14 @@ fn worker(queue: Arc<SharedQueue>, on_failure: Arc<dyn Fn(PtyOperationFailure) +
             // latency, but retain releases that may balance a press already
             // executed by the remote server.
             let mut releases = VecDeque::new();
-            for event in state.events.drain(..) {
+            let queued = state.events.drain(..).collect::<Vec<_>>();
+            for event in queued {
                 if event.kind == PtyInputKind::Release {
                     releases.push_back(event);
                 } else {
+                    if let Some(reservation_id) = event.reservation_id {
+                        state.release_reservations.outstanding.remove(&reservation_id);
+                    }
                     canceled.push(PtyOperationFailure {
                         surface_id: (event.kind != PtyInputKind::Mutation)
                             .then_some(event.surface_id),
@@ -482,12 +508,12 @@ fn worker(queue: Arc<SharedQueue>, on_failure: Arc<dyn Fn(PtyOperationFailure) +
                         label: event.label,
                         error: "canceled after a remote request timed out".into(),
                         lane_failed: false,
+                        delivery: PtyOperationDelivery::KnownNotDelivered,
                     });
                 }
             }
             state.queued_bytes = releases.iter().map(|event| event.bytes.len()).sum();
             state.events = releases;
-            state.release_reservations.clear();
         }
         state.in_flight = None;
         queue.changed.notify_all();
@@ -835,7 +861,31 @@ mod tests {
             dispatcher.enqueue(event(7, 1, PtyInputKind::Press)),
             PtyInputEnqueueResult::Accepted
         );
-        failure_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        let failure = failure_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert_eq!(failure.delivery, PtyOperationDelivery::KnownNotDelivered);
+        assert_eq!(dispatcher.sender.queue.state.lock().unwrap().release_reservations.len(), 0);
+    }
+
+    #[test]
+    fn timed_out_remote_press_keeps_its_release_reservation() {
+        let (failure_tx, failure_rx) = std::sync::mpsc::channel();
+        let dispatcher = PtyInputDispatcher::spawn(move |failure| {
+            failure_tx.send(failure).unwrap();
+        })
+        .unwrap();
+        let mut press = event(7, 1, PtyInputKind::Press);
+        press.remote = true;
+        press.mutation = Some(Box::new(|| Err(crate::session::test_remote_timeout_error())));
+
+        assert_eq!(dispatcher.enqueue(press), PtyInputEnqueueResult::Accepted);
+        let failure = failure_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert_eq!(failure.delivery, PtyOperationDelivery::Ambiguous);
+        assert_eq!(dispatcher.sender.queue.state.lock().unwrap().release_reservations.len(), 1);
+
+        assert_eq!(
+            dispatcher.enqueue(event(7, 2, PtyInputKind::Release)),
+            PtyInputEnqueueResult::Accepted
+        );
         assert_eq!(dispatcher.sender.queue.state.lock().unwrap().release_reservations.len(), 0);
     }
 
@@ -864,6 +914,8 @@ mod tests {
         assert!([first.label, second.label].contains(&"queued close"));
         assert!(first.lane_failed);
         assert!(second.lane_failed);
+        assert_eq!(first.delivery, PtyOperationDelivery::KnownNotDelivered);
+        assert_eq!(second.delivery, PtyOperationDelivery::KnownNotDelivered);
         assert!(!ran.load(std::sync::atomic::Ordering::Acquire));
 
         sender.enqueue_session_mutation("later resize", true, || Ok(()));
@@ -933,6 +985,7 @@ mod tests {
         let failure = failure_rx.recv_timeout(Duration::from_secs(1)).unwrap();
         assert_eq!(failure.label, "invalid remote command");
         assert!(!failure.lane_failed);
+        assert_eq!(failure.delivery, PtyOperationDelivery::Ambiguous);
         let deadline = Instant::now() + Duration::from_secs(1);
         while !ran.load(std::sync::atomic::Ordering::Acquire) && Instant::now() < deadline {
             std::thread::yield_now();

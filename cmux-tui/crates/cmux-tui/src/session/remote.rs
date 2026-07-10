@@ -89,10 +89,17 @@ impl Default for RemoteBrowserState {
 struct RemoteTreeCache {
     view: TreeView,
     surface_tabs: HashMap<SurfaceId, [usize; 4]>,
+    title_generation: u64,
+    title_updates: HashMap<SurfaceId, TitleUpdate>,
+}
+
+struct TitleUpdate {
+    generation: u64,
+    title: String,
 }
 
 impl RemoteTreeCache {
-    fn replace(&mut self, view: TreeView) {
+    fn replace(&mut self, view: TreeView, refresh_generation: u64) {
         self.surface_tabs.clear();
         for (workspace_index, workspace) in view.workspaces.iter().enumerate() {
             for (screen_index, screen) in workspace.screens.iter().enumerate() {
@@ -107,9 +114,32 @@ impl RemoteTreeCache {
             }
         }
         self.view = view;
+
+        // A response snapshot can predate title events received while its
+        // request was in flight. Reapply only those later authoritative
+        // events; older events are already represented by the response.
+        let updates = std::mem::take(&mut self.title_updates);
+        for (surface_id, update) in updates {
+            if self.surface_tabs.contains_key(&surface_id) {
+                if update.generation > refresh_generation {
+                    self.update_view_title(surface_id, update.title);
+                }
+            } else if update.generation > refresh_generation {
+                self.title_updates.insert(surface_id, update);
+            }
+        }
     }
 
     fn update_title(&mut self, surface_id: SurfaceId, title: String) -> bool {
+        self.title_generation = self.title_generation.saturating_add(1);
+        self.title_updates.insert(
+            surface_id,
+            TitleUpdate { generation: self.title_generation, title: title.clone() },
+        );
+        self.update_view_title(surface_id, title)
+    }
+
+    fn update_view_title(&mut self, surface_id: SurfaceId, title: String) -> bool {
         let Some([workspace, screen, pane, tab]) = self.surface_tabs.get(&surface_id).copied()
         else {
             return false;
@@ -129,6 +159,10 @@ impl RemoteTreeCache {
         }
         tab.title = title;
         true
+    }
+
+    fn title_generation(&self) -> u64 {
+        self.title_generation
     }
 }
 
@@ -635,6 +669,7 @@ impl RemoteSession {
     pub fn refresh_tree(&self) -> anyhow::Result<TreeView> {
         let _refresh = self.tree_refresh.lock().unwrap();
         self.tree_stale.store(false, Ordering::Release);
+        let refresh_generation = self.tree.lock().unwrap().title_generation();
         let data = match self.request(json!({"cmd": "list-workspaces"})) {
             Ok(data) => data,
             Err(e) => {
@@ -652,7 +687,11 @@ impl RemoteSession {
                 .flat_map(|pane| pane.tabs.iter())
                 .any(|tab| tab.surface == *surface_id)
         });
-        self.tree.lock().unwrap().replace(tree.clone());
+        let tree = {
+            let mut cache = self.tree.lock().unwrap();
+            cache.replace(tree, refresh_generation);
+            cache.view.clone()
+        };
         let surfaces = self.surfaces.lock().unwrap().clone();
         for (id, surface) in surfaces {
             surface.update_browser_source(browser_source_from_tree(&tree, id));
@@ -777,39 +816,96 @@ mod tests {
     #[test]
     fn indexed_title_update_changes_only_the_addressed_surface() {
         let mut cache = RemoteTreeCache::default();
-        cache.replace(parse_tree(&json!({
-            "workspaces": [
-                {
-                    "id": 1,
-                    "active": true,
-                    "screens": [{
-                        "id": 2,
+        cache.replace(
+            parse_tree(&json!({
+                "workspaces": [
+                    {
+                        "id": 1,
                         "active": true,
-                        "layout": {"type": "leaf", "pane": 3},
-                        "panes": [{
-                            "id": 3,
-                            "tabs": [{"surface": 4, "title": "old target"}],
+                        "screens": [{
+                            "id": 2,
+                            "active": true,
+                            "layout": {"type": "leaf", "pane": 3},
+                            "panes": [{
+                                "id": 3,
+                                "tabs": [{"surface": 4, "title": "old target"}],
+                            }],
                         }],
-                    }],
-                },
-                {
-                    "id": 5,
-                    "screens": [{
-                        "id": 6,
-                        "layout": {"type": "leaf", "pane": 7},
-                        "panes": [{
-                            "id": 7,
-                            "tabs": [{"surface": 8, "title": "other title"}],
+                    },
+                    {
+                        "id": 5,
+                        "screens": [{
+                            "id": 6,
+                            "layout": {"type": "leaf", "pane": 7},
+                            "panes": [{
+                                "id": 7,
+                                "tabs": [{"surface": 8, "title": "other title"}],
+                            }],
                         }],
-                    }],
-                },
-            ],
-        })));
+                    },
+                ],
+            })),
+            0,
+        );
 
         assert!(cache.update_title(4, "server title".to_string()));
         assert_eq!(cache.view.workspaces[0].screens[0].panes[0].tabs[0].title, "server title");
         assert_eq!(cache.view.workspaces[1].screens[0].panes[0].tabs[0].title, "other title");
         assert!(!cache.update_title(99, "missing".to_string()));
+    }
+
+    #[test]
+    fn refresh_preserves_title_events_that_arrived_after_it_started() {
+        let tree = |title: &str| {
+            parse_tree(&json!({
+                "workspaces": [{
+                    "id": 1,
+                    "screens": [{
+                        "id": 2,
+                        "layout": {"type": "leaf", "pane": 3},
+                        "panes": [{
+                            "id": 3,
+                            "tabs": [{"surface": 4, "title": title}],
+                        }],
+                    }],
+                }],
+            }))
+        };
+        let mut cache = RemoteTreeCache::default();
+        cache.replace(tree("initial"), 0);
+
+        let refresh_generation = cache.title_generation();
+        assert!(cache.update_title(4, "event title".to_string()));
+        cache.replace(tree("stale snapshot"), refresh_generation);
+
+        assert_eq!(cache.view.workspaces[0].screens[0].panes[0].tabs[0].title, "event title");
+    }
+
+    #[test]
+    fn refresh_uses_snapshot_for_title_events_that_predate_it() {
+        let tree = |title: &str| {
+            parse_tree(&json!({
+                "workspaces": [{
+                    "id": 1,
+                    "screens": [{
+                        "id": 2,
+                        "layout": {"type": "leaf", "pane": 3},
+                        "panes": [{
+                            "id": 3,
+                            "tabs": [{"surface": 4, "title": title}],
+                        }],
+                    }],
+                }],
+            }))
+        };
+        let mut cache = RemoteTreeCache::default();
+        cache.replace(tree("initial"), 0);
+        assert!(cache.update_title(4, "older event".to_string()));
+
+        let refresh_generation = cache.title_generation();
+        cache.replace(tree("fresh snapshot"), refresh_generation);
+
+        assert_eq!(cache.view.workspaces[0].screens[0].panes[0].tabs[0].title, "fresh snapshot");
     }
 
     #[test]

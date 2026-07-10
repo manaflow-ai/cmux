@@ -40,7 +40,7 @@ use crate::config::{Action, ChromeTheme, Config, ScrollbarPosition};
 use crate::keys;
 use crate::pty_input::{
     PtyInputBytes, PtyInputDispatcher, PtyInputEnqueueResult, PtyInputEvent, PtyInputKind,
-    PtyInputSender, PtyOperationFailure,
+    PtyInputSender, PtyOperationDelivery, PtyOperationFailure,
 };
 use crate::session::{Session, SurfaceHandle, TreeView};
 use crate::ui::graphics::GraphicPlacement;
@@ -64,8 +64,9 @@ pub enum AppEvent {
 
 pub enum SessionMutationOutcome {
     Success { tree: Option<TreeView>, completion: Option<SessionCompletion> },
+    IdentityRefreshSucceeded(TreeView),
     CommittedTreeStale { error: Option<String>, completion: Option<SessionCompletion> },
-    RefreshFailed(String),
+    IdentityRefreshFailed(String),
     Failed(String),
     Canceled,
 }
@@ -167,13 +168,12 @@ impl OrderedSession {
                 drop(claim);
                 match result {
                     Ok(tree) => {
-                        pending.settle(SessionMutationOutcome::Success {
-                            tree: Some(tree),
-                            completion: None,
-                        });
+                        pending.settle(SessionMutationOutcome::IdentityRefreshSucceeded(tree));
                     }
                     Err(error) => {
-                        pending.settle(SessionMutationOutcome::RefreshFailed(error.to_string()));
+                        pending.settle(SessionMutationOutcome::IdentityRefreshFailed(
+                            error.to_string(),
+                        ));
                     }
                 }
             });
@@ -186,6 +186,7 @@ impl OrderedSession {
                 label: "remote tree refresh",
                 error: error.to_string(),
                 lane_failed: false,
+                delivery: PtyOperationDelivery::KnownNotDelivered,
             }));
         }
     }
@@ -1247,6 +1248,17 @@ impl App {
         }
     }
 
+    fn complete_remote_tree_refresh(&self, refresh_stale: bool) {
+        let background_dirty = self.session.take_background_refresh_dirty();
+        if self.session.remote_tree_is_stale() {
+            if refresh_stale || background_dirty {
+                self.session.refresh_remote_tree_if_stale();
+            }
+        } else if background_dirty {
+            self.session.refresh_remote_tree_background();
+        }
+    }
+
     fn draw_terminal(
         &mut self,
         terminal: &mut RatatuiTerminal<CrosstermBackend<std::io::Stdout>>,
@@ -1547,6 +1559,7 @@ impl App {
             AppEvent::Mux(_) => Ok(RenderAction::Draw),
             AppEvent::PtyOperationFailed(failure) => {
                 let failed_active_press = failure.kind == Some(PtyInputKind::Press)
+                    && failure.delivery == PtyOperationDelivery::KnownNotDelivered
                     && failure.surface_id.is_some_and(|surface| {
                         matches!(&self.drag, Some(Drag::PtyMouse { surface: active, .. }) if *active == surface)
                     });
@@ -1571,6 +1584,14 @@ impl App {
                             self.apply_session_completion(completion);
                         }
                     }
+                    SessionMutationOutcome::IdentityRefreshSucceeded(tree) => {
+                        self.tree = tree;
+                        self.routing_refresh_retries_remaining = 0;
+                        while let Some(completion) = self.pending_session_completions.pop_front() {
+                            self.apply_session_completion(completion);
+                        }
+                        self.complete_remote_tree_refresh(true);
+                    }
                     SessionMutationOutcome::CommittedTreeStale { error, completion } => {
                         if let Some(completion) = completion {
                             self.pending_session_completions.push_back(completion);
@@ -1584,15 +1605,16 @@ impl App {
                         self.session.invalidate_remote_tree();
                         self.session.refresh_remote_tree_if_stale();
                     }
-                    SessionMutationOutcome::RefreshFailed(error) => {
+                    SessionMutationOutcome::IdentityRefreshFailed(error) => {
                         self.status_message = Some(format!(
                             "session changed, but its layout is still stale: {error}"
                         ));
-                        if self.routing_refresh_retries_remaining > 0 {
+                        let refresh_stale = self.routing_refresh_retries_remaining > 0;
+                        if refresh_stale {
                             self.routing_refresh_retries_remaining -= 1;
                             self.session.invalidate_remote_tree();
-                            self.session.refresh_remote_tree_if_stale();
                         }
+                        self.complete_remote_tree_refresh(refresh_stale);
                         return Ok(RenderAction::Draw);
                     }
                     SessionMutationOutcome::Failed(error) => {
@@ -1631,12 +1653,7 @@ impl App {
                         self.status_message = Some(format!("refresh remote tree failed: {error}"));
                     }
                 }
-                if self.session.remote_tree_is_stale() {
-                    let _ = self.session.take_background_refresh_dirty();
-                    self.session.refresh_remote_tree_if_stale();
-                } else if self.session.take_background_refresh_dirty() {
-                    self.session.refresh_remote_tree_background();
-                }
+                self.complete_remote_tree_refresh(true);
                 if !self.session.has_pending_mutations()
                     && !self.session.remote_tree_is_stale()
                     && !self.deferred_input.is_empty()
@@ -4287,7 +4304,8 @@ mod tests {
     use crate::browser_input::BrowserInputDispatcher;
     use crate::config::{ChromeTheme, Config, ScrollbarPosition};
     use crate::pty_input::{
-        PtyInputDispatcher, PtyInputEnqueueResult, PtyInputKind, PtyOperationFailure,
+        PtyInputDispatcher, PtyInputEnqueueResult, PtyInputKind, PtyOperationDelivery,
+        PtyOperationFailure,
     };
     use crate::session::tree::{PaneView, ScreenView, TabNotificationView, TabView, WorkspaceView};
     use crate::session::{Session, TreeView};
@@ -4490,6 +4508,7 @@ mod tests {
             label: "PTY input",
             error: "write failed".to_string(),
             lane_failed: false,
+            delivery: PtyOperationDelivery::KnownNotDelivered,
         }))
         .unwrap();
 
@@ -4514,10 +4533,36 @@ mod tests {
             label: "PTY input",
             error: "remote session did not respond".to_string(),
             lane_failed: true,
+            delivery: PtyOperationDelivery::KnownNotDelivered,
         }))
         .unwrap();
 
         assert!(app.drag.is_none());
+    }
+
+    #[test]
+    fn ambiguous_press_failure_preserves_pty_drag_for_the_physical_release() {
+        let mux = Mux::new("ambiguous-press-drag-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.drag = Some(Drag::PtyMouse {
+            surface: 42,
+            content: Rect { x: 1, y: 1, width: 20, height: 8 },
+            button: MouseButton::Left,
+            position: (4, 3),
+            modifiers: KeyModifiers::NONE,
+        });
+
+        app.handle(AppEvent::PtyOperationFailed(PtyOperationFailure {
+            surface_id: Some(42),
+            kind: Some(PtyInputKind::Press),
+            label: "PTY input",
+            error: "remote session did not respond".to_string(),
+            lane_failed: false,
+            delivery: PtyOperationDelivery::Ambiguous,
+        }))
+        .unwrap();
+
+        assert!(matches!(app.drag, Some(Drag::PtyMouse { button: MouseButton::Left, .. })));
     }
 
     #[test]
@@ -4549,6 +4594,27 @@ mod tests {
         app.replay_deferred_input().unwrap();
         assert!(app.deferred_input.is_empty());
         assert!(!app.session.has_pending_mutations());
+    }
+
+    #[test]
+    fn identity_refresh_completion_consumes_coalesced_background_refresh() {
+        let mux = Mux::new("identity-refresh-dirty-test", SurfaceOptions::default());
+        let (mut app, events) = test_app_with_events(Session::Local(mux));
+        app.session.remote = true;
+        app.session.pending_mutations.store(1, Ordering::Release);
+        app.session.remote_background_dirty.store(true, Ordering::Release);
+
+        app.handle(AppEvent::SessionMutationSettled(
+            super::SessionMutationOutcome::IdentityRefreshSucceeded(TreeView::default()),
+        ))
+        .unwrap();
+
+        assert!(!app.session.remote_background_dirty.load(Ordering::Acquire));
+        assert!(!app.session.has_pending_mutations());
+        assert!(matches!(
+            events.recv_timeout(Duration::from_secs(1)).unwrap(),
+            AppEvent::RemoteTreeUpdated(Ok(_))
+        ));
     }
 
     #[test]
