@@ -43,6 +43,19 @@ extension SettingsWindowPresenter {
         }
     }
 
+    static func logExistingWindowState(_ window: NSWindow) {
+        log.notice(
+            """
+            settings.window.show found existing window \
+            visible=\(window.isVisible, privacy: .public) \
+            miniaturized=\(window.isMiniaturized, privacy: .public) \
+            onActiveSpace=\(window.isOnActiveSpace, privacy: .public) \
+            offAllScreens=\(window.screen == nil, privacy: .public) \
+            frame=\(NSStringFromRect(window.frame), privacy: .public)
+            """
+        )
+    }
+
     /// Diagnostic-grade description of a window that failed to become
     /// visible after ordering front, carried in `.failed` and the logs.
     static func presentationFailureReason(

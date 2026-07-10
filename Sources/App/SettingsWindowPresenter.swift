@@ -192,12 +192,40 @@ final class SettingsWindowPresenter: NSObject {
                 NSApp.unhideWithoutActivation()
                 didUnhideForVerification = true
             }
+            if NSApp.isHidden && !activateApp {
+                // Ordering front succeeded as far as AppKit allows without
+                // unhiding the app; the window appears on unhide. Checked
+                // before the deminiaturize wait: under a hidden app no
+                // amount of waiting produces visibility, and this is the
+                // synchronous socket path (`settings.open --activate=false`)
+                // that must not stall. Reused live content still receives
+                // the navigation now — its subscriptions outlive visibility.
+                deliverNavigation(reusedExistingWindow: reusedExisting)
+                Self.log.notice(
+                    "settings.window.show ordered front while app is hidden; deferring visibility to unhide"
+                )
+                return .orderedWhileAppHidden
+            }
             if wasMiniaturized && !window.isVisible {
                 // The deminiaturization was initiated above; give AppKit a
                 // bounded chance to land it before concluding failure, so a
                 // live window full of unsaved edits is never destroyed just
                 // because an OS version commits the transition a turn later.
-                Self.awaitVisibility(of: window, timeout: Self.deminiaturizeSettleTimeout)
+                awaitVisibility(of: window, timeout: Self.deminiaturizeSettleTimeout)
+                if settingsWindow !== window {
+                    // The nested pump let events change window ownership
+                    // (the user closed the window mid-animation, or a
+                    // re-entrant show replaced it). This attempt's window is
+                    // gone; report reality rather than resurrecting a window
+                    // the user just closed.
+                    if let current = settingsWindow, current.isVisible {
+                        deliverNavigation(reusedExistingWindow: true)
+                        return .presented
+                    }
+                    failureReason = "settings window was closed while deminiaturizing"
+                    Self.log.notice("settings.window.show \(failureReason, privacy: .public)")
+                    break
+                }
             }
 
             if window.isVisible {
@@ -209,18 +237,6 @@ final class SettingsWindowPresenter: NSObject {
                 }
                 deliverNavigation(reusedExistingWindow: reusedExisting)
                 return .presented
-            }
-            if NSApp.isHidden && !activateApp {
-                // Ordering front succeeded as far as AppKit allows without
-                // unhiding the app; the window appears on unhide. Reused live
-                // content still receives the navigation now — its notification
-                // subscriptions outlive visibility, and the host root's
-                // onAppear consumer only runs for fresh windows.
-                deliverNavigation(reusedExistingWindow: reusedExisting)
-                Self.log.notice(
-                    "settings.window.show ordered front while app is hidden; deferring visibility to unhide"
-                )
-                return .orderedWhileAppHidden
             }
 
             failureReason = Self.presentationFailureReason(
@@ -365,15 +381,15 @@ final class SettingsWindowPresenter: NSObject {
 
     /// Bounded synchronous wait for an initiated deminiaturization: pumps
     /// the main run loop in small slices (as AppKit's own modal and menu
-    /// tracking do) until the window reports visible or the deadline
-    /// passes. Instant where `deminiaturize` + `orderFrontRegardless`
-    /// commits same-turn (probed on macOS 26); elsewhere it lets AppKit
-    /// finish instead of a live window full of unsaved edits being torn
-    /// down. Still invisible at the deadline means genuinely wedged, and
-    /// the caller's replacement fallback is the right cure.
-    private static func awaitVisibility(of window: NSWindow, timeout: TimeInterval) {
+    /// tracking do) until the window reports visible, ownership changes
+    /// (the pump processed a close or re-entrant show — caller re-examines),
+    /// or the deadline passes. Instant where `deminiaturize` +
+    /// `orderFrontRegardless` commits same-turn (probed on macOS 26);
+    /// elsewhere it lets AppKit finish instead of tearing down a live window
+    /// full of unsaved edits. Deadline expiry means genuinely wedged.
+    private func awaitVisibility(of window: NSWindow, timeout: TimeInterval) {
         let deadline = Date().addingTimeInterval(timeout)
-        while !window.isVisible && Date() < deadline {
+        while !window.isVisible && settingsWindow === window && Date() < deadline {
             RunLoop.main.run(until: Date().addingTimeInterval(0.05))
         }
     }
@@ -479,21 +495,5 @@ final class SettingsWindowPresenter: NSObject {
         window.contentView = nil
     }
 
-    // MARK: - Diagnostics
-
-    private static func logExistingWindowState(_ window: NSWindow) {
-        log.notice(
-            """
-            settings.window.show found existing window \
-            visible=\(window.isVisible, privacy: .public) \
-            miniaturized=\(window.isMiniaturized, privacy: .public) \
-            onActiveSpace=\(window.isOnActiveSpace, privacy: .public) \
-            offAllScreens=\(window.screen == nil, privacy: .public) \
-            frame=\(NSStringFromRect(window.frame), privacy: .public)
-            """
-        )
-    }
-
-    // `clampToVisibleAreaIfNeeded` and the pure multi-monitor recovery
-    // helpers live in Sources/App/SettingsWindowGeometry.swift.
+    // Multi-monitor recovery + diagnostics live in SettingsWindowGeometry.swift.
 }

@@ -19,6 +19,41 @@ extension SettingsWindowSharedStateSuites {
     @MainActor
     @Suite(.serialized)
     struct SettingsWindowPresentationContractTests {
+        @Test func closingTheWindowDuringTheDeminiaturizeWaitIsNotResurrected() async {
+            await withCleanSettingsWindows {
+                var builtWindows: [SettingsTestHostWindow] = []
+                let presenter = SettingsWindowPresenter(windowFactory: { _ in
+                    let window = makePlainFactoryWindow()
+                    builtWindows.append(window)
+                    return window
+                })
+                #expect(presenter.show() == .presented)
+                guard let firstWindow = builtWindows.first else {
+                    Issue.record("expected the first show to build a window")
+                    return
+                }
+
+                // The window is reopening from the Dock and the user closes
+                // it while the presenter pumps the run loop waiting for the
+                // transition to land. The show must abort — never build a
+                // replacement that resurrects a window the user just closed.
+                firstWindow.simulatesDockMiniaturization = true
+                firstWindow.stallsDeminiaturizeCommit = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak firstWindow] in
+                    firstWindow?.close()
+                }
+
+                let result = presenter.show()
+
+                guard case .failed = result else {
+                    Issue.record("expected .failed after a mid-wait close, got \(result)")
+                    return
+                }
+                #expect(builtWindows.count == 1)
+                #expect(visibleSettingsWindow() == nil)
+            }
+        }
+
         @Test func miniaturizedSettingsWindowIsReusedAndVisibleOnReturn() async {
             await withCleanSettingsWindows {
                 var builtWindows: [SettingsTestHostWindow] = []
