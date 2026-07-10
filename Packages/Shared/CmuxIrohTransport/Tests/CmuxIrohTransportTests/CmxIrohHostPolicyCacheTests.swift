@@ -43,6 +43,25 @@ struct CmxIrohHostPolicyCacheTests {
         #expect(await store.recordCount() == 0)
     }
 
+    @Test("save rejects an already expired signed attestation")
+    func saveRejectsExpiredPolicy() async throws {
+        let fixture = try HostPolicyCacheTestFixture()
+        let store = TestSecureCredentialStore()
+        let expectation = try fixture.expectation()
+        let cache = CmxIrohHostPolicyCache(secureStore: store)
+
+        await #expect(throws: CmxIrohGrantVerifierError.expired) {
+            try await cache.save(
+                fixture.policy(
+                    expiresAt: fixture.now.addingTimeInterval(-1)
+                ),
+                for: expectation,
+                now: fixture.now
+            )
+        }
+        #expect(await store.recordCount() == 0)
+    }
+
     @Test("expired policy is deleted and returned as a cache miss")
     func loadDeletesExpiredPolicy() async throws {
         let fixture = try HostPolicyCacheTestFixture()
