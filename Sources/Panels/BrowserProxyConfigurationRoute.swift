@@ -6,31 +6,21 @@ import WebKit
 
 private var browserProxyConfigurationApplicationStateKey: UInt8 = 0
 
-private enum BrowserProxyConfigurationApplicationState: Equatable {
-    case pristineDirect
-    case explicit(identity: String)
-    case directAfterExplicit
-}
-
-@MainActor
-private final class BrowserProxyConfigurationApplicationStateBox: NSObject {
-    var state: BrowserProxyConfigurationApplicationState = .pristineDirect
-}
-
 /// The semantic network route applied to a browser website data store.
 ///
 /// Application state is retained on the shared data store so equivalent
 /// explicit routes can coalesce without treating direct routing as a durable
 /// WebKit state.
 struct BrowserProxyConfigurationRoute {
-    private enum Kind {
-        case direct
-        case explicit(identity: String, configurations: [ProxyConfiguration])
-    }
+    private let configurations: [ProxyConfiguration]
+    private let identity: String
+    private let isDirect: Bool
 
-    private let kind: Kind
-
-    static let direct = BrowserProxyConfigurationRoute(kind: .direct)
+    static let direct = BrowserProxyConfigurationRoute(
+        configurations: [],
+        identity: "direct",
+        isDirect: true
+    )
 
     static var currentSystem: BrowserProxyConfigurationRoute {
         guard let rawSettings = CFNetworkCopySystemProxySettings()?.takeRetainedValue(),
@@ -43,10 +33,9 @@ struct BrowserProxyConfigurationRoute {
 
     static func mirroredSystem(_ mirror: BrowserSystemProxyMirror) -> BrowserProxyConfigurationRoute {
         BrowserProxyConfigurationRoute(
-            kind: .explicit(
-                identity: mirroredSystemIdentity(mirror),
-                configurations: mirror.proxyConfigurations()
-            )
+            configurations: mirror.proxyConfigurations(),
+            identity: mirroredSystemIdentity(mirror),
+            isDirect: false
         )
     }
 
@@ -59,23 +48,21 @@ struct BrowserProxyConfigurationRoute {
         }
         let endpoint = NWEndpoint.hostPort(host: NWEndpoint.Host(host), port: nwPort)
         return BrowserProxyConfigurationRoute(
-            kind: .explicit(
-                identity: "remote|\(identityComponent(host))|\(nwPort.rawValue)",
-                configurations: [
-                    ProxyConfiguration(socksv5Proxy: endpoint),
-                    ProxyConfiguration(httpCONNECTProxy: endpoint),
-                ]
-            )
+            configurations: [
+                ProxyConfiguration(socksv5Proxy: endpoint),
+                ProxyConfiguration(httpCONNECTProxy: endpoint),
+            ],
+            identity: "remote|\(identityComponent(host))|\(nwPort.rawValue)",
+            isDirect: false
         )
     }
 
     @MainActor
     @discardableResult
     func apply(to websiteDataStore: WKWebsiteDataStore) -> Bool {
-        let stateBox = applicationStateBox(for: websiteDataStore)
-        switch kind {
-        case .direct:
-            switch stateBox.state {
+        let state = applicationState(for: websiteDataStore)
+        if isDirect {
+            switch state {
             case .pristineDirect where websiteDataStore.proxyConfigurations.isEmpty:
                 return false
             case .pristineDirect, .explicit, .directAfterExplicit:
@@ -84,37 +71,40 @@ struct BrowserProxyConfigurationRoute {
                 // that process relaunches, so a store that has ever been
                 // explicit must keep direct routing re-clearable.
                 websiteDataStore.proxyConfigurations = []
-                stateBox.state = .directAfterExplicit
+                storeApplicationState(.directAfterExplicit, on: websiteDataStore)
                 return true
             }
-        case .explicit(let identity, let configurations):
-            if stateBox.state == .explicit(identity: identity) {
-                return false
-            }
-            websiteDataStore.proxyConfigurations = configurations
-            stateBox.state = .explicit(identity: identity)
-            return true
         }
+
+        if state == .explicit(identity: identity) {
+            return false
+        }
+        websiteDataStore.proxyConfigurations = configurations
+        storeApplicationState(.explicit(identity: identity), on: websiteDataStore)
+        return true
     }
 
     @MainActor
-    private func applicationStateBox(
+    private func applicationState(
         for websiteDataStore: WKWebsiteDataStore
-    ) -> BrowserProxyConfigurationApplicationStateBox {
-        if let stateBox = objc_getAssociatedObject(
+    ) -> BrowserProxyConfigurationApplicationState {
+        objc_getAssociatedObject(
             websiteDataStore,
             &browserProxyConfigurationApplicationStateKey
-        ) as? BrowserProxyConfigurationApplicationStateBox {
-            return stateBox
-        }
-        let stateBox = BrowserProxyConfigurationApplicationStateBox()
+        ) as? BrowserProxyConfigurationApplicationState ?? .pristineDirect
+    }
+
+    @MainActor
+    private func storeApplicationState(
+        _ state: BrowserProxyConfigurationApplicationState,
+        on websiteDataStore: WKWebsiteDataStore
+    ) {
         objc_setAssociatedObject(
             websiteDataStore,
             &browserProxyConfigurationApplicationStateKey,
-            stateBox,
+            state,
             .OBJC_ASSOCIATION_RETAIN_NONATOMIC
         )
-        return stateBox
     }
 
     private static func mirroredSystemIdentity(_ mirror: BrowserSystemProxyMirror) -> String {
