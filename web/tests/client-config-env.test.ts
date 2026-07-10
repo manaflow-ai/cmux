@@ -138,7 +138,7 @@ describe("client config env validation", () => {
 function importEnv(env: Record<string, string>): { exitCode: number; stderr: string } {
   const result = spawnSync(
     process.execPath,
-    ["-e", "await import('./app/env')"],
+    ["--no-env-file", "-e", "await import('./app/env')"],
     {
       env: env as NodeJS.ProcessEnv,
       encoding: "utf8",
@@ -156,6 +156,7 @@ function inspectIrohMinterUrl(
   const result = spawnSync(
     process.execPath,
     [
+      "--no-env-file",
       "-e",
       `
         const { irohTrustBrokerConfigFromEnv } = await import('./services/iroh/config');

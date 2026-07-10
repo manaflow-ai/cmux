@@ -1,5 +1,10 @@
 import { createEnv } from "@t3-oss/env-nextjs";
 import { z } from "zod";
+import {
+  insecureLoopbackMinterAllowed,
+  parseIrohMinterUrl,
+  type IrohMinterUrlPolicy,
+} from "../services/iroh/minterUrlPolicy";
 
 // Trim at the runtimeEnv source so every consumer — including paths that
 // run when validation is skipped (VERCEL_ENV === "preview") — sees clean
@@ -21,6 +26,13 @@ const isVercelNonPreviewDeployment =
   process.env.VERCEL === "1" &&
   typeof process.env.VERCEL_ENV === "string" &&
   process.env.VERCEL_ENV !== "preview";
+const irohMinterUrlPolicy: IrohMinterUrlPolicy = {
+  allowInsecureLoopback:
+    process.env.CMUX_IROH_DEV_ALLOW_INSECURE_LOOPBACK_MINTER === "1",
+  deploymentEnvironment:
+    process.env.VERCEL_ENV ?? process.env.NODE_ENV ?? "development",
+  isVercelDeployment: process.env.VERCEL === "1",
+};
 const requireVercelNonPreviewValue = (
   name: string,
   schema: z.ZodString = z.string().min(1),
@@ -33,6 +45,32 @@ const requireVercelNonPreviewValue = (
       });
     }
   });
+const localDevelopmentOptIn = (name: string) =>
+  z.enum(["0", "1"]).optional().superRefine((value, context) => {
+    if (
+      value === "1" &&
+      !insecureLoopbackMinterAllowed({
+        ...irohMinterUrlPolicy,
+        allowInsecureLoopback: true,
+      })
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `${name} is only allowed in local development`,
+      });
+    }
+  });
+const irohMinterUrl = z.string().url().superRefine((value, context) => {
+  try {
+    parseIrohMinterUrl(value, irohMinterUrlPolicy);
+  } catch {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message:
+        "CMUX_IROH_MINT_URL must use HTTPS, except for an opted-in local loopback development minter",
+    });
+  }
+});
 
 const stackEnv = (
   value: string | undefined,
@@ -122,13 +160,16 @@ export const env = createEnv({
     ),
     CMUX_IROH_MINT_URL: requireVercelNonPreviewValue(
       "CMUX_IROH_MINT_URL",
-      z.string().url(),
+      irohMinterUrl,
     ),
     CMUX_IROH_MINT_HMAC_SECRET_B64: requireVercelNonPreviewValue(
       "CMUX_IROH_MINT_HMAC_SECRET_B64",
       z.string().max(512).regex(/^[A-Za-z0-9+/]{43,}={0,2}$/),
     ),
     CMUX_IROH_RATE_LIMIT_ID: requireVercelNonPreviewValue("CMUX_IROH_RATE_LIMIT_ID"),
+    CMUX_IROH_DEV_ALLOW_INSECURE_LOOPBACK_MINTER: localDevelopmentOptIn(
+      "CMUX_IROH_DEV_ALLOW_INSECURE_LOOPBACK_MINTER",
+    ),
     CMUX_IROH_DEV_BINDING_OVERRIDE_ENABLED: z.enum(["0", "1"]).optional(),
     CMUX_IROH_DEV_BINDING_OVERRIDE_USER_IDS: z.string().max(8_192).optional(),
     CMUX_IROH_DEV_BINDING_OVERRIDE_ENVIRONMENTS: z.string().max(256).optional(),
@@ -177,6 +218,9 @@ export const env = createEnv({
     CMUX_IROH_MINT_URL: trimEnv(process.env.CMUX_IROH_MINT_URL),
     CMUX_IROH_MINT_HMAC_SECRET_B64: trimEnv(process.env.CMUX_IROH_MINT_HMAC_SECRET_B64),
     CMUX_IROH_RATE_LIMIT_ID: trimEnv(process.env.CMUX_IROH_RATE_LIMIT_ID),
+    CMUX_IROH_DEV_ALLOW_INSECURE_LOOPBACK_MINTER: trimEnv(
+      process.env.CMUX_IROH_DEV_ALLOW_INSECURE_LOOPBACK_MINTER,
+    ),
     CMUX_IROH_DEV_BINDING_OVERRIDE_ENABLED: trimEnv(process.env.CMUX_IROH_DEV_BINDING_OVERRIDE_ENABLED),
     CMUX_IROH_DEV_BINDING_OVERRIDE_USER_IDS: trimEnv(process.env.CMUX_IROH_DEV_BINDING_OVERRIDE_USER_IDS),
     CMUX_IROH_DEV_BINDING_OVERRIDE_ENVIRONMENTS: trimEnv(process.env.CMUX_IROH_DEV_BINDING_OVERRIDE_ENVIRONMENTS),

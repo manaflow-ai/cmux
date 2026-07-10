@@ -467,10 +467,12 @@ describe("Iroh relay quotas", () => {
 
 describe("developer binding override", () => {
   const base: IrohTrustBrokerConfigShape = {
+    relayMinterInsecureLoopbackOptIn: false,
     deviceLimitOverrideEnabled: true,
     deviceLimitOverrideUserIds: new Set([USER_A]),
     deviceLimitOverrideEnvironments: new Set(["preview"]),
     deploymentEnvironment: "preview",
+    isVercelDeployment: true,
   };
 
   test("requires both an explicit authenticated user and explicit environment", () => {
@@ -766,9 +768,11 @@ function makeFixture(options: {
       ],
     }),
     deviceLimitOverrideEnabled: false,
+    relayMinterInsecureLoopbackOptIn: false,
     deviceLimitOverrideUserIds: new Set(),
     deviceLimitOverrideEnvironments: new Set(),
     deploymentEnvironment: "test",
+    isVercelDeployment: false,
   };
   const broker = makeIrohTrustBroker(repository, minter, config);
 

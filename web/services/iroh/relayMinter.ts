@@ -8,10 +8,15 @@ import {
   IrohRelayMintError,
 } from "./errors";
 import { IrohTrustBrokerConfig } from "./config";
+import {
+  IROH_RELAY_MINTER_PATH,
+  parseIrohMinterUrl,
+  type IrohMinterUrlPolicy,
+} from "./minterUrlPolicy";
 import { IROH_RELAY_TOKEN_LIFETIME_SECONDS, endpointId } from "./model";
 
 const MAX_MINTER_RESPONSE_BYTES = 32 * 1_024;
-export const IROH_RELAY_MINTER_PATH = "/api/relay-token";
+export { IROH_RELAY_MINTER_PATH };
 
 export type IrohRelayMintResult = {
   readonly token: string;
@@ -54,7 +59,11 @@ function mintWithIsolatedService(
   return Effect.tryPromise({
     try: async () => {
       endpointId(input.endpointId);
-      const url = parseMinterUrl(config.relayMinterUrl);
+      const url = parseMinterUrl(config.relayMinterUrl, {
+        allowInsecureLoopback: config.relayMinterInsecureLoopbackOptIn,
+        deploymentEnvironment: config.deploymentEnvironment,
+        isVercelDeployment: config.isVercelDeployment,
+      });
       const secret = parseMinterHmacSecret(config.relayMinterHmacSecretBase64);
       const body = JSON.stringify({
         endpointId: input.endpointId,
@@ -162,20 +171,20 @@ export async function readBoundedMinterJson(
   return object;
 }
 
-export function parseMinterUrl(value: string | undefined): URL {
+export function parseMinterUrl(
+  value: string | undefined,
+  policy: IrohMinterUrlPolicy = {
+    allowInsecureLoopback: false,
+    deploymentEnvironment: "production",
+    isVercelDeployment: true,
+  },
+): URL {
   if (!value) throw new IrohConfigurationError({ component: "relay_minter" });
-  const url = new URL(value);
-  if (
-    url.protocol !== "https:" ||
-    url.username ||
-    url.password ||
-    url.pathname !== IROH_RELAY_MINTER_PATH ||
-    url.search ||
-    url.hash
-  ) {
+  try {
+    return parseIrohMinterUrl(value, policy);
+  } catch {
     throw new IrohConfigurationError({ component: "relay_minter" });
   }
-  return url;
 }
 
 export function parseMinterHmacSecret(value: string | undefined): Buffer {

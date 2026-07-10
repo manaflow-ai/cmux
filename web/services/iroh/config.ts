@@ -10,11 +10,13 @@ export type IrohTrustBrokerConfigShape = {
   readonly grantVerificationKeysJson?: string;
   readonly relayMinterUrl?: string;
   readonly relayMinterHmacSecretBase64?: string;
+  readonly relayMinterInsecureLoopbackOptIn: boolean;
   readonly rateLimitId?: string;
   readonly deviceLimitOverrideEnabled: boolean;
   readonly deviceLimitOverrideUserIds: ReadonlySet<string>;
   readonly deviceLimitOverrideEnvironments: ReadonlySet<string>;
   readonly deploymentEnvironment: string;
+  readonly isVercelDeployment: boolean;
 };
 
 export class IrohTrustBrokerConfig extends Context.Tag("cmux/IrohTrustBrokerConfig")<
@@ -31,11 +33,14 @@ export function irohTrustBrokerConfigFromEnv(): IrohTrustBrokerConfigShape {
     grantVerificationKeysJson: env.CMUX_IROH_GRANT_VERIFICATION_KEYS_JSON,
     relayMinterUrl: env.CMUX_IROH_MINT_URL,
     relayMinterHmacSecretBase64: env.CMUX_IROH_MINT_HMAC_SECRET_B64,
+    relayMinterInsecureLoopbackOptIn:
+      env.CMUX_IROH_DEV_ALLOW_INSECURE_LOOPBACK_MINTER === "1",
     rateLimitId: env.CMUX_IROH_RATE_LIMIT_ID,
     deviceLimitOverrideEnabled: env.CMUX_IROH_DEV_BINDING_OVERRIDE_ENABLED === "1",
     deviceLimitOverrideUserIds: csvSet(env.CMUX_IROH_DEV_BINDING_OVERRIDE_USER_IDS),
     deviceLimitOverrideEnvironments: csvSet(env.CMUX_IROH_DEV_BINDING_OVERRIDE_ENVIRONMENTS),
     deploymentEnvironment: process.env.VERCEL_ENV ?? process.env.NODE_ENV ?? "development",
+    isVercelDeployment: process.env.VERCEL === "1",
   };
 }
 

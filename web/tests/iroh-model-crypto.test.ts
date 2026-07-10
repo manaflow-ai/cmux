@@ -617,10 +617,12 @@ describe("Iroh relay minter response bounds", () => {
       const config: IrohTrustBrokerConfigShape = {
         relayMinterUrl: "https://minter.cmux.test/api/relay-token",
         relayMinterHmacSecretBase64: secret.toString("base64"),
+        relayMinterInsecureLoopbackOptIn: false,
         deviceLimitOverrideEnabled: false,
         deviceLimitOverrideUserIds: new Set(),
         deviceLimitOverrideEnvironments: new Set(),
         deploymentEnvironment: "test",
+        isVercelDeployment: false,
       };
       const layer = IrohRelayMinterLive.pipe(
         Layer.provide(Layer.succeed(IrohTrustBrokerConfig, config)),
@@ -659,10 +661,12 @@ describe("Iroh relay minter response bounds", () => {
     const config: IrohTrustBrokerConfigShape = {
       relayMinterUrl: "https://minter.cmux.test/api/relay-token",
       relayMinterHmacSecretBase64: Buffer.alloc(32, 0x63).toString("base64"),
+      relayMinterInsecureLoopbackOptIn: false,
       deviceLimitOverrideEnabled: false,
       deviceLimitOverrideUserIds: new Set(),
       deviceLimitOverrideEnvironments: new Set(),
       deploymentEnvironment: "test",
+      isVercelDeployment: false,
     };
     const layer = IrohRelayMinterLive.pipe(
       Layer.provide(Layer.succeed(IrohTrustBrokerConfig, config)),
@@ -730,6 +734,10 @@ describe("Iroh relay minter response bounds", () => {
     ]) {
       expect(() => parseMinterUrl(value, localDevelopment)).toThrow();
     }
+    expect(() => parseMinterUrl("http://localhost:49152/api/relay-token", {
+      ...localDevelopment,
+      allowInsecureLoopback: false,
+    })).toThrow();
     expect(() => parseMinterUrl("http://localhost:49152/api/relay-token", {
       ...localDevelopment,
       deploymentEnvironment: "production",
