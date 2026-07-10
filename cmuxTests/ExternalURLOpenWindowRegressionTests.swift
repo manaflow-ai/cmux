@@ -1,4 +1,5 @@
 import AppKit
+import CmuxAuthRuntime
 import CoreServices
 import XCTest
 
@@ -20,7 +21,8 @@ import XCTest
 ///
 /// 1. `AppDelegate.application(_:open:)` still receives the URL (guards
 ///    against the fix accidentally swallowing URL delivery), observed through
-///    the `AuthDebugLog` DEBUG sink at `/tmp/cmux-auth-debug.log`.
+///    `AuthDebugLog.recentDebugLines()` — an in-process DEBUG buffer, so the
+///    signal cannot be lost to another process truncating a shared log file.
 /// 2. No new `NSWindow` object appears at any point while the event is
 ///    processed. The zombie window lives only ~300ms, so the run loop is
 ///    pumped in small slices and every slice records windows that were not
@@ -28,8 +30,6 @@ import XCTest
 ///    assertions.
 @MainActor
 final class ExternalURLOpenWindowRegressionTests: XCTestCase {
-    private static let authDebugLogPath = "/tmp/cmux-auth-debug.log"
-
     func testExternalAuthCallbackURLOpenDoesNotCreateWindow() throws {
         // Unique per-run query key: `authURLDebugSummary` logs query keys (not
         // values), so the key doubles as a redaction-safe log marker.
@@ -69,10 +69,9 @@ final class ExternalURLOpenWindowRegressionTests: XCTestCase {
                     "class=\(type(of: window)) title=\(window.title) " +
                     "frame=\(NSStringFromRect(window.frame)) visible=\(window.isVisible)"
             }
-            // The log file is shared; only re-read it every ~200ms.
             slice += 1
             if !deliveryObserved, slice % 10 == 0,
-               authDebugLogContainsDelivery(marker: marker) {
+               Self.authDebugLinesContainDelivery(marker: marker) {
                 deliveryObserved = true
                 // Grace period: keep watching for a late zombie window after
                 // the delegate has already seen the URL.
@@ -83,7 +82,7 @@ final class ExternalURLOpenWindowRegressionTests: XCTestCase {
             }
         }
         if !deliveryObserved {
-            deliveryObserved = authDebugLogContainsDelivery(marker: marker)
+            deliveryObserved = Self.authDebugLinesContainDelivery(marker: marker)
         }
 
         XCTAssertTrue(
@@ -137,18 +136,13 @@ final class ExternalURLOpenWindowRegressionTests: XCTestCase {
         return snapshot
     }
 
-    /// Whether the auth debug log contains an `auth.openURLs.received` line
-    /// mentioning the probe marker. The whole file is rescanned on every
-    /// call: the marker is unique per run, so offset-free scanning stays
-    /// correct even if another process truncates or recreates the shared
-    /// `/tmp` log mid-test.
-    private func authDebugLogContainsDelivery(marker: String) -> Bool {
-        guard let data = FileManager.default.contents(atPath: Self.authDebugLogPath),
-              !data.isEmpty else {
-            return false
-        }
-        let contents = String(decoding: data, as: UTF8.self)
-        return contents.split(separator: "\n").contains { line in
+    /// Whether this process has logged an `auth.openURLs.received` line
+    /// mentioning the probe marker. Reads `AuthDebugLog`'s in-process DEBUG
+    /// buffer — the tests run app-hosted in the same process as
+    /// `AppDelegate`, so delivery is observable without any shared file that
+    /// another process could truncate or recreate mid-test.
+    private static func authDebugLinesContainDelivery(marker: String) -> Bool {
+        AuthDebugLog.recentDebugLines().contains { line in
             line.contains("auth.openURLs.received") && line.contains(marker)
         }
     }
