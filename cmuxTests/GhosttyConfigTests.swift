@@ -2384,6 +2384,24 @@ final class BrowserPanelRemoteStoreTests: XCTestCase {
         XCTAssertEqual(panel.webView.url?.host, "cmux-loopback.localtest.me")
     }
 
+    func testRemoteWorkspaceKeepsProxyRouteWhileReplacementEndpointIsPending() {
+        let remoteWorkspaceId = UUID()
+        let panel = BrowserPanel(
+            workspaceId: remoteWorkspaceId,
+            isRemoteWorkspace: true,
+            remoteWebsiteDataStoreIdentifier: remoteWorkspaceId
+        )
+        panel.setRemoteProxyEndpoint(BrowserProxyEndpoint(host: "127.0.0.1", port: 9876))
+        XCTAssertEqual(panel.webView.configuration.websiteDataStore.proxyConfigurations.count, 2)
+
+        panel.setRemoteProxyEndpoint(nil)
+        panel.navigate(to: URL(string: "http://localhost:3000/pending")!)
+
+        XCTAssertEqual(panel.webView.configuration.websiteDataStore.proxyConfigurations.count, 2)
+        XCTAssertTrue(panel.hasPendingRemoteNavigation)
+        XCTAssertNil(panel.webView.url)
+    }
+
     func testRemoteWorkspacePreservesLocalhostSubdomainWhenAliasingLoopbackURL() {
         let remoteWorkspaceId = UUID()
         let url = URL(string: "http://api.localhost:3000/demo")!

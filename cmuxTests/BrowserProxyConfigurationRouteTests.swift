@@ -53,21 +53,17 @@ import WebKit
         #expect(store.proxyConfigurations.isEmpty)
     }
 
-    @Test("Direct routing coalesces and rearms failure recovery after success")
+    @Test("Direct routing coalesces within one NetworkProcess generation")
     @MainActor
-    func directRouteCoalescesAndRearmsFailureRecoveryAfterSuccess() throws {
+    func directRouteCoalescesWithinNetworkProcessGeneration() throws {
         let store = WKWebsiteDataStore.nonPersistent()
         let mirror = try #require(systemProxyMirror())
         _ = BrowserProxyConfigurationRoute.mirroredSystem(mirror).apply(to: store)
 
-        #expect(BrowserProxyConfigurationRoute.direct.apply(to: store))
-        #expect(!BrowserProxyConfigurationRoute.direct.apply(to: store))
-        #expect(BrowserProxyConfigurationRoute.direct.reassertAfterNavigationFailure(to: store))
-        #expect(!BrowserProxyConfigurationRoute.direct.reassertAfterNavigationFailure(to: store))
-
-        BrowserProxyConfigurationRoute.direct.noteSuccessfulNavigation(on: store)
-
-        #expect(BrowserProxyConfigurationRoute.direct.reassertAfterNavigationFailure(to: store))
+        #expect(BrowserProxyConfigurationRoute.direct.apply(to: store, networkProcessIdentifier: { 101 }))
+        #expect(!BrowserProxyConfigurationRoute.direct.apply(to: store, networkProcessIdentifier: { 101 }))
+        #expect(BrowserProxyConfigurationRoute.direct.apply(to: store, networkProcessIdentifier: { 202 }))
+        #expect(!BrowserProxyConfigurationRoute.direct.apply(to: store, networkProcessIdentifier: { 202 }))
         #expect(store.proxyConfigurations.isEmpty)
     }
 
@@ -79,32 +75,6 @@ import WebKit
         #expect(route.apply(to: store))
         #expect(!route.apply(to: store))
         #expect(store.proxyConfigurations.count == 2)
-    }
-
-    @Test("A provisional GET failure offers route recovery before rendering an error page")
-    @MainActor
-    func provisionalGetFailureOffersRouteRecovery() throws {
-        let request = URLRequest(url: try #require(URL(string: "https://example.com/recovery")))
-        let webView = WKWebView(frame: .zero)
-        let delegate = BrowserNavigationDelegate()
-        var recoveredRequest: URLRequest?
-        delegate.recordAttemptedRequest(request)
-        delegate.recoverProxyRouteAfterProvisionalNavigationFailure = { _, request in
-            recoveredRequest = request
-            return true
-        }
-
-        delegate.webView(
-            webView,
-            didFailProvisionalNavigation: nil,
-            withError: NSError(
-                domain: NSURLErrorDomain,
-                code: NSURLErrorCannotConnectToHost,
-                userInfo: [NSURLErrorFailingURLStringErrorKey: request.url?.absoluteString ?? ""]
-            )
-        )
-
-        #expect(recoveredRequest?.url == request.url)
     }
 
     private func systemProxyMirror() -> BrowserSystemProxyMirror? {
