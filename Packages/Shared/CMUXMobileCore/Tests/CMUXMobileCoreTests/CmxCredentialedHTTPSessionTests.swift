@@ -35,4 +35,38 @@ import Testing
         #expect(completionCalled)
         #expect(forwardedRequest == nil)
     }
+
+    @Test func rejectsDeclaredOversizedResponseBeforeBufferingIt() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [OversizedCredentialedHTTPURLProtocol.self]
+        let session = CmxCredentialedHTTPSession(configuration: configuration)
+        let url = try #require(URL(string: "https://cmux.example/api/devices"))
+
+        await #expect(throws: (any Error).self) {
+            _ = try await session.data(for: URLRequest(url: url))
+        }
+    }
+}
+
+private final class OversizedCredentialedHTTPURLProtocol: URLProtocol, @unchecked Sendable {
+    override class func canInit(with _: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        guard let url = request.url,
+              let response = HTTPURLResponse(
+                  url: url,
+                  statusCode: 200,
+                  httpVersion: "HTTP/1.1",
+                  headerFields: ["Content-Length": "4194305"]
+              ) else {
+            client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
+            return
+        }
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Data("must-not-buffer".utf8))
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
 }
