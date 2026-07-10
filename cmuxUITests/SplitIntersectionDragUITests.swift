@@ -91,8 +91,8 @@ final class SplitIntersectionDragUITests: XCTestCase {
     }
 
     private func terminalPaneFrames(_ app: XCUIApplication) -> [CGRect] {
-        app.windows.firstMatch.textAreas.allElementsBoundByIndex
-            .map(\.frame)
+        app.windows.firstMatch.descendants(matching: .textArea).allElementsBoundByIndex
+            .map { $0.frame }
             .filter { $0.width >= 100 && $0.height >= 100 }
     }
 
