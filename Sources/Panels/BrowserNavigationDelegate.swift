@@ -14,6 +14,7 @@ import WebKit
     var didCancelNavigationPolicy: ((WKWebView, PolicyCancellationKind) -> Void)?
     var didBecomeDownload: ((WKWebView, Bool, UUID?) -> Void)?
     var didTerminateWebContentProcess: ((WKWebView) -> Void)?
+    var willAllowNavigation: ((WKWebView) -> Void)?
     var openInNewTab: ((URL) -> Void)?
     var requestNavigation: ((URLRequest, BrowserInsecureHTTPNavigationIntent) -> Void)?
     var presentAlert: BrowserAlertPresenter = browserPresentAlert
@@ -304,7 +305,11 @@ import WebKit
             )
 #endif
             if opened { reportTerminalCancellation() }
-            decisionHandler(opened ? .cancel : .allow)
+            if opened {
+                decisionHandler(.cancel)
+            } else {
+                allowNavigation(webView, decisionHandler: decisionHandler)
+            }
             return
         }
 
@@ -419,6 +424,14 @@ import WebKit
                 clearAttemptedRequest()
             }
         }
+        allowNavigation(webView, decisionHandler: decisionHandler)
+    }
+
+    func allowNavigation(
+        _ webView: WKWebView,
+        decisionHandler: (WKNavigationActionPolicy) -> Void
+    ) {
+        willAllowNavigation?(webView)
         decisionHandler(.allow)
     }
 
