@@ -96,7 +96,8 @@ extension TerminalController {
             tabManager: tabManager,
             inputs: inputs,
             direction: direction,
-            panelType: panelType
+            panelType: panelType,
+            routedPaneID: routing.paneID
         ) {
             return remote
         }
@@ -201,7 +202,8 @@ extension TerminalController {
            let remote = controlRemoteTmuxSurfaceRespawn(
                workspace: workspace,
                tabManager: tabManager,
-               inputs: inputs
+               inputs: inputs,
+               routedPaneID: routing.paneID
            ) {
             return remote
         }
@@ -442,7 +444,8 @@ extension TerminalController {
             workspace: ws,
             tabManager: tabManager,
             surfaceID: surfaceId,
-            isImplicitTarget: surfaceID == nil && routing.surfaceID == nil
+            isImplicitTarget: surfaceID == nil && routing.surfaceID == nil,
+            routedPaneID: routing.paneID
         ) {
             return remote
         }

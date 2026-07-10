@@ -293,4 +293,13 @@ extension TerminalController {
             )]
         }
     }
+
+    func controlSurfacePanels(workspace: Workspace) -> [any Panel] {
+        orderedPanels(in: workspace).flatMap { panel -> [any Panel] in
+            if let mirror = workspace.remoteTmuxWindowMirror(forPanelId: panel.id) {
+                return mirror.controlPanes().map { $0.panel }
+            }
+            return [panel]
+        }
+    }
 }

@@ -53,16 +53,22 @@ extension Workspace {
     /// Canonicalizes an explicit control-plane terminal target. Hidden mirror
     /// containers project to the authoritative active inner pane and unresolved
     /// mirrors fail closed instead of exposing their stale wrapper panel.
-    func controlTerminalTarget(for surfaceID: UUID) -> (surfaceID: UUID, panel: TerminalPanel)? {
+    func controlSurfaceTarget(for surfaceID: UUID) -> ControlSurfaceProjection? {
         switch remoteTmuxControlSurfaceTarget(surfaceID: surfaceID) {
         case .pane(let location):
-            return (location.pane.panel.id, location.pane.panel)
+            return (location.pane.panel.id, location.pane.paneID.id, location.pane.panel)
         case .unresolvedMirror:
             return nil
         case .notRemote:
-            guard let panel = terminalPanel(for: surfaceID) else { return nil }
-            return (surfaceID, panel)
+            guard let panel = panels[surfaceID] else { return nil }
+            return (surfaceID, paneId(forPanelId: surfaceID)?.id, panel)
         }
+    }
+
+    func controlTerminalTarget(for surfaceID: UUID) -> (surfaceID: UUID, panel: TerminalPanel)? {
+        guard let target = controlSurfaceTarget(for: surfaceID),
+              let panel = target.panel as? TerminalPanel else { return nil }
+        return (target.surfaceID, panel)
     }
 
     func controlTerminalPanel(for surfaceID: UUID) -> TerminalPanel? {

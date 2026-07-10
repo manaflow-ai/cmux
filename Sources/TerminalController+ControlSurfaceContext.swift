@@ -222,7 +222,7 @@ extension TerminalController: ControlSurfaceContext {
             )
         }
         guard let ws = resolveSurfaceWorkspace(routing: routing, tabManager: tabManager) else { return nil }
-        let items: [ControlSurfaceHealthEntry] = orderedPanels(in: ws).map { panel in
+        let items: [ControlSurfaceHealthEntry] = controlSurfacePanels(workspace: ws).map { panel in
             var inWindow: Bool?
             if let tp = panel as? TerminalPanel {
                 inWindow = tp.surface.isViewInWindow

@@ -96,7 +96,7 @@ extension TerminalController {
             return .workspaceNotFound
         }
         var refreshedCount = 0
-        for panel in ws.panels.values {
+        for panel in controlSurfacePanels(workspace: ws) {
             if let terminalPanel = panel as? TerminalPanel {
                 terminalPanel.surface.forceRefresh(reason: "terminalController.v2SurfaceRefresh")
                 refreshedCount += 1
@@ -153,20 +153,24 @@ extension TerminalController {
         if hasSurfaceIDParam, surfaceID == nil {
             return .surfaceNotFoundForID
         }
-        guard let surfaceId = surfaceID ?? ws.focusedPanelId else {
+        let target: (surfaceID: UUID, panel: TerminalPanel)?
+        if let surfaceID {
+            target = ws.controlTerminalTarget(for: surfaceID)
+        } else {
+            target = ws.controlDefaultTerminalTarget(paneID: routing.paneID)
+        }
+        guard let target else {
+            if let surfaceID { return .surfaceNotTerminal(surfaceID) }
             return .noFocusedSurface
         }
-        guard let terminalPanel = ws.terminalPanel(for: surfaceId) else {
-            return .surfaceNotTerminal(surfaceId)
-        }
-        guard terminalPanel.performBindingAction("clear_screen") else {
+        guard target.panel.performBindingAction("clear_screen") else {
             return .bindingActionUnavailable
         }
-        terminalPanel.surface.forceRefresh(reason: "terminalController.v2SurfaceClearHistory")
+        target.panel.surface.forceRefresh(reason: "terminalController.v2SurfaceClearHistory")
         return .cleared(
             windowID: v2ResolveWindowId(tabManager: tabManager),
             workspaceID: ws.id,
-            surfaceID: surfaceId
+            surfaceID: target.surfaceID
         )
     }
 
@@ -199,19 +203,26 @@ extension TerminalController {
         guard let ws = resolveSurfaceWorkspace(routing: routing, tabManager: tabManager) else {
             return .workspaceNotFound
         }
-        guard let surfaceId = surfaceID ?? ws.focusedPanelId else {
+        let requestedSurfaceID = surfaceID
+            ?? routing.paneID.flatMap { ws.remoteTmuxControlPane(paneID: $0)?.pane.panel.id }
+            ?? ws.focusedPanelId
+        guard let requestedSurfaceID else {
             return .noFocusedSurface
         }
-        guard ws.panels[surfaceId] != nil else {
-            return .surfaceNotFound(surfaceId)
+        guard let target = ws.controlSurfaceTarget(for: requestedSurfaceID) else {
+            return .surfaceNotFound(requestedSurfaceID)
         }
         v2MaybeFocusWindow(for: tabManager)
         v2MaybeSelectWorkspace(tabManager, workspace: ws)
-        ws.triggerFocusFlash(panelId: surfaceId)
+        if ws.panels[target.surfaceID] != nil {
+            ws.triggerFocusFlash(panelId: target.surfaceID)
+        } else {
+            target.panel.triggerFlash(reason: .navigation)
+        }
         return .flashed(
             windowID: v2ResolveWindowId(tabManager: tabManager),
             workspaceID: ws.id,
-            surfaceID: surfaceId
+            surfaceID: target.surfaceID
         )
     }
 
