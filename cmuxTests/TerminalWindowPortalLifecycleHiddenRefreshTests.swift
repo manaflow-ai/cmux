@@ -77,6 +77,8 @@ extension TerminalWindowPortalLifecycleTests {
         drainMainQueue()
         realizeWindowLayout(window)
         XCTAssertNotNil(panel.surface.surface)
+        window.makeFirstResponder(nil)
+        XCTAssertFalse(window.firstResponder === panel.hostedView.surfaceView)
 
         panel.surface.resetDebugForceRefreshCount()
         store.setVisibleInUI(true)
@@ -88,6 +90,7 @@ extension TerminalWindowPortalLifecycleTests {
                 firstResponder?.isDescendant(of: panel.hostedView.surfaceView) == true,
             "Dock activation must retain terminal responder focus while deferring redraw"
         )
+        XCTAssertTrue(panel.hostedView.surfaceView.desiredFocus)
         XCTAssertEqual(
             panel.surface.debugForceRefreshCount(),
             0,

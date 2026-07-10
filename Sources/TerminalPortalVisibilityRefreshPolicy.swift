@@ -64,4 +64,17 @@ extension GhosttySurfaceScrollView {
         setTriggerFlashHandler(nil)
         setDropZoneOverlay(zone: nil)
     }
+
+    func makeSurfaceFirstResponder(
+        in window: NSWindow,
+        refreshPolicy: TerminalPortalVisibilityRefreshPolicy
+    ) -> Bool {
+        guard case .deferredToPortal = refreshPolicy else {
+            return window.makeFirstResponder(surfaceView)
+        }
+        let wasDeferred = surfaceView.defersFirstResponderRefreshToPortal
+        surfaceView.defersFirstResponderRefreshToPortal = true
+        defer { surfaceView.defersFirstResponderRefreshToPortal = wasDeferred }
+        return window.makeFirstResponder(surfaceView)
+    }
 }

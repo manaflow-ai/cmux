@@ -3568,6 +3568,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     var desiredFocus: Bool = false
+    var defersFirstResponderRefreshToPortal = false
     var suppressingReparentFocus: Bool = false
     var tabId: UUID?
     var selectionTranslationHostView: NSView?
@@ -5422,7 +5423,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             if let displayID = window?.screen?.displayID, displayID != 0 {
                 ghostty_surface_set_display_id(surface, displayID)
             }
-            terminalSurface?.forceRefresh(reason: "focus.firstResponder")
+            if !defersFirstResponderRefreshToPortal { terminalSurface?.forceRefresh(reason: "focus.firstResponder") }
         }
         return result
     }
@@ -10196,9 +10197,7 @@ final class GhosttySurfaceScrollView: NSView {
     }
     #endif
 
-    func ensureFocus(
-        for tabId: UUID,
-        surfaceId: UUID,
+    func ensureFocus(for tabId: UUID, surfaceId: UUID,
         respectForeignFirstResponder: Bool = true, refreshPolicy: TerminalPortalVisibilityRefreshPolicy = .immediate
     ) {
         let hasUsablePortalGeometry: Bool = {
@@ -10270,7 +10269,7 @@ final class GhosttySurfaceScrollView: NSView {
 #endif
                 return
             }
-            let result = window.makeFirstResponder(surfaceView)
+            let result = makeSurfaceFirstResponder(in: window, refreshPolicy: refreshPolicy)
 #if DEBUG
             cmuxDebugLog(
                 "focus.ensure.dock.apply surface=\(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") " +
@@ -10359,7 +10358,7 @@ final class GhosttySurfaceScrollView: NSView {
             }
             window.makeKeyAndOrderFront(nil)
         }
-        let result = window.makeFirstResponder(surfaceView)
+        let result = makeSurfaceFirstResponder(in: window, refreshPolicy: refreshPolicy)
 #if DEBUG
         cmuxDebugLog(
             "focus.ensure.apply surface=\(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") " +
