@@ -738,7 +738,7 @@ extension Workspace {
         // A cached entry at most one refresh stale is acceptable because restore prefers
         // the always-fresh in-memory resumeBinding. During the launch prewarm, omit the
         // optional agent observation instead of blocking this main-actor close path.
-        let agentIndex = SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
+        let agentIndex = SharedLiveAgentIndex.shared.cachedIndex()
             ?? .empty
         let restorableAgentObservation = agentIndex.entry(workspaceId: id, panelId: panelId)
         guard let snapshot = sessionPanelSnapshot(
@@ -784,7 +784,8 @@ extension Workspace {
         guard let entry = closedPanelHistoryEntry(panelId: panelId, tabId: tab.id, pane: pane) else {
             return false
         }
-        ClosedItemHistoryStore.shared.push(.panel(entry))
+        let captureTask = ClosedItemHistoryStore.shared.pushPreservingAgentMetadata(.panel(entry))
+        deferPanelCloseUntilAgentMetadataCaptured(panelId: panelId, captureTask: captureTask)
         return true
     }
 
@@ -975,7 +976,7 @@ extension Workspace {
         return binding.retargetingWorkingDirectory(resolvedWorkingDirectory)
     }
 
-    nonisolated private static func restorableAgentForSessionRestore(
+    nonisolated static func restorableAgentForSessionRestore(
         _ restorableAgent: SessionRestorableAgentSnapshot?,
         resumeBinding: SurfaceResumeBindingSnapshot?
     ) -> SessionRestorableAgentSnapshot? {
@@ -2112,6 +2113,7 @@ final class Workspace: Identifiable, ObservableObject {
 
     /// Subscriptions for panel updates (e.g., browser title changes)
     var panelSubscriptions: [UUID: AnyCancellable] = [:]
+    let agentMetadataCloseDeferrer = AgentMetadataCloseDeferrer()
     private var agentSessionPanelCallbackIds: Set<UUID> = []
 
     /// Aggregate media-device activity across every browser pane in this
@@ -12346,7 +12348,8 @@ extension Workspace: BonsplitDelegate {
         if !closedPanelIds.isEmpty {
             if !isDetachingCloseTransaction && !suppressClosedPanelHistory {
                 for entry in closedHistoryEntries {
-                    ClosedItemHistoryStore.shared.push(.panel(entry))
+                    let captureTask = ClosedItemHistoryStore.shared.pushPreservingAgentMetadata(.panel(entry))
+                    deferPanelCloseUntilAgentMetadataCaptured(panelId: entry.snapshot.id, captureTask: captureTask)
                 }
             }
 

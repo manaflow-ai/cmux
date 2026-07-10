@@ -13,6 +13,7 @@ struct SharedLiveAgentIndexLoader {
     private let homeDirectory: String
     private let fileManager: FileManager
     private let registry: CmuxVaultAgentRegistry?
+    private let registryLoader: (String, FileManager) -> CmuxVaultAgentRegistry
     private let processSnapshotProvider: () -> CmuxTopProcessSnapshot
     private let capturedAtProvider: () -> TimeInterval
     private let processArgumentsProvider: (Int) -> CmuxTopProcessArguments?
@@ -23,6 +24,9 @@ struct SharedLiveAgentIndexLoader {
         homeDirectory: String = NSHomeDirectory(),
         fileManager: FileManager = .default,
         registry: CmuxVaultAgentRegistry? = nil,
+        registryLoader: @escaping (String, FileManager) -> CmuxVaultAgentRegistry = { homeDirectory, fileManager in
+            CmuxVaultAgentRegistry.load(homeDirectory: homeDirectory, fileManager: fileManager)
+        },
         processSnapshotProvider: @escaping () -> CmuxTopProcessSnapshot = {
             CmuxTopProcessSnapshot.capture(includeProcessDetails: true)
         },
@@ -41,6 +45,7 @@ struct SharedLiveAgentIndexLoader {
         self.homeDirectory = homeDirectory
         self.fileManager = fileManager
         self.registry = registry
+        self.registryLoader = registryLoader
         self.processSnapshotProvider = processSnapshotProvider
         self.capturedAtProvider = capturedAtProvider
         self.processArgumentsProvider = processArgumentsProvider
@@ -53,10 +58,9 @@ struct SharedLiveAgentIndexLoader {
     }
 
     func loadResultSynchronously() -> LoadResult {
-        let resolvedRegistry = registry
-            ?? CmuxVaultAgentRegistry.load(homeDirectory: homeDirectory, fileManager: fileManager)
         let processSnapshot = processSnapshotProvider()
         let capturedAt = capturedAtProvider()
+        let resolvedRegistry = registry ?? registryLoader(homeDirectory, fileManager)
         var processArgumentsByPID: [Int: CmuxTopProcessArguments?] = [:]
         func cachedProcessArguments(_ processID: Int) -> CmuxTopProcessArguments? {
             if let cached = processArgumentsByPID[processID] {

@@ -12,7 +12,58 @@ import Testing
 @Suite(.serialized)
 struct ProcessDetectedResumeIndexCoordinationTests {
     @Test
-    func quickQuitDuringPrewarmJoinsAutosaveAndHibernationCapture() async {
+    func confirmedTerminationCoreSaveDoesNotStartAnExtraColdScan() async {
+        let loadStarted = DispatchSemaphore(value: 0)
+        let releaseLoad = DispatchSemaphore(value: 0)
+        defer { releaseLoad.signal() }
+        let events = OSAllocatedUnfairLock(initialState: [String]())
+        let loadCount = OSAllocatedUnfairLock(initialState: 0)
+        let sharedIndex = SharedLiveAgentIndex(
+            indexLoader: {
+                events.withLock { $0.append("load") }
+                loadCount.withLock { $0 += 1 }
+                loadStarted.signal()
+                releaseLoad.wait()
+                return (
+                    index: .empty,
+                    surfaceResumeBindingIndex: .empty,
+                    liveAgentProcessFingerprint: [],
+                    processScopeFingerprint: [],
+                    forkValidatedPanels: []
+                )
+            },
+            hookStoreDirectoryProvider: { Self.temporaryDirectory(named: "confirmed-cold").path }
+        )
+        let coordinator = TerminationResumeIndexCoordinator()
+        let watchdog = TerminationWatchdog(
+            onFire: {},
+            scheduleDeadline: { _, _ in events.withLock { $0.append("watchdog") } }
+        )
+        let capture = ConfirmedTerminationSessionCapture(watchdog: watchdog)
+
+        let task = capture.start(
+            persistCoreSnapshot: {
+                events.withLock { $0.append("core") }
+                #expect(coordinator.current(coordinatedBy: sharedIndex) == nil)
+            },
+            capture: {
+                events.withLock { $0.append("capture") }
+                return await coordinator.load(coordinatedBy: sharedIndex)
+            },
+            completion: { _ in events.withLock { $0.append("complete") } }
+        )
+
+        #expect(loadCount.withLock { $0 } == 0)
+        #expect(events.withLock { $0 } == ["core", "watchdog"])
+        #expect(await Self.wait(for: loadStarted))
+        #expect(loadCount.withLock { $0 } == 1)
+        releaseLoad.signal()
+        await task.value
+        #expect(events.withLock { $0 } == ["core", "watchdog", "capture", "load", "complete"])
+    }
+
+    @Test
+    func quickQuitDuringPrewarmQueuesPostConfirmationCapture() async {
         let loadStarted = DispatchSemaphore(value: 0)
         let secondLoadStarted = DispatchSemaphore(value: 0)
         let releaseLoad = DispatchSemaphore(value: 0)
@@ -57,11 +108,15 @@ struct ProcessDetectedResumeIndexCoordinationTests {
             },
             capturedAtProvider: { 42 },
             processArgumentsProvider: { requestedProcessId in
-                processArgumentLoadCount.withLock { $0 += 1 }
+                let invocation = processArgumentLoadCount.withLock { count in
+                    count += 1
+                    return count
+                }
                 guard requestedProcessId == processId else { return nil }
+                let session = invocation == 1 ? "pre-confirmation" : "post-confirmation"
                 return CmuxTopProcessArguments(
-                    arguments: ["/opt/homebrew/bin/tmux", "attach-session", "-t", "shared-work"],
-                    environment: ["PWD": "/tmp/shared-work"]
+                    arguments: ["/opt/homebrew/bin/tmux", "attach-session", "-t", session],
+                    environment: ["PWD": "/tmp/\(session)"]
                 )
             },
             processIdentityProvider: { _ in nil }
@@ -93,27 +148,27 @@ struct ProcessDetectedResumeIndexCoordinationTests {
         let startedSecondLoad = await Self.wait(for: secondLoadStarted, timeout: 0.2)
         #expect(
             !startedSecondLoad,
-            "Autosave and repeated synchronous termination reads must join the hibernation capture."
+            "The post-confirmation capture must queue behind the older prewarm without overlapping it."
         )
 
         releaseLoad.signal()
-        releaseLoad.signal()
+        #expect(await Self.wait(for: secondLoadStarted))
         releaseLoad.signal()
         _ = await hibernationCapture.value
         let resumeIndexes = await autosaveCapture.value
         let terminationIndexes = await terminationCapture.value
-        #expect(Self.bindingSession(in: resumeIndexes, workspaceId: workspaceId, panelId: panelId) == "shared-work")
-        #expect(Self.bindingSession(in: terminationIndexes, workspaceId: workspaceId, panelId: panelId) == "shared-work")
+        #expect(Self.bindingSession(in: resumeIndexes, workspaceId: workspaceId, panelId: panelId) == "pre-confirmation")
+        #expect(Self.bindingSession(in: terminationIndexes, workspaceId: workspaceId, panelId: panelId) == "post-confirmation")
 
         let firstWillTerminateIndexes = terminationCoordinator.current(coordinatedBy: sharedIndex)
         let secondWillTerminateIndexes = terminationCoordinator.current(coordinatedBy: sharedIndex)
-        #expect(Self.bindingSession(in: firstWillTerminateIndexes, workspaceId: workspaceId, panelId: panelId) == "shared-work")
-        #expect(Self.bindingSession(in: secondWillTerminateIndexes, workspaceId: workspaceId, panelId: panelId) == "shared-work")
-        #expect(loadState.withLock { $0.count } == 1)
+        #expect(Self.bindingSession(in: firstWillTerminateIndexes, workspaceId: workspaceId, panelId: panelId) == "post-confirmation")
+        #expect(Self.bindingSession(in: secondWillTerminateIndexes, workspaceId: workspaceId, panelId: panelId) == "post-confirmation")
+        #expect(loadState.withLock { $0.count } == 2)
         #expect(loadState.withLock { $0.maximum } == 1)
         #expect(
-            processArgumentLoadCount.withLock { $0 } == 1,
-            "The agent and tmux indexes must reuse one process-argument decode."
+            processArgumentLoadCount.withLock { $0 } == 2,
+            "Each generation must reuse one process-argument decode across its agent and tmux indexes."
         )
     }
 

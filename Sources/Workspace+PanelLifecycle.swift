@@ -334,6 +334,36 @@ extension Workspace {
         }
     }
 
+    @discardableResult
+    func deferPanelCloseUntilAgentMetadataCaptured(
+        panelId: UUID,
+        captureTask: Task<Void, Never>?
+    ) -> Task<Void, Never>? {
+        guard let captureTask,
+              let panel = panels[panelId] as? TerminalPanel else {
+            return nil
+        }
+        panel.retireFromUIForDeferredClose()
+        return agentMetadataCloseDeferrer.deferClose(
+            id: panelId,
+            until: captureTask
+        ) { [panel] in
+            panel.close()
+        }
+    }
+
+    func deferAllPanelClosesUntilAgentMetadataCaptured(
+        _ captureTask: Task<Void, Never>?
+    ) {
+        guard let captureTask else { return }
+        for panelId in panels.keys {
+            deferPanelCloseUntilAgentMetadataCaptured(
+                panelId: panelId,
+                captureTask: captureTask
+            )
+        }
+    }
+
     /// Discard every Workspace-owned contribution for a surface whose tab,
     /// pane, or workspace has already been accepted for closure.
     @discardableResult
@@ -363,7 +393,7 @@ extension Workspace {
         if cleanupControllerSurfaceState {
             TerminalController.shared.cleanupSurfaceState(surfaceIds: [panelId, tabId?.uuid].compactMap { $0 })
         }
-        if closePanel {
+        if closePanel, !agentMetadataCloseDeferrer.isDeferringClose(id: panelId) {
             panel?.close()
         }
 

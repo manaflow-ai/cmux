@@ -16196,13 +16196,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             closeWindowSnapshotPruningCrashDiagnostics(
                 for: context,
                 includeScrollback: false,
-                restorableAgentIndex: SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh() ?? .empty
+                restorableAgentIndex: SharedLiveAgentIndex.shared.cachedIndex() ?? .empty
             )
                 .isCrashDiagnostic
         } ?? false
 
         if let closingContext, !closingWindowIsCrashDiagnostic {
-            recordClosedWindowHistoryIfNeeded(for: closingContext)
+            let captureTask = recordClosedWindowHistoryIfNeeded(for: closingContext)
+            closingContext.tabManager.tabs.forEach { $0.deferAllPanelClosesUntilAgentMetadataCaptured(captureTask) }
         }
 
         // Keep geometry available as a fallback for the next window placement,
@@ -16274,26 +16275,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
-    private func recordClosedWindowHistoryIfNeeded(for context: MainWindowContext) {
+    @discardableResult private func recordClosedWindowHistoryIfNeeded(for context: MainWindowContext) -> Task<Void, Never>? {
         let shouldSuppressClosedWindowHistory = closedWindowHistorySuppressedWindowIds.remove(context.windowId) != nil
         guard !shouldSuppressClosedWindowHistory,
               !isTerminatingApp,
               !isApplyingSessionRestore else {
-            return
+            return nil
         }
-        let restorableAgentIndex = SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
+        let restorableAgentIndex = SharedLiveAgentIndex.shared.cachedIndex()
             ?? .empty
         guard let snapshot = closeWindowSnapshotPruningCrashDiagnostics(
             for: context,
             includeScrollback: true,
             restorableAgentIndex: restorableAgentIndex
         ).snapshot else {
-            return
+            return nil
         }
         guard !snapshot.tabManager.workspaces.isEmpty else {
-            return
+            return nil
         }
-        ClosedItemHistoryStore.shared.push(.window(ClosedWindowHistoryEntry(
+        return ClosedItemHistoryStore.shared.pushPreservingAgentMetadata(.window(ClosedWindowHistoryEntry(
             windowId: context.windowId,
             snapshot: snapshot,
             workspaceIds: snapshot.tabManager.workspaces.compactMap(\.workspaceId)
@@ -16307,7 +16308,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func recordClosedWindowHistoryForTesting(windowId: UUID) {
         guard let context = mainWindowContexts.values.first(where: { $0.windowId == windowId }) else { return }
-        recordClosedWindowHistoryIfNeeded(for: context)
+        _ = recordClosedWindowHistoryIfNeeded(for: context)
     }
 
     func isClosedWindowHistorySuppressedForTesting(windowId: UUID) -> Bool {

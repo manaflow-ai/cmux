@@ -28,9 +28,8 @@ final class TerminationResumeIndexCoordinator {
         } else {
             let id = UUID()
             let task = Task { @MainActor in
-                await ProcessDetectedResumeIndexes.load(
-                    coordinatedBy: sharedIndex,
-                    maximumAge: 5
+                await ProcessDetectedResumeIndexes.loadCapturedAfterRequest(
+                    coordinatedBy: sharedIndex
                 )
             }
             pending = (id: id, task: task)
@@ -52,7 +51,7 @@ final class TerminationResumeIndexCoordinator {
     func current(
         coordinatedBy sharedIndex: SharedLiveAgentIndex
     ) -> ProcessDetectedResumeIndexes? {
-        completed ?? sharedIndex.currentResumeIndexesSchedulingRefresh()
+        completed ?? sharedIndex.cachedResumeIndexes()
     }
 
 }
