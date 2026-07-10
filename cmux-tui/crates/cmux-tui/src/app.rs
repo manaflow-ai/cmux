@@ -8,6 +8,7 @@
 
 use std::collections::HashMap;
 use std::io::Write;
+use std::ops::Deref;
 use std::sync::mpsc::{Receiver, RecvTimeoutError, channel};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -38,6 +39,7 @@ use crate::config::{Action, Config, ScrollbarPosition};
 use crate::keys;
 use crate::pty_input::{
     PtyInputBytes, PtyInputDispatcher, PtyInputEnqueueResult, PtyInputEvent, PtyInputKind,
+    PtyInputSender, PtyOperationFailure,
 };
 use crate::session::{Session, SurfaceHandle, TreeView};
 use crate::ui::graphics::GraphicPlacement;
@@ -48,6 +50,214 @@ use crate::ui::thumb_geometry;
 pub enum AppEvent {
     Mux(MuxEvent),
     Input(Event),
+    PtyOperationFailed(PtyOperationFailure),
+}
+
+/// Read access stays synchronous, while every UI-originated session mutation
+/// enters the same ordered worker as PTY input. Accepted keys, mouse releases,
+/// resizes, and closes therefore have one execution order without blocking the
+/// event loop.
+pub struct OrderedSession {
+    inner: Session,
+    operations: PtyInputSender,
+}
+
+impl OrderedSession {
+    fn new(inner: Session, operations: PtyInputSender) -> Self {
+        Self { inner, operations }
+    }
+
+    fn enqueue(
+        &self,
+        label: &'static str,
+        operation: impl FnOnce(Session) -> anyhow::Result<()> + Send + 'static,
+    ) {
+        let session = self.inner.clone();
+        self.operations.enqueue_mutation(label, move || operation(session));
+    }
+
+    fn resize_surface(
+        &self,
+        surface_id: SurfaceId,
+        surface: SurfaceHandle,
+        cols: u16,
+        rows: u16,
+        reassert: bool,
+    ) {
+        self.operations.enqueue_coalescing_mutation(
+            "resize PTY surface",
+            ("surface resize", surface_id),
+            move || {
+                if reassert {
+                    surface.reassert_size(cols, rows);
+                } else {
+                    surface.resize(cols, rows);
+                }
+                Ok(())
+            },
+        );
+    }
+
+    pub fn new_tab(&self, pane: Option<PaneId>, size: Option<(u16, u16)>) -> anyhow::Result<()> {
+        self.enqueue("create tab", move |session| session.new_tab(pane, size));
+        Ok(())
+    }
+
+    pub fn set_cell_pixel_size(&self, width: u16, height: u16) {
+        self.enqueue("set cell pixel size", move |session| {
+            session.set_cell_pixel_size(width, height);
+            Ok(())
+        });
+    }
+
+    pub fn new_workspace(&self, size: Option<(u16, u16)>) -> anyhow::Result<()> {
+        self.enqueue("create workspace", move |session| session.new_workspace(size));
+        Ok(())
+    }
+
+    pub fn new_screen(&self, size: Option<(u16, u16)>) -> anyhow::Result<()> {
+        self.enqueue("create screen", move |session| session.new_screen(size));
+        Ok(())
+    }
+
+    pub fn close_screen(&self, screen: cmux_tui_core::ScreenId) {
+        self.enqueue("close screen", move |session| {
+            session.close_screen(screen);
+            Ok(())
+        });
+    }
+
+    pub fn rename_screen(&self, screen: cmux_tui_core::ScreenId, name: String) {
+        self.enqueue("rename screen", move |session| {
+            session.rename_screen(screen, name);
+            Ok(())
+        });
+    }
+
+    pub fn select_screen(&self, index: Option<usize>, delta: Option<isize>) {
+        self.enqueue("select screen", move |session| {
+            session.select_screen(index, delta);
+            Ok(())
+        });
+    }
+
+    pub fn zoom_pane(&self, pane: Option<PaneId>) {
+        self.enqueue("zoom pane", move |session| {
+            session.zoom_pane(pane);
+            Ok(())
+        });
+    }
+
+    pub fn split(
+        &self,
+        pane: PaneId,
+        dir: SplitDir,
+        size: Option<(u16, u16)>,
+    ) -> anyhow::Result<()> {
+        self.enqueue("split pane", move |session| session.split(pane, dir, size));
+        Ok(())
+    }
+
+    pub fn set_ratio(&self, pane: PaneId, dir: SplitDir, ratio: f32) {
+        let session = self.inner.clone();
+        let direction = match dir {
+            SplitDir::Right => "horizontal split ratio",
+            SplitDir::Down => "vertical split ratio",
+        };
+        self.operations.enqueue_coalescing_mutation(
+            "resize pane split",
+            (direction, pane),
+            move || {
+                session.set_ratio(pane, dir, ratio);
+                Ok(())
+            },
+        );
+    }
+
+    pub fn close_surface(&self, surface: SurfaceId) {
+        self.enqueue("close tab", move |session| {
+            session.close_surface(surface);
+            Ok(())
+        });
+    }
+
+    pub fn close_pane(&self, pane: PaneId) {
+        self.enqueue("close pane", move |session| {
+            session.close_pane(pane);
+            Ok(())
+        });
+    }
+
+    pub fn swap_pane(&self, pane: PaneId, target: PaneId) {
+        self.enqueue("swap panes", move |session| {
+            session.swap_pane(pane, target);
+            Ok(())
+        });
+    }
+
+    pub fn close_workspace(&self, workspace: WorkspaceId) {
+        self.enqueue("close workspace", move |session| {
+            session.close_workspace(workspace);
+            Ok(())
+        });
+    }
+
+    pub fn rename_surface(&self, surface: SurfaceId, name: String) {
+        self.enqueue("rename tab", move |session| {
+            session.rename_surface(surface, name);
+            Ok(())
+        });
+    }
+
+    pub fn rename_workspace(&self, workspace: WorkspaceId, name: String) {
+        self.enqueue("rename workspace", move |session| {
+            session.rename_workspace(workspace, name);
+            Ok(())
+        });
+    }
+
+    pub fn focus_pane(&self, pane: PaneId) {
+        self.enqueue("focus pane", move |session| {
+            session.focus_pane(pane);
+            Ok(())
+        });
+    }
+
+    pub fn select_tab(&self, pane: Option<PaneId>, index: Option<usize>, delta: Option<isize>) {
+        self.enqueue("select tab", move |session| {
+            session.select_tab(pane, index, delta);
+            Ok(())
+        });
+    }
+
+    pub fn select_workspace(&self, index: Option<usize>, delta: Option<isize>) {
+        self.enqueue("select workspace", move |session| {
+            session.select_workspace(index, delta);
+            Ok(())
+        });
+    }
+
+    pub fn move_tab(&self, surface: SurfaceId, pane: PaneId, index: usize) {
+        self.enqueue("move tab", move |session| {
+            session.move_tab(surface, pane, index);
+            Ok(())
+        });
+    }
+
+    pub fn move_workspace(&self, workspace: WorkspaceId, index: usize) {
+        self.enqueue("move workspace", move |session| {
+            session.move_workspace(workspace, index);
+            Ok(())
+        });
+    }
+}
+
+impl Deref for OrderedSession {
+    type Target = Session;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -391,7 +601,7 @@ enum Drag {
 }
 
 pub struct App {
-    pub session: Session,
+    pub session: OrderedSession,
     pub config: Config,
     pub tree: TreeView,
     pub render_states: HashMap<SurfaceId, RenderState>,
@@ -582,11 +792,14 @@ pub fn run(session: Session, session_label: String) -> anyhow::Result<()> {
     session.ensure_initial(initial_size)?;
     let encoder = KeyEncoder::new()?;
     let mouse_encoder = MouseEncoder::new()?;
-    let browser_input = BrowserInputDispatcher::spawn()?;
-    let pty_input = PtyInputDispatcher::spawn()?;
-    let stdout_lock = Arc::new(Mutex::new(()));
-
     let (tx, rx) = channel::<AppEvent>();
+    let browser_input = BrowserInputDispatcher::spawn()?;
+    let failure_tx = tx.clone();
+    let pty_input = PtyInputDispatcher::spawn(move |failure| {
+        let _ = failure_tx.send(AppEvent::PtyOperationFailed(failure));
+    })?;
+    let session = OrderedSession::new(session, pty_input.sender());
+    let stdout_lock = Arc::new(Mutex::new(()));
 
     // Session events → app channel.
     let session_events = session.events();
@@ -867,7 +1080,7 @@ impl App {
     fn refresh_cell_pixels(&mut self, query_fallback: bool) {
         let next = crate::ui::graphics::detect_cell_pixels(query_fallback);
         if self.cell_pixels != next {
-            if !self.flush_pty_input_before_mutation() {
+            if !self.prepare_pty_input_before_mutation() {
                 return;
             }
             self.cell_pixels = next;
@@ -949,15 +1162,22 @@ impl App {
             // server-side resize, so no post-attach reflow artifacts).
             let size = Some((content.width, content.height));
             for tab in &pane.tabs {
-                if !self.session.has_surface(tab.surface) && !self.flush_pty_input_before_mutation()
+                if !self.session.has_surface(tab.surface)
+                    && !self.prepare_pty_input_before_mutation()
                 {
                     return;
                 }
                 if let Some(surface) = self.session.surface_sized(tab.surface, size)
                     && surface.resize_needed(content.width, content.height, false)
-                    && self.flush_pty_input_before_mutation()
+                    && self.prepare_pty_input_before_mutation()
                 {
-                    surface.resize(content.width, content.height);
+                    self.session.resize_surface(
+                        tab.surface,
+                        surface,
+                        content.width,
+                        content.height,
+                        false,
+                    );
                 }
             }
         }
@@ -984,7 +1204,7 @@ impl App {
         if rect.width == 0 || rect.height == 0 {
             return;
         }
-        if relaunch && !self.flush_pty_input_before_mutation() {
+        if relaunch && !self.prepare_pty_input_before_mutation() {
             return;
         }
         let status = self.session.sidebar_plugin((rect.width, rect.height), relaunch);
@@ -1048,6 +1268,15 @@ impl App {
                 }
             }
             AppEvent::Mux(_) => Ok(RenderAction::Draw),
+            AppEvent::PtyOperationFailed(failure) => {
+                if failure.surface_id.is_some_and(|surface| {
+                    matches!(&self.drag, Some(Drag::PtyMouse { surface: active, .. }) if *active == surface)
+                }) {
+                    self.drag = None;
+                }
+                self.status_message = Some(format!("{} failed: {}", failure.label, failure.error));
+                Ok(RenderAction::Draw)
+            }
             AppEvent::Input(Event::Key(key)) => {
                 if key.kind != KeyEventKind::Release {
                     self.reassert_visible_surface_sizes();
@@ -1131,8 +1360,12 @@ impl App {
             let rect = self.sidebar_plugin_rect();
             if rect.width > 0 && rect.height > 0 {
                 let needs_barrier = surface.resize_needed(rect.width, rect.height, true);
-                if !needs_barrier || self.flush_pty_input_before_mutation() {
+                if !needs_barrier {
                     surface.reassert_size(rect.width, rect.height);
+                } else if self.prepare_pty_input_before_mutation()
+                    && let Some(surface_id) = self.sidebar_plugin_surface
+                {
+                    self.session.resize_surface(surface_id, surface, rect.width, rect.height, true);
                 }
             }
         }
@@ -1140,7 +1373,8 @@ impl App {
             if area.content.width == 0 || area.content.height == 0 {
                 continue;
             }
-            if !self.session.has_surface(area.surface) && !self.flush_pty_input_before_mutation() {
+            if !self.session.has_surface(area.surface) && !self.prepare_pty_input_before_mutation()
+            {
                 return;
             }
             if let Some(surface) = self
@@ -1149,8 +1383,16 @@ impl App {
             {
                 let needs_barrier =
                     surface.resize_needed(area.content.width, area.content.height, true);
-                if !needs_barrier || self.flush_pty_input_before_mutation() {
+                if !needs_barrier {
                     surface.reassert_size(area.content.width, area.content.height);
+                } else if self.prepare_pty_input_before_mutation() {
+                    self.session.resize_surface(
+                        area.surface,
+                        surface,
+                        area.content.width,
+                        area.content.height,
+                        true,
+                    );
                 }
             }
         }
@@ -1218,7 +1460,7 @@ impl App {
 
     fn split_pane(&mut self, pane: PaneId, dir: SplitDir) -> anyhow::Result<()> {
         let hint = self.split_size_hint(pane, dir);
-        if !self.flush_pty_input_before_mutation() {
+        if !self.prepare_pty_input_before_mutation() {
             return Ok(());
         }
         self.session.split(pane, dir, hint)
@@ -1234,14 +1476,14 @@ impl App {
     }
 
     fn new_workspace(&mut self) -> anyhow::Result<()> {
-        if !self.flush_pty_input_before_mutation() {
+        if !self.prepare_pty_input_before_mutation() {
             return Ok(());
         }
         self.session.new_workspace(self.size_of_rect(self.content_area))
     }
 
     fn new_screen(&mut self) -> anyhow::Result<()> {
-        if !self.flush_pty_input_before_mutation() {
+        if !self.prepare_pty_input_before_mutation() {
             return Ok(());
         }
         self.session.new_screen(self.size_of_rect(self.content_area))
@@ -1286,7 +1528,7 @@ impl App {
     fn commit_prompt(&mut self) {
         let Some(prompt) = self.take_prompt() else { return };
         let input = prompt.input.as_str().to_string();
-        if !self.flush_pty_input_before_mutation() {
+        if !self.prepare_pty_input_before_mutation() {
             return;
         }
         match prompt.target {
@@ -1382,7 +1624,7 @@ impl App {
                     return Ok(RenderAction::Draw);
                 }
                 let url = cmux_tui_core::normalize_url(input);
-                if !self.flush_pty_input_before_mutation() {
+                if !self.prepare_pty_input_before_mutation() {
                     return Ok(RenderAction::None);
                 }
                 match self.session.surface(state.surface) {
@@ -1460,7 +1702,7 @@ impl App {
     /// Execute one bound action. Shared by the (configurable) prefix keys
     /// and any future command surface.
     fn run_action(&mut self, action: Action) -> anyhow::Result<RenderAction> {
-        if action_requires_pty_input_barrier(action) && !self.flush_pty_input_before_mutation() {
+        if action_prepares_pty_release(action) && !self.prepare_pty_input_before_mutation() {
             return Ok(RenderAction::None);
         }
         let pane = self.active_pane();
@@ -1616,7 +1858,7 @@ impl App {
     }
 
     fn create_browser_tab_for_edit(&mut self, pane: Option<PaneId>) -> anyhow::Result<()> {
-        if !self.flush_pty_input_before_mutation() {
+        if !self.prepare_pty_input_before_mutation() {
             return Ok(());
         }
         self.session.new_browser_tab(
@@ -1716,8 +1958,7 @@ impl App {
     }
 
     fn activate_menu(&mut self, action: MenuAction) -> anyhow::Result<()> {
-        if menu_action_requires_pty_input_barrier(action) && !self.flush_pty_input_before_mutation()
-        {
+        if menu_action_prepares_pty_release(action) && !self.prepare_pty_input_before_mutation() {
             return Ok(());
         }
         match action {
@@ -1844,7 +2085,7 @@ impl App {
     fn swap_pane_by_order(&mut self, delta: isize) {
         let Some(active) = self.active_pane() else { return };
         if let Some(target) = self.adjacent_pane_by_order(delta)
-            && self.flush_pty_input_before_mutation()
+            && self.prepare_pty_input_before_mutation()
         {
             self.session.swap_pane(active, target);
         }
@@ -2495,7 +2736,7 @@ impl App {
         bytes: PtyInputBytes,
         kind: PtyInputKind,
     ) -> bool {
-        let result = self.pty_input.enqueue(PtyInputEvent { surface_id, surface, bytes, kind });
+        let result = self.pty_input.enqueue(PtyInputEvent::input(surface_id, surface, bytes, kind));
         self.handle_pty_enqueue_result(result)
     }
 
@@ -2507,32 +2748,20 @@ impl App {
                 false
             }
             PtyInputEnqueueResult::Saturated => {
-                // Saturation means ordered input can no longer be represented
-                // safely. Disconnect instead of silently dropping or replaying
-                // a partial stream after recovery.
-                self.pty_input.abort();
-                self.quit = true;
+                self.status_message =
+                    Some("PTY input queue is full; input was not sent".to_string());
                 false
             }
         }
     }
 
-    fn flush_pty_input_before_mutation(&mut self) -> bool {
+    fn prepare_pty_input_before_mutation(&mut self) -> bool {
         self.cancel_pty_mouse_drag();
-        if self.quit || matches!(self.drag, Some(Drag::PtyMouse { .. })) {
-            return false;
-        }
-        if self.pty_input.flush(Duration::from_secs(3)) {
-            return true;
-        }
-        self.pty_input.abort();
-        self.status_message = Some("PTY input did not finish before the session mutation".into());
-        self.quit = true;
-        false
+        !matches!(self.drag, Some(Drag::PtyMouse { .. }))
     }
 
     fn focus_pane_after_input(&mut self, pane: PaneId) {
-        if self.flush_pty_input_before_mutation() {
+        if self.prepare_pty_input_before_mutation() {
             self.session.focus_pane(pane);
         }
     }
@@ -2813,7 +3042,7 @@ impl App {
                 }
                 Hit::NewWorkspace => self.new_workspace()?,
                 Hit::ScreenEntry { index, .. } => {
-                    if self.flush_pty_input_before_mutation() {
+                    if self.prepare_pty_input_before_mutation() {
                         self.session.select_screen(Some(index), None);
                     }
                 }
@@ -2830,7 +3059,7 @@ impl App {
                 }
                 Hit::NewTab { pane } => {
                     self.focus_pane_after_input(pane);
-                    if self.flush_pty_input_before_mutation() {
+                    if self.prepare_pty_input_before_mutation() {
                         self.session.new_tab(Some(pane), None)?;
                     }
                 }
@@ -2983,7 +3212,7 @@ impl App {
             self.drag = None;
             if let Some((pane, index)) = self.tab_location(surface) {
                 self.focus_pane_after_input(pane);
-                if self.flush_pty_input_before_mutation() {
+                if self.prepare_pty_input_before_mutation() {
                     self.session.select_tab(Some(pane), Some(index), None);
                 }
             }
@@ -2992,7 +3221,7 @@ impl App {
         if let Some(Drag::Tab { surface, .. }) = self.drag {
             self.drag = None;
             if let Some((pane, index)) = self.tab_drop_target_at(x, y)
-                && self.flush_pty_input_before_mutation()
+                && self.prepare_pty_input_before_mutation()
             {
                 self.session.move_tab(surface, pane, index);
             }
@@ -3001,7 +3230,7 @@ impl App {
         if let Some(Drag::WorkspaceArm { workspace, .. }) = self.drag {
             self.drag = None;
             if let Some(index) = self.workspace_index(workspace)
-                && self.flush_pty_input_before_mutation()
+                && self.prepare_pty_input_before_mutation()
             {
                 self.session.select_workspace(Some(index), None);
             }
@@ -3010,7 +3239,7 @@ impl App {
         if let Some(Drag::Workspace { workspace, .. }) = self.drag {
             self.drag = None;
             if let Some(index) = self.workspace_drop_target_at(x, y)
-                && self.flush_pty_input_before_mutation()
+                && self.prepare_pty_input_before_mutation()
             {
                 self.session.move_workspace(workspace, index);
             }
@@ -3208,7 +3437,7 @@ impl App {
                 1.0,
             ),
         };
-        if self.flush_pty_input_before_mutation() {
+        if self.prepare_pty_input_before_mutation() {
             self.session.set_ratio(
                 target.set_pane,
                 dir,
@@ -3243,7 +3472,7 @@ impl App {
             return;
         }
         let ratio = (coord.saturating_sub(start) as f32 / extent as f32).clamp(0.05, 0.95);
-        if self.flush_pty_input_before_mutation() {
+        if self.prepare_pty_input_before_mutation() {
             self.session.set_ratio(target.set_pane, dir, ratio);
         }
     }
@@ -3485,7 +3714,7 @@ fn browser_only_action(action: Action) -> bool {
     )
 }
 
-fn action_requires_pty_input_barrier(action: Action) -> bool {
+fn action_prepares_pty_release(action: Action) -> bool {
     !matches!(
         action,
         Action::RenameTab
@@ -3497,7 +3726,7 @@ fn action_requires_pty_input_barrier(action: Action) -> bool {
     )
 }
 
-fn menu_action_requires_pty_input_barrier(action: MenuAction) -> bool {
+fn menu_action_prepares_pty_release(action: MenuAction) -> bool {
     !matches!(
         action,
         MenuAction::RenameWorkspace(_)
@@ -3554,7 +3783,7 @@ fn browser_key_mapping(
 #[cfg(test)]
 mod tests {
     use super::{
-        App, AppEvent, Drag, PaneArea, browser_content_size_for_rect,
+        App, AppEvent, Drag, OrderedSession, PaneArea, browser_content_size_for_rect,
         browser_hover_forward_allowed, pane_parts_for_rect,
     };
     use std::collections::HashMap;
@@ -3729,7 +3958,7 @@ mod tests {
     }
 
     #[test]
-    fn oversized_remote_input_shows_an_error_without_disconnecting() {
+    fn rejected_input_shows_an_error_without_disconnecting() {
         let mux = Mux::new("oversized-input-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
 
@@ -3800,6 +4029,8 @@ mod tests {
     }
 
     fn test_app(session: Session) -> App {
+        let pty_input = PtyInputDispatcher::spawn(|_| {}).unwrap();
+        let session = OrderedSession::new(session, pty_input.sender());
         App {
             session,
             config: Config::default(),
@@ -3833,7 +4064,7 @@ mod tests {
             pointer_shape: false,
             last_browser_hover: None,
             browser_input: BrowserInputDispatcher::spawn().unwrap(),
-            pty_input: PtyInputDispatcher::spawn().unwrap(),
+            pty_input,
             drag: None,
             encoder: KeyEncoder::new().unwrap(),
             mouse_encoder: MouseEncoder::new().unwrap(),

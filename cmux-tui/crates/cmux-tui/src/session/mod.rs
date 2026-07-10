@@ -24,6 +24,7 @@ use serde_json::json;
 pub use remote::{RemoteSession, RemoteSurface};
 pub use tree::{TabNotificationView, TreeView, WorkspaceView};
 
+#[derive(Clone)]
 pub enum Session {
     Local(Arc<Mux>),
     Remote(Arc<RemoteSession>),
@@ -479,15 +480,13 @@ impl SurfaceHandle {
         }
     }
 
-    pub fn write_bytes(&self, bytes: &[u8]) {
+    pub fn write_bytes(&self, bytes: &[u8]) -> anyhow::Result<()> {
         match self {
-            SurfaceHandle::Local(surface) => {
-                let _ = surface.write_bytes(bytes);
+            SurfaceHandle::Local(surface) => surface.write_bytes(bytes).map_err(Into::into),
+            SurfaceHandle::Remote(surface, session) => session.send_bytes(surface.id, bytes),
+            SurfaceHandle::RemoteBrowserUnsupported => {
+                anyhow::bail!("browser surface does not accept PTY input")
             }
-            SurfaceHandle::Remote(surface, session) => {
-                session.send_bytes(surface.id, bytes);
-            }
-            SurfaceHandle::RemoteBrowserUnsupported => {}
         }
     }
 

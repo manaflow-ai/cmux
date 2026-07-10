@@ -439,9 +439,9 @@ impl RemoteSession {
         }
     }
 
-    pub fn send_bytes(&self, surface: SurfaceId, bytes: &[u8]) {
+    pub fn send_bytes(&self, surface: SurfaceId, bytes: &[u8]) -> anyhow::Result<()> {
         let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
-        let _ = self.request(json!({"cmd": "send", "surface": surface, "bytes": encoded}));
+        self.request(json!({"cmd": "send", "surface": surface, "bytes": encoded})).map(|_| ())
     }
 
     pub fn set_cell_pixel_size(&self, width_px: u16, height_px: u16) {

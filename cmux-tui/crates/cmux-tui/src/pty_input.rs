@@ -27,6 +27,7 @@ pub enum PtyInputKind {
     Press,
     Motion,
     Release,
+    Mutation,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -41,6 +42,51 @@ pub struct PtyInputEvent {
     pub surface: SurfaceHandle,
     pub bytes: PtyInputBytes,
     pub kind: PtyInputKind,
+    mutation: Option<Box<dyn FnOnce() -> anyhow::Result<()> + Send>>,
+    label: &'static str,
+    coalesce_key: Option<(&'static str, u64)>,
+}
+
+impl PtyInputEvent {
+    pub fn input(
+        surface_id: SurfaceId,
+        surface: SurfaceHandle,
+        bytes: PtyInputBytes,
+        kind: PtyInputKind,
+    ) -> Self {
+        Self {
+            surface_id,
+            surface,
+            bytes,
+            kind,
+            mutation: None,
+            label: "PTY input",
+            coalesce_key: None,
+        }
+    }
+
+    fn mutation(
+        label: &'static str,
+        coalesce_key: Option<(&'static str, u64)>,
+        operation: impl FnOnce() -> anyhow::Result<()> + Send + 'static,
+    ) -> Self {
+        Self {
+            surface_id: 0,
+            surface: SurfaceHandle::RemoteBrowserUnsupported,
+            bytes: PtyInputBytes::new(),
+            kind: PtyInputKind::Mutation,
+            mutation: Some(Box::new(operation)),
+            label,
+            coalesce_key,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct PtyOperationFailure {
+    pub surface_id: Option<SurfaceId>,
+    pub label: &'static str,
+    pub error: String,
 }
 
 #[derive(Default)]
@@ -59,20 +105,69 @@ struct SharedQueue {
 }
 
 pub struct PtyInputDispatcher {
-    queue: Arc<SharedQueue>,
+    sender: PtyInputSender,
     worker: Option<JoinHandle<()>>,
 }
 
+#[derive(Clone)]
+pub struct PtyInputSender {
+    queue: Arc<SharedQueue>,
+    on_failure: Arc<dyn Fn(PtyOperationFailure) + Send + Sync>,
+}
+
 impl PtyInputDispatcher {
-    pub fn spawn() -> anyhow::Result<Self> {
+    pub fn spawn(
+        on_failure: impl Fn(PtyOperationFailure) + Send + Sync + 'static,
+    ) -> anyhow::Result<Self> {
         let queue = Arc::new(SharedQueue::default());
         let worker_queue = queue.clone();
+        let on_failure = Arc::new(on_failure);
+        let worker_failure = on_failure.clone();
         let worker = std::thread::Builder::new()
             .name("mux-pty-input".into())
-            .spawn(move || worker(worker_queue))?;
-        Ok(Self { queue, worker: Some(worker) })
+            .spawn(move || worker(worker_queue, worker_failure))?;
+        Ok(Self { sender: PtyInputSender { queue, on_failure }, worker: Some(worker) })
     }
 
+    pub fn enqueue(&self, event: PtyInputEvent) -> PtyInputEnqueueResult {
+        self.sender.enqueue(event)
+    }
+
+    pub fn sender(&self) -> PtyInputSender {
+        self.sender.clone()
+    }
+
+    pub fn cancel_release_reservation(&self) {
+        self.sender.cancel_release_reservation();
+    }
+
+    /// Drain queued writes during detach/normal shutdown, bounded so a
+    /// half-open remote session cannot hang terminal restoration forever.
+    pub fn shutdown(&mut self, timeout: Duration) -> bool {
+        let deadline = Instant::now() + timeout;
+        let mut state = self.sender.queue.state.lock().unwrap();
+        while (!state.events.is_empty() || state.in_flight) && Instant::now() < deadline {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            let (next, _) = self.sender.queue.changed.wait_timeout(state, remaining).unwrap();
+            state = next;
+        }
+        let drained = state.events.is_empty() && !state.in_flight;
+        state.closed = true;
+        if !drained {
+            state.events.clear();
+            state.queued_bytes = 0;
+            state.release_reservations = 0;
+        }
+        self.sender.queue.changed.notify_all();
+        drop(state);
+        if drained && let Some(worker) = self.worker.take() {
+            let _ = worker.join();
+        }
+        drained
+    }
+}
+
+impl PtyInputSender {
     pub fn enqueue(&self, event: PtyInputEvent) -> PtyInputEnqueueResult {
         let mut state = self.queue.state.lock().unwrap();
         if state.closed {
@@ -104,64 +199,49 @@ impl PtyInputDispatcher {
         self.queue.changed.notify_all();
     }
 
-    /// Wait until every input accepted before this call has completed.
-    /// This is an ordering barrier for infrequent surface/session mutations.
-    pub fn flush(&self, timeout: Duration) -> bool {
-        let deadline = Instant::now() + timeout;
-        let mut state = self.queue.state.lock().unwrap();
-        while (!state.events.is_empty() || state.in_flight) && Instant::now() < deadline {
-            let remaining = deadline.saturating_duration_since(Instant::now());
-            let (next, _) = self.queue.changed.wait_timeout(state, remaining).unwrap();
-            state = next;
-        }
-        state.events.is_empty() && !state.in_flight
+    pub fn enqueue_mutation(
+        &self,
+        label: &'static str,
+        operation: impl FnOnce() -> anyhow::Result<()> + Send + 'static,
+    ) {
+        self.enqueue_mutation_with_key(label, None, operation);
     }
 
-    /// Stop accepting work and discard queued bytes after an explicit input
-    /// saturation disconnect. The in-flight request is allowed to return.
-    pub fn abort(&self) {
-        let mut state = self.queue.state.lock().unwrap();
-        state.closed = true;
-        state.events.clear();
-        state.queued_bytes = 0;
-        state.release_reservations = 0;
-        self.queue.changed.notify_all();
+    pub fn enqueue_coalescing_mutation(
+        &self,
+        label: &'static str,
+        key: (&'static str, u64),
+        operation: impl FnOnce() -> anyhow::Result<()> + Send + 'static,
+    ) {
+        self.enqueue_mutation_with_key(label, Some(key), operation);
     }
 
-    /// Drain queued writes during detach/normal shutdown, bounded so a
-    /// half-open remote session cannot hang terminal restoration forever.
-    pub fn shutdown(&mut self, timeout: Duration) -> bool {
-        let deadline = Instant::now() + timeout;
-        let mut state = self.queue.state.lock().unwrap();
-        while (!state.events.is_empty() || state.in_flight) && Instant::now() < deadline {
-            let remaining = deadline.saturating_duration_since(Instant::now());
-            let (next, _) = self.queue.changed.wait_timeout(state, remaining).unwrap();
-            state = next;
+    fn enqueue_mutation_with_key(
+        &self,
+        label: &'static str,
+        key: Option<(&'static str, u64)>,
+        operation: impl FnOnce() -> anyhow::Result<()> + Send + 'static,
+    ) {
+        if self.enqueue(PtyInputEvent::mutation(label, key, operation))
+            != PtyInputEnqueueResult::Accepted
+        {
+            (self.on_failure)(PtyOperationFailure {
+                surface_id: None,
+                label,
+                error: "operation queue is full; the session was left unchanged".into(),
+            });
         }
-        let drained = state.events.is_empty() && !state.in_flight;
-        state.closed = true;
-        if !drained {
-            state.events.clear();
-            state.queued_bytes = 0;
-            state.release_reservations = 0;
-        }
-        self.queue.changed.notify_all();
-        drop(state);
-        if drained && let Some(worker) = self.worker.take() {
-            let _ = worker.join();
-        }
-        drained
     }
 }
 
 impl Drop for PtyInputDispatcher {
     fn drop(&mut self) {
-        let mut state = self.queue.state.lock().unwrap();
+        let mut state = self.sender.queue.state.lock().unwrap();
         state.closed = true;
         state.events.clear();
         state.queued_bytes = 0;
         state.release_reservations = 0;
-        self.queue.changed.notify_all();
+        self.sender.queue.changed.notify_all();
     }
 }
 
@@ -173,6 +253,12 @@ fn enqueue_bounded(
     capacity: usize,
     max_bytes: usize,
 ) -> bool {
+    if event.coalesce_key.is_some()
+        && events.back().is_some_and(|previous| previous.coalesce_key == event.coalesce_key)
+    {
+        *events.back_mut().unwrap() = event;
+        return true;
+    }
     if event.kind == PtyInputKind::Motion
         && events.back().is_some_and(|previous| {
             previous.kind == PtyInputKind::Motion && previous.surface_id == event.surface_id
@@ -190,9 +276,9 @@ fn enqueue_bounded(
         return true;
     }
 
-    let merge_stream = event.kind != PtyInputKind::Motion
+    let merge_stream = event.kind == PtyInputKind::Ordered
         && events.back().is_some_and(|previous| {
-            previous.kind != PtyInputKind::Motion && previous.surface_id == event.surface_id
+            previous.kind == PtyInputKind::Ordered && previous.surface_id == event.surface_id
         });
     let consumes_reservation = event.kind == PtyInputKind::Release && *release_reservations > 0;
     let mut projected = events.len()
@@ -236,7 +322,7 @@ fn enqueue_bounded(
     true
 }
 
-fn worker(queue: Arc<SharedQueue>) {
+fn worker(queue: Arc<SharedQueue>, on_failure: Arc<dyn Fn(PtyOperationFailure) + Send + Sync>) {
     loop {
         let event = {
             let mut state = queue.state.lock().unwrap();
@@ -251,7 +337,19 @@ fn worker(queue: Arc<SharedQueue>) {
             state.queued_bytes = state.queued_bytes.saturating_sub(event.bytes.len());
             event
         };
-        event.surface.write_bytes(&event.bytes);
+        let surface_id = (event.kind != PtyInputKind::Mutation).then_some(event.surface_id);
+        let result = if let Some(operation) = event.mutation {
+            operation()
+        } else {
+            event.surface.write_bytes(&event.bytes)
+        };
+        if let Err(error) = result {
+            on_failure(PtyOperationFailure {
+                surface_id,
+                label: event.label,
+                error: error.to_string(),
+            });
+        }
         let mut state = queue.state.lock().unwrap();
         state.in_flight = false;
         queue.changed.notify_all();
@@ -263,12 +361,12 @@ mod tests {
     use super::*;
 
     fn event(surface_id: SurfaceId, bytes: u8, kind: PtyInputKind) -> PtyInputEvent {
-        PtyInputEvent {
+        PtyInputEvent::input(
             surface_id,
-            surface: SurfaceHandle::RemoteBrowserUnsupported,
-            bytes: SmallVec::from_slice(&[bytes]),
+            SurfaceHandle::RemoteBrowserUnsupported,
+            SmallVec::from_slice(&[bytes]),
             kind,
-        }
+        )
     }
 
     #[test]
@@ -314,6 +412,42 @@ mod tests {
         assert!(!events[0].bytes.spilled());
         assert_eq!(events[1].bytes.as_slice(), &[3]);
         assert_eq!(events[2].bytes.as_slice(), &[4]);
+    }
+
+    #[test]
+    fn ordered_input_does_not_cross_a_session_mutation() {
+        let mut events = VecDeque::new();
+        let mut queued_bytes = 0;
+        let mut releases = 0;
+        assert!(enqueue_bounded(
+            &mut events,
+            &mut queued_bytes,
+            &mut releases,
+            event(1, 1, PtyInputKind::Ordered),
+            8,
+            1024,
+        ));
+        assert!(enqueue_bounded(
+            &mut events,
+            &mut queued_bytes,
+            &mut releases,
+            PtyInputEvent::mutation("close tab", None, || Ok(())),
+            8,
+            1024,
+        ));
+        assert!(enqueue_bounded(
+            &mut events,
+            &mut queued_bytes,
+            &mut releases,
+            event(1, 2, PtyInputKind::Ordered),
+            8,
+            1024,
+        ));
+
+        assert_eq!(events.len(), 3);
+        assert_eq!(events[0].bytes.as_slice(), &[1]);
+        assert_eq!(events[1].kind, PtyInputKind::Mutation);
+        assert_eq!(events[2].bytes.as_slice(), &[2]);
     }
 
     #[test]
@@ -375,7 +509,7 @@ mod tests {
 
     #[test]
     fn shutdown_drains_and_joins_the_worker() {
-        let mut dispatcher = PtyInputDispatcher::spawn().unwrap();
+        let mut dispatcher = PtyInputDispatcher::spawn(|_| {}).unwrap();
         assert_eq!(
             dispatcher.enqueue(event(1, 1, PtyInputKind::Ordered)),
             PtyInputEnqueueResult::Accepted
@@ -394,7 +528,10 @@ mod tests {
             state.release_reservations = 1;
             state.in_flight = true;
         }
-        let mut dispatcher = PtyInputDispatcher { queue: queue.clone(), worker: None };
+        let mut dispatcher = PtyInputDispatcher {
+            sender: PtyInputSender { queue: queue.clone(), on_failure: Arc::new(|_| {}) },
+            worker: None,
+        };
 
         assert!(!dispatcher.shutdown(Duration::ZERO));
 
@@ -406,41 +543,70 @@ mod tests {
     }
 
     #[test]
-    fn accepted_input_completes_before_following_mutation() {
-        let queue = Arc::new(SharedQueue::default());
-        queue.state.lock().unwrap().in_flight = true;
-        let dispatcher = Arc::new(PtyInputDispatcher { queue: queue.clone(), worker: None });
+    fn accepted_operation_completes_before_following_mutation_without_blocking_enqueue() {
+        let dispatcher = PtyInputDispatcher::spawn(|_| {}).unwrap();
+        let sender = dispatcher.sender();
         let mutated = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let (started_tx, started_rx) = std::sync::mpsc::channel();
-        let (done_tx, done_rx) = std::sync::mpsc::channel();
-        let flush_dispatcher = dispatcher;
-        let mutation = mutated.clone();
-        let flush_thread = std::thread::spawn(move || {
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        sender.enqueue_mutation("blocking operation", move || {
             started_tx.send(()).unwrap();
-            let flushed = flush_dispatcher.flush(Duration::from_secs(1));
-            if flushed {
-                mutation.store(true, std::sync::atomic::Ordering::Release);
-            }
-            done_tx.send(flushed).unwrap();
+            release_rx.recv().unwrap();
+            Ok(())
+        });
+        let mutation = mutated.clone();
+        sender.enqueue_mutation("following mutation", move || {
+            mutation.store(true, std::sync::atomic::Ordering::Release);
+            Ok(())
         });
 
         started_rx.recv().unwrap();
-        assert_eq!(done_rx.try_recv(), Err(std::sync::mpsc::TryRecvError::Empty));
         assert!(!mutated.load(std::sync::atomic::Ordering::Acquire));
-        {
-            let mut state = queue.state.lock().unwrap();
-            state.in_flight = false;
-            queue.changed.notify_all();
+        release_tx.send(()).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while !mutated.load(std::sync::atomic::Ordering::Acquire) && Instant::now() < deadline {
+            std::thread::yield_now();
         }
-
-        assert!(done_rx.recv_timeout(Duration::from_secs(1)).unwrap());
         assert!(mutated.load(std::sync::atomic::Ordering::Acquire));
-        flush_thread.join().unwrap();
+    }
+
+    #[test]
+    fn operation_failure_is_reported() {
+        let (failure_tx, failure_rx) = std::sync::mpsc::channel();
+        let dispatcher = PtyInputDispatcher::spawn(move |failure| {
+            failure_tx.send(failure).unwrap();
+        })
+        .unwrap();
+
+        dispatcher.sender().enqueue_mutation("close pane", || anyhow::bail!("write failed"));
+
+        let failure = failure_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert_eq!(failure.label, "close pane");
+        assert_eq!(failure.error, "write failed");
+    }
+
+    #[test]
+    fn pty_write_failure_is_reported_with_its_surface() {
+        let (failure_tx, failure_rx) = std::sync::mpsc::channel();
+        let dispatcher = PtyInputDispatcher::spawn(move |failure| {
+            failure_tx.send(failure).unwrap();
+        })
+        .unwrap();
+
+        assert_eq!(
+            dispatcher.enqueue(event(42, 1, PtyInputKind::Ordered)),
+            PtyInputEnqueueResult::Accepted
+        );
+
+        let failure = failure_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert_eq!(failure.surface_id, Some(42));
+        assert_eq!(failure.label, "PTY input");
+        assert!(failure.error.contains("browser surface"));
     }
 
     #[test]
     fn oversized_input_is_distinguished_from_queue_saturation() {
-        let dispatcher = PtyInputDispatcher::spawn().unwrap();
+        let dispatcher = PtyInputDispatcher::spawn(|_| {}).unwrap();
         let mut oversized = event(1, 1, PtyInputKind::Ordered);
         oversized.bytes = vec![1; MAX_QUEUED_BYTES + 1].into();
 
