@@ -15,20 +15,45 @@ public struct CmxIrohBrokerTokenSource: Sendable {
 }
 
 /// Injectable URL-loading boundary used by the trust broker client.
-public protocol CmxIrohHTTPTransport: Sendable {
+protocol CmxIrohHTTPTransport: Sendable {
     func data(for request: URLRequest) async throws -> (Data, URLResponse)
 }
 
 /// Production URLSession implementation of ``CmxIrohHTTPTransport``.
-public struct CmxIrohURLSessionTransport: CmxIrohHTTPTransport {
+struct CmxIrohURLSessionTransport: CmxIrohHTTPTransport {
+    private let redirectDelegate: CmxIrohRedirectRejectingDelegate
     private let session: URLSession
 
-    public init(session: sending URLSession = .shared) {
-        self.session = session
+    init(configuration: URLSessionConfiguration = .ephemeral) {
+        configuration.httpShouldSetCookies = false
+        configuration.urlCache = nil
+        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+        let redirectDelegate = CmxIrohRedirectRejectingDelegate()
+        self.redirectDelegate = redirectDelegate
+        session = URLSession(
+            configuration: configuration,
+            delegate: redirectDelegate,
+            delegateQueue: nil
+        )
     }
 
-    public func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+    func data(for request: URLRequest) async throws -> (Data, URLResponse) {
         try await session.data(for: request)
+    }
+}
+
+private final class CmxIrohRedirectRejectingDelegate: NSObject,
+    URLSessionTaskDelegate,
+    @unchecked Sendable
+{
+    func urlSession(
+        _: URLSession,
+        task _: URLSessionTask,
+        willPerformHTTPRedirection _: HTTPURLResponse,
+        newRequest _: URLRequest,
+        completionHandler: @escaping (URLRequest?) -> Void
+    ) {
+        completionHandler(nil)
     }
 }
 
@@ -59,19 +84,18 @@ public actor CmxIrohTrustBrokerClient {
     public init(
         baseURL: URL,
         tokenSource: CmxIrohBrokerTokenSource,
-        session: sending URLSession = .shared,
         requestTimeout: TimeInterval = 10
     ) throws {
         try self.init(
             baseURL: baseURL,
             tokenSource: tokenSource,
-            transport: CmxIrohURLSessionTransport(session: session),
+            transport: CmxIrohURLSessionTransport(),
             requestTimeout: requestTimeout
         )
     }
 
     /// Creates a client with an injected HTTP transport for isolation and testing.
-    public init(
+    init(
         baseURL: URL,
         tokenSource: CmxIrohBrokerTokenSource,
         transport: any CmxIrohHTTPTransport,
@@ -207,6 +231,9 @@ public actor CmxIrohTrustBrokerClient {
         }
         guard let http = response as? HTTPURLResponse else {
             throw CmxIrohTrustBrokerClientError.nonHTTPResponse
+        }
+        guard http.url == url else {
+            throw CmxIrohTrustBrokerClientError.invalidResponse
         }
         guard (200 ... 299).contains(http.statusCode) else {
             let code = try? JSONDecoder().decode(BrokerError.self, from: data).error

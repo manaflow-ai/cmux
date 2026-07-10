@@ -164,15 +164,14 @@ struct CmxIrohTrustBrokerClientTests {
             BrokerRedirectURLProtocol.reset(destination: destination)
             let configuration = URLSessionConfiguration.ephemeral
             configuration.protocolClasses = [BrokerRedirectURLProtocol.self]
-            let session = URLSession(configuration: configuration)
             let client = try CmxIrohTrustBrokerClient(
                 baseURL: try #require(URL(string: "https://cmux.example")),
                 tokenSource: Self.tokenSource,
-                session: session
+                transport: CmxIrohURLSessionTransport(configuration: configuration),
+                requestTimeout: 0.1
             )
 
             _ = try? await client.discover()
-            session.invalidateAndCancel()
 
             #expect(BrokerRedirectURLProtocol.capturedDestinationRequests().isEmpty)
         }
