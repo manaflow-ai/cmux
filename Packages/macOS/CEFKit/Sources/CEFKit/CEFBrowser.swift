@@ -125,6 +125,23 @@ public final class CEFBrowser {
     public var canGoBack: Bool { !isClosed && ptr.pointee.can_go_back?(ptr) != 0 }
     public var canGoForward: Bool { !isClosed && ptr.pointee.can_go_forward?(ptr) != 0 }
 
+    /// Runs after each main-frame load completes.
+    public var onLoadEnd: ((CEFBrowser) -> Void)? {
+        get { client.onLoadEnd }
+        set { client.onLoadEnd = newValue }
+    }
+
+    /// Executes script in the main frame's JS context.
+    public func executeJavaScript(_ script: String, scriptURL: String = "cefkit://script") {
+        guard !isClosed, let frame = ptr.pointee.get_main_frame?(ptr) else { return }
+        defer { cefRelease(UnsafeMutableRawPointer(frame)) }
+        withCEFString(script) { scriptPtr in
+            withCEFString(scriptURL) { urlPtr in
+                frame.pointee.execute_java_script?(frame, scriptPtr, urlPtr, 0)
+            }
+        }
+    }
+
     public func goBack() { guard !isClosed else { return }; ptr.pointee.go_back?(ptr) }
     public func goForward() { guard !isClosed else { return }; ptr.pointee.go_forward?(ptr) }
     public func reload() { guard !isClosed else { return }; ptr.pointee.reload?(ptr) }

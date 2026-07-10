@@ -24,6 +24,8 @@ final class CEFClientImpl {
     weak var browser: CEFBrowser?
     /// Fires once when CEF finishes async browser creation.
     var onBrowserCreated: ((CEFBrowser) -> Void)?
+    /// Fires after each main-frame load completes.
+    var onLoadEnd: ((CEFBrowser) -> Void)?
     /// Strong reference cycle browser<->client is broken in on_before_close.
     private var pendingBrowser: CEFBrowser?
 
@@ -103,6 +105,12 @@ final class CEFClientImpl {
                 canGoBack: canGoBack != 0,
                 canGoForward: canGoForward != 0
             )
+        }
+        ptr.pointee.on_load_end = { selfPtr, _, frame, _ in
+            guard let selfPtr, let frame, frame.pointee.is_main?(frame) != 0 else { return }
+            let impl = CEFHandler.object(CEFClientImpl.self, from: selfPtr)
+            guard let browser = impl.browser else { return }
+            impl.onLoadEnd?(browser)
         }
         loadPtr = ptr
         return ptr

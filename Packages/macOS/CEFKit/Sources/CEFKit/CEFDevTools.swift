@@ -38,10 +38,44 @@ public enum CEFDevTools {
                 in: containerView,
                 frame: containerView.bounds,
                 url: frontend,
-                delegate: delegate,
-                completion: completion
-            )
+                delegate: delegate
+            ) { devToolsBrowser in
+                if let devToolsBrowser {
+                    applyEmbedderDefaults(to: devToolsBrowser)
+                }
+                completion(devToolsBrowser)
+            }
         }
+    }
+
+    /// The standalone DevTools frontend assumes it inspects a page on
+    /// another device and defaults to mirroring it in a screencast pane.
+    /// Embedded right next to the live page that mirror is a confusing
+    /// duplicate, so default it off — once per profile, so a user who
+    /// deliberately re-enables the toggle keeps their choice. Runs on every
+    /// main-frame load (idempotent via the marker key); the reload applies
+    /// the setting when the frontend already started with screencast on.
+    static func applyEmbedderDefaults(to devToolsBrowser: CEFBrowser) {
+        let script = """
+        (() => {
+          try {
+            if (localStorage.getItem('cefkit-screencast-defaulted')) { return; }
+            localStorage.setItem('cefkit-screencast-defaulted', '1');
+            if (localStorage.getItem('screencast-enabled') !== 'false' ||
+                localStorage.getItem('screencastEnabled') !== 'false') {
+              localStorage.setItem('screencast-enabled', 'false');
+              localStorage.setItem('screencastEnabled', 'false');
+              location.reload();
+            }
+          } catch (e) {}
+        })();
+        """
+        devToolsBrowser.onLoadEnd = { browser in
+            browser.executeJavaScript(script)
+        }
+        // The frontend may already have finished loading before onLoadEnd
+        // was installed; run once directly too (no-ops pre-context).
+        devToolsBrowser.executeJavaScript(script)
     }
 
     /// Resolves the CDP target whose URL matches the inspected page and

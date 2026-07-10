@@ -47,6 +47,7 @@ public final class CEFDevToolsWindow: NSObject, NSWindowDelegate {
                     return
                 }
                 devToolsWindow.browser = devToolsBrowser
+                CEFDevTools.applyEmbedderDefaults(to: devToolsBrowser)
                 devToolsWindow.window.makeKeyAndOrderFront(nil)
                 completion(devToolsWindow)
             }
