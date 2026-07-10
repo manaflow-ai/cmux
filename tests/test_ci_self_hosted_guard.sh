@@ -14,6 +14,7 @@ GHOSTTYKIT_FILE="$ROOT_DIR/.github/workflows/build-ghosttykit.yml"
 COMPAT_FILE="$ROOT_DIR/.github/workflows/ci-macos-compat.yml"
 E2E_FILE="$ROOT_DIR/.github/workflows/test-e2e.yml"
 TMUX_CORPUS_FILE="$ROOT_DIR/.github/workflows/tmux-corpus.yml"
+IOS_FILE="$ROOT_DIR/.github/workflows/test-ios.yml"
 
 check_macos_runner() {
   local file="$1" job="$2"
@@ -199,6 +200,23 @@ check_e2e_runner_fallbacks() {
   fi
 
   echo "PASS: test-e2e.yml exposes Depot and Tart runner choices, identity guards, and duplicate-queue cancellation"
+}
+
+check_ios_tart_canary() {
+  if ! grep -Eq '^[[:space:]]+- tart-ios$' "$IOS_FILE"; then
+    echo "FAIL: test-ios.yml must expose the Tart iOS canary runner"
+    exit 1
+  fi
+  if [[ "$(grep -c 'tart-ios resolved to unexpected runner' "$IOS_FILE")" -ne 2 ]] ||
+     [[ "$(grep -c 'tart-ios runner is missing the immutable VM identity marker' "$IOS_FILE")" -ne 2 ]]; then
+    echo "FAIL: both macOS iOS test jobs must fail closed on Tart identity mismatch"
+    exit 1
+  fi
+  if [[ "$(grep -Fc "(!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26') || inputs.runner" "$IOS_FILE")" -ne 2 ]]; then
+    echo "FAIL: both macOS iOS test jobs must honor the dispatch runner override"
+    exit 1
+  fi
+  echo "PASS: test-ios.yml exposes the guarded Tart iOS canary"
 }
 
 check_xcode_selection() {
@@ -888,7 +906,7 @@ check_no_self_hosted_fleet_runners() {
     exit 1
   fi
 
-  local e2e_tart_option_line
+  local e2e_tart_option_line ios_tart_option_line
   e2e_tart_option_line="$(awk '
     /^      runner:$/ { in_runner=1; next }
     in_runner && /^      [A-Za-z0-9_-]+:/ { in_runner=0; in_options=0 }
@@ -896,6 +914,13 @@ check_no_self_hosted_fleet_runners() {
     in_options && /^        [A-Za-z0-9_-]+:/ { in_options=0 }
     in_options && /^          - tart-canary$/ { print FNR }
   ' "$E2E_FILE")"
+  ios_tart_option_line="$(awk '
+    /^      runner:$/ { in_runner=1; next }
+    in_runner && /^      [A-Za-z0-9_-]+:/ { in_runner=0; in_options=0 }
+    in_runner && /^        options:$/ { in_options=1; next }
+    in_options && /^        [A-Za-z0-9_-]+:/ { in_options=0 }
+    in_options && /^          - tart-ios$/ { print FNR }
+  ' "$IOS_FILE")"
 
   local hits="" line content content_without_allowed
   # Inspect runner-selection lines only: runs-on:, matrix `os:`, and scalar list
@@ -909,6 +934,9 @@ check_no_self_hosted_fleet_runners() {
     content_without_allowed="$(printf '%s\n' "$content" | sed -E "s/($allowed)//g")"
     printf '%s\n' "$content_without_allowed" | grep -Eq "($forbidden)" || continue
     if [[ -n "$e2e_tart_option_line" ]] && [[ "$line" == "$E2E_FILE:$e2e_tart_option_line:"* ]]; then
+      continue
+    fi
+    if [[ -n "$ios_tart_option_line" ]] && [[ "$line" == "$IOS_FILE:$ios_tart_option_line:"* ]]; then
       continue
     fi
     hits+="$line"$'\n'
@@ -942,6 +970,7 @@ check_macos_runner "$COMPAT_FILE" "compat-tests"
 # test-e2e.yml is manual, so keep the Depot GUI runner choices but cancel
 # duplicate queued runs for the same ref/filter/runner.
 check_e2e_runner_fallbacks
+check_ios_tart_canary
 
 check_xcode_selection
 check_release_build_signal
