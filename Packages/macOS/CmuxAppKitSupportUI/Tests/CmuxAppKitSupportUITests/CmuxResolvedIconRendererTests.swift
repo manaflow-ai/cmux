@@ -122,6 +122,47 @@ import Testing
         #expect(visiblePixelCount(in: image) > 0)
     }
 
+    @Test func transparentRasterIsRejectedAsRenderFailure() throws {
+        let renderer = CmuxResolvedIconRenderer()
+        let sourceImage = NSImage(size: NSSize(width: 16, height: 16))
+        sourceImage.addRepresentation(transparentBitmapRepresentation(pixels: 16))
+        let appearance = try #require(NSAppearance(named: .aqua))
+
+        let image = renderer.image(
+            for: CmuxResolvedIconRequest(
+                source: .image(sourceImage),
+                size: NSSize(width: 16, height: 16)
+            ),
+            appearance: appearance
+        )
+
+        #expect(image == nil)
+    }
+
+    @Test func imageViewPreservesLastGoodImageWhenRenderProducesBlankPixels() throws {
+        let view = CmuxResolvedIconImageView(frame: NSRect(x: 0, y: 0, width: 16, height: 16))
+        view.appearance = NSAppearance(named: .aqua)
+        let sourceImage = NSImage(size: NSSize(width: 16, height: 16))
+        let representation = solidBitmapRepresentation(color: .systemRed, pixels: 16)
+        sourceImage.addRepresentation(representation)
+        let request = CmuxResolvedIconRequest(
+            source: .image(sourceImage),
+            size: NSSize(width: 16, height: 16)
+        )
+        view.apply(request)
+        let firstImage = try #require(renderedImage(in: view))
+        let firstPixel = try #require(centerPixelColor(in: firstImage))
+        #expect(firstPixel.redComponent > firstPixel.blueComponent)
+
+        fill(representation, color: .clear, operation: .copy)
+        view.apply(request)
+        let preservedImage = try #require(renderedImage(in: view))
+        let preservedPixel = try #require(centerPixelColor(in: preservedImage))
+
+        #expect(preservedImage === firstImage)
+        #expect(preservedPixel.redComponent > preservedPixel.blueComponent)
+    }
+
     private func solidBitmapRepresentation(color: NSColor, pixels: Int) -> NSBitmapImageRep {
         let representation = NSBitmapImageRep(
             bitmapDataPlanes: nil,
@@ -144,11 +185,21 @@ import Testing
         return representation
     }
 
-    private func fill(_ representation: NSBitmapImageRep, color: NSColor) {
+    private func transparentBitmapRepresentation(pixels: Int) -> NSBitmapImageRep {
+        let representation = solidBitmapRepresentation(color: .clear, pixels: pixels)
+        fill(representation, color: .clear, operation: .copy)
+        return representation
+    }
+
+    private func fill(
+        _ representation: NSBitmapImageRep,
+        color: NSColor,
+        operation: NSCompositingOperation = .sourceOver
+    ) {
         NSGraphicsContext.saveGraphicsState()
         NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: representation)
         color.setFill()
-        NSRect(origin: .zero, size: representation.size).fill()
+        NSRect(origin: .zero, size: representation.size).fill(using: operation)
         NSGraphicsContext.restoreGraphicsState()
     }
 
