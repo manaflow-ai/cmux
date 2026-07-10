@@ -104,6 +104,22 @@ extension RemoteTmuxWindowMirror {
         )
     }
 
+    /// Sets the addressed tmux pane's width or height as a percentage of the
+    /// tmux window, preserving native `resize-pane -x/-y N%` semantics.
+    @discardableResult
+    func requestResizePane(_ tmuxPaneID: Int, absoluteAxis: String, targetPercentage: Int) -> Bool {
+        guard targetPercentage > 0 else { return false }
+        let flag: String
+        switch absoluteAxis {
+        case "horizontal": flag = "-x"
+        case "vertical": flag = "-y"
+        default: return false
+        }
+        return sendControlCommand(
+            "resize-pane -t @\(windowId).%\(tmuxPaneID) \(flag) \(targetPercentage)%"
+        )
+    }
+
     /// Respawns the addressed tmux pane without replacing its projected IDs.
     @discardableResult
     func requestRespawnPane(

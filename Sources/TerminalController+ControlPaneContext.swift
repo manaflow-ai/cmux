@@ -3,18 +3,15 @@ import Bonsplit
 import CmuxControlSocket
 import Foundation
 
-/// The pane-domain witnesses are the byte-faithful bodies of the former
-/// `v2Pane*` dispatchers, minus the per-read `v2MainSync` hop: the coordinator
-/// already runs on the main actor inside the socket-command policy scope, so each
-/// hop would re-apply the identical thread-local focus-allowance stack — a no-op.
-///
-/// App-coupled resolution (`resolveTabManager(routing:)`, `v2LocatePane`,
-/// `v2ResolveWindowId`, the Bonsplit layout, the split-resize candidate
-/// collection) stays here; the seam exposes only Sendable snapshots and
-/// resolution enums.
+/// Pane-domain witnesses keep app-coupled topology resolution in the app while
+/// the main-actor coordinator owns command parsing and response shaping.
 extension TerminalController: ControlPaneContext {
     func controlPaneRoutingResolvesTabManager(routing: ControlRoutingSelectors) -> Bool {
         resolveTabManager(routing: routing) != nil
+    }
+
+    func controlPaneResizeInvalidParametersMessage() -> String {
+        String(localized: "socket.pane.resize.invalidParameters", defaultValue: "Invalid pane resize parameters")
     }
 
     // MARK: - Routing helpers

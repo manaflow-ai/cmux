@@ -23067,21 +23067,21 @@ struct CMUXCLI {
                 return
             }
 
-            if !hasDirectionalFlags, let absWidth = parsed.value("-x").flatMap({ Int($0.replacingOccurrences(of: "%", with: "")) }) {
-                try tmuxResizePaneToCells(
+            if !hasDirectionalFlags, let absWidth = parsed.value("-x") {
+                try tmuxResizePaneToSize(
                     workspaceId: target.workspaceId,
                     paneId: target.paneId,
-                    targetCells: absWidth,
-                    currentCellsKey: "columns",
+                    targetSize: absWidth,
+                    absoluteAxis: "horizontal",
                     cellSizeKey: "cell_width_px",
                     client: client
                 )
-            } else if !hasDirectionalFlags, let absHeight = parsed.value("-y").flatMap({ Int($0.replacingOccurrences(of: "%", with: "")) }) {
-                try tmuxResizePaneToCells(
+            } else if !hasDirectionalFlags, let absHeight = parsed.value("-y") {
+                try tmuxResizePaneToSize(
                     workspaceId: target.workspaceId,
                     paneId: target.paneId,
-                    targetCells: absHeight,
-                    currentCellsKey: "rows",
+                    targetSize: absHeight,
+                    absoluteAxis: "vertical",
                     cellSizeKey: "cell_height_px",
                     client: client
                 )
@@ -23096,9 +23096,9 @@ struct CMUXCLI {
                 } else {
                     direction = "right"
                 }
-                let rawAmount = (parsed.value("-x") ?? parsed.value("-y") ?? "5")
+                let rawAmount = (parsed.positional.first ?? parsed.value("-x") ?? parsed.value("-y") ?? "1")
                     .replacingOccurrences(of: "%", with: "")
-                let amount = Int(rawAmount) ?? 5
+                let amount = Int(rawAmount) ?? 1
                 _ = try client.sendV2(method: "pane.resize", params: [
                     "workspace_id": target.workspaceId,
                     "pane_id": target.paneId,

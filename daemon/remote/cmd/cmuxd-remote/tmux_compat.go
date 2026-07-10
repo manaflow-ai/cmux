@@ -1850,47 +1850,58 @@ func tmuxResizePane(rc *rpcContext, args []string) error {
 	hasDirectional := p.hasFlag("-L") || p.hasFlag("-R") || p.hasFlag("-U") || p.hasFlag("-D")
 
 	if !hasDirectional {
-		targetSize := p.value("-x")
-		axis := "horizontal"
-		cellSizeKey := "cell_width_px"
+		targetSize := strings.TrimSpace(p.value("-x"))
+		// Keep height-only compatibility probes inert: OMX HUD sends them
+		// repeatedly and applying them would overwrite the user's layout.
 		if targetSize == "" {
-			targetSize = p.value("-y")
-			axis = "vertical"
-			cellSizeKey = "cell_height_px"
-		}
-		if targetSize != "" {
-			targetCells := parseInt(strings.ReplaceAll(targetSize, "%", ""))
-			if targetCells <= 0 {
-				return fmt.Errorf("resize-pane size must be greater than zero")
-			}
-			panePayload, err := rc.call("pane.list", map[string]any{"workspace_id": wsId})
-			if err != nil {
-				return err
-			}
-			panes, _ := panePayload["panes"].([]any)
-			for _, pp := range panes {
-				pane, _ := pp.(map[string]any)
-				if pane == nil {
-					continue
-				}
-				if pid, _ := pane["id"].(string); pid == paneId {
-					cellSize := intFromAnyGo(pane[cellSizeKey])
-					if cellSize > 0 {
-						_, err := rc.call("pane.resize", map[string]any{
-							"workspace_id":  wsId,
-							"pane_id":       paneId,
-							"absolute_axis": axis,
-							"target_pixels": targetCells * cellSize,
-							"target_cells":  targetCells,
-							"tmux_compat":   true,
-						})
-						return err
-					}
-					break
-				}
-			}
 			return nil
 		}
+		isPercentage := strings.HasSuffix(targetSize, "%")
+		target := parseInt(strings.TrimSuffix(targetSize, "%"))
+		if target <= 0 {
+			return fmt.Errorf("resize-pane size must be greater than zero")
+		}
+		panePayload, err := rc.call("pane.list", map[string]any{"workspace_id": wsId})
+		if err != nil {
+			return err
+		}
+		targetPoints := 0
+		if isPercentage {
+			if frame, ok := panePayload["container_frame"].(map[string]any); ok {
+				targetPoints = intFromAnyGo(frame["width"]) * target / 100
+			}
+		}
+		panes, _ := panePayload["panes"].([]any)
+		for _, pp := range panes {
+			pane, _ := pp.(map[string]any)
+			if pane == nil {
+				continue
+			}
+			if pid, _ := pane["id"].(string); pid == paneId {
+				cellSize := intFromAnyGo(pane["cell_width_px"])
+				if cellSize > 0 {
+					if targetPoints <= 0 {
+						targetPoints = target * cellSize
+					}
+					params := map[string]any{
+						"workspace_id":  wsId,
+						"pane_id":       paneId,
+						"absolute_axis": "horizontal",
+						"target_pixels": targetPoints,
+						"tmux_compat":   true,
+					}
+					if isPercentage {
+						params["target_percentage"] = target
+					} else {
+						params["target_cells"] = target
+					}
+					_, err := rc.call("pane.resize", params)
+					return err
+				}
+				break
+			}
+		}
+		return nil
 	}
 
 	if hasDirectional {
@@ -1902,11 +1913,16 @@ func tmuxResizePane(rc *rpcContext, args []string) error {
 		} else if p.hasFlag("-D") {
 			dir = "down"
 		}
-		rawAmount := firstNonEmpty(p.value("-x"), p.value("-y"), "5")
+		rawAmount := "1"
+		if len(p.positional) > 0 {
+			rawAmount = p.positional[0]
+		} else {
+			rawAmount = firstNonEmpty(p.value("-x"), p.value("-y"), "1")
+		}
 		rawAmount = strings.ReplaceAll(rawAmount, "%", "")
 		amount := parseInt(rawAmount)
 		if amount <= 0 {
-			amount = 5
+			amount = 1
 		}
 		_, err := rc.call("pane.resize", map[string]any{
 			"workspace_id": wsId,

@@ -4,44 +4,101 @@ extension ControlCommandCoordinator {
     /// `pane.resize` — move a split divider (relative or absolute).
     func paneResize(_ params: [String: JSONValue]) -> ControlCallResult {
         let routing = routingSelectors(params)
-        guard context?.controlPaneRoutingResolvesTabManager(routing: routing) ?? false else {
+        guard let context, context.controlPaneRoutingResolvesTabManager(routing: routing) else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
+        let invalidParameters = context.controlPaneResizeInvalidParametersMessage()
 
         let absoluteAxis = string(params, "absolute_axis")?.lowercased()
         let targetPixels = double(params, "target_pixels")
-        let targetCells = int(params, "target_cells").flatMap { $0 > 0 ? $0 : nil }
+        let targetCells = strictInt(params, "target_cells")
+        let targetPercentage = strictInt(params, "target_percentage")
         let directionRaw = (string(params, "direction") ?? "").lowercased()
-        let amount = int(params, "amount") ?? 1
-        let amountCells = int(params, "amount_cells").flatMap { $0 > 0 ? $0 : nil }
-        let tmuxCompatibility = bool(params, "tmux_compat") ?? false
+        let amount = params.keys.contains("amount") ? strictInt(params, "amount") : 1
+        let amountCells = strictInt(params, "amount_cells")
+        let parsedTmuxCompatibility = bool(params, "tmux_compat")
+        guard !params.keys.contains("target_cells") || (targetCells ?? 0) > 0 else {
+            return .err(code: "invalid_params", message: invalidParameters, data: nil)
+        }
+        guard !params.keys.contains("target_percentage") || (targetPercentage ?? 0) > 0 else {
+            return .err(code: "invalid_params", message: invalidParameters, data: nil)
+        }
+        guard !params.keys.contains("amount") || (amount ?? 0) > 0 else {
+            return .err(code: "invalid_params", message: invalidParameters, data: nil)
+        }
+        guard !params.keys.contains("amount_cells") || (amountCells ?? 0) > 0 else {
+            return .err(code: "invalid_params", message: invalidParameters, data: nil)
+        }
+        guard !params.keys.contains("tmux_compat") || parsedTmuxCompatibility != nil else {
+            return .err(code: "invalid_params", message: invalidParameters, data: nil)
+        }
+        let tmuxCompatibility = parsedTmuxCompatibility ?? false
         let directionValid = ["left", "right", "up", "down"].contains(directionRaw)
-        let hasAbsoluteIntent = params.keys.contains("absolute_axis") || params.keys.contains("target_pixels")
+        let hasAbsoluteIntent = params.keys.contains("absolute_axis")
+            || params.keys.contains("target_pixels")
+            || params.keys.contains("target_cells")
+            || params.keys.contains("target_percentage")
         if hasAbsoluteIntent {
             guard let absoluteAxis, absoluteAxis == "horizontal" || absoluteAxis == "vertical" else {
                 return .err(code: "invalid_params", message: "absolute_axis must be 'horizontal' or 'vertical'", data: nil)
             }
-            guard let targetPixels, targetPixels > 0 else {
+            guard let targetPixels, targetPixels.isFinite, targetPixels > 0 else {
                 return .err(code: "invalid_params", message: "target_pixels must be > 0", data: nil)
             }
+            guard !params.keys.contains("amount_cells") else {
+                return .err(code: "invalid_params", message: invalidParameters, data: nil)
+            }
+            if tmuxCompatibility {
+                guard (targetCells != nil) != (targetPercentage != nil) else {
+                    return .err(code: "invalid_params", message: invalidParameters, data: nil)
+                }
+            } else if targetCells != nil || targetPercentage != nil {
+                return .err(code: "invalid_params", message: invalidParameters, data: nil)
+            }
         } else {
-            guard directionValid, amount > 0 else {
+            guard directionValid, let amount, amount > 0 else {
                 return .err(code: "invalid_params", message: "direction must be one of left|right|up|down and amount must be > 0", data: nil)
+            }
+            if tmuxCompatibility {
+                guard amountCells != nil else {
+                    return .err(code: "invalid_params", message: invalidParameters, data: nil)
+                }
+            } else if amountCells != nil {
+                return .err(code: "invalid_params", message: invalidParameters, data: nil)
             }
         }
 
-        let inputs = ControlPaneResizeInputs(
-            paneID: uuid(params, "pane_id"),
-            absoluteAxis: absoluteAxis,
-            targetPixels: targetPixels,
-            targetCells: targetCells,
-            direction: directionValid ? directionRaw : nil,
-            amount: amount,
-            amountCells: amountCells,
-            tmuxCompatibility: tmuxCompatibility
-        )
-        let resolution = context?.controlPaneResize(routing: routing, inputs: inputs)
-            ?? .tabManagerUnavailable
+        let intent: ControlPaneResizeIntent
+        if let absoluteAxis, let targetPixels {
+            if tmuxCompatibility, let targetPercentage {
+                intent = .tmuxAbsolutePercentage(
+                    axis: absoluteAxis,
+                    percentage: targetPercentage,
+                    fallbackPoints: targetPixels
+                )
+            } else if tmuxCompatibility, let targetCells {
+                intent = .tmuxAbsoluteCells(
+                    axis: absoluteAxis,
+                    targetCells: targetCells,
+                    fallbackPoints: targetPixels
+                )
+            } else {
+                intent = .outerAbsolute(axis: absoluteAxis, targetPoints: targetPixels)
+            }
+        } else if tmuxCompatibility, let amount, let amountCells {
+            intent = .tmuxRelative(
+                direction: directionRaw,
+                amountCells: amountCells,
+                fallbackPoints: amount
+            )
+        } else {
+            guard let amount else {
+                return .err(code: "invalid_params", message: invalidParameters, data: nil)
+            }
+            intent = .borderRelative(direction: directionRaw, amountPoints: amount)
+        }
+        let inputs = ControlPaneResizeInputs(paneID: uuid(params, "pane_id"), intent: intent)
+        let resolution = context.controlPaneResize(routing: routing, inputs: inputs)
         switch resolution {
         case .tabManagerUnavailable:
             return .err(code: "unavailable", message: "TabManager not available", data: nil)

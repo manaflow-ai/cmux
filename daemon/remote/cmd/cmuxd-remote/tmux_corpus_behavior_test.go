@@ -131,16 +131,19 @@ func (r *tmuxCorpusRPCRecorder) serveConn(conn net.Conn) {
 	case "surface.send_text":
 		resp["result"] = map[string]any{"ok": true}
 	case "pane.list":
-		resp["result"] = map[string]any{"panes": []map[string]any{{
-			"id":             "33333333-3333-4333-8333-333333333333",
-			"ref":            "pane:1",
-			"index":          1,
-			"focused":        true,
-			"columns":        80,
-			"rows":           24,
-			"cell_width_px":  8,
-			"cell_height_px": 16,
-		}}}
+		resp["result"] = map[string]any{
+			"container_frame": map[string]any{"width": 640, "height": 384},
+			"panes": []map[string]any{{
+				"id":             "33333333-3333-4333-8333-333333333333",
+				"ref":            "pane:1",
+				"index":          1,
+				"focused":        true,
+				"columns":        80,
+				"rows":           24,
+				"cell_width_px":  8,
+				"cell_height_px": 16,
+			}},
+		}
 	case "pane.surfaces":
 		resp["result"] = map[string]any{"surfaces": []map[string]any{{
 			"id":       "44444444-4444-4444-8444-444444444444",
@@ -458,6 +461,9 @@ func TestTmuxCorpusResizePaneDispatchesAbsoluteAndDirectionalResize(t *testing.T
 	}
 	if got := asInt(t, resizeRequests[1].Params["target_percentage"], "percentage resize target"); got != 50 {
 		t.Fatalf("percentage resize target = %v, want 50", got)
+	}
+	if got := asInt(t, resizeRequests[1].Params["target_pixels"], "percentage resize pixels"); got != 320 {
+		t.Fatalf("percentage resize pixels = %v, want 320", got)
 	}
 	if _, ok := resizeRequests[1].Params["target_cells"]; ok {
 		t.Fatalf("percentage resize unexpectedly sent target_cells")

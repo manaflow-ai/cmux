@@ -15,7 +15,7 @@ extension CLITmuxCompatRemoteSplitTests {
     @Test func absoluteResizePreservesTmuxPercentageTarget() throws {
         let params = try captureResize(arguments: ["-x", "50%"])
         #expect(params["absolute_axis"] as? String == "horizontal")
-        #expect((params["target_pixels"] as? NSNumber)?.intValue == 800)
+        #expect((params["target_pixels"] as? NSNumber)?.intValue == 320)
         #expect(params["target_cells"] == nil)
         #expect((params["target_percentage"] as? NSNumber)?.intValue == 50)
         #expect(params["tmux_compat"] as? Bool == true)
@@ -63,6 +63,7 @@ extension CLITmuxCompatRemoteSplitTests {
                 ])
             case "pane.list":
                 return Self.v2Response(id: id, ok: true, result: [
+                    "container_frame": ["width": 640, "height": 816],
                     "panes": [[
                         "id": paneID,
                         "ref": "pane:1",

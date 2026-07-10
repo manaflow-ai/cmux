@@ -1,7 +1,6 @@
 import Foundation
 import CmuxSettings
 @testable import CmuxControlSocket
-
 // Benign default implementations of the non-window domain seams, so a test fake
 // that conforms to the full `ControlCommandContext` umbrella only has to
 // implement the domain it actually exercises. Each domain's own tests override
@@ -45,6 +44,7 @@ extension ControlFeedContext {
 extension ControlPaneContext {
     func controlPaneList(routing: ControlRoutingSelectors) -> ControlPaneListSnapshot? { nil }
     func controlPaneRoutingResolvesTabManager(routing: ControlRoutingSelectors) -> Bool { false }
+    func controlPaneResizeInvalidParametersMessage() -> String { "Invalid pane resize parameters" }
     func controlPaneFocus(
         routing: ControlRoutingSelectors,
         paneID: UUID

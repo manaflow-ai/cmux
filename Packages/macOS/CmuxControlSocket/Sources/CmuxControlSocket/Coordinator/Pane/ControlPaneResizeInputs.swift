@@ -10,54 +10,55 @@ public struct ControlPaneResizeInputs: Sendable, Equatable {
     /// The explicit `pane_id` target, if any; the seam falls back to the focused
     /// pane when absent.
     public let paneID: UUID?
-    /// The lowercased `absolute_axis` (`horizontal`/`vertical`), if the request
-    /// took the absolute-resize path.
-    public let absoluteAxis: String?
-    /// The requested outer pane extent in native points, carried under the
-    /// historical `target_pixels` wire key.
-    public let targetPixels: Double?
-    /// Exact tmux grid cells accompanying `target_pixels` when a compatibility
-    /// adapter already owns the cell-space intent.
-    public let targetCells: Int?
-    /// The lowercased `direction` (`left|right|up|down`), if the request took the
-    /// relative-resize path.
-    public let direction: String?
-    /// The relative-resize delta in native points (defaulting to 1, as the legacy body did).
-    public let amount: Int
-    /// Exact tmux cell delta accompanying `amount` from a compatibility adapter.
-    public let amountCells: Int?
-    /// Whether the request carries native tmux adjustment semantics instead of
-    /// the public border-oriented `pane.resize` direction semantics.
-    public let tmuxCompatibility: Bool
+    /// The validated operation and its coordinate system.
+    public let intent: ControlPaneResizeIntent
+
+    /// Legacy projection used only by the unchanged local Bonsplit mutation path.
+    public var absoluteAxis: String? {
+        switch intent {
+        case .outerAbsolute(let axis, _),
+             .tmuxAbsoluteCells(let axis, _, _),
+             .tmuxAbsolutePercentage(let axis, _, _): return axis
+        case .borderRelative, .tmuxRelative: return nil
+        }
+    }
+
+    /// Legacy outer-point projection used only by the local Bonsplit path.
+    public var targetPixels: Double? {
+        switch intent {
+        case .outerAbsolute(_, let points),
+             .tmuxAbsoluteCells(_, _, let points),
+             .tmuxAbsolutePercentage(_, _, let points): return points
+        case .borderRelative, .tmuxRelative: return nil
+        }
+    }
+
+    /// Legacy direction projection used only by the local Bonsplit path.
+    public var direction: String? {
+        switch intent {
+        case .borderRelative(let direction, _), .tmuxRelative(let direction, _, _): return direction
+        case .outerAbsolute, .tmuxAbsoluteCells, .tmuxAbsolutePercentage: return nil
+        }
+    }
+
+    /// Legacy point delta used only by the local Bonsplit path.
+    public var amount: Int {
+        switch intent {
+        case .borderRelative(_, let points), .tmuxRelative(_, _, let points): return points
+        case .outerAbsolute, .tmuxAbsoluteCells, .tmuxAbsolutePercentage: return 1
+        }
+    }
 
     /// Creates the pane-resize inputs.
     ///
     /// - Parameters:
     ///   - paneID: The explicit `pane_id` target, if any.
-    ///   - absoluteAxis: The lowercased absolute axis, if present.
-    ///   - targetPixels: The requested outer pane extent in native points.
-    ///   - targetCells: The compatibility adapter's exact tmux cell target.
-    ///   - direction: The lowercased relative direction, if present.
-    ///   - amount: The relative delta in native points.
-    ///   - amountCells: The compatibility adapter's exact tmux cell delta.
-    ///   - tmuxCompatibility: Whether to preserve native tmux resize semantics.
+    ///   - intent: The validated resize operation and coordinate system.
     public init(
         paneID: UUID?,
-        absoluteAxis: String?,
-        targetPixels: Double?,
-        targetCells: Int?,
-        direction: String?,
-        amount: Int,
-        amountCells: Int?,
-        tmuxCompatibility: Bool
+        intent: ControlPaneResizeIntent
     ) {
         self.paneID = paneID
-        self.absoluteAxis = absoluteAxis
-        self.targetPixels = targetPixels
-        self.targetCells = targetCells
-        self.direction = direction
-        self.amount = amount
-        self.amountCells = amountCells
-        self.tmuxCompatibility = tmuxCompatibility
+        self.intent = intent
     }
 }
