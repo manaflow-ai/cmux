@@ -94,6 +94,47 @@ struct SimulatorAccessibilityRequestSchedulingTests {
         #expect(await coordinator.handle(.ping(7)))
         #expect(try fixture.receive() == .ack(7))
     }
+
+    @Test("A blocked accessibility snapshot releases the ordered worker consumer")
+    @MainActor
+    func accessibilitySnapshotDoesNotBlockConsumer() async throws {
+        let executor = GatedAccessibilityExecutor()
+        let fixture = try WorkerOutputFixture()
+        let coordinator = SimulatorWorkerCoordinator(
+            channel: fixture.worker,
+            accessibilityExecutor: executor
+        )
+        coordinator.currentDeviceIdentifier = "DEVICE"
+        coordinator.currentDisplay = Self.display
+        let completion = WorkerHandleCompletion()
+        let requestIdentifier = UUID()
+
+        let requestTask = Task { @MainActor in
+            let result = await coordinator.handle(.requestAccessibility(requestIdentifier))
+            await completion.finish(result)
+        }
+        await executor.waitForAccessibilityReadCount(1)
+        for _ in 0..<200 where await completion.result == nil {
+            await Task.yield()
+        }
+        #expect(await completion.result == true)
+
+        #expect(await coordinator.handle(.ping(99)))
+        #expect(try fixture.receive() == .ack(99))
+        await executor.releaseAccessibilityRead()
+        await requestTask.value
+        #expect(try await fixture.receiveAsync() == .accessibility(
+            requestID: requestIdentifier,
+            GatedAccessibilityExecutor.snapshot
+        ))
+    }
+
+    fileprivate static let display = SimulatorDisplayMetadata(
+        width: 1_200,
+        height: 2_400,
+        orientation: .portrait,
+        scale: 3
+    )
 }
 
 private actor GatedAccessibilityExecutor: SimulatorAccessibilityExecuting {
@@ -110,6 +151,15 @@ private actor GatedAccessibilityExecutor: SimulatorAccessibilityExecuting {
     private var foregroundContinuation: CheckedContinuation<Void, Never>?
     private var foregroundReadObservers: [(Int, CheckedContinuation<Void, Never>)] = []
     private(set) var foregroundReadCount = 0
+    private var accessibilityContinuation: CheckedContinuation<Void, Never>?
+    private var accessibilityReadObservers: [(Int, CheckedContinuation<Void, Never>)] = []
+    private(set) var accessibilityReadCount = 0
+
+    static let snapshot = SimulatorAccessibilitySnapshot(
+        roots: [],
+        display: SimulatorAccessibilityRequestSchedulingTests.display,
+        nodeCount: 0
+    )
 
     func attach(device _: SimulatorAccessibilityDevice) -> Bool { true }
 
@@ -129,7 +179,18 @@ private actor GatedAccessibilityExecutor: SimulatorAccessibilityExecuting {
     func accessibilitySnapshot(
         display: SimulatorDisplayMetadata
     ) async throws -> SimulatorAccessibilitySnapshot {
-        SimulatorAccessibilitySnapshot(roots: [], display: display, nodeCount: 0)
+        accessibilityReadCount += 1
+        let observers = accessibilityReadObservers
+        accessibilityReadObservers.removeAll()
+        for (count, observer) in observers where accessibilityReadCount >= count {
+            observer.resume()
+        }
+        await withCheckedContinuation { accessibilityContinuation = $0 }
+        return SimulatorAccessibilitySnapshot(
+            roots: Self.snapshot.roots,
+            display: display,
+            nodeCount: Self.snapshot.nodeCount
+        )
     }
 
     func waitForForegroundReadCount(_ count: Int) async {
@@ -140,6 +201,24 @@ private actor GatedAccessibilityExecutor: SimulatorAccessibilityExecuting {
     func releaseForegroundRead() {
         foregroundContinuation?.resume()
         foregroundContinuation = nil
+    }
+
+    func waitForAccessibilityReadCount(_ count: Int) async {
+        guard accessibilityReadCount < count else { return }
+        await withCheckedContinuation { accessibilityReadObservers.append((count, $0)) }
+    }
+
+    func releaseAccessibilityRead() {
+        accessibilityContinuation?.resume()
+        accessibilityContinuation = nil
+    }
+}
+
+private actor WorkerHandleCompletion {
+    private(set) var result: Bool?
+
+    func finish(_ result: Bool) {
+        self.result = result
     }
 }
 
