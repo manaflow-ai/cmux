@@ -13,6 +13,12 @@ enum SettingsWindowShowResult: Equatable {
     /// for non-activating CLI opens, which must not unhide the app
     /// (socket focus policy).
     case orderedWhileAppHidden
+    /// The window was miniaturized and is deminiaturizing from the Dock;
+    /// AppKit completes visibility with the unminiaturize animation. Not
+    /// `.presented` — the window is not visible yet — and the presenter runs
+    /// a bounded follow-up that tears the window down loudly if visibility
+    /// never arrives, so a stalled transition cannot become a silent success.
+    case deminiaturizing
     /// No window could be made visible. `reason` carries diagnostic-grade
     /// window/app state for the failure log and the CLI error payload.
     case failed(reason: String)
@@ -40,7 +46,6 @@ final class SettingsWindowPresenter: NSObject {
     static let windowIdentifier = "cmux.settings"
     static let minimumSize = NSSize(width: 820, height: 540)
     private static let frameAutosaveName = "cmux.settings"
-    private static let visibleAreaInset: CGFloat = 18
     /// One reuse-or-create pass plus one recreate-from-scratch pass. Creation
     /// is synchronous, so more attempts cannot help: if two consecutive fresh
     /// windows refuse to order in, AppKit itself is wedged and we fail loudly.
@@ -53,7 +58,9 @@ final class SettingsWindowPresenter: NSObject {
     /// Release-safe diagnostics so intermittent "Settings won't open" reports
     /// become attributable from
     /// `log show --predicate 'subsystem == "com.cmuxterm.app" && category == "Settings"'`.
-    private nonisolated static let log = Logger(subsystem: "com.cmuxterm.app", category: "Settings")
+    /// Internal (not private) so the geometry/recovery extension file logs
+    /// through the same channel.
+    nonisolated static let log = Logger(subsystem: "com.cmuxterm.app", category: "Settings")
 
     private let windowFactory: @MainActor (SettingsWindowPresenter) -> NSWindow
     /// Strong while open: the presenter owns the window's lifetime. Cleared
@@ -72,6 +79,8 @@ final class SettingsWindowPresenter: NSObject {
     /// host root's `onAppear`) that its navigation consumer is installed;
     /// posting before then would drop the navigation on the floor.
     private var isContentReadyForNavigation = false
+    /// In-flight bounded verification of a `.deminiaturizing` outcome.
+    private var deminiaturizeVerificationTask: Task<Void, Never>?
 
     override convenience init() {
         // Content readiness reports back to the presenter instance that owns
@@ -183,30 +192,33 @@ final class SettingsWindowPresenter: NSObject {
                 deliverNavigation(reusedExistingWindow: reusedExisting)
                 return .presented
             }
-            if wasMiniaturized && !window.isMiniaturized {
-                // Deminiaturizing from the Dock is asynchronous: the window
-                // reports `isVisible == false` on this run-loop turn, but
-                // AppKit owns its ordering-in once the unminiaturize
-                // animation completes. This is a successful presentation —
-                // falling through would demolish a healthy, about-to-appear
-                // window.
-                deliverNavigation(reusedExistingWindow: reusedExisting)
-                Self.log.notice(
-                    "settings.window.show deminiaturizing from the Dock; visibility follows the animation"
-                )
-                return .presented
-            }
             if NSApp.isHidden && !activateApp {
                 // Ordering front succeeded as far as AppKit allows without
                 // unhiding the app; the window appears on unhide. Reused live
                 // content still receives the navigation now — its notification
                 // subscriptions outlive visibility, and the host root's
-                // onAppear consumer only runs for fresh windows.
+                // onAppear consumer only runs for fresh windows. Checked
+                // before the deminiaturize branch: under a hidden app the
+                // animation cannot produce visibility either.
                 deliverNavigation(reusedExistingWindow: reusedExisting)
                 Self.log.notice(
                     "settings.window.show ordered front while app is hidden; deferring visibility to unhide"
                 )
                 return .orderedWhileAppHidden
+            }
+            if wasMiniaturized && !window.isMiniaturized {
+                // Deminiaturizing from the Dock is asynchronous: the window
+                // reports `isVisible == false` on this run-loop turn while
+                // AppKit animates it in. Preserve the live window (falling
+                // through would demolish a healthy, about-to-appear window)
+                // but do not claim `.presented`; a bounded follow-up verifies
+                // visibility actually arrived.
+                deliverNavigation(reusedExistingWindow: reusedExisting)
+                beginDeminiaturizeVerification(for: window)
+                Self.log.notice(
+                    "settings.window.show deminiaturizing from the Dock; visibility follows the animation"
+                )
+                return .deminiaturizing
             }
 
             failureReason = Self.presentationFailureReason(
@@ -389,6 +401,25 @@ final class SettingsWindowPresenter: NSObject {
         }
     }
 
+    /// Bounded follow-up for `.deminiaturizing`: the unminiaturize animation
+    /// is sub-second, so a window that is still not visible well after it
+    /// should have completed — and was not re-miniaturized, and is not under
+    /// a hidden app — is a stalled transition. It is torn down loudly so the
+    /// next open self-heals with a fresh window instead of reusing the husk.
+    private func beginDeminiaturizeVerification(for window: NSWindow) {
+        deminiaturizeVerificationTask?.cancel()
+        deminiaturizeVerificationTask = Task { @MainActor [weak self, weak window] in
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            guard !Task.isCancelled, let self, let window,
+                  window === self.settingsWindow else { return }
+            if window.isVisible || window.isMiniaturized || NSApp.isHidden { return }
+            Self.log.fault(
+                "settings.window.show deminiaturize never became visible; demolishing so the next open self-heals"
+            )
+            self.demolish(window)
+        }
+    }
+
     // MARK: - Teardown
 
     /// Fully retires a window that must never satisfy an open request again.
@@ -452,42 +483,6 @@ final class SettingsWindowPresenter: NSObject {
         )
     }
 
-    // MARK: - Multi-monitor recovery
-
-    private func clampToVisibleAreaIfNeeded(_ window: NSWindow) {
-        let screens = NSScreen.screens.map { (frame: $0.frame, visibleFrame: $0.visibleFrame) }
-        let fallbackVisibleFrame = (NSScreen.main ?? NSScreen.screens.first)?.visibleFrame
-        guard let visibleFrame = Self.targetVisibleFrame(
-            windowFrame: window.frame,
-            screens: screens,
-            mouseLocation: NSEvent.mouseLocation,
-            fallbackVisibleFrame: fallbackVisibleFrame
-        ) else { return }
-
-        let minimumFrameSize = NSSize(
-            width: max(window.minSize.width, window.contentMinSize.width),
-            height: max(window.minSize.height, window.contentMinSize.height)
-        )
-        let originalFrame = window.frame
-        let clamped = Self.clampedFrame(
-            originalFrame,
-            minimumSize: minimumFrameSize,
-            into: visibleFrame,
-            inset: Self.visibleAreaInset
-        )
-        guard clamped != originalFrame else { return }
-
-        let wasOffAllScreens = window.screen == nil
-        window.setFrame(clamped, display: true)
-        if wasOffAllScreens {
-            Self.log.notice(
-                """
-                settings.window.clamp recovered an offscreen frame onto a visible screen \
-                from=\(NSStringFromRect(originalFrame), privacy: .public) \
-                to=\(NSStringFromRect(clamped), privacy: .public)
-                """
-            )
-        }
-    }
-
+    // `clampToVisibleAreaIfNeeded` and the pure multi-monitor recovery
+    // helpers live in Sources/App/SettingsWindowGeometry.swift.
 }

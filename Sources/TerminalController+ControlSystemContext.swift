@@ -236,7 +236,11 @@ extension TerminalController: ControlSystemContext {
             activateApp: shouldActivate
         )
         switch result {
-        case .presented, .orderedWhileAppHidden:
+        case .presented, .orderedWhileAppHidden, .deminiaturizing:
+            // `.deminiaturizing` counts as opened: the window is live and
+            // AppKit is animating it in from the Dock; the presenter runs a
+            // bounded verification that tears it down loudly if visibility
+            // never arrives.
             return .opened(target: navigationTarget?.rawValue ?? "general")
         case .failed(let reason):
             return .failed(message: reason)

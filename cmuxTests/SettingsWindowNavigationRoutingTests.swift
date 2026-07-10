@@ -157,6 +157,38 @@ extension SettingsWindowSharedStateSuites {
             }
         }
 
+        // MARK: - Dock deminiaturize reuse
+
+        @Test func reusedMiniaturizedWindowIsNotDemolishedWhileDeminiaturizing() async {
+            await withCleanSettingsWindows {
+                var buildCount = 0
+                let presenter = SettingsWindowPresenter(windowFactory: { _ in
+                    buildCount += 1
+                    return makePlainFactoryWindow()
+                })
+                #expect(presenter.show() == .presented)
+                guard let window = visibleSettingsWindow() as? SettingsTestHostWindow else {
+                    Issue.record("expected a visible SettingsTestHostWindow after the first show")
+                    return
+                }
+
+                // The user minimizes Settings to the Dock, then reopens it.
+                window.simulatesDockMiniaturization = true
+
+                let result = presenter.show()
+
+                // Deminiaturization is asynchronous: the window is not yet
+                // `isVisible` on this run-loop turn, so the honest outcome is
+                // `.deminiaturizing` (never `.presented`, whose contract is
+                // "visible now"). The live window must be reused — never
+                // demolished as a failure and never replaced by a duplicate.
+                #expect(result == .deminiaturizing)
+                #expect(buildCount == 1)
+                #expect(window.deminiaturizeCallCount == 1)
+                #expect(window.identifier?.rawValue == SettingsWindowPresenter.windowIdentifier)
+            }
+        }
+
         // MARK: - Re-entrant teardown recovery
 
         @Test func reentrantReopenDuringTeardownAdoptsReplacementWindow() async {
@@ -269,9 +301,32 @@ private func makePlainFactoryWindow() -> SettingsTestHostWindow {
 @MainActor
 private final class SettingsTestHostWindow: SettingsHostWindow {
     var refusesToBecomeVisible = false
+    /// Simulates a window minimized to the Dock: `isMiniaturized` reports
+    /// true and the window is not visible. `deminiaturize` clears the flag
+    /// but — like real AppKit — visibility arrives only after the
+    /// unminiaturize animation, so `isVisible` stays false for the rest of
+    /// the current run-loop turn.
+    var simulatesDockMiniaturization = false
+    private(set) var deminiaturizeCallCount = 0
+    private var isAwaitingDeminiaturizeAnimation = false
+
+    override var isMiniaturized: Bool { simulatesDockMiniaturization }
 
     override var isVisible: Bool {
-        refusesToBecomeVisible ? false : super.isVisible
+        if simulatesDockMiniaturization || isAwaitingDeminiaturizeAnimation || refusesToBecomeVisible {
+            return false
+        }
+        return super.isVisible
+    }
+
+    override func deminiaturize(_ sender: Any?) {
+        deminiaturizeCallCount += 1
+        if simulatesDockMiniaturization {
+            simulatesDockMiniaturization = false
+            isAwaitingDeminiaturizeAnimation = true
+            return
+        }
+        super.deminiaturize(sender)
     }
 
     override func makeKeyAndOrderFront(_ sender: Any?) {

@@ -5,6 +5,44 @@ import AppKit
 /// the Swift file-length budget) and kept as extensions so call sites and
 /// tests address one type.
 extension SettingsWindowPresenter {
+    static let visibleAreaInset: CGFloat = 18
+
+    func clampToVisibleAreaIfNeeded(_ window: NSWindow) {
+        let screens = NSScreen.screens.map { (frame: $0.frame, visibleFrame: $0.visibleFrame) }
+        let fallbackVisibleFrame = (NSScreen.main ?? NSScreen.screens.first)?.visibleFrame
+        guard let visibleFrame = Self.targetVisibleFrame(
+            windowFrame: window.frame,
+            screens: screens,
+            mouseLocation: NSEvent.mouseLocation,
+            fallbackVisibleFrame: fallbackVisibleFrame
+        ) else { return }
+
+        let minimumFrameSize = NSSize(
+            width: max(window.minSize.width, window.contentMinSize.width),
+            height: max(window.minSize.height, window.contentMinSize.height)
+        )
+        let originalFrame = window.frame
+        let clamped = Self.clampedFrame(
+            originalFrame,
+            minimumSize: minimumFrameSize,
+            into: visibleFrame,
+            inset: Self.visibleAreaInset
+        )
+        guard clamped != originalFrame else { return }
+
+        let wasOffAllScreens = window.screen == nil
+        window.setFrame(clamped, display: true)
+        if wasOffAllScreens {
+            Self.log.notice(
+                """
+                settings.window.clamp recovered an offscreen frame onto a visible screen \
+                from=\(NSStringFromRect(originalFrame), privacy: .public) \
+                to=\(NSStringFromRect(clamped), privacy: .public)
+                """
+            )
+        }
+    }
+
     /// Diagnostic-grade description of a window that failed to become
     /// visible after ordering front, carried in `.failed` and the logs.
     static func presentationFailureReason(

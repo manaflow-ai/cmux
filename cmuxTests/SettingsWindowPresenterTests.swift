@@ -189,35 +189,6 @@ extension SettingsWindowSharedStateSuites {
             }
         }
 
-        @Test func reusedMiniaturizedWindowIsNotDemolishedWhileDeminiaturizing() {
-            withCleanSettingsWindows {
-                var buildCount = 0
-                let presenter = SettingsWindowPresenter(windowFactory: { _ in
-                    buildCount += 1
-                    return makeFactoryWindow()
-                })
-                #expect(presenter.show() == .presented)
-                guard let window = visibleSettingsWindow() as? TestSettingsWindow else {
-                    Issue.record("expected a visible TestSettingsWindow after the first show")
-                    return
-                }
-
-                // The user minimizes Settings to the Dock, then reopens it.
-                window.simulatesDockMiniaturization = true
-
-                let result = presenter.show()
-
-                // Deminiaturization is asynchronous: the window is not yet
-                // `isVisible` on this run-loop turn, but the presentation
-                // succeeded. The live window must be reused — never demolished
-                // as a failure and never replaced by a duplicate.
-                #expect(result == .presented)
-                #expect(buildCount == 1)
-                #expect(window.deminiaturizeCallCount == 1)
-                #expect(window.identifier?.rawValue == SettingsWindowPresenter.windowIdentifier)
-            }
-        }
-
         @Test func hostWindowRecordsCloseBeginForMidCloseRejection() {
             withCleanSettingsWindows {
                 let window = makeFactoryWindow()
@@ -542,32 +513,9 @@ private func makeFactoryWindow(
 private final class TestSettingsWindow: SettingsHostWindow {
     var refusesToBecomeVisible = false
     var makeKeyAndOrderFrontCallCount = 0
-    /// Simulates a window minimized to the Dock: `isMiniaturized` reports
-    /// true and the window is not visible. `deminiaturize` clears the flag
-    /// but — like real AppKit — visibility arrives only after the
-    /// unminiaturize animation, so `isVisible` stays false for the rest of
-    /// the current run-loop turn.
-    var simulatesDockMiniaturization = false
-    private(set) var deminiaturizeCallCount = 0
-    private var isAwaitingDeminiaturizeAnimation = false
-
-    override var isMiniaturized: Bool { simulatesDockMiniaturization }
 
     override var isVisible: Bool {
-        if simulatesDockMiniaturization || isAwaitingDeminiaturizeAnimation || refusesToBecomeVisible {
-            return false
-        }
-        return super.isVisible
-    }
-
-    override func deminiaturize(_ sender: Any?) {
-        deminiaturizeCallCount += 1
-        if simulatesDockMiniaturization {
-            simulatesDockMiniaturization = false
-            isAwaitingDeminiaturizeAnimation = true
-            return
-        }
-        super.deminiaturize(sender)
+        refusesToBecomeVisible ? false : super.isVisible
     }
 
     override func makeKeyAndOrderFront(_ sender: Any?) {
