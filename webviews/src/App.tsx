@@ -3,7 +3,7 @@ import { getFiletypeFromFileName, parsePatchFiles, preloadHighlighter, processFi
 import type { SelectedLineRange } from "@pierre/diffs";
 import { FileTree, useFileTree } from "@pierre/trees/react";
 import { preparePresortedFileTreeInput } from "@pierre/trees";
-import { useCallback, useEffect, useReducer, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { copyGitApplyCommand, resolveDiffNavigationURL } from "./actions";
 import { resolveDiffViewerAppearance } from "./appearance";
 import { BranchBasePicker, type BranchPickerPayload } from "./BranchBasePicker";
@@ -239,9 +239,12 @@ function reducer(state: AppState, action: AppAction): AppState {
 
 export function App({ config, initialStatus }: ConfigProps) {
   const payload = config.payload ?? {};
-  const label = createDiffViewerLabelResolver(payload.labels, {
-    assertMissing: shouldAssertMissingLabels(),
-  });
+  const label = useMemo(
+    () => createDiffViewerLabelResolver(payload.labels, {
+      assertMissing: shouldAssertMissingLabels(),
+    }),
+    [payload.labels],
+  );
   const appearance = resolveDiffViewerAppearance(payload.appearance);
   const transport = useDiffTransport(payload.transport);
   const [activePatchURL, setActivePatchURL] = useState<string | undefined>(payload.patchURL);
