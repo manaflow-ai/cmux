@@ -30,6 +30,22 @@ pub enum Session {
     Remote(Arc<RemoteSession>),
 }
 
+pub(crate) fn is_remote_transport_failure(error: &anyhow::Error) -> bool {
+    error
+        .downcast_ref::<remote::RemoteRequestError>()
+        .is_some_and(remote::RemoteRequestError::is_transport_failure)
+}
+
+#[cfg(test)]
+pub(crate) fn test_remote_timeout_error() -> anyhow::Error {
+    remote::RemoteRequestError::Timeout.into()
+}
+
+#[cfg(test)]
+pub(crate) fn test_remote_rejected_error() -> anyhow::Error {
+    remote::RemoteRequestError::Rejected("unknown surface".to_string()).into()
+}
+
 pub struct SidebarPluginSurface {
     pub surface_id: Option<SurfaceId>,
     pub error: Option<String>,
@@ -233,9 +249,12 @@ impl Session {
         }
     }
 
-    pub fn set_cell_pixel_size(&self, width_px: u16, height_px: u16) {
+    pub fn set_cell_pixel_size(&self, width_px: u16, height_px: u16) -> anyhow::Result<()> {
         match self {
-            Session::Local(mux) => mux.set_cell_pixel_size(width_px, height_px),
+            Session::Local(mux) => {
+                mux.set_cell_pixel_size(width_px, height_px);
+                Ok(())
+            }
             Session::Remote(remote) => remote.set_cell_pixel_size(width_px, height_px),
         }
     }
@@ -259,47 +278,51 @@ impl Session {
         }
     }
 
-    pub fn close_screen(&self, screen: ScreenId) {
+    pub fn close_screen(&self, screen: ScreenId) -> anyhow::Result<()> {
         match self {
             Session::Local(mux) => {
                 mux.close_screen(screen);
+                Ok(())
             }
             Session::Remote(remote) => {
-                let _ = remote.request(json!({"cmd": "close-screen", "screen": screen}));
+                remote.request(json!({"cmd": "close-screen", "screen": screen})).map(|_| ())
             }
         }
     }
 
-    pub fn rename_screen(&self, screen: ScreenId, name: String) {
+    pub fn rename_screen(&self, screen: ScreenId, name: String) -> anyhow::Result<()> {
         match self {
             Session::Local(mux) => {
                 mux.rename_screen(screen, name);
+                Ok(())
             }
-            Session::Remote(remote) => {
-                let _ =
-                    remote.request(json!({"cmd": "rename-screen", "screen": screen, "name": name}));
-            }
+            Session::Remote(remote) => remote
+                .request(json!({"cmd": "rename-screen", "screen": screen, "name": name}))
+                .map(|_| ()),
         }
     }
 
-    pub fn select_screen(&self, index: Option<usize>, delta: Option<isize>) {
+    pub fn select_screen(&self, index: Option<usize>, delta: Option<isize>) -> anyhow::Result<()> {
         match self {
-            Session::Local(mux) => mux.select_screen(index, delta),
-            Session::Remote(remote) => {
-                let _ =
-                    remote.request(json!({"cmd": "select-screen", "index": index, "delta": delta}));
+            Session::Local(mux) => {
+                mux.select_screen(index, delta);
+                Ok(())
             }
+            Session::Remote(remote) => remote
+                .request(json!({"cmd": "select-screen", "index": index, "delta": delta}))
+                .map(|_| ()),
         }
     }
 
-    pub fn zoom_pane(&self, pane: Option<PaneId>) {
+    pub fn zoom_pane(&self, pane: Option<PaneId>) -> anyhow::Result<()> {
         match self {
             Session::Local(mux) => {
                 let _ = mux.zoom_pane(pane, ZoomMode::Toggle);
+                Ok(())
             }
-            Session::Remote(remote) => {
-                let _ = remote.request(json!({"cmd": "zoom-pane", "pane": pane, "mode": "toggle"}));
-            }
+            Session::Remote(remote) => remote
+                .request(json!({"cmd": "zoom-pane", "pane": pane, "mode": "toggle"}))
+                .map(|_| ()),
         }
     }
 
@@ -323,84 +346,97 @@ impl Session {
         }
     }
 
-    pub fn set_ratio(&self, pane: PaneId, dir: SplitDir, ratio: f32) {
+    pub fn set_ratio(&self, pane: PaneId, dir: SplitDir, ratio: f32) -> anyhow::Result<()> {
         match self {
             Session::Local(mux) => {
                 mux.set_ratio(pane, dir, ratio);
+                Ok(())
             }
             Session::Remote(remote) => {
                 let dir = match dir {
                     SplitDir::Right => "right",
                     SplitDir::Down => "down",
                 };
-                let _ = remote
-                    .request(json!({"cmd": "set-ratio", "pane": pane, "dir": dir, "ratio": ratio}));
+                remote
+                    .request(json!({"cmd": "set-ratio", "pane": pane, "dir": dir, "ratio": ratio}))
+                    .map(|_| ())
             }
         }
     }
 
-    pub fn close_surface(&self, surface: SurfaceId) {
+    pub fn close_surface(&self, surface: SurfaceId) -> anyhow::Result<()> {
         match self {
-            Session::Local(mux) => mux.close_surface(surface),
+            Session::Local(mux) => {
+                mux.close_surface(surface);
+                Ok(())
+            }
             Session::Remote(remote) => {
-                let _ = remote.request(json!({"cmd": "close-surface", "surface": surface}));
+                remote.request(json!({"cmd": "close-surface", "surface": surface})).map(|_| ())
             }
         }
     }
 
-    pub fn close_pane(&self, pane: PaneId) {
+    pub fn close_pane(&self, pane: PaneId) -> anyhow::Result<()> {
         match self {
-            Session::Local(mux) => mux.close_pane(pane),
+            Session::Local(mux) => {
+                mux.close_pane(pane);
+                Ok(())
+            }
             Session::Remote(remote) => {
-                let _ = remote.request(json!({"cmd": "close-pane", "pane": pane}));
+                remote.request(json!({"cmd": "close-pane", "pane": pane})).map(|_| ())
             }
         }
     }
 
-    pub fn swap_pane(&self, pane: PaneId, target: PaneId) {
+    pub fn swap_pane(&self, pane: PaneId, target: PaneId) -> anyhow::Result<()> {
         match self {
             Session::Local(mux) => {
                 mux.swap_panes(pane, target);
+                Ok(())
             }
-            Session::Remote(remote) => {
-                let _ = remote.request(json!({"cmd": "swap-pane", "pane": pane, "target": target}));
-            }
+            Session::Remote(remote) => remote
+                .request(json!({"cmd": "swap-pane", "pane": pane, "target": target}))
+                .map(|_| ()),
         }
     }
 
-    pub fn close_workspace(&self, workspace: WorkspaceId) {
+    pub fn close_workspace(&self, workspace: WorkspaceId) -> anyhow::Result<()> {
         match self {
             Session::Local(mux) => {
                 mux.close_workspace(workspace);
+                Ok(())
             }
-            Session::Remote(remote) => {
-                let _ = remote.request(json!({"cmd": "close-workspace", "workspace": workspace}));
-            }
+            Session::Remote(remote) => remote
+                .request(json!({"cmd": "close-workspace", "workspace": workspace}))
+                .map(|_| ()),
         }
     }
 
-    pub fn rename_surface(&self, surface: SurfaceId, name: String) {
+    pub fn rename_surface(&self, surface: SurfaceId, name: String) -> anyhow::Result<()> {
         match self {
             Session::Local(mux) => {
                 mux.rename_surface(surface, name);
+                Ok(())
             }
-            Session::Remote(remote) => {
-                let _ = remote
-                    .request(json!({"cmd": "rename-surface", "surface": surface, "name": name}));
-            }
+            Session::Remote(remote) => remote
+                .request(json!({"cmd": "rename-surface", "surface": surface, "name": name}))
+                .map(|_| ()),
         }
     }
 
-    pub fn rename_workspace(&self, workspace: WorkspaceId, name: String) {
+    pub fn rename_workspace(&self, workspace: WorkspaceId, name: String) -> anyhow::Result<()> {
         match self {
             Session::Local(mux) => {
                 mux.rename_workspace(workspace, name);
+                Ok(())
             }
-            Session::Remote(remote) => {
-                let _ = remote.request(
-                    json!({"cmd": "rename-workspace", "workspace": workspace, "name": name}),
-                );
-            }
+            Session::Remote(remote) => remote
+                .request(json!({
+                    "cmd": "rename-workspace",
+                    "workspace": workspace,
+                    "name": name
+                }))
+                .map(|_| ()),
         }
     }
 
@@ -412,61 +448,82 @@ impl Session {
         }
     }
 
-    pub fn focus_pane(&self, pane: PaneId) {
+    pub fn focus_pane(&self, pane: PaneId) -> anyhow::Result<()> {
         match self {
             Session::Local(mux) => {
                 mux.focus_pane(pane);
+                Ok(())
             }
             Session::Remote(remote) => {
-                let _ = remote.request(json!({"cmd": "focus-pane", "pane": pane}));
+                remote.request(json!({"cmd": "focus-pane", "pane": pane})).map(|_| ())
             }
         }
     }
 
-    pub fn select_tab(&self, pane: Option<PaneId>, index: Option<usize>, delta: Option<isize>) {
+    pub fn select_tab(
+        &self,
+        pane: Option<PaneId>,
+        index: Option<usize>,
+        delta: Option<isize>,
+    ) -> anyhow::Result<()> {
         match self {
-            Session::Local(mux) => mux.select_tab(pane, index, delta),
-            Session::Remote(remote) => {
-                let _ = remote.request(
-                    json!({"cmd": "select-tab", "pane": pane, "index": index, "delta": delta}),
-                );
+            Session::Local(mux) => {
+                mux.select_tab(pane, index, delta);
+                Ok(())
             }
+            Session::Remote(remote) => remote
+                .request(json!({
+                    "cmd": "select-tab",
+                    "pane": pane,
+                    "index": index,
+                    "delta": delta
+                }))
+                .map(|_| ()),
         }
     }
 
-    pub fn select_workspace(&self, index: Option<usize>, delta: Option<isize>) {
+    pub fn select_workspace(
+        &self,
+        index: Option<usize>,
+        delta: Option<isize>,
+    ) -> anyhow::Result<()> {
         match self {
-            Session::Local(mux) => mux.select_workspace(index, delta),
-            Session::Remote(remote) => {
-                let _ = remote
-                    .request(json!({"cmd": "select-workspace", "index": index, "delta": delta}));
+            Session::Local(mux) => {
+                mux.select_workspace(index, delta);
+                Ok(())
             }
+            Session::Remote(remote) => remote
+                .request(json!({"cmd": "select-workspace", "index": index, "delta": delta}))
+                .map(|_| ()),
         }
     }
 
-    pub fn move_tab(&self, surface: SurfaceId, pane: PaneId, index: usize) {
+    pub fn move_tab(&self, surface: SurfaceId, pane: PaneId, index: usize) -> anyhow::Result<()> {
         match self {
             Session::Local(mux) => {
                 mux.move_tab(surface, pane, index);
+                Ok(())
             }
-            Session::Remote(remote) => {
-                let _ = remote.request(
-                    json!({"cmd": "move-tab", "surface": surface, "pane": pane, "index": index}),
-                );
-            }
+            Session::Remote(remote) => remote
+                .request(json!({
+                    "cmd": "move-tab",
+                    "surface": surface,
+                    "pane": pane,
+                    "index": index
+                }))
+                .map(|_| ()),
         }
     }
 
-    pub fn move_workspace(&self, workspace: WorkspaceId, index: usize) {
+    pub fn move_workspace(&self, workspace: WorkspaceId, index: usize) -> anyhow::Result<()> {
         match self {
             Session::Local(mux) => {
                 mux.move_workspace(workspace, index);
+                Ok(())
             }
-            Session::Remote(remote) => {
-                let _ = remote.request(
-                    json!({"cmd": "move-workspace", "workspace": workspace, "index": index}),
-                );
-            }
+            Session::Remote(remote) => remote
+                .request(json!({"cmd": "move-workspace", "workspace": workspace, "index": index}))
+                .map(|_| ()),
         }
     }
 }
@@ -494,24 +551,26 @@ impl SurfaceHandle {
         }
     }
 
-    pub fn resize(&self, cols: u16, rows: u16) {
+    pub fn resize(&self, cols: u16, rows: u16) -> anyhow::Result<()> {
         let desired = (cols.max(1), rows.max(1));
         match self {
             SurfaceHandle::Local(surface) => {
                 let _ = surface.resize(desired.0, desired.1);
+                Ok(())
             }
             SurfaceHandle::Remote(surface, session) => {
                 if resize_action(desired, surface.asserted_size(), surface.server_size(), false) {
-                    let _ = session.request(json!({
+                    session.request(json!({
                         "cmd": "resize-surface",
                         "surface": surface.id,
                         "cols": desired.0,
                         "rows": desired.1,
-                    }));
+                    }))?;
                     surface.set_asserted_size(desired);
                 }
+                Ok(())
             }
-            SurfaceHandle::RemoteBrowserUnsupported => {}
+            SurfaceHandle::RemoteBrowserUnsupported => Ok(()),
         }
     }
 
@@ -529,24 +588,26 @@ impl SurfaceHandle {
         }
     }
 
-    pub fn reassert_size(&self, cols: u16, rows: u16) {
+    pub fn reassert_size(&self, cols: u16, rows: u16) -> anyhow::Result<()> {
         let desired = (cols.max(1), rows.max(1));
         match self {
             SurfaceHandle::Local(surface) => {
                 let _ = surface.resize(desired.0, desired.1);
+                Ok(())
             }
             SurfaceHandle::Remote(surface, session) => {
                 if resize_action(desired, surface.asserted_size(), surface.server_size(), true) {
-                    let _ = session.request(json!({
+                    session.request(json!({
                         "cmd": "resize-surface",
                         "surface": surface.id,
                         "cols": desired.0,
                         "rows": desired.1,
-                    }));
+                    }))?;
                 }
                 surface.set_asserted_size(desired);
+                Ok(())
             }
-            SurfaceHandle::RemoteBrowserUnsupported => {}
+            SurfaceHandle::RemoteBrowserUnsupported => Ok(()),
         }
     }
 

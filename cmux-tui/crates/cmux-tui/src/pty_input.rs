@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 use cmux_tui_core::SurfaceId;
 use smallvec::SmallVec;
 
-use crate::session::SurfaceHandle;
+use crate::session::{SurfaceHandle, is_remote_transport_failure};
 
 const QUEUE_CAPACITY: usize = 512;
 const MAX_QUEUED_BYTES: usize = 4 * 1024 * 1024;
@@ -94,6 +94,7 @@ pub struct PtyOperationFailure {
     pub kind: Option<PtyInputKind>,
     pub label: &'static str,
     pub error: String,
+    pub lane_failed: bool,
 }
 
 #[derive(Default)]
@@ -249,6 +250,7 @@ impl PtyInputSender {
                     _ => "operation queue is full; the session was left unchanged",
                 }
                 .into(),
+                lane_failed: result == PtyInputEnqueueResult::Failed,
             });
         }
     }
@@ -365,18 +367,21 @@ fn worker(queue: Arc<SharedQueue>, on_failure: Arc<dyn Fn(PtyOperationFailure) +
         } else {
             event.surface.write_bytes(&event.bytes)
         };
+        let remote_transport_failed =
+            remote && result.as_ref().err().is_some_and(is_remote_transport_failure);
         let failure = result.err().map(|error| PtyOperationFailure {
             surface_id,
             kind,
             label: event.label,
             error: error.to_string(),
+            lane_failed: remote_transport_failed,
         });
         let mut state = queue.state.lock().unwrap();
         let mut canceled = Vec::new();
         if failure.is_some() && kind == Some(PtyInputKind::Press) {
             state.release_reservations = state.release_reservations.saturating_sub(1);
         }
-        if failure.is_some() && remote {
+        if remote_transport_failed {
             // One dispatcher belongs to one local or remote App session. A
             // remote timeout means every queued remote request shares the
             // same failed transport, so cancel the backlog instead of paying
@@ -387,6 +392,7 @@ fn worker(queue: Arc<SharedQueue>, on_failure: Arc<dyn Fn(PtyOperationFailure) +
                 kind: (event.kind != PtyInputKind::Mutation).then_some(event.kind),
                 label: event.label,
                 error: "canceled after the remote transport failed".into(),
+                lane_failed: true,
             }));
             state.queued_bytes = 0;
             state.release_reservations = 0;
@@ -680,7 +686,9 @@ mod tests {
         let sender = dispatcher.sender();
         let ran = Arc::new(std::sync::atomic::AtomicBool::new(false));
 
-        sender.enqueue_session_mutation("remote input", true, || anyhow::bail!("timed out"));
+        sender.enqueue_session_mutation("remote input", true, || {
+            Err(crate::session::test_remote_timeout_error())
+        });
         let follower_ran = ran.clone();
         sender.enqueue_session_mutation("queued close", true, move || {
             follower_ran.store(true, std::sync::atomic::Ordering::Release);
@@ -691,12 +699,44 @@ mod tests {
         let second = failure_rx.recv_timeout(Duration::from_secs(1)).unwrap();
         assert!([first.label, second.label].contains(&"remote input"));
         assert!([first.label, second.label].contains(&"queued close"));
+        assert!(first.lane_failed);
+        assert!(second.lane_failed);
         assert!(!ran.load(std::sync::atomic::Ordering::Acquire));
 
         sender.enqueue_session_mutation("later resize", true, || Ok(()));
         let later = failure_rx.recv_timeout(Duration::from_secs(1)).unwrap();
         assert_eq!(later.label, "later resize");
         assert!(later.error.contains("unavailable"));
+        assert!(later.lane_failed);
+    }
+
+    #[test]
+    fn remote_command_rejection_keeps_the_operation_lane_available() {
+        let (failure_tx, failure_rx) = std::sync::mpsc::channel();
+        let dispatcher = PtyInputDispatcher::spawn(move |failure| {
+            failure_tx.send(failure).unwrap();
+        })
+        .unwrap();
+        let sender = dispatcher.sender();
+        let ran = Arc::new(std::sync::atomic::AtomicBool::new(false));
+
+        sender.enqueue_session_mutation("invalid remote command", true, || {
+            Err(crate::session::test_remote_rejected_error())
+        });
+        let follower_ran = ran.clone();
+        sender.enqueue_session_mutation("following operation", true, move || {
+            follower_ran.store(true, std::sync::atomic::Ordering::Release);
+            Ok(())
+        });
+
+        let failure = failure_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert_eq!(failure.label, "invalid remote command");
+        assert!(!failure.lane_failed);
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while !ran.load(std::sync::atomic::Ordering::Acquire) && Instant::now() < deadline {
+            std::thread::yield_now();
+        }
+        assert!(ran.load(std::sync::atomic::Ordering::Acquire));
     }
 
     #[test]

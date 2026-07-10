@@ -6,9 +6,10 @@
 //! snapshots, prefix arming, the current layout, hit map, selection, and
 //! menu/prompt overlays).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::io::Write;
 use std::ops::Deref;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -47,11 +48,24 @@ use crate::ui::graphics_writer::GraphicsWriter;
 use crate::ui::input::{InputEvent, TextInput};
 use crate::ui::thumb_geometry;
 
+const DEFERRED_INPUT_CAPACITY: usize = 512;
+
 pub enum AppEvent {
     Mux(MuxEvent),
     Input(Event),
     PtyOperationFailed(PtyOperationFailure),
     BrowserTabCreated { pane: Option<PaneId> },
+    SessionMutationSettled,
+}
+
+struct PendingSessionMutation {
+    events: Sender<AppEvent>,
+}
+
+impl Drop for PendingSessionMutation {
+    fn drop(&mut self) {
+        let _ = self.events.send(AppEvent::SessionMutationSettled);
+    }
 }
 
 /// Read access stays synchronous, while every UI-originated session mutation
@@ -63,12 +77,30 @@ pub struct OrderedSession {
     operations: PtyInputSender,
     events: Sender<AppEvent>,
     remote: bool,
+    pending_mutations: Arc<AtomicUsize>,
 }
 
 impl OrderedSession {
     fn new(inner: Session, operations: PtyInputSender, events: Sender<AppEvent>) -> Self {
         let remote = matches!(inner, Session::Remote(_));
-        Self { inner, operations, events, remote }
+        Self { inner, operations, events, remote, pending_mutations: Arc::new(AtomicUsize::new(0)) }
+    }
+
+    fn pending_mutation(&self) -> PendingSessionMutation {
+        self.pending_mutations.fetch_add(1, Ordering::AcqRel);
+        PendingSessionMutation { events: self.events.clone() }
+    }
+
+    fn has_pending_mutations(&self) -> bool {
+        self.pending_mutations.load(Ordering::Acquire) > 0
+    }
+
+    fn settle_pending_mutation(&self) {
+        let result =
+            self.pending_mutations.fetch_update(Ordering::AcqRel, Ordering::Acquire, |pending| {
+                pending.checked_sub(1)
+            });
+        debug_assert!(result.is_ok(), "session mutation completion without a pending operation");
     }
 
     fn enqueue(
@@ -77,7 +109,11 @@ impl OrderedSession {
         operation: impl FnOnce(Session) -> anyhow::Result<()> + Send + 'static,
     ) {
         let session = self.inner.clone();
-        self.operations.enqueue_session_mutation(label, self.remote, move || operation(session));
+        let pending = self.pending_mutation();
+        self.operations.enqueue_session_mutation(label, self.remote, move || {
+            let _pending = pending;
+            operation(session)
+        });
     }
 
     fn resize_surface(
@@ -88,15 +124,17 @@ impl OrderedSession {
         rows: u16,
         reassert: bool,
     ) {
+        let pending = self.pending_mutation();
         self.operations.enqueue_coalescing_mutation(
             "resize PTY surface",
             ("surface resize", surface_id),
             self.remote,
             move || {
+                let _pending = pending;
                 if reassert {
-                    surface.reassert_size(cols, rows);
+                    surface.reassert_size(cols, rows)?;
                 } else {
-                    surface.resize(cols, rows);
+                    surface.resize(cols, rows)?;
                 }
                 Ok(())
             },
@@ -125,8 +163,7 @@ impl OrderedSession {
 
     pub fn set_cell_pixel_size(&self, width: u16, height: u16) {
         self.enqueue("set cell pixel size", move |session| {
-            session.set_cell_pixel_size(width, height);
-            Ok(())
+            session.set_cell_pixel_size(width, height)
         });
     }
 
@@ -141,31 +178,19 @@ impl OrderedSession {
     }
 
     pub fn close_screen(&self, screen: cmux_tui_core::ScreenId) {
-        self.enqueue("close screen", move |session| {
-            session.close_screen(screen);
-            Ok(())
-        });
+        self.enqueue("close screen", move |session| session.close_screen(screen));
     }
 
     pub fn rename_screen(&self, screen: cmux_tui_core::ScreenId, name: String) {
-        self.enqueue("rename screen", move |session| {
-            session.rename_screen(screen, name);
-            Ok(())
-        });
+        self.enqueue("rename screen", move |session| session.rename_screen(screen, name));
     }
 
     pub fn select_screen(&self, index: Option<usize>, delta: Option<isize>) {
-        self.enqueue("select screen", move |session| {
-            session.select_screen(index, delta);
-            Ok(())
-        });
+        self.enqueue("select screen", move |session| session.select_screen(index, delta));
     }
 
     pub fn zoom_pane(&self, pane: Option<PaneId>) {
-        self.enqueue("zoom pane", move |session| {
-            session.zoom_pane(pane);
-            Ok(())
-        });
+        self.enqueue("zoom pane", move |session| session.zoom_pane(pane));
     }
 
     pub fn split(
@@ -184,92 +209,60 @@ impl OrderedSession {
             SplitDir::Right => "horizontal split ratio",
             SplitDir::Down => "vertical split ratio",
         };
+        let pending = self.pending_mutation();
         self.operations.enqueue_coalescing_mutation(
             "resize pane split",
             (direction, pane),
             self.remote,
             move || {
-                session.set_ratio(pane, dir, ratio);
-                Ok(())
+                let _pending = pending;
+                session.set_ratio(pane, dir, ratio)
             },
         );
     }
 
     pub fn close_surface(&self, surface: SurfaceId) {
-        self.enqueue("close tab", move |session| {
-            session.close_surface(surface);
-            Ok(())
-        });
+        self.enqueue("close tab", move |session| session.close_surface(surface));
     }
 
     pub fn close_pane(&self, pane: PaneId) {
-        self.enqueue("close pane", move |session| {
-            session.close_pane(pane);
-            Ok(())
-        });
+        self.enqueue("close pane", move |session| session.close_pane(pane));
     }
 
     pub fn swap_pane(&self, pane: PaneId, target: PaneId) {
-        self.enqueue("swap panes", move |session| {
-            session.swap_pane(pane, target);
-            Ok(())
-        });
+        self.enqueue("swap panes", move |session| session.swap_pane(pane, target));
     }
 
     pub fn close_workspace(&self, workspace: WorkspaceId) {
-        self.enqueue("close workspace", move |session| {
-            session.close_workspace(workspace);
-            Ok(())
-        });
+        self.enqueue("close workspace", move |session| session.close_workspace(workspace));
     }
 
     pub fn rename_surface(&self, surface: SurfaceId, name: String) {
-        self.enqueue("rename tab", move |session| {
-            session.rename_surface(surface, name);
-            Ok(())
-        });
+        self.enqueue("rename tab", move |session| session.rename_surface(surface, name));
     }
 
     pub fn rename_workspace(&self, workspace: WorkspaceId, name: String) {
-        self.enqueue("rename workspace", move |session| {
-            session.rename_workspace(workspace, name);
-            Ok(())
-        });
+        self.enqueue("rename workspace", move |session| session.rename_workspace(workspace, name));
     }
 
     pub fn focus_pane(&self, pane: PaneId) {
-        self.enqueue("focus pane", move |session| {
-            session.focus_pane(pane);
-            Ok(())
-        });
+        self.enqueue("focus pane", move |session| session.focus_pane(pane));
     }
 
     pub fn select_tab(&self, pane: Option<PaneId>, index: Option<usize>, delta: Option<isize>) {
-        self.enqueue("select tab", move |session| {
-            session.select_tab(pane, index, delta);
-            Ok(())
-        });
+        self.enqueue("select tab", move |session| session.select_tab(pane, index, delta));
     }
 
     pub fn select_workspace(&self, index: Option<usize>, delta: Option<isize>) {
-        self.enqueue("select workspace", move |session| {
-            session.select_workspace(index, delta);
-            Ok(())
-        });
+        self.enqueue("select workspace", move |session| session.select_workspace(index, delta));
     }
 
     pub fn move_tab(&self, surface: SurfaceId, pane: PaneId, index: usize) {
-        self.enqueue("move tab", move |session| {
-            session.move_tab(surface, pane, index);
-            Ok(())
-        });
+        self.enqueue("move tab", move |session| session.move_tab(surface, pane, index));
     }
 
     pub fn move_workspace(&self, workspace: WorkspaceId, index: usize) {
-        self.enqueue("move workspace", move |session| {
-            session.move_workspace(workspace, index);
-            Ok(())
-        });
+        self.enqueue("move workspace", move |session| session.move_workspace(workspace, index));
     }
 }
 
@@ -666,6 +659,7 @@ pub struct App {
     /// never run on the event-loop thread (see `browser_input`).
     browser_input: BrowserInputDispatcher,
     pty_input: PtyInputDispatcher,
+    deferred_input: VecDeque<Event>,
     drag: Option<Drag>,
     encoder: KeyEncoder,
     mouse_encoder: MouseEncoder,
@@ -922,6 +916,7 @@ pub fn run(session: Session, session_label: String) -> anyhow::Result<()> {
         last_browser_hover: None,
         browser_input,
         pty_input,
+        deferred_input: VecDeque::new(),
         drag: None,
         encoder,
         mouse_encoder,
@@ -1238,6 +1233,14 @@ impl App {
     }
 
     fn handle(&mut self, event: AppEvent) -> anyhow::Result<RenderAction> {
+        let event = match event {
+            AppEvent::Input(input @ (Event::Key(_) | Event::Mouse(_) | Event::Paste(_)))
+                if self.session.has_pending_mutations() =>
+            {
+                return Ok(self.defer_input(input));
+            }
+            event => event,
+        };
         match event {
             AppEvent::Mux(MuxEvent::Empty) => {
                 self.quit = true;
@@ -1290,11 +1293,11 @@ impl App {
             }
             AppEvent::Mux(_) => Ok(RenderAction::Draw),
             AppEvent::PtyOperationFailed(failure) => {
-                if failure.kind == Some(PtyInputKind::Press)
+                let failed_active_press = failure.kind == Some(PtyInputKind::Press)
                     && failure.surface_id.is_some_and(|surface| {
                         matches!(&self.drag, Some(Drag::PtyMouse { surface: active, .. }) if *active == surface)
-                    })
-                {
+                    });
+                if failed_active_press || failure.lane_failed {
                     self.drag = None;
                 }
                 self.status_message = Some(format!("{} failed: {}", failure.label, failure.error));
@@ -1306,6 +1309,19 @@ impl App {
                     self.focus_omnibar_with_buffer(pane, String::new(), false);
                 }
                 Ok(RenderAction::Draw)
+            }
+            AppEvent::SessionMutationSettled => {
+                self.session.settle_pending_mutation();
+                if self.session.has_pending_mutations() {
+                    return Ok(RenderAction::None);
+                }
+                self.tree = self.session.tree();
+                let mut action = RenderAction::Draw;
+                while !self.session.has_pending_mutations() {
+                    let Some(input) = self.deferred_input.pop_front() else { break };
+                    action = action.merge(self.handle(AppEvent::Input(input))?);
+                }
+                Ok(action)
             }
             AppEvent::Input(Event::Key(key)) => {
                 if key.kind != KeyEventKind::Release {
@@ -1360,6 +1376,20 @@ impl App {
         }
     }
 
+    fn defer_input(&mut self, input: Event) -> RenderAction {
+        if self.deferred_input.len() >= DEFERRED_INPUT_CAPACITY {
+            if matches!(&input, Event::Mouse(MouseEvent { kind: MouseEventKind::Up(_), .. })) {
+                self.deferred_input.pop_front();
+            } else {
+                self.status_message =
+                    Some("Input queue is full while a session change is pending".to_string());
+                return RenderAction::Draw;
+            }
+        }
+        self.deferred_input.push_back(input);
+        RenderAction::None
+    }
+
     fn active_pane(&self) -> Option<PaneId> {
         self.tree.active_screen().map(|screen| screen.active_pane)
     }
@@ -1391,7 +1421,7 @@ impl App {
             if rect.width > 0 && rect.height > 0 {
                 let needs_barrier = surface.resize_needed(rect.width, rect.height, true);
                 if !needs_barrier {
-                    surface.reassert_size(rect.width, rect.height);
+                    let _ = surface.reassert_size(rect.width, rect.height);
                 } else if self.prepare_pty_input_before_mutation()
                     && let Some(surface_id) = self.sidebar_plugin_surface
                 {
@@ -1414,7 +1444,7 @@ impl App {
                 let needs_barrier =
                     surface.resize_needed(area.content.width, area.content.height, true);
                 if !needs_barrier {
-                    surface.reassert_size(area.content.width, area.content.height);
+                    let _ = surface.reassert_size(area.content.width, area.content.height);
                 } else if self.prepare_pty_input_before_mutation() {
                     self.enqueue_surface_resize(
                         area.surface,
@@ -3839,11 +3869,15 @@ mod tests {
         App, AppEvent, Drag, OrderedSession, PaneArea, browser_content_size_for_rect,
         browser_hover_forward_allowed, pane_parts_for_rect,
     };
-    use std::collections::HashMap;
+    use std::collections::{HashMap, VecDeque};
+    use std::sync::mpsc::Receiver;
     use std::sync::{Arc, Mutex};
+    use std::time::Duration;
 
     use cmux_tui_core::{BrowserStatus, Mux, Node, Rect, SurfaceKind, SurfaceOptions};
-    use crossterm::event::{Event, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+    use crossterm::event::{
+        Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+    };
     use ghostty_vt::{KeyEncoder, MouseEncoder, RenderState};
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
@@ -4053,10 +4087,63 @@ mod tests {
             kind: Some(PtyInputKind::Motion),
             label: "PTY input",
             error: "write failed".to_string(),
+            lane_failed: false,
         }))
         .unwrap();
 
         assert!(matches!(app.drag, Some(Drag::PtyMouse { button: MouseButton::Right, .. })));
+    }
+
+    #[test]
+    fn lane_failure_clears_pty_drag_after_nonpress_failure() {
+        let mux = Mux::new("lane-failure-drag-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.drag = Some(Drag::PtyMouse {
+            surface: 42,
+            content: Rect { x: 1, y: 1, width: 20, height: 8 },
+            button: MouseButton::Right,
+            position: (4, 3),
+            modifiers: KeyModifiers::NONE,
+        });
+
+        app.handle(AppEvent::PtyOperationFailed(PtyOperationFailure {
+            surface_id: Some(42),
+            kind: Some(PtyInputKind::Motion),
+            label: "PTY input",
+            error: "remote session did not respond".to_string(),
+            lane_failed: true,
+        }))
+        .unwrap();
+
+        assert!(app.drag.is_none());
+    }
+
+    #[test]
+    fn input_waits_for_prior_session_mutation_to_settle() {
+        let mux = Mux::new("pending-mutation-input-test", SurfaceOptions::default());
+        let (mut app, events) = test_app_with_events(Session::Local(mux));
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        app.session.enqueue("blocking selection", move |_| {
+            started_tx.send(()).unwrap();
+            release_rx.recv().unwrap();
+            Ok(())
+        });
+        started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        app.handle(AppEvent::Input(Event::Key(KeyEvent::new(
+            KeyCode::Char('x'),
+            KeyModifiers::NONE,
+        ))))
+        .unwrap();
+
+        assert_eq!(app.deferred_input.len(), 1);
+        release_tx.send(()).unwrap();
+        let settled = events.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(matches!(settled, AppEvent::SessionMutationSettled));
+        app.handle(settled).unwrap();
+        assert!(app.deferred_input.is_empty());
+        assert!(!app.session.has_pending_mutations());
     }
 
     #[test]
@@ -4114,10 +4201,14 @@ mod tests {
     }
 
     fn test_app(session: Session) -> App {
+        test_app_with_events(session).0
+    }
+
+    fn test_app_with_events(session: Session) -> (App, Receiver<AppEvent>) {
         let pty_input = PtyInputDispatcher::spawn(|_| {}).unwrap();
-        let (events, _) = std::sync::mpsc::channel();
+        let (events, receiver) = std::sync::mpsc::channel();
         let session = OrderedSession::new(session, pty_input.sender(), events);
-        App {
+        let app = App {
             session,
             config: Config::default(),
             tree: TreeView::default(),
@@ -4151,12 +4242,14 @@ mod tests {
             last_browser_hover: None,
             browser_input: BrowserInputDispatcher::spawn().unwrap(),
             pty_input,
+            deferred_input: VecDeque::new(),
             drag: None,
             encoder: KeyEncoder::new().unwrap(),
             mouse_encoder: MouseEncoder::new().unwrap(),
             encode_buf: Vec::new(),
             quit: false,
-        }
+        };
+        (app, receiver)
     }
 
     fn notify_tree(surface: u64, unread: bool) -> TreeView {

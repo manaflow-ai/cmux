@@ -21,6 +21,34 @@ use serde_json::{Value, json};
 use super::tree::{TreeView, parse_tree};
 
 const SUPPORTED_PROTOCOL_VERSION: u64 = 6;
+
+#[derive(Debug)]
+pub(crate) enum RemoteRequestError {
+    Encode(serde_json::Error),
+    Transport(std::io::Error),
+    Timeout,
+    Rejected(String),
+}
+
+impl RemoteRequestError {
+    pub(crate) fn is_transport_failure(&self) -> bool {
+        matches!(self, Self::Transport(_) | Self::Timeout)
+    }
+}
+
+impl std::fmt::Display for RemoteRequestError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Encode(error) => write!(formatter, "could not encode remote request: {error}"),
+            Self::Transport(error) => write!(formatter, "remote transport write failed: {error}"),
+            Self::Timeout => write!(formatter, "remote session did not respond"),
+            Self::Rejected(error) => write!(formatter, "remote command rejected: {error}"),
+        }
+    }
+}
+
+impl std::error::Error for RemoteRequestError {}
+
 #[derive(Clone)]
 struct RemoteBrowserFrame {
     frame: BrowserFrame,
@@ -411,14 +439,16 @@ impl RemoteSession {
     pub fn request(&self, mut cmd: Value) -> anyhow::Result<Value> {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         cmd["id"] = json!(id);
-        let mut line = serde_json::to_vec(&cmd)?;
+        let mut line = serde_json::to_vec(&cmd)
+            .map_err(RemoteRequestError::Encode)
+            .map_err(anyhow::Error::new)?;
         line.push(b'\n');
 
         let (tx, rx) = channel();
         self.pending.lock().unwrap().insert(id, tx);
         if let Err(err) = self.writer.lock().unwrap().write_all(&line) {
             self.pending.lock().unwrap().remove(&id);
-            return Err(err.into());
+            return Err(RemoteRequestError::Transport(err).into());
         }
 
         let response = match rx.recv_timeout(Duration::from_secs(10)) {
@@ -428,14 +458,14 @@ impl RemoteSession {
                 // accumulate abandoned senders (and a late response is
                 // not delivered to a receiver nobody holds).
                 self.pending.lock().unwrap().remove(&id);
-                anyhow::bail!("session did not respond")
+                return Err(RemoteRequestError::Timeout.into());
             }
         };
         if response.get("ok").and_then(|v| v.as_bool()) == Some(true) {
             Ok(response.get("data").cloned().unwrap_or(Value::Null))
         } else {
             let error = response.get("error").and_then(|v| v.as_str()).unwrap_or("unknown error");
-            anyhow::bail!("{error}")
+            Err(RemoteRequestError::Rejected(error.to_string()).into())
         }
     }
 
@@ -444,12 +474,13 @@ impl RemoteSession {
         self.request(json!({"cmd": "send", "surface": surface, "bytes": encoded})).map(|_| ())
     }
 
-    pub fn set_cell_pixel_size(&self, width_px: u16, height_px: u16) {
-        let _ = self.request(json!({
+    pub fn set_cell_pixel_size(&self, width_px: u16, height_px: u16) -> anyhow::Result<()> {
+        self.request(json!({
             "cmd": "set-cell-pixels",
             "width_px": width_px,
             "height_px": height_px,
-        }));
+        }))
+        .map(|_| ())
     }
 
     pub fn set_default_colors(&self, colors: DefaultColors) -> anyhow::Result<()> {

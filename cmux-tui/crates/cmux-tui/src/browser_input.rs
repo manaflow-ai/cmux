@@ -155,11 +155,10 @@ fn dispatch(event: &BrowserInputEvent) {
         BrowserInputKind::InsertText(text) => surface.browser_insert_text(text),
         BrowserInputKind::Resize { cols, rows, reassert } => {
             if *reassert {
-                surface.reassert_size(*cols, *rows);
+                surface.reassert_size(*cols, *rows)
             } else {
-                surface.resize(*cols, *rows);
+                surface.resize(*cols, *rows)
             }
-            Ok(())
         }
     };
 }
