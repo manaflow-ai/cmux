@@ -647,6 +647,7 @@ export const irohEndpointBindings = pgTable(
     pairingEnabled: boolean("pairing_enabled").notNull().default(false),
     capabilities: jsonb("capabilities").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
     pathHints: jsonb("path_hints").$type<unknown[]>().notNull().default(sql`'[]'::jsonb`),
+    pathHintsNextExpiry: timestamp("path_hints_next_expiry", { withTimezone: true }),
     deviceLimitOverrideUsed: boolean("device_limit_override_used").notNull().default(false),
     lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
     registeredAt: timestamp("registered_at", { withTimezone: true }).notNull().defaultNow(),
@@ -656,7 +657,7 @@ export const irohEndpointBindings = pgTable(
   },
   (table) => [
     check("iroh_endpoint_bindings_endpoint_id_check", sql`${table.endpointId} ~ '^[0-9a-f]{64}$'`),
-    check("iroh_endpoint_bindings_identity_generation_check", sql`${table.identityGeneration} >= 1`),
+    check("iroh_endpoint_bindings_identity_generation_check", sql`${table.identityGeneration} between 1 and 2147483647`),
     check("iroh_endpoint_bindings_tag_check", sql`${table.tag} ~ '^[A-Za-z0-9._-]{1,64}$'`),
     check("iroh_endpoint_bindings_platform_check", sql`${table.platform} in ('mac', 'ios')`),
     check("iroh_endpoint_bindings_display_name_check", sql`${table.displayName} is null or ${table.displayName} !~ '[[:cntrl:]]'`),
@@ -677,6 +678,12 @@ export const irohEndpointBindings = pgTable(
     index("iroh_endpoint_bindings_revoked_idx")
       .on(table.revokedAt)
       .where(sql`${table.revokedAt} is not null`),
+    index("iroh_endpoint_bindings_path_hints_expiry_idx")
+      .on(table.pathHintsNextExpiry, table.id)
+      .where(sql`${table.revokedAt} is null and ${table.pathHintsNextExpiry} is not null`),
+    index("iroh_endpoint_bindings_revoked_hints_idx")
+      .on(table.revokedAt, table.id)
+      .where(sql`${table.revokedAt} is not null and ${table.pathHintsNextExpiry} is not null`),
   ],
 );
 
@@ -703,7 +710,7 @@ export const irohRegistrationChallenges = pgTable(
   },
   (table) => [
     check("iroh_registration_challenges_endpoint_id_check", sql`${table.endpointId} ~ '^[0-9a-f]{64}$'`),
-    check("iroh_registration_challenges_identity_generation_check", sql`${table.identityGeneration} >= 1`),
+    check("iroh_registration_challenges_identity_generation_check", sql`${table.identityGeneration} between 1 and 2147483647`),
     check("iroh_registration_challenges_tag_check", sql`${table.tag} ~ '^[A-Za-z0-9._-]{1,64}$'`),
     check("iroh_registration_challenges_payload_hash_check", sql`${table.payloadSha256} ~ '^[0-9a-f]{64}$'`),
     check("iroh_registration_challenges_nonce_hash_check", sql`${table.nonceHash} ~ '^[0-9a-f]{64}$'`),
@@ -712,8 +719,15 @@ export const irohRegistrationChallenges = pgTable(
     index("iroh_registration_challenges_user_device_created_idx")
       .on(table.userId, table.deviceUuid, table.createdAt),
     index("iroh_registration_challenges_expires_idx")
-      .on(table.expiresAt)
-      .where(sql`${table.consumedAt} is null`),
+      .on(table.expiresAt, table.id),
+    index("iroh_registration_challenges_consumed_idx")
+      .on(table.consumedAt, table.id)
+      .where(sql`${table.consumedAt} is not null`),
+    index("iroh_registration_challenges_user_expires_idx")
+      .on(table.userId, table.expiresAt, table.id),
+    index("iroh_registration_challenges_user_consumed_idx")
+      .on(table.userId, table.consumedAt, table.id)
+      .where(sql`${table.consumedAt} is not null`),
   ],
 );
 
@@ -743,6 +757,8 @@ export const irohPairGrantIssuances = pgTable(
     uniqueIndex("iroh_pair_grant_issuances_jti_unique").on(table.jti),
     index("iroh_pair_grant_issuances_user_issued_idx").on(table.userId, table.issuedAt),
     index("iroh_pair_grant_issuances_acceptor_expires_idx").on(table.acceptorBindingId, table.expiresAt),
+    index("iroh_pair_grant_issuances_expires_idx").on(table.expiresAt, table.id),
+    index("iroh_pair_grant_issuances_user_expires_idx").on(table.userId, table.expiresAt, table.id),
   ],
 );
 
@@ -770,7 +786,8 @@ export const irohRelayTokenIssuances = pgTable(
     check("iroh_relay_token_issuances_endpoint_hash_check", sql`${table.endpointIdHash} ~ '^[0-9a-f]{64}$'`),
     check("iroh_relay_token_issuances_status_check", sql`${table.status} in ('pending', 'succeeded', 'failed')`),
     index("iroh_relay_token_issuances_binding_requested_idx").on(table.bindingId, table.requestedAt),
-    index("iroh_relay_token_issuances_user_requested_idx").on(table.userId, table.requestedAt),
+    index("iroh_relay_token_issuances_user_requested_idx").on(table.userId, table.requestedAt, table.id),
+    index("iroh_relay_token_issuances_requested_idx").on(table.requestedAt, table.id),
   ],
 );
 

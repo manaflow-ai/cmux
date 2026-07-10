@@ -34,3 +34,17 @@ per day. The optional Vercel Firewall rule is defense in depth. A tagged-build
 device-limit override requires a server flag, an exact authenticated user-id
 allowlist match, and an exact deployment-environment allowlist match; it never
 raises the 32-binding account limit and records an audit marker on the binding.
+
+Every user-scoped mutation acquires the account-deletion advisory fence before
+any Iroh lock. If the deletion tombstone wins, no challenge, binding, grant, or
+relay audit state can be created. If an Iroh mutation wins, account deletion
+waits for that transaction and then removes its rows. Pair grants re-read and
+lock both exact signed peers at audit insertion, requiring an iOS initiator and
+a pairable Mac acceptor. Relay credentials are returned only after a second
+locked active-binding check following the external mint.
+
+Registration stores the earliest path-hint expiry in
+`path_hints_next_expiry`. The hourly cleanup uses that indexed scalar and
+bounded 500-row `FOR UPDATE SKIP LOCKED` batches for hints, challenges, audit
+rows, and revoked bindings. Concurrent cron workers can cooperate without a
+full-table JSON scan.

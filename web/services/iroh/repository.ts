@@ -1,8 +1,12 @@
-import { and, asc, count, eq, gt, inArray, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
+import { and, asc, count, eq, gt, inArray, isNull, lte, or, sql } from "drizzle-orm";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import { cloudDb } from "../../db/client";
+import {
+  AccountDeletionMutationBlockedError,
+  assertAccountDeletionUserMutationAllowed,
+} from "../account/deletionLock";
 import {
   irohAccountSecurityStates,
   irohEndpointBindings,
@@ -17,10 +21,20 @@ import {
   IrohNotFoundError,
   IrohQuotaExceededError,
 } from "./errors";
-import { parseIrohPathHint, sha256, type IrohRegistrationPayload } from "./model";
+import type { PairGrantPeer } from "./crypto";
+import {
+  nextPathHintExpiry,
+  parseIrohPathHint,
+  sha256,
+  type IrohPathHint,
+  type IrohRegistrationPayload,
+} from "./model";
+
+export const IROH_RETENTION_BATCH_SIZE = 500;
 
 export type IrohBindingRecord = typeof irohEndpointBindings.$inferSelect;
 export type IrohChallengeRecord = typeof irohRegistrationChallenges.$inferSelect;
+type CloudDbTransaction = Parameters<Parameters<ReturnType<typeof cloudDb>["transaction"]>[0]>[0];
 
 type RepositoryError =
   | IrohDatabaseError
@@ -80,8 +94,8 @@ export type IrohRepositoryShape = {
   readonly recordPairGrant: (input: {
     readonly userId: string;
     readonly jti: string;
-    readonly initiatorBindingId: string;
-    readonly acceptorBindingId: string;
+    readonly initiator: PairGrantPeer;
+    readonly acceptor: PairGrantPeer;
     readonly signingKeyId: string;
     readonly alpn: string;
     readonly scope: string;
@@ -98,12 +112,16 @@ export type IrohRepositoryShape = {
     readonly binding: IrohBindingRecord;
   }, RepositoryError>;
   readonly completeRelayIssuance: (input: {
+    readonly userId: string;
     readonly issuanceId: string;
+    readonly bindingId: string;
+    readonly endpointId: string;
     readonly tokenHash: string;
     readonly completedAt: Date;
     readonly expiresAt: Date;
-  }) => Effect.Effect<void, RepositoryError>;
+  }) => Effect.Effect<boolean, RepositoryError>;
   readonly failRelayIssuance: (input: {
+    readonly userId: string;
     readonly issuanceId: string;
     readonly completedAt: Date;
     readonly failureCode: string;
@@ -122,6 +140,7 @@ function makeLiveRepository(): IrohRepositoryShape {
     issueChallenge: (input) => repositoryEffect("issue_challenge", async () => {
       const db = cloudDb();
       return await db.transaction(async (tx) => {
+        await assertIrohUserMutationAllowed(tx, input.userId);
         await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`iroh:challenge:${input.userId}`}, 0))`);
         const tenMinutesAgo = new Date(input.now.getTime() - 10 * 60 * 1_000);
         const [recentForDevice] = await tx
@@ -181,6 +200,7 @@ function makeLiveRepository(): IrohRepositoryShape {
     consumeChallengeAndRegister: (input) => repositoryEffect("register_binding", async () => {
       const db = cloudDb();
       return await db.transaction(async (tx) => {
+        await assertIrohUserMutationAllowed(tx, input.userId);
         await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`iroh:binding:${input.userId}`}, 0))`);
         await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`iroh:endpoint:${input.payload.endpointId}`}, 0))`);
         await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`iroh:app:${input.payload.appInstanceId}`}, 0))`);
@@ -226,6 +246,7 @@ function makeLiveRepository(): IrohRepositoryShape {
               pairingEnabled: input.payload.pairingEnabled,
               capabilities: [...input.payload.capabilities],
               pathHints: [...input.payload.pathHints],
+              pathHintsNextExpiry: nextPathHintExpiry(input.payload.pathHints),
               lastSeenAt: input.now,
               updatedAt: input.now,
             })
@@ -287,6 +308,7 @@ function makeLiveRepository(): IrohRepositoryShape {
             pairingEnabled: input.payload.pairingEnabled,
             capabilities: [...input.payload.capabilities],
             pathHints: [...input.payload.pathHints],
+            pathHintsNextExpiry: nextPathHintExpiry(input.payload.pathHints),
             deviceLimitOverrideUsed: usesDeviceOverride,
             lastSeenAt: input.now,
             registeredAt: input.now,
@@ -322,18 +344,22 @@ function makeLiveRepository(): IrohRepositoryShape {
 
     findActiveBindings: (userId, bindingIds) => repositoryEffect("find_bindings", async () => {
       if (bindingIds.length === 0) return [];
-      return await cloudDb()
-        .select()
-        .from(irohEndpointBindings)
-        .where(and(
-          eq(irohEndpointBindings.userId, userId),
-          inArray(irohEndpointBindings.id, [...bindingIds]),
-          isNull(irohEndpointBindings.revokedAt),
-        ));
+      return await cloudDb().transaction(async (tx) => {
+        await assertIrohUserMutationAllowed(tx, userId);
+        return await tx
+          .select()
+          .from(irohEndpointBindings)
+          .where(and(
+            eq(irohEndpointBindings.userId, userId),
+            inArray(irohEndpointBindings.id, [...bindingIds]),
+            isNull(irohEndpointBindings.revokedAt),
+          ));
+      });
     }),
 
     revokeBinding: (input) => repositoryEffect("revoke_binding", async () => {
       return await cloudDb().transaction(async (tx) => {
+        await assertIrohUserMutationAllowed(tx, input.userId);
         await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`iroh:binding:${input.userId}`}, 0))`);
         const revoked = await tx
           .update(irohEndpointBindings)
@@ -341,6 +367,7 @@ function makeLiveRepository(): IrohRepositoryShape {
             revokedAt: input.now,
             revokedReason: "user_requested",
             pathHints: [],
+            pathHintsNextExpiry: null,
             updatedAt: input.now,
           })
           .where(and(
@@ -375,71 +402,114 @@ function makeLiveRepository(): IrohRepositoryShape {
     }),
 
     accountLanGeneration: (input) => repositoryEffect("lan_generation", async () => {
-      const [state] = await cloudDb()
-        .insert(irohAccountSecurityStates)
-        .values({ userId: input.userId, lanDiscoveryGeneration: 1, createdAt: input.now, updatedAt: input.now })
-        .onConflictDoUpdate({
-          target: irohAccountSecurityStates.userId,
-          set: { updatedAt: sql`${irohAccountSecurityStates.updatedAt}` },
-        })
-        .returning({ generation: irohAccountSecurityStates.lanDiscoveryGeneration });
-      if (!state) throw new Error("account security state returned no row");
-      return state.generation;
+      return await cloudDb().transaction(async (tx) => {
+        await assertIrohUserMutationAllowed(tx, input.userId);
+        const [state] = await tx
+          .insert(irohAccountSecurityStates)
+          .values({ userId: input.userId, lanDiscoveryGeneration: 1, createdAt: input.now, updatedAt: input.now })
+          .onConflictDoUpdate({
+            target: irohAccountSecurityStates.userId,
+            set: { updatedAt: sql`${irohAccountSecurityStates.updatedAt}` },
+          })
+          .returning({ generation: irohAccountSecurityStates.lanDiscoveryGeneration });
+        if (!state) throw new Error("account security state returned no row");
+        return state.generation;
+      });
     }),
 
     pruneExpiredState: (input) => repositoryEffect("prune_expired_state", async () => {
       await cloudDb().transaction(async (tx) => {
+        await assertIrohUserMutationAllowed(tx, input.userId);
+        await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`iroh:binding:${input.userId}`}, 0))`);
         const bindings = await tx
           .select({
             id: irohEndpointBindings.id,
             pathHints: irohEndpointBindings.pathHints,
-            revokedAt: irohEndpointBindings.revokedAt,
           })
           .from(irohEndpointBindings)
-          .where(eq(irohEndpointBindings.userId, input.userId));
+          .where(and(
+            eq(irohEndpointBindings.userId, input.userId),
+            isNull(irohEndpointBindings.revokedAt),
+            lte(irohEndpointBindings.pathHintsNextExpiry, input.now),
+          ))
+          .limit(IROH_RETENTION_BATCH_SIZE)
+          .for("update");
         for (const binding of bindings) {
-          const retained = binding.revokedAt
-            ? []
-            : binding.pathHints.filter((hint) => isUnexpiredStoredHint(hint, input.now));
-          if (retained.length !== binding.pathHints.length) {
-            await tx
-              .update(irohEndpointBindings)
-              .set({ pathHints: retained, updatedAt: input.now })
-              .where(eq(irohEndpointBindings.id, binding.id));
-          }
+          const retained = retainedStoredHints(binding.pathHints, input.now);
+          await tx
+            .update(irohEndpointBindings)
+            .set({
+              pathHints: retained,
+              pathHintsNextExpiry: nextPathHintExpiry(retained),
+              updatedAt: input.now,
+            })
+            .where(eq(irohEndpointBindings.id, binding.id));
         }
 
         const challengeRetentionCutoff = new Date(input.now.getTime() - 24 * 60 * 60 * 1_000);
-        await tx
-          .delete(irohRegistrationChallenges)
-          .where(and(
-            eq(irohRegistrationChallenges.userId, input.userId),
-            or(
-              lt(irohRegistrationChallenges.expiresAt, challengeRetentionCutoff),
-              and(
-                isNotNull(irohRegistrationChallenges.consumedAt),
-                lt(irohRegistrationChallenges.consumedAt, challengeRetentionCutoff),
-              ),
-            ),
-          ));
-
         const auditRetentionCutoff = new Date(input.now.getTime() - 30 * 24 * 60 * 60 * 1_000);
-        await tx
-          .delete(irohRelayTokenIssuances)
-          .where(and(
-            eq(irohRelayTokenIssuances.userId, input.userId),
-            lt(irohRelayTokenIssuances.requestedAt, auditRetentionCutoff),
-          ));
-        await tx
-          .delete(irohPairGrantIssuances)
-          .where(and(
-            eq(irohPairGrantIssuances.userId, input.userId),
-            lt(irohPairGrantIssuances.expiresAt, auditRetentionCutoff),
-          ));
         await tx.execute(sql`
-          delete from iroh_endpoint_bindings as binding
-          where binding.user_id = ${input.userId}
-            and binding.revoked_at < ${auditRetentionCutoff.toISOString()}::timestamptz
+          with candidates as materialized (
+            select id
+            from iroh_registration_challenges
+            where user_id = ${input.userId}
+              and expires_at < ${challengeRetentionCutoff.toISOString()}::timestamptz
+            order by expires_at, id
+            limit ${IROH_RETENTION_BATCH_SIZE}
+            for update skip locked
+          )
+          delete from iroh_registration_challenges as challenge
+          using candidates
+          where challenge.id = candidates.id
+        `);
+        await tx.execute(sql`
+          with candidates as materialized (
+            select id
+            from iroh_registration_challenges
+            where user_id = ${input.userId}
+              and consumed_at < ${challengeRetentionCutoff.toISOString()}::timestamptz
+            order by consumed_at, id
+            limit ${IROH_RETENTION_BATCH_SIZE}
+            for update skip locked
+          )
+          delete from iroh_registration_challenges as challenge
+          using candidates
+          where challenge.id = candidates.id
+        `);
+        await tx.execute(sql`
+          with candidates as materialized (
+            select id
+            from iroh_relay_token_issuances
+            where user_id = ${input.userId}
+              and requested_at < ${auditRetentionCutoff.toISOString()}::timestamptz
+            order by requested_at, id
+            limit ${IROH_RETENTION_BATCH_SIZE}
+            for update skip locked
+          )
+          delete from iroh_relay_token_issuances as issuance
+          using candidates
+          where issuance.id = candidates.id
+        `);
+        await tx.execute(sql`
+          with candidates as materialized (
+            select id
+            from iroh_pair_grant_issuances
+            where user_id = ${input.userId}
+              and expires_at < ${auditRetentionCutoff.toISOString()}::timestamptz
+            order by expires_at, id
+            limit ${IROH_RETENTION_BATCH_SIZE}
+            for update skip locked
+          )
+          delete from iroh_pair_grant_issuances as issuance
+          using candidates
+          where issuance.id = candidates.id
+        `);
+        await tx.execute(sql`
+          with candidates as materialized (
+            select binding.id
+            from iroh_endpoint_bindings as binding
+            where binding.user_id = ${input.userId}
+              and binding.revoked_at < ${auditRetentionCutoff.toISOString()}::timestamptz
             and not exists (
               select 1 from iroh_pair_grant_issuances as pair_grant
               where pair_grant.initiator_binding_id = binding.id
@@ -449,6 +519,13 @@ function makeLiveRepository(): IrohRepositoryShape {
               select 1 from iroh_relay_token_issuances as issuance
               where issuance.binding_id = binding.id
             )
+            order by binding.revoked_at, binding.id
+            limit ${IROH_RETENTION_BATCH_SIZE}
+            for update skip locked
+          )
+          delete from iroh_endpoint_bindings as binding
+          using candidates
+          where binding.id = candidates.id
         `);
       });
     }),
@@ -458,55 +535,126 @@ function makeLiveRepository(): IrohRepositoryShape {
       const auditRetentionCutoff = new Date(input.now.getTime() - 30 * 24 * 60 * 60 * 1_000);
       await cloudDb().transaction(async (tx) => {
         await tx.execute(sql`
+          with candidates as materialized (
+            select id
+            from iroh_endpoint_bindings
+            where revoked_at is not null
+              and path_hints_next_expiry is not null
+            order by revoked_at, id
+            limit ${IROH_RETENTION_BATCH_SIZE}
+            for update skip locked
+          )
           update iroh_endpoint_bindings as binding
-          set
-            path_hints = coalesce((
-              select jsonb_agg(hint)
-              from jsonb_array_elements(binding.path_hints) as hints(hint)
-              where binding.revoked_at is null
-                and case
-                  when jsonb_typeof(hint) = 'object'
-                    and jsonb_typeof(hint -> 'expires_at') = 'string'
-                    and (hint ->> 'expires_at') ~ '^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$'
-                  then (hint ->> 'expires_at') > ${input.now.toISOString()}
-                  else false
-                end
-            ), '[]'::jsonb),
-            updated_at = ${input.now.toISOString()}::timestamptz
-          where binding.path_hints <> '[]'::jsonb
-            and (
-              binding.revoked_at is not null
-              or exists (
-                select 1
-                from jsonb_array_elements(binding.path_hints) as candidates(candidate)
-                where case
-                  when jsonb_typeof(candidate) = 'object'
-                    and jsonb_typeof(candidate -> 'expires_at') = 'string'
-                    and (candidate ->> 'expires_at') ~ '^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$'
-                  then (candidate ->> 'expires_at') <= ${input.now.toISOString()}
-                  else true
-                end
-              )
-            )
+          set path_hints = '[]'::jsonb,
+              path_hints_next_expiry = null,
+              updated_at = ${input.now.toISOString()}::timestamptz
+          from candidates
+          where binding.id = candidates.id
         `);
         await tx
-          .delete(irohRegistrationChallenges)
-          .where(or(
-            lt(irohRegistrationChallenges.expiresAt, challengeRetentionCutoff),
-            and(
-              isNotNull(irohRegistrationChallenges.consumedAt),
-              lt(irohRegistrationChallenges.consumedAt, challengeRetentionCutoff),
-            ),
-          ));
-        await tx
-          .delete(irohRelayTokenIssuances)
-          .where(lt(irohRelayTokenIssuances.requestedAt, auditRetentionCutoff));
-        await tx
-          .delete(irohPairGrantIssuances)
-          .where(lt(irohPairGrantIssuances.expiresAt, auditRetentionCutoff));
+          .execute(sql`
+            with candidates as materialized (
+              select id
+              from iroh_endpoint_bindings
+              where revoked_at is null
+                and path_hints_next_expiry <= ${input.now.toISOString()}::timestamptz
+              order by path_hints_next_expiry, id
+              limit ${IROH_RETENTION_BATCH_SIZE}
+              for update skip locked
+            ), retained as (
+              select
+                binding.id,
+                coalesce(
+                  jsonb_agg(entry.hint order by entry.ordinality) filter (
+                    where case
+                      when jsonb_typeof(entry.hint) = 'object'
+                        and jsonb_typeof(entry.hint -> 'expires_at') = 'string'
+                        and (entry.hint ->> 'expires_at') ~ '^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$'
+                      then (entry.hint ->> 'expires_at')::timestamptz > ${input.now.toISOString()}::timestamptz
+                      else false
+                    end
+                  ),
+                  '[]'::jsonb
+                ) as path_hints
+              from candidates
+              join iroh_endpoint_bindings as binding on binding.id = candidates.id
+              left join lateral jsonb_array_elements(binding.path_hints)
+                with ordinality as entry(hint, ordinality) on true
+              group by binding.id
+            ), normalized as (
+              select
+                retained.id,
+                retained.path_hints,
+                (
+                  select min((hint ->> 'expires_at')::timestamptz)
+                  from jsonb_array_elements(retained.path_hints) as hints(hint)
+                ) as next_expiry
+              from retained
+            )
+            update iroh_endpoint_bindings as binding
+            set path_hints = normalized.path_hints,
+                path_hints_next_expiry = normalized.next_expiry,
+                updated_at = ${input.now.toISOString()}::timestamptz
+            from normalized
+            where binding.id = normalized.id
+          `);
         await tx.execute(sql`
-          delete from iroh_endpoint_bindings as binding
-          where binding.revoked_at < ${auditRetentionCutoff.toISOString()}::timestamptz
+          with candidates as materialized (
+            select id
+            from iroh_registration_challenges
+            where expires_at < ${challengeRetentionCutoff.toISOString()}::timestamptz
+            order by expires_at, id
+            limit ${IROH_RETENTION_BATCH_SIZE}
+            for update skip locked
+          )
+          delete from iroh_registration_challenges as challenge
+          using candidates
+          where challenge.id = candidates.id
+        `);
+        await tx.execute(sql`
+          with candidates as materialized (
+            select id
+            from iroh_registration_challenges
+            where consumed_at < ${challengeRetentionCutoff.toISOString()}::timestamptz
+            order by consumed_at, id
+            limit ${IROH_RETENTION_BATCH_SIZE}
+            for update skip locked
+          )
+          delete from iroh_registration_challenges as challenge
+          using candidates
+          where challenge.id = candidates.id
+        `);
+        await tx.execute(sql`
+          with candidates as materialized (
+            select id
+            from iroh_relay_token_issuances
+            where requested_at < ${auditRetentionCutoff.toISOString()}::timestamptz
+            order by requested_at, id
+            limit ${IROH_RETENTION_BATCH_SIZE}
+            for update skip locked
+          )
+          delete from iroh_relay_token_issuances as issuance
+          using candidates
+          where issuance.id = candidates.id
+        `);
+        await tx.execute(sql`
+          with candidates as materialized (
+            select id
+            from iroh_pair_grant_issuances
+            where expires_at < ${auditRetentionCutoff.toISOString()}::timestamptz
+            order by expires_at, id
+            limit ${IROH_RETENTION_BATCH_SIZE}
+            for update skip locked
+          )
+          delete from iroh_pair_grant_issuances as issuance
+          using candidates
+          where issuance.id = candidates.id
+        `);
+        await tx.execute(sql`
+          with candidates as materialized (
+            select binding.id
+            from iroh_endpoint_bindings as binding
+            where binding.revoked_at < ${auditRetentionCutoff.toISOString()}::timestamptz
             and not exists (
               select 1 from iroh_pair_grant_issuances as pair_grant
               where pair_grant.initiator_binding_id = binding.id
@@ -516,13 +664,44 @@ function makeLiveRepository(): IrohRepositoryShape {
               select 1 from iroh_relay_token_issuances as issuance
               where issuance.binding_id = binding.id
             )
+            order by binding.revoked_at, binding.id
+            limit ${IROH_RETENTION_BATCH_SIZE}
+            for update skip locked
+          )
+          delete from iroh_endpoint_bindings as binding
+          using candidates
+          where binding.id = candidates.id
         `);
       });
     }),
 
     recordPairGrant: (input) => repositoryEffect("record_pair_grant", async () => {
       await cloudDb().transaction(async (tx) => {
+        await assertIrohUserMutationAllowed(tx, input.userId);
+        await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`iroh:binding:${input.userId}`}, 0))`);
         await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`iroh:pair-grant:${input.userId}`}, 0))`);
+        const peers = await tx
+          .select()
+          .from(irohEndpointBindings)
+          .where(and(
+            eq(irohEndpointBindings.userId, input.userId),
+            inArray(irohEndpointBindings.id, [input.initiator.bindingId, input.acceptor.bindingId]),
+            isNull(irohEndpointBindings.revokedAt),
+          ))
+          .for("update");
+        const byId = new Map(peers.map((peer) => [peer.id, peer]));
+        const initiator = byId.get(input.initiator.bindingId);
+        const acceptor = byId.get(input.acceptor.bindingId);
+        if (!initiator || !acceptor) throw new IrohNotFoundError({ resource: "binding" });
+        if (
+          !bindingMatchesGrantPeer(initiator, input.initiator) ||
+          !bindingMatchesGrantPeer(acceptor, input.acceptor)
+        ) {
+          throw new IrohConflictError({ code: "binding_changed_during_grant" });
+        }
+        if (initiator.platform !== "ios" || acceptor.platform !== "mac" || !acceptor.pairingEnabled) {
+          throw new IrohForbiddenError({ code: "target_not_pairable" });
+        }
         const hourAgo = new Date(input.issuedAt.getTime() - 60 * 60 * 1_000);
         const recent = await tx
           .select({ issuedAt: irohPairGrantIssuances.issuedAt })
@@ -540,12 +719,25 @@ function makeLiveRepository(): IrohRepositoryShape {
             input.issuedAt,
           );
         }
-        await tx.insert(irohPairGrantIssuances).values(input);
+        await tx.insert(irohPairGrantIssuances).values({
+          userId: input.userId,
+          jti: input.jti,
+          initiatorBindingId: input.initiator.bindingId,
+          acceptorBindingId: input.acceptor.bindingId,
+          signingKeyId: input.signingKeyId,
+          alpn: input.alpn,
+          scope: input.scope,
+          issuedAt: input.issuedAt,
+          notBefore: input.notBefore,
+          expiresAt: input.expiresAt,
+        });
       });
     }),
 
     reserveRelayIssuance: (input) => repositoryEffect("reserve_relay_issuance", async () => {
       return await cloudDb().transaction(async (tx) => {
+        await assertIrohUserMutationAllowed(tx, input.userId);
+        await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`iroh:binding:${input.userId}`}, 0))`);
         await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`iroh:relay:${input.userId}`}, 0))`);
         const [binding] = await tx
           .select()
@@ -604,23 +796,76 @@ function makeLiveRepository(): IrohRepositoryShape {
     }),
 
     completeRelayIssuance: (input) => repositoryEffect("complete_relay_issuance", async () => {
-      await cloudDb()
-        .update(irohRelayTokenIssuances)
-        .set({
-          status: "succeeded",
-          tokenHash: input.tokenHash,
-          completedAt: input.completedAt,
-          expiresAt: input.expiresAt,
-          failureCode: null,
-        })
-        .where(eq(irohRelayTokenIssuances.id, input.issuanceId));
+      return await cloudDb().transaction(async (tx) => {
+        await assertIrohUserMutationAllowed(tx, input.userId);
+        await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`iroh:binding:${input.userId}`}, 0))`);
+        const [issuance] = await tx
+          .select()
+          .from(irohRelayTokenIssuances)
+          .where(and(
+            eq(irohRelayTokenIssuances.id, input.issuanceId),
+            eq(irohRelayTokenIssuances.userId, input.userId),
+            eq(irohRelayTokenIssuances.bindingId, input.bindingId),
+            eq(irohRelayTokenIssuances.status, "pending"),
+          ))
+          .for("update")
+          .limit(1);
+        if (!issuance) return false;
+        const [binding] = await tx
+          .select({ endpointId: irohEndpointBindings.endpointId })
+          .from(irohEndpointBindings)
+          .where(and(
+            eq(irohEndpointBindings.id, input.bindingId),
+            eq(irohEndpointBindings.userId, input.userId),
+            isNull(irohEndpointBindings.revokedAt),
+          ))
+          .for("update")
+          .limit(1);
+        if (
+          !binding ||
+          binding.endpointId !== input.endpointId ||
+          issuance.endpointIdHash !== sha256(input.endpointId)
+        ) {
+          await tx
+            .update(irohRelayTokenIssuances)
+            .set({
+              status: "failed",
+              completedAt: input.completedAt,
+              failureCode: "binding_inactive_after_mint",
+            })
+            .where(eq(irohRelayTokenIssuances.id, input.issuanceId));
+          return false;
+        }
+        const completed = await tx
+          .update(irohRelayTokenIssuances)
+          .set({
+            status: "succeeded",
+            tokenHash: input.tokenHash,
+            completedAt: input.completedAt,
+            expiresAt: input.expiresAt,
+            failureCode: null,
+          })
+          .where(and(
+            eq(irohRelayTokenIssuances.id, input.issuanceId),
+            eq(irohRelayTokenIssuances.status, "pending"),
+          ))
+          .returning({ id: irohRelayTokenIssuances.id });
+        return completed.length === 1;
+      });
     }),
 
     failRelayIssuance: (input) => repositoryEffect("fail_relay_issuance", async () => {
-      await cloudDb()
-        .update(irohRelayTokenIssuances)
-        .set({ status: "failed", completedAt: input.completedAt, failureCode: input.failureCode.slice(0, 64) })
-        .where(eq(irohRelayTokenIssuances.id, input.issuanceId));
+      await cloudDb().transaction(async (tx) => {
+        await assertIrohUserMutationAllowed(tx, input.userId);
+        await tx
+          .update(irohRelayTokenIssuances)
+          .set({ status: "failed", completedAt: input.completedAt, failureCode: input.failureCode.slice(0, 64) })
+          .where(and(
+            eq(irohRelayTokenIssuances.id, input.issuanceId),
+            eq(irohRelayTokenIssuances.userId, input.userId),
+            eq(irohRelayTokenIssuances.status, "pending"),
+          ));
+      });
     }),
   };
 }
@@ -699,11 +944,35 @@ function databaseCause(cause: unknown): {
   return null;
 }
 
-function isUnexpiredStoredHint(hint: unknown, now: Date): boolean {
+async function assertIrohUserMutationAllowed(
+  tx: CloudDbTransaction,
+  userId: string,
+): Promise<void> {
   try {
-    parseIrohPathHint(hint, now);
-    return true;
-  } catch {
-    return false;
+    await assertAccountDeletionUserMutationAllowed(tx, userId);
+  } catch (error) {
+    if (error instanceof AccountDeletionMutationBlockedError) {
+      throw new IrohConflictError({ code: "account_deletion_in_progress" });
+    }
+    throw error;
   }
+}
+
+function retainedStoredHints(pathHints: readonly unknown[], now: Date): IrohPathHint[] {
+  return pathHints.flatMap((hint): IrohPathHint[] => {
+    try {
+      return [parseIrohPathHint(hint, now)];
+    } catch {
+      return [];
+    }
+  });
+}
+
+function bindingMatchesGrantPeer(binding: IrohBindingRecord, peer: PairGrantPeer): boolean {
+  return binding.id === peer.bindingId &&
+    binding.deviceUuid === peer.deviceId &&
+    binding.tag === peer.tag &&
+    binding.platform === peer.platform &&
+    binding.endpointId === peer.endpointId &&
+    binding.identityGeneration === peer.identityGeneration;
 }

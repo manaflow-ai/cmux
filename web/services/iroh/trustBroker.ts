@@ -126,20 +126,28 @@ export function makeIrohTrustBroker(
     }).pipe(
       Effect.matchEffect({
         onFailure: (error) => repository.failRelayIssuance({
+          userId,
           issuanceId: reservation.issuanceId,
           completedAt: new Date(),
           failureCode: error._tag === "IrohRelayMintError" ? error.code : "not_configured",
-        }).pipe(Effect.flatMap(() => Effect.fail(error))),
+        }).pipe(
+          Effect.catchAll(() => Effect.void),
+          Effect.flatMap(() => Effect.fail(error)),
+        ),
         onSuccess: Effect.succeed,
       }),
     );
     const completedAt = new Date();
-    yield* repository.completeRelayIssuance({
+    const completed = yield* repository.completeRelayIssuance({
+      userId,
       issuanceId: reservation.issuanceId,
+      bindingId: reservation.binding.id,
+      endpointId: reservation.binding.endpointId,
       tokenHash: sha256(minted.token),
       completedAt,
       expiresAt: minted.expiresAt,
     });
+    if (!completed) return yield* Effect.fail(new IrohNotFoundError({ resource: "binding" }));
     return {
       token: minted.token,
       expires_at: minted.expiresAt.toISOString(),
@@ -248,7 +256,7 @@ export function makeIrohTrustBroker(
       const initiator = byId.get(request.initiatorBindingId);
       const acceptor = byId.get(request.acceptorBindingId);
       if (!initiator || !acceptor) return yield* Effect.fail(new IrohNotFoundError({ resource: "binding" }));
-      if (acceptor.platform !== "mac" || !acceptor.pairingEnabled) {
+      if (initiator.platform !== "ios" || acceptor.platform !== "mac" || !acceptor.pairingEnabled) {
         return yield* Effect.fail(new IrohForbiddenError({ code: "target_not_pairable" }));
       }
       const issuedAtSeconds = Math.floor(now.getTime() / 1_000);
@@ -282,8 +290,8 @@ export function makeIrohTrustBroker(
       yield* repository.recordPairGrant({
         userId,
         jti: claims.jti,
-        initiatorBindingId: initiator.id,
-        acceptorBindingId: acceptor.id,
+        initiator: claims.initiator,
+        acceptor: claims.acceptor,
         signingKeyId,
         alpn: IROH_ALPN,
         scope: IROH_PAIR_SCOPE,
@@ -409,6 +417,7 @@ function grantPeer(binding: IrohBindingRecord): PairGrantPeer {
     bindingId: binding.id,
     deviceId: binding.deviceUuid,
     tag: binding.tag,
+    platform: bindingPlatform(binding),
     endpointId: binding.endpointId,
     identityGeneration: binding.identityGeneration,
   };

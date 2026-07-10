@@ -1,19 +1,26 @@
 import { describe, expect, test } from "bun:test";
 import { createHash, createHmac, generateKeyPairSync, sign } from "node:crypto";
 import { readFileSync } from "node:fs";
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 import {
   assertCurrentSigningKey,
+  createOfflinePairSessionRecord,
   deriveAccountSubject,
   parseVerificationKeys,
   signEndpointAttestation,
   signPairGrant,
   verifyEndpointAttestation,
-  verifyOfflineSameAccountPair,
+  verifyAndConsumeOfflineSameAccountPair,
   verifyPairGrant,
   type EndpointAttestationClaims,
   type PairGrantClaims,
   type PairGrantPeer,
 } from "../services/iroh/crypto";
+import {
+  IrohTrustBrokerConfig,
+  type IrohTrustBrokerConfigShape,
+} from "../services/iroh/config";
 import {
   IROH_ALPN,
   IROH_ENDPOINT_ATTESTATION_SCOPE,
@@ -27,6 +34,8 @@ import {
   parseMinterHmacSecret,
   parseMinterUrl,
   readBoundedMinterJson,
+  IrohRelayMinter,
+  IrohRelayMinterLive,
 } from "../services/iroh/relayMinter";
 
 const NOW = new Date("2026-07-09T20:00:00.000Z");
@@ -167,6 +176,7 @@ describe("Iroh pair-grant verification", () => {
     bindingId: "30000000-0000-4000-8000-000000000001",
     deviceId: "10000000-0000-4000-8000-000000000001",
     tag: "ios",
+    platform: "ios",
     endpointId: "22".repeat(32),
     identityGeneration: 2,
   };
@@ -174,6 +184,7 @@ describe("Iroh pair-grant verification", () => {
     bindingId: "30000000-0000-4000-8000-000000000002",
     deviceId: "10000000-0000-4000-8000-000000000002",
     tag: "stable",
+    platform: "mac",
     endpointId: "33".repeat(32),
     identityGeneration: 4,
   };
@@ -235,6 +246,7 @@ describe("Iroh pair-grant verification", () => {
     ["alg", { alg: "ES256", typ: IROH_PAIR_GRANT_TYP, kid: "current" }, claims, claims.iat],
     ["kid", { alg: "EdDSA", typ: IROH_PAIR_GRANT_TYP, kid: "unknown" }, claims, claims.iat],
     ["ALPN", { alg: "EdDSA", typ: IROH_PAIR_GRANT_TYP, kid: "current" }, { ...claims, alpn: "cmux/other/1" }, claims.iat],
+    ["platform direction", { alg: "EdDSA", typ: IROH_PAIR_GRANT_TYP, kid: "current" }, { ...claims, initiator: { ...claims.initiator, platform: "mac" } }, claims.iat],
     ["expiry", { alg: "EdDSA", typ: IROH_PAIR_GRANT_TYP, kid: "current" }, claims, claims.exp],
   ] as const) {
     test(`rejects invalid ${name}`, () => {
@@ -307,6 +319,58 @@ describe("Iroh grant verification keys and offline endpoint attestations", () =>
     })).toThrow();
   });
 
+  test("supports prepublish, signer flip, and delayed old-key retirement", () => {
+    const oldPrivate = previous.privateKey.export({ format: "pem", type: "pkcs8" }).toString();
+    const prepublished = parseVerificationKeys(JSON.stringify({
+      version: 1,
+      current_kid: "old",
+      keys: [
+        { kid: "old", alg: "EdDSA", spki_der_base64: previousPublic },
+        { kid: "next", alg: "EdDSA", spki_der_base64: currentPublic },
+      ],
+    }));
+    expect(() => assertCurrentSigningKey({
+      privateKeyPem: oldPrivate,
+      kid: "old",
+      verificationKeys: prepublished,
+    })).not.toThrow();
+    const oldToken = signEndpointAttestation({
+      privateKeyPem: oldPrivate,
+      kid: "old",
+      claims: initiator,
+    });
+
+    const flipped = parseVerificationKeys(JSON.stringify({
+      version: 1,
+      current_kid: "next",
+      keys: [
+        { kid: "next", alg: "EdDSA", spki_der_base64: currentPublic },
+        { kid: "old", alg: "EdDSA", spki_der_base64: previousPublic },
+      ],
+    }));
+    expect(() => assertCurrentSigningKey({
+      privateKeyPem: currentPrivate,
+      kid: "next",
+      verificationKeys: flipped,
+    })).not.toThrow();
+    expect(verifyEndpointAttestation(
+      oldToken,
+      flipped.publicKeys,
+      { ...endpointExpectation(initiator), nowSeconds },
+    ).jti).toBe(initiator.jti);
+
+    const retired = parseVerificationKeys(JSON.stringify({
+      version: 1,
+      current_kid: "next",
+      keys: [{ kid: "next", alg: "EdDSA", spki_der_base64: currentPublic }],
+    }));
+    expect(() => verifyEndpointAttestation(
+      oldToken,
+      retired.publicKeys,
+      { ...endpointExpectation(initiator), nowSeconds },
+    )).toThrow();
+  });
+
   test("requires two fresh endpoint-bound attestations with the same opaque account subject", () => {
     const initiatorToken = signEndpointAttestation({
       privateKeyPem: currentPrivate,
@@ -323,31 +387,93 @@ describe("Iroh grant verification keys and offline endpoint attestations", () =>
       acceptor: { ...endpointExpectation(acceptor), platform: "mac" as const },
       nowSeconds,
     } as const;
+    const proof = Buffer.alloc(32, 0x61).toString("base64url");
+    const session = createOfflinePairSessionRecord({
+      sessionId: "70000000-0000-4000-8000-000000000001",
+      proof,
+      acceptor: expected.acceptor,
+      nowSeconds,
+      expiresAtSeconds: nowSeconds + 300,
+    });
+    const invitation = { version: 1 as const, sessionId: session.sessionId, proof };
 
-    expect(verifyOfflineSameAccountPair({
+    expect(verifyAndConsumeOfflineSameAccountPair({
       initiatorAttestation: initiatorToken,
       acceptorAttestation: acceptorToken,
       publicKeys: parsedKeys.publicKeys,
       expected,
+      session,
+      invitation,
     }).acceptor.endpointId).toBe(acceptor.endpointId);
-    expect(() => verifyOfflineSameAccountPair({
+    expect(session.consumedAtSeconds).toBe(nowSeconds);
+    expect(() => verifyAndConsumeOfflineSameAccountPair({
+      initiatorAttestation: initiatorToken,
+      acceptorAttestation: acceptorToken,
+      publicKeys: parsedKeys.publicKeys,
+      expected,
+      session,
+      invitation,
+    })).toThrow();
+
+    const missingSession = createOfflinePairSessionRecord({
+      sessionId: "70000000-0000-4000-8000-000000000002",
+      proof,
+      acceptor: expected.acceptor,
+      nowSeconds,
+      expiresAtSeconds: nowSeconds + 300,
+    });
+    expect(() => verifyAndConsumeOfflineSameAccountPair({
       initiatorAttestation: "",
       acceptorAttestation: acceptorToken,
       publicKeys: parsedKeys.publicKeys,
       expected,
+      session: missingSession,
+      invitation: { ...invitation, sessionId: missingSession.sessionId },
     })).toThrow();
+    expect(missingSession.consumedAtSeconds).toBeNull();
+
+    const wrongProofSession = createOfflinePairSessionRecord({
+      sessionId: "70000000-0000-4000-8000-000000000004",
+      proof,
+      acceptor: expected.acceptor,
+      nowSeconds,
+      expiresAtSeconds: nowSeconds + 300,
+    });
+    expect(() => verifyAndConsumeOfflineSameAccountPair({
+      initiatorAttestation: initiatorToken,
+      acceptorAttestation: acceptorToken,
+      publicKeys: parsedKeys.publicKeys,
+      expected,
+      session: wrongProofSession,
+      invitation: {
+        version: 1,
+        sessionId: wrongProofSession.sessionId,
+        proof: Buffer.alloc(32, 0x62).toString("base64url"),
+      },
+    })).toThrow();
+    expect(wrongProofSession.consumedAtSeconds).toBeNull();
 
     const otherAccountToken = signEndpointAttestation({
       privateKeyPem: currentPrivate,
       kid: "current",
       claims: { ...acceptor, sub: Buffer.alloc(32, 0x52).toString("base64url") },
     });
-    expect(() => verifyOfflineSameAccountPair({
+    const mismatchSession = createOfflinePairSessionRecord({
+      sessionId: "70000000-0000-4000-8000-000000000003",
+      proof,
+      acceptor: expected.acceptor,
+      nowSeconds,
+      expiresAtSeconds: nowSeconds + 300,
+    });
+    expect(() => verifyAndConsumeOfflineSameAccountPair({
       initiatorAttestation: initiatorToken,
       acceptorAttestation: otherAccountToken,
       publicKeys: parsedKeys.publicKeys,
       expected,
+      session: mismatchSession,
+      invitation: { ...invitation, sessionId: mismatchSession.sessionId },
     })).toThrow();
+    expect(mismatchSession.consumedAtSeconds).toBeNull();
   });
 
   test("rejects endpoint substitution, expiry, extra identity claims, and noncanonical signatures", () => {
@@ -401,6 +527,62 @@ describe("Iroh grant verification keys and offline endpoint attestations", () =>
 });
 
 describe("Iroh relay minter response bounds", () => {
+  test("the production Live layer sends the canonical fetch body and HMAC", async () => {
+    const secret = Buffer.alloc(32, 0x63);
+    const originalFetch = globalThis.fetch;
+    let captured: { url: string; init: RequestInit } | undefined;
+    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      captured = { url: String(input), init: init ?? {} };
+      return new Response(JSON.stringify({
+        token: "a".repeat(64),
+        expiresAt: "2026-07-10T20:00:00.000Z",
+      }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }) as typeof fetch;
+    try {
+      const config: IrohTrustBrokerConfigShape = {
+        relayMinterUrl: "https://minter.cmux.test/api/relay-token",
+        relayMinterHmacSecretBase64: secret.toString("base64"),
+        deviceLimitOverrideEnabled: false,
+        deviceLimitOverrideUserIds: new Set(),
+        deviceLimitOverrideEnvironments: new Set(),
+        deploymentEnvironment: "test",
+      };
+      const layer = IrohRelayMinterLive.pipe(
+        Layer.provide(Layer.succeed(IrohTrustBrokerConfig, config)),
+      );
+      const result = await Effect.runPromise(
+        Effect.gen(function* () {
+          const minter = yield* IrohRelayMinter;
+          return yield* minter.mint({
+            endpointId: "ab".repeat(32),
+            lifetimeSeconds: 86_400,
+            now: NOW,
+          });
+        }).pipe(Effect.provide(layer)),
+      );
+      expect(result.token).toBe("a".repeat(64));
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+
+    const request = captured;
+    expect(request?.url).toBe("https://minter.cmux.test/api/relay-token");
+    expect(request?.init.method).toBe("POST");
+    expect(request?.init.redirect).toBe("error");
+    const body = JSON.stringify({ endpointId: "ab".repeat(32), lifetimeSeconds: 86_400 });
+    expect(request?.init.body).toBe(body);
+    const timestamp = String(Math.floor(NOW.getTime() / 1_000));
+    const expectedSignature = createHmac("sha256", secret)
+      .update(`POST\n/api/relay-token\n${timestamp}\n${createHash("sha256").update(body).digest("hex")}`)
+      .digest("base64url");
+    expect(new Headers(request?.init.headers).get("x-cmux-iroh-timestamp")).toBe(timestamp);
+    expect(new Headers(request?.init.headers).get("x-cmux-iroh-signature")).toBe(expectedSignature);
+    expect(new Headers(request?.init.headers).get("content-type")).toBe("application/json");
+  });
+
   test("matches the Rust minter HMAC wire fixture", () => {
     const fixture = JSON.parse(readFileSync(
       new URL("../../tests/fixtures/iroh/relay-minter-request-v1.json", import.meta.url),

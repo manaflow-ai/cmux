@@ -11,9 +11,12 @@ export const IROH_ENDPOINT_ATTESTATION_SCOPE = "cmux.offline-pair.same-account";
 export const IROH_CHALLENGE_LIFETIME_MS = 5 * 60 * 1_000;
 export const IROH_PAIR_GRANT_LIFETIME_SECONDS = 7 * 24 * 60 * 60;
 export const IROH_ENDPOINT_ATTESTATION_LIFETIME_SECONDS = 24 * 60 * 60;
+export const IROH_OFFLINE_PAIR_SESSION_LIFETIME_SECONDS = 5 * 60;
+export const IROH_OFFLINE_PAIR_SESSION_VERSION = 1;
 export const IROH_RELAY_TOKEN_LIFETIME_SECONDS = 24 * 60 * 60;
 export const IROH_RELAY_TOKEN_REFRESH_SECONDS = 12 * 60 * 60;
 export const IROH_ROUTE_CONTRACT_VERSION = 1;
+export const POSTGRES_INT32_MAX = 2_147_483_647;
 
 export const MANAGED_RELAY_URLS = [
   "https://euc1-1.relay.lawrence.cmux.iroh.link/",
@@ -292,6 +295,15 @@ export function parseIrohPathHint(value: unknown, now: Date): IrohPathHint {
   return parsed;
 }
 
+export function nextPathHintExpiry(pathHints: readonly IrohPathHint[]): Date | null {
+  if (pathHints.length === 0) return null;
+  const earliest = Math.min(...pathHints.map((hint) => new Date(hint.expires_at).getTime()));
+  if (!Number.isFinite(earliest)) {
+    throw new IrohInvalidInputError({ code: "invalid_path_hint_expiry" });
+  }
+  return new Date(earliest);
+}
+
 function literalSocketAddress(
   value: unknown,
   scope: IrohPathHint["privacy_scope"],
@@ -510,7 +522,11 @@ function uuid(value: unknown, code: string): string {
 }
 
 function positiveInteger(value: unknown, code: string): number {
-  if (!Number.isSafeInteger(value) || (value as number) < 1) throw new IrohInvalidInputError({ code });
+  if (
+    !Number.isSafeInteger(value) ||
+    (value as number) < 1 ||
+    (value as number) > POSTGRES_INT32_MAX
+  ) throw new IrohInvalidInputError({ code });
   return value as number;
 }
 

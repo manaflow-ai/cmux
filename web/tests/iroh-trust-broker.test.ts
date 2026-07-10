@@ -471,6 +471,14 @@ class MemoryRepository implements IrohRepositoryShape {
 
   recordPairGrant(input: Parameters<IrohRepositoryShape["recordPairGrant"]>[0]) {
     this.beforeRecordPairGrant?.();
+    const initiator = this.bindings.find((row) =>
+      row.id === input.initiator.bindingId && row.userId === input.userId && !row.revokedAt);
+    const acceptor = this.bindings.find((row) =>
+      row.id === input.acceptor.bindingId && row.userId === input.userId && !row.revokedAt);
+    if (!initiator || !acceptor) return Effect.fail(new IrohNotFoundError({ resource: "binding" }));
+    if (initiator.platform !== "ios" || acceptor.platform !== "mac" || !acceptor.pairingEnabled) {
+      return Effect.fail(new IrohForbiddenError({ code: "target_not_pairable" }));
+    }
     this.pairGrantAudits.push(input);
     return Effect.void;
   }
@@ -491,8 +499,17 @@ class MemoryRepository implements IrohRepositoryShape {
 
   completeRelayIssuance(input: Parameters<IrohRepositoryShape["completeRelayIssuance"]>[0]) {
     const row = this.relayIssuances.find((candidate) => candidate.id === input.issuanceId);
-    if (row) row.status = "succeeded";
-    return Effect.void;
+    const active = this.bindings.find((candidate) =>
+      candidate.id === input.bindingId &&
+      candidate.userId === input.userId &&
+      candidate.endpointId === input.endpointId &&
+      !candidate.revokedAt);
+    if (!row || !active) {
+      if (row) row.status = "failed";
+      return Effect.succeed(false);
+    }
+    row.status = "succeeded";
+    return Effect.succeed(true);
   }
 
   failRelayIssuance(input: Parameters<IrohRepositoryShape["failRelayIssuance"]>[0]) {
@@ -632,6 +649,7 @@ function binding(overrides: Partial<MutableBinding> = {}): MutableBinding {
     pairingEnabled: true,
     capabilities: [],
     pathHints: [],
+    pathHintsNextExpiry: null,
     deviceLimitOverrideUsed: false,
     lastSeenAt: now,
     registeredAt: now,
