@@ -305,9 +305,6 @@ jobs:
             defaults write "$APPROVALS_PLIST" "$FFMPEG_BIN" -date "3000-01-01T00:00:00Z" 2>&1 || echo "  (failed)"
           fi
 
-      - name: Clean DerivedData
-        run: rm -rf ~/Library/Developer/Xcode/DerivedData/cmux-*
-
       - name: Prepare isolated DerivedData
         run: |
           set -euo pipefail
@@ -670,3 +667,21 @@ jobs:
 
           echo "Issue posted: $ISSUE_URL"
           echo "::notice title=Test Result Issue::$ISSUE_URL"
+
+      - name: Clean owned DerivedData
+        if: always()
+        run: |
+          set -euo pipefail
+          derived_data_path="${CMUX_DERIVED_DATA_PATH:-}"
+          case "$derived_data_path" in
+            "$RUNNER_TEMP"/cmux-derived-data-e2e-*)
+              rm -rf -- "$derived_data_path"
+              ;;
+            "")
+              echo "DerivedData was not prepared; nothing to clean"
+              ;;
+            *)
+              echo "::error::refusing to remove unowned DerivedData path: $derived_data_path"
+              exit 1
+              ;;
+          esac
