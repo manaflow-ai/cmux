@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import * as Effect from "effect/Effect";
 import { IrohDatabaseError, IrohQuotaExceededError } from "../services/iroh/errors";
-import { handleIrohRoute } from "../services/iroh/routeHandler";
+import { handleIrohRoute, IrohFirewallAdmission } from "../services/iroh/routeHandler";
 import type { IrohTrustBrokerShape } from "../services/iroh/trustBroker";
 import type { AuthedUser } from "../services/vms/auth";
 import { GET as retentionGet } from "../app/api/internal/iroh/retention/route";
@@ -90,6 +90,36 @@ describe("Iroh route boundary", () => {
     expect(response.status).toBe(503);
     expect(await response.json()).toEqual({ error: "iroh_service_unavailable" });
     expect(brokerCalled).toBe(false);
+  });
+
+  test("caps timed-out firewall work per identity and across the worker", async () => {
+    const admission = new IrohFirewallAdmission(2);
+    let started = 0;
+    const firewall = {
+      id: "iroh-test-rule",
+      timeoutMs: 5,
+      admission,
+      check: () => {
+        started += 1;
+        return new Promise<never>(() => {});
+      },
+    };
+    const discover = (userId: string) => handleIrohRoute(
+      new Request("https://cmux.test/api/devices/iroh"),
+      "discover",
+      {
+        verify: async () => ({ ...USER, id: userId }),
+        broker: broker({ discover: () => Effect.succeed({ bindings: [] }) }),
+        firewall,
+      },
+    );
+
+    expect((await discover("user-1")).status).toBe(503);
+    expect((await discover("user-1")).status).toBe(503);
+    expect((await discover("user-2")).status).toBe(503);
+    expect((await discover("user-3")).status).toBe(503);
+    expect(started).toBe(2);
+    expect(admission.activeCount).toBe(2);
   });
 
   test("authenticates before reading an oversized body", async () => {
