@@ -274,7 +274,7 @@ export const deviceTokens = pgTable(
     deviceToken: text("device_token").notNull(),
     platform: text("platform").notNull().default("ios"),
     // The APNs topic the token belongs to (the iOS bundle id, which varies by
-    // build: dev.cmux.ios.<tag>, dev.cmux.app.beta, com.cmuxterm.app).
+    // build: dev.cmux.ios.<tag>, dev.cmux.app.beta, com.cmux.app).
     bundleId: text("bundle_id").notNull(),
     // "sandbox" for development builds, "production" for TestFlight/App Store —
     // selects which APNs host the sender uses.
