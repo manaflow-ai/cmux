@@ -64,6 +64,55 @@ struct SharedLiveAgentIndexLoadCoalescingTests {
     }
 
     @Test
+    func watcherSetupDoesNotStartParallelLoadDuringForkRefresh() async {
+        let firstLoadStarted = DispatchSemaphore(value: 0)
+        let parallelLoadStarted = DispatchSemaphore(value: 0)
+        let releaseLoads = DispatchSemaphore(value: 0)
+        defer {
+            releaseLoads.signal()
+            releaseLoads.signal()
+        }
+        let loadCount = OSAllocatedUnfairLock(initialState: 0)
+        let hookDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-shared-index-watcher-singleflight-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: hookDirectory) }
+        let sharedIndex = SharedLiveAgentIndex(
+            indexLoader: {
+                let invocation = loadCount.withLock { count in
+                    count += 1
+                    return count
+                }
+                if invocation == 1 {
+                    firstLoadStarted.signal()
+                } else {
+                    parallelLoadStarted.signal()
+                }
+                releaseLoads.wait()
+                return Self.emptyLoadResult
+            },
+            hookStoreDirectoryProvider: { hookDirectory.path }
+        )
+
+        let forkRefresh = Task { @MainActor in
+            await sharedIndex.refreshForkAvailabilityNow(workspaceId: UUID(), panelId: UUID())
+        }
+        #expect(await Self.wait(for: firstLoadStarted))
+
+        _ = sharedIndex.currentIndexSchedulingRefresh()
+        let startedParallelLoad = await Self.wait(for: parallelLoadStarted, timeout: 0.2)
+        #expect(
+            !startedParallelLoad,
+            "First-time watcher setup must join the active fork refresh instead of starting a parallel scan."
+        )
+
+        releaseLoads.signal()
+        releaseLoads.signal()
+        await forkRefresh.value
+        _ = await sharedIndex.indexRefreshingIfNeeded()
+        #expect(loadCount.withLock { $0 } == 1)
+    }
+
+    @Test
     func lateForkAvailabilityRefreshesShareOneSuccessorLoad() async {
         let firstLoadStarted = DispatchSemaphore(value: 0)
         let releaseFirstLoad = DispatchSemaphore(value: 0)
