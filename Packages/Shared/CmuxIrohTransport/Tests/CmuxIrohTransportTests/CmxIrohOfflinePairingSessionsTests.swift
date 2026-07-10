@@ -325,7 +325,6 @@ private struct OfflineFixture: Sendable {
             clock: OfflineAdmissionFixedClock(now: now)
         )
         return CmxIrohAdmissionController(
-            keys: keySet,
             acceptor: acceptor,
             pairingEnabled: true,
             offlineSessions: sessions,

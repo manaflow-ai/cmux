@@ -3,30 +3,26 @@ public import Foundation
 
 /// Mac admission policy combining online grants, offline sessions, and local revoke state.
 public actor CmxIrohAdmissionController: CmxIrohAdmissionAuthorizing {
-    private let verifier: CmxIrohGrantVerifier
     private let offlineSessions: CmxIrohOfflinePairingSessions
-    private let onlineRegistry: CmxIrohOnlineAdmissionRegistry?
+    private let onlineRegistry: CmxIrohOnlineAdmissionRegistry
     private let now: @Sendable () -> Date
-    private var keys: CmxIrohGrantVerificationKeySet
     private var acceptor: CmxIrohGrantPeer
     private var pairingEnabled: Bool
     private var revokedBindingIDs: Set<String> = []
+    private var policyRevision: UInt64 = 0
+    private var policyMutationCount = 0
 
     public init(
-        keys: CmxIrohGrantVerificationKeySet,
         acceptor: CmxIrohGrantPeer,
         pairingEnabled: Bool,
         offlineSessions: CmxIrohOfflinePairingSessions,
-        onlineRegistry: CmxIrohOnlineAdmissionRegistry? = nil,
-        verifier: CmxIrohGrantVerifier = CmxIrohGrantVerifier(),
+        onlineRegistry: CmxIrohOnlineAdmissionRegistry,
         now: @escaping @Sendable () -> Date = { Date() }
     ) {
-        self.keys = keys
         self.acceptor = acceptor
         self.pairingEnabled = pairingEnabled
         self.offlineSessions = offlineSessions
         self.onlineRegistry = onlineRegistry
-        self.verifier = verifier
         self.now = now
     }
 
@@ -36,73 +32,89 @@ public actor CmxIrohAdmissionController: CmxIrohAdmissionAuthorizing {
         acceptor: CmxIrohGrantPeer,
         pairingEnabled: Bool
     ) async {
-        self.keys = keys
+        beginPolicyMutation()
+        defer { endPolicyMutation() }
+        await onlineRegistry.update(keys: keys, acceptor: acceptor)
+        await offlineSessions.setPairingEnabled(pairingEnabled)
         self.acceptor = acceptor
         self.pairingEnabled = pairingEnabled
-        await offlineSessions.setPairingEnabled(pairingEnabled)
-        await onlineRegistry?.update(keys: keys, acceptor: acceptor)
     }
 
     /// Applies local revoke before the backend round trip completes.
     public func revoke(bindingID: String) async {
+        beginPolicyMutation()
+        defer { endPolicyMutation() }
         revokedBindingIDs.insert(bindingID)
         await offlineSessions.revoke(bindingID: bindingID)
-        await onlineRegistry?.revoke(bindingID: bindingID)
+        await onlineRegistry.revoke(bindingID: bindingID)
     }
 
     public func authorize(
         credential: CmxIrohAdmissionCredential,
         authenticatedPeerID: CmxIrohPeerIdentity
     ) async -> CmxIrohAdmissionAuthorization {
-        guard pairingEnabled,
+        guard policyMutationCount == 0,
+              pairingEnabled,
               acceptor.platform == .mac,
               !revokedBindingIDs.contains(acceptor.bindingID) else {
             return .denied(code: 1)
         }
+        let revision = policyRevision
         do {
             switch credential.kind {
             case .pairGrant:
                 guard let token = credential.pairGrantToken else {
                     return .denied(code: 1)
                 }
-                if let onlineRegistry {
-                    switch await onlineRegistry.authorizePairGrant(
-                        token,
-                        authenticatedPeerID: authenticatedPeerID
-                    ) {
-                    case let .accepted(lease):
-                        return .accepted(lease.peer, onlineLease: lease)
-                    case .denied:
-                        return .denied(code: 1)
-                    }
-                }
-                let claims = try verifier.verifyPairGrant(
+                switch await onlineRegistry.authorizePairGrant(
                     token,
-                    keys: keys,
-                    authenticatedInitiatorID: authenticatedPeerID,
-                    acceptor: acceptor,
-                    now: now()
-                )
-                guard !revokedBindingIDs.contains(claims.initiator.bindingID) else {
+                    authenticatedPeerID: authenticatedPeerID
+                ) {
+                case let .accepted(lease):
+                    return checkedAuthorization(lease, revision: revision)
+                case .denied:
                     return .denied(code: 1)
                 }
-                return .accepted(
-                    CmxIrohAdmittedPeer(peer: claims.initiator),
-                    onlineLease: nil
-                )
             case .offlinePairing:
                 let pair = try await offlineSessions.verifyAndConsume(
                     credential: credential,
                     authenticatedPeerID: authenticatedPeerID,
                     now: now()
                 )
-                return .accepted(
-                    CmxIrohAdmittedPeer(attestation: pair.initiator),
-                    onlineLease: nil
-                )
+                guard policyMutationCount == 0, policyRevision == revision else {
+                    return .denied(code: 1)
+                }
+                switch await onlineRegistry.authorizeOfflinePair(pair) {
+                case let .accepted(lease):
+                    return checkedAuthorization(lease, revision: revision)
+                case .denied:
+                    return .denied(code: 1)
+                }
             }
         } catch {
             return .denied(code: 1)
         }
+    }
+
+    private func checkedAuthorization(
+        _ lease: CmxIrohOnlineAdmissionLease,
+        revision: UInt64
+    ) -> CmxIrohAdmissionAuthorization {
+        guard policyMutationCount == 0,
+              policyRevision == revision,
+              !revokedBindingIDs.contains(lease.peer.bindingID),
+              !revokedBindingIDs.contains(acceptor.bindingID) else {
+            return .denied(code: 1)
+        }
+        return .accepted(lease.peer, onlineLease: lease)
+    }
+
+    private func beginPolicyMutation() {
+        policyRevision &+= 1
+        policyMutationCount += 1
+    }
+
+    private func endPolicyMutation() {
+        policyMutationCount -= 1
     }
 }

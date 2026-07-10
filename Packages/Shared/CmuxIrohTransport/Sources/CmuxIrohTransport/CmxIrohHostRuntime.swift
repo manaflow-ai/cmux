@@ -167,7 +167,6 @@ public actor CmxIrohHostRuntime {
                 clock: admissionClock
             )
             let admissionController = CmxIrohAdmissionController(
-                keys: policy.grantVerificationKeys,
                 acceptor: grantPeer(for: policy.binding),
                 pairingEnabled: policy.pairingEnabled,
                 offlineSessions: offlineSessions,

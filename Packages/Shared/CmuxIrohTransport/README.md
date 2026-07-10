@@ -9,12 +9,14 @@ the lane. A connection begins with an authenticated control stream. Subsequent
 server-event, terminal, and artifact streams reuse the authenticated QUIC
 connection and retain independent cancellation and backpressure.
 
-Mac admission verifies the signed grant and live QUIC EndpointID before broker
-traffic. Authenticated discovery refreshes are coalesced and reused for at most
-30 seconds. Confirmed revocation closes only the affected connection, while an
-exact connectivity failure preserves a locally valid grant until its signed
-expiry. A continuously disconnected revoke can therefore remain usable for no
-longer than the grant's seven-day cryptographic lifetime.
+Mac admission verifies signed authority and the live QUIC EndpointID before
+broker traffic. First-time offline pairing also verifies and consumes its
+one-use proof before discovery. Authenticated refreshes are coalesced and reused
+for at most 30 seconds. Confirmed revocation closes only the affected
+connection, while exact connectivity failure preserves local authority until
+its signed expiry. Cached grants therefore retain a maximum seven-day
+disconnected revoke window; first-pair sessions use the earlier of their two
+one-day attestation expiries.
 
 Run the package behavior tests without launching either app:
 

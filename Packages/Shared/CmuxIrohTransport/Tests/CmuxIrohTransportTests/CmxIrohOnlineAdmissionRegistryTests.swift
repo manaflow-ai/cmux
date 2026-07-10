@@ -82,15 +82,38 @@ struct CmxIrohOnlineAdmissionRegistryTests {
     }
 
     @Test
-    func contractMismatchDeniesVerifiedOfflinePair() async throws {
+    func contractAndFleetMismatchDenyVerifiedOfflinePair() async throws {
         let fixture = try OnlineAdmissionFixture()
-        let broker = OnlineAdmissionBroker(
+        let contractBroker = OnlineAdmissionBroker(
             responses: [.success(try fixture.discovery(routeContractVersion: 2))]
+        )
+        let fleetBroker = OnlineAdmissionBroker(
+            responses: [.success(try fixture.discovery(relayFleet: [fixture.otherRelayURL]))]
         )
 
         #expect(
-            await fixture.registry(broker: broker).authorizeOfflinePair(
+            await fixture.registry(broker: contractBroker).authorizeOfflinePair(
                 try fixture.offlinePair()
+            ) == .denied
+        )
+        #expect(
+            await fixture.registry(broker: fleetBroker).authorizeOfflinePair(
+                try fixture.offlinePair()
+            ) == .denied
+        )
+    }
+
+    @Test
+    func pairGrantStillRequiresExactSignedTagOnline() async throws {
+        let fixture = try OnlineAdmissionFixture()
+        let broker = OnlineAdmissionBroker(
+            responses: [.success(try fixture.discovery(initiatorTag: "substituted"))]
+        )
+
+        #expect(
+            await fixture.registry(broker: broker).authorizePairGrant(
+                fixture.grant(),
+                authenticatedPeerID: fixture.initiator.endpointID
             ) == .denied
         )
     }
@@ -231,6 +254,26 @@ struct CmxIrohOnlineAdmissionRegistryTests {
         #expect(await first.isAccepted)
         #expect(await second.isAccepted)
         #expect(await broker.callCount() == 1)
+    }
+
+    @Test
+    func revokeDuringRefreshCannotAdmitTheStaleResult() async throws {
+        let fixture = try OnlineAdmissionFixture()
+        let broker = OnlineAdmissionBroker(
+            responses: [.success(try fixture.discovery())],
+            suspended: true
+        )
+        let registry = fixture.registry(broker: broker)
+
+        async let authorization = registry.authorizePairGrant(
+            fixture.grant(),
+            authenticatedPeerID: fixture.initiator.endpointID
+        )
+        await broker.waitUntilCalled()
+        await registry.revoke(bindingID: fixture.initiator.bindingID)
+        await broker.resume()
+
+        #expect(await authorization == .denied)
     }
 
     @Test
@@ -756,11 +799,20 @@ private struct OnlineAdmissionFixture {
         relayFleet: [String]? = nil,
         includeInitiator: Bool = true,
         duplicateInitiator: Bool = false,
-        acceptorPairingEnabled: Bool = true
+        acceptorPairingEnabled: Bool = true,
+        initiatorTag: String? = nil
     ) throws -> CmxIrohDiscoveryResponse {
         var bindings: [[String: Any]] = []
         if includeInitiator {
-            bindings.append(bindingObject(peer: initiator, pairingEnabled: true))
+            let discoveredInitiator = CmxIrohGrantPeer(
+                bindingID: initiator.bindingID,
+                deviceID: initiator.deviceID,
+                tag: initiatorTag ?? initiator.tag,
+                platform: initiator.platform,
+                endpointID: initiator.endpointID,
+                identityGeneration: initiator.identityGeneration
+            )
+            bindings.append(bindingObject(peer: discoveredInitiator, pairingEnabled: true))
             if duplicateInitiator {
                 bindings.append(bindingObject(
                     peer: CmxIrohGrantPeer(

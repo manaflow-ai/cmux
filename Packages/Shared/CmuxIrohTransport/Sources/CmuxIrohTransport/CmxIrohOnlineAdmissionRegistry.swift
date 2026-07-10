@@ -39,6 +39,7 @@ public actor CmxIrohOnlineAdmissionRegistry {
     private var acceptor: CmxIrohGrantPeer
     private var snapshot: Snapshot?
     private var refresh: Refresh?
+    private var policyRevision: UInt64 = 0
     private var deniedBindingIDs: Set<String> = []
     private var monitors: [UUID: Monitor] = [:]
 
@@ -67,7 +68,10 @@ public actor CmxIrohOnlineAdmissionRegistry {
     ) {
         self.keys = keys
         self.acceptor = acceptor
+        policyRevision &+= 1
         snapshot = nil
+        refresh?.task.cancel()
+        refresh = nil
     }
 
     /// Verifies signature and TLS identity before consulting the authenticated broker.
@@ -87,32 +91,56 @@ public actor CmxIrohOnlineAdmissionRegistry {
         } catch {
             return .denied
         }
-        guard !isDenied(claims) else { return .denied }
+        return await authorize(
+            CmxIrohOnlineAdmissionLease(claims: claims, onlineValidatedAt: nil)
+        )
+    }
 
+    /// AdmissionController is the only production caller, after locally verifying and
+    /// consuming the one-use proof, TLS identity, and both signed attestations.
+    func authorizeOfflinePair(
+        _ pair: CmxIrohVerifiedOfflinePair
+    ) async -> CmxIrohOnlineAdmissionAuthorization {
+        let lease = CmxIrohOnlineAdmissionLease(pair: pair, onlineValidatedAt: nil)
+        let verifiedAcceptor = CmxIrohEndpointExpectation(
+            bindingID: pair.acceptor.bindingID,
+            deviceID: pair.acceptor.deviceID,
+            endpointID: pair.acceptor.endpointID,
+            identityGeneration: pair.acceptor.identityGeneration,
+            platform: pair.acceptor.platform
+        )
+        guard pair.initiator.platform == .ios,
+              pair.acceptor.platform == .mac,
+              currentAcceptorExpectation() == verifiedAcceptor else {
+            return .denied
+        }
+        return await authorize(lease)
+    }
+
+    private func authorize(
+        _ lease: CmxIrohOnlineAdmissionLease
+    ) async -> CmxIrohOnlineAdmissionAuthorization {
+        guard !isDenied(lease), !isExpired(lease) else { return .denied }
+        let revision = policyRevision
         do {
             let online = try await currentSnapshot()
-            guard validate(online.response, claims: claims, learnDenial: true) else {
+            guard policyRevision == revision,
+                  !isDenied(lease),
+                  validate(online.response, lease: lease, learnDenial: true) else {
                 await invalidateDeniedMonitors()
                 return .denied
             }
-            guard !isExpired(claims) else {
+            guard !isExpired(lease) else {
                 return .denied
             }
-            return .accepted(
-                CmxIrohOnlineAdmissionLease(
-                    claims: claims,
-                    onlineValidatedAt: online.fetchedAt
-                )
-            )
+            return .accepted(lease.validatedOnline(at: online.fetchedAt))
         } catch {
             guard Self.isConnectivity(error),
-                  !isDenied(claims),
-                  !isExpired(claims) else {
+                  !isDenied(lease),
+                  !isExpired(lease) else {
                 return .denied
             }
-            return .accepted(
-                CmxIrohOnlineAdmissionLease(claims: claims, onlineValidatedAt: nil)
-            )
+            return .accepted(lease)
         }
     }
 
@@ -138,6 +166,7 @@ public actor CmxIrohOnlineAdmissionRegistry {
     /// Applies local revoke state immediately to new and already-admitted sessions.
     public func revoke(bindingID: String) async {
         deniedBindingIDs.insert(bindingID)
+        policyRevision &+= 1
         await invalidateDeniedMonitors()
     }
 
@@ -251,50 +280,47 @@ public actor CmxIrohOnlineAdmissionRegistry {
 
     private func validate(
         _ response: CmxIrohDiscoveryResponse,
-        claims: CmxIrohPairGrantClaims,
-        learnDenial: Bool
-    ) -> Bool {
-        validate(
-            response,
-            initiator: claims.initiator,
-            acceptor: claims.acceptor,
-            learnDenial: learnDenial
-        )
-    }
-
-    private func validate(
-        _ response: CmxIrohDiscoveryResponse,
         lease: CmxIrohOnlineAdmissionLease,
-        learnDenial: Bool
-    ) -> Bool {
-        validate(
-            response,
-            initiator: lease.initiator,
-            acceptor: lease.acceptor,
-            learnDenial: learnDenial
-        )
-    }
-
-    private func validate(
-        _ response: CmxIrohDiscoveryResponse,
-        initiator: CmxIrohGrantPeer,
-        acceptor: CmxIrohGrantPeer,
         learnDenial: Bool
     ) -> Bool {
         guard response.routeContractVersion == routeContractVersion,
               Set(response.relayFleet) == managedRelayURLs else {
             return false
         }
-        let initiatorMatches = response.bindings.filter {
+        switch lease.authority {
+        case let .pairGrant(_, initiator, acceptor):
+            return validatePairGrantBindings(
+                response.bindings,
+                initiator: initiator,
+                acceptor: acceptor,
+                learnDenial: learnDenial
+            )
+        case let .offlinePairing(initiator, acceptor):
+            return validateOfflineBindings(
+                response.bindings,
+                initiator: initiator,
+                acceptor: acceptor,
+                learnDenial: learnDenial
+            )
+        }
+    }
+
+    private func validatePairGrantBindings(
+        _ bindings: [CmxIrohBrokerBinding],
+        initiator: CmxIrohGrantPeer,
+        acceptor: CmxIrohGrantPeer,
+        learnDenial: Bool
+    ) -> Bool {
+        let initiatorMatches = bindings.filter {
             CmxIrohGrantPeer(binding: $0) == initiator
         }
-        let acceptorMatches = response.bindings.filter {
+        let acceptorMatches = bindings.filter {
             CmxIrohGrantPeer(binding: $0) == acceptor
         }
-        let initiatorIdentityMatches = response.bindings.filter {
+        let initiatorIdentityMatches = bindings.filter {
             $0.endpointID == initiator.endpointID && $0.platform == initiator.platform
         }
-        let acceptorIdentityMatches = response.bindings.filter {
+        let acceptorIdentityMatches = bindings.filter {
             $0.endpointID == acceptor.endpointID && $0.platform == acceptor.platform
         }
         let initiatorActive = initiatorMatches.count == 1
@@ -309,18 +335,60 @@ public actor CmxIrohOnlineAdmissionRegistry {
         return initiatorActive && acceptorActive
     }
 
-    private func isDenied(_ claims: CmxIrohPairGrantClaims) -> Bool {
-        deniedBindingIDs.contains(claims.initiator.bindingID)
-            || deniedBindingIDs.contains(claims.acceptor.bindingID)
+    private func validateOfflineBindings(
+        _ bindings: [CmxIrohBrokerBinding],
+        initiator: CmxIrohEndpointExpectation,
+        acceptor: CmxIrohEndpointExpectation,
+        learnDenial: Bool
+    ) -> Bool {
+        let initiatorMatches = bindings.filter { Self.matches($0, expectation: initiator) }
+        let acceptorMatches = bindings.filter { Self.matches($0, expectation: acceptor) }
+        let initiatorIdentityMatches = bindings.filter {
+            $0.endpointID == initiator.endpointID && $0.platform == initiator.platform
+        }
+        let acceptorIdentityMatches = bindings.filter {
+            $0.endpointID == acceptor.endpointID && $0.platform == acceptor.platform
+        }
+        let initiatorActive = initiatorMatches.count == 1
+            && initiatorIdentityMatches.count == 1
+        let acceptorActive = acceptorMatches.count == 1
+            && acceptorIdentityMatches.count == 1
+            && acceptorMatches[0].pairingEnabled
+        if learnDenial {
+            if !initiatorActive { deniedBindingIDs.insert(initiator.bindingID) }
+            if !acceptorActive { deniedBindingIDs.insert(acceptor.bindingID) }
+        }
+        return initiatorActive && acceptorActive
     }
 
     private func isDenied(_ lease: CmxIrohOnlineAdmissionLease) -> Bool {
-        deniedBindingIDs.contains(lease.initiator.bindingID)
-            || deniedBindingIDs.contains(lease.acceptor.bindingID)
+        deniedBindingIDs.contains(lease.authority.initiatorBindingID)
+            || deniedBindingIDs.contains(lease.authority.acceptorBindingID)
     }
 
-    private func isExpired(_ claims: CmxIrohPairGrantClaims) -> Bool {
-        TimeInterval(claims.expiresAt) <= clock.now().timeIntervalSince1970
+    private func isExpired(_ lease: CmxIrohOnlineAdmissionLease) -> Bool {
+        lease.expiresAt <= clock.now()
+    }
+
+    private func currentAcceptorExpectation() -> CmxIrohEndpointExpectation {
+        CmxIrohEndpointExpectation(
+            bindingID: acceptor.bindingID,
+            deviceID: acceptor.deviceID,
+            endpointID: acceptor.endpointID,
+            identityGeneration: acceptor.identityGeneration,
+            platform: acceptor.platform
+        )
+    }
+
+    private static func matches(
+        _ binding: CmxIrohBrokerBinding,
+        expectation: CmxIrohEndpointExpectation
+    ) -> Bool {
+        binding.bindingID == expectation.bindingID
+            && binding.deviceID == expectation.deviceID
+            && binding.endpointID == expectation.endpointID
+            && binding.identityGeneration == expectation.identityGeneration
+            && binding.platform == expectation.platform
     }
 
     private func invalidate(
