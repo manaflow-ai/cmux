@@ -634,6 +634,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     var rpcAuthScope = MobileRPCAuthScope()
     var manualHostRPCAuthScope = MobileRPCAuthScope()
     var manualHostTrustResetTask: Task<Void, Never>?
+    var manualHostTrustExpirationTask: Task<Void, Never>?
     var manualHostTrustResetGeneration = 0
     var rpcAuthStackUserID: String?
     /// Collapses connection-state edges into one-per-outage lost/recovered events.
@@ -1044,6 +1045,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         presenceTask?.cancel()
         networkPathObservationTask?.cancel()
         manualHostTrustResetTask?.cancel()
+        manualHostTrustExpirationTask?.cancel()
         terminalEventListenerTask?.cancel()
         terminalSubscriptionStartTask?.cancel()
         renderGridLivenessTimer?.cancel()
@@ -5182,6 +5184,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     private func clearActiveConnectionContext() {
+        manualHostTrustExpirationTask?.cancel()
+        manualHostTrustExpirationTask = nil
         activeTicket = nil
         activeRoute = nil
         connectedHostName = ""
@@ -5647,6 +5651,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         isRecoveringConnection = false
         connectionRecoveryFailed = false
         connectionRequiresReauth = false
+        scheduleManualHostTrustExpirationForActiveRoute()
         drainPendingNetworkRecoveryIfIdle()
     }
 

@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// Persistence for explicit manual-host approvals.
 public protocol MobileManualHostTrustStoring: Sendable {
@@ -10,6 +10,17 @@ public protocol MobileManualHostTrustStoring: Sendable {
     /// - Parameter scope: The scope to approve.
     func trust(_ scope: MobileManualHostTrustScope) async
 
+    /// Returns when the approval expires, or `nil` for stores without expiry.
+    /// - Parameter scope: The approved scope to inspect.
+    func expirationDate(for scope: MobileManualHostTrustScope) async -> Date?
+
     /// Removes every stored approval.
     func removeAll() async
+}
+
+public extension MobileManualHostTrustStoring {
+    func expirationDate(for scope: MobileManualHostTrustScope) async -> Date? {
+        _ = scope
+        return nil
+    }
 }

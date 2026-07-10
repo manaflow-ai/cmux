@@ -142,8 +142,15 @@ struct CMUXMobileRootView: View {
             store.currentTeamDidChange()
         }
         .onChange(of: scenePhase) { _, phase in
-            guard phase == .active else { store.suspendForegroundRefresh(); return }
-            store.resumeForegroundRefresh()
+            switch MobileSceneRefreshAction.forScenePhase(phase) {
+            case .none:
+                return
+            case .enterBackground:
+                store.suspendForegroundRefresh()
+                return
+            case .resumeForeground:
+                store.resumeForegroundRefresh()
+            }
             // The user may have toggled Tailscale while we were backgrounded.
             tailscaleStatusMonitor?.refresh()
             // Re-check the Stack session on resume so one that died while

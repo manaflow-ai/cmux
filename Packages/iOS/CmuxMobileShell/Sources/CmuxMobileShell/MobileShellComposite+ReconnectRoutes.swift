@@ -47,7 +47,8 @@ extension MobileShellComposite {
         }
     }
 
-    /// Record that the app left the active scene phase.
+    /// Record that the app entered the background. Temporary `.inactive`
+    /// interruptions do not call this and therefore do not revoke trust.
     public func suspendForegroundRefresh() {
         guard lastBackgroundedAt == nil else { return }
         lastBackgroundedAt = runtime?.now() ?? Date()

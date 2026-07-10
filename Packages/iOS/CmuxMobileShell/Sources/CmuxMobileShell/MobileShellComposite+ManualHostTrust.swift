@@ -1,5 +1,7 @@
 import CMUXMobileCore
+import CmuxMobileRPC
 public import CmuxMobileShellModel
+import Foundation
 
 private struct ManualHostReapproval {
     let name: String
@@ -209,6 +211,61 @@ extension MobileShellComposite {
     private func manualHostTrustIsAvailable(_ scope: MobileManualHostTrustScope) async -> Bool {
         guard manualHostTrustResetTask == nil else { return false }
         return await manualHostTrustStore.isTrusted(scope)
+    }
+
+    func scheduleManualHostTrustExpirationForActiveRoute() {
+        manualHostTrustExpirationTask?.cancel()
+        manualHostTrustExpirationTask = nil
+        guard let route = activeRoute,
+              let client = remoteClient,
+              connectionState == .connected,
+              let scope = manualHostTrustScope(for: route) else { return }
+        let authScope = manualHostRPCAuthScope
+        let generation = connectionGeneration
+        let trustStore = manualHostTrustStore
+        manualHostTrustExpirationTask = Task { @MainActor [weak self] in
+            guard let expiration = await trustStore.expirationDate(for: scope),
+                  let self,
+                  self.manualHostTrustExpirationIsCurrent(
+                      route: route,
+                      client: client,
+                      generation: generation,
+                      authScope: authScope
+                  ) else { return }
+            let delay = expiration.timeIntervalSince(self.runtime?.now() ?? Date())
+            if delay > 0 {
+                try? await ContinuousClock().sleep(for: .seconds(delay))
+            }
+            guard !Task.isCancelled,
+                  self.manualHostTrustExpirationIsCurrent(
+                      route: route,
+                      client: client,
+                      generation: generation,
+                      authScope: authScope
+                  ),
+                  !(await trustStore.isTrusted(scope)),
+                  self.manualHostTrustExpirationIsCurrent(
+                      route: route,
+                      client: client,
+                      generation: generation,
+                      authScope: authScope
+                  ) else { return }
+            self.rotateManualHostRPCAuthScope()
+            _ = self.queueForegroundManualHostReapproval(route: route)
+        }
+    }
+
+    private func manualHostTrustExpirationIsCurrent(
+        route: CmxAttachRoute,
+        client: MobileCoreRPCClient,
+        generation: UUID,
+        authScope: MobileRPCAuthScope
+    ) -> Bool {
+        connectionState == .connected
+            && remoteClient === client
+            && connectionGeneration == generation
+            && activeRoute == route
+            && manualHostRPCAuthScope == authScope
     }
 
     /// Revokes plaintext-route credentials at any boundary that may represent a new network.

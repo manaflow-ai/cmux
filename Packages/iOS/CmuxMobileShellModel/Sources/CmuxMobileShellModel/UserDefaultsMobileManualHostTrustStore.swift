@@ -112,6 +112,12 @@ public actor UserDefaultsMobileManualHostTrustStore: MobileManualHostTrustStorin
         defaults.set(persistedExpirations, forKey: key)
     }
 
+    /// Returns the recorded absolute expiry so the connection owner can queue
+    /// reapproval even when no further RPC happens after the deadline.
+    public func expirationDate(for scope: MobileManualHostTrustScope) async -> Date? {
+        trustedScopes[scope].map(Date.init(timeIntervalSince1970:))
+    }
+
     /// Removes every stored approval.
     public func removeAll() async {
         persistedExpirations.removeAll()
