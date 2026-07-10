@@ -31,7 +31,11 @@ import Testing
         #expect(snapshot.sdkRootURL == installation.rootURL)
         #expect(snapshot.warning == nil)
         #expect(snapshot.devices.map(\.name) == ["Pixel_9_API_35", "Tablet_API_35"])
-        #expect(snapshot.devices[0].state == .running(serial: "emulator-5554", connectionState: "device"))
+        #expect(snapshot.devices[0].state == .running(
+            serial: "emulator-5554",
+            connectionState: "device",
+            transportID: "42"
+        ))
         #expect(snapshot.devices[1].state == .stopped)
     }
 
@@ -94,6 +98,38 @@ import Testing
             sdkRootURL: installation.rootURL,
             consolePort: 5554
         )])
+    }
+
+    @Test func launchSkipsConsolePairWithOccupiedAdjacentPort() async throws {
+        let installation = Self.installation
+        let launcher = RecordingAndroidEmulatorLauncher(unavailableConsolePorts: [5555])
+        let commands = StubCommandRunner(results: [
+            StubCommand(
+                executable: installation.emulatorURL.path,
+                arguments: ["-list-avds"]
+            ): .success("Pixel_9_API_35\n"),
+            StubCommand(
+                executable: installation.adbURL!.path,
+                arguments: ["devices"]
+            ): .success("List of devices attached\n"),
+            StubCommand(
+                executable: installation.adbURL!.path,
+                arguments: ["-s", "emulator-5556", "wait-for-device"]
+            ): .success(""),
+            StubCommand(
+                executable: installation.adbURL!.path,
+                arguments: ["-s", "emulator-5556", "emu", "avd", "name"]
+            ): .success("Pixel_9_API_35\nOK\n"),
+        ])
+        let service = AndroidEmulatorService(
+            sdkLocator: StubSDKLocator(resolution: .available(installation)),
+            commands: commands,
+            processLauncher: launcher
+        )
+
+        try await service.launch(avdName: "Pixel_9_API_35")
+
+        #expect(await launcher.requests.map(\.consolePort) == [5556])
     }
 
     @Test func snapshotRejectsConsoleErrorReturnedWithZeroExitStatus() async throws {
@@ -190,7 +226,7 @@ import Testing
         )
 
         await #expect(throws: AndroidEmulatorError.invalidEmulatorSerial("R58M123")) {
-            try await service.stop(avdName: "Pixel_9_API_35", serial: "R58M123")
+            try await service.stop(avdName: "Pixel_9_API_35", serial: "R58M123", transportID: "42")
         }
         #expect(await commands.invocations.isEmpty)
     }
@@ -218,7 +254,11 @@ import Testing
         )
 
         await #expect(throws: AndroidEmulatorError.self) {
-            try await service.stop(avdName: "Pixel_9_API_35", serial: "emulator-5554")
+            try await service.stop(
+                avdName: "Pixel_9_API_35",
+                serial: "emulator-5554",
+                transportID: "42"
+            )
         }
 
         #expect(await commands.invocations.count == 3)
@@ -246,10 +286,39 @@ import Testing
             expected: "Pixel_9_API_35",
             actual: "Tablet_API_35"
         )) {
-            try await service.stop(avdName: "Pixel_9_API_35", serial: "emulator-5554")
+            try await service.stop(
+                avdName: "Pixel_9_API_35",
+                serial: "emulator-5554",
+                transportID: "77"
+            )
         }
 
         #expect(await commands.invocations.count == 2)
+    }
+
+    @Test func stopRejectsReplacementTransportEvenForSameAVDName() async {
+        let installation = Self.installation
+        let commands = StubCommandRunner(results: [
+            StubCommand(
+                executable: installation.adbURL!.path,
+                arguments: ["devices", "-l"]
+            ): .success("List of devices attached\nemulator-5554\tdevice transport_id:77\n"),
+        ])
+        let service = AndroidEmulatorService(
+            sdkLocator: StubSDKLocator(resolution: .available(installation)),
+            commands: commands,
+            processLauncher: RecordingAndroidEmulatorLauncher()
+        )
+
+        await #expect(throws: AndroidEmulatorError.stopNotConfirmed(serial: "emulator-5554")) {
+            try await service.stop(
+                avdName: "Pixel_9_API_35",
+                serial: "emulator-5554",
+                transportID: "42"
+            )
+        }
+
+        #expect(await commands.invocations.count == 1)
     }
 
     @Test func snapshotResolvesConnectedEmulatorNamesConcurrently() async throws {
@@ -397,6 +466,16 @@ private actor RecordingAndroidEmulatorLauncher: AndroidEmulatorProcessLaunching 
 
     private(set) var requests: [LaunchRequest] = []
     private(set) var terminatedProcessIDs: [UUID] = []
+    private let unavailableConsolePorts: Set<Int>
+
+    init(unavailableConsolePorts: Set<Int> = []) {
+        self.unavailableConsolePorts = unavailableConsolePorts
+    }
+
+    func consolePortPairIsAvailable(_ consolePort: Int) -> Bool {
+        !unavailableConsolePorts.contains(consolePort)
+            && !unavailableConsolePorts.contains(consolePort + 1)
+    }
 
     func launch(
         executableURL: URL,

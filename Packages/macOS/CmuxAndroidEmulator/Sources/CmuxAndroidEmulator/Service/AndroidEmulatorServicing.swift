@@ -7,5 +7,5 @@ public protocol AndroidEmulatorServicing: Sendable {
     func launch(avdName: String) async throws
 
     /// Stops a running emulator after revalidating its AVD name and Android Debug Bridge transport.
-    func stop(avdName: String, serial: String) async throws
+    func stop(avdName: String, serial: String, transportID: String) async throws
 }

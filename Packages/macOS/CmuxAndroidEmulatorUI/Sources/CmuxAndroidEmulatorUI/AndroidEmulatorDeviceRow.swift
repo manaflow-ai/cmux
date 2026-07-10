@@ -7,7 +7,7 @@ struct AndroidEmulatorDeviceRow: View {
     let isLaunching: Bool
     let isStopping: Bool
     let onLaunch: () -> Void
-    let onStop: (String) -> Void
+    let onStop: (String, String) -> Void
 
     var body: some View {
         HStack(spacing: 12) {
@@ -40,9 +40,9 @@ struct AndroidEmulatorDeviceRow: View {
                     }
                     .buttonStyle(.borderedProminent)
                     .controlSize(.small)
-                case .running(let serial, _):
+                case .running(let serial, _, let transportID):
                     Button(String(localized: "androidEmulator.action.stop", defaultValue: "Stop", bundle: .module)) {
-                        onStop(serial)
+                        onStop(serial, transportID)
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
@@ -70,7 +70,7 @@ struct AndroidEmulatorDeviceRow: View {
                 defaultValue: "State unavailable",
                 bundle: .module
             )
-        case .running(let serial, let connectionState):
+        case .running(let serial, let connectionState, _):
             let format = String(
                 localized: "androidEmulator.status.running",
                 defaultValue: "Running · %@ · %@",

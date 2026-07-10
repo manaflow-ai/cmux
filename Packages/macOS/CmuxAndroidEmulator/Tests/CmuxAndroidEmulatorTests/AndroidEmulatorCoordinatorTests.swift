@@ -43,7 +43,11 @@ import Testing
         )
         let coordinator = AndroidEmulatorCoordinator(service: service)
 
-        await coordinator.stop(avdName: "Pixel_9_API_35", serial: "emulator-5554")
+        await coordinator.stop(
+            avdName: "Pixel_9_API_35",
+            serial: "emulator-5554",
+            transportID: "42"
+        )
 
         #expect(coordinator.stoppingSerials.isEmpty)
         #expect(coordinator.actionError == .stopNotConfirmed(serial: "emulator-5554"))
@@ -57,7 +61,11 @@ import Testing
         let coordinator = AndroidEmulatorCoordinator(service: service)
 
         let stopTask = Task {
-            await coordinator.stop(avdName: "Pixel_9_API_35", serial: "emulator-5554")
+            await coordinator.stop(
+                avdName: "Pixel_9_API_35",
+                serial: "emulator-5554",
+                transportID: "42"
+            )
         }
         await service.waitUntilStopStarted()
         await coordinator.refresh()
@@ -73,7 +81,7 @@ import Testing
         sdkRootURL: URL(fileURLWithPath: "/sdk", isDirectory: true),
         devices: [AndroidVirtualDevice(
             name: "Pixel_9_API_35",
-            state: .running(serial: "emulator-5554", connectionState: "device")
+            state: .running(serial: "emulator-5554", connectionState: "device", transportID: "42")
         )],
         warning: nil,
         connectedEmulatorSerials: ["emulator-5554"]
@@ -137,9 +145,10 @@ private actor StubAndroidEmulatorService: AndroidEmulatorServicing {
         }
     }
 
-    func stop(avdName: String, serial: String) async throws {
+    func stop(avdName: String, serial: String, transportID: String) async throws {
         _ = avdName
         _ = serial
+        _ = transportID
         if let stopError { throw stopError }
         stopStarted = true
         stopStartContinuation?.resume()

@@ -96,12 +96,13 @@ public final class AndroidEmulatorCoordinator {
     /// - Parameters:
     ///   - avdName: The selected AVD name used to revalidate the reusable emulator serial.
     ///   - serial: The selected emulator's validated Android Debug Bridge serial.
-    public func stop(avdName: String, serial: String) async {
+    ///   - transportID: The non-reusable transport identity captured with the selected row.
+    public func stop(avdName: String, serial: String, transportID: String) async {
         guard !stoppingSerials.contains(serial) else { return }
         actionError = nil
         stoppingSerials.insert(serial)
         do {
-            try await service.stop(avdName: avdName, serial: serial)
+            try await service.stop(avdName: avdName, serial: serial, transportID: transportID)
         } catch let error as AndroidEmulatorError {
             stoppingSerials.remove(serial)
             actionError = error

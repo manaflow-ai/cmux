@@ -144,8 +144,14 @@ public struct AndroidEmulatorPickerView: View {
                         onLaunch: {
                             Task { await coordinator.launch(avdName: device.name) }
                         },
-                        onStop: { serial in
-                            Task { await coordinator.stop(avdName: device.name, serial: serial) }
+                        onStop: { serial, transportID in
+                            Task {
+                                await coordinator.stop(
+                                    avdName: device.name,
+                                    serial: serial,
+                                    transportID: transportID
+                                )
+                            }
                         }
                     )
                 }

@@ -7,12 +7,18 @@ public enum AndroidVirtualDeviceState: Sendable, Equatable {
     case unavailable
 
     /// The AVD is connected through Android Debug Bridge.
-    case running(serial: String, connectionState: String)
+    case running(serial: String, connectionState: String, transportID: String)
 
     /// The Android Debug Bridge serial when the AVD is running.
     public var serial: String? {
-        guard case .running(let serial, _) = self else { return nil }
+        guard case .running(let serial, _, _) = self else { return nil }
         return serial
+    }
+
+    /// The non-reusable Android Debug Bridge transport identity when the AVD is running.
+    public var transportID: String? {
+        guard case .running(_, _, let transportID) = self else { return nil }
+        return transportID
     }
 
     /// Whether Android Debug Bridge currently reports the AVD.

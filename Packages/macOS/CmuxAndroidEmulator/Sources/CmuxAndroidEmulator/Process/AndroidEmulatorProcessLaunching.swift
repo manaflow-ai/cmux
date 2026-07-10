@@ -2,6 +2,11 @@ public import Foundation
 
 /// Launches the vendor Android Emulator as a long-lived external process.
 public protocol AndroidEmulatorProcessLaunching: Sendable {
+    /// Whether both TCP sockets required by an emulator console port are currently bindable.
+    ///
+    /// - Parameter consolePort: The even console port; the adjacent odd port is checked too.
+    func consolePortPairIsAvailable(_ consolePort: Int) async -> Bool
+
     /// Starts one AVD on a reserved console port and returns its process identity after spawn.
     ///
     /// - Parameters:
