@@ -58,7 +58,7 @@ test("App renders the React-owned shell without starting a patch fetch for statu
   expect(fetched).toBe(false);
 });
 
-test("custom-scheme pending pages wait for native navigation without HTTP polling", async () => {
+test("custom-scheme pending pages wait for native navigation without HTTP polling", () => {
   dom = createDom("cmux-diff-viewer://0123456789abcdef/opening.html");
   let fetched = false;
   installDomGlobals(dom, () => {
@@ -79,7 +79,6 @@ test("custom-scheme pending pages wait for native navigation without HTTP pollin
     />,
   );
 
-  await new Promise((resolve) => setTimeout(resolve, 0));
   expect(dom.window.document.getElementById("status-text")?.textContent).toBe("Loading diff");
   expect(fetched).toBe(false);
   expect(dom.window.document.documentElement.dataset.cmuxDiffWait).toBeUndefined();
