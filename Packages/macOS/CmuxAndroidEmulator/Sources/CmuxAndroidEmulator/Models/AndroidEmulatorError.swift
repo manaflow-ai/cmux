@@ -21,6 +21,9 @@ public enum AndroidEmulatorError: Error, Sendable, Equatable {
     /// The vendor emulator process could not be launched.
     case launchFailed(detail: String)
 
+    /// Every supported emulator console port is already occupied.
+    case noConsolePortAvailable
+
     /// A spawned AVD did not become visible to Android Debug Bridge before the confirmation deadline.
     case launchNotConfirmed(name: String)
 

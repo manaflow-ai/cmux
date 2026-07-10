@@ -16,6 +16,7 @@ extension ControlDebugContext {
     func controlDebugActivateApp() -> String { "ERROR: not implemented" }
     func controlDebugShowProWelcomeChecklist() {}
     func controlDebugShowAndroidEmulators() {}
+    func controlDebugOpenRunningAndroidEmulator() -> Bool { false }
     func controlDebugIsTerminalFocused(surfaceArgument: String) -> String { "ERROR: not implemented" }
     func controlDebugReadTerminalText(surfaceArgument: String) -> String { "ERROR: not implemented" }
     func controlDebugRenderStats(surfaceArgument: String) -> String { "ERROR: not implemented" }

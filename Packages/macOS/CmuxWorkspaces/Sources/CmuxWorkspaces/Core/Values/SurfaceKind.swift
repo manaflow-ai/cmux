@@ -35,4 +35,6 @@ public struct SurfaceKind: RawRepresentable, Hashable, Sendable {
     public static let extensionBrowser = SurfaceKind(rawValue: "extensionBrowser")
     /// A transient Cloud VM loading pane.
     public static let cloudVMLoading = SurfaceKind(rawValue: "cloudVMLoading")
+    /// A live Android emulator pane backed by the user's installed SDK.
+    public static let androidEmulator = SurfaceKind(rawValue: "androidEmulator")
 }

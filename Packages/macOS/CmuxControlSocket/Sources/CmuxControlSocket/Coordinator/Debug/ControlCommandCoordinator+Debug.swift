@@ -46,6 +46,8 @@ extension ControlCommandCoordinator {
             return debugShowProWelcomeChecklist()
         case "debug.android_emulators.show":
             return debugShowAndroidEmulators()
+        case "debug.android_emulators.open_running":
+            return debugOpenRunningAndroidEmulator()
         case "debug.command_palette.toggle":
             return debugCommandPaletteEvent(.toggle, request.params)
         case "debug.command_palette.rename_tab.open":
@@ -221,26 +223,6 @@ extension ControlCommandCoordinator {
             // equally unreachable unwired-context case.
             return .err(code: "internal_error", message: "No window", data: nil)
         }
-    }
-
-    // MARK: - debug.pro_welcome_checklist.show — show the Pro welcome checklist
-
-    func debugShowProWelcomeChecklist() -> ControlCallResult {
-        guard let debugContext else {
-            return .err(code: "unavailable", message: "Control context unavailable", data: nil)
-        }
-        debugContext.controlDebugShowProWelcomeChecklist()
-        return .ok(.object(["shown": .bool(true)]))
-    }
-
-    // MARK: - debug.android_emulators.show — show the Android emulator picker
-
-    func debugShowAndroidEmulators() -> ControlCallResult {
-        guard let debugContext else {
-            return .err(code: "unavailable", message: "Control context unavailable", data: nil)
-        }
-        debugContext.controlDebugShowAndroidEmulators()
-        return .ok(.object(["shown": .bool(true)]))
     }
 
     // MARK: - debug.textbox.*

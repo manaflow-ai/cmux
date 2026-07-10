@@ -8,4 +8,19 @@ public protocol AndroidEmulatorServicing: Sendable {
 
     /// Stops a running emulator after revalidating its AVD name and Android Debug Bridge transport.
     func stop(avdName: String, serial: String, transportID: String) async throws
+
+    /// Sends one control action after revalidating the emulator's non-reusable transport identity.
+    func perform(
+        _ action: AndroidEmulatorControlAction,
+        avdName: String,
+        serial: String,
+        transportID: String
+    ) async throws
+
+    /// Reads the primary display size after validating the selected transport.
+    func displaySize(
+        avdName: String,
+        serial: String,
+        transportID: String
+    ) async throws -> AndroidEmulatorDisplaySize
 }

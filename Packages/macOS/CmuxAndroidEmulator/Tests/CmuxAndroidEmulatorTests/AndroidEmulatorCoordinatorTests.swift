@@ -158,6 +158,29 @@ private actor StubAndroidEmulatorService: AndroidEmulatorServicing {
         }
     }
 
+    func perform(
+        _ action: AndroidEmulatorControlAction,
+        avdName: String,
+        serial: String,
+        transportID: String
+    ) async throws {
+        _ = action
+        _ = avdName
+        _ = serial
+        _ = transportID
+    }
+
+    func displaySize(
+        avdName: String,
+        serial: String,
+        transportID: String
+    ) async throws -> AndroidEmulatorDisplaySize {
+        _ = avdName
+        _ = serial
+        _ = transportID
+        return AndroidEmulatorDisplaySize(width: 1080, height: 2424)
+    }
+
     func waitUntilLaunchStarted() async {
         if launchStarted { return }
         await withCheckedContinuation { launchStartContinuation = $0 }

@@ -5525,6 +5525,7 @@ struct ContentView: View {
             return String(localized: "sidebar.extensions.browser.title", defaultValue: "Sidebar Extensions")
         case .cloudVMLoading:
             return String(localized: "commandPalette.kind.cloudVMLoading", defaultValue: "Cloud VM")
+        case .androidEmulator: return String(localized: "commandPalette.kind.androidEmulator", defaultValue: "Android Emulator")
         }
     }
     private func commandPaletteSurfaceKeywords(for panelType: PanelType) -> [String] {
@@ -5549,6 +5550,7 @@ struct ContentView: View {
             return ["sidebar", "extensions", "extensionkit", "browser"]
         case .cloudVMLoading:
             return ["cloud", "vm", "loading"]
+        case .androidEmulator: return ["android", "emulator", "device", "mobile"]
         }
     }
     private func commandPaletteCachedCommandsContext() -> CommandPaletteCommandsContext {
@@ -11020,6 +11022,7 @@ struct VerticalTabsSidebar: View {
             return .unknown
         case .cloudVMLoading:
             return .unknown
+        case .androidEmulator: return .unknown
         }
     }
 

@@ -5,6 +5,7 @@ import Bonsplit
 import AppKit
 import CmuxAppKitSupportUI
 import CmuxFeedback
+import CmuxAndroidEmulatorUI
 
 /// View that renders the appropriate panel view based on panel type
 struct PanelContentView: View {
@@ -150,6 +151,14 @@ struct PanelContentView: View {
                 CloudVMLoadingPanelView(panel: loadingPanel)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+        case .androidEmulator:
+            if let androidPanel = panel as? AndroidEmulatorPanel {
+                AndroidEmulatorPaneView(
+                    controller: androidPanel.controller,
+                    isVisible: isVisibleInUI
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
         }
     }
 
@@ -167,7 +176,7 @@ struct PanelContentView: View {
     private var shouldInstallPaneDropTarget: Bool {
         guard isVisibleInUI else { return false }
         switch panel.panelType {
-        case .markdown, .filePreview, .rightSidebarTool, .customSidebar, .agentSession, .project, .extensionBrowser, .cloudVMLoading:
+        case .markdown, .filePreview, .rightSidebarTool, .customSidebar, .agentSession, .project, .extensionBrowser, .cloudVMLoading, .androidEmulator:
             return true
         case .terminal, .browser:
             return false

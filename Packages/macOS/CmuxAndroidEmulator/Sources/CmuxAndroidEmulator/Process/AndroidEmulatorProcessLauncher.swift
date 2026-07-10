@@ -53,13 +53,33 @@ public actor AndroidEmulatorProcessLauncher: AndroidEmulatorProcessLaunching {
     }
 
     /// Implements ``AndroidEmulatorProcessLaunching/terminate(processID:)``.
-    public func terminate(processID: UUID) {
-        guard let process = processes.removeValue(forKey: processID), process.isRunning else { return }
+    public func terminate(processID: UUID) async {
+        guard let process = processes[processID], process.isRunning else {
+            processes.removeValue(forKey: processID)
+            return
+        }
         process.terminate()
+        if await waitForExit(process, timeout: .seconds(2)) {
+            processes.removeValue(forKey: processID)
+            return
+        }
+
+        kill(process.processIdentifier, SIGKILL)
+        _ = await waitForExit(process, timeout: .seconds(2))
+        processes.removeValue(forKey: processID)
     }
 
     private func removeProcess(_ processID: UUID) {
         processes.removeValue(forKey: processID)
+    }
+
+    private func waitForExit(_ process: Process, timeout: Duration) async -> Bool {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: timeout)
+        while process.isRunning, clock.now < deadline {
+            try? await clock.sleep(for: .milliseconds(50))
+        }
+        return !process.isRunning
     }
 
     // Darwin bind is the only atomic OS check for whether the emulator can claim a TCP port.

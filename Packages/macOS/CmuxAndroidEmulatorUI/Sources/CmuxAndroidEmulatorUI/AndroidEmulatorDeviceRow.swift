@@ -8,6 +8,7 @@ struct AndroidEmulatorDeviceRow: View {
     let isStopping: Bool
     let onLaunch: () -> Void
     let onStop: (String, String) -> Void
+    let onOpenInPane: () -> Void
 
     var body: some View {
         HStack(spacing: 12) {
@@ -41,11 +42,22 @@ struct AndroidEmulatorDeviceRow: View {
                     .buttonStyle(.borderedProminent)
                     .controlSize(.small)
                 case .running(let serial, _, let transportID):
-                    Button(String(localized: "androidEmulator.action.stop", defaultValue: "Stop", bundle: .module)) {
-                        onStop(serial, transportID)
+                    HStack(spacing: 6) {
+                        Button(String(
+                            localized: "androidEmulator.action.openInPane",
+                            defaultValue: "Open in Pane",
+                            bundle: .module
+                        )) {
+                            onOpenInPane()
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
+                        Button(String(localized: "androidEmulator.action.stop", defaultValue: "Stop", bundle: .module)) {
+                            onStop(serial, transportID)
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
                     }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
                 case .unavailable:
                     EmptyView()
                 }

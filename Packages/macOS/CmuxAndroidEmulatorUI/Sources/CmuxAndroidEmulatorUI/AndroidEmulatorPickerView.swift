@@ -4,12 +4,17 @@ public import SwiftUI
 /// Native picker for AVDs supplied by the user's Android SDK.
 public struct AndroidEmulatorPickerView: View {
     @Bindable private var coordinator: AndroidEmulatorCoordinator
+    private let onOpenInPane: (AndroidVirtualDevice) -> Void
 
     /// Creates a picker bound to one Android emulator coordinator.
     ///
     /// - Parameter coordinator: The coordinator that owns SDK discovery and lifecycle actions.
-    public init(coordinator: AndroidEmulatorCoordinator) {
+    public init(
+        coordinator: AndroidEmulatorCoordinator,
+        onOpenInPane: @escaping (AndroidVirtualDevice) -> Void = { _ in }
+    ) {
         self.coordinator = coordinator
+        self.onOpenInPane = onOpenInPane
     }
 
     /// Renders SDK discovery, AVD state, and lifecycle controls.
@@ -152,7 +157,8 @@ public struct AndroidEmulatorPickerView: View {
                                     transportID: transportID
                                 )
                             }
-                        }
+                        },
+                        onOpenInPane: { onOpenInPane(device) }
                     )
                 }
                 .listStyle(.inset)
@@ -296,6 +302,12 @@ public struct AndroidEmulatorPickerView: View {
                 bundle: .module
             )
             return String(format: format, detail)
+        case .noConsolePortAvailable:
+            return String(
+                localized: "androidEmulator.error.noConsolePort.detail",
+                defaultValue: "All supported Android emulator console ports are in use.",
+                bundle: .module
+            )
         case .launchNotConfirmed(let name):
             let format = String(
                 localized: "androidEmulator.error.launchNotConfirmed.detail",

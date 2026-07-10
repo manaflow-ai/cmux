@@ -64,6 +64,9 @@ public protocol ControlDebugContext: AnyObject {
     /// Shows the Android emulator picker for `debug.android_emulators.show`.
     func controlDebugShowAndroidEmulators()
 
+    /// Opens the first running Android emulator in a pane for UI verification.
+    func controlDebugOpenRunningAndroidEmulator() -> Bool
+
     /// Runs the shared v1 `is_terminal_focused` body for
     /// `debug.terminal.is_focused`.
     ///

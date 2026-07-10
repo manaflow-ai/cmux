@@ -663,6 +663,8 @@ extension Workspace {
             return nil
         case .cloudVMLoading:
             return nil
+        case .androidEmulator:
+            return nil
         }
         return SessionPanelSnapshot(
             id: panelId,
@@ -1658,6 +1660,8 @@ extension Workspace {
         case .extensionBrowser:
             return nil
         case .cloudVMLoading:
+            return nil
+        case .androidEmulator:
             return nil
         }
     }

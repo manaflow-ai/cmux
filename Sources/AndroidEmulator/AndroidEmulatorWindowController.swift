@@ -7,9 +7,14 @@ import SwiftUI
 @MainActor
 final class AndroidEmulatorWindowController: ReleasingWindowController {
     private let coordinator: AndroidEmulatorCoordinator
+    private let onOpenInPane: (AndroidVirtualDevice) -> Void
 
-    init(coordinator: AndroidEmulatorCoordinator) {
+    init(
+        coordinator: AndroidEmulatorCoordinator,
+        onOpenInPane: @escaping (AndroidVirtualDevice) -> Void
+    ) {
         self.coordinator = coordinator
+        self.onOpenInPane = onOpenInPane
         super.init()
     }
 
@@ -31,7 +36,10 @@ final class AndroidEmulatorWindowController: ReleasingWindowController {
             defaultValue: "Android Emulators"
         )
         window.minSize = NSSize(width: 520, height: 360)
-        window.contentView = NSHostingView(rootView: AndroidEmulatorPickerView(coordinator: coordinator))
+        window.contentView = NSHostingView(rootView: AndroidEmulatorPickerView(
+            coordinator: coordinator,
+            onOpenInPane: onOpenInPane
+        ))
         AppDelegate.shared?.applyWindowDecorations(to: window)
         return window
     }
@@ -46,6 +54,23 @@ final class AndroidEmulatorWindowController: ReleasingWindowController {
 extension AppDelegate {
     /// Opens the Android emulator picker through the shared composition-root instance.
     func showAndroidEmulators() {
-        androidEmulatorWindowController.show()
+        androidEmulatorEnvironment.windowController.show()
+    }
+
+    func openAndroidEmulatorPane(_ device: AndroidVirtualDevice) {
+        guard let workspace = tabManager?.selectedWorkspace else { return }
+        _ = workspace.openAndroidEmulatorPane(
+            device: device,
+            coordinator: androidEmulatorEnvironment.coordinator
+        )
+    }
+
+    func openFirstRunningAndroidEmulatorPane() -> Bool {
+        guard case .loaded(let snapshot) = androidEmulatorEnvironment.coordinator.loadState,
+              let device = snapshot.devices.first(where: { $0.state.isRunning }) else {
+            return false
+        }
+        openAndroidEmulatorPane(device)
+        return true
     }
 }

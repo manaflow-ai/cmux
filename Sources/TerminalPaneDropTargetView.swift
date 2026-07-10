@@ -407,6 +407,8 @@ final class PaneDropTargetView: NSView {
             return nil
         case .cloudVMLoading:
             return nil
+        case .androidEmulator:
+            return nil
         }
     }
 

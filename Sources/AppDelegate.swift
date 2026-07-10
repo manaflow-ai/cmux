@@ -1,5 +1,4 @@
 import AppKit
-import CmuxAndroidEmulator
 import CmuxAppKitSupportUI
 import CmuxAuthRuntime
 import CmuxBrowser
@@ -509,24 +508,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// Owns the About Titlebar Debug subsystem (CmuxAppKitSupportUI); composition-root
     /// owned and created lazily so the window-decoration seam can point back at `self`.
     lazy var debugWindowsCoordinator = DebugWindowsCoordinator(decorator: self)
-    /// Android emulator graph. All Android binaries and images remain in the user's SDK.
-    lazy var androidEmulatorWindowController: AndroidEmulatorWindowController = {
-        let environment = ProcessInfo.processInfo.environment
-        let locator = AndroidSDKLocator(
-            environment: environment,
-            homeDirectoryURL: FileManager.default.homeDirectoryForCurrentUser,
-            files: SystemAndroidSDKFileChecker()
-        )
-        let launcher = AndroidEmulatorProcessLauncher(baseEnvironment: environment)
-        let service = AndroidEmulatorService(
-            sdkLocator: locator,
-            commands: CommandRunner(environment: environment),
-            processLauncher: launcher
-        )
-        return AndroidEmulatorWindowController(
-            coordinator: AndroidEmulatorCoordinator(service: service)
-        )
-    }()
+    lazy var androidEmulatorEnvironment = AndroidEmulatorEnvironment(appDelegate: self)
     /// About Titlebar Debug options store, applied by the About/Acknowledgments windows.
     var aboutTitlebarDebugStore: AboutTitlebarDebugStore { debugWindowsCoordinator.aboutTitlebarStore }
     /// Coordinates remote tmux (`ssh … tmux -CC`) mirroring; composition-root owned.

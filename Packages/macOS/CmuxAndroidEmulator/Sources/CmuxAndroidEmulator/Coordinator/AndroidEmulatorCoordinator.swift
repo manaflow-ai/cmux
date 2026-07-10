@@ -117,6 +117,48 @@ public final class AndroidEmulatorCoordinator {
         stoppingSerials.remove(serial)
     }
 
+    /// Routes an emulator control through the same transport validation used by lifecycle actions.
+    public func perform(
+        _ action: AndroidEmulatorControlAction,
+        avdName: String,
+        serial: String,
+        transportID: String
+    ) async {
+        actionError = nil
+        do {
+            try await service.perform(
+                action,
+                avdName: avdName,
+                serial: serial,
+                transportID: transportID
+            )
+        } catch let error as AndroidEmulatorError {
+            actionError = error
+        } catch {
+            actionError = .commandFailed(tool: "adb", detail: String(describing: error))
+        }
+    }
+
+    /// Returns the current primary display dimensions for an authoritative running row.
+    public func displaySize(
+        avdName: String,
+        serial: String,
+        transportID: String
+    ) async -> AndroidEmulatorDisplaySize? {
+        do {
+            return try await service.displaySize(
+                avdName: avdName,
+                serial: serial,
+                transportID: transportID
+            )
+        } catch let error as AndroidEmulatorError {
+            actionError = error
+        } catch {
+            actionError = .commandFailed(tool: "adb", detail: String(describing: error))
+        }
+        return nil
+    }
+
     private func refreshAfterPendingAction() async {
         if let refreshTask {
             await refreshTask.value

@@ -82,6 +82,10 @@ extension TerminalController: ControlDebugContext {
         AppDelegate.shared?.showAndroidEmulators()
     }
 
+    func controlDebugOpenRunningAndroidEmulator() -> Bool {
+        AppDelegate.shared?.openFirstRunningAndroidEmulatorPane() ?? false
+    }
+
     func controlDebugIsTerminalFocused(surfaceArgument: String) -> String {
         isTerminalFocused(surfaceArgument)
     }

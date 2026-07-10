@@ -15,6 +15,116 @@
         "ja": { "stringUnit": { "state": "translated", "value": "起動" } }
       }
     },
+    "androidEmulator.action.openInPane": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Open in Pane" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ペインで開く" } }
+      }
+    },
+    "androidEmulator.capture.windowNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The vendor window for “%@” is not available." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "「%@」のベンダーウインドウを利用できません。" } }
+      }
+    },
+    "androidEmulator.control.back": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Back" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "戻る" } }
+      }
+    },
+    "androidEmulator.control.collapse": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Hide Controls" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "コントロールを隠す" } }
+      }
+    },
+    "androidEmulator.control.home": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Home" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ホーム" } }
+      }
+    },
+    "androidEmulator.control.more": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "More Controls" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "その他のコントロール" } }
+      }
+    },
+    "androidEmulator.control.overview": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Overview" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "履歴" } }
+      }
+    },
+    "androidEmulator.control.power": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Power" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "電源" } }
+      }
+    },
+    "androidEmulator.control.rotateLeft": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Rotate Left" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "左に回転" } }
+      }
+    },
+    "androidEmulator.control.rotateRight": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Rotate Right" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "右に回転" } }
+      }
+    },
+    "androidEmulator.control.screenshot": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Take Screenshot" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "スクリーンショットを撮る" } }
+      }
+    },
+    "androidEmulator.control.stop": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Stop Emulator" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "エミュレータを停止" } }
+      }
+    },
+    "androidEmulator.control.show": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Show Controls" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "コントロールを表示" } }
+      }
+    },
+    "androidEmulator.control.volumeDown": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Volume Down" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "音量を下げる" } }
+      }
+    },
+    "androidEmulator.control.volumeUp": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Volume Up" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "音量を上げる" } }
+      }
+    },
+    "androidEmulator.control.zoom": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Zoom" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "拡大" } }
+      }
+    },
+    "androidEmulator.screenshot.save": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Save" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "保存" } }
+      }
+    },
+    "androidEmulator.screenshot.title": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Save Android Screenshot" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Androidスクリーンショットを保存" } }
+      }
+    },
     "androidEmulator.action.refresh": {
       "extractionState": "manual",
       "localizations": {
@@ -111,6 +221,13 @@
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "The AVD “%@” launched but did not appear in adb. Refresh to check again." } },
         "ja": { "stringUnit": { "state": "translated", "value": "AVD「%@」は起動しましたが、adbに表示されませんでした。もう一度確認するには更新してください。" } }
+      }
+    },
+    "androidEmulator.error.noConsolePort.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "All supported Android emulator console ports are in use." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "対応するAndroidエミュレータのコンソールポートはすべて使用中です。" } }
       }
     },
     "androidEmulator.error.sdkNotFound.detail": {

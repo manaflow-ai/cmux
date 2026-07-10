@@ -5,8 +5,9 @@ import Foundation
 public actor AndroidEmulatorService: AndroidEmulatorServicing {
     private static let maximumConcurrentNameQueries = 4
 
-    private let sdkLocator: any AndroidSDKLocating
-    private let commands: any CommandRunning
+    let sdkLocator: any AndroidSDKLocating
+    let commands: any CommandRunning
+    let adbCommands: any CommandRunning
     private let processLauncher: any AndroidEmulatorProcessLaunching
     private var reservedConsolePorts: Set<Int> = []
 
@@ -19,10 +20,12 @@ public actor AndroidEmulatorService: AndroidEmulatorServicing {
     public init(
         sdkLocator: any AndroidSDKLocating,
         commands: any CommandRunning,
-        processLauncher: any AndroidEmulatorProcessLaunching
+        processLauncher: any AndroidEmulatorProcessLaunching,
+        adbCommands: (any CommandRunning)? = nil
     ) {
         self.sdkLocator = sdkLocator
         self.commands = commands
+        self.adbCommands = adbCommands ?? commands
         self.processLauncher = processLauncher
     }
 
@@ -40,7 +43,7 @@ public actor AndroidEmulatorService: AndroidEmulatorServicing {
             )
         }
 
-        let devicesResult = await commands.run(
+        let devicesResult = await adbCommands.run(
             directory: installation.rootURL.path,
             executable: adbURL.path,
             arguments: ["devices", "-l"],
@@ -57,7 +60,7 @@ public actor AndroidEmulatorService: AndroidEmulatorServicing {
 
         let connectedEmulators = Self.parseConnectedEmulators(devicesResult.stdout ?? "")
         let connectedEmulatorSerials = Set(connectedEmulators.map(\.serial))
-        let commands = self.commands
+        let commands = self.adbCommands
         let identityResolution = await withTaskGroup(
             of: Result<[String: AndroidVirtualDeviceState], AndroidEmulatorError>.self,
             returning: ([String: AndroidVirtualDeviceState], String?).self
@@ -129,7 +132,7 @@ public actor AndroidEmulatorService: AndroidEmulatorServicing {
             throw AndroidEmulatorError.adbMissing(sdkPath: installation.rootURL.path)
         }
 
-        let devicesResult = await commands.run(
+        let devicesResult = await adbCommands.run(
             directory: installation.rootURL.path,
             executable: adbURL.path,
             arguments: ["devices"],
@@ -139,7 +142,7 @@ public actor AndroidEmulatorService: AndroidEmulatorServicing {
             throw AndroidEmulatorError.commandFailed(tool: "adb", detail: Self.failureDetail(devicesResult))
         }
         guard let consolePort = await reserveAvailableConsolePort(devicesResult.stdout ?? "") else {
-            throw AndroidEmulatorError.launchFailed(detail: "No Android emulator console port is available.")
+            throw AndroidEmulatorError.noConsolePortAvailable
         }
         defer { reservedConsolePorts.remove(consolePort) }
 
@@ -150,18 +153,18 @@ public actor AndroidEmulatorService: AndroidEmulatorServicing {
             consolePort: consolePort
         )
         let serial = "emulator-\(consolePort)"
-        let waitResult = await commands.run(
+        let waitResult = await adbCommands.run(
             directory: installation.rootURL.path,
             executable: adbURL.path,
             arguments: ["-s", serial, "wait-for-device"],
-            timeout: 30
+            timeout: 180
         )
         guard Self.succeeded(waitResult) else {
             await processLauncher.terminate(processID: processID)
             throw AndroidEmulatorError.launchNotConfirmed(name: avdName)
         }
 
-        let nameResult = await commands.run(
+        let nameResult = await adbCommands.run(
             directory: installation.rootURL.path,
             executable: adbURL.path,
             arguments: ["-s", serial, "emu", "avd", "name"],
@@ -185,19 +188,24 @@ public actor AndroidEmulatorService: AndroidEmulatorServicing {
             throw AndroidEmulatorError.adbMissing(sdkPath: installation.rootURL.path)
         }
 
-        let devicesResult = await commands.run(
+        let devicesResult = await adbCommands.run(
             directory: installation.rootURL.path,
             executable: adbURL.path,
             arguments: ["devices", "-l"],
             timeout: 5
         )
-        guard Self.succeeded(devicesResult),
-              Self.parseConnectedEmulators(devicesResult.stdout ?? "")
-                .contains(where: { $0.serial == serial && $0.transportID == transportID }) else {
+        guard Self.succeeded(devicesResult) else {
+            throw AndroidEmulatorError.commandFailed(tool: "adb", detail: Self.failureDetail(devicesResult))
+        }
+        let connectedEmulators = Self.parseConnectedEmulators(devicesResult.stdout ?? "")
+        guard connectedEmulators.contains(where: { $0.serial == serial && $0.transportID == transportID }) else {
+            if !connectedEmulators.contains(where: { $0.serial == serial }) {
+                return
+            }
             throw AndroidEmulatorError.stopNotConfirmed(serial: serial)
         }
 
-        let nameResult = await commands.run(
+        let nameResult = await adbCommands.run(
             directory: installation.rootURL.path,
             executable: adbURL.path,
             arguments: ["-t", transportID, "emu", "avd", "name"],
@@ -210,7 +218,7 @@ public actor AndroidEmulatorService: AndroidEmulatorServicing {
             throw AndroidEmulatorError.avdIdentityChanged(expected: avdName, actual: currentAVDName)
         }
 
-        let result = await commands.run(
+        let result = await adbCommands.run(
             directory: installation.rootURL.path,
             executable: adbURL.path,
             arguments: ["-t", transportID, "emu", "kill"],
@@ -220,30 +228,36 @@ public actor AndroidEmulatorService: AndroidEmulatorServicing {
             throw AndroidEmulatorError.commandFailed(tool: "adb", detail: Self.failureDetail(result))
         }
 
-        let disconnectResult = await commands.run(
+        let disconnectResult = await adbCommands.run(
             directory: installation.rootURL.path,
             executable: adbURL.path,
             arguments: ["-t", transportID, "wait-for-disconnect"],
             timeout: 15
         )
         guard Self.succeeded(disconnectResult) else {
-            let refreshedDevicesResult = await commands.run(
+            let refreshedDevicesResult = await adbCommands.run(
                 directory: installation.rootURL.path,
                 executable: adbURL.path,
                 arguments: ["devices", "-l"],
                 timeout: 5
             )
-            let connectedTransportIDs = Set(
-                Self.parseConnectedEmulators(refreshedDevicesResult.stdout ?? "").compactMap(\.transportID)
-            )
-            guard Self.succeeded(refreshedDevicesResult), !connectedTransportIDs.contains(transportID) else {
+            guard Self.succeeded(refreshedDevicesResult) else {
+                throw AndroidEmulatorError.commandFailed(
+                    tool: "adb",
+                    detail: Self.failureDetail(refreshedDevicesResult)
+                )
+            }
+            let connectedTransportIDs = Set(Self.parseConnectedEmulators(
+                refreshedDevicesResult.stdout ?? ""
+            ).compactMap(\.transportID))
+            guard !connectedTransportIDs.contains(transportID) else {
                 throw AndroidEmulatorError.stopNotConfirmed(serial: serial)
             }
             return
         }
     }
 
-    private func resolvedInstallation() throws -> AndroidSDKInstallation {
+    func resolvedInstallation() throws -> AndroidSDKInstallation {
         switch sdkLocator.locate() {
         case .available(let installation):
             return installation
@@ -347,7 +361,7 @@ public actor AndroidEmulatorService: AndroidEmulatorServicing {
         )])
     }
 
-    private static func succeeded(_ result: CommandResult) -> Bool {
+    static func succeeded(_ result: CommandResult) -> Bool {
         result.executionError == nil && !result.timedOut && result.exitStatus == 0
     }
 
@@ -369,7 +383,7 @@ public actor AndroidEmulatorService: AndroidEmulatorServicing {
             || normalized.hasPrefix("authentication required")
     }
 
-    private static func failureDetail(_ result: CommandResult) -> String {
+    static func failureDetail(_ result: CommandResult) -> String {
         if let executionError = result.executionError { return executionError }
         if result.timedOut { return "timeout" }
         if let stderr = result.stderr?.trimmingCharacters(in: .whitespacesAndNewlines), !stderr.isEmpty {
