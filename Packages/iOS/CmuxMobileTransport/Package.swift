@@ -18,13 +18,8 @@ let package = Package(
         .package(path: "../../Shared/CMUXMobileCore"),
     ],
     targets: [
-        .binaryTarget(
-            name: "CmuxIrohFFI",
-            path: "../../../CmuxIrohFFI.xcframework"
-        ),
         .target(
             name: "CmuxIrohC",
-            dependencies: ["CmuxIrohFFI"],
             publicHeadersPath: "include"
         ),
         .target(

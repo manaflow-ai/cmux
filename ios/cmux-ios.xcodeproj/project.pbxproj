@@ -13,7 +13,6 @@
 		8B8A10F02DF5000000A66F90 /* CmuxAppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B8A10F12DF5000000A66F90 /* CmuxAppDelegate.swift */; };
 		8B41F6832DEDD23B001A66F9 /* cmuxFeature in Frameworks */ = {isa = PBXBuildFile; productRef = 8B41F6822DEDD23B001A66F9 /* cmuxFeature */; };
 		8B41F6852DEDD25C001A66F9 /* cmuxFeature in Frameworks */ = {isa = PBXBuildFile; productRef = 8B41F6842DEDD25C001A66F9 /* cmuxFeature */; };
-		C1F00200C1F00200C1F00200 /* CmuxIrohFFI.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = C1F00201C1F00201C1F00201 /* CmuxIrohFFI.xcframework */; };
 		8B7E20012DF3A00100A66F90 /* CMUXMobileCore in Frameworks */ = {isa = PBXBuildFile; productRef = 8B7E20032DF3A00100A66F90 /* CMUXMobileCore */; };
 		8B7E20022DF3A00100A66F90 /* CMUXMobileCore in Frameworks */ = {isa = PBXBuildFile; productRef = 8B7E20042DF3A00100A66F90 /* CMUXMobileCore */; };
 		8B7E20052DF3A00100A66F90 /* CmuxMobileTransport in Frameworks */ = {isa = PBXBuildFile; productRef = 8B7E20062DF3A00100A66F90 /* CmuxMobileTransport */; };
@@ -58,7 +57,6 @@
 			buildActionMask = 2147483647;
 			files = (
 				8B41F6852DEDD25C001A66F9 /* cmuxFeature in Frameworks */,
-				C1F00200C1F00200C1F00200 /* CmuxIrohFFI.xcframework in Frameworks */,
 				8B7E20012DF3A00100A66F90 /* CMUXMobileCore in Frameworks */,
 				8B7E20052DF3A00100A66F90 /* CmuxMobileTransport in Frameworks */,
 			);
@@ -413,6 +411,10 @@
 				CODE_SIGN_STYLE = Automatic;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
+				HEADER_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/../native/cmux-iroh/include",
+				);
 				INFOPLIST_FILE = Config/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "$(PRODUCT_DISPLAY_NAME)";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -422,6 +424,14 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
+				"LIBRARY_SEARCH_PATHS[sdk=iphoneos*]" = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/../CmuxIrohFFI.xcframework/ios-arm64",
+				);
+				"LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]" = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/../CmuxIrohFFI.xcframework/ios-arm64-simulator",
+				);
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-framework",
@@ -430,8 +440,13 @@
 					Security,
 					"-framework",
 					Network,
+					"-lcmux_iroh_ffi",
 				);
 				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_INCLUDE_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/../native/cmux-iroh/include",
+				);
 				SWIFT_VERSION = 5.0;
 			};
 			name = Debug;
@@ -445,6 +460,10 @@
 				CODE_SIGN_STYLE = Automatic;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
+				HEADER_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/../native/cmux-iroh/include",
+				);
 				INFOPLIST_FILE = Config/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "$(PRODUCT_DISPLAY_NAME)";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -454,6 +473,14 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
+				"LIBRARY_SEARCH_PATHS[sdk=iphoneos*]" = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/../CmuxIrohFFI.xcframework/ios-arm64",
+				);
+				"LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]" = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/../CmuxIrohFFI.xcframework/ios-arm64-simulator",
+				);
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-framework",
@@ -462,8 +489,13 @@
 					Security,
 					"-framework",
 					Network,
+					"-lcmux_iroh_ffi",
 				);
 				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_INCLUDE_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/../native/cmux-iroh/include",
+				);
 				SWIFT_VERSION = 5.0;
 			};
 			name = Release;
