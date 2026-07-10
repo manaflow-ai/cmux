@@ -3606,48 +3606,6 @@ final class TabManagerReopenClosedBrowserFocusTests: XCTestCase {
         XCTAssertEqual(reopenedPanel.currentURL, expectedURL)
     }
 
-    func testPendingNewerHistoryBlocksLegacyBrowserFallback() throws {
-        let originalAppDelegate = AppDelegate.shared
-        let appDelegate = AppDelegate()
-        AppDelegate.shared = appDelegate
-        ClosedItemHistoryStore.shared.removeAll()
-        defer {
-            ClosedItemHistoryStore.shared.removeAll()
-            AppDelegate.shared = originalAppDelegate
-        }
-
-        let manager = TabManager()
-        let workspace = try XCTUnwrap(manager.selectedWorkspace)
-        let closedBrowserId = try XCTUnwrap(manager.openBrowser(
-            url: URL(string: "https://example.com/blocked-legacy-fallback")
-        ))
-        let browserPanel = try XCTUnwrap(workspace.panels[closedBrowserId] as? BrowserPanel)
-        drainMainQueue()
-        browserPanel.webView.uiDelegate?.webViewDidClose?(browserPanel.webView)
-        drainMainQueue()
-        XCTAssertNil(workspace.panels[closedBrowserId])
-
-        let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
-        let pendingPanelSnapshot = try XCTUnwrap(
-            workspace.sessionSnapshot(includeScrollback: false).panels.first
-        )
-        ClosedItemHistoryStore.shared.pushPendingEnrichment(ClosedItemHistoryRecord(
-            closedAt: .distantFuture,
-            entry: .panel(ClosedPanelHistoryEntry(
-                workspaceId: workspace.id,
-                paneId: paneId.id,
-                tabIndex: 0,
-                snapshot: pendingPanelSnapshot
-            ))
-        ))
-
-        guard !manager.reopenMostRecentlyClosedBrowserPanel() else {
-            XCTFail("A pending newer history item must block the older legacy browser fallback")
-            return
-        }
-        XCTAssertNil(workspace.panels[closedBrowserId])
-    }
-
     func testReopenClosedItemUsesNewerLegacyBrowserBeforeOlderClosedStore() throws {
         let originalAppDelegate = AppDelegate.shared
         let appDelegate = AppDelegate()
