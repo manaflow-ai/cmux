@@ -1,6 +1,5 @@
 import Combine
 import CmuxCore
-import CmuxWorkspaces
 import Foundation
 import CmuxSidebar
 import SwiftUI
@@ -36,9 +35,6 @@ private struct SidebarImmediateObservationState: Equatable {
     let latestConversationMessage: String?
     let latestSubmittedMessage: String?
     let latestSubmittedAt: Date?
-    let taskStatusOverride: WorkspaceTaskStatusOverride?
-    let statusHidden: Bool
-    let checklist: [WorkspaceChecklistItem]
 }
 
 private struct SidebarObservationState: Equatable {
@@ -94,18 +90,10 @@ extension Workspace {
             $latestSubmittedMessage,
             $latestSubmittedAt
         )
-        // Todo state is row-affecting (status pill, checklist progress) but
-        // lives in its own sub-model, so fold its publishers in here the same
-        // way the workspace's own @Published fields are.
-        let todoFields = Publishers.CombineLatest3(
-            todoState.$statusOverride,
-            todoState.$statusHidden,
-            todoState.$checklist
-        )
 
         return workspaceFields
-            .combineLatest(conversationFields, todoFields)
-            .map { workspaceFields, conversationFields, todoFields in
+            .combineLatest(conversationFields)
+            .map { workspaceFields, conversationFields in
                 SidebarImmediateObservationState(
                     title: workspaceFields.0,
                     customDescription: workspaceFields.1,
@@ -113,10 +101,7 @@ extension Workspace {
                     customColor: workspaceFields.3,
                     latestConversationMessage: conversationFields.0,
                     latestSubmittedMessage: conversationFields.1,
-                    latestSubmittedAt: conversationFields.2,
-                    taskStatusOverride: todoFields.0,
-                    statusHidden: todoFields.1,
-                    checklist: todoFields.2
+                    latestSubmittedAt: conversationFields.2
                 )
             }
             .removeDuplicates()

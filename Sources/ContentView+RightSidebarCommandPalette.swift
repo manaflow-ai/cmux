@@ -44,8 +44,6 @@ extension ContentView {
             return .renameWorkspace
         case "palette.editWorkspaceDescription":
             return .editWorkspaceDescription
-        case "palette.markWorkspaceDone":
-            return .markWorkspaceDone
         case "palette.nextWorkspace":
             return .nextSidebarTab
         case "palette.previousWorkspace":
