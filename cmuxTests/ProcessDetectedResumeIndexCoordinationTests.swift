@@ -65,7 +65,7 @@ struct ProcessDetectedResumeIndexCoordinationTests {
 
     @Test
     func unavailableTerminationCaptureIsMemoized() async {
-        let timeoutWaiter = TerminationCoordinatorTimeoutWaiter()
+        let timeoutWaiter = ManualGenerationTimeoutWaiter()
         let firstLoadStarted = DispatchSemaphore(value: 0)
         let secondLoadStarted = DispatchSemaphore(value: 0)
         let releaseFirstLoad = DispatchSemaphore(value: 0)
@@ -443,37 +443,5 @@ struct ProcessDetectedResumeIndexCoordinationTests {
         await Task.detached {
             semaphore.wait(timeout: .now() + timeout) == .success
         }.value
-    }
-}
-
-private actor TerminationCoordinatorTimeoutWaiter {
-    private var pending: [CheckedContinuation<Bool, Never>] = []
-    private var countWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
-
-    func wait() async -> Bool {
-        await withCheckedContinuation { continuation in
-            pending.append(continuation)
-            let ready = countWaiters.filter { pending.count >= $0.count }
-            countWaiters.removeAll { pending.count >= $0.count }
-            ready.forEach { $0.continuation.resume() }
-        }
-    }
-
-    func waitUntilPendingCount(_ count: Int) async {
-        guard pending.count < count else { return }
-        await withCheckedContinuation { continuation in
-            countWaiters.append((count: count, continuation: continuation))
-        }
-    }
-
-    func fireNext() {
-        guard !pending.isEmpty else { return }
-        pending.removeFirst().resume(returning: true)
-    }
-
-    func cancelAll() {
-        let continuations = pending
-        pending.removeAll(keepingCapacity: false)
-        continuations.forEach { $0.resume(returning: false) }
     }
 }
