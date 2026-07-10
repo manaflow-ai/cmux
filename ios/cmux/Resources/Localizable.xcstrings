@@ -4251,6 +4251,23 @@
         }
       }
     },
+    "mobile.settings.transcriptDemo": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transcript Demo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "トランスクリプトデモ"
+          }
+        }
+      }
+    },
     "mobile.settings.unreadIndicatorLeftness": {
       "extractionState": "manual",
       "localizations": {

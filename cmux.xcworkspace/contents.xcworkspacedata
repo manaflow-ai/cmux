@@ -42,6 +42,9 @@
          location = "container:ios/cmuxPackage">
       </FileRef>
       <FileRef
+         location = "group:CmuxAgentGUIUI">
+      </FileRef>
+      <FileRef
          location = "group:CmuxMobileAnalytics">
       </FileRef>
       <FileRef

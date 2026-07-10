@@ -1,5 +1,8 @@
 #if os(iOS)
 import CmuxAuthRuntime
+#if DEBUG
+import CmuxAgentGUIUI
+#endif
 import CmuxMobileShell
 import CmuxMobileSupport
 import CmuxMobileWorkspace
@@ -174,6 +177,16 @@ struct MobileSettingsView: View {
 
                 #if DEBUG
                 Section(L10n.string("mobile.settings.developer", defaultValue: "Developer")) {
+                    NavigationLink {
+                        TranscriptDemoScreen()
+                    } label: {
+                        Label(
+                            L10n.string("mobile.settings.transcriptDemo", defaultValue: "Transcript Demo"),
+                            systemImage: "bubble.left.and.text.bubble.right"
+                        )
+                    }
+                    .accessibilityIdentifier("MobileSettingsTranscriptDemo")
+
                     debugLayoutSlider(
                         title: L10n.string(
                             "mobile.settings.unreadIndicatorLeftness",
