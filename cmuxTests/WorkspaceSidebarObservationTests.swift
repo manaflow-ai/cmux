@@ -172,7 +172,7 @@ struct WorkspaceSidebarObservationTests {
 
         #expect(
             publishCount == 1,
-            "A synchronous burst of immediate fields must collapse into one leading-edge delivery after the observation re-read hop.
+            "A synchronous burst of immediate fields must collapse into one leading-edge delivery after the observation re-read hop."
         )
 
         workspace.customDescription = "Agent Turn Trailing"
