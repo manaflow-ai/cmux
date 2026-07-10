@@ -42,7 +42,10 @@ struct CmxIrohClientSessionTests {
 
         try await session.connect()
 
-        #expect(await connection.observedIncomingStreamLimits() == ["0:0", "0:16"])
+        // Admission must not grant peer-initiated stream credit before a
+        // production owner is installed. The dedicated server-events receiver
+        // raises only the one unidirectional credit it owns.
+        #expect(await connection.observedIncomingStreamLimits() == ["0:0"])
         #expect(await connection.observedNatTraversalAuthorizationAttemptCount() == 1)
         #expect(await connection.observedNatTraversalActivationCount() == 1)
         #expect(await connection.observedBidirectionalStreamOpenCount() == 1)
@@ -61,7 +64,6 @@ struct CmxIrohClientSessionTests {
             "control.send",
             "connection.authorizeNatTraversal",
             "control.send",
-            "connection.limits:0:16",
         ])
         #expect(try await session.receiveControl() == Data("rpc".utf8))
     }

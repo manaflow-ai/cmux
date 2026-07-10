@@ -24,6 +24,7 @@ actor TestIrohConnection: CmxIrohConnection {
         maximumUnidirectionalStreamCount: UInt64
     )] = []
     private var bidirectionalStreamOpenCount = 0
+    private var receiveStreamAcceptCount = 0
     private var natTraversalAuthorizationAttemptCount = 0
     private var natTraversalActivationCount = 0
     private var natTraversalAuthorized = false
@@ -90,6 +91,7 @@ actor TestIrohConnection: CmxIrohConnection {
         guard !receiveStreams.isEmpty else {
             throw TestIrohTransportError.unsupported
         }
+        receiveStreamAcceptCount += 1
         return receiveStreams.removeFirst()
     }
 
@@ -132,6 +134,10 @@ actor TestIrohConnection: CmxIrohConnection {
 
     func observedBidirectionalStreamOpenCount() -> Int {
         bidirectionalStreamOpenCount
+    }
+
+    func observedReceiveStreamAcceptCount() -> Int {
+        receiveStreamAcceptCount
     }
 
     func observedNatTraversalAuthorizationAttemptCount() -> Int {

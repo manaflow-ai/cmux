@@ -34,7 +34,9 @@ struct CmxIrohServerSessionTests {
         )
 
         let admittedPeer = try await session.admit()
-        #expect(await connection.observedIncomingStreamLimits() == ["1:0", "17:0"])
+        // Terminal and artifact streams have no production dispatcher yet, so
+        // admission keeps only the already-accepted control stream credited.
+        #expect(await connection.observedIncomingStreamLimits() == ["1:0"])
         #expect(await connection.observedNatTraversalAuthorizationAttemptCount() == 1)
         #expect(await connection.observedNatTraversalActivationCount() == 1)
         #expect(admittedPeer == fixture.admittedPeer)
@@ -44,7 +46,6 @@ struct CmxIrohServerSessionTests {
             "control.send",
             "connection.authorizeNatTraversal",
             "control.send",
-            "connection.limits:17:0",
         ])
         #expect(try await session.receiveControl() == Data("rpc".utf8))
         let inbound = try await session.acceptBidirectionalLane()
