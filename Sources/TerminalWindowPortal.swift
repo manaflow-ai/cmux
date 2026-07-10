@@ -446,8 +446,6 @@ final class WindowTerminalHostView: NSView {
         if hits.vertical != nil { return .vertical }
         return hits.horizontal == nil ? nil : .horizontal
     }
-
-#endif
 }
 
 private final class SplitDividerOverlayView: NSView {
