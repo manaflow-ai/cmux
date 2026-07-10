@@ -36,6 +36,9 @@ public struct CmxTailscaleStatusPeerResolver: Sendable {
               let root = try? JSONSerialization.jsonObject(with: statusJSON) as? [String: Any] else {
             throw CmxTailscaleStatusPeerResolutionError.malformedStatus
         }
+        guard root["BackendState"] as? String == "Running" else {
+            throw CmxTailscaleStatusPeerResolutionError.statusNotRunning
+        }
 
         var candidates: [(object: [String: Any], isLocalDevice: Bool)] = []
         if let local = root["Self"] as? [String: Any] {

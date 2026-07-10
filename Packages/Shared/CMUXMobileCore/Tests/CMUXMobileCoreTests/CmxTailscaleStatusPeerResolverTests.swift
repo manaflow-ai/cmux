@@ -164,13 +164,37 @@ import Testing
         }
     }
 
+    @Test func rejectsCachedPeerMapWhenTailscaleIsNotRunning() throws {
+        let status = try statusJSON(
+            backendState: "Stopped",
+            peers: [
+                peer(
+                    id: "node-1",
+                    dnsName: "work-mac.tailnet.ts.net.",
+                    addresses: ["100.71.210.41"]
+                ),
+            ]
+        )
+
+        #expect(throws: CmxTailscaleStatusPeerResolutionError.statusNotRunning) {
+            _ = try resolver.resolve(
+                magicDNSName: "work-mac.tailnet.ts.net",
+                statusJSON: status
+            )
+        }
+    }
+
     private func statusJSON(
+        backendState: String = "Running",
         local: [String: Any]? = nil,
         peers: [[String: Any]]
     ) throws -> Data {
-        var root: [String: Any] = ["Peer": Dictionary(
-            uniqueKeysWithValues: peers.enumerated().map { ("peer-\($0.offset)", $0.element) }
-        )]
+        var root: [String: Any] = [
+            "BackendState": backendState,
+            "Peer": Dictionary(
+                uniqueKeysWithValues: peers.enumerated().map { ("peer-\($0.offset)", $0.element) }
+            ),
+        ]
         if let local {
             root["Self"] = local
         }

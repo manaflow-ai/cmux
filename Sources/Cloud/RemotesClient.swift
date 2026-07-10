@@ -256,6 +256,8 @@ actor RemotesClient {
                     throw RemotesClientError.tailscalePeerNotFound(host: spec.host)
                 case .ambiguousPeer:
                     throw RemotesClientError.tailscalePeerAmbiguous(host: spec.host)
+                case .statusNotRunning:
+                    throw RemotesClientError.tailscaleStatusUnavailable
                 case .invalidMagicDNSName, .localDeviceNotAllowed,
                      .missingPeerAddresses, .invalidPeerAddress, .malformedStatus:
                     throw RemotesClientError.tailscalePeerInvalid(host: spec.host)

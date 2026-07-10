@@ -5,6 +5,8 @@ public enum CmxTailscaleStatusPeerResolutionError: Error, Equatable, Sendable {
     case invalidMagicDNSName
     /// The status command did not return a bounded JSON object.
     case malformedStatus
+    /// The local Tailscale backend was not running when the snapshot was read.
+    case statusNotRunning
     /// No peer in the status snapshot had the exact normalized DNS name.
     case peerNotFound
     /// More than one status record claimed the exact normalized DNS name.
