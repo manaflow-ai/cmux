@@ -269,6 +269,53 @@ import Testing
         #expect(panel.surface.debugInitialCommand() != nil)
     }
 
+    @Test func explicitInitialCommandDoesNotUseRemotePanelDirectoryAsLocalFallback() throws {
+        let workspace = Workspace()
+        let paneId = try #require(workspace.bonsplitController.focusedPaneId)
+        let remoteDirectory = "/home/seepine/cmux-remote-explicit-\(UUID().uuidString)"
+        let remoteCommand = "ssh seepine@192.168.5.20"
+        let explicitCommand = "/tmp/cmux-local-command-\(UUID().uuidString).sh"
+
+        workspace.configureRemoteConnection(sshRemoteConfiguration(command: remoteCommand), autoConnect: false)
+        let remotePanel = try #require(workspace.newTerminalSurface(inPane: paneId, focus: true))
+        #expect(workspace.isRemoteTerminalSurface(remotePanel.id))
+        #expect(workspace.updatePanelDirectory(panelId: remotePanel.id, directory: remoteDirectory))
+
+        let panel = try #require(workspace.newTerminalSurface(
+            inPane: paneId,
+            focus: false,
+            initialCommand: explicitCommand,
+            inheritWorkingDirectoryFallback: true,
+            workingDirectoryFallbackSourcePanelId: remotePanel.id
+        ))
+
+        #expect(panel.requestedWorkingDirectory != remoteDirectory)
+        #expect(panel.surface.debugInitialCommand() == explicitCommand)
+    }
+
+    @Test func explicitSplitCommandDoesNotUseRemotePanelDirectoryAsLocalFallback() throws {
+        let workspace = Workspace()
+        let paneId = try #require(workspace.bonsplitController.focusedPaneId)
+        let remoteDirectory = "/home/seepine/cmux-remote-split-explicit-\(UUID().uuidString)"
+        let remoteCommand = "ssh seepine@192.168.5.20"
+        let explicitCommand = "/tmp/cmux-local-split-command-\(UUID().uuidString).sh"
+
+        workspace.configureRemoteConnection(sshRemoteConfiguration(command: remoteCommand), autoConnect: false)
+        let remotePanel = try #require(workspace.newTerminalSurface(inPane: paneId, focus: true))
+        #expect(workspace.isRemoteTerminalSurface(remotePanel.id))
+        #expect(workspace.updatePanelDirectory(panelId: remotePanel.id, directory: remoteDirectory))
+
+        let panel = try #require(workspace.newTerminalSplit(
+            from: remotePanel.id,
+            orientation: .horizontal,
+            focus: false,
+            initialCommand: explicitCommand
+        ))
+
+        #expect(panel.requestedWorkingDirectory != remoteDirectory)
+        #expect(panel.surface.debugInitialCommand() == explicitCommand)
+    }
+
     @Test func explicitWorkingDirectoryWinsOverRemoteStartupSplitFallback() throws {
         let workspace = Workspace()
         let sourcePanelId = try #require(workspace.focusedPanelId)

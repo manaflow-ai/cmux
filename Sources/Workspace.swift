@@ -2350,6 +2350,7 @@ final class Workspace: Identifiable, ObservableObject {
     var restoredAgentSnapshotsByPanelId: [UUID: SessionRestorableAgentSnapshot] = [:]
     var surfaceResumeBindingsByPanelId: [UUID: SurfaceResumeBindingSnapshot] = [:]
     private var restoredGuardedWorkingDirectoriesByPanelId: [UUID: String] = [:]
+    func hasRestoredGuardedWorkingDirectory(panelId: UUID) -> Bool { restoredGuardedWorkingDirectoriesByPanelId[panelId] != nil }
     /// The session directory each restored auto-resume launcher targets, kept
     /// for the lifetime of the resumed run (unlike the one-shot report guard
     /// above, which the first spurious report consumes) so split/new-tab cwd
@@ -6755,40 +6756,12 @@ final class Workspace: Identifiable, ObservableObject {
             return rescued
         }
         return [
-            inheritedWorkingDirectoryForTerminalStartup(sourcePanelId: sourcePanelId, inheritedWorkingDirectory: inheritedWorkingDirectory),
-            sourcePanelId.flatMap { panelDirectories[$0] },
+            terminalStartupCandidateWorkingDirectory(inheritedWorkingDirectory, sourcePanelId: sourcePanelId),
+            panelDirectoryForTerminalStartup(sourcePanelId: sourcePanelId),
             liveForegroundWorkingDirectoryForTerminalStartup(sourcePanelId: sourcePanelId),
             sourcePanelId.flatMap { terminalPanel(for: $0)?.requestedWorkingDirectory },
             currentDirectory,
         ].lazy.compactMap(Self.normalizedTerminalWorkingDirectory).first
-    }
-
-    private func inheritedWorkingDirectoryForTerminalStartup(
-        sourcePanelId: UUID?,
-        inheritedWorkingDirectory: String?
-    ) -> String? {
-        guard let sourcePanelId else { return nil }
-        return Self.terminalStartupInheritedWorkingDirectoryCandidate(
-            inheritedWorkingDirectory,
-            shellActivityState: panelShellActivityStates[sourcePanelId],
-            isRemoteTerminalSurface: isRemoteTerminalSurface(sourcePanelId),
-            isRestoreGuarded: restoredGuardedWorkingDirectoriesByPanelId[sourcePanelId] != nil,
-            isAgentResumePendingOrRunning: restoredAgentResumeStatesByPanelId[sourcePanelId] == .awaitingAutoResumeCommand ||
-                restoredAgentResumeStatesByPanelId[sourcePanelId] == .autoResumeCommandRunning
-        )
-    }
-
-    private func liveForegroundWorkingDirectoryForTerminalStartup(sourcePanelId: UUID?) -> String? {
-        guard let sourcePanelId else { return nil }
-        guard Self.normalizedTerminalWorkingDirectory(panelDirectories[sourcePanelId]) == nil else { return nil }
-        return Self.terminalStartupInheritedWorkingDirectoryCandidate(
-            liveForegroundProcessWorkingDirectory(panelId: sourcePanelId),
-            shellActivityState: panelShellActivityStates[sourcePanelId],
-            isRemoteTerminalSurface: isRemoteTerminalSurface(sourcePanelId),
-            isRestoreGuarded: restoredGuardedWorkingDirectoriesByPanelId[sourcePanelId] != nil,
-            isAgentResumePendingOrRunning: restoredAgentResumeStatesByPanelId[sourcePanelId] == .awaitingAutoResumeCommand ||
-                restoredAgentResumeStatesByPanelId[sourcePanelId] == .autoResumeCommandRunning
-        )
     }
 
     /// Foreground-process cwd provider; nil uses libproc on the live foreground pid.
@@ -6827,7 +6800,7 @@ final class Workspace: Identifiable, ObservableObject {
         return nil
     }
 
-    private func liveForegroundProcessWorkingDirectory(panelId: UUID) -> String? {
+    func liveForegroundProcessWorkingDirectory(panelId: UUID) -> String? {
         if let provider = foregroundProcessWorkingDirectoryProvider {
             return provider(panelId)
         }
@@ -7017,18 +6990,6 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         return nil
-    }
-
-    private func inheritedTerminalWorkingDirectory(fromPanelId panelId: UUID?) -> String? {
-        guard let panelId, let terminalPanel = terminalPanel(for: panelId) else { return nil }
-        let surface = terminalPanel.surface
-        guard let sourceSurface = surface.surface else { return nil }
-        let config = cmuxInheritedSurfaceConfig(
-            sourceSurface: sourceSurface,
-            context: GHOSTTY_SURFACE_CONTEXT_SPLIT
-        )
-        withExtendedLifetime((terminalPanel, surface)) {}
-        return config.workingDirectory
     }
 
     /// Create a new split with a terminal panel
