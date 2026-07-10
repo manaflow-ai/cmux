@@ -35,6 +35,7 @@ public final class HostBrowserSignInFlow {
     @ObservationIgnored private var slowSignInHintTask: Task<Void, Never>?
     @ObservationIgnored private var nextAttemptID: UInt64 = 0
     @ObservationIgnored private var activeAttemptID: UInt64?
+    @ObservationIgnored private var handedOffAttemptID: UInt64?
     @ObservationIgnored private var activeCallbackState: String?
     @ObservationIgnored private var pendingManualCallbackState: String?
     @ObservationIgnored private var pendingFallbackCallbackState: String?
@@ -69,7 +70,7 @@ public final class HostBrowserSignInFlow {
     /// Reuses a handed-off attempt; otherwise cancels the previous popup.
     public func beginSignIn() {
         log.log("auth.browser.beginSignIn signedIn=\(coordinator.isAuthenticated) signingIn=\(isSigningIn)")
-        if activeAttemptID != nil, !isPresentingSignIn {
+        if let activeAttemptID, handedOffAttemptID == activeAttemptID {
             isPresentingSignIn = true
             signInIsSlow = true
             return
@@ -259,10 +260,16 @@ public final class HostBrowserSignInFlow {
                         self.log.log("auth.browser.session.completion.ignored id=\(attemptID) reason=staleNonAuthCallback active=\(self.activeAttemptID.map(String.init) ?? "nil")")
                         return
                     }
-                    // Stop the UI spinner while the socket waiter remains parked for Safari's AppDelegate callback.
                     self.pendingFallbackCallbackState = self.activeCallbackState
-                    self.isPresentingSignIn = false
                     self.cancelSlowSignInHint()
+                    self.signInIsSlow = true
+                    if self.handedOffAttemptID != attemptID {
+                        self.handedOffAttemptID = attemptID
+                        if let state = self.activeCallbackState {
+                            self.log.log("auth.browser.handoff.continueInDefaultBrowser attempt=\(attemptID)")
+                            self.openExternalURL(self.makeSignInURL(state))
+                        }
+                    }
                     return
                 }
                 self.resumeActiveSessionContinuation(returning: result, reason: "sessionCompletion", expectedAttemptID: attemptID)
@@ -298,6 +305,7 @@ public final class HostBrowserSignInFlow {
         cancelAttemptTimeout()
         cancelSlowSignInHint()
         activeAttemptID = nil
+        handedOffAttemptID = nil
         activeCallbackState = nil
         activeSession = nil
         isSigningIn = false
@@ -315,6 +323,7 @@ public final class HostBrowserSignInFlow {
         cancelAttemptTimeout()
         cancelSlowSignInHint()
         activeAttemptID = nil
+        handedOffAttemptID = nil
         activeCallbackState = nil
         pendingFallbackCallbackState = nil
         activeSession?.cancel()
