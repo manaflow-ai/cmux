@@ -22,6 +22,7 @@ actor CmxIrohClientSessionPool {
 
     private let supervisor: CmxIrohEndpointSupervisor
     private let contextProvider: any CmxIrohClientContextProvider
+    private let protocolConfiguration: CmxIrohProtocolConfiguration
     private var lifecycleRevision: UInt64 = 0
     private var runtimeGeneration: UInt64?
     private var sessions: [SessionKey: PooledSession] = [:]
@@ -30,10 +31,12 @@ actor CmxIrohClientSessionPool {
 
     init(
         supervisor: CmxIrohEndpointSupervisor,
-        contextProvider: any CmxIrohClientContextProvider
+        contextProvider: any CmxIrohClientContextProvider,
+        protocolConfiguration: CmxIrohProtocolConfiguration = .cmuxMobileV1
     ) {
         self.supervisor = supervisor
         self.contextProvider = contextProvider
+        self.protocolConfiguration = protocolConfiguration
     }
 
     func activate(runtimeGeneration: UInt64) async {
@@ -60,6 +63,7 @@ actor CmxIrohClientSessionPool {
         } else {
             let supervisor = supervisor
             let contextProvider = contextProvider
+            let protocolConfiguration = protocolConfiguration
             let task = Task {
                 let endpoint = try await supervisor.activeEndpoint()
                 let context = try await contextProvider.context(for: request)
@@ -75,7 +79,8 @@ actor CmxIrohClientSessionPool {
                             for: request,
                             basedOn: context
                         )
-                    }
+                    },
+                    protocolConfiguration: protocolConfiguration
                 )
                 do {
                     try await session.connect()

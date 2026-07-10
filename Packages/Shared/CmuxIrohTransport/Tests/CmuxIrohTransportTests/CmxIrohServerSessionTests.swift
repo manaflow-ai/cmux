@@ -405,7 +405,8 @@ struct CmxIrohServerSessionTests {
         )
         let server = try CmxIrohServerSession(
             connection: connection,
-            authorizer: fixture.authorizer
+            authorizer: fixture.authorizer,
+            protocolConfiguration: .testApplicationLanes
         )
         let peer = try await server.admit()
         let admitted = CmxIrohAdmittedServerSession(peer: peer, session: server)

@@ -124,7 +124,8 @@ public actor CmxIrohClientRuntime {
         let contextRouter = CmxIrohRuntimeContextRouter()
         let sessionPool = CmxIrohClientSessionPool(
             supervisor: supervisor,
-            contextProvider: contextRouter
+            contextProvider: contextRouter,
+            protocolConfiguration: protocolConfiguration
         )
         self.supervisor = supervisor
         self.contextRouter = contextRouter

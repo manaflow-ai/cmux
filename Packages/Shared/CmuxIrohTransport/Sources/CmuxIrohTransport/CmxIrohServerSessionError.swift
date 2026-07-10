@@ -8,5 +8,7 @@ public enum CmxIrohServerSessionError: Error, Equatable, Sendable {
     case invalidFirstLane
     case invalidPeerLane
     case invalidServerLane
+    case applicationLanesUnavailable
+    case streamHeaderTimedOut
     case admissionDenied(code: UInt16)
 }

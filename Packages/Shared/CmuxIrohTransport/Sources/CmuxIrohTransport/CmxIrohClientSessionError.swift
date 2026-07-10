@@ -23,4 +23,7 @@ public enum CmxIrohClientSessionError: Error, Equatable, Sendable {
 
     /// The requested outgoing lane must be terminal or artifact data.
     case invalidOutgoingLane
+
+    /// This protocol configuration has no production owner for application lanes.
+    case applicationLanesUnavailable
 }

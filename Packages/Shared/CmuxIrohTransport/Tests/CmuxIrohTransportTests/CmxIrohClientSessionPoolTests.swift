@@ -318,7 +318,8 @@ private struct PoolFixture {
         let pool = CmxIrohClientSessionPool(
             supervisor: supervisor,
             contextProvider: contextProvider
-                ?? TestIrohClientContextProvider(context: context)
+                ?? TestIrohClientContextProvider(context: context),
+            protocolConfiguration: .testApplicationLanes
         )
         await pool.activate(runtimeGeneration: generation)
         return pool

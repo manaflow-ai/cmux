@@ -145,6 +145,9 @@ public actor CmxIrohClientSession {
         }
         guard !closed else { throw CmxIrohClientSessionError.alreadyClosed }
         guard let connection else { throw CmxIrohClientSessionError.notConnected }
+        guard protocolConfiguration.maximumConcurrentClientApplicationLaneCount > 0 else {
+            throw CmxIrohClientSessionError.applicationLanesUnavailable
+        }
         let stream = try await connection.openBidirectionalStream()
         do {
             try await stream.sendStream.setPriority(priority)

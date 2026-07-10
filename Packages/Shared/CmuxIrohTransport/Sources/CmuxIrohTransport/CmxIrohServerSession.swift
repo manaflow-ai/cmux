@@ -2,10 +2,18 @@ public import Foundation
 
 /// An admitted Mac-side multistream session over one TLS-authenticated Iroh connection.
 public actor CmxIrohServerSession {
+    private struct HeaderReadResult: Sendable {
+        let header: CmxIrohStreamHeader
+        let trailingBytes: Data
+    }
+
     private let connection: any CmxIrohConnection
     private let authorizer: any CmxIrohAdmissionAuthorizing
+    private let protocolConfiguration: CmxIrohProtocolConfiguration
     private let headerCodec: CmxIrohStreamHeaderCodec
     private let admissionCodec = CmxIrohAdmissionAckCodec()
+    private let streamHeaderClock: any CmxIrohRelayClock
+    private let streamHeaderTimeout: TimeInterval
     private var controlStream: CmxIrohBidirectionalStream?
     private var controlReceiveBuffer = Data()
     private var admittedPeer: CmxIrohAdmittedPeer?
@@ -17,10 +25,16 @@ public actor CmxIrohServerSession {
     public init(
         connection: any CmxIrohConnection,
         authorizer: any CmxIrohAdmissionAuthorizing,
-        protocolConfiguration: CmxIrohProtocolConfiguration = .cmuxMobileV1
+        protocolConfiguration: CmxIrohProtocolConfiguration = .cmuxMobileV1,
+        streamHeaderClock: any CmxIrohRelayClock = CmxIrohSystemRelayClock(),
+        streamHeaderTimeout: TimeInterval = 5
     ) throws {
+        precondition(streamHeaderTimeout > 0)
         self.connection = connection
         self.authorizer = authorizer
+        self.protocolConfiguration = protocolConfiguration
+        self.streamHeaderClock = streamHeaderClock
+        self.streamHeaderTimeout = streamHeaderTimeout
         headerCodec = try CmxIrohStreamHeaderCodec(configuration: protocolConfiguration)
     }
 
@@ -48,7 +62,10 @@ public actor CmxIrohServerSession {
             throw error
         }
         do {
-            let decoded = try await readHeader(from: stream.receiveStream)
+            let decoded = try await Self.readHeader(
+                from: stream.receiveStream,
+                headerCodec: headerCodec
+            )
             guard decoded.header.lane == .control,
                   let credential = decoded.header.credential else {
                 throw CmxIrohServerSessionError.invalidFirstLane
@@ -87,6 +104,15 @@ public actor CmxIrohServerSession {
                     admissionCodec.encodeFrame(.serverReady)
                 )
                 try Task.checkCancellation()
+                let applicationLaneCount = protocolConfiguration
+                    .maximumConcurrentClientApplicationLaneCount
+                if applicationLaneCount > 0 {
+                    try await connection.setIncomingStreamLimits(
+                        maximumBidirectionalStreamCount: 1 + applicationLaneCount,
+                        maximumUnidirectionalStreamCount: 0
+                    )
+                    try Task.checkCancellation()
+                }
                 admitted = true
                 admittedPeer = peer
                 onlineAdmissionLease = onlineLease
@@ -150,9 +176,14 @@ public actor CmxIrohServerSession {
         stream: CmxIrohBidirectionalStream
     ) {
         try requireAdmitted()
+        guard protocolConfiguration.maximumConcurrentClientApplicationLaneCount > 0 else {
+            throw CmxIrohServerSessionError.applicationLanesUnavailable
+        }
         let stream = try await connection.acceptBidirectionalStream()
         do {
-            let decoded = try await readHeader(from: stream.receiveStream)
+            let decoded = try await readApplicationHeader(
+                from: stream.receiveStream
+            )
             switch decoded.header.lane {
             case .terminal, .artifact:
                 break
@@ -177,15 +208,17 @@ public actor CmxIrohServerSession {
         }
     }
 
-    /// Opens a server-event or artifact unidirectional lane with its header prewritten.
+    /// Opens the centrally owned server-event lane with its header prewritten.
     public func openSendLane(
         _ lane: CmxIrohLane,
         priority: Int32
     ) async throws -> any CmxIrohSendStream {
         try requireAdmitted()
         switch lane {
-        case .serverEvents, .artifact:
+        case .serverEvents:
             break
+        case .artifact:
+            throw CmxIrohServerSessionError.applicationLanesUnavailable
         case .control, .terminal:
             throw CmxIrohServerSessionError.invalidServerLane
         }
@@ -225,18 +258,49 @@ public actor CmxIrohServerSession {
         guard admitted else { throw CmxIrohServerSessionError.notAdmitted }
     }
 
-    private func readHeader(
+    private func readApplicationHeader(
         from receiveStream: any CmxIrohReceiveStream
-    ) async throws -> (header: CmxIrohStreamHeader, trailingBytes: Data) {
+    ) async throws -> HeaderReadResult {
+        let headerCodec = headerCodec
+        let clock = streamHeaderClock
+        let deadline = clock.now().addingTimeInterval(streamHeaderTimeout)
+        return try await withThrowingTaskGroup(
+            of: HeaderReadResult.self
+        ) { group in
+            group.addTask {
+                try await Self.readHeader(
+                    from: receiveStream,
+                    headerCodec: headerCodec
+                )
+            }
+            group.addTask {
+                try await clock.sleep(until: deadline)
+                try Task.checkCancellation()
+                throw CmxIrohServerSessionError.streamHeaderTimedOut
+            }
+            defer { group.cancelAll() }
+            guard let first = try await group.next() else {
+                throw CancellationError()
+            }
+            return first
+        }
+    }
+
+    private static func readHeader(
+        from receiveStream: any CmxIrohReceiveStream,
+        headerCodec: CmxIrohStreamHeaderCodec
+    ) async throws -> HeaderReadResult {
         var buffer = Data()
         var requestedByteCount = 16
         while true {
             if buffer.count >= requestedByteCount {
                 do {
                     let decoded = try headerCodec.decodePrefix(buffer)
-                    return (
-                        decoded.header,
-                        Data(buffer.dropFirst(decoded.consumedByteCount))
+                    return HeaderReadResult(
+                        header: decoded.header,
+                        trailingBytes: Data(
+                            buffer.dropFirst(decoded.consumedByteCount)
+                        )
                     )
                 } catch let error as CmxIrohStreamHeaderCodecError {
                     if case let .incompleteFrame(requiredByteCount) = error {
