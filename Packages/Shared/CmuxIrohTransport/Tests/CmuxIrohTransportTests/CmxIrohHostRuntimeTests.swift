@@ -105,6 +105,114 @@ struct CmxIrohHostRuntimeTests {
     }
 
     @Test
+    func suspendedSignOutPersistenceStopsPendingAdmissionAndBlocksRestart() async throws {
+        let fixture = try HostRuntimeFixture()
+        let endpoint = HostRuntimeAcceptingEndpoint(identity: fixture.endpointID)
+        let store = TestControllableSecureCredentialStore()
+        let pendingRevocations = CmxIrohPendingRevocationOutbox(secureStore: store)
+        let ordering = HostRuntimeSignOutOrderingRecorder()
+        let runtime = CmxIrohHostRuntime(
+            factory: TestIrohEndpointFactory(endpoints: [endpoint]),
+            broker: TestIrohHostBroker(
+                registrationBinding: fixture.binding,
+                discovery: fixture.discovery
+            ),
+            configuration: fixture.configuration,
+            pendingRevocations: pendingRevocations,
+            handleTransport: { session, _ in await session.close() },
+            handleDeactivation: { bindingID in
+                let queued = try? await pendingRevocations.pending(
+                    accountID: fixture.configuration.accountID
+                ).contains(where: { $0.bindingID == bindingID })
+                await ordering.record(
+                    endpointClosed: await endpoint.observedCloseCallCount() == 1,
+                    revocationQueued: queued == true
+                )
+            }
+        )
+        try await runtime.start()
+
+        let blockedReceive = TestBlockingIrohReceiveStream(buffer: Data())
+        var blockedEvents = await blockedReceive.blockedEvents().makeAsyncIterator()
+        let connection = TestIrohConnection(
+            remoteIdentity: try CmxIrohPeerIdentity(
+                endpointID: String(repeating: "b", count: 64)
+            ),
+            bidirectionalStreams: [
+                CmxIrohBidirectionalStream(
+                    receiveStream: blockedReceive,
+                    sendStream: TestIrohSendStream()
+                ),
+            ]
+        )
+        await endpoint.enqueue(connection)
+        _ = await blockedEvents.next()
+        await store.suspendNextWrite()
+
+        let signOut = Task { await runtime.deactivateForSignOut() }
+        await store.waitUntilWriteIsSuspended()
+        await connection.waitUntilClosed()
+
+        let signingOut = await runtime.snapshot()
+        #expect(signingOut.state == .signingOut)
+        #expect(signingOut.bindingID == fixture.binding.bindingID)
+        #expect(await connection.observedCloseCallCount() == 1)
+        await #expect(throws: CmxIrohHostRuntimeError.alreadyActive) {
+            try await runtime.start()
+        }
+
+        await store.resumeSuspendedWrite()
+        let preparation = await signOut.value
+        #expect(preparation.wasPersisted)
+        #expect(await ordering.values() == ["true:true"])
+        #expect(await runtime.snapshot().state == .inactive)
+    }
+
+    @Test
+    func failedSignOutPersistenceClosesHostAndQuarantinesLocalState() async throws {
+        let fixture = try HostRuntimeFixture()
+        let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
+        let store = TestControllableSecureCredentialStore()
+        let pendingRevocations = CmxIrohPendingRevocationOutbox(secureStore: store)
+        let deactivations = HostRuntimeDeactivationRecorder()
+        let runtime = CmxIrohHostRuntime(
+            factory: TestIrohEndpointFactory(endpoints: [endpoint]),
+            broker: TestIrohHostBroker(
+                registrationBinding: fixture.binding,
+                discovery: fixture.discovery
+            ),
+            configuration: fixture.configuration,
+            pendingRevocations: pendingRevocations,
+            handleTransport: { session, _ in await session.close() },
+            handleDeactivation: { bindingID in
+                await deactivations.record(bindingID)
+            }
+        )
+        try await runtime.start()
+        await store.failNextWrite()
+
+        let preparation = await runtime.deactivateForSignOut()
+
+        #expect(preparation.bindingID == fixture.binding.bindingID)
+        #expect(!preparation.wasPersisted)
+        #expect(await endpoint.observedCloseCallCount() == 1)
+        #expect(await deactivations.values().isEmpty)
+        let quarantined = await runtime.snapshot()
+        #expect(quarantined.state == .quarantined)
+        #expect(quarantined.endpointID == nil)
+        #expect(quarantined.bindingID == fixture.binding.bindingID)
+        #expect(await runtime.lanAdvertisementContext() == nil)
+        await #expect(throws: CmxIrohHostRuntimeError.alreadyActive) {
+            try await runtime.start()
+        }
+
+        let retried = await runtime.deactivateForSignOut()
+        #expect(retried.wasPersisted)
+        #expect(await deactivations.values() == [fixture.binding.bindingID])
+        #expect(await runtime.snapshot().state == .inactive)
+    }
+
+    @Test
     func requiredBindPolicyIsForwardedToTheEndpointGeneration() async throws {
         let fixture = try HostRuntimeFixture()
         let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
@@ -723,6 +831,90 @@ private actor HostRuntimeLANPolicyRecorder {
         await withCheckedContinuation { continuation in
             waiters.append((count, continuation))
         }
+    }
+}
+
+private actor HostRuntimeSignOutOrderingRecorder {
+    private var recorded: [String] = []
+
+    func record(endpointClosed: Bool, revocationQueued: Bool) {
+        recorded.append("\(endpointClosed):\(revocationQueued)")
+    }
+
+    func values() -> [String] { recorded }
+}
+
+private actor HostRuntimeAcceptingEndpoint: CmxIrohEndpoint {
+    private let peerIdentity: CmxIrohPeerIdentity
+    private var connections: [any CmxIrohConnection] = []
+    private var waiters: [
+        UUID: CheckedContinuation<(any CmxIrohConnection)?, Never>
+    ] = [:]
+    private let health: AsyncStream<CmxIrohEndpointHealthEvent>
+    private let healthContinuation: AsyncStream<CmxIrohEndpointHealthEvent>.Continuation
+    private var closed = false
+    private var closeCallCount = 0
+
+    init(identity: CmxIrohPeerIdentity) {
+        peerIdentity = identity
+        let stream = AsyncStream<CmxIrohEndpointHealthEvent>.makeStream()
+        health = stream.stream
+        healthContinuation = stream.continuation
+    }
+
+    func identity() -> CmxIrohPeerIdentity { peerIdentity }
+
+    func address() -> CmxIrohEndpointAddress {
+        CmxIrohEndpointAddress(identity: peerIdentity, pathHints: [])
+    }
+
+    func connect(
+        to _: CmxIrohEndpointAddress,
+        alpn _: Data
+    ) async throws -> any CmxIrohConnection {
+        throw TestIrohTransportError.unsupported
+    }
+
+    func accept() async throws -> (any CmxIrohConnection)? {
+        try Task.checkCancellation()
+        if !connections.isEmpty { return connections.removeFirst() }
+        guard !closed else { return nil }
+        let id = UUID()
+        let connection = await withTaskCancellationHandler {
+            await withCheckedContinuation { waiters[id] = $0 }
+        } onCancel: {
+            Task { await self.cancelAccept(id) }
+        }
+        try Task.checkCancellation()
+        return connection
+    }
+
+    func replaceRelays(_: [CmxIrohRelayConfiguration]) {}
+    func healthEvents() -> AsyncStream<CmxIrohEndpointHealthEvent> { health }
+    func isHealthy() -> Bool { true }
+
+    func close() {
+        closed = true
+        closeCallCount += 1
+        let pending = waiters.values
+        waiters.removeAll()
+        for continuation in pending { continuation.resume(returning: nil) }
+        healthContinuation.finish()
+    }
+
+    func enqueue(_ connection: any CmxIrohConnection) {
+        if let id = waiters.keys.first,
+           let continuation = waiters.removeValue(forKey: id) {
+            continuation.resume(returning: connection)
+        } else {
+            connections.append(connection)
+        }
+    }
+
+    func observedCloseCallCount() -> Int { closeCallCount }
+
+    private func cancelAccept(_ id: UUID) {
+        waiters.removeValue(forKey: id)?.resume(returning: nil)
     }
 }
 

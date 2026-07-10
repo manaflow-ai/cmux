@@ -253,6 +253,7 @@ struct CmxIrohClientRuntimeTests {
         let preparation = await runtime.deactivateForSignOut()
 
         #expect(preparation.bindingID == fixture.binding.bindingID)
+        #expect(preparation.wasPersisted)
         #expect(await recorder.observedLocalWipes() == [true])
         #expect(await offlineStore.deleteAllCount() == 1)
         #expect(await runtime.snapshot().state == .inactive)
@@ -268,6 +269,93 @@ struct CmxIrohClientRuntimeTests {
                 accountID: fixture.configuration.accountID
             ).count == 1
         )
+        #expect(await recorder.observedLocalWipes() == [true])
+        #expect(await runtime.snapshot().state == .inactive)
+    }
+
+    @Test
+    func suspendedSignOutPersistenceBlocksRestartUntilLocalTeardownCompletes() async throws {
+        let fixture = try ClientRuntimeTestFixture()
+        let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
+        let store = TestControllableSecureCredentialStore()
+        let pendingRevocations = CmxIrohPendingRevocationOutbox(secureStore: store)
+        let runtime = try CmxIrohClientRuntime(
+            factory: TestIrohEndpointFactory(endpoints: [endpoint]),
+            broker: TestIrohClientBroker(
+                binding: fixture.binding,
+                discovery: fixture.discovery,
+                relay: fixture.relayResponse()
+            ),
+            configuration: fixture.configuration,
+            pendingRevocations: pendingRevocations,
+            now: { fixture.now }
+        )
+        try await runtime.start()
+        await store.suspendNextWrite()
+
+        let signOut = Task { await runtime.deactivateForSignOut() }
+        await store.waitUntilWriteIsSuspended()
+
+        let signingOut = await runtime.snapshot()
+        #expect(signingOut.state == .signingOut)
+        #expect(signingOut.bindingID == fixture.binding.bindingID)
+        await #expect(throws: CmxIrohClientRuntimeError.alreadyActive) {
+            try await runtime.start()
+        }
+
+        await store.resumeSuspendedWrite()
+        let preparation = await signOut.value
+        #expect(preparation.wasPersisted)
+        #expect(await endpoint.observedCloseCallCount() == 1)
+        #expect(await runtime.snapshot().state == .inactive)
+    }
+
+    @Test
+    func failedSignOutPersistenceClosesEndpointAndQuarantinesLocalState() async throws {
+        let fixture = try ClientRuntimeTestFixture()
+        let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
+        let store = TestControllableSecureCredentialStore()
+        let pendingRevocations = CmxIrohPendingRevocationOutbox(secureStore: store)
+        let offlineStore = TestSecureCredentialStore()
+        let recorder = ClientRuntimeTestRecorder()
+        let runtime = try CmxIrohClientRuntime(
+            factory: TestIrohEndpointFactory(endpoints: [endpoint]),
+            broker: TestIrohClientBroker(
+                binding: fixture.binding,
+                discovery: fixture.discovery,
+                relay: fixture.relayResponse()
+            ),
+            configuration: fixture.configuration,
+            pendingRevocations: pendingRevocations,
+            offlinePolicyCache: CmxIrohClientOfflinePolicyCache(
+                secureStore: offlineStore
+            ),
+            now: { fixture.now },
+            handleLocalDeactivation: {
+                await recorder.recordLocalWipe(endpointWasClosed: true)
+            }
+        )
+        try await runtime.start()
+        await store.failNextWrite()
+
+        let preparation = await runtime.deactivateForSignOut()
+
+        #expect(preparation.bindingID == fixture.binding.bindingID)
+        #expect(!preparation.wasPersisted)
+        #expect(await endpoint.observedCloseCallCount() == 1)
+        #expect(await offlineStore.deleteAllCount() == 0)
+        #expect(await recorder.observedLocalWipes().isEmpty)
+        let quarantined = await runtime.snapshot()
+        #expect(quarantined.state == .quarantined)
+        #expect(quarantined.endpointID == nil)
+        #expect(quarantined.bindingID == fixture.binding.bindingID)
+        await #expect(throws: CmxIrohClientRuntimeError.alreadyActive) {
+            try await runtime.start()
+        }
+
+        let retried = await runtime.deactivateForSignOut()
+        #expect(retried.wasPersisted)
+        #expect(await offlineStore.deleteAllCount() == 1)
         #expect(await recorder.observedLocalWipes() == [true])
         #expect(await runtime.snapshot().state == .inactive)
     }
