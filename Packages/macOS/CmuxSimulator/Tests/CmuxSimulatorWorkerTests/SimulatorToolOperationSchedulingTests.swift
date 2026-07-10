@@ -158,6 +158,42 @@ struct SimulatorToolOperationSchedulingTests {
         await gate.release()
         await coordinator.cancelToolOperations()
     }
+
+    @Test("Device shutdown is bounded when a tool body ignores cancellation")
+    @MainActor
+    func shutdownTerminatesCancellationBlindWorker() async throws {
+        let fixture = try ToolOutputFixture()
+        let sleeper = CancellationGraceToolSleeper()
+        let terminator = ToolOperationTerminationProbe()
+        let coordinator = SimulatorWorkerCoordinator(
+            channel: fixture.worker,
+            toolOperationSleeper: sleeper,
+            toolOperationCancellationGrace: .milliseconds(1),
+            toolOperationTerminator: { terminator.terminate() }
+        )
+        let gate = ToolOperationGate()
+        coordinator.enqueueToolOperation(
+            lane: .camera,
+            requestIdentifier: UUID(),
+            timeout: .seconds(60)
+        ) { _, _ in
+            await gate.run()
+        }
+        await gate.waitUntilStarted()
+        await sleeper.waitUntilFirstSleepStarts()
+
+        let completion = ToolOperationProbe()
+        let shutdownTask = Task { @MainActor in
+            await coordinator.cancelToolOperations()
+            await completion.markStarted()
+        }
+        for _ in 0..<1_000 where terminator.count == 0 { await Task.yield() }
+
+        #expect(terminator.count == 1)
+        #expect(await completion.started)
+        await gate.release()
+        await shutdownTask.value
+    }
 }
 
 @MainActor
