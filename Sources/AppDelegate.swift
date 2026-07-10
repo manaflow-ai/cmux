@@ -1849,7 +1849,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             // Watchdog: release quit if the deferred Task is starved inside a nested run loop.
             terminateKillWatchdogTask?.cancel()
             terminateKillWatchdogTask = Task { @MainActor [weak self] in
-                try? await ContinuousClock().sleep(for: .milliseconds(3_500))
+                try? await ContinuousClock().sleep(
+                    for: .seconds(
+                        ConfirmedTerminationDeadlineBudget.production.markedRemoteTmuxKillSeconds
+                    )
+                )
                 guard !Task.isCancelled else { return }
                 self?.replyToTerminateOnce(true)
             }
@@ -2009,7 +2013,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func persistSessionForUpdateRelaunch() {
         isTerminatingApp = true
-        _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
+        let resumeIndexResolver = UpdateRelaunchResumeIndexResolver(
+            cachedIndexes: { SharedLiveAgentIndex.shared.cachedResumeIndexes() },
+            loadSynchronously: { ProcessDetectedResumeIndexes.loadSynchronously() }
+        )
+        let resumeIndexes = resumeIndexResolver.resolve(
+            completedTerminationIndexes: terminationResumeIndexCoordinator.current()
+        )
+        _ = saveSessionSnapshotIncludingProcessDetectedIndexes(
+            includeScrollback: true,
+            removeWhenEmpty: false,
+            resolvedResumeIndexes: resumeIndexes
+        )
         ClosedItemHistoryStore.shared.flushPendingSaves()
     }
 
@@ -4230,10 +4245,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     @discardableResult
     func saveSessionSnapshotIncludingProcessDetectedIndexes(
         includeScrollback: Bool,
-        removeWhenEmpty: Bool = false
+        removeWhenEmpty: Bool = false,
+        resolvedResumeIndexes: ProcessDetectedResumeIndexes? = nil
     ) -> Bool {
         let plan = TerminationResumeIndexSavePlan.resolve(
-            terminationResumeIndexCoordinator.current()
+            resolvedResumeIndexes ?? terminationResumeIndexCoordinator.current(),
+            cachedResumeIndexes: { SharedLiveAgentIndex.shared.cachedResumeIndexes() }
         )
         if plan.usesCoreSnapshotFallback {
             StartupBreadcrumbLog.append("session.save.degraded", fields: [

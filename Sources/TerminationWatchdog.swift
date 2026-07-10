@@ -1,6 +1,30 @@
 import Darwin
 import Foundation
 
+nonisolated struct ConfirmedTerminationDeadlineBudget: Sendable {
+    static let production = ConfirmedTerminationDeadlineBudget()
+
+    let processIndexCaptureSeconds: TimeInterval
+    let markedRemoteTmuxKillSeconds: TimeInterval
+    let appTeardownReserveSeconds: TimeInterval
+
+    init(
+        processIndexCaptureSeconds: TimeInterval = 5,
+        markedRemoteTmuxKillSeconds: TimeInterval = 3.5,
+        appTeardownReserveSeconds: TimeInterval = 1
+    ) {
+        self.processIndexCaptureSeconds = processIndexCaptureSeconds
+        self.markedRemoteTmuxKillSeconds = markedRemoteTmuxKillSeconds
+        self.appTeardownReserveSeconds = appTeardownReserveSeconds
+    }
+
+    var minimumHardDeadline: TimeInterval {
+        processIndexCaptureSeconds
+        + markedRemoteTmuxKillSeconds
+        + appTeardownReserveSeconds
+    }
+}
+
 /// Hard deadline on AppKit's application-termination sequence.
 ///
 /// `-[NSApplication terminate:]` synchronously posts `NSApplicationWillTerminate`
@@ -28,11 +52,12 @@ import Foundation
 /// Not a singleton: the app's lifecycle owner (`AppDelegate`) holds the
 /// instance, alongside its other terminate-control state.
 final class TerminationWatchdog: Sendable {
-    /// Budget for the committed-quit sequence (remote-session kill defer plus
-    /// AppKit's will-terminate gauntlet). Normal teardown finishes in well under
-    /// a second; this leaves generous headroom while still beating the OS's
-    /// ~30s hang watchdog by a wide margin.
-    static let defaultDeadline: TimeInterval = 8
+    /// Budget for the committed-quit sequence (process-index capture,
+    /// remote-session kill defer, and AppKit's will-terminate gauntlet), rounded
+    /// up to a whole second. This still beats the OS's ~30s hang watchdog by a
+    /// wide margin.
+    static let defaultDeadline: TimeInterval =
+        ConfirmedTerminationDeadlineBudget.production.minimumHardDeadline.rounded(.up)
 
     /// Schedules `fire` to run once after `deadline` seconds. Injectable so tests
     /// advance the deadline by hand instead of sleeping for real.

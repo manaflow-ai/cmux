@@ -6,9 +6,10 @@ nonisolated struct TerminationResumeIndexSavePlan {
     let usesCoreSnapshotFallback: Bool
 
     static func resolve(
-        _ resumeIndexes: ProcessDetectedResumeIndexes?
+        _ resumeIndexes: ProcessDetectedResumeIndexes?,
+        cachedResumeIndexes: () -> ProcessDetectedResumeIndexes? = { nil }
     ) -> TerminationResumeIndexSavePlan {
-        if let resumeIndexes {
+        if let resumeIndexes = resumeIndexes ?? cachedResumeIndexes() {
             return TerminationResumeIndexSavePlan(
                 restorableAgentIndex: resumeIndexes.restorableAgentIndex,
                 surfaceResumeBindingIndex: resumeIndexes.surfaceResumeBindingIndex,
@@ -22,5 +23,26 @@ nonisolated struct TerminationResumeIndexSavePlan {
             surfaceResumeBindingIndex: nil,
             usesCoreSnapshotFallback: true
         )
+    }
+}
+
+nonisolated struct UpdateRelaunchResumeIndexResolver {
+    private let cachedIndexes: () -> ProcessDetectedResumeIndexes?
+    private let loadSynchronously: () -> ProcessDetectedResumeIndexes
+
+    init(
+        cachedIndexes: @escaping () -> ProcessDetectedResumeIndexes?,
+        loadSynchronously: @escaping () -> ProcessDetectedResumeIndexes
+    ) {
+        self.cachedIndexes = cachedIndexes
+        self.loadSynchronously = loadSynchronously
+    }
+
+    func resolve(
+        completedTerminationIndexes: ProcessDetectedResumeIndexes?
+    ) -> ProcessDetectedResumeIndexes? {
+        completedTerminationIndexes
+            ?? cachedIndexes()
+            ?? loadSynchronously()
     }
 }

@@ -1258,6 +1258,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		D7332C070000000000000001 /* SharedLiveAgentIndex+RefreshPublication.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7332C070000000000000002 /* SharedLiveAgentIndex+RefreshPublication.swift */; };
 		F0ACC0DE0000000000000011 /* SharedLiveAgentIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0ACC0DE0000000000000012 /* SharedLiveAgentIndex.swift */; };
 		F0ACC0DF0000000000000001 /* SharedLiveAgentIndexAgentLivenessTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0ACC0DF0000000000000002 /* SharedLiveAgentIndexAgentLivenessTests.swift */; };
+		D7332D030000000000000001 /* SharedLiveAgentIndexFingerprintInvalidationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7332D030000000000000002 /* SharedLiveAgentIndexFingerprintInvalidationTests.swift */; };
 		D7332B000000000000000002 /* SharedLiveAgentIndexLoadCoalescingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7332B000000000000000001 /* SharedLiveAgentIndexLoadCoalescingTests.swift */; };
 		F0ACC0DE0000000000000007 /* SharedLiveAgentIndexLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0ACC0DE0000000000000008 /* SharedLiveAgentIndexLoader.swift */; };
 		D7332C090000000000000001 /* SharedLiveAgentIndexRefreshGeneration+Phase.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7332C090000000000000002 /* SharedLiveAgentIndexRefreshGeneration+Phase.swift */; };
@@ -1553,8 +1554,10 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		D0B10006A1B2C3D4E5F60001 /* TerminalWindowPortalDebug.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B10007A1B2C3D4E5F60001 /* TerminalWindowPortalDebug.swift */; };
 		C95BAC3D37A6111B487582DC /* TerminalWindowPortalLifecycleHiddenRefreshTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43DB195131CD53CCCCEEEB79 /* TerminalWindowPortalLifecycleHiddenRefreshTests.swift */; };
 		A7843A000000000000000002 /* TerminalWindowPortalReplacementAuthorityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7843A000000000000000001 /* TerminalWindowPortalReplacementAuthorityTests.swift */; };
+		D7332D020000000000000001 /* TerminationDeadlineBudgetTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7332D020000000000000002 /* TerminationDeadlineBudgetTests.swift */; };
 		D7332C0A0000000000000001 /* TerminationResumeIndexCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7332C0A0000000000000002 /* TerminationResumeIndexCoordinator.swift */; };
 		D7332C0C0000000000000001 /* TerminationResumeIndexSavePlan.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7332C0C0000000000000002 /* TerminationResumeIndexSavePlan.swift */; };
+		D7332D040000000000000001 /* TerminationResumeIndexSavePlanCacheTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7332D040000000000000002 /* TerminationResumeIndexSavePlanCacheTests.swift */; };
 		B7758A010000000000000001 /* TerminationWatchdog.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7758A010000000000000002 /* TerminationWatchdog.swift */; };
 		B7758A030000000000000001 /* TerminationWatchdogAtomic.c in Sources */ = {isa = PBXBuildFile; fileRef = B7758A030000000000000002 /* TerminationWatchdogAtomic.c */; };
 		B7758A020000000000000001 /* TerminationWatchdogTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7758A020000000000000002 /* TerminationWatchdogTests.swift */; };
@@ -1605,6 +1608,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		A500120D /* UpdateLogStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001223 /* UpdateLogStore.swift */; };
 		F2000000A1B2C3D4E5F60718 /* UpdatePillReleaseVisibilityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2000001A1B2C3D4E5F60718 /* UpdatePillReleaseVisibilityTests.swift */; };
 		C0B4D9B0A1B2C3D4E5F60718 /* UpdatePillUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0B4D9B1A1B2C3D4E5F60718 /* UpdatePillUITests.swift */; };
+		D7332D010000000000000001 /* UpdateRelaunchResumeIndexResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7332D010000000000000002 /* UpdateRelaunchResumeIndexResolverTests.swift */; };
 		A5001208 /* UpdateTitlebarAccessory.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001218 /* UpdateTitlebarAccessory.swift */; };
 		C2035A070000000000000001 /* URLRequest+BrowserFailedNavigation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2035A070000000000000002 /* URLRequest+BrowserFailedNavigation.swift */; };
 		F76550040000000000000001 /* VaultAgentProcessScanner+CodexSessionCwd.swift in Sources */ = {isa = PBXBuildFile; fileRef = F76550040000000000000002 /* VaultAgentProcessScanner+CodexSessionCwd.swift */; };
@@ -3003,6 +3007,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		D7332C070000000000000002 /* SharedLiveAgentIndex+RefreshPublication.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SharedLiveAgentIndex+RefreshPublication.swift"; sourceTree = "<group>"; };
 		F0ACC0DE0000000000000012 /* SharedLiveAgentIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedLiveAgentIndex.swift; sourceTree = "<group>"; };
 		F0ACC0DF0000000000000002 /* SharedLiveAgentIndexAgentLivenessTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedLiveAgentIndexAgentLivenessTests.swift; sourceTree = "<group>"; };
+		D7332D030000000000000002 /* SharedLiveAgentIndexFingerprintInvalidationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedLiveAgentIndexFingerprintInvalidationTests.swift; sourceTree = "<group>"; };
 		D7332B000000000000000001 /* SharedLiveAgentIndexLoadCoalescingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedLiveAgentIndexLoadCoalescingTests.swift; sourceTree = "<group>"; };
 		F0ACC0DE0000000000000008 /* SharedLiveAgentIndexLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedLiveAgentIndexLoader.swift; sourceTree = "<group>"; };
 		D7332C090000000000000002 /* SharedLiveAgentIndexRefreshGeneration+Phase.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SharedLiveAgentIndexRefreshGeneration+Phase.swift"; sourceTree = "<group>"; };
@@ -3289,8 +3294,10 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		D0B10007A1B2C3D4E5F60001 /* TerminalWindowPortalDebug.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalWindowPortalDebug.swift; sourceTree = "<group>"; };
 		43DB195131CD53CCCCEEEB79 /* TerminalWindowPortalLifecycleHiddenRefreshTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalWindowPortalLifecycleHiddenRefreshTests.swift; sourceTree = "<group>"; };
 		A7843A000000000000000001 /* TerminalWindowPortalReplacementAuthorityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalWindowPortalReplacementAuthorityTests.swift; sourceTree = "<group>"; };
+		D7332D020000000000000002 /* TerminationDeadlineBudgetTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminationDeadlineBudgetTests.swift; sourceTree = "<group>"; };
 		D7332C0A0000000000000002 /* TerminationResumeIndexCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminationResumeIndexCoordinator.swift; sourceTree = "<group>"; };
 		D7332C0C0000000000000002 /* TerminationResumeIndexSavePlan.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminationResumeIndexSavePlan.swift; sourceTree = "<group>"; };
+		D7332D040000000000000002 /* TerminationResumeIndexSavePlanCacheTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminationResumeIndexSavePlanCacheTests.swift; sourceTree = "<group>"; };
 		B7758A010000000000000002 /* TerminationWatchdog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminationWatchdog.swift; sourceTree = "<group>"; };
 		B7758A030000000000000002 /* TerminationWatchdogAtomic.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = TerminationWatchdogAtomic.c; sourceTree = "<group>"; };
 		B7758A040000000000000002 /* TerminationWatchdogAtomic.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = TerminationWatchdogAtomic.h; sourceTree = "<group>"; };
@@ -3342,6 +3349,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		A5001223 /* UpdateLogStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/UpdateLogStore.swift; sourceTree = "<group>"; };
 		F2000001A1B2C3D4E5F60718 /* UpdatePillReleaseVisibilityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdatePillReleaseVisibilityTests.swift; sourceTree = "<group>"; };
 		C0B4D9B1A1B2C3D4E5F60718 /* UpdatePillUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdatePillUITests.swift; sourceTree = "<group>"; };
+		D7332D010000000000000002 /* UpdateRelaunchResumeIndexResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateRelaunchResumeIndexResolverTests.swift; sourceTree = "<group>"; };
 		A5001218 /* UpdateTitlebarAccessory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/UpdateTitlebarAccessory.swift; sourceTree = "<group>"; };
 		C2035A070000000000000002 /* URLRequest+BrowserFailedNavigation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/URLRequest+BrowserFailedNavigation.swift"; sourceTree = "<group>"; };
 		F76550040000000000000002 /* VaultAgentProcessScanner+CodexSessionCwd.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "VaultAgentProcessScanner+CodexSessionCwd.swift"; sourceTree = "<group>"; };
@@ -5080,12 +5088,15 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				F0ACC0DF0000000000000002 /* SharedLiveAgentIndexAgentLivenessTests.swift */,
 				D7332B000000000000000001 /* SharedLiveAgentIndexLoadCoalescingTests.swift */,
 				F73320000000000000000005 /* SharedLiveAgentIndexStallRecoveryTests.swift */,
+				D7332D030000000000000002 /* SharedLiveAgentIndexFingerprintInvalidationTests.swift */,
 				F73320000000000000000007 /* ClosedItemHistoryAgentEnrichmentTests.swift */,
 				F7332000000000000000000F /* ClosedItemHistoryPendingEnrichmentTests.swift */,
 				C1A5E1000000000000000002 /* ClosedItemHistoryMenuProjectionTests.swift */,
 				C1A5E2000000000000000002 /* ClosedItemHistoryCoordinatorLifetimeTests.swift */,
 				D7332C030000000000000002 /* SharedLiveAgentIndexScopedRefreshTests.swift */,
 				D7332C0B0000000000000002 /* ProcessDetectedResumeIndexCoordinationTests.swift */,
+				D7332D010000000000000002 /* UpdateRelaunchResumeIndexResolverTests.swift */,
+				D7332D040000000000000002 /* TerminationResumeIndexSavePlanCacheTests.swift */,
 				F0ACC0DE0000000000000006 /* WorkspaceForkConversationContextMenuTests.swift */,
 				D7332C040000000000000002 /* WorkspaceForkConversationContextMenuTestSupport.swift */,
 				71F8ED91A4B55D34BE6A0668 /* WorkspaceUnitTests.swift */,
@@ -5178,6 +5189,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				F17F00000000000000000004 /* FullWidthTabCommandTests.swift */,
 				A64610020000000000000002 /* QuitConfirmationAlertPresenterTests.swift */,
 				B7758A020000000000000002 /* TerminationWatchdogTests.swift */,
+				D7332D020000000000000002 /* TerminationDeadlineBudgetTests.swift */,
 				6042B0016042B0016042B001 /* ShortcutHintModifierPolicyTests.swift */,
 				C3408A000000000000000004 /* RightSidebarCommandPaletteTests.swift */,
 				C0DE48000000000000000002 /* SidebarProviderMenuRegressionTests.swift */,
@@ -7337,6 +7349,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				D37777060000000000000001 /* SettingsWindowPresentationContractTests.swift in Sources */,
 				D36090010000000000000003 /* SettingsWindowPresenterTests.swift in Sources */,
 				F0ACC0DF0000000000000001 /* SharedLiveAgentIndexAgentLivenessTests.swift in Sources */,
+				D7332D030000000000000001 /* SharedLiveAgentIndexFingerprintInvalidationTests.swift in Sources */,
 				D7332B000000000000000002 /* SharedLiveAgentIndexLoadCoalescingTests.swift in Sources */,
 				D7332C030000000000000001 /* SharedLiveAgentIndexScopedRefreshTests.swift in Sources */,
 				F73320000000000000000006 /* SharedLiveAgentIndexStallRecoveryTests.swift in Sources */,
@@ -7412,6 +7425,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				EC010C01 /* TerminalUploadCommandTests.swift in Sources */,
 				C95BAC3D37A6111B487582DC /* TerminalWindowPortalLifecycleHiddenRefreshTests.swift in Sources */,
 				A7843A000000000000000002 /* TerminalWindowPortalReplacementAuthorityTests.swift in Sources */,
+				D7332D020000000000000001 /* TerminationDeadlineBudgetTests.swift in Sources */,
+				D7332D040000000000000001 /* TerminationResumeIndexSavePlanCacheTests.swift in Sources */,
 				B7758A020000000000000001 /* TerminationWatchdogTests.swift in Sources */,
 				C0DE7B300000000000000001 /* TextBoxMentionCompletionTests.swift in Sources */,
 				C0DE7B3C0000000000000001 /* TextBoxSubmitActionSettingsFileTests.swift in Sources */,
@@ -7420,6 +7435,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				E30760060000000000000002 /* TmuxWorkspacePaneOverlayModelTests.swift in Sources */,
 				D3284001A1B2C3D4E5F60718 /* TraditionalChineseIMENumpadRegressionTests.swift in Sources */,
 				F2000000A1B2C3D4E5F60718 /* UpdatePillReleaseVisibilityTests.swift in Sources */,
+				D7332D010000000000000001 /* UpdateRelaunchResumeIndexResolverTests.swift in Sources */,
 				C37800000000000000000003 /* VMDefaultCloudCommandTests.swift in Sources */,
 				C37800000000000000000001 /* VMSSHCommandTests.swift in Sources */,
 				063BC42CEE257D6213A2E30C /* WindowAndDragTests.swift in Sources */,

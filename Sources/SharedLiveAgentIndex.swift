@@ -65,7 +65,11 @@ final class SharedLiveAgentIndex {
         },
         generationTimeoutWaiter: @escaping @Sendable () async -> Bool = {
             do {
-                try await ContinuousClock().sleep(for: .seconds(5))
+                try await ContinuousClock().sleep(
+                    for: .seconds(
+                        ConfirmedTerminationDeadlineBudget.production.processIndexCaptureSeconds
+                    )
+                )
                 return true
             } catch {
                 return false
@@ -261,7 +265,6 @@ final class SharedLiveAgentIndex {
                 validating: nil
             )
             return await task.value.map(ProcessDetectedResumeIndexes.init)
-                ?? self.latestCompletedLoadResult.map(ProcessDetectedResumeIndexes.init)
         }
         let task = requestRefresh(
             freshness: .joinCurrentGeneration,
