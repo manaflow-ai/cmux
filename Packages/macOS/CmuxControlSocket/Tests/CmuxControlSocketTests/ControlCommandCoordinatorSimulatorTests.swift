@@ -309,6 +309,29 @@ struct ControlCommandCoordinatorSimulatorTests {
         }
     }
 
+    @Test("Gesture touch phases are case insensitive")
+    func gesturePhaseNames() {
+        let context = FakeSimulatorControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+        let receipt = ControlSimulatorOperationReceipt()
+        receipt.complete(.success(.object([:])))
+        context.operationResolution = .started(
+            surfaceID: UUID(), timeoutSeconds: 1, receipt: receipt
+        )
+
+        _ = coordinator.handleSocketWorkerV2(request("simulator.gesture", [
+            "events": .array(["Began", "MOVED", "Ended"].map { phase in
+                .object([
+                    "phase": .string(phase), "x": .double(0.25), "y": .double(0.75),
+                ])
+            }),
+        ]), context: context)
+
+        #expect(context.lastOperation == .gesture(["began", "moved", "ended"].map { phase in
+            ControlSimulatorTouch(phase: phase, x: 0.25, y: 0.75, edge: "none")
+        }))
+    }
+
     @Test("Core Animation diagnostic names are case insensitive")
     func coreAnimationDiagnosticNames() {
         let context = FakeSimulatorControlCommandContext()
