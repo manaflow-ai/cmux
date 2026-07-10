@@ -3,6 +3,140 @@ import Testing
 @testable import CmuxGit
 
 @Suite struct GitTrackedChangesSnapshotCacheTests {
+    private func waitUntil(
+        maxYields: Int = 5_000,
+        _ predicate: () -> Bool
+    ) async -> Bool {
+        for _ in 0..<maxYields {
+            if predicate() {
+                return true
+            }
+            await Task.yield()
+        }
+        return predicate()
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func concurrentWindowFallbacksForNestedDirectoriesRunOneTrackedScan() async throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("main")
+        let entry = try fixture.writeWorkingTreeFile("nested/file.txt", contents: "hello")
+        try fixture.writeIndex(GitIndexFixture(version: 2, entries: [entry]))
+        let nestedDirectory = fixture.root.appendingPathComponent("nested")
+        let repository = try #require(
+            GitMetadataService.resolveGitRepository(containing: nestedDirectory.path)
+        )
+        let filePath = nestedDirectory.appendingPathComponent("file.txt").path
+        let reader = GatedCountingGitFileStatusReader(gatedPath: filePath)
+        let cache = GitTrackedChangesSnapshotCache()
+        let firstWindow = GitMetadataService(
+            fileStatusReader: reader,
+            trackedChangesSnapshotCache: cache
+        )
+        let secondWindow = GitMetadataService(
+            fileStatusReader: reader,
+            trackedChangesSnapshotCache: cache
+        )
+        let startGate = ConcurrentOperationStartGate(expectedCount: 2)
+        let fallbackTask = Task {
+            await withTaskGroup(of: GitTrackedChangesSnapshot.self) { group in
+                group.addTask {
+                    await startGate.wait()
+                    return await firstWindow.gitTrackedChangesSnapshot(
+                        repository: repository,
+                        trackedPathEventGeneration: GitTrackedPathEventGeneration(
+                            namespace: UUID(),
+                            generation: 1
+                        )
+                    )
+                }
+                group.addTask {
+                    await startGate.wait()
+                    return await secondWindow.gitTrackedChangesSnapshot(
+                        repository: repository,
+                        trackedPathEventGeneration: GitTrackedPathEventGeneration(
+                            namespace: UUID(),
+                            generation: 1
+                        )
+                    )
+                }
+                return await group.reduce(into: []) { $0.append($1) }
+            }
+        }
+        defer {
+            reader.openGate()
+            fallbackTask.cancel()
+        }
+
+        #expect(await waitUntil { reader.callCount(atPath: filePath) >= 1 })
+        for _ in 0..<1_000 {
+            await Task.yield()
+        }
+        let scanCountWhileBlocked = reader.callCount(atPath: filePath)
+        reader.openGate()
+        let snapshots = await fallbackTask.value
+
+        #expect(scanCountWhileBlocked == 1)
+        #expect(snapshots.count == 2)
+    }
+
+    @Test func laterFallbackRescansAndCatchesMissedWatcherEvent() async throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("main")
+        let entry = try fixture.writeWorkingTreeFile("file.txt", contents: "hello")
+        try fixture.writeIndex(GitIndexFixture(version: 2, entries: [entry]))
+        let repository = try #require(GitMetadataService.resolveGitRepository(containing: fixture.root.path))
+        let fileURL = fixture.root.appendingPathComponent("file.txt")
+        let reader = CountingGitFileStatusReader()
+        let service = GitMetadataService(fileStatusReader: reader)
+        let fallbackAuthority = GitTrackedPathEventGeneration(namespace: UUID(), generation: 1)
+
+        let clean = await service.gitTrackedChangesSnapshot(
+            repository: repository,
+            trackedPathEventGeneration: fallbackAuthority
+        )
+        try "hello, dirty".write(to: fileURL, atomically: true, encoding: .utf8)
+        let dirty = await service.gitTrackedChangesSnapshot(
+            repository: repository,
+            trackedPathEventGeneration: fallbackAuthority
+        )
+
+        #expect(clean.isDirty == false)
+        #expect(dirty.isDirty)
+        #expect(reader.callCount(atPath: fileURL.path) == 2)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func canceledWaiterDoesNotLeaveCompletedSnapshotInFlight() async throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("main")
+        let entry = try fixture.writeWorkingTreeFile("file.txt", contents: "hello")
+        try fixture.writeIndex(GitIndexFixture(version: 2, entries: [entry]))
+        let repository = try #require(GitMetadataService.resolveGitRepository(containing: fixture.root.path))
+        let filePath = fixture.root.appendingPathComponent("file.txt").path
+        let reader = GatedCountingGitFileStatusReader(gatedPath: filePath)
+        let service = GitMetadataService(fileStatusReader: reader)
+        let generation = GitTrackedPathEventGeneration(namespace: UUID(), generation: 1)
+        let canceledWaiter = Task {
+            await service.gitTrackedChangesSnapshot(
+                repository: repository,
+                trackedPathEventGeneration: generation
+            )
+        }
+        defer { reader.openGate() }
+
+        #expect(await waitUntil { reader.callCount(atPath: filePath) == 1 })
+        canceledWaiter.cancel()
+        reader.openGate()
+        _ = await canceledWaiter.value
+        _ = await service.gitTrackedChangesSnapshot(
+            repository: repository,
+            trackedPathEventGeneration: generation
+        )
+
+        #expect(reader.callCount(atPath: filePath) == 1)
+    }
+
     @Test(.timeLimit(.minutes(1)))
     func concurrentServicesSharingCacheRunOneTrackedScan() async throws {
         let fixture = try GitRepositoryFixture()

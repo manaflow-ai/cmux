@@ -3,6 +3,54 @@ import Testing
 import CmuxGit
 @testable import CmuxSidebarGit
 
+private actor SequencedGatedMetadataReader: WorkspaceGitMetadataReading {
+    private let metadataByProbe: [GitWorkspaceMetadata]
+    private var startedProbeCount = 0
+    private var releasedProbeIndexes: Set<Int> = []
+    private var gateWaitersByProbeIndex: [Int: CheckedContinuation<Void, Never>] = [:]
+
+    init(metadataByProbe: [GitWorkspaceMetadata]) {
+        self.metadataByProbe = metadataByProbe
+    }
+
+    func workspaceMetadata(for directory: String) async -> GitWorkspaceMetadata {
+        await workspaceMetadata(for: directory, trackedPathEventGeneration: nil)
+    }
+
+    func workspaceMetadata(
+        for directory: String,
+        trackedPathEventGeneration: GitTrackedPathEventGeneration?
+    ) async -> GitWorkspaceMetadata {
+        let probeIndex = startedProbeCount
+        startedProbeCount += 1
+        if !releasedProbeIndexes.contains(probeIndex) {
+            await withCheckedContinuation { continuation in
+                if releasedProbeIndexes.contains(probeIndex) {
+                    continuation.resume()
+                } else {
+                    gateWaitersByProbeIndex[probeIndex] = continuation
+                }
+            }
+        }
+        return metadataByProbe[min(probeIndex, metadataByProbe.count - 1)]
+    }
+
+    func releaseProbe(at index: Int) {
+        releasedProbeIndexes.insert(index)
+        gateWaitersByProbeIndex.removeValue(forKey: index)?.resume()
+    }
+
+    func waitForProbeCount(_ minimumCount: Int, maxYields: Int = 5_000) async -> Bool {
+        for _ in 0..<maxYields {
+            if startedProbeCount >= minimumCount {
+                return true
+            }
+            await Task.yield()
+        }
+        return startedProbeCount >= minimumCount
+    }
+}
+
 @MainActor
 @Suite struct ProbeSnapshotCacheTests {
     private func makeService(
@@ -59,7 +107,7 @@ import CmuxGit
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func fallbackRefreshReusesCurrentTrackedSnapshotCacheGeneration() async throws {
+    func fallbackRefreshStartsNewSnapshotCacheRound() async throws {
         let directory = "/tmp/repo"
         let host = RecordingSidebarGitHost()
         let (workspaceId, panelId) = host.addWorkspace(panelDirectory: directory)
@@ -84,8 +132,10 @@ import CmuxGit
         let generations = await reader.probedTrackedPathEventGenerations
         let generation = try #require(generations.first ?? nil)
         #expect(generations.count == 1)
-        #expect(generation.namespace == service.workspaceGitSnapshotCacheNamespace)
-        #expect(generation.generation == initialGeneration)
+        #expect(generation != GitTrackedPathEventGeneration(
+            namespace: service.workspaceGitSnapshotCacheNamespace,
+            generation: initialGeneration
+        ))
         #expect(service.workspaceGitSnapshotCacheGeneration(directory: directory) == initialGeneration)
     }
 
@@ -344,6 +394,63 @@ import CmuxGit
         #expect(service.workspaceGitProbeRerunPending(for: firstKey))
         #expect(service.workspaceGitProbeRerunPending(for: secondKey))
         await reader.openGate()
+        service.clearWorkspaceGitProbes(workspaceId: workspaceId)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func watcherEventDuringFallbackProbeDoesNotApplyStaleSnapshot() async throws {
+        let directory = "/tmp/repo"
+        let host = RecordingSidebarGitHost()
+        let (workspaceId, panelId) = host.addWorkspace(panelDirectory: directory)
+        let key = WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: panelId)
+        let clock = ManualGitPollClock()
+        let reader = SequencedGatedMetadataReader(metadataByProbe: [
+            .repository(branch: "feature/x", isDirty: false),
+            .repository(branch: "feature/x", isDirty: true),
+        ])
+        let service = SidebarGitMetadataService(
+            workspaceGitMetadataReader: reader,
+            gitMetadataService: GitMetadataService(),
+            pullRequestProbing: RecordingPullRequestProbing(),
+            probeLimiter: WorkspaceGitMetadataProbeLimiter(limit: 2),
+            clock: clock
+        )
+        service.attach(host: host)
+        service.workspaceGitTrackedDirectoryByKey[key] = directory
+        service.markWorkspaceGitSnapshotCacheEligible(directory: directory)
+
+        service.scheduleWorkspaceGitMetadataRefreshIfPossible(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            reason: "fallbackTimer"
+        )
+        await clock.waitForSleeper()
+        await clock.resumeNext()
+        #expect(await reader.waitForProbeCount(1))
+
+        service.recordWorkspaceGitMetadataFilesystemEvent(for: key)
+        service.scheduleWorkspaceGitMetadataRefreshIfPossible(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            reason: "filesystemEvent"
+        )
+        await clock.waitForSleeper()
+        await clock.resumeNext()
+        #expect(await waitUntil { service.workspaceGitProbeRerunPending(for: key) })
+
+        await reader.releaseProbe(at: 0)
+        for _ in 0..<3 {
+            if await reader.waitForProbeCount(2, maxYields: 100) {
+                break
+            }
+            await clock.waitForSleeper()
+            await clock.resumeNext()
+        }
+        #expect(await reader.waitForProbeCount(2))
+
+        #expect(host.workspaces[0].state.panels[panelId]?.branch == nil)
+
+        await reader.releaseProbe(at: 1)
         service.clearWorkspaceGitProbes(workspaceId: workspaceId)
     }
 }
