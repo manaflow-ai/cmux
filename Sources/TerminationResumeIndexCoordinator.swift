@@ -3,6 +3,11 @@ import Foundation
 /// Owns the one fresh process-index result used throughout a confirmed termination.
 @MainActor
 final class TerminationResumeIndexCoordinator {
+    struct SavePlan {
+        let resumeIndexes: ProcessDetectedResumeIndexes
+        let usesCoreSnapshotFallback: Bool
+    }
+
     private typealias PendingLoad = (
         id: UUID,
         task: Task<ProcessDetectedResumeIndexes?, Never>
@@ -46,9 +51,43 @@ final class TerminationResumeIndexCoordinator {
     ) -> ProcessDetectedResumeIndexes? {
         completed ?? sharedIndex.currentResumeIndexesSchedulingRefresh()
     }
+
+    static func savePlan(
+        for resumeIndexes: ProcessDetectedResumeIndexes?
+    ) -> SavePlan {
+        if let resumeIndexes {
+            return SavePlan(resumeIndexes: resumeIndexes, usesCoreSnapshotFallback: false)
+        }
+        return SavePlan(
+            resumeIndexes: ProcessDetectedResumeIndexes(
+                restorableAgentIndex: .empty,
+                surfaceResumeBindingIndex: .empty
+            ),
+            usesCoreSnapshotFallback: true
+        )
+    }
 }
 
 extension AppDelegate {
+    @discardableResult
+    func saveSessionSnapshotAfterCoordinatingProcessDetectedIndexes(
+        includeScrollback: Bool,
+        removeWhenEmpty: Bool
+    ) async -> Bool {
+        guard let resumeIndexes = await terminationResumeIndexCoordinator.load() else {
+            return saveSessionSnapshotIncludingProcessDetectedIndexes(
+                includeScrollback: includeScrollback,
+                removeWhenEmpty: removeWhenEmpty
+            )
+        }
+        return saveSessionSnapshot(
+            includeScrollback: includeScrollback,
+            removeWhenEmpty: removeWhenEmpty,
+            restorableAgentIndex: resumeIndexes.restorableAgentIndex,
+            surfaceResumeBindingIndex: resumeIndexes.surfaceResumeBindingIndex
+        )
+    }
+
     func beginConfirmedAppTermination(reason: String) {
         guard terminationPreparationTask == nil else { return }
         isTerminatingApp = true
@@ -65,9 +104,9 @@ extension AppDelegate {
                     surfaceResumeBindingIndex: resumeIndexes.surfaceResumeBindingIndex
                 )
             } else {
-                StartupBreadcrumbLog.append(
-                    "appDelegate.shouldTerminate.sessionCaptureUnavailable",
-                    fields: ["reason": reason]
+                _ = self.saveSessionSnapshotIncludingProcessDetectedIndexes(
+                    includeScrollback: true,
+                    removeWhenEmpty: false
                 )
             }
             ClosedItemHistoryStore.shared.flushPendingSaves()

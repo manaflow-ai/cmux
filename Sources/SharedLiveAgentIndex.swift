@@ -66,7 +66,8 @@ final class SharedLiveAgentIndex {
     /// Read the cached snapshot for stale-tolerant callers. Never blocks.
     func snapshot(workspaceId: UUID, panelId: UUID) -> SessionRestorableAgentSnapshot? {
         scheduleRefreshIfStale()
-        return index?.snapshot(workspaceId: workspaceId, panelId: panelId)
+        return (latestCompletedLoadResult?.index ?? index)?
+            .snapshot(workspaceId: workspaceId, panelId: panelId)
     }
 
     /// Read the cached snapshot for the Fork Conversation context menu. Never blocks.
@@ -159,12 +160,21 @@ final class SharedLiveAgentIndex {
     func resumeIndexesRefreshingIfNeeded(
         maximumAge: TimeInterval = Self.cacheTTL
     ) async -> ProcessDetectedResumeIndexes? {
-        _ = maximumAge
-        let indexLoader = self.indexLoader
-        let result = await Task.detached(priority: .utility) {
-            indexLoader()
-        }.value
-        return ProcessDetectedResumeIndexes(result)
+        ensureWatchingHookStoreDirectory()
+        if let latestCompletedLoadResult,
+           let latestCompletedAt,
+           dateProvider().timeIntervalSince(latestCompletedAt) < maximumAge {
+            return ProcessDetectedResumeIndexes(latestCompletedLoadResult)
+        }
+        let task = requestRefresh(
+            freshness: .joinCurrentGeneration,
+            publication: .scoped,
+            validating: nil
+        )
+        if let result = await task.value {
+            return ProcessDetectedResumeIndexes(result)
+        }
+        return latestCompletedLoadResult.map(ProcessDetectedResumeIndexes.init)
     }
 
     /// Returns the newest completed coordinated capture immediately on the main actor.

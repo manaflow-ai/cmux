@@ -1965,7 +1965,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func applicationWillTerminate(_ notification: Notification) {
         StartupBreadcrumbLog.append("appDelegate.willTerminate.begin")
         // Backstop for any terminate path that did not route through
-        // prepareForConfirmedAppTermination() (idempotent with the primary arm).
+        // beginConfirmedAppTermination(reason:) (idempotent with the primary arm).
         // Apple's promised-pasteboard observer can fire before this delegate
         // method, so the primary arm above is what bounds #6758; this only
         // widens coverage to other entrypoints.
@@ -3748,7 +3748,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 self.isTerminatingApp = true
-                _ = self.saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
+                _ = await self.saveSessionSnapshotAfterCoordinatingProcessDetectedIndexes(
+                    includeScrollback: true,
+                    removeWhenEmpty: false
+                )
                 ClosedItemHistoryStore.shared.flushPendingSaves()
             }
         }
@@ -3762,7 +3765,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 if self.isTerminatingApp {
-                    _ = self.saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
+                    _ = await self.saveSessionSnapshotAfterCoordinatingProcessDetectedIndexes(
+                        includeScrollback: true,
+                        removeWhenEmpty: false
+                    )
                     ClosedItemHistoryStore.shared.flushPendingSaves()
                 } else {
                     self.saveSessionSnapshotAfterLoadingProcessDetectedIndexes(includeScrollback: false)
@@ -4221,22 +4227,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     @discardableResult
-    private func saveSessionSnapshotIncludingProcessDetectedIndexes(
+    func saveSessionSnapshotIncludingProcessDetectedIndexes(
         includeScrollback: Bool,
         removeWhenEmpty: Bool = false
     ) -> Bool {
-        guard let resumeIndexes = terminationResumeIndexCoordinator.current() else {
-            StartupBreadcrumbLog.append("session.save.skipped", fields: [
-                "reason": "processDetectedIndexesUnavailable",
+        let plan = TerminationResumeIndexCoordinator.savePlan(
+            for: terminationResumeIndexCoordinator.current()
+        )
+        if plan.usesCoreSnapshotFallback {
+            StartupBreadcrumbLog.append("session.save.degraded", fields: [
+                "reason": "processDetectedIndexesUnavailableUsingCoreSnapshot",
                 "includeScrollback": includeScrollback ? "1" : "0",
             ])
-            return false
         }
         return saveSessionSnapshot(
             includeScrollback: includeScrollback,
             removeWhenEmpty: removeWhenEmpty,
-            restorableAgentIndex: resumeIndexes.restorableAgentIndex,
-            surfaceResumeBindingIndex: resumeIndexes.surfaceResumeBindingIndex
+            restorableAgentIndex: plan.resumeIndexes.restorableAgentIndex,
+            surfaceResumeBindingIndex: plan.resumeIndexes.surfaceResumeBindingIndex
         )
     }
 
