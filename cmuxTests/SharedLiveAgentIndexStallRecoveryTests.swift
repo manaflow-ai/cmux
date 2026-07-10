@@ -13,7 +13,7 @@ import Testing
 struct SharedLiveAgentIndexStallRecoveryTests {
     @Test
     func hookChangeAfterCapturingTimeoutStartsSuccessor() async {
-        let timeoutWaiter = ManualTimeoutWaiter()
+        let timeoutWaiter = ManualGenerationTimeoutWaiter()
         let firstStarted = DispatchSemaphore(value: 0)
         let successorStarted = DispatchSemaphore(value: 0)
         let completed = DispatchSemaphore(value: 0)
@@ -58,7 +58,7 @@ struct SharedLiveAgentIndexStallRecoveryTests {
 
     @Test
     func capturingTimeoutDrainsPendingHookChangeIntoSuccessor() async {
-        let timeoutWaiter = ManualTimeoutWaiter()
+        let timeoutWaiter = ManualGenerationTimeoutWaiter()
         let firstStarted = DispatchSemaphore(value: 0)
         let firstCompleted = DispatchSemaphore(value: 0)
         let successorStarted = DispatchSemaphore(value: 0)
@@ -104,7 +104,7 @@ struct SharedLiveAgentIndexStallRecoveryTests {
 
     @Test
     func pendingHookChangeWaitsForCapacityThenStartsAfterCompletion() async {
-        let timeoutWaiter = ManualTimeoutWaiter()
+        let timeoutWaiter = ManualGenerationTimeoutWaiter()
         let firstStarted = DispatchSemaphore(value: 0)
         let secondStarted = DispatchSemaphore(value: 0)
         let thirdStarted = DispatchSemaphore(value: 0)
@@ -178,7 +178,7 @@ struct SharedLiveAgentIndexStallRecoveryTests {
 
     @Test
     func queuedTimeoutDrainsPendingHookChangeWithoutAnotherEvent() async {
-        let timeoutWaiter = ManualTimeoutWaiter()
+        let timeoutWaiter = ManualGenerationTimeoutWaiter()
         let firstStarted = DispatchSemaphore(value: 0)
         let replacementStarted = DispatchSemaphore(value: 0)
         let replacementCompleted = DispatchSemaphore(value: 0)
@@ -224,7 +224,7 @@ struct SharedLiveAgentIndexStallRecoveryTests {
 
     @Test
     func queuedGenerationTimeoutIncludesPredecessorWait() async {
-        let timeoutWaiter = ManualTimeoutWaiter()
+        let timeoutWaiter = ManualGenerationTimeoutWaiter()
         let firstStarted = DispatchSemaphore(value: 0)
         let secondStarted = DispatchSemaphore(value: 0)
         let releaseFirst = DispatchSemaphore(value: 0)
@@ -261,7 +261,7 @@ struct SharedLiveAgentIndexStallRecoveryTests {
 
     @Test
     func successorRemainsSingleFlightWhenPredecessorCompletes() async {
-        let timeoutWaiter = ManualTimeoutWaiter()
+        let timeoutWaiter = ManualGenerationTimeoutWaiter()
         let firstStarted = DispatchSemaphore(value: 0)
         let secondStarted = DispatchSemaphore(value: 0)
         let releaseFirst = DispatchSemaphore(value: 0)
@@ -309,7 +309,7 @@ struct SharedLiveAgentIndexStallRecoveryTests {
 
     @Test
     func twoStalledGenerationsDiscardLateResultsWithoutLaunchingThird() async {
-        let timeoutWaiter = ManualTimeoutWaiter()
+        let timeoutWaiter = ManualGenerationTimeoutWaiter()
         let firstStarted = DispatchSemaphore(value: 0)
         let secondStarted = DispatchSemaphore(value: 0)
         let firstCompleted = DispatchSemaphore(value: 0)
@@ -414,58 +414,58 @@ struct SharedLiveAgentIndexStallRecoveryTests {
             forkValidatedPanels: []
         )
     }
+}
 
-    private actor ManualTimeoutWaiter {
-        private var pending: [CheckedContinuation<Bool, Never>] = []
-        private var countWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
+actor ManualGenerationTimeoutWaiter {
+    private var pending: [CheckedContinuation<Bool, Never>] = []
+    private var countWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
 
-        func wait() async -> Bool {
-            await withCheckedContinuation { continuation in
-                pending.append(continuation)
-                resumeSatisfiedCountWaiters()
-            }
+    func wait() async -> Bool {
+        await withCheckedContinuation { continuation in
+            pending.append(continuation)
+            resumeSatisfiedCountWaiters()
         }
+    }
 
-        func waitUntilPendingCount(_ count: Int) async {
-            guard pending.count < count else { return }
-            await withCheckedContinuation { continuation in
-                countWaiters.append((count: count, continuation: continuation))
-            }
+    func waitUntilPendingCount(_ count: Int) async {
+        guard pending.count < count else { return }
+        await withCheckedContinuation { continuation in
+            countWaiters.append((count: count, continuation: continuation))
         }
+    }
 
-        func fireNext() {
-            guard !pending.isEmpty else { return }
-            pending.removeFirst().resume(returning: true)
+    func fireNext() {
+        guard !pending.isEmpty else { return }
+        pending.removeFirst().resume(returning: true)
+    }
+
+    func fireLast() {
+        guard !pending.isEmpty else { return }
+        pending.removeLast().resume(returning: true)
+    }
+
+    func cancelAll() {
+        let pending = self.pending
+        self.pending.removeAll()
+        for continuation in pending {
+            continuation.resume(returning: false)
         }
-
-        func fireLast() {
-            guard !pending.isEmpty else { return }
-            pending.removeLast().resume(returning: true)
+        let countWaiters = self.countWaiters
+        self.countWaiters.removeAll()
+        for waiter in countWaiters {
+            waiter.continuation.resume()
         }
+    }
 
-        func cancelAll() {
-            let pending = self.pending
-            self.pending.removeAll()
-            for continuation in pending {
-                continuation.resume(returning: false)
-            }
-            let countWaiters = self.countWaiters
-            self.countWaiters.removeAll()
-            for waiter in countWaiters {
+    private func resumeSatisfiedCountWaiters() {
+        var remaining: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
+        for waiter in countWaiters {
+            if pending.count >= waiter.count {
                 waiter.continuation.resume()
+            } else {
+                remaining.append(waiter)
             }
         }
-
-        private func resumeSatisfiedCountWaiters() {
-            var remaining: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
-            for waiter in countWaiters {
-                if pending.count >= waiter.count {
-                    waiter.continuation.resume()
-                } else {
-                    remaining.append(waiter)
-                }
-            }
-            countWaiters = remaining
-        }
+        countWaiters = remaining
     }
 }
