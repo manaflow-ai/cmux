@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { renderToStaticMarkup } from "react-dom/server";
-import { JumpSelect } from "../src/App";
+import { FilesSidebarBackdrop, JumpSelect } from "../src/App";
 import type { DiffItem } from "../src/diff-stream";
 import { createDiffViewerLabelResolver } from "../src/labels";
 
@@ -44,4 +44,29 @@ test("large diff navigation keeps the rendered DOM bounded", () => {
   }) as any;
   control.props.onClick();
   expect(openedSearch).toBe(true);
+});
+
+test("mobile file drawer backdrop is an accessible close control", () => {
+  const label = createDiffViewerLabelResolver(undefined);
+  const markup = renderToStaticMarkup(
+    <FilesSidebarBackdrop label={label} onClose={() => {}} open={true} />,
+  );
+  const dom = new JSDOM(markup);
+  const backdrop = dom.window.document.getElementById("files-sidebar-backdrop");
+  expect(backdrop?.tagName).toBe("BUTTON");
+  expect(backdrop?.getAttribute("aria-controls")).toBe("files-sidebar");
+  expect(backdrop?.getAttribute("aria-label")).toBe("Hide file search");
+  dom.window.close();
+
+  let closed = false;
+  const control = FilesSidebarBackdrop({
+    label,
+    onClose: () => {
+      closed = true;
+    },
+    open: true,
+  }) as any;
+  control.props.onClick();
+  expect(closed).toBe(true);
+  expect(FilesSidebarBackdrop({ label, onClose: () => {}, open: false })).toBeNull();
 });
