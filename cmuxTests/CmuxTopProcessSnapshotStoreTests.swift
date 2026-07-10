@@ -11,6 +11,9 @@ import Testing
 struct CmuxTopProcessSnapshotStoreTests {
     @Test
     func concurrentEquivalentRequestsShareOneCapture() async {
+#if DEBUG
+        ProcessPerformanceMetrics.shared.reset()
+#endif
         let capturer = ControlledProcessSnapshotCapturer()
         let clock = ProcessSnapshotTestClock(now: Date(timeIntervalSince1970: 100))
         let store = CmuxTopProcessSnapshotStore(
@@ -21,11 +24,19 @@ struct CmuxTopProcessSnapshotStoreTests {
         )
 
         let first = Task {
-            await store.snapshot(requirements: .basic, maximumAge: 10)
+            await store.snapshot(
+                requirements: .basic,
+                maximumAge: 10,
+                consumer: .portScannerPanel
+            )
         }
         await capturer.waitForCallCount(1)
         let second = Task {
-            await store.snapshot(requirements: .basic, maximumAge: 10)
+            await store.snapshot(
+                requirements: .basic,
+                maximumAge: 10,
+                consumer: .portScannerPanel
+            )
         }
         await capturer.releaseNext()
 
@@ -34,6 +45,16 @@ struct CmuxTopProcessSnapshotStoreTests {
         #expect(firstSnapshot === secondSnapshot)
         #expect(await capturer.callCount() == 1)
         #expect(await capturer.maximumConcurrentCaptures() == 1)
+#if DEBUG
+        let metrics = ProcessPerformanceMetrics.shared.snapshot()
+        #expect(metrics.processSnapshots.captureStarted == 1)
+        #expect(metrics.processSnapshots.captureCompleted == 1)
+        #expect(metrics.processSnapshots.maximumInFlight == 1)
+        #expect(metrics.processSnapshots.lastGeneration == 1)
+        #expect(
+            metrics.consumerGenerationReuse[ProcessSnapshotConsumer.portScannerPanel.rawValue]?[1]?.inFlight == 1
+        )
+#endif
     }
 
     @Test
@@ -71,6 +92,9 @@ struct CmuxTopProcessSnapshotStoreTests {
 
     @Test
     func cacheRespectsFreshnessAndCapabilityRequirements() async {
+#if DEBUG
+        ProcessPerformanceMetrics.shared.reset()
+#endif
         let capturer = ControlledProcessSnapshotCapturer(autoRelease: true)
         let clock = ProcessSnapshotTestClock(now: Date(timeIntervalSince1970: 100))
         let store = CmuxTopProcessSnapshotStore(
@@ -80,22 +104,63 @@ struct CmuxTopProcessSnapshotStoreTests {
             }
         )
 
-        let first = await store.snapshot(requirements: .basic, maximumAge: 3)
+        let first = await store.snapshot(
+            requirements: .basic,
+            maximumAge: 3,
+            consumer: .processDetectedResume
+        )
         await clock.advance(by: 2)
-        let cached = await store.snapshot(requirements: .basic, maximumAge: 3)
-        let upgraded = await store.snapshot(requirements: .processDetails, maximumAge: 3)
+        let cached = await store.snapshot(
+            requirements: .basic,
+            maximumAge: 3,
+            consumer: .processDetectedResume
+        )
+        let upgraded = await store.snapshot(
+            requirements: .processDetails,
+            maximumAge: 3,
+            consumer: .processDetectedResume
+        )
         await clock.advance(by: 4)
-        let refreshed = await store.snapshot(requirements: .basic, maximumAge: 3)
+        let refreshed = await store.snapshot(
+            requirements: .basic,
+            maximumAge: 3,
+            consumer: .processDetectedResume
+        )
 
         #expect(first === cached)
         #expect(upgraded !== cached)
         #expect(refreshed !== upgraded)
         #expect(await capturer.callCount() == 3)
+#if DEBUG
+        let metrics = ProcessPerformanceMetrics.shared.snapshot()
+        #expect(
+            metrics.consumerGenerationReuse[ProcessSnapshotConsumer.processDetectedResume.rawValue]?[1]?.cache == 1
+        )
+#endif
     }
 }
 
 @Suite
 struct PortScannerSharedSnapshotTests {
+    @Test
+    func staleRevisionIsRejectedAndCounted() {
+#if DEBUG
+        ProcessPerformanceMetrics.shared.reset()
+        #expect(!PortScanner.acceptsResult(
+            currentRevision: 8,
+            expectedRevision: 7,
+            staleMetric: .portAgentRevision
+        ))
+        #expect(PortScanner.acceptsResult(
+            currentRevision: 8,
+            expectedRevision: 8,
+            staleMetric: .portAgentRevision
+        ))
+        let metrics = ProcessPerformanceMetrics.shared.snapshot()
+        #expect(metrics.staleRejections[ProcessStaleRejection.portAgentRevision.rawValue] == 1)
+#endif
+    }
+
     @Test
     func processTreeExpansionIncludesForksAndDetachedAgentRoots() {
         let firstWorkspace = UUID()
