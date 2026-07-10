@@ -165,8 +165,6 @@ struct SettingsRowAnchorResolutionTests {
         "setting:keyboardShortcuts:shortcuts",
         "setting:keyboardShortcuts:shortcut-chords",
         "setting:keyboardShortcuts:reset-defaults",
-        "setting:terminal:memory-guardrail",
-        "setting:terminal:memory-guardrail-threshold",
         "setting:settingsJSON:open-file",
         "setting:settingsJSON:documentation",
         "setting:reset:reset-all",

@@ -1,17 +1,26 @@
 import Foundation
 
-extension AppDelegate {
-    /// Starts the per-pane runaway-memory guardrail and the central
-    /// memory-pressure monitor. The pane guardrail keeps its existing
-    /// process-tree accounting timer; global memory pressure is handled through
-    /// responder registration so future reclaim paths are one conformance away.
-    func startPaneMemoryGuardrailIfNeeded() {
-        let guardrail = PaneMemoryGuardrail.shared
-        guardrail.paneProvider = { [weak self] in
-            self?.paneMemoryGuardrailDescriptors() ?? []
-        }
-        guardrail.start()
-        startMemoryPressureMonitorIfNeeded()
+@MainActor
+protocol AppMemoryMonitoringServices: AnyObject {
+    func startEventDrivenMemoryPressureMonitoring()
+    func startPeriodicPaneMemorySampling()
+}
+
+/// The launch composition deliberately starts only event-driven memory
+/// pressure handling. Keeping the retired periodic sampler as an injectable
+/// service method makes that negative startup contract behavior-testable.
+@MainActor
+struct AppMemoryMonitoringStartup {
+    let services: any AppMemoryMonitoringServices
+
+    func start() {
+        services.startEventDrivenMemoryPressureMonitoring()
+    }
+}
+
+extension AppDelegate: AppMemoryMonitoringServices {
+    func startMemoryMonitoringIfNeeded() {
+        AppMemoryMonitoringStartup(services: self).start()
     }
 
     func paneMemoryGuardrailDescriptors() -> [PaneMemoryDescriptor] {
@@ -22,7 +31,7 @@ extension AppDelegate {
         }
     }
 
-    private func startMemoryPressureMonitorIfNeeded() {
+    func startEventDrivenMemoryPressureMonitoring() {
         let monitor = MemoryPressureMonitor.shared
         monitor.registry.register(
             RendererRealizationMemoryPressureResponder(
@@ -44,6 +53,22 @@ extension AppDelegate {
         }
         monitor.start()
     }
+
+    /// Retained only as a startup-composition test seam. Production startup
+    /// must not call this retired periodic service.
+    func startPeriodicPaneMemorySampling() {}
+
+#if DEBUG
+    /// Explicit LLDB/debug-command hook for a single attributed pane-memory
+    /// snapshot. It never installs a timer.
+    func runPaneMemoryDiagnosticOnce() {
+        let guardrail = PaneMemoryGuardrail.shared
+        guardrail.paneProvider = { [weak self] in
+            self?.paneMemoryGuardrailDescriptors() ?? []
+        }
+        guardrail.runDiagnosticOnce()
+    }
+#endif
 
     private func postPersistentCriticalMemoryPressureWarning(snapshot: MemoryPressureSnapshot) {
         guard let notificationStore else { return }

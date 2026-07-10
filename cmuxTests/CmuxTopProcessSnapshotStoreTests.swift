@@ -62,9 +62,14 @@ struct CmuxTopProcessSnapshotStoreTests {
         #expect(metrics.processSnapshots.captureCompleted == 1)
         #expect(metrics.processSnapshots.maximumInFlight == 1)
         #expect(metrics.processSnapshots.lastGeneration == 1)
+        #expect(metrics.requestCountsByConsumer[ProcessSnapshotConsumer.portScannerPanel.rawValue] == 2)
+        #expect(metrics.requestCountsByConsumer[ProcessSnapshotConsumer.memoryGuardrail.rawValue] == nil)
         #expect(
             metrics.consumerGenerationReuse[ProcessSnapshotConsumer.portScannerPanel.rawValue]?[1]?.inFlight == 1
         )
+        let wireRequestCounts = metrics.foundationObject["request_counts_by_consumer"] as? [String: Int]
+        #expect(wireRequestCounts?[ProcessSnapshotConsumer.portScannerPanel.rawValue] == 2)
+        #expect(wireRequestCounts?[ProcessSnapshotConsumer.memoryGuardrail.rawValue] == nil)
 #endif
     }
 
@@ -767,6 +772,7 @@ struct ProcessPerformanceMetricsEpochTests {
         #expect(metrics.processSnapshots.captureCompleted == 0)
         #expect(metrics.processSnapshots.inFlight == 0)
         #expect(metrics.generations.isEmpty)
+        #expect(metrics.requestCountsByConsumer.isEmpty)
         #expect(metrics.lsof.started == 0)
         #expect(metrics.lsof.completed == 0)
         #expect(metrics.lsof.inFlight == 0)

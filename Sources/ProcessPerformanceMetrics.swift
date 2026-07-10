@@ -92,6 +92,7 @@ nonisolated struct ProcessPerformanceMetricsSnapshot: Sendable, Equatable {
     let resetAtUnixMilliseconds: UInt64
     let processSnapshots: ProcessPerformanceSnapshotCaptureMetrics
     let generations: [UInt64: ProcessPerformanceGenerationMetrics]
+    let requestCountsByConsumer: [String: Int]
     let consumerGenerationReuse: [String: [UInt64: ProcessPerformanceReuseMetrics]]
     let lsof: ProcessPerformanceLsofMetrics
     let staleRejections: [String: Int]
@@ -117,6 +118,7 @@ nonisolated struct ProcessPerformanceMetricsSnapshot: Sendable, Equatable {
                     (String(generation), metrics.foundationObject)
                 })
             },
+            "request_counts_by_consumer": requestCountsByConsumer,
             "lsof": lsof.foundationObject,
             "stale_rejections": staleRejections,
             "operations": operations.mapValues(\.foundationObject),
@@ -201,6 +203,7 @@ nonisolated final class ProcessPerformanceMetrics: @unchecked Sendable {
         var resetAtUnixMilliseconds = ProcessPerformanceMetrics.unixMilliseconds()
         var processSnapshots = ProcessPerformanceSnapshotCaptureMetrics()
         var generations: [UInt64: ProcessPerformanceGenerationMetrics] = [:]
+        var requestCountsByConsumer: [String: Int] = [:]
         var consumerGenerationReuse: [String: [UInt64: ProcessPerformanceReuseMetrics]] = [:]
         var lsof = ProcessPerformanceLsofMetrics()
         var staleRejections: [String: Int] = [:]
@@ -225,11 +228,18 @@ nonisolated final class ProcessPerformanceMetrics: @unchecked Sendable {
                 resetAtUnixMilliseconds: state.resetAtUnixMilliseconds,
                 processSnapshots: state.processSnapshots,
                 generations: state.generations,
+                requestCountsByConsumer: state.requestCountsByConsumer,
                 consumerGenerationReuse: state.consumerGenerationReuse,
                 lsof: state.lsof,
                 staleRejections: state.staleRejections,
                 operations: state.operations
             )
+        }
+    }
+
+    func recordProcessSnapshotRequest(consumer: ProcessSnapshotConsumer) {
+        state.withLock { state in
+            state.requestCountsByConsumer[consumer.rawValue, default: 0] += 1
         }
     }
 

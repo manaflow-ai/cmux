@@ -78,6 +78,9 @@ actor CmuxTopProcessSnapshotStore {
         maximumAge: TimeInterval,
         consumer: ProcessSnapshotConsumer = .unspecified
     ) async -> CmuxTopProcessSnapshot {
+#if DEBUG
+        metrics.recordProcessSnapshotRequest(consumer: consumer)
+#endif
         let requestedAt = await now()
         if let cached = validCachedSnapshot(
             requirements: requirements,
