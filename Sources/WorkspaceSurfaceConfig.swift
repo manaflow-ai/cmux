@@ -1,6 +1,7 @@
 import Foundation
 import CmuxFoundation
 import CmuxTerminalCore
+import CmuxWorkspaces
 
 // CmuxSurfaceConfigTemplate and the surface runtime probes moved to
 // CmuxTerminalCore (SurfaceValues/CmuxSurfaceConfigTemplate.swift and
