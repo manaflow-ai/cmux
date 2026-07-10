@@ -149,7 +149,7 @@ private final class MobileHostConnectionRegistry: @unchecked Sendable {
             return false
         }
         if case let .irohAdmission(peer) = authorization {
-            let activeBindingIDs = connections.values.lazy.compactMap { entry in
+            let activeBindingIDs = connections.values.lazy.compactMap { entry -> String? in
                 guard case let .irohAdmission(activePeer) = entry.authorization else {
                     return nil
                 }
