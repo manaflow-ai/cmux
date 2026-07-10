@@ -27,7 +27,7 @@ extension AgentHibernationController {
     @discardableResult
     func beginConfirmedTeardowns(
         _ requests: [ConfirmedTeardownRequest],
-        postSnapshotIndexLoader: @escaping @Sendable () async -> RestorableAgentSessionIndex = {
+        postSnapshotIndexLoader: @escaping @Sendable () async -> RestorableAgentSessionIndex? = {
             await SharedLiveAgentIndex.shared.scopedIndexCapturedAfterRequest()
         },
         runtimeObservationProvider: ConfirmedTeardownRuntimeObservationProvider? = nil
@@ -88,10 +88,14 @@ extension AgentHibernationController {
             }
 
             let postSnapshotSequence = markPostSnapshotValidationPoint()
-            let postSnapshotIndex = await sharedPostSnapshotValidationIndexTask(
+            guard let postSnapshotIndex = await sharedPostSnapshotValidationIndexTask(
                 minimumStartSequence: postSnapshotSequence,
                 loader: postSnapshotIndexLoader
-            ).value
+            ).value else {
+                // A timeout or capacity rejection is an unknown process state.
+                // Abort the batch rather than treating it as an empty live-process index.
+                return
+            }
 
             for request in requests {
                 let record = request.record
@@ -136,10 +140,26 @@ extension AgentHibernationController {
                     let finalIndex: RestorableAgentSessionIndex
                     if didQuiesceMonitor {
                         let postQuiescenceSequence = markPostSnapshotValidationPoint()
-                        finalIndex = await sharedPostSnapshotValidationIndexTask(
+                        guard let capturedIndex = await sharedPostSnapshotValidationIndexTask(
                             minimumStartSequence: postQuiescenceSequence,
                             loader: postSnapshotIndexLoader
-                        ).value
+                        ).value else {
+                            // The older monitor was quiesced before this bounded
+                            // capture became unavailable, so restore its protection.
+                            if self.armPostTeardownRestoreMonitor(
+                                snapshot: snapshot,
+                                processIDs: record.processIDs
+                            ) {
+                                restoreOwnedSnapshotPaths.insert(snapshot.snapshotPath)
+                            } else {
+                                AgentHibernationTranscriptGuard.retainSnapshotForRecovery(
+                                    snapshot,
+                                    sessionId: record.agent.sessionId
+                                )
+                            }
+                            continue
+                        }
+                        finalIndex = capturedIndex
                     } else {
                         finalIndex = postSnapshotIndex
                     }

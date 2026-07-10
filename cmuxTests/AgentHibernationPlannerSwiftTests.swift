@@ -273,7 +273,7 @@ struct AgentHibernationPlannerSwiftTests {
         defer { resetSharedHibernationState(controller) }
 
         let staleRequestID = UUID()
-        let staleTask = Task<RestorableAgentSessionIndex, Never> {
+        let staleTask = Task<RestorableAgentSessionIndex?, Never> {
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 1_000_000_000)
             }
@@ -309,7 +309,7 @@ struct AgentHibernationPlannerSwiftTests {
         let replacementLoadStarted = DispatchSemaphore(value: 0)
         let redundantLoadStarted = DispatchSemaphore(value: 0)
         defer { releaseOlderLoad.signal() }
-        let olderTask = Task.detached { () -> RestorableAgentSessionIndex in
+        let olderTask = Task.detached { () -> RestorableAgentSessionIndex? in
             olderLoadStarted.signal()
             releaseOlderLoad.wait()
             return .empty

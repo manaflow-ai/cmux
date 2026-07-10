@@ -106,7 +106,7 @@ extension SharedLiveAgentIndexLoadCoalescingTests {
 
         let scopedIndex = await sharedIndex.scopedIndexCapturedAfterRequest()
 
-        #expect(scopedIndex.snapshot(workspaceId: workspaceId, panelId: panelId)?.sessionId == sessionId)
+        #expect(scopedIndex?.snapshot(workspaceId: workspaceId, panelId: panelId)?.sessionId == sessionId)
         #expect(
             notificationCount.withLock { $0 } == 0,
             "A panel-local probe must not invalidate every Workspace through the global notification."
@@ -201,7 +201,7 @@ extension SharedLiveAgentIndexLoadCoalescingTests {
 
         releaseSuccessorLoad.signal()
         let result = await scopedRead.value
-        #expect(result.snapshot(workspaceId: workspaceId, panelId: panelId)?.sessionId == successorSessionId)
+        #expect(result?.snapshot(workspaceId: workspaceId, panelId: panelId)?.sessionId == successorSessionId)
         #expect(loadCount.withLock { $0 } == 2)
     }
 

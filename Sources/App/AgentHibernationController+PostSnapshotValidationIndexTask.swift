@@ -5,6 +5,6 @@ extension AgentHibernationController {
         let requestID: UUID
         var startSequence: UInt64
         var hasStartedCapture = true
-        let task: Task<RestorableAgentSessionIndex, Never>
+        let task: Task<RestorableAgentSessionIndex?, Never>
     }
 }
