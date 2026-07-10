@@ -29,6 +29,68 @@ indirect enum RemoteTmuxNativeSplitTree: Sendable {
         }
     }
 
+    /// Finds a pane and records whether the right-associated native tree gives
+    /// it a split ancestor and resizable border along `orientation`.
+    func paneResizeContext(
+        paneID: Int,
+        orientation: SplitOrientation
+    ) -> (
+        pane: RemoteTmuxLayoutNode,
+        hasSplitAncestor: Bool,
+        hasLeadingBorder: Bool,
+        hasTrailingBorder: Bool,
+        leadingResizeTargetPaneID: Int?,
+        trailingResizeTargetPaneID: Int?
+    )? {
+        switch self {
+        case .atomic(let layout):
+            guard case .pane(let candidateID) = layout.content,
+                  candidateID == paneID else { return nil }
+            return (layout, false, false, false, nil, nil)
+        case .split(_, let splitOrientation, let first, let second):
+            if var context = first.paneResizeContext(paneID: paneID, orientation: orientation) {
+                if splitOrientation == orientation {
+                    context.hasSplitAncestor = true
+                    context.hasTrailingBorder = true
+                    if context.trailingResizeTargetPaneID == nil {
+                        context.trailingResizeTargetPaneID = first.resizeCommandTargetPaneID(
+                            avoiding: orientation
+                        )
+                    }
+                }
+                return context
+            }
+            guard var context = second.paneResizeContext(paneID: paneID, orientation: orientation) else {
+                return nil
+            }
+            if splitOrientation == orientation {
+                context.hasSplitAncestor = true
+                context.hasLeadingBorder = true
+                if context.leadingResizeTargetPaneID == nil {
+                    context.leadingResizeTargetPaneID = first.resizeCommandTargetPaneID(
+                        avoiding: orientation
+                    )
+                }
+            }
+            return context
+        }
+    }
+
+    /// Tmux resizes the target pane's nearest split along the requested axis.
+    /// Select a pane whose path reaches this subtree without crossing a nearer
+    /// same-axis split; otherwise this ancestor cannot be addressed safely.
+    private func resizeCommandTargetPaneID(avoiding orientation: SplitOrientation) -> Int? {
+        switch self {
+        case .atomic(let pane):
+            guard case .pane(let paneID) = pane.content else { return nil }
+            return paneID
+        case .split(_, let splitOrientation, let first, let second):
+            guard splitOrientation != orientation else { return nil }
+            return first.resizeCommandTargetPaneID(avoiding: orientation)
+                ?? second.resizeCommandTargetPaneID(avoiding: orientation)
+        }
+    }
+
     private static func joined(
         children: [RemoteTmuxLayoutNode],
         orientation: SplitOrientation
