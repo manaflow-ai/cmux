@@ -2181,6 +2181,11 @@ actor MobileHostConnection {
         let frame: Data
     }
 
+    private struct ResponseTask: Sendable {
+        let frameByteCount: Int
+        let task: Task<Void, Never>
+    }
+
     private let id: UUID
     private let transport: any CmxByteTransport
     private let writer: MobileHostSerializedTransportWriter
@@ -2191,10 +2196,11 @@ actor MobileHostConnection {
     private let onAuthorizedRequest: @Sendable (MobileHostRPCRequest) async -> Void
     private let handleRequest: @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult
     private let onClose: @Sendable (UUID) async -> Void
+    private let responseWorkQuota = MobileHostRPCWorkQuota()
     private var receiveBuffer = Data()
     private var firstFrameTimeoutTask: Task<Void, Never>?
     private var idleTimeoutTask: Task<Void, Never>?
-    private var responseTasks: [UUID: Task<Void, Never>] = [:]
+    private var responseTasks: [UUID: ResponseTask] = [:]
     private var receiveTask: Task<Void, Never>?
     private var queuedEvents: [QueuedEvent] = []
     private var queuedEventByteCount = 0
@@ -2295,7 +2301,7 @@ actor MobileHostConnection {
         eventDrainTask = nil
         queuedEvents.removeAll(keepingCapacity: false)
         queuedEventByteCount = 0
-        let tasks = responseTasks.values
+        let tasks = responseTasks.values.map(\.task)
         responseTasks.removeAll()
         for task in tasks {
             task.cancel()
@@ -2341,7 +2347,10 @@ actor MobileHostConnection {
                     guard !isClosed else {
                         return
                     }
-                    startResponseTask(for: frame)
+                    guard startResponseTask(for: frame) else {
+                        await close(reason: "rpc work capacity exceeded")
+                        return
+                    }
                 }
                 guard !isClosed else {
                     return
@@ -2361,16 +2370,24 @@ actor MobileHostConnection {
         }
     }
 
-    private func startResponseTask(for frame: Data) {
+    private func startResponseTask(for frame: Data) -> Bool {
         guard !isClosed else {
-            return
+            return false
         }
+        guard responseWorkQuota.allowsAdmission(
+            frameByteCount: frame.count,
+            activeFrameByteCounts: responseTasks.values.lazy.map(\.frameByteCount)
+        ) else { return false }
         let taskID = UUID()
         let task = Task { [weak self] in
             await self?.respond(to: frame)
             await self?.finishResponseTask(taskID)
         }
-        responseTasks[taskID] = task
+        responseTasks[taskID] = ResponseTask(
+            frameByteCount: frame.count,
+            task: task
+        )
+        return true
     }
 
     private func finishResponseTask(_ taskID: UUID) {
