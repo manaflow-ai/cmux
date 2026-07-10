@@ -1348,6 +1348,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C51A720000000000000000A1 /* SimulatorCommandPaletteIntegration.swift in Sources */ = {isa = PBXBuildFile; fileRef = C51A720000000000000000A2 /* SimulatorCommandPaletteIntegration.swift */; };
 		C51A710000000000000000A1 /* SimulatorPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C51A710000000000000000A2 /* SimulatorPanel.swift */; };
 		C51A720000000000000000B1 /* SimulatorPanelIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C51A720000000000000000B2 /* SimulatorPanelIntegrationTests.swift */; };
+		C51A760000000000000000D1 /* SimulatorPanelThemeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C51A760000000000000000D2 /* SimulatorPanelThemeTests.swift */; };
 		C51A710000000000000000B1 /* SimulatorPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C51A710000000000000000B2 /* SimulatorPanelView.swift */; };
 			C7B0000000000000000000F2 /* SleepyAgentCensus.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7B0000000000000000000F1 /* SleepyAgentCensus.swift */; };
 		C7B0FACE0000000000000004 /* SleepyAgentCensusing.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7B0FACE0000000000000005 /* SleepyAgentCensusing.swift */; };
@@ -3074,6 +3075,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C51A720000000000000000A2 /* SimulatorCommandPaletteIntegration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SimulatorCommandPaletteIntegration.swift; sourceTree = "<group>"; };
 		C51A710000000000000000A2 /* SimulatorPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/SimulatorPanel.swift; sourceTree = "<group>"; };
 		C51A720000000000000000B2 /* SimulatorPanelIntegrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SimulatorPanelIntegrationTests.swift; sourceTree = "<group>"; };
+		C51A760000000000000000D2 /* SimulatorPanelThemeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SimulatorPanelThemeTests.swift; sourceTree = "<group>"; };
 		C51A710000000000000000B2 /* SimulatorPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/SimulatorPanelView.swift; sourceTree = "<group>"; };
 			C7B0000000000000000000F1 /* SleepyAgentCensus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepyAgentCensus.swift; sourceTree = "<group>"; };
 		C7B0FACE0000000000000005 /* SleepyAgentCensusing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepyAgentCensusing.swift; sourceTree = "<group>"; };
@@ -4905,6 +4907,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A9E010000000000000000005 /* AgentExecutableResolverTests.swift */,
 				A9E030000000000000000001 /* AgentSessionSocketSurfaceTests.swift */,
 				C51A720000000000000000B2 /* SimulatorPanelIntegrationTests.swift */,
+				C51A760000000000000000D2 /* SimulatorPanelThemeTests.swift */,
 				A9E050000000000000000001 /* AgentSessionWebRendererTests.swift */,
 				A9E040000000000000000001 /* CodexAppServerSessionTests.swift */,
 				F65760010000000000000002 /* AgentHibernationPlannerSwiftTests.swift */,
@@ -7316,6 +7319,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 					A6AC73040000000000000001 /* SidebarWorkspaceSnapshotAgentActivityTests.swift in Sources */,
 					62270F3DCECB4787D789CCE3 /* SidebarWorkspaceSnapshotRefreshPolicyTests.swift in Sources */,
 				C51A720000000000000000B1 /* SimulatorPanelIntegrationTests.swift in Sources */,
+				C51A760000000000000000D1 /* SimulatorPanelThemeTests.swift in Sources */,
 				5830CA11BAC0000000000002 /* SocketCallbackAwaiterMainThreadTests.swift in Sources */,
 						F8000000A1B2C3D4E5F60718 /* SocketControlPasswordStoreTests.swift in Sources */,
 				F6724600A1B2C3D4E5F67246 /* SSHConfiguredRemoteCommandHostTests.swift in Sources */,
