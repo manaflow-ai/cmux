@@ -143,16 +143,25 @@ struct RemoteTmuxMirrorCLIObservabilityTests {
         }
 
         do {
-            // Without an authoritative active pane the default target fails
-            // closed instead of flashing the stale wrapper panel.
+            // Without a published active pane the mirror seeds its first live
+            // pane (the native chrome always has a selection), and the default
+            // flash projects that seed — never the wrapper panel.
             let harness = try Harness(activeTmuxPaneID: nil)
             defer { harness.tearDown() }
+            let seededTmuxPaneID = try #require(harness.mirror.paneIDsInOrder.first)
+            let seededSurfaceID = try #require(harness.mirror.panel(forPane: seededTmuxPaneID)?.id)
 
             let flash = TerminalController.shared.controlSurfaceTriggerFlash(
                 routing: harness.routing(),
                 surfaceID: nil
             )
-            #expect(flash == .surfaceNotFound(harness.outerPanelID))
+            switch flash {
+            case .flashed(_, let workspaceID, let surfaceID):
+                #expect(workspaceID == harness.workspace.id)
+                #expect(surfaceID == seededSurfaceID)
+            default:
+                Issue.record("Default flash did not project the seeded mirror pane: \(flash)")
+            }
         }
     }
 
@@ -187,31 +196,44 @@ struct RemoteTmuxMirrorCLIObservabilityTests {
         #expect(send == .noFocusedSurface)
     }
 
-    @Test func unresolvedMirrorFocusFailsClosedWithoutHidingPanes() throws {
+    @Test func mirrorWithoutPublishedActivePaneSeedsFirstPaneProjection() throws {
+        // Since the native-chrome rearchitecture a mirror can never be
+        // "unresolved": with no tmux-published active pane it seeds its first
+        // live pane, so defaults project that seed while mutations still fail
+        // closed at the dead transport instead of leaking into the wrapper.
         let harness = try Harness(activeTmuxPaneID: nil)
         defer { harness.tearDown() }
 
         let routing = harness.routing()
+        let seededTmuxPaneID = try #require(harness.mirror.paneIDsInOrder.first)
+        let seededPaneID = try #require(harness.mirror.syntheticPaneID(forPane: seededTmuxPaneID)?.id)
+        let seededSurfaceID = try #require(harness.mirror.panel(forPane: seededTmuxPaneID)?.id)
         let expectedPaneIDs = harness.mirror.paneIDsInOrder.compactMap {
             harness.mirror.syntheticPaneID(forPane: $0)?.id
         }
         let paneList = try #require(TerminalController.shared.controlPaneList(routing: routing))
         #expect(paneList.panes.map(\.paneID) == expectedPaneIDs)
-        #expect(paneList.panes.allSatisfy { !$0.isFocused })
+        #expect(paneList.panes.first(where: \.isFocused)?.paneID == seededPaneID)
 
         let defaultSend = TerminalController.shared.controlSurfaceSendText(
             routing: routing,
             surfaceID: nil,
             hasSurfaceIDParam: false,
-            text: "must wait for authoritative focus"
+            text: "must fail closed at the dead transport"
         )
-        #expect(defaultSend == .noFocusedSurface)
-        #expect(TerminalController.shared.controlPaneSurfaces(routing: routing, paneID: nil) == nil)
+        #expect(defaultSend == .surfaceUnavailable(seededSurfaceID))
+
+        let paneSurfaces = try #require(TerminalController.shared.controlPaneSurfaces(
+            routing: routing,
+            paneID: nil
+        ))
+        #expect(paneSurfaces.paneID == seededPaneID)
+        #expect(paneSurfaces.surfaces.compactMap(\.surfaceID) == [seededSurfaceID])
 
         let current = try #require(TerminalController.shared.controlSurfaceCurrent(routing: routing))
-        #expect(current.paneID == nil)
-        #expect(current.surfaceID == nil)
-        #expect(current.surfaceTypeRawValue == nil)
+        #expect(current.paneID == seededPaneID)
+        #expect(current.surfaceID == seededSurfaceID)
+        #expect(current.surfaceTypeRawValue == PanelType.terminal.rawValue)
     }
 
     @Test func invalidExplicitPaneDoesNotFallBackToFocusedPane() throws {
