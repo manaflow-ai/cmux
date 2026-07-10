@@ -74,7 +74,7 @@ struct TerminalPortalHostAuthorityTests {
             onFocus: { _ in focusCount += 1 },
             onTriggerFlash: { flashCount += 1 }
         )
-        GhosttyTerminalView.installPortalHostHandlers(
+        GhosttyTerminalView.refreshPortalHostHandlersIfOwned(
             host: host,
             hostedView: surface.hostedView,
             terminalSurface: surface,
@@ -111,7 +111,7 @@ struct TerminalPortalHostAuthorityTests {
             onFocus: { _ in focusCount += 1 },
             onTriggerFlash: { flashCount += 1 }
         )
-        GhosttyTerminalView.installPortalHostHandlers(
+        GhosttyTerminalView.refreshPortalHostHandlersIfOwned(
             host: host,
             hostedView: surface.hostedView,
             terminalSurface: surface,
@@ -161,6 +161,7 @@ struct TerminalPortalHostAuthorityTests {
         let staleFocusHandler = surface.hostedView.surfaceView.onFocus
 
         surface.updateWorkspaceId(UUID())
+        coordinator.latestRequestedPortalHostOwnershipGeneration = surface.currentPortalHostOwnershipGeneration()
         staleFocusHandler?()
         #expect(focusCount == 0)
         #expect(surface.preparePortalHostReplacementIfOwned(
