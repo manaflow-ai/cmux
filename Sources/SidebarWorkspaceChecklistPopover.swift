@@ -1,3 +1,4 @@
+import AppKit
 import CmuxWorkspaces
 import SwiftUI
 
@@ -16,17 +17,17 @@ struct SidebarWorkspaceChecklistPopoverModel: Equatable {
 /// The checklist popover anchored to a workspace row's summary line
 /// (`sidebar.beta.workspaceTodos.checklistStyle` = `popover`): header with
 /// the workspace title and progress, the ordered item rows (completed sink
-/// below unchecked, clamped at 7 with an in-place "… N more"), a ghost add
-/// row whose TextField commits on Enter and re-arms, and an "Open as Pane"
-/// footer. Hosted in a real NSPopover so the TextField can take first
-/// responder (see `SidebarWorkspaceTodoPopoverHost`).
+/// below unchecked, viewport capped at ``visibleRowCount`` rows and
+/// scrollable beyond that), a ghost add row whose TextField commits on
+/// Enter and re-arms, and an "Open as Pane" footer. Hosted in a real
+/// NSPopover so the TextField can take first responder (see
+/// `SidebarWorkspaceTodoPopoverHost`).
 struct SidebarWorkspaceChecklistPopover: View {
     let model: SidebarWorkspaceChecklistPopoverModel
     let actions: SidebarWorkspaceChecklistActions
     let onConsumeAddFieldActivation: () -> Void
     let onClose: @MainActor () -> Void
 
-    @State private var showsAllItems = false
     @State private var pendingItemText = ""
     @FocusState private var addFieldFocused: Bool
     @State private var editingItemId: UUID?
@@ -45,36 +46,61 @@ struct SidebarWorkspaceChecklistPopover: View {
     /// Checkbox glyphs draw at 13pt (the inline row's base is 8pt·scale).
     private static let checkboxPointSize: CGFloat = 13
 
+    /// Single-line row height estimate (`itemFontSize` plus the row's own
+    /// `.padding(.vertical, 2)` on both edges plus a little line-height
+    /// headroom), used to cap the item list's scrollable viewport at
+    /// ``visibleRowCount`` rows instead of the previous flat 460pt cap
+    /// (≈23 rows).
+    private static let itemRowHeightEstimate: CGFloat = itemFontSize + 6
+    private static let visibleRowCount = 6
+    private static let rowSpacing: CGFloat = 2
+
+    /// Distance above a text line's baseline to its optical vertical center
+    /// (`(ascender + descender) / 2`), so the checkbox/remove button
+    /// `.alignmentGuide(.firstTextBaseline)` centers on the item text's
+    /// FIRST line specifically — not the whole multi-line block, and not the
+    /// baseline itself.
+    private var firstLineCenterOffset: CGFloat {
+        let font = NSFont.systemFont(ofSize: Self.itemFontSize)
+        return (font.ascender + font.descender) / 2
+    }
+
+    /// Content height for `count` rows, capped at ``visibleRowCount`` rows —
+    /// short lists get exactly their own height (no dead space), longer
+    /// lists get the 6-row cap and scroll for the rest.
+    private func scrollViewportHeight(forItemCount count: Int) -> CGFloat {
+        guard count > 0 else { return 0 }
+        let visibleCount = min(count, Self.visibleRowCount)
+        return Self.itemRowHeightEstimate * CGFloat(visibleCount)
+            + Self.rowSpacing * CGFloat(visibleCount - 1)
+    }
+
     var body: some View {
         let ordered = SidebarWorkspaceChecklistDisplayPolicy.orderedItems(model.items)
-        let clamped = SidebarWorkspaceChecklistDisplayPolicy.clampedItems(
-            ordered,
-            showsAllItems: showsAllItems
-        )
         VStack(alignment: .leading, spacing: 0) {
             header
                 .padding(.horizontal, 12)
                 .padding(.top, 10)
                 .padding(.bottom, 6)
-            ScrollView(.vertical) {
-                VStack(alignment: .leading, spacing: 2) {
-                    ForEach(clamped.visible) { item in
-                        itemRow(item)
+            if !ordered.isEmpty {
+                ScrollView(.vertical) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        ForEach(ordered) { item in
+                            itemRow(item)
+                        }
                     }
-                    if clamped.hiddenCount > 0 {
-                        moreRow(hiddenCount: clamped.hiddenCount)
-                    }
-                    addItemRow(visible: clamped.visible)
+                    .padding(.horizontal, 8)
                 }
+                .frame(height: scrollViewportHeight(forItemCount: ordered.count))
+            }
+            addItemRow(visible: ordered)
                 .padding(.horizontal, 8)
                 .padding(.bottom, 6)
-            }
-            .frame(maxHeight: 460)
             Divider()
             footer
         }
         .frame(width: 320, alignment: .leading)
-        .background(toggleHighlightedShortcutButton(visible: clamped.visible))
+        .background(toggleHighlightedShortcutButton(visible: ordered))
         .onAppear { addFieldFocused = true }
         .onChange(of: editFieldFocused) { _, focused in
             if !focused { finishItemEditOnFocusLoss() }
@@ -109,7 +135,7 @@ struct SidebarWorkspaceChecklistPopover: View {
 
     private func itemRow(_ item: WorkspaceChecklistItem) -> some View {
         let isCompleted = item.state == .completed
-        return HStack(alignment: .center, spacing: 6) {
+        return HStack(alignment: .firstTextBaseline, spacing: 6) {
             Button {
                 actions.setItemState(item.id, isCompleted ? .pending : .completed)
             } label: {
@@ -121,6 +147,7 @@ struct SidebarWorkspaceChecklistPopover: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + firstLineCenterOffset }
             .safeHelp(
                 isCompleted
                     ? String(localized: "sidebar.checklist.uncheckTooltip", defaultValue: "Mark as pending")
@@ -139,18 +166,23 @@ struct SidebarWorkspaceChecklistPopover: View {
                 .onExitCommand(perform: cancelItemEdit)
                 .accessibilityIdentifier("SidebarChecklistPopoverEditItemField")
             } else {
+                // No `lineLimit` — items wrap across multiple lines. The
+                // checkbox/remove button align to this Text's FIRST line
+                // only (`.firstTextBaseline`, offset by
+                // `firstLineCenterOffset`), not the whole wrapped block.
                 Text(item.text)
                     .font(.system(size: Self.itemFontSize))
                     .foregroundColor(isCompleted ? .secondary : .primary)
                     .strikethrough(isCompleted)
                     .opacity(isCompleted ? 0.6 : 1)
-                    .lineLimit(3)
-                    .truncationMode(.tail)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
                     .contentShape(Rectangle())
                     .onTapGesture { beginItemEdit(item) }
             }
             Spacer(minLength: 0)
             removeItemButton(for: item)
+                .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + firstLineCenterOffset }
         }
         .padding(.horizontal, 4)
         .padding(.vertical, 2)
@@ -218,30 +250,6 @@ struct SidebarWorkspaceChecklistPopover: View {
         .allowsHitTesting(isHovered)
         .accessibilityHidden(!isHovered)
         .accessibilityIdentifier("SidebarChecklistPopoverRemoveItemButton")
-    }
-
-    private func moreRow(hiddenCount: Int) -> some View {
-        Button {
-            showsAllItems = true
-        } label: {
-            Text(
-                String(
-                    format: String(
-                        localized: "sidebar.checklist.moreItems",
-                        defaultValue: "… %lld more"
-                    ),
-                    locale: .current,
-                    hiddenCount
-                )
-            )
-            .font(.system(size: Self.itemFontSize))
-            .foregroundColor(.secondary)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .padding(.horizontal, 4)
-        .padding(.vertical, 2)
-        .accessibilityIdentifier("SidebarChecklistPopoverMoreRow")
     }
 
     // MARK: Add-item row (always armed — typing needs zero extra clicks)

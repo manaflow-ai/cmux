@@ -147,9 +147,26 @@ struct SidebarWorkspaceTodoPopoverHost<Model: Equatable, PopoverContent: View>: 
         Coordinator(isPresented: $isPresented)
     }
 
+    /// Anchor view for the popover. Retries a pending `present()` once it
+    /// actually attaches to a window: a same-transaction "open immediately"
+    /// request (e.g. a zero-item workspace's first Add Checklist Item, where
+    /// the anchor is mounted in the very same SwiftUI update that also asks
+    /// to present) can find `window == nil` on the first `present()` call,
+    /// since AppKit view attachment can lag the SwiftUI commit that inserted
+    /// it. Without this retry the request was silently dropped.
+    final class AnchorView: NSView {
+        weak var coordinator: Coordinator?
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            coordinator?.anchorViewDidMoveToWindow()
+        }
+    }
+
     func makeNSView(context: Context) -> NSView {
-        let view = NSView()
+        let view = AnchorView()
         view.translatesAutoresizingMaskIntoConstraints = false
+        view.coordinator = context.coordinator
         context.coordinator.anchorView = view
         return view
     }
@@ -228,9 +245,19 @@ struct SidebarWorkspaceTodoPopoverHost<Model: Equatable, PopoverContent: View>: 
             updateContentSize()
         }
 
+        /// Retries a pending open once the anchor finishes attaching to its
+        /// window (see `AnchorView`). Without this, a `present()` call that
+        /// hit a detached anchor had no way to recover except an unrelated
+        /// later SwiftUI re-render happening to land after attachment.
+        func anchorViewDidMoveToWindow() {
+            guard isPresented, popover?.isShown != true else { return }
+            present()
+        }
+
         func present() {
             guard let anchorView, anchorView.window != nil else {
-                isPresented = false
+                // No window yet — don't clobber isPresented. AnchorView's
+                // viewDidMoveToWindow() retries once it actually attaches.
                 return
             }
             anchorView.superview?.layoutSubtreeIfNeeded()

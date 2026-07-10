@@ -1,3 +1,4 @@
+import AppKit
 import CmuxWorkspaces
 import SwiftUI
 
@@ -83,7 +84,6 @@ struct SidebarWorkspaceChecklistSection: View {
     let onConsumeAddFieldActivation: () -> Void
     let actions: SidebarWorkspaceChecklistActions
 
-    @State private var showsAllItems = false
     @State private var isAddingItem = false
     /// Bumped after each add to recreate the AppKit add field (which re-focuses
     /// and clears itself on appear).
@@ -116,21 +116,17 @@ struct SidebarWorkspaceChecklistSection: View {
             // which point `summaryLine` above is the small status preview.
             if !presentsPopover, isExpanded || totalCount == 0 {
                 expandedList
-            } else if presentsPopover, totalCount == 0 {
-                // A fully-empty VStack collapses to a degenerate (often
-                // zero-window) frame, which breaks the popover anchor below
-                // — keep a minimal, invisible placeholder so the anchor
-                // view always has real bounds and a window to show against.
-                Color.clear.frame(height: 1)
             }
         }
         // The popover anchor is hosted here (not on `summaryLine` alone) so
         // the same backing NSView anchors the popover across the 0→1 item
-        // transition — even though popover style renders neither
-        // `summaryLine` nor `expandedList` while `totalCount == 0`, this
-        // outer container is always present, so the anchor never needs to
-        // move; re-anchoring to a freshly created view would close and
-        // immediately reopen the popover.
+        // transition — this outer container is always present (even when
+        // popover style renders neither `summaryLine` nor `expandedList`
+        // while `totalCount == 0`), so the anchor never needs to move;
+        // re-anchoring to a freshly created view would close and immediately
+        // reopen the popover. The anchor is a fixed 1×1pt corner overlay
+        // (see `ChecklistSummaryPopoverModifier`), so it has real, stable
+        // bounds regardless of whether this VStack has any content.
         .modifier(ChecklistSummaryPopoverModifier(
             isPresented: presentsPopover
                 ? Binding(get: { isPopoverPresented }, set: { onPopoverPresentedChange($0) })
@@ -205,25 +201,43 @@ struct SidebarWorkspaceChecklistSection: View {
     @ViewBuilder
     private var expandedList: some View {
         let ordered = SidebarWorkspaceChecklistDisplayPolicy.orderedItems(items)
-        let clamped = SidebarWorkspaceChecklistDisplayPolicy.clampedItems(
-            ordered,
-            showsAllItems: showsAllItems
-        )
         VStack(alignment: .leading, spacing: 2) {
-            ForEach(clamped.visible) { item in
-                checklistItemRow(item)
-            }
-            if clamped.hiddenCount > 0 {
-                moreRow(hiddenCount: clamped.hiddenCount)
+            if !ordered.isEmpty {
+                ScrollView(.vertical) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        ForEach(ordered) { item in
+                            checklistItemRow(item)
+                        }
+                    }
+                }
+                .frame(height: scrollViewportHeight(forItemCount: ordered.count))
             }
             addItemRow
         }
         .padding(.leading, 2)
     }
 
+    /// Single-line row height estimate (matches the add/edit field's own
+    /// `11 * fontScale + 4` sizing), used to cap the expanded list's
+    /// scrollable viewport at ``visibleRowCount`` rows instead of letting an
+    /// arbitrarily long checklist grow the sidebar row without bound.
+    private var itemRowHeightEstimate: CGFloat { 11 * fontScale + 4 }
+    private static let visibleRowCount = 6
+    private static let rowSpacing: CGFloat = 2
+
+    /// Content height for `count` rows, capped at ``visibleRowCount`` rows —
+    /// short lists get exactly their own height (no dead space), longer
+    /// lists get the 6-row cap and scroll for the rest.
+    private func scrollViewportHeight(forItemCount count: Int) -> CGFloat {
+        guard count > 0 else { return 0 }
+        let visibleCount = min(count, Self.visibleRowCount)
+        return itemRowHeightEstimate * CGFloat(visibleCount)
+            + Self.rowSpacing * CGFloat(visibleCount - 1)
+    }
+
     private func checklistItemRow(_ item: WorkspaceChecklistItem) -> some View {
         let isCompleted = item.state == .completed
-        return HStack(alignment: .center, spacing: 4) {
+        return HStack(alignment: .firstTextBaseline, spacing: 4) {
             Button {
                 actions.setItemState(item.id, isCompleted ? .pending : .completed)
             } label: {
@@ -235,6 +249,7 @@ struct SidebarWorkspaceChecklistSection: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + firstLineCenterOffset }
             .safeHelp(
                 isCompleted
                     ? String(localized: "sidebar.checklist.uncheckTooltip", defaultValue: "Mark as pending")
@@ -253,18 +268,23 @@ struct SidebarWorkspaceChecklistSection: View {
                 .frame(height: 11 * fontScale + 4)
                 .accessibilityIdentifier("SidebarChecklistEditItemField")
             } else {
+                // No `lineLimit` — items wrap across multiple lines. The
+                // checkbox/remove button above/below align to this Text's
+                // FIRST line only (`.firstTextBaseline`, offset by
+                // `firstLineCenterOffset`), not the whole wrapped block.
                 Text(item.text)
                     .font(itemFont)
                     .foregroundColor(isCompleted ? secondaryColor : primaryColor)
                     .strikethrough(isCompleted)
                     .opacity(isCompleted ? 0.6 : 1)
-                    .lineLimit(2)
-                    .truncationMode(.tail)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
                     .contentShape(Rectangle())
                     .onTapGesture { beginItemEdit(item) }
             }
             Spacer(minLength: 0)
             removeItemButton(for: item)
+                .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + firstLineCenterOffset }
         }
         .contentShape(Rectangle())
         .onHover { hovering in
@@ -298,6 +318,19 @@ struct SidebarWorkspaceChecklistSection: View {
         }
     }
 
+    /// Distance above a text line's baseline to its optical vertical center
+    /// (`(ascender + descender) / 2`), so the checkbox/remove button
+    /// `.alignmentGuide(.firstTextBaseline)` centers on the item text's
+    /// FIRST line specifically — not the whole multi-line block, and not the
+    /// baseline itself. `itemFont` is `magnifiedFont(scaledFontSize(10))`
+    /// (see `ContentView.magnifiedFont`); approximated here as
+    /// `10 * fontScale` since the global magnification percent isn't
+    /// threaded down to this view — close enough for an alignment offset.
+    private var firstLineCenterOffset: CGFloat {
+        let font = NSFont.systemFont(ofSize: 10 * fontScale)
+        return (font.ascender + font.descender) / 2
+    }
+
     /// Trailing hover-reveal delete affordance, in addition to the row's
     /// context-menu "Remove" entry. Always laid out at a fixed size (only
     /// `.opacity`/`.allowsHitTesting` toggle) so the row's height never jumps
@@ -319,28 +352,6 @@ struct SidebarWorkspaceChecklistSection: View {
         .allowsHitTesting(isHovered)
         .accessibilityHidden(!isHovered)
         .accessibilityIdentifier("SidebarChecklistRemoveItemButton")
-    }
-
-    private func moreRow(hiddenCount: Int) -> some View {
-        Button {
-            showsAllItems = true
-        } label: {
-            Text(
-                String(
-                    format: String(
-                        localized: "sidebar.checklist.moreItems",
-                        defaultValue: "… %lld more"
-                    ),
-                    locale: .current,
-                    hiddenCount
-                )
-            )
-            .font(itemFont)
-            .foregroundColor(secondaryColor)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier("SidebarChecklistMoreRow")
     }
 
     // MARK: Add-item row
@@ -427,11 +438,20 @@ struct SidebarWorkspaceChecklistSection: View {
 
 /// Attaches the checklist popover to the section container (not just the
 /// summary line — see the call site comment in ``SidebarWorkspaceChecklistSection/body``)
-/// with SwiftUI's native `.popover` (not the NSPopover host): an embedded
-/// NSViewRepresentable inside a `.onHover`-tracked sidebar row suppresses the
-/// row's hover tracking, which hid the hover-close "x". The add field takes
-/// first responder via `@FocusState` set on appear inside
-/// `SidebarWorkspaceChecklistPopover`.
+/// via `SidebarWorkspaceTodoPopoverHost` (a real NSPopover, not SwiftUI's
+/// native `.popover()`): the checklist popover embeds a first-responder
+/// TextField (the add/edit fields), and SwiftUI's native `.popover` does not
+/// make its window key in cmux's focus-managed environment, so keystrokes
+/// fall through to the terminal.
+///
+/// The anchor NSView is pinned to a fixed 1×1pt corner via `.overlay` rather
+/// than spanning the whole section via `.background()`: an
+/// NSViewRepresentable stacked as a `.background()` behind the full row was
+/// found to suppress `.onHover` tracking for the item rows underneath it
+/// (the hover-reveal delete "x" stopped appearing reliably). Shrinking its
+/// footprint to a single corner point removes it from the row's
+/// hit-testing/hover area while keeping one stable, always-present anchor
+/// across the 0→1 item transition.
 private struct ChecklistSummaryPopoverModifier: ViewModifier {
     @Binding var isPresented: Bool
     let model: SidebarWorkspaceChecklistPopoverModel
@@ -439,14 +459,8 @@ private struct ChecklistSummaryPopoverModifier: ViewModifier {
     let onConsumeAddFieldActivation: () -> Void
     let onPopoverPresentedChange: @MainActor (Bool) -> Void
 
-    // The checklist popover embeds a first-responder TextField (the add / edit
-    // fields). SwiftUI's native `.popover` does not make its window key in
-    // cmux's focus-managed environment, so keystrokes fall through to the
-    // terminal. Host it in a real NSPopover (which takes key) instead. This
-    // modifier is only attached within the checklist section, so it does not
-    // touch the every-row hover path the status glyph uses.
     func body(content: Content) -> some View {
-        content.background(
+        content.overlay(alignment: .topTrailing) {
             SidebarWorkspaceTodoPopoverHost(
                 isPresented: $isPresented,
                 model: model,
@@ -464,6 +478,8 @@ private struct ChecklistSummaryPopoverModifier: ViewModifier {
                     }
                 )
             }
-        )
+            .frame(width: 1, height: 1)
+            .allowsHitTesting(false)
+        }
     }
 }
