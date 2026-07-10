@@ -11,8 +11,12 @@ final class TerminationResumeIndexCoordinator {
     private var completed: ProcessDetectedResumeIndexes?
     private var pendingLoad: PendingLoad?
 
+    func load() async -> ProcessDetectedResumeIndexes? {
+        await load(coordinatedBy: .shared)
+    }
+
     func load(
-        coordinatedBy sharedIndex: SharedLiveAgentIndex = .shared
+        coordinatedBy sharedIndex: SharedLiveAgentIndex
     ) async -> ProcessDetectedResumeIndexes? {
         if let completed {
             return completed
@@ -41,8 +45,12 @@ final class TerminationResumeIndexCoordinator {
         return completed ?? result
     }
 
+    func current() -> ProcessDetectedResumeIndexes? {
+        current(coordinatedBy: .shared)
+    }
+
     func current(
-        coordinatedBy sharedIndex: SharedLiveAgentIndex = .shared
+        coordinatedBy sharedIndex: SharedLiveAgentIndex
     ) -> ProcessDetectedResumeIndexes? {
         completed ?? sharedIndex.currentResumeIndexesSchedulingRefresh()
     }

@@ -158,7 +158,7 @@ final class SharedLiveAgentIndex {
 
     /// Returns a recent combined result, joins the active generation, or starts one when stale.
     func resumeIndexesRefreshingIfNeeded(
-        maximumAge: TimeInterval = Self.cacheTTL
+        maximumAge: TimeInterval = 60
     ) async -> ProcessDetectedResumeIndexes? {
         ensureWatchingHookStoreDirectory()
         if let latestCompletedLoadResult,
