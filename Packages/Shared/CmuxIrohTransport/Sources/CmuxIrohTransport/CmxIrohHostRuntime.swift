@@ -13,6 +13,10 @@ public actor CmxIrohHostRuntime {
         _ discovery: CmxIrohDiscoveryResponse,
         _ attestation: CmxIrohEndpointAttestationResponse?
     ) async -> Void
+    /// Clears app-visible network state after the endpoint and accepts are closed.
+    ///
+    /// Persistent identity and credential deletion belongs to the caller and
+    /// must remain conditional on a successfully queued sign-out revocation.
     public typealias DeactivationHandler = @Sendable (_ bindingID: String?) async -> Void
     public typealias RelayCredentialHandler = @Sendable (
         _ response: CmxIrohRelayTokenResponse,
@@ -305,15 +309,16 @@ public actor CmxIrohHostRuntime {
     ///
     /// The binding is captured and the lifecycle enters `signingOut` before the
     /// first suspension. Endpoint teardown and device-only persistence run
-    /// concurrently. Persistence failure leaves the closed runtime quarantined,
-    /// retains the binding, and skips the injected deactivation handler. Calling
-    /// this method again while quarantined retries the durable enqueue.
+    /// concurrently. App-visible network state is cleared on either outcome.
+    /// Persistence failure leaves identity state and the binding quarantined.
+    /// Calling this method again while quarantined retries the durable enqueue.
     ///
     /// - Returns: The prior binding and whether it was durably queued.
     public func deactivateForSignOut() async -> CmxIrohHostSignOutPreparation {
         if let signOutOperation {
             return await signOutOperation.value
         }
+        let requiresNetworkDeactivation = lifecyclePhase != .quarantined
         let pendingRevocation = localBinding.flatMap { binding in
             try? CmxIrohPendingRevocation(
                 accountID: configuration.accountID,
@@ -333,6 +338,7 @@ public actor CmxIrohHostRuntime {
         let operation = Task {
             await self.performSignOut(
                 pendingRevocation: pendingRevocation,
+                requiresNetworkDeactivation: requiresNetworkDeactivation,
                 revision: revision
             )
         }
@@ -779,15 +785,16 @@ public actor CmxIrohHostRuntime {
 
     private func performSignOut(
         pendingRevocation: CmxIrohPendingRevocation?,
+        requiresNetworkDeactivation: Bool,
         revision: UInt64
     ) async -> CmxIrohHostSignOutPreparation {
         async let wasPersisted = Self.persist(
             pendingRevocation,
             to: pendingRevocations
         )
-        async let networkTeardown: Void = tearDownComponents(
-            notify: false,
-            preserveBinding: true
+        async let networkTeardown: Void = deactivateNetworkForSignOut(
+            bindingID: pendingRevocation?.bindingID,
+            required: requiresNetworkDeactivation
         )
         let (persisted, _) = await (wasPersisted, networkTeardown)
         let preparation = CmxIrohHostSignOutPreparation(
@@ -811,12 +818,6 @@ public actor CmxIrohHostRuntime {
             return preparation
         }
 
-        await handleDeactivation(pendingRevocation?.bindingID)
-        guard lifecyclePhase == .signingOut,
-              lifecycleRevision == revision else {
-            signOutOperation = nil
-            return preparation
-        }
         localBinding = nil
         lifecyclePhase = .inactive
         currentSnapshot = CmxIrohHostRuntimeSnapshot(
@@ -839,6 +840,15 @@ public actor CmxIrohHostRuntime {
         } catch {
             return false
         }
+    }
+
+    private func deactivateNetworkForSignOut(
+        bindingID: String?,
+        required: Bool
+    ) async {
+        guard required else { return }
+        await tearDownComponents(notify: false, preserveBinding: true)
+        await handleDeactivation(bindingID)
     }
 
     private func tearDownComponents(

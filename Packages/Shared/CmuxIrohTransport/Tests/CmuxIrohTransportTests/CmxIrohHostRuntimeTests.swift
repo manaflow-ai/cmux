@@ -196,7 +196,7 @@ struct CmxIrohHostRuntimeTests {
         #expect(preparation.bindingID == fixture.binding.bindingID)
         #expect(!preparation.wasPersisted)
         #expect(await endpoint.observedCloseCallCount() == 1)
-        #expect(await deactivations.values().isEmpty)
+        #expect(await deactivations.values() == [fixture.binding.bindingID])
         let quarantined = await runtime.snapshot()
         #expect(quarantined.state == .quarantined)
         #expect(quarantined.endpointID == nil)
