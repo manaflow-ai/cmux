@@ -265,7 +265,6 @@ final class SharedLiveAgentIndex {
                 validating: nil
             )
             return await task.value.map(ProcessDetectedResumeIndexes.init)
-                ?? self.latestCompletedLoadResult.map(ProcessDetectedResumeIndexes.init)
         }
         let task = requestRefresh(
             freshness: .joinCurrentGeneration,
