@@ -108,6 +108,27 @@ impl Session {
         }
     }
 
+    pub fn take_remote_tree_stale(&self) -> bool {
+        match self {
+            Session::Local(_) => false,
+            Session::Remote(remote) => remote.take_tree_stale(),
+        }
+    }
+
+    pub fn remote_tree_is_stale(&self) -> bool {
+        match self {
+            Session::Local(_) => false,
+            Session::Remote(remote) => remote.tree_is_stale(),
+        }
+    }
+
+    pub fn refresh_tree(&self) -> anyhow::Result<TreeView> {
+        match self {
+            Session::Local(_) => Ok(self.tree()),
+            Session::Remote(remote) => remote.refresh_tree(),
+        }
+    }
+
     /// Make sure the session has at least one workspace to show. `size`
     /// is the expected content size of the first pane, when known.
     pub fn ensure_initial(&self, size: Option<(u16, u16)>) -> anyhow::Result<()> {
@@ -117,7 +138,7 @@ impl Session {
                 Ok(())
             }
             Session::Remote(remote) => {
-                if remote.tree()?.workspaces.is_empty() {
+                if remote.refresh_tree()?.workspaces.is_empty() {
                     remote.request(with_size(json!({"cmd": "new-workspace"}), size))?;
                 }
                 Ok(())
@@ -200,7 +221,7 @@ impl Session {
                     tree::tree_from_state_with_notifications(state, &notifications)
                 })
             }
-            Session::Remote(remote) => remote.tree().unwrap_or_default(),
+            Session::Remote(remote) => remote.cached_tree(),
         }
     }
 

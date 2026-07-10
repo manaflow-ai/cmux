@@ -563,10 +563,12 @@ impl RemoteSession {
         self.tree.lock().unwrap().surface_kind(id)
     }
 
-    pub fn tree(&self) -> anyhow::Result<TreeView> {
-        if !self.tree_stale.swap(false, Ordering::AcqRel) {
-            return Ok(self.tree.lock().unwrap().clone());
-        }
+    pub fn cached_tree(&self) -> TreeView {
+        self.tree.lock().unwrap().clone()
+    }
+
+    pub fn refresh_tree(&self) -> anyhow::Result<TreeView> {
+        self.tree_stale.store(false, Ordering::Release);
         let data = match self.request(json!({"cmd": "list-workspaces"})) {
             Ok(data) => data,
             Err(e) => {
@@ -586,6 +588,14 @@ impl RemoteSession {
 
     pub fn invalidate_tree(&self) {
         self.tree_stale.store(true, Ordering::Release);
+    }
+
+    pub fn take_tree_stale(&self) -> bool {
+        self.tree_stale.swap(false, Ordering::AcqRel)
+    }
+
+    pub fn tree_is_stale(&self) -> bool {
+        self.tree_stale.load(Ordering::Acquire)
     }
 }
 
