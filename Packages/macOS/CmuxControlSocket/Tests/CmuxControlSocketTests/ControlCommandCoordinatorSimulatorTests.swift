@@ -288,6 +288,27 @@ struct ControlCommandCoordinatorSimulatorTests {
         }
     }
 
+    @Test("Rotate accepts mixed-case hyphenated orientation aliases")
+    func rotateAliases() {
+        let context = FakeSimulatorControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+        let receipt = ControlSimulatorOperationReceipt()
+        receipt.complete(.success(.object([:])))
+        context.operationResolution = .started(
+            surfaceID: UUID(), timeoutSeconds: 1, receipt: receipt
+        )
+
+        for (alias, expected) in [
+            "Landscape-Left": "landscape_left",
+            "PORTRAIT-UPSIDE-DOWN": "portrait_upside_down",
+        ] {
+            _ = coordinator.handleSocketWorkerV2(request("simulator.rotate", [
+                "orientation": .string(alias),
+            ]), context: context)
+            #expect(context.lastOperation == .rotate(expected))
+        }
+    }
+
     @Test("Core Animation diagnostic names are case insensitive")
     func coreAnimationDiagnosticNames() {
         let context = FakeSimulatorControlCommandContext()
