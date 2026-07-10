@@ -199,6 +199,10 @@ struct cmuxApp: App {
         KeyboardShortcutSettings.settingsFileStore.applyDeferredManagedDefaultSideEffects()
         StartupBreadcrumbLog.append("app.init.keyboardShortcuts.sideEffectsApplied")
         StartupBreadcrumbLog.append("app.init.tabManager.begin")
+        let browserWebExtensionHost = makeBrowserWebExtensionHostAtLaunch(
+            jsonStore: settingsRuntime.jsonStore,
+            catalog: settingsCatalog
+        )
         _tabManager = StateObject(wrappedValue: TabManager(browserWebExtensionHost: browserWebExtensionHost))
         StartupBreadcrumbLog.append("app.init.tabManager.complete")
         // Migrate legacy and old-format socket mode values to the new enum.
