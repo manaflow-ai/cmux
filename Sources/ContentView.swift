@@ -966,7 +966,7 @@ struct ContentView: View {
     @FocusState private var isCommandPaletteSearchFocused: Bool
     @FocusState private var isCommandPaletteRenameFocused: Bool
     private let windowChrome = AppWindowChromeComposition()
-
+    private let sidebarResizerOcclusionResolver = SidebarResizerOcclusionResolver()
     private struct CommandPaletteRestoreFocusTarget {
         let workspaceId: UUID
         let panelId: UUID
@@ -1423,7 +1423,7 @@ struct ContentView: View {
         // Use live pointer location; overlapping WKWebView tracking areas can report stale cursor-update locations.
         let pointInWindow = window.convertPoint(fromScreen: NSEvent.mouseLocation)
         let pointInContent = contentView.convert(pointInWindow, from: nil)
-        let isInDividerBand = SidebarResizerPointerOcclusion.dividerBandContains(
+        let isInDividerBand = sidebarResizerOcclusionResolver.dividerBandContains(
             point: pointInContent,
             contentBounds: contentView.bounds,
             isLeftSidebarVisible: sidebarState.isVisible,
@@ -1431,7 +1431,7 @@ struct ContentView: View {
             isRightSidebarVisible: rightSidebarVisible,
             rightDividerX: contentView.bounds.maxX - rightSidebarWidth
         )
-        let mayActivate = SidebarResizerPointerOcclusion.bandMayActivate(
+        let mayActivate = sidebarResizerOcclusionResolver.bandMayActivate(
             isDragging: isResizerDragging,
             isInDividerBand: isInDividerBand,
             screenPoint: NSEvent.mouseLocation,
