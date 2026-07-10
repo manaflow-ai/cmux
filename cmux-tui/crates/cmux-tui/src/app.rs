@@ -1798,7 +1798,14 @@ impl App {
             }
             self.retry_deferred_surface_attach();
             if self.browser_input.resize_retry_due() {
-                self.reassert_visible_surface_sizes();
+                let mut visible_surfaces =
+                    self.pane_areas.iter().map(|area| area.surface).collect::<HashSet<_>>();
+                if let Some(surface) = self.sidebar_plugin_surface {
+                    visible_surfaces.insert(surface);
+                }
+                if self.browser_input.visible_resize_retry_due(&visible_surfaces) {
+                    self.reassert_visible_surface_sizes();
+                }
             }
             self.retry_sidebar_plugin_if_due();
             self.retry_background_refresh_if_due();
@@ -2263,6 +2270,10 @@ impl App {
 
     fn retry_sidebar_plugin_if_due(&mut self) {
         if self.sidebar_plugin_retry_at.is_none_or(|retry_at| Instant::now() < retry_at) {
+            return;
+        }
+        if matches!(self.drag, Some(Drag::PtyMouse { .. })) {
+            self.sidebar_plugin_retry_at = Some(Instant::now() + Duration::from_millis(250));
             return;
         }
         self.sidebar_plugin_retry_at = None;
@@ -6440,6 +6451,21 @@ mod tests {
         assert!(!app.sync_sidebar_plugin(false));
         assert!(!app.session.has_pending_mutations());
 
+        app.sidebar_plugin_retry_at = Some(Instant::now() - Duration::from_millis(1));
+        app.drag = Some(Drag::PtyMouse {
+            surface: 42,
+            reservation_id: 7,
+            release_bytes: PtyInputBytes::from_slice(b"release"),
+            content: Rect { x: 1, y: 1, width: 20, height: 8 },
+            button: MouseButton::Left,
+            position: (4, 3),
+            modifiers: KeyModifiers::NONE,
+        });
+        app.retry_sidebar_plugin_if_due();
+        assert!(matches!(app.drag, Some(Drag::PtyMouse { reservation_id: 7, .. })));
+        assert!(!app.session.has_pending_mutations());
+
+        app.drag = None;
         app.sidebar_plugin_retry_at = Some(Instant::now() - Duration::from_millis(1));
         app.retry_sidebar_plugin_if_due();
 

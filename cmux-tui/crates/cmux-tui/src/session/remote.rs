@@ -532,6 +532,29 @@ impl RemoteSession {
                     surface: surface_id(),
                 }));
             }
+            Some("overflow") => {
+                if value.get("scope").and_then(Value::as_str) == Some("surface") {
+                    let surface = surface_id().map_or_else(String::new, |id| format!(" {id}"));
+                    self.emit(MuxEvent::Status(format!(
+                        "surface{surface} event stream overflowed; global events remain active"
+                    )));
+                    return;
+                }
+                self.tree_stale.store(true, Ordering::Release);
+                let id = self.next_id.fetch_add(1, Ordering::Relaxed);
+                let mut line = serde_json::to_vec(&json!({"cmd": "subscribe", "id": id}))
+                    .expect("subscribe recovery command is serializable");
+                line.push(b'\n');
+                let recovery = self.writer.lock().unwrap().write_all(&line);
+                let message = match recovery {
+                    Ok(()) => "event subscription overflowed; resubscribing".to_string(),
+                    Err(error) => {
+                        format!("event subscription overflowed; resubscribe failed: {error}")
+                    }
+                };
+                self.emit(MuxEvent::Status(message));
+                self.emit(MuxEvent::TreeChanged);
+            }
             Some("status") => {
                 if let Some(message) = value.get("message").and_then(|v| v.as_str()) {
                     self.emit(MuxEvent::Status(message.to_string()));
@@ -1219,6 +1242,29 @@ mod tests {
                         && notification.surface == Some(7)
             )
         }));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn subscription_overflow_resubscribes_and_invalidates_tree() {
+        let (client, server) = UnixStream::pair().unwrap();
+        let session = socket_test_session(client);
+        let events = session.subscribe();
+        session.tree_stale.store(false, Ordering::Release);
+
+        session.handle_line(json!({
+            "event": "overflow",
+            "error": "subscriber fell behind",
+        }));
+
+        let mut line = String::new();
+        BufReader::new(server).read_line(&mut line).unwrap();
+        let command: Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(command.get("cmd").and_then(Value::as_str), Some("subscribe"));
+        assert!(session.tree_is_stale());
+        let received = events.try_iter().collect::<Vec<_>>();
+        assert!(received.iter().any(|event| matches!(event, MuxEvent::Status(_))));
+        assert!(received.iter().any(|event| matches!(event, MuxEvent::TreeChanged)));
     }
 
     #[test]

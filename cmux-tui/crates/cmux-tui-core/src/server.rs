@@ -868,6 +868,14 @@ fn spawn_attach_notification_stream(
                     break;
                 }
             }
+            if events.overflowed() {
+                let _ = writer.send(&json!({
+                    "event": "overflow",
+                    "scope": "surface",
+                    "surface": surface_id,
+                    "error": "surface event subscriber fell behind; reattach the surface",
+                }));
+            }
         })
         .map(|_| ())
 }
@@ -1373,6 +1381,9 @@ fn handle_command(mux: &Arc<Mux>, cmd: Command, writer: &LineWriter) -> anyhow::
                         break;
                     }
                 }
+                if events.overflowed() {
+                    let _ = writer.send(&subscription_overflow_json());
+                }
             })?;
             Ok(json!({}))
         }
@@ -1483,6 +1494,13 @@ fn subscribed_event_json(event: &MuxEvent) -> Value {
         MuxEvent::LayoutChanged(screen) => json!({"event": "layout-changed", "screen": screen}),
         MuxEvent::Empty => json!({"event": "empty"}),
     }
+}
+
+fn subscription_overflow_json() -> Value {
+    json!({
+        "event": "overflow",
+        "error": "subscriber fell behind; resubscribe to continue receiving events",
+    })
 }
 
 /// Remove the socket file (call on clean shutdown).

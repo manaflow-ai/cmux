@@ -22,7 +22,7 @@
 //! persistently failing CDP geometry update ahead of every input would stall the
 //! browser lane.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, SyncSender, TrySendError, sync_channel};
 use std::sync::{Arc, Mutex};
@@ -235,6 +235,17 @@ impl BrowserInputDispatcher {
     pub fn resize_retry_due(&self) -> bool {
         let now = Instant::now();
         self.failed_resizes.lock().unwrap().values().any(|failure| failure.retry_after <= now)
+    }
+
+    /// Expired failures for hidden surfaces are retired. A later layout pass
+    /// will enqueue the current geometry if that surface becomes visible again.
+    pub fn visible_resize_retry_due(&self, visible_surfaces: &HashSet<SurfaceId>) -> bool {
+        let now = Instant::now();
+        let mut failures = self.failed_resizes.lock().unwrap();
+        failures.retain(|surface, failure| {
+            failure.retry_after > now || visible_surfaces.contains(surface)
+        });
+        failures.values().any(|failure| failure.retry_after <= now)
     }
 
     pub fn forget_surface(&self, surface_id: SurfaceId) {
@@ -641,6 +652,17 @@ mod tests {
         dispatcher.failed_resizes.lock().unwrap().get_mut(&7).unwrap().retry_after =
             Instant::now() - Duration::from_millis(1);
         assert!(dispatcher.resize_retry_due());
+        assert!(!dispatcher.visible_resize_retry_due(&HashSet::new()));
+        assert!(!dispatcher.resize_retry_due());
+        dispatcher.failed_resizes.lock().unwrap().insert(
+            7,
+            FailedBrowserResize {
+                desired: (100, 24),
+                attempts: 1,
+                retry_after: Instant::now() - Duration::from_millis(1),
+            },
+        );
+        assert!(dispatcher.visible_resize_retry_due(&HashSet::from([7])));
         dispatcher.enqueue(resize_event(7, 100));
         failure_rx.recv_timeout(Duration::from_secs(1)).unwrap();
         assert_eq!(dispatcher.failed_resizes.lock().unwrap().get(&7).unwrap().attempts, 2);

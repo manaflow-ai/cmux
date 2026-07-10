@@ -34,6 +34,7 @@ struct MuxEventMailboxState {
     surface_output_sequences: HashMap<SurfaceId, u128>,
     surface_outputs: BTreeMap<u128, SurfaceId>,
     closed: bool,
+    overflowed: bool,
 }
 
 impl MuxEventBroadcaster {
@@ -128,6 +129,7 @@ impl MuxEventMailboxState {
             true
         } else {
             self.closed = true;
+            self.overflowed = true;
             false
         }
     }
@@ -156,6 +158,10 @@ impl MuxEventMailboxState {
 }
 
 impl MuxEventReceiver {
+    pub fn overflowed(&self) -> bool {
+        self.mailbox.state.lock().unwrap().overflowed
+    }
+
     pub fn recv(&self) -> Result<MuxEvent, RecvError> {
         let mut state = self.mailbox.state.lock().unwrap();
         loop {
@@ -321,6 +327,7 @@ mod tests {
 
         let slow_events = slow.try_iter().collect::<Vec<_>>();
         assert_eq!(slow_events.len(), MAX_PENDING_EVENTS);
+        assert!(slow.overflowed());
         assert!(matches!(slow.try_recv(), Err(TryRecvError::Disconnected)));
 
         broadcaster.emit(MuxEvent::Bell(9_999));
