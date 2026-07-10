@@ -5693,6 +5693,7 @@ class TerminalController {
         }
 
         CmuxEventBus.shared.publishWorkstreamEvent(event, phase: "received")
+        AgentGUIService.shared?.handleHookEvent(event)
         v2ApplyIMessageModeSideEffects(for: event)
         let result = FeedCoordinator.shared.ingestBlocking(
             event: event,
@@ -14001,6 +14002,11 @@ class TerminalController {
         // MobileHostRPCResult` type round-trip with no behavior change. The v2
         // control socket shares the same bodies through `handleMobileHost`, so the
         // wire bytes stay identical across both entrypoints without a bridge here.
+        if let service = AgentGUIService.shared,
+           let result = await AgentGUIRPCHandler(service: service).handle(request) {
+            return result
+        }
+
         let result: V2CallResult
         switch request.method {
         case "mobile.host.status":
