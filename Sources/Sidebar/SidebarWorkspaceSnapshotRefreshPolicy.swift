@@ -98,6 +98,14 @@ struct SidebarWorkspaceRowInteractionState: Equatable {
     private var contextMenuTrackingObserverInstalled = false
     private var deferredPointerHoveringWhileContextMenu: Bool?
 
+    /// The hover value SwiftUI currently tracks for the row, including the
+    /// deferred value held while a context menu is open. The AppKit hover
+    /// reconciler compares this against pointer geometry and forces a report
+    /// only on disagreement.
+    var trackedPointerHovering: Bool {
+        deferredPointerHoveringWhileContextMenu ?? isPointerHovering
+    }
+
     mutating func setPointerHovering(_ hovering: Bool) {
         if contextMenuVisible {
             if hovering || contextMenuTrackingObserverInstalled {
