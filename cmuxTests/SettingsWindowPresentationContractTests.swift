@@ -39,8 +39,15 @@ extension SettingsWindowSharedStateSuites {
                 // replacement that resurrects a window the user just closed.
                 firstWindow.simulatesDockMiniaturization = true
                 firstWindow.stallsDeminiaturizeCommit = true
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak firstWindow] in
-                    firstWindow?.close()
+                // Timer (a run-loop source), never DispatchQueue.main.asyncAfter:
+                // the presenter's bounded wait pumps the run loop from inside
+                // the current main-queue job, and a nested pump cannot drain
+                // the serial main dispatch queue — only run-loop sources fire,
+                // which is also how AppKit delivers the real transition.
+                Timer.scheduledTimer(withTimeInterval: 0.05, repeats: false) { [weak firstWindow] _ in
+                    MainActor.assumeIsolated {
+                        firstWindow?.close()
+                    }
                 }
 
                 let result = presenter.show()
@@ -79,8 +86,15 @@ extension SettingsWindowSharedStateSuites {
                 let reopener = ReopenOnSettingsTestWindowClose {
                     _ = presenter.show(activateApp: false)
                 }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak firstWindow] in
-                    firstWindow?.close()
+                // Timer (a run-loop source), never DispatchQueue.main.asyncAfter:
+                // the presenter's bounded wait pumps the run loop from inside
+                // the current main-queue job, and a nested pump cannot drain
+                // the serial main dispatch queue — only run-loop sources fire,
+                // which is also how AppKit delivers the real transition.
+                Timer.scheduledTimer(withTimeInterval: 0.05, repeats: false) { [weak firstWindow] _ in
+                    MainActor.assumeIsolated {
+                        firstWindow?.close()
+                    }
                 }
 
                 let result = presenter.show()
@@ -118,7 +132,7 @@ extension SettingsWindowSharedStateSuites {
                 firstWindow.simulatesDockMiniaturization = true
                 firstWindow.asyncDeminiaturizeCommitDelay = 0.2
                 var reentrantResult: SettingsWindowShowResult?
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                Timer.scheduledTimer(withTimeInterval: 0.05, repeats: false) { _ in
                     MainActor.assumeIsolated {
                         reentrantResult = presenter.show()
                     }

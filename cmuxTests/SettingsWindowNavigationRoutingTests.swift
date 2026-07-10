@@ -257,8 +257,15 @@ final class SettingsTestHostWindow: SettingsHostWindow {
         guard !refusesToBecomeVisible else { return }
         if isAwaitingDeminiaturizeAnimation {
             if let delay = asyncDeminiaturizeCommitDelay {
-                DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-                    self?.isAwaitingDeminiaturizeAnimation = false
+                // Timer (a run-loop source), never DispatchQueue.main.asyncAfter:
+                // the presenter's bounded wait pumps the run loop from inside
+                // the current main-queue job, and a nested pump cannot drain
+                // the serial main dispatch queue — only run-loop sources fire,
+                // which is also how AppKit delivers the real commit.
+                Timer.scheduledTimer(withTimeInterval: delay, repeats: false) { [weak self] _ in
+                    MainActor.assumeIsolated {
+                        self?.isAwaitingDeminiaturizeAnimation = false
+                    }
                 }
             } else if !stallsDeminiaturizeCommit {
                 // Real AppKit (probed on macOS 26): orderFrontRegardless
