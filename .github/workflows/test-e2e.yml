@@ -400,8 +400,10 @@ jobs:
             fi
             GUI_UID="$(id -u "$GUI_USER")"
             FRAME_DIR=/tmp/test-recording-frames
+            RECORD_READY=/tmp/test-recording-ready
             rm -rf "$FRAME_DIR"
             mkdir -p "$FRAME_DIR"
+            rm -f "$RECORD_READY"
 
             printf '%s\n' \
               '#import <AppKit/AppKit.h>' \
@@ -422,6 +424,7 @@ jobs:
 
             (
               frame=0
+              : > "$RECORD_READY"
               while true; do
                 if ! sudo -n launchctl asuser "$GUI_UID" sudo -n -H -u "$GUI_USER" \
                   /tmp/cmux-frontmost-application com.cmuxterm.app.debug; then
@@ -429,8 +432,12 @@ jobs:
                   continue
                 fi
                 output="$(printf '%s/frame-%06d.jpg' "$FRAME_DIR" "$frame")"
-                sudo -n launchctl asuser "$GUI_UID" sudo -n -H -u "$GUI_USER" \
-                  /usr/sbin/screencapture -x -t jpg -D 1 "$output" || exit 1
+                if ! sudo -n launchctl asuser "$GUI_UID" sudo -n -H -u "$GUI_USER" \
+                  /usr/sbin/screencapture -x -t jpg -D 1 "$output"; then
+                  echo "screencapture failed for frame $frame" >&2
+                  sleep 0.5
+                  continue
+                fi
                 frame=$((frame + 1))
                 sleep 0.5
               done
@@ -438,6 +445,15 @@ jobs:
             RECORD_PID=$!
             echo "RECORD_PID=$RECORD_PID" >> "$GITHUB_ENV"
             kill -0 "$RECORD_PID"
+            for _ in {1..50}; do
+              [ -f "$RECORD_READY" ] && break
+              sleep 0.1
+            done
+            if [ ! -f "$RECORD_READY" ]; then
+              echo "::error::Frame recorder failed to initialize"
+              cat /tmp/screencapture.log || true
+              exit 1
+            fi
             echo "Frame capture armed for frontmost cmux (PID $RECORD_PID)"
           fi
 
