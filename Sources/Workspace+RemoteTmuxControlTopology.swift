@@ -114,4 +114,21 @@ extension Workspace {
               let panel = projection.panel as? TerminalPanel else { return nil }
         return (projection.surfaceID, panel)
     }
+
+    /// Resolves explicit-or-default control-plane surface targeting. An
+    /// explicit surface id (or a routed tmux pane's surface) canonicalizes
+    /// fail-closed via ``controlSurfaceTarget(for:)``; the focused default
+    /// projects a mirror container to its tmux-active pane like
+    /// `surface.current`. Returns nil when nothing is focused.
+    func controlRequestedSurfaceTarget(
+        explicitSurfaceID: UUID?,
+        routedPaneID: UUID?
+    ) -> (requestedSurfaceID: UUID, target: ControlSurfaceProjection?)? {
+        if let explicit = explicitSurfaceID
+            ?? routedPaneID.flatMap({ remoteTmuxControlPane(paneID: $0)?.pane.panel.id }) {
+            return (explicit, controlSurfaceTarget(for: explicit))
+        }
+        guard let focusedPanelId else { return nil }
+        return (focusedPanelId, controlSurfaceProjection(forContainerPanelID: focusedPanelId))
+    }
 }

@@ -211,14 +211,14 @@ extension TerminalController {
         guard let ws = resolveSurfaceWorkspace(routing: routing, tabManager: tabManager) else {
             return .workspaceNotFound
         }
-        let requestedSurfaceID = surfaceID
-            ?? routing.paneID.flatMap { ws.remoteTmuxControlPane(paneID: $0)?.pane.panel.id }
-            ?? ws.focusedPanelId
-        guard let requestedSurfaceID else {
+        guard let resolution = ws.controlRequestedSurfaceTarget(
+            explicitSurfaceID: surfaceID,
+            routedPaneID: routing.paneID
+        ) else {
             return .noFocusedSurface
         }
-        guard let target = ws.controlSurfaceTarget(for: requestedSurfaceID) else {
-            return .surfaceNotFound(requestedSurfaceID)
+        guard let target = resolution.target else {
+            return .surfaceNotFound(resolution.requestedSurfaceID)
         }
         v2MaybeFocusWindow(for: tabManager)
         v2MaybeSelectWorkspace(tabManager, workspace: ws)
