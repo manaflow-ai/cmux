@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import * as Effect from "effect/Effect";
-import { IrohQuotaExceededError } from "../services/iroh/errors";
+import { IrohDatabaseError, IrohQuotaExceededError } from "../services/iroh/errors";
 import { handleIrohRoute } from "../services/iroh/routeHandler";
 import type { IrohTrustBrokerShape } from "../services/iroh/trustBroker";
 import type { AuthedUser } from "../services/vms/auth";
@@ -129,6 +129,21 @@ describe("Iroh route boundary", () => {
       error: "relay_endpoint_10m_quota",
       retry_after_seconds: 417,
     });
+  });
+
+  test("does not expose database implementation details in service failures", async () => {
+    const response = await handleIrohRoute(authedPost("/api/devices/iroh/challenge", {}), "challenge", {
+      verify: async () => USER,
+      broker: broker({
+        issueChallenge: () => Effect.fail(new IrohDatabaseError({
+          operation: "issue_challenge",
+          cause: { category: "connection" },
+        })),
+      }),
+    });
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: "iroh_service_unavailable" });
   });
 });
 
