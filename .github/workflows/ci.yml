@@ -709,6 +709,32 @@ jobs:
           CMUX_SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages" \
             ./tests/test_bundled_ghostty_theme_picker_helper.sh
 
+      - name: Ensure node for wrapper regressions
+        id: detect-node
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        run: |
+          set -euo pipefail
+          # The claude wrapper regressions below exec `node` from fake claude
+          # binaries. The tart-macos-15 runner image shipped without node on
+          # the runner PATH (2026-07-10), which failed every branch. Reuse an
+          # image-provided node when present; otherwise install one below.
+          for candidate in "$(command -v node || true)" /opt/homebrew/bin/node /usr/local/bin/node; do
+            if [ -n "$candidate" ] && [ -x "$candidate" ]; then
+              dirname "$candidate" >> "$GITHUB_PATH"
+              "$candidate" --version
+              echo "found=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          done
+          echo "no node runtime in the runner image; installing via setup-node"
+          echo "found=false" >> "$GITHUB_OUTPUT"
+
+      - name: Install node (runner image has none)
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) && steps.detect-node.outputs.found == 'false' }}
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+
       - name: Run CLI no-socket regressions
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
         run: |
