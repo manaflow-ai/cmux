@@ -11,18 +11,13 @@ extension GhosttySurfaceView {
         return traitScale > 0 ? traitScale : 2
     }
 
-    func localScrollbackScrollState() -> (
-        surface: ghostty_surface_t,
-        generation: UInt64,
-        scale: Double,
-        queue: GhosttySurfaceWorkQueue
-    )? {
+    func localScrollbackScrollState() -> GhosttySurfaceWorkSnapshot? {
         guard let surface, !isDismantled else { return nil }
-        return (
-            surface,
-            surfaceGeneration,
-            Double(max(localScrollbackScreenScale, 1)),
-            outputQueue
+        return GhosttySurfaceWorkSnapshot(
+            surface: surface,
+            generation: surfaceGeneration,
+            scale: Double(max(localScrollbackScreenScale, 1)),
+            queue: outputQueue
         )
     }
 
@@ -45,19 +40,18 @@ extension GhosttySurfaceView {
               let state = localScrollbackScrollState() else {
             return
         }
-        let surface = state.surface
         let generation = state.generation
         let scale = state.scale
         let clampedCol = max(0, col)
         let clampedRow = max(0, row)
         state.queue.async { [weak self] in
-            let size = ghostty_surface_size(surface)
+            let size = ghostty_surface_size(state.surface)
             let cellWidthPt = max(Double(size.cell_width_px) / scale, 1)
             let cellHeightPt = max(Double(size.cell_height_px) / scale, 1)
             let posX = (Double(clampedCol) + 0.5) * cellWidthPt
             let posY = (Double(clampedRow) + 0.5) * cellHeightPt
-            ghostty_surface_mouse_pos(surface, posX, posY, GHOSTTY_MODS_NONE)
-            ghostty_surface_mouse_scroll(surface, 0, lines, 0)
+            ghostty_surface_mouse_pos(state.surface, posX, posY, GHOSTTY_MODS_NONE)
+            ghostty_surface_mouse_scroll(state.surface, 0, lines, 0)
             Task { @MainActor in
                 self?.requestDrawAfterLocalScrollbackScroll(generation: generation)
             }
