@@ -37,7 +37,8 @@ public struct PairedMacBackupRecord: Codable, Sendable, Equatable {
     ) {
         self.macDeviceID = macDeviceID
         self.displayName = displayName
-        self.routes = cloudSafeRoutes(routes, at: routeDisclosureDate)
+        self.routes = PairedMacBackupRouteDisclosure(routes: routes)
+            .cloudSafe(at: routeDisclosureDate)
         self.createdAt = createdAt
         self.lastSeenAt = lastSeenAt
         self.isActive = isActive
@@ -64,7 +65,7 @@ public struct PairedMacBackupRecord: Codable, Sendable, Equatable {
         // Decoding must be deterministic. Upload boundaries already prune
         // expired hints with an injected clock; restore defensively removes
         // every non-public Iroh hint without consulting wall time.
-        routes = cloudPrivacySafeRoutes(decodedRoutes)
+        routes = PairedMacBackupRouteDisclosure(routes: decodedRoutes).cloudPrivacySafe()
         createdAt = try c.decode(Double.self, forKey: .createdAt)
         lastSeenAt = try c.decode(Double.self, forKey: .lastSeenAt)
         isActive = try c.decode(Bool.self, forKey: .isActive)
@@ -78,7 +79,10 @@ public struct PairedMacBackupRecord: Codable, Sendable, Equatable {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(macDeviceID, forKey: .macDeviceID)
         try c.encodeIfPresent(displayName, forKey: .displayName)
-        try c.encode(cloudPrivacySafeRoutes(routes), forKey: .routes)
+        try c.encode(
+            PairedMacBackupRouteDisclosure(routes: routes).cloudPrivacySafe(),
+            forKey: .routes
+        )
         try c.encode(createdAt, forKey: .createdAt)
         try c.encode(lastSeenAt, forKey: .lastSeenAt)
         try c.encode(isActive, forKey: .isActive)
@@ -87,32 +91,4 @@ public struct PairedMacBackupRecord: Codable, Sendable, Equatable {
         try c.encode(customIcon, forKey: .customIcon)
     }
 
-}
-
-private func cloudSafeRoutes(
-    _ routes: [CmxAttachRoute],
-    at now: Date
-) -> [CmxAttachRoute] {
-    routes.compactMap { route in
-        route.disclosed(for: .pairedMacCloudBackup, at: now)
-    }
-}
-
-private func cloudPrivacySafeRoutes(
-    _ routes: [CmxAttachRoute]
-) -> [CmxAttachRoute] {
-    routes.compactMap { route in
-        guard case let .peer(identity, pathHints) = route.endpoint else {
-            return route
-        }
-        let publicHints = pathHints.filter {
-            $0.privacyScope == .publicInternet && $0.isSafeForCurrentWireFormat
-        }
-        return try? CmxAttachRoute(
-            id: route.id,
-            kind: route.kind,
-            endpoint: .peer(identity: identity, pathHints: publicHints),
-            priority: route.priority
-        )
-    }
 }

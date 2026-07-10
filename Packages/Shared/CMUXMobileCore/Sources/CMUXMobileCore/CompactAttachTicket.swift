@@ -24,24 +24,21 @@ struct CompactAttachTicket: Codable {
         _ ticket: CmxAttachTicket,
         routeDisclosureMode: CmxPairingRouteDisclosureMode
     ) throws {
-        let disclosedRoutes = disclosedRoutes(
-            ticket.routes,
-            mode: routeDisclosureMode
-        )
+        let disclosedRoutes = ticket.routes.disclosed(for: routeDisclosureMode)
         guard !disclosedRoutes.isEmpty else {
             throw CmxAttachTicketCompactCoderError.noRoutesForDisclosureMode(
                 routeDisclosureMode
             )
         }
         v = ticket.version
-        w = normalizedNonEmpty(ticket.workspaceID)
-        t = normalizedNonEmpty(ticket.terminalID)
+        w = ticket.workspaceID.isEmpty ? nil : ticket.workspaceID
+        t = ticket.terminalID.flatMap { $0.isEmpty ? nil : $0 }
         d = ticket.macDeviceID
-        u = normalizedNonEmpty(ticket.macUserID)
+        u = ticket.macUserID.flatMap { $0.isEmpty ? nil : $0 }
         pc = ticket.macPairingCompatibilityVersion
-        av = normalizedNonEmpty(ticket.macAppVersion)
-        ab = normalizedNonEmpty(ticket.macAppBuild)
-        r = compactedRoutes(disclosedRoutes)
+        av = ticket.macAppVersion.flatMap { $0.isEmpty ? nil : $0 }
+        ab = ticket.macAppBuild.flatMap { $0.isEmpty ? nil : $0 }
+        r = disclosedRoutes.compacted()
     }
 
     func ticket() throws -> CmxAttachTicket {
@@ -56,76 +53,59 @@ struct CompactAttachTicket: Codable {
             macPairingCompatibilityVersion: pc ?? 0,
             macAppVersion: av,
             macAppBuild: ab,
-            routes: expandedRoutes(r),
+            routes: try r.expanded(),
             expiresAt: nil
         )
     }
-
 }
 
-private func normalizedNonEmpty(_ value: String?) -> String? {
-    guard let value, !value.isEmpty else {
-        return nil
-    }
-    return value
-}
-
-private func disclosedRoutes(
-    _ routes: [CmxAttachRoute],
-    mode: CmxPairingRouteDisclosureMode
-) -> [CmxAttachRoute] {
-    switch mode {
-    case .irohIdentityOnly:
-        return routes.compactMap { route in
-            guard route.kind == .iroh,
-                  case let .peer(identity, _) = route.endpoint else {
-                return nil
+private extension Array where Element == CmxAttachRoute {
+    func disclosed(for mode: CmxPairingRouteDisclosureMode) -> Self {
+        switch mode {
+        case .irohIdentityOnly:
+            return compactMap { route in
+                guard route.kind == .iroh,
+                      case let .peer(identity, _) = route.endpoint else {
+                    return nil
+                }
+                return try? CmxAttachRoute(
+                    id: route.id,
+                    kind: route.kind,
+                    endpoint: .peer(identity: identity, pathHints: []),
+                    priority: route.priority
+                )
             }
-            return try? CmxAttachRoute(
-                id: route.id,
-                kind: route.kind,
-                endpoint: .peer(identity: identity, pathHints: []),
-                priority: route.priority
-            )
+        case .legacyPrivateNetworkCompatibility:
+            return self
         }
-    case .legacyPrivateNetworkCompatibility:
-        return routes
+    }
+
+    /// Encode routes, omitting each route id the decoder can resynthesize.
+    func compacted() -> [CompactAttachRoute] {
+        var kindCounts: [CmxAttachTransportKind: Int] = [:]
+        return map { route in
+            let occurrence = (kindCounts[route.kind] ?? 0) + 1
+            kindCounts[route.kind] = occurrence
+            let synthesized = occurrence == 1
+                ? route.kind.rawValue
+                : "\(route.kind.rawValue)_\(occurrence)"
+            return CompactAttachRoute(route, omittingID: route.id == synthesized)
+        }
     }
 }
 
-/// Encode routes, omitting each route id the decoder can resynthesize
-/// (`kind` for the first route of a kind, `kind_N` for the Nth; exactly
-/// the ids the Mac's route resolver mints). Ids that differ are kept, so
-/// the mapping is lossless for every ticket.
-private func compactedRoutes(_ routes: [CmxAttachRoute]) -> [CompactAttachRoute] {
-    var kindCounts: [CmxAttachTransportKind: Int] = [:]
-    return routes.map { route in
-        let occurrence = (kindCounts[route.kind] ?? 0) + 1
-        kindCounts[route.kind] = occurrence
-        let synthesized = synthesizedRouteID(kind: route.kind, occurrence: occurrence)
-        return CompactAttachRoute(route, omittingID: route.id == synthesized)
+private extension Array where Element == CompactAttachRoute {
+    /// Decode routes, resynthesizing each omitted route id.
+    func expanded() throws -> [CmxAttachRoute] {
+        var kindCounts: [CmxAttachTransportKind: Int] = [:]
+        return try map { compactRoute in
+            let kind = try compactRoute.kind()
+            let occurrence = (kindCounts[kind] ?? 0) + 1
+            kindCounts[kind] = occurrence
+            let synthesized = occurrence == 1
+                ? kind.rawValue
+                : "\(kind.rawValue)_\(occurrence)"
+            return try compactRoute.route(synthesizedID: synthesized)
+        }
     }
-}
-
-/// Decode routes, resynthesizing each omitted route id with the same
-/// `kind` / `kind_N` rule the encoder applied.
-private func expandedRoutes(_ compactRoutes: [CompactAttachRoute]) throws -> [CmxAttachRoute] {
-    var kindCounts: [CmxAttachTransportKind: Int] = [:]
-    return try compactRoutes.map { compactRoute in
-        let kind = try compactRoute.kind()
-        let occurrence = (kindCounts[kind] ?? 0) + 1
-        kindCounts[kind] = occurrence
-        return try compactRoute.route(
-            synthesizedID: synthesizedRouteID(kind: kind, occurrence: occurrence)
-        )
-    }
-}
-
-/// The route id the Mac's route resolver mints for the `occurrence`-th
-/// route of `kind` (`kind` for the first, `kind_N` after).
-private func synthesizedRouteID(
-    kind: CmxAttachTransportKind,
-    occurrence: Int
-) -> String {
-    occurrence == 1 ? kind.rawValue : "\(kind.rawValue)_\(occurrence)"
 }
