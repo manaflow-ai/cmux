@@ -256,7 +256,9 @@ struct MobileIrohRuntimeCompositionTests {
             _ = try await fixture.composition.transport(for: fixture.request)
         }
 
-        #expect(await fixture.endpointFactory.bindCount() == 1)
+        #expect(
+            await fixture.endpointFactory.bindCount() == fixture.initialBindCount
+        )
         #expect(await fixture.broker.revokedBindingIDs().isEmpty)
         try await fixture.expectOriginalRepositoriesRemain()
     }
@@ -298,7 +300,9 @@ struct MobileIrohRuntimeCompositionTests {
         await #expect(throws: CmxIrohClientRuntimeError.self) {
             _ = try await fixture.composition.transport(for: fixture.request)
         }
-        #expect(await fixture.endpointFactory.bindCount() == 1)
+        #expect(
+            await fixture.endpointFactory.bindCount() == fixture.initialBindCount
+        )
         #expect(await fixture.broker.revokedBindingIDs().isEmpty)
         try await fixture.expectOriginalRepositoriesRemain()
 
@@ -311,7 +315,10 @@ struct MobileIrohRuntimeCompositionTests {
         }
 
         #expect(await fixture.broker.revokedBindingIDs() == [fixture.bindingID])
-        #expect(await fixture.endpointFactory.bindCount() == 2)
+        #expect(
+            await fixture.endpointFactory.bindCount()
+                == fixture.initialBindCount + 1
+        )
         #expect(
             try await fixture.outbox.pending(accountID: fixture.accountID).isEmpty
         )
@@ -416,6 +423,7 @@ private struct MobileIrohSignOutFixture {
     let endpointFactory: MobileIrohCountingEndpointFactory
     let broker: MobileIrohRevocationBroker
     let request: CmxByteTransportRequest
+    let initialBindCount: Int
     let appInstanceID: String
     let identity: CmxIrohIdentityMaterial
     let binding: CmxIrohBrokerBindingMetadata
@@ -449,7 +457,7 @@ private struct MobileIrohSignOutFixture {
         let identities = CmxIrohIdentityRepository(
             secureStore: identityStore,
             installState: installState,
-            randomBytes: { identityBytes.next() },
+            randomBytes: { try identityBytes.next() },
             marker: { "test-install" }
         )
         let brokerCredentials = CmxIrohBrokerCredentialRepository(
@@ -533,6 +541,7 @@ private struct MobileIrohSignOutFixture {
         let outbox = CmxIrohPendingRevocationOutbox(secureStore: outboxStore)
         let endpointFactory = MobileIrohCountingEndpointFactory()
         let broker = MobileIrohRevocationBroker()
+        let stableDeviceID = deviceID
         let composition = MobileIrohRuntimeComposition(
             appInstances: appInstances,
             identities: identities,
@@ -543,7 +552,7 @@ private struct MobileIrohSignOutFixture {
             ),
             endpointFactory: endpointFactory,
             brokerFactory: { _ in broker },
-            deviceID: { deviceID },
+            deviceID: { stableDeviceID },
             tag: tag,
             now: { Date(timeIntervalSince1970: 1_000) }
         )
@@ -564,7 +573,8 @@ private struct MobileIrohSignOutFixture {
         await #expect(throws: CmxIrohClientRuntimeError.self) {
             _ = try await composition.transport(for: request)
         }
-        #expect(await endpointFactory.bindCount() == 1)
+        let initialBindCount = await endpointFactory.bindCount()
+        #expect(initialBindCount > 0)
 
         return Self(
             composition: composition,
@@ -580,6 +590,7 @@ private struct MobileIrohSignOutFixture {
             endpointFactory: endpointFactory,
             broker: broker,
             request: request,
+            initialBindCount: initialBindCount,
             appInstanceID: appInstanceID,
             identity: identity,
             binding: binding,

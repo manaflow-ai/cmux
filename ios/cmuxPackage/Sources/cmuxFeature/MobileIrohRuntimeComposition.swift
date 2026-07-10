@@ -19,6 +19,32 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
         _ tokenSource: CmxIrohBrokerTokenSource
     ) throws -> any CmxIrohClientBrokerServing
 
+    private enum SignOutPhase {
+        case idle
+        case preparing(Task<CmxIrohClientSignOutPreparation, Never>)
+        case awaitingRemote(CmxIrohClientSignOutPreparation)
+        case quarantined(CmxIrohClientSignOutPreparation)
+        case recovering(
+            CmxIrohClientSignOutPreparation,
+            Task<SignOutRecoveryOutcome, Never>
+        )
+
+        var allowsLifecycle: Bool {
+            if case .idle = self { return true }
+            return false
+        }
+    }
+
+    private enum SignOutRecoveryOutcome: Equatable, Sendable {
+        case revoked
+        case durablyQueued
+        case notDurable
+
+        var canReleaseQuarantine: Bool {
+            self != .notDurable
+        }
+    }
+
     private static let managedRelayURLs: Set<String> = [
         "https://aps1-1.relay.lawrence.cmux.iroh.link/",
         "https://euc1-1.relay.lawrence.cmux.iroh.link/",
@@ -61,7 +87,7 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
     private var lastKnownBindingTag: String?
     private var lastKnownBindingID: String?
     private var lifecycleRevision: UInt64 = 0
-    private var signOutPreparing = false
+    private var signOutPhase = SignOutPhase.idle
 
     /// Creates the production iOS Iroh composition with device-only persistence.
     ///
@@ -243,6 +269,7 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
 
     /// Preserves the endpoint when iOS backgrounds the scene.
     public func didEnterBackground() {
+        guard signOutPhase.allowsLifecycle else { return }
         sceneTransitionTask?.cancel()
         let runtime = runtime
         sceneTransitionTask = Task {
@@ -252,6 +279,7 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
 
     /// Health-checks and refreshes the preserved endpoint on foreground return.
     public func didBecomeActive() {
+        guard signOutPhase.allowsLifecycle else { return }
         sceneTransitionTask?.cancel()
         let runtime = runtime
         let lanPeerDiscovery = lanPeerDiscovery
@@ -267,12 +295,44 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
         }
     }
 
-    /// Stops networking and wipes local Iroh state before auth clears its tokens.
+    /// Stops networking before auth clears its tokens.
+    ///
+    /// Local identity state is wiped only after the binding revocation is
+    /// durably queued. A storage failure keeps that exact account and binding
+    /// quarantined for the captured-token hook or a later same-account sign-in.
     ///
     /// - Returns: The prior binding needed by the captured-token remote hook.
     public func prepareSignOut() async -> CmxIrohClientSignOutPreparation {
-        signOutPreparing = true
-        let fallbackAccountID = activeAccountID ?? observedAccountID
+        switch signOutPhase {
+        case let .preparing(operation):
+            return await operation.value
+        case let .awaitingRemote(preparation),
+             let .quarantined(preparation):
+            return preparation
+        case let .recovering(preparation, operation):
+            _ = await waitForRecovery(operation)
+            return preparation
+        case .idle:
+            break
+        }
+
+        let operation = Task { @MainActor [weak self] in
+            guard let self else {
+                return CmxIrohClientSignOutPreparation(
+                    pendingRevocation: nil,
+                    wasPersisted: true
+                )
+            }
+            return await self.performSignOutPreparation()
+        }
+        signOutPhase = .preparing(operation)
+        return await operation.value
+    }
+
+    private func performSignOutPreparation() async -> CmxIrohClientSignOutPreparation {
+        let fallbackAccountID = activeAccountID
+            ?? observedAccountID
+            ?? lastKnownBindingAccountID
         observedAccountID = nil
         lifecycleRevision &+= 1
         let previous = transitionTask
@@ -285,20 +345,27 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
         runtime = nil
         activeAccountID = nil
         let fallbackBindingID = lastKnownBindingID
+        let preparation: CmxIrohClientSignOutPreparation
         if let previousRuntime {
-            let preparation = await previousRuntime.deactivateForSignOut()
+            preparation = await previousRuntime.deactivateForSignOut()
+        } else {
+            preparation = await enqueueFallbackRevocation(
+                accountID: fallbackAccountID,
+                bindingID: fallbackBindingID
+            )
             if preparation.wasPersisted {
-                clearLastKnownBinding()
-            } else if preparation.pendingRevocation != nil {
+                await wipeLocalState()
+            }
+        }
+        if preparation.wasPersisted {
+            clearLastKnownBinding()
+            signOutPhase = .awaitingRemote(preparation)
+        } else {
+            if preparation.pendingRevocation != nil {
                 mobileIrohLog.error("Iroh binding revocation queue failed")
             }
-            return preparation
+            signOutPhase = .quarantined(preparation)
         }
-        let preparation = await enqueueFallbackRevocation(
-            accountID: fallbackAccountID,
-            bindingID: fallbackBindingID
-        )
-        await wipeLocalState()
         return preparation
     }
 
@@ -315,12 +382,31 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
         accessToken: String?,
         refreshToken: String?
     ) async {
-        defer { finishSignOutPreparation() }
-        guard preparation.pendingRevocation != nil,
-              let accessToken,
+        guard phaseOwns(preparation) else {
+            await revokeStalePreparation(
+                preparation,
+                accessToken: accessToken,
+                refreshToken: refreshToken
+            )
+            return
+        }
+        guard preparation.pendingRevocation != nil else {
+            await releaseSignOutQuarantine(preparation)
+            finishSignOutPhase()
+            return
+        }
+        guard let accessToken,
               !accessToken.isEmpty,
               let refreshToken,
-              !refreshToken.isEmpty else { return }
+              !refreshToken.isEmpty else {
+            if preparation.wasPersisted {
+                await releaseSignOutQuarantine(preparation)
+                finishSignOutPhase()
+            } else {
+                signOutPhase = .quarantined(preparation)
+            }
+            return
+        }
         do {
             let broker = try brokerFactory(
                 CmxIrohBrokerTokenSource(
@@ -328,11 +414,11 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
                     refreshToken: { refreshToken }
                 )
             )
-            try await preparation.revoke(
-                using: broker,
-                pendingRevocations: pendingRevocations
+            let released = await recoverSignOutQuarantine(
+                preparation,
+                using: broker
             )
-            clearLastKnownBinding()
+            if released { finishSignOutPhase() }
         } catch is CancellationError {
             return
         } catch {
@@ -343,7 +429,9 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
     }
 
     private func applyAuthState(_ state: MobileIrohAuthState) async {
-        guard !signOutPreparing else { return }
+        guard await prepareForAuthReconcile(accountID: state.accountID) else {
+            return
+        }
         let previousObservedAccountID = observedAccountID
         observedAccountID = state.accountID
         let transition = scheduleReconcile(
@@ -356,8 +444,8 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
         await transition.value
     }
 
-    private func finishSignOutPreparation() {
-        signOutPreparing = false
+    private func finishSignOutPhase() {
+        guard signOutPhase.allowsLifecycle else { return }
         guard let auth else { return }
         let accountID = auth.isAuthenticated ? auth.currentUser?.id : nil
         guard accountID != observedAccountID else { return }
@@ -375,8 +463,10 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
     private func reconcileLiveAuthIfNeeded() async {
         guard let auth else { return }
         await auth.awaitBootstrapped()
-        guard !signOutPreparing else { return }
         let accountID = auth.isAuthenticated ? auth.currentUser?.id : nil
+        guard await prepareForAuthReconcile(accountID: accountID) else {
+            return
+        }
         guard accountID != observedAccountID || runtime == nil && accountID != nil else {
             return
         }
@@ -392,6 +482,181 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
         await transition.value
     }
 
+    private func prepareForAuthReconcile(accountID: String?) async -> Bool {
+        switch signOutPhase {
+        case .idle:
+            return true
+        case let .preparing(operation):
+            _ = await operation.value
+            return await prepareForAuthReconcile(accountID: accountID)
+        case let .recovering(_, operation):
+            _ = await waitForRecovery(operation)
+            return await prepareForAuthReconcile(accountID: accountID)
+        case let .awaitingRemote(preparation):
+            // The nil state is auth's local-first clear and must not overtake
+            // its captured-token remote hook. A later explicit sign-in can
+            // safely proceed because this preparation is already durable.
+            guard accountID != nil, preparation.wasPersisted else { return false }
+            await releaseSignOutQuarantine(preparation)
+            return signOutPhase.allowsLifecycle
+        case let .quarantined(preparation):
+            guard accountID == preparation.pendingRevocation?.accountID,
+                  let auth else { return false }
+            do {
+                let broker = try brokerFactory(
+                    CmxIrohBrokerTokenSource(
+                        accessToken: { [weak auth] in
+                            guard let auth,
+                                  let tokens = try? await auth.currentTokens() else {
+                                return nil
+                            }
+                            return tokens.accessToken
+                        },
+                        refreshToken: { [weak auth] in
+                            guard let auth,
+                                  let tokens = try? await auth.currentTokens() else {
+                                return nil
+                            }
+                            return tokens.refreshToken
+                        }
+                    )
+                )
+                return await recoverSignOutQuarantine(
+                    preparation,
+                    using: broker
+                )
+            } catch {
+                mobileIrohLog.error(
+                    "Iroh binding revoke retry failed: \(String(describing: error), privacy: .private)"
+                )
+                return false
+            }
+        }
+    }
+
+    private func phaseOwns(
+        _ preparation: CmxIrohClientSignOutPreparation
+    ) -> Bool {
+        switch signOutPhase {
+        case let .awaitingRemote(current),
+             let .quarantined(current),
+             let .recovering(current, _):
+            return current == preparation
+        case .idle, .preparing:
+            return false
+        }
+    }
+
+    private func recoverSignOutQuarantine(
+        _ preparation: CmxIrohClientSignOutPreparation,
+        using broker: any CmxIrohClientBrokerServing
+    ) async -> Bool {
+        let operation: Task<SignOutRecoveryOutcome, Never>
+        if case let .recovering(current, existingOperation) = signOutPhase {
+            guard current == preparation else { return false }
+            operation = existingOperation
+        } else {
+            guard phaseOwns(preparation) else { return false }
+            let pendingRevocations = pendingRevocations
+            operation = Task {
+                await Self.attemptRevocation(
+                    preparation,
+                    using: broker,
+                    pendingRevocations: pendingRevocations
+                )
+            }
+            signOutPhase = .recovering(preparation, operation)
+        }
+        let outcome = await waitForRecovery(operation)
+        guard case let .recovering(current, _) = signOutPhase,
+              current == preparation else {
+            return outcome.canReleaseQuarantine
+        }
+        guard outcome.canReleaseQuarantine else {
+            signOutPhase = .quarantined(preparation)
+            mobileIrohLog.error("Iroh binding revocation queue remains unavailable")
+            return false
+        }
+        await releaseSignOutQuarantine(preparation)
+        return true
+    }
+
+    private func waitForRecovery(
+        _ operation: Task<SignOutRecoveryOutcome, Never>
+    ) async -> SignOutRecoveryOutcome {
+        await withTaskCancellationHandler {
+            await operation.value
+        } onCancel: {
+            operation.cancel()
+        }
+    }
+
+    private nonisolated static func attemptRevocation(
+        _ preparation: CmxIrohClientSignOutPreparation,
+        using broker: any CmxIrohClientBrokerServing,
+        pendingRevocations: CmxIrohPendingRevocationOutbox
+    ) async -> SignOutRecoveryOutcome {
+        do {
+            try await preparation.revoke(
+                using: broker,
+                pendingRevocations: pendingRevocations
+            )
+            return .revoked
+        } catch {
+            guard let pending = preparation.pendingRevocation else {
+                return .revoked
+            }
+            if preparation.wasPersisted {
+                return .durablyQueued
+            }
+            let stored = try? await pendingRevocations.pending(
+                accountID: pending.accountID
+            )
+            return stored?.contains(pending) == true
+                ? .durablyQueued
+                : .notDurable
+        }
+    }
+
+    private func releaseSignOutQuarantine(
+        _ preparation: CmxIrohClientSignOutPreparation
+    ) async {
+        guard phaseOwns(preparation) else { return }
+        await wipeLocalState()
+        if lastKnownBindingID == preparation.bindingID {
+            clearLastKnownBinding()
+        }
+        signOutPhase = .idle
+    }
+
+    private func revokeStalePreparation(
+        _ preparation: CmxIrohClientSignOutPreparation,
+        accessToken: String?,
+        refreshToken: String?
+    ) async {
+        guard preparation.pendingRevocation != nil,
+              let accessToken,
+              !accessToken.isEmpty,
+              let refreshToken,
+              !refreshToken.isEmpty,
+              let broker = try? brokerFactory(
+                  CmxIrohBrokerTokenSource(
+                      accessToken: { accessToken },
+                      refreshToken: { refreshToken }
+                  )
+              ) else { return }
+        do {
+            try await preparation.revoke(
+                using: broker,
+                pendingRevocations: pendingRevocations
+            )
+        } catch {
+            mobileIrohLog.error(
+                "Stale Iroh binding revoke failed: \(String(describing: error), privacy: .private)"
+            )
+        }
+    }
+
     @discardableResult
     private func scheduleReconcile(
         targetAccountID: String?,
@@ -405,6 +670,7 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
             await previous?.value
             guard let self,
                   revision == self.lifecycleRevision,
+                  self.signOutPhase.allowsLifecycle,
                   !Task.isCancelled else { return }
             await self.reconcile(
                 targetAccountID: targetAccountID,
@@ -428,7 +694,7 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
             let shouldErase = eraseAccountState
                 && (targetAccountID == nil || activeAccountID != targetAccountID)
             let previousRuntime = runtime
-            let previousAccountID = activeAccountID
+            let previousAccountID = activeAccountID ?? lastKnownBindingAccountID
             let fallbackBindingID = lastKnownBindingID
             runtime = nil
             activeAccountID = nil
@@ -440,21 +706,27 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
                         clearLastKnownBinding()
                     } else if preparation.pendingRevocation != nil {
                         mobileIrohLog.error("Iroh binding revocation queue failed")
+                        signOutPhase = .quarantined(preparation)
                     }
                 } else {
                     await previousRuntime.stop()
                 }
             } else if shouldErase {
-                _ = await enqueueFallbackRevocation(
+                let preparation = await enqueueFallbackRevocation(
                     accountID: previousAccountID,
                     bindingID: fallbackBindingID
                 )
-                await wipeLocalState()
+                if preparation.wasPersisted {
+                    await wipeLocalState()
+                    clearLastKnownBinding()
+                } else {
+                    signOutPhase = .quarantined(preparation)
+                }
             }
         }
         guard revision == lifecycleRevision,
               !Task.isCancelled,
-              !signOutPreparing,
+              signOutPhase.allowsLifecycle,
               let targetAccountID,
               runtime == nil else { return }
         do {
@@ -630,9 +902,9 @@ public final class MobileIrohRuntimeComposition: CmxIrohDeferredTransportProvidi
         }
         guard revision == lifecycleRevision,
               !Task.isCancelled,
-              !signOutPreparing,
+              signOutPhase.allowsLifecycle,
               observedAccountID == accountID else {
-            if signOutPreparing || observedAccountID != accountID {
+            if !signOutPhase.allowsLifecycle || observedAccountID != accountID {
                 _ = await runtime.deactivateForSignOut()
             } else {
                 await runtime.stop()
