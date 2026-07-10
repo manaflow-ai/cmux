@@ -1880,9 +1880,6 @@ func tmuxResizePane(rc *rpcContext, args []string) error {
 			}
 			if pid, _ := pane["id"].(string); pid == paneId {
 				cellPoints := floatFromAny(pane["cell_width_points"])
-				if cellPoints <= 0 {
-					cellPoints = floatFromAny(pane["cell_width_px"])
-				}
 				if targetPoints <= 0 && cellPoints > 0 {
 					targetPoints = float64(target) * cellPoints
 				}
@@ -1947,15 +1944,10 @@ func tmuxResizePane(rc *rpcContext, args []string) error {
 			}
 			if pid, _ := pane["id"].(string); pid == paneId {
 				pointsKey := "cell_width_points"
-				pixelsKey := "cell_width_px"
 				if dir == "up" || dir == "down" {
 					pointsKey = "cell_height_points"
-					pixelsKey = "cell_height_px"
 				}
 				cellPoints := floatFromAny(pane[pointsKey])
-				if cellPoints <= 0 {
-					cellPoints = floatFromAny(pane[pixelsKey])
-				}
 				if cellPoints > 0 {
 					amountPoints = max(1, int(math.Round(float64(amount)*cellPoints)))
 				}

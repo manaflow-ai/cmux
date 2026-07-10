@@ -17,10 +17,8 @@ extension CMUXCLI {
         let pane = panes.first(where: { ($0["id"] as? String) == paneId })
         let horizontal = absoluteAxis == "horizontal"
         let pointsKey = horizontal ? "cell_width_points" : "cell_height_points"
-        let pixelsKey = horizontal ? "cell_width_px" : "cell_height_px"
         let cellPoints = (pane?[pointsKey] as? NSNumber)?.doubleValue
             ?? pane?[pointsKey] as? Double
-            ?? Double(intFromAny(pane?[pixelsKey]) ?? 0)
 
         let frame = panePayload["container_frame"] as? [String: Any]
         let dimensionKey = horizontal ? "width" : "height"
@@ -59,10 +57,8 @@ extension CMUXCLI {
         let pane = panes.first(where: { ($0["id"] as? String) == paneId })
         let horizontal = direction == "left" || direction == "right"
         let pointsKey = horizontal ? "cell_width_points" : "cell_height_points"
-        let pixelsKey = horizontal ? "cell_width_px" : "cell_height_px"
         let cellPoints = (pane?[pointsKey] as? NSNumber)?.doubleValue
             ?? pane?[pointsKey] as? Double
-            ?? Double(intFromAny(pane?[pixelsKey]) ?? 0)
         var params: [String: Any] = [
             "workspace_id": workspaceId,
             "pane_id": paneId,
