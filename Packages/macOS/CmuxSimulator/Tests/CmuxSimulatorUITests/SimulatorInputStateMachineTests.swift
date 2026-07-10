@@ -93,6 +93,25 @@ struct SimulatorInputStateMachineTests {
         #expect(pointerPhases(in: messages) == [.began, .moved, .moved, .ended])
     }
 
+    @Test("A phase-less wheel delegates burst timing to the worker")
+    func discreteScrollUsesWorkerBurst() {
+        var input = SimulatorInputStateMachine()
+        let anchor = SimulatorPoint(x: 0.15, y: 0.8)
+
+        let messages = input.scroll(
+            deltaX: 0,
+            deltaY: 30,
+            phase: .discrete,
+            anchor: anchor
+        )
+
+        #expect(messages == [.scrollWheel(SimulatorScrollWheelEvent(
+            anchor: anchor,
+            deltaX: 0,
+            deltaY: 0.05
+        ))])
+    }
+
     @Test("Scroll begins under the pointer anchor")
     func scrollUsesPointerAnchor() {
         var input = SimulatorInputStateMachine()
