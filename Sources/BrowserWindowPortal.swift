@@ -269,7 +269,7 @@ final class WindowBrowserHostView: NSView {
         }()
         let dividerDesc: String = {
             guard let dividerHit else { return "nil" }
-            let kind = dividerHit.kind == .vertical ? "vertical" : "horizontal"
+            let kind = String(describing: dividerHit.kind)
             return "kind=\(kind),hosted=\(dividerHit.isInHostedContent ? 1 : 0)"
         }()
         let windowPoint = convert(point, to: nil)
@@ -1073,17 +1073,15 @@ final class WindowBrowserHostView: NSView {
     }
 
     private static func dividerHit(at windowPoint: NSPoint, in regions: [DividerRegion], checkLiveness: Bool = true) -> DividerHit? {
-        for region in regions.reversed() {
-            if checkLiveness, !region.isLive { continue }
-            let hitRect = region.hitRectInWindow
-            if !hitRect.isNull, hitRect.contains(windowPoint) {
-                return DividerHit(
-                    kind: region.isVertical ? .vertical : .horizontal,
-                    isInHostedContent: region.isInHostedContent
-                )
-            }
+        let hits = DividerRegion.dividerHits(at: windowPoint, in: regions, checkLiveness: checkLiveness)
+        if DividerRegion.dividerIntersection(at: windowPoint, in: regions, checkLiveness: checkLiveness) != nil {
+            return DividerHit(kind: .both, isInHostedContent: false)
         }
-        return nil
+        guard let region = hits.vertical ?? hits.horizontal else { return nil }
+        return DividerHit(
+            kind: region.isVertical ? .vertical : .horizontal,
+            isInHostedContent: region.isInHostedContent
+        )
     }
 
     private static func verticalOverlap(between lhs: NSRect, and rhs: NSRect) -> CGFloat {

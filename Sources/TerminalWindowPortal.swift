@@ -26,8 +26,9 @@ final class WindowTerminalHostView: NSView {
     private var activeDividerCursorKind: DividerCursorKind?
     private let dividerCursorOcclusion = PortalDividerCursorOcclusion()
     let paneDropRoutingSession = PaneDropRoutingSession()
+    private let intersectionDrag = PortalDividerIntersectionDragController()
 #if DEBUG
-    private var lastDragRouteSignature: String?
+    var lastDragRouteSignature: String?
 #endif
 
     deinit {
@@ -42,6 +43,7 @@ final class WindowTerminalHostView: NSView {
         super.viewDidMoveToWindow()
         if window == nil {
             clearActiveDividerCursor(restoreArrow: false)
+            intersectionDrag.end()
         }
         updateSplitDividerResizeObserver()
         invalidateSplitDividerRegionCache()
@@ -120,6 +122,25 @@ final class WindowTerminalHostView: NSView {
         clearActiveDividerCursor(restoreArrow: true)
     }
 
+    // The host is only ever the hit view for intersection mouseDowns; without
+    // this, a click on a non-opaque view can drag the window instead.
+    override var mouseDownCanMoveWindow: Bool { false }
+
+    override func mouseDown(with event: NSEvent) {
+        if intersectionDrag.begin(atWindowPoint: event.locationInWindow, regions: splitDividerRegions()) { return }
+        super.mouseDown(with: event)
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard intersectionDrag.isActive else { return super.mouseDragged(with: event) }
+        intersectionDrag.update(windowPoint: event.locationInWindow)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        guard intersectionDrag.isActive else { return super.mouseUp(with: event) }
+        intersectionDrag.end()
+    }
+
     // PERF: hitTest is called on EVERY event including keyboard. Keep non-pointer
     // path minimal. Do not add work outside the input-routing guard.
     override func hitTest(_ point: NSPoint) -> NSView? {
@@ -151,6 +172,11 @@ final class WindowTerminalHostView: NSView {
             }
 
             if let kind = splitDividerCursorKind(at: point) {
+                // Intersection drags resize two split views at once, which
+                // NSSplitView cannot do natively — claim the mouseDown.
+                if kind == .both, currentEvent?.type == .leftMouseDown {
+                    return self
+                }
                 assertDividerCursor(kind)
                 TerminalWindowPortalRegistry.noteSplitDividerInteraction(in: window, event: currentEvent)
                 return nil
@@ -411,74 +437,16 @@ final class WindowTerminalHostView: NSView {
     }
 
     private static func dividerCursorKind(at windowPoint: NSPoint, in regions: [DividerRegion], checkLiveness: Bool = true) -> DividerCursorKind? {
-        for region in regions.reversed() {
-            if checkLiveness, !region.isLive { continue }
-            let hitRect = region.hitRectInWindow
-            if !hitRect.isNull, hitRect.contains(windowPoint) {
-                return region.isVertical ? .vertical : .horizontal
-            }
+        let hits = DividerRegion.dividerHits(at: windowPoint, in: regions, checkLiveness: checkLiveness)
+        if let vertical = hits.vertical, let horizontal = hits.horizontal,
+           !vertical.isInHostedContent, !horizontal.isInHostedContent,
+           DividerRegion.areNested(vertical, horizontal) {
+            return .both
         }
-        return nil
+        if hits.vertical != nil { return .vertical }
+        return hits.horizontal == nil ? nil : .horizontal
     }
 
-#if DEBUG
-    private func logDragRouteDecision(
-        passThrough: Bool,
-        eventType: NSEvent.EventType?,
-        pasteboardTypes: [NSPasteboard.PasteboardType]?,
-        hitView: NSView?
-    ) {
-        let hasRelevantTypes = DragOverlayRoutingPolicy.hasBonsplitTabTransfer(pasteboardTypes)
-            || DragOverlayRoutingPolicy.hasSidebarTabReorder(pasteboardTypes)
-            || DragOverlayRoutingPolicy.hasFileURL(pasteboardTypes)
-        guard passThrough || hasRelevantTypes else { return }
-
-        let targetClass = hitView.map { NSStringFromClass(type(of: $0)) } ?? "nil"
-        let signature = [
-            passThrough ? "1" : "0",
-            debugEventName(eventType),
-            debugPasteboardTypes(pasteboardTypes),
-            targetClass,
-        ].joined(separator: "|")
-        guard lastDragRouteSignature != signature else { return }
-        lastDragRouteSignature = signature
-
-        cmuxDebugLog(
-            "portal.dragRoute passThrough=\(passThrough ? 1 : 0) " +
-            "event=\(debugEventName(eventType)) target=\(targetClass) " +
-            "types=\(debugPasteboardTypes(pasteboardTypes))"
-        )
-    }
-
-    private func debugPasteboardTypes(_ types: [NSPasteboard.PasteboardType]?) -> String {
-        guard let types, !types.isEmpty else { return "-" }
-        return types.map(\.rawValue).joined(separator: ",")
-    }
-
-    private func debugEventName(_ eventType: NSEvent.EventType?) -> String {
-        guard let eventType else { return "none" }
-        switch eventType {
-        case .cursorUpdate: return "cursorUpdate"
-        case .appKitDefined: return "appKitDefined"
-        case .systemDefined: return "systemDefined"
-        case .applicationDefined: return "applicationDefined"
-        case .periodic: return "periodic"
-        case .mouseMoved: return "mouseMoved"
-        case .mouseEntered: return "mouseEntered"
-        case .mouseExited: return "mouseExited"
-        case .flagsChanged: return "flagsChanged"
-        case .leftMouseDragged: return "leftMouseDragged"
-        case .rightMouseDragged: return "rightMouseDragged"
-        case .otherMouseDragged: return "otherMouseDragged"
-        case .leftMouseDown: return "leftMouseDown"
-        case .leftMouseUp: return "leftMouseUp"
-        case .rightMouseDown: return "rightMouseDown"
-        case .rightMouseUp: return "rightMouseUp"
-        case .otherMouseDown: return "otherMouseDown"
-        case .otherMouseUp: return "otherMouseUp"
-        default: return "other(\(eventType.rawValue))"
-        }
-    }
 #endif
 }
 

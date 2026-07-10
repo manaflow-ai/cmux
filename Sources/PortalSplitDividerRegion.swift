@@ -28,16 +28,40 @@ struct PortalDividerCursorOcclusion {
 
 /// Orientation of a hovered split divider and the resize cursor it shows.
 /// Shared by the portal host views and the hosted web-inspector divider.
+/// `.both` marks the intersection square where a vertical and a horizontal
+/// divider band overlap and a drag resizes along both axes.
 enum PortalDividerCursorKind: Equatable {
     case vertical
     case horizontal
+    case both
 
     var cursor: NSCursor {
         switch self {
         case .vertical: return .resizeLeftRight
         case .horizontal: return .resizeUpDown
+        case .both: return Self.allAxesCursor
         }
     }
+
+    /// AppKit ships no public four-way resize cursor; resolve the private
+    /// move cursor by selector and degrade to crosshair (same pattern as
+    /// CanvasPaneView's diagonal window-resize cursors).
+    private static let allAxesCursor: NSCursor = {
+        let selector = Selector(("_moveCursor"))
+        if NSCursor.responds(to: selector),
+           let cursor = NSCursor.perform(selector)?.takeUnretainedValue() as? NSCursor {
+            return cursor
+        }
+        return .crosshair
+    }()
+}
+
+/// A point where a vertical and a horizontal divider's hit bands overlap.
+/// Only dividers from the same nested split tree pair up, so unrelated
+/// splits (e.g. the dock sidebar next to the main tree) never co-drag.
+struct PortalDividerIntersection {
+    let vertical: PortalSplitDividerRegion
+    let horizontal: PortalSplitDividerRegion
 }
 
 @MainActor
@@ -102,6 +126,50 @@ final class PortalSplitDividerRegion {
         rectInWindow
             .insetBy(dx: -Self.dividerHitExpansion, dy: -Self.dividerHitExpansion)
             .intersection(boundsInWindow)
+    }
+
+    /// First hit region per orientation at `windowPoint`, matching the
+    /// precedence of the single-axis cursor lookup (later regions win).
+    static func dividerHits(
+        at windowPoint: NSPoint,
+        in regions: [PortalSplitDividerRegion],
+        checkLiveness: Bool = true
+    ) -> (vertical: PortalSplitDividerRegion?, horizontal: PortalSplitDividerRegion?) {
+        var vertical: PortalSplitDividerRegion?
+        var horizontal: PortalSplitDividerRegion?
+        for region in regions.reversed() {
+            if checkLiveness, !region.isLive { continue }
+            let hitRect = region.hitRectInWindow
+            guard !hitRect.isNull, hitRect.contains(windowPoint) else { continue }
+            if region.isVertical {
+                if vertical == nil { vertical = region }
+            } else if horizontal == nil {
+                horizontal = region
+            }
+            if vertical != nil, horizontal != nil { break }
+        }
+        return (vertical, horizontal)
+    }
+
+    static func dividerIntersection(
+        at windowPoint: NSPoint,
+        in regions: [PortalSplitDividerRegion],
+        checkLiveness: Bool = true
+    ) -> PortalDividerIntersection? {
+        let hits = dividerHits(at: windowPoint, in: regions, checkLiveness: checkLiveness)
+        guard let vertical = hits.vertical, let horizontal = hits.horizontal,
+              !vertical.isInHostedContent, !horizontal.isInHostedContent,
+              areNested(vertical, horizontal) else {
+            return nil
+        }
+        return PortalDividerIntersection(vertical: vertical, horizontal: horizontal)
+    }
+
+    /// True when one region's split view is nested inside the other's tree,
+    /// i.e. the two dividers can meet at a real pane corner.
+    static func areNested(_ first: PortalSplitDividerRegion, _ second: PortalSplitDividerRegion) -> Bool {
+        guard let firstSplit = first.splitView, let secondSplit = second.splitView else { return false }
+        return firstSplit.isDescendant(of: secondSplit) || secondSplit.isDescendant(of: firstSplit)
     }
 
     static func dividerRect(in splitView: NSSplitView, dividerIndex: Int) -> NSRect? {
