@@ -7,6 +7,40 @@ import Testing
 
 @MainActor
 @Suite struct MobileShellManualHostAuthorizationOwnershipTests {
+    @Test func expiredActiveManualTrustQueuesReapprovalWithoutAnotherRPC() async throws {
+        let trustStore = ImmediateExpiryManualHostTrustStore()
+        let router = LivenessHostRouter()
+        let runtime = LivenessTestRuntime(
+            transportFactory: LivenessTransportFactory(router: router, box: TransportBox()),
+            now: { Date() },
+            supportedRouteKinds: [.manualHost],
+            supportsServerPushEvents: false
+        )
+        let store = MobileShellComposite(
+            runtime: runtime,
+            workspaces: [],
+            identityProvider: StaticIdentityProvider(userID: "phone-user"),
+            reachability: AlwaysOnlineReachability(),
+            manualHostTrustStore: trustStore
+        )
+        store.signIn()
+
+        let connected = await store.connectManualHost(
+            name: "Expiring LAN Mac",
+            host: "192.168.1.77",
+            port: 58_465
+        )
+        let reapprovalQueued = try await pollUntil(attempts: 50) {
+            store.manualHostTrustWarning != nil
+        }
+
+        #expect(connected == .connected)
+        #expect(reapprovalQueued)
+        #expect(store.manualHostTrustWarning?.endpoint == "192.168.1.77:58465")
+        #expect(store.connectionState == .disconnected)
+        #expect(store.remoteClient == nil)
+    }
+
     @Test func revokedForegroundTrustQueuesHostApprovalWithoutAccountReauth() async throws {
         let route = try hostPortRoute(kind: .manualHost, host: "192.168.1.77", port: 58_465)
         let trustStore = InMemoryMobileManualHostTrustStore()
