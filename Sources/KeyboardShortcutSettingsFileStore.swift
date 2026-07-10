@@ -687,12 +687,6 @@ final class CmuxSettingsFileStore {
                 logInvalid("sidebar.branchLayout", sourcePath: sourcePath)
             }
         }
-
-        if let rawBeta = section["beta"], let beta = rawBeta as? [String: Any] {
-            parseSidebarWorkspaceTodosBeta(beta, sourcePath: sourcePath, snapshot: &snapshot)
-        } else if section.keys.contains("beta") {
-            logInvalid("sidebar.beta", sourcePath: sourcePath)
-        }
         parseSidebarIndicatorPositionSettings(section, sourcePath: sourcePath, snapshot: &snapshot)
         if let value = jsonDouble(section[RightSidebarWidthSettings.jsonKey]), value > 0 {
             snapshot.managedUserDefaults[RightSidebarWidthSettings.maxWidthKey] = .double(
