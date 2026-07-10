@@ -151,6 +151,7 @@ class Event:
     replay: Optional[str] = None
     offset: Optional[int] = None
     at_bottom: Optional[bool] = None
+    title: Optional[str] = None
 
     @property
     def bytes_data(self) -> Optional[bytes]:
@@ -614,4 +615,5 @@ def _parse_event(value: Dict[str, Any]) -> Event:
         replay=value.get("replay"),
         offset=value.get("offset"),
         at_bottom=value.get("at_bottom"),
+        title=value.get("title"),
     )

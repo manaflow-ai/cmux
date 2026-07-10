@@ -56,10 +56,46 @@ const ROUTING_REFRESH_RETRIES: u8 = 1;
 
 pub enum AppEvent {
     Mux(MuxEvent),
+    MuxTitlesReady,
     Input(Event),
     PtyOperationFailed(PtyOperationFailure),
     SessionMutationSettled(SessionMutationOutcome),
     RemoteTreeUpdated(Result<TreeView, String>),
+}
+
+#[derive(Default)]
+struct MuxTitleIngress {
+    state: Mutex<MuxTitleIngressState>,
+}
+
+#[derive(Default)]
+struct MuxTitleIngressState {
+    wake_queued: bool,
+    titles: HashMap<SurfaceId, String>,
+}
+
+impl MuxTitleIngress {
+    /// Returns true when the app channel needs one wake event.
+    fn push(&self, surface: SurfaceId, title: String) -> bool {
+        let mut state = self.state.lock().unwrap();
+        state.titles.insert(surface, title);
+        if state.wake_queued {
+            false
+        } else {
+            state.wake_queued = true;
+            true
+        }
+    }
+
+    fn remove(&self, surface: SurfaceId) {
+        self.state.lock().unwrap().titles.remove(&surface);
+    }
+
+    fn take(&self) -> HashMap<SurfaceId, String> {
+        let mut state = self.state.lock().unwrap();
+        state.wake_queued = false;
+        std::mem::take(&mut state.titles)
+    }
 }
 
 pub enum SessionMutationOutcome {
@@ -207,6 +243,7 @@ impl OrderedSession {
             let _ = self.events.send(AppEvent::PtyOperationFailed(PtyOperationFailure {
                 surface_id: None,
                 kind: None,
+                reservation_id: None,
                 label: "remote tree refresh",
                 error: error.to_string(),
                 lane_failed: false,
@@ -402,7 +439,6 @@ impl OrderedSession {
             SplitDir::Down => "vertical split ratio",
         };
         let pending = self.pending_mutation();
-        let remote = self.remote;
         let committed_mutation_generation = self.committed_mutation_generation.clone();
         self.operations.enqueue_coalescing_mutation(
             "resize pane split",
@@ -414,21 +450,7 @@ impl OrderedSession {
                     return Err(error);
                 }
                 committed_mutation_generation.fetch_add(1, Ordering::AcqRel);
-                if remote {
-                    pending.settle(SessionMutationOutcome::Success { tree: None });
-                } else {
-                    match session.refresh_tree() {
-                        Ok(tree) => {
-                            pending.settle(SessionMutationOutcome::Success { tree: Some(tree) });
-                        }
-                        Err(error) => {
-                            pending.settle(SessionMutationOutcome::CommittedTreeStale {
-                                error: Some(error.to_string()),
-                                completion: None,
-                            });
-                        }
-                    }
-                }
+                pending.settle(SessionMutationOutcome::Success { tree: None });
                 Ok(())
             },
         );
@@ -495,6 +517,7 @@ impl Deref for OrderedSession {
 enum RenderAction {
     None,
     Graphics,
+    Paint,
     Draw,
 }
 
@@ -502,6 +525,7 @@ impl RenderAction {
     fn merge(self, other: Self) -> Self {
         match (self, other) {
             (RenderAction::Draw, _) | (_, RenderAction::Draw) => RenderAction::Draw,
+            (RenderAction::Paint, _) | (_, RenderAction::Paint) => RenderAction::Paint,
             (RenderAction::Graphics, _) | (_, RenderAction::Graphics) => RenderAction::Graphics,
             (RenderAction::None, RenderAction::None) => RenderAction::None,
         }
@@ -818,6 +842,7 @@ enum Drag {
     /// Mouse reporting owned by the PTY application in this pane.
     PtyMouse {
         surface: SurfaceId,
+        reservation_id: u64,
         content: Rect,
         button: MouseButton,
         position: (u16, u16),
@@ -836,6 +861,12 @@ enum PtyMousePressResult {
     NotOwned,
     Consumed,
     Started,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct PtyInputForwardResult {
+    accepted: bool,
+    reservation_id: Option<u64>,
 }
 
 pub struct App {
@@ -888,6 +919,7 @@ pub struct App {
     routing_refresh_pending: bool,
     routing_refresh_retries_remaining: u8,
     pending_session_completions: VecDeque<SessionCompletion>,
+    mux_titles: Arc<MuxTitleIngress>,
     drag: Option<Drag>,
     encoder: KeyEncoder,
     mouse_encoder: MouseEncoder,
@@ -1049,13 +1081,27 @@ pub fn run(
     })?;
     let session = OrderedSession::new(session, pty_input.sender(), tx.clone());
     let stdout_lock = Arc::new(Mutex::new(()));
+    let mux_titles = Arc::new(MuxTitleIngress::default());
 
     // Session events → app channel.
     let session_events = session.events();
     std::thread::Builder::new().name("mux-events".into()).spawn({
         let tx = tx.clone();
+        let mux_titles = mux_titles.clone();
         move || {
             while let Ok(event) = session_events.recv() {
+                match event {
+                    MuxEvent::TitleChanged { surface, title } => {
+                        if mux_titles.push(surface, title)
+                            && tx.send(AppEvent::MuxTitlesReady).is_err()
+                        {
+                            break;
+                        }
+                        continue;
+                    }
+                    MuxEvent::SurfaceExited(surface) => mux_titles.remove(surface),
+                    _ => {}
+                }
                 if tx.send(AppEvent::Mux(event)).is_err() {
                     break;
                 }
@@ -1155,6 +1201,7 @@ pub fn run(
         routing_refresh_pending: false,
         routing_refresh_retries_remaining: 0,
         pending_session_completions: VecDeque::new(),
+        mux_titles,
         drag: None,
         encoder,
         mouse_encoder,
@@ -1265,6 +1312,10 @@ impl App {
                 self.draw_terminal(terminal)?;
                 self.emit_graphics()?;
             }
+            RenderAction::Paint => {
+                self.draw_terminal(terminal)?;
+                self.emit_graphics()?;
+            }
             RenderAction::Graphics => self.emit_graphics()?,
             RenderAction::None => {}
         }
@@ -1302,6 +1353,30 @@ impl App {
                 }
             }
         }
+    }
+
+    fn apply_mux_titles(&mut self) -> bool {
+        let mut titles = self.mux_titles.take();
+        if titles.is_empty() {
+            return false;
+        }
+        let mut changed = false;
+        for tab in self
+            .tree
+            .workspaces
+            .iter_mut()
+            .flat_map(|workspace| workspace.screens.iter_mut())
+            .flat_map(|screen| screen.panes.iter_mut())
+            .flat_map(|pane| pane.tabs.iter_mut())
+        {
+            if let Some(title) = titles.remove(&tab.surface)
+                && tab.title != title
+            {
+                tab.title = title;
+                changed = true;
+            }
+        }
+        changed
     }
 
     fn apply_session_completions_through(&mut self, authoritative_generation: u64) {
@@ -1574,6 +1649,9 @@ impl App {
             event => event,
         };
         match event {
+            AppEvent::MuxTitlesReady => {
+                Ok(if self.apply_mux_titles() { RenderAction::Paint } else { RenderAction::None })
+            }
             AppEvent::Mux(MuxEvent::Empty) => {
                 self.quit = true;
                 Ok(RenderAction::None)
@@ -1632,9 +1710,11 @@ impl App {
                 }
                 let failed_active_press = failure.kind == Some(PtyInputKind::Press)
                     && failure.delivery == PtyOperationDelivery::KnownNotDelivered
-                    && failure.surface_id.is_some_and(|surface| {
-                        matches!(&self.drag, Some(Drag::PtyMouse { surface: active, .. }) if *active == surface)
-                    });
+                    && failure.surface_id.zip(failure.reservation_id).is_some_and(
+                        |(surface, reservation_id)| {
+                            matches!(&self.drag, Some(Drag::PtyMouse { surface: active_surface, reservation_id: active_reservation, .. }) if *active_surface == surface && *active_reservation == reservation_id)
+                        },
+                    );
                 if failed_active_press || failure.lane_failed {
                     self.drag = None;
                 }
@@ -3057,7 +3137,7 @@ impl App {
         }
         self.sidebar_focused = false;
         self.selection = None;
-        if !self.forward_pty_mouse_to_surface(
+        let forwarded = self.forward_pty_mouse_to_surface(
             area.surface,
             area.content,
             x,
@@ -3066,11 +3146,16 @@ impl App {
             Some(Self::ghostty_mouse_button(button)),
             modifiers,
             true,
-        ) {
+        );
+        if !forwarded.accepted {
             return PtyMousePressResult::Consumed;
         }
+        let Some(reservation_id) = forwarded.reservation_id else {
+            return PtyMousePressResult::Consumed;
+        };
         self.drag = Some(Drag::PtyMouse {
             surface: area.surface,
+            reservation_id,
             content: area.content,
             button,
             position: (x, y),
@@ -3131,16 +3216,18 @@ impl App {
             return true;
         }
         let content = self.current_pty_content(surface).unwrap_or(content);
-        let delivered = self.forward_pty_mouse_to_surface(
-            surface,
-            content,
-            x,
-            y,
-            MouseAction::Release,
-            Some(Self::ghostty_mouse_button(active_button)),
-            modifiers,
-            false,
-        );
+        let delivered = self
+            .forward_pty_mouse_to_surface(
+                surface,
+                content,
+                x,
+                y,
+                MouseAction::Release,
+                Some(Self::ghostty_mouse_button(active_button)),
+                modifiers,
+                false,
+            )
+            .accepted;
         if delivered {
             self.drag = None;
         }
@@ -3148,7 +3235,7 @@ impl App {
     }
 
     fn cancel_pty_mouse_drag(&mut self) {
-        let Some(Drag::PtyMouse { surface, content, button, position, modifiers }) = self.drag
+        let Some(Drag::PtyMouse { surface, content, button, position, modifiers, .. }) = self.drag
         else {
             return;
         };
@@ -3158,16 +3245,18 @@ impl App {
             return;
         }
         let content = self.current_pty_content(surface).unwrap_or(content);
-        let delivered = self.forward_pty_mouse_to_surface(
-            surface,
-            content,
-            position.0,
-            position.1,
-            MouseAction::Release,
-            Some(Self::ghostty_mouse_button(button)),
-            modifiers,
-            false,
-        );
+        let delivered = self
+            .forward_pty_mouse_to_surface(
+                surface,
+                content,
+                position.0,
+                position.1,
+                MouseAction::Release,
+                Some(Self::ghostty_mouse_button(button)),
+                modifiers,
+                false,
+            )
+            .accepted;
         if delivered {
             self.drag = None;
         }
@@ -3216,8 +3305,10 @@ impl App {
         button: Option<GhosttyMouseButton>,
         modifiers: KeyModifiers,
         any_button_pressed: bool,
-    ) -> bool {
-        let Some(surface) = self.session.surface(surface_id) else { return false };
+    ) -> PtyInputForwardResult {
+        let Some(surface) = self.session.surface(surface_id) else {
+            return PtyInputForwardResult { accepted: false, reservation_id: None };
+        };
         let cell_width = u32::from(self.cell_pixels.0.max(1));
         let cell_height = u32::from(self.cell_pixels.1.max(1));
         let position = (
@@ -3242,16 +3333,16 @@ impl App {
             self.mouse_encoder.sync_from_terminal(terminal);
             self.mouse_encoder.encode(input, &mut self.encode_buf)
         }) else {
-            return false;
+            return PtyInputForwardResult { accepted: false, reservation_id: None };
         };
         if encoded.is_err() {
-            return false;
+            return PtyInputForwardResult { accepted: false, reservation_id: None };
         }
         if self.encode_buf.is_empty() {
             if action == MouseAction::Release {
                 self.pty_input.cancel_release_reservation();
             }
-            return true;
+            return PtyInputForwardResult { accepted: true, reservation_id: None };
         }
         let kind = match action {
             MouseAction::Press
@@ -3278,9 +3369,9 @@ impl App {
         surface_id: SurfaceId,
         surface: SurfaceHandle,
         kind: PtyInputKind,
-    ) -> bool {
+    ) -> PtyInputForwardResult {
         let bytes = PtyInputBytes::from_slice(&self.encode_buf);
-        self.write_pty_bytes(surface_id, surface, bytes, kind)
+        self.enqueue_pty_bytes(surface_id, surface, bytes, kind)
     }
 
     fn write_pty_bytes(
@@ -3290,9 +3381,21 @@ impl App {
         bytes: PtyInputBytes,
         kind: PtyInputKind,
     ) -> bool {
-        let result = self.pty_input.enqueue(PtyInputEvent::input(surface_id, surface, bytes, kind));
+        self.enqueue_pty_bytes(surface_id, surface, bytes, kind).accepted
+    }
+
+    fn enqueue_pty_bytes(
+        &mut self,
+        surface_id: SurfaceId,
+        surface: SurfaceHandle,
+        bytes: PtyInputBytes,
+        kind: PtyInputKind,
+    ) -> PtyInputForwardResult {
+        let (result, reservation_id) = self
+            .pty_input
+            .enqueue_with_reservation(PtyInputEvent::input(surface_id, surface, bytes, kind));
         self.rollback_mouse_motion_for_enqueue_failure(kind, result);
-        self.handle_pty_enqueue_result(result)
+        PtyInputForwardResult { accepted: self.handle_pty_enqueue_result(result), reservation_id }
     }
 
     fn rollback_mouse_motion_for_enqueue_failure(
@@ -4373,8 +4476,9 @@ fn browser_key_mapping(
 #[cfg(test)]
 mod tests {
     use super::{
-        App, AppEvent, Drag, OrderedSession, PaneArea, SessionCompletion, SessionCompletionAction,
-        browser_content_size_for_rect, browser_hover_forward_allowed, pane_parts_for_rect,
+        App, AppEvent, Drag, MuxTitleIngress, OrderedSession, PaneArea, RenderAction,
+        SessionCompletion, SessionCompletionAction, browser_content_size_for_rect,
+        browser_hover_forward_allowed, pane_parts_for_rect,
     };
     use std::collections::{HashMap, VecDeque};
     use std::sync::atomic::Ordering;
@@ -4382,7 +4486,9 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
 
-    use cmux_tui_core::{BrowserStatus, Mux, Node, Rect, SurfaceId, SurfaceKind, SurfaceOptions};
+    use cmux_tui_core::{
+        BrowserStatus, Mux, Node, Rect, SplitDir, SurfaceId, SurfaceKind, SurfaceOptions,
+    };
     use crossterm::event::{
         Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
     };
@@ -4587,6 +4693,7 @@ mod tests {
         let mut app = test_app(Session::Local(mux));
         app.drag = Some(Drag::PtyMouse {
             surface: 42,
+            reservation_id: 1,
             content: Rect { x: 1, y: 1, width: 20, height: 8 },
             button: MouseButton::Right,
             position: (4, 3),
@@ -4596,6 +4703,7 @@ mod tests {
         app.handle(AppEvent::PtyOperationFailed(PtyOperationFailure {
             surface_id: Some(42),
             kind: Some(PtyInputKind::Motion),
+            reservation_id: None,
             label: "PTY input",
             error: "write failed".to_string(),
             lane_failed: false,
@@ -4644,6 +4752,7 @@ mod tests {
         app.handle(AppEvent::PtyOperationFailed(PtyOperationFailure {
             surface_id: Some(42),
             kind: Some(PtyInputKind::Motion),
+            reservation_id: None,
             label: "PTY input",
             error: "remote session did not respond".to_string(),
             lane_failed: false,
@@ -4655,6 +4764,7 @@ mod tests {
         app.handle(AppEvent::PtyOperationFailed(PtyOperationFailure {
             surface_id: Some(42),
             kind: Some(PtyInputKind::Motion),
+            reservation_id: None,
             label: "PTY input",
             error: "canceled before delivery".to_string(),
             lane_failed: false,
@@ -4670,6 +4780,7 @@ mod tests {
         let mut app = test_app(Session::Local(mux));
         app.drag = Some(Drag::PtyMouse {
             surface: 42,
+            reservation_id: 1,
             content: Rect { x: 1, y: 1, width: 20, height: 8 },
             button: MouseButton::Right,
             position: (4, 3),
@@ -4679,6 +4790,7 @@ mod tests {
         app.handle(AppEvent::PtyOperationFailed(PtyOperationFailure {
             surface_id: Some(42),
             kind: Some(PtyInputKind::Motion),
+            reservation_id: None,
             label: "PTY input",
             error: "remote session did not respond".to_string(),
             lane_failed: true,
@@ -4695,6 +4807,7 @@ mod tests {
         let mut app = test_app(Session::Local(mux));
         app.drag = Some(Drag::PtyMouse {
             surface: 42,
+            reservation_id: 7,
             content: Rect { x: 1, y: 1, width: 20, height: 8 },
             button: MouseButton::Left,
             position: (4, 3),
@@ -4704,6 +4817,7 @@ mod tests {
         app.handle(AppEvent::PtyOperationFailed(PtyOperationFailure {
             surface_id: Some(42),
             kind: Some(PtyInputKind::Press),
+            reservation_id: Some(7),
             label: "PTY input",
             error: "remote session did not respond".to_string(),
             lane_failed: false,
@@ -4712,6 +4826,44 @@ mod tests {
         .unwrap();
 
         assert!(matches!(app.drag, Some(Drag::PtyMouse { button: MouseButton::Left, .. })));
+    }
+
+    #[test]
+    fn old_press_failure_does_not_clear_new_press_on_the_same_surface() {
+        let mux = Mux::new("press-reservation-identity-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.drag = Some(Drag::PtyMouse {
+            surface: 42,
+            reservation_id: 9,
+            content: Rect { x: 1, y: 1, width: 20, height: 8 },
+            button: MouseButton::Left,
+            position: (4, 3),
+            modifiers: KeyModifiers::NONE,
+        });
+
+        app.handle(AppEvent::PtyOperationFailed(PtyOperationFailure {
+            surface_id: Some(42),
+            kind: Some(PtyInputKind::Press),
+            reservation_id: Some(8),
+            label: "PTY input",
+            error: "old press rejected".to_string(),
+            lane_failed: false,
+            delivery: PtyOperationDelivery::KnownNotDelivered,
+        }))
+        .unwrap();
+        assert!(matches!(app.drag, Some(Drag::PtyMouse { reservation_id: 9, .. })));
+
+        app.handle(AppEvent::PtyOperationFailed(PtyOperationFailure {
+            surface_id: Some(42),
+            kind: Some(PtyInputKind::Press),
+            reservation_id: Some(9),
+            label: "PTY input",
+            error: "current press rejected".to_string(),
+            lane_failed: false,
+            delivery: PtyOperationDelivery::KnownNotDelivered,
+        }))
+        .unwrap();
+        assert!(app.drag.is_none());
     }
 
     #[test]
@@ -4767,6 +4919,32 @@ mod tests {
             events.recv_timeout(Duration::from_secs(1)).unwrap(),
             AppEvent::RemoteTreeUpdated(Ok(_))
         ));
+    }
+
+    #[test]
+    fn title_ingress_keeps_latest_per_surface_with_one_app_wake() {
+        let mux = Mux::new("title-ingress-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let updated_surface = 41;
+        let untouched_surface = 42;
+        app.tree = browser_completion_tree(updated_surface, untouched_surface);
+        let (wake_tx, wake_rx) = std::sync::mpsc::channel();
+
+        for index in 0..10_000 {
+            if app.mux_titles.push(updated_surface, format!("title-{index}")) {
+                wake_tx.send(AppEvent::MuxTitlesReady).unwrap();
+            }
+            if app.mux_titles.push(99, format!("unknown-{index}")) {
+                wake_tx.send(AppEvent::MuxTitlesReady).unwrap();
+            }
+        }
+
+        let wake = wake_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(wake_rx.try_recv().is_err(), "title churn must queue one app wake");
+        assert!(matches!(app.handle(wake).unwrap(), RenderAction::Paint));
+        assert_eq!(app.tree.pane(2).unwrap().tabs[0].title, "title-9999");
+        assert_eq!(app.tree.pane(2).unwrap().tabs[1].title, "");
+        assert!(app.mux_titles.push(updated_surface, "next".to_string()));
     }
 
     #[test]
@@ -4909,6 +5087,51 @@ mod tests {
     }
 
     #[test]
+    fn split_ratio_samples_coalesce_without_snapshots_before_final_settlement() {
+        let mux = Mux::new("split-ratio-snapshot-test", SurfaceOptions::default());
+        mux.new_workspace(None, Some((40, 12))).unwrap();
+        let target = Session::Local(mux.clone()).tree().active_screen().unwrap().active_pane;
+        mux.split(target, SplitDir::Right, Some((20, 12))).unwrap();
+        let (app, events) = test_app_with_events(Session::Local(mux));
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        app.session.operations.enqueue_session_mutation("block ratio lane", false, move || {
+            started_tx.send(()).unwrap();
+            release_rx.recv().unwrap();
+            Ok(())
+        });
+        started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        for ratio in [0.2, 0.4, 0.8] {
+            app.session.set_ratio_deferred(target, SplitDir::Right, ratio);
+        }
+        app.session.settle_split_ratio();
+        release_tx.send(()).unwrap();
+
+        let mut canceled = 0;
+        let mut sample_without_tree = 0;
+        let mut authoritative_snapshots = 0;
+        for _ in 0..4 {
+            match events.recv_timeout(Duration::from_secs(1)).unwrap() {
+                AppEvent::SessionMutationSettled(super::SessionMutationOutcome::Canceled) => {
+                    canceled += 1;
+                }
+                AppEvent::SessionMutationSettled(super::SessionMutationOutcome::Success {
+                    tree: None,
+                }) => sample_without_tree += 1,
+                AppEvent::SessionMutationSettled(
+                    super::SessionMutationOutcome::AuthoritativeMutationSucceeded { .. },
+                ) => authoritative_snapshots += 1,
+                _ => panic!("unexpected split ratio settlement"),
+            }
+        }
+
+        assert_eq!(canceled, 2, "only the latest deferred ratio should execute");
+        assert_eq!(sample_without_tree, 1, "the retained sample must not build a tree");
+        assert_eq!(authoritative_snapshots, 1, "final settlement must snapshot exactly once");
+    }
+
+    #[test]
     fn deferred_pointer_motion_keeps_only_the_latest_sample() {
         let mux = Mux::new("deferred-motion-test", SurfaceOptions::default());
         let (mut app, events) = test_app_with_events(Session::Local(mux));
@@ -4975,6 +5198,7 @@ mod tests {
         app.session.pending_mutations.store(1, Ordering::Release);
         app.drag = Some(Drag::PtyMouse {
             surface: 42,
+            reservation_id: 1,
             content: Rect { x: 2, y: 3, width: 20, height: 8 },
             button: MouseButton::Right,
             position: (5, 5),
@@ -5341,6 +5565,7 @@ mod tests {
             routing_refresh_pending: false,
             routing_refresh_retries_remaining: 0,
             pending_session_completions: VecDeque::new(),
+            mux_titles: Arc::new(MuxTitleIngress::default()),
             drag: None,
             encoder: KeyEncoder::new().unwrap(),
             mouse_encoder: MouseEncoder::new().unwrap(),

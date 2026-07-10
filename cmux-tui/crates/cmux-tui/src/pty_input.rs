@@ -101,6 +101,7 @@ impl PtyInputEvent {
 pub struct PtyOperationFailure {
     pub surface_id: Option<SurfaceId>,
     pub kind: Option<PtyInputKind>,
+    pub reservation_id: Option<u64>,
     pub label: &'static str,
     pub error: String,
     pub lane_failed: bool,
@@ -193,8 +194,16 @@ impl PtyInputDispatcher {
         Ok(Self { sender: PtyInputSender { queue, on_failure }, worker: Some(worker) })
     }
 
+    #[cfg(test)]
     pub fn enqueue(&self, event: PtyInputEvent) -> PtyInputEnqueueResult {
         self.sender.enqueue(event)
+    }
+
+    pub fn enqueue_with_reservation(
+        &self,
+        event: PtyInputEvent,
+    ) -> (PtyInputEnqueueResult, Option<u64>) {
+        self.sender.enqueue_with_reservation(event)
     }
 
     pub fn sender(&self) -> PtyInputSender {
@@ -241,16 +250,24 @@ impl PtyInputDispatcher {
 
 impl PtyInputSender {
     pub fn enqueue(&self, event: PtyInputEvent) -> PtyInputEnqueueResult {
+        self.enqueue_with_reservation(event).0
+    }
+
+    fn enqueue_with_reservation(
+        &self,
+        event: PtyInputEvent,
+    ) -> (PtyInputEnqueueResult, Option<u64>) {
         let mut state = self.queue.state.lock().unwrap();
         if state.closed {
-            return PtyInputEnqueueResult::Saturated;
+            return (PtyInputEnqueueResult::Saturated, None);
         }
         if state.remote_failed && event.remote {
-            return PtyInputEnqueueResult::Failed;
+            return (PtyInputEnqueueResult::Failed, None);
         }
         if event.bytes.len() > MAX_QUEUED_BYTES {
-            return PtyInputEnqueueResult::Oversized;
+            return (PtyInputEnqueueResult::Oversized, None);
         }
+        let reserves_release = event.kind == PtyInputKind::Press;
         let QueueState { events, queued_bytes, release_reservations, .. } = &mut *state;
         let accepted = enqueue_bounded(
             events,
@@ -261,10 +278,11 @@ impl PtyInputSender {
             MAX_QUEUED_BYTES,
         );
         if accepted {
+            let reservation_id = reserves_release.then_some(release_reservations.next_id);
             self.queue.changed.notify_one();
-            PtyInputEnqueueResult::Accepted
+            (PtyInputEnqueueResult::Accepted, reservation_id)
         } else {
-            PtyInputEnqueueResult::Saturated
+            (PtyInputEnqueueResult::Saturated, None)
         }
     }
 
@@ -305,6 +323,7 @@ impl PtyInputSender {
             (self.on_failure)(PtyOperationFailure {
                 surface_id: None,
                 kind: None,
+                reservation_id: None,
                 label,
                 error: match result {
                     PtyInputEnqueueResult::Failed => {
@@ -453,6 +472,7 @@ fn worker(queue: Arc<SharedQueue>, on_failure: Arc<dyn Fn(PtyOperationFailure) +
         let failure = result.err().map(|error| PtyOperationFailure {
             surface_id,
             kind,
+            reservation_id,
             label: event.label,
             error: error.to_string(),
             lane_failed: remote_transport_failed,
@@ -480,6 +500,7 @@ fn worker(queue: Arc<SharedQueue>, on_failure: Arc<dyn Fn(PtyOperationFailure) +
             canceled.extend(state.events.drain(..).map(|event| PtyOperationFailure {
                 surface_id: (event.kind != PtyInputKind::Mutation).then_some(event.surface_id),
                 kind: (event.kind != PtyInputKind::Mutation).then_some(event.kind),
+                reservation_id: event.reservation_id,
                 label: event.label,
                 error: "canceled after the remote transport failed".into(),
                 lane_failed: true,
@@ -505,6 +526,7 @@ fn worker(queue: Arc<SharedQueue>, on_failure: Arc<dyn Fn(PtyOperationFailure) +
                         surface_id: (event.kind != PtyInputKind::Mutation)
                             .then_some(event.surface_id),
                         kind: (event.kind != PtyInputKind::Mutation).then_some(event.kind),
+                        reservation_id: event.reservation_id,
                         label: event.label,
                         error: "canceled after a remote request timed out".into(),
                         lane_failed: false,
@@ -877,9 +899,12 @@ mod tests {
         press.remote = true;
         press.mutation = Some(Box::new(|| Err(crate::session::test_remote_timeout_error())));
 
-        assert_eq!(dispatcher.enqueue(press), PtyInputEnqueueResult::Accepted);
+        let (result, reservation_id) = dispatcher.enqueue_with_reservation(press);
+        assert_eq!(result, PtyInputEnqueueResult::Accepted);
+        assert!(reservation_id.is_some());
         let failure = failure_rx.recv_timeout(Duration::from_secs(1)).unwrap();
         assert_eq!(failure.delivery, PtyOperationDelivery::Ambiguous);
+        assert_eq!(failure.reservation_id, reservation_id);
         assert_eq!(dispatcher.sender.queue.state.lock().unwrap().release_reservations.len(), 1);
 
         assert_eq!(
