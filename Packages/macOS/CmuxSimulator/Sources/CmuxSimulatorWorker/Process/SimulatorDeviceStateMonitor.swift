@@ -1,11 +1,12 @@
 import Foundation
 import ObjectiveC.runtime
 
-/// Retains CoreSimulator's per-device notification token and translates each
+/// Retains CoreSimulator's per-device notification handle and translates each
 /// notification into one main-actor state read.
 @MainActor
 final class SimulatorDeviceStateMonitor {
-    private var token: NSObject?
+    private var manager: NSObject?
+    private var registrationHandle: UInt64?
 
     init(
         device: NSObject,
@@ -17,9 +18,11 @@ final class SimulatorDeviceStateMonitor {
                 "CoreSimulator did not expose device-state notifications."
             )
         }
-        let selector = NSSelectorFromString("registerNotificationHandlerOnQueue:handler:")
-        guard manager.responds(to: selector),
-              let implementation = class_getMethodImplementation(type(of: manager), selector)
+        let registerSelector = NSSelectorFromString("registerNotificationHandlerOnQueue:handler:")
+        let unregisterSelector = NSSelectorFromString("unregisterNotificationHandler:error:")
+        guard manager.responds(to: registerSelector),
+              manager.responds(to: unregisterSelector),
+              let implementation = class_getMethodImplementation(type(of: manager), registerSelector)
         else {
             throw SimulatorWorkerFailure.privateAPIUnavailable(
                 "CoreSimulator device-state notification registration is unavailable."
@@ -34,27 +37,38 @@ final class SimulatorDeviceStateMonitor {
             Selector,
             AnyObject,
             AnyObject
-        ) -> AnyObject?
-        guard let token = unsafeBitCast(implementation, to: Function.self)(
+        ) -> UInt64
+        let registrationHandle = unsafeBitCast(implementation, to: Function.self)(
             manager,
-            selector,
+            registerSelector,
             DispatchQueue.main,
             handler as AnyObject
-        ) as? NSObject else {
-            throw SimulatorWorkerFailure.privateAPIUnavailable(
-                "CoreSimulator rejected device-state notification registration."
-            )
-        }
-        self.token = token
+        )
+        self.manager = manager
+        self.registrationHandle = registrationHandle
     }
 
     func invalidate() {
-        guard let token else { return }
-        self.token = nil
-        let selector = NSSelectorFromString("invalidate")
-        if token.responds(to: selector) {
-            token.perform(selector)
-        }
+        guard let manager, let registrationHandle else { return }
+        self.manager = nil
+        self.registrationHandle = nil
+        let selector = NSSelectorFromString("unregisterNotificationHandler:error:")
+        guard manager.responds(to: selector),
+              let implementation = class_getMethodImplementation(type(of: manager), selector)
+        else { return }
+        typealias Function = @convention(c) (
+            AnyObject,
+            Selector,
+            UInt64,
+            AutoreleasingUnsafeMutablePointer<NSError?>?
+        ) -> Bool
+        var error: NSError?
+        _ = unsafeBitCast(implementation, to: Function.self)(
+            manager,
+            selector,
+            registrationHandle,
+            &error
+        )
     }
 
     deinit {
