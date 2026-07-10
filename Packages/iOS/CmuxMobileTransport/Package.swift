@@ -1,6 +1,15 @@
 // swift-tools-version: 6.0
 
+import Foundation
 import PackageDescription
+
+let packageDirectory = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+let repositoryDirectory = packageDirectory
+    .deletingLastPathComponent()
+    .deletingLastPathComponent()
+    .deletingLastPathComponent()
+let irohMacOSLibraryDirectory = repositoryDirectory
+    .appending(path: "CmuxIrohFFI.xcframework/macos-arm64_x86_64").path
 
 let package = Package(
     name: "CmuxMobileTransport",
@@ -20,7 +29,14 @@ let package = Package(
     targets: [
         .target(
             name: "CmuxIrohC",
-            publicHeadersPath: "include"
+            publicHeadersPath: "include",
+            linkerSettings: [
+                .unsafeFlags(
+                    ["-L", irohMacOSLibraryDirectory],
+                    .when(platforms: [.macOS])
+                ),
+                .linkedLibrary("cmux_iroh_ffi", .when(platforms: [.macOS])),
+            ]
         ),
         .target(
             name: "CmuxMobileTransport",
