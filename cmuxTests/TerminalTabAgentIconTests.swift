@@ -208,12 +208,24 @@ struct TerminalTabAgentIconTests {
     }
 
     @MainActor
-    @Test func terminalTitleDoesNotBecomeAgentIdentity() throws {
+    @Test(arguments: [
+        ("claude", "AgentIcons/Claude"), ("codex", "AgentIcons/Codex"),
+        ("opencode", "AgentIcons/OpenCode"), ("pi", "AgentIcons/Pi"),
+    ])
+    func promptIdleTitleDoesNotBecomeAgentIdentity(title: String, expectedAsset: String) throws {
         let workspace = Workspace()
         let panel = try #require(workspace.focusedTerminalPanel)
         let tabId = try #require(workspace.surfaceIdFromPanelId(panel.id))
 
-        #expect(workspace.updatePanelTitle(panelId: panel.id, title: "codex --yolo"))
+        #expect(workspace.updatePanelTitle(panelId: panel.id, title: title))
+        #expect(workspace.terminalTabAgentIconAsset(forPanelId: panel.id) == nil)
+        #expect(workspace.bonsplitController.tab(tabId)?.iconAsset == nil)
+        workspace.updatePanelShellActivityState(panelId: panel.id, state: .commandRunning)
+        #expect(workspace.terminalTabAgentIconAsset(forPanelId: panel.id) == expectedAsset)
+        let runningPayload = workspace.terminalTabAgentIconPayload(forPanelId: panel.id)
+        #expect(workspace.bonsplitController.tab(tabId)?.iconImageData == runningPayload.imageData)
+        #expect(workspace.bonsplitController.tab(tabId)?.iconAsset == runningPayload.assetName)
+        workspace.updatePanelShellActivityState(panelId: panel.id, state: .promptIdle)
         #expect(workspace.terminalTabAgentIconAsset(forPanelId: panel.id) == nil)
         #expect(workspace.bonsplitController.tab(tabId)?.iconImageData == nil)
         #expect(workspace.bonsplitController.tab(tabId)?.iconAsset == nil)
@@ -250,18 +262,13 @@ struct TerminalTabAgentIconTests {
     }
 
     @MainActor
-    @Test func plainShellTitleClearsObservedClaudeRestoredAgentIcon() throws {
+    @Test(arguments: [
+        (RestorableAgentKind.claude, "AgentIcons/Claude"), (RestorableAgentKind.codex, "AgentIcons/Codex"),
+    ])
+    func plainShellTitleClearsObservedRestoredAgentIcon(kind: RestorableAgentKind, expectedAsset: String) throws {
         try assertPlainShellTitleClearsObservedRestoredAgentIcon(
-            kind: .claude,
-            expectedAsset: "AgentIcons/Claude"
-        )
-    }
-
-    @MainActor
-    @Test func plainShellTitleClearsObservedCodexRestoredAgentIcon() throws {
-        try assertPlainShellTitleClearsObservedRestoredAgentIcon(
-            kind: .codex,
-            expectedAsset: "AgentIcons/Codex"
+            kind: kind,
+            expectedAsset: expectedAsset
         )
     }
 
