@@ -454,16 +454,17 @@ struct AgentHibernationPlannerSwiftTests {
         let releaseFirstLoad = DispatchSemaphore(value: 0)
         let successorLoadStarted = DispatchSemaphore(value: 0)
         let releaseSuccessorLoad = DispatchSemaphore(value: 0)
-        let successorRequestRegistered = DispatchSemaphore(value: 0)
+        let postSnapshotLoaderInvoked = DispatchSemaphore(value: 0)
         defer {
             releaseFirstLoad.signal()
             releaseSuccessorLoad.signal()
         }
 
-        let workspace = Workspace()
+        let workspace = Workspace(initialTerminalCommand: "/bin/sleep 60")
+        let workspaceId = workspace.id
         let panelId = try #require(workspace.focusedPanelId)
         let panel = try #require(workspace.panels[panelId] as? TerminalPanel)
-        let panelKey = AgentHibernationPanelKey(workspaceId: workspace.id, panelId: panelId)
+        let panelKey = AgentHibernationPanelKey(workspaceId: workspaceId, panelId: panelId)
         let agent = SessionRestorableAgentSnapshot(
             kind: .codex,
             sessionId: "post-snapshot-live-process",
@@ -475,12 +476,12 @@ struct AgentHibernationPlannerSwiftTests {
 
         let preBoundaryIndex = RestorableAgentSessionIndex.empty
         let postBoundaryIndex = Self.indexWithLiveProcess(
-            workspaceId: workspace.id,
+            workspaceId: workspaceId,
             panelId: panelId,
             agent: agent
         )
-        #expect(!preBoundaryIndex.hasLiveProcess(workspaceId: workspace.id, panelId: panelId))
-        #expect(postBoundaryIndex.hasLiveProcess(workspaceId: workspace.id, panelId: panelId))
+        #expect(!preBoundaryIndex.hasLiveProcess(workspaceId: workspaceId, panelId: panelId))
+        #expect(postBoundaryIndex.hasLiveProcess(workspaceId: workspaceId, panelId: panelId))
 
         let loadCount = OSAllocatedUnfairLock(initialState: 0)
         let hookDirectory = FileManager.default.temporaryDirectory
@@ -516,18 +517,8 @@ struct AgentHibernationPlannerSwiftTests {
 
         sharedIndex.scheduleRefreshIfStale()
         #expect(await Self.wait(for: firstLoadStarted))
-        let postBoundaryTask = Task { @MainActor in
-            Task { @MainActor in successorRequestRegistered.signal() }
-            return await sharedIndex.scopedIndexCapturedAfterRequest()
-        }
-        #expect(await Self.wait(for: successorRequestRegistered))
 
         controller.postSnapshotValidationIndexSequence = 0
-        controller.postSnapshotValidationIndexTask = AgentHibernationController.PostSnapshotValidationIndexTask(
-            requestID: UUID(),
-            startSequence: 1,
-            task: postBoundaryTask
-        )
         AgentHibernationTrackingGate.setEnabled(true)
         let record = AgentHibernationRecord(
             key: panelKey,
@@ -551,24 +542,32 @@ struct AgentHibernationPlannerSwiftTests {
             generation: controller.teardownValidationGeneration
         )
 
-        let teardownTask = controller.beginConfirmedTeardowns([request])
-        var reachedPostSnapshotBoundary = false
-        for _ in 0..<10_000 {
-            if controller.postSnapshotValidationIndexSequence == 1 {
-                reachedPostSnapshotBoundary = true
-                break
+        let postSnapshotHadLiveProcess = OSAllocatedUnfairLock(initialState: false)
+        let observedValidationSequence = OSAllocatedUnfairLock(initialState: UInt64(0))
+        let teardownTask = controller.beginConfirmedTeardowns(
+            [request],
+            postSnapshotIndexLoader: {
+                let sequence = await MainActor.run {
+                    controller.postSnapshotValidationIndexSequence
+                }
+                observedValidationSequence.withLock { $0 = sequence }
+                postSnapshotLoaderInvoked.signal()
+                let result = await sharedIndex.scopedIndexCapturedAfterRequest()
+                postSnapshotHadLiveProcess.withLock {
+                    $0 = result.hasLiveProcess(workspaceId: workspaceId, panelId: panelId)
+                }
+                return result
             }
-            await Task.yield()
-        }
-        #expect(reachedPostSnapshotBoundary)
+        )
+        #expect(await Self.wait(for: postSnapshotLoaderInvoked))
+        #expect(observedValidationSequence.withLock { $0 } == 1)
 
         releaseFirstLoad.signal()
         #expect(await Self.wait(for: successorLoadStarted))
         releaseSuccessorLoad.signal()
         await teardownTask.value
 
-        let postSnapshotResult = await postBoundaryTask.value
-        #expect(postSnapshotResult.hasLiveProcess(workspaceId: workspace.id, panelId: panelId))
+        #expect(postSnapshotHadLiveProcess.withLock { $0 })
         #expect(!panel.isAgentHibernated, "The post-snapshot live process must abort destructive teardown.")
         #expect(loadCount.withLock { $0 } == 2)
     }
