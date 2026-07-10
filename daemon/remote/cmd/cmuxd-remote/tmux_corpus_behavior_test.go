@@ -17,22 +17,24 @@ type tmuxCorpusRPCRequest struct {
 }
 
 type tmuxCorpusRPCRecorder struct {
-	socketPath          string
-	mu                  sync.Mutex
-	requests            []tmuxCorpusRPCRequest
-	workspaces          []map[string]any
-	readText            string
-	includePaneMetrics  bool
-	includePointMetrics bool
+	socketPath            string
+	mu                    sync.Mutex
+	requests              []tmuxCorpusRPCRequest
+	workspaces            []map[string]any
+	readText              string
+	includePaneMetrics    bool
+	includePointMetrics   bool
+	includeContainerFrame bool
 }
 
 func startTmuxCorpusRPCRecorder(t *testing.T) *tmuxCorpusRPCRecorder {
-	return startTmuxCorpusRPCRecorderWithMetricAvailability(t, true, true)
+	return startTmuxCorpusRPCRecorderWithMetricAvailability(t, true, true, true)
 }
 
 func startTmuxCorpusRPCRecorderWithPaneMetrics(t *testing.T, includePaneMetrics bool) *tmuxCorpusRPCRecorder {
 	return startTmuxCorpusRPCRecorderWithMetricAvailability(
 		t,
+		includePaneMetrics,
 		includePaneMetrics,
 		includePaneMetrics,
 	)
@@ -42,13 +44,15 @@ func startTmuxCorpusRPCRecorderWithMetricAvailability(
 	t *testing.T,
 	includePaneMetrics bool,
 	includePointMetrics bool,
+	includeContainerFrame bool,
 ) *tmuxCorpusRPCRecorder {
 	t.Helper()
 
 	recorder := &tmuxCorpusRPCRecorder{
-		socketPath:          makeShortUnixSocketPath(t),
-		includePaneMetrics:  includePaneMetrics,
-		includePointMetrics: includePointMetrics,
+		socketPath:            makeShortUnixSocketPath(t),
+		includePaneMetrics:    includePaneMetrics,
+		includePointMetrics:   includePointMetrics,
+		includeContainerFrame: includeContainerFrame,
 		workspaces: []map[string]any{{
 			"id":    "11111111-1111-4111-8111-111111111111",
 			"ref":   "workspace:1",
@@ -168,7 +172,9 @@ func (r *tmuxCorpusRPCRecorder) serveConn(conn net.Conn) {
 				pane["cell_height_points"] = 8
 			}
 			pane["pixel_frame"] = map[string]any{"x": 0, "y": 0, "width": 332, "height": 222}
-			result["container_frame"] = map[string]any{"width": 640, "height": 384}
+			if r.includeContainerFrame {
+				result["container_frame"] = map[string]any{"width": 640, "height": 384}
+			}
 		}
 		resp["result"] = result
 	case "pane.surfaces":
@@ -569,7 +575,7 @@ func TestTmuxCorpusExactAbsoluteResizeDoesNotRequirePaneMetrics(t *testing.T) {
 }
 
 func TestTmuxCorpusPixelMetricsDoNotBecomePointFallbacks(t *testing.T) {
-	recorder := startTmuxCorpusRPCRecorderWithMetricAvailability(t, true, false)
+	recorder := startTmuxCorpusRPCRecorderWithMetricAvailability(t, true, false, true)
 	rc := &rpcContext{socketPath: recorder.socketPath}
 
 	if err := dispatchTmuxCommand(rc, "resize-pane", []string{"-t", "pane:1", "-x", "3"}); err != nil {
@@ -603,6 +609,26 @@ func TestTmuxCorpusPixelMetricsDoNotBecomePointFallbacks(t *testing.T) {
 	}
 	if _, ok := requests[2].Params["amount"]; ok {
 		t.Fatalf("relative resize used pixel metrics as point fallback")
+	}
+}
+
+func TestTmuxCorpusPercentageWithoutContainerFrameOmitsPointFallback(t *testing.T) {
+	recorder := startTmuxCorpusRPCRecorderWithMetricAvailability(t, true, true, false)
+	rc := &rpcContext{socketPath: recorder.socketPath}
+
+	if err := dispatchTmuxCommand(rc, "resize-pane", []string{"-t", "pane:1", "-x", "50%"}); err != nil {
+		t.Fatalf("resize-pane percentage without container frame: %v", err)
+	}
+
+	requests := recorder.requestsFor("pane.resize")
+	if len(requests) != 1 {
+		t.Fatalf("pane.resize requests = %d, want 1", len(requests))
+	}
+	if got := asInt(t, requests[0].Params["target_percentage"], "percentage target"); got != 50 {
+		t.Fatalf("target_percentage = %v, want 50", got)
+	}
+	if _, ok := requests[0].Params["target_pixels"]; ok {
+		t.Fatalf("percentage resize without container frame sent target_pixels")
 	}
 }
 

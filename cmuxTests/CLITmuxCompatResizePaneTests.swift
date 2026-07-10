@@ -49,6 +49,12 @@ extension CLITmuxCompatRemoteSplitTests {
         #expect(relative["amount"] == nil)
     }
 
+    @Test func percentageWithoutContainerFrameOmitsPointFallback() throws {
+        let params = try captureResize(arguments: ["-x", "50%"], includeContainerFrame: false)
+        #expect((params["target_percentage"] as? NSNumber)?.intValue == 50)
+        #expect(params["target_pixels"] == nil)
+    }
+
     @Test func directionalResizeUsesPositionalAmountAndDefaultsToOneCell() throws {
         let explicit = try captureResize(arguments: ["-L", "7"])
         #expect(explicit["direction"] as? String == "left")
@@ -69,7 +75,8 @@ extension CLITmuxCompatRemoteSplitTests {
     private func captureResize(
         arguments: [String],
         includeMetrics: Bool = true,
-        includePointMetrics: Bool = true
+        includePointMetrics: Bool = true,
+        includeContainerFrame: Bool = true
     ) throws -> [String: Any] {
         let cliPath = try BundledCLITestSupport.bundledCLIPath(
             for: CLITmuxCompatRemoteSplitBundleToken.self
@@ -117,7 +124,9 @@ extension CLITmuxCompatRemoteSplitTests {
                     }
                     pane["pixel_frame"] = ["x": 0, "y": 0, "width": 652, "height": 438]
                     result["panes"] = [pane]
-                    result["container_frame"] = ["width": 640, "height": 816]
+                    if includeContainerFrame {
+                        result["container_frame"] = ["width": 640, "height": 816]
+                    }
                 }
                 return Self.v2Response(id: id, ok: true, result: result)
             case "pane.resize":
