@@ -2293,6 +2293,7 @@ struct TerminalStreamTests {
 
 @MainActor
 @Test func terminalInputResyncsOutputWhenMacSequenceIsAhead() async throws {
+    let now = Date()
     let route = try CmxAttachRoute(
         id: "debug_loopback",
         kind: .debugLoopback,
@@ -2304,52 +2305,52 @@ struct TerminalStreamTests {
         macDeviceID: "test-mac",
         macDisplayName: "Test Mac",
         routes: [route],
-        expiresAt: Date().addingTimeInterval(60)
+        expiresAt: now.addingTimeInterval(60)
     )
     let router = TerminalOutputSelfHealingRouter()
     let runtime = testRuntime(
         supportedRouteKinds: [.debugLoopback],
         transportFactory: RequestAwareTransportFactory(router: router),
+        now: { now },
         supportsServerPushEvents: true
     )
     let store = CMUXMobileShellStore.preview(runtime: runtime)
-    let collector = TerminalOutputCollector()
 
     store.signIn()
     await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
-    collector.mount(store: store, surfaceID: "live-terminal")
+    // The initial subscription request proves host capabilities have been
+    // applied before the surface mounts. Otherwise the cold replay can start
+    // unbarriered and be superseded by its capability-upgrade replay, which is
+    // a different lifecycle than the input-resync race this test owns.
+    _ = try await waitForRequestCount("mobile.events.subscribe", count: 1, router: router)
+    var output = store.terminalOutputStream(surfaceID: "live-terminal").makeAsyncIterator()
     let oldGridText = try terminalRenderGridReplacementText(seq: 4, text: "old")
     let currentGridText = try terminalRenderGridReplacementText(seq: 12, text: "current")
 
     _ = try await waitForRequestCount("mobile.terminal.replay", count: 1, router: router)
-    // Anchor on the cold replay's DELIVERY, not just its request: submitting
-    // input while the first replay's response is still in flight races the
-    // input-triggered resync against the in-flight replay's barrier state,
-    // and one interleaving legitimately skips the second replay (the flaky
-    // iPad failure in https://github.com/manaflow-ai/cmux/issues/7820). The
-    // scenario under test is a phone SETTLED at stale content learning from
-    // an input ack that the mac is ahead.
-    for _ in 0..<4000 where !collector.lines.contains(oldGridText) {
-        try await Task.sleep(nanoseconds: 1_000_000)
-    }
-    #expect(collector.lines.last == oldGridText)
+    let oldChunk = try #require(await output.next())
+    try #require(String(data: oldChunk.data, encoding: .utf8) == oldGridText)
 
+    // Keep the cold replay unacknowledged while the input response reports a
+    // newer Mac sequence. The resync must remain owned by that replay barrier
+    // and run as its follow-up instead of racing it with a stale token.
     await store.submitTerminalRawInput(Data("x".utf8), surfaceID: "live-terminal")
+    let requestsBeforeAcknowledgement = await router.sentRequests()
+    try #require(requestsBeforeAcknowledgement.count { $0.method == "mobile.terminal.replay" } == 1)
+    store.terminalOutputDidProcess(
+        surfaceID: "live-terminal",
+        streamToken: oldChunk.streamToken
+    )
 
     let replayRequests = try await waitForRequestCount("mobile.terminal.replay", count: 2, router: router)
     #expect(replayRequests.count >= 2)
     _ = try await waitForRequestCount("mobile.events.subscribe", count: 2, router: router)
-    // The request-count waits only prove the second replay was REQUESTED; its
-    // response still has to round-trip and deliver. The slower CI iPad leg
-    // regularly needs more than the file's usual 200ms here.
-    for _ in 0..<4000 where !collector.lines.contains(currentGridText) {
-        try await Task.sleep(nanoseconds: 1_000_000)
-    }
-
-    #expect(collector.lines.last == currentGridText)
-    #expect(Set(collector.lines).isSubset(of: [oldGridText, currentGridText]))
-    #expect(collector.lines.count <= 2)
-    collector.unmount()
+    let currentChunk = try #require(await output.next())
+    #expect(String(data: currentChunk.data, encoding: .utf8) == currentGridText)
+    store.terminalOutputDidProcess(
+        surfaceID: "live-terminal",
+        streamToken: currentChunk.streamToken
+    )
 }
 
 @MainActor
