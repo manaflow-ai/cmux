@@ -35,7 +35,9 @@ export const accountMeProcedure = os
     // Stripe/Stack subscription state and returns the authoritative plan.
     const status = await resolveProPlanStatus(user);
     return {
-      userId: user.id,
+      // id is always present on a real Stack user; the ?? keeps this total for
+      // the DB-free unit test, which drives the plan via a Stack-product fake.
+      userId: user.id ?? "",
       email: user.primaryEmail ?? "",
       planId: status.planId,
       isPro: status.isPro,
