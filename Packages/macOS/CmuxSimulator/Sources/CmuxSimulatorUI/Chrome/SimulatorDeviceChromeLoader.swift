@@ -92,8 +92,8 @@ actor SimulatorDeviceChromeLoader {
         let buttons = chrome.inputs.compactMap { input -> SimulatorDeviceChromeProfile.Button? in
             guard let imageURL = resourceURL(named: input.image, in: chromeResources),
                   let image = NSImage(contentsOf: imageURL) else { return nil }
-            let width = max(image.size.width, 12)
-            let height = max(image.size.height, 12)
+            let width = max(Double(image.size.width), 12)
+            let height = max(Double(image.size.height), 12)
             let normal = input.offsets.normal ?? input.offsets.rollover ?? .zero
             let rollover = input.offsets.rollover ?? normal
             let restX = (2 * normal.x) - rollover.x
