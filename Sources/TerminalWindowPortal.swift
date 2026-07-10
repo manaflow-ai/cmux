@@ -637,7 +637,7 @@ final class WindowTerminalPortal: NSObject {
     private weak var installedContainerView: NSView?
     private weak var installedReferenceView: NSView?
     private var installConstraints: [NSLayoutConstraint] = []
-    var hasDeferredFullSyncScheduled = false
+    let fullSynchronizationScheduler = TerminalPortalMutationScheduler()
     private var hasExternalGeometrySyncScheduled = false
     private var pendingExternalGeometrySyncRequiresImmediate = false
     private var externalGeometrySyncGeneration: UInt64 = 0

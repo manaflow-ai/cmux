@@ -12133,23 +12133,6 @@ struct GhosttyTerminalView: NSViewRepresentable {
         weak var hostedView: GhosttySurfaceScrollView?
     }
 
-    private struct PortalMutationSnapshot {
-        let attachGeneration: Int
-        let expectedSurfaceId: UUID
-        let expectedSurfaceGeneration: UInt64
-        let paneId: PaneID
-        let isActive, isVisibleInUI: Bool
-        let portalZPriority: Int
-        let showsInactiveOverlay, showsUnreadNotificationRing: Bool
-        let inactiveOverlayColor: NSColor
-        let inactiveOverlayOpacity: CGFloat
-        let searchState: TerminalSurface.SearchState?
-        let paneDropZone: DropZone?
-        let keyStateIndicatorText: String?
-        let onFocus: ((UUID) -> Void)?
-        let onTriggerFlash: (() -> Void)?
-    }
-
     func makeCoordinator() -> Coordinator { Coordinator() }
 
     enum HostCallbackPortalGeometrySynchronizationAction<Window> {
@@ -12181,7 +12164,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
         hostedView: GhosttySurfaceScrollView,
         terminalSurface: TerminalSurface,
         coordinator: Coordinator,
-        snapshot: PortalMutationSnapshot,
+        snapshot: TerminalPortalMutationSnapshot,
         reason: String
     ) {
         guard coordinator.attachGeneration == snapshot.attachGeneration else { return }
@@ -12209,7 +12192,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
         hostedView: GhosttySurfaceScrollView,
         terminalSurface: TerminalSurface,
         coordinator: Coordinator,
-        snapshot: PortalMutationSnapshot,
+        snapshot: TerminalPortalMutationSnapshot,
         reason: String
     ) {
         guard terminalSurface.claimPortalHost(
@@ -12386,7 +12369,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
 #endif
 
         coordinator.attachGeneration += 1
-        let snapshot = PortalMutationSnapshot(
+        let snapshot = TerminalPortalMutationSnapshot(
             attachGeneration: coordinator.attachGeneration,
             expectedSurfaceId: terminalSurface.id,
             expectedSurfaceGeneration: terminalSurface.portalBindingGeneration(),

@@ -1,7 +1,7 @@
-import XCTest
 import AppKit
 import Bonsplit
 import CmuxTerminal
+import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -9,9 +9,11 @@ import CmuxTerminal
 @testable import cmux
 #endif
 
-final class GhosttyTerminalViewVisibilityPolicyTests: XCTestCase {
+@Suite("Ghostty terminal visibility policy")
+struct GhosttyTerminalViewVisibilityPolicyTests {
     @MainActor
-    func testPortalMutationSchedulerDefersCommitPastCurrentCallback() async {
+    @Test
+    func portalMutationSchedulerDefersCommitPastCurrentCallback() async {
         let scheduler = TerminalPortalMutationScheduler()
         var didCommit = false
 
@@ -19,13 +21,14 @@ final class GhosttyTerminalViewVisibilityPolicyTests: XCTestCase {
             didCommit = true
         }
 
-        XCTAssertFalse(didCommit)
+        #expect(!didCommit)
         await commit.value
-        XCTAssertTrue(didCommit)
+        #expect(didCommit)
     }
 
     @MainActor
-    func testPortalMutationSchedulerCommitsOnlyLatestGeneration() async {
+    @Test
+    func portalMutationSchedulerCommitsOnlyLatestGeneration() async {
         let scheduler = TerminalPortalMutationScheduler()
         var committedValues: [Int] = []
 
@@ -38,11 +41,12 @@ final class GhosttyTerminalViewVisibilityPolicyTests: XCTestCase {
 
         await staleCommit.value
         await latestCommit.value
-        XCTAssertEqual(committedValues, [2])
+        #expect(committedValues == [2])
     }
 
     @MainActor
-    func testPortalMutationSchedulerOriginalDrainIncludesFollowUpScheduledDuringCommit() async {
+    @Test
+    func portalMutationSchedulerOriginalDrainIncludesFollowUpScheduledDuringCommit() async {
         let scheduler = TerminalPortalMutationScheduler()
         var committedValues: [Int] = []
         var originalDrainWasCancelled = false
@@ -56,16 +60,16 @@ final class GhosttyTerminalViewVisibilityPolicyTests: XCTestCase {
         }
 
         await drain.value
-        XCTAssertFalse(originalDrainWasCancelled)
-        XCTAssertEqual(
-            committedValues,
-            [1, 2],
+        #expect(!originalDrainWasCancelled)
+        #expect(
+            committedValues == [1, 2],
             "A commit-triggered update must stay on the live drain instead of replacing it"
         )
     }
 
     @MainActor
-    func testPortalMutationSchedulerCancelInvalidatesPendingCommit() async {
+    @Test
+    func portalMutationSchedulerCancelInvalidatesPendingCommit() async {
         let scheduler = TerminalPortalMutationScheduler()
         var didCommit = false
 
@@ -75,11 +79,12 @@ final class GhosttyTerminalViewVisibilityPolicyTests: XCTestCase {
         scheduler.cancel()
 
         await commit.value
-        XCTAssertFalse(didCommit)
+        #expect(!didCommit)
     }
 
-    func testImmediateStateUpdateAllowedWhenDesiredStateIsHidden() {
-        XCTAssertTrue(
+    @Test
+    func immediateStateUpdateAllowedWhenDesiredStateIsHidden() {
+        #expect(
             GhosttyTerminalView.shouldApplyImmediateHostedStateUpdate(
                 desiredVisibleInUI: false,
                 hostedViewHasSuperview: true,
@@ -88,8 +93,9 @@ final class GhosttyTerminalViewVisibilityPolicyTests: XCTestCase {
         )
     }
 
-    func testImmediateStateUpdateAllowedWhenBoundToCurrentHost() {
-        XCTAssertTrue(
+    @Test
+    func immediateStateUpdateAllowedWhenBoundToCurrentHost() {
+        #expect(
             GhosttyTerminalView.shouldApplyImmediateHostedStateUpdate(
                 desiredVisibleInUI: true,
                 hostedViewHasSuperview: true,
@@ -98,9 +104,10 @@ final class GhosttyTerminalViewVisibilityPolicyTests: XCTestCase {
         )
     }
 
-    func testImmediateStateUpdateSkippedForStaleHostBoundElsewhere() {
-        XCTAssertFalse(
-            GhosttyTerminalView.shouldApplyImmediateHostedStateUpdate(
+    @Test
+    func immediateStateUpdateSkippedForStaleHostBoundElsewhere() {
+        #expect(
+            !GhosttyTerminalView.shouldApplyImmediateHostedStateUpdate(
                 desiredVisibleInUI: true,
                 hostedViewHasSuperview: true,
                 isBoundToCurrentHost: false
@@ -108,8 +115,9 @@ final class GhosttyTerminalViewVisibilityPolicyTests: XCTestCase {
         )
     }
 
-    func testImmediateStateUpdateAllowedWhenUnboundAndNotAttachedAnywhere() {
-        XCTAssertTrue(
+    @Test
+    func immediateStateUpdateAllowedWhenUnboundAndNotAttachedAnywhere() {
+        #expect(
             GhosttyTerminalView.shouldApplyImmediateHostedStateUpdate(
                 desiredVisibleInUI: true,
                 hostedViewHasSuperview: false,
@@ -118,27 +126,30 @@ final class GhosttyTerminalViewVisibilityPolicyTests: XCTestCase {
         )
     }
 
-    func testSwiftUIHostGeometryCallbackDefersPortalMutationUntilAfterLayout() {
+    @Test
+    func swiftUIHostGeometryCallbackDefersPortalMutationUntilAfterLayout() {
         switch GhosttyTerminalView.hostCallbackPortalGeometrySynchronizationAction(window: 3873) {
         case .synchronizeWithoutLayoutFlush:
-            XCTFail("A host callback must not mutate the portal during SwiftUI layout")
+            Issue.record("A host callback must not mutate the portal during SwiftUI layout")
         case .skip:
             break
         }
     }
 
-    func testSwiftUIHostGeometryCallbackSkipsWithoutWindow() {
+    @Test
+    func swiftUIHostGeometryCallbackSkipsWithoutWindow() {
         switch GhosttyTerminalView.hostCallbackPortalGeometrySynchronizationAction(window: Optional<Int>.none) {
         case .synchronizeWithoutLayoutFlush:
-            XCTFail("Detached host callbacks must not synchronize terminal portal geometry")
+            Issue.record("Detached host callbacks must not synchronize terminal portal geometry")
         case .skip:
             break
         }
     }
 }
 
-@MainActor
-final class TerminalPortalHostAuthorityTests: XCTestCase {
+@Suite("Terminal portal host authority")
+struct TerminalPortalHostAuthorityTests {
+    @MainActor
     private func makeSurface() -> TerminalSurface {
         TerminalSurface(
             tabId: UUID(),
@@ -148,80 +159,86 @@ final class TerminalPortalHostAuthorityTests: XCTestCase {
         )
     }
 
-    func testOlderHostCannotStealLeaseAfterNewHostBinds() {
+    @MainActor
+    @Test
+    func olderHostCannotStealLeaseAfterNewHostBinds() {
         let surface = makeSurface()
         let oldHost = NSView(), newHost = NSView()
         let oldPane = PaneID(), newPane = PaneID()
         let bounds = CGRect(x: 0, y: 0, width: 400, height: 300)
 
-        XCTAssertTrue(surface.claimPortalHost(
+        #expect(surface.claimPortalHost(
             hostId: ObjectIdentifier(oldHost), paneId: oldPane, instanceSerial: 1,
             inWindow: true, bounds: bounds, reason: "test.old.initial"
         ))
-        XCTAssertTrue(surface.claimPortalHost(
+        #expect(surface.claimPortalHost(
             hostId: ObjectIdentifier(newHost), paneId: newPane, instanceSerial: 2,
             inWindow: true, bounds: bounds, reason: "test.new.bind"
         ))
-        XCTAssertFalse(surface.claimPortalHost(
+        #expect(!surface.claimPortalHost(
             hostId: ObjectIdentifier(oldHost), paneId: oldPane, instanceSerial: 1,
             inWindow: true, bounds: bounds, reason: "test.old.delayed"
         ))
-        XCTAssertEqual(
-            surface.debugPortalHostLease().hostId,
-            String(describing: ObjectIdentifier(newHost))
+        #expect(
+            surface.debugPortalHostLease().hostId ==
+                String(describing: ObjectIdentifier(newHost))
         )
     }
 
-    func testDetachedHostCannotReplaceLiveHost() {
+    @MainActor
+    @Test
+    func detachedHostCannotReplaceLiveHost() {
         let surface = makeSurface()
         let oldHost = NSView(), newHost = NSView()
         let oldPane = PaneID(), newPane = PaneID()
         let bounds = CGRect(x: 0, y: 0, width: 400, height: 300)
 
-        XCTAssertTrue(surface.claimPortalHost(
+        #expect(surface.claimPortalHost(
             hostId: ObjectIdentifier(oldHost), paneId: oldPane, instanceSerial: 1,
             inWindow: true, bounds: bounds, reason: "test.old.initial"
         ))
-        XCTAssertFalse(surface.claimPortalHost(
+        #expect(!surface.claimPortalHost(
             hostId: ObjectIdentifier(newHost), paneId: newPane, instanceSerial: 2,
             inWindow: false, bounds: bounds, reason: "test.new.detached"
         ))
-        XCTAssertEqual(
-            surface.debugPortalHostLease().hostId,
-            String(describing: ObjectIdentifier(oldHost))
+        #expect(
+            surface.debugPortalHostLease().hostId ==
+                String(describing: ObjectIdentifier(oldHost))
         )
-        XCTAssertTrue(surface.claimPortalHost(
+        #expect(surface.claimPortalHost(
             hostId: ObjectIdentifier(oldHost), paneId: oldPane, instanceSerial: 1,
             inWindow: true, bounds: bounds, reason: "test.old.afterDetachedCandidate"
         ))
-        XCTAssertTrue(surface.claimPortalHost(
+        #expect(surface.claimPortalHost(
             hostId: ObjectIdentifier(newHost), paneId: newPane, instanceSerial: 2,
             inWindow: true, bounds: bounds, reason: "test.new.attached"
         ))
-        XCTAssertEqual(
-            surface.debugPortalHostLease().hostId,
-            String(describing: ObjectIdentifier(newHost))
+        #expect(
+            surface.debugPortalHostLease().hostId ==
+                String(describing: ObjectIdentifier(newHost))
         )
     }
 
-    func testOlderHostCannotReclaimAfterNewHostLeaseReleases() {
+    @MainActor
+    @Test
+    func olderHostCannotReclaimAfterNewHostLeaseReleases() {
         let surface = makeSurface()
         let oldHost = NSView(), newHost = NSView()
         let oldPane = PaneID(), newPane = PaneID()
         let bounds = CGRect(x: 0, y: 0, width: 400, height: 300)
 
-        XCTAssertTrue(surface.claimPortalHost(
+        #expect(surface.claimPortalHost(
             hostId: ObjectIdentifier(oldHost), paneId: oldPane, instanceSerial: 1,
             inWindow: true, bounds: bounds, reason: "test.old.initial"
         ))
-        XCTAssertTrue(surface.claimPortalHost(
+        #expect(surface.claimPortalHost(
             hostId: ObjectIdentifier(newHost), paneId: newPane, instanceSerial: 2,
             inWindow: true, bounds: bounds, reason: "test.new.bind"
         ))
         surface.releasePortalHostIfOwned(
             hostId: ObjectIdentifier(newHost), reason: "test.new.release"
         )
-        XCTAssertFalse(surface.claimPortalHost(
+        #expect(!surface.claimPortalHost(
             hostId: ObjectIdentifier(oldHost), paneId: oldPane, instanceSerial: 1,
             inWindow: true, bounds: bounds, reason: "test.old.afterRelease"
         ))

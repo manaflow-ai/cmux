@@ -12,42 +12,7 @@ import SwiftUI
 /// `Sendable`. Construct one at app startup and pass it via
 /// ``View/settingsRuntime(_:)``.
 public struct SettingsRuntime: @unchecked Sendable {
-    /// Immutable reference storage keeps the environment value cheap to copy.
-    /// SwiftUI duplicates environment values while rebuilding view closures, so
-    /// embedding the catalog directly here would copy its full declaration tree.
-    private final class Storage: @unchecked Sendable {
-        let catalog: SettingCatalog
-        let searchIndex: SettingsSearchIndex
-        let userDefaultsStore: UserDefaultsSettingsStore
-        let jsonStore: JSONConfigStore
-        let secretStore: SecretFileStore
-        let errorLog: SettingsErrorLog
-        let accountFlow: AccountFlow?
-        let hostActions: SettingsHostActions
-
-        @MainActor
-        init(
-            catalog: SettingCatalog,
-            userDefaultsStore: UserDefaultsSettingsStore,
-            jsonStore: JSONConfigStore,
-            secretStore: SecretFileStore,
-            errorLog: SettingsErrorLog,
-            accountFlow: AccountFlow?,
-            hostActions: SettingsHostActions,
-            searchIndex: SettingsSearchIndex?
-        ) {
-            self.catalog = catalog
-            self.searchIndex = searchIndex ?? SettingsSearchIndex(catalog: catalog)
-            self.userDefaultsStore = userDefaultsStore
-            self.jsonStore = jsonStore
-            self.secretStore = secretStore
-            self.errorLog = errorLog
-            self.accountFlow = accountFlow
-            self.hostActions = hostActions
-        }
-    }
-
-    private let storage: Storage
+    private let storage: SettingsRuntimeStorage
 
     /// Immutable setting declarations used by stores and section views.
     public var catalog: SettingCatalog {
@@ -93,7 +58,7 @@ public struct SettingsRuntime: @unchecked Sendable {
         hostActions: SettingsHostActions = NoopSettingsHostActions(),
         searchIndex: SettingsSearchIndex? = nil
     ) {
-        storage = Storage(
+        storage = SettingsRuntimeStorage(
             catalog: catalog,
             userDefaultsStore: userDefaultsStore,
             jsonStore: jsonStore,

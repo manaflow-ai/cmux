@@ -5,13 +5,6 @@ public import Bonsplit
 internal import CMUXDebugLog
 #endif
 
-struct TerminalPortalHostAuthority {
-    let hostId: ObjectIdentifier
-    let paneId: UUID
-    let instanceSerial: UInt64
-    let generation: UInt64
-}
-
 // MARK: - Portal-host leases (which pane host currently owns the surface)
 
 extension TerminalSurface {
