@@ -1,10 +1,10 @@
 import { getTranslations } from "next-intl/server";
 import { notFound } from "next/navigation";
-import { buildAlternates } from "../../../../i18n/seo";
-import { Callout } from "../../components/callout";
-import { CodeBlock } from "../../components/code-block";
-import { DocsHeading } from "../../components/docs-heading";
-import { baseDocsLocales } from "../../components/docs-nav-items";
+import { buildAlternates } from "../../../../../i18n/seo";
+import { Callout } from "../../../components/callout";
+import { CodeBlock } from "../../../components/code-block";
+import { DocsHeading } from "../../../components/docs-heading";
+import { baseDocsLocales } from "../../../components/docs-nav-items";
 
 function assertSupportedLocale(locale: string) {
   if (!baseDocsLocales.includes(locale as (typeof baseDocsLocales)[number])) {
