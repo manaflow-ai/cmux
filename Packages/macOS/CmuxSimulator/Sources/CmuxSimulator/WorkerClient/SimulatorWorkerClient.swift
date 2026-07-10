@@ -175,10 +175,17 @@ public actor SimulatorWorkerClient: SimulatorPaneClient {
         try requireOpen()
         await waitForCameraCleanup()
         try requireOpen()
+        let discoveredDevices = try? await simulatorControl.discoverDevices()
+        try Task.checkCancellation()
+        let wasAlreadyBooted = discoveredDevices?
+            .first(where: { $0.id == id })?
+            .state == .booted
         try await simulatorControl.boot(deviceID: id)
         try Task.checkCancellation()
-        try await simulatorControl.waitUntilBooted(deviceID: id)
-        try Task.checkCancellation()
+        if !wasAlreadyBooted {
+            try await simulatorControl.waitUntilBooted(deviceID: id)
+            try Task.checkCancellation()
+        }
 
         prepareExplicitRecovery()
         replaceWorkerForAttachmentIfNeeded()
