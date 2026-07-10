@@ -112,7 +112,7 @@ check_e2e_runner_fallbacks() {
     exit 1
   fi
 
-  for label in depot-macos-latest depot-macos-14; do
+  for label in depot-macos-latest depot-macos-14 tart-canary; do
     if ! grep -Eq "^[[:space:]]+- ${label}$" "$E2E_FILE"; then
       echo "FAIL: test-e2e.yml must expose runner option ${label}"
       exit 1
@@ -126,6 +126,16 @@ check_e2e_runner_fallbacks() {
 
   if ! grep -Fq "startsWith((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') || inputs.runner, 'depot-macos-')" "$E2E_FILE"; then
     echo "FAIL: test-e2e.yml must validate all Depot macOS runner choices"
+    exit 1
+  fi
+
+  if ! grep -Fq "((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') || inputs.runner) == 'tart-canary'" "$E2E_FILE"; then
+    echo "FAIL: test-e2e.yml must validate Tart identity after resolving the effective runner"
+    exit 1
+  fi
+
+  if ! grep -Fq 'test -f /etc/cmux-tart-ci' "$E2E_FILE"; then
+    echo "FAIL: test-e2e.yml must reject runners without the Tart VM identity marker"
     exit 1
   fi
 
@@ -155,7 +165,7 @@ check_e2e_runner_fallbacks() {
     exit 1
   fi
 
-  echo "PASS: test-e2e.yml exposes Depot runner choices, identity guard, and duplicate-queue cancellation"
+  echo "PASS: test-e2e.yml exposes Depot and Tart runner choices, identity guards, and duplicate-queue cancellation"
 }
 
 check_xcode_selection() {
@@ -807,7 +817,7 @@ check_no_self_hosted_fleet_runners() {
   # NOTE: reload-build.yml is the dev-build offload path (workflow_dispatch,
   # not required CI) and intentionally targets the fleet via a free-form input;
   # this guard only inspects runner-selection lines, not its input description.
-  local fleet='macos-26|warp-macos-26-arm64-6x|cmux-aws-macos|cmux-macos|cmux-local-macos|macfleet|(^|[^a-z0-9-])mac4([^a-z0-9]|$)|(^|[^a-z0-9-])mac-mini([^a-z0-9]|$)|slot-[0-9]|xcode-[0-9]+-[0-9]|(^|[^a-z0-9-])cmux([^a-z0-9-]|$)'
+  local fleet='macos-26|warp-macos-26-arm64-6x|cmux-aws-macos|cmux-macos|cmux-local-macos|macfleet|tart-canary|(^|[^a-z0-9-])mac4([^a-z0-9]|$)|(^|[^a-z0-9-])mac-mini([^a-z0-9]|$)|slot-[0-9]|xcode-[0-9]+-[0-9]|(^|[^a-z0-9-])cmux([^a-z0-9-]|$)'
   local allowed='blacksmith-6vcpu-macos-(15|26|latest)|warp-macos-15-arm64-6x|depot-macos-(latest|14)'
 
   # Bare self-hosted/macOS/ARM64 targeting (inline array or multi-line list).
@@ -820,7 +830,7 @@ check_no_self_hosted_fleet_runners() {
   # known fleet/self-hosted label must be caught, every allowed cloud label
   # must pass. Probes are raw YAML values (no path:lineno: prefix).
   local probe
-  for probe in 'runs-on: macfleet' '- mac4' '- mac-mini' '- slot-3' '- xcode-26-3' '- cmux' \
+  for probe in 'runs-on: macfleet' '- tart-canary' '- mac4' '- mac-mini' '- slot-3' '- xcode-26-3' '- cmux' \
                "runs-on: \${{ vars.X || 'macos-26' }}" '- warp-macos-26-arm64-6x' \
                '- cmux-aws-macos-15' '- cmux-macos-26' '- self-hosted' '- macOS' '- ARM64' \
                'runs-on: [self-hosted, macOS, ARM64]'; do
@@ -850,6 +860,9 @@ check_no_self_hosted_fleet_runners() {
     content="${line#*:*:}"
     printf '%s\n' "$content" | grep -Eq "($forbidden)" || continue
     printf '%s\n' "$content" | grep -Eq "($allowed)" && continue
+    if [[ "$line" == "$E2E_FILE:"* ]] && [[ "$content" =~ ^[[:space:]]*-[[:space:]]+tart-canary[[:space:]]*$ ]]; then
+      continue
+    fi
     hits+="$line"$'\n'
   done < <(grep -rnE "(runs-on:|[[:space:]]os:[[:space:]]|^[[:space:]]*-[[:space:]]+[A-Za-z0-9._-]+[[:space:]]*$)" "$ROOT_DIR/.github/workflows")
   if [[ -n "$hits" ]]; then

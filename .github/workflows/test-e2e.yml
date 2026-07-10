@@ -70,7 +70,7 @@ jobs:
           esac
 
       - name: Validate Tart canary identity
-        if: ${{ inputs.runner == 'tart-canary' }}
+        if: ${{ ((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') || inputs.runner) == 'tart-canary' }}
         env:
           RUNNER_CONTEXT_NAME: ${{ runner.name }}
         run: |
