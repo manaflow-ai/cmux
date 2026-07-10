@@ -350,10 +350,16 @@ struct AgentHibernationPlannerSwiftTests {
         defer { resetSharedHibernationState(controller) }
 
         let boundary = controller.markPostSnapshotValidationPoint()
-        _ = controller.sharedPostSnapshotValidationIndexTask(minimumStartSequence: boundary)
+        _ = controller.sharedPostSnapshotValidationIndexTask(
+            minimumStartSequence: boundary,
+            loader: { .empty }
+        )
         let firstRequestID = controller.postSnapshotValidationIndexTask?.requestID
 
-        _ = controller.sharedPostSnapshotValidationIndexTask(minimumStartSequence: boundary)
+        _ = controller.sharedPostSnapshotValidationIndexTask(
+            minimumStartSequence: boundary,
+            loader: { .empty }
+        )
 
         #expect(controller.postSnapshotValidationIndexTask?.requestID == firstRequestID)
         #expect(controller.postSnapshotValidationIndexTask?.startSequence == boundary)

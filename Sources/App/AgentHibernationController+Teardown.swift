@@ -359,10 +359,12 @@ extension AgentHibernationController {
         return postSnapshotValidationIndexSequence
     }
 
+    /// Serializes validation boundaries within the controller, then enters the
+    /// process-wide index coordinator for a non-publishing post-boundary capture.
     func sharedPostSnapshotValidationIndexTask(
         minimumStartSequence: UInt64,
-        loader: @escaping @Sendable () -> RestorableAgentSessionIndex = {
-            RestorableAgentSessionIndex.loadIncludingProcessDetectedSnapshotsSynchronously()
+        loader: @escaping @Sendable () async -> RestorableAgentSessionIndex = {
+            await SharedLiveAgentIndex.shared.scopedIndexCapturedAfterRequest()
         }
     ) -> Task<RestorableAgentSessionIndex, Never> {
         let predecessor: Task<RestorableAgentSessionIndex, Never>?
@@ -379,7 +381,7 @@ extension AgentHibernationController {
         let task = Task.detached(priority: .utility) { () -> RestorableAgentSessionIndex in
             _ = await predecessor?.value
             guard !Task.isCancelled else { return .empty }
-            return loader()
+            return await loader()
         }
         postSnapshotValidationIndexTask = PostSnapshotValidationIndexTask(
             requestID: requestID,

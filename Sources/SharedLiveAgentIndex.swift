@@ -163,11 +163,15 @@ final class SharedLiveAgentIndex {
         guard let task = refreshTaskIfStale() else {
             return index
         }
+        // Later interactive successors intentionally do not extend this stale-tolerant
+        // read. Hibernation performs a separate post-snapshot scoped capture before
+        // teardown, while following an open-ended probe stream could starve its tick.
         return await task.value?.index ?? index
     }
 
-    /// Returns a fresh shared result without publishing it to process-wide UI state.
-    func refreshedIndexForScopedProbe() async -> RestorableAgentSessionIndex {
+    /// Returns an immutable index from a capture that starts after this request,
+    /// without publishing the result or notifying process-wide UI consumers.
+    func scopedIndexCapturedAfterRequest() async -> RestorableAgentSessionIndex {
         ensureWatchingHookStoreDirectory()
         let task = requestRefresh(
             freshness: .captureAfterRequest,
