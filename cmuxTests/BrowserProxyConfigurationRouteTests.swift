@@ -53,6 +53,18 @@ import WebKit
         #expect(store.proxyConfigurations.isEmpty)
     }
 
+    @Test("Direct routing remains re-clearable after an explicit proxy")
+    @MainActor
+    func directRouteRemainsReclearableAfterExplicitProxy() throws {
+        let store = WKWebsiteDataStore.nonPersistent()
+        let mirror = try #require(systemProxyMirror())
+        _ = BrowserProxyConfigurationRoute.mirroredSystem(mirror).apply(to: store)
+
+        #expect(BrowserProxyConfigurationRoute.direct.apply(to: store))
+        #expect(BrowserProxyConfigurationRoute.direct.apply(to: store))
+        #expect(store.proxyConfigurations.isEmpty)
+    }
+
     @Test("An unchanged remote proxy route does not rewrite a shared website data store")
     @MainActor
     func unchangedRemoteProxyRouteDoesNotRewriteSharedStore() {
