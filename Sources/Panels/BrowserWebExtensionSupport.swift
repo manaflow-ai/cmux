@@ -401,6 +401,10 @@ final class BrowserWebExtensionSupport: NSObject, BrowserWebExtensionHosting {
         cmuxDebugLog(
             "browser.webext.commands name=\(context.webExtension.displayName ?? "?") \(summary)"
         )
+        cmuxDebugLog(
+            "browser.webext.permissions granted=\(context.grantedPermissions.keys.map(\.rawValue).sorted().joined(separator: ",")) " +
+            "patterns=\(context.grantedPermissionMatchPatterns.count)"
+        )
     }
 #endif
 
@@ -434,7 +438,12 @@ extension BrowserPanel {
     }
 
     func performWebExtensionCommand(for event: NSEvent) -> Bool {
-        guard let browserWebExtensionHost else { return false }
+        guard let browserWebExtensionHost else {
+#if DEBUG
+            cmuxDebugLog("browser.webext.command noHost panel=\(id.uuidString.prefix(5))")
+#endif
+            return false
+        }
         noteWebExtensionActivated()
         return browserWebExtensionHost.performCommand(for: event)
     }
