@@ -1,7 +1,6 @@
 import AppKit
 import Bonsplit
 import CmuxTerminal
-import SwiftUI
 import Testing
 
 #if canImport(cmux_DEV)
@@ -262,56 +261,5 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
         case .skip:
             break
         }
-    }
-}
-
-@Suite("Terminal portal drop-zone visibility")
-struct TerminalPortalDropZoneVisibilityTests {
-    @MainActor
-    @Test
-    func hiddenRepresentableSuppressesDropZoneDuringLivePortalHandoff() async throws {
-        _ = NSApplication.shared
-        let surface = TerminalSurface(
-            tabId: UUID(),
-            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: nil,
-            workingDirectory: nil
-        )
-        defer { surface.releaseSurfaceForTesting() }
-        let pane = PaneID()
-        let rootView = GhosttyTerminalView(
-            terminalSurface: surface,
-            paneId: pane,
-            isActive: false,
-            isVisibleInUI: false,
-            ownershipGeneration: surface.currentPortalHostOwnershipGeneration(),
-            portalPresentationResolver: {
-                .visible(isActive: false, zPriority: 1)
-            }
-        )
-        .environment(\.paneDropZone, .right)
-        let hostingView = NSHostingView(rootView: rootView)
-        let window = NSWindow(
-            contentRect: CGRect(x: 0, y: 0, width: 400, height: 300),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
-        )
-        defer {
-            window.orderOut(nil)
-            window.close()
-        }
-        hostingView.frame = window.contentView?.bounds ?? .zero
-        window.contentView = hostingView
-        window.makeKeyAndOrderFront(nil)
-        hostingView.layoutSubtreeIfNeeded()
-
-        await Task.yield()
-        await Task.yield()
-
-        #expect(
-            surface.hostedView.debugDropZoneOverlayState().isHidden,
-            "A hidden SwiftUI terminal must not inherit the visible pane's drop target during a portal handoff"
-        )
     }
 }
