@@ -9,34 +9,6 @@ final class SharedLiveAgentIndex {
     private typealias LoadResult = SharedLiveAgentIndexLoader.LoadResult
     private typealias PanelKey = RestorableAgentSessionIndex.PanelKey
 
-    private enum RefreshFreshness: Equatable {
-        case joinCurrentGeneration
-        case captureAfterRequest
-    }
-
-    private enum RefreshPublication: Equatable {
-        case scoped
-        case workspace
-
-        mutating func include(_ other: Self) {
-            if other == .workspace {
-                self = .workspace
-            }
-        }
-    }
-
-    private struct RefreshGeneration {
-        enum Phase: Equatable {
-            case queued
-            case capturing
-        }
-
-        let id: UUID
-        var phase: Phase
-        var publication: RefreshPublication
-        var validationPanelsByPanelID: [UUID: PanelKey]
-    }
-
     private(set) var index: RestorableAgentSessionIndex?
     private var loadedAt: Date?
     private var liveAgentProcessFingerprint: Set<String> = []
