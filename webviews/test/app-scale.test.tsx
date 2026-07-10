@@ -25,4 +25,17 @@ test("large diff navigation keeps the rendered DOM bounded", () => {
   expect(dom.window.document.querySelector('[aria-label="Jump to file"]')).toBeTruthy();
   expect(dom.window.document.querySelectorAll("*").length).toBeLessThan(10);
   dom.window.close();
+
+  let openedSearch = false;
+  const control = JumpSelect({
+    items,
+    label: createDiffViewerLabelResolver(undefined),
+    onJump: () => {},
+    onOpenSearch: () => {
+      openedSearch = true;
+    },
+    selectedItemId: "",
+  }) as any;
+  control.props.onClick();
+  expect(openedSearch).toBe(true);
 });

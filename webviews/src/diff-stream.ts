@@ -130,11 +130,12 @@ export async function streamPatch(options: StreamPatchOptions): Promise<void> {
   let firstRender = true;
   let lastYieldAt = performance.now();
   let lastFlushAt = performance.now();
+  let nextIncrementalBatchSize = 128;
   let currentPatchPrefix: string | undefined;
   let patchMetadataIndex = 0;
   const batchConfig = {
     initialBatchSize: options.initialFileTreeRowCount,
-    incrementalBatchSize: 25,
+    maxIncrementalBatchSize: 4_096,
     initialMaxWait: 500,
     incrementalMaxWait: 100,
   };
@@ -173,7 +174,7 @@ export async function streamPatch(options: StreamPatchOptions): Promise<void> {
       lastYieldAt = performance.now();
       return;
     }
-    const batchSize = firstRender ? batchConfig.initialBatchSize : batchConfig.incrementalBatchSize;
+    const batchSize = firstRender ? batchConfig.initialBatchSize : nextIncrementalBatchSize;
     const maxWait = firstRender ? batchConfig.initialMaxWait : batchConfig.incrementalMaxWait;
     if (force || model.pendingItems.length >= batchSize || now - lastFlushAt >= maxWait) {
       flushPendingItems();
@@ -201,6 +202,9 @@ export async function streamPatch(options: StreamPatchOptions): Promise<void> {
     refreshTreeSource();
     options.onMetrics({ ...metrics });
     lastFlushAt = performance.now();
+    if (!firstRender) {
+      nextIncrementalBatchSize = Math.min(nextIncrementalBatchSize * 4, batchConfig.maxIncrementalBatchSize);
+    }
     firstRender = false;
   }
 

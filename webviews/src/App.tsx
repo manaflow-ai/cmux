@@ -611,14 +611,17 @@ function Toolbar({
   return (
     <header id="toolbar" ref={toolbarRef}>
       <SourceControls label={label} onNavigate={onNavigate} payload={payload} transport={transport} />
-      {/* The jump-to-file select duplicates the Files sidebar (both scroll to a
-          file). It is the only file-jump control when the sidebar is hidden, so
-          it always renders, but its centered middle grid track is collapsed via
-          CSS whenever the sidebar is actually visible (sidebar shown AND viewport
-          wide enough that the sidebar is not media-auto-hidden), letting
-          toolbar-left reclaim the space. */}
+      {/* Small diffs use a native jump select. Large diffs route this control to
+          the virtualized file-tree search so the toolbar never creates one DOM
+          option per file. */}
       <div className="toolbar-middle flex min-w-0 flex-1 items-center justify-center gap-1.5">
-        <JumpSelect items={state.items} label={label} onJump={onJump} selectedItemId={state.activeItemId} />
+        <JumpSelect
+          items={state.items}
+          label={label}
+          onJump={onJump}
+          onOpenSearch={() => dispatch({ type: "set-file-search-open", open: true })}
+          selectedItemId={state.activeItemId}
+        />
       </div>
       <div className="toolbar-actions flex items-center gap-1.5">
         {showExternalLink ? (
@@ -895,15 +898,30 @@ export function JumpSelect({
   items,
   label,
   onJump,
+  onOpenSearch,
   selectedItemId,
 }: {
   items: DiffItem[];
   label: DiffViewerLabelResolver;
   onJump: (itemId: string) => void;
+  onOpenSearch?: () => void;
   selectedItemId: string;
 }) {
   if (items.length === 0) {
     return null;
+  }
+  if (items.length > 500) {
+    return (
+      <button
+        id="jump-search-button"
+        type="button"
+        aria-label={label("jumpToFile")}
+        title={label("jumpToFile")}
+        onClick={onOpenSearch}
+      >
+        {label("jumpToFile")}
+      </button>
+    );
   }
   return (
     <select

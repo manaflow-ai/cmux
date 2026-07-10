@@ -168,7 +168,8 @@ body {
 #source-select,
 #repo-select,
 #base-select,
-#jump-select {
+#jump-select,
+#jump-search-button {
   appearance: none;
   height: 24px;
   min-width: 0;
@@ -213,6 +214,10 @@ body {
   border-color: color-mix(in lab, var(--cmux-diff-fg) 24%, transparent);
   background-color: color-mix(in lab, var(--cmux-diff-fg) 10%, transparent);
 }
+#jump-search-button:hover {
+  border-color: color-mix(in lab, var(--cmux-diff-fg) 24%, transparent);
+  background-color: color-mix(in lab, var(--cmux-diff-fg) 10%, transparent);
+}
 #source-select[hidden],
 #repo-select[hidden],
 #base-select[hidden],
@@ -228,6 +233,12 @@ body {
   field-sizing: content;
   min-width: 64px;
 }
+#jump-search-button {
+  min-width: 64px;
+  padding-right: 9px;
+  background-image: none;
+  cursor: pointer;
+}
 #repo-select {
   /* Sized to its selected value like #source-select, with the HIGHEST shrink so
      it is the first to ellipsize when the toolbar runs out of room. */
@@ -242,6 +253,7 @@ body {
 #repo-select:focus,
 #base-select:focus,
 #jump-select:focus,
+#jump-search-button:focus-visible,
 .base-picker-button:focus-visible,
 .base-picker-input:focus-visible,
 .toolbar-icon:focus-visible,
