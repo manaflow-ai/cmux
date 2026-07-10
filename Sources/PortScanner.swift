@@ -550,19 +550,28 @@ final class PortScanner: @unchecked Sendable {
         return nextRevision
     }
 
+#if DEBUG
+    static func acceptsResult(
+        currentRevision: UInt64,
+        expectedRevision: UInt64,
+        staleMetric: ProcessStaleRejection,
+        metrics: ProcessPerformanceMetrics = .shared
+    ) -> Bool {
+        guard currentRevision == expectedRevision else {
+            metrics.recordStaleRejection(staleMetric)
+            return false
+        }
+        return true
+    }
+#else
     static func acceptsResult(
         currentRevision: UInt64,
         expectedRevision: UInt64,
         staleMetric: ProcessStaleRejection
     ) -> Bool {
-        guard currentRevision == expectedRevision else {
-#if DEBUG
-            ProcessPerformanceMetrics.shared.recordStaleRejection(staleMetric)
-#endif
-            return false
-        }
-        return true
+        currentRevision == expectedRevision
     }
+#endif
 
     // MARK: - Process helpers
 

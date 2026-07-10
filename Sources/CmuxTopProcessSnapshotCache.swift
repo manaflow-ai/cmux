@@ -35,10 +35,29 @@ actor CmuxTopProcessSnapshotStore {
 
     private let now: Now
     private let capture: Capture
+#if DEBUG
+    private let metrics: ProcessPerformanceMetrics
+#endif
     private var cached: CachedSnapshot?
     private var inFlight: InFlightCapture?
     private var nextCaptureID: UInt64 = 0
 
+#if DEBUG
+    init(
+        now: @escaping Now = { Date() },
+        capture: @escaping Capture = { requirements in
+            CmuxTopProcessSnapshot.capture(
+                includeProcessDetails: requirements.contains(.processDetails),
+                includeCMUXScope: requirements.contains(.cmuxScope)
+            )
+        },
+        metrics: ProcessPerformanceMetrics = .shared
+    ) {
+        self.now = now
+        self.capture = capture
+        self.metrics = metrics
+    }
+#else
     init(
         now: @escaping Now = { Date() },
         capture: @escaping Capture = { requirements in
@@ -51,6 +70,7 @@ actor CmuxTopProcessSnapshotStore {
         self.now = now
         self.capture = capture
     }
+#endif
 
     func snapshot(
         requirements: CmuxTopProcessSnapshotRequirements,
@@ -64,7 +84,7 @@ actor CmuxTopProcessSnapshotStore {
             now: requestedAt
         ) {
 #if DEBUG
-            ProcessPerformanceMetrics.shared.recordProcessSnapshotReuse(
+            metrics.recordProcessSnapshotReuse(
                 consumer: consumer,
                 generation: cached.generation,
                 source: .cache
@@ -79,7 +99,7 @@ actor CmuxTopProcessSnapshotStore {
                 await finishCapture(inFlight, snapshot: snapshot)
                 if inFlight.requirements.isSuperset(of: requirements) {
 #if DEBUG
-                    ProcessPerformanceMetrics.shared.recordProcessSnapshotReuse(
+                    metrics.recordProcessSnapshotReuse(
                         consumer: consumer,
                         generation: inFlight.id,
                         source: .inFlight
@@ -94,7 +114,7 @@ actor CmuxTopProcessSnapshotStore {
                     now: now
                 ) {
 #if DEBUG
-                    ProcessPerformanceMetrics.shared.recordProcessSnapshotReuse(
+                    metrics.recordProcessSnapshotReuse(
                         consumer: consumer,
                         generation: cached.generation,
                         source: .cache
@@ -109,7 +129,7 @@ actor CmuxTopProcessSnapshotStore {
             let id = nextCaptureID
             let capture = self.capture
 #if DEBUG
-            let metricsToken = ProcessPerformanceMetrics.shared.processSnapshotCaptureStarted(
+            let metricsToken = metrics.processSnapshotCaptureStarted(
                 generation: id,
                 requirementsRawValue: requirements.rawValue
             )
@@ -159,7 +179,7 @@ actor CmuxTopProcessSnapshotStore {
 #endif
         inFlight = nil
 #if DEBUG
-        ProcessPerformanceMetrics.shared.processSnapshotCaptureCompleted(
+        metrics.processSnapshotCaptureCompleted(
             completed.metricsToken,
             generation: completed.id,
             processCount: snapshot.processes.count

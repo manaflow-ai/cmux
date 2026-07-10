@@ -12,16 +12,26 @@ struct CmuxTopProcessSnapshotStoreTests {
     @Test
     func concurrentEquivalentRequestsShareOneCapture() async {
 #if DEBUG
-        ProcessPerformanceMetrics.shared.reset()
+        let metricsStore = ProcessPerformanceMetrics()
 #endif
         let capturer = ControlledProcessSnapshotCapturer()
         let clock = ProcessSnapshotTestClock(now: Date(timeIntervalSince1970: 100))
+#if DEBUG
+        let store = CmuxTopProcessSnapshotStore(
+            now: { await clock.read() },
+            capture: { requirements in
+                await capturer.capture(requirements: requirements)
+            },
+            metrics: metricsStore
+        )
+#else
         let store = CmuxTopProcessSnapshotStore(
             now: { await clock.read() },
             capture: { requirements in
                 await capturer.capture(requirements: requirements)
             }
         )
+#endif
 
         let first = Task {
             await store.snapshot(
@@ -46,7 +56,7 @@ struct CmuxTopProcessSnapshotStoreTests {
         #expect(await capturer.callCount() == 1)
         #expect(await capturer.maximumConcurrentCaptures() == 1)
 #if DEBUG
-        let metrics = ProcessPerformanceMetrics.shared.snapshot()
+        let metrics = metricsStore.snapshot()
         #expect(metrics.processSnapshots.captureStarted == 1)
         #expect(metrics.processSnapshots.captureCompleted == 1)
         #expect(metrics.processSnapshots.maximumInFlight == 1)
@@ -93,16 +103,26 @@ struct CmuxTopProcessSnapshotStoreTests {
     @Test
     func cacheRespectsFreshnessAndCapabilityRequirements() async {
 #if DEBUG
-        ProcessPerformanceMetrics.shared.reset()
+        let metricsStore = ProcessPerformanceMetrics()
 #endif
         let capturer = ControlledProcessSnapshotCapturer(autoRelease: true)
         let clock = ProcessSnapshotTestClock(now: Date(timeIntervalSince1970: 100))
+#if DEBUG
+        let store = CmuxTopProcessSnapshotStore(
+            now: { await clock.read() },
+            capture: { requirements in
+                await capturer.capture(requirements: requirements)
+            },
+            metrics: metricsStore
+        )
+#else
         let store = CmuxTopProcessSnapshotStore(
             now: { await clock.read() },
             capture: { requirements in
                 await capturer.capture(requirements: requirements)
             }
         )
+#endif
 
         let first = await store.snapshot(
             requirements: .basic,
@@ -132,7 +152,7 @@ struct CmuxTopProcessSnapshotStoreTests {
         #expect(refreshed !== upgraded)
         #expect(await capturer.callCount() == 3)
 #if DEBUG
-        let metrics = ProcessPerformanceMetrics.shared.snapshot()
+        let metrics = metricsStore.snapshot()
         #expect(
             metrics.consumerGenerationReuse[ProcessSnapshotConsumer.processDetectedResume.rawValue]?[1]?.cache == 1
         )
@@ -145,18 +165,20 @@ struct PortScannerSharedSnapshotTests {
     @Test
     func staleRevisionIsRejectedAndCounted() {
 #if DEBUG
-        ProcessPerformanceMetrics.shared.reset()
+        let metricsStore = ProcessPerformanceMetrics()
         #expect(!PortScanner.acceptsResult(
             currentRevision: 8,
             expectedRevision: 7,
-            staleMetric: .portAgentRevision
+            staleMetric: .portAgentRevision,
+            metrics: metricsStore
         ))
         #expect(PortScanner.acceptsResult(
             currentRevision: 8,
             expectedRevision: 8,
-            staleMetric: .portAgentRevision
+            staleMetric: .portAgentRevision,
+            metrics: metricsStore
         ))
-        let metrics = ProcessPerformanceMetrics.shared.snapshot()
+        let metrics = metricsStore.snapshot()
         #expect(metrics.staleRejections[ProcessStaleRejection.portAgentRevision.rawValue] == 1)
 #endif
     }
