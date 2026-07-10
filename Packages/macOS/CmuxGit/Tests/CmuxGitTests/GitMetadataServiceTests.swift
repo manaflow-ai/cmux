@@ -211,15 +211,19 @@ import Testing
         let filePath = fixture.root.appendingPathComponent("file.txt").path
         let reader = CountingGitFileStatusReader()
         let service = GitMetadataService(fileStatusReader: reader)
-        let generation = GitTrackedPathEventGeneration(namespace: UUID(), generation: 10)
+        let identity = GitTrackedChangesRepositoryIdentity(repository: repository)
+        let authority = await service.trackedChangesSnapshotAuthority(
+            for: identity,
+            fallbackRoundID: nil
+        )
 
         let first = await service.gitTrackedChangesSnapshot(
             repository: repository,
-            trackedPathEventGeneration: generation
+            snapshotRequest: .watcherEvent(authority)
         )
         let second = await service.gitTrackedChangesSnapshot(
             repository: repository,
-            trackedPathEventGeneration: generation
+            snapshotRequest: .watcherEvent(authority)
         )
 
         #expect(first == second)
@@ -235,16 +239,21 @@ import Testing
         let fileURL = fixture.root.appendingPathComponent("file.txt")
         let reader = CountingGitFileStatusReader()
         let service = GitMetadataService(fileStatusReader: reader)
-        let namespace = UUID()
+        let identity = GitTrackedChangesRepositoryIdentity(repository: repository)
+        let initialAuthority = await service.trackedChangesSnapshotAuthority(
+            for: identity,
+            fallbackRoundID: nil
+        )
 
         let clean = await service.gitTrackedChangesSnapshot(
             repository: repository,
-            trackedPathEventGeneration: GitTrackedPathEventGeneration(namespace: namespace, generation: 20)
+            snapshotRequest: .watcherEvent(initialAuthority)
         )
         try "hello, dirty".write(to: fileURL, atomically: true, encoding: .utf8)
+        let eventAuthority = await service.recordTrackedPathEvent(for: identity)
         let dirty = await service.gitTrackedChangesSnapshot(
             repository: repository,
-            trackedPathEventGeneration: GitTrackedPathEventGeneration(namespace: namespace, generation: 21)
+            snapshotRequest: .watcherEvent(eventAuthority)
         )
 
         #expect(clean.isDirty == false)
@@ -252,7 +261,7 @@ import Testing
         #expect(reader.callCount(atPath: fileURL.path) == 2)
     }
 
-    @Test func sameGenerationFromIndependentOwnersRescansAndDetectsUnstagedEdit() async throws {
+    @Test func collidingFallbackGenerationFromIndependentNamespacesRescans() async throws {
         let fixture = try GitRepositoryFixture()
         try fixture.writeBranch("main")
         let entry = try fixture.writeWorkingTreeFile("file.txt", contents: "hello")
@@ -261,17 +270,28 @@ import Testing
         let fileURL = fixture.root.appendingPathComponent("file.txt")
         let reader = CountingGitFileStatusReader()
         let service = GitMetadataService(fileStatusReader: reader)
+        let identity = GitTrackedChangesRepositoryIdentity(repository: repository)
         let firstOwner = UUID()
         let secondOwner = UUID()
+        let firstRound = GitFallbackRoundID(namespace: firstOwner, sequence: 1)
+        let secondRound = GitFallbackRoundID(namespace: secondOwner, sequence: 1)
+        let firstAuthority = await service.trackedChangesSnapshotAuthority(
+            for: identity,
+            fallbackRoundID: firstRound
+        )
 
         let clean = await service.gitTrackedChangesSnapshot(
             repository: repository,
-            trackedPathEventGeneration: GitTrackedPathEventGeneration(namespace: firstOwner, generation: 1)
+            snapshotRequest: .fallbackRound(id: firstRound, authority: firstAuthority)
         )
         try "hello, dirty".write(to: fileURL, atomically: true, encoding: .utf8)
+        let secondAuthority = await service.trackedChangesSnapshotAuthority(
+            for: identity,
+            fallbackRoundID: secondRound
+        )
         let dirty = await service.gitTrackedChangesSnapshot(
             repository: repository,
-            trackedPathEventGeneration: GitTrackedPathEventGeneration(namespace: secondOwner, generation: 1)
+            snapshotRequest: .fallbackRound(id: secondRound, authority: secondAuthority)
         )
 
         #expect(clean.isDirty == false)
@@ -289,11 +309,15 @@ import Testing
         let filePath = fixture.root.appendingPathComponent("file.txt").path
         let reader = CountingGitFileStatusReader()
         let service = GitMetadataService(fileStatusReader: reader)
-        let generation = GitTrackedPathEventGeneration(namespace: UUID(), generation: 30)
+        let identity = GitTrackedChangesRepositoryIdentity(repository: repository)
+        let authority = await service.trackedChangesSnapshotAuthority(
+            for: identity,
+            fallbackRoundID: nil
+        )
 
         _ = await service.gitTrackedChangesSnapshot(
             repository: repository,
-            trackedPathEventGeneration: generation
+            snapshotRequest: .watcherEvent(authority)
         )
         var changedIndexStatus = try #require(reader.statusWithoutRecording(atPath: indexPath))
         changedIndexStatus = GitFileStatus(
@@ -305,7 +329,7 @@ import Testing
         reader.overrideStatus(changedIndexStatus, atPath: indexPath)
         _ = await service.gitTrackedChangesSnapshot(
             repository: repository,
-            trackedPathEventGeneration: generation
+            snapshotRequest: .watcherEvent(authority)
         )
 
         #expect(reader.callCount(atPath: filePath) == 2)

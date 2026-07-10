@@ -22,12 +22,17 @@ import CmuxGit
         return service
     }
 
-    private func waitUntil(maxYields: Int = 5_000, _ predicate: () -> Bool) async -> Bool {
-        for _ in 0..<maxYields {
+    private func waitUntil(
+        timeout: Duration = .seconds(2),
+        _ predicate: () -> Bool
+    ) async -> Bool {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: timeout)
+        while clock.now < deadline {
             if predicate() {
                 return true
             }
-            await Task.yield()
+            try? await clock.sleep(for: .milliseconds(1))
         }
         return predicate()
     }
@@ -369,11 +374,7 @@ import CmuxGit
         #expect(service.workspaceGitProbeRerunPending(for: key))
         await reader.openGate()
 
-        for _ in 0..<500 {
-            let immediateProbeSleeps = await clock.recordedDurations.filter { $0 == 0 }.count
-            if immediateProbeSleeps >= 3 { break }
-            await Task.yield()
-        }
+        #expect(await clock.waitForRecordedDuration(0, count: 3))
         let immediateProbeSleeps = await clock.recordedDurations.filter { $0 == 0 }.count
 
         #expect(immediateProbeSleeps == 3)

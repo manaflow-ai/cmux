@@ -6,12 +6,38 @@ import CmuxFoundation
 /// A reader returning canned metadata, with an optional gate the test holds
 /// closed to control exactly when a snapshot probe completes.
 actor GatedMetadataReader: WorkspaceGitMetadataReading {
+    private struct ProbeWaiter {
+        let minimumCount: Int
+        let continuation: CheckedContinuation<Bool, Never>
+    }
+
     private let metadata: GitWorkspaceMetadata
     private let gated: Bool
     private var gateWaiters: [CheckedContinuation<Void, Never>] = []
+    private var probeWaitersByID: [UUID: ProbeWaiter] = [:]
     private var isOpen = false
     private(set) var probedDirectories: [String] = []
-    private(set) var probedTrackedPathEventGenerations: [GitTrackedPathEventGeneration?] = []
+    private(set) var probedSnapshotRequests: [GitTrackedChangesSnapshotRequest?] = []
+
+    var probedTrackedPathEventGenerations: [GitTrackedPathEventGeneration?] {
+        probedSnapshotRequests.map { request in
+            switch request {
+            case .fallbackRound:
+                nil
+            case .watcherEvent(_, let eventID):
+                eventID
+            case nil:
+                nil
+            }
+        }
+    }
+
+    var probedFallbackRoundIDs: [GitFallbackRoundID] {
+        probedSnapshotRequests.compactMap { request in
+            guard case .fallbackRound(let id, _) = request else { return nil }
+            return id
+        }
+    }
 
     init(metadata: GitWorkspaceMetadata, gated: Bool = false) {
         self.metadata = metadata
@@ -26,39 +52,90 @@ actor GatedMetadataReader: WorkspaceGitMetadataReading {
         }
     }
 
-    func waitForTrackedPathEventGenerationProbe(
+    nonisolated func waitForTrackedPathEventGenerationProbe(
         count minimumCount: Int = 1,
-        maxYields: Int = 5_000
+        timeout: Duration = .seconds(2)
     ) async -> Bool {
-        for _ in 0..<maxYields {
-            if probedTrackedPathEventGenerations.count >= minimumCount {
-                return true
-            }
-            await Task.yield()
-        }
-        return probedTrackedPathEventGenerations.count >= minimumCount
+        await waitForProbeArrival(count: minimumCount, timeout: timeout)
     }
 
-    func waitForProbe(count minimumCount: Int = 1, maxYields: Int = 5_000) async -> Bool {
-        for _ in 0..<maxYields {
-            if probedDirectories.count >= minimumCount {
-                return true
+    nonisolated func waitForProbe(
+        count minimumCount: Int = 1,
+        timeout: Duration = .seconds(2)
+    ) async -> Bool {
+        await waitForProbeArrival(count: minimumCount, timeout: timeout)
+    }
+
+    private nonisolated func waitForProbeArrival(
+        count minimumCount: Int,
+        timeout: Duration
+    ) async -> Bool {
+        await withTaskGroup(of: Bool.self) { group in
+            group.addTask {
+                await self.waitForProbeArrival(count: minimumCount)
             }
-            await Task.yield()
+            group.addTask {
+                do {
+                    try await Task.sleep(for: timeout)
+                    return false
+                } catch {
+                    return false
+                }
+            }
+            let didArrive = await group.next() ?? false
+            group.cancelAll()
+            return didArrive
         }
-        return probedDirectories.count >= minimumCount
+    }
+
+    private func waitForProbeArrival(count minimumCount: Int) async -> Bool {
+        if probedDirectories.count >= minimumCount {
+            return true
+        }
+        let waiterID = UUID()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                guard !Task.isCancelled else {
+                    continuation.resume(returning: false)
+                    return
+                }
+                probeWaitersByID[waiterID] = ProbeWaiter(
+                    minimumCount: minimumCount,
+                    continuation: continuation
+                )
+            }
+        } onCancel: {
+            Task {
+                await self.cancelProbeWaiter(waiterID)
+            }
+        }
+    }
+
+    private func cancelProbeWaiter(_ waiterID: UUID) {
+        probeWaitersByID.removeValue(forKey: waiterID)?.continuation.resume(returning: false)
+    }
+
+    private func resumeSatisfiedProbeWaiters() {
+        let probeCount = probedDirectories.count
+        let satisfiedWaiterIDs = probeWaitersByID.compactMap { id, waiter in
+            waiter.minimumCount <= probeCount ? id : nil
+        }
+        for waiterID in satisfiedWaiterIDs {
+            probeWaitersByID.removeValue(forKey: waiterID)?.continuation.resume(returning: true)
+        }
     }
 
     func workspaceMetadata(for directory: String) async -> GitWorkspaceMetadata {
-        await workspaceMetadata(for: directory, trackedPathEventGeneration: nil)
+        await workspaceMetadata(for: directory, snapshotRequest: nil)
     }
 
     func workspaceMetadata(
         for directory: String,
-        trackedPathEventGeneration: GitTrackedPathEventGeneration?
+        snapshotRequest: GitTrackedChangesSnapshotRequest?
     ) async -> GitWorkspaceMetadata {
         probedDirectories.append(directory)
-        probedTrackedPathEventGenerations.append(trackedPathEventGeneration)
+        probedSnapshotRequests.append(snapshotRequest)
+        resumeSatisfiedProbeWaiters()
         if !isOpen {
             await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
                 if isOpen {
