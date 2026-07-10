@@ -190,6 +190,86 @@ struct RemoteTmuxMirrorCLIObservabilityTests {
         ) == nil)
     }
 
+    @Test func projectedMutationsResolveBeforeTransportFailure() throws {
+        let harness = try Harness()
+        defer { harness.tearDown() }
+
+        let tmuxPaneID = try #require(harness.mirror.paneIDsInOrder.first)
+        let paneID = try #require(harness.mirror.syntheticPaneID(forPane: tmuxPaneID)?.id)
+        let surfaceID = try #require(harness.mirror.panel(forPane: tmuxPaneID)?.id)
+        let routing = harness.routing()
+
+        #expect(TerminalController.shared.controlPaneFocus(
+            routing: routing,
+            paneID: paneID
+        ) == .paneNotFound(paneID))
+        #expect(TerminalController.shared.controlSurfaceFocus(
+            routing: routing,
+            surfaceID: surfaceID
+        ) == .surfaceNotFound(surfaceID))
+        #expect(harness.mirror.activePaneId == 22)
+
+        let split = TerminalController.shared.controlSurfaceSplit(
+            routing: routing,
+            inputs: ControlSurfaceSplitInputs(
+                directionRaw: "right",
+                typeRaw: nil,
+                urlRaw: nil,
+                requestedSourceSurfaceID: surfaceID,
+                workingDirectory: nil,
+                initialCommand: nil,
+                tmuxStartCommand: nil,
+                remotePTYSessionID: nil,
+                remoteContextRaw: nil,
+                startupEnvironment: [:],
+                clientUnsupportedRemoteTmuxOptions: [],
+                requestedFocus: false,
+                initialDividerPosition: nil
+            )
+        )
+        #expect(split == .createFailed)
+
+        let respawn = TerminalController.shared.controlSurfaceRespawn(
+            routing: routing,
+            inputs: ControlSurfaceRespawnInputs(
+                command: "exec ${SHELL:-/bin/zsh} -l",
+                tmuxStartCommand: "exec ${SHELL:-/bin/zsh} -l",
+                workingDirectory: nil,
+                hasSurfaceIDParam: true,
+                requestedSurfaceID: surfaceID,
+                hasFocusParam: false,
+                requestedFocus: false
+            )
+        )
+        #expect(respawn == .respawnFailed(surfaceID))
+        #expect(TerminalController.shared.controlSurfaceClose(
+            routing: routing,
+            surfaceID: surfaceID
+        ) == .closeFailed(surfaceID))
+    }
+
+    @Test func teardownRemovesProjectedPaneAndSurfaceHandles() throws {
+        let harness = try Harness()
+        defer { harness.tearDown() }
+
+        let tmuxPaneID = try #require(harness.mirror.paneIDsInOrder.first)
+        let paneID = try #require(harness.mirror.syntheticPaneID(forPane: tmuxPaneID)?.id)
+        let surfaceID = try #require(harness.mirror.panel(forPane: tmuxPaneID)?.id)
+        let paneRef = try #require(
+            TerminalController.shared.v2Ref(kind: .pane, uuid: paneID) as? String
+        )
+        let surfaceRef = try #require(
+            TerminalController.shared.v2Ref(kind: .surface, uuid: surfaceID) as? String
+        )
+        #expect(TerminalController.shared.v2ResolveHandleRef(paneRef) == paneID)
+        #expect(TerminalController.shared.v2ResolveHandleRef(surfaceRef) == surfaceID)
+
+        harness.mirror.teardown()
+
+        #expect(TerminalController.shared.v2ResolveHandleRef(paneRef) == nil)
+        #expect(TerminalController.shared.v2ResolveHandleRef(surfaceRef) == nil)
+    }
+
     @MainActor
     private struct Harness {
         let appDelegate: AppDelegate
