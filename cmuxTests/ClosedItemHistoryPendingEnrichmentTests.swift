@@ -326,6 +326,11 @@ private struct CountingHistorySequence<Element>: Sequence {
         let onElement: () -> Void
         private var index = 0
 
+        init(elements: [Element], onElement: @escaping () -> Void) {
+            self.elements = elements
+            self.onElement = onElement
+        }
+
         mutating func next() -> Element? {
             guard elements.indices.contains(index) else { return nil }
             onElement()
