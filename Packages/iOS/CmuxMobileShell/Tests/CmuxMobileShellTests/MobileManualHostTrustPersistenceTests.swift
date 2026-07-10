@@ -18,6 +18,7 @@ import Testing
         let store = MobileShellComposite(
             runtime: runtime,
             isSignedIn: true,
+            identityProvider: StaticIdentityProvider(userID: "phone-user"),
             reachability: AlwaysOnlineReachability(),
             pairingHintDefaults: UserDefaults(
                 suiteName: "manual-host-refused-trust-\(UUID().uuidString)"
