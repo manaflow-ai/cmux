@@ -136,10 +136,11 @@ check_e2e_runner_fallbacks() {
     in_runner && /^      [A-Za-z0-9_-]+:/ { in_runner=0; in_options=0 }
     in_runner && /^        options:$/ { in_options=1; next }
     in_options && /^        [A-Za-z0-9_-]+:/ { in_options=0 }
-    in_options && /^          - tart-canary$/ { tart_options++ }
-    END { exit !(tart_options == 1) }
+    in_options && /^          - tart-canary$/ { canary_options++ }
+    in_options && /^          - tart-small$/ { small_options++ }
+    END { exit !(canary_options == 1 && small_options == 1) }
   ' "$E2E_FILE"; then
-    echo "FAIL: test-e2e.yml must expose tart-canary exactly once under workflow_dispatch.inputs.runner.options"
+    echo "FAIL: test-e2e.yml must expose tart-canary and tart-small exactly once under workflow_dispatch.inputs.runner.options"
     exit 1
   fi
 
@@ -156,18 +157,19 @@ check_e2e_runner_fallbacks() {
   if ! awk '
     /^[[:space:]]*- name: Validate Tart canary identity$/ { in_tart_step=1; next }
     in_tart_step && /^      - / { in_tart_step=0; in_runner_reject=0; in_marker_reject=0 }
-    in_tart_step && /\(\(!inputs\.runner \|\| inputs\.runner == '\''auto'\''\) && \(vars\.MACOS_RUNNER_15 \|\| '\''blacksmith-6vcpu-macos-15'\''\) \|\| inputs\.runner\) == '\''tart-canary'\''/ { saw_effective_runner=1 }
+    in_tart_step && /startsWith\(\(!inputs\.runner \|\| inputs\.runner == '\''auto'\''\) && \(vars\.MACOS_RUNNER_15 \|\| '\''blacksmith-6vcpu-macos-15'\''\) \|\| inputs\.runner, '\''tart-'\''\)/ { saw_effective_runner=1 }
+    in_tart_step && /REQUESTED_RUNNER:.*inputs\.runner/ { saw_requested_runner=1 }
     in_tart_step && /RUNNER_CONTEXT_NAME: \$\{\{ runner\.name \}\}/ { saw_runner_context=1 }
     in_tart_step && /tart-cmux-\*/ { saw_runner_pattern=1 }
     in_tart_step && /^[[:space:]]*\*\)$/ { in_runner_reject=1 }
-    in_runner_reject && /::error::tart-canary resolved to unexpected runner/ { saw_runner_reject=1 }
+    in_runner_reject && /::error::\$REQUESTED_RUNNER resolved to unexpected runner/ { saw_runner_reject=1 }
     in_runner_reject && /^[[:space:]]*exit 1$/ { saw_runner_exit=1 }
     in_runner_reject && /^[[:space:]]*;;$/ { in_runner_reject=0 }
     in_tart_step && /test -f \/etc\/cmux-tart-ci \|\| \{/ { saw_vm_marker=1; in_marker_reject=1 }
-    in_marker_reject && /::error::tart-canary runner is missing the immutable VM identity marker/ { saw_marker_reject=1 }
+    in_marker_reject && /::error::\$REQUESTED_RUNNER runner is missing the immutable VM identity marker/ { saw_marker_reject=1 }
     in_marker_reject && /^[[:space:]]*exit 1$/ { saw_marker_exit=1 }
     in_marker_reject && /^[[:space:]]*}$/ { in_marker_reject=0 }
-    END { exit !(saw_effective_runner && saw_runner_context && saw_runner_pattern && saw_runner_reject && saw_runner_exit && saw_vm_marker && saw_marker_reject && saw_marker_exit) }
+    END { exit !(saw_effective_runner && saw_requested_runner && saw_runner_context && saw_runner_pattern && saw_runner_reject && saw_runner_exit && saw_vm_marker && saw_marker_reject && saw_marker_exit) }
   ' "$E2E_FILE"; then
     echo "FAIL: test-e2e.yml must validate the effective Tart runner name and immutable VM marker, failing closed for either mismatch"
     exit 1
@@ -906,13 +908,20 @@ check_no_self_hosted_fleet_runners() {
     exit 1
   fi
 
-  local e2e_tart_option_line ios_tart_option_line
+  local e2e_tart_option_line e2e_tart_small_option_line ios_tart_option_line
   e2e_tart_option_line="$(awk '
     /^      runner:$/ { in_runner=1; next }
     in_runner && /^      [A-Za-z0-9_-]+:/ { in_runner=0; in_options=0 }
     in_runner && /^        options:$/ { in_options=1; next }
     in_options && /^        [A-Za-z0-9_-]+:/ { in_options=0 }
     in_options && /^          - tart-canary$/ { print FNR }
+  ' "$E2E_FILE")"
+  e2e_tart_small_option_line="$(awk '
+    /^      runner:$/ { in_runner=1; next }
+    in_runner && /^      [A-Za-z0-9_-]+:/ { in_runner=0; in_options=0 }
+    in_runner && /^        options:$/ { in_options=1; next }
+    in_options && /^        [A-Za-z0-9_-]+:/ { in_options=0 }
+    in_options && /^          - tart-small$/ { print FNR }
   ' "$E2E_FILE")"
   ios_tart_option_line="$(awk '
     /^      runner:$/ { in_runner=1; next }
@@ -934,6 +943,9 @@ check_no_self_hosted_fleet_runners() {
     content_without_allowed="$(printf '%s\n' "$content" | sed -E "s/($allowed)//g")"
     printf '%s\n' "$content_without_allowed" | grep -Eq "($forbidden)" || continue
     if [[ -n "$e2e_tart_option_line" ]] && [[ "$line" == "$E2E_FILE:$e2e_tart_option_line:"* ]]; then
+      continue
+    fi
+    if [[ -n "$e2e_tart_small_option_line" ]] && [[ "$line" == "$E2E_FILE:$e2e_tart_small_option_line:"* ]]; then
       continue
     fi
     if [[ -n "$ios_tart_option_line" ]] && [[ "$line" == "$IOS_FILE:$ios_tart_option_line:"* ]]; then
