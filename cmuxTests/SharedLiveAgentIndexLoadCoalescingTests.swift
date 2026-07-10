@@ -12,6 +12,58 @@ import Testing
 @Suite(.serialized)
 struct SharedLiveAgentIndexLoadCoalescingTests {
     @Test
+    func indexRefreshingIfNeededAwaitsColdLoadWithoutStartingAnotherScan() async {
+        let loadStarted = DispatchSemaphore(value: 0)
+        let releaseLoad = DispatchSemaphore(value: 0)
+        let readReturned = DispatchSemaphore(value: 0)
+        defer { releaseLoad.signal() }
+        let loadCount = OSAllocatedUnfairLock(initialState: 0)
+        let hookDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-shared-index-cold-read-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: hookDirectory) }
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let sessionId = "cold-index-session"
+        let loadedIndex = Self.index(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            sessionId: sessionId
+        )
+        let sharedIndex = SharedLiveAgentIndex(
+            indexLoader: {
+                loadCount.withLock { $0 += 1 }
+                loadStarted.signal()
+                releaseLoad.wait()
+                return (
+                    index: loadedIndex,
+                    liveAgentProcessFingerprint: [],
+                    processScopeFingerprint: [],
+                    forkValidatedPanels: []
+                )
+            },
+            hookStoreDirectoryProvider: { hookDirectory.path }
+        )
+
+        let read = Task { @MainActor in
+            let index = await sharedIndex.indexRefreshingIfNeeded()
+            readReturned.signal()
+            return index?.snapshot(workspaceId: workspaceId, panelId: panelId)
+        }
+        #expect(await Self.wait(for: loadStarted))
+        let returnedBeforeLoadCompleted = await Self.wait(for: readReturned, timeout: 0.2)
+        #expect(
+            !returnedBeforeLoadCompleted,
+            "A cold cache read must await the shared load instead of skipping this evaluation."
+        )
+
+        releaseLoad.signal()
+        #expect(await Self.wait(for: readReturned))
+        let snapshot = await read.value
+        #expect(snapshot?.sessionId == sessionId)
+        #expect(loadCount.withLock { $0 } == 1)
+    }
+
+    @Test
     func concurrentForkAvailabilityRefreshesShareOneCompleteIndexLoad() async {
         let firstLoadStarted = DispatchSemaphore(value: 0)
         let releaseFirstLoad = DispatchSemaphore(value: 0)
