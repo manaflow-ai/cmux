@@ -1975,6 +1975,29 @@ final class DraggableFolderHitTests: XCTestCase {
 }
 
 
+@Suite("Command-click HTML routing")
+struct CommandClickFileOpenRouterHTMLTests {
+    @Test func htmlAndHtmPathsAreBrowserRenderable() {
+        #expect(FileRouteSettingsStore.isHTMLPath("/tmp/report.html"))
+        #expect(FileRouteSettingsStore.isHTMLPath("/tmp/report.htm"))
+        #expect(FileRouteSettingsStore.isHTMLPath("/tmp/REPORT.HTML"))
+    }
+
+    @Test func nonHtmlPathsAreNotBrowserRenderable() {
+        #expect(!FileRouteSettingsStore.isHTMLPath("/tmp/notes.txt"))
+        #expect(!FileRouteSettingsStore.isHTMLPath("/tmp/page.htmlx"))
+        #expect(!FileRouteSettingsStore.isHTMLPath("/tmp/noext"))
+    }
+
+    @Test func nonexistentHTMLPathDoesNotRouteIntoCmux() {
+        // Regression: `.html` must not bypass the readable-regular-file gate its
+        // sibling routes enforce. A not-yet-generated path must fall through to
+        // the external opener, never open a broken embedded browser tab.
+        let missing = "/tmp/cmux-does-not-exist-\(UUID().uuidString).html"
+        #expect(!CommandClickFileOpenRouter.shouldRouteInCmux(path: missing))
+    }
+}
+
 @MainActor
 @Suite struct MainWindowHostingViewTests {
     @Test func testReportsPolicyMinimumInsteadOfChildMinimum() {

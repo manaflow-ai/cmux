@@ -6185,6 +6185,17 @@ func resolveBrowserNavigableURL(_ input: String) -> URL? {
         return URL(string: "http://\(trimmed)")
     }
 
+    // A bare absolute filesystem path ("/Users/.../page.html", "~/page.html")
+    // is a local file, not a web host. Without this it falls through to the
+    // "contains /" branch below and becomes a broken "https:///Users/..." URL.
+    // "//host" is left alone as a protocol-relative web reference.
+    if trimmed.hasPrefix("/"), !trimmed.hasPrefix("//") {
+        return URL(fileURLWithPath: trimmed)
+    }
+    if trimmed == "~" || trimmed.hasPrefix("~/") {
+        return URL(fileURLWithPath: (trimmed as NSString).expandingTildeInPath)
+    }
+
     if let url = URL(string: trimmed), let scheme = url.scheme?.lowercased() {
         if scheme == "http" || scheme == "https" {
             return url
