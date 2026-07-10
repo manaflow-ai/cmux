@@ -88,6 +88,18 @@ struct VaultObservedAgentProcess: Sendable {
         TmuxResumeParser.argumentLooksLikeTmuxServerProcessTitle(argument)
     }
 
+    static func argumentsHaveOpenCodeForkFlag(_ arguments: [String]) -> Bool {
+        arguments.hasOpenCodeForkFlag
+    }
+
+    static func openCodeForkParentSessionID(in arguments: [String]) -> String? {
+        arguments.openCodeForkParentSessionId
+    }
+
+    static func argumentValue(afterOption option: String, in arguments: [String]) -> String? {
+        arguments.value(afterOption: option)
+    }
+
     private static func wrapperLooksLikeJavaScriptRuntime(_ basename: String) -> Bool {
         switch basename.lowercased() {
         case "node", "bun", "deno", "tsx", "ts-node":
@@ -256,7 +268,7 @@ extension CmuxTopProcessSnapshot {
     }
 }
 
-extension Array where Element == String {
+private extension Array where Element == String {
     var hasOpenCodeForkFlag: Bool {
         contains { $0 == "--fork" || $0.hasPrefix("--fork=") }
     }

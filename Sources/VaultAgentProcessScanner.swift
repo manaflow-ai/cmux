@@ -211,9 +211,10 @@ extension RestorableAgentSessionIndex {
         latestSessionIdForSolePanel: String?,
         sameWorkingDirectoryPanelCount: Int
     ) -> String? {
-        if arguments.hasOpenCodeForkFlag {
-            let explicitSessionId = arguments.value(afterOption: "--session") ?? arguments.value(afterOption: "-s")
-            let assignedForkParentSessionId = arguments.openCodeForkParentSessionId
+        if VaultObservedAgentProcess.argumentsHaveOpenCodeForkFlag(arguments) {
+            let explicitSessionId = VaultObservedAgentProcess.argumentValue(afterOption: "--session", in: arguments)
+                ?? VaultObservedAgentProcess.argumentValue(afterOption: "-s", in: arguments)
+            let assignedForkParentSessionId = VaultObservedAgentProcess.openCodeForkParentSessionID(in: arguments)
             if let explicitSessionId,
                let assignedForkParentSessionId,
                explicitSessionId != assignedForkParentSessionId {
@@ -226,7 +227,8 @@ extension RestorableAgentSessionIndex {
             guard forkParentSessionId != latestSessionIdForSolePanel else { return nil }
             return latestSessionIdForSolePanel
         }
-        if let explicitSessionId = arguments.value(afterOption: "--session") ?? arguments.value(afterOption: "-s") {
+        if let explicitSessionId = VaultObservedAgentProcess.argumentValue(afterOption: "--session", in: arguments)
+            ?? VaultObservedAgentProcess.argumentValue(afterOption: "-s", in: arguments) {
             return explicitSessionId
         }
         return nil
@@ -284,9 +286,15 @@ extension RestorableAgentSessionIndex {
 
         for process in openCodeProcesses {
             let sameWorkingDirectoryPanelCount = panelKeysByWorkingDirectory[process.workingDirectoryKey]?.count ?? 0
-            let hasForkFlag = process.observed.arguments.hasOpenCodeForkFlag
-            let forkParentSessionId = process.observed.arguments.openCodeForkParentSessionId
-                ?? (hasForkFlag ? process.observed.arguments.value(afterOption: "--session") : nil)
+            let hasForkFlag = VaultObservedAgentProcess.argumentsHaveOpenCodeForkFlag(process.observed.arguments)
+            let forkParentSessionId = VaultObservedAgentProcess.openCodeForkParentSessionID(
+                in: process.observed.arguments
+            ) ?? (hasForkFlag
+                ? VaultObservedAgentProcess.argumentValue(
+                    afterOption: "--session",
+                    in: process.observed.arguments
+                )
+                : nil)
             let latestSessionId: String?
             let sessionCacheKey = process.workingDirectoryKey + "\u{1f}" + (forkParentSessionId ?? "")
             if !hasForkFlag || forkParentSessionId == nil || sameWorkingDirectoryPanelCount != 1 || process.workingDirectory == nil {
