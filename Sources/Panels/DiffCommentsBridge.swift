@@ -297,9 +297,9 @@ final class DiffSidecarBridge: NSObject, WKScriptMessageHandlerWithReply {
 
     private static var handlerInstalledKey: UInt8 = 0
     private static let maximumRequestBytes = 1024 * 1024
-    private static let maximumResponseBytes = 32 * 1024 * 1024
+    private nonisolated static let maximumResponseBytes = 32 * 1024 * 1024
     // Longer than the sidecar's 120-second branch regeneration limit.
-    private static let requestTimeout: TimeInterval = 130
+    private nonisolated static let requestTimeout: TimeInterval = 130
 
     static func installIfNeeded(on userContentController: WKUserContentController) {
         guard objc_getAssociatedObject(userContentController, &handlerInstalledKey) == nil else {
