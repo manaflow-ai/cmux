@@ -449,6 +449,8 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C51A73000000000000000001 /* CMUXCLI+Simulator.swift in Sources */ = {isa = PBXBuildFile; fileRef = C51A73000000000000000002 /* CMUXCLI+Simulator.swift */; };
 		C51A73000000000000000005 /* CMUXCLI+SimulatorAgent.swift in Sources */ = {isa = PBXBuildFile; fileRef = C51A73000000000000000006 /* CMUXCLI+SimulatorAgent.swift */; };
 		C51A73000000000000000007 /* CMUXCLI+SimulatorAgentFormatting.swift in Sources */ = {isa = PBXBuildFile; fileRef = C51A73000000000000000008 /* CMUXCLI+SimulatorAgentFormatting.swift */; };
+		C51A73000000000000000009 /* CMUXCLI+SimulatorAgentOutput.swift in Sources */ = {isa = PBXBuildFile; fileRef = C51A7300000000000000000A /* CMUXCLI+SimulatorAgentOutput.swift */; };
+		C51A7300000000000000000B /* CMUXCLI+SimulatorAgentRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = C51A7300000000000000000C /* CMUXCLI+SimulatorAgentRequest.swift */; };
 		C51A7300000000000000000F /* CMUXCLI+SimulatorInput.swift in Sources */ = {isa = PBXBuildFile; fileRef = C51A73000000000000000010 /* CMUXCLI+SimulatorInput.swift */; };
 		C51A73000000000000000011 /* CMUXCLI+SimulatorSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = C51A73000000000000000012 /* CMUXCLI+SimulatorSettings.swift */; };
 		B9000041A1B2C3D4E5F60719 /* CMUXCLI+SSHCommandSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000040A1B2C3D4E5F60719 /* CMUXCLI+SSHCommandSupport.swift */; };
@@ -2230,6 +2232,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C51A73000000000000000002 /* CMUXCLI+Simulator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+Simulator.swift"; sourceTree = "<group>"; };
 		C51A73000000000000000006 /* CMUXCLI+SimulatorAgent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+SimulatorAgent.swift"; sourceTree = "<group>"; };
 		C51A73000000000000000008 /* CMUXCLI+SimulatorAgentFormatting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+SimulatorAgentFormatting.swift"; sourceTree = "<group>"; };
+		C51A7300000000000000000A /* CMUXCLI+SimulatorAgentOutput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+SimulatorAgentOutput.swift"; sourceTree = "<group>"; };
+		C51A7300000000000000000C /* CMUXCLI+SimulatorAgentRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+SimulatorAgentRequest.swift"; sourceTree = "<group>"; };
 		C51A73000000000000000010 /* CMUXCLI+SimulatorInput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+SimulatorInput.swift"; sourceTree = "<group>"; };
 		C51A73000000000000000012 /* CMUXCLI+SimulatorSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+SimulatorSettings.swift"; sourceTree = "<group>"; };
 		B9000040A1B2C3D4E5F60719 /* CMUXCLI+SSHCommandSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+SSHCommandSupport.swift"; sourceTree = "<group>"; };
@@ -4822,6 +4826,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C51A73000000000000000002 /* CMUXCLI+Simulator.swift */,
 				C51A73000000000000000006 /* CMUXCLI+SimulatorAgent.swift */,
 				C51A73000000000000000008 /* CMUXCLI+SimulatorAgentFormatting.swift */,
+				C51A7300000000000000000A /* CMUXCLI+SimulatorAgentOutput.swift */,
+				C51A7300000000000000000C /* CMUXCLI+SimulatorAgentRequest.swift */,
 				C51A73000000000000000010 /* CMUXCLI+SimulatorInput.swift */,
 				C51A73000000000000000012 /* CMUXCLI+SimulatorSettings.swift */,
 				B9000031A1B2C3D4E5F60719 /* CMUXCLI+DocsSettings.swift */,
@@ -6845,6 +6851,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C51A73000000000000000001 /* CMUXCLI+Simulator.swift in Sources */,
 				C51A73000000000000000005 /* CMUXCLI+SimulatorAgent.swift in Sources */,
 				C51A73000000000000000007 /* CMUXCLI+SimulatorAgentFormatting.swift in Sources */,
+				C51A73000000000000000009 /* CMUXCLI+SimulatorAgentOutput.swift in Sources */,
+				C51A7300000000000000000B /* CMUXCLI+SimulatorAgentRequest.swift in Sources */,
 				C51A7300000000000000000F /* CMUXCLI+SimulatorInput.swift in Sources */,
 				C51A73000000000000000011 /* CMUXCLI+SimulatorSettings.swift in Sources */,
 				B9000041A1B2C3D4E5F60719 /* CMUXCLI+SSHCommandSupport.swift in Sources */,
