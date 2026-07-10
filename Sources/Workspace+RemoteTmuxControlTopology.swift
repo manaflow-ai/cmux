@@ -13,6 +13,11 @@ extension Workspace {
         paneID: UUID?,
         panel: any Panel
     )
+    enum RemoteTmuxControlSurfaceTarget {
+        case notRemote
+        case unresolvedMirror
+        case pane(RemoteTmuxControlPaneLocation)
+    }
 
     func remoteTmuxControlPane(paneID: UUID) -> RemoteTmuxControlPaneLocation? {
         for (containerPanelID, mirror) in remoteTmuxWindowMirrors {
@@ -32,21 +37,36 @@ extension Workspace {
         return nil
     }
 
-    /// Resolves either an advertised inner surface or its hidden mirror
-    /// container to the same authoritative active-pane location.
-    func remoteTmuxControlTarget(surfaceID: UUID) -> RemoteTmuxControlPaneLocation? {
+    /// Resolves every mirror-owned surface identity without conflating an
+    /// unresolved mirror with an ordinary workspace surface.
+    func remoteTmuxControlSurfaceTarget(surfaceID: UUID) -> RemoteTmuxControlSurfaceTarget {
         if let location = remoteTmuxControlPane(surfaceID: surfaceID) {
-            return location
+            return .pane(location)
         }
-        guard let mirror = remoteTmuxWindowMirror(forPanelId: surfaceID),
-              let pane = mirror.activeControlPane() else { return nil }
-        return (surfaceID, mirror, pane)
+        guard let mirror = remoteTmuxWindowMirror(forPanelId: surfaceID) else {
+            return .notRemote
+        }
+        guard let pane = mirror.activeControlPane() else { return .unresolvedMirror }
+        return .pane((surfaceID, mirror, pane))
     }
 
-    /// Resolves an explicit control-plane surface without making mirror-owned
-    /// panels members of the workspace's mutable `panels` collection.
+    /// Canonicalizes an explicit control-plane terminal target. Hidden mirror
+    /// containers project to the authoritative active inner pane and unresolved
+    /// mirrors fail closed instead of exposing their stale wrapper panel.
+    func controlTerminalTarget(for surfaceID: UUID) -> (surfaceID: UUID, panel: TerminalPanel)? {
+        switch remoteTmuxControlSurfaceTarget(surfaceID: surfaceID) {
+        case .pane(let location):
+            return (location.pane.panel.id, location.pane.panel)
+        case .unresolvedMirror:
+            return nil
+        case .notRemote:
+            guard let panel = terminalPanel(for: surfaceID) else { return nil }
+            return (surfaceID, panel)
+        }
+    }
+
     func controlTerminalPanel(for surfaceID: UUID) -> TerminalPanel? {
-        terminalPanel(for: surfaceID) ?? remoteTmuxControlPane(surfaceID: surfaceID)?.pane.panel
+        controlTerminalTarget(for: surfaceID)?.panel
     }
 
     /// Projects a workspace-owned panel into the identity exposed by the

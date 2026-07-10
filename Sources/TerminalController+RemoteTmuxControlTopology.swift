@@ -61,7 +61,7 @@ extension TerminalController {
         )
     }
 
-    private func controlPaneSummaries(
+    func controlPaneSummaries(
         workspace: Workspace,
         snapshot: LayoutSnapshot
     ) -> [ControlPaneSummary] {

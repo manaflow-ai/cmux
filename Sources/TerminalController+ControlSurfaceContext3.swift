@@ -311,7 +311,7 @@ extension TerminalController {
         guard let ws = resolveSurfaceWorkspace(routing: routing, tabManager: tabManager) else {
             return .workspaceNotFound
         }
-        let surfaceId: UUID
+        let requestedSurfaceID: UUID
         switch resolveSendSurface(
             in: ws,
             surfaceID: surfaceID,
@@ -319,11 +319,13 @@ extension TerminalController {
             paneID: routing.paneID
         ) {
         case .unresolved(let resolution): return resolution
-        case .surface(let id): surfaceId = id
+        case .surface(let id): requestedSurfaceID = id
         }
-        guard let terminalPanel = ws.controlTerminalPanel(for: surfaceId) else {
-            return .surfaceNotTerminal(surfaceId)
+        guard let target = ws.controlTerminalTarget(for: requestedSurfaceID) else {
+            return .surfaceNotTerminal(requestedSurfaceID)
         }
+        let surfaceId = target.surfaceID
+        let terminalPanel = target.panel
         let queued: Bool
         switch terminalPanel.sendInputResult(text) {
         case .sent:
@@ -396,7 +398,7 @@ extension TerminalController {
         guard let ws = resolveSurfaceWorkspace(routing: routing, tabManager: tabManager) else {
             return .workspaceNotFound
         }
-        let surfaceId: UUID
+        let requestedSurfaceID: UUID
         switch resolveSendSurface(
             in: ws,
             surfaceID: surfaceID,
@@ -404,11 +406,13 @@ extension TerminalController {
             paneID: routing.paneID
         ) {
         case .unresolved(let resolution): return resolution
-        case .surface(let id): surfaceId = id
+        case .surface(let id): requestedSurfaceID = id
         }
-        guard let terminalPanel = ws.controlTerminalPanel(for: surfaceId) else {
-            return .surfaceNotTerminal(surfaceId)
+        guard let target = ws.controlTerminalTarget(for: requestedSurfaceID) else {
+            return .surfaceNotTerminal(requestedSurfaceID)
         }
+        let surfaceId = target.surfaceID
+        let terminalPanel = target.panel
         let sendResult = terminalPanel.sendNamedKeyResult(key)
         switch sendResult {
         case .sent:

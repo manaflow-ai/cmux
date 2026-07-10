@@ -268,7 +268,8 @@ extension TerminalController: ControlSurfaceContext {
         guard let ws = resolveSurfaceWorkspace(routing: routing, tabManager: tabManager) else {
             return .workspaceNotFound
         }
-        if let location = ws.remoteTmuxControlPane(surfaceID: surfaceID) {
+        switch ws.remoteTmuxControlSurfaceTarget(surfaceID: surfaceID) {
+        case .pane(let location):
             guard focusRemoteTmuxControlPane(
                 location,
                 workspace: ws,
@@ -281,6 +282,10 @@ extension TerminalController: ControlSurfaceContext {
                 workspaceID: ws.id,
                 surfaceID: location.pane.panel.id
             )
+        case .unresolvedMirror:
+            return .surfaceNotFound(surfaceID)
+        case .notRemote:
+            break
         }
         if let windowId = v2ResolveWindowId(tabManager: tabManager) {
             _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)

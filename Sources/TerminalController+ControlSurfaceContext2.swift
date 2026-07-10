@@ -442,7 +442,7 @@ extension TerminalController {
             workspace: ws,
             tabManager: tabManager,
             surfaceID: surfaceId,
-            allowContainerProjection: surfaceID == nil && routing.surfaceID == nil
+            isImplicitTarget: surfaceID == nil && routing.surfaceID == nil
         ) {
             return remote
         }

@@ -43,10 +43,13 @@ extension RemoteTmuxMirrorCLIObservabilityTests {
             defer { harness.tearDown() }
             let activeSurfaceID = try activeSurfaceID(in: harness)
 
-            #expect(
-                harness.workspace.controlTerminalPanel(for: harness.outerPanelID)?.id
-                    == activeSurfaceID
+            let send = TerminalController.shared.controlSurfaceSendText(
+                routing: harness.routing(),
+                surfaceID: harness.outerPanelID,
+                hasSurfaceIDParam: true,
+                text: "route through active pane"
             )
+            #expect(send.sentSurfaceID == activeSurfaceID)
             #expect(TerminalController.shared.controlSurfaceFocus(
                 routing: harness.routing(),
                 surfaceID: harness.outerPanelID

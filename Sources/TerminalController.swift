@@ -3567,12 +3567,7 @@ class TerminalController {
             if let tm = app.tabManagerFor(windowId: item.windowId) {
                 for ws in tm.tabs {
                     _ = v2EnsureHandleRef(kind: .workspace, uuid: ws.id)
-                    for paneId in ws.bonsplitController.allPaneIds {
-                        _ = v2EnsureHandleRef(kind: .pane, uuid: paneId.id)
-                    }
-                    for panelId in ws.panels.keys {
-                        _ = v2EnsureHandleRef(kind: .surface, uuid: panelId)
-                    }
+                    v2RefreshRemoteTmuxAwarePaneAndSurfaceRefs(workspace: ws)
                 }
                 // Mint workspace_group refs for groups that exist before any
                 // workspace.group.* call so callers can pass `workspace_group:N`
@@ -5387,15 +5382,15 @@ class TerminalController {
                     guard let id = explicitSurfaceID else {
                         return .finished(.err(code: "not_found", message: "Surface not found for the given surface_id", data: nil))
                     }
-                    surfaceId = id
-                    guard let panel = ws.controlTerminalPanel(for: id) else {
+                    guard let target = ws.controlTerminalTarget(for: id) else {
                         return .finished(.err(
                             code: "invalid_params",
                             message: "Surface is not a terminal",
                             data: ["surface_id": id.uuidString]
                         ))
                     }
-                    terminalPanel = panel
+                    surfaceId = target.surfaceID
+                    terminalPanel = target.panel
                 } else {
                     guard let focused = ws.controlDefaultTerminalTarget(paneID: routing.paneID) else {
                         return .finished(.err(code: "not_found", message: "No focused surface", data: nil))

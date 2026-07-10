@@ -51,8 +51,18 @@ extension TerminalController {
         panelType: PanelType
     ) -> ControlSurfaceSplitResolution? {
         guard panelType == .terminal,
-              let requestedSurfaceID = inputs.requestedSourceSurfaceID,
-              let location = workspace.remoteTmuxControlPane(surfaceID: requestedSurfaceID) else {
+              let targetSurfaceID = inputs.requestedSourceSurfaceID ?? workspace.focusedPanelId else {
+            return nil
+        }
+        let location: Workspace.RemoteTmuxControlPaneLocation
+        switch workspace.remoteTmuxControlSurfaceTarget(surfaceID: targetSurfaceID) {
+        case .pane(let resolved):
+            location = resolved
+        case .unresolvedMirror:
+            return inputs.requestedSourceSurfaceID == nil
+                ? .noFocusedSurface
+                : .requestedSurfaceNotFound(targetSurfaceID)
+        case .notRemote:
             return nil
         }
         let unsupported = mirrorRoutedUnsupportedOptions(
@@ -85,13 +95,23 @@ extension TerminalController {
         tabManager: TabManager,
         inputs: ControlSurfaceRespawnInputs
     ) -> ControlSurfaceRespawnResolution? {
-        let targetSurfaceID = inputs.hasSurfaceIDParam
+        guard let requestedSurfaceID = inputs.hasSurfaceIDParam
             ? inputs.requestedSurfaceID
-            : workspace.controlDefaultTerminalTarget(paneID: nil)?.surfaceID
-        guard let targetSurfaceID,
-              let location = workspace.remoteTmuxControlPane(surfaceID: targetSurfaceID) else {
+            : workspace.focusedPanelId else {
             return nil
         }
+        let location: Workspace.RemoteTmuxControlPaneLocation
+        switch workspace.remoteTmuxControlSurfaceTarget(surfaceID: requestedSurfaceID) {
+        case .pane(let resolved):
+            location = resolved
+        case .unresolvedMirror:
+            return inputs.hasSurfaceIDParam
+                ? .surfaceNotFoundForID(requestedSurfaceID)
+                : .noFocusedSurface
+        case .notRemote:
+            return nil
+        }
+        let targetSurfaceID = location.pane.panel.id
         guard location.mirror.requestRespawnPane(
             location.pane.tmuxPaneID,
             command: inputs.command,
@@ -114,13 +134,15 @@ extension TerminalController {
         workspace: Workspace,
         tabManager: TabManager,
         surfaceID: UUID,
-        allowContainerProjection: Bool
+        isImplicitTarget: Bool
     ) -> ControlSurfaceCloseResolution? {
-        let location = workspace.remoteTmuxControlPane(surfaceID: surfaceID)
-            ?? (allowContainerProjection
-                ? workspace.remoteTmuxControlTarget(surfaceID: surfaceID)
-                : nil)
-        guard let location else {
+        let location: Workspace.RemoteTmuxControlPaneLocation
+        switch workspace.remoteTmuxControlSurfaceTarget(surfaceID: surfaceID) {
+        case .pane(let resolved):
+            location = resolved
+        case .unresolvedMirror:
+            return isImplicitTarget ? .noFocusedSurface : .surfaceNotFound(surfaceID)
+        case .notRemote:
             return nil
         }
         guard location.mirror.requestKillPane(location.pane.tmuxPaneID) else {
