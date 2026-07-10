@@ -3431,116 +3431,123 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     /// Build a persistent read-only client to one OTHER Mac (route + manual
-    /// ticket), or nil if it has no reachable route / the ticket fails. The caller
+    /// ticket), trying every reconnect candidate until one succeeds. The caller
     /// owns disconnecting it. Routes are loopback-deprioritized on device. Never
     /// touches the foreground connection.
     private func makeSecondaryClient(for mac: MobilePairedMac, scope: MobileShellScopeSnapshot) async -> SecondaryClientHandle? {
         guard let runtime else { return nil }
         guard await isScopeCurrent(scope) else { return nil }
         let supportedKinds = runtime.supportedRouteKinds
-        guard let candidate = routeSelection.reconnectHostPortRoutes(
+        let candidates = routeSelection.reconnectHostPortRoutes(
             mac.routes,
             supportedKinds: supportedKinds,
             preferNonLoopback: routeSelection.prefersNonLoopbackRoutes
-        ).first else {
-            return nil
-        }
-        let host = candidate.host
-        let port = candidate.port
-        let ticket: CmxAttachTicket
-        do {
-            let directRoute = try routeSelection.manualHostRoute(
-                host: host,
-                port: port,
-                preserving: candidate.route
-            )
+        )
+        for candidate in candidates {
+            guard await isScopeCurrent(scope) else { return nil }
+            let host = candidate.host
+            let port = candidate.port
+            let ticket: CmxAttachTicket
+            do {
+                let directRoute = try routeSelection.manualHostRoute(
+                    host: host,
+                    port: port,
+                    preserving: candidate.route
+                )
+                let manualHostTrusted = await manualHostStackAuthTrusted(
+                    for: directRoute,
+                    stackUserID: scope.userID
+                )
+                guard await isScopeCurrent(scope) else { return nil }
+                ticket = try await manualHostTicket(
+                    name: mac.displayName ?? host,
+                    host: host,
+                    port: port,
+                    route: directRoute,
+                    attemptStartedAt: nil,
+                    manualHostTrusted: manualHostTrusted,
+                    authContext: scope.rpcAuthContext
+                )
+            } catch {
+                mobileShellLog.warning(
+                    "secondary client: ticket failed mac=\(mac.macDeviceID, privacy: .public) route=\(candidate.routeID, privacy: .public) error=\(String(describing: error), privacy: .public)"
+                )
+                continue
+            }
+            let supportedRoutes = routeSelection.supportedRoutes(for: ticket, supportedKinds: supportedKinds)
+            // Dial the route proved reachable by the ticket request, not
+            // `supportedRoutes.first`: on a physical phone a Mac ticket can
+            // advertise a higher-priority debug loopback route that reaches the
+            // phone itself. Prefer the exact route, then another non-loopback.
+            let route = supportedRoutes.first(where: { route in
+                if case let .hostPort(routeHost, routePort) = route.endpoint {
+                    return routeHost == host && routePort == port
+                }
+                return false
+            }) ?? supportedRoutes.first(where: { $0.kind != .debugLoopback })
+                ?? supportedRoutes.first
+            guard let route else { continue }
             let manualHostTrusted = await manualHostStackAuthTrusted(
-                for: directRoute,
+                for: route,
                 stackUserID: scope.userID
             )
             guard await isScopeCurrent(scope) else { return nil }
-            ticket = try await manualHostTicket(
-                name: mac.displayName ?? host,
-                host: host,
-                port: port,
-                route: directRoute,
-                attemptStartedAt: nil,
-                manualHostTrusted: manualHostTrusted,
-                authContext: scope.rpcAuthContext
-            )
-        } catch {
-            mobileShellLog.warning(
-                "secondary client: ticket failed mac=\(mac.macDeviceID, privacy: .public) error=\(String(describing: error), privacy: .public)"
-            )
-            return nil
-        }
-        let supportedRoutes = routeSelection.supportedRoutes(for: ticket, supportedKinds: supportedKinds)
-        // Dial the route we PROVED reachable above (the non-loopback host/port the
-        // ticket was built from), NOT `supportedRoutes.first`: on a physical phone a
-        // Mac ticket can advertise a higher-priority `debugLoopback` (127.0.0.1)
-        // route, and dialing that makes every secondary subscription connect to the
-        // phone itself — so the Mac is unreachable and silently drops out of the
-        // aggregate. Prefer the exact matching route, then any non-loopback, then any.
-        let route = supportedRoutes.first(where: { route in
-            if case let .hostPort(routeHost, routePort) = route.endpoint {
-                return routeHost == host && routePort == port
+            guard MobileShellRouteAuthPolicy().routeAllowsStackAuth(
+                route,
+                manualHostTrusted: manualHostTrusted
+            ) else {
+                continue
             }
-            return false
-        }) ?? supportedRoutes.first(where: { $0.kind != .debugLoopback })
-            ?? supportedRoutes.first
-        guard let route else { return nil }
-        let manualHostTrusted = await manualHostStackAuthTrusted(
-            for: route,
-            stackUserID: scope.userID
-        )
-        guard await isScopeCurrent(scope) else { return nil }
-        guard MobileShellRouteAuthPolicy().routeAllowsStackAuth(
-            route,
-            manualHostTrusted: manualHostTrusted
-        ) else {
-            return nil
-        }
-        let client = MobileCoreRPCClient(
-            runtime: runtime,
-            route: route,
-            ticket: ticket,
-            allowsStackAuthFallback: true,
-            manualHostStackAuthTrustProvider: manualHostStackAuthTrustProvider(
-                for: route,
-                stackUserID: scope.userID
-            ),
-            authScope: rpcAuthScopeForRoute(for: route, context: scope.rpcAuthContext),
-            authScopeValidator: rpcAuthScopeValidator(for: route, context: scope.rpcAuthContext),
-            connectAttemptRegistry: connectAttemptRegistry,
-            stackTokenGate: stackTokenGate,
-            stackTokenForceRefreshGate: stackTokenForceRefreshGate
-        )
-        let capabilities = await fetchSecondaryHostCapabilities(on: client)
-        return SecondaryClientHandle(
-            client: client,
-            route: route,
-            ticket: ticket,
-            supportedHostCapabilities: capabilities,
-            actionCapabilities: Self.workspaceActionCapabilities(
-                from: capabilities,
-                allowsMacScopedMutations: MobileShellWorkspaceMutationTicketPolicy(now: runtime.now())
-                    .allowsMacScopedWorkspaceMutations(ticket)
+            let client = MobileCoreRPCClient(
+                runtime: runtime,
+                route: route,
+                ticket: ticket,
+                allowsStackAuthFallback: true,
+                manualHostStackAuthTrustProvider: manualHostStackAuthTrustProvider(
+                    for: route,
+                    stackUserID: scope.userID
+                ),
+                authScope: rpcAuthScopeForRoute(for: route, context: scope.rpcAuthContext),
+                authScopeValidator: rpcAuthScopeValidator(for: route, context: scope.rpcAuthContext),
+                connectAttemptRegistry: connectAttemptRegistry,
+                stackTokenGate: stackTokenGate,
+                stackTokenForceRefreshGate: stackTokenForceRefreshGate
             )
-        )
+            guard let capabilities = await fetchSecondaryHostCapabilities(on: client) else {
+                await client.disconnect()
+                continue
+            }
+            guard await isScopeCurrent(scope) else {
+                await client.disconnect()
+                return nil
+            }
+            return SecondaryClientHandle(
+                client: client,
+                route: route,
+                ticket: ticket,
+                supportedHostCapabilities: capabilities,
+                actionCapabilities: Self.workspaceActionCapabilities(
+                    from: capabilities,
+                    allowsMacScopedMutations: MobileShellWorkspaceMutationTicketPolicy(now: runtime.now())
+                        .allowsMacScopedWorkspaceMutations(ticket)
+                )
+            )
+        }
+        return nil
     }
 
-    private func fetchSecondaryHostCapabilities(on client: MobileCoreRPCClient) async -> Set<String> {
-        guard let runtime else { return [] }
+    private func fetchSecondaryHostCapabilities(on client: MobileCoreRPCClient) async -> Set<String>? {
+        guard let runtime else { return nil }
         do {
             let data = try await client.sendRequest(
                 MobileCoreRPCClient.requestData(method: "mobile.host.status", params: [:]),
                 timeoutNanoseconds: runtime.pairingRequestTimeoutNanoseconds
             )
-            guard let payload = try? MobileHostStatusResponse.decode(data) else { return [] }
+            guard let payload = try? MobileHostStatusResponse.decode(data) else { return nil }
             return Set(payload.capabilities)
         } catch {
             mobileShellLog.warning("secondary host status failed: \(String(describing: error), privacy: .private)")
-            return []
+            return nil
         }
     }
 

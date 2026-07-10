@@ -31,7 +31,7 @@ public final class NetworkReachability {
     /// Convenience inverse of ``isOnline``.
     public var isOffline: Bool { !isOnline }
 
-    /// Monotonic counter that increments on each meaningful path change.
+    /// Monotonic counter that increments on each post-initial path update.
     ///
     /// Observe it via `withObservationTracking` to drive reconnect/resync when
     /// the underlying network moves out from under a live connection. It mirrors

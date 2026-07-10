@@ -5,7 +5,7 @@ import Foundation
 ///
 /// Owns the path monitor and its callback queue, tracks the current online
 /// state and primary interface type as actor-isolated state, and fans
-/// meaningful path changes out to any number of subscribers through
+/// post-initial path updates out to any number of subscribers through
 /// ``pathChanges()``.
 ///
 /// Construct it once at the app composition root and inject it as
@@ -90,7 +90,7 @@ public actor ReachabilityService: ReachabilityProviding {
         }
     }
 
-    /// A stream that yields once per meaningful path change.
+    /// A stream that yields once per path update after the initial snapshot.
     /// - Returns: An `AsyncStream` removed from the registry when its consumer
     ///   stops iterating or the task is cancelled.
     public nonisolated func pathChanges() -> AsyncStream<Void> {
@@ -129,11 +129,10 @@ public actor ReachabilityService: ReachabilityProviding {
     }
 
     func apply(online: Bool, primaryType: NWInterface.InterfaceType?) {
-        let wasOnline = self.online
-        let previousType = lastInterfaceType
+        let isInitialPath = !receivedFirstPath
         self.online = online
         if online { lastInterfaceType = primaryType }
-        if !receivedFirstPath {
+        if isInitialPath {
             receivedFirstPath = true
             for waiter in firstPathWaiters.values {
                 waiter.resume()
@@ -141,9 +140,7 @@ public actor ReachabilityService: ReachabilityProviding {
             firstPathWaiters.removeAll()
             cancelledFirstPathWaiterIDs.removeAll()
         }
-        let regainedOnline = online && !wasOnline
-        let interfaceChanged = online && previousType != nil && primaryType != previousType
-        guard regainedOnline || interfaceChanged else { return }
+        guard !isInitialPath else { return }
         for continuation in subscribers.values {
             continuation.yield(())
         }
