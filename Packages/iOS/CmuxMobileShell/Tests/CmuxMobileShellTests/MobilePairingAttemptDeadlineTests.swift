@@ -34,9 +34,7 @@ import Testing
             transportFactory: CountingSlowIgnoringCancellationTransportFactory(transport: transport)
         )
         let store = makeStore(runtime: runtime)
-        let firstTask = Task { @MainActor in await store.connectPairingURLResult(Self.qrURL) }
-        await transport.waitUntilConnectStarted()
-        let first = await firstTask.value
+        let first = await store.connectPairingURLResult(Self.qrURL)
         let second = await store.connectPairingURLResult(Self.qrURL)
         let connectCount = await transport.connectCount()
         await transport.releaseStuckConnects()
