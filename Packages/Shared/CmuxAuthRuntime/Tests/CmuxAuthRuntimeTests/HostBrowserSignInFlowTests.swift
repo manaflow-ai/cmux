@@ -8,6 +8,26 @@ import Testing
 /// the sign-out-vs-callback race guards, deadlines, and attempt cancellation.
 @MainActor
 @Suite(.serialized) struct HostBrowserSignInFlowTests {
+    @Test func signOutRunsCompositionTeardownWithCapturedCredentials() async {
+        let recorder = HostBrowserSignOutHookRecorder()
+        let harness = HostBrowserSignInFlowHarness(
+            onSignedOut: { accessToken, refreshToken in
+                await recorder.record(accessToken, refreshToken)
+            }
+        )
+        await harness.tokenStore.setTokens(
+            accessToken: "access-1",
+            refreshToken: "refresh-1"
+        )
+
+        await harness.flow.signOut()
+
+        let calls = await recorder.values()
+        #expect(calls.count == 1)
+        #expect(calls.first?.accessToken == "access-1")
+        #expect(calls.first?.refreshToken == "refresh-1")
+    }
+
     @Test func browserCallbackSignsInAndSeedsTokens() async throws {
         let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
         let harness = HostBrowserSignInFlowHarness(user: user)
@@ -471,5 +491,18 @@ import Testing
         #expect(revoked.count == 1)
         #expect(revoked.first?.access == "access-1")
         #expect(revoked.first?.refresh == "refresh-1")
+    }
+}
+
+private actor HostBrowserSignOutHookRecorder {
+    typealias Call = (accessToken: String?, refreshToken: String?)
+    private var calls: [Call] = []
+
+    func record(_ accessToken: String?, _ refreshToken: String?) {
+        calls.append((accessToken, refreshToken))
+    }
+
+    func values() -> [Call] {
+        calls
     }
 }

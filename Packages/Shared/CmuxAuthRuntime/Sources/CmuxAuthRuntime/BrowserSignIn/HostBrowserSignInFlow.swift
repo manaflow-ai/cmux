@@ -28,6 +28,10 @@ public final class HostBrowserSignInFlow {
     private let clock: any Clock<Duration>
     private let browserAttemptTimeout: TimeInterval
     private let slowSignInThreshold: TimeInterval
+    private let onSignedOut: @Sendable (
+        _ accessToken: String?,
+        _ refreshToken: String?
+    ) async -> Void
     private let log = AuthDebugLog()
 
     @ObservationIgnored private var activeSession: (any HostBrowserAuthSession)?
@@ -54,7 +58,11 @@ public final class HostBrowserSignInFlow {
         openExternalURL: @escaping @MainActor (URL) -> Bool,
         clock: any Clock<Duration> = ContinuousClock(),
         browserAttemptTimeout: TimeInterval = 10 * 60,
-        slowSignInThreshold: TimeInterval = 30
+        slowSignInThreshold: TimeInterval = 30,
+        onSignedOut: @escaping @Sendable (
+            _ accessToken: String?,
+            _ refreshToken: String?
+        ) async -> Void = { _, _ in }
     ) {
         self.coordinator = coordinator
         self.tokenStore = tokenStore
@@ -66,6 +74,7 @@ public final class HostBrowserSignInFlow {
         self.clock = clock
         self.browserAttemptTimeout = browserAttemptTimeout
         self.slowSignInThreshold = slowSignInThreshold
+        self.onSignedOut = onSignedOut
     }
 
     /// Start a browser sign-in without awaiting the result (Settings button).
@@ -151,7 +160,7 @@ public final class HostBrowserSignInFlow {
         signOutGeneration &+= 1
         lastFailure = nil
         cancelActiveAttempt()
-        await coordinator.signOut()
+        await coordinator.signOut(onSignedOut: onSignedOut)
         log.log("auth.browser.signOut.end generation=\(signOutGeneration)")
     }
 
