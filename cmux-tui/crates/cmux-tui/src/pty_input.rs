@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 use cmux_tui_core::SurfaceId;
 use smallvec::SmallVec;
 
-use crate::session::{SurfaceHandle, is_remote_transport_failure};
+use crate::session::{SurfaceHandle, is_remote_timeout, is_remote_transport_failure};
 
 const QUEUE_CAPACITY: usize = 512;
 const MAX_QUEUED_BYTES: usize = 4 * 1024 * 1024;
@@ -170,20 +170,15 @@ impl PtyInputDispatcher {
         let drained = state.events.is_empty() && state.in_flight.is_none();
         state.closed = true;
         if !drained {
-            let release = state
-                .in_flight
-                .filter(|input| input.kind == PtyInputKind::Press)
-                .and_then(|input| {
-                    state.events.iter().position(|event| {
-                        event.kind == PtyInputKind::Release && event.surface_id == input.surface_id
-                    })
-                })
-                .and_then(|index| state.events.remove(index));
-            state.events.clear();
-            state.queued_bytes = release.as_ref().map_or(0, |event| event.bytes.len());
+            let releases = state
+                .events
+                .drain(..)
+                .filter(|event| event.kind == PtyInputKind::Release)
+                .collect::<VecDeque<_>>();
+            state.queued_bytes = releases.iter().map(|event| event.bytes.len()).sum();
             state.release_reservations = 0;
-            if let Some(release) = release {
-                state.events.push_back(release);
+            if !releases.is_empty() {
+                state.events = releases;
                 state.shutdown_release_drain = true;
             }
         }
@@ -392,6 +387,7 @@ fn worker(queue: Arc<SharedQueue>, on_failure: Arc<dyn Fn(PtyOperationFailure) +
         };
         let remote_transport_failed =
             remote && result.as_ref().err().is_some_and(is_remote_transport_failure);
+        let remote_timed_out = remote && result.as_ref().err().is_some_and(is_remote_timeout);
         let failure = result.err().map(|error| PtyOperationFailure {
             surface_id,
             kind,
@@ -406,9 +402,8 @@ fn worker(queue: Arc<SharedQueue>, on_failure: Arc<dyn Fn(PtyOperationFailure) +
         }
         if remote_transport_failed {
             // One dispatcher belongs to one local or remote App session. A
-            // remote timeout means every queued remote request shares the
-            // same failed transport, so cancel the backlog instead of paying
-            // the request timeout once per event.
+            // A failed socket write means every queued remote request shares
+            // the same dead transport, so cancel the backlog immediately.
             state.remote_failed = true;
             canceled.extend(state.events.drain(..).map(|event| PtyOperationFailure {
                 surface_id: (event.kind != PtyInputKind::Mutation).then_some(event.surface_id),
@@ -418,6 +413,29 @@ fn worker(queue: Arc<SharedQueue>, on_failure: Arc<dyn Fn(PtyOperationFailure) +
                 lane_failed: true,
             }));
             state.queued_bytes = 0;
+            state.release_reservations = 0;
+        } else if remote_timed_out {
+            // A timeout does not prove the socket is dead. Drop stale queued
+            // work so one stalled request cannot multiply into minutes of
+            // latency, but retain releases that may balance a press already
+            // executed by the remote server.
+            let mut releases = VecDeque::new();
+            for event in state.events.drain(..) {
+                if event.kind == PtyInputKind::Release {
+                    releases.push_back(event);
+                } else {
+                    canceled.push(PtyOperationFailure {
+                        surface_id: (event.kind != PtyInputKind::Mutation)
+                            .then_some(event.surface_id),
+                        kind: (event.kind != PtyInputKind::Mutation).then_some(event.kind),
+                        label: event.label,
+                        error: "canceled after a remote request timed out".into(),
+                        lane_failed: false,
+                    });
+                }
+            }
+            state.queued_bytes = releases.iter().map(|event| event.bytes.len()).sum();
+            state.events = releases;
             state.release_reservations = 0;
         }
         state.in_flight = None;
@@ -594,14 +612,14 @@ mod tests {
     }
 
     #[test]
-    fn shutdown_timeout_preserves_release_behind_in_flight_press() {
+    fn shutdown_timeout_preserves_release_behind_any_in_flight_operation() {
         let queue = Arc::new(SharedQueue::default());
         {
             let mut state = queue.state.lock().unwrap();
             state.events.push_back(event(1, 1, PtyInputKind::Motion));
             state.events.push_back(event(1, 2, PtyInputKind::Release));
             state.queued_bytes = 2;
-            state.in_flight = Some(InFlightInput { surface_id: 1, kind: PtyInputKind::Press });
+            state.in_flight = Some(InFlightInput { surface_id: 2, kind: PtyInputKind::Ordered });
         }
         let mut dispatcher = PtyInputDispatcher {
             sender: PtyInputSender { queue: queue.clone(), on_failure: Arc::new(|_| {}) },
@@ -722,7 +740,7 @@ mod tests {
     }
 
     #[test]
-    fn remote_failure_cancels_backlog_and_rejects_later_operations() {
+    fn remote_transport_failure_cancels_backlog_and_rejects_later_operations() {
         let (failure_tx, failure_rx) = std::sync::mpsc::channel();
         let dispatcher = PtyInputDispatcher::spawn(move |failure| {
             failure_tx.send(failure).unwrap();
@@ -732,7 +750,7 @@ mod tests {
         let ran = Arc::new(std::sync::atomic::AtomicBool::new(false));
 
         sender.enqueue_session_mutation("remote input", true, || {
-            Err(crate::session::test_remote_timeout_error())
+            Err(crate::session::test_remote_transport_error())
         });
         let follower_ran = ran.clone();
         sender.enqueue_session_mutation("queued close", true, move || {
@@ -753,6 +771,44 @@ mod tests {
         assert_eq!(later.label, "later resize");
         assert!(later.error.contains("unavailable"));
         assert!(later.lane_failed);
+    }
+
+    #[test]
+    fn remote_timeout_cancels_stale_backlog_but_allows_recovery() {
+        let (failure_tx, failure_rx) = std::sync::mpsc::channel();
+        let dispatcher = PtyInputDispatcher::spawn(move |failure| {
+            failure_tx.send(failure).unwrap();
+        })
+        .unwrap();
+        let sender = dispatcher.sender();
+        let stale_ran = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let recovered = Arc::new(std::sync::atomic::AtomicBool::new(false));
+
+        sender.enqueue_session_mutation("timed out request", true, || {
+            Err(crate::session::test_remote_timeout_error())
+        });
+        let stale = stale_ran.clone();
+        sender.enqueue_session_mutation("stale queued request", true, move || {
+            stale.store(true, std::sync::atomic::Ordering::Release);
+            Ok(())
+        });
+
+        let first = failure_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        let second = failure_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(!first.lane_failed);
+        assert!(!second.lane_failed);
+        assert!(!stale_ran.load(std::sync::atomic::Ordering::Acquire));
+
+        let recovery = recovered.clone();
+        sender.enqueue_session_mutation("recovery request", true, move || {
+            recovery.store(true, std::sync::atomic::Ordering::Release);
+            Ok(())
+        });
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while !recovered.load(std::sync::atomic::Ordering::Acquire) && Instant::now() < deadline {
+            std::thread::yield_now();
+        }
+        assert!(recovered.load(std::sync::atomic::Ordering::Acquire));
     }
 
     #[test]

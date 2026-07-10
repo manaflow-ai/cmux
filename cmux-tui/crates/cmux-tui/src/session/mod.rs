@@ -36,9 +36,24 @@ pub(crate) fn is_remote_transport_failure(error: &anyhow::Error) -> bool {
         .is_some_and(remote::RemoteRequestError::is_transport_failure)
 }
 
+pub(crate) fn is_remote_timeout(error: &anyhow::Error) -> bool {
+    error
+        .downcast_ref::<remote::RemoteRequestError>()
+        .is_some_and(remote::RemoteRequestError::is_timeout)
+}
+
 #[cfg(test)]
 pub(crate) fn test_remote_timeout_error() -> anyhow::Error {
     remote::RemoteRequestError::Timeout.into()
+}
+
+#[cfg(test)]
+pub(crate) fn test_remote_transport_error() -> anyhow::Error {
+    remote::RemoteRequestError::Transport(std::io::Error::new(
+        std::io::ErrorKind::BrokenPipe,
+        "socket closed",
+    ))
+    .into()
 }
 
 #[cfg(test)]
@@ -87,6 +102,12 @@ pub enum SurfaceHandle {
 }
 
 impl Session {
+    pub fn invalidate_remote_tree(&self) {
+        if let Session::Remote(remote) = self {
+            remote.invalidate_tree();
+        }
+    }
+
     /// Make sure the session has at least one workspace to show. `size`
     /// is the expected content size of the first pane, when known.
     pub fn ensure_initial(&self, size: Option<(u16, u16)>) -> anyhow::Result<()> {

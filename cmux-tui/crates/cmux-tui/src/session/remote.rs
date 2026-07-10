@@ -32,7 +32,11 @@ pub(crate) enum RemoteRequestError {
 
 impl RemoteRequestError {
     pub(crate) fn is_transport_failure(&self) -> bool {
-        matches!(self, Self::Transport(_) | Self::Timeout)
+        matches!(self, Self::Transport(_))
+    }
+
+    pub(crate) fn is_timeout(&self) -> bool {
+        matches!(self, Self::Timeout)
     }
 }
 
@@ -578,6 +582,10 @@ impl RemoteSession {
             surface.update_browser_source(browser_source_from_tree(&tree, id));
         }
         Ok(tree)
+    }
+
+    pub fn invalidate_tree(&self) {
+        self.tree_stale.store(true, Ordering::Release);
     }
 }
 

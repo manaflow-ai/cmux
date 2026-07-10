@@ -112,7 +112,9 @@ impl OrderedSession {
         let pending = self.pending_mutation();
         self.operations.enqueue_session_mutation(label, self.remote, move || {
             let _pending = pending;
-            operation(session)
+            operation(session.clone())?;
+            session.invalidate_remote_tree();
+            Ok(())
         });
     }
 
@@ -216,7 +218,9 @@ impl OrderedSession {
             self.remote,
             move || {
                 let _pending = pending;
-                session.set_ratio(pane, dir, ratio)
+                session.set_ratio(pane, dir, ratio)?;
+                session.invalidate_remote_tree();
+                Ok(())
             },
         );
     }
