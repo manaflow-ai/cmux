@@ -43,6 +43,56 @@ public struct ComputerUsePermissionRowState: Equatable, Sendable {
     }
 }
 
+/// View-independent presentation state for the Computer Use driver row.
+public struct ComputerUseDriverRowState: Equatable, Sendable {
+    /// Live readiness text shown beside the resolved binary.
+    public let statusText: String
+    /// Label for the single readiness action.
+    public let testButtonTitle: String
+    /// Whether the readiness action is currently unavailable.
+    public let testDisabled: Bool
+
+    /// Maps the host driver state to readiness labels and Test availability.
+    public static func readiness(
+        driverState: ComputerUseHostState.DriverState,
+        hasResolvedDriver: Bool
+    ) -> ComputerUseDriverRowState {
+        let statusText: String
+        switch driverState {
+        case .notFound:
+            statusText = String(localized: "settings.computerUse.driver.status.notFound", defaultValue: "Status: not found.")
+        case .stopped:
+            statusText = String(localized: "settings.computerUse.driver.status.idle", defaultValue: "Status: idle.")
+        case .starting:
+            statusText = String(localized: "settings.computerUse.driver.status.checking", defaultValue: "Status: checking readiness.")
+        case .running(let pid, let serverName, let serverVersion, let toolCount):
+            let server = [serverName, serverVersion].compactMap { $0 }.joined(separator: " ")
+            if server.isEmpty {
+                statusText = String(
+                    localized: "settings.computerUse.driver.status.runningDetail.pidOnly",
+                    defaultValue: "Status: running. PID \(pid), \(toolCount) tools."
+                )
+            } else {
+                statusText = String(
+                    localized: "settings.computerUse.driver.status.runningDetail.server",
+                    defaultValue: "Status: running. \(server), PID \(pid), \(toolCount) tools."
+                )
+            }
+        case .failed(let message):
+            statusText = String(localized: "settings.computerUse.driver.status.failed", defaultValue: "Status: failed. \(message)")
+        }
+
+        let isChecking = driverState == .starting
+        return ComputerUseDriverRowState(
+            statusText: statusText,
+            testButtonTitle: isChecking
+                ? String(localized: "settings.computerUse.driver.testing", defaultValue: "Testing…")
+                : String(localized: "settings.computerUse.driver.test", defaultValue: "Test"),
+            testDisabled: isChecking || !hasResolvedDriver
+        )
+    }
+}
+
 @MainActor
 public struct ComputerUseSection: View {
     private let hostActions: SettingsHostActions
@@ -89,28 +139,34 @@ public struct ComputerUseSection: View {
 
     @ViewBuilder
     private var driverCard: some View {
+        let rowState = ComputerUseDriverRowState.readiness(
+            driverState: hostState.driverState,
+            hasResolvedDriver: hostState.resolvedDriver != nil
+        )
         SettingsCard {
             SettingsCardRow(
                 configurationReview: .action,
                 String(localized: "settings.computerUse.driver.title", defaultValue: "Driver"),
-                subtitle: driverSubtitle,
+                subtitle: driverSubtitle(statusText: rowState.statusText),
                 controlWidth: Self.columnWidth
             ) {
-                driverButton
-            }
-
-            if case let .running(pid, serverName, serverVersion, toolCount) = hostState.driverState {
-                SettingsCardDivider()
-                SettingsCardRow(
-                    configurationReview: .action,
-                    String(localized: "settings.computerUse.driver.runningInfo", defaultValue: "Running Info"),
-                    subtitle: runningSubtitle(pid: pid, serverName: serverName, serverVersion: serverVersion, toolCount: toolCount),
-                    controlWidth: Self.columnWidth
-                ) {
-                    Text(String(localized: "settings.computerUse.driver.toolCount", defaultValue: "\(toolCount) tools"))
-                        .cmuxFont(.caption)
-                        .foregroundStyle(.secondary)
+                Button {
+                    Task {
+                        await hostActions.ensureCuaDriver()
+                        await refresh()
+                    }
+                } label: {
+                    HStack(spacing: 6) {
+                        if hostState.driverState == .starting {
+                            ProgressView()
+                                .controlSize(.small)
+                        }
+                        Text(rowState.testButtonTitle)
+                    }
                 }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .disabled(rowState.testDisabled)
             }
 
             SettingsCardDivider()
@@ -141,7 +197,7 @@ public struct ComputerUseSection: View {
                 grantDisabled: rowState.grantDisabled,
                 grantAction: {
                     Task {
-                        await hostActions.requestAccessibilityAccess()
+                        _ = await hostActions.requestAccessibilityAccess()
                         await refresh()
                     }
                 },
@@ -166,7 +222,7 @@ public struct ComputerUseSection: View {
                 grantDisabled: rowState.grantDisabled,
                 grantAction: {
                     Task {
-                        await hostActions.requestScreenRecordingAccess()
+                        _ = await hostActions.requestScreenRecordingAccess()
                         await refresh()
                     }
                 },
@@ -177,40 +233,6 @@ public struct ComputerUseSection: View {
             if let hintText = rowState.hintText {
                 SettingsCardDivider()
                 SettingsCardNote(hintText)
-            }
-        }
-    }
-
-    private var driverButton: some View {
-        Group {
-            switch hostState.driverState {
-            case .starting:
-                ProgressView()
-                    .controlSize(.small)
-            case .running:
-                Button(String(localized: "settings.computerUse.driver.stop", defaultValue: "Stop")) {
-                    Task {
-                        await hostActions.stopCuaDriver()
-                        await refresh()
-                    }
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-            case .notFound:
-                Button(String(localized: "settings.computerUse.driver.start", defaultValue: "Start")) {}
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .disabled(true)
-            case .stopped, .failed:
-                Button(String(localized: "settings.computerUse.driver.start", defaultValue: "Start")) {
-                    Task {
-                        await hostActions.startCuaDriver()
-                        await refresh()
-                    }
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-                .disabled(hostState.resolvedDriver == nil)
             }
         }
     }
@@ -248,7 +270,7 @@ public struct ComputerUseSection: View {
         }
     }
 
-    private var driverSubtitle: String {
+    private func driverSubtitle(statusText: String) -> String {
         let pathText: String
         if let resolved = hostState.resolvedDriver {
             pathText = String(
@@ -262,30 +284,7 @@ public struct ComputerUseSection: View {
                 defaultValue: "Not found. Tried \(sources)."
             )
         }
-        return "\(pathText) \(driverStatusText)"
-    }
-
-    private var driverStatusText: String {
-        switch hostState.driverState {
-        case .notFound:
-            return String(localized: "settings.computerUse.driver.status.notFound", defaultValue: "Status: not found.")
-        case .stopped:
-            return String(localized: "settings.computerUse.driver.status.stopped", defaultValue: "Status: stopped.")
-        case .starting:
-            return String(localized: "settings.computerUse.driver.status.starting", defaultValue: "Status: starting.")
-        case .running:
-            return String(localized: "settings.computerUse.driver.status.running", defaultValue: "Status: running.")
-        case .failed(let message):
-            return String(localized: "settings.computerUse.driver.status.failed", defaultValue: "Status: failed. \(message)")
-        }
-    }
-
-    private func runningSubtitle(pid: Int32, serverName: String?, serverVersion: String?, toolCount: Int) -> String {
-        let server = [serverName, serverVersion].compactMap { $0 }.joined(separator: " ")
-        if server.isEmpty {
-            return String(localized: "settings.computerUse.driver.runningInfo.pidOnly", defaultValue: "PID \(pid), \(toolCount) tools.")
-        }
-        return String(localized: "settings.computerUse.driver.runningInfo.server", defaultValue: "\(server), PID \(pid), \(toolCount) tools.")
+        return "\(pathText) \(statusText)"
     }
 
     private func sourceLabel(_ source: ComputerUseDriverSource) -> String {

@@ -261,17 +261,16 @@ public protocol SettingsHostActions: AnyObject {
     /// Streams host-owned Computer Use driver state changes.
     func computerUseDriverStateUpdates() -> AsyncStream<ComputerUseHostState.DriverState>
 
-    /// Starts the host-owned cua-driver process.
-    func startCuaDriver() async
-
-    /// Stops the host-owned cua-driver process.
-    func stopCuaDriver() async
+    /// Ensures the host-owned cua-driver process is ready.
+    func ensureCuaDriver() async
 
     /// Requests Accessibility permission from the OS.
-    func requestAccessibilityAccess() async
+    @discardableResult
+    func requestAccessibilityAccess() async -> Bool
 
     /// Requests Screen Recording permission from the OS.
-    func requestScreenRecordingAccess() async
+    @discardableResult
+    func requestScreenRecordingAccess() async -> Bool
 
     /// Opens a macOS privacy pane for Computer Use permissions.
     func openPrivacyPane(anchor: ComputerUsePrivacyPaneAnchor)
@@ -285,10 +284,9 @@ public extension SettingsHostActions {
     func computerUseDriverStateUpdates() -> AsyncStream<ComputerUseHostState.DriverState> {
         AsyncStream { $0.finish() }
     }
-    func startCuaDriver() async {}
-    func stopCuaDriver() async {}
-    func requestAccessibilityAccess() async {}
-    func requestScreenRecordingAccess() async {}
+    func ensureCuaDriver() async {}
+    func requestAccessibilityAccess() async -> Bool { false }
+    func requestScreenRecordingAccess() async -> Bool { false }
     func openPrivacyPane(anchor: ComputerUsePrivacyPaneAnchor) {}
 
     func openMobilePairingWindow() {}

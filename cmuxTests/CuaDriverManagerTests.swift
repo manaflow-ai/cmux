@@ -161,6 +161,93 @@ final class CuaDriverManagerTests: XCTestCase {
         await manager.stop()
     }
 
+    func testEnsureReturnsRunningProcessWithoutRespawning() async throws {
+        let directory = try makeTemporaryDirectory()
+        let invocationsFile = directory.appendingPathComponent("invocations.txt")
+        let executable = try makeStubExecutable(
+            name: "cua-driver-ensure-idempotent",
+            directory: directory,
+            body: """
+            printf '%s\\n' invocation >> \(shellQuoted(invocationsFile.path))
+            while IFS= read -r line; do
+              if [[ "$line" == *'"method":"initialize"'* ]]; then
+                printf '%s\\n' '{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-03-26","serverInfo":{"name":"stub-cua","version":"0.1"}}}'
+              elif [[ "$line" == *'"method":"tools/list"'* ]]; then
+                printf '%s\\n' '{"jsonrpc":"2.0","id":2,"result":{"tools":[{"name":"one"}]}}'
+              fi
+            done
+            """
+        )
+        let manager = CuaDriverManager(registerTerminationObserver: false)
+
+        let firstResult = await manager.ensure(
+            settingValue: executable.path,
+            environment: [:],
+            bundleHelperURL: URL(fileURLWithPath: "/tmp/missing-cua-driver"),
+            fileExists: { $0.path == executable.path }
+        )
+        let first = try XCTUnwrap(firstResult)
+        let secondResult = await manager.ensure(
+            settingValue: executable.path,
+            environment: [:],
+            bundleHelperURL: URL(fileURLWithPath: "/tmp/missing-cua-driver"),
+            fileExists: { $0.path == executable.path }
+        )
+        let second = try XCTUnwrap(secondResult)
+
+        XCTAssertEqual(second.pid, first.pid)
+        XCTAssertEqual(try readRecordedLines(from: invocationsFile), ["invocation"])
+        await manager.stop()
+    }
+
+    func testEnsureRetriesAfterFailedStart() async throws {
+        let directory = try makeTemporaryDirectory()
+        let invocationsFile = directory.appendingPathComponent("invocations.txt")
+        let executable = try makeStubExecutable(
+            name: "cua-driver-ensure-retry",
+            directory: directory,
+            body: """
+            printf '%s\\n' invocation >> \(shellQuoted(invocationsFile.path))
+            attempt=$(wc -l < \(shellQuoted(invocationsFile.path)))
+            if (( attempt <= 2 )); then
+              exit 7
+            fi
+            while IFS= read -r line; do
+              if [[ "$line" == *'"method":"initialize"'* ]]; then
+                printf '%s\\n' '{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-03-26","serverInfo":{"name":"stub-cua","version":"0.2"}}}'
+              elif [[ "$line" == *'"method":"tools/list"'* ]]; then
+                printf '%s\\n' '{"jsonrpc":"2.0","id":2,"result":{"tools":[{"name":"one"},{"name":"two"}]}}'
+              fi
+            done
+            """
+        )
+        let manager = CuaDriverManager(registerTerminationObserver: false)
+
+        let failedResult = await manager.ensure(
+            settingValue: executable.path,
+            environment: [:],
+            bundleHelperURL: URL(fileURLWithPath: "/tmp/missing-cua-driver"),
+            fileExists: { $0.path == executable.path }
+        )
+        XCTAssertNil(failedResult)
+        guard case .failed = manager.state else {
+            XCTFail("Expected failed state, got \(manager.state)")
+            return
+        }
+
+        let retriedResult = await manager.ensure(
+            settingValue: executable.path,
+            environment: [:],
+            bundleHelperURL: URL(fileURLWithPath: "/tmp/missing-cua-driver"),
+            fileExists: { $0.path == executable.path }
+        )
+        let retried = try XCTUnwrap(retriedResult)
+        XCTAssertEqual(retried.serverVersion, "0.2")
+        XCTAssertEqual(retried.toolCount, 2)
+        XCTAssertEqual(try readRecordedLines(from: invocationsFile).count, 3)
+        await manager.stop()
+    }
+
     private func nextState(
         from updates: CuaDriverStateUpdateIterator,
         matching predicate: @escaping @Sendable (CuaDriverManager.State) -> Bool

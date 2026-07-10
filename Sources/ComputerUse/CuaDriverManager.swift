@@ -98,6 +98,43 @@ final class CuaDriverManager {
         }
     }
 
+    func ensure(
+        settingValue: String,
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        bundleHelperURL: URL = CuaDriverBinaryResolver.bundleHelperURL(),
+        fileExists: (URL) -> Bool = { FileManager.default.isExecutableFile(atPath: $0.path) }
+    ) async -> RunningInfo? {
+        switch state {
+        case .running(let info):
+            return info
+        case .starting:
+            return await runningInfoAfterCurrentStart()
+        case .notFound, .stopped, .failed:
+            await start(
+                settingValue: settingValue,
+                environment: environment,
+                bundleHelperURL: bundleHelperURL,
+                fileExists: fileExists
+            )
+            guard case .running(let info) = state else { return nil }
+            return info
+        }
+    }
+
+    private func runningInfoAfterCurrentStart() async -> RunningInfo? {
+        for await update in stateUpdates() {
+            switch update {
+            case .running(let info):
+                return info
+            case .notFound, .stopped, .failed:
+                return nil
+            case .starting:
+                continue
+            }
+        }
+        return nil
+    }
+
     func start(
         settingValue: String,
         environment: [String: String] = ProcessInfo.processInfo.environment,

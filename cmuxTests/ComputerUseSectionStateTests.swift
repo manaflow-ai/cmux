@@ -36,5 +36,38 @@ final class ComputerUseSectionStateTests: XCTestCase {
         XCTAssertTrue(state.grantDisabled)
         XCTAssertNil(state.hintText)
     }
+
+    func testIdleDriverReadinessOffersTest() {
+        let state = ComputerUseDriverRowState.readiness(
+            driverState: .stopped,
+            hasResolvedDriver: true
+        )
+
+        XCTAssertEqual(state.statusText, "Status: idle.")
+        XCTAssertEqual(state.testButtonTitle, "Test")
+        XCTAssertFalse(state.testDisabled)
+    }
+
+    func testRunningDriverReadinessIncludesHandshakeDetails() {
+        let state = ComputerUseDriverRowState.readiness(
+            driverState: .running(pid: 42, serverName: "cua", serverVersion: "1.2", toolCount: 7),
+            hasResolvedDriver: true
+        )
+
+        XCTAssertEqual(state.statusText, "Status: running. cua 1.2, PID 42, 7 tools.")
+        XCTAssertEqual(state.testButtonTitle, "Test")
+        XCTAssertFalse(state.testDisabled)
+    }
+
+    func testStartingDriverReadinessDisablesTest() {
+        let state = ComputerUseDriverRowState.readiness(
+            driverState: .starting,
+            hasResolvedDriver: true
+        )
+
+        XCTAssertEqual(state.statusText, "Status: checking readiness.")
+        XCTAssertEqual(state.testButtonTitle, "Testing…")
+        XCTAssertTrue(state.testDisabled)
+    }
 }
 #endif

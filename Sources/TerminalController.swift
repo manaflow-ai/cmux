@@ -1036,6 +1036,7 @@ class TerminalController {
             }
             semaphore.wait()
             return v2Ok(id: request.id, result: v2AuthStatusPayload(timedOut: false))
+        case "cua.status", "cua.ensure", "cua.grant", "cua.openSystemSettings": return v2CuaSocketWorkerResponse(method: request.method, id: request.id, params: request.params)
         case "feedback.submit":
             return v2Result(id: request.id, v2FeedbackSubmit(params: request.params))
         case "feed.push":
@@ -1969,8 +1970,7 @@ class TerminalController {
             "auth.login",
             "auth.status",
             "auth.sign_in_url",
-            "auth.begin_sign_in",
-            "auth.sign_out",
+            "auth.begin_sign_in", "auth.sign_out", "cua.status", "cua.ensure", "cua.grant", "cua.openSystemSettings",
             "vm.list",
             "vm.create",
             "vm.destroy",

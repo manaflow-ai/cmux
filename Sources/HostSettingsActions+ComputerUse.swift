@@ -42,21 +42,17 @@ extension HostSettingsActions {
         }
     }
 
-    func startCuaDriver() async {
-        await CuaDriverManager.shared.start(settingValue: computerUseDriverPath())
+    func ensureCuaDriver() async {
+        _ = await CuaDriverManager.shared.ensure(settingValue: computerUseDriverPath())
     }
 
-    func stopCuaDriver() async {
-        await CuaDriverManager.shared.stop()
+    func requestAccessibilityAccess() async -> Bool {
+        computerUsePermissionChecker.requestAccessibility()
     }
 
-    func requestAccessibilityAccess() async {
-        _ = computerUsePermissionChecker.requestAccessibility()
-    }
-
-    func requestScreenRecordingAccess() async {
+    func requestScreenRecordingAccess() async -> Bool {
         screenRecordingRequested = true
-        _ = computerUsePermissionChecker.requestScreenRecording()
+        return computerUsePermissionChecker.requestScreenRecording()
     }
 
     func openPrivacyPane(anchor: ComputerUsePrivacyPaneAnchor) {
@@ -111,5 +107,127 @@ extension HostSettingsActions {
 
     private func computerUseDriverSource(_ source: CuaDriverBinaryResolution.Source) -> ComputerUseDriverSource {
         ComputerUseDriverSource(rawValue: source.rawValue) ?? .setting
+    }
+}
+
+extension TerminalController {
+    nonisolated func v2CuaSocketWorkerResponse(method: String, id: Any?, params: [String: Any]) -> String {
+        switch method {
+        case "cua.status":
+            return v2AsyncResultCall(id: id, timeoutSeconds: 30) { await self.v2CuaStatusResult() }
+        case "cua.ensure":
+            return v2AsyncResultCall(id: id, timeoutSeconds: 30) { await self.v2CuaEnsureResult() }
+        case "cua.grant":
+            return v2AsyncResultCall(id: id, timeoutSeconds: 30) { await self.v2CuaGrantResult(params: params) }
+        case "cua.openSystemSettings":
+            return v2AsyncResultCall(id: id, timeoutSeconds: 30) {
+                await self.v2CuaOpenSystemSettingsResult(params: params)
+            }
+        default:
+            preconditionFailure("Unsupported Computer Use socket method")
+        }
+    }
+
+    func v2CuaStatusResult() async -> V2CallResult {
+        guard let hostActions = AppDelegate.shared?.settingsRuntime?.hostActions else {
+            return .err(code: "unavailable", message: "Computer Use settings are unavailable", data: nil)
+        }
+        return .ok(computerUseSocketPayload(await hostActions.computerUseState()))
+    }
+
+    func v2CuaEnsureResult() async -> V2CallResult {
+        guard let hostActions = AppDelegate.shared?.settingsRuntime?.hostActions else {
+            return .err(code: "unavailable", message: "Computer Use settings are unavailable", data: nil)
+        }
+        await hostActions.ensureCuaDriver()
+        return .ok(computerUseSocketPayload(await hostActions.computerUseState()))
+    }
+
+    func v2CuaGrantResult(params: [String: Any]) async -> V2CallResult {
+        guard let permission = computerUsePermission(from: params) else {
+            return .err(
+                code: "invalid_params",
+                message: "permission must be accessibility or screenRecording",
+                data: nil
+            )
+        }
+        guard let hostActions = AppDelegate.shared?.settingsRuntime?.hostActions else {
+            return .err(code: "unavailable", message: "Computer Use settings are unavailable", data: nil)
+        }
+
+        let granted: Bool
+        switch permission {
+        case .accessibility:
+            granted = await hostActions.requestAccessibilityAccess()
+        case .screenRecording:
+            granted = await hostActions.requestScreenRecordingAccess()
+        }
+        return .ok([
+            "granted": granted,
+            "prompted": true,
+        ])
+    }
+
+    func v2CuaOpenSystemSettingsResult(params: [String: Any]) -> V2CallResult {
+        guard let permission = computerUsePermission(from: params) else {
+            return .err(
+                code: "invalid_params",
+                message: "permission must be accessibility or screenRecording",
+                data: nil
+            )
+        }
+        guard let hostActions = AppDelegate.shared?.settingsRuntime?.hostActions else {
+            return .err(code: "unavailable", message: "Computer Use settings are unavailable", data: nil)
+        }
+        hostActions.openPrivacyPane(anchor: permission)
+        return .ok([
+            "opened": true,
+            "permission": permission == .accessibility ? "accessibility" : "screenRecording",
+        ])
+    }
+
+    private func computerUsePermission(from params: [String: Any]) -> ComputerUsePrivacyPaneAnchor? {
+        guard let raw = params["permission"] as? String else { return nil }
+        switch raw.trimmingCharacters(in: .whitespacesAndNewlines) {
+        case "accessibility":
+            return .accessibility
+        case "screenRecording":
+            return .screenRecording
+        default:
+            return nil
+        }
+    }
+
+    private func computerUseSocketPayload(_ state: ComputerUseHostState) -> [String: Any] {
+        var driver: [String: Any] = [:]
+        switch state.driverState {
+        case .notFound:
+            driver["state"] = "notFound"
+        case .stopped:
+            driver["state"] = "idle"
+        case .starting:
+            driver["state"] = "starting"
+        case .running(let pid, let serverName, let serverVersion, let toolCount):
+            driver["state"] = "running"
+            driver["pid"] = pid
+            driver["toolCount"] = toolCount
+            if let serverName { driver["serverName"] = serverName }
+            if let serverVersion { driver["serverVersion"] = serverVersion }
+        case .failed(let reason):
+            driver["state"] = "failed"
+            driver["failureReason"] = reason
+        }
+        if let resolved = state.resolvedDriver {
+            driver["resolvedPath"] = resolved.path
+            driver["resolutionSource"] = resolved.source.rawValue
+        }
+
+        return [
+            "permissions": [
+                "accessibility": state.accessibilityGranted,
+                "screenRecording": state.screenRecordingGranted,
+            ],
+            "driver": driver,
+        ]
     }
 }
