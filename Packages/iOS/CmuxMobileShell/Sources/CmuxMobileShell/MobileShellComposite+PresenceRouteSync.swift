@@ -19,16 +19,12 @@ extension MobileShellComposite {
         syncPushedRoutes(from: [instance], scope: scope)
     }
 
-    /// Serializes one delivery so a snapshot cannot race its following events.
+    /// Serializes every host instance in one delivery so registry state and
+    /// recovery signals stay current even when route persistence has no authority.
     func syncPushedRoutes(from instances: [PresenceInstance], scope: MobileShellScopeSnapshot) {
-        let candidates = instances.filter { instance in
-            guard instance.platform.lowercased() != "ios" else { return false }
-            return presenceMap.reconnectRouteAuthority(
-                deviceId: instance.deviceId,
-                buildScope: iosBuildScope
-            )?.tag == instance.tag
-        }
-        guard !candidates.isEmpty else { return }
+        let hostInstances = instances.filter { $0.platform.lowercased() != "ios" }
+        guard !hostInstances.isEmpty else { return }
+        let recoveryTag = iosBuildScope?.value
         let task = Task { @MainActor [weak self] in
             guard let self else { return }
             await self.performSerializedPairedMacWrite(ifStillCurrent: nil) { [weak self] in
@@ -38,9 +34,12 @@ extension MobileShellComposite {
                 }
                 guard await self.isScopeCurrent(scope) else { return }
                 var onlineDeviceIds: Set<String> = []
-                for instance in candidates {
+                for instance in hostInstances {
                     guard await self.isScopeCurrent(scope) else { return }
-                    if instance.online { onlineDeviceIds.insert(instance.deviceId) }
+                    if instance.online,
+                       recoveryTag == nil || recoveryTag == instance.tag {
+                        onlineDeviceIds.insert(instance.deviceId)
+                    }
                     await self.applyPushedRoutes(from: instance, scope: scope)
                 }
                 guard await self.isScopeCurrent(scope) else { return }
@@ -60,18 +59,18 @@ extension MobileShellComposite {
         pushedRouteSyncTask = task
     }
 
-    /// Persists routes only when this instance is the current route authority.
+    /// Updates live registry routes, then persists only a nonempty authority payload.
     func applyPushedRoutes(from instance: PresenceInstance, scope: MobileShellScopeSnapshot) async {
         guard let routes = instance.routes, await isScopeCurrent(scope) else { return }
         let deviceId = instance.deviceId
         guard await !isForgottenMacDeviceID(deviceId, scope: scope) else { return }
-        let knownMacs = pairedMacsForIdentityMatching
-        guard knownMacs.contains(where: { $0.macDeviceID == deviceId }) else { return }
         if let deviceIndex = registryDevices.firstIndex(where: { $0.deviceId == deviceId }),
            let instanceIndex = registryDevices[deviceIndex].instances
                .firstIndex(where: { $0.tag == instance.tag }) {
             registryDevices[deviceIndex].instances[instanceIndex].routes = routes
         }
+        let knownMacs = pairedMacsForIdentityMatching
+        guard knownMacs.contains(where: { $0.macDeviceID == deviceId }) else { return }
         guard !routes.isEmpty,
               presenceMap.reconnectRouteAuthority(
                   deviceId: deviceId,
