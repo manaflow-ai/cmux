@@ -25,7 +25,7 @@ on:
         default: true
         type: boolean
       runner:
-        description: "Runner OS (auto follows the MACOS_RUNNER_15 repo variable, default Blacksmith; pick warp-/depot-macos-* to override)"
+        description: "Runner OS (auto follows MACOS_RUNNER_15; tart-canary is the isolated self-hosted VM trial)"
         required: false
         default: "auto"
         type: choice
@@ -37,6 +37,7 @@ on:
           - warp-macos-15-arm64-6x
           - depot-macos-latest
           - depot-macos-14
+          - tart-canary
 
 concurrency:
   group: e2e-${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') || inputs.runner }}-${{ inputs.ref || github.ref_name }}-${{ inputs.test_filter }}
@@ -67,6 +68,24 @@ jobs:
               exit 1
               ;;
           esac
+
+      - name: Validate Tart canary identity
+        if: ${{ inputs.runner == 'tart-canary' }}
+        env:
+          RUNNER_CONTEXT_NAME: ${{ runner.name }}
+        run: |
+          set -euo pipefail
+          case "$RUNNER_CONTEXT_NAME" in
+            tart-cmux-*) ;;
+            *)
+              echo "::error::tart-canary resolved to unexpected runner $RUNNER_CONTEXT_NAME"
+              exit 1
+              ;;
+          esac
+          test -f /etc/cmux-tart-ci || {
+            echo "::error::tart-canary runner is missing the immutable VM identity marker"
+            exit 1
+          }
 
       - name: Clear stale git locks (self-hosted reused workspace)
         shell: bash
