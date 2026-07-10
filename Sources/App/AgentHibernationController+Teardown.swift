@@ -95,38 +95,11 @@ extension AgentHibernationController {
             for request in requests {
                 let record = request.record
                 guard let snapshotOutcome = snapshotOutcomes[record.key] else { continue }
-                let currentAgent = record.workspace.restorableAgentForHibernation(
-                    panelId: record.key.panelId,
-                    index: postSnapshotIndex
-                )
-                let currentLifecycle = postSnapshotLifecycle(for: record, index: postSnapshotIndex)
-                let currentEffectiveLastActivityAt = postSnapshotEffectiveLastActivityAt(
-                    for: record,
-                    index: postSnapshotIndex
-                )
                 // Re-validate: the pane must still be exactly as confirmed. Any activity,
                 // scrollback change, visibility/protection change, hibernation disable,
                 // hibernation, or surface loss during the hop aborts; the regular 30s
                 // tick will re-arm if still idle.
-                guard AgentHibernationTrackingGate.isEnabled(),
-                      record.isStillOwnedByOriginalWorkspace,
-                      !postSnapshotIndex.hasLiveProcess(workspaceId: record.key.workspaceId, panelId: record.key.panelId),
-                      TabManager.restorableAgentSnapshotFingerprint(currentAgent) ==
-                          TabManager.restorableAgentSnapshotFingerprint(record.agent),
-                      !record.terminalPanel.isAgentHibernated,
-                      record.terminalPanel.surface.hasLiveSurface,
-                      AppDelegate.shared?.agentHibernationPanelIsProtected(
-                          workspace: record.workspace,
-                          panelId: record.key.panelId
-                      ) == false,
-                      currentLifecycle.allowsHibernation,
-                      (self.terminalInputByPanel[record.key] ?? 0) <=
-                          (self.lifecycleChangeByPanel[record.key] ?? 0),
-                      self.teardownValidationGeneration == request.generation,
-                      (self.teardownValidationEpochByPanel[record.key] ?? 0) == request.epoch,
-                      let currentFingerprint = self.hibernationFingerprint(for: record),
-                      currentFingerprint == request.confirmationFingerprint,
-                      currentEffectiveLastActivityAt <= request.effectiveLastActivityAt else {
+                guard confirmedTeardownStillQualifies(request, index: postSnapshotIndex) else {
                     continue
                 }
 
@@ -149,12 +122,14 @@ extension AgentHibernationController {
                 if let snapshot {
                     // An armed monitor for this transcript (a prior hibernation's,
                     // or one stored earlier in this batch) hands off here: quiesce
-                    // it only now that this request is otherwise committed, and
-                    // re-check the path version. Nothing may suspend between the
-                    // check and SIGTERM, or a rewrite can invalidate the snapshot.
-                    await cancelPostTeardownRestoreTaskForReplacement(
-                        transcriptPath: snapshot.transcriptPath
+                    // it only now that this request is otherwise committed.
+                    let stillQualifies = await cancelPostTeardownRestoreTaskForReplacement(
+                        transcriptPath: snapshot.transcriptPath,
+                        ifStillQualifies: {
+                            self.confirmedTeardownStillQualifies(request, index: postSnapshotIndex)
+                        }
                     )
+                    // Nothing may suspend after these checks and before SIGTERM.
                     guard AgentHibernationTranscriptGuard.liveFileVersionStillMatches(snapshot) else {
                         self.unableToProtectByPanel[record.key] = UnableToProtectMarker(
                             fingerprint: request.confirmationFingerprint,
@@ -175,6 +150,17 @@ extension AgentHibernationController {
                                 snapshot,
                                 sessionId: record.agent.sessionId
                             )
+                        }
+                        continue
+                    }
+                    guard stillQualifies else {
+                        // The older monitor was quiesced, so keep the fresh snapshot
+                        // armed while this now-active pane continues running.
+                        if self.armPostTeardownRestoreMonitor(
+                            snapshot: snapshot,
+                            processIDs: record.processIDs
+                        ) {
+                            restoreOwnedSnapshotPaths.insert(snapshot.snapshotPath)
                         }
                         continue
                     }
@@ -294,6 +280,44 @@ extension AgentHibernationController {
         return max(indexActivity, localActivity, createdAt)
     }
 
+    func confirmedTeardownStillQualifies(
+        _ request: ConfirmedTeardownRequest,
+        index: RestorableAgentSessionIndex
+    ) -> Bool {
+        let record = request.record
+        let currentAgent = record.workspace.restorableAgentForHibernation(
+            panelId: record.key.panelId,
+            index: index
+        )
+        let currentLifecycle = postSnapshotLifecycle(for: record, index: index)
+        let currentEffectiveLastActivityAt = postSnapshotEffectiveLastActivityAt(
+            for: record,
+            index: index
+        )
+        guard AgentHibernationTrackingGate.isEnabled(),
+              record.isStillOwnedByOriginalWorkspace,
+              !index.hasLiveProcess(workspaceId: record.key.workspaceId, panelId: record.key.panelId),
+              TabManager.restorableAgentSnapshotFingerprint(currentAgent) ==
+                  TabManager.restorableAgentSnapshotFingerprint(record.agent),
+              !record.terminalPanel.isAgentHibernated,
+              record.terminalPanel.surface.hasLiveSurface,
+              AppDelegate.shared?.agentHibernationPanelIsProtected(
+                  workspace: record.workspace,
+                  panelId: record.key.panelId
+              ) == false,
+              currentLifecycle.allowsHibernation,
+              (terminalInputByPanel[record.key] ?? 0) <=
+                  (lifecycleChangeByPanel[record.key] ?? 0),
+              teardownValidationGeneration == request.generation,
+              (teardownValidationEpochByPanel[record.key] ?? 0) == request.epoch,
+              let currentFingerprint = hibernationFingerprint(for: record),
+              currentFingerprint == request.confirmationFingerprint,
+              currentEffectiveLastActivityAt <= request.effectiveLastActivityAt else {
+            return false
+        }
+        return true
+    }
+
     /// Builds and registers a restore monitor guarding the snapshot's transcript
     /// path. Returns false without any restore side effects when another monitor
     /// already guards that path — the existing monitor keeps its protection.
@@ -407,6 +431,15 @@ extension AgentHibernationController {
         entry.cancellationState.restoresSnapshotOnCancellation = false
         entry.task.cancel()
         await entry.task.value
+    }
+
+    func cancelPostTeardownRestoreTaskForReplacement(
+        transcriptPath: String,
+        ifStillQualifies: @escaping @MainActor () -> Bool
+    ) async -> Bool {
+        guard ifStillQualifies() else { return false }
+        await cancelPostTeardownRestoreTaskForReplacement(transcriptPath: transcriptPath)
+        return true
     }
 
     func cancelPostTeardownRestoreTasks() {
