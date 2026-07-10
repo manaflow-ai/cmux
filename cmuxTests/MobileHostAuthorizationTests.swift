@@ -318,13 +318,15 @@ struct MobileHostAuthorizationTests {
         }
         #expect(request.auth == nil)
     }
-    @Test func testMobileRouteResolverPrefersTailscaleMagicDNSBeforeIPv4Fallback() throws {
+    @Test func testMobileRouteResolverPublishesOnlyNumericTailscaleAddresses() throws {
         let resolver = MobileRouteResolver()
         let snapshot = resolver.routes(
             port: 61234,
             tailscaleHosts: [
                 "work-mac.tailnet.ts.net",
                 "100.71.210.41",
+                "fd7a:115c:a1e0::1234",
+                "203.0.113.10",
             ]
         )
         let tailscaleRoutes = snapshot.routes.filter { $0.kind == .tailscale }
@@ -332,16 +334,16 @@ struct MobileHostAuthorizationTests {
         #expect(tailscaleRoutes.first?.priority == 10)
         #expect(tailscaleRoutes.last?.priority == 20)
         if case let .hostPort(host, port) = tailscaleRoutes.first?.endpoint {
-            #expect(host == "work-mac.tailnet.ts.net")
-            #expect(port == 61234)
-        } else {
-            #expect(Bool(false), "Expected first Tailscale route to use a host/port endpoint")
-        }
-        if case let .hostPort(host, port) = tailscaleRoutes.last?.endpoint {
             #expect(host == "100.71.210.41")
             #expect(port == 61234)
         } else {
-            #expect(Bool(false), "Expected fallback Tailscale route to use a host/port endpoint")
+            #expect(Bool(false), "Expected first numeric Tailscale route")
+        }
+        if case let .hostPort(host, port) = tailscaleRoutes.last?.endpoint {
+            #expect(host == "fd7a:115c:a1e0::1234")
+            #expect(port == 61234)
+        } else {
+            #expect(Bool(false), "Expected IPv6 Tailscale route")
         }
     }
     @Test func testMobileRouteResolverImmediateSnapshotUsesNumericTailscaleFallbackWithoutDNS() throws {
@@ -374,12 +376,12 @@ struct MobileHostAuthorizationTests {
             }
         )
         let tailscaleRoutes = snapshot.routes.filter { $0.kind == .tailscale }
-        #expect(tailscaleRoutes.count == 2)
+        #expect(tailscaleRoutes.count == 1)
         if case let .hostPort(host, port) = tailscaleRoutes.first?.endpoint {
-            #expect(host == "work-mac.tailnet.ts.net")
+            #expect(host == "100.71.210.41")
             #expect(port == 61234)
         } else {
-            #expect(Bool(false), "Expected public status route to wait for MagicDNS")
+            #expect(Bool(false), "Expected public status to publish the numeric Tailscale route")
         }
     }
     @Test func testMobileRouteResolverRefreshesStalePublicStatusRoutes() async throws {
@@ -407,7 +409,7 @@ struct MobileHostAuthorizationTests {
         )
         let tailscaleRoutes = refreshed.routes.filter { $0.kind == .tailscale }
         if case let .hostPort(host, port) = tailscaleRoutes.first?.endpoint {
-            #expect(host == "new-mac.tailnet.ts.net")
+            #expect(host == "100.71.210.42")
             #expect(port == 61234)
         } else {
             #expect(Bool(false), "Expected stale public status routes to refresh")
@@ -435,7 +437,7 @@ struct MobileHostAuthorizationTests {
         )
         let tailscaleRoutes = refreshed.routes.filter { $0.kind == .tailscale }
         if case let .hostPort(host, port) = tailscaleRoutes.first?.endpoint {
-            #expect(host == "work-mac.tailnet.ts.net")
+            #expect(host == "100.71.210.41")
             #expect(port == 61234)
         } else {
             #expect(Bool(false), "Expected IP-only public status routes to retry MagicDNS resolution")
@@ -476,9 +478,9 @@ struct MobileHostAuthorizationTests {
         let snapshot = resolver.routes(port: 61234, immediateHosts: { [] })
         let tailscaleRoutes = snapshot.routes.filter { $0.kind == .tailscale }
         if case let .hostPort(host, _) = tailscaleRoutes.first?.endpoint {
-            #expect(host == "work-mac.tailnet.ts.net")
+            #expect(host == "100.71.210.41")
         } else {
-            #expect(Bool(false), "Expected callback refresh to populate the MagicDNS route")
+            #expect(Bool(false), "Expected callback refresh to populate the numeric route")
         }
     }
     @Test func testMobileAttachTicketCreateRequiresAuthorization() async {
