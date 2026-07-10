@@ -7751,7 +7751,7 @@ final class Workspace: Identifiable, ObservableObject {
         )
 
         oldPanel.unfocus()
-        oldPanel.hostedView.setVisibleInUI(false)
+        oldPanel.hostedView.setVisibleInUI(false, refreshPolicy: .deferredToPortal)
         TerminalWindowPortalRegistry.detach(hostedView: oldPanel.hostedView)
         oldPanel.surface.beginPortalCloseLifecycle(reason: "terminal.respawn")
 
@@ -9788,7 +9788,7 @@ final class Workspace: Identifiable, ObservableObject {
     func hideAllTerminalPortalViews() {
         for panel in panels.values {
             guard let terminal = panel as? TerminalPanel else { continue }
-            terminal.hostedView.setVisibleInUI(false)
+            terminal.hostedView.setVisibleInUI(false, refreshPolicy: .deferredToPortal)
             TerminalWindowPortalRegistry.hideHostedView(terminal.hostedView)
         }
     }
@@ -10591,7 +10591,7 @@ final class Workspace: Identifiable, ObservableObject {
             if remoteTmuxWindowMirrors[terminalPanel.id] != nil { continue }
             let shouldBeVisible = visiblePanelIds.contains(terminalPanel.id)
             if terminalPanel.hostedView.debugPortalVisibleInUI != shouldBeVisible {
-                terminalPanel.hostedView.setVisibleInUI(shouldBeVisible)
+                terminalPanel.hostedView.setVisibleInUI(shouldBeVisible, refreshPolicy: .deferredToPortal)
                 didChange = true
             }
             let shouldBeActive = shouldBeVisible && focusedPanelId == terminalPanel.id && !rightSidebarOwnsFocus

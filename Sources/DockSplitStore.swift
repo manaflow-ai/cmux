@@ -201,7 +201,7 @@ final class DockSplitStore: BonsplitDelegate {
         }
         guard isVisibleInUI != visible else { return }
         isVisibleInUI = visible
-        applyFocusedDockSelection()
+        applyFocusedDockSelection(focusRefreshPolicy: .deferredToPortal)
     }
 
     func setVisibleInUI(_ visible: Bool, hostId: UUID) {
@@ -213,7 +213,7 @@ final class DockSplitStore: BonsplitDelegate {
         let anyHostVisible = !visibleUIHostIds.isEmpty
         guard isVisibleInUI != anyHostVisible else { return }
         isVisibleInUI = anyHostVisible
-        applyFocusedDockSelection()
+        applyFocusedDockSelection(focusRefreshPolicy: .deferredToPortal)
     }
 
     /// Tears down every Dock panel (closing terminals/browsers and their

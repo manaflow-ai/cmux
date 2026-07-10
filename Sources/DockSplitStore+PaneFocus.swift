@@ -107,18 +107,24 @@ extension DockSplitStore {
         }
     }
 
-    func applyFocusedDockSelection() {
+    func applyFocusedDockSelection(
+        focusRefreshPolicy: TerminalPortalVisibilityRefreshPolicy = .immediate
+    ) {
         guard let paneId = bonsplitController.focusedPaneId,
               let tabId = bonsplitController.selectedTab(inPane: paneId)?.id else {
             applyVisibilityToAllPanels()
             scheduleDockPortalReconcile(reason: "dock.selection.empty")
             return
         }
-        applyDockSelection(tabId: tabId, inPane: paneId)
+        applyDockSelection(tabId: tabId, inPane: paneId, focusRefreshPolicy: focusRefreshPolicy)
         scheduleDockPortalReconcile(reason: "dock.selection.focused")
     }
 
-    func applyDockSelection(tabId: TabID, inPane pane: PaneID) {
+    func applyDockSelection(
+        tabId: TabID,
+        inPane pane: PaneID,
+        focusRefreshPolicy: TerminalPortalVisibilityRefreshPolicy = .immediate
+    ) {
         applyVisibilityToAllPanels()
         guard paneIsRenderedInVisibleDock(pane),
               bonsplitController.focusedPaneId == pane,
@@ -131,7 +137,11 @@ extension DockSplitStore {
                 panel.unfocus()
             }
         }
-        selectedPanel.focus()
+        if let terminal = selectedPanel as? TerminalPanel {
+            terminal.focus(refreshPolicy: focusRefreshPolicy)
+        } else {
+            selectedPanel.focus()
+        }
     }
 
     func splitTabBar(_ controller: BonsplitController, didSelectTab tab: Bonsplit.Tab, inPane pane: PaneID) {
@@ -185,7 +195,9 @@ extension DockSplitStore {
         toPane destination: PaneID
     ) {
         applyDockSelection(tabId: tab.id, inPane: destination)
-        panel(for: tab.id)?.focus()
+        let movedPanel = panel(for: tab.id)
+        (movedPanel as? TerminalPanel)?.recordPortalHostOwnershipChange()
+        movedPanel?.focus()
         scheduleDockPortalReconcile(reason: "dock.moveTab")
     }
 
@@ -206,7 +218,7 @@ extension DockSplitStore {
         let shouldBeActive = panelIsActiveInVisibleDockPane(panel.id)
         if let terminal = panel as? TerminalPanel {
             if shouldBeVisible {
-                terminal.hostedView.setVisibleInUI(true)
+                terminal.hostedView.setVisibleInUI(true, refreshPolicy: .deferredToPortal)
                 terminal.hostedView.setActive(shouldBeActive)
                 let needsPortalReattach = TerminalWindowPortalRegistry
                     .updateEntryVisibility(for: terminal.hostedView, visibleInUI: true)
@@ -215,7 +227,7 @@ extension DockSplitStore {
                 }
             } else {
                 terminal.unfocus()
-                terminal.hostedView.setVisibleInUI(false)
+                terminal.hostedView.setVisibleInUI(false, refreshPolicy: .deferredToPortal)
                 TerminalWindowPortalRegistry.hideHostedView(terminal.hostedView)
             }
         } else if let browser = panel as? BrowserPanel {

@@ -223,6 +223,12 @@ struct WorkspaceContentView: View {
                         isOuterFocused: isFocused,
                         isVisibleInUI: isVisibleInUI,
                         portalPriority: workspacePortalPriority,
+                        outerPortalPresentation: {
+                            workspace.terminalPortalPresentation(
+                                panelId: panel.id,
+                                paneId: paneId
+                            )
+                        },
                         onOuterFocus: {
                             workspace.bonsplitController.focusPane(paneId)
                         }

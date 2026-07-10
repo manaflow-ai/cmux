@@ -8,6 +8,7 @@ struct RemoteTmuxWindowMirrorSplitView: View {
     let isOuterFocused: Bool
     let isVisibleInUI: Bool
     let portalPriority: Int
+    let outerPortalPresentation: @MainActor () -> TerminalPortalPresentation
     let onOuterFocus: () -> Void
     @Environment(\.displayScale) private var displayScale
     @State private var containerSize: CGSize = .zero
@@ -21,6 +22,24 @@ struct RemoteTmuxWindowMirrorSplitView: View {
                     paneId: paneId,
                     isFocused: isOuterFocused && mirror.isFocused(tabId: tab.id),
                     isVisibleInUI: isVisibleInUI,
+                    portalPresentationResolver: {
+                        switch outerPortalPresentation() {
+                        case .visible(let isActive, let zPriority):
+                            guard mirror.bonsplitController.selectedTab(inPane: paneId)?.id == tab.id else {
+                                return .hidden
+                            }
+                            return .visible(
+                                isActive: isActive && mirror.isFocused(tabId: tab.id),
+                                zPriority: zPriority
+                            )
+                        case .detached:
+                            return .detached
+                        case .hidden:
+                            return .hidden
+                        case .retained(let zPriority):
+                            return .retained(zPriority: zPriority)
+                        }
+                    },
                     portalPriority: portalPriority,
                     isSplit: true,
                     appearance: appearance,
