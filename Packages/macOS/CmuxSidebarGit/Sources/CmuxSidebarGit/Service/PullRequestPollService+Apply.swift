@@ -47,8 +47,10 @@ extension PullRequestPollService {
         var needsFollowUpPass = false
 
         defer {
-            if needsFollowUpPass {
-                let shouldBypassRepoCache = workspacePullRequestFollowUpShouldBypassRepoCache
+            let pendingSeedRefresh = takePendingSeedRefresh()
+            if needsFollowUpPass || pendingSeedRefresh != nil {
+                let shouldBypassRepoCache = workspacePullRequestFollowUpShouldBypassRepoCache ||
+                    pendingSeedRefresh?.shouldBypassRepoCache == true
                 workspacePullRequestFollowUpShouldBypassRepoCache = false
                 refreshTrackedWorkspacePullRequestsIfNeeded(
                     reason: "\(reason).followUp",
@@ -318,8 +320,7 @@ extension PullRequestPollService {
     }
 
     public func resetWorkspacePullRequestRefreshState() {
-        workspacePullRequestSeedRefreshTask?.cancel()
-        workspacePullRequestSeedRefreshTask = nil
+        takePendingSeedRefresh()
         workspacePullRequestRefreshTask?.cancel()
         workspacePullRequestRefreshTask = nil
         workspacePullRequestProbeStateByKey.removeAll()

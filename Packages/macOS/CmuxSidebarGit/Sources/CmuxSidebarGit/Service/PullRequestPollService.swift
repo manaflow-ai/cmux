@@ -58,6 +58,7 @@ public final class PullRequestPollService: PullRequestProbing {
     var workspacePullRequestFollowUpShouldBypassRepoCache = false
     var workspacePullRequestSourceByKey: [WorkspaceGitProbeKey: SourceIdentity] = [:]
     var workspacePullRequestSeedRefreshTask: Task<Void, Never>?
+    var workspacePullRequestPendingSeedRefresh: PendingSeedRefresh?
     var lastSidebarPullRequestPollingEnabled = false
 
     /// Creates the poll service.
@@ -154,9 +155,17 @@ public final class PullRequestPollService: PullRequestProbing {
     // MARK: Refresh pass
 
     public func refreshTrackedWorkspacePullRequestsIfNeeded(reason: String) {
-        workspacePullRequestSeedRefreshTask?.cancel()
-        workspacePullRequestSeedRefreshTask = nil
-        refreshTrackedWorkspacePullRequestsIfNeeded(reason: reason, allowCachedResultsOverride: nil)
+        // If another refresh is already running, its apply owns the pending
+        // seed and the one follow-up pass. Consuming it here would lose a seed
+        // for a panel outside the current request batch when this traversal
+        // reaches the in-flight-task guard below.
+        let pendingSeedRefresh = workspacePullRequestRefreshTask == nil
+            ? takePendingSeedRefresh()
+            : workspacePullRequestPendingSeedRefresh
+        refreshTrackedWorkspacePullRequestsIfNeeded(
+            reason: reason,
+            allowCachedResultsOverride: pendingSeedRefresh?.shouldBypassRepoCache == true ? false : nil
+        )
     }
 
     func refreshTrackedWorkspacePullRequestsIfNeeded(
@@ -291,8 +300,6 @@ public final class PullRequestPollService: PullRequestProbing {
         panelId: UUID,
         reason: String
     ) {
-        workspacePullRequestSeedRefreshTask?.cancel()
-        workspacePullRequestSeedRefreshTask = nil
         let key = WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: panelId)
         guard sidebarPullRequestPollingEnabled else {
             clearWorkspacePullRequestMetadata(for: key)
