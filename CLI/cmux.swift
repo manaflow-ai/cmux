@@ -11,22 +11,18 @@ import LocalAuthentication
 #if canImport(Security)
 import Security
 #endif
-
 struct CLIError: Error, CustomStringConvertible {
     let message: String
     let exitCode: Int32
     /// Structured v2 protocol error code when the failure came from a v2 error response.
     let v2Code: String?
-
     init(message: String, exitCode: Int32 = 1, v2Code: String? = nil) {
         self.message = message
         self.exitCode = exitCode
         self.v2Code = v2Code
     }
-
     var description: String { message }
 }
-
 struct WindowInfo {
     let index: Int
     let id: String
@@ -34,7 +30,6 @@ struct WindowInfo {
     let selectedWorkspaceId: String?
     let workspaceCount: Int
 }
-
 struct NotificationInfo {
     let id: String
     let workspaceId: String
@@ -46,7 +41,6 @@ struct NotificationInfo {
     let createdAt: String?
     let tabTitle: String?
 }
-
 struct ClaudeHookParsedInput {
     let rawObject: [String: Any]?
     let object: [String: Any]?
@@ -56,14 +50,12 @@ struct ClaudeHookParsedInput {
     let cwd: String?
     let transcriptPath: String?
 }
-
 enum AgentHookRuntimeStatus: String, Codable {
     case running
     case idle
     case needsInput
     case error
 }
-
 #if DEBUG
 private func agentHookDebugLog(
     _ message: @autoclosure () -> String,
@@ -74,7 +66,6 @@ private func agentHookDebugLog(
     let timestamp = String(format: "%.3f", Date().timeIntervalSince1970)
     let line = "\(timestamp) \(message())\n"
     guard let data = line.data(using: .utf8) else { return }
-
     if let handle = FileHandle(forWritingAtPath: logPath) {
         defer { try? handle.close() }
         guard (try? handle.seekToEnd()) != nil else { return }
@@ -83,12 +74,10 @@ private func agentHookDebugLog(
         FileManager.default.createFile(atPath: logPath, contents: data)
     }
 }
-
 private func agentHookDebugLogPath(socketPath: String?, env: [String: String]) -> String {
     if let explicit = agentHookDebugNonEmpty(env["CMUX_DEBUG_LOG"]) {
         return NSString(string: explicit).expandingTildeInPath
     }
-
     if let socketPath {
         let socketName = URL(fileURLWithPath: socketPath).lastPathComponent
         if socketName.hasPrefix("cmux-debug-"), socketName.hasSuffix(".sock") {
@@ -98,15 +87,12 @@ private func agentHookDebugLogPath(socketPath: String?, env: [String: String]) -
                 .path
         }
     }
-
     if let lastPath = try? String(contentsOfFile: "/tmp/cmux-last-debug-log-path", encoding: .utf8),
        let normalized = agentHookDebugNonEmpty(lastPath) {
         return NSString(string: normalized).expandingTildeInPath
     }
-
     return "/tmp/cmux-debug.log"
 }
-
 private func agentHookDebugNonEmpty(_ value: String?) -> String? {
     guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
           !trimmed.isEmpty else {
@@ -114,18 +100,15 @@ private func agentHookDebugNonEmpty(_ value: String?) -> String? {
     }
     return trimmed
 }
-
 private func agentHookDebugShort(_ value: String?) -> String {
     guard let value = agentHookDebugNonEmpty(value) else { return "nil" }
     return String(value.prefix(12))
 }
-
 private func agentHookDebugSocketName(_ socketPath: String?) -> String {
     guard let socketPath = agentHookDebugNonEmpty(socketPath) else { return "nil" }
     return URL(fileURLWithPath: socketPath).lastPathComponent
 }
 #endif
-
 struct ClaudeHookSessionRecord: Codable {
     var sessionId: String
     var workspaceId: String
@@ -170,14 +153,12 @@ struct ClaudeHookSessionRecord: Codable {
     /// Optional so stores written before this field decode unchanged.
     var hadPendingBackgroundWorkAtStop: Bool?
 }
-
 struct ClaudeHookActiveSessionRecord: Codable {
     var sessionId: String
     var turnId: String?
     var allowsNewSessionReplacement: Bool?
     var updatedAt: TimeInterval
 }
-
 struct AgentHookLaunchCommandRecord: Codable {
     var launcher: String?
     var executablePath: String?
@@ -187,7 +168,6 @@ struct AgentHookLaunchCommandRecord: Codable {
     var capturedAt: TimeInterval?
     var source: String?
 }
-
 private struct CodexMonitorLeaseRecord: Codable {
     var leaseId: String
     var sessionId: String
@@ -197,7 +177,6 @@ private struct CodexMonitorLeaseRecord: Codable {
     var createdAt: TimeInterval
     var retiredAt: TimeInterval?
 }
-
 struct ClaudeHookSessionStoreFile: Codable {
     var version: Int = 1
     var sessions: [String: ClaudeHookSessionRecord] = [:]
@@ -208,16 +187,13 @@ struct ClaudeHookSessionStoreFile: Codable {
     // session in this pane is stale. Keyed by surface id.
     // https://github.com/manaflow-ai/cmux/issues/5908
     var activeSessionsBySurface: [String: ClaudeHookActiveSessionRecord] = [:]
-
     enum CodingKeys: String, CodingKey {
         case version
         case sessions
         case activeSessionsByWorkspace
         case activeSessionsBySurface
     }
-
     init() {}
-
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         version = try container.decodeIfPresent(Int.self, forKey: .version) ?? 1
@@ -232,19 +208,16 @@ struct ClaudeHookSessionStoreFile: Codable {
         ) ?? [:]
     }
 }
-
 final class ClaudeHookSessionStore {
     private static let defaultStatePath = "~/.cmuxterm/claude-hook-sessions.json"
     private static let maxStateAgeSeconds: TimeInterval = 60 * 60 * 24 * 7
     private static let maxRememberedTerminalPromptTurnIds = 32
     private static let maxAutoNameRecentMessages = 24
     private static let maxAutoNameMessageCharacters = 1_000
-
     private let statePath: String
     private let fileManager: FileManager
     private let decoder = JSONDecoder()
     private let encoder = JSONEncoder()
-
     init(
         processEnv: [String: String] = ProcessInfo.processInfo.environment,
         fileManager: FileManager = .default
@@ -263,7 +236,6 @@ final class ClaudeHookSessionStore {
         self.fileManager = fileManager
         self.encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
     }
-
     func lookup(sessionId: String) throws -> ClaudeHookSessionRecord? {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else { return nil }
@@ -271,16 +243,13 @@ final class ClaudeHookSessionStore {
             state.sessions[normalized]
         }
     }
-
     struct AutoNamingRecentMessagesSnapshot {
         var messages: [AutoNamingTranscriptMessage]
         var totalMessageCount: Int
     }
-
     func autoNamingRecentMessages(sessionId: String) throws -> [AutoNamingTranscriptMessage] {
         try autoNamingRecentMessagesSnapshot(sessionId: sessionId).messages
     }
-
     func autoNamingRecentMessagesSnapshot(sessionId: String) throws -> AutoNamingRecentMessagesSnapshot {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else {
@@ -295,12 +264,10 @@ final class ClaudeHookSessionStore {
             )
         }
     }
-
     struct AutoNamingBeginOutcome {
         var decision: AutoNamingThrottleDecision
         var lastTitle: String?
     }
-
     /// Atomically evaluates the auto-naming throttle for a session and, when
     /// the decision is to proceed, records the in-flight marker inside the
     /// same locked transaction so a concurrent Stop hook sees it and skips.
@@ -352,7 +319,6 @@ final class ClaudeHookSessionStore {
             return AutoNamingBeginOutcome(decision: decision, lastTitle: snapshot.lastTitle)
         }
     }
-
     /// Records a completed naming pass. On a confirmed apply, the durable
     /// baseline (title, line count, timestamp) advances; on failure only the
     /// in-flight marker clears, so the next qualifying Stop retries.
@@ -379,7 +345,6 @@ final class ClaudeHookSessionStore {
             state.sessions[normalized] = record
         }
     }
-
     func clearAgentLifecycleIfPresent(
         sessionId: String,
         workspaceId: String?,
@@ -394,7 +359,6 @@ final class ClaudeHookSessionStore {
             state.sessions[normalizedSessionId] = record
         }
     }
-
     @discardableResult
     func recordPromptSubmit(
         sessionId: String,
@@ -501,7 +465,6 @@ final class ClaudeHookSessionStore {
             return (staleTerminalTurn: false, nested: (record.activePromptDepth ?? 0) > 1)
         }
     }
-
     @discardableResult
     func recordPromptStop(
         sessionId: String,
@@ -650,7 +613,6 @@ final class ClaudeHookSessionStore {
             return depthBeforeStop > 1
         }
     }
-
     func upsert(
         sessionId: String,
         workspaceId: String,
@@ -736,7 +698,6 @@ final class ClaudeHookSessionStore {
             }
         }
     }
-
     @discardableResult
     func upsertCodexSessionStartIfFresh(
         sessionId: String,
@@ -787,7 +748,6 @@ final class ClaudeHookSessionStore {
             return true
         }
     }
-
     @discardableResult
     func upsertCodexPromptRunningIfFresh(
         sessionId: String,
@@ -836,7 +796,6 @@ final class ClaudeHookSessionStore {
             return true
         }
     }
-
     func codexSessionStartIsStale(
         sessionId: String,
         incomingPID: Int?,
@@ -853,7 +812,6 @@ final class ClaudeHookSessionStore {
             )
         }
     }
-
     func codexPromptTurnIsTerminal(sessionId: String, turnId: String?) throws -> Bool {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty, let normalizedTurnId = normalizeOptional(turnId) else { return false }
@@ -862,7 +820,6 @@ final class ClaudeHookSessionStore {
             return terminalPromptTurnSet(from: record).contains(normalizedTurnId)
         }
     }
-
     func markNotificationResolved(
         sessionId: String,
         workspaceId: String,
@@ -909,7 +866,6 @@ final class ClaudeHookSessionStore {
             state.sessions[normalized] = record
         }
     }
-
     private func makeSessionRecord(
         state: ClaudeHookSessionStoreFile,
         sessionId: String,
@@ -942,7 +898,6 @@ final class ClaudeHookSessionStore {
             updatedAt: now
         )
     }
-
     private func activePromptTurnStack(from record: ClaudeHookSessionRecord) -> [String] {
         if let activePromptTurnIds = record.activePromptTurnIds {
             let normalized = activePromptTurnIds.compactMap { normalizeOptional($0) }
@@ -955,7 +910,6 @@ final class ClaudeHookSessionStore {
         }
         return []
     }
-
     private func setActivePromptTurnStack(_ stack: [String], totalDepth: Int? = nil, on record: inout ClaudeHookSessionRecord) {
         let normalizedStack = stack.compactMap { normalizeOptional($0) }
         let resolvedDepth = max(max(0, totalDepth ?? normalizedStack.count), normalizedStack.count)
@@ -969,15 +923,12 @@ final class ClaudeHookSessionStore {
             record.activePromptTurnIds = normalizedStack.isEmpty ? nil : normalizedStack
         }
     }
-
     private func terminalPromptTurnStack(from record: ClaudeHookSessionRecord) -> [String] {
         record.terminalPromptTurnIds?.compactMap { normalizeOptional($0) } ?? []
     }
-
     private func terminalPromptTurnSet(from record: ClaudeHookSessionRecord) -> Set<String> {
         Set(terminalPromptTurnStack(from: record))
     }
-
     private func codexSessionStartIsStale(
         _ record: ClaudeHookSessionRecord,
         incomingPID: Int?,
@@ -995,26 +946,22 @@ final class ClaudeHookSessionStore {
         }
         return incomingPID == existingPID
     }
-
     private func clearCodexSessionStartTurnState(on record: inout ClaudeHookSessionRecord) {
         record.activePromptDepth = nil
         record.activePromptTurnId = nil
         record.activePromptTurnIds = nil
         record.lastPromptTurnId = nil
     }
-
     private func markPromptTurnActive(_ turnId: String, on record: inout ClaudeHookSessionRecord) {
         var terminalTurnIds = terminalPromptTurnStack(from: record)
         terminalTurnIds.removeAll { $0 == turnId }
         record.terminalPromptTurnIds = terminalTurnIds.isEmpty ? nil : terminalTurnIds
     }
-
     private func markPromptTurnsTerminal(_ turnIds: [String], on record: inout ClaudeHookSessionRecord) {
         for turnId in turnIds {
             markPromptTurnTerminal(turnId, on: &record)
         }
     }
-
     private func markPromptTurnTerminal(_ turnId: String, on record: inout ClaudeHookSessionRecord) {
         guard let normalizedTurnId = normalizeOptional(turnId) else { return }
         var terminalTurnIds = terminalPromptTurnStack(from: record)
@@ -1026,7 +973,6 @@ final class ClaudeHookSessionStore {
         record.lastPromptTurnId = normalizedTurnId
         record.terminalPromptTurnIds = terminalTurnIds.isEmpty ? nil : terminalTurnIds
     }
-
     private func appendAutoNameMessages(
         _ messages: [AutoNamingTranscriptMessage],
         to record: inout ClaudeHookSessionRecord
@@ -1048,7 +994,6 @@ final class ClaudeHookSessionStore {
             record.autoNameMessageSequence = (record.autoNameMessageSequence ?? 0) + appendedCount
         }
     }
-
     private func normalizedAutoNameMessage(_ message: AutoNamingTranscriptMessage) -> AutoNamingTranscriptMessage? {
         let role = message.role.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard role == "user" || role == "assistant" else { return nil }
@@ -1059,18 +1004,15 @@ final class ClaudeHookSessionStore {
             text: autoNameTruncate(text, maxLength: Self.maxAutoNameMessageCharacters)
         )
     }
-
     private func autoNameNormalizedSingleLine(_ value: String) -> String {
         let collapsed = value.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
         return collapsed.trimmingCharacters(in: .whitespacesAndNewlines)
     }
-
     private func autoNameTruncate(_ value: String, maxLength: Int) -> String {
         guard value.count > maxLength else { return value }
         let index = value.index(value.startIndex, offsetBy: max(0, maxLength - 1))
         return String(value[..<index]) + "…"
     }
-
     private func update(
         _ record: inout ClaudeHookSessionRecord,
         workspaceId: String,
@@ -1141,7 +1083,6 @@ final class ClaudeHookSessionStore {
         }
         record.updatedAt = now
     }
-
     func clearNotificationEmission(sessionId: String) throws {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else { return }
@@ -1155,7 +1096,6 @@ final class ClaudeHookSessionStore {
             state.sessions[normalized] = record
         }
     }
-
     func recentlyEmittedNotification(
         sessionId: String,
         fingerprint: String,
@@ -1179,7 +1119,6 @@ final class ClaudeHookSessionStore {
             return now - emittedAt <= interval
         }
     }
-
     func markNotificationEmitted(sessionId: String, fingerprint: String) throws {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else { return }
@@ -1205,7 +1144,6 @@ final class ClaudeHookSessionStore {
             state.sessions[normalized] = record
         }
     }
-
     func hasRunningSession(
         workspaceId: String,
         surfaceId: String?,
@@ -1222,7 +1160,6 @@ final class ClaudeHookSessionStore {
             let excludedUpdatedAt = excluded.flatMap { state.sessions[$0]?.updatedAt }
             var foundRunningSession = false
             let now = Date().timeIntervalSince1970
-
             for sessionId in Array(state.sessions.keys) {
                 guard var record = state.sessions[sessionId] else { continue }
                 guard normalizeOptional(record.workspaceId) == normalizedWorkspace,
@@ -1238,22 +1175,18 @@ final class ClaudeHookSessionStore {
                         continue
                     }
                 }
-
                 if requireLiveProcess, !Self.processExists(record.pid) {
                     record.runtimeStatus = nil
                     record.updatedAt = now
                     state.sessions[sessionId] = record
                     continue
                 }
-
                 foundRunningSession = true
                 break
             }
-
             return foundRunningSession
         }
     }
-
     private static func processExists(_ pid: Int?) -> Bool {
         guard let pid, pid > 0 else { return false }
         if kill(pid_t(pid), 0) == 0 {
@@ -1261,7 +1194,6 @@ final class ClaudeHookSessionStore {
         }
         return errno == EPERM
     }
-
     /// Returns true when an event belongs to the workspace's active Claude session.
     /// It fails open when the event cannot identify a session/workspace, when no
     /// active session is registered yet, or when either side lacks a turnId so
@@ -1319,7 +1251,6 @@ final class ClaudeHookSessionStore {
             return activeTurnId == normalizedTurnId
         }
     }
-
     func canReplaceActiveSession(
         sessionId: String?,
         workspaceId: String,
@@ -1348,7 +1279,6 @@ final class ClaudeHookSessionStore {
             return active.allowsNewSessionReplacement == true
         }
     }
-
     func consume(
         sessionId: String?,
         workspaceId: String?,
@@ -6558,11 +6488,34 @@ struct CMUXCLI {
                 idFormat: idFormat,
                 windowOverride: windowOverride
             )
+        case "pip":
+            try runSurfacePipCommand(commandArgs: Array(commandArgs.dropFirst()), client: client, jsonOutput: jsonOutput, idFormat: idFormat, windowOverride: windowOverride)
         default:
             throw CLIError(message: "Unsupported surface subcommand: \(subcommand)")
         }
     }
-
+    private func runSurfacePipCommand(commandArgs: [String], client: SocketClient, jsonOutput: Bool, idFormat: CLIIDFormat, windowOverride: String?) throws {
+        let (surfaceArg, rem0) = parseOption(commandArgs, name: "--surface")
+        let (actionArg, rem1) = parseOption(rem0, name: "--action")
+        let (windowArg, rem2) = parseOption(rem1, name: "--window")
+        if let unknown = rem2.first(where: { $0.hasPrefix("--") }) { throw CLIError(message: "surface pip: unknown flag '\(unknown)'") }
+        if !rem2.isEmpty { throw CLIError(message: "surface pip: unexpected argument '\(rem2[0])'") }
+        let action = actionArg ?? "toggle"
+        guard ["pop", "return", "toggle"].contains(action) else {
+            throw CLIError(message: #"surface pip --action must be "pop", "return", or "toggle""#)
+        }
+        var params: [String: Any] = ["action": action]
+        let winId = try normalizeWindowHandle(windowArg ?? windowOverride, client: client)
+        if let winId { params["window_id"] = winId }
+        let surfaceRaw = surfaceArg ?? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"]
+        guard let surfaceId = try normalizeSurfaceHandle(surfaceRaw, client: client, workspaceHandle: nil, windowHandle: winId) else { throw CLIError(message: "surface pip requires --surface or CMUX_SURFACE_ID") }
+        params["surface_id"] = surfaceId
+        let payload = try client.sendV2(method: "surface.pip", params: params)
+        let formattedSurface = formatTabHandle(payload, idFormat: idFormat) ?? "surface"
+        let isInPip = (payload["in_picture_in_picture"] as? Bool) == true
+        let fallback = isInPip ? "Popped out \(formattedSurface) into Picture in Picture" : "Returned \(formattedSurface) from Picture in Picture"
+        printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: fallback)
+    }
     private func runSurfaceResumeCommand(
         commandArgs: [String],
         client: SocketClient,
@@ -6589,13 +6542,11 @@ struct CMUXCLI {
             let (source, rem5) = parseOption(rem4, name: "--source")
             let (cwd, rem6) = parseOption(rem5, name: "--cwd")
             let (shellCommand, rem7) = parseOption(rem6, name: "--shell")
-
             if let name { params["name"] = name }
             if let kind { params["kind"] = kind }
             if let checkpoint = checkpointID ?? checkpoint { params["checkpoint_id"] = checkpoint }
             params["source"] = source ?? "cli"
             params["cwd"] = cwd ?? ProcessInfo.processInfo.environment["PWD"] ?? FileManager.default.currentDirectoryPath
-
             let commandText: String
             if let shellCommand {
                 if let unexpected = (rem7 + (splitRemaining.argv ?? [])).first {
@@ -16225,14 +16176,15 @@ struct CMUXCLI {
                    cmux surface resume show [--json] [flags]
                    cmux surface resume get [--json] [flags]
                    cmux surface resume clear [flags]
+                   cmux surface pip [--action <pop|return|toggle>] [--surface <id|ref|index>] [--window <id|ref|index>]
 
-            Attach restart command metadata to a terminal surface.
-            Public CLI bindings are stored for inspection and manual restore.
+            Attach restart command metadata to a terminal surface, or toggle Picture in Picture for a surface.
 
             Flags:
               --workspace <id|ref|index>   Workspace context (default: $CMUX_WORKSPACE_ID)
               --surface <id|ref|index>     Surface context (default: $CMUX_SURFACE_ID)
               --window <id|ref|index>      Window context for workspace and surface refs/indexes
+              --action <action>             Picture in Picture action: pop, return, or toggle
               --cwd <path>             Working directory for restore (default: $PWD)
               --name <name>            Display name for the binding
               --kind <kind>            Binding kind, for example agent or tmux
@@ -16244,6 +16196,7 @@ struct CMUXCLI {
               cmux surface resume set --kind tmux --shell "tmux attach -t work"
               cmux surface resume set --kind opencode --checkpoint ses_123 -- opencode --session ses_123
               cmux surface resume show --json
+              cmux surface pip --action toggle --surface surface:1
             """
         case "debug-terminals":
             return """
@@ -35222,6 +35175,7 @@ export default CMUXSessionRestore;
           reorder-surface --surface <id|ref|index> (--index <n> | --before <id|ref|index> | --after <id|ref|index>) [--workspace <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>]
           tab-action --action <name> [--tab <id|ref|index>] [--surface <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--title <text>] [--url <url>] [--focus <true|false>]
           surface resume <set|show|get|clear> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]
+          surface pip [--action <pop|return|toggle>] [--surface <id|ref|index>] [--window <id|ref|index>]
           rename-tab [--workspace <id|ref|index>] [--tab <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] <title>
           drag-surface-to-split --surface <id|ref|index> <left|right|up|down> [--workspace <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>]
           refresh-surfaces

@@ -1744,7 +1744,7 @@ final class WindowBrowserPortal: NSObject {
     }
 
     private weak var window: NSWindow?
-    private let hostView = WindowBrowserHostView(frame: .zero)
+    let hostView = WindowBrowserHostView(frame: .zero)
     private let chromeComposition = AppWindowChromeComposition()
     private weak var installedContainerView: NSView?
     private weak var installedReferenceView: NSView?
@@ -1755,7 +1755,7 @@ final class WindowBrowserPortal: NSObject {
     private var nextHostedWebViewRefreshGeneration: UInt64 = 0
     private var pendingHostedWebViewRefreshes: [ObjectIdentifier: PendingHostedWebViewRefresh] = [:]
 
-    private struct Entry {
+    struct Entry {
         weak var webView: WKWebView?
         weak var containerView: WindowBrowserSlotView?
         weak var anchorView: NSView?
@@ -1776,9 +1776,8 @@ final class WindowBrowserPortal: NSObject {
         var delayedWorkItem: DispatchWorkItem?
     }
 
-    private var entriesByWebViewId: [ObjectIdentifier: Entry] = [:]
+    var entriesByWebViewId: [ObjectIdentifier: Entry] = [:]
     private var webViewByAnchorId: [ObjectIdentifier: ObjectIdentifier] = [:]
-
 #if DEBUG
     // Test seam for https://github.com/manaflow-ai/cmux/issues/5733. Installs a
     // slot container into the portal host without registering an Entry, so tests
@@ -2658,9 +2657,9 @@ final class WindowBrowserPortal: NSObject {
               entry.visibleInUI != visibleInUI || entry.zPriority != zPriority else { return false }
         entry.visibleInUI = visibleInUI; entry.zPriority = zPriority
         entriesByWebViewId[webViewId] = entry
+        refreshPortalZOrder()
         return true
     }
-
     func isWebViewBoundToAnchor(withId webViewId: ObjectIdentifier, anchorView: NSView) -> Bool {
         guard let entry = entriesByWebViewId[webViewId],
               let boundAnchor = entry.anchorView else { return false }
@@ -2672,10 +2671,10 @@ final class WindowBrowserPortal: NSObject {
         let previous = (entry.visibleInUI, entry.zPriority, entry.containerView?.isHidden ?? true)
         entry.visibleInUI = false; entry.zPriority = 0
         entriesByWebViewId[webViewId] = entry
+        refreshPortalZOrder()
         synchronizeWebView(withId: webViewId, source: source)
         return previous.0 || previous.1 != 0 || previous.2 != (entriesByWebViewId[webViewId]?.containerView?.isHidden ?? true)
     }
-
     func updateDropZoneOverlay(forWebViewId webViewId: ObjectIdentifier, zone: DropZone?) {
         guard var entry = entriesByWebViewId[webViewId] else { return }
         guard entry.dropZone != zone else { return }
@@ -2897,7 +2896,7 @@ final class WindowBrowserPortal: NSObject {
             transientRecoveryReason: previousEntry?.transientRecoveryReason,
             transientRecoveryRetriesRemaining: previousEntry?.transientRecoveryRetriesRemaining ?? 0
         )
-
+        refreshPortalZOrder()
         let didChangeAnchor: Bool = {
             guard let previousAnchor = previousEntry?.anchorView else { return true }
             return previousAnchor !== anchorView
@@ -2963,6 +2962,7 @@ final class WindowBrowserPortal: NSObject {
             )
 #endif
             hostView.addSubview(containerView, positioned: .above, relativeTo: nil)
+            refreshPortalZOrder()
         } else if (becameVisible || priorityIncreased), hostView.subviews.last !== containerView {
 #if DEBUG
             cmuxDebugLog(
@@ -2972,8 +2972,8 @@ final class WindowBrowserPortal: NSObject {
             )
 #endif
             hostView.addSubview(containerView, positioned: .above, relativeTo: nil)
+            refreshPortalZOrder()
         }
-
         synchronizeWebView(
             withId: webViewId,
             source: "bind",

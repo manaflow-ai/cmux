@@ -1399,6 +1399,7 @@ struct cmuxApp: App {
     }
 
     private func closeTabOrWindow() {
+        if appDelegate.returnFocusedSurfacePipForCloseCommand(window: NSApp.keyWindow ?? NSApp.mainWindow) { return }
         activeTabManager.closeCurrentTabWithConfirmation()
     }
 
@@ -1442,7 +1443,6 @@ private struct MainWindowBootstrapView: View {
             })
     }
 }
-
 private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
     "cmux.settings",
     "cmux.about",

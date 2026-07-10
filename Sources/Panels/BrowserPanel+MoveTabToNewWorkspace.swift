@@ -14,5 +14,8 @@ extension BrowserPanel {
                 focusWindow: false
             ) != nil
         }
+        webView.contextMenuSurfacePipPanelId = { [weak self] in
+            self?.id
+        }
     }
 }

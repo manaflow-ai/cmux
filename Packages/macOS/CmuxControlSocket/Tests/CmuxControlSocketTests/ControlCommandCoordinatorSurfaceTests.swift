@@ -146,6 +146,101 @@ struct ControlCommandCoordinatorSurfaceTests {
         #expect(data == .object(["type": .string("markdown")]))
     }
 
+    @Test func surfacePipPopReturnsResultingState() throws {
+        let surfaceID = UUID()
+        let context = FakeSurfaceControlCommandContext()
+        context.pipResolution = .changed(surfaceID: surfaceID, isInPictureInPicture: true)
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "surface.pip",
+            params: [
+                "surface_id": .string(surfaceID.uuidString),
+                "action": .string("pop"),
+            ]
+        ))
+
+        guard case .ok(.object(let payload)) = result else {
+            Issue.record("expected surface.pip success payload")
+            return
+        }
+        #expect(context.pipRequest?.surfaceID == surfaceID)
+        #expect(context.pipRequest?.actionRawValue == "pop")
+        #expect(payload["surface_id"] == .string(surfaceID.uuidString))
+        #expect(payload["in_picture_in_picture"] == .bool(true))
+        #expect(payload["action"] == .string("pop"))
+    }
+
+    @Test func surfacePipForwardsWindowRoutingSelector() throws {
+        let surfaceID = UUID()
+        let windowID = UUID()
+        let context = FakeSurfaceControlCommandContext()
+        context.pipResolution = .changed(surfaceID: surfaceID, isInPictureInPicture: true)
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        _ = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "surface.pip",
+            params: [
+                "window_id": .string(windowID.uuidString),
+                "action": .string("pop"),
+            ]
+        ))
+
+        #expect(context.pipRequest?.routing.hasWindowIDParam == true)
+        #expect(context.pipRequest?.routing.windowID == windowID)
+        #expect(context.pipRequest?.surfaceID == nil)
+        #expect(context.pipRequest?.actionRawValue == "pop")
+    }
+
+    @Test func surfacePipReturnReturnsResultingState() throws {
+        let surfaceID = UUID()
+        let context = FakeSurfaceControlCommandContext()
+        context.pipResolution = .changed(surfaceID: surfaceID, isInPictureInPicture: false)
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "surface.pip",
+            params: [
+                "surface_id": .string(surfaceID.uuidString),
+                "action": .string("return"),
+            ]
+        ))
+
+        guard case .ok(.object(let payload)) = result else {
+            Issue.record("expected surface.pip return payload")
+            return
+        }
+        #expect(payload["surface_id"] == .string(surfaceID.uuidString))
+        #expect(payload["in_picture_in_picture"] == .bool(false))
+        #expect(payload["action"] == .string("return"))
+    }
+
+    @Test func surfacePipUnsupportedTypeReturnsInvalidParams() throws {
+        let surfaceID = UUID()
+        let context = FakeSurfaceControlCommandContext()
+        context.pipResolution = .unsupportedSurfaceType
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "surface.pip",
+            params: [
+                "surface_id": .string(surfaceID.uuidString),
+                "action": .string("pop"),
+            ]
+        ))
+
+        guard case .err(let code, let message, _) = result else {
+            Issue.record("expected surface.pip invalid_params error")
+            return
+        }
+        #expect(code == "invalid_params")
+        #expect(message == "Picture in Picture supports only terminal and browser surfaces")
+    }
+
     private func makeCoordinator() -> (ControlCommandCoordinator, FakeSurfaceControlCommandContext) {
         let context = FakeSurfaceControlCommandContext()
         return (ControlCommandCoordinator(context: context), context)

@@ -17,6 +17,8 @@ extension GhosttyNSView {
                 currentPanelId: terminalSurface.id,
                 focusedPanelId: AppDelegate.shared?.windowDockContainingPanel(terminalSurface.id)?.focusedPanelId
             )
+        case .pictureInPicture:
+            return true
         }
     }
 }

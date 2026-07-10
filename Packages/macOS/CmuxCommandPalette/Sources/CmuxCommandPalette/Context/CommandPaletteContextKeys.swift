@@ -71,6 +71,10 @@ public struct CommandPaletteContextKeys: Hashable, Sendable {
     public static let panelHasUnread = CommandPaletteContextKeys(rawValue: "panel.hasUnread")
     /// Whether the focused panel can move to a new workspace.
     public static let panelCanMoveToNewWorkspace = CommandPaletteContextKeys(rawValue: "panel.canMoveToNewWorkspace")
+    /// Whether the focused panel can enter picture-in-picture.
+    public static let panelCanPopOutPictureInPicture = CommandPaletteContextKeys(rawValue: "panel.canPopOutPictureInPicture")
+    /// Whether the focused surface is currently in picture-in-picture.
+    public static let panelIsInPictureInPicture = CommandPaletteContextKeys(rawValue: "panel.isInPictureInPicture")
     /// Whether an app update is available.
     public static let updateHasAvailable = CommandPaletteContextKeys(rawValue: "update.hasAvailable")
     /// Whether the cmux CLI is installed in PATH.

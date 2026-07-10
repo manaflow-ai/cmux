@@ -399,7 +399,7 @@ final class CmuxWebView: WKWebView {
     var onMouseForwardButton: (() -> Void)?
     var contextMenuLinkURLProvider: ((CmuxWebView, NSPoint, @escaping (URL?) -> Void) -> Void)?
     var contextMenuDefaultBrowserOpener: ((URL) -> Bool)?
-    var contextMenuCanMoveTabToNewWorkspace: (() -> Bool)?; var contextMenuMoveTabToNewWorkspace: (() -> Bool)?
+    var contextMenuCanMoveTabToNewWorkspace: (() -> Bool)?; var contextMenuMoveTabToNewWorkspace: (() -> Bool)?; var contextMenuSurfacePipPanelId: (() -> UUID?)?
     var cmuxDownloadDelegate: WKDownloadDelegate? {
         get {
             objc_getAssociatedObject(self, &Self.cmuxDownloadDelegateKey) as? WKDownloadDelegate
@@ -2177,7 +2177,6 @@ final class CmuxWebView: WKWebView {
                 item.action = #selector(contextMenuDownloadLinkedFile(_:))
             }
         }
-
         if let openLinkInsertionIndex, !hasDefaultBrowserOpenLinkItem {
             let item = NSMenuItem(
                 title: String(localized: "browser.contextMenu.openLinkInDefaultBrowser", defaultValue: "Open Link in Default Browser"),
@@ -2188,6 +2187,7 @@ final class CmuxWebView: WKWebView {
             menu.insertItem(item, at: min(openLinkInsertionIndex, menu.items.count))
         }
         appendScreenshotContextMenuItems(to: menu)
+        appendSurfacePipContextMenuItem(to: menu)
         appendMoveTabToNewWorkspaceContextMenuItem(to: menu)
         appendBrowserFocusModeContextMenuItem(to: menu)
     }

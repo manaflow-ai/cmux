@@ -26,6 +26,20 @@ extension ContentView {
                 subtitle: constant(String(localized: "command.sleepyMode.subtitle", defaultValue: "View")),
                 keywords: ["sleepy", "screensaver", "caffeinate", "keep awake", "do not sleep", "lock", "pets", "night"]
             ),
+            CommandPaletteCommandContribution(
+                commandId: "palette.surfacePip.pop",
+                title: constant(String(localized: "command.surfacePip.pop.title", defaultValue: "Pop Out Surface (Picture in Picture)")),
+                subtitle: constant(String(localized: "command.surfacePip.subtitle", defaultValue: "Picture in Picture")),
+                keywords: ["surface", "picture", "pip", "float", "pop out"],
+                when: { $0.bool(CommandPaletteContextKeys.panelCanPopOutPictureInPicture) }
+            ),
+            CommandPaletteCommandContribution(
+                commandId: "palette.surfacePip.return",
+                title: constant(String(localized: "command.surfacePip.return.title", defaultValue: "Return Surface from Picture in Picture")),
+                subtitle: constant(String(localized: "command.surfacePip.subtitle", defaultValue: "Picture in Picture")),
+                keywords: ["surface", "picture", "pip", "float", "return"],
+                when: { _ in AppDelegate.shared?.hasActiveSurfacePipPanels() == true }
+            ),
         ]
     }
 
@@ -80,6 +94,12 @@ extension ContentView {
         }
         registry.register(commandId: "palette.sleepyMode") {
             SleepyModeController.shared.activate()
+        }
+        registry.register(commandId: "palette.surfacePip.pop") {
+            _ = AppDelegate.shared?.performSurfacePipAction(panelId: nil, action: .pop)
+        }
+        registry.register(commandId: "palette.surfacePip.return") {
+            _ = AppDelegate.shared?.performSurfacePipAction(panelId: nil, action: .return)
         }
     }
 }
