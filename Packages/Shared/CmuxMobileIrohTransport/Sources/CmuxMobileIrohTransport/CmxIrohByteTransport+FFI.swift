@@ -45,6 +45,52 @@ extension CmxIrohByteTransport {
         return CmxIrohCallOutcome(result: result, errorKind: kind, message: String(cString: buffer))
     }
 
+    /// Binds a local endpoint, applying `relayAuthToken` only through the FFI's
+    /// bind-time custom relay map. The token is never passed to dial hints.
+    static func bindEndpoint(
+        key: [UInt8],
+        enableRelay: Bool,
+        relayURL: String?,
+        relayAuthToken: String?,
+        relayOnly: Bool,
+        acceptConnections: Bool,
+        _ errKind: UnsafeMutablePointer<Int32>,
+        _ errBuffer: UnsafeMutablePointer<CChar>,
+        _ errCapacity: Int
+    ) -> OpaquePointer? {
+        withOptionalCString(relayURL) { relayC in
+            withOptionalCString(relayAuthToken) { relayAuthTokenC in
+                key.withUnsafeBufferPointer { keyBuffer in
+                    if relayOnly {
+                        cmux_iroh_endpoint_bind_relay_only(
+                            keyBuffer.baseAddress,
+                            keyBuffer.count,
+                            enableRelay,
+                            relayC,
+                            relayAuthTokenC,
+                            acceptConnections,
+                            errKind,
+                            errBuffer,
+                            errCapacity
+                        )
+                    } else {
+                        cmux_iroh_endpoint_bind(
+                            keyBuffer.baseAddress,
+                            keyBuffer.count,
+                            enableRelay,
+                            relayC,
+                            relayAuthTokenC,
+                            acceptConnections,
+                            errKind,
+                            errBuffer,
+                            errCapacity
+                        )
+                    }
+                }
+            }
+        }
+    }
+
     /// Dials `endpointID` over `endpoint`, returning the connection or nil.
     static func dialConnection(
         _ endpoint: OpaquePointer,

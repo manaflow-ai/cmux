@@ -59,13 +59,17 @@ char *cmux_iroh_secret_key_endpoint_id(
 //     (cmux-hosted iroh).
 //   - enable_relay == true, relay_url set: a custom single-relay map (the
 //     user's own iroh-relay). A malformed relay_url fails with InvalidArgument.
-// relay_url, when non-null, must be a NUL-terminated C string. Returns null on
-// failure with the cause in the error out-params.
+// relay_auth_token authenticates this endpoint to that custom relay when
+// non-null/non-empty; it is ignored when relays are disabled or without a
+// custom relay_url, and is never logged or included in route JSON. relay_url
+// and relay_auth_token, when non-null, must be NUL-terminated C strings.
+// Returns null on failure with the cause in the error out-params.
 CmuxIrohEndpoint *cmux_iroh_endpoint_bind(
     const uint8_t *secret_key,
     size_t secret_key_len,
     bool enable_relay,
     const char *relay_url,
+    const char *relay_auth_token,
     bool accept_connections,
     int32_t *err_kind,
     char *err_buf,
@@ -74,12 +78,14 @@ CmuxIrohEndpoint *cmux_iroh_endpoint_bind(
 // Binds an endpoint with relays enabled as requested but with all local IP
 // transports removed. Pair with cmux_iroh_endpoint_connect_relay_only for
 // DEBUG/simulator relay-path verification; the default bind/connect APIs keep
-// direct+relay behavior.
+// direct+relay behavior. relay_url and relay_auth_token have the same contract
+// as cmux_iroh_endpoint_bind.
 CmuxIrohEndpoint *cmux_iroh_endpoint_bind_relay_only(
     const uint8_t *secret_key,
     size_t secret_key_len,
     bool enable_relay,
     const char *relay_url,
+    const char *relay_auth_token,
     bool accept_connections,
     int32_t *err_kind,
     char *err_buf,

@@ -19,6 +19,7 @@ public actor CmxIrohByteListener {
     private let secretKey: [UInt8]?
     private let enableRelay: Bool
     private let relayURL: String?
+    private let relayAuthToken: String?
     private let relayOnly: Bool
     private let maximumReceiveLength: Int
 
@@ -30,6 +31,7 @@ public actor CmxIrohByteListener {
         attributes: .concurrent
     )
 
+    /// Creates a listener that binds an iroh endpoint when ``start()`` runs.
     /// - Parameters:
     ///   - secretKey: The Mac's 32-byte iroh secret key. When nil a fresh
     ///     ephemeral key is generated on ``start()``; the host supplies a stable
@@ -39,18 +41,23 @@ public actor CmxIrohByteListener {
     ///   - relayURL: When set (and `enableRelay` is true), the endpoint homes on
     ///     this custom relay (the user's own `iroh-relay`) instead of the default
     ///     n0 fleet. nil/empty keeps the default fleet (cmux-hosted iroh).
+    ///   - relayAuthToken: An optional token that authenticates this endpoint to
+    ///     the custom relay at bind time. It is never logged or published.
     ///   - relayOnly: Whether the listener disables local IP transports.
     ///     Defaults to false.
+    ///   - maximumReceiveLength: The maximum bytes returned by one receive.
     public init(
         secretKey: [UInt8]? = nil,
         enableRelay: Bool = true,
         relayURL: String? = nil,
+        relayAuthToken: String? = nil,
         relayOnly: Bool = false,
         maximumReceiveLength: Int = CmxIrohByteTransport.defaultMaximumReceiveLength
     ) {
         self.secretKey = secretKey
         self.enableRelay = enableRelay
         self.relayURL = relayURL
+        self.relayAuthToken = relayAuthToken
         self.relayOnly = relayOnly
         self.maximumReceiveLength = maximumReceiveLength
     }
@@ -74,37 +81,22 @@ public actor CmxIrohByteListener {
         }
         let relayEnabled = enableRelay
         let relay = relayURL
+        let relayAuth = relayAuthToken
         let relayOnlyBind = relayOnly
 
         let result = await runBlocking { () -> Result<CmxIrohUnsafeBox<OpaquePointer>, CmxIrohByteTransportError> in
             let bind = CmxIrohByteTransport.withErrorBuffer { kindPtr, errBuf, cap in
-                CmxIrohByteTransport.withOptionalCString(relay) { relayC in
-                    key.withUnsafeBufferPointer { keyBuffer in
-                        if relayOnlyBind {
-                            cmux_iroh_endpoint_bind_relay_only(
-                                keyBuffer.baseAddress,
-                                keyBuffer.count,
-                                relayEnabled,
-                                relayC,
-                                true,
-                                kindPtr,
-                                errBuf,
-                                cap
-                            )
-                        } else {
-                            cmux_iroh_endpoint_bind(
-                                keyBuffer.baseAddress,
-                                keyBuffer.count,
-                                relayEnabled,
-                                relayC,
-                                true,
-                                kindPtr,
-                                errBuf,
-                                cap
-                            )
-                        }
-                    }
-                }
+                CmxIrohByteTransport.bindEndpoint(
+                    key: key,
+                    enableRelay: relayEnabled,
+                    relayURL: relay,
+                    relayAuthToken: relayAuth,
+                    relayOnly: relayOnlyBind,
+                    acceptConnections: true,
+                    kindPtr,
+                    errBuf,
+                    cap
+                )
             }
             guard let endpoint = bind.result else {
                 return .failure(.bindFailed(bind.message))
