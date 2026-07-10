@@ -47,6 +47,11 @@ CMUX_PRESENCE_BASE_URL =
 // with MobileAuthComposition.authEnvironmentInfoPlistKey.
 CMUX_IOS_AUTH_ENV =
 
+// Optional web API origin baked into tagged dev builds. A physical iPhone
+// cannot reach the development default http://localhost:3000 because localhost
+// points at the phone. Reload tooling can set this to a phone-reachable origin.
+CMUX_API_BASE_URL =
+
 // ==========================================
 // Platform Configuration
 // ==========================================

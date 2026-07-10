@@ -60,7 +60,8 @@ public struct MobileAuthComposition {
 
         let overrides = Self.authOverrides(
             localConfig: Self.localConfigStringOverrides(in: bundle),
-            bakedAuthEnvironment: bundle.object(forInfoDictionaryKey: Self.authEnvironmentInfoPlistKey) as? String
+            bakedAuthEnvironment: bundle.object(forInfoDictionaryKey: Self.authEnvironmentInfoPlistKey) as? String,
+            bakedAPIBaseURL: bundle.object(forInfoDictionaryKey: Self.apiBaseURLInfoPlistKey) as? String
         )
         let resolvedEnvironment = Self.resolvedAuthEnvironment(
             isDevelopmentBuild: Self.isDevelopmentBuild,
@@ -176,20 +177,30 @@ public struct MobileAuthComposition {
     /// `ios/Config/Info.plist` and `ios/Config/Shared.xcconfig`.
     nonisolated static let authEnvironmentInfoPlistKey = "CMUXAuthEnvironment"
 
-    /// Merge the Info.plist-baked auth environment into the `LocalConfig.plist`
-    /// override table. An explicit LocalConfig entry wins over the bake
-    /// (mirroring presence resolution, where the local override table beats the
-    /// baked Info.plist value); blank baked values are ignored so the empty
-    /// `$(CMUX_IOS_AUTH_ENV)` expansion in a normal build contributes nothing.
+    /// The Info.plist key carrying a phone-reachable web API origin for tagged
+    /// development builds. Physical iPhones cannot use the development default
+    /// `http://localhost:3000` because that loopback address points at the phone.
+    nonisolated static let apiBaseURLInfoPlistKey = "CMUXApiBaseURL"
+
+    /// Merge Info.plist-baked auth and API values into the `LocalConfig.plist`
+    /// override table. Explicit LocalConfig entries win over baked values;
+    /// blank or unexpanded build settings contribute nothing.
     nonisolated static func authOverrides(
         localConfig: [String: String],
-        bakedAuthEnvironment: String?
+        bakedAuthEnvironment: String?,
+        bakedAPIBaseURL: String? = nil
     ) -> [String: String] {
         var overrides = localConfig
         if overrides[authEnvironmentOverrideKey] == nil,
            let baked = bakedAuthEnvironment?.trimmingCharacters(in: .whitespacesAndNewlines),
            !baked.isEmpty {
             overrides[authEnvironmentOverrideKey] = baked
+        }
+        if overrides["ApiBaseURL"] == nil,
+           let baked = bakedAPIBaseURL?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !baked.isEmpty,
+           !baked.contains("$(") {
+            overrides["ApiBaseURL"] = baked
         }
         return overrides
     }

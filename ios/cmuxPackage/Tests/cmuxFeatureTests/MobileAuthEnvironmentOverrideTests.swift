@@ -158,9 +158,11 @@ private struct OfflineReachabilityStub: ReachabilityProviding {
         // rides in the Info.plist CMUXAuthEnvironment value.
         let overrides = MobileAuthComposition.authOverrides(
             localConfig: [:],
-            bakedAuthEnvironment: "production"
+            bakedAuthEnvironment: "production",
+            bakedAPIBaseURL: "http://cmux-mac.local:4123"
         )
         #expect(overrides["AuthEnvironment"] == "production")
+        #expect(overrides["ApiBaseURL"] == "http://cmux-mac.local:4123")
     }
 
     @Test func localConfigEntryWinsOverBakedValue() {
@@ -168,10 +170,15 @@ private struct OfflineReachabilityStub: ReachabilityProviding {
         // it beats the script-baked Info.plist value (mirrors presence
         // resolution precedence).
         let overrides = MobileAuthComposition.authOverrides(
-            localConfig: ["AuthEnvironment": "development"],
-            bakedAuthEnvironment: "production"
+            localConfig: [
+                "AuthEnvironment": "development",
+                "ApiBaseURL": "http://local-config.test:3000",
+            ],
+            bakedAuthEnvironment: "production",
+            bakedAPIBaseURL: "http://baked.test:4123"
         )
         #expect(overrides["AuthEnvironment"] == "development")
+        #expect(overrides["ApiBaseURL"] == "http://local-config.test:3000")
     }
 
     @Test func blankBakedValueContributesNothing() {
@@ -179,9 +186,11 @@ private struct OfflineReachabilityStub: ReachabilityProviding {
         // in Info.plist; that empty string must not shadow the build default.
         let overrides = MobileAuthComposition.authOverrides(
             localConfig: [:],
-            bakedAuthEnvironment: "  "
+            bakedAuthEnvironment: "  ",
+            bakedAPIBaseURL: "$(CMUX_API_BASE_URL)"
         )
         #expect(overrides["AuthEnvironment"] == nil)
+        #expect(overrides["ApiBaseURL"] == nil)
     }
 
     // MARK: - Dev sign-in shortcut gating
