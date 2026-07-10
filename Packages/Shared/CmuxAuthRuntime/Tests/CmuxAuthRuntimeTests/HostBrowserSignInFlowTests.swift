@@ -24,19 +24,19 @@ import Testing
         #expect(harness.flow.isSigningIn == false)
     }
 
-    @Test func nonAuthBrowserCompletionEndsAttemptAndAcceptsLateExternalCallback() async {
+    @Test func nonAuthBrowserCompletionEndsPresentationAndAcceptsLateExternalCallback() async {
         let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
         let harness = HostBrowserSignInFlowHarness(user: user)
-
         let attempt = Task { await harness.flow.signIn(timeout: 60) }
         await harness.waitForSession()
         let callbackState = harness.callbackState(harness.factory.sessions[0])
         harness.factory.sessions[0].deliver(URL(string: "https://example.test/handler/sign-in?after_auth_return_to=1")!)
         await Task.yield()
-        // The completed system session must stop the Settings spinner immediately.
-        #expect(harness.flow.isSigningIn == false)
+        #expect(harness.flow.isSigningIn)
         #expect(harness.coordinator.isAuthenticated == false)
-        // Safari can still return the issued callback after the popup attempt ends.
+        harness.flow.beginSignIn()
+        await Task.yield()
+        #expect(harness.factory.sessions.count == 1)
         let callbackResult = await harness.flow.handleCallbackURL(harness.callbackURL(state: callbackState))
         #expect(callbackResult)
         #expect(await attempt.value)
