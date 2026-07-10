@@ -38,6 +38,7 @@
 		C0DEF0C10000000000000001 /* AgentForkSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF0C10000000000000002 /* AgentForkSupport.swift */; };
 		F65760100000000000000001 /* AgentHibernationController+Confirmation.swift in Sources */ = {isa = PBXBuildFile; fileRef = F65760100000000000000002 /* AgentHibernationController+Confirmation.swift */; };
 		D7332C050000000000000001 /* AgentHibernationController+ConfirmedTeardownRuntimeObservation.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7332C050000000000000002 /* AgentHibernationController+ConfirmedTeardownRuntimeObservation.swift */; };
+		D7332C100000000000000001 /* AgentHibernationController+EvaluationScheduling.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7332C100000000000000002 /* AgentHibernationController+EvaluationScheduling.swift */; };
 		F65760110000000000000001 /* AgentHibernationController+InFlightTeardown.swift in Sources */ = {isa = PBXBuildFile; fileRef = F65760110000000000000002 /* AgentHibernationController+InFlightTeardown.swift */; };
 		D7332C010000000000000001 /* AgentHibernationController+PostSnapshotValidation.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7332C010000000000000002 /* AgentHibernationController+PostSnapshotValidation.swift */; };
 		F65760120000000000000001 /* AgentHibernationController+PostSnapshotValidationIndexTask.swift in Sources */ = {isa = PBXBuildFile; fileRef = F65760120000000000000002 /* AgentHibernationController+PostSnapshotValidationIndexTask.swift */; };
@@ -1816,6 +1817,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C0DEF0C10000000000000002 /* AgentForkSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentForkSupport.swift; sourceTree = "<group>"; };
 		F65760100000000000000002 /* AgentHibernationController+Confirmation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/AgentHibernationController+Confirmation.swift"; sourceTree = "<group>"; };
 		D7332C050000000000000002 /* AgentHibernationController+ConfirmedTeardownRuntimeObservation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/AgentHibernationController+ConfirmedTeardownRuntimeObservation.swift"; sourceTree = "<group>"; };
+		D7332C100000000000000002 /* AgentHibernationController+EvaluationScheduling.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/AgentHibernationController+EvaluationScheduling.swift"; sourceTree = "<group>"; };
 		F65760110000000000000002 /* AgentHibernationController+InFlightTeardown.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/AgentHibernationController+InFlightTeardown.swift"; sourceTree = "<group>"; };
 		D7332C010000000000000002 /* AgentHibernationController+PostSnapshotValidation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/AgentHibernationController+PostSnapshotValidation.swift"; sourceTree = "<group>"; };
 		F65760120000000000000002 /* AgentHibernationController+PostSnapshotValidationIndexTask.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/AgentHibernationController+PostSnapshotValidationIndexTask.swift"; sourceTree = "<group>"; };
@@ -3800,6 +3802,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				F65760120000000000000002 /* AgentHibernationController+PostSnapshotValidationIndexTask.swift */,
 				D7332C010000000000000002 /* AgentHibernationController+PostSnapshotValidation.swift */,
 				D7332C050000000000000002 /* AgentHibernationController+ConfirmedTeardownRuntimeObservation.swift */,
+				D7332C100000000000000002 /* AgentHibernationController+EvaluationScheduling.swift */,
 				F65760130000000000000002 /* AgentHibernationController+PostTeardownRestoreTask.swift */,
 				F65760260000000000000002 /* AgentHibernationController+PostTeardownRestoreCancellationState.swift */,
 				F65760030000000000000002 /* AgentHibernationController+Records.swift */,
@@ -5698,6 +5701,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C0DEF0C10000000000000001 /* AgentForkSupport.swift in Sources */,
 				F65760100000000000000001 /* AgentHibernationController+Confirmation.swift in Sources */,
 				D7332C050000000000000001 /* AgentHibernationController+ConfirmedTeardownRuntimeObservation.swift in Sources */,
+				D7332C100000000000000001 /* AgentHibernationController+EvaluationScheduling.swift in Sources */,
 				F65760110000000000000001 /* AgentHibernationController+InFlightTeardown.swift in Sources */,
 				D7332C010000000000000001 /* AgentHibernationController+PostSnapshotValidation.swift in Sources */,
 				F65760120000000000000001 /* AgentHibernationController+PostSnapshotValidationIndexTask.swift in Sources */,

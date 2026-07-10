@@ -11,6 +11,34 @@ import Testing
 extension AgentHibernationPlannerSwiftTests {
     @MainActor
     @Test
+    func pendingEvaluationDiscardsLaterTimerTicks() async throws {
+        let controller = AgentHibernationController.shared
+        defer { controller.cancelEvaluationTask() }
+        let evaluationStarted = DispatchSemaphore(value: 0)
+        let releaseEvaluation = DispatchSemaphore(value: 0)
+        let evaluationCount = OSAllocatedUnfairLock(initialState: 0)
+        defer { releaseEvaluation.signal() }
+
+        #expect(controller.startEvaluationIfIdle {
+            evaluationCount.withLock { $0 += 1 }
+            evaluationStarted.signal()
+            _ = await Self.wait(for: releaseEvaluation)
+        })
+        #expect(await Self.wait(for: evaluationStarted))
+
+        #expect(!controller.startEvaluationIfIdle {
+            evaluationCount.withLock { $0 += 1 }
+        })
+        let inFlight = try #require(controller.evaluationTask)
+        releaseEvaluation.signal()
+        await inFlight.value
+
+        #expect(evaluationCount.withLock { $0 } == 1)
+        #expect(controller.evaluationTask == nil)
+    }
+
+    @MainActor
+    @Test
     func firstSnapshotTeardownPerformsSinglePostSnapshotLoad() async throws {
         let controller = AgentHibernationController.shared
         let wasEnabled = AgentHibernationTrackingGate.isEnabled()
