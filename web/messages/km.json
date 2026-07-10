@@ -163,6 +163,14 @@
       "codexJsonPlaceholder": "{\"accessToken\":\"...\",\"refreshToken\":\"...\",\"idToken\":\"...\",\"accountID\":\"...\"}",
       "anthropicKeyPlaceholder": "sk-ant-...",
       "openAiKeyPlaceholder": "sk-..."
+    },
+    "billing": {
+      "plan": {
+        "heading": "គម្រោងផ្ទាល់ខ្លួនរបស់អ្នក",
+        "free": "ឥតគិតថ្លៃ",
+        "pro": "Pro",
+        "loading": "កំពុងផ្ទុក…"
+      }
     }
   },
   "community": {
