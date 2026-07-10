@@ -409,6 +409,10 @@ extension Workspace {
             clearRestoredAgentSnapshot(panelId: panelId)
         }
         if let compatibleRestorableAgent = compatibleIndexedRestorableAgent {
+            reconcileCompletedRestoredAgent(
+                panelId: panelId,
+                candidate: compatibleRestorableAgent
+            )
             let fingerprint = TabManager.restorableAgentSnapshotFingerprint(compatibleRestorableAgent)
             if invalidatedRestoredAgentFingerprintsByPanelId[panelId] == fingerprint {
                 clearRestoredAgentSnapshot(panelId: panelId)
@@ -3093,7 +3097,19 @@ final class Workspace: Identifiable, ObservableObject {
             queue: nil
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
-                self?.objectWillChange.send()
+                guard let self else { return }
+                if let index = SharedLiveAgentIndex.shared.index {
+                    let completedPanelIds = self.restoredAgentResumeStatesByPanelId.compactMap { panelId, state in
+                        state == .completedAgentExit ? panelId : nil
+                    }
+                    for panelId in completedPanelIds {
+                        guard let candidate = index.snapshot(workspaceId: self.id, panelId: panelId) else {
+                            continue
+                        }
+                        self.reconcileCompletedRestoredAgent(panelId: panelId, candidate: candidate)
+                    }
+                }
+                self.objectWillChange.send()
             }
         }
     }
@@ -4508,7 +4524,12 @@ final class Workspace: Identifiable, ObservableObject {
         panelId: UUID,
         index: RestorableAgentSessionIndex
     ) -> SessionRestorableAgentSnapshot? {
-        guard restoredAgentResumeStatesByPanelId[panelId] != .completedAgentExit, let snapshot = restoredAgentSnapshotsByPanelId[panelId] ?? index.snapshot(workspaceId: id, panelId: panelId),
+        let indexedSnapshot = index.snapshot(workspaceId: id, panelId: panelId)
+        if let indexedSnapshot {
+            reconcileCompletedRestoredAgent(panelId: panelId, candidate: indexedSnapshot)
+        }
+        guard restoredAgentResumeStatesByPanelId[panelId] != .completedAgentExit,
+              let snapshot = restoredAgentSnapshotsByPanelId[panelId] ?? indexedSnapshot,
               snapshot.resumeCommand != nil else {
             return nil
         }
@@ -4577,7 +4598,7 @@ final class Workspace: Identifiable, ObservableObject {
         return didResume
     }
 
-    private func restoredAgentResumeStateForAcceptedSnapshot(panelId: UUID) -> RestoredAgentResumeState {
+    func restoredAgentResumeStateForAcceptedSnapshot(panelId: UUID) -> RestoredAgentResumeState {
         panelShellActivityStates[panelId] == .commandRunning
             ? .observedAgentCommandRunning
             : .manualResumeAvailable
@@ -11244,11 +11265,17 @@ final class Workspace: Identifiable, ObservableObject {
     /// `SharedLiveAgentIndex` for a process-sensitive snapshot so live panel remaps do not
     /// inherit the stale-tolerant cache used by close-history restore paths.
     func forkableAgentSnapshot(forPanelId panelId: UUID) -> SessionRestorableAgentSnapshot? {
-        guard allowsAgentContinuation(forPanelId: panelId) else { return nil }
         if let snapshot = restoredAgentSnapshotForContinuation(panelId: panelId) {
             return snapshot
         }
-        return SharedLiveAgentIndex.shared.snapshotForForkAvailability(workspaceId: id, panelId: panelId)
+        guard let snapshot = SharedLiveAgentIndex.shared.snapshotForForkAvailability(
+            workspaceId: id,
+            panelId: panelId
+        ) else {
+            return nil
+        }
+        reconcileCompletedRestoredAgent(panelId: panelId, candidate: snapshot)
+        return allowsAgentContinuation(forPanelId: panelId) ? snapshot : nil
     }
 
     /// Fork the panel's agent conversation into a brand-new sibling tab placed immediately

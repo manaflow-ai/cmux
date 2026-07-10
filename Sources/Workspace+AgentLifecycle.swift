@@ -2,14 +2,54 @@ import Foundation
 
 extension Workspace {
     func allowsAgentContinuation(forPanelId panelId: UUID) -> Bool {
-        restoredAgentResumeStatesByPanelId[panelId] != .completedAgentExit
+        guard restoredAgentResumeStatesByPanelId[panelId] == .completedAgentExit else {
+            return true
+        }
+        guard let indexedSnapshot = SharedLiveAgentIndex.shared.index?.snapshot(
+            workspaceId: id,
+            panelId: panelId
+        ) else {
+            return false
+        }
+        return !completedRestoredAgentMatches(panelId: panelId, candidate: indexedSnapshot)
     }
 
     func restoredAgentSnapshotForContinuation(
         panelId: UUID
     ) -> SessionRestorableAgentSnapshot? {
-        guard allowsAgentContinuation(forPanelId: panelId) else { return nil }
-        return restoredAgentSnapshotsByPanelId[panelId]
+        guard let snapshot = restoredAgentSnapshotsByPanelId[panelId],
+              !completedRestoredAgentMatches(panelId: panelId, candidate: snapshot) else {
+            return nil
+        }
+        return snapshot
+    }
+
+    func reconcileCompletedRestoredAgent(
+        panelId: UUID,
+        candidate: SessionRestorableAgentSnapshot
+    ) {
+        guard restoredAgentResumeStatesByPanelId[panelId] == .completedAgentExit,
+              !completedRestoredAgentMatches(panelId: panelId, candidate: candidate) else {
+            return
+        }
+        restoredAgentSnapshotsByPanelId[panelId] = candidate
+        restoredAgentResumeStatesByPanelId[panelId] = restoredAgentResumeStateForAcceptedSnapshot(
+            panelId: panelId
+        )
+        invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: panelId)
+    }
+
+    private func completedRestoredAgentMatches(
+        panelId: UUID,
+        candidate: SessionRestorableAgentSnapshot
+    ) -> Bool {
+        guard restoredAgentResumeStatesByPanelId[panelId] == .completedAgentExit else {
+            return false
+        }
+        guard let completed = restoredAgentSnapshotsByPanelId[panelId] else {
+            return true
+        }
+        return completed.kind == candidate.kind && completed.sessionId == candidate.sessionId
     }
 
     func seedSessionRestoredAgentState(
