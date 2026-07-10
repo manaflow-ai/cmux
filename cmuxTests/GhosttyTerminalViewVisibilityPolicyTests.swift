@@ -305,10 +305,17 @@ struct TerminalPortalDropZoneVisibilityTests {
         hostingView.frame = window.contentView?.bounds ?? .zero
         window.contentView = hostingView
         window.makeKeyAndOrderFront(nil)
-        hostingView.layoutSubtreeIfNeeded()
-
-        await Task.yield()
-        await Task.yield()
+        for _ in 0..<20 {
+            hostingView.layoutSubtreeIfNeeded()
+            window.displayIfNeeded()
+            if surface.hostedView.portalCallbackOwnerHostId != nil { break }
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                DispatchQueue.main.async {
+                    continuation.resume()
+                }
+            }
+        }
+        _ = try #require(surface.hostedView.portalCallbackOwnerHostId)
 
         #expect(
             surface.hostedView.debugDropZoneOverlayState().isHidden,
