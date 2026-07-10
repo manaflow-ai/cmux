@@ -221,6 +221,34 @@ struct TerminalPortalHostAuthorityTests {
 
     @MainActor
     @Test
+    func hiddenReplacementCannotAcquireAuthorityFromVisibleOwner() {
+        let surface = makeSurface()
+        let visibleHost = NSView(), hiddenHost = NSView()
+        let visiblePane = PaneID(), hiddenPane = PaneID()
+        let bounds = CGRect(x: 0, y: 0, width: 400, height: 300)
+
+        #expect(surface.claimPortalHost(
+            hostId: ObjectIdentifier(visibleHost), paneId: visiblePane, instanceSerial: 1,
+            inWindow: true, bounds: bounds, reason: "test.visible.initial"
+        ))
+        #expect(!surface.claimPortalHost(
+            hostId: ObjectIdentifier(hiddenHost), paneId: hiddenPane, instanceSerial: 2,
+            inWindow: true, bounds: bounds,
+            allowsAuthorityAcquisition: false,
+            reason: "test.hidden.speculative"
+        ))
+        #expect(
+            surface.debugPortalHostLease().hostId ==
+                String(describing: ObjectIdentifier(visibleHost))
+        )
+        #expect(surface.claimPortalHost(
+            hostId: ObjectIdentifier(visibleHost), paneId: visiblePane, instanceSerial: 1,
+            inWindow: true, bounds: bounds, reason: "test.visible.afterHiddenCandidate"
+        ))
+    }
+
+    @MainActor
+    @Test
     func olderHostCannotReclaimAfterNewHostLeaseReleases() {
         let surface = makeSurface()
         let oldHost = NSView(), newHost = NSView()
