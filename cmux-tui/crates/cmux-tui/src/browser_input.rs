@@ -197,11 +197,11 @@ fn dispatch(event: &BrowserInputEvent, feedback: &Sender<AppEvent>) {
     // so this inner failure (per-surface queue full, surface closed, remote
     // request error) is the only place left to report it. Surface it as a
     // status event, matching the outer-queue backpressure path.
-    if event.kind.is_control() {
-        if let Err(err) = result {
-            let _ = feedback
-                .send(AppEvent::Mux(MuxEvent::Status(format!("browser command failed: {err}"))));
-        }
+    if event.kind.is_control()
+        && let Err(err) = result
+    {
+        let _ = feedback
+            .send(AppEvent::Mux(MuxEvent::Status(format!("browser command failed: {err}"))));
     }
 }
 

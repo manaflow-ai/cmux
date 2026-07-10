@@ -664,7 +664,7 @@ pub fn run(session: Session, session_label: String) -> anyhow::Result<()> {
         cell_pixels,
         pointer_shape: false,
         last_browser_hover: None,
-        browser_input: BrowserInputDispatcher::spawn(tx.clone())?,
+        browser_input: BrowserInputDispatcher::spawn(tx)?,
         drag: None,
         encoder,
         encode_buf: Vec::with_capacity(64),
