@@ -623,13 +623,19 @@ private actor SequencedGatedMetadataReader: WorkspaceGitMetadataReading {
         #expect(service.workspaceGitProbeRerunPending(for: key))
 
         await reader.releaseProbe(at: 0)
-        while await reader.probeCount < 2 {
-            if await clock.pendingSleeperCount > 0 {
-                await clock.resumeNext(duration: 0)
-            } else {
-                await Task.yield()
-            }
-        }
+        #expect(await waitUntil {
+            service.workspaceGitSnapshotTasksByDirectory[directory] == nil
+        })
+        await clock.waitForSleeper(duration: 0)
+
+        // The stale completion has drained, but the replacement task remains
+        // parked on its zero-delay clock. Suppression cannot depend on the new
+        // scan beginning.
+        #expect(await reader.probeCount == 1)
+        #expect(await clock.pendingSleeperCount > 0)
+        #expect(host.workspaces[0].state.panels[panelId]?.branch == nil)
+
+        await clock.resumeNext(duration: 0)
         await reader.waitForProbeCount(2)
 
         #expect(host.workspaces[0].state.panels[panelId]?.branch == nil)
