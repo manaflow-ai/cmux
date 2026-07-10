@@ -3,12 +3,26 @@ import Foundation
 @testable import CmuxAuthRuntime
 
 @MainActor
+final class OpenedURLRecorder {
+    private(set) var urls: [URL] = []
+
+    func append(_ url: URL) {
+        urls.append(url)
+    }
+}
+
+@MainActor
 struct HostBrowserSignInFlowHarness {
     let flow: HostBrowserSignInFlow
     let coordinator: AuthCoordinator
     let client: FlowFakeAuthClient
     let tokenStore: FlowInMemoryTokenStore
     let factory: FakeBrowserAuthSessionFactory
+    private let openedURLRecorder: OpenedURLRecorder
+
+    var openedURLs: [URL] {
+        openedURLRecorder.urls
+    }
 
     init(
         user: CMUXAuthUser? = nil,
@@ -21,6 +35,7 @@ struct HostBrowserSignInFlowHarness {
         // like production. Split stores hide seed/capture/clear races.
         let tokenStore = FlowInMemoryTokenStore()
         let client = FlowFakeAuthClient(user: user, store: tokenStore)
+        let openedURLRecorder = OpenedURLRecorder()
         let coordinator = AuthCoordinator(
             client: client,
             sessionCache: CMUXAuthSessionCache(keyValueStore: store, key: "has_tokens"),
@@ -38,6 +53,7 @@ struct HostBrowserSignInFlowHarness {
             callbackRouter: AuthCallbackRouter(),
             makeSignInURL: { URL(string: "https://example.test/handler/sign-in?cmux_auth_state=\($0)")! },
             callbackScheme: { "cmux-dev" },
+            openExternalURL: { openedURLRecorder.append($0) },
             clock: clock ?? ContinuousClock(),
             browserAttemptTimeout: browserAttemptTimeout,
             slowSignInThreshold: slowSignInThreshold
@@ -46,6 +62,7 @@ struct HostBrowserSignInFlowHarness {
         self.client = client
         self.tokenStore = tokenStore
         self.factory = factory
+        self.openedURLRecorder = openedURLRecorder
     }
 
     func callbackURL(state: String) -> URL {

@@ -22,6 +22,7 @@ public final class HostBrowserSignInFlow {
     private let callbackRouter: AuthCallbackRouter
     private let makeSignInURL: @MainActor (_ callbackState: String) -> URL
     private let callbackScheme: @MainActor () -> String
+    @ObservationIgnored private let openExternalURL: @MainActor (URL) -> Void
     private let clock: any Clock<Duration>
     private let browserAttemptTimeout: TimeInterval
     private let slowSignInThreshold: TimeInterval
@@ -47,6 +48,7 @@ public final class HostBrowserSignInFlow {
         callbackRouter: AuthCallbackRouter,
         makeSignInURL: @escaping @MainActor (_ callbackState: String) -> URL,
         callbackScheme: @escaping @MainActor () -> String,
+        openExternalURL: @escaping @MainActor (URL) -> Void,
         clock: any Clock<Duration> = ContinuousClock(),
         browserAttemptTimeout: TimeInterval = 10 * 60,
         slowSignInThreshold: TimeInterval = 30
@@ -57,6 +59,7 @@ public final class HostBrowserSignInFlow {
         self.callbackRouter = callbackRouter
         self.makeSignInURL = makeSignInURL
         self.callbackScheme = callbackScheme
+        self.openExternalURL = openExternalURL
         self.clock = clock
         self.browserAttemptTimeout = browserAttemptTimeout
         self.slowSignInThreshold = slowSignInThreshold
@@ -463,37 +466,5 @@ public final class HostBrowserSignInFlow {
 
     private func makeCallbackState() -> String {
         UUID().uuidString.lowercased()
-    }
-
-    private func authCallbackState(from url: URL) -> String? {
-        URLComponents(url: url, resolvingAgainstBaseURL: false)?
-            .queryItems?
-            .first(where: { $0.name == "cmux_auth_state" })?
-            .value
-    }
-
-    private func redactedAuthState(_ state: String) -> String {
-        "\(state.prefix(8))..."
-    }
-
-    private func authCallbackSummary(_ url: URL) -> String {
-        let scheme = url.scheme ?? "nil"
-        let target = url.host ?? url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        let queryItems = URLComponents(url: url, resolvingAgainstBaseURL: false)?
-            .queryItems?
-            .map(\.name)
-            .joined(separator: ",") ?? ""
-        return "scheme=\(scheme) target=\(target.isEmpty ? "nil" : target) queryKeys=\(queryItems.isEmpty ? "none" : queryItems)"
-    }
-
-    private func sessionResultSummary(_ result: HostBrowserAuthSessionResult) -> String {
-        switch result {
-        case let .callback(url):
-            return "result=callback \(authCallbackSummary(url))"
-        case let .cancelled(reason):
-            return "result=cancelled reason=\(reason)"
-        case let .failed(reason):
-            return "result=failed reason=\(reason)"
-        }
     }
 }
