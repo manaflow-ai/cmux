@@ -358,6 +358,12 @@ extension MobilePairingFailureCategory {
                 return .unknown(host: host, port: port)
             case .receiveFailed, .sendFailed:
                 return .connectionDropped(host: host, port: port)
+            case .tailscaleAuthorizationUnavailable:
+                return .hostUnreachable(host: host, port: port)
+            case .tailscaleAuthorizationChanged:
+                return .connectionDropped(host: host, port: port)
+            case .authorizationIntentRequired, .unsupportedAuthorizationMode:
+                return .unsupportedRoute
             case .emptyHost, .invalidPort, .invalidMaximumReceiveLength,
                  .unsupportedRouteKind, .unsupportedEndpoint,
                  .receiveAlreadyInProgress, .sendAlreadyInProgress:

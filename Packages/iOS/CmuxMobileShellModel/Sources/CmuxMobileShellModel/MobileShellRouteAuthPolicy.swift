@@ -1,4 +1,5 @@
 public import CMUXMobileCore
+import Darwin
 import Foundation
 
 /// Pure routing/trust policy that decides which attach routes may carry Stack auth
@@ -68,8 +69,9 @@ public struct MobileShellRouteAuthPolicy {
     /// only ever traverse the Tailscale tunnel or loopback. This predicate gates
     /// every Stack-token-send site and returns `true` only for:
     ///
-    /// - `.tailscale` to a Tailscale host (a `100.64.0.0/10` CGNAT address or a
-    ///   `*.ts.net` MagicDNS host), which rides the WireGuard-encrypted tunnel.
+    /// - `.tailscale` to a numeric Tailscale address (`100.64.0.0/10` or
+    ///   `fd7a:115c:a1e0::/48`). The network transport separately proves and
+    ///   binds the live Tailscale interface before any bearer write.
     /// - `.debugLoopback` to a loopback host, which never leaves the machine.
     ///
     /// Plain private-LAN (`192.168/16`, `10/8`, `172.16/12`, link-local) and
@@ -174,14 +176,23 @@ public struct MobileShellRouteAuthPolicy {
 
     private static func isTailscaleHost(_ host: String) -> Bool {
         let normalizedHost = host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        return isTailscaleDNSHost(normalizedHost) || isTailscaleIPv4Host(normalizedHost)
+        return isTailscaleIPv4Host(normalizedHost) || isTailscaleIPv6Host(normalizedHost)
     }
 
     private static func isTailscaleIPv4Host(_ host: String) -> Bool {
         guard let octets = ipv4Octets(host) else {
             return false
         }
-        return octets[0] == 100 && (64...127).contains(octets[1])
+        guard octets[0] == 100 && (64...127).contains(octets[1]) else {
+            return false
+        }
+        if octets[1] == 100, octets[2] == 0 || octets[2] == 100 {
+            return false
+        }
+        if octets[1] == 115, octets[2] == 92 || octets[2] == 93 {
+            return false
+        }
+        return true
     }
 
     private static func ipv4Octets(_ host: String) -> [Int]? {
@@ -204,9 +215,13 @@ public struct MobileShellRouteAuthPolicy {
         return octets
     }
 
-    private static func isTailscaleDNSHost(_ host: String) -> Bool {
-        host.trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-            .hasSuffix(".ts.net")
+    private static func isTailscaleIPv6Host(_ host: String) -> Bool {
+        var address = in6_addr()
+        let parsed = host.withCString { pointer in
+            inet_pton(AF_INET6, pointer, &address)
+        }
+        guard parsed == 1 else { return false }
+        let bytes = withUnsafeBytes(of: &address) { Array($0) }
+        return bytes.starts(with: [0xFD, 0x7A, 0x11, 0x5C, 0xA1, 0xE0])
     }
 }

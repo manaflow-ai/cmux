@@ -57,26 +57,37 @@ public struct CmxNetworkRoutePinger: CmxRoutePinging {
         case .connectionTimedOut:
             return .timedOut
         case let .connectionFailed(description, kind):
-            switch kind {
-            case .connectionRefused:
-                return .refused
-            case .hostUnreachable:
-                return .unreachable
-            case .timedOut:
-                return .timedOut
-            case .dnsFailed:
-                return .dnsFailed
-            case .permissionDenied:
-                return .permissionDenied
-            case .secureChannelFailed, .generic:
-                return .failed(description: description)
-            }
+            return pingResult(for: kind, description: description)
         case .emptyHost, .invalidPort, .invalidMaximumReceiveLength,
-             .unsupportedRouteKind, .unsupportedEndpoint:
+             .unsupportedRouteKind, .unsupportedEndpoint,
+             .authorizationIntentRequired, .unsupportedAuthorizationMode,
+             .tailscaleAuthorizationUnavailable:
             return .unsupportedRoute
+        case .tailscaleAuthorizationChanged:
+            return .unreachable
         case .notConnected, .alreadyClosed, .receiveAlreadyInProgress,
              .sendAlreadyInProgress, .receiveFailed, .sendFailed:
             return .failed(description: String(describing: error))
+        }
+    }
+
+    private func pingResult(
+        for kind: CmxConnectFailureKind,
+        description: String
+    ) -> CmxRoutePingResult {
+        switch kind {
+        case .connectionRefused:
+            return .refused
+        case .hostUnreachable:
+            return .unreachable
+        case .timedOut:
+            return .timedOut
+        case .dnsFailed:
+            return .dnsFailed
+        case .permissionDenied:
+            return .permissionDenied
+        case .secureChannelFailed, .generic:
+            return .failed(description: description)
         }
     }
 }
