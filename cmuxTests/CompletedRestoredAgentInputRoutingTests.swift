@@ -45,5 +45,15 @@ struct CompletedRestoredAgentInputRoutingTests {
                 terminalAgentContext: completedContext
             ).last == .namedKey(TextBoxTerminalKey.returnKey.rawValue)
         )
+
+        workspace.updatePanelShellActivityState(panelId: panel.id, state: .commandRunning)
+
+        #expect(workspace.restoredAgentResumeStatesByPanelId[panel.id] == .completedAgentExit)
+        #expect(
+            workspace.restoredAgentSnapshotsByPanelId[panel.id]?.sessionId
+                == "completed-agent-input-routing"
+        )
+        let shellCommandContext = WorkspaceContentView.terminalAgentContext(panel: panel, workspace: workspace)
+        #expect(!TextBoxAgentDetection.supportsAgentPrefixes(context: shellCommandContext))
     }
 }
