@@ -434,7 +434,7 @@ struct RemoteTmuxMirrorTargetingTests {
         #expect(try harness.surfaceTitles() == ["logs", "logs [1]"])
     }
 
-    private struct MirrorTitleHarness {
+    @MainActor private struct MirrorTitleHarness {
         let windowId: UUID
         let controller: RemoteTmuxController
         let host: RemoteTmuxHost
@@ -459,7 +459,7 @@ struct RemoteTmuxMirrorTargetingTests {
             connection.handleMessageForTesting(.commandResult(commandNumber: 0, lines: [], isError: false))
             controller.cacheConnection(connection)
             try controller.mirrorSession(host: host, sessionName: "dogfood-a", into: manager)
-            workspace = try #require(manager.tabs.first(where: \.isRemoteTmuxMirror))
+            workspace = try #require(manager.tabs.first { $0.isRemoteTmuxMirror })
             self.windowId = windowId
             self.controller = controller
             self.host = host
