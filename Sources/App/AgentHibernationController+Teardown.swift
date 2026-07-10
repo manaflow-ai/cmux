@@ -19,15 +19,6 @@ extension AgentHibernationController {
         let generation: UInt64
     }
 
-    struct ConfirmedTeardownRuntimeObservation: Sendable {
-        let hasLiveSurface: Bool
-        let fingerprint: String?
-    }
-
-    typealias ConfirmedTeardownRuntimeObservationProvider = @MainActor @Sendable (
-        AgentHibernationRecord
-    ) -> ConfirmedTeardownRuntimeObservation
-
     /// Runs the transcript snapshot off the main actor, then resumes teardown on the
     /// main actor only if the pane still qualifies. The snapshot MUST complete before
     /// SIGTERM / pty-close can trigger Claude's interrupted-exit transcript rewrite,
