@@ -25,7 +25,12 @@ extension AgentHibernationController {
     /// so the teardown is sequenced after it rather than racing it; the re-validation
     /// below covers disable/stop and anything else that changed during the brief I/O hop.
     @discardableResult
-    func beginConfirmedTeardowns(_ requests: [ConfirmedTeardownRequest]) -> Task<Void, Never> {
+    func beginConfirmedTeardowns(
+        _ requests: [ConfirmedTeardownRequest],
+        postSnapshotIndexLoader: @escaping @Sendable () async -> RestorableAgentSessionIndex = {
+            await SharedLiveAgentIndex.shared.scopedIndexCapturedAfterRequest()
+        }
+    ) -> Task<Void, Never> {
         guard !requests.isEmpty else { return Task {} }
         return Task { @MainActor in
             defer {
@@ -83,7 +88,8 @@ extension AgentHibernationController {
 
             let postSnapshotSequence = markPostSnapshotValidationPoint()
             let postSnapshotIndex = await sharedPostSnapshotValidationIndexTask(
-                minimumStartSequence: postSnapshotSequence
+                minimumStartSequence: postSnapshotSequence,
+                loader: postSnapshotIndexLoader
             ).value
 
             for request in requests {
@@ -360,13 +366,11 @@ extension AgentHibernationController {
         return postSnapshotValidationIndexSequence
     }
 
-    /// Serializes validation boundaries within the controller, then enters the
-    /// process-wide index coordinator for a non-publishing post-boundary capture.
+    /// Serializes validation boundaries within the controller before invoking
+    /// the caller's post-boundary loader.
     func sharedPostSnapshotValidationIndexTask(
         minimumStartSequence: UInt64,
-        loader: @escaping @Sendable () async -> RestorableAgentSessionIndex = {
-            await SharedLiveAgentIndex.shared.scopedIndexCapturedAfterRequest()
-        }
+        loader: @escaping @Sendable () async -> RestorableAgentSessionIndex
     ) -> Task<RestorableAgentSessionIndex, Never> {
         let predecessor: Task<RestorableAgentSessionIndex, Never>?
         if let inFlight = postSnapshotValidationIndexTask {
