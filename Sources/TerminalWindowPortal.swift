@@ -1110,6 +1110,13 @@ final class WindowTerminalPortal: NSObject {
         return needsReattach
     }
 
+    /// Updates portal stacking state without changing whether the entry is visible.
+    func updateEntryPriority(forHostedId hostedId: ObjectIdentifier, zPriority: Int) {
+        guard var entry = entriesByHostedId[hostedId], entry.zPriority != zPriority else { return }
+        entry.zPriority = zPriority
+        entriesByHostedId[hostedId] = entry
+    }
+
     func isHostedViewBoundToAnchor(withId hostedId: ObjectIdentifier, anchorView: NSView) -> Bool {
         guard let entry = entriesByHostedId[hostedId], let boundAnchor = entry.anchorView else { return false }
         return boundAnchor === anchorView
@@ -2112,6 +2119,13 @@ enum TerminalWindowPortalRegistry {
         let hostedId = ObjectIdentifier(hostedView)
         guard let windowId = hostedToWindowId[hostedId], let portal = portalsByWindowId[windowId] else { return visibleInUI }
         return portal.updateEntryVisibility(forHostedId: hostedId, visibleInUI: visibleInUI)
+    }
+
+    /// Updates portal stacking state without changing whether the entry is visible.
+    static func updateEntryPriority(for hostedView: GhosttySurfaceScrollView, zPriority: Int) {
+        let hostedId = ObjectIdentifier(hostedView)
+        guard let windowId = hostedToWindowId[hostedId], let portal = portalsByWindowId[windowId] else { return }
+        portal.updateEntryPriority(forHostedId: hostedId, zPriority: zPriority)
     }
 
     static func isHostedView(_ hostedView: GhosttySurfaceScrollView, boundTo anchorView: NSView) -> Bool {

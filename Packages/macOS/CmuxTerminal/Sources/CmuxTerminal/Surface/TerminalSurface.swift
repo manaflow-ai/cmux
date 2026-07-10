@@ -273,7 +273,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     var portalHostOwnershipGeneration: UInt64 = 1
     var activePortalHostLease: PortalHostLease?
     var portalHostAuthority: TerminalPortalHostAuthority?
-    var pendingPortalHostRetry: PendingTerminalPortalHostRetry?
+    var pendingPortalHostRetries: [ObjectIdentifier: PendingTerminalPortalHostRetry] = [:]
     /// The live find session, or nil when find is closed. Setting it arms the
     /// debounced needle pipeline; clearing it ends the runtime search.
     /// Main-actor isolated: the observer cancels pane focus requests on the

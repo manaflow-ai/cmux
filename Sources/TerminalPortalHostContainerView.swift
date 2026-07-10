@@ -4,7 +4,10 @@ final class TerminalPortalHostContainerView: NSView {
     var onDidMoveToWindow: (() -> Void)?
     var onGeometryChanged: (() -> Void)?
     private(set) var geometryRevision: UInt64 = 0
-    private var lastReportedGeometryState: GeometryState?
+    private var lastReportedFrame: CGRect?
+    private var lastReportedBounds: CGRect?
+    private var lastReportedWindowNumber: Int?
+    private var lastReportedSuperviewID: ObjectIdentifier?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -22,26 +25,17 @@ final class TerminalPortalHostContainerView: NSView {
         NSSize(width: NSView.noIntrinsicMetric, height: NSView.noIntrinsicMetric)
     }
 
-    private struct GeometryState: Equatable {
-        let frame: CGRect
-        let bounds: CGRect
-        let windowNumber: Int?
-        let superviewID: ObjectIdentifier?
-    }
-
-    private func currentGeometryState() -> GeometryState {
-        GeometryState(
-            frame: frame,
-            bounds: bounds,
-            windowNumber: window?.windowNumber,
-            superviewID: superview.map(ObjectIdentifier.init)
-        )
-    }
-
     private func notifyGeometryChangedIfNeeded() {
-        let state = currentGeometryState()
-        guard state != lastReportedGeometryState else { return }
-        lastReportedGeometryState = state
+        let windowNumber = window?.windowNumber
+        let superviewID = superview.map(ObjectIdentifier.init)
+        guard frame != lastReportedFrame ||
+                bounds != lastReportedBounds ||
+                windowNumber != lastReportedWindowNumber ||
+                superviewID != lastReportedSuperviewID else { return }
+        lastReportedFrame = frame
+        lastReportedBounds = bounds
+        lastReportedWindowNumber = windowNumber
+        lastReportedSuperviewID = superviewID
         geometryRevision &+= 1
         onGeometryChanged?()
     }

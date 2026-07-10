@@ -12145,8 +12145,14 @@ struct GhosttyTerminalView: NSViewRepresentable {
                 reason: "\(reason).hidden"
             )
             return
-        case .retained:
+        case .retained(let zPriority):
             guard terminalSurface.isPortalHostOwner(hostId: hostId) else { return }
+            TerminalWindowPortalRegistry.updateEntryPriority(
+                for: hostedView,
+                zPriority: zPriority
+            )
+            coordinator.lastAppliedIsVisibleInUI = nil
+            coordinator.lastAppliedPortalZPriority = zPriority
             hostedView.setActive(false)
             return
         case .visible:

@@ -63,6 +63,7 @@ extension TerminalSurface {
             guard ownershipGeneration >= current.ownershipGeneration else { return false }
             if ownershipGeneration == current.ownershipGeneration {
                 if current.hostId == hostId {
+                    pendingPortalHostRetries.removeValue(forKey: hostId)
                     if current.paneId != paneId.id || current.phase != .bound {
                         portalHostAuthority = TerminalPortalHostAuthority(
                             hostId: hostId,
@@ -75,7 +76,7 @@ extension TerminalSurface {
                 }
                 guard current.phase == .replacementAllowed else {
                     if let retryWhenAvailable {
-                        pendingPortalHostRetry = PendingTerminalPortalHostRetry(
+                        pendingPortalHostRetries[hostId] = PendingTerminalPortalHostRetry(
                             hostId: hostId,
                             ownershipGeneration: ownershipGeneration,
                             retry: retryWhenAvailable
@@ -92,7 +93,7 @@ extension TerminalSurface {
             ownershipGeneration: ownershipGeneration,
             phase: .bound
         )
-        pendingPortalHostRetry = nil
+        pendingPortalHostRetries.removeAll()
         return true
     }
 
@@ -104,16 +105,20 @@ extension TerminalSurface {
             ownershipGeneration: current.ownershipGeneration,
             phase: .replacementAllowed
         )
-        guard let pendingPortalHostRetry else { return }
-        self.pendingPortalHostRetry = nil
-        guard pendingPortalHostRetry.ownershipGeneration == current.ownershipGeneration else { return }
-        pendingPortalHostRetry.retry()
+        let retries = pendingPortalHostRetries.values.filter {
+            $0.ownershipGeneration == current.ownershipGeneration
+        }
+        for retry in retries {
+            pendingPortalHostRetries.removeValue(forKey: retry.hostId)
+        }
+        for retry in retries {
+            retry.retry()
+        }
     }
 
     /// Cancels a deferred authority retry when its candidate host is dismantled.
     public func cancelPendingPortalHostRetry(hostId: ObjectIdentifier) {
-        guard pendingPortalHostRetry?.hostId == hostId else { return }
-        pendingPortalHostRetry = nil
+        pendingPortalHostRetries.removeValue(forKey: hostId)
     }
 
     /// Re-arms the lease when SwiftUI is about to rebuild the owning host.

@@ -150,6 +150,39 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
         }
     }
 
+    @MainActor
+    @Test
+    func retainedPriorityLetsNextWorkspacePromotionComeToFront() throws {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 300),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let portal = WindowTerminalPortal(window: window)
+        let contentView = try #require(window.contentView)
+        let firstAnchor = NSView(frame: NSRect(x: 20, y: 20, width: 220, height: 180))
+        let secondAnchor = NSView(frame: NSRect(x: 80, y: 60, width: 220, height: 180))
+        contentView.addSubview(firstAnchor)
+        contentView.addSubview(secondAnchor)
+
+        let firstTerminal = GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 120, height: 80))
+        let firstHosted = GhosttySurfaceScrollView(surfaceView: firstTerminal)
+        let secondTerminal = GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 120, height: 80))
+        let secondHosted = GhosttySurfaceScrollView(surfaceView: secondTerminal)
+
+        portal.bind(hostedView: secondHosted, to: secondAnchor, visibleInUI: true, zPriority: 1)
+        portal.bind(hostedView: firstHosted, to: firstAnchor, visibleInUI: true, zPriority: 2)
+        portal.updateEntryPriority(forHostedId: ObjectIdentifier(firstHosted), zPriority: 1)
+        portal.bind(hostedView: secondHosted, to: secondAnchor, visibleInUI: true, zPriority: 2)
+
+        let overlapInWindow = contentView.convert(NSPoint(x: 120, y: 100), to: nil)
+        #expect(
+            portal.terminalViewAtWindowPoint(overlapInWindow) === secondTerminal,
+            "The newly selected workspace should rise above the retained workspace"
+        )
+    }
+
     @Test
     func immediateStateUpdateAllowedWhenDesiredStateIsHidden() {
         #expect(
