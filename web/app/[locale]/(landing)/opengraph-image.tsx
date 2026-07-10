@@ -50,6 +50,20 @@ const localeFonts: Record<string, { name: string; url: string }> = {
     url: `${NOTO_BASE}/NotoSans/hinted/ttf/NotoSans-Regular.ttf`,
   },
 };
+const remoteFontPromises = new Map<string, Promise<ArrayBuffer | null>>();
+
+function fetchRemoteFont(url: string) {
+  const existing = remoteFontPromises.get(url);
+  if (existing) {
+    return existing;
+  }
+
+  const promise = fetch(url)
+    .then((res) => (res.ok ? res.arrayBuffer() : null))
+    .catch(() => null);
+  remoteFontPromises.set(url, promise);
+  return promise;
+}
 
 export default async function Image({
   params,
@@ -73,23 +87,34 @@ export default async function Image({
           "og-screenshot.png",
         )
       ),
-      fetch(
+      fetchRemoteFont(
         "https://fonts.gstatic.com/s/geist/v4/gyBhhwUxId8gMGYQMKR3pzfaWI_RnOM4nQ.ttf"
-      ).then((res) => res.arrayBuffer()),
-      fetch(
+      ),
+      fetchRemoteFont(
         "https://fonts.gstatic.com/s/geist/v4/gyBhhwUxId8gMGYQMKR3pzfaWI_RQuQ4nQ.ttf"
-      ).then((res) => res.arrayBuffer()),
-      localeFont
-        ? fetch(localeFont.url).then((res) => res.arrayBuffer())
-        : Promise.resolve(null),
+      ),
+      localeFont ? fetchRemoteFont(localeFont.url) : Promise.resolve(null),
     ]);
 
   const logoSrc = `data:image/png;base64,${logoData.toString("base64")}`;
   const screenshotSrc = `data:image/png;base64,${screenshotData.toString("base64")}`;
-  const fonts = [
-    { name: "Geist", data: geistRegular, weight: 400 as const, style: "normal" as const },
-    { name: "Geist", data: geistSemiBold, weight: 600 as const, style: "normal" as const },
-  ];
+  const fonts = [];
+  if (geistRegular) {
+    fonts.push({
+      name: "Geist",
+      data: geistRegular,
+      weight: 400 as const,
+      style: "normal" as const,
+    });
+  }
+  if (geistSemiBold) {
+    fonts.push({
+      name: "Geist",
+      data: geistSemiBold,
+      weight: 600 as const,
+      style: "normal" as const,
+    });
+  }
   if (localeFont && localeFontData) {
     fonts.push({
       name: localeFont.name,
@@ -98,6 +123,8 @@ export default async function Image({
       style: "normal" as const,
     });
   }
+  const taglineFontFamily =
+    localeFont && localeFontData ? `${localeFont.name}, Geist` : "Geist";
 
   return new ImageResponse(
     (
@@ -181,7 +208,7 @@ export default async function Image({
                 <div
                   style={{
                     fontSize: 34 * S,
-                    fontFamily: localeFont ? `${localeFont.name}, Geist` : "Geist",
+                    fontFamily: taglineFontFamily,
                     direction: taglineDirection,
                     fontWeight: 400,
                     color: "#cfcfcf",
@@ -200,7 +227,7 @@ export default async function Image({
     {
       width: size.width * S,
       height: size.height * S,
-      fonts,
+      ...(fonts.length > 0 ? { fonts } : {}),
     }
   );
 }
