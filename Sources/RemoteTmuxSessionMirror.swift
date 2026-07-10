@@ -162,6 +162,7 @@ final class RemoteTmuxSessionMirror {
             connection.removeObserver(observerToken)
             self.observerToken = nil
         }
+        workspace?.remoteTmuxWindowOrderSync = nil
         for mirror in windowMirrorByWindowId.values {
             workspace?.setRemoteTmuxWindowMirror(nil, forPanelId: mirror.panelId)
             mirror.teardown()
