@@ -54,12 +54,76 @@ final class SimulatorDeviceResolver {
 func objectProperty(_ target: NSObject, selectorName: String) -> AnyObject? {
     let selector = NSSelectorFromString(selectorName)
     guard target.responds(to: selector),
-          let implementation = class_getMethodImplementation(type(of: target), selector)
+          let method = class_getInstanceMethod(type(of: target), selector)
     else {
         return nil
     }
+    let implementation = method_getImplementation(method)
+
+    let returnType = method_copyReturnType(method)
+    defer { free(returnType) }
+    let encoding = String(cString: returnType)
+        .drop(while: { "rnNoORV".contains($0) })
+    if let code = encoding.utf8.first,
+       let scalar = boxedScalarProperty(
+            target,
+            selector: selector,
+            implementation: implementation,
+            returnTypeCode: code
+       ) {
+        return scalar
+    }
+
     typealias Function = @convention(c) (AnyObject, Selector) -> AnyObject?
     return unsafeBitCast(implementation, to: Function.self)(target, selector)
+}
+
+private func boxedScalarProperty(
+    _ target: NSObject,
+    selector: Selector,
+    implementation: IMP,
+    returnTypeCode: UInt8
+) -> NSNumber? {
+    switch returnTypeCode {
+    case Character("c").asciiValue:
+        typealias Function = @convention(c) (AnyObject, Selector) -> Int8
+        return NSNumber(value: unsafeBitCast(implementation, to: Function.self)(target, selector))
+    case Character("C").asciiValue, Character("B").asciiValue:
+        typealias Function = @convention(c) (AnyObject, Selector) -> UInt8
+        return NSNumber(value: unsafeBitCast(implementation, to: Function.self)(target, selector))
+    case Character("s").asciiValue:
+        typealias Function = @convention(c) (AnyObject, Selector) -> Int16
+        return NSNumber(value: unsafeBitCast(implementation, to: Function.self)(target, selector))
+    case Character("S").asciiValue:
+        typealias Function = @convention(c) (AnyObject, Selector) -> UInt16
+        return NSNumber(value: unsafeBitCast(implementation, to: Function.self)(target, selector))
+    case Character("i").asciiValue:
+        typealias Function = @convention(c) (AnyObject, Selector) -> Int32
+        return NSNumber(value: unsafeBitCast(implementation, to: Function.self)(target, selector))
+    case Character("I").asciiValue:
+        typealias Function = @convention(c) (AnyObject, Selector) -> UInt32
+        return NSNumber(value: unsafeBitCast(implementation, to: Function.self)(target, selector))
+    case Character("l").asciiValue:
+        typealias Function = @convention(c) (AnyObject, Selector) -> Int
+        return NSNumber(value: unsafeBitCast(implementation, to: Function.self)(target, selector))
+    case Character("L").asciiValue:
+        typealias Function = @convention(c) (AnyObject, Selector) -> UInt
+        return NSNumber(value: unsafeBitCast(implementation, to: Function.self)(target, selector))
+    case Character("q").asciiValue:
+        typealias Function = @convention(c) (AnyObject, Selector) -> Int64
+        return NSNumber(value: unsafeBitCast(implementation, to: Function.self)(target, selector))
+    case Character("Q").asciiValue:
+        typealias Function = @convention(c) (AnyObject, Selector) -> UInt64
+        return NSNumber(value: unsafeBitCast(implementation, to: Function.self)(target, selector))
+    case Character("f").asciiValue:
+        typealias Function = @convention(c) (AnyObject, Selector) -> Float
+        return NSNumber(value: unsafeBitCast(implementation, to: Function.self)(target, selector))
+    case Character("d").asciiValue:
+        typealias Function = @convention(c) (AnyObject, Selector) -> Double
+        return NSNumber(value: unsafeBitCast(implementation, to: Function.self)(target, selector))
+    default:
+        return nil
+    }
 }
 
 func invokeObjectWithError(_ target: NSObject, selector: Selector) -> NSObject? {
