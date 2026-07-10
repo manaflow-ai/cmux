@@ -33,6 +33,24 @@ import Testing
         )
     }
 
+    @Test func stackedAnchorOnlyGroupsRenderAsHeadersWithoutSyntheticRows() {
+        let workspaces = [
+            workspace("a", group: "a"),
+            workspace("b", group: "b"),
+            workspace("c", group: "c"),
+        ]
+        let groups = [
+            group("a", anchor: "a"),
+            group("b", anchor: "b"),
+            group("c", anchor: "c"),
+        ]
+        #expect(MobileWorkspaceListItem.items(workspaces: workspaces, groups: groups) == [
+            .groupHeader(groups[0], hasUnread: false),
+            .groupHeader(groups[1], hasUnread: false),
+            .groupHeader(groups[2], hasUnread: false),
+        ])
+    }
+
     @Test func appliedIntentsMatchIndependentHostSimulatorAcrossFixtures() {
         let fixtures: [([MobileWorkspacePreview], [MobileWorkspaceGroupPreview])] = [
             (
@@ -61,6 +79,19 @@ import Testing
             (
                 [workspace("solo", group: "s"), workspace("pinned", pinned: true), workspace("root")],
                 [group("s", anchor: "solo")]
+            ),
+            (
+                [
+                    workspace("a", group: "a"),
+                    workspace("b", group: "b"),
+                    workspace("c", group: "c"),
+                    workspace("root"),
+                ],
+                [
+                    group("a", anchor: "a"),
+                    group("b", anchor: "b"),
+                    group("c", anchor: "c"),
+                ]
             ),
         ]
         for (workspaces, groups) in fixtures {

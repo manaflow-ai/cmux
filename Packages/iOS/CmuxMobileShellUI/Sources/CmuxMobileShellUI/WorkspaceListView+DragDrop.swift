@@ -194,9 +194,9 @@ struct WorkspaceListStableOrderKey: Equatable {
             macDeviceID = nil
             isPinned = group.isPinned
             isGroupCollapsed = group.isCollapsed
-        case .groupFooter(let groupID):
+        case .groupFooter(let footerGroupID):
             workspaceID = nil
-            self.groupID = groupID
+            groupID = footerGroupID
             windowID = nil
             macDeviceID = nil
             isPinned = nil

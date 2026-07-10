@@ -9,9 +9,17 @@ import Foundation
 ///   and `TerminalController.mobileWorkspaceMoveTopLevelBeforeID`.
 /// - Group anchors are rendered only as headers. Dragging the header moves the
 ///   group; workspace-row drags never change an anchor's membership.
-/// - Workspace rows join a group only from the explicit in-group slots:
-///   header/member gaps, mid-group gaps, and the synthetic footer-before gap.
-///   The footer-after gap is the touch equivalent of the Mac root lane.
+/// - The gap below an expanded header joins that group, including anchor-only
+///   groups. Header/member and same-group member/member gaps also stay in-group.
+/// - Populated expanded groups render an end-of-group slot: dropping before it
+///   joins the group at its end (members and external workspaces alike), and
+///   dropping after it lands at root right after the group — the direct touch
+///   equivalent of the Mac's boundary pointer lane.
+/// - When no slot exists (empty groups, collapsed groups, or item arrays
+///   without footers), the mixed gap after a group's last member falls back to
+///   Mac neighbor inference: a workspace already in that group stays at its
+///   end; any other workspace lands at root before the next top-level row. See
+///   `WorkspaceReorderCoordinator.applyDragInferredGroupMembership` lines 421-457.
 /// - Collapsed group headers expose only a top-level root slot.
 /// - Pinned top-level rows form a leading tier. A moved workspace uses its own
 ///   pin state; a moved group uses the group's pin state. In-group member order
@@ -68,6 +76,7 @@ struct MobileWorkspaceListMoveIntentResolver {
         let proposed = movesGroup
             ? rootLevelIntent(nextItem: nextItem, workspaces: orderedWithoutMoved)
             : proposedIntent(
+                movedWorkspace: movedWorkspace,
                 previousItem: previousItem,
                 nextItem: nextItem,
                 workspaces: orderedWithoutMoved
@@ -98,6 +107,7 @@ struct MobileWorkspaceListMoveIntentResolver {
     }
 
     private func proposedIntent(
+        movedWorkspace: MobileWorkspacePreview,
         previousItem: MobileWorkspaceListItem?,
         nextItem: MobileWorkspaceListItem?,
         workspaces: [MobileWorkspacePreview]
@@ -131,7 +141,12 @@ struct MobileWorkspaceListMoveIntentResolver {
                         beforeWorkspaceID: nextWorkspace.id
                     )
                 }
-                return rootLevelIntent(nextItem: nextItem, workspaces: workspaces)
+                return intentAfterLastGroupMember(
+                    movedWorkspace: movedWorkspace,
+                    groupID: previousGroupID,
+                    nextItem: nextItem,
+                    workspaces: workspaces
+                )
 
             case .groupFooter(let footerGroupID):
                 guard footerGroupID == previousGroupID else {
@@ -143,12 +158,32 @@ struct MobileWorkspaceListMoveIntentResolver {
                 )
 
             case .groupHeader, nil:
-                return rootLevelIntent(nextItem: nextItem, workspaces: workspaces)
+                return intentAfterLastGroupMember(
+                    movedWorkspace: movedWorkspace,
+                    groupID: previousGroupID,
+                    nextItem: nextItem,
+                    workspaces: workspaces
+                )
             }
 
         case nil:
             return rootLevelIntent(nextItem: nextItem, workspaces: workspaces)
         }
+    }
+
+    private func intentAfterLastGroupMember(
+        movedWorkspace: MobileWorkspacePreview,
+        groupID: MobileWorkspaceGroupPreview.ID,
+        nextItem: MobileWorkspaceListItem?,
+        workspaces: [MobileWorkspacePreview]
+    ) -> MobileWorkspaceMoveIntent {
+        guard validGroupID(movedWorkspace.groupID) == groupID else {
+            return rootLevelIntent(nextItem: nextItem, workspaces: workspaces)
+        }
+        return MobileWorkspaceMoveIntent(
+            groupID: groupID,
+            beforeWorkspaceID: workspaceAfterGroup(groupID, workspaces: workspaces)
+        )
     }
 
     private func rootLevelIntent(

@@ -5,10 +5,12 @@ struct WorkspaceGroupFooterRow: View {
     let groupName: String?
 
     var body: some View {
-        // Invisible spacer row: keeps the end-of-group drop target and
-        // accessibility element without drawing the old indent/corner marks.
+        // Invisible spacer row: the end-of-group drop slot (before it = into
+        // the group, after it = root) and accessibility element, drawing
+        // nothing. 16pt keeps the slot draggable without a visible gap; only
+        // populated expanded groups emit it, so header stacks stay slot-free.
         Color.clear
-            .frame(height: 12)
+            .frame(height: 16)
         .contentShape(Rectangle())
         .accessibilityElement()
         .accessibilityLabel(footerAccessibilityLabel)

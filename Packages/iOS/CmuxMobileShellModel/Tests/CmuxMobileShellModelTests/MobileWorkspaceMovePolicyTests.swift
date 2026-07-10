@@ -98,11 +98,10 @@ import Testing
         ])
     }
 
-    @Test func groupHeaderDroppedOnOwnMembersOrFooterIsNoOp() {
+    @Test func groupHeaderDroppedOnOwnMemberIsNoOp() {
         let workspaces = [workspace("anchor", group: "g"), workspace("member", group: "g"), workspace("tail")]
         let groups = [group("g", anchor: "anchor")]
         #expect(intent(workspaces: workspaces, groups: groups, sourceID: "group.g", destination: 2) == nil)
-        #expect(intent(workspaces: workspaces, groups: groups, sourceID: "group.g", destination: 3) == nil)
     }
 
     @Test func groupHeaderCanMoveToTopBottomAndBetweenRootRows() throws {
@@ -170,7 +169,7 @@ import Testing
         #expect(belowCollapsed.beforeWorkspaceID == "b-anchor")
     }
 
-    @Test func workspaceGroupSlotsMapHeaderMemberFooterAndCollapsedRules() throws {
+    @Test func workspaceGroupSlotsMapHeaderMemberBoundaryAndCollapsedRules() throws {
         let workspaces = [
             workspace("anchor", group: "g"),
             workspace("first", group: "g"),
@@ -183,10 +182,10 @@ import Testing
         #expect(belowHeader == MobileWorkspaceMoveIntent(groupID: "g", beforeWorkspaceID: "first"))
         let midGroup = try #require(intent(workspaces: workspaces, groups: groups, sourceID: "workspace.dragged", destination: 2))
         #expect(midGroup == MobileWorkspaceMoveIntent(groupID: "g", beforeWorkspaceID: "second"))
-        let beforeFooter = try #require(intent(workspaces: workspaces, groups: groups, sourceID: "workspace.dragged", destination: 3))
-        #expect(beforeFooter == MobileWorkspaceMoveIntent(groupID: "g", beforeWorkspaceID: "tail"))
-        let afterFooter = try #require(intent(workspaces: workspaces, groups: groups, sourceID: "workspace.dragged", destination: 4))
-        #expect(afterFooter == MobileWorkspaceMoveIntent(groupID: nil, beforeWorkspaceID: "tail"))
+        let beforeEndSlot = try #require(intent(workspaces: workspaces, groups: groups, sourceID: "workspace.dragged", destination: 3))
+        #expect(beforeEndSlot == MobileWorkspaceMoveIntent(groupID: "g", beforeWorkspaceID: "tail"))
+        let afterEndSlot = try #require(intent(workspaces: workspaces, groups: groups, sourceID: "workspace.dragged", destination: 4))
+        #expect(afterEndSlot == MobileWorkspaceMoveIntent(groupID: nil, beforeWorkspaceID: "tail"))
         let aboveHeader = try #require(intent(workspaces: workspaces, groups: groups, sourceID: "workspace.dragged", destination: 0))
         #expect(aboveHeader == MobileWorkspaceMoveIntent(groupID: nil, beforeWorkspaceID: "anchor"))
 
@@ -200,26 +199,61 @@ import Testing
         #expect(belowCollapsedHeader == MobileWorkspaceMoveIntent(groupID: nil, beforeWorkspaceID: "tail"))
     }
 
-    @Test func anchorOnlyGroupOnlyAcceptsExplicitFooterSlot() throws {
+    @Test func expandedAnchorOnlyGroupAcceptsBelowHeaderSlot() throws {
         let workspaces = [workspace("anchor", group: "g"), workspace("tail"), workspace("dragged")]
         let groups = [group("g", anchor: "anchor")]
         let aboveHeader = try #require(intent(workspaces: workspaces, groups: groups, sourceID: "workspace.dragged", destination: 0))
         #expect(aboveHeader == MobileWorkspaceMoveIntent(groupID: nil, beforeWorkspaceID: "anchor"))
-        let beforeFooter = try #require(intent(workspaces: workspaces, groups: groups, sourceID: "workspace.dragged", destination: 1))
-        #expect(beforeFooter == MobileWorkspaceMoveIntent(groupID: "g", beforeWorkspaceID: "tail"))
-        let afterFooter = try #require(intent(workspaces: workspaces, groups: groups, sourceID: "workspace.dragged", destination: 2))
-        #expect(afterFooter == MobileWorkspaceMoveIntent(groupID: nil, beforeWorkspaceID: "tail"))
+        let belowHeader = try #require(intent(workspaces: workspaces, groups: groups, sourceID: "workspace.dragged", destination: 1))
+        #expect(belowHeader == MobileWorkspaceMoveIntent(groupID: "g", beforeWorkspaceID: "tail"))
     }
 
     @Test func movingLastNonAnchorMemberOutLeavesAnchorOnlyGroup() throws {
         let workspaces = [workspace("anchor", group: "g"), workspace("member", group: "g"), workspace("root")]
         let groups = [group("g", anchor: "anchor")]
-        let move = try #require(intent(workspaces: workspaces, groups: groups, sourceID: "workspace.member", destination: 3))
-        #expect(move == MobileWorkspaceMoveIntent(groupID: nil, beforeWorkspaceID: "root"))
+        let move = try #require(intent(workspaces: workspaces, groups: groups, sourceID: "workspace.member", destination: 4))
+        #expect(move == MobileWorkspaceMoveIntent(groupID: nil, beforeWorkspaceID: nil))
         let moved = workspaces.applyingWorkspaceMoveIntent(move, movedWorkspaceID: "member", groups: groups)
-        #expect(moved.map(\.id.rawValue) == ["anchor", "member", "root"])
+        #expect(moved.map(\.id.rawValue) == ["anchor", "root", "member"])
         #expect(moved.first(where: { $0.id == "anchor" })?.groupID == "g")
         #expect(moved.first(where: { $0.id == "member" })?.groupID == nil)
+    }
+
+    @Test func lastMemberBoundaryKeepsMembershipUntilBothNeighborsAreOutside() throws {
+        let workspaces = [
+            workspace("anchor", group: "g"),
+            workspace("first", group: "g"),
+            workspace("last", group: "g"),
+            workspace("root-a"),
+            workspace("root-b"),
+        ]
+        let groups = [group("g", anchor: "anchor")]
+        let groupEnd = try #require(intent(
+            workspaces: workspaces,
+            groups: groups,
+            sourceID: "workspace.first",
+            destination: 3
+        ))
+        #expect(groupEnd == MobileWorkspaceMoveIntent(groupID: "g", beforeWorkspaceID: "root-a"))
+        #expect(movedIDs(workspaces, groupEnd, movedWorkspaceID: "first", groups: groups) == [
+            "anchor", "last", "first", "root-a", "root-b",
+        ])
+
+        let directExit = try #require(intent(
+            workspaces: workspaces,
+            groups: groups,
+            sourceID: "workspace.first",
+            destination: 4
+        ))
+        #expect(directExit == MobileWorkspaceMoveIntent(groupID: nil, beforeWorkspaceID: "root-a"))
+
+        let outside = try #require(intent(
+            workspaces: workspaces,
+            groups: groups,
+            sourceID: "workspace.first",
+            destination: 5
+        ))
+        #expect(outside == MobileWorkspaceMoveIntent(groupID: nil, beforeWorkspaceID: "root-b"))
     }
 
     @Test func pinnedWorkspaceAndGroupTopLevelMovesClampToTheirTier() throws {
