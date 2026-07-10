@@ -2,6 +2,14 @@ import Bonsplit
 import Foundation
 
 extension Workspace {
+    func setPortalPresentationVisible(_ visible: Bool) {
+        guard portalPresentationVisible != visible else { return }
+        portalPresentationVisible = visible
+        guard !visible else { return }
+        hideAllTerminalPortalViews()
+        hideAllBrowserPortalViews()
+    }
+
     func terminalPortalPresentation(
         panelId: UUID,
         paneId: PaneID

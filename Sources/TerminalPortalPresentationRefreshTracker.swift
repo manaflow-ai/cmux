@@ -120,7 +120,7 @@ extension WindowTerminalPortal {
         entriesByHostedId[hostedId] = entry
     }
 
-    private func transientAnchorRecoveryIsAuthoritative(_ entry: Entry) -> Bool {
+    func transientAnchorRecoveryIsAuthoritative(_ entry: Entry) -> Bool {
         guard let ownershipGeneration = entry.transientAnchorRecoveryGeneration,
               let terminalSurface = entry.hostedView?.surfaceView.terminalSurface else { return false }
         return terminalSurface.isPortalHostReplacementPending(

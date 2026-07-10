@@ -147,6 +147,11 @@ final class WorkspaceContentViewVisibilityTests {
         sidebarSelectionState.selection = .notifications
         await Self.drainMainRunLoop(for: window)
         #expect(!panel.hostedView.debugPortalVisibleInUI)
+        _ = tabManager.selectedWorkspace?.debugReconcileTerminalPortalVisibilityForTesting()
+        #expect(
+            !panel.hostedView.debugPortalVisibleInUI,
+            "A layout follow-up must not override sidebar-owned portal hiding"
+        )
 
         sidebarSelectionState.selection = .tabs
         await Self.drainMainRunLoop(for: window)
