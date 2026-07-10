@@ -28,8 +28,8 @@ extension ControlCommandCoordinator {
             }
             guard let data = json.data(using: .utf8),
                   let object = try? JSONSerialization.jsonObject(with: data),
-                  let dictionary = object as? [String: Any],
-                  dictionary["id"] != nil else {
+                  case let .object(dictionary)? = JSONValue(foundationObject: object),
+                  simulatorWebInspectorMessageID(dictionary["id"]) else {
                 return simulatorInvalidParameters(
                     diagnostic: "json must be an object with a string or numeric id"
                 )
@@ -50,6 +50,13 @@ extension ControlCommandCoordinator {
             }
         default:
             return nil
+        }
+    }
+
+    private nonisolated func simulatorWebInspectorMessageID(_ value: JSONValue?) -> Bool {
+        switch value {
+        case .string?, .int?, .double?: true
+        default: false
         }
     }
 

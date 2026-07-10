@@ -51,7 +51,9 @@ extension ControlCommandCoordinator {
                   let enabled = simulatorBool(request.params, "enabled") else {
                 return invalidSimulatorOperation("diagnostic and enabled are required")
             }
-            operation = .coreAnimation(diagnostic: diagnostic, enabled: enabled)
+            operation = .coreAnimation(
+                diagnostic: simulatorCADiagnosticName(diagnostic), enabled: enabled
+            )
         case "simulator.memory_warning":
             operation = .memoryWarning
         case "simulator.event_log":

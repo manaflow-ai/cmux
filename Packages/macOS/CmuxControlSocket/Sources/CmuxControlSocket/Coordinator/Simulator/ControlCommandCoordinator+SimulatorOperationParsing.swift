@@ -47,6 +47,14 @@ extension ControlCommandCoordinator {
         }
     }
 
+    nonisolated func simulatorCADiagnosticName(_ raw: String) -> String {
+        let normalized = raw.lowercased()
+        return switch normalized {
+        case "slow-animations", "slow_animations", "slowanimations": "slowAnimations"
+        default: normalized
+        }
+    }
+
     nonisolated func simulatorSwipe(
         _ params: [String: JSONValue]
     ) -> [ControlSimulatorTouch]? {

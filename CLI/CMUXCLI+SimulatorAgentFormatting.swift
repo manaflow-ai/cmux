@@ -150,7 +150,11 @@ extension CMUXCLI {
     }
 
     func simulatorCADiagnosticName(_ raw: String) -> String {
-        raw.lowercased() == "slow-animations" ? "slowAnimations" : raw
+        let normalized = raw.lowercased()
+        return switch normalized {
+        case "slow-animations", "slow_animations", "slowanimations": "slowAnimations"
+        default: normalized
+        }
     }
 
     func simulatorArgumentsError(_ command: String) -> CLIError {
