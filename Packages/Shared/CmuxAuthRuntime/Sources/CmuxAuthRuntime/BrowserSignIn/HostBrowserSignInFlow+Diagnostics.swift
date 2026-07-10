@@ -1,18 +1,18 @@
 import Foundation
 
 extension HostBrowserSignInFlow {
-    func authCallbackState(from url: URL) -> String? {
+    nonisolated func authCallbackState(from url: URL) -> String? {
         URLComponents(url: url, resolvingAgainstBaseURL: false)?
             .queryItems?
             .first(where: { $0.name == "cmux_auth_state" })?
             .value
     }
 
-    func redactedAuthState(_ state: String) -> String {
+    nonisolated func redactedAuthState(_ state: String) -> String {
         "\(state.prefix(8))..."
     }
 
-    func authCallbackSummary(_ url: URL) -> String {
+    nonisolated func authCallbackSummary(_ url: URL) -> String {
         let scheme = url.scheme ?? "nil"
         let target = url.host ?? url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         let queryItems = URLComponents(url: url, resolvingAgainstBaseURL: false)?
@@ -22,7 +22,7 @@ extension HostBrowserSignInFlow {
         return "scheme=\(scheme) target=\(target.isEmpty ? "nil" : target) queryKeys=\(queryItems.isEmpty ? "none" : queryItems)"
     }
 
-    func sessionResultSummary(_ result: HostBrowserAuthSessionResult) -> String {
+    nonisolated func sessionResultSummary(_ result: HostBrowserAuthSessionResult) -> String {
         switch result {
         case let .callback(url):
             return "result=callback \(authCallbackSummary(url))"
