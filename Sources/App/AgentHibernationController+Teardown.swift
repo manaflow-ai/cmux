@@ -24,9 +24,10 @@ extension AgentHibernationController {
     /// SIGTERM / pty-close can trigger Claude's interrupted-exit transcript rewrite,
     /// so the teardown is sequenced after it rather than racing it; the re-validation
     /// below covers disable/stop and anything else that changed during the brief I/O hop.
-    func beginConfirmedTeardowns(_ requests: [ConfirmedTeardownRequest]) {
-        guard !requests.isEmpty else { return }
-        Task { @MainActor in
+    @discardableResult
+    func beginConfirmedTeardowns(_ requests: [ConfirmedTeardownRequest]) -> Task<Void, Never> {
+        guard !requests.isEmpty else { return Task {} }
+        return Task { @MainActor in
             defer {
                 for request in requests {
                     self.clearInFlightTeardown(request.record.key, requestID: request.requestID)
