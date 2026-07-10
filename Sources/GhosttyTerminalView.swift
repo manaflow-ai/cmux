@@ -2781,7 +2781,7 @@ class GhosttyApp {
             performOnMain { self.ringBell() }
             return true
         case GHOSTTY_ACTION_SELECTION_CHANGED:
-            DispatchQueue.main.async { surfaceView.handleSelectionChangedAction() }
+            Task { @MainActor in surfaceView.handleSelectionChangedAction() }
             return true
         case GHOSTTY_ACTION_GOTO_SPLIT:
             guard let tabId = surfaceView.tabId,
