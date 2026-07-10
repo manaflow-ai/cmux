@@ -381,4 +381,32 @@ import Testing
         #expect(connection.activePaneByWindow[1] == 2)
         #expect(observed! == (1, 2))
     }
+
+    @Test func rectsVerifiedPublishPrunesRemovedPaneDiagnosticState() {
+        let (connection, writer, pipe) = attachedConnection()
+        defer { writer.close(); try? pipe.fileHandleForReading.close() }
+        // Publish the two-pane window through the verified path: list-windows
+        // reply, then its rects reply.
+        reply(connection, lines: [
+            "@1 abcd,120x40,0,0{60x40,0,0,4,59x40,61,0,5} abcd,120x40,0,0{60x40,0,0,4,59x40,61,0,5} [] main"
+        ])
+        reply(connection, lines: ["%4 0 0 60 40 1 off :4 \"left\"", "%5 61 0 59 40 0 off :5 \"right\""])
+
+        connection.handleMessageForTesting(.output(paneId: 4, data: Data("left".utf8)))
+        connection.handleMessageForTesting(.output(paneId: 5, data: Data("right".utf8)))
+        connection.handleMessageForTesting(.subscriptionChanged(name: "cmux_reflow_4", value: "0|zsh"))
+        connection.handleMessageForTesting(.subscriptionChanged(name: "cmux_reflow_5", value: "1|vim"))
+
+        // Removing pane 5 publishes through the layout's verified rects reply,
+        // which prunes the dead pane's diagnostic state.
+        connection.handleMessageForTesting(.layoutChange(
+            windowId: 1, layout: "f92f,80x24,0,0,4", visibleLayout: nil, zoomed: false
+        ))
+        reply(connection, lines: ["%4 0 0 80 24 1 off :4 \"left\""])
+
+        #expect(connection.snapshot().paneOutputByteCounts[4] == 4)
+        #expect(connection.snapshot().paneOutputByteCounts[5] == nil)
+        #expect(connection.paneForegroundStates[4] != nil)
+        #expect(connection.paneForegroundStates[5] == nil)
+    }
 }
