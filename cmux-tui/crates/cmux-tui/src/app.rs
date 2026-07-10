@@ -3841,7 +3841,9 @@ mod tests {
 
     use crate::browser_input::BrowserInputDispatcher;
     use crate::config::{Config, ScrollbarPosition};
-    use crate::pty_input::{PtyInputDispatcher, PtyInputEnqueueResult};
+    use crate::pty_input::{
+        PtyInputDispatcher, PtyInputEnqueueResult, PtyInputKind, PtyOperationFailure,
+    };
     use crate::session::tree::{PaneView, ScreenView, TabNotificationView, TabView, WorkspaceView};
     use crate::session::{Session, TreeView};
 
@@ -4016,6 +4018,29 @@ mod tests {
             Some("PTY input queue is full; input was not sent")
         );
         assert!(!app.quit);
+    }
+
+    #[test]
+    fn motion_failure_preserves_pty_drag_for_the_physical_release() {
+        let mux = Mux::new("motion-failure-drag-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.drag = Some(Drag::PtyMouse {
+            surface: 42,
+            content: Rect { x: 1, y: 1, width: 20, height: 8 },
+            button: MouseButton::Right,
+            position: (4, 3),
+            modifiers: KeyModifiers::NONE,
+        });
+
+        app.handle(AppEvent::PtyOperationFailed(PtyOperationFailure {
+            surface_id: Some(42),
+            kind: Some(PtyInputKind::Motion),
+            label: "PTY input",
+            error: "write failed".to_string(),
+        }))
+        .unwrap();
+
+        assert!(matches!(app.drag, Some(Drag::PtyMouse { button: MouseButton::Right, .. })));
     }
 
     #[test]
