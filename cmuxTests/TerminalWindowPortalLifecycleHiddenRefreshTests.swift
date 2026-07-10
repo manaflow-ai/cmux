@@ -140,60 +140,166 @@ extension TerminalWindowPortalLifecycleTests {
     }
 
     @MainActor
-    func testWorkspacePortalProbeCostIgnoresUnrelatedWorkspacesAndPanes() throws {
+    func testWorkspacePortalLookupStaysLiveWithDeepUnrelatedPanes() throws {
         let manager = TabManager(autoWelcomeIfNeeded: false)
         defer { manager.tabs.forEach { $0.teardownAllPanels() } }
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let panel = try XCTUnwrap(workspace.focusedTerminalPanel)
         let pane = try XCTUnwrap(workspace.paneId(forPanelId: panel.id))
+        let tabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(panel.id))
+        workspace.bonsplitController.focusPane(pane)
+        workspace.bonsplitController.selectTab(tabId)
 
-        TerminalPortalPresentationDebugCounters.workspaceCandidateTabProbes = 0
         let baselinePresentation = workspace.terminalPortalPresentation(panelId: panel.id, paneId: pane)
-        let baselineProbeCount = TerminalPortalPresentationDebugCounters.workspaceCandidateTabProbes
-        XCTAssertGreaterThan(baselineProbeCount, 0)
+        XCTAssertEqual(workspace.bonsplitController.paneId(containing: tabId), pane)
+        XCTAssertEqual(workspace.bonsplitController.selectedTabId(inPane: pane), tabId)
 
-        XCTAssertNotNil(workspace.newTerminalSplit(
-            from: panel.id,
-            orientation: .horizontal,
-            focus: false
-        ))
-        for _ in 0..<8 { _ = manager.addTab(select: false) }
+        workspace.isProgrammaticSplit = true
+        defer { workspace.isProgrammaticSplit = false }
+        for index in 0..<12 {
+            XCTAssertNotNil(workspace.bonsplitController.splitPane(
+                pane,
+                orientation: .horizontal,
+                withTab: Bonsplit.Tab(title: "unrelated-\(index)"),
+                insertFirst: true,
+                initialDividerPosition: nil
+            ))
+        }
+        workspace.bonsplitController.focusPane(pane)
+        workspace.bonsplitController.selectTab(tabId)
 
-        TerminalPortalPresentationDebugCounters.workspaceCandidateTabProbes = 0
         let scaledPresentation = workspace.terminalPortalPresentation(panelId: panel.id, paneId: pane)
+        XCTAssertEqual(workspace.bonsplitController.paneId(containing: tabId), pane)
+        XCTAssertEqual(workspace.bonsplitController.selectedTabId(inPane: pane), tabId)
         XCTAssertEqual(scaledPresentation, baselinePresentation)
-        XCTAssertEqual(TerminalPortalPresentationDebugCounters.workspaceCandidateTabProbes, baselineProbeCount)
     }
 
     @MainActor
-    func testDockPortalProbeCostIgnoresTabsInUnrelatedPanes() throws {
+    func testWorkspacePortalSelectionRefreshesFromFocusOnlyTabClickCallback() throws {
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        defer { manager.tabs.forEach { $0.teardownAllPanels() } }
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let firstPanel = try XCTUnwrap(workspace.focusedTerminalPanel)
+        let pane = try XCTUnwrap(workspace.paneId(forPanelId: firstPanel.id))
+        let secondPanel = try XCTUnwrap(workspace.newTerminalSurface(inPane: pane, focus: false))
+        let secondTabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(secondPanel.id))
+        let controller = workspace.bonsplitController
+        let owner = controller.delegate
+
+        controller.delegate = nil
+        controller.selectTab(secondTabId)
+        controller.delegate = owner
+        XCTAssertEqual(controller.selectedTabId(inPane: pane), secondTabId)
+        workspace.splitTabBar(controller, didFocusPane: pane)
+
+        XCTAssertEqual(
+            workspace.terminalPortalPresentation(panelId: firstPanel.id, paneId: pane),
+            .hidden
+        )
+        guard case .visible(_, let zPriority) = workspace.terminalPortalPresentation(
+            panelId: secondPanel.id,
+            paneId: pane
+        ) else {
+            XCTFail("The focus-only tab-click callback must expose the newly selected terminal")
+            return
+        }
+        XCTAssertEqual(zPriority, 2)
+    }
+
+    @MainActor
+    func testDockPortalLookupStaysLiveWithDeepUnrelatedPanes() throws {
         let store = DockSplitStore(workspaceId: UUID(), baseDirectoryProvider: { nil })
         defer { store.closeAllPanels() }
         let pane = try XCTUnwrap(store.bonsplitController.allPaneIds.first)
         let panelId = try XCTUnwrap(store.newSurface(kind: .terminal, inPane: pane, focus: true))
+        let tabId = try XCTUnwrap(store.surfaceId(forPanelId: panelId))
         store.setVisibleInUI(true)
+        store.bonsplitController.focusPane(pane)
+        store.bonsplitController.selectTab(tabId)
 
-        TerminalPortalPresentationDebugCounters.dockCandidateTabProbes = 0
-        let baselinePresentation = store.terminalPortalPresentation(panelId: panelId, paneId: pane)
-        let baselineProbeCount = TerminalPortalPresentationDebugCounters.dockCandidateTabProbes
-        XCTAssertGreaterThan(baselineProbeCount, 0)
+        let baselinePresentation = store.terminalPortalPresentation(
+            panelId: panelId,
+            tabId: tabId,
+            paneId: pane
+        )
+        XCTAssertEqual(store.bonsplitController.paneId(containing: tabId), pane)
+        XCTAssertEqual(store.bonsplitController.selectedTabId(inPane: pane), tabId)
 
-        let splitPanelId = try XCTUnwrap(store.newSplit(
-            kind: .terminal,
-            orientation: .horizontal,
-            insertFirst: false,
-            sourcePanelId: panelId,
-            focus: false
-        ))
-        let unrelatedPane = try XCTUnwrap(store.paneId(forPanelId: splitPanelId))
-        for _ in 0..<8 {
-            _ = store.newSurface(kind: .terminal, inPane: unrelatedPane, focus: false)
+        store.isProgrammaticDockSplit = true
+        defer { store.isProgrammaticDockSplit = false }
+        for index in 0..<12 {
+            XCTAssertNotNil(store.bonsplitController.splitPane(
+                pane,
+                orientation: .horizontal,
+                withTab: Bonsplit.Tab(title: "unrelated-\(index)"),
+                insertFirst: true,
+                initialDividerPosition: nil
+            ))
         }
+        store.bonsplitController.focusPane(pane)
+        store.bonsplitController.selectTab(tabId)
 
-        TerminalPortalPresentationDebugCounters.dockCandidateTabProbes = 0
-        let scaledPresentation = store.terminalPortalPresentation(panelId: panelId, paneId: pane)
+        let scaledPresentation = store.terminalPortalPresentation(
+            panelId: panelId,
+            tabId: tabId,
+            paneId: pane
+        )
+        XCTAssertEqual(store.bonsplitController.paneId(containing: tabId), pane)
+        XCTAssertEqual(store.bonsplitController.selectedTabId(inPane: pane), tabId)
         XCTAssertEqual(scaledPresentation, baselinePresentation)
-        XCTAssertEqual(TerminalPortalPresentationDebugCounters.dockCandidateTabProbes, baselineProbeCount)
+    }
+
+    @MainActor
+    func testRemoteTmuxPortalLookupStaysLiveWithDeepUnrelatedPanes() throws {
+        let connection = RemoteTmuxControlConnection(
+            host: RemoteTmuxHost(destination: "user@host"),
+            sessionName: "work"
+        )
+        let mirror = RemoteTmuxWindowMirror(
+            windowId: 1,
+            panelId: UUID(),
+            connection: connection,
+            layout: RemoteTmuxLayoutNode(width: 80, height: 24, x: 0, y: 0, content: .pane(7)),
+            makePanel: { _ in nil }
+        )
+        let controller = mirror.bonsplitController
+        let pane = try XCTUnwrap(controller.allPaneIds.first)
+        let tabId = try XCTUnwrap(controller.createTab(title: "target", inPane: pane))
+        controller.focusPane(pane)
+        controller.selectTab(tabId)
+        let outer = TerminalPortalPresentation.visible(isActive: true, zPriority: 2)
+        let baseline = mirror.terminalPortalPresentation(
+            tabId: tabId,
+            paneId: pane,
+            outerPresentation: outer
+        )
+        XCTAssertEqual(controller.paneId(containing: tabId), pane)
+        XCTAssertEqual(controller.selectedTabId(inPane: pane), tabId)
+
+        mirror.isApplyingRemoteLayout = true
+        defer { mirror.isApplyingRemoteLayout = false }
+        for index in 0..<12 {
+            let sibling = Bonsplit.Tab(title: "unrelated-\(index)")
+            XCTAssertNotNil(controller.splitPane(
+                pane,
+                orientation: .horizontal,
+                withTab: sibling,
+                insertFirst: true
+            ))
+        }
+        controller.focusPane(pane)
+        controller.selectTab(tabId)
+        XCTAssertEqual(controller.paneId(containing: tabId), pane)
+        XCTAssertEqual(controller.selectedTabId(inPane: pane), tabId)
+
+        XCTAssertEqual(
+            mirror.terminalPortalPresentation(
+                tabId: tabId,
+                paneId: pane,
+                outerPresentation: outer
+            ),
+            baseline
+        )
     }
 
     @MainActor
