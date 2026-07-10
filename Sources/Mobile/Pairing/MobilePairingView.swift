@@ -44,7 +44,7 @@ struct MobilePairingView: View {
         .onChange(of: coordinator?.isAuthenticated ?? false) { _, _ in
             Task { await model.refresh() }
         }
-        .onChange(of: browserSignIn?.isSigningIn ?? false) { _, signingIn in
+        .onChange(of: browserSignIn?.isPresentingSignIn ?? false) { _, signingIn in
             // When the browser flow settles (success or cancel), re-evaluate so a
             // cancelled sign-in returns to the signed-out state instead of spinning.
             if !signingIn { Task { await model.refresh() } }
@@ -211,7 +211,7 @@ struct MobilePairingView: View {
 
     @ViewBuilder
     private var loadingContent: some View {
-        if browserSignIn?.isSigningIn == true {
+        if browserSignIn?.isPresentingSignIn == true {
             VStack(spacing: 12) {
                 HStack(spacing: 10) {
                     ProgressView().controlSize(.small)

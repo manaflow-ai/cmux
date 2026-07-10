@@ -12,6 +12,7 @@ final class RecordingSidebarGitHost: SidebarGitHosting {
         case clearGitBranch(UUID, UUID)
         case pullRequestBadge(UUID, UUID, SidebarPullRequestBadge)
         case clearPullRequestBadge(UUID, UUID)
+        case scheduleGitMetadataProbe(UUID, UUID, String)
         case clearAllGitMetadata
         case clearAllPullRequestMetadata
     }
@@ -168,6 +169,10 @@ final class RecordingSidebarGitHost: SidebarGitHosting {
     func clearPanelPullRequest(workspaceId: UUID, panelId: UUID) {
         mutate(workspaceId) { $0.panels[panelId]?.badge = nil }
         record(.clearPullRequestBadge(workspaceId, panelId))
+    }
+
+    func schedulePanelGitMetadataProbe(workspaceId: UUID, panelId: UUID, reason: String) {
+        record(.scheduleGitMetadataProbe(workspaceId, panelId, reason))
     }
 
     func clearAllSidebarGitMetadata() {
