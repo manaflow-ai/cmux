@@ -84,7 +84,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
     // MARK: - Coordinator
 
     final class Coordinator: NSObject, NSOutlineViewDataSource, NSOutlineViewDelegate, NSMenuDelegate {
-        var store: FileExplorerStore
+        var store: FileExplorerStore { didSet { if store !== oldValue { lastRootNodeCount = -1; observeStore() } } } // Follow store swaps (Bonsplit reuses this coordinator across tool-panel switches): resubscribe and reset so the next reloadIfNeeded (updateNSView calls it) rebuilds; pre-migration @ObservedObject masked the stale subscription.
         var state: FileExplorerState
         var onOpenFilePreview: (String) -> Void
         var placement: FileExplorerPanelPlacement
