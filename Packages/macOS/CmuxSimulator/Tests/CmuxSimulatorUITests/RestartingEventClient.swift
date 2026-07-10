@@ -2,7 +2,6 @@ import CmuxSimulator
 @testable import CmuxSimulatorUI
 
 actor RestartingEventClient: SimulatorPaneClient {
-    nonisolated let contextCache = SimulatorRemoteContextCache()
     private var continuations: [SimulatorWorkerEventStream.Continuation] = []
 
     func discoverDevices() async throws -> [SimulatorDevice] {
@@ -22,13 +21,13 @@ actor RestartingEventClient: SimulatorPaneClient {
     func shutdownDevice(id: String) async throws {}
 
     func subscribe() async -> SimulatorWorkerEventStream {
-        let (stream, continuation) = SimulatorWorkerEventStream.makeStream(
+        let source = SimulatorWorkerEventStreamSource(
             maximumBufferedBytes: 1_024 * 1_024,
             maximumBufferedEvents: 64,
             onTermination: {}
         )
-        continuations.append(continuation)
-        return stream
+        continuations.append(source.continuation)
+        return source.stream
     }
 
     func send(_ message: SimulatorWorkerInbound) async {}
@@ -38,13 +37,13 @@ actor RestartingEventClient: SimulatorPaneClient {
 
     func subscriptionCount() -> Int { continuations.count }
 
-    func finishSubscription(at index: Int) {
+    func finishSubscription(at index: Int) async {
         guard continuations.indices.contains(index) else { return }
-        continuations[index].finish()
+        await continuations[index].finish()
     }
 
-    func emit(_ event: SimulatorWorkerEvent, to index: Int) {
+    func emit(_ event: SimulatorWorkerEvent, to index: Int) async {
         guard continuations.indices.contains(index) else { return }
-        _ = continuations[index].yield(event)
+        _ = await continuations[index].yield(event)
     }
 }

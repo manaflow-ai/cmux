@@ -7,15 +7,15 @@ struct SimulatorCameraSurfaceRingTests {
     @Test("Worker processes and devices receive distinct deterministic shared-memory names")
     func distinctWorkerNames() {
         let device = "A1B2-C3D4"
-        let first = SimulatorCameraSurfaceRing.makeSharedMemoryName(
+        let first = simulatorCameraSharedMemoryName(
             deviceIdentifier: device,
             processIdentifier: 42
         )
-        let second = SimulatorCameraSurfaceRing.makeSharedMemoryName(
+        let second = simulatorCameraSharedMemoryName(
             deviceIdentifier: device,
             processIdentifier: 43
         )
-        let otherDevice = SimulatorCameraSurfaceRing.makeSharedMemoryName(
+        let otherDevice = simulatorCameraSharedMemoryName(
             deviceIdentifier: "FFFF-EEEE",
             processIdentifier: 42
         )
@@ -25,7 +25,7 @@ struct SimulatorCameraSurfaceRingTests {
         #expect(first.hasPrefix("/cmux-sc-"))
         #expect(first.utf8.count < 31)
         #expect(second.utf8.count < 31)
-        #expect(first == SimulatorCameraSurfaceRing.makeSharedMemoryName(
+        #expect(first == simulatorCameraSharedMemoryName(
             deviceIdentifier: device,
             processIdentifier: 42
         ))
@@ -36,12 +36,12 @@ struct SimulatorCameraSurfaceRingTests {
         let source = CGSize(width: 200, height: 100)
         let destination = CGSize(width: 100, height: 100)
 
-        #expect(SimulatorCameraSurfaceRing.imageScale(
+        #expect(simulatorCameraImageScale(
             source: source,
             destination: destination,
             fillsFrame: false
         ) == 0.5)
-        #expect(SimulatorCameraSurfaceRing.imageScale(
+        #expect(simulatorCameraImageScale(
             source: source,
             destination: destination,
             fillsFrame: true
@@ -71,37 +71,5 @@ struct SimulatorCameraSurfaceRingTests {
         }
 
         #expect(await probe.wasCancelled)
-    }
-}
-
-private struct TestCameraTiming: SimulatorCameraTiming {
-    let probe: CameraTimingProbe
-
-    func now() -> Duration { .zero }
-
-    func sleep(for duration: Duration) async throws {
-        try await probe.sleep()
-    }
-
-    func sleep(until deadline: Duration, tolerance: Duration) async throws {
-        try await probe.sleep()
-    }
-}
-
-private actor CameraTimingProbe {
-    private var started = false
-    private var cancelled = false
-
-    var hasStarted: Bool { started }
-    var wasCancelled: Bool { cancelled }
-
-    func sleep() async throws {
-        started = true
-        do {
-            try await ContinuousClock().sleep(for: .seconds(3_600))
-        } catch {
-            cancelled = true
-            throw error
-        }
     }
 }

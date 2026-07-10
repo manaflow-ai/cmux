@@ -2,7 +2,6 @@ import CmuxSimulator
 @testable import CmuxSimulatorUI
 
 actor LocationLifecyclePaneClient: SimulatorPaneClient {
-    nonisolated let contextCache = SimulatorRemoteContextCache()
     private var deviceValues: [SimulatorDevice]
     private let stream: SimulatorWorkerEventStream
     private let continuation: SimulatorWorkerEventStream.Continuation
@@ -10,13 +9,13 @@ actor LocationLifecyclePaneClient: SimulatorPaneClient {
 
     init(devices: [SimulatorDevice]) {
         deviceValues = devices
-        let (stream, continuation) = SimulatorWorkerEventStream.makeStream(
+        let source = SimulatorWorkerEventStreamSource(
             maximumBufferedBytes: 4_096,
             maximumBufferedEvents: 32,
             onTermination: {}
         )
-        self.stream = stream
-        self.continuation = continuation
+        self.stream = source.stream
+        self.continuation = source.continuation
     }
 
     func discoverDevices() async throws -> [SimulatorDevice] { deviceValues }
@@ -48,11 +47,11 @@ actor LocationLifecyclePaneClient: SimulatorPaneClient {
 
     func stop() async {
         operationValues.append("close")
-        continuation.finish()
+        await continuation.finish()
     }
 
-    func emit(_ event: SimulatorWorkerEvent) {
-        _ = continuation.yield(event)
+    func emit(_ event: SimulatorWorkerEvent) async {
+        _ = await continuation.yield(event)
     }
 
     func setDevices(_ devices: [SimulatorDevice]) { deviceValues = devices }

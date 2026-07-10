@@ -18,12 +18,12 @@ extension SimulatorWorkerClient {
         }
     }
 
-    func broadcast(_ event: SimulatorWorkerEvent, byteCount: Int? = nil) {
+    func broadcast(_ event: SimulatorWorkerEvent, byteCount: Int? = nil) async {
         let chargedBytes = byteCount ?? estimatedByteCount(of: event)
         var overflowed: [Int] = []
         var terminated: [Int] = []
         for (identifier, continuation) in subscribers {
-            switch continuation.yield(event, byteCount: chargedBytes) {
+            switch await continuation.yield(event, byteCount: chargedBytes) {
             case .enqueued:
                 break
             case .overflow:
@@ -35,7 +35,7 @@ extension SimulatorWorkerClient {
             }
         }
         for identifier in Set(overflowed + terminated) {
-            subscribers.removeValue(forKey: identifier)?.finish()
+            await subscribers.removeValue(forKey: identifier)?.finish()
         }
         guard !overflowed.isEmpty, child != nil else { return }
         let failure = SimulatorFailure(
@@ -47,13 +47,13 @@ extension SimulatorWorkerClient {
             isRecoverable: true
         )
         for continuation in subscribers.values {
-            yield(.message(.failure(failure)), to: continuation)
+            await yield(.message(.failure(failure)), to: continuation)
         }
         discardWorker(intentional: true, clearReplayState: false)
-        handleUnexpectedWorkerStop(reason: failure.message)
+        await handleUnexpectedWorkerStop(reason: failure.message)
     }
 
-    func broadcastFailure(_ error: Error, code: String) {
+    func broadcastFailure(_ error: Error, code: String) async {
         let failure: SimulatorFailure
         if let simulatorFailure = error as? SimulatorFailure {
             failure = simulatorFailure
@@ -66,14 +66,14 @@ extension SimulatorWorkerClient {
         } else {
             failure = SimulatorFailure(code: code, message: String(describing: error), isRecoverable: true)
         }
-        broadcast(.message(.failure(failure)))
+        await broadcast(.message(.failure(failure)))
     }
 
     func yield(
         _ event: SimulatorWorkerEvent,
         to continuation: SimulatorWorkerEventStream.Continuation
-    ) {
-        _ = continuation.yield(event, byteCount: estimatedByteCount(of: event))
+    ) async {
+        _ = await continuation.yield(event, byteCount: estimatedByteCount(of: event))
     }
 
     func estimatedByteCount(of event: SimulatorWorkerEvent) -> Int {

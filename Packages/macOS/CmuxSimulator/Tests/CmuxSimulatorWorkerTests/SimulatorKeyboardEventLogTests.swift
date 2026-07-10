@@ -3,6 +3,7 @@ import Testing
 
 @Suite("Simulator keyboard event-log privacy")
 struct SimulatorKeyboardEventLogTests {
+    private let eventLog = SimulatorKeyboardEventLog()
     @Test("Printable keyboard and keypad usages have one indistinguishable label")
     func printableUsagesAreRedacted() {
         let printableUsages: [UInt32] = [
@@ -15,8 +16,8 @@ struct SimulatorKeyboardEventLogTests {
         ]
 
         for usage in printableUsages {
-            #expect(SimulatorKeyboardEventLog.isPrintable(usage))
-            #expect(SimulatorKeyboardEventLog.summary(for: usage) == "character")
+            #expect(eventLog.isPrintable(usage))
+            #expect(eventLog.summary(for: usage) == "character")
         }
     }
 
@@ -29,8 +30,8 @@ struct SimulatorKeyboardEventLogTests {
             0x16, 0x08, 0x06, 0x15, 0x08, 0x17, 0x26, 0x38,
         ]
 
-        let firstLog = firstPassword.map(SimulatorKeyboardEventLog.summary(for:))
-        let secondLog = secondPassword.map(SimulatorKeyboardEventLog.summary(for:))
+        let firstLog = firstPassword.map(eventLog.summary(for:))
+        let secondLog = secondPassword.map(eventLog.summary(for:))
 
         #expect(firstLog == secondLog)
         #expect(firstLog == Array(repeating: "character", count: firstPassword.count))
@@ -39,9 +40,9 @@ struct SimulatorKeyboardEventLogTests {
 
     @Test("Non-printable controls retain readable labels without raw usages")
     func controlsRetainLabels() {
-        #expect(SimulatorKeyboardEventLog.summary(for: 0x28) == "Enter")
-        #expect(SimulatorKeyboardEventLog.summary(for: 0x50) == "ArrowLeft")
-        #expect(SimulatorKeyboardEventLog.summary(for: 0xE3) == "CommandLeft")
-        #expect(SimulatorKeyboardEventLog.summary(for: 0xFFFF) == "control")
+        #expect(eventLog.summary(for: 0x28) == "Enter")
+        #expect(eventLog.summary(for: 0x50) == "ArrowLeft")
+        #expect(eventLog.summary(for: 0xE3) == "CommandLeft")
+        #expect(eventLog.summary(for: 0xFFFF) == "control")
     }
 }

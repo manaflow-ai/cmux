@@ -4,6 +4,7 @@ import CoreImage
 import Foundation
 import ImageIO
 
+/// Classifies host media files for native Simulator camera injection.
 public struct SimulatorCameraSourceClassifier: Sendable {
     /// Creates a classifier for host image and video files.
     public init() {}

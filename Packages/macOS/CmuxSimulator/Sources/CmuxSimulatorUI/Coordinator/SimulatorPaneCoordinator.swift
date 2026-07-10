@@ -18,8 +18,8 @@ public final class SimulatorPaneCoordinator {
     public internal(set) var capabilities: Set<SimulatorCapability> = []
     /// Live framebuffer metadata.
     public internal(set) var display: SimulatorDisplayMetadata?
-    /// The remote Core Animation context hosted by the pane.
-    public internal(set) var contextID: UInt32?
+    /// Host-resolvable framebuffer surfaces published by the isolated worker.
+    public internal(set) var frameTransport: SimulatorFrameTransportDescriptor?
     /// The latest recoverable or terminal failure.
     public internal(set) var failure: SimulatorFailure?
     /// The current foreground application, when inspection is supported.
@@ -179,7 +179,7 @@ public final class SimulatorPaneCoordinator {
         )
         self.outgoingStream = stream
         self.outgoingContinuation = continuation
-        self.contextID = client.contextCache.contextID
+        self.frameTransport = nil
     }
 
     deinit {

@@ -19,8 +19,8 @@ extension SimulatorWorkerCoordinator {
         framebuffer = nil
         camera.stop()
         webInspector.shutdown()
-        renderContext = nil
         currentDisplay = nil
+        currentFrameTransport = nil
         currentDeviceIdentifier = nil
         gestureStart = nil
         gestureUsesTwoFingers = false
@@ -45,15 +45,15 @@ extension SimulatorWorkerCoordinator {
         await camera.shutdown()
         try? await webInspector.releaseSession(emit: false)
         webInspector.shutdown()
-        renderContext = nil
         currentDisplay = nil
+        currentFrameTransport = nil
         currentDeviceIdentifier = nil
         gestureStart = nil
         gestureUsesTwoFingers = false
         pendingKeyUsages.removeAll()
     }
 
-    func attach(udid: String, geometry: SimulatorSurfaceGeometry?) async {
+    func attach(udid: String) async {
         await shutdown()
         send(.status(.connecting))
         do {
@@ -73,26 +73,21 @@ extension SimulatorWorkerCoordinator {
             let device = try resolver.device(udid: udid)
             try resolver.requireBooted(device)
 
-            let renderContext = try SimulatorRemoteRenderContext()
-            let initialGeometry = geometry ?? SimulatorSurfaceGeometry(
-                width: 430,
-                height: 932,
-                scale: 2
-            )
-            renderContext.resize(initialGeometry)
-
             let framebuffer = SimulatorFramebuffer(
-                renderContext: renderContext
-            ) { [weak self] display in
-                guard let self else { return }
-                if self.currentDisplay != display {
-                    self.cancelAccessibilitySnapshotRequests()
-                }
-                self.currentDisplay = display
-                self.send(.display(display))
-            }
-            try framebuffer.start(device: device)
-            framebuffer.resize(initialGeometry)
+                onFrameTransportChange: { [weak self] transport in
+                    guard let self else { return }
+                    currentFrameTransport = transport
+                    send(.frameTransport(transport))
+                },
+                onDisplayChange: { [weak self] display in
+                    guard let self else { return }
+                    if self.currentDisplay != display {
+                        self.cancelAccessibilitySnapshotRequests()
+                    }
+                    self.currentDisplay = display
+                    self.send(.display(display))
+                })
+            try await framebuffer.start(device: device)
 
             let hid = SimulatorHIDTransport(frameworkLoader: frameworkLoader)
             var hidFailure: Error?
@@ -117,13 +112,10 @@ extension SimulatorWorkerCoordinator {
             camera.attach(deviceIdentifier: udid)
             let webInspectorAvailable = await webInspector.isAvailable(deviceIdentifier: udid)
 
-            self.renderContext = renderContext
             self.framebuffer = framebuffer
             attachedDevice = device
             currentDeviceIdentifier = udid
             try startDeviceStateMonitoring(device: device, deviceIdentifier: udid)
-            send(.context(renderContext.contextIdentifier))
-
             var probe: SimulatorWorkerCapabilityProbe
             if self.hid != nil {
                 probe = hid.capabilities(
@@ -158,7 +150,8 @@ extension SimulatorWorkerCoordinator {
             default:
                 send(.status(.failed(failure)))
             }
-            coordinatorLogger.error("Simulator worker attach failed: \(failure.message, privacy: .public)")
+            coordinatorLogger.error(
+                "Simulator worker attach failed: \(failure.message, privacy: .public)")
         } catch {
             await shutdown()
             let failure = SimulatorFailure(
@@ -168,7 +161,8 @@ extension SimulatorWorkerCoordinator {
             )
             send(.failure(failure))
             send(.status(.failed(failure)))
-            coordinatorLogger.error("Simulator worker attach failed: \(error.localizedDescription, privacy: .public)")
+            coordinatorLogger.error(
+                "Simulator worker attach failed: \(error.localizedDescription, privacy: .public)")
         }
     }
 
@@ -179,7 +173,8 @@ extension SimulatorWorkerCoordinator {
         deviceStateMonitor?.invalidate()
         deviceStateMonitor = nil
         deviceStateGate.reset()
-        let initialState = objectProperty(device, selectorName: "stateString") as? String
+        let initialState =
+            objectProperty(device, selectorName: "stateString") as? String
             ?? "Unknown"
         guard initialState.caseInsensitiveCompare("Booted") == .orderedSame else {
             throw SimulatorWorkerFailure.deviceNotBooted(
@@ -191,12 +186,13 @@ extension SimulatorWorkerCoordinator {
             device: device
         ) { [weak self, weak device] in
             guard let self, let device,
-                  self.attachedDevice === device,
-                  self.currentDeviceIdentifier == deviceIdentifier
+                self.attachedDevice === device,
+                self.currentDeviceIdentifier == deviceIdentifier
             else {
                 return
             }
-            let state = objectProperty(device, selectorName: "stateString") as? String
+            let state =
+                objectProperty(device, selectorName: "stateString") as? String
                 ?? "Unknown"
             guard let transition = self.deviceStateGate.observe(state: state) else { return }
             self.handleDeviceStateTransition(
@@ -205,11 +201,13 @@ extension SimulatorWorkerCoordinator {
                 deviceIdentifier: deviceIdentifier
             )
         }
-        let registeredState = objectProperty(device, selectorName: "stateString") as? String
+        let registeredState =
+            objectProperty(device, selectorName: "stateString") as? String
             ?? "Unknown"
         guard attachedDevice === device,
-              currentDeviceIdentifier == deviceIdentifier,
-              registeredState.caseInsensitiveCompare("Booted") == .orderedSame else {
+            currentDeviceIdentifier == deviceIdentifier,
+            registeredState.caseInsensitiveCompare("Booted") == .orderedSame
+        else {
             monitor.invalidate()
             throw SimulatorWorkerFailure.deviceNotBooted(
                 "Simulator changed to \(registeredState) while state monitoring started."
@@ -219,18 +217,19 @@ extension SimulatorWorkerCoordinator {
     }
 
     private func handleDeviceStateTransition(
-        _ transition: SimulatorDeviceStateGate.Transition,
+        _ transition: SimulatorDeviceStateTransition,
         device: NSObject,
         deviceIdentifier: String
     ) {
         guard attachedDevice === device,
-              currentDeviceIdentifier == deviceIdentifier
+            currentDeviceIdentifier == deviceIdentifier
         else {
             return
         }
-        let state: String = switch transition {
-        case let .becameUnavailable(state): state
-        }
+        let state: String =
+            switch transition {
+            case .becameUnavailable(let state): state
+            }
 
         deviceStateMonitor?.invalidate()
         deviceStateMonitor = nil
@@ -246,8 +245,8 @@ extension SimulatorWorkerCoordinator {
         framebuffer = nil
         let accessibilityExecutor = self.accessibilityExecutor
         Task { await accessibilityExecutor.detach() }
-        renderContext = nil
         currentDisplay = nil
+        currentFrameTransport = nil
         currentDeviceIdentifier = nil
         gestureStart = nil
         gestureUsesTwoFingers = false

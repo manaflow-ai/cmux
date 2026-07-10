@@ -4,10 +4,10 @@ import CmuxSimulator
 actor SimulatorPaneClientSpy: SimulatorPaneClient {
     typealias Activation = SimulatorPaneClientActivation
 
-    nonisolated let contextCache = SimulatorRemoteContextCache()
     private let devicesValue: [SimulatorDevice]
     private let applicationValues: [SimulatorInstalledApplication]
     private let delaysApplicationList: Bool
+    private let delaysInvalidation: Bool
     private let eventStream: SimulatorWorkerEventStream
     private let eventContinuation: SimulatorWorkerEventStream.Continuation
     private var sentMessages: [SimulatorWorkerInbound] = []
@@ -16,22 +16,25 @@ actor SimulatorPaneClientSpy: SimulatorPaneClient {
     private var invalidationValue = 0
     private var actionValues: [SimulatorControlAction] = []
     private var delayedApplicationList: CheckedContinuation<SimulatorControlResult, Never>?
+    private var delayedInvalidation: CheckedContinuation<Void, Never>?
 
     init(
         devices: [SimulatorDevice],
         applications: [SimulatorInstalledApplication] = [],
-        delaysApplicationList: Bool = false
+        delaysApplicationList: Bool = false,
+        delaysInvalidation: Bool = false
     ) {
         self.devicesValue = devices
         self.applicationValues = applications
         self.delaysApplicationList = delaysApplicationList
-        let (stream, continuation) = SimulatorWorkerEventStream.makeStream(
+        self.delaysInvalidation = delaysInvalidation
+        let source = SimulatorWorkerEventStreamSource(
             maximumBufferedBytes: 1_024 * 1_024,
             maximumBufferedEvents: 64,
             onTermination: {}
         )
-        self.eventStream = stream
-        self.eventContinuation = continuation
+        self.eventStream = source.stream
+        self.eventContinuation = source.continuation
     }
 
     func discoverDevices() async throws -> [SimulatorDevice] {
@@ -63,12 +66,17 @@ actor SimulatorPaneClientSpy: SimulatorPaneClient {
         return .none
     }
 
-    func invalidateWorker() async { invalidationValue += 1 }
+    func invalidateWorker() async {
+        invalidationValue += 1
+        if delaysInvalidation {
+            await withCheckedContinuation { delayedInvalidation = $0 }
+        }
+    }
 
     func stop() async { stopValue += 1 }
 
-    func emit(_ event: SimulatorWorkerEvent) {
-        _ = eventContinuation.yield(event)
+    func emit(_ event: SimulatorWorkerEvent) async {
+        _ = await eventContinuation.yield(event)
     }
 
     func messages() -> [SimulatorWorkerInbound] {
@@ -85,6 +93,15 @@ actor SimulatorPaneClientSpy: SimulatorPaneClient {
 
     func invalidationCount() -> Int {
         invalidationValue
+    }
+
+    func hasDelayedInvalidation() -> Bool {
+        delayedInvalidation != nil
+    }
+
+    func resumeInvalidation() {
+        delayedInvalidation?.resume()
+        delayedInvalidation = nil
     }
 
     func actions() -> [SimulatorControlAction] {

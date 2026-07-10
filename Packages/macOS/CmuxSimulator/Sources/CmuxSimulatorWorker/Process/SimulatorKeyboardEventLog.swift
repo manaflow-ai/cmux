@@ -5,13 +5,19 @@ import Foundation
 /// The printable-key policy matches serve-sim commit
 /// af681b8c3b0453f31dcb8e98a3389f23b7cfc6b0 (Apache License 2.0), extended
 /// for the non-US backslash and keypad-equals usages accepted by this client.
-enum SimulatorKeyboardEventLog {
-    static func summary(for usage: UInt32) -> String {
+struct SimulatorKeyboardEventLog {
+    private let controlLabels: [UInt32: String]
+
+    init(controlLabels: [UInt32: String] = simulatorKeyboardControlLabels) {
+        self.controlLabels = controlLabels
+    }
+
+    func summary(for usage: UInt32) -> String {
         if isPrintable(usage) { return "character" }
         return controlLabels[usage] ?? "control"
     }
 
-    static func isPrintable(_ usage: UInt32) -> Bool {
+    func isPrintable(_ usage: UInt32) -> Bool {
         switch usage {
         case 0x04...0x27,
              0x2C...0x38,
@@ -24,7 +30,9 @@ enum SimulatorKeyboardEventLog {
         }
     }
 
-    private static let controlLabels: [UInt32: String] = [
+}
+
+private let simulatorKeyboardControlLabels: [UInt32: String] = [
         0x28: "Enter",
         0x29: "Escape",
         0x2A: "Backspace",
@@ -87,5 +95,4 @@ enum SimulatorKeyboardEventLog {
         0xE5: "ShiftRight",
         0xE6: "OptionRight",
         0xE7: "CommandRight",
-    ]
-}
+]

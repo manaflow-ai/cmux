@@ -7,23 +7,24 @@ import Testing
 struct SimulatorPrivatePrivacyAdapterTests {
     @Test("Database identifiers accept only the fixed safe alphabet")
     func safeIdentifiers() {
-        #expect(SimulatorPrivatePrivacyAdapter.isSafeIdentifier("com.example.camera-app"))
-        #expect(SimulatorPrivatePrivacyAdapter.isSafeIdentifier("8A44A2EF-22B1"))
-        #expect(!SimulatorPrivatePrivacyAdapter.isSafeIdentifier("com.example'; DELETE"))
-        #expect(!SimulatorPrivatePrivacyAdapter.isSafeIdentifier(""))
-        #expect(!SimulatorPrivatePrivacyAdapter.isSafeIdentifier(".."))
-        #expect(!SimulatorPrivatePrivacyAdapter.isSafeIdentifier("com.example.アプリ"))
-        #expect(!SimulatorPrivatePrivacyAdapter.isSafeIdentifier(String(repeating: "a", count: 256)))
+        #expect(simulatorPrivacyIdentifierIsSafe("com.example.camera-app"))
+        #expect(simulatorPrivacyIdentifierIsSafe("8A44A2EF-22B1"))
+        #expect(!simulatorPrivacyIdentifierIsSafe("com.example'; DELETE"))
+        #expect(!simulatorPrivacyIdentifierIsSafe(""))
+        #expect(!simulatorPrivacyIdentifierIsSafe(".."))
+        #expect(!simulatorPrivacyIdentifierIsSafe("com.example.アプリ"))
+        #expect(!simulatorPrivacyIdentifierIsSafe(String(repeating: "a", count: 256)))
     }
 
     @Test("Camera TCC updates are atomic and reset omits reinsertion")
     func cameraTCCTransaction() throws {
-        let grant = try #require(SimulatorPrivatePrivacyAdapter.tccMutationSQL(
+        let adapter = SimulatorPrivatePrivacyAdapter()
+        let grant = try #require(adapter.tccMutationSQL(
             service: .camera,
             action: .grant,
             bundleIdentifier: "com.example.camera"
         ))
-        let reset = try #require(SimulatorPrivatePrivacyAdapter.tccMutationSQL(
+        let reset = try #require(adapter.tccMutationSQL(
             service: .camera,
             action: .reset,
             bundleIdentifier: "com.example.camera"
@@ -40,7 +41,12 @@ struct SimulatorPrivatePrivacyAdapterTests {
 
     @Test("Missing runtime stores read back as unknown without crashing")
     func missingRuntimeReadback() async {
-        let snapshot = await SimulatorPrivatePrivacyAdapter().snapshot(
+        let isolatedDevicesDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-missing-runtime-\(UUID().uuidString)")
+        let adapter = SimulatorPrivatePrivacyAdapter(
+            simulatorDevicesDirectory: isolatedDevicesDirectory
+        )
+        let snapshot = await adapter.snapshot(
             deviceIdentifier: "00000000-0000-0000-0000-000000000000",
             bundleIdentifier: "com.example.missing"
         )

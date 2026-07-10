@@ -1,7 +1,5 @@
 import AppKit
 import CmuxSimulator
-import Darwin
-import ObjectiveC.runtime
 import QuartzCore
 
 @MainActor
@@ -10,10 +8,18 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
     var onMessage: ((SimulatorWorkerInbound) -> Void)?
     var onGeometry: ((SimulatorSurfaceGeometry) -> Void)?
     var onRequestPanelFocus: (() -> Void)?
+    var onFrameTransportFailure: ((SimulatorFrameTransportDescriptor, SimulatorFailure) -> Void)?
 
-    var hostedLayer: CALayer?
-    private var hostedContextID: UInt32?
-    private let remoteLayerFactory: @MainActor (UInt32) -> CALayer?
+    var frameLayer: CALayer?
+    private var frameSource: (any SimulatorFrameSurfaceReading)?
+    private var frameTransportDescriptor: SimulatorFrameTransportDescriptor?
+    private let frameSourceFactory:
+        @MainActor (
+            SimulatorFrameTransportDescriptor
+        ) throws -> any SimulatorFrameSurfaceReading
+    private var displayLink: CADisplayLink?
+    private var screenObserver: NSObjectProtocol?
+    private var lastFrameSequence: UInt64?
     private var isTornDown = false
     var display: SimulatorDisplayMetadata?
     var chrome: SimulatorDeviceChromeProfile?
@@ -26,15 +32,18 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
     var pendingFocusGeneration: UInt64?
 
     override init(frame frameRect: NSRect) {
-        remoteLayerFactory = Self.makeRemoteLayer
+        frameSourceFactory = { try SimulatorFrameSurfaceSource(descriptor: $0) }
         super.init(frame: frameRect)
         configureLayerBacking()
     }
 
     init(
-        remoteLayerFactory: @escaping @MainActor (UInt32) -> CALayer?
+        frameSourceFactory:
+            @escaping @MainActor (
+                SimulatorFrameTransportDescriptor
+            ) throws -> any SimulatorFrameSurfaceReading
     ) {
-        self.remoteLayerFactory = remoteLayerFactory
+        self.frameSourceFactory = frameSourceFactory
         super.init(frame: .zero)
         configureLayerBacking()
     }
@@ -43,11 +52,20 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
         wantsLayer = true
         layer?.backgroundColor = NSColor.black.cgColor
         layer?.masksToBounds = true
+        screenObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.rebuildDisplayLink()
+            }
+        }
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) {
-        remoteLayerFactory = Self.makeRemoteLayer
+        frameSourceFactory = { try SimulatorFrameSurfaceSource(descriptor: $0) }
         return nil
     }
 
@@ -56,7 +74,7 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     func update(
-        contextID: UInt32,
+        frameTransport: SimulatorFrameTransportDescriptor,
         display: SimulatorDisplayMetadata,
         chrome: SimulatorDeviceChromeProfile?
     ) {
@@ -70,8 +88,8 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
         self.display = display
         self.chrome = chrome
         updateChromeLayerBackground()
-        if contextID != hostedContextID {
-            adopt(contextID: contextID)
+        if frameTransport != frameTransportDescriptor {
+            adopt(frameTransport: frameTransport)
         }
         needsDisplay = true
         needsLayout = true
@@ -81,20 +99,28 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
         isTornDown = true
         cancelInputs()
         NotificationCenter.default.removeObserver(self)
-        hostedLayer?.removeFromSuperlayer()
-        hostedLayer = nil
-        hostedContextID = nil
+        if let screenObserver {
+            NotificationCenter.default.removeObserver(screenObserver)
+            self.screenObserver = nil
+        }
+        stopDisplayLink()
+        frameLayer?.removeFromSuperlayer()
+        frameLayer = nil
+        frameSource = nil
+        frameTransportDescriptor = nil
+        lastFrameSequence = nil
         display = nil
         chrome = nil
         onMessage = nil
         onGeometry = nil
         onRequestPanelFocus = nil
+        onFrameTransportFailure = nil
         simulatorOwnerID = nil
     }
 
     override func layout() {
         super.layout()
-        layoutHostedLayer()
+        layoutFrameLayer()
         pushGeometry()
     }
 
@@ -116,15 +142,21 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        rebuildDisplayLink()
         fulfillPendingFocusRequest()
     }
 
     override func viewWillMove(toWindow newWindow: NSWindow?) {
+        let isBeingRemoved = window != nil && newWindow == nil
         if window !== newWindow {
             cancelInputs()
             NotificationCenter.default.removeObserver(self)
         }
         super.viewWillMove(toWindow: newWindow)
+        if isBeingRemoved {
+            teardown()
+            return
+        }
         if let newWindow {
             NotificationCenter.default.addObserver(
                 self,
@@ -150,11 +182,13 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
         onRequestPanelFocus?()
         window?.makeFirstResponder(self)
         let location = convert(event.locationInWindow, from: nil)
-        if let display, let button = chrome?.button(
-            at: location,
-            in: bounds,
-            orientation: display.orientation
-        ) {
+        if let display,
+            let button = chrome?.button(
+                at: location,
+                in: bounds,
+                orientation: display.orientation
+            )
+        {
             activeChromeButton = button
             send(chromeButtonInput.press(button))
             needsDisplay = true
@@ -162,23 +196,25 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
         }
         guard let point = normalizedPoint(for: event) else { return }
         let flags = event.modifierFlags
-        send(input.pointerBegan(
-            at: point,
-            optionPinch: flags.contains(.option),
-            parallelPan: flags.contains(.shift)
-        ))
+        send(
+            input.pointerBegan(
+                at: point,
+                optionPinch: flags.contains(.option),
+                parallelPan: flags.contains(.shift)
+            ))
     }
 
     override func mouseDragged(with event: NSEvent) {
         if let button = activeChromeButton {
             let location = convert(event.locationInWindow, from: nil)
             if let chrome, let display,
-               !chrome.contains(
-                   location,
-                   button: button,
-                   in: bounds,
-                   orientation: display.orientation
-               ) {
+                !chrome.contains(
+                    location,
+                    button: button,
+                    in: bounds,
+                    orientation: display.orientation
+                )
+            {
                 send(chromeButtonInput.release(button))
                 activeChromeButton = nil
                 needsDisplay = true
@@ -206,7 +242,8 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
         if event.phase.contains(.began) {
             phase = .began
         } else if event.phase.contains(.changed) || event.momentumPhase.contains(.began)
-            || event.momentumPhase.contains(.changed) {
+            || event.momentumPhase.contains(.changed)
+        {
             phase = .changed
         } else if event.phase.contains(.cancelled) || event.momentumPhase.contains(.cancelled) {
             phase = .cancelled
@@ -233,14 +270,15 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
     }
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         guard event.type == .keyDown,
-              let action = simulatorKeyEquivalentTranslator.action(
-                  keyCode: event.keyCode,
-                  modifierFlags: event.modifierFlags,
-                  heldUsages: input.heldKeys
-              ) else {
+            let action = simulatorKeyEquivalentTranslator.action(
+                keyCode: event.keyCode,
+                modifierFlags: event.modifierFlags,
+                heldUsages: input.heldKeys
+            )
+        else {
             return super.performKeyEquivalent(with: event)
         }
-        if case let .messages(messages) = action { send(messages) }
+        if case .messages(let messages) = action { send(messages) }
         return true
     }
 
@@ -254,10 +292,11 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
 
     override func flagsChanged(with event: NSEvent) {
         guard let usage = simulatorHIDKeyMapper.usage(for: event.keyCode),
-              let isDown = simulatorHIDKeyMapper.modifierIsDown(
-                  for: event.keyCode,
-                  flags: event.modifierFlags
-              ) else {
+            let isDown = simulatorHIDKeyMapper.modifierIsDown(
+                for: event.keyCode,
+                flags: event.modifierFlags
+            )
+        else {
             super.flagsChanged(with: event)
             return
         }
@@ -280,11 +319,12 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
 
     override func mouseMoved(with event: NSEvent) {
         let location = convert(event.locationInWindow, from: nil)
-        let hovered: SimulatorDeviceChromeProfile.Button? = if let chrome, let display {
-            chrome.button(at: location, in: bounds, orientation: display.orientation)
-        } else {
-            nil
-        }
+        let hovered: SimulatorDeviceChromeProfile.Button? =
+            if let chrome, let display {
+                chrome.button(at: location, in: bounds, orientation: display.orientation)
+            } else {
+                nil
+            }
         guard hovered != hoveredChromeButton else { return }
         hoveredChromeButton = hovered
         needsDisplay = true
@@ -300,55 +340,85 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
         let rect = displayRect
         guard rect.width > 0, rect.height > 0 else { return }
         let geometry = orientationGeometry
-        onGeometry?(SimulatorSurfaceGeometry(
-            width: geometry?.swapsAxes == true ? rect.height : rect.width,
-            height: geometry?.swapsAxes == true ? rect.width : rect.height,
-            scale: Double(window?.backingScaleFactor ?? 2)
-        ))
+        onGeometry?(
+            SimulatorSurfaceGeometry(
+                width: geometry?.swapsAxes == true ? rect.height : rect.width,
+                height: geometry?.swapsAxes == true ? rect.width : rect.height,
+                scale: Double(window?.backingScaleFactor ?? 2)
+            ))
     }
 
-    private func adopt(contextID: UInt32) {
+    private func adopt(frameTransport: SimulatorFrameTransportDescriptor) {
         guard !isTornDown else { return }
-        hostedLayer?.removeFromSuperlayer()
-        hostedLayer = nil
-        hostedContextID = nil
-        guard let remoteLayer = remoteLayerFactory(contextID) else { return }
-        layer?.addSublayer(remoteLayer)
-        hostedLayer = remoteLayer
-        hostedContextID = contextID
-        layoutHostedLayer()
+        let source: any SimulatorFrameSurfaceReading
+        do {
+            source = try frameSourceFactory(frameTransport)
+        } catch {
+            onFrameTransportFailure?(
+                frameTransport,
+                SimulatorFailure(
+                    code: "framebuffer_unavailable",
+                    message: error.localizedDescription,
+                    isRecoverable: true
+                )
+            )
+            return
+        }
+        stopDisplayLink()
+        frameLayer?.removeFromSuperlayer()
+        frameLayer = nil
+        frameSource = nil
+        frameTransportDescriptor = nil
+        lastFrameSequence = nil
+        let frameLayer = CALayer()
+        frameLayer.contentsGravity = .resize
+        frameLayer.minificationFilter = .linear
+        frameLayer.magnificationFilter = .linear
+        layer?.addSublayer(frameLayer)
+        self.frameLayer = frameLayer
+        frameSource = source
+        frameTransportDescriptor = frameTransport
+        renderLatestFrame()
+        layoutFrameLayer()
+        startDisplayLink()
     }
 
-    private static func makeRemoteLayer(contextID: UInt32) -> CALayer? {
-        let setter = NSSelectorFromString("setContextId:")
-        guard let hostClass = NSClassFromString("CALayerHost") as? CALayer.Type,
-              let method = class_getInstanceMethod(hostClass, setter),
-              method_getNumberOfArguments(method) == 3,
-              let receiverType = method_copyArgumentType(method, 0),
-              let selectorType = method_copyArgumentType(method, 1),
-              let contextType = method_copyArgumentType(method, 2)
-        else {
-            return nil
-        }
-        let returnType = method_copyReturnType(method)
-        defer {
-            free(returnType)
-            free(receiverType)
-            free(selectorType)
-            free(contextType)
-        }
-        guard String(cString: returnType) == "v",
-              String(cString: receiverType) == "@",
-              String(cString: selectorType) == ":",
-              String(cString: contextType) == "I"
-        else { return nil }
+    func renderLatestFrame() {
+        guard let frame = frameSource?.latestFrame,
+            frame.sequence != lastFrameSequence,
+            let frameLayer
+        else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        frameLayer.contents = frame.surface
+        CATransaction.commit()
+        lastFrameSequence = frame.sequence
+    }
 
-        let remoteLayer = hostClass.init()
-        guard SimulatorRemoteLayerContextSetter().set(
-            contextID: contextID,
-            on: remoteLayer
-        ) else { return nil }
-        return remoteLayer
+    private func startDisplayLink() {
+        guard displayLink == nil,
+            frameSource != nil,
+            let window,
+            let screen = window.screen ?? NSScreen.main ?? NSScreen.screens.first
+        else { return }
+        let link = screen.displayLink(target: self, selector: #selector(displayLinkDidFire(_:)))
+        link.add(to: .main, forMode: .common)
+        displayLink = link
+    }
+
+    private func stopDisplayLink() {
+        displayLink?.invalidate()
+        displayLink = nil
+    }
+
+    private func rebuildDisplayLink() {
+        guard !isTornDown, frameSource != nil else { return }
+        stopDisplayLink()
+        startDisplayLink()
+    }
+
+    @objc private func displayLinkDidFire(_ link: CADisplayLink) {
+        renderLatestFrame()
     }
 
     private func normalizedPoint(for event: NSEvent, clamped: Bool = false) -> SimulatorPoint? {
@@ -372,93 +442,12 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
         needsDisplay = true
     }
 
-    private func drawChrome(
-        _ profile: SimulatorDeviceChromeProfile,
-        orientation: SimulatorOrientation
-    ) {
-        guard let context = NSGraphicsContext.current?.cgContext else { return }
-        let portraitWidth = profile.portraitWidth
-        let portraitHeight = profile.portraitHeight
-        let orientedWidth = orientation == .portrait || orientation == .portraitUpsideDown
-            ? portraitWidth : portraitHeight
-        let orientedHeight = orientation == .portrait || orientation == .portraitUpsideDown
-            ? portraitHeight : portraitWidth
-        let scale = min(bounds.width / orientedWidth, bounds.height / orientedHeight)
-        let origin = CGPoint(
-            x: bounds.midX - (orientedWidth * scale / 2),
-            y: bounds.midY - (orientedHeight * scale / 2)
-        )
-
-        context.saveGState()
-        context.translateBy(x: origin.x, y: origin.y)
-        context.scaleBy(x: scale, y: scale)
-        switch orientation {
-        case .portrait:
-            break
-        case .portraitUpsideDown:
-            context.translateBy(x: portraitWidth, y: portraitHeight)
-            context.rotate(by: .pi)
-        case .landscapeLeft:
-            context.translateBy(x: portraitHeight, y: 0)
-            context.rotate(by: .pi / 2)
-        case .landscapeRight:
-            context.translateBy(x: 0, y: portraitWidth)
-            context.rotate(by: -.pi / 2)
-        }
-        drawPortraitChrome(profile)
-        context.restoreGState()
+    func chromeButtonIsPressed(_ button: SimulatorDeviceChromeProfile.Button) -> Bool {
+        chromeButtonInput.isHeld(button)
     }
 
-    private func drawPortraitChrome(_ profile: SimulatorDeviceChromeProfile) {
-        let body = profile.bodyRect
-        drawButtons(profile.buttons.filter { !$0.onTop })
-        NSColor.black.setFill()
-        NSBezierPath(
-            roundedRect: body,
-            xRadius: profile.cornerRadius,
-            yRadius: profile.cornerRadius
-        ).fill()
-
-        if let compositeURL = profile.compositeURL,
-           let image = NSImage(contentsOf: compositeURL) {
-            image.draw(in: body)
-        } else {
-            let left = profile.bezelInsets.leading
-            let right = profile.bezelInsets.trailing
-            let top = profile.bezelInsets.top
-            let bottom = profile.bezelInsets.bottom
-            drawAsset(profile.assets["topLeft"], in: CGRect(x: body.minX, y: body.maxY - top, width: left, height: top))
-            drawAsset(profile.assets["top"], in: CGRect(x: body.minX + left, y: body.maxY - top, width: body.width - left - right, height: top))
-            drawAsset(profile.assets["topRight"], in: CGRect(x: body.maxX - right, y: body.maxY - top, width: right, height: top))
-            drawAsset(profile.assets["right"], in: CGRect(x: body.maxX - right, y: body.minY + bottom, width: right, height: body.height - top - bottom))
-            drawAsset(profile.assets["bottomRight"], in: CGRect(x: body.maxX - right, y: body.minY, width: right, height: bottom))
-            drawAsset(profile.assets["bottom"], in: CGRect(x: body.minX + left, y: body.minY, width: body.width - left - right, height: bottom))
-            drawAsset(profile.assets["bottomLeft"], in: CGRect(x: body.minX, y: body.minY, width: left, height: bottom))
-            drawAsset(profile.assets["left"], in: CGRect(x: body.minX, y: body.minY + bottom, width: left, height: body.height - top - bottom))
-        }
-        drawButtons(profile.buttons.filter(\.onTop))
-    }
-
-    private func drawButtons(_ buttons: [SimulatorDeviceChromeProfile.Button]) {
-        for button in buttons {
-            let isPressed = chromeButtonInput.isHeld(button)
-            let isActive = isPressed || hoveredChromeButton == button
-            let offset = isActive ? button.rolloverTranslation : SimulatorInputDelta(x: 0, y: 0)
-            drawAsset(
-                isPressed ? button.imageDownURL ?? button.imageURL : button.imageURL,
-                in: CGRect(
-                    x: button.rect.x + 4 + offset.x,
-                    y: button.rect.y + 4 + offset.y,
-                    width: max(button.rect.width - 8, 1),
-                    height: max(button.rect.height - 8, 1)
-                )
-            )
-        }
-    }
-
-    private func drawAsset(_ url: URL?, in rect: CGRect) {
-        guard let url, let image = NSImage(contentsOf: url), rect.width > 0, rect.height > 0 else { return }
-        image.draw(in: rect)
+    func chromeButtonIsHovered(_ button: SimulatorDeviceChromeProfile.Button) -> Bool {
+        hoveredChromeButton == button
     }
 
     @objc private func windowDidResignKey(_ notification: Notification) {

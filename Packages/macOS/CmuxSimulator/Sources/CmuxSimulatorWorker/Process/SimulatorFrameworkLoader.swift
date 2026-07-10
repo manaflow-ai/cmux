@@ -7,11 +7,18 @@ import ObjectiveC.runtime
 final class SimulatorFrameworkLoader {
     let developerDirectory: String
 
+    private let fileManager: FileManager
     private(set) var simulatorKitHandle: UnsafeMutableRawPointer?
     private var handles: [UnsafeMutableRawPointer] = []
 
-    init(environment: [String: String] = ProcessInfo.processInfo.environment) {
-        developerDirectory = Self.resolveDeveloperDirectory(environment: environment)
+    init(
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        fileManager: FileManager = FileManager(),
+        developerDirectoryResolver: SimulatorDeveloperDirectoryResolver =
+            SimulatorDeveloperDirectoryResolver()
+    ) {
+        self.fileManager = fileManager
+        developerDirectory = developerDirectoryResolver.resolve(environment: environment)
     }
 
     deinit {
@@ -52,7 +59,7 @@ final class SimulatorFrameworkLoader {
     }
 
     private func loadFirst(_ candidates: [String]) -> UnsafeMutableRawPointer? {
-        for path in candidates where FileManager.default.fileExists(atPath: path) {
+        for path in candidates where fileManager.fileExists(atPath: path) {
             if let handle = dlopen(path, RTLD_NOW | RTLD_GLOBAL) {
                 handles.append(handle)
                 return handle
@@ -61,33 +68,4 @@ final class SimulatorFrameworkLoader {
         return nil
     }
 
-    static func resolveDeveloperDirectory(environment: [String: String]) -> String {
-        if let configured = environment["DEVELOPER_DIR"], !configured.isEmpty {
-            return configured
-        }
-
-        let fallback = "/Applications/Xcode.app/Contents/Developer"
-        let output = Pipe()
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/xcode-select")
-        process.arguments = ["-p"]
-        process.standardOutput = output
-        process.standardError = FileHandle.nullDevice
-        do {
-            try process.run()
-            process.waitUntilExit()
-        } catch {
-            return fallback
-        }
-        guard process.terminationStatus == 0,
-              let value = String(
-                  data: output.fileHandleForReading.readDataToEndOfFile(),
-                  encoding: .utf8
-              )?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !value.isEmpty
-        else {
-            return fallback
-        }
-        return value
-    }
 }

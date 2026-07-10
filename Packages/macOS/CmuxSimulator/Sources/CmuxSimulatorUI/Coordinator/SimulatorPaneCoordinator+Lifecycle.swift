@@ -66,7 +66,7 @@ extension SimulatorPaneCoordinator {
         }
         await client.send(.releaseInputs)
         await client.stop()
-        contextID = nil
+        frameTransport = nil
         status = .idle
     }
 
@@ -145,6 +145,9 @@ extension SimulatorPaneCoordinator {
             guard !Task.isCancelled, self.selectionGeneration == generation else { return }
             do {
                 try await client.activateDevice(id: id, geometry: self.geometry)
+                guard !Task.isCancelled, self.selectionGeneration == generation else { return }
+                self.failure = nil
+                self.status = .streaming
             } catch is CancellationError {
                 return
             } catch {
@@ -158,11 +161,62 @@ extension SimulatorPaneCoordinator {
 
     /// Reboots the worker connection for the selected device.
     public func recover() {
-        guard !closed else { return }
+        Task { @MainActor [weak self] in
+            try? await self?.recoverAndWait()
+        }
+    }
+
+    /// Reboots the selected worker and returns only after attachment succeeds.
+    public func recoverAndWait() async throws {
+        guard !closed else {
+            throw SimulatorFailure(
+                code: "simulator_closed",
+                message: String(
+                    localized: "cli.simulator.error.paneClosed",
+                    defaultValue: "The Simulator pane closed before the operation started"
+                ),
+                isRecoverable: false
+            )
+        }
         restartOutgoingDelivery()
         restartEventObservation()
-        guard let selectedDeviceID else { return }
+        guard let selectedDeviceID,
+              devices.contains(where: { $0.id == selectedDeviceID }) else {
+            throw SimulatorFailure(
+                code: "device_not_found",
+                message: String(
+                    localized: "cli.simulator.error.deviceRequired",
+                    defaultValue: "The Simulator pane has no selected device"
+                ),
+                isRecoverable: true
+            )
+        }
         selectDevice(id: selectedDeviceID)
+        guard let activationTask else {
+            throw SimulatorFailure(
+                code: "worker_unavailable",
+                message: String(
+                    localized: "simulator.failure.rendererStopped",
+                    defaultValue: "The Simulator renderer stopped"
+                ),
+                isRecoverable: true
+            )
+        }
+        await activationTask.value
+        try Task.checkCancellation()
+        guard !closed, self.selectedDeviceID == selectedDeviceID else {
+            throw CancellationError()
+        }
+        guard status == .streaming else {
+            throw failure ?? SimulatorFailure(
+                code: "worker_unavailable",
+                message: String(
+                    localized: "simulator.failure.rendererStopped",
+                    defaultValue: "The Simulator renderer stopped"
+                ),
+                isRecoverable: true
+            )
+        }
     }
 
     private func startOutgoingDelivery() {
@@ -253,7 +307,7 @@ extension SimulatorPaneCoordinator {
                 self.enqueue(.releaseInputs)
                 try await client.shutdownDevice(id: selectedDeviceID)
                 self.status = .idle
-                self.contextID = nil
+                self.frameTransport = nil
                 self.display = nil
                 await self.reloadDevices()
             } catch is CancellationError {
@@ -297,7 +351,7 @@ extension SimulatorPaneCoordinator {
         failure = nil
         controlFailure = nil
         display = nil
-        contextID = nil
+        frameTransport = nil
         capabilities = [.userInterfaceSettings]
         foregroundApplication = nil
         accessibilitySnapshot = nil

@@ -9,15 +9,22 @@ struct SimulatorCameraInjectorCompiler: Sendable {
         "SimCamSwizzles.m.txt",
     ]
     private let subprocessRunner: SimulatorSubprocessRunner
+    private let fileSystem: SimulatorCameraFileSystem
+    private let resourceDirectory: URL?
 
-    init(subprocessRunner: SimulatorSubprocessRunner = SimulatorSubprocessRunner()) {
+    init(
+        subprocessRunner: SimulatorSubprocessRunner = SimulatorSubprocessRunner(),
+        fileSystem: SimulatorCameraFileSystem = SimulatorCameraFileSystem(),
+        resourceDirectory: URL? = Bundle.module.resourceURL?.appendingPathComponent("CameraInjector")
+    ) {
         self.subprocessRunner = subprocessRunner
+        self.fileSystem = fileSystem
+        self.resourceDirectory = resourceDirectory
     }
 
     func compiledLibrary() async throws -> URL {
-        let fileManager = FileManager.default
-        guard let resources = Bundle.module.resourceURL?.appendingPathComponent("CameraInjector"),
-              fileManager.fileExists(atPath: resources.path)
+        guard let resources = resourceDirectory,
+              fileSystem.fileExists(atPath: resources.path)
         else {
             throw SimulatorWorkerFailure.frameworkUnavailable(
                 "The bundled synthetic-camera injector sources are missing."
@@ -25,7 +32,7 @@ struct SimulatorCameraInjectorCompiler: Sendable {
         }
         let sources: [SimulatorBuildSource] = try Self.sourceNames.map { name in
             let url = resources.appendingPathComponent(name)
-            guard let data = try? Data(contentsOf: url) else {
+            guard let data = fileSystem.contents(atPath: url.path) else {
                 throw SimulatorWorkerFailure.frameworkUnavailable(
                     "The bundled camera injector source \(name) is missing."
                 )
@@ -40,7 +47,7 @@ struct SimulatorCameraInjectorCompiler: Sendable {
         }.resolve()
         let cacheKey = SimulatorBuildInputs(
             sources: sources,
-            compileArguments: Self.compileArguments(
+            compileArguments: compileArguments(
                 sdkPath: "<SDKROOT>",
                 resourcesPath: "<RESOURCE_ROOT>",
                 outputPath: "<OUTPUT>",
@@ -48,20 +55,16 @@ struct SimulatorCameraInjectorCompiler: Sendable {
             ),
             sdk: sdk
         ).cacheKey
-        let cacheRoot = try fileManager.url(
-            for: .cachesDirectory,
-            in: .userDomainMask,
-            appropriateFor: nil,
-            create: true
-        ).appendingPathComponent("cmux/SimulatorCameraInjector/\(cacheKey)")
+        let cacheRoot = try fileSystem.cachesDirectory()
+            .appendingPathComponent("cmux/SimulatorCameraInjector/\(cacheKey)")
         let libraryURL = cacheRoot.appendingPathComponent("libCmuxSimulatorCameraInjector.dylib")
-        if fileManager.isReadableFile(atPath: libraryURL.path) {
+        if fileSystem.isReadableFile(atPath: libraryURL.path) {
             return libraryURL
         }
-        try fileManager.createDirectory(at: cacheRoot, withIntermediateDirectories: true)
+        try fileSystem.createDirectory(at: cacheRoot)
 
         let temporaryURL = cacheRoot.appendingPathComponent("injector-\(UUID().uuidString).dylib")
-        let arguments = Self.compileArguments(
+        let arguments = compileArguments(
             sdkPath: sdk.path,
             resourcesPath: resources.path,
             outputPath: temporaryURL.path,
@@ -72,9 +75,9 @@ struct SimulatorCameraInjectorCompiler: Sendable {
             arguments: arguments
         )
         guard compileResult.status == 0,
-              fileManager.isReadableFile(atPath: temporaryURL.path)
+              fileSystem.isReadableFile(atPath: temporaryURL.path)
         else {
-            try? fileManager.removeItem(at: temporaryURL)
+            try? fileSystem.removeItem(at: temporaryURL)
             throw SimulatorWorkerFailure.frameworkUnavailable(
                 compileResult.standardError.isEmpty
                     ? "The synthetic-camera injector failed to compile."
@@ -82,14 +85,14 @@ struct SimulatorCameraInjectorCompiler: Sendable {
             )
         }
         do {
-            try fileManager.moveItem(at: temporaryURL, to: libraryURL)
+            try fileSystem.moveItem(at: temporaryURL, to: libraryURL)
         } catch CocoaError.fileWriteFileExists {
-            try? fileManager.removeItem(at: temporaryURL)
+            try? fileSystem.removeItem(at: temporaryURL)
         }
         return libraryURL
     }
 
-    static func compileArguments(
+    func compileArguments(
         sdkPath: String,
         resourcesPath: String,
         outputPath: String,

@@ -3,25 +3,16 @@ import Foundation
 
 @MainActor
 final class SimulatorWebInspectorService {
-    enum Event {
-        case targets([SimulatorWebInspectorTarget])
-        case session(SimulatorWebInspectorSessionStatus)
-        case message(SimulatorWebInspectorMessageChunk)
-        case failure(SimulatorWebInspectorError)
-    }
-
-    struct Session {
-        let identifier: UUID
-        let target: SimulatorWebInspectorTarget
-        let senderIdentifier: String
-        var router = SimulatorWebInspectorSessionRouter()
-    }
+    typealias Event = SimulatorWebInspectorEvent
+    typealias Session = SimulatorWebInspectorSession
 
     typealias RefreshContinuation = CheckedContinuation<[SimulatorWebInspectorTarget], Error>
 
     var eventHandler: ((Event) -> Void)?
 
     let discovery: SimulatorWebInspectorSocketDiscovery
+    let frameCodec: SimulatorWebInspectorPlistFrameCodec
+    let socketConnector: SimulatorWebInspectorSocketConnector
     let sleeper: any SimulatorWebInspectorSleeping
     let mutationGate: SimulatorMutationGate
     var socket: (any SimulatorWebInspectorTransport)?
@@ -43,9 +34,14 @@ final class SimulatorWebInspectorService {
     init(
         subprocessRunner: SimulatorSubprocessRunner,
         sleeper: any SimulatorWebInspectorSleeping = ContinuousSimulatorWebInspectorSleeper(),
-        mutationGate: SimulatorMutationGate = SimulatorMutationGate()
+        mutationGate: SimulatorMutationGate = SimulatorMutationGate(),
+        frameCodec: SimulatorWebInspectorPlistFrameCodec = SimulatorWebInspectorPlistFrameCodec(),
+        socketConnector: SimulatorWebInspectorSocketConnector? = nil
     ) {
         discovery = SimulatorWebInspectorSocketDiscovery(subprocessRunner: subprocessRunner)
+        self.frameCodec = frameCodec
+        self.socketConnector = socketConnector
+            ?? SimulatorWebInspectorSocketConnector(frameCodec: frameCodec)
         self.sleeper = sleeper
         self.mutationGate = mutationGate
     }
@@ -204,7 +200,7 @@ final class SimulatorWebInspectorService {
             let document = try await callTarget(method: "DOM.getDocument", parameters: ["depth": 0])
             guard let result = document["result"] as? [String: Any],
                   let root = result["root"] as? [String: Any],
-                  let nodeIdentifier = Self.integer(root["nodeId"]) else {
+                  let nodeIdentifier = simulatorWebInspectorInteger(root["nodeId"]) else {
                 throw SimulatorWebInspectorError.invalidMessage
             }
             _ = try await callTarget(method: "DOM.highlightNode", parameters: [
@@ -240,7 +236,7 @@ final class SimulatorWebInspectorService {
         try? await releaseSession(emit: false)
         shutdown()
         let path = try await discovery.socketPath(deviceIdentifier: deviceIdentifier)
-        let socket = try SimulatorWebInspectorSocket.connect(path: path)
+        let socket = try socketConnector.connect(path: path)
         self.socket = socket
         currentDeviceIdentifier = deviceIdentifier
         connectionIdentifier = UUID().uuidString
@@ -288,13 +284,6 @@ final class SimulatorWebInspectorService {
         continuation?.resume(throwing: error)
     }
 
-    static func integer(_ value: Any?) -> Int64? {
-        if let number = value as? NSNumber { return number.int64Value }
-        if let value = value as? Int64 { return value }
-        if let value = value as? Int { return Int64(value) }
-        return nil
-    }
-
     private func mutationKey(
         deviceIdentifier: String,
         target: SimulatorWebInspectorTarget
@@ -310,4 +299,11 @@ final class SimulatorWebInspectorService {
             bundleIdentifier: bundleIdentifier
         )
     }
+}
+
+func simulatorWebInspectorInteger(_ value: Any?) -> Int64? {
+    if let number = value as? NSNumber { return number.int64Value }
+    if let value = value as? Int64 { return value }
+    if let value = value as? Int { return Int64(value) }
+    return nil
 }

@@ -2,7 +2,6 @@ import CmuxSimulator
 @testable import CmuxSimulatorUI
 
 actor LiveStatusPaneClient: SimulatorPaneClient {
-    nonisolated let contextCache = SimulatorRemoteContextCache()
     private let stream: SimulatorWorkerEventStream
     private let continuation: SimulatorWorkerEventStream.Continuation
     private var foreground = LiveStatusPaneClient.application(
@@ -18,11 +17,13 @@ actor LiveStatusPaneClient: SimulatorPaneClient {
     private var cameraFailure = false
 
     init() {
-        (stream, continuation) = SimulatorWorkerEventStream.makeStream(
+        let source = SimulatorWorkerEventStreamSource(
             maximumBufferedBytes: 1_024 * 1_024,
             maximumBufferedEvents: 64,
             onTermination: {}
         )
+        stream = source.stream
+        continuation = source.continuation
     }
 
     func discoverDevices() async throws -> [SimulatorDevice] {
@@ -38,7 +39,7 @@ actor LiveStatusPaneClient: SimulatorPaneClient {
     func subscribe() async -> SimulatorWorkerEventStream { stream }
     func send(_ message: SimulatorWorkerInbound) async {}
     func invalidateWorker() async {}
-    func stop() async { stops += 1; continuation.finish() }
+    func stop() async { stops += 1; await continuation.finish() }
 
     func perform(_ action: SimulatorControlAction) async throws -> SimulatorControlResult {
         concurrentReads += 1
@@ -63,7 +64,7 @@ actor LiveStatusPaneClient: SimulatorPaneClient {
         }
     }
 
-    func emit(_ event: SimulatorWorkerEvent) { _ = continuation.yield(event) }
+    func emit(_ event: SimulatorWorkerEvent) async { _ = await continuation.yield(event) }
     func readCounts() -> (Int, Int) { (foregroundReads, cameraReads) }
     func maximumConcurrentReads() -> Int { maximumReads }
     func stopCount() -> Int { stops }

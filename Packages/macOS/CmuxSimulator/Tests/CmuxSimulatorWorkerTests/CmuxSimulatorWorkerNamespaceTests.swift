@@ -5,7 +5,7 @@ import Testing
 struct CmuxSimulatorWorkerNamespaceTests {
     @Test("DEVELOPER_DIR wins over xcode-select")
     func developerDirectoryOverride() {
-        let directory = SimulatorFrameworkLoader.resolveDeveloperDirectory(
+        let directory = SimulatorDeveloperDirectoryResolver().resolve(
             environment: ["DEVELOPER_DIR": "/Applications/Xcode-beta.app/Contents/Developer"]
         )
 

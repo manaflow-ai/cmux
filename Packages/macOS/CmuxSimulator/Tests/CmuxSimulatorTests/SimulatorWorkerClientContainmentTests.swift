@@ -52,7 +52,9 @@ extension SimulatorWorkerClientTests {
         #expect(first.terminationCountValue() == 1)
 
         await client.receive(
-            try JSONEncoder().encode(SimulatorWorkerOutbound.context(111)),
+            try JSONEncoder().encode(SimulatorWorkerOutbound.frameTransport(
+                simulatorFrameTransportDescriptor(111)
+            )),
             generation: firstGeneration
         )
         await client.receive(
@@ -61,13 +63,14 @@ extension SimulatorWorkerClientTests {
         )
         await Task.yield()
         #expect(!(await completion.isComplete))
-        #expect(await client.currentContextID == nil)
+        #expect(await client.currentFrameTransport == nil)
 
-        second.emit(.context(222))
+        let secondTransport = simulatorFrameTransportDescriptor(222)
+        second.emit(.frameTransport(secondTransport))
         second.emit(.status(.streaming))
         try await secondTask.value
         #expect(await completion.isComplete)
-        #expect(await client.currentContextID == 222)
+        #expect(await client.currentFrameTransport == secondTransport)
         #expect((await firstTask.result).isFailure)
         await client.stop()
     }
@@ -112,11 +115,13 @@ extension SimulatorWorkerClientTests {
 
     @Test("Subscriber buffering admits inspector bursts up to a hard byte ceiling")
     func subscriberBufferUsesBytes() async {
-        let (stream, continuation) = SimulatorWorkerEventStream.makeStream(
+        let source = SimulatorWorkerEventStreamSource(
             maximumBufferedBytes: 32 * 1_024 * 1_024,
             maximumBufferedEvents: 1_024,
             onTermination: {}
         )
+        let stream = source.stream
+        let continuation = source.continuation
         let event = SimulatorWorkerEvent.message(.actionLog(SimulatorActionLogEntry(
             id: UUID(),
             timestamp: Date(),
@@ -126,17 +131,17 @@ extension SimulatorWorkerClientTests {
         )))
 
         for _ in 0..<100 {
-            #expect(continuation.yield(event, byteCount: 300 * 1_024) == .enqueued)
+            #expect(await continuation.yield(event, byteCount: 300 * 1_024) == .enqueued)
         }
         for _ in 100..<109 {
-            #expect(continuation.yield(event, byteCount: 300 * 1_024) == .enqueued)
+            #expect(await continuation.yield(event, byteCount: 300 * 1_024) == .enqueued)
         }
-        #expect(continuation.yield(event, byteCount: 300 * 1_024) == .overflow)
+        #expect(await continuation.yield(event, byteCount: 300 * 1_024) == .overflow)
 
         var iterator = stream.makeAsyncIterator()
         #expect(await iterator.next() == event)
-        #expect(continuation.yield(event, byteCount: 300 * 1_024) == .enqueued)
-        continuation.finish()
+        #expect(await continuation.yield(event, byteCount: 300 * 1_024) == .enqueued)
+        await continuation.finish()
     }
 
     @Test("Stop permanently prevents worker relaunch")
@@ -378,9 +383,11 @@ extension SimulatorWorkerClientTests {
     }
 
     private func replacementEndpoint(_ launcher: TestWorkerLauncher) async throws -> TestWorkerEndpoint {
-        for _ in 0..<1_000 {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(2))
+        while clock.now < deadline {
             if let endpoint = launcher.endpoint(at: 1) { return endpoint }
-            await Task.yield()
+            try await clock.sleep(for: .milliseconds(1))
         }
         throw SimulatorControlError(
             code: "missing_replacement",
@@ -390,11 +397,13 @@ extension SimulatorWorkerClientTests {
     }
 
     private func awaitInboundInteractive(_ endpoint: TestWorkerEndpoint) async throws {
-        for _ in 0..<1_000 {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(2))
+        while clock.now < deadline {
             if endpoint.inboundMessages().contains(where: {
                 if case .interactiveAction = $0 { true } else { false }
             }) { return }
-            await Task.yield()
+            try await clock.sleep(for: .milliseconds(1))
         }
         throw SimulatorControlError(
             code: "missing_interactive",
@@ -404,11 +413,13 @@ extension SimulatorWorkerClientTests {
     }
 
     private func waitForAcknowledgedPing(_ client: SimulatorWorkerClient) async {
-        for _ in 0..<1_000 {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(2))
+        while clock.now < deadline {
             if await client.currentStatus == .streaming,
                await client.pendingPingSequence == nil,
                await client.deferredMessages.isEmpty { return }
-            await Task.yield()
+            try? await clock.sleep(for: .milliseconds(1))
         }
     }
 
@@ -417,7 +428,9 @@ extension SimulatorWorkerClientTests {
         at index: Int,
         containingAttach deviceIdentifier: String
     ) async throws -> TestWorkerEndpoint {
-        for _ in 0..<1_000 {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(2))
+        while clock.now < deadline {
             if let endpoint = launcher.endpoint(at: index),
                endpoint.inboundMessages().contains(.attach(
                    udid: deviceIdentifier,
@@ -425,44 +438,13 @@ extension SimulatorWorkerClientTests {
                )) {
                 return endpoint
             }
-            await Task.yield()
+            try await clock.sleep(for: .milliseconds(1))
         }
         throw SimulatorControlError(
             code: "missing_test_endpoint",
             arguments: [],
             message: "The expected test worker did not launch."
         )
-    }
-}
-
-private final class LimitedPingResponder: @unchecked Sendable {
-    private let lock = NSLock()
-    private let maximumAcknowledgements: Int
-    private var acknowledgementCount = 0
-
-    init(maximumAcknowledgements: Int) {
-        self.maximumAcknowledgements = maximumAcknowledgements
-    }
-
-    func response(to message: SimulatorWorkerInbound) -> SimulatorWorkerOutbound? {
-        guard case let .ping(sequence) = message else { return nil }
-        return lock.withLock {
-            guard acknowledgementCount < maximumAcknowledgements else { return nil }
-            acknowledgementCount += 1
-            return .ack(sequence)
-        }
-    }
-}
-
-private struct ImmediateWorkerSleeper: SimulatorWorkerSleeping {
-    func sleep(for duration: Duration) async throws {}
-}
-
-private actor AttachmentCompletionProbe {
-    private(set) var isComplete = false
-
-    func markComplete() {
-        isComplete = true
     }
 }
 

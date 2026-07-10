@@ -1,8 +1,5 @@
 /// The host-side operations required by the native Simulator pane UI.
 public protocol SimulatorPaneClient: Sendable {
-    /// A synchronously readable mirror of the worker's remote layer context.
-    nonisolated var contextCache: SimulatorRemoteContextCache { get }
-
     /// Returns installed Simulator devices.
     func discoverDevices() async throws -> [SimulatorDevice]
 

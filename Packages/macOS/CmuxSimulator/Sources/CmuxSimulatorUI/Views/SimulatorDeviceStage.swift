@@ -19,11 +19,13 @@ struct SimulatorDeviceStage: View {
                     }
                 }
             } else if let failure = coordinator.failure,
-                      coordinator.contextID == nil {
+                coordinator.frameTransport == nil
+            {
                 failureView(failure)
             } else if let display = coordinator.display,
-                      let contextID = coordinator.contextID {
-                device(display: display, contextID: contextID)
+                let frameTransport = coordinator.frameTransport
+            {
+                device(display: display, frameTransport: frameTransport)
             } else {
                 waitingView
             }
@@ -34,17 +36,22 @@ struct SimulatorDeviceStage: View {
         }
     }
 
-    private func device(display: SimulatorDisplayMetadata, contextID: UInt32) -> some View {
+    private func device(
+        display: SimulatorDisplayMetadata,
+        frameTransport: SimulatorFrameTransportDescriptor
+    ) -> some View {
         ZStack {
             SimulatorRemoteSurface(
                 coordinator: coordinator,
-                contextID: contextID,
+                frameTransport: frameTransport,
                 display: display,
                 chrome: coordinator.chromeProfile,
                 onRequestPanelFocus: onRequestPanelFocus
             )
-            if coordinator.accessibilityOverlayEnabled,
-               let snapshot = coordinator.accessibilitySnapshot {
+            if coordinator.accessibilityOverlayEnabled
+                || coordinator.highlightedAccessibilityNodeID != nil,
+                let snapshot = coordinator.accessibilitySnapshot
+            {
                 SimulatorAccessibilityOverlay(
                     coordinator: coordinator,
                     snapshot: snapshot,

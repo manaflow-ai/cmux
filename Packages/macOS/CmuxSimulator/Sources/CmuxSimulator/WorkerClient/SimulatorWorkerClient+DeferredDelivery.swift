@@ -5,13 +5,13 @@ extension SimulatorWorkerClient {
         _ error: Error,
         attempt: Int,
         beginsAttachment: Bool
-    ) throws {
+    ) async throws {
         discardWorker(intentional: true, clearReplayState: false)
         if attempt == 0, !restartAttemptUsed {
             restartAttemptUsed = true
             return
         }
-        tripCrashFuse(reason: error)
+        await tripCrashFuse(reason: error)
         if beginsAttachment { attachmentAwaitingStreaming = false }
         throw SimulatorControlError(
             code: "worker_unavailable",

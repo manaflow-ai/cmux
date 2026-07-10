@@ -9,10 +9,10 @@ extension SimulatorPrivatePrivacyAdapter {
         let fallback = SimulatorPrivacySnapshot(
             deviceID: deviceIdentifier,
             bundleIdentifier: bundleIdentifier,
-            authorizations: Self.emptyAuthorizations()
+            authorizations: emptyAuthorizations()
         )
-        guard Self.isSafeIdentifier(deviceIdentifier),
-              bundleIdentifier.map(Self.isSafeIdentifier) ?? true
+        guard simulatorPrivacyIdentifierIsSafe(deviceIdentifier),
+              bundleIdentifier.map(simulatorPrivacyIdentifierIsSafe) ?? true
         else { return fallback }
         do {
             return try await mutationGate.withLocks([
@@ -33,26 +33,26 @@ extension SimulatorPrivatePrivacyAdapter {
         deviceIdentifier: String,
         bundleIdentifier: String?
     ) async -> SimulatorPrivacySnapshot {
-        var authorizations = Self.emptyAuthorizations()
+        var authorizations = emptyAuthorizations()
         let databaseURL = simulatorLibrary(deviceIdentifier: deviceIdentifier)
             .appendingPathComponent("TCC/TCC.db")
-        let locationEntries = Self.locationEntries(deviceIdentifier: deviceIdentifier)
-        let notificationSections = Self.notificationSections(deviceIdentifier: deviceIdentifier)
+        let locationEntries = locationEntries(deviceIdentifier: deviceIdentifier)
+        let notificationSections = notificationSections(deviceIdentifier: deviceIdentifier)
 
         if let bundleIdentifier {
-            if FileManager.default.isReadableFile(atPath: databaseURL.path),
+            if fileSystem.isReadableFile(atPath: databaseURL.path),
                let rows = try? await readTCCRows(
                    databaseURL: databaseURL,
                    bundleIdentifier: bundleIdentifier
                ) {
-                Self.applyTCCRows(rows, to: &authorizations)
+                applyTCCRows(rows, to: &authorizations)
             }
-            Self.applyLocation(
+            applyLocation(
                 bundleIdentifier: bundleIdentifier,
                 entries: locationEntries,
                 to: &authorizations
             )
-            Self.applyNotifications(
+            applyNotifications(
                 bundleIdentifier: bundleIdentifier,
                 sections: notificationSections,
                 to: &authorizations
@@ -64,7 +64,7 @@ extension SimulatorPrivatePrivacyAdapter {
             )
         }
 
-        let tccReadback: SimulatorTCCApplicationReadback? = if FileManager.default
+        let tccReadback: SimulatorTCCApplicationReadback? = if fileSystem
             .isReadableFile(atPath: databaseURL.path) {
             try? await readTCCApplicationRows(databaseURL: databaseURL)
         } else { nil }
@@ -74,20 +74,20 @@ extension SimulatorPrivatePrivacyAdapter {
             }
         )
         var bundleIdentifiers = Set(tccRows.keys)
-        bundleIdentifiers.formUnion(Self.locationBundleIdentifiers(in: locationEntries))
-        bundleIdentifiers.formUnion(Self.notificationBundleIdentifiers(in: notificationSections))
+        bundleIdentifiers.formUnion(locationBundleIdentifiers(in: locationEntries))
+        bundleIdentifiers.formUnion(notificationBundleIdentifiers(in: notificationSections))
         let sortedBundleIdentifiers = bundleIdentifiers.sorted()
         let applications = sortedBundleIdentifiers
             .prefix(Self.maximumUnfilteredApplications)
             .map { bundleIdentifier in
-                var values = Self.emptyAuthorizations()
-                Self.applyTCCRows(tccRows[bundleIdentifier] ?? [:], to: &values)
-                Self.applyLocation(
+                var values = emptyAuthorizations()
+                applyTCCRows(tccRows[bundleIdentifier] ?? [:], to: &values)
+                applyLocation(
                     bundleIdentifier: bundleIdentifier,
                     entries: locationEntries,
                     to: &values
                 )
-                Self.applyNotifications(
+                applyNotifications(
                     bundleIdentifier: bundleIdentifier,
                     sections: notificationSections,
                     to: &values
@@ -107,7 +107,7 @@ extension SimulatorPrivatePrivacyAdapter {
         )
     }
 
-    private static func emptyAuthorizations()
+    private func emptyAuthorizations()
         -> [SimulatorPrivacyService: SimulatorPrivacyAuthorization] {
         Dictionary(
             uniqueKeysWithValues: SimulatorPrivacyService.allCases
@@ -116,12 +116,11 @@ extension SimulatorPrivatePrivacyAdapter {
         )
     }
 
-    private static func locationEntries(deviceIdentifier: String) -> [String: Any]? {
-        let path = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Developer/CoreSimulator/Devices")
+    private func locationEntries(deviceIdentifier: String) -> [String: Any]? {
+        let path = simulatorDevicesDirectory
             .appendingPathComponent(deviceIdentifier)
             .appendingPathComponent("data/Library/Caches/locationd/clients.plist")
-        guard let data = try? Data(contentsOf: path) else { return nil }
+        guard let data = fileSystem.contents(atPath: path.path) else { return nil }
         return try? PropertyListSerialization.propertyList(
             from: data,
             options: [],
@@ -129,16 +128,16 @@ extension SimulatorPrivatePrivacyAdapter {
         ) as? [String: Any]
     }
 
-    private static func locationBundleIdentifiers(in entries: [String: Any]?) -> Set<String> {
+    private func locationBundleIdentifiers(in entries: [String: Any]?) -> Set<String> {
         guard let entries else { return [] }
         return Set(entries.keys.compactMap { key in
             guard key.hasPrefix("i"), key.hasSuffix(":"), key.count > 2 else { return nil }
             let bundleIdentifier = String(key.dropFirst().dropLast())
-            return isSafeIdentifier(bundleIdentifier) ? bundleIdentifier : nil
+            return simulatorPrivacyIdentifierIsSafe(bundleIdentifier) ? bundleIdentifier : nil
         })
     }
 
-    private static func applyLocation(
+    private func applyLocation(
         bundleIdentifier: String,
         entries: [String: Any]?,
         to authorizations: inout [SimulatorPrivacyService: SimulatorPrivacyAuthorization]
@@ -162,12 +161,11 @@ extension SimulatorPrivatePrivacyAdapter {
         authorizations[.locationInUse] = raw.intValue == 4 ? .granted : value
     }
 
-    private static func notificationSections(deviceIdentifier: String) -> [String: Any]? {
-        let path = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Developer/CoreSimulator/Devices")
+    private func notificationSections(deviceIdentifier: String) -> [String: Any]? {
+        let path = simulatorDevicesDirectory
             .appendingPathComponent(deviceIdentifier)
             .appendingPathComponent("data/Library/BulletinBoard/VersionedSectionInfo.plist")
-        guard let data = try? Data(contentsOf: path),
+        guard let data = fileSystem.contents(atPath: path.path),
               let root = try? PropertyListSerialization.propertyList(
                   from: data,
                   options: [],
@@ -177,12 +175,12 @@ extension SimulatorPrivatePrivacyAdapter {
         return root["sectionInfo"] as? [String: Any]
     }
 
-    private static func notificationBundleIdentifiers(in sections: [String: Any]?) -> Set<String> {
+    private func notificationBundleIdentifiers(in sections: [String: Any]?) -> Set<String> {
         guard let sections else { return [] }
-        return Set(sections.keys.filter(isSafeIdentifier))
+        return Set(sections.keys.filter(simulatorPrivacyIdentifierIsSafe))
     }
 
-    private static func applyNotifications(
+    private func applyNotifications(
         bundleIdentifier: String,
         sections: [String: Any]?,
         to authorizations: inout [SimulatorPrivacyService: SimulatorPrivacyAuthorization]

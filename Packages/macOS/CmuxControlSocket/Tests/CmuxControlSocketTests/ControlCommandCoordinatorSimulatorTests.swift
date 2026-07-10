@@ -185,6 +185,30 @@ struct ControlCommandCoordinatorSimulatorTests {
         #expect(payload["completed"] == .bool(true))
     }
 
+    @Test("Recovery routes to a failed Simulator without worker parameters")
+    func recoveryOperation() {
+        let context = FakeSimulatorControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+        let receipt = ControlSimulatorOperationReceipt()
+        receipt.complete(.success(.object(["completed": .bool(true)])))
+        context.operationResolution = .started(
+            surfaceID: UUID(), timeoutSeconds: 1, receipt: receipt
+        )
+
+        guard case let .ok(.object(payload)) = coordinator.handleSocketWorkerV2(
+            request("simulator.recover"), context: context
+        ) else {
+            Issue.record("Expected correlated recovery acceptance")
+            return
+        }
+        #expect(context.lastOperation == .recover)
+        #expect(payload["completed"] == .bool(true))
+        #expect(
+            ControlCommandExecutionPolicy(forMethod: "simulator.recover")
+                == .socketWorker(mainThreadCallable: false)
+        )
+    }
+
     @Test("Agent operations validate bounds and preserve routing failures")
     func operationValidationAndRouting() {
         let context = FakeSimulatorControlCommandContext()

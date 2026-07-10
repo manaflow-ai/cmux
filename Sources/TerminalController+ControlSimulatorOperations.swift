@@ -13,7 +13,7 @@ extension TerminalController {
             return .failed(failure)
         case let .panel(panel):
             let coordinator = panel.coordinator
-            guard coordinator.status == .streaming else {
+            guard operation == .recover || coordinator.status == .streaming else {
                 return .unavailable(String(
                     localized: "cli.simulator.error.notStreaming",
                     defaultValue: "The selected Simulator is not streaming"
@@ -56,6 +56,9 @@ extension TerminalController {
         do {
             let payload: JSONValue
             switch operation {
+            case .recover:
+                try await coordinator.recoverAndWait()
+                payload = .object(["completed": .bool(true)])
             case let .gesture(touches):
                 let geometry = coordinator.display.map(SimulatorOrientationGeometry.init(display:))
                 let events = try touches.map { try controlSimulatorPointerEvent($0, geometry: geometry) }
@@ -206,6 +209,7 @@ extension TerminalController {
         for operation: ControlSimulatorOperation
     ) -> SimulatorCapability? {
         switch operation {
+        case .recover: nil
         case let .gesture(events): events.contains(where: { $0.secondX != nil }) ? .multiTouch : .touch
         case .hardwareButton: .hardwareButtons
         case .rotate: .rotation
@@ -228,6 +232,7 @@ extension TerminalController {
     }
 
     private func simulatorTimeout(for operation: ControlSimulatorOperation) -> TimeInterval {
+        if case .recover = operation { return 130 }
         if case .cameraConfigure = operation { return 160 }
         if case .cameraSwitch = operation { return 160 }
         if case .interfaceStatus = operation { return 125 }

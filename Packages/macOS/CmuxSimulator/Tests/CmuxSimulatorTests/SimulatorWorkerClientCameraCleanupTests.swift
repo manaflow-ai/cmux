@@ -17,7 +17,7 @@ extension SimulatorWorkerClientTests {
         var readinessIterator = readiness.makeAsyncIterator()
         first.emit(.status(.streaming))
         first.emit(.capabilities([.cameraInjection]))
-        first.emit(.context(77))
+        first.emit(.frameTransport(simulatorFrameTransportDescriptor(77)))
         _ = await readinessIterator.next()
         _ = await readinessIterator.next()
         _ = await readinessIterator.next()
@@ -150,7 +150,7 @@ extension SimulatorWorkerClientTests {
         var readinessIterator = readiness.makeAsyncIterator()
         endpoint.emit(.status(.streaming))
         endpoint.emit(.capabilities([.cameraInjection]))
-        endpoint.emit(.context(78))
+        endpoint.emit(.frameTransport(simulatorFrameTransportDescriptor(78)))
         _ = await readinessIterator.next()
         _ = await readinessIterator.next()
         _ = await readinessIterator.next()
@@ -255,9 +255,11 @@ extension SimulatorWorkerClientTests {
         from launcher: TestWorkerLauncher,
         at index: Int
     ) async throws -> TestWorkerEndpoint {
-        for _ in 0..<1_000 {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(2))
+        while clock.now < deadline {
             if let endpoint = launcher.endpoint(at: index) { return endpoint }
-            await Task.yield()
+            try await clock.sleep(for: .milliseconds(1))
         }
         throw SimulatorControlError(
             code: "missing_test_worker",
@@ -294,82 +296,5 @@ private func acknowledgeRecordedPings(_ endpoint: TestWorkerEndpoint) {
         return sequence
     }) {
         endpoint.emit(.ack(sequence))
-    }
-}
-
-private actor BlockingCameraCleanupControl: SimulatorControlling {
-    private(set) var actions: [SimulatorControlAction] = []
-    private var continuation: CheckedContinuation<Void, Never>?
-    private var released = false
-    private(set) var isBlocked = false
-
-    func discoverDevices() async throws -> [SimulatorDevice] { [] }
-    func boot(deviceID: String) async throws {}
-    func waitUntilBooted(deviceID: String) async throws {}
-    func shutdown(deviceID: String) async throws {}
-
-    func perform(_ action: SimulatorControlAction) async throws -> SimulatorControlResult {
-        actions.append(action)
-        if !released, !isBlocked, case .terminateApplication = action {
-            isBlocked = true
-            await withCheckedContinuation { continuation = $0 }
-        }
-        return .none
-    }
-
-    func release() {
-        released = true
-        continuation?.resume()
-        continuation = nil
-    }
-}
-
-private final class TestCameraSharedMemoryRegion {
-    private let name: String
-    private let descriptor: Int32
-
-    init(deviceIdentifier: String, processIdentifier: Int32) throws {
-        name = SimulatorCameraSharedMemory(
-            deviceIdentifier: deviceIdentifier,
-            processIdentifier: processIdentifier
-        ).name
-        _ = Darwin.shm_unlink(name)
-        descriptor = try Self.open(name: name, flags: O_CREAT | O_EXCL | O_RDWR)
-        guard ftruncate(descriptor, 1) == 0 else {
-            let code = errno
-            Darwin.close(descriptor)
-            _ = Darwin.shm_unlink(name)
-            throw POSIXError(POSIXErrorCode(rawValue: code) ?? .EIO)
-        }
-    }
-
-    deinit {
-        Darwin.close(descriptor)
-        _ = Darwin.shm_unlink(name)
-    }
-
-    func exists() -> Bool {
-        guard let descriptor = try? Self.open(name: name, flags: O_RDWR) else { return false }
-        Darwin.close(descriptor)
-        return true
-    }
-
-    private static func open(name: String, flags: Int32) throws -> Int32 {
-        typealias Function = @convention(c) (
-            UnsafePointer<CChar>,
-            Int32,
-            mode_t
-        ) -> Int32
-        guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "shm_open") else {
-            throw POSIXError(.ENOSYS)
-        }
-        let function = unsafeBitCast(symbol, to: Function.self)
-        let descriptor = name.withCString {
-            function($0, flags, S_IRUSR | S_IWUSR)
-        }
-        guard descriptor >= 0 else {
-            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
-        }
-        return descriptor
     }
 }

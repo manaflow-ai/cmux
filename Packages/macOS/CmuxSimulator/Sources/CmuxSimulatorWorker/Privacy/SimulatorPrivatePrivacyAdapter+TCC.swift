@@ -1,16 +1,6 @@
 import CmuxSimulator
 import Foundation
 
-struct SimulatorTCCApplicationRows: Equatable, Sendable {
-    let bundleIdentifier: String
-    let services: [String: Int]
-}
-
-struct SimulatorTCCApplicationReadback: Equatable, Sendable {
-    let applications: [SimulatorTCCApplicationRows]
-    let isTruncated: Bool
-}
-
 extension SimulatorPrivatePrivacyAdapter {
     static let maximumUnfilteredApplications = 256
 
@@ -20,7 +10,7 @@ extension SimulatorPrivatePrivacyAdapter {
         action: SimulatorPrivacyAction,
         service: SimulatorPrivacyService
     ) async throws {
-        guard let sql = Self.tccMutationSQL(
+        guard let sql = tccMutationSQL(
             service: service,
             action: action,
             bundleIdentifier: bundleIdentifier
@@ -31,7 +21,7 @@ extension SimulatorPrivatePrivacyAdapter {
         }
         let databaseURL = simulatorLibrary(deviceIdentifier: deviceIdentifier)
             .appendingPathComponent("TCC/TCC.db")
-        guard FileManager.default.isReadableFile(atPath: databaseURL.path) else {
+        guard fileSystem.isReadableFile(atPath: databaseURL.path) else {
             throw SimulatorWorkerFailure.privateAPIUnavailable(
                 "The Simulator TCC database is unavailable; wait for the device to finish booting."
             )
@@ -45,7 +35,8 @@ extension SimulatorPrivatePrivacyAdapter {
         action: SimulatorPrivacyAction,
         service: SimulatorPrivacyService
     ) async throws {
-        guard Self.isSafeIdentifier(deviceIdentifier), Self.isSafeIdentifier(bundleIdentifier) else {
+        guard simulatorPrivacyIdentifierIsSafe(deviceIdentifier),
+              simulatorPrivacyIdentifierIsSafe(bundleIdentifier) else {
             throw SimulatorWorkerFailure.privateAPIUnavailable(
                 "Permission mutation rejected an invalid device or bundle identifier."
             )
@@ -58,7 +49,7 @@ extension SimulatorPrivatePrivacyAdapter {
         )
     }
 
-    static func tccMutationSQL(
+    func tccMutationSQL(
         service: SimulatorPrivacyService,
         action: SimulatorPrivacyAction,
         bundleIdentifier: String
@@ -154,21 +145,21 @@ extension SimulatorPrivatePrivacyAdapter {
                     : result.standardError
             )
         }
-        return Self.parseTCCApplicationRows(result.standardOutput)
+        return parseTCCApplicationRows(result.standardOutput)
     }
 
-    static func parseTCCApplicationRows(
+    func parseTCCApplicationRows(
         _ output: String
     ) -> SimulatorTCCApplicationReadback {
-        let supportedServices = Set(tccServiceMappings.map(\.databaseName))
-        let candidateLimit = maximumUnfilteredApplications + 1
+        let supportedServices = Set(Self.tccServiceMappings.map(\.databaseName))
+        let candidateLimit = Self.maximumUnfilteredApplications + 1
         var bundleIdentifiers: [String] = []
         var rowsByBundleIdentifier: [String: [String: Int]] = [:]
 
         for line in output.split(whereSeparator: \.isNewline) {
             let fields = line.split(separator: "|", maxSplits: 2).map(String.init)
             guard fields.count == 3,
-                  isSafeIdentifier(fields[0]),
+                  simulatorPrivacyIdentifierIsSafe(fields[0]),
                   supportedServices.contains(fields[1]),
                   let value = Int(fields[2]) else { continue }
             if rowsByBundleIdentifier[fields[0]] == nil {
@@ -186,15 +177,15 @@ extension SimulatorPrivatePrivacyAdapter {
                     services: rowsByBundleIdentifier[$0] ?? [:]
                 )
             },
-            isTruncated: bundleIdentifiers.count > maximumUnfilteredApplications
+            isTruncated: bundleIdentifiers.count > Self.maximumUnfilteredApplications
         )
     }
 
-    static func applyTCCRows(
+    func applyTCCRows(
         _ rows: [String: Int],
         to authorizations: inout [SimulatorPrivacyService: SimulatorPrivacyAuthorization]
     ) {
-        for (service, databaseName) in tccServiceMappings {
+        for (service, databaseName) in Self.tccServiceMappings {
             guard let value = rows[databaseName] else {
                 authorizations[service] = .notDetermined
                 continue

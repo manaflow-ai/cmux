@@ -106,27 +106,3 @@ struct SimulatorWebInspectorServiceFailureTests {
         ], ownConnectionIdentifier: "OURS")
     }
 }
-
-private final class FailingWebInspectorTransport: SimulatorWebInspectorTransport, @unchecked Sendable {
-    let messages: AsyncStream<Data>
-    private let lock = NSLock()
-    private let failAtSend: Int
-    private var sends = 0
-
-    init(failAtSend: Int = 1) {
-        self.failAtSend = failAtSend
-        messages = AsyncStream { _ in }
-    }
-
-    var sendCount: Int { lock.withLock { sends } }
-
-    func send(propertyList: [String: Any]) throws {
-        let shouldFail = lock.withLock {
-            sends += 1
-            return sends >= failAtSend
-        }
-        if shouldFail { throw SimulatorWebInspectorError.socketFailure(EPIPE) }
-    }
-
-    func close() {}
-}

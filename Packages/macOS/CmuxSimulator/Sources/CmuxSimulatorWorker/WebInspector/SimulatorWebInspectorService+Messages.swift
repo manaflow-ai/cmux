@@ -5,7 +5,7 @@ extension SimulatorWebInspectorService {
     func receive(propertyListBody: Data) {
         let message: [String: Any]
         do {
-            message = try SimulatorWebInspectorPlistFrameCodec.decodeBody(propertyListBody)
+            message = try frameCodec.decodeBody(propertyListBody)
         } catch {
             eventHandler?(.failure(error as? SimulatorWebInspectorError ?? .invalidPropertyList))
             return
@@ -260,7 +260,7 @@ extension SimulatorWebInspectorService {
            destination != session.senderIdentifier { return false }
         guard argument["WIRApplicationIdentifierKey"] as? String
                 == session.target.applicationIdentifier else { return false }
-        if let page = Self.integer(argument["WIRPageIdentifierKey"]),
+        if let page = simulatorWebInspectorInteger(argument["WIRPageIdentifierKey"]),
            page >= 0,
            UInt64(page) != session.target.pageIdentifier { return false }
         return true
@@ -305,7 +305,7 @@ extension SimulatorWebInspectorService {
     private func completeInternalRequest(with data: Data) -> Bool {
         guard let value = try? JSONSerialization.jsonObject(with: data),
               let dictionary = value as? [String: Any],
-              let identifier = Self.integer(dictionary["id"]),
+              let identifier = simulatorWebInspectorInteger(dictionary["id"]),
               let continuation = pendingInternalRequests.removeValue(forKey: identifier)
         else { return false }
         internalRequestTimeoutTasks.removeValue(forKey: identifier)?.cancel()

@@ -7,6 +7,8 @@ extension ControlCommandCoordinator {
     ) -> ControlCallResult? {
         let operation: ControlSimulatorOperation
         switch request.method {
+        case "simulator.recover":
+            operation = .recover
         case "simulator.gesture", "simulator.multi_touch":
             guard case let .array(rawEvents)? = request.params["events"],
                   !rawEvents.isEmpty, rawEvents.count <= 256,

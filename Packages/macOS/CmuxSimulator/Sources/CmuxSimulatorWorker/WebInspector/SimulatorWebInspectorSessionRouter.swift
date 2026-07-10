@@ -2,31 +2,12 @@ import Foundation
 import CoreFoundation
 
 struct SimulatorWebInspectorSessionRouter {
-    enum Mode: Equatable {
-        case negotiating
-        case legacy
-        case targetBased
-    }
-
-    struct IncomingResult: Equatable {
-        var messagesForHost: [Data] = []
-        var messagesForTarget: [Data] = []
-    }
+    typealias Mode = SimulatorWebInspectorSessionMode
+    typealias IncomingResult = SimulatorWebInspectorIncomingResult
+    private typealias RequestIdentifier = SimulatorWebInspectorRequestIdentifier
 
     private(set) var innerTargetIdentifier: String?
     private(set) var mode: Mode = .negotiating
-    private enum RequestIdentifier: Hashable {
-        case number(String)
-        case string(String)
-
-        var foundationValue: Any {
-            switch self {
-            case let .number(value): NSNumber(value: Double(value) ?? 0)
-            case let .string(value): value
-            }
-        }
-    }
-
     private var wrappedAcknowledgementCounts: [RequestIdentifier: Int] = [:]
     private var wrappedAcknowledgementCount = 0
     private var wrapperIdentifierPrefix = UUID().uuidString
@@ -43,12 +24,12 @@ struct SimulatorWebInspectorSessionRouter {
         guard raw.count <= Self.maximumCommandLength else {
             throw SimulatorWebInspectorError.commandTooLarge(raw.count)
         }
-        let message = try Self.jsonObject(raw)
+        let message = try simulatorWebInspectorJSONObject(raw)
         let method = message["method"] as? String
         let isTargetDomain = method?.hasPrefix("Target.") == true
 
         if isTargetDomain,
-           let identifier = Self.requestIdentifier(message["id"]),
+           let identifier = simulatorWebInspectorRequestIdentifier(message["id"]),
            wrappedAcknowledgementCounts[identifier] != nil {
             throw SimulatorWebInspectorError.wrapperIdentifierCollision
         }
@@ -98,7 +79,7 @@ struct SimulatorWebInspectorSessionRouter {
         _ raw: Data,
         isFromTarget: Bool
     ) -> IncomingResult {
-        guard let message = try? Self.jsonObject(raw) else {
+        guard let message = try? simulatorWebInspectorJSONObject(raw) else {
             return IncomingResult(messagesForHost: [raw])
         }
         let method = message["method"] as? String
@@ -140,7 +121,7 @@ struct SimulatorWebInspectorSessionRouter {
         }
 
         if !isFromTarget,
-           let identifier = Self.requestIdentifier(message["id"]),
+           let identifier = simulatorWebInspectorRequestIdentifier(message["id"]),
            consumeWrappedAcknowledgement(identifier) {
             return IncomingResult()
         }
@@ -200,23 +181,6 @@ struct SimulatorWebInspectorSessionRouter {
         return []
     }
 
-    private static func jsonObject(_ data: Data) throws -> [String: Any] {
-        let object = try JSONSerialization.jsonObject(with: data)
-        guard let dictionary = object as? [String: Any] else {
-            throw SimulatorWebInspectorError.invalidMessage
-        }
-        return dictionary
-    }
-
-    private static func requestIdentifier(_ value: Any?) -> RequestIdentifier? {
-        if let value = value as? String { return .string(value) }
-        if let number = value as? NSNumber,
-           CFGetTypeID(number) != CFBooleanGetTypeID() {
-            return .number(number.stringValue)
-        }
-        return nil
-    }
-
     private mutating func makeWrapperIdentifier() -> RequestIdentifier {
         defer { nextWrapperIdentifier &+= 1 }
         return .string("cmux-wrapper-\(wrapperIdentifierPrefix)-\(nextWrapperIdentifier)")
@@ -233,4 +197,23 @@ struct SimulatorWebInspectorSessionRouter {
         wrappedAcknowledgementCount -= 1
         return true
     }
+}
+
+private func simulatorWebInspectorJSONObject(_ data: Data) throws -> [String: Any] {
+    let object = try JSONSerialization.jsonObject(with: data)
+    guard let dictionary = object as? [String: Any] else {
+        throw SimulatorWebInspectorError.invalidMessage
+    }
+    return dictionary
+}
+
+private func simulatorWebInspectorRequestIdentifier(
+    _ value: Any?
+) -> SimulatorWebInspectorRequestIdentifier? {
+    if let value = value as? String { return .string(value) }
+    if let number = value as? NSNumber,
+       CFGetTypeID(number) != CFBooleanGetTypeID() {
+        return .number(number.stringValue)
+    }
+    return nil
 }

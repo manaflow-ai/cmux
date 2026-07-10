@@ -14,7 +14,7 @@ struct SimulatorAccessibilityWorkerClientTests {
         let endpoint = try #require(launcher.endpoint(at: 0))
         endpoint.emit(.status(.streaming))
         endpoint.emit(.capabilities([.accessibility]))
-        endpoint.emit(.context(12))
+        endpoint.emit(.frameTransport(simulatorFrameTransportDescriptor(12)))
         _ = await iterator.next()
         _ = await iterator.next()
         _ = await iterator.next()
@@ -67,7 +67,7 @@ struct SimulatorAccessibilityWorkerClientTests {
         let endpoint = try #require(launcher.endpoint(at: 0))
         endpoint.emit(.status(.streaming))
         endpoint.emit(.capabilities([.foregroundApplication]))
-        endpoint.emit(.context(13))
+        endpoint.emit(.frameTransport(simulatorFrameTransportDescriptor(13)))
         _ = await iterator.next()
         _ = await iterator.next()
         _ = await iterator.next()
@@ -99,7 +99,7 @@ struct SimulatorAccessibilityWorkerClientTests {
         let endpoint = try #require(launcher.endpoint(at: 0))
         endpoint.emit(.status(.streaming))
         endpoint.emit(.capabilities([.accessibility]))
-        endpoint.emit(.context(14))
+        endpoint.emit(.frameTransport(simulatorFrameTransportDescriptor(14)))
         _ = await iterator.next()
         _ = await iterator.next()
         _ = await iterator.next()
@@ -145,7 +145,7 @@ struct SimulatorAccessibilityWorkerClientTests {
         let endpoint = try #require(launcher.endpoint(at: 0))
         endpoint.emit(.status(.streaming))
         endpoint.emit(.capabilities([.foregroundApplication]))
-        endpoint.emit(.context(15))
+        endpoint.emit(.frameTransport(simulatorFrameTransportDescriptor(15)))
         _ = await iterator.next()
         _ = await iterator.next()
         _ = await iterator.next()
@@ -189,11 +189,4 @@ struct SimulatorAccessibilityWorkerClientTests {
         orientation: .portrait,
         scale: 3
     )
-}
-
-private struct ForegroundTimeoutSleeper: SimulatorWorkerSleeping {
-    func sleep(for duration: Duration) async throws {
-        if duration == .seconds(15) { return }
-        try await ContinuousClock().sleep(for: .seconds(3_600))
-    }
 }

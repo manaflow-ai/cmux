@@ -28,8 +28,8 @@ extension SimulatorRemoteSurfaceView {
         layer?.backgroundColor = chrome == nil ? NSColor.black.cgColor : NSColor.clear.cgColor
     }
 
-    func layoutHostedLayer() {
-        guard let hostedLayer else { return }
+    func layoutFrameLayer() {
+        guard let frameLayer else { return }
         let rect = displayRect
         let geometry = orientationGeometry
         let swapsAxes = geometry?.swapsAxes == true
@@ -38,19 +38,20 @@ extension SimulatorRemoteSurfaceView {
             height: swapsAxes ? rect.width : rect.height
         )
         let radians = CGFloat(geometry?.presentationRotationDegrees ?? 0) * .pi / 180
-        let radius = if let chrome, let display {
-            chrome.scaledScreenCornerRadius(in: bounds, orientation: display.orientation)
-        } else {
-            CGFloat.zero
-        }
+        let radius =
+            if let chrome, let display {
+                chrome.scaledScreenCornerRadius(in: bounds, orientation: display.orientation)
+            } else {
+                CGFloat.zero
+            }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        hostedLayer.bounds = CGRect(origin: .zero, size: rawSize)
-        hostedLayer.position = CGPoint(x: rect.midX, y: rect.midY)
-        hostedLayer.transform = CATransform3DMakeRotation(radians, 0, 0, 1)
-        hostedLayer.cornerRadius = radius
-        hostedLayer.cornerCurve = .continuous
-        hostedLayer.masksToBounds = true
+        frameLayer.bounds = CGRect(origin: .zero, size: rawSize)
+        frameLayer.position = CGPoint(x: rect.midX, y: rect.midY)
+        frameLayer.transform = CATransform3DMakeRotation(radians, 0, 0, 1)
+        frameLayer.cornerRadius = radius
+        frameLayer.cornerCurve = .continuous
+        frameLayer.masksToBounds = true
         CATransaction.commit()
     }
 }

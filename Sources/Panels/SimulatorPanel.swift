@@ -40,7 +40,7 @@ final class SimulatorPanel: Panel {
         preferredDeviceID: String? = nil,
         preferredRuntimeIdentifier: String? = nil,
         preferredDeviceTypeIdentifier: String? = nil,
-        client: any SimulatorPaneClient = SimulatorWorkerClient.reexecingCurrentBinary()
+        client: any SimulatorPaneClient = SimulatorWorkerClientFactory().makeClient()
     ) {
         self.preferredDeviceID = preferredDeviceID
         self.preferredRuntimeIdentifier = preferredRuntimeIdentifier

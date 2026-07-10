@@ -3,7 +3,6 @@ import Foundation
 @testable import CmuxSimulatorUI
 
 actor CancellableDiscoveryPaneClient: SimulatorPaneClient {
-    nonisolated let contextCache = SimulatorRemoteContextCache()
     private let device: SimulatorDevice
     private let cancellationGate = TestCancellationGate()
     private let eventStream: SimulatorWorkerEventStream
@@ -13,13 +12,13 @@ actor CancellableDiscoveryPaneClient: SimulatorPaneClient {
 
     init(device: SimulatorDevice) {
         self.device = device
-        let (stream, continuation) = SimulatorWorkerEventStream.makeStream(
+        let source = SimulatorWorkerEventStreamSource(
             maximumBufferedBytes: 1_024,
             maximumBufferedEvents: 8,
             onTermination: {}
         )
-        eventStream = stream
-        eventContinuation = continuation
+        eventStream = source.stream
+        eventContinuation = source.continuation
     }
 
     func discoverDevices() async throws -> [SimulatorDevice] {
@@ -39,7 +38,7 @@ actor CancellableDiscoveryPaneClient: SimulatorPaneClient {
     func send(_ message: SimulatorWorkerInbound) async {}
     func perform(_ action: SimulatorControlAction) async throws -> SimulatorControlResult { .none }
     func invalidateWorker() async {}
-    func stop() async { eventContinuation.finish() }
+    func stop() async { await eventContinuation.finish() }
 
     func waitForFirstDiscovery() async {
         guard discoveries == 0 else { return }

@@ -1,12 +1,6 @@
 actor SimulatorCameraCleanupWaitState {
-    enum Outcome: Sendable {
-        case completed
-        case timedOut
-        case cancelled
-    }
-
-    private var outcome: Outcome?
-    private var continuation: CheckedContinuation<Outcome, Never>?
+    private var outcome: SimulatorCameraCleanupWaitOutcome?
+    private var continuation: CheckedContinuation<SimulatorCameraCleanupWaitOutcome, Never>?
     private var completionWatcher: Task<Void, Never>?
     private var deadlineWatcher: Task<Void, Never>?
 
@@ -14,7 +8,7 @@ actor SimulatorCameraCleanupWaitState {
         for cleanup: Task<Void, Never>,
         timeout: Duration,
         sleeper: any SimulatorWorkerSleeping
-    ) async -> Outcome {
+    ) async -> SimulatorCameraCleanupWaitOutcome {
         await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
                 if let outcome {
@@ -42,7 +36,7 @@ actor SimulatorCameraCleanupWaitState {
         }
     }
 
-    private func finish(_ outcome: Outcome) {
+    private func finish(_ outcome: SimulatorCameraCleanupWaitOutcome) {
         guard self.outcome == nil else { return }
         self.outcome = outcome
         completionWatcher?.cancel()

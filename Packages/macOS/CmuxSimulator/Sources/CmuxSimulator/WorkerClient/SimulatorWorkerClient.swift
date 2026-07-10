@@ -4,7 +4,7 @@ import Foundation
 /// supported `simctl` control surface to a native pane.
 ///
 /// Private Simulator frameworks are loaded only by the re-executed child. A
-/// child crash closes this client's pipe, clears the remote layer, and spends
+/// child crash closes this client's pipe, clears the frame transport, and spends
 /// one automatic restart. A second failure trips a fuse until an explicit
 /// activation or ``recover()`` call.
 public actor SimulatorWorkerClient: SimulatorPaneClient {
@@ -12,9 +12,6 @@ public actor SimulatorWorkerClient: SimulatorPaneClient {
     public static let workerModeArgument = "--cmux-simulator-worker"
     static let maximumSubscriberBufferedBytes = 32 * 1_024 * 1_024
     static let maximumSubscriberEventCount = 1_024
-
-    /// A synchronously readable mirror of the current remote layer context.
-    public nonisolated let contextCache = SimulatorRemoteContextCache()
 
     let executableURL: URL
     let arguments: [String]
@@ -41,8 +38,8 @@ public actor SimulatorWorkerClient: SimulatorPaneClient {
 
     var subscribers: [Int: SimulatorWorkerEventStream.Continuation] = [:]
     var nextSubscriberID = 0
-    var currentContextID: UInt32?
-    var contextCacheRevision: UInt64 = 0
+    var currentFrameTransport: SimulatorFrameTransportDescriptor?
+    var frameTransportSharedMemoryNames: Set<String> = []
     var currentCapabilities: Set<SimulatorCapability> = []
     var currentStatus: SimulatorSessionStatus?
 
@@ -133,7 +130,10 @@ public actor SimulatorWorkerClient: SimulatorPaneClient {
         ackWatchdog?.cancel()
         replayWatchdog?.cancel()
         gracefulTerminationTask?.cancel()
-        let deviceIdentifier = Self.attachedDeviceIdentifier(from: lastAttachment)
+        for name in frameTransportSharedMemoryNames {
+            simulatorUnlinkFrameSharedMemory(named: name)
+        }
+        let deviceIdentifier = simulatorAttachedDeviceIdentifier(from: lastAttachment)
         let bundleIdentifiers = Array(cameraCleanupBundleIdentifiers.union(
             cameraReplayConfigurations.compactMap(\.targetBundleIdentifier)
         ).filter { !$0.isEmpty }).sorted()
@@ -144,7 +144,7 @@ public actor SimulatorWorkerClient: SimulatorPaneClient {
             let simulatorControl = self.simulatorControl
             Task {
                 await pendingCleanup?.value
-                await Self.cleanCameraInjections(
+                await cleanSimulatorCameraInjections(
                     deviceIdentifier: deviceIdentifier,
                     bundleIdentifiers: bundleIdentifiers,
                     simulatorControl: simulatorControl
@@ -152,29 +152,12 @@ public actor SimulatorWorkerClient: SimulatorPaneClient {
             }
         }
         if let child {
-            Self.unlinkCameraSharedMemory(
+            unlinkSimulatorCameraSharedMemory(
                 connection: child,
                 deviceIdentifier: deviceIdentifier
             )
             child.terminate()
         }
-    }
-
-    /// Creates a client that re-executes the current app binary in worker mode.
-    /// - Parameters:
-    ///   - ackTimeout: Ordered ping deadline before treating the child as hung.
-    ///   - simulatorControl: Injected public Simulator control service.
-    public static func reexecingCurrentBinary(
-        ackTimeout: Duration = .seconds(3),
-        simulatorControl: any SimulatorControlling = SimulatorControlService()
-    ) -> SimulatorWorkerClient {
-        let executableURL = Bundle.main.executableURL
-            ?? URL(fileURLWithPath: CommandLine.arguments[0])
-        return SimulatorWorkerClient(
-            executableURL: executableURL,
-            ackTimeout: ackTimeout,
-            simulatorControl: simulatorControl
-        )
     }
 
     /// Returns installed Simulator devices through the injected control service.
@@ -201,7 +184,7 @@ public actor SimulatorWorkerClient: SimulatorPaneClient {
         }
 
         prepareExplicitRecovery()
-        replaceWorkerForAttachmentIfNeeded()
+        await replaceWorkerForAttachmentIfNeeded()
         prepareForAttachment(deviceIdentifier: id)
         let attached: Bool = try await requestWorkerValue(
             sending: .attach(udid: id, geometry: geometry),
@@ -243,17 +226,17 @@ public actor SimulatorWorkerClient: SimulatorPaneClient {
     /// Subscribes to process-safe worker messages and lifecycle changes.
     public func subscribe() async -> SimulatorWorkerEventStream {
         if isPermanentlyStopped {
-            let (stream, continuation) = SimulatorWorkerEventStream.makeStream(
+            let source = SimulatorWorkerEventStreamSource(
                 maximumBufferedBytes: 1,
                 maximumBufferedEvents: 1,
                 onTermination: {}
             )
-            continuation.finish()
-            return stream
+            await source.continuation.finish()
+            return source.stream
         }
         let identifier = nextSubscriberID
         nextSubscriberID += 1
-        let (stream, continuation) = SimulatorWorkerEventStream.makeStream(
+        let source = SimulatorWorkerEventStreamSource(
             maximumBufferedBytes: Self.maximumSubscriberBufferedBytes,
             maximumBufferedEvents: Self.maximumSubscriberEventCount
         ) { [weak self] in
@@ -261,17 +244,18 @@ public actor SimulatorWorkerClient: SimulatorPaneClient {
                 await self?.removeSubscriber(identifier)
             }
         }
+        let continuation = source.continuation
         subscribers[identifier] = continuation
-        if let currentContextID {
-            yield(.message(.context(currentContextID)), to: continuation)
+        if let currentFrameTransport {
+            await yield(.message(.frameTransport(currentFrameTransport)), to: continuation)
         }
         if !currentCapabilities.isEmpty {
-            yield(.message(.capabilities(currentCapabilities)), to: continuation)
+            await yield(.message(.capabilities(currentCapabilities)), to: continuation)
         }
         if let currentStatus {
-            yield(.message(.status(currentStatus)), to: continuation)
+            await yield(.message(.status(currentStatus)), to: continuation)
         }
-        return stream
+        return source.stream
     }
 
     /// Sends one typed command. Failures arrive through the event stream so
@@ -293,7 +277,7 @@ public actor SimulatorWorkerClient: SimulatorPaneClient {
         } catch is CancellationError {
             return
         } catch {
-            broadcastFailure(error, code: "worker_send_failed")
+            await broadcastFailure(error, code: "worker_send_failed")
         }
     }
     /// Clears a tripped crash fuse and relaunches the worker with its last
@@ -311,6 +295,7 @@ public actor SimulatorWorkerClient: SimulatorPaneClient {
         _ = try ensureRunning()
     }
 
+    /// Invalidates the current child process while keeping the client reusable.
     public func invalidateWorker() async {
         guard !isPermanentlyStopped else { return }
         let cleanup = cameraCleanupSnapshot()
@@ -323,7 +308,7 @@ public actor SimulatorWorkerClient: SimulatorPaneClient {
         )
         if !cleanupAlreadyQueued { enqueueCameraCleanup(cleanup) }
         await waitForCameraCleanup()
-        broadcast(.workerStopped)
+        await broadcast(.workerStopped)
     }
 
     /// Releases input, requests clean worker shutdown, and closes every event
@@ -344,7 +329,7 @@ public actor SimulatorWorkerClient: SimulatorPaneClient {
         if !cleanupAlreadyQueued { enqueueCameraCleanup(cleanup) }
         await waitForCameraCleanup()
         for continuation in subscribers.values {
-            continuation.finish()
+            await continuation.finish()
         }
         subscribers.removeAll()
     }
@@ -377,7 +362,7 @@ public actor SimulatorWorkerClient: SimulatorPaneClient {
                 if beginsAttachment { attachmentAwaitingStreaming = true }
                 connection = try ensureRunning()
             } catch {
-                try prepareRetryAfterTransportFailure(
+                try await prepareRetryAfterTransportFailure(
                     error,
                     attempt: attempt,
                     beginsAttachment: beginsAttachment
@@ -391,7 +376,7 @@ public actor SimulatorWorkerClient: SimulatorPaneClient {
             do {
                 try connection.send(data)
             } catch {
-                try prepareRetryAfterTransportFailure(
+                try await prepareRetryAfterTransportFailure(
                     error,
                     attempt: attempt,
                     beginsAttachment: beginsAttachment
@@ -403,7 +388,7 @@ public actor SimulatorWorkerClient: SimulatorPaneClient {
                 if probe { try armResponsivenessProbe() }
             } catch {
                 discardWorker(intentional: true, clearReplayState: false)
-                handleUnexpectedWorkerStop(
+                await handleUnexpectedWorkerStop(
                     reason: String(
                         localized: "simulator.failure.workerCommandOutcomeUnknown",
                         defaultValue: "The Simulator worker accepted a command but disconnected before confirming its outcome."

@@ -9,10 +9,11 @@ struct SimulatorAccessibilityOverlay: View {
     var body: some View {
         GeometryReader { proxy in
             let bounds = CGRect(origin: .zero, size: proxy.size)
-            let appKitScreen = chrome?.screenRect(
-                in: bounds,
-                orientation: snapshot.display.orientation
-            ) ?? bounds
+            let appKitScreen =
+                chrome?.screenRect(
+                    in: bounds,
+                    orientation: snapshot.display.orientation
+                ) ?? bounds
             let screen = CGRect(
                 x: appKitScreen.minX,
                 y: bounds.height - appKitScreen.maxY,
@@ -30,11 +31,13 @@ struct SimulatorAccessibilityOverlay: View {
                     } label: {
                         Rectangle()
                             .fill(.blue.opacity(0.08))
-                            .overlay(Rectangle().stroke(
-                                coordinator.accessibilityOverlaySelectedNodeID == item.node.id
-                                    ? Color.red : Color.blue,
-                                lineWidth: 1
-                            ))
+                            .overlay(
+                                Rectangle().stroke(
+                                    coordinator.accessibilityOverlaySelectedNodeID == item.node.id
+                                        || coordinator.highlightedAccessibilityNodeID == item.node.id
+                                        ? Color.red : Color.blue,
+                                    lineWidth: 1
+                                ))
                     }
                     .buttonStyle(.plain)
                     .frame(width: item.rect.width, height: item.rect.height)

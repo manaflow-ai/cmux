@@ -46,15 +46,15 @@ extension SimulatorWorkerClient {
     func correlatedOperationDeadlineExpired(
         generation requestGeneration: UInt64,
         failure: SimulatorControlError
-    ) {
+    ) async {
         guard requestGeneration == generation, child != nil else { return }
-        broadcast(.message(.failure(SimulatorFailure(
+        await broadcast(.message(.failure(SimulatorFailure(
             code: failure.code,
             message: failure.message,
             isRecoverable: true
         ))))
         discardWorker(intentional: true, clearReplayState: false)
-        handleUnexpectedWorkerStop(reason: failure.message)
+        await handleUnexpectedWorkerStop(reason: failure.message)
     }
 
     func armResponsivenessProbe() throws {
@@ -96,22 +96,22 @@ extension SimulatorWorkerClient {
         }
     }
 
-    func ackDeadlineExpired(sequence: UInt64) {
+    func ackDeadlineExpired(sequence: UInt64) async {
         guard pendingPingSequence == sequence else { return }
         pendingPingSequence = nil
         ackWatchdog = nil
         discardWorker(intentional: true, clearReplayState: false)
-        handleUnexpectedWorkerStop(reason: "The Simulator worker stopped acknowledging commands.")
+        await handleUnexpectedWorkerStop(reason: "The Simulator worker stopped acknowledging commands.")
     }
 
-    func receive(_ data: Data, generation messageGeneration: UInt64) {
+    func receive(_ data: Data, generation messageGeneration: UInt64) async {
         guard messageGeneration == generation,
               let message = try? JSONDecoder().decode(SimulatorWorkerOutbound.self, from: data) else {
             return
         }
 
         if case let .ack(sequence) = message {
-            acknowledge(sequence)
+            await acknowledge(sequence)
             return
         }
         if case let .status(status) = message {
@@ -120,17 +120,18 @@ extension SimulatorWorkerClient {
         switch message {
         case let .display(display):
             lastDisplayOrientation = display.orientation
-        case let .context(contextID):
-            currentContextID = contextID
-            publishContextCache(contextID)
+        case let .frameTransport(frameTransport):
+            currentFrameTransport = frameTransport
+            if simulatorFrameSharedMemoryNameIsValid(frameTransport.sharedMemoryName) {
+                frameTransportSharedMemoryNames.insert(frameTransport.sharedMemoryName)
+            }
         case let .capabilities(capabilities):
             currentCapabilities = capabilities
         case .status(.deviceUnavailable):
-            currentContextID = nil
+            clearFrameTransportState()
             currentCapabilities = []
             lastDisplayOrientation = nil
-            publishContextCache(nil)
-            failOutstandingRequests(with: SimulatorFailure(
+            await failOutstandingRequests(with: SimulatorFailure(
                 code: "simulator_device_unavailable",
                 message: String(
                     localized: "simulator.failure.deviceUnavailableDuringRequest",
@@ -140,20 +141,19 @@ extension SimulatorWorkerClient {
             ))
             cancelReplayWait()
         case let .status(.failed(failure)):
-            currentContextID = nil
+            clearFrameTransportState()
             currentCapabilities = []
             lastDisplayOrientation = nil
-            publishContextCache(nil)
-            failOutstandingRequests(with: failure)
+            await failOutstandingRequests(with: failure)
             cancelReplayWait()
         case .status(.streaming):
             attachmentAwaitingStreaming = false
             if replayAwaitingStreaming {
                 replayAwaitingStreaming = false
                 replayMessages = makeReplayMessages()
-                driveReplay()
+                await driveReplay()
             } else {
-                finishReplayIfReady()
+                await finishReplayIfReady()
             }
         case let .cameraConfiguration(requestID, succeeded, target):
             let wasReplay = replayRequestIDs.remove(requestID) != nil
@@ -163,7 +163,7 @@ extension SimulatorWorkerClient {
                 resolvedTargetBundleIdentifier: target,
                 wasReplay: wasReplay
             )
-            if wasReplay { driveReplay() }
+            if wasReplay { await driveReplay() }
         case let .cameraTargetResolved(_, bundleIdentifier):
             if !bundleIdentifier.isEmpty {
                 cameraCleanupBundleIdentifiers.insert(bundleIdentifier)
@@ -176,15 +176,15 @@ extension SimulatorWorkerClient {
             } else if wasReplay, !succeeded {
                 lastCameraMirrorMode = nil
             }
-            if wasReplay { driveReplay() }
+            if wasReplay { await driveReplay() }
         case let .textInput(requestID, _):
             pendingTextInputUsages.removeValue(forKey: requestID)
-            flushDeferredMessageIfReady()
-            finishBlockingInputProbeIfReady()
+            await flushDeferredMessageIfReady()
+            await finishBlockingInputProbeIfReady()
         case let .interactiveAction(requestID, _):
             pendingInteractiveRequestIdentifiers.remove(requestID)
-            flushDeferredMessageIfReady()
-            finishBlockingInputProbeIfReady()
+            await flushDeferredMessageIfReady()
+            await finishBlockingInputProbeIfReady()
         case let .requestFailure(requestID, _):
             let completedText = pendingTextInputUsages.removeValue(forKey: requestID) != nil
             let completedInteractive = pendingInteractiveRequestIdentifiers.remove(requestID) != nil
@@ -199,10 +199,10 @@ extension SimulatorWorkerClient {
                 lastCameraMirrorMode = nil
             }
             if completedText || completedInteractive {
-                flushDeferredMessageIfReady()
+                await flushDeferredMessageIfReady()
             }
-            if completedText || completedInteractive { finishBlockingInputProbeIfReady() }
-            if wasReplay { driveReplay() }
+            if completedText || completedInteractive { await finishBlockingInputProbeIfReady() }
+            if wasReplay { await driveReplay() }
         case let .scrollWheelEnded(eventID):
             if activeScrollIdentifier == eventID {
                 activeScrollIdentifier = nil
@@ -212,15 +212,15 @@ extension SimulatorWorkerClient {
         default:
             break
         }
-        broadcast(.message(message), byteCount: data.count)
+        await broadcast(.message(message), byteCount: data.count)
     }
 
-    func acknowledge(_ sequence: UInt64) {
+    func acknowledge(_ sequence: UInt64) async {
         if let replayAcknowledgementSequence,
            sequence >= replayAcknowledgementSequence {
             self.replayAcknowledgementSequence = nil
             applyInputReleaseProofs(through: sequence)
-            driveReplay()
+            await driveReplay()
             return
         }
         guard let pendingPingSequence, sequence >= pendingPingSequence else { return }
@@ -232,40 +232,40 @@ extension SimulatorWorkerClient {
             convenienceButtonProofs.removeValue(forKey: proofSequence)
         }
         applyInputReleaseProofs(through: sequence)
-        flushDeferredMessageIfReady()
+        await flushDeferredMessageIfReady()
         guard probeNeededAfterAcknowledgement else { return }
         probeNeededAfterAcknowledgement = false
         do {
             try armResponsivenessProbe()
         } catch {
             discardWorker(intentional: true, clearReplayState: false)
-            handleUnexpectedWorkerStop(reason: "The Simulator worker pipe closed while acknowledging commands.")
+            await handleUnexpectedWorkerStop(reason: "The Simulator worker pipe closed while acknowledging commands.")
         }
     }
 
     func workerEnded(
         generation endedGeneration: UInt64,
         failure: SimulatorFailure? = nil
-    ) {
+    ) async {
         guard endedGeneration == generation, let connection = child else { return }
         child = nil
         readerTask = nil
-        Self.unlinkCameraSharedMemory(
+        unlinkSimulatorCameraSharedMemory(
             connection: connection,
-            deviceIdentifier: Self.attachedDeviceIdentifier(from: lastAttachment)
+            deviceIdentifier: simulatorAttachedDeviceIdentifier(from: lastAttachment)
         )
         clearLiveWorkerState()
         guard !isClosing else { return }
         if let failure {
-            broadcast(.message(.failure(failure)))
+            await broadcast(.message(.failure(failure)))
         }
-        handleUnexpectedWorkerStop(reason: "The isolated Simulator worker exited.")
+        await handleUnexpectedWorkerStop(reason: "The isolated Simulator worker exited.")
     }
 
-    func handleUnexpectedWorkerStop(reason: String) {
-        broadcast(.workerStopped)
+    func handleUnexpectedWorkerStop(reason: String) async {
+        await broadcast(.workerStopped)
         guard !restartAttemptUsed else {
-            tripCrashFuse(reason: SimulatorFailure(
+            await tripCrashFuse(reason: SimulatorFailure(
                 code: "worker_crash_fuse",
                 message: reason,
                 isRecoverable: true
@@ -276,11 +276,11 @@ extension SimulatorWorkerClient {
         do {
             _ = try ensureRunning()
         } catch {
-            tripCrashFuse(reason: error)
+            await tripCrashFuse(reason: error)
         }
     }
 
-    func tripCrashFuse(reason: Error) {
+    func tripCrashFuse(reason: Error) async {
         let cleanup = cameraCleanupSnapshot()
         crashFuseTripped = true
         discardWorker(intentional: true, clearReplayState: false)
@@ -296,7 +296,7 @@ extension SimulatorWorkerClient {
             ),
             isRecoverable: true
         )
-        broadcast(.message(.failure(failure)))
+        await broadcast(.message(.failure(failure)))
     }
 
     func prepareExplicitRecovery() {
@@ -318,12 +318,12 @@ extension SimulatorWorkerClient {
         clearHeldInputState()
     }
 
-    func replaceWorkerForAttachmentIfNeeded() {
+    func replaceWorkerForAttachmentIfNeeded() async {
         guard child != nil || lastAttachment != nil else { return }
         discardWorker(intentional: true, clearReplayState: true)
         // Existing correlated attach waiters must fail immediately. The new
         // attachment subscribes only after this terminal event is broadcast.
-        broadcast(.workerStopped)
+        await broadcast(.workerStopped)
     }
 
     func clearHeldInputState() {
@@ -344,9 +344,9 @@ extension SimulatorWorkerClient {
         readerTask?.cancel()
         readerTask = nil
         if let connection {
-            Self.unlinkCameraSharedMemory(
+            unlinkSimulatorCameraSharedMemory(
                 connection: connection,
-                deviceIdentifier: Self.attachedDeviceIdentifier(from: lastAttachment)
+                deviceIdentifier: simulatorAttachedDeviceIdentifier(from: lastAttachment)
             )
         }
         if graceful, let connection {
@@ -387,7 +387,7 @@ extension SimulatorWorkerClient {
         pendingPingSequence = nil
         probeNeededAfterAcknowledgement = false
         cancelReplayWait()
-        currentContextID = nil
+        clearFrameTransportState()
         currentCapabilities = []
         currentStatus = nil
         failDeferredDeliveries(with: SimulatorFailure(
@@ -403,15 +403,14 @@ extension SimulatorWorkerClient {
         cameraRequestConfigurations.removeAll()
         cameraSourceSwitchRequests.removeAll()
         cameraMirrorRequests.removeAll()
-        publishContextCache(nil)
     }
 
-    func publishContextCache(_ contextID: UInt32?) {
-        contextCacheRevision &+= 1
-        let revision = contextCacheRevision
-        Task { @MainActor [contextCache] in
-            contextCache.update(contextID: contextID, revision: revision)
+    func clearFrameTransportState() {
+        currentFrameTransport = nil
+        for name in frameTransportSharedMemoryNames {
+            simulatorUnlinkFrameSharedMemory(named: name)
         }
+        frameTransportSharedMemoryNames.removeAll()
     }
 
     func acknowledgeCameraTargetResolution(for message: SimulatorWorkerOutbound) {
@@ -423,7 +422,7 @@ extension SimulatorWorkerClient {
         try? child.send(data)
     }
 
-    func finishBlockingInputProbeIfReady() {
+    func finishBlockingInputProbeIfReady() async {
         guard pendingTextInputUsages.isEmpty,
               pendingInteractiveRequestIdentifiers.isEmpty,
               probeNeededAfterTextInput else { return }
@@ -432,13 +431,13 @@ extension SimulatorWorkerClient {
             try armResponsivenessProbe()
         } catch {
             discardWorker(intentional: true, clearReplayState: false)
-            handleUnexpectedWorkerStop(
+            await handleUnexpectedWorkerStop(
                 reason: "The Simulator worker pipe closed after completing text input."
             )
         }
     }
 
-    func flushDeferredMessageIfReady() {
+    func flushDeferredMessageIfReady() async {
         guard let message = deferredMessages.first,
               !shouldDeferMessage(message),
               let child else { return }
@@ -464,13 +463,13 @@ extension SimulatorWorkerClient {
                 )
             )
             discardWorker(intentional: true, clearReplayState: false)
-            handleUnexpectedWorkerStop(
+            await handleUnexpectedWorkerStop(
                 reason: "The Simulator worker could not accept deferred input."
             )
         }
     }
 
-    func failOutstandingRequests(with failure: SimulatorFailure) {
+    func failOutstandingRequests(with failure: SimulatorFailure) async {
         var requestIdentifiers = Set(deferredMessages.compactMap(\.requestIdentifier))
         requestIdentifiers.formUnion(pendingTextInputUsages.keys)
         requestIdentifiers.formUnion(pendingInteractiveRequestIdentifiers)
@@ -486,7 +485,7 @@ extension SimulatorWorkerClient {
         probeNeededAfterTextInput = false
         failDeferredDeliveries(with: failure)
         for requestIdentifier in requestIdentifiers {
-            broadcast(.message(.requestFailure(requestID: requestIdentifier, failure)))
+            await broadcast(.message(.requestFailure(requestID: requestIdentifier, failure)))
         }
     }
 

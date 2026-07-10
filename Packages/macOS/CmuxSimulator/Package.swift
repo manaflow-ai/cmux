@@ -17,13 +17,6 @@ let package = Package(
     ],
     targets: [
         .target(
-            name: "CmuxSimulatorObjC",
-            publicHeadersPath: "include",
-            linkerSettings: [
-                .linkedFramework("QuartzCore"),
-            ]
-        ),
-        .target(
             name: "CmuxSimulator",
             dependencies: [
                 .product(name: "CmuxFoundation", package: "CmuxFoundation"),
@@ -46,16 +39,16 @@ let package = Package(
             linkerSettings: [
                 .linkedFramework("IOSurface"),
                 .linkedFramework("CoreVideo"),
-                .linkedFramework("QuartzCore"),
             ]
         ),
         .target(
             name: "CmuxSimulatorUI",
-            dependencies: ["CmuxSimulator", "CmuxSimulatorObjC"],
+            dependencies: ["CmuxSimulator"],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
             ],
             linkerSettings: [
+                .linkedFramework("IOSurface"),
                 .linkedFramework("QuartzCore"),
             ]
         ),

@@ -13,7 +13,7 @@ struct SimulatorBuildCacheIdentityTests {
             compilerVersion: "Apple clang 21",
             settingsDigest: "settings-one"
         )
-        let arguments = SimulatorCameraInjectorCompiler.compileArguments(
+        let arguments = SimulatorCameraInjectorCompiler().compileArguments(
             sdkPath: "<SDKROOT>",
             resourcesPath: "<RESOURCE_ROOT>",
             outputPath: "<OUTPUT>",

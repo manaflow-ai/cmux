@@ -10,4 +10,4 @@ This target owns the in-process SwiftUI and AppKit host for Simulator panes.
 - The Web Inspector tools keep only bounded response previews; the process-safe chunk stream remains available to native clients that need complete output.
 - `Debug` contains debug-build-only renderer diagnostics.
 
-Private Simulator framework calls and framebuffer rendering remain isolated in `CmuxSimulatorWorker`; UI code communicates with them only through `CmuxSimulator` messages. The host uses a signature-checked, exception-contained `CALayerHost` setter solely to display the worker's remote Core Animation context.
+Private Simulator framework calls and framebuffer capture remain isolated in `CmuxSimulatorWorker`; UI code communicates with them only through `CmuxSimulator` messages. The host resolves worker-published global IOSurfaces and displays them through a local layer. Worker death cannot leave Core Animation waiting on a child-owned context.

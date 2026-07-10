@@ -38,7 +38,7 @@ extension SimulatorWorkerClientTests {
         let endpoint = try #require(launcher.endpoint(at: 0))
         endpoint.emit(.status(.streaming))
         endpoint.emit(.capabilities([.extendedPermissions, .cameraInjection]))
-        endpoint.emit(.context(91))
+        endpoint.emit(.frameTransport(simulatorFrameTransportDescriptor(91)))
         _ = await iterator.next()
         _ = await iterator.next()
         _ = await iterator.next()

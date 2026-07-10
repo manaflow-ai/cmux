@@ -16,12 +16,15 @@ final class SimulatorCameraAdapter {
     typealias TargetResolvedOperation = @MainActor @Sendable (String) async throws -> Void
     typealias OperationIsCurrent = @MainActor @Sendable () -> Bool
     typealias ApplicationMutationWillCommit = @MainActor @Sendable (String) -> Void
+    typealias HostCameraDevicesOperation = @MainActor @Sendable () -> [SimulatorHostCameraDevice]
 
     let compiledLibraryOperation: CompiledLibraryOperation
     let simctlOperation: SimctlOperation
     let cameraPermission: SimulatorCameraPermissionAdapter
     let mutationGate: SimulatorMutationGate
     let applicationMutationWillCommit: ApplicationMutationWillCommit
+    let hostCameraDevicesOperation: HostCameraDevicesOperation
+    let fileManager: FileManager
     var deviceIdentifier: String?
     var surfaceRing: SimulatorCameraSurfaceRing?
     var ownershipLock: SimulatorCameraOwnershipLock?
@@ -37,17 +40,22 @@ final class SimulatorCameraAdapter {
     var activeTargetBundleIdentifier: String?
     var activeTargetProcessIdentifier: Int32?
     var activeConfiguration: SimulatorCameraConfiguration = .disabled
-    private var mirrorMode: SimulatorCameraMirrorMode = .auto
+    var mirrorMode: SimulatorCameraMirrorMode = .auto
 
     init(
         subprocessRunner: SimulatorSubprocessRunner = SimulatorSubprocessRunner(),
+        fileManager: FileManager = FileManager(),
         cameraPermission: SimulatorCameraPermissionAdapter? = nil,
         compiledLibrary: CompiledLibraryOperation? = nil,
         simctl: SimctlOperation? = nil,
         mutationGate: SimulatorMutationGate = SimulatorMutationGate(),
-        applicationMutationWillCommit: @escaping ApplicationMutationWillCommit = { _ in }
+        applicationMutationWillCommit: @escaping ApplicationMutationWillCommit = { _ in },
+        hostCameraDevices: @escaping HostCameraDevicesOperation = simulatorAvailableHostCameras
     ) {
-        let compiler = SimulatorCameraInjectorCompiler(subprocessRunner: subprocessRunner)
+        let compiler = SimulatorCameraInjectorCompiler(
+            subprocessRunner: subprocessRunner,
+            fileSystem: SimulatorCameraFileSystem(manager: fileManager)
+        )
         compiledLibraryOperation = compiledLibrary ?? {
             try await compiler.compiledLibrary()
         }
@@ -62,11 +70,13 @@ final class SimulatorCameraAdapter {
             ?? SimulatorCameraPermissionAdapter(subprocessRunner: subprocessRunner)
         self.mutationGate = mutationGate
         self.applicationMutationWillCommit = applicationMutationWillCommit
+        hostCameraDevicesOperation = hostCameraDevices
+        self.fileManager = fileManager
     }
 
     var isAvailable: Bool {
         Bundle.module.resourceURL.map {
-            FileManager.default.fileExists(
+            fileManager.fileExists(
                 atPath: $0.appendingPathComponent("CameraInjector/SimCameraInjector.m.txt").path
             )
         } ?? false
@@ -118,7 +128,7 @@ final class SimulatorCameraAdapter {
         }
         let acquiredOwnership = ownershipLock == nil
         if acquiredOwnership {
-            ownershipLock = try SimulatorCameraOwnershipLock.acquire(
+            ownershipLock = try SimulatorCameraOwnershipLock(
                 deviceIdentifier: deviceIdentifier
             )
         }
@@ -234,7 +244,9 @@ final class SimulatorCameraAdapter {
             injectedBundleIdentifiers.insert(bundleIdentifier)
             activeTargetBundleIdentifier = bundleIdentifier
             activeConfiguration = configuration
-            let processIdentifier = Self.processIdentifier(fromLaunchOutput: launch.standardOutput)
+            let processIdentifier = simulatorCameraProcessIdentifier(
+                fromLaunchOutput: launch.standardOutput
+            )
             activeTargetProcessIdentifier = processIdentifier
             if let processIdentifier {
                 recordInjection(
@@ -308,7 +320,7 @@ final class SimulatorCameraAdapter {
     }
 
     func switchSource(_ configuration: SimulatorCameraConfiguration) async throws {
-        guard Self.canSwitchSource(
+        guard simulatorCameraCanSwitchSource(
             configuration,
             configuredTargetCount: injectedBundleIdentifiers.count,
             hasProducer: producer != nil
@@ -343,49 +355,6 @@ final class SimulatorCameraAdapter {
         deviceIdentifier = nil
         ownershipLock = nil
         mirrorMode = .auto
-    }
-
-    func setMirrorMode(_ mode: SimulatorCameraMirrorMode) -> Bool {
-        mirrorMode = mode
-        guard let surfaceRing else { return true }
-        applyMirrorMode(to: surfaceRing)
-        return true
-    }
-
-    func status() -> SimulatorCameraStatus {
-        let attachmentPIDs = Set(
-            surfaceRing?.injectorAttachments()
-                .filter(\.isAttached)
-                .compactMap(\.processIdentifier) ?? []
-        )
-        let liveBundles = injectedProcessIdentifiers.compactMap { bundle, processIdentifier in
-            attachmentPIDs.contains(processIdentifier) ? bundle : nil
-        }.sorted()
-        let targets = Self.targetStatuses(
-            configuredBundleIdentifiers: injectedBundleIdentifiers,
-            processIdentifiers: injectedProcessIdentifiers,
-            attachedProcessIdentifiers: attachmentPIDs
-        )
-        let activePID = activeTargetBundleIdentifier.flatMap {
-            injectedProcessIdentifiers[$0]
-        } ?? activeTargetProcessIdentifier
-        let processMatches = activePID.map(attachmentPIDs.contains) == true
-        let targetIsAttached = activeTargetBundleIdentifier != nil
-            && processMatches
-        let targetIsAlive = activeTargetBundleIdentifier.flatMap {
-            injectedProcessIdentifiers[$0]
-        } != nil
-        return SimulatorCameraStatus(
-            configuration: activeConfiguration,
-            mirrorMode: mirrorMode,
-            injectedBundleIdentifiers: liveBundles,
-            targetBundleIdentifier: activeTargetBundleIdentifier,
-            targetProcessIdentifier: activePID,
-            targetIsAlive: targetIsAlive,
-            targetIsAttached: targetIsAttached,
-            targets: targets,
-            hostCameras: SimulatorCameraFrameProducer.availableHostCameras()
-        )
     }
 
     private func disable(deviceIdentifier: String) async throws {
@@ -432,7 +401,7 @@ final class SimulatorCameraAdapter {
         bundleIdentifier: String
     ) async throws {
         let result = try await runSimctl(["listapps", deviceIdentifier])
-        guard Self.isInstalledUserApplication(
+        guard simulatorCameraIsInstalledUserApplication(
             bundleIdentifier: bundleIdentifier,
             listApplicationsOutput: result.standardOutput
         ) else {
@@ -476,17 +445,6 @@ final class SimulatorCameraAdapter {
             )
         }
         return result
-    }
-
-    private func applyMirrorMode(to ring: SimulatorCameraSurfaceRing) {
-        switch mirrorMode {
-        case .auto:
-            ring.setMirrored(nil)
-        case .on:
-            ring.setMirrored(true)
-        case .off:
-            ring.setMirrored(false)
-        }
     }
 
 }

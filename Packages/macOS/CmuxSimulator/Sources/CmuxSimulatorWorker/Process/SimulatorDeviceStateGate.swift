@@ -1,13 +1,9 @@
 import Foundation
 
 struct SimulatorDeviceStateGate: Equatable, Sendable {
-    enum Transition: Equatable, Sendable {
-        case becameUnavailable(state: String)
-    }
-
     private(set) var hasReportedUnavailable = false
 
-    mutating func observe(state: String) -> Transition? {
+    mutating func observe(state: String) -> SimulatorDeviceStateTransition? {
         if state.caseInsensitiveCompare("Booted") == .orderedSame {
             hasReportedUnavailable = false
             return nil

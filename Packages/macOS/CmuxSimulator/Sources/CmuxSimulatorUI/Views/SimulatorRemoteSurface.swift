@@ -3,13 +3,18 @@ import SwiftUI
 
 struct SimulatorRemoteSurface: NSViewRepresentable {
     let coordinator: SimulatorPaneCoordinator
-    let contextID: UInt32
+    let frameTransport: SimulatorFrameTransportDescriptor
     let display: SimulatorDisplayMetadata
     let chrome: SimulatorDeviceChromeProfile?
     let onRequestPanelFocus: @MainActor () -> Void
 
+    func makeCoordinator() -> SimulatorRemoteSurfaceLifetime {
+        SimulatorRemoteSurfaceLifetime()
+    }
+
     func makeNSView(context: Context) -> SimulatorRemoteSurfaceView {
         let view = SimulatorRemoteSurfaceView()
+        context.coordinator.view = view
         view.simulatorOwnerID = ObjectIdentifier(coordinator)
         view.onMessage = { [weak coordinator] message in
             coordinator?.enqueue(message)
@@ -18,12 +23,18 @@ struct SimulatorRemoteSurface: NSViewRepresentable {
             coordinator?.updateGeometry(geometry)
         }
         view.onRequestPanelFocus = onRequestPanelFocus
-        view.update(contextID: contextID, display: display, chrome: chrome)
+        view.onFrameTransportFailure = { [weak coordinator] descriptor, failure in
+            Task { @MainActor in
+                coordinator?.receiveFrameTransportFailure(failure, for: descriptor)
+            }
+        }
+        view.update(frameTransport: frameTransport, display: display, chrome: chrome)
         view.requestFocus(generation: coordinator.focusRequestGeneration)
         return view
     }
 
     func updateNSView(_ view: SimulatorRemoteSurfaceView, context: Context) {
+        context.coordinator.view = view
         view.simulatorOwnerID = ObjectIdentifier(coordinator)
         view.onMessage = { [weak coordinator] message in
             coordinator?.enqueue(message)
@@ -32,12 +43,13 @@ struct SimulatorRemoteSurface: NSViewRepresentable {
             coordinator?.updateGeometry(geometry)
         }
         view.onRequestPanelFocus = onRequestPanelFocus
-        view.update(contextID: contextID, display: display, chrome: chrome)
+        view.onFrameTransportFailure = { [weak coordinator] descriptor, failure in
+            Task { @MainActor in
+                coordinator?.receiveFrameTransportFailure(failure, for: descriptor)
+            }
+        }
+        view.update(frameTransport: frameTransport, display: display, chrome: chrome)
         view.requestFocus(generation: coordinator.focusRequestGeneration)
-    }
-
-    static func dismantleNSView(_ view: SimulatorRemoteSurfaceView, coordinator: ()) {
-        view.teardown()
     }
 
 }

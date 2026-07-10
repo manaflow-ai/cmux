@@ -7,7 +7,7 @@ extension SimulatorWorkerClient {
         guard case let .terminateApplication(deviceIdentifier, bundleIdentifier) = action
         else { return nil }
         if child != nil,
-           Self.attachedDeviceIdentifier(from: lastAttachment) == deviceIdentifier {
+           simulatorAttachedDeviceIdentifier(from: lastAttachment) == deviceIdentifier {
             let requestIdentifier = UUID()
             let succeeded: Bool = try await requestWorkerValue(
                 sending: .prepareApplicationMutation(

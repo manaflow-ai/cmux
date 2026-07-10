@@ -122,7 +122,7 @@ extension SimulatorCameraAdapter {
     ) {
         guard automaticReinjectionGenerations[bundleIdentifier] == monitorGeneration,
               !activeConfiguration.isDisabled,
-              Self.shouldReinstateExitedTarget(
+              simulatorCameraShouldReinstateExitedTarget(
                   configuredBundleIdentifiers: injectedBundleIdentifiers,
                   processIdentifiers: injectedProcessIdentifiers,
                   bundleIdentifier: bundleIdentifier,
@@ -155,7 +155,7 @@ extension SimulatorCameraAdapter {
         guard automaticReinjectionIsCurrent(
             bundleIdentifier: bundleIdentifier,
             generation: taskGeneration
-        ), Self.shouldReinstateExitedTarget(
+        ), simulatorCameraShouldReinstateExitedTarget(
             configuredBundleIdentifiers: injectedBundleIdentifiers,
             processIdentifiers: injectedProcessIdentifiers,
             bundleIdentifier: bundleIdentifier,
@@ -249,7 +249,9 @@ extension SimulatorCameraAdapter {
             generation: taskGeneration,
             deviceIdentifier: expectedDeviceIdentifier,
             sharedMemoryName: expectedSharedMemoryName
-        ), let replacementPID = Self.processIdentifier(fromLaunchOutput: launch.standardOutput)
+        ), let replacementPID = simulatorCameraProcessIdentifier(
+            fromLaunchOutput: launch.standardOutput
+        )
         else { return }
 
         recordInjection(

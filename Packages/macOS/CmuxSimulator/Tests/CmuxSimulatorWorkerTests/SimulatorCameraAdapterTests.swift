@@ -26,21 +26,21 @@ struct SimulatorCameraAdapterTests {
 
     @Test("Injector heartbeat expires instead of reporting a stale attachment")
     func heartbeatFreshness() {
-        #expect(SimulatorCameraSurfaceRing.isInjectorAttachmentFresh(
+        #expect(simulatorCameraAttachmentIsFresh(
             attached: true,
             processIdentifier: 42,
             heartbeatNanoseconds: 1_000,
             nowNanoseconds: 2_000,
             maximumAgeNanoseconds: 1_000
         ))
-        #expect(!SimulatorCameraSurfaceRing.isInjectorAttachmentFresh(
+        #expect(!simulatorCameraAttachmentIsFresh(
             attached: true,
             processIdentifier: 42,
             heartbeatNanoseconds: 1_000,
             nowNanoseconds: 2_001,
             maximumAgeNanoseconds: 1_000
         ))
-        #expect(!SimulatorCameraSurfaceRing.isInjectorAttachmentFresh(
+        #expect(!simulatorCameraAttachmentIsFresh(
             attached: false,
             processIdentifier: 42,
             heartbeatNanoseconds: 1_000,
@@ -57,7 +57,7 @@ struct SimulatorCameraAdapterTests {
         ), count: 16)
         for processIdentifier in UInt32(1)...64 {
             let now = UInt64(processIdentifier) * 10_000
-            let index = try #require(SimulatorCameraSurfaceRing.attachmentSlotIndex(
+            let index = try #require(simulatorCameraAttachmentSlotIndex(
                 slots: slots,
                 processIdentifier: processIdentifier,
                 nowNanoseconds: now,
@@ -73,12 +73,12 @@ struct SimulatorCameraAdapterTests {
 
     @Test("Only one worker process owner can hold a device camera session")
     func exclusiveDeviceOwnership() throws {
-        var first: SimulatorCameraOwnershipLock? = try .acquire(deviceIdentifier: "DEVICE-LOCK")
+        var first: SimulatorCameraOwnershipLock? = try .init(deviceIdentifier: "DEVICE-LOCK")
         #expect(throws: SimulatorWorkerFailure.self) {
-            _ = try SimulatorCameraOwnershipLock.acquire(deviceIdentifier: "device-lock")
+            _ = try SimulatorCameraOwnershipLock(deviceIdentifier: "device-lock")
         }
         first = nil
-        let reacquired = try SimulatorCameraOwnershipLock.acquire(
+        let reacquired = try SimulatorCameraOwnershipLock(
             deviceIdentifier: "DEVICE-LOCK"
         )
         _ = reacquired
@@ -87,7 +87,7 @@ struct SimulatorCameraAdapterTests {
 
     @Test("Multiple injected targets retain independent attachment state")
     func multipleTargetStatus() {
-        let statuses = SimulatorCameraAdapter.targetStatuses(
+        let statuses = simulatorCameraTargetStatuses(
             configuredBundleIdentifiers: ["com.example.a", "com.example.b"],
             processIdentifiers: ["com.example.a": 10, "com.example.b": 20],
             attachedProcessIdentifiers: [10, 20]
@@ -100,7 +100,7 @@ struct SimulatorCameraAdapterTests {
 
     @Test("A configured target without a replacement PID reports dead and detached")
     func staleTargetStatus() throws {
-        let statuses = SimulatorCameraAdapter.targetStatuses(
+        let statuses = simulatorCameraTargetStatuses(
             configuredBundleIdentifiers: ["com.example.a"],
             processIdentifiers: [:],
             attachedProcessIdentifiers: []
@@ -113,22 +113,22 @@ struct SimulatorCameraAdapterTests {
 
     @Test("Source-only camera switching rejects disabled, targeted, and inactive sessions")
     func sourceSwitchValidation() {
-        #expect(!SimulatorCameraAdapter.canSwitchSource(
+        #expect(!simulatorCameraCanSwitchSource(
             .disabled,
             configuredTargetCount: 2,
             hasProducer: true
         ))
-        #expect(!SimulatorCameraAdapter.canSwitchSource(
+        #expect(!simulatorCameraCanSwitchSource(
             .targeted(bundleIdentifier: "com.example.a", source: .placeholder),
             configuredTargetCount: 2,
             hasProducer: true
         ))
-        #expect(!SimulatorCameraAdapter.canSwitchSource(
+        #expect(!simulatorCameraCanSwitchSource(
             .placeholder,
             configuredTargetCount: 0,
             hasProducer: false
         ))
-        #expect(SimulatorCameraAdapter.canSwitchSource(
+        #expect(simulatorCameraCanSwitchSource(
             .placeholder,
             configuredTargetCount: 2,
             hasProducer: true
@@ -139,26 +139,26 @@ struct SimulatorCameraAdapterTests {
     func automaticReinjectionPolicy() {
         let configured: Set<String> = ["com.example.a", "com.example.b"]
         let processes = ["com.example.a": Int32(10), "com.example.b": Int32(20)]
-        #expect(SimulatorCameraAdapter.shouldReinstateExitedTarget(
+        #expect(simulatorCameraShouldReinstateExitedTarget(
             configuredBundleIdentifiers: configured,
             processIdentifiers: processes,
             bundleIdentifier: "com.example.a",
             exitedProcessIdentifier: 10
         ))
-        #expect(!SimulatorCameraAdapter.shouldReinstateExitedTarget(
+        #expect(!simulatorCameraShouldReinstateExitedTarget(
             configuredBundleIdentifiers: configured,
             processIdentifiers: processes,
             bundleIdentifier: "com.example.a",
             exitedProcessIdentifier: 11
         ))
-        #expect(SimulatorCameraAdapter.shouldAutomaticallyReinstateExitedTarget(
+        #expect(simulatorCameraShouldAutomaticallyReinstateExitedTarget(
             configuredBundleIdentifiers: configured,
             processIdentifiers: processes,
             automaticReinjectionAttempted: [],
             bundleIdentifier: "com.example.a",
             exitedProcessIdentifier: 10
         ))
-        #expect(!SimulatorCameraAdapter.shouldAutomaticallyReinstateExitedTarget(
+        #expect(!simulatorCameraShouldAutomaticallyReinstateExitedTarget(
             configuredBundleIdentifiers: configured,
             processIdentifiers: processes,
             automaticReinjectionAttempted: ["com.example.a"],
@@ -370,7 +370,7 @@ struct SimulatorCameraAdapterTests {
     @Test("simctl launch output extracts the injected app pid")
     func launchOutput() {
         #expect(
-            SimulatorCameraAdapter.processIdentifier(
+            simulatorCameraProcessIdentifier(
                 fromLaunchOutput: "com.example.CameraFixture: 4312\n"
             ) == 4312
         )
@@ -379,7 +379,7 @@ struct SimulatorCameraAdapterTests {
     @Test("Malformed launch output remains unknown")
     func malformedLaunchOutput() {
         #expect(
-            SimulatorCameraAdapter.processIdentifier(fromLaunchOutput: "launch failed") == nil
+            simulatorCameraProcessIdentifier(fromLaunchOutput: "launch failed") == nil
         )
     }
 
@@ -398,15 +398,15 @@ struct SimulatorCameraAdapterTests {
         }
         """
 
-        #expect(SimulatorCameraAdapter.isInstalledUserApplication(
+        #expect(simulatorCameraIsInstalledUserApplication(
             bundleIdentifier: "com.example.CameraFixture",
             listApplicationsOutput: applications
         ))
-        #expect(!SimulatorCameraAdapter.isInstalledUserApplication(
+        #expect(!simulatorCameraIsInstalledUserApplication(
             bundleIdentifier: "com.apple.springboard",
             listApplicationsOutput: applications
         ))
-        #expect(!SimulatorCameraAdapter.isInstalledUserApplication(
+        #expect(!simulatorCameraIsInstalledUserApplication(
             bundleIdentifier: "com.example.Missing",
             listApplicationsOutput: applications
         ))

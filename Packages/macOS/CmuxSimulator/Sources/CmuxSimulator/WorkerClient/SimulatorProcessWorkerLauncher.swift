@@ -1,0 +1,98 @@
+import Foundation
+
+struct SimulatorProcessWorkerLauncher: SimulatorWorkerLaunching {
+    private let terminationObservationTimeout: TimeInterval
+    private let terminationGrace: Duration
+    private let sleeper: any SimulatorWorkerSleeping
+
+    init(
+        terminationObservationTimeout: TimeInterval = 1,
+        terminationGrace: Duration = .seconds(1),
+        sleeper: any SimulatorWorkerSleeping = ContinuousSimulatorWorkerSleeper()
+    ) {
+        self.terminationObservationTimeout = max(0, terminationObservationTimeout)
+        self.terminationGrace = terminationGrace
+        self.sleeper = sleeper
+    }
+
+    func launch(
+        executableURL: URL,
+        arguments: [String],
+        environment: [String: String]
+    ) throws -> SimulatorWorkerConnection {
+        let process = Process()
+        process.executableURL = executableURL
+        process.arguments = arguments
+        if !environment.isEmpty {
+            process.environment = ProcessInfo.processInfo.environment
+                .merging(environment) { _, replacement in replacement }
+        }
+
+        let stdin = Pipe()
+        let stdout = Pipe()
+        process.standardInput = stdin
+        process.standardOutput = stdout
+
+        let channel = SimulatorLengthPrefixedMessageChannel(
+            readFD: stdout.fileHandleForReading.fileDescriptor,
+            writeFD: stdin.fileHandleForWriting.fileDescriptor,
+            nonblockingWrites: true
+        )
+        let processBox = SimulatorWorkerProcessBox(
+            process: process,
+            stdin: stdin,
+            stdout: stdout,
+            terminationObservationTimeout: terminationObservationTimeout,
+            terminationGrace: terminationGrace,
+            sleeper: sleeper
+        )
+        let queue = SimulatorBoundedMessageQueue<Data>(
+            limit: SimulatorLengthPrefixedMessageChannel.maximumBufferedFrameCount
+        )
+
+        processBox.installTerminationHandler()
+        do {
+            try process.run()
+        } catch {
+            processBox.launchFailed()
+            queue.finish()
+            throw error
+        }
+        processBox.didLaunch(processIdentifier: process.processIdentifier)
+        // Close the parent copies of the child-only ends. Keeping stdout's
+        // write end open here would hide worker EOF after a crash.
+        try? stdout.fileHandleForWriting.close()
+        try? stdin.fileHandleForReading.close()
+
+        let reader = Thread { [weak processBox] in
+            while let data = channel.receiveMessage() {
+                switch queue.yield(data) {
+                case .enqueued:
+                    continue
+                case .overflow:
+                    processBox?.failProtocolQueueOverflow()
+                    queue.finish()
+                    return
+                case .terminated:
+                    return
+                }
+            }
+            if processBox?.waitForTerminationAfterOutputEOF() == false {
+                processBox?.terminate()
+            }
+            queue.finish()
+        }
+        reader.name = "cmux-simulator-worker-reader"
+        reader.stackSize = 1 << 20
+        reader.start()
+
+        return SimulatorWorkerConnection(
+            processIdentifier: process.processIdentifier,
+            messages: queue.stream,
+            send: { data in try channel.sendMessage(data) },
+            closeInput: { processBox.closeInput() },
+            terminate: { processBox.terminate() },
+            terminalFailure: { processBox.terminalFailure() }
+        )
+    }
+}

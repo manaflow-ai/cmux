@@ -29,9 +29,13 @@ struct SimulatorPaneCoordinatorTests {
         await coordinator.start()
 
         await client.emit(SimulatorWorkerEvent.message(.capabilities([.framebuffer, .touch])))
-        await client.emit(SimulatorWorkerEvent.message(.context(42)))
+        let frameTransport = simulatorFrameTransportDescriptor(42)
+        await client.emit(SimulatorWorkerEvent.message(.frameTransport(frameTransport)))
         await client.emit(SimulatorWorkerEvent.message(.status(.streaming)))
-        await eventually { coordinator.contextID == 42 && coordinator.status == SimulatorSessionStatus.streaming }
+        await eventually {
+            coordinator.frameTransport == frameTransport
+                && coordinator.status == SimulatorSessionStatus.streaming
+        }
 
         #expect(coordinator.capabilities == Set([
             SimulatorCapability.framebuffer,
@@ -42,7 +46,7 @@ struct SimulatorPaneCoordinatorTests {
         await client.emit(SimulatorWorkerEvent.workerStopped)
         await eventually { coordinator.status == SimulatorSessionStatus.workerCrashed }
 
-        #expect(coordinator.contextID == nil)
+        #expect(coordinator.frameTransport == nil)
     }
 
     @Test("Selection delegates boot and attachment to the client")
@@ -61,6 +65,20 @@ struct SimulatorPaneCoordinatorTests {
         let activations = await client.activations()
         #expect(activations.last?.id == "pad")
         #expect(activations.last?.geometry == SimulatorSurfaceGeometry(width: 640, height: 800, scale: 2))
+    }
+
+    @Test("Explicit recovery returns only after the selected device streams")
+    func explicitRecoveryWaitsForActivation() async throws {
+        let client = SimulatorPaneClientSpy(devices: [
+            Self.device(id: "phone", family: .iPhone, state: .booted),
+        ])
+        let coordinator = SimulatorPaneCoordinator(client: client)
+        await coordinator.reloadDevices()
+
+        try await coordinator.recoverAndWait()
+
+        #expect(coordinator.status == .streaming)
+        #expect(await client.activations().map(\.id) == ["phone"])
     }
 
     @Test("Swipe commands stay ordered on one outbox")
@@ -252,7 +270,8 @@ struct SimulatorPaneCoordinatorTests {
         ])
         let coordinator = SimulatorPaneCoordinator(client: client)
         await coordinator.start()
-        await client.emit(.message(.context(42)))
+        let frameTransport = simulatorFrameTransportDescriptor(42)
+        await client.emit(.message(.frameTransport(frameTransport)))
         await client.emit(.message(.status(.streaming)))
         await client.emit(.message(.failure(SimulatorFailure(
             code: "unsupported_tool",
@@ -262,7 +281,7 @@ struct SimulatorPaneCoordinatorTests {
         await eventually { coordinator.controlFailure?.code == "unsupported_tool" }
 
         #expect(coordinator.status == .streaming)
-        #expect(coordinator.contextID == 42)
+        #expect(coordinator.frameTransport == frameTransport)
     }
 
     @Test("Closing disables an active injected camera before stopping the client")

@@ -3,38 +3,17 @@ import CmuxSimulator
 import CoreImage
 import Foundation
 
-protocol SimulatorCameraTiming: Sendable {
-    func now() -> Duration
-    func sleep(for duration: Duration) async throws
-    func sleep(until deadline: Duration, tolerance: Duration) async throws
-}
-
-private struct ContinuousSimulatorCameraTiming: SimulatorCameraTiming {
-    private let clock = ContinuousClock()
-    private let origin: ContinuousClock.Instant
-
-    init() {
-        origin = clock.now
-    }
-
-    func now() -> Duration {
-        origin.duration(to: clock.now)
-    }
-
-    func sleep(for duration: Duration) async throws {
-        try await clock.sleep(for: duration)
-    }
-
-    func sleep(until deadline: Duration, tolerance: Duration) async throws {
-        try await clock.sleep(until: origin.advanced(by: deadline), tolerance: tolerance)
-    }
-}
-
 @MainActor
 final class SimulatorCameraFrameProducer {
     private let surfaceRing: SimulatorCameraSurfaceRing
     private let timing: any SimulatorCameraTiming
+    private let playback: SimulatorCameraPlayback
     private let sessionRunner: SimulatorCameraSessionRunner
+    private let fileManager: FileManager
+    private let captureQueue = DispatchQueue(
+        label: "com.cmux.simulator.camera.capture",
+        qos: .userInteractive
+    )
     private var videoTask: Task<Void, Never>?
     private var captureSession: SimulatorCameraCaptureSessionBox?
     private var captureDelegate: SimulatorCameraCaptureDelegate?
@@ -42,11 +21,14 @@ final class SimulatorCameraFrameProducer {
     init(
         surfaceRing: SimulatorCameraSurfaceRing,
         timing: any SimulatorCameraTiming = ContinuousSimulatorCameraTiming(),
-        sessionRunner: SimulatorCameraSessionRunner = SimulatorCameraSessionRunner()
+        sessionRunner: SimulatorCameraSessionRunner = SimulatorCameraSessionRunner(),
+        fileManager: FileManager = FileManager()
     ) {
         self.surfaceRing = surfaceRing
         self.timing = timing
+        playback = SimulatorCameraPlayback(surfaceRing: surfaceRing, timing: timing)
         self.sessionRunner = sessionRunner
+        self.fileManager = fileManager
     }
 
     deinit {
@@ -55,21 +37,20 @@ final class SimulatorCameraFrameProducer {
     }
 
     func configure(_ configuration: SimulatorCameraConfiguration) async throws {
-        let source = Self.unwrappedSource(configuration)
+        let source = unwrappedSimulatorCameraSource(configuration)
 
         await stop()
         switch source {
         case .disabled:
             return
         case .placeholder:
-            let surfaceRing = surfaceRing
-            let timing = timing
+            let playback = playback
             videoTask = Task(priority: .userInitiated) {
-                await Self.playPlaceholder(surfaceRing: surfaceRing, timing: timing)
+                await playback.playPlaceholder()
             }
         case let .image(url):
             guard url.isFileURL,
-                  FileManager.default.isReadableFile(atPath: url.path),
+                  fileManager.isReadableFile(atPath: url.path),
                   let image = CIImage(contentsOf: url)
             else {
                 throw SimulatorWorkerFailure.privateAPIUnavailable(
@@ -80,7 +61,7 @@ final class SimulatorCameraFrameProducer {
             // letterbox aspect-ratio differences instead of cropping them.
             surfaceRing.publish(image, fillsFrame: false)
         case let .video(url, loops):
-            guard url.isFileURL, FileManager.default.isReadableFile(atPath: url.path) else {
+            guard url.isFileURL, fileManager.isReadableFile(atPath: url.path) else {
                 throw SimulatorWorkerFailure.privateAPIUnavailable(
                     "The synthetic-camera video is missing or unreadable."
                 )
@@ -92,14 +73,11 @@ final class SimulatorCameraFrameProducer {
                     "The synthetic-camera video has no video track."
                 )
             }
-            let surfaceRing = surfaceRing
-            let timing = timing
+            let playback = playback
             videoTask = Task(priority: .userInitiated) {
-                await Self.playVideo(
+                await playback.playVideo(
                     url: url,
-                    loops: loops,
-                    surfaceRing: surfaceRing,
-                    timing: timing
+                    loops: loops
                 )
             }
         case let .hostCamera(deviceIdentifier):
@@ -112,135 +90,18 @@ final class SimulatorCameraFrameProducer {
     }
 
     func stop() async {
-        videoTask?.cancel()
+        let stoppingVideoTask = videoTask
+        stoppingVideoTask?.cancel()
         videoTask = nil
+        await stoppingVideoTask?.value
         if let captureSession {
             await sessionRunner.stop(captureSession)
+            await withCheckedContinuation { continuation in
+                captureQueue.async { continuation.resume() }
+            }
         }
         captureSession = nil
         captureDelegate = nil
-    }
-
-    @concurrent private static func playPlaceholder(
-        surfaceRing: SimulatorCameraSurfaceRing,
-        timing: any SimulatorCameraTiming
-    ) async {
-        var frame: UInt64 = 0
-        while !Task.isCancelled {
-            let phase = Double(frame % 180) / 180 * .pi * 2
-            let left = CIImage(
-                color: CIColor(
-                    red: 0.20 + 0.12 * sin(phase),
-                    green: 0.30 + 0.10 * sin(phase + 2),
-                    blue: 0.58 + 0.12 * sin(phase + 4)
-                )
-            ).cropped(
-                to: CGRect(
-                    x: 0,
-                    y: 0,
-                    width: SimulatorCameraSurfaceRing.width / 2,
-                    height: SimulatorCameraSurfaceRing.height
-                )
-            )
-            let right = CIImage(
-                color: CIColor(
-                    red: 0.58 + 0.12 * sin(phase + 3),
-                    green: 0.22 + 0.10 * sin(phase + 5),
-                    blue: 0.38 + 0.12 * sin(phase + 1)
-                )
-            ).cropped(
-                to: CGRect(
-                    x: SimulatorCameraSurfaceRing.width / 2,
-                    y: 0,
-                    width: SimulatorCameraSurfaceRing.width / 2,
-                    height: SimulatorCameraSurfaceRing.height
-                )
-            )
-            surfaceRing.publish(left.composited(over: right), fillsFrame: true)
-            frame &+= 1
-            do {
-                // This cancellable delay is the synthetic camera frame cadence.
-                try await timing.sleep(for: .milliseconds(33))
-            } catch {
-                return
-            }
-        }
-    }
-
-    @concurrent private static func playVideo(
-        url: URL,
-        loops: Bool,
-        surfaceRing: SimulatorCameraSurfaceRing,
-        timing: any SimulatorCameraTiming
-    ) async {
-        let asset = AVURLAsset(url: url)
-        guard let tracks = try? await asset.loadTracks(withMediaType: .video),
-              let track = tracks.first else { return }
-        repeat {
-            guard !Task.isCancelled,
-                  let (reader, output) = try? makeReader(asset: asset, track: track)
-            else {
-                return
-            }
-            let playbackStart = timing.now()
-            var firstPresentationTime: Double?
-            while !Task.isCancelled, let sampleBuffer = output.copyNextSampleBuffer() {
-                let presentationTime = CMTimeGetSeconds(
-                    CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
-                )
-                if presentationTime.isFinite {
-                    if firstPresentationTime == nil {
-                        firstPresentationTime = presentationTime
-                    }
-                    let elapsed = max(0, presentationTime - (firstPresentationTime ?? presentationTime))
-                    do {
-                        // This cancellable deadline preserves source presentation timing.
-                        try await timing.sleep(
-                            until: playbackStart + .milliseconds(
-                                Int64((elapsed * 1_000).rounded())
-                            ),
-                            tolerance: .milliseconds(2)
-                        )
-                    } catch {
-                        reader.cancelReading()
-                        return
-                    }
-                }
-                if let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) {
-                    surfaceRing.publish(pixelBuffer: pixelBuffer, fillsFrame: false)
-                }
-            }
-            let completed = reader.status == .completed
-            reader.cancelReading()
-            if !completed { return }
-        } while loops && !Task.isCancelled
-    }
-
-    nonisolated private static func makeReader(
-        asset: AVAsset,
-        track: AVAssetTrack
-    ) throws -> (AVAssetReader, AVAssetReaderTrackOutput) {
-        let reader = try AVAssetReader(asset: asset)
-        let output = AVAssetReaderTrackOutput(
-            track: track,
-            outputSettings: [
-                kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
-                kCVPixelBufferIOSurfacePropertiesKey as String: [:],
-            ]
-        )
-        output.alwaysCopiesSampleData = false
-        guard reader.canAdd(output) else {
-            throw SimulatorWorkerFailure.privateAPIUnavailable(
-                "AVFoundation rejected BGRA output for the synthetic-camera video."
-            )
-        }
-        reader.add(output)
-        guard reader.startReading() else {
-            throw SimulatorWorkerFailure.privateAPIUnavailable(
-                reader.error?.localizedDescription ?? "The synthetic-camera video could not start."
-            )
-        }
-        return (reader, output)
     }
 
     private func startHostCamera(deviceIdentifier: String?) async throws {
@@ -305,7 +166,7 @@ final class SimulatorCameraFrameProducer {
         let delegate = SimulatorCameraCaptureDelegate(surfaceRing: surfaceRing)
         output.setSampleBufferDelegate(
             delegate,
-            queue: DispatchQueue(label: "com.cmux.simulator.camera.capture", qos: .userInteractive)
+            queue: captureQueue
         )
         captureDelegate = delegate
         let sessionBox = SimulatorCameraCaptureSessionBox(session)
@@ -321,22 +182,23 @@ final class SimulatorCameraFrameProducer {
         }
     }
 
-    static func availableHostCameras() -> [SimulatorHostCameraDevice] {
-        AVCaptureDevice.DiscoverySession(
-            deviceTypes: [.builtInWideAngleCamera, .external, .continuityCamera],
-            mediaType: .video,
-            position: .unspecified
-        ).devices.map {
-            SimulatorHostCameraDevice(id: $0.uniqueID, name: $0.localizedName)
-        }
-    }
+}
 
-    private static func unwrappedSource(
-        _ configuration: SimulatorCameraConfiguration
-    ) -> SimulatorCameraConfiguration {
-        if case let .targeted(_, source) = configuration {
-            return unwrappedSource(source)
-        }
-        return configuration
+private func unwrappedSimulatorCameraSource(
+    _ configuration: SimulatorCameraConfiguration
+) -> SimulatorCameraConfiguration {
+    if case let .targeted(_, source) = configuration {
+        return unwrappedSimulatorCameraSource(source)
+    }
+    return configuration
+}
+
+func simulatorAvailableHostCameras() -> [SimulatorHostCameraDevice] {
+    AVCaptureDevice.DiscoverySession(
+        deviceTypes: [.builtInWideAngleCamera, .external, .continuityCamera],
+        mediaType: .video,
+        position: .unspecified
+    ).devices.map {
+        SimulatorHostCameraDevice(id: $0.uniqueID, name: $0.localizedName)
     }
 }

@@ -41,7 +41,8 @@ extension SimulatorWorkerCoordinator {
             try channel.sendMessage(encoder.encode(message))
             return true
         } catch {
-            coordinatorLogger.error("Simulator worker protocol write failed: \(error.localizedDescription, privacy: .public)")
+            coordinatorLogger.error(
+                "Simulator worker protocol write failed: \(error.localizedDescription, privacy: .public)")
             return false
         }
     }
@@ -60,53 +61,39 @@ extension SimulatorWorkerCoordinator {
         )
     }
 
-    static func accessibilityFrame(
-        nodeIdentifier: String,
-        nodes: [SimulatorAccessibilityNode]
-    ) -> SimulatorRect? {
-        for node in nodes {
-            if node.id == nodeIdentifier { return node.frame }
-            if let nested = accessibilityFrame(
-                nodeIdentifier: nodeIdentifier,
-                nodes: node.children
-            ) {
-                return nested
-            }
-        }
-        return nil
-    }
+}
 
-    static func accessibilityCoordinateSpace(
-        nodes: [SimulatorAccessibilityNode]
-    ) -> SimulatorRect? {
-        var largest: SimulatorRect?
-        var largestArea = 0.0
-        for node in nodes {
-            guard let frame = node.frame else { continue }
-            let area = frame.width * frame.height
-            guard frame.width > 0, frame.height > 0, area > largestArea else { continue }
-            largest = frame
-            largestArea = area
+func simulatorAccessibilityFrame(
+    nodeIdentifier: String,
+    nodes: [SimulatorAccessibilityNode]
+) -> SimulatorRect? {
+    for node in nodes {
+        if node.id == nodeIdentifier { return node.frame }
+        if let nested = simulatorAccessibilityFrame(
+            nodeIdentifier: nodeIdentifier,
+            nodes: node.children
+        ) {
+            return nested
         }
-        return largest
     }
+    return nil
+}
 
-    static func gestureSummary(
-        start: SimulatorPoint,
-        end: SimulatorPoint,
-        twoFinger: Bool,
-        cancelled: Bool
-    ) -> String {
-        let prefix = twoFinger ? "two-finger" : "touch"
-        let state = cancelled ? "cancelled" : "ended"
-        return String(
-            format: "%@ %.3f,%.3f→%.3f,%.3f %@",
-            prefix,
-            start.x,
-            start.y,
-            end.x,
-            end.y,
-            state
-        )
-    }
+func simulatorGestureSummary(
+    start: SimulatorPoint,
+    end: SimulatorPoint,
+    twoFinger: Bool,
+    cancelled: Bool
+) -> String {
+    let prefix = twoFinger ? "two-finger" : "touch"
+    let state = cancelled ? "cancelled" : "ended"
+    return String(
+        format: "%@ %.3f,%.3f→%.3f,%.3f %@",
+        prefix,
+        start.x,
+        start.y,
+        end.x,
+        end.y,
+        state
+    )
 }

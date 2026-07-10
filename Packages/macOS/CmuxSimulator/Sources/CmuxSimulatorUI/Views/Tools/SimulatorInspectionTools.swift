@@ -90,8 +90,8 @@ struct SimulatorInspectionTools: View {
                 }
             }
         }
-        .task(id: coordinator.contextID) {
-            guard coordinator.contextID != nil else { return }
+        .task(id: coordinator.frameTransport) {
+            guard coordinator.frameTransport != nil else { return }
             await coordinator.refreshForegroundApplication()
             await coordinator.refreshAccessibility()
         }

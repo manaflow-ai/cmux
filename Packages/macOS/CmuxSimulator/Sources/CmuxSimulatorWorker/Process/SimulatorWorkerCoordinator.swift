@@ -8,6 +8,7 @@ nonisolated let coordinatorLogger = Logger(
 )
 @MainActor
 final class SimulatorWorkerCoordinator {
+    private let keyboardEventLog = SimulatorKeyboardEventLog()
     let channel: SimulatorLengthPrefixedMessageChannel
     let encoder = JSONEncoder()
     let frameworkLoader = SimulatorFrameworkLoader()
@@ -22,11 +23,11 @@ final class SimulatorWorkerCoordinator {
     let mutationGate: SimulatorMutationGate
 
     var resolver: SimulatorDeviceResolver?
-    var renderContext: SimulatorRemoteRenderContext?
     var framebuffer: SimulatorFramebuffer?
     var hid: SimulatorHIDTransport?
     var scrollWheel: SimulatorScrollWheelController?
     var currentDisplay: SimulatorDisplayMetadata?
+    var currentFrameTransport: SimulatorFrameTransportDescriptor?
     var currentDeviceIdentifier: String?
     var attachedDevice: NSObject?
     var deviceStateMonitor: SimulatorDeviceStateMonitor?
@@ -59,7 +60,8 @@ final class SimulatorWorkerCoordinator {
         subprocessRunner: SimulatorSubprocessRunner = SimulatorSubprocessRunner(),
         accessibilityExecutor: (any SimulatorAccessibilityExecuting)? = nil,
         toolOperationSleeper: any SimulatorHIDSleeping = ContinuousSimulatorHIDSleeper(),
-        toolOperationContainment: SimulatorToolOperationContainment = SimulatorToolOperationContainment()
+        toolOperationContainment: SimulatorToolOperationContainment =
+            SimulatorToolOperationContainment()
     ) {
         self.channel = channel
         self.subprocessRunner = subprocessRunner
@@ -94,13 +96,13 @@ final class SimulatorWorkerCoordinator {
     /// - Returns: `false` when the worker should exit cleanly.
     func handle(_ message: SimulatorWorkerInbound) async -> Bool {
         switch message {
-        case let .ping(sequence):
+        case .ping(let sequence):
             send(.ack(sequence))
-        case let .attach(udid, geometry):
-            await attach(udid: udid, geometry: geometry)
-        case let .resize(geometry):
-            framebuffer?.resize(geometry)
-        case let .pointer(event):
+        case .attach(let udid, _):
+            await attach(udid: udid)
+        case .resize:
+            break
+        case .pointer(let event):
             if event.phase == .began { scrollWheel?.cancel() }
             guard hid?.send(event) == true else {
                 if event.phase != .moved {
@@ -118,7 +120,7 @@ final class SimulatorWorkerCoordinator {
                 let start = gestureStart ?? event.primary
                 emitAction(
                     "pointer",
-                    summary: Self.gestureSummary(
+                    summary: simulatorGestureSummary(
                         start: start,
                         end: event.primary,
                         twoFinger: gestureUsesTwoFingers || event.secondary != nil,
@@ -129,7 +131,7 @@ final class SimulatorWorkerCoordinator {
                 gestureStart = nil
                 gestureUsesTwoFingers = false
             }
-        case let .key(event):
+        case .key(let event):
             guard hid?.send(event) == true else {
                 reportUnavailable(action: "key", detail: "Keyboard injection is unavailable.")
                 break
@@ -141,12 +143,12 @@ final class SimulatorWorkerCoordinator {
                 if pendingKeyUsages.remove(event.usage) != nil {
                     emitAction(
                         "key",
-                        summary: SimulatorKeyboardEventLog.summary(for: event.usage),
+                        summary: keyboardEventLog.summary(for: event.usage),
                         succeeded: true
                     )
                 }
             }
-        case let .keySequence(events):
+        case .keySequence(let events):
             let succeeded = await hid?.sendPacedKeySequence(events) == true
             if !succeeded {
                 reportUnavailable(
@@ -155,7 +157,7 @@ final class SimulatorWorkerCoordinator {
                 )
             }
             emitAction("key_sequence", summary: "events:\(events.count)", succeeded: succeeded)
-        case let .scrollWheel(event):
+        case .scrollWheel(let event):
             guard let scrollWheel else {
                 send(.scrollWheelEnded(eventID: event.id))
                 reportUnavailable(action: "scroll", detail: "Wheel scrolling is unavailable.")
@@ -165,7 +167,7 @@ final class SimulatorWorkerCoordinator {
             if !succeeded {
                 reportUnavailable(action: "scroll", detail: "Wheel scrolling is unavailable.")
             }
-        case let .typeText(requestIdentifier, sequence):
+        case .typeText(let requestIdentifier, let sequence):
             let succeeded = await hid?.sendTextSequence(sequence) == true
             if !succeeded {
                 pendingKeyUsages.removeAll()
@@ -182,10 +184,10 @@ final class SimulatorWorkerCoordinator {
                 succeeded: succeeded
             )
             send(.textInput(requestID: requestIdentifier, succeeded: succeeded))
-        case let .interactiveAction(requestIdentifier, action):
+        case .interactiveAction(let requestIdentifier, let action):
             let succeeded = await performInteractiveAction(action)
             send(.interactiveAction(requestID: requestIdentifier, succeeded: succeeded))
-        case let .button(button):
+        case .button(let button):
             let succeeded = await hid?.press(button) == true
             guard succeeded else {
                 reportUnavailable(
@@ -195,7 +197,7 @@ final class SimulatorWorkerCoordinator {
                 break
             }
             emitAction("button", summary: button.rawValue, succeeded: true)
-        case let .hidButton(event):
+        case .hidButton(let event):
             guard hid?.send(event) == true else {
                 reportUnavailable(
                     action: "button",
@@ -213,14 +215,14 @@ final class SimulatorWorkerCoordinator {
                 ),
                 succeeded: true
             )
-        case let .rotate(orientation):
+        case .rotate(let orientation):
             guard hid?.rotate(orientation) == true else {
                 reportUnavailable(action: "rotate", detail: "Device rotation is unavailable.")
                 break
             }
             framebuffer?.setOrientation(orientation)
             emitAction("rotate", summary: orientation.rawValue, succeeded: true)
-        case let .digitalCrown(delta):
+        case .digitalCrown(let delta):
             guard hid?.sendDigitalCrown(delta) == true else {
                 reportUnavailable(
                     action: "digital_crown",
@@ -244,7 +246,7 @@ final class SimulatorWorkerCoordinator {
                 break
             }
             emitAction("memory_warning", summary: "simulate", succeeded: true)
-        case let .coreAnimationDiagnostic(diagnostic, enabled):
+        case .coreAnimationDiagnostic(let diagnostic, let enabled):
             guard hid?.setCoreAnimationDiagnostic(diagnostic, enabled: enabled) == true else {
                 reportUnavailable(
                     action: "core_animation_diagnostic",
@@ -257,7 +259,7 @@ final class SimulatorWorkerCoordinator {
                 summary: "\(diagnostic.rawValue):\(enabled)",
                 succeeded: true
             )
-        case let .configureCamera(requestIdentifier, configuration):
+        case .configureCamera(let requestIdentifier, let configuration):
             enqueueToolOperation(
                 lane: .camera,
                 requestIdentifier: requestIdentifier,
@@ -269,11 +271,11 @@ final class SimulatorWorkerCoordinator {
                     operationGeneration: generation
                 )
             }
-        case let .acknowledgeCameraTarget(requestIdentifier):
+        case .acknowledgeCameraTarget(let requestIdentifier):
             pendingCameraTargetAcknowledgements
                 .removeValue(forKey: requestIdentifier)?
                 .resume()
-        case let .switchCameraSource(requestIdentifier, configuration):
+        case .switchCameraSource(let requestIdentifier, let configuration):
             enqueueToolOperation(
                 lane: .camera,
                 requestIdentifier: requestIdentifier,
@@ -285,14 +287,14 @@ final class SimulatorWorkerCoordinator {
                     operationGeneration: generation
                 )
             }
-        case let .setCameraMirror(requestIdentifier, mode):
+        case .setCameraMirror(let requestIdentifier, let mode):
             let succeeded = camera.setMirrorMode(mode)
             send(.cameraMirror(requestID: requestIdentifier, succeeded: succeeded))
             emitAction("camera_mirror", summary: mode.rawValue, succeeded: succeeded)
-        case let .requestCameraStatus(requestIdentifier):
+        case .requestCameraStatus(let requestIdentifier):
             let status = camera.status()
             send(.cameraStatus(requestID: requestIdentifier, status))
-        case let .prepareApplicationMutation(requestIdentifier, bundleIdentifier):
+        case .prepareApplicationMutation(let requestIdentifier, let bundleIdentifier):
             enqueueToolOperation(
                 lane: .camera,
                 requestIdentifier: requestIdentifier,
@@ -304,7 +306,7 @@ final class SimulatorWorkerCoordinator {
                     operationGeneration: generation
                 )
             }
-        case let .setPrivateInterface(requestIdentifier, deviceID, setting):
+        case .setPrivateInterface(let requestIdentifier, let deviceID, let setting):
             enqueueToolOperation(
                 lane: .maintenance,
                 requestIdentifier: requestIdentifier,
@@ -317,7 +319,7 @@ final class SimulatorWorkerCoordinator {
                     operationGeneration: generation
                 )
             }
-        case let .requestPrivateInterfaceStatus(requestIdentifier, deviceID):
+        case .requestPrivateInterfaceStatus(let requestIdentifier, let deviceID):
             enqueueToolOperation(
                 lane: .maintenance,
                 requestIdentifier: requestIdentifier,
@@ -329,12 +331,17 @@ final class SimulatorWorkerCoordinator {
                     operationGeneration: generation
                 )
             }
-        case let .setPrivatePrivacy(
-            requestIdentifier,
-            deviceID,
-            action,
-            service,
-            bundleIdentifier
+        case .setPrivatePrivacy(
+            let
+                requestIdentifier,
+            let
+                deviceID,
+            let
+                action,
+            let
+                service,
+            let
+                bundleIdentifier
         ):
             enqueueToolOperation(
                 lane: .maintenance,
@@ -350,7 +357,7 @@ final class SimulatorWorkerCoordinator {
                     operationGeneration: generation
                 )
             }
-        case let .requestPrivacy(requestIdentifier, deviceID, bundleIdentifier):
+        case .requestPrivacy(let requestIdentifier, let deviceID, let bundleIdentifier):
             enqueueToolOperation(
                 lane: .maintenance,
                 requestIdentifier: requestIdentifier,
@@ -363,7 +370,7 @@ final class SimulatorWorkerCoordinator {
                     operationGeneration: generation
                 )
             }
-        case let .reloadReactNative(requestIdentifier):
+        case .reloadReactNative(let requestIdentifier):
             let succeeded = await hid?.reloadReactNative() == true
             if !succeeded {
                 report(
@@ -374,31 +381,22 @@ final class SimulatorWorkerCoordinator {
             }
             send(.reactNativeReload(requestID: requestIdentifier, succeeded: succeeded))
             emitAction("react_native_reload", summary: "command-r", succeeded: succeeded)
-        case let .setAccessibilityHighlight(requestIdentifier, nodeIdentifier, frame):
+        case .setAccessibilityHighlight(let requestIdentifier, let nodeIdentifier, let frame):
             var targetFrame = frame
             let isClear = nodeIdentifier == nil && frame == nil
             if !isClear,
-               let currentDisplay,
-               let snapshot = cachedAccessibilitySnapshot,
-               snapshot.display == currentDisplay {
-                framebuffer?.setAccessibilityCoordinateSpace(
-                    Self.accessibilityCoordinateSpace(nodes: snapshot.roots)
-                )
+                let currentDisplay,
+                let snapshot = cachedAccessibilitySnapshot,
+                snapshot.display == currentDisplay
+            {
                 if targetFrame == nil, let nodeIdentifier {
-                    targetFrame = Self.accessibilityFrame(
+                    targetFrame = simulatorAccessibilityFrame(
                         nodeIdentifier: nodeIdentifier,
                         nodes: snapshot.roots
                     )
                 }
             }
-            let applied: Bool
-            if isClear {
-                applied = framebuffer?.setAccessibilityHighlight(nil) == true
-            } else if let targetFrame {
-                applied = framebuffer?.setAccessibilityHighlight(targetFrame) == true
-            } else {
-                applied = false
-            }
+            let applied = isClear || targetFrame != nil
             if !applied {
                 reportUnavailable(
                     action: "accessibility_highlight",
@@ -412,11 +410,11 @@ final class SimulatorWorkerCoordinator {
                 )
             }
             send(.accessibilityHighlight(requestID: requestIdentifier, applied: applied))
-        case let .requestAccessibility(requestIdentifier):
+        case .requestAccessibility(let requestIdentifier):
             requestAccessibility(requestIdentifier: requestIdentifier)
-        case let .requestForegroundApplication(requestIdentifier):
+        case .requestForegroundApplication(let requestIdentifier):
             requestForegroundApplication(requestIdentifier: requestIdentifier)
-        case let .requestWebInspectorTargets(requestIdentifier, deviceIdentifier):
+        case .requestWebInspectorTargets(let requestIdentifier, let deviceIdentifier):
             enqueueToolOperation(
                 lane: .webInspector,
                 requestIdentifier: requestIdentifier,
@@ -428,7 +426,7 @@ final class SimulatorWorkerCoordinator {
                     operationGeneration: generation
                 )
             }
-        case let .attachWebInspector(requestIdentifier, targetIdentifier):
+        case .attachWebInspector(let requestIdentifier, let targetIdentifier):
             enqueueToolOperation(
                 lane: .webInspector,
                 requestIdentifier: requestIdentifier,
@@ -440,7 +438,7 @@ final class SimulatorWorkerCoordinator {
                     operationGeneration: generation
                 )
             }
-        case let .releaseWebInspector(requestIdentifier):
+        case .releaseWebInspector(let requestIdentifier):
             enqueueToolOperation(
                 lane: .webInspector,
                 requestIdentifier: requestIdentifier,
@@ -451,7 +449,7 @@ final class SimulatorWorkerCoordinator {
                     operationGeneration: generation
                 )
             }
-        case let .setWebInspectorHighlight(requestIdentifier, enabled):
+        case .setWebInspectorHighlight(let requestIdentifier, let enabled):
             enqueueToolOperation(
                 lane: .webInspector,
                 requestIdentifier: requestIdentifier,
@@ -463,7 +461,7 @@ final class SimulatorWorkerCoordinator {
                     operationGeneration: generation
                 )
             }
-        case let .sendWebInspectorMessage(requestIdentifier, json):
+        case .sendWebInspectorMessage(let requestIdentifier, let json):
             enqueueToolOperation(
                 lane: .webInspector,
                 requestIdentifier: requestIdentifier,
@@ -481,13 +479,13 @@ final class SimulatorWorkerCoordinator {
             pendingKeyUsages.removeAll()
         case .terminateRenderer:
             #if DEBUG
-            _exit(86)
+                _exit(86)
             #else
-            report(
-                SimulatorWorkerFailure.privateAPIUnavailable(
-                    "Intentional worker termination is unavailable in release builds."
+                report(
+                    SimulatorWorkerFailure.privateAPIUnavailable(
+                        "Intentional worker termination is unavailable in release builds."
+                    )
                 )
-            )
             #endif
         case .shutdown:
             prepareForProcessExit()

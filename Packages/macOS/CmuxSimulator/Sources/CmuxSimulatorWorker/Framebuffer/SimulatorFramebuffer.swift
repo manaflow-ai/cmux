@@ -3,7 +3,6 @@ import Darwin
 import Foundation
 import IOSurface
 import ObjectiveC.runtime
-import QuartzCore
 
 /// Direct SimulatorKit framebuffer attachment.
 ///
@@ -13,28 +12,31 @@ import QuartzCore
 @MainActor
 final class SimulatorFramebuffer {
     private let callbackQueue = DispatchQueue.main
-    private let renderContext: SimulatorRemoteRenderContext
+    private let onFrameTransportChange: @MainActor (SimulatorFrameTransportDescriptor) -> Void
     private let onDisplayChange: @MainActor (SimulatorDisplayMetadata) -> Void
+    private let beforeFrameTransportChange: @Sendable () async -> Void
+    private let afterFrameTransportChange: @Sendable () async -> Void
 
     private var descriptors: [NSObject] = []
     private var callbackIdentifiers: [ObjectIdentifier: NSUUID] = [:]
     private var ioClient: NSObject?
-    private var displayLayer: CALayer?
-    private var highlightLayer: CALayer?
-    private var highlightedFrame: SimulatorRect?
-    private var accessibilityCoordinateSpace: SimulatorRect?
-    private var retainedSurface: IOSurface?
+    private var framePublisher: SimulatorFramebufferFramePublisher?
+    private var framePublisherGeneration: UInt64 = 0
     private var orientationState = SimulatorFramebufferOrientationState()
     private var nativeOrientationRawValue: UInt32?
     private var displayScale = 1.0
     private var lastPublishedMetadata: SimulatorDisplayMetadata?
 
     init(
-        renderContext: SimulatorRemoteRenderContext,
-        onDisplayChange: @escaping @MainActor (SimulatorDisplayMetadata) -> Void
+        onFrameTransportChange: @escaping @MainActor (SimulatorFrameTransportDescriptor) -> Void,
+        onDisplayChange: @escaping @MainActor (SimulatorDisplayMetadata) -> Void,
+        beforeFrameTransportChange: @escaping @Sendable () async -> Void = {},
+        afterFrameTransportChange: @escaping @Sendable () async -> Void = {}
     ) {
-        self.renderContext = renderContext
+        self.onFrameTransportChange = onFrameTransportChange
         self.onDisplayChange = onDisplayChange
+        self.beforeFrameTransportChange = beforeFrameTransportChange
+        self.afterFrameTransportChange = afterFrameTransportChange
     }
 
     deinit {
@@ -43,8 +45,9 @@ final class SimulatorFramebuffer {
         }
     }
 
-    func start(device: NSObject) throws {
+    func start(device: NSObject) async throws {
         stop()
+        let publisherGeneration = framePublisherGeneration
         guard let io = objectProperty(device, selectorName: "io") as? NSObject else {
             throw SimulatorWorkerFailure.framebufferUnavailable("Simulator device I/O is unavailable.")
         }
@@ -57,9 +60,37 @@ final class SimulatorFramebuffer {
                 "SimulatorKit registered display callbacks but did not publish an IOSurface."
             )
         }
+        guard let initialDisplay = bestDisplay(readNativeOrientation: false) else {
+            stop()
+            throw SimulatorWorkerFailure.framebufferUnavailable(
+                "SimulatorKit did not retain its initial framebuffer surface."
+            )
+        }
+        let publisher = try await SimulatorFramebufferFramePublisher(
+            initialSurface: initialDisplay.surface,
+            beforeFrameTransportChange: beforeFrameTransportChange,
+            afterFrameTransportChange: afterFrameTransportChange,
+            onFrameTransportChange: { [weak self] transport in
+                guard let self,
+                    self.framePublisherGeneration == publisherGeneration,
+                    self.framePublisher != nil
+                else {
+                    return
+                }
+                self.onFrameTransportChange(transport)
+            }
+        )
+        guard framePublisherGeneration == publisherGeneration else {
+            publisher.cancel()
+            throw CancellationError()
+        }
+        framePublisher = publisher
+        onFrameTransportChange(publisher.initialDescriptor)
+        _ = publishLatest(readNativeOrientation: true)
     }
 
     func stop() {
+        framePublisherGeneration &+= 1
         lastPublishedMetadata = nil
         orientationState.reset()
         nativeOrientationRawValue = nil
@@ -67,19 +98,15 @@ final class SimulatorFramebuffer {
         descriptors.removeAll()
         callbackIdentifiers.removeAll()
         ioClient = nil
-        retainedSurface = nil
-        displayLayer?.removeFromSuperlayer()
-        displayLayer = nil
-        highlightLayer = nil
-        highlightedFrame = nil
-        accessibilityCoordinateSpace = nil
+        framePublisher?.cancel()
+        framePublisher = nil
     }
 
     private func unregisterCallbacks() {
         let selector = NSSelectorFromString("unregisterScreenCallbacksWithUUID:")
         for descriptor in descriptors {
             guard let identifier = callbackIdentifiers[ObjectIdentifier(descriptor)],
-                  descriptor.responds(to: selector)
+                descriptor.responds(to: selector)
             else {
                 continue
             }
@@ -92,16 +119,18 @@ final class SimulatorFramebuffer {
             throw SimulatorWorkerFailure.framebufferUnavailable("Simulator device I/O is unavailable.")
         }
         _ = invokeVoid(ioClient, selectorName: "updateIOPorts")
-        let ports = objectProperty(ioClient, selectorName: "ioPorts") as? [NSObject]
+        let ports =
+            objectProperty(ioClient, selectorName: "ioPorts") as? [NSObject]
             ?? objectProperty(ioClient, selectorName: "deviceIOPorts") as? [NSObject]
         guard let ports else {
-            throw SimulatorWorkerFailure.framebufferUnavailable("SimulatorKit did not publish device I/O ports.")
+            throw SimulatorWorkerFailure.framebufferUnavailable(
+                "SimulatorKit did not publish device I/O ports.")
         }
 
         var candidates: [NSObject] = []
         for port in ports {
             guard let descriptor = objectProperty(port, selectorName: "descriptor") as? NSObject,
-                  hasSimulatorFramebufferSurface(descriptor)
+                hasSimulatorFramebufferSurface(descriptor)
             else {
                 continue
             }
@@ -133,57 +162,10 @@ final class SimulatorFramebuffer {
         _ = publishLatest()
     }
 
-    func resize(_ geometry: SimulatorSurfaceGeometry) {
-        renderContext.resize(geometry)
-        layoutDisplayLayer()
-    }
-
-    @discardableResult
-    func setAccessibilityHighlight(_ frame: SimulatorRect?) -> Bool {
-        highlightedFrame = frame
-        guard let frame else {
-            highlightLayer?.removeFromSuperlayer()
-            highlightLayer = nil
-            CATransaction.flush()
-            return true
-        }
-        guard frame.width.isFinite, frame.height.isFinite,
-              frame.x.isFinite, frame.y.isFinite,
-              frame.width > 0, frame.height > 0,
-              displayLayer != nil, accessibilityCoordinateSpace != nil
-        else {
-            return false
-        }
-        if highlightLayer == nil {
-            let layer = CALayer()
-            layer.borderColor = CGColor(red: 1, green: 0.45, blue: 0.05, alpha: 1)
-            layer.backgroundColor = CGColor(red: 1, green: 0.45, blue: 0.05, alpha: 0.16)
-            layer.borderWidth = 2
-            displayLayer?.addSublayer(layer)
-            highlightLayer = layer
-        }
-        layoutHighlightLayer()
-        CATransaction.flush()
-        return true
-    }
-
-    func setAccessibilityCoordinateSpace(_ frame: SimulatorRect?) {
-        guard let frame,
-              frame.x.isFinite, frame.y.isFinite,
-              frame.width.isFinite, frame.height.isFinite,
-              frame.width > 0, frame.height > 0
-        else {
-            accessibilityCoordinateSpace = nil
-            return
-        }
-        accessibilityCoordinateSpace = frame
-        layoutHighlightLayer()
-    }
-
     private func registerCallbacks(on descriptor: NSObject) throws {
         let selector = NSSelectorFromString(
-            "registerScreenCallbacksWithUUID:callbackQueue:frameCallback:" +
-                "surfacesChangedCallback:propertiesChangedCallback:"
+            "registerScreenCallbacksWithUUID:callbackQueue:frameCallback:"
+                + "surfacesChangedCallback:propertiesChangedCallback:"
         )
         guard descriptor.responds(to: selector) else {
             throw SimulatorWorkerFailure.framebufferUnavailable(
@@ -199,20 +181,23 @@ final class SimulatorFramebuffer {
         let surfacesChangedCallback: @convention(block) () -> Void = { @MainActor [weak self] in
             self?.handleSurfaceTopologyChange()
         }
-        let propertiesChangedCallback: @convention(block) () -> Void = { @MainActor [weak self, weak descriptor] in
+        let propertiesChangedCallback: @convention(block) () -> Void = {
+            @MainActor [weak self, weak descriptor] in
             guard let descriptor else { return }
             self?.handleDisplayPropertiesChange(descriptor)
         }
 
-        guard sendFiveObjectMessage(
-            descriptor,
-            selector,
-            identifier,
-            callbackQueue,
-            frameCallback as AnyObject,
-            surfacesChangedCallback as AnyObject,
-            propertiesChangedCallback as AnyObject
-        ) else {
+        guard
+            sendFiveObjectMessage(
+                descriptor,
+                selector,
+                identifier,
+                callbackQueue,
+                frameCallback as AnyObject,
+                surfacesChangedCallback as AnyObject,
+                propertiesChangedCallback as AnyObject
+            )
+        else {
             throw SimulatorWorkerFailure.framebufferUnavailable(
                 "Objective-C message dispatch is unavailable for framebuffer callbacks."
             )
@@ -228,17 +213,18 @@ final class SimulatorFramebuffer {
     }
 
     private func handleDisplayPropertiesChange(_ descriptor: NSObject) {
-        guard let properties = objectProperty(
-                  descriptor,
-                  selectorName: "screenProperties"
-              ) as? NSObject,
-              let rawValue = simulatorUnsignedIntegerProperty(
-                  properties,
-                  selectorName: "uiOrientation"
-              ),
-              simulatorNativeOrientation(
-                  rawValue: rawValue
-              ) != nil
+        guard
+            let properties = objectProperty(
+                descriptor,
+                selectorName: "screenProperties"
+            ) as? NSObject,
+            let rawValue = simulatorUnsignedIntegerProperty(
+                properties,
+                selectorName: "uiOrientation"
+            ),
+            simulatorNativeOrientation(
+                rawValue: rawValue
+            ) != nil
         else {
             _ = publishLatest()
             return
@@ -256,35 +242,15 @@ final class SimulatorFramebuffer {
             return false
         }
         if let rawValue = display.orientationRawValue,
-           simulatorNativeOrientation(rawValue: rawValue) != nil {
+            simulatorNativeOrientation(rawValue: rawValue) != nil
+        {
             nativeOrientationRawValue = rawValue
         }
         let surface = display.surface
-        retainedSurface = surface
         let width = IOSurfaceGetWidth(surface)
         let height = IOSurfaceGetHeight(surface)
         guard width > 0, height > 0 else { return false }
-
-        let layer: CALayer
-        if let displayLayer {
-            layer = displayLayer
-        } else {
-            layer = CALayer()
-            layer.masksToBounds = true
-            layer.contentsGravity = .resizeAspect
-            renderContext.rootLayer.addSublayer(layer)
-            displayLayer = layer
-        }
-
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        // Core Animation accepts IOSurface as layer contents and carries the
-        // shared surface through the remote context without an encode/decode.
-        layer.contents = surface
-        layer.contentsScale = displayScale
-        CATransaction.commit()
-        layoutDisplayLayer()
-        CATransaction.flush()
+        framePublisher?.enqueue(surface)
 
         let orientation = orientationState.observe(
             width: width,
@@ -305,40 +271,6 @@ final class SimulatorFramebuffer {
         return true
     }
 
-    private func layoutDisplayLayer() {
-        guard let layer = displayLayer, let retainedSurface else { return }
-        let bounds = renderContext.rootLayer.bounds
-        let width = CGFloat(IOSurfaceGetWidth(retainedSurface))
-        let height = CGFloat(IOSurfaceGetHeight(retainedSurface))
-        guard bounds.width > 0, bounds.height > 0, width > 0, height > 0 else { return }
-
-        let scale = min(bounds.width / width, bounds.height / height)
-        let size = CGSize(width: width * scale, height: height * scale)
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        layer.bounds = CGRect(origin: .zero, size: size)
-        layer.position = CGPoint(x: bounds.midX, y: bounds.midY)
-        CATransaction.commit()
-        layoutHighlightLayer()
-    }
-
-    private func layoutHighlightLayer() {
-        guard let highlightedFrame, let highlightLayer, let displayLayer,
-              let accessibilityCoordinateSpace
-        else {
-            return
-        }
-        let bounds = displayLayer.bounds
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        highlightLayer.frame = simulatorAccessibilityHighlightFrame(
-            highlightedFrame,
-            coordinateSpace: accessibilityCoordinateSpace,
-            displayBounds: bounds
-        )
-        CATransaction.commit()
-    }
-
     private func bestDisplay(
         readNativeOrientation: Bool
     ) -> (surface: IOSurface, orientationRawValue: UInt32?)? {
@@ -354,10 +286,11 @@ final class SimulatorFramebuffer {
             if area > bestArea {
                 best = surface
                 if readNativeOrientation {
-                    let properties = objectProperty(
-                        descriptor,
-                        selectorName: "screenProperties"
-                    ) as? NSObject
+                    let properties =
+                        objectProperty(
+                            descriptor,
+                            selectorName: "screenProperties"
+                        ) as? NSObject
                     bestOrientationRawValue = properties.flatMap {
                         simulatorUnsignedIntegerProperty($0, selectorName: "uiOrientation")
                     }
@@ -368,25 +301,6 @@ final class SimulatorFramebuffer {
         return best.map { ($0, bestOrientationRawValue) }
     }
 
-}
-
-func simulatorAccessibilityHighlightFrame(
-    _ frame: SimulatorRect,
-    coordinateSpace: SimulatorRect,
-    displayBounds: CGRect
-) -> CGRect {
-    let relativeX = frame.x - coordinateSpace.x
-    let relativeY = frame.y - coordinateSpace.y
-    let x = displayBounds.minX
-        + relativeX / coordinateSpace.width * displayBounds.width
-    let width = frame.width / coordinateSpace.width * displayBounds.width
-    let height = frame.height / coordinateSpace.height * displayBounds.height
-    // AXP frames use a top-left origin. Core Animation layer geometry uses
-    // a bottom-left origin, so flip the complete vertical extent.
-    let y = displayBounds.maxY
-        - ((relativeY + frame.height) / coordinateSpace.height * displayBounds.height)
-    return CGRect(x: x, y: y, width: width, height: height)
-        .intersection(displayBounds)
 }
 
 private func hasSimulatorFramebufferSurface(_ descriptor: NSObject) -> Bool {
@@ -406,7 +320,7 @@ private func simulatorUnsignedIntegerProperty(
 ) -> UInt32? {
     let selector = NSSelectorFromString(selectorName)
     guard target.responds(to: selector),
-          let method = class_getInstanceMethod(type(of: target), selector)
+        let method = class_getInstanceMethod(type(of: target), selector)
     else {
         return nil
     }
@@ -437,21 +351,24 @@ private func sendFiveObjectMessage(
     _ fourth: AnyObject,
     _ fifth: AnyObject
 ) -> Bool {
-    guard let messageSend = dlsym(
-        UnsafeMutableRawPointer(bitPattern: -2),
-        "objc_msgSend"
-    ) else {
+    guard
+        let messageSend = dlsym(
+            UnsafeMutableRawPointer(bitPattern: -2),
+            "objc_msgSend"
+        )
+    else {
         return false
     }
-    typealias Function = @convention(c) (
-        AnyObject,
-        Selector,
-        AnyObject,
-        AnyObject,
-        AnyObject,
-        AnyObject,
-        AnyObject
-    ) -> Void
+    typealias Function =
+        @convention(c) (
+            AnyObject,
+            Selector,
+            AnyObject,
+            AnyObject,
+            AnyObject,
+            AnyObject,
+            AnyObject
+        ) -> Void
     unsafeBitCast(messageSend, to: Function.self)(
         target,
         selector,

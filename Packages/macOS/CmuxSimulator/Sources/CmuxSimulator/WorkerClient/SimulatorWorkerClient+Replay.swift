@@ -48,13 +48,13 @@ extension SimulatorWorkerClient {
         return messages
     }
 
-    func driveReplay() {
+    func driveReplay() async {
         guard !replayAwaitingStreaming,
               replayAcknowledgementSequence == nil,
               replayRequestIDs.isEmpty,
               let child else { return }
         guard !replayMessages.isEmpty else {
-            finishReplayIfReady()
+            await finishReplayIfReady()
             return
         }
         let message = replayMessages.removeFirst()
@@ -73,7 +73,7 @@ extension SimulatorWorkerClient {
             armReplayWatchdog(generation: generation)
         } catch {
             discardWorker(intentional: true, clearReplayState: false)
-            handleUnexpectedWorkerStop(
+            await handleUnexpectedWorkerStop(
                 reason: "The Simulator worker pipe closed while restoring session state."
             )
         }
@@ -97,7 +97,7 @@ extension SimulatorWorkerClient {
         }
     }
 
-    func replayDeadlineExpired(generation replayGeneration: UInt64, token: UUID) {
+    func replayDeadlineExpired(generation replayGeneration: UInt64, token: UUID) async {
         guard replayGeneration == generation,
               replayDeadlineToken == token,
               child != nil,
@@ -105,12 +105,12 @@ extension SimulatorWorkerClient {
         replayWatchdog = nil
         replayDeadlineToken = nil
         discardWorker(intentional: true, clearReplayState: false)
-        handleUnexpectedWorkerStop(
+        await handleUnexpectedWorkerStop(
             reason: "The Simulator worker did not restore its session before the bounded deadline."
         )
     }
 
-    func finishReplayIfReady() {
+    func finishReplayIfReady() async {
         guard !attachmentAwaitingStreaming,
               !replayAwaitingStreaming,
               replayAcknowledgementSequence == nil,
@@ -121,7 +121,7 @@ extension SimulatorWorkerClient {
         replayDeadlineToken = nil
         if !deferredMessages.isEmpty {
             probeNeededAfterReplay = false
-            flushDeferredMessageIfReady()
+            await flushDeferredMessageIfReady()
             return
         }
         guard probeNeededAfterReplay else { return }
@@ -130,7 +130,7 @@ extension SimulatorWorkerClient {
             try armResponsivenessProbe()
         } catch {
             discardWorker(intentional: true, clearReplayState: false)
-            handleUnexpectedWorkerStop(
+            await handleUnexpectedWorkerStop(
                 reason: "The Simulator worker pipe closed after restoring session state."
             )
         }
@@ -173,7 +173,7 @@ extension SimulatorWorkerClient {
         }
         if let configuration = cameraSourceSwitchRequests.removeValue(forKey: requestIdentifier),
            succeeded {
-            cameraReplayConfigurations = Self.cameraReplayConfigurations(
+            cameraReplayConfigurations = simulatorCameraReplayConfigurations(
                 cameraReplayConfigurations,
                 switchingTo: configuration
             )

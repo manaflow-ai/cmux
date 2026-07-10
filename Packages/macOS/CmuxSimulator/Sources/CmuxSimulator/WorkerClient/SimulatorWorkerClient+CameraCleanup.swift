@@ -1,16 +1,16 @@
 import Foundation
 
+private let simulatorCameraCleanupWaitTimeout: Duration = .seconds(3)
+
 struct SimulatorCameraCleanupSnapshot: Sendable {
     let deviceIdentifier: String?
     let bundleIdentifiers: [String]
 }
 
 extension SimulatorWorkerClient {
-    nonisolated static let cameraCleanupWaitTimeout: Duration = .seconds(3)
-
     func cameraCleanupSnapshot() -> SimulatorCameraCleanupSnapshot {
         SimulatorCameraCleanupSnapshot(
-            deviceIdentifier: Self.attachedDeviceIdentifier(from: lastAttachment),
+            deviceIdentifier: simulatorAttachedDeviceIdentifier(from: lastAttachment),
             bundleIdentifiers: Array(cameraCleanupBundleIdentifiers.union(
                 cameraReplayConfigurations.compactMap(\.targetBundleIdentifier)
             ).filter { !$0.isEmpty }).sorted()
@@ -38,7 +38,7 @@ extension SimulatorWorkerClient {
         cameraCleanupTask = Task {
             await previous?.value
             guard !Task.isCancelled, await permit.allowsMutation() else { return }
-            await Self.cleanCameraInjections(
+            await cleanSimulatorCameraInjections(
                 deviceIdentifier: deviceIdentifier,
                 bundleIdentifiers: snapshot.bundleIdentifiers,
                 simulatorControl: simulatorControl,
@@ -52,7 +52,7 @@ extension SimulatorWorkerClient {
             let revision = cameraCleanupRevision
             let outcome = await SimulatorCameraCleanupWaitState().wait(
                 for: task,
-                timeout: Self.cameraCleanupWaitTimeout,
+                timeout: simulatorCameraCleanupWaitTimeout,
                 sleeper: sleeper
             )
             switch outcome {
@@ -70,56 +70,57 @@ extension SimulatorWorkerClient {
         }
     }
 
-    nonisolated static func cleanCameraInjections(
-        deviceIdentifier: String,
-        bundleIdentifiers: [String],
-        simulatorControl: any SimulatorControlling,
-        permit: SimulatorCameraCleanupPermit? = nil
-    ) async {
-        for bundleIdentifier in bundleIdentifiers {
-            guard !Task.isCancelled,
-                  await permit?.allowsMutation() != false else { return }
-            do {
-                _ = try await simulatorControl.perform(.terminateApplication(
-                    deviceID: deviceIdentifier,
-                    bundleIdentifier: bundleIdentifier
-                ))
-            } catch is CancellationError {
-                return
-            } catch {}
-            guard !Task.isCancelled,
-                  await permit?.allowsMutation() != false else { return }
-            do {
-                _ = try await simulatorControl.perform(.launchApplication(
-                    deviceID: deviceIdentifier,
-                    bundleIdentifier: bundleIdentifier,
-                    configuration: SimulatorLaunchConfiguration(
-                        terminateRunningProcess: true
-                    )
-                ))
-            } catch is CancellationError {
-                return
-            } catch {}
-        }
-    }
+}
 
-    nonisolated static func attachedDeviceIdentifier(
-        from attachment: SimulatorWorkerInbound?
-    ) -> String? {
-        guard case let .attach(deviceIdentifier, _) = attachment else { return nil }
-        return deviceIdentifier
+func cleanSimulatorCameraInjections(
+    deviceIdentifier: String,
+    bundleIdentifiers: [String],
+    simulatorControl: any SimulatorControlling,
+    permit: SimulatorCameraCleanupPermit? = nil
+) async {
+    for bundleIdentifier in bundleIdentifiers {
+        guard !Task.isCancelled,
+              await permit?.allowsMutation() != false else { return }
+        do {
+            _ = try await simulatorControl.perform(.terminateApplication(
+                deviceID: deviceIdentifier,
+                bundleIdentifier: bundleIdentifier
+            ))
+        } catch is CancellationError {
+            return
+        } catch {}
+        guard !Task.isCancelled,
+              await permit?.allowsMutation() != false else { return }
+        do {
+            _ = try await simulatorControl.perform(.launchApplication(
+                deviceID: deviceIdentifier,
+                bundleIdentifier: bundleIdentifier,
+                configuration: SimulatorLaunchConfiguration(
+                    terminateRunningProcess: true
+                )
+            ))
+        } catch is CancellationError {
+            return
+        } catch {}
     }
+}
 
-    nonisolated static func unlinkCameraSharedMemory(
-        connection: SimulatorWorkerConnection,
-        deviceIdentifier: String?
-    ) {
-        guard let deviceIdentifier,
-              let processIdentifier = connection.processIdentifier,
-              processIdentifier > 1 else { return }
-        SimulatorCameraSharedMemory(
-            deviceIdentifier: deviceIdentifier,
-            processIdentifier: processIdentifier
-        ).unlink()
-    }
+func simulatorAttachedDeviceIdentifier(
+    from attachment: SimulatorWorkerInbound?
+) -> String? {
+    guard case let .attach(deviceIdentifier, _) = attachment else { return nil }
+    return deviceIdentifier
+}
+
+func unlinkSimulatorCameraSharedMemory(
+    connection: SimulatorWorkerConnection,
+    deviceIdentifier: String?
+) {
+    guard let deviceIdentifier,
+          let processIdentifier = connection.processIdentifier,
+          processIdentifier > 1 else { return }
+    SimulatorCameraSharedMemory(
+        deviceIdentifier: deviceIdentifier,
+        processIdentifier: processIdentifier
+    ).unlink()
 }

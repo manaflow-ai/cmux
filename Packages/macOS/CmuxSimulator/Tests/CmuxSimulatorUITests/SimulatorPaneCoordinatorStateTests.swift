@@ -132,7 +132,7 @@ extension SimulatorPaneCoordinatorTests {
         ])
         let coordinator = SimulatorPaneCoordinator(client: client)
         await coordinator.start()
-        await client.emit(.message(.context(42)))
+        await client.emit(.message(.frameTransport(simulatorFrameTransportDescriptor(42))))
         await client.emit(.message(.display(SimulatorDisplayMetadata(
             width: 1_200,
             height: 2_400,
@@ -143,9 +143,61 @@ extension SimulatorPaneCoordinatorTests {
         await client.emit(.message(.status(.deviceUnavailable)))
         await eventually { coordinator.status == .deviceUnavailable }
 
-        #expect(coordinator.contextID == nil)
+        #expect(coordinator.frameTransport == nil)
         #expect(coordinator.display == nil)
         #expect(coordinator.capabilities == [.userInterfaceSettings])
+    }
+
+    @Test("A stale frame mapping failure cannot invalidate its replacement")
+    func staleFrameMappingFailureIsIgnored() async {
+        let client = SimulatorPaneClientSpy(devices: [])
+        let coordinator = SimulatorPaneCoordinator(client: client)
+        let staleTransport = simulatorFrameTransportDescriptor(51)
+        let replacementTransport = simulatorFrameTransportDescriptor(52)
+        let failure = SimulatorFailure(
+            code: "framebuffer_unavailable",
+            message: "The stale frame ring is unavailable.",
+            isRecoverable: true
+        )
+        coordinator.frameTransport = replacementTransport
+
+        coordinator.receiveFrameTransportFailure(failure, for: staleTransport)
+        await Task.yield()
+
+        #expect(coordinator.frameTransport == replacementTransport)
+        #expect(coordinator.failure == nil)
+        #expect(await client.invalidationCount() == 0)
+    }
+
+    @Test("Frame mapping cleanup finishes before a replacement worker activates")
+    func frameMappingCleanupPrecedesReplacementActivation() async {
+        let device = Self.device(id: "phone", family: .iPhone, state: .booted)
+        let client = SimulatorPaneClientSpy(
+            devices: [device],
+            delaysInvalidation: true
+        )
+        let coordinator = SimulatorPaneCoordinator(client: client)
+        coordinator.devices = [device]
+        coordinator.frameTransport = simulatorFrameTransportDescriptor(61)
+        let failure = SimulatorFailure(
+            code: "framebuffer_unavailable",
+            message: "The frame ring cannot be mapped.",
+            isRecoverable: true
+        )
+
+        coordinator.receiveFrameTransportFailure(
+            failure,
+            for: simulatorFrameTransportDescriptor(61)
+        )
+        coordinator.selectDevice(id: device.id)
+        await eventually { await client.hasDelayedInvalidation() }
+
+        #expect(await client.activations().isEmpty)
+
+        await client.resumeInvalidation()
+        await eventually { await client.activations().count == 1 }
+
+        #expect(await client.activations().map(\.id) == [device.id])
     }
 
     @Test("Selecting another device clears every device-scoped tool value")
@@ -164,7 +216,7 @@ extension SimulatorPaneCoordinatorTests {
             scale: 3
         )
         coordinator.display = display
-        coordinator.contextID = 42
+        coordinator.frameTransport = simulatorFrameTransportDescriptor(42)
         coordinator.failure = SimulatorFailure(code: "old", message: "old", isRecoverable: true)
         coordinator.controlFailure = SimulatorFailure(code: "tool", message: "old", isRecoverable: true)
         coordinator.installedApplications = [application]
@@ -219,7 +271,7 @@ extension SimulatorPaneCoordinatorTests {
 
         #expect(coordinator.selectedDeviceID == "two")
         #expect(coordinator.display == nil)
-        #expect(coordinator.contextID == nil)
+        #expect(coordinator.frameTransport == nil)
         #expect(coordinator.failure == nil)
         #expect(coordinator.controlFailure == nil)
         #expect(coordinator.installedApplications.isEmpty)

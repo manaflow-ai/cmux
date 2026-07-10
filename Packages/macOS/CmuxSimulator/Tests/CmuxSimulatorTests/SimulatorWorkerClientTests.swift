@@ -89,11 +89,12 @@ struct SimulatorWorkerClientTests {
             orientation: .landscapeLeft,
             scale: 3
         )
-        endpoint.emit(.context(99))
+        let frameTransport = simulatorFrameTransportDescriptor(99)
+        endpoint.emit(.frameTransport(frameTransport))
         endpoint.emit(.capabilities([.touch]))
         endpoint.emit(.display(display))
         for _ in 0..<1_000 {
-            if await client.currentContextID == 99 { break }
+            if await client.currentFrameTransport == frameTransport { break }
             await Task.yield()
         }
         let requestID = UUID()
@@ -127,11 +128,10 @@ struct SimulatorWorkerClientTests {
         } catch let received as SimulatorFailure {
             #expect(received.code == failure.code)
         }
-        #expect(await client.currentContextID == nil)
+        #expect(await client.currentFrameTransport == nil)
         #expect(await client.currentCapabilities.isEmpty)
         #expect(await client.lastDisplayOrientation == nil)
         #expect(!(await client.attachmentAwaitingStreaming))
-        #expect((await MainActor.run { client.contextCache.contextID }) == nil)
         await client.stop()
     }
 
@@ -219,12 +219,13 @@ struct SimulatorWorkerClientTests {
         }.first)
 
         endpoint.emit(.ack(firstPing))
-        endpoint.emit(.context(77))
+        let frameTransport = simulatorFrameTransportDescriptor(77)
+        endpoint.emit(.frameTransport(frameTransport))
         for _ in 0..<1_000 {
-            if await client.currentContextID == 77 { break }
+            if await client.currentFrameTransport == frameTransport { break }
             await Task.yield()
         }
-        #expect(await client.currentContextID == 77)
+        #expect(await client.currentFrameTransport == frameTransport)
 
         let pings = endpoint.inboundMessages().compactMap { message -> UInt64? in
             if case let .ping(sequence) = message { return sequence }
@@ -326,7 +327,7 @@ struct SimulatorWorkerClientTests {
         let endpoint = try #require(launcher.endpoint(at: 0))
         endpoint.emit(.status(.streaming))
         endpoint.emit(.capabilities([.cameraInjection]))
-        endpoint.emit(.context(55))
+        endpoint.emit(.frameTransport(simulatorFrameTransportDescriptor(55)))
         _ = await iterator.next()
         _ = await iterator.next()
         _ = await iterator.next()
@@ -362,7 +363,7 @@ struct SimulatorWorkerClientTests {
         let endpoint = try #require(launcher.endpoint(at: 0))
         endpoint.emit(.status(.streaming))
         endpoint.emit(.capabilities([.extendedPermissions]))
-        endpoint.emit(.context(88))
+        endpoint.emit(.frameTransport(simulatorFrameTransportDescriptor(88)))
         _ = await iterator.next()
         _ = await iterator.next()
         _ = await iterator.next()
@@ -405,7 +406,7 @@ struct SimulatorWorkerClientTests {
         let endpoint = try #require(launcher.endpoint(at: 0))
         endpoint.emit(.status(.streaming))
         endpoint.emit(.capabilities([.extendedPermissions]))
-        endpoint.emit(.context(99))
+        endpoint.emit(.frameTransport(simulatorFrameTransportDescriptor(99)))
         _ = await iterator.next()
         _ = await iterator.next()
         _ = await iterator.next()

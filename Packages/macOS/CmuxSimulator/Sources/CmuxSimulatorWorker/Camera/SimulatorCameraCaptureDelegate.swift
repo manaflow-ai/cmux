@@ -1,5 +1,7 @@
 @preconcurrency import AVFoundation
 
+// SAFETY: AVFoundation invokes this delegate on the one serial queue supplied
+// by the producer, and the delegate owns only an immutable thread-safe ring.
 final class SimulatorCameraCaptureDelegate: NSObject,
     AVCaptureVideoDataOutputSampleBufferDelegate,
     @unchecked Sendable

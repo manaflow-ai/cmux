@@ -36,7 +36,7 @@ extension SimulatorWorkerClientTests {
         endpoint.acknowledgeRecordedPings()
         endpoint.emit(.status(.streaming))
         endpoint.emit(.capabilities([.cameraInjection]))
-        endpoint.emit(.context(79))
+        endpoint.emit(.frameTransport(simulatorFrameTransportDescriptor(79)))
         _ = await readinessIterator.next()
         _ = await readinessIterator.next()
         _ = await readinessIterator.next()

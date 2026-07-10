@@ -2,6 +2,22 @@ import CmuxSimulator
 import Foundation
 
 extension SimulatorPaneCoordinator {
+    func receiveFrameTransportFailure(
+        _ failure: SimulatorFailure,
+        for failedTransport: SimulatorFrameTransportDescriptor
+    ) {
+        guard frameTransport == failedTransport else { return }
+        self.failure = failure
+        frameTransport = nil
+        display = nil
+        status = .failed(failure)
+        let previousRecoveryTask = outgoingRecoveryTask
+        outgoingRecoveryTask = Task { [client] in
+            _ = await previousRecoveryTask?.value
+            await client.invalidateWorker()
+        }
+    }
+
     @discardableResult
     func enqueue(_ message: SimulatorWorkerInbound) -> Bool {
         switch outgoingContinuation.yield(message) {
@@ -35,7 +51,7 @@ extension SimulatorPaneCoordinator {
         )
         self.failure = failure
         status = .workerCrashed
-        contextID = nil
+        frameTransport = nil
         display = nil
         stopLiveStatusWatcher()
         beginLocationRouteTeardown()
@@ -52,7 +68,7 @@ extension SimulatorPaneCoordinator {
             receive(message)
         case .workerStopped:
             failPendingTextInputCompletions()
-            contextID = nil
+            frameTransport = nil
             status = .workerCrashed
             clearWebInspectorState()
             beginLocationRouteTeardown()
@@ -64,8 +80,8 @@ extension SimulatorPaneCoordinator {
         switch message {
         case .ack:
             break
-        case let .context(contextID):
-            self.contextID = contextID
+        case let .frameTransport(frameTransport):
+            self.frameTransport = frameTransport
         case let .status(status):
             self.status = status
             if status == .streaming { failure = nil }
@@ -74,7 +90,7 @@ extension SimulatorPaneCoordinator {
             case .idle, .connecting, .streaming, .workerCrashed: false
             }
             if sessionEnded {
-                contextID = nil
+                frameTransport = nil
                 display = nil
                 capabilities = [.userInterfaceSettings]
                 if chromeProfile != nil { capabilities.insert(.deviceChrome) }
@@ -95,7 +111,7 @@ extension SimulatorPaneCoordinator {
             foregroundApplication = application
         case let .requestFailure(_, failure):
             self.failure = failure
-            if contextID != nil { controlFailure = failure }
+            if frameTransport != nil { controlFailure = failure }
         case let .privacy(_, snapshot):
             privacySnapshot = snapshot
         case .privatePrivacy, .reactNativeReload, .accessibilityHighlight, .interactiveAction,
@@ -161,7 +177,7 @@ extension SimulatorPaneCoordinator {
             if failure.code.hasPrefix("web_inspector") {
                 failPendingWebInspectorResponses(code: failure.code, message: failure.message)
             }
-            if failure.isRecoverable, contextID != nil {
+            if failure.isRecoverable, frameTransport != nil {
                 controlFailure = failure
             } else {
                 status = .failed(failure)

@@ -20,8 +20,8 @@ struct SimulatorWebInspectorTools: View {
             send: { json in Task { await coordinator.sendWebInspectorMessage(json) } },
             clearResponses: coordinator.clearWebInspectorResponses
         )
-        .task(id: coordinator.contextID) {
-            guard coordinator.contextID != nil, coordinator.supports(.webInspector) else { return }
+        .task(id: coordinator.frameTransport) {
+            guard coordinator.frameTransport != nil, coordinator.supports(.webInspector) else { return }
             await coordinator.refreshWebInspectorTargets()
         }
     }

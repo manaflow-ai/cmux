@@ -2,14 +2,7 @@ import CmuxSimulator
 import Foundation
 
 struct SimulatorWebInspectorTargetCatalog {
-    private struct Application {
-        let identifier: String
-        let bundleIdentifier: String?
-        let name: String
-        let isProxy: Bool
-    }
-
-    private var applications: [String: Application] = [:]
+    private var applications: [String: SimulatorWebInspectorApplication] = [:]
     private var listings: [String: [SimulatorWebInspectorTarget]] = [:]
 
     var targets: [SimulatorWebInspectorTarget] {
@@ -46,10 +39,13 @@ struct SimulatorWebInspectorTargetCatalog {
         switch selector {
         case "_rpc_reportConnectedApplicationList:":
             let dictionary = argument["WIRApplicationDictionaryKey"] as? [String: Any] ?? [:]
-            var replacement: [String: Application] = [:]
+            var replacement: [String: SimulatorWebInspectorApplication] = [:]
             for (identifier, value) in dictionary {
                 guard let raw = value as? [String: Any] else { continue }
-                let application = Self.application(identifier: identifier, value: raw)
+                let application = simulatorWebInspectorApplication(
+                    identifier: identifier,
+                    value: raw
+                )
                 replacement[identifier] = application
             }
             let removed = Set(applications.keys).subtracting(replacement.keys)
@@ -60,7 +56,10 @@ struct SimulatorWebInspectorTargetCatalog {
             guard let identifier = argument["WIRApplicationIdentifierKey"] as? String else {
                 return false
             }
-            applications[identifier] = Self.application(identifier: identifier, value: argument)
+            applications[identifier] = simulatorWebInspectorApplication(
+                identifier: identifier,
+                value: argument
+            )
             return true
         case "_rpc_applicationDisconnected:":
             guard let identifier = argument["WIRApplicationIdentifierKey"] as? String else {
@@ -79,7 +78,9 @@ struct SimulatorWebInspectorTargetCatalog {
             let rawListing = argument["WIRListingKey"] as? [String: Any] ?? [:]
             listings[identifier] = rawListing.values.compactMap { raw in
                 guard let page = raw as? [String: Any],
-                      let pageIdentifier = Self.unsignedInteger(page["WIRPageIdentifierKey"])
+                      let pageIdentifier = simulatorWebInspectorUnsignedInteger(
+                          page["WIRPageIdentifierKey"]
+                      )
                 else { return nil }
                 let connection = page["WIRConnectionIdentifierKey"] as? String
                 return SimulatorWebInspectorTarget(
@@ -104,25 +105,29 @@ struct SimulatorWebInspectorTargetCatalog {
         targets.first(where: { $0.id == id })
     }
 
-    private static func application(identifier: String, value: [String: Any]) -> Application {
-        let bundleIdentifier = value["WIRApplicationBundleIdentifierKey"] as? String
-        return Application(
-            identifier: identifier,
-            bundleIdentifier: bundleIdentifier,
-            name: value["WIRApplicationNameKey"] as? String
-                ?? bundleIdentifier
-                ?? identifier,
-            isProxy: (value["WIRIsApplicationProxyKey"] as? NSNumber)?.boolValue
-                ?? (value["WIRIsApplicationProxyKey"] as? Bool)
-                ?? false
-        )
-    }
+}
 
-    private static func unsignedInteger(_ value: Any?) -> UInt64? {
-        if let number = value as? NSNumber { return number.uint64Value }
-        if let value = value as? UInt64 { return value }
-        if let value = value as? Int, value >= 0 { return UInt64(value) }
-        if let value = value as? String { return UInt64(value) }
-        return nil
-    }
+private func simulatorWebInspectorApplication(
+    identifier: String,
+    value: [String: Any]
+) -> SimulatorWebInspectorApplication {
+    let bundleIdentifier = value["WIRApplicationBundleIdentifierKey"] as? String
+    return SimulatorWebInspectorApplication(
+        identifier: identifier,
+        bundleIdentifier: bundleIdentifier,
+        name: value["WIRApplicationNameKey"] as? String
+            ?? bundleIdentifier
+            ?? identifier,
+        isProxy: (value["WIRIsApplicationProxyKey"] as? NSNumber)?.boolValue
+            ?? (value["WIRIsApplicationProxyKey"] as? Bool)
+            ?? false
+    )
+}
+
+private func simulatorWebInspectorUnsignedInteger(_ value: Any?) -> UInt64? {
+    if let number = value as? NSNumber { return number.uint64Value }
+    if let value = value as? UInt64 { return value }
+    if let value = value as? Int, value >= 0 { return UInt64(value) }
+    if let value = value as? String { return UInt64(value) }
+    return nil
 }

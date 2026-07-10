@@ -76,7 +76,10 @@ extension SimulatorWorkerClient {
         } catch let error as SimulatorControlError
             where error.code == "worker_response_timed_out" {
             if timeoutRecovery == .restartWorker {
-                correlatedOperationDeadlineExpired(generation: requestGeneration, failure: error)
+                await correlatedOperationDeadlineExpired(
+                    generation: requestGeneration,
+                    failure: error
+                )
             }
             throw error
         }

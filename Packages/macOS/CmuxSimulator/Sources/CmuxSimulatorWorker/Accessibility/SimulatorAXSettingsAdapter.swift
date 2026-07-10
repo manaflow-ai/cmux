@@ -278,26 +278,8 @@ func simulatorPublicInterfaceCommand(
 }
 
 func parseSimulatorAXStatus(_ output: String) throws -> SimulatorInterfaceStatus {
-    struct WireStatus: Decodable {
-        let reduceMotion: String
-        let showBorders: String
-        let reduceTransparency: String
-        let voiceOver: String
-        let colorFilter: String
-        let liquidGlass: String
-
-        enum CodingKeys: String, CodingKey {
-            case reduceMotion = "reduce-motion"
-            case showBorders = "show-borders"
-            case reduceTransparency = "reduce-transparency"
-            case voiceOver = "voiceover"
-            case colorFilter = "color-filter"
-            case liquidGlass = "liquid-glass"
-        }
-    }
-
     do {
-        let wire = try JSONDecoder().decode(WireStatus.self, from: Data(output.utf8))
+        let wire = try JSONDecoder().decode(SimulatorAXWireStatus.self, from: Data(output.utf8))
         guard let liquidGlass = SimulatorInterfaceSetting.LiquidGlass(rawValue: wire.liquidGlass),
               let colorFilter = SimulatorInterfaceSetting.ColorFilter(rawValue: wire.colorFilter),
               let reduceMotion = simulatorAXToggle(wire.reduceMotion),

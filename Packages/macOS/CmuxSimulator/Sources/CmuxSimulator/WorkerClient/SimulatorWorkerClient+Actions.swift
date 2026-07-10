@@ -345,7 +345,7 @@ extension SimulatorWorkerClient {
         _ configuration: SimulatorCameraConfiguration,
         resolvedTargetBundleIdentifier: String? = nil
     ) {
-        let replayConfiguration = Self.cameraReplayConfiguration(
+        let replayConfiguration = simulatorCameraReplayConfiguration(
             configuration,
             resolvedTargetBundleIdentifier: resolvedTargetBundleIdentifier
         )
@@ -356,31 +356,6 @@ extension SimulatorWorkerClient {
         cameraReplayConfigurations.append(replayConfiguration)
         if let target, !target.isEmpty {
             cameraCleanupBundleIdentifiers.insert(target)
-        }
-    }
-
-    nonisolated static func cameraReplayConfiguration(
-        _ configuration: SimulatorCameraConfiguration,
-        resolvedTargetBundleIdentifier: String?
-    ) -> SimulatorCameraConfiguration {
-        guard !configuration.isDisabled,
-              let target = resolvedTargetBundleIdentifier,
-              !target.isEmpty else { return configuration }
-        switch configuration {
-        case let .targeted(_, source):
-            return .targeted(bundleIdentifier: target, source: source)
-        default:
-            return .targeted(bundleIdentifier: target, source: configuration)
-        }
-    }
-
-    nonisolated static func cameraReplayConfigurations(
-        _ configurations: [SimulatorCameraConfiguration],
-        switchingTo source: SimulatorCameraConfiguration
-    ) -> [SimulatorCameraConfiguration] {
-        configurations.map {
-            guard let target = $0.targetBundleIdentifier else { return source }
-            return .targeted(bundleIdentifier: target, source: source)
         }
     }
 
@@ -446,4 +421,29 @@ extension SimulatorWorkerClient {
         }
     }
 
+}
+
+func simulatorCameraReplayConfiguration(
+    _ configuration: SimulatorCameraConfiguration,
+    resolvedTargetBundleIdentifier: String?
+) -> SimulatorCameraConfiguration {
+    guard !configuration.isDisabled,
+          let target = resolvedTargetBundleIdentifier,
+          !target.isEmpty else { return configuration }
+    switch configuration {
+    case let .targeted(_, source):
+        return .targeted(bundleIdentifier: target, source: source)
+    default:
+        return .targeted(bundleIdentifier: target, source: configuration)
+    }
+}
+
+func simulatorCameraReplayConfigurations(
+    _ configurations: [SimulatorCameraConfiguration],
+    switchingTo source: SimulatorCameraConfiguration
+) -> [SimulatorCameraConfiguration] {
+    configurations.map {
+        guard let target = $0.targetBundleIdentifier else { return source }
+        return .targeted(bundleIdentifier: target, source: source)
+    }
 }
