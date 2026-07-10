@@ -240,7 +240,7 @@ extension ControlWorkspaceGroupContext {
 extension ControlWorkspaceContext {
     func controlWorkspaceStrings() -> ControlWorkspaceStrings {
         ControlWorkspaceStrings(
-            closeProtected: "",
+            closeProtected: "", closeFailed: "",
             reorderManyMissingOrder: "",
             reorderManyDuplicateWorkspace: "",
             reorderManyWorkspaceNotFound: "",
@@ -363,7 +363,7 @@ extension ControlWorkspaceContext {
     func controlWorkspaceRemoteTerminalSessionEnd(
         workspaceID: UUID,
         surfaceID: UUID,
-        relayPort: Int
+        relayPort: Int?, sessionID: String?, lifecycleID: String?, lifecycleOnly: Bool
     ) -> ControlWorkspaceRemoteTerminalSessionEndResolution { .notFound }
 }
 
