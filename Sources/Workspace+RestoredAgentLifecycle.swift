@@ -2,26 +2,23 @@ import Foundation
 
 /// Lifecycle rules for a panel's restored (resumable) agent snapshot.
 ///
-/// The snapshot drives the tab's agent brand icon, fork availability, and the
-/// restorable agent persisted for app relaunch, so its lifetime must track the
-/// invariant behind https://github.com/manaflow-ai/cmux/issues/7822: a
-/// plain-shell tab with no live agent and no pending restore shows the plain
-/// terminal icon. Two rules enforce that here, for every agent kind:
-///
-/// - A snapshot may only be adopted from the persist-time hook index while
-///   there is evidence the session is current (recorded agent runtime or a
-///   running foreground command). Restore, hibernation, and Dock-detach
-///   seeding are the only other ways in.
-/// - Proof that a panel's recorded agent process died is an agent exit
-///   signal, equivalent to the shell-activity machine observing the exit, and
-///   invalidates the snapshot.
+/// The snapshot serves two roles with different lifetimes. As the *recorded
+/// session* it must survive an agent exit: session persistence, manual resume
+/// after relaunch, and conversation forking all rely on it (auto-resume is
+/// separately suppressed via `wasAgentRunning`). As the *icon signal* it must
+/// not survive an agent exit: a plain-shell tab with no live agent and no
+/// pending restore shows the plain terminal icon (#7822), for every agent
+/// kind. `RestoredAgentResumeState.recordedSessionOnly` carries that
+/// distinction: it keeps the snapshot while telling the icon resolver the
+/// agent is known not to be running here.
 extension Workspace {
     /// Reconciles a persist-time indexed restorable-agent snapshot into the
     /// panel's in-memory restored-agent state. An invalidated fingerprint (an
-    /// observed agent exit) clears instead of re-adopting, and a panel with no
-    /// restored snapshot only adopts one while the agent is plausibly running
-    /// there. Without that gate, a persist running after the user quit the
-    /// agent would repaint the agent brand icon on a plain shell tab.
+    /// observed agent exit followed by a new foreground command) clears
+    /// instead of re-adopting. A fresh adoption's resume state records
+    /// whether the agent is plausibly the running foreground command; without
+    /// that provenance, a persist running after the user quit the agent would
+    /// repaint the agent brand icon on a plain shell tab.
     func adoptIndexedRestorableAgentSnapshot(
         _ snapshot: SessionRestorableAgentSnapshot,
         panelId: UUID
@@ -30,12 +27,6 @@ extension Workspace {
         guard invalidatedRestoredAgentFingerprintsByPanelId[panelId] != fingerprint else {
             clearRestoredAgentSnapshot(panelId: panelId)
             return
-        }
-        if restoredAgentSnapshotsByPanelId[panelId] == nil {
-            guard !(agentPIDKeysByPanelId[panelId] ?? []).isEmpty
-                || panelShellActivityStates[panelId] == .commandRunning else {
-                return
-            }
         }
         restoredAgentSnapshotsByPanelId[panelId] = snapshot
         if restoredAgentResumeStatesByPanelId[panelId] == nil {
@@ -47,27 +38,41 @@ extension Workspace {
         syncTerminalTabAgentIconAsset(forPanelId: panelId)
     }
 
+    /// Adoption provenance: only a running foreground command makes the
+    /// adopted session an "observed running agent". Anything else — an idle
+    /// prompt after the user quit the agent, or an unknown shell state — is a
+    /// recorded session whose icon relevance is owned by live agent runtime,
+    /// not by this snapshot. Seeded restore paths assign
+    /// `.manualResumeAvailable` themselves and never come through here.
     func restoredAgentResumeStateForAcceptedSnapshot(panelId: UUID) -> RestoredAgentResumeState {
         panelShellActivityStates[panelId] == .commandRunning
             ? .observedAgentCommandRunning
-            : .manualResumeAvailable
+            : .recordedSessionOnly
     }
 
     /// A stale-agent prune proved that an agent process recorded for this
     /// panel died, so the panel's restorable snapshot no longer describes a
-    /// running session: invalidate it and return the tab to the plain terminal
-    /// icon, exactly as the shell-activity machine does when it observes the
-    /// exit. A queued auto-resume and a hibernated panel keep their snapshot
-    /// (their recorded runtime describes a previous run, not the pending
-    /// resume), and remote workspaces are skipped because local process
-    /// liveness proves nothing about a remote agent.
-    func invalidateRestoredAgentSnapshotForProvenAgentExit(panelId: UUID) {
+    /// running session: downgrade it to `.recordedSessionOnly` so the tab
+    /// returns to the plain terminal icon while the session stays recorded
+    /// for manual resume, relaunch persistence, and forking. Pending
+    /// auto-resume states keep their snapshot untouched (their recorded
+    /// runtime describes a previous run, not the pending resume), hibernated
+    /// panels keep their deliberate brand mark, and remote workspaces are
+    /// skipped because local process liveness proves nothing about a remote
+    /// agent.
+    func downgradeRestoredAgentSnapshotForProvenAgentExit(panelId: UUID) {
         guard !isRemoteWorkspace,
-              let snapshot = restoredAgentSnapshotsByPanelId[panelId],
-              restoredAgentResumeStatesByPanelId[panelId] != .awaitingAutoResumeCommand,
+              restoredAgentSnapshotsByPanelId[panelId] != nil,
               (panels[panelId] as? TerminalPanel)?.isAgentHibernated != true else {
             return
         }
-        invalidateRestoredAgentSnapshot(panelId: panelId, restoredAgent: snapshot)
+        switch restoredAgentResumeStatesByPanelId[panelId] {
+        case .some(.awaitingAutoResumeCommand), .some(.autoResumeCommandRunning),
+             .some(.recordedSessionOnly):
+            return
+        case .some(.manualResumeAvailable), .some(.observedAgentCommandRunning), nil:
+            restoredAgentResumeStatesByPanelId[panelId] = .recordedSessionOnly
+            syncTerminalTabAgentIconAsset(forPanelId: panelId)
+        }
     }
 }

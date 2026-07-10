@@ -351,7 +351,11 @@ extension Workspace {
         // is recorded shows the generic terminal icon; fixing that means
         // carrying the registration into live agent state at the lifecycle
         // recording boundary (TerminalController), not loading config here.
-        let snapshot = restoredAgentSnapshotsByPanelId[panelId]
+        // A `.recordedSessionOnly` snapshot stays resumable but is known not
+        // to be running here, so it must not brand the tab (#7822).
+        let snapshot = restoredAgentResumeStatesByPanelId[panelId] == .recordedSessionOnly
+            ? nil
+            : restoredAgentSnapshotsByPanelId[panelId]
         let registration = snapshot?.registration
         return TerminalTabAgentIconResolver().assetName(
             liveAgents: liveAgents,
@@ -421,14 +425,17 @@ extension DockSplitStore {
     func terminalTabAgentIconAsset(forPanelId panelId: UUID) -> String? {
         let transfer = detachedSurfaceTransfersByPanelId[panelId]
         let registration = transfer?.restorableAgent?.registration
+        let restorableAgentBrandsTab = transfer?.restorableAgentResumeState != .recordedSessionOnly
         return TerminalTabAgentIconResolver().assetName(
             agentPIDKeys: transfer?.agentRuntime?.agentPIDKeys ?? [],
             processIdentities: transfer?.agentRuntime?.agentPIDProcessIdentities ?? [:],
             knownStatusKeys: transfer?.agentRuntime.map { Set($0.statusEntries.keys) } ?? [],
             titleDerivedStatusKey: titleDerivedAgentStatusKeysByPanelId[panelId],
-            restoredAgent: transfer?.restorableAgent.map(
-                TerminalTabAgentIconResolver.RestoredAgent.init(snapshot:)
-            ),
+            restoredAgent: restorableAgentBrandsTab
+                ? transfer?.restorableAgent.map(
+                    TerminalTabAgentIconResolver.RestoredAgent.init(snapshot:)
+                )
+                : nil,
             registrationIconAssetName: { statusKey in
                 registration?.id == statusKey ? registration?.iconAssetName : nil
             }

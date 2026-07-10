@@ -160,7 +160,7 @@ extension Workspace {
             if refreshPorts { refreshTrackedAgentPorts() }
             AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: id)
             for panelId in prunedPanelIds {
-                invalidateRestoredAgentSnapshotForProvenAgentExit(panelId: panelId)
+                downgradeRestoredAgentSnapshotForProvenAgentExit(panelId: panelId)
             }
         }
         return didChange
@@ -185,7 +185,7 @@ extension Workspace {
         if didChange {
             if refreshPorts { refreshTrackedAgentPorts() }
             AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: id, surfaceId: panelId)
-            invalidateRestoredAgentSnapshotForProvenAgentExit(panelId: panelId)
+            downgradeRestoredAgentSnapshotForProvenAgentExit(panelId: panelId)
         }
         return didChange
     }

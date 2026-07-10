@@ -53,9 +53,12 @@ struct TerminalTabAgentIconRestoredSnapshotTests {
         #expect(workspace.updatePanelTitle(panelId: panel.id, title: "~/manaflow/cmuxterm-hq"))
 
         #expect(workspace.terminalTabAgentIconAsset(forPanelId: panel.id) == nil)
-        #expect(workspace.restoredAgentSnapshotForTesting(panelId: panel.id) == nil)
         #expect(workspace.bonsplitController.tab(tabId)?.iconImageData == nil)
         #expect(workspace.bonsplitController.tab(tabId)?.iconAsset == nil)
+        // The exited session stays recorded: manual resume, forking, and
+        // relaunch persistence must survive the icon reverting.
+        #expect(workspace.restoredAgentSnapshotForTesting(panelId: panel.id) != nil)
+        #expect(workspace.restoredAgentResumeStatesByPanelId[panel.id] == .recordedSessionOnly)
     }
 
     /// Ordering variant of the same exit: the shell already reported an idle
@@ -73,10 +76,14 @@ struct TerminalTabAgentIconRestoredSnapshotTests {
             panelId: panel.id,
             sessionId: "7b7b7b7b-8c8c-9d9d-0e0e-1f1f1f1f1f1f"
         )
-        _ = workspace.sessionSnapshot(includeScrollback: false, restorableAgentIndex: index)
+        let snapshot = workspace.sessionSnapshot(includeScrollback: false, restorableAgentIndex: index)
 
         #expect(workspace.terminalTabAgentIconAsset(forPanelId: panel.id) == nil)
-        #expect(workspace.restoredAgentSnapshotForTesting(panelId: panel.id) == nil)
+        // Adoption still records the exited session — persisted for manual
+        // resume after relaunch — it just may not brand the tab.
+        #expect(workspace.restoredAgentSnapshotForTesting(panelId: panel.id) != nil)
+        #expect(workspace.restoredAgentResumeStatesByPanelId[panel.id] == .recordedSessionOnly)
+        #expect(snapshot.panels.first { $0.id == panel.id }?.terminal?.agent != nil)
     }
 
     /// A session persist while the agent is the foreground command must keep

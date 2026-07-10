@@ -2350,6 +2350,14 @@ final class Workspace: Identifiable, ObservableObject {
         case awaitingAutoResumeCommand
         case autoResumeCommandRunning
         case observedAgentCommandRunning
+        /// The session is recorded and resumable (persisted for relaunch,
+        /// forkable, manually resumable) but the agent is known not to be
+        /// running in this panel right now — either the persist-time adoption
+        /// happened while no command was running, or a recorded agent process
+        /// was proven dead. Unlike the seeded `.manualResumeAvailable`, this
+        /// state must not drive the tab's agent brand icon: the panel is a
+        /// plain shell (#7822).
+        case recordedSessionOnly
     }
     var restoredAgentResumeStatesByPanelId: [UUID: RestoredAgentResumeState] = [:]
     var invalidatedRestoredAgentFingerprintsByPanelId: [UUID: Int] = [:]
@@ -4588,14 +4596,15 @@ final class Workspace: Identifiable, ObservableObject {
                 restoredAgentResumeStatesByPanelId[panelId] = .autoResumeCommandRunning
             case .some(.autoResumeCommandRunning), .some(.observedAgentCommandRunning):
                 break
-            case .some(.manualResumeAvailable), nil:
+            case .some(.manualResumeAvailable), .some(.recordedSessionOnly), nil:
                 invalidateRestoredAgentSnapshot(panelId: panelId, restoredAgent: restoredAgent)
             }
         case .promptIdle:
             switch restoredAgentResumeStatesByPanelId[panelId] {
             case .some(.autoResumeCommandRunning), .some(.observedAgentCommandRunning):
                 invalidateRestoredAgentSnapshot(panelId: panelId, restoredAgent: restoredAgent)
-            case .some(.awaitingAutoResumeCommand), .some(.manualResumeAvailable), nil:
+            case .some(.awaitingAutoResumeCommand), .some(.manualResumeAvailable),
+                 .some(.recordedSessionOnly), nil:
                 break
             }
         case .unknown:
@@ -4622,7 +4631,7 @@ final class Workspace: Identifiable, ObservableObject {
         }
     }
 
-    func invalidateRestoredAgentSnapshot(
+    private func invalidateRestoredAgentSnapshot(
         panelId: UUID,
         restoredAgent: SessionRestorableAgentSnapshot
     ) {
