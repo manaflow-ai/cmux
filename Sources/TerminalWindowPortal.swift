@@ -360,8 +360,7 @@ final class WindowTerminalHostView: NSView {
 
     private func splitDividerCursorKind(at point: NSPoint) -> DividerCursorKind? {
         guard window != nil else { return nil }
-        let windowPoint = convert(point, to: nil)
-        return Self.dividerCursorKind(at: windowPoint, in: splitDividerRegions(), checkLiveness: false)
+        return Self.dividerCursorKind(at: convert(point, to: nil), in: splitDividerRegions(), checkLiveness: false)
     }
 
     static func hasSplitDivider(atScreenPoint screenPoint: NSPoint, in window: NSWindow) -> Bool {
@@ -1870,9 +1869,10 @@ enum TerminalWindowPortalRegistry {
         activeSplitDividerDragEventNumber = nil
     }
 
+    // Only the event's own window may latch drag ownership: a foreign drag routed through an occluded host must not self-authorize its cursor.
     fileprivate static func noteSplitDividerInteraction(in window: NSWindow?, event: NSEvent?) {
-        guard let window, let event else { return }
-        guard (NSEvent.pressedMouseButtons & 1) != 0 else { return }
+        guard let window, let event, event.window === window,
+              (NSEvent.pressedMouseButtons & 1) != 0 else { return }
 
         switch event.type {
         case .leftMouseDown, .leftMouseDragged:
