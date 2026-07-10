@@ -1266,6 +1266,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		D7332C090000000000000001 /* SharedLiveAgentIndexRefreshGeneration+Phase.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7332C090000000000000002 /* SharedLiveAgentIndexRefreshGeneration+Phase.swift */; };
 		D7332C030000000000000001 /* SharedLiveAgentIndexScopedRefreshTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7332C030000000000000002 /* SharedLiveAgentIndexScopedRefreshTests.swift */; };
 		F73320000000000000000006 /* SharedLiveAgentIndexStallRecoveryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F73320000000000000000005 /* SharedLiveAgentIndexStallRecoveryTests.swift */; };
+		EE45396CAC0142289F52DCA0 /* ShellIntegrationSendTransportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 831E0F65E3D945CE8970852E /* ShellIntegrationSendTransportTests.swift */; };
 		C0F16A000000000000000001 /* ShellStartupMatrixTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0F16A000000000000000002 /* ShellStartupMatrixTests.swift */; };
 		C0F16C000000000000000001 /* ShellStartupMissingBundleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0F16C000000000000000002 /* ShellStartupMissingBundleTests.swift */; };
 		1521D55DC63D5E5FC4955E31 /* ShortcutAndCommandPaletteTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6083A7DAD962E287FC2FFE94 /* ShortcutAndCommandPaletteTests.swift */; };
@@ -3008,6 +3009,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		D7332C090000000000000002 /* SharedLiveAgentIndexRefreshGeneration+Phase.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SharedLiveAgentIndexRefreshGeneration+Phase.swift"; sourceTree = "<group>"; };
 		D7332C030000000000000002 /* SharedLiveAgentIndexScopedRefreshTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedLiveAgentIndexScopedRefreshTests.swift; sourceTree = "<group>"; };
 		F73320000000000000000005 /* SharedLiveAgentIndexStallRecoveryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedLiveAgentIndexStallRecoveryTests.swift; sourceTree = "<group>"; };
+		831E0F65E3D945CE8970852E /* ShellIntegrationSendTransportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShellIntegrationSendTransportTests.swift; sourceTree = "<group>"; };
 		C0F16A000000000000000002 /* ShellStartupMatrixTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShellStartupMatrixTests.swift; sourceTree = "<group>"; };
 		C0F16C000000000000000002 /* ShellStartupMissingBundleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShellStartupMissingBundleTests.swift; sourceTree = "<group>"; };
 		6083A7DAD962E287FC2FFE94 /* ShortcutAndCommandPaletteTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutAndCommandPaletteTests.swift; sourceTree = "<group>"; };
@@ -4884,6 +4886,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				D3284002A1B2C3D4E5F60718 /* TraditionalChineseIMENumpadRegressionTests.swift */,
 				C0F15A000000000000000002 /* FishShellIntegrationTests.swift */,
 				C0F16A000000000000000002 /* ShellStartupMatrixTests.swift */,
+				831E0F65E3D945CE8970852E /* ShellIntegrationSendTransportTests.swift */,
 				C0F16C000000000000000002 /* ShellStartupMissingBundleTests.swift */,
 				C0F674600000000000000002 /* RemoteShellCWDRelayTests.swift */,
 				F4000001A1B2C3D4E5F60718 /* GhosttyConfigTests.swift */,
@@ -7327,6 +7330,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				D7332B000000000000000002 /* SharedLiveAgentIndexLoadCoalescingTests.swift in Sources */,
 				D7332C030000000000000001 /* SharedLiveAgentIndexScopedRefreshTests.swift in Sources */,
 				F73320000000000000000006 /* SharedLiveAgentIndexStallRecoveryTests.swift in Sources */,
+				EE45396CAC0142289F52DCA0 /* ShellIntegrationSendTransportTests.swift in Sources */,
 				C0F16A000000000000000001 /* ShellStartupMatrixTests.swift in Sources */,
 				C0F16C000000000000000001 /* ShellStartupMissingBundleTests.swift in Sources */,
 				1521D55DC63D5E5FC4955E31 /* ShortcutAndCommandPaletteTests.swift in Sources */,
