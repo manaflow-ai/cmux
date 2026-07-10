@@ -139,6 +139,10 @@ final class WindowTerminalHostView: NSView {
     override func mouseUp(with event: NSEvent) {
         guard intersectionDrag.isActive else { return super.mouseUp(with: event) }
         intersectionDrag.end()
+        // The drag forced the four-way cursor on every update; re-resolve from
+        // the drop point so it does not stick when the pointer ends away from
+        // any divider (AppKit sends no cursorUpdate until the next move).
+        updateDividerCursor(at: convert(event.locationInWindow, from: nil))
     }
 
     // PERF: hitTest is called on EVERY event including keyboard. Keep non-pointer
@@ -173,8 +177,15 @@ final class WindowTerminalHostView: NSView {
 
             if let kind = splitDividerCursorKind(at: point) {
                 // Intersection drags resize two split views at once, which
-                // NSSplitView cannot do natively — claim the mouseDown.
-                if kind == .both, currentEvent?.type == .leftMouseDown {
+                // NSSplitView cannot do natively — claim the mouseDown. Gate
+                // the claim on the same live-intersection predicate that
+                // `mouseDown` uses to begin the drag (the cursor path skips
+                // liveness); otherwise a non-live pair would swallow the click.
+                if kind == .both, currentEvent?.type == .leftMouseDown,
+                   DividerRegion.dividerIntersection(
+                       at: convert(point, to: nil),
+                       in: splitDividerRegions()
+                   ) != nil {
                     return self
                 }
                 assertDividerCursor(kind)
@@ -438,13 +449,11 @@ final class WindowTerminalHostView: NSView {
 
     private static func dividerCursorKind(at windowPoint: NSPoint, in regions: [DividerRegion], checkLiveness: Bool = true) -> DividerCursorKind? {
         let hits = DividerRegion.dividerHits(at: windowPoint, in: regions, checkLiveness: checkLiveness)
-        if let vertical = hits.vertical, let horizontal = hits.horizontal,
-           !vertical.isInHostedContent, !horizontal.isInHostedContent,
-           DividerRegion.areNested(vertical, horizontal) {
-            return .both
-        }
-        if hits.vertical != nil { return .vertical }
-        return hits.horizontal == nil ? nil : .horizontal
+        if hits.intersection != nil { return .both }
+        // No co-drag pair: keep the legacy precedence (topmost region wins),
+        // not an orientation preference.
+        guard let first = hits.first else { return nil }
+        return first.isVertical ? .vertical : .horizontal
     }
 }
 

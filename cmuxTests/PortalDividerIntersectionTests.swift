@@ -98,6 +98,76 @@ import Testing
         #expect(intersection == nil)
     }
 
+    @Test func overlappingParallelBandsPairNearestDivider() {
+        let (outer, inner) = makeNestedSplits()
+        let horizontal = region(outer, rect: horizontalDividerRect, isVertical: false)
+        // Two parallel dividers around a narrow pane: expanded hit bands
+        // (±8pt) overlap between x=402 and x=408. The farther divider is
+        // later in the array (topmost in z-order); the pair must still use
+        // the divider nearest the pointer.
+        let nearVertical = region(inner, rect: NSRect(x: 400, y: 0, width: 1, height: 300), isVertical: true)
+        let farVertical = region(inner, rect: NSRect(x: 410, y: 0, width: 1, height: 300), isVertical: true)
+        let pointNearFirst = NSPoint(x: 403, y: 300)
+
+        let hits = PortalSplitDividerRegion.dividerHits(
+            at: pointNearFirst,
+            in: [horizontal, nearVertical, farVertical],
+            checkLiveness: false
+        )
+        let intersection = PortalSplitDividerRegion.dividerIntersection(
+            at: pointNearFirst,
+            in: [horizontal, nearVertical, farVertical],
+            checkLiveness: false
+        )
+
+        #expect(hits.vertical === nearVertical)
+        #expect(intersection?.vertical === nearVertical)
+        #expect(intersection?.horizontal === horizontal)
+    }
+
+    @Test func fallbackKeepsTopmostRegionWhenPairIsNotNested() {
+        let (outer, _) = makeNestedSplits()
+        let stranger = NSSplitView(frame: Self.contentBounds)
+        stranger.isVertical = true
+        // Vertical belongs to an unrelated tree, so no co-drag pair exists.
+        // The horizontal region is later in the array (topmost); single-axis
+        // consumers must keep the legacy topmost precedence, not prefer
+        // vertical.
+        let vertical = region(stranger, rect: verticalDividerRect, isVertical: true)
+        let horizontal = region(outer, rect: horizontalDividerRect, isVertical: false)
+
+        let hits = PortalSplitDividerRegion.dividerHits(
+            at: cornerPoint,
+            in: [vertical, horizontal],
+            checkLiveness: false
+        )
+
+        #expect(hits.intersection == nil)
+        #expect(hits.first === horizontal)
+    }
+
+    @Test func livenessCheckExcludesDetachedRegions() {
+        // Synthetic regions have no window, so they are not live. The
+        // mouseDown claim and drag begin use the liveness-checked lookup and
+        // must not pair; the cursor path (checkLiveness: false) still does.
+        let (outer, inner) = makeNestedSplits()
+        let horizontal = region(outer, rect: horizontalDividerRect, isVertical: false)
+        let vertical = region(inner, rect: verticalDividerRect, isVertical: true)
+
+        let liveChecked = PortalSplitDividerRegion.dividerIntersection(
+            at: cornerPoint,
+            in: [horizontal, vertical]
+        )
+        let cursorPath = PortalSplitDividerRegion.dividerIntersection(
+            at: cornerPoint,
+            in: [horizontal, vertical],
+            checkLiveness: false
+        )
+
+        #expect(liveChecked == nil)
+        #expect(cursorPath != nil)
+    }
+
     @Test func hostedContentRegionsDoNotPair() {
         let (outer, inner) = makeNestedSplits()
         let horizontal = region(outer, rect: horizontalDividerRect, isVertical: false)

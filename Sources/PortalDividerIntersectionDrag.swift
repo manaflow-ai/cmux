@@ -46,6 +46,12 @@ final class PortalDividerIntersectionDragController {
         }
         axes = nextAxes
         TerminalWindowPortalRegistry.beginInteractiveGeometryResize()
+        // Arm the coordinators' interactive-drag latch while the mouseDown
+        // pointer is still inside both divider bands: bonsplit latches from
+        // `splitViewWillResizeSubviews` only when the live pointer event is
+        // over the divider, so a fast first drag sample could otherwise be
+        // classified as a programmatic resize and snapped back to the model.
+        reassertCurrentPositions()
         PortalDividerCursorKind.both.cursor.set()
         return true
     }
@@ -68,8 +74,29 @@ final class PortalDividerIntersectionDragController {
 
     func end() {
         guard isActive else { return }
+        // Resize once more now that the button is released so the
+        // coordinators' resize observers see a non-drag resize and clear
+        // their interactive-drag latch (the host consumes the mouseUp, so no
+        // native divider tracking runs this handshake for us).
+        reassertCurrentPositions()
         axes = []
         TerminalWindowPortalRegistry.endInteractiveGeometryResize()
+    }
+
+    /// Re-applies each axis's current divider position. Positions do not
+    /// change; the point is the `NSSplitView` will/didResize delegate cycle
+    /// this triggers, which lets the owning coordinators latch or clear their
+    /// interactive-drag state against the current pointer/button state.
+    private func reassertCurrentPositions() {
+        for axis in axes {
+            guard let splitView = axis.splitView, splitView.window != nil,
+                  let dividerRect = PortalSplitDividerRegion.dividerRect(
+                      in: splitView,
+                      dividerIndex: axis.dividerIndex
+                  ) else { continue }
+            let position = axis.isVertical ? dividerRect.origin.x : dividerRect.origin.y
+            splitView.setPosition(position, ofDividerAt: axis.dividerIndex)
+        }
     }
 
     /// `setPosition` does not consult the delegate's constrain methods, so

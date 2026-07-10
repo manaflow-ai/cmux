@@ -64,6 +64,29 @@ struct PortalDividerIntersection {
     let horizontal: PortalSplitDividerRegion
 }
 
+/// Divider regions hit at a single window point. `vertical`/`horizontal` are
+/// the nearest hit per orientation (expanded hit bands of parallel dividers
+/// can overlap around a narrow pane, and the pair must form the corner the
+/// pointer is actually on). `first` is the topmost hit in z-order, preserving
+/// the legacy precedence for single-axis cursor and routing decisions.
+@MainActor
+struct PortalDividerHits {
+    let vertical: PortalSplitDividerRegion?
+    let horizontal: PortalSplitDividerRegion?
+    let first: PortalSplitDividerRegion?
+
+    /// The two-axis pair at this point, if the vertical and horizontal hits
+    /// meet at a real pane corner of one nested split tree.
+    var intersection: PortalDividerIntersection? {
+        guard let vertical, let horizontal,
+              !vertical.isInHostedContent, !horizontal.isInHostedContent,
+              PortalSplitDividerRegion.areNested(vertical, horizontal) else {
+            return nil
+        }
+        return PortalDividerIntersection(vertical: vertical, horizontal: horizontal)
+    }
+}
+
 @MainActor
 final class PortalSplitDividerRegion {
     weak var splitView: NSSplitView?
@@ -128,27 +151,38 @@ final class PortalSplitDividerRegion {
             .intersection(boundsInWindow)
     }
 
-    /// First hit region per orientation at `windowPoint`, matching the
-    /// precedence of the single-axis cursor lookup (later regions win).
+    /// Hit regions at `windowPoint`: the nearest divider per orientation
+    /// (pointer distance to the actual divider line, z-order breaking ties)
+    /// plus the topmost hit for legacy single-axis precedence.
     static func dividerHits(
         at windowPoint: NSPoint,
         in regions: [PortalSplitDividerRegion],
         checkLiveness: Bool = true
-    ) -> (vertical: PortalSplitDividerRegion?, horizontal: PortalSplitDividerRegion?) {
-        var vertical: PortalSplitDividerRegion?
-        var horizontal: PortalSplitDividerRegion?
+    ) -> PortalDividerHits {
+        var vertical: (region: PortalSplitDividerRegion, distance: CGFloat)?
+        var horizontal: (region: PortalSplitDividerRegion, distance: CGFloat)?
+        var first: PortalSplitDividerRegion?
         for region in regions.reversed() {
             if checkLiveness, !region.isLive { continue }
             let hitRect = region.hitRectInWindow
             guard !hitRect.isNull, hitRect.contains(windowPoint) else { continue }
+            if first == nil { first = region }
+            let distance = region.isVertical
+                ? abs(windowPoint.x - region.rectInWindow.midX)
+                : abs(windowPoint.y - region.rectInWindow.midY)
             if region.isVertical {
-                if vertical == nil { vertical = region }
-            } else if horizontal == nil {
-                horizontal = region
+                if vertical == nil || distance < vertical!.distance {
+                    vertical = (region, distance)
+                }
+            } else if horizontal == nil || distance < horizontal!.distance {
+                horizontal = (region, distance)
             }
-            if vertical != nil, horizontal != nil { break }
         }
-        return (vertical, horizontal)
+        return PortalDividerHits(
+            vertical: vertical?.region,
+            horizontal: horizontal?.region,
+            first: first
+        )
     }
 
     static func dividerIntersection(
@@ -156,13 +190,7 @@ final class PortalSplitDividerRegion {
         in regions: [PortalSplitDividerRegion],
         checkLiveness: Bool = true
     ) -> PortalDividerIntersection? {
-        let hits = dividerHits(at: windowPoint, in: regions, checkLiveness: checkLiveness)
-        guard let vertical = hits.vertical, let horizontal = hits.horizontal,
-              !vertical.isInHostedContent, !horizontal.isInHostedContent,
-              areNested(vertical, horizontal) else {
-            return nil
-        }
-        return PortalDividerIntersection(vertical: vertical, horizontal: horizontal)
+        dividerHits(at: windowPoint, in: regions, checkLiveness: checkLiveness).intersection
     }
 
     /// True when one region's split view is nested inside the other's tree,

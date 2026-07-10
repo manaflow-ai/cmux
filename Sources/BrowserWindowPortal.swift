@@ -191,12 +191,12 @@ enum HostedInspectorDockSide {
 final class WindowBrowserHostView: NSView {
     private typealias DividerRegion = PortalSplitDividerRegion
 
-    private struct DividerHit {
-        let kind: DividerCursorKind
+    struct DividerHit {
+        let kind: PortalDividerCursorKind
         let isInHostedContent: Bool
     }
 
-    private struct HostedInspectorDividerHit {
+    struct HostedInspectorDividerHit {
         let slotView: WindowBrowserSlotView
         let containerView: NSView
         let pageView: NSView
@@ -233,6 +233,8 @@ final class WindowBrowserHostView: NSView {
     private let dividerCursorOcclusion = PortalDividerCursorOcclusion()
     private var hostedInspectorDividerDrag: HostedInspectorDividerDragState?
     private var lastHostedInspectorLayoutBoundsSize: NSSize?
+    // See BrowserWindowPortal+IntersectionDrag.swift.
+    let intersectionDrag = PortalDividerIntersectionDragController()
 
     deinit {
         if let splitDividerResizeObserver { NotificationCenter.default.removeObserver(splitDividerResizeObserver) }
@@ -287,6 +289,7 @@ final class WindowBrowserHostView: NSView {
         super.viewDidMoveToWindow()
         if window == nil {
             clearActiveDividerCursor(restoreArrow: false)
+            intersectionDrag.end()
         }
         updateSplitDividerResizeObserver()
         invalidateSplitDividerRegionCache()
@@ -444,6 +447,9 @@ final class WindowBrowserHostView: NSView {
             return nil
         }
         if splitPassThrough {
+            if claimsIntersectionMouseDown(at: point, eventType: eventType, dividerHitKind: dividerHit?.kind) {
+                return self
+            }
 #if DEBUG
             debugLogPointerRouting(
                 stage: "hitTest.splitPass",
@@ -508,7 +514,12 @@ final class WindowBrowserHostView: NSView {
         return hitView === self ? nil : hitView
     }
 
+    // The host is the hit view only for hosted-inspector and intersection
+    // mouseDowns; without this a click on a non-opaque view can drag the window.
+    override var mouseDownCanMoveWindow: Bool { false }
+
     override func mouseDown(with event: NSEvent) {
+        if beginIntersectionDrag(with: event) { return }
         let point = convert(event.locationInWindow, from: nil)
         guard let hostedInspectorHit = hostedInspectorDividerHit(at: point) else {
             super.mouseDown(with: event)
@@ -538,6 +549,7 @@ final class WindowBrowserHostView: NSView {
     }
 
     override func mouseDragged(with event: NSEvent) {
+        if updateIntersectionDragIfActive(with: event) { return }
         guard let dragState = hostedInspectorDividerDrag else {
             super.mouseDragged(with: event)
             return
@@ -605,6 +617,7 @@ final class WindowBrowserHostView: NSView {
     }
 
     override func mouseUp(with event: NSEvent) {
+        if endIntersectionDragIfActive(with: event) { return }
         if let dragState = hostedInspectorDividerDrag {
             dragState.slotView.isHostedInspectorDividerDragActive = false
 #if DEBUG
@@ -738,7 +751,7 @@ final class WindowBrowserHostView: NSView {
         return SidebarResizeInteraction.Edge.trailing.hitRange(dividerX: dividerX).contains(point.x)
     }
 
-    private func updateDividerCursor(
+    func updateDividerCursor(
         at point: NSPoint,
         dividerHit: DividerHit? = nil,
         hostedInspectorHit: HostedInspectorDividerHit? = nil
@@ -1032,7 +1045,7 @@ final class WindowBrowserHostView: NSView {
 #endif
         return (pageFrame, inspectorFrame)
     }
-    private func splitDividerRegions() -> [DividerRegion] {
+    func splitDividerRegions() -> [PortalSplitDividerRegion] {
         guard let rootView = dividerSearchRootView() else { cachedSplitDividerRegions = []; cachedSplitDividerRootSubviewIds = nil; return [] }
         let rootSubviewIds = rootView.subviews.map { ObjectIdentifier($0) }
         if let regions = cachedSplitDividerRegions, cachedSplitDividerRootSubviewIds == rootSubviewIds, PortalSplitDividerRegion.allLive(regions) { return regions }
@@ -1070,18 +1083,6 @@ final class WindowBrowserHostView: NSView {
             self.invalidateSplitDividerRegionCache()
             self.window?.invalidateCursorRects(for: self)
         }
-    }
-
-    private static func dividerHit(at windowPoint: NSPoint, in regions: [DividerRegion], checkLiveness: Bool = true) -> DividerHit? {
-        let hits = DividerRegion.dividerHits(at: windowPoint, in: regions, checkLiveness: checkLiveness)
-        if DividerRegion.dividerIntersection(at: windowPoint, in: regions, checkLiveness: checkLiveness) != nil {
-            return DividerHit(kind: .both, isInHostedContent: false)
-        }
-        guard let region = hits.vertical ?? hits.horizontal else { return nil }
-        return DividerHit(
-            kind: region.isVertical ? .vertical : .horizontal,
-            isInHostedContent: region.isInHostedContent
-        )
     }
 
     private static func verticalOverlap(between lhs: NSRect, and rhs: NSRect) -> CGFloat {
