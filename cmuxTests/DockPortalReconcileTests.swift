@@ -101,7 +101,7 @@ struct DockPortalReconcileTests {
         anchor.removeFromSuperview()
         let reattachTokenBefore = terminal.viewReattachToken
 
-        _ = store.debugReconcileDockPortalsForTesting()
+        store.reconcileDockPortalPass(reason: "test.dockPortalReconcile")
 
         #expect(terminal.viewReattachToken > reattachTokenBefore)
     }
@@ -126,7 +126,7 @@ struct DockPortalReconcileTests {
         Self.installBrowserAnchor(browser, in: window)
         #expect(BrowserWindowPortalRegistry.debugSnapshot(for: browser.webView) == nil)
 
-        _ = store.debugReconcileDockPortalsForTesting()
+        store.reconcileDockPortalPass(reason: "test.dockPortalReconcile")
 
         #expect(BrowserWindowPortalRegistry.isWebView(browser.webView, boundTo: browser.portalAnchorView))
         #expect(BrowserWindowPortalRegistry.debugSnapshot(for: browser.webView)?.visibleInUI == true)
@@ -170,11 +170,12 @@ struct DockPortalReconcileTests {
         }
         defer { NotificationCenter.default.removeObserver(observer) }
 
-        store.debugResetDockPortalReconcileStateForTesting()
+        store.clearDockPortalReconcile()
+        store.dockPortalReconcileState.scheduledRequestCount = 0
         store.applyVisibility(to: browser)
-        #expect(store.debugDockPortalReconcileScheduleCountForTesting() == 0)
+        #expect(store.dockPortalReconcileState.scheduledRequestCount == 0)
 
-        let needsFollowUp = store.debugReconcileDockPortalsForTesting()
+        let needsFollowUp = store.reconcileDockPortalPass(reason: "test.dockPortalReconcile")
 
         #expect(!needsFollowUp)
         #expect(registryChangeCount == 0)
@@ -205,7 +206,8 @@ struct DockPortalReconcileTests {
             let dock = workspace.dockSplit
             let rootPane = try #require(dock.bonsplitController.allPaneIds.first)
             dock.setVisibleInUI(true)
-            dock.debugResetDockPortalReconcileStateForTesting()
+            dock.clearDockPortalReconcile()
+            dock.dockPortalReconcileState.scheduledRequestCount = 0
 
             let moved = appDelegate.moveSurfaceIntoDock(
                 sourceTabId: sourceTabId.uuid,
@@ -214,7 +216,7 @@ struct DockPortalReconcileTests {
             )
 
             #expect(moved)
-            #expect(dock.debugDockPortalReconcileScheduleCountForTesting() > 0)
+            #expect(dock.dockPortalReconcileState.scheduledRequestCount > 0)
         }
     }
 
@@ -243,7 +245,8 @@ struct DockPortalReconcileTests {
             let rootPane = try #require(dock.bonsplitController.allPaneIds.first)
             dock.setVisibleInUI(true)
             let dockPanelId = try #require(dock.newSurface(kind: .terminal, inPane: rootPane, focus: true))
-            dock.debugResetDockPortalReconcileStateForTesting()
+            dock.clearDockPortalReconcile()
+            dock.dockPortalReconcileState.scheduledRequestCount = 0
 
             let moved = appDelegate.moveDockSurfaceToWorkspace(
                 sourceDock: dock,
@@ -258,7 +261,7 @@ struct DockPortalReconcileTests {
 
             #expect(moved)
             #expect(destinationWorkspace.panels[dockPanelId] != nil)
-            #expect(dock.debugDockPortalReconcileScheduleCountForTesting() > 0)
+            #expect(dock.dockPortalReconcileState.scheduledRequestCount > 0)
         }
     }
 

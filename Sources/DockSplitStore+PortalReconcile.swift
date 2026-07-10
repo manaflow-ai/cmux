@@ -1,10 +1,10 @@
 import AppKit
-import ObjectiveC
 
-private var dockPortalReconcileStateKey: UInt8 = 0
-
+/// Event-driven follow-up state for the Dock portal reconciler, owned by
+/// `DockSplitStore.dockPortalReconcileState`. Mirrors the state backing
+/// `Workspace.beginEventDrivenLayoutFollowUp`.
 @MainActor
-private final class DockPortalReconcileState {
+final class DockPortalReconcileState {
     var observers: [NSObjectProtocol] = []
     var timeoutWorkItem: DispatchWorkItem?
     var reason: String?
@@ -22,15 +22,6 @@ private final class DockPortalReconcileState {
 
 extension DockSplitStore {
     private static let dockPortalReconcileTimeout: TimeInterval = 2
-
-    private var dockPortalReconcileState: DockPortalReconcileState {
-        if let state = objc_getAssociatedObject(self, &dockPortalReconcileStateKey) as? DockPortalReconcileState {
-            return state
-        }
-        let state = DockPortalReconcileState()
-        objc_setAssociatedObject(self, &dockPortalReconcileStateKey, state, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
-        return state
-    }
 
     func scheduleDockPortalReconcile(reason: String) {
         let state = dockPortalReconcileState
@@ -84,7 +75,7 @@ extension DockSplitStore {
         )
     }
 
-    private func clearDockPortalReconcile() {
+    func clearDockPortalReconcile() {
         let state = dockPortalReconcileState
         state.timeoutWorkItem?.cancel()
         state.timeoutWorkItem = nil
@@ -272,21 +263,3 @@ extension DockSplitStore {
             !dockBrowserPortalReady(browser)
     }
 }
-
-#if DEBUG
-extension DockSplitStore {
-    func debugDockPortalReconcileScheduleCountForTesting() -> Int {
-        dockPortalReconcileState.scheduledRequestCount
-    }
-
-    func debugResetDockPortalReconcileStateForTesting() {
-        clearDockPortalReconcile()
-        dockPortalReconcileState.scheduledRequestCount = 0
-    }
-
-    @discardableResult
-    func debugReconcileDockPortalsForTesting(reason: String = "dock.portal.test") -> Bool {
-        reconcileDockPortalPass(reason: reason)
-    }
-}
-#endif
