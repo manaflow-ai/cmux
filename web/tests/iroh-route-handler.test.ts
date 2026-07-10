@@ -122,6 +122,50 @@ describe("Iroh route boundary", () => {
     expect(admission.activeCount).toBe(2);
   });
 
+  test("aborts timed-out firewall work and admits recovery", async () => {
+    const admission = new IrohFirewallAdmission(2);
+    let started = 0;
+    let aborted = false;
+    let brokerCalls = 0;
+    const firewall = {
+      id: "iroh-test-rule",
+      timeoutMs: 5,
+      admission,
+      check: (_id: string, options?: unknown) => {
+        started += 1;
+        if (started > 1) return Promise.resolve({ rateLimited: false });
+        const signal = (options as { signal?: AbortSignal } | undefined)?.signal;
+        return new Promise<never>((_resolve, reject) => {
+          signal?.addEventListener("abort", () => {
+            aborted = true;
+            reject(signal.reason);
+          }, { once: true });
+        });
+      },
+    };
+    const discover = () => handleIrohRoute(
+      new Request("https://cmux.test/api/devices/iroh"),
+      "discover",
+      {
+        verify: async () => USER,
+        broker: broker({
+          discover: () => {
+            brokerCalls += 1;
+            return Effect.succeed({ bindings: [] });
+          },
+        }),
+        firewall,
+      },
+    );
+
+    expect((await discover()).status).toBe(503);
+    expect(aborted).toBe(true);
+    expect((await discover()).status).toBe(200);
+    expect(started).toBe(2);
+    expect(brokerCalls).toBe(1);
+    expect(admission.activeCount).toBe(0);
+  });
+
   test("authenticates before reading an oversized body", async () => {
     let called = false;
     const response = await handleIrohRoute(new Request("https://cmux.test/api/devices/iroh/challenge", {
