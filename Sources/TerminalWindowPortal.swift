@@ -648,7 +648,7 @@ final class WindowTerminalPortal: NSObject {
 #if DEBUG
     private var lastLoggedBonsplitContainerSignature: String?
     private(set) var debugHostedViewSynchronizationCount = 0
-    private(set) var debugDeferredFullSynchronizationPassCount = 0
+    var debugDeferredFullSynchronizationPassCount = 0
 #endif
 
     struct Entry {
