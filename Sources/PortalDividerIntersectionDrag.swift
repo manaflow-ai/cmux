@@ -1,12 +1,17 @@
 import AppKit
+import Bonsplit
 
 /// Drives a two-axis divider drag started at the intersection of a vertical
-/// and a horizontal divider band. The terminal portal host view claims the
-/// mouseDown at the intersection square and forwards pointer deltas here;
-/// this controller converts them into `NSSplitView.setPosition` calls on
-/// both split views. Bonsplit's coordinators observe those resizes exactly
-/// like a native single-axis drag (their `splitViewWillResizeSubviews` latch
-/// keys off the live pointer event over the divider) and persist positions.
+/// and a horizontal divider band. The portal host view claims the mouseDown
+/// at the corner zone and forwards pointer deltas here; each update writes
+/// the divider position through the owning `BonsplitController`'s model
+/// first (`setDividerPosition(_:forSplit:)` via `BonsplitManagedSplitView`)
+/// and then moves the view with `setPosition`. Bonsplit's coordinators
+/// cannot latch their pointer-based drag detection for a corner drag — the
+/// pointer legitimately sits outside one split view's bounds when it is
+/// past the other divider — so any model reassert they run must already see
+/// our value; writing the model first guarantees that instead of fighting
+/// the latch.
 @MainActor
 final class PortalDividerIntersectionDragController {
     // Nested types do not inherit the enclosing class's @MainActor, and
@@ -68,12 +73,6 @@ final class PortalDividerIntersectionDragController {
         }
         axes = nextAxes
         TerminalWindowPortalRegistry.beginInteractiveGeometryResize()
-        // Arm the coordinators' interactive-drag latch while the mouseDown
-        // pointer is still inside both divider bands: bonsplit latches from
-        // `splitViewWillResizeSubviews` only when the live pointer event is
-        // over the divider, so a fast first drag sample could otherwise be
-        // classified as a programmatic resize and snapped back to the model.
-        reassertCurrentPositions()
         PortalDividerCursorKind.both.cursor.set()
         return true
     }
@@ -84,10 +83,8 @@ final class PortalDividerIntersectionDragController {
             // Resizing the first axis can synchronously reconfigure the tree,
             // so revalidate each axis immediately before applying it.
             guard let splitView = axis.resolvedSplitView else {
-                // Keep the gesture claimed and stop moving anything: the
-                // button is still down, so running the latch-clearing
-                // reassert now would read as part of the drag. `end()` runs
-                // the handshake at the real mouse-up instead.
+                // Keep the gesture claimed and stop moving anything until
+                // the real mouse-up so the stale click cannot leak anywhere.
                 isAborted = true
                 return
             }
@@ -95,6 +92,16 @@ final class PortalDividerIntersectionDragController {
             let delta = (axis.isVertical ? pointer.x : pointer.y) - axis.initialPointer
             let proposed = axis.initialPosition + delta
             let clamped = Self.clampedPosition(proposed, in: splitView, dividerIndex: axis.dividerIndex)
+            // Model first: a coordinator that classifies the view resize as
+            // programmatic synchronously reasserts the model position, so
+            // the model must already hold the dragged value.
+            if let managed = splitView as? BonsplitManagedSplitView,
+               let controller = managed.bonsplitController,
+               let splitId = managed.bonsplitSplitId {
+                let extent = axis.isVertical ? splitView.bounds.width : splitView.bounds.height
+                let available = max(extent - splitView.dividerThickness, 1)
+                controller.setDividerPosition(clamped / available, forSplit: splitId)
+            }
             splitView.setPosition(clamped, ofDividerAt: axis.dividerIndex)
         }
         PortalDividerCursorKind.both.cursor.set()
@@ -102,30 +109,9 @@ final class PortalDividerIntersectionDragController {
 
     func end() {
         guard isActive else { return }
-        // Resize once more now that the button is released so the
-        // coordinators' resize observers see a non-drag resize and clear
-        // their interactive-drag latch (the host consumes the mouseUp, so no
-        // native divider tracking runs this handshake for us).
-        reassertCurrentPositions()
         axes = []
         isAborted = false
         TerminalWindowPortalRegistry.endInteractiveGeometryResize()
-    }
-
-    /// Re-applies each axis's current divider position. Positions do not
-    /// change; the point is the `NSSplitView` will/didResize delegate cycle
-    /// this triggers, which lets the owning coordinators latch or clear their
-    /// interactive-drag state against the current pointer/button state.
-    private func reassertCurrentPositions() {
-        for axis in axes {
-            guard let splitView = axis.resolvedSplitView,
-                  let dividerRect = PortalSplitDividerRegion.dividerRect(
-                      in: splitView,
-                      dividerIndex: axis.dividerIndex
-                  ) else { continue }
-            let position = axis.isVertical ? dividerRect.origin.x : dividerRect.origin.y
-            splitView.setPosition(position, ofDividerAt: axis.dividerIndex)
-        }
     }
 
     /// `setPosition` does not consult the delegate's constrain methods, so
