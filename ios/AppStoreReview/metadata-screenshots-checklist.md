@@ -7,7 +7,7 @@ complete in App Store Connect or in the submitted binary.
 
 - [ ] Bundle ID is `com.cmux.app`.
 - [ ] Display name is `cmux`, not `cmux BETA` or any dev tag.
-- [ ] `MARKETING_VERSION` in `ios/Config/Shared.xcconfig` matches the App Store version.
+- [ ] `CMUX_IOS_APPSTORE_MARKETING_VERSION` in `ios/Config/Shared.xcconfig` matches the App Store version.
 - [ ] `CURRENT_PROJECT_VERSION` is higher than every prior ASC build for the app.
 - [ ] `ITSAppUsesNonExemptEncryption` remains `false` only if the build uses no non-exempt encryption beyond standard TLS.
 

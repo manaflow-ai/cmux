@@ -2778,9 +2778,10 @@ class GhosttyApp {
                 return tabManager.createSplit(tabId: tabId, surfaceId: surfaceId, direction: direction) != nil
             }
         case GHOSTTY_ACTION_RING_BELL:
-            performOnMain {
-                self.ringBell()
-            }
+            performOnMain { self.ringBell() }
+            return true
+        case GHOSTTY_ACTION_SELECTION_CHANGED:
+            surfaceView.selectionAccessibilitySignal.request()
             return true
         case GHOSTTY_ACTION_GOTO_SPLIT:
             guard let tabId = surfaceView.tabId,
@@ -3431,16 +3432,16 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private let rendererProfilingSignposts = TerminalRendererProfilingSignposts()
     private var rendererProfilingCoalescedUpdateCount = 0
     private var rendererProfilingUpdateState: OSSignpostIntervalState?
+    nonisolated let selectionAccessibilitySignal = TerminalSelectionAccessibilitySignal()
+    private var selectionAccessibilityNotifier: TerminalSelectionAccessibilityNotifier?
     var cellSize: CGSize = .zero
     private var lastKnownMousePointInView: NSPoint?
     private var ghosttyMouseShape: ghostty_action_mouse_shape_e = GHOSTTY_MOUSE_SHAPE_TEXT
-
     static func retainRenderedFrameNotifications() -> () -> Void {
         // See GhosttyApp.retainTickNotifications() on the idempotent release.
         let retention = GhosttyApp.renderedFrameNotificationDemand.retain()
         return { retention.release() }
     }
-
     private static func ghosttyMouseCursor(for shape: ghostty_action_mouse_shape_e) -> NSCursor {
         switch shape {
         case GHOSTTY_MOUSE_SHAPE_DEFAULT:
@@ -3482,7 +3483,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return .arrow
         }
     }
-
     fileprivate func updateGhosttyMouseShape(_ shape: ghostty_action_mouse_shape_e) {
         guard ghosttyMouseShape != shape else { return }
         ghosttyMouseShape = shape
@@ -3745,6 +3745,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     private func setup() {
+        selectionAccessibilityNotifier = TerminalSelectionAccessibilityNotifier(element: self, events: selectionAccessibilitySignal.events)
         // GhosttyMetalLayer provides render stats and opt-in frame notifications for
         // input sequencing that needs to wait for terminal redraws.
         wantsLayer = true
@@ -7542,9 +7543,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             ghostty_input_scroll_mods_t(mods)
         )
     }
-
     deinit {
-        // Surface lifecycle is managed by TerminalSurface, not the view
+        selectionAccessibilitySignal.finish()
 #if DEBUG
         cmuxDebugLog(
             "surface.view.deinit view=\(Unmanaged.passUnretained(self).toOpaque()) " +
