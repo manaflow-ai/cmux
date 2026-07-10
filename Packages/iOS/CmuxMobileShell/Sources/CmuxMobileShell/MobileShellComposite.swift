@@ -6732,7 +6732,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         resyncTerminalOutput(
             reason: "input_seq_behind",
             restartEventStream: false,
-            surfaceIDs: [surfaceID], deferBehindActiveReplay: true
+            surfaceIDs: [surfaceID], deferBehindActiveReplay: terminalOutputTransport == .rawBytes
         )
     }
 
