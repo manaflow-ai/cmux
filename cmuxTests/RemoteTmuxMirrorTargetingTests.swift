@@ -9,8 +9,7 @@ import CmuxSettings
 @testable import cmux
 #endif
 
-/// Behavior tests for remote-tmux mirror targeting and lifecycle decisions using
-/// pure seams and cached unstarted control connections; no ssh/tmux is launched.
+/// Remote-tmux behavior tests using pure seams and cached, unstarted connections.
 @MainActor
 @Suite(.serialized)
 struct RemoteTmuxMirrorTargetingTests {
@@ -397,13 +396,14 @@ struct RemoteTmuxMirrorTargetingTests {
             "@1 f92f,80x24,0,0,0 f92f,80x24,0,0,0 [] editor",
             "@2 abcd,120x40,0,0{60x40,0,0,4,59x40,61,0[59x20,61,0,5,59x19,61,21,8]} abcd,120x40,0,0{60x40,0,0,4,59x40,61,0[59x20,61,0,5,59x19,61,21,8]} [] logs",
         ])
-        harness.publishPaneRects(["%0 0 0 80 24 1 off :0 \"cmuxs-Mac-mini.local\""])
-        harness.publishPaneRects([
-            "%4 0 0 60 40 1 off :0 \"cmuxs-Mac-mini.local\"",
-            "%5 61 0 59 20 0 off :1 \"cmuxs-Mac-mini.local\"",
-            "%8 61 21 59 19 0 off :2 \"cmuxs-Mac-mini.local\"",
+        try harness.publishPaneRects([
+            1: ["%0 0 0 80 24 1 off :0 \"cmuxs-Mac-mini.local\""],
+            2: [
+                "%4 0 0 60 40 1 off :0 \"cmuxs-Mac-mini.local\"",
+                "%5 61 0 59 20 0 off :1 \"cmuxs-Mac-mini.local\"",
+                "%8 61 21 59 19 0 off :2 \"cmuxs-Mac-mini.local\"",
+            ],
         ])
-
         #expect(try harness.surfaceTitles() == ["editor", "logs", "logs [1]", "logs [2]"])
     }
 
@@ -411,8 +411,7 @@ struct RemoteTmuxMirrorTargetingTests {
         let harness = try MirrorTitleHarness()
         defer { harness.tearDown() }
         harness.publishListWindows(["@1 f92f,80x24,0,0,0 f92f,80x24,0,0,0 [] editor"])
-        harness.publishPaneRects(["%0 0 0 80 24 1 off :0 \"cmuxs-Mac-mini.local\""])
-
+        try harness.publishPaneRects([1: ["%0 0 0 80 24 1 off :0 \"cmuxs-Mac-mini.local\""]])
         #expect(try harness.surfaceTitles() == ["editor"])
     }
 
@@ -420,16 +419,16 @@ struct RemoteTmuxMirrorTargetingTests {
         let harness = try MirrorTitleHarness()
         defer { harness.tearDown() }
         harness.publishListWindows(["@2 f92f,80x24,0,0,4 f92f,80x24,0,0,4 [] logs"])
-        harness.publishPaneRects(["%4 0 0 80 24 1 off :0 \"cmuxs-Mac-mini.local\""])
+        try harness.publishPaneRects([2: ["%4 0 0 80 24 1 off :0 \"cmuxs-Mac-mini.local\""]])
         #expect(try harness.surfaceTitles() == ["logs"])
 
         harness.connection.handleMessageForTesting(.layoutChange(
             windowId: 2, layout: "abcd,120x40,0,0{60x40,0,0,4,59x40,61,0,5}", visibleLayout: nil, zoomed: false
         ))
-        harness.publishPaneRects([
+        try harness.publishPaneRects([2: [
             "%4 0 0 60 40 1 off :0 \"cmuxs-Mac-mini.local\"",
             "%5 61 0 59 40 0 off :1 \"cmuxs-Mac-mini.local\"",
-        ])
+        ]])
 
         #expect(try harness.surfaceTitles() == ["logs", "logs [1]"])
     }
@@ -472,19 +471,20 @@ struct RemoteTmuxMirrorTargetingTests {
             connection.handleMessageForTesting(.commandResult(commandNumber: 1, lines: lines, isError: false))
         }
 
-        func publishPaneRects(_ lines: [String]) {
-            connection.handleMessageForTesting(.commandResult(commandNumber: 2, lines: lines, isError: false))
+        func publishPaneRects(_ linesByWindow: [Int: [String]]) throws {
+            while let kind = connection.pendingCommandKindsForTesting.first {
+                guard case let .paneRects(windowId, _) = kind else { return }
+                let lines = try #require(linesByWindow[windowId])
+                connection.handleMessageForTesting(.commandResult(commandNumber: 2, lines: lines, isError: false))
+            }
         }
 
         func surfaceTitles() throws -> [String] {
-            let snapshot = try #require(TerminalController.shared.controlSurfaceList(routing: routing()))
-            return snapshot.surfaces.map(\.title)
-        }
-
-        private func routing() -> ControlRoutingSelectors {
-            ControlRoutingSelectors(
+            let routing = ControlRoutingSelectors(
                 hasWindowIDParam: false, windowID: nil, groupID: nil, workspaceID: workspace.id, surfaceID: nil, paneID: nil
             )
+            let snapshot = try #require(TerminalController.shared.controlSurfaceList(routing: routing))
+            return snapshot.surfaces.map(\.title)
         }
 
         func tearDown() {
