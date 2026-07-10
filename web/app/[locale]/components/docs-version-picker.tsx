@@ -1,7 +1,5 @@
 "use client";
 
-import { usePathname } from "@/i18n/navigation";
-
 export function DocsVersionPicker({
   channel,
   releaseLabel,
@@ -15,7 +13,6 @@ export function DocsVersionPicker({
   releaseOrigin: string;
   nightlyOrigin: string;
 }) {
-  const pathname = usePathname();
   const current = channel === "release" ? releaseLabel : nightlyLabel;
 
   return (
@@ -27,7 +24,7 @@ export function DocsVersionPicker({
         value={channel}
         onChange={(event) => {
           const origin = event.target.value === "release" ? releaseOrigin : nightlyOrigin;
-          window.location.assign(new URL(pathname, origin).toString());
+          window.location.assign(new URL(window.location.href, origin).toString());
         }}
       >
         <option value={channel}>{current}</option>
