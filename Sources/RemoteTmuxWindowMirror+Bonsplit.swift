@@ -353,7 +353,12 @@ extension RemoteTmuxWindowMirror {
     }
 
     func focusBonsplitPane(forTmuxPane paneId: Int) {
-        guard let bonsplitPane = paneIdByPaneId[paneId] else { return }
+        // Idempotence guard: reconciles re-assert the active pane on every
+        // %layout-change echo, and an unconditional focusPane would mutate
+        // Bonsplit focus state (and fire didFocusPane) each time, stealing
+        // first responder from whatever the user is typing in.
+        guard let bonsplitPane = paneIdByPaneId[paneId],
+              bonsplitController.focusedPaneId != bonsplitPane else { return }
         isApplyingTmuxFocus = true
         bonsplitController.focusPane(bonsplitPane)
         isApplyingTmuxFocus = false
