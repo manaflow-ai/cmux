@@ -6,10 +6,9 @@ import SwiftUI
 
 /// The macOS onboarding window for pairing an iPhone with this Mac.
 ///
-/// Walks the user through the two requirements (signed in to cmux, Tailscale
-/// reachable) and then shows a scannable QR code with step-by-step
-/// instructions. Pairing is gated on sign-in because authorization is a Stack
-/// same-account check; Tailscale is what gives the iPhone a route to this Mac.
+/// Walks the user through same-account authorization and Iroh reachability,
+/// then shows an identity-only QR. Tailscale remains an optional compatibility
+/// path for released iOS clients and private-only networks.
 struct MobilePairingView: View {
     @State private var model = MobilePairingModel()
     /// The manual-entry value that was just copied (the host or the port
@@ -18,6 +17,9 @@ struct MobilePairingView: View {
     @State private var copiedValue: String?
     /// Bumped per copy so an older flash's dismissal can't clear a newer one.
     @State private var copiedValueGeneration = 0
+    /// Defaults to the Iroh identity QR. The user may explicitly reveal the
+    /// separately minted released-client Tailscale code when one is available.
+    @State private var showsLegacyPairingCode = false
 
     /// The shared auth coordinator, observed so the view re-runs `refresh()`
     /// when sign-in completes or settles. Captured once; stable post-startup.
@@ -67,7 +69,8 @@ struct MobilePairingView: View {
     private var requirements: some View {
         VStack(alignment: .leading, spacing: 12) {
             signInRow
-            tailscaleRow
+            irohRow
+            privateNetworkRow
         }
     }
 
@@ -81,15 +84,34 @@ struct MobilePairingView: View {
         }
     }
 
-    private var tailscaleRow: some View {
+    private var irohRow: some View {
+        let ready = irohReady
+        return requirementRow(
+            title: String(
+                localized: "mobile.pairing.req.iroh.title",
+                defaultValue: "Iroh encrypted transport"
+            ),
+            subtitle: irohSubtitle(ready: ready)
+        ) {
+            EmptyView()
+        }
+    }
+
+    private var privateNetworkRow: some View {
         let reachable = tailscaleReachable
         return requirementRow(
-            title: String(localized: "mobile.pairing.req.tailscale.title", defaultValue: "Tailscale"),
-            subtitle: tailscaleSubtitle(reachable: reachable)
+            title: String(
+                localized: "mobile.pairing.req.privateNetwork.title",
+                defaultValue: "Private network (optional)"
+            ),
+            subtitle: privateNetworkSubtitle(reachable: reachable)
         ) {
-            if reachable != true {
+            if reachable == false {
                 Link(
-                    String(localized: "mobile.pairing.req.tailscale.get", defaultValue: "Get Tailscale"),
+                    String(
+                        localized: "mobile.pairing.req.tailscale.get",
+                        defaultValue: "Get Tailscale"
+                    ),
                     destination: Self.tailscaleDownloadURL
                 )
                 .cmuxFont(.callout)
@@ -97,24 +119,63 @@ struct MobilePairingView: View {
         }
     }
 
-    /// `true` reachable, `false` not detected, `nil` not yet known.
-    private var tailscaleReachable: Bool? {
+    /// `true` when the primary QR is Iroh, `false` for compatibility-only, and
+    /// `nil` while route registration is unresolved.
+    private var irohReady: Bool? {
         switch model.state {
-        case let .ready(ready): return ready.reachableViaTailscale
-        case let .connected(ready): return ready.reachableViaTailscale
-        case .needsTailscale: return false
+        case let .ready(ready): return ready.reachableViaIroh
+        case let .connected(ready): return ready.reachableViaIroh
+        case .needsReachableTransport: return false
         default: return nil
         }
     }
 
-    private func tailscaleSubtitle(reachable: Bool?) -> String {
+    private var tailscaleReachable: Bool? {
+        switch model.state {
+        case let .ready(ready): return ready.reachableViaTailscale
+        case let .connected(ready): return ready.reachableViaTailscale
+        case .needsReachableTransport: return false
+        default: return nil
+        }
+    }
+
+    private func irohSubtitle(ready: Bool?) -> String {
+        switch ready {
+        case .some(true):
+            return String(
+                localized: "mobile.pairing.req.iroh.ready",
+                defaultValue: "Ready. Iroh connects directly when possible and uses a cmux relay when needed."
+            )
+        case .some(false):
+            return String(
+                localized: "mobile.pairing.req.iroh.unavailable",
+                defaultValue: "Not ready. A Tailscale compatibility route may still be available."
+            )
+        case .none:
+            return String(
+                localized: "mobile.pairing.req.iroh.preparing",
+                defaultValue: "Registering this Mac's encrypted endpoint."
+            )
+        }
+    }
+
+    private func privateNetworkSubtitle(reachable: Bool?) -> String {
         switch reachable {
         case .some(true):
-            return String(localized: "mobile.pairing.req.tailscale.reachable", defaultValue: "Reachable over Tailscale.")
+            return String(
+                localized: "mobile.pairing.req.privateNetwork.reachable",
+                defaultValue: "Tailscale is available as a legacy and private-network fallback."
+            )
         case .some(false):
-            return String(localized: "mobile.pairing.req.tailscale.missing", defaultValue: "Not detected. Install Tailscale on this Mac and your iPhone, signed in to the same account.")
+            return String(
+                localized: "mobile.pairing.req.privateNetwork.missing",
+                defaultValue: "Not detected. Iroh pairing does not require Tailscale."
+            )
         case .none:
-            return String(localized: "mobile.pairing.req.tailscale.hint", defaultValue: "Your Mac and iPhone both need Tailscale to connect over the internet.")
+            return String(
+                localized: "mobile.pairing.req.privateNetwork.hint",
+                defaultValue: "Tailscale, another VPN, or the same LAN can provide extra direct paths."
+            )
         }
     }
 
@@ -151,8 +212,8 @@ struct MobilePairingView: View {
                 Text(String(localized: "mobile.pairing.preparing", defaultValue: "Preparing a pairing code…"))
                     .foregroundStyle(.secondary)
             }
-        case .needsTailscale:
-            needsTailscaleContent
+        case .needsReachableTransport:
+            needsReachableTransportContent
         case let .failed(message):
             failure(message: message)
         case let .ready(ready):
@@ -162,12 +223,15 @@ struct MobilePairingView: View {
         }
     }
 
-    private var needsTailscaleContent: some View {
+    private var needsReachableTransportContent: some View {
         VStack(spacing: 12) {
             Image(systemName: "network.slash")
                 .cmuxFont(size: 28)
                 .foregroundStyle(.orange)
-            Text(String(localized: "mobile.pairing.needsTailscale.body", defaultValue: "This Mac has no Tailscale address, so your iPhone can't reach it. Install Tailscale on this Mac and your iPhone (same account), then refresh."))
+            Text(String(
+                localized: "mobile.pairing.needsReachableTransport.body",
+                defaultValue: "Iroh has not registered this Mac yet, and no Tailscale compatibility route is available. Check the Mac's connection, or enable Tailscale on both devices, then refresh."
+            ))
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -287,7 +351,7 @@ struct MobilePairingView: View {
             // the old 12pt-padded white card doubled the visible quiet zone.
             // Width is capped so the manual block, the whole QR, and the
             // waiting indicator all fit the default window without scrolling.
-            MobilePairingQRImageView(payload: ready.attachURL)
+            MobilePairingQRImageView(payload: displayedAttachURL(ready))
                 .frame(maxWidth: 380)
                 .clipShape(RoundedRectangle(cornerRadius: 8))
                 .overlay(
@@ -301,6 +365,8 @@ struct MobilePairingView: View {
                     .cmuxFont(.callout)
                     .foregroundStyle(.secondary)
             }
+
+            pairingCodeModeControls(ready)
         }
         .frame(maxWidth: .infinity)
 
@@ -313,6 +379,66 @@ struct MobilePairingView: View {
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
+        }
+    }
+
+    private func displayedAttachURL(_ ready: MobilePairingModel.Ready) -> String {
+        guard showsLegacyPairingCode,
+              let legacyAttachURL = ready.legacyAttachURL else {
+            return ready.attachURL
+        }
+        return legacyAttachURL
+    }
+
+    @ViewBuilder
+    private func pairingCodeModeControls(_ ready: MobilePairingModel.Ready) -> some View {
+        if let _ = ready.legacyAttachURL {
+            Text(
+                showsLegacyPairingCode
+                    ? String(
+                        localized: "mobile.pairing.codeMode.legacyDetail",
+                        defaultValue: "Compatibility code: the iPhone must be on the same Tailscale network."
+                    )
+                    : String(
+                        localized: "mobile.pairing.codeMode.irohDetail",
+                        defaultValue: "Iroh code: encrypted end to end, with direct and relay paths selected automatically."
+                    )
+            )
+            .cmuxFont(.caption)
+            .foregroundStyle(.secondary)
+            .multilineTextAlignment(.center)
+
+            Button(
+                showsLegacyPairingCode
+                    ? String(
+                        localized: "mobile.pairing.codeMode.useIroh",
+                        defaultValue: "Use Iroh Code"
+                    )
+                    : String(
+                        localized: "mobile.pairing.codeMode.useLegacy",
+                        defaultValue: "Pair an Older iPhone App"
+                    )
+            ) {
+                showsLegacyPairingCode.toggle()
+            }
+            .buttonStyle(.link)
+            .controlSize(.small)
+        } else if ready.primaryTransport == .iroh {
+            Text(String(
+                localized: "mobile.pairing.codeMode.irohDetail",
+                defaultValue: "Iroh code: encrypted end to end, with direct and relay paths selected automatically."
+            ))
+            .cmuxFont(.caption)
+            .foregroundStyle(.secondary)
+            .multilineTextAlignment(.center)
+        } else {
+            Text(String(
+                localized: "mobile.pairing.codeMode.legacyOnlyDetail",
+                defaultValue: "Iroh is unavailable, so this code uses the Tailscale compatibility path."
+            ))
+            .cmuxFont(.caption)
+            .foregroundStyle(.secondary)
+            .multilineTextAlignment(.center)
         }
     }
 

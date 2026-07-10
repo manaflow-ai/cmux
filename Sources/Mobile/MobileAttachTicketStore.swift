@@ -62,11 +62,18 @@ final class MobileAttachTicketStore {
         return ticket
     }
 
-    func payload(for ticket: CmxAttachTicket, now: Date = Date()) throws -> [String: Any] {
+    func payload(
+        for ticket: CmxAttachTicket,
+        routeDisclosureMode: CmxPairingRouteDisclosureMode = .legacyPrivateNetworkCompatibility,
+        now: Date = Date()
+    ) throws -> [String: Any] {
         let disclosedTicket = try ticket.authenticatedDisclosure(at: now)
         var payload: [String: Any] = [
             "ticket": try Self.jsonObject(disclosedTicket),
-            "attach_url": try attachURL(for: disclosedTicket).absoluteString,
+            "attach_url": try attachURL(
+                for: disclosedTicket,
+                routeDisclosureMode: routeDisclosureMode
+            ).absoluteString,
             "routes": disclosedTicket.routes.mobileHostJSONObjects(
                 for: .authenticated,
                 at: now
@@ -132,23 +139,18 @@ final class MobileAttachTicketStore {
         recordsByAuthToken[authToken] = record
     }
 
-    private func attachURL(for ticket: CmxAttachTicket) throws -> URL {
-        // Preferred form: the minimal v2 pairing-code grammar — bare Tailscale
-        // `host:port` routes in the URL query, nothing else. Everything the
-        // older grammars carried has a better channel: the auth token never
-        // authorized anything (the owner's Stack access token is the host's
-        // sole gate, `MobileHostService.authorizationError(for:)`), the
-        // display name and device id arrive post-handshake from
-        // `mobile.host.status`, and a pairing QR never expires. A DEBUG Mac's
-        // dev loopback route is dropped outright (a scanned code must never
-        // point a phone at itself). The much shorter plain-text URL also
-        // drops the QR several versions, so the code scans faster.
-        // Migration exception: released iOS clients still require Tailscale
-        // host routes in pairing codes. This explicit mode must flip to
-        // `.irohIdentityOnly` when Iroh-capable clients become the baseline.
+    private func attachURL(
+        for ticket: CmxAttachTicket,
+        routeDisclosureMode: CmxPairingRouteDisclosureMode
+    ) throws -> URL {
+        // Released iOS clients understand the compact v2 Tailscale grammar.
+        // Keep that representation only for an explicitly requested legacy
+        // compatibility code. The default pairing window requests
+        // `.irohIdentityOnly`, which falls through to the compact v1 envelope
+        // below and contains the Mac's EndpointID without any path hints.
         if let pairingURL = CmxPairingQRCode().encode(
             ticket,
-            routeDisclosureMode: .legacyPrivateNetworkCompatibility
+            routeDisclosureMode: routeDisclosureMode
         ), let url = URL(string: pairingURL) {
             return url
         }
@@ -158,7 +160,7 @@ final class MobileAttachTicketStore {
         // rides in `payload(for:)["ticket"]` for RPC consumers.
         let data = try CmxAttachTicketCompactCoder().encode(
             ticket,
-            routeDisclosureMode: .legacyPrivateNetworkCompatibility
+            routeDisclosureMode: routeDisclosureMode
         )
         let payload = Self.base64URLEncode(data)
         // Channel-specific scheme (see ``CmxPairingURLScheme``): the v1 fallback

@@ -10,10 +10,8 @@ import AppKit
 #endif
 
 struct DisconnectedWorkspaceShellView: View {
-    /// Whether this install has ever paired a Mac. Gates the
-    /// Tailscale-inactive callout: its copy explains an unreachable Mac, which
-    /// is misleading for a signed-in user who has not added a device yet (that
-    /// user gets the pairing-flavored callout in the auto-presented sheet).
+    /// Whether this install has ever paired a Mac. Used to distinguish first
+    /// setup from reconnect guidance.
     let hasKnownPairedMac: Bool
     let showAddDevice: () -> Void
     let signOut: () -> Void
@@ -27,8 +25,6 @@ struct DisconnectedWorkspaceShellView: View {
     /// (this screen is the terminal not-connected state, reached after a stored
     /// Mac reconnect fails). `nil` in previews.
     var store: CMUXMobileShellStore?
-
-    @Environment(\.tailscaleStatusMonitor) private var tailscaleStatusMonitor
 
     @State private var showingSettings = false
 
@@ -156,14 +152,6 @@ struct DisconnectedWorkspaceShellView: View {
     /// ``MacComputerSnapshot`` values and closures only, never the store.
     private func savedComputersList(_ computers: [MacComputerSnapshot]) -> some View {
         List {
-            // When a paired Mac is unreachable and this device has no active
-            // tailnet, lead with that explanation instead of leaving the user
-            // to tap dead rows.
-            if hasKnownPairedMac, tailscaleStatusMonitor?.status == .inactiveOrNotInstalled {
-                Section {
-                    TailscaleInactiveCallout(context: .disconnected)
-                }
-            }
             Section {
                 ForEach(computers) { computer in
                     MacComputerRow(
@@ -227,11 +215,6 @@ struct DisconnectedWorkspaceShellView: View {
                 defaultValue: "Add a computer to start syncing terminal workspaces."
             ))
         } actions: {
-            if hasKnownPairedMac, tailscaleStatusMonitor?.status == .inactiveOrNotInstalled {
-                TailscaleInactiveCallout(context: .disconnected)
-                    .frame(maxWidth: 320, alignment: .leading)
-                    .padding(.bottom, 4)
-            }
             Button(action: showAddDevice) {
                 Text(L10n.string("mobile.addDevice.title", defaultValue: "Add Computer"))
             }
@@ -321,11 +304,6 @@ struct DisconnectedWorkspaceShellView: View {
                     : L10n.string("mobile.devices.savedDescription", defaultValue: "Tap a saved computer to reconnect, or add another.")
             )
         } actions: {
-            if hasKnownPairedMac, tailscaleStatusMonitor?.status == .inactiveOrNotInstalled {
-                TailscaleInactiveCallout(context: .disconnected)
-                    .frame(maxWidth: 320, alignment: .leading)
-                    .padding(.bottom, 4)
-            }
             if let store, !savedMacs.isEmpty {
                 VStack(spacing: 8) {
                     ForEach(savedMacs) { mac in

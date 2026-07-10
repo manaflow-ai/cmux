@@ -1256,7 +1256,8 @@ final class MobileHostService {
         terminalID: String?,
         ttl: TimeInterval,
         routeID: String? = nil,
-        routeKind: String? = nil
+        routeKind: String? = nil,
+        routeDisclosureMode: CmxPairingRouteDisclosureMode = .legacyPrivateNetworkCompatibility
     ) async throws -> [String: Any] {
         let routes = MobileHostPublicStatusCache.snapshot()
         let selectedRoutes = try Self.filteredRoutes(
@@ -1275,7 +1276,10 @@ final class MobileHostService {
             macAppVersion: MobileHostBuildIdentity.current().appVersion,
             macAppBuild: MobileHostBuildIdentity.current().appBuild
         )
-        return try ticketStore.payload(for: ticket)
+        return try ticketStore.payload(
+            for: ticket,
+            routeDisclosureMode: routeDisclosureMode
+        )
     }
 
     private static func filteredRoutes(

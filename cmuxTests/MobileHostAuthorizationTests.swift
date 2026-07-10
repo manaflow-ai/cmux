@@ -1,5 +1,6 @@
 import CMUXMobileCore
 import CmuxIrohTransport
+import CmuxMobileRPC
 import Foundation
 @preconcurrency import Network
 import Testing
@@ -58,6 +59,70 @@ struct MobileHostAuthorizationTests {
         let authorization = try #require(store.validAuthorization(authToken: ticket.authToken))
         #expect(authorization.createdWorkspaceIDs == Set(["created-workspace"]))
         #expect(authorization.createdTerminalIDs == Set(["created-terminal"]))
+    }
+    @Test func testPairingPayloadDefaultsCanDiscloseOnlyIrohIdentity() throws {
+        let store = MobileAttachTicketStore()
+        let endpointID = String(repeating: "a", count: 64)
+        let iroh = try CmxAttachRoute(
+            id: "iroh",
+            kind: .iroh,
+            endpoint: .peer(
+                identity: CmxIrohPeerIdentity(endpointID: endpointID),
+                pathHints: []
+            )
+        )
+        let tailscale = try CmxAttachRoute(
+            id: "tailscale",
+            kind: .tailscale,
+            endpoint: .hostPort(host: "100.64.0.7", port: 58465)
+        )
+        let ticket = try store.createTicket(
+            workspaceID: "",
+            terminalID: nil,
+            routes: [iroh, tailscale],
+            ttl: 3600
+        )
+
+        let payload = try store.payload(
+            for: ticket,
+            routeDisclosureMode: .irohIdentityOnly
+        )
+        let attachURL = try #require(payload["attach_url"] as? String)
+        let decoded = try CmxAttachTicketInput.decode(attachURL)
+
+        #expect(decoded.routes.count == 1)
+        #expect(decoded.routes.first?.kind == .iroh)
+        guard case let .peer(identity, hints) = decoded.routes.first?.endpoint else {
+            return Issue.record("Expected identity-only Iroh route")
+        }
+        #expect(identity.endpointID == endpointID)
+        #expect(hints.isEmpty)
+        #expect(!attachURL.contains("100.64.0.7"))
+    }
+    @Test func testLegacyPairingPayloadStillDecodesAsTailscale() throws {
+        let store = MobileAttachTicketStore()
+        let tailscale = try CmxAttachRoute(
+            id: "tailscale",
+            kind: .tailscale,
+            endpoint: .hostPort(host: "100.64.0.7", port: 58465)
+        )
+        let ticket = try store.createTicket(
+            workspaceID: "",
+            terminalID: nil,
+            routes: [tailscale],
+            ttl: 3600
+        )
+
+        let payload = try store.payload(
+            for: ticket,
+            routeDisclosureMode: .legacyPrivateNetworkCompatibility
+        )
+        let attachURL = try #require(payload["attach_url"] as? String)
+        let decoded = try CmxAttachTicketInput.decode(attachURL)
+
+        #expect(decoded.routes.count == 1)
+        #expect(decoded.routes.first?.kind == .tailscale)
+        #expect(decoded.routes.first?.endpoint == .hostPort(host: "100.64.0.7", port: 58465))
     }
     @Test func testMobileWorkspaceRPCRequiresAuthorization() async {
         let request = MobileHostRPCRequest(
