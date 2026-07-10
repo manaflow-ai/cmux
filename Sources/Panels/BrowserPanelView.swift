@@ -6260,6 +6260,7 @@ struct WebViewRepresentable: NSViewRepresentable {
             if window == nil {
                 notifyHostedWebKitHidden(reason: "viewDidMoveToWindow")
                 clearActiveDividerCursor(restoreArrow: false)
+                cancelHostedInspectorDividerDragForTeardown()
             } else {
                 scheduleHostedInspectorDividerReapply(reason: "viewDidMoveToWindow")
                 scheduleHostedInspectorDockConfigurationSync(reason: "viewDidMoveToWindow")
@@ -6680,6 +6681,13 @@ struct WebViewRepresentable: NSViewRepresentable {
                 return nil
             }
             return hit
+        }
+        private func cancelHostedInspectorDividerDragForTeardown() {
+            guard hostedInspectorDividerDrag != nil else { return }
+            hostedInspectorDividerDrag = nil
+            cachedHostedInspectorDividerHit = nil
+            isHostedInspectorDividerDragActive = false
+            hostedInspectorDragFrameSilencer.end()
         }
         private func cacheHostedInspectorDividerHit(_ hit: HostedInspectorDividerHit, at point: NSPoint) {
             cachedHostedInspectorDividerHit = CachedHostedInspectorDividerHit(

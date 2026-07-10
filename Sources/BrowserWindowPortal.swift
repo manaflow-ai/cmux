@@ -179,6 +179,7 @@ final class WindowBrowserHostView: NSView {
         super.viewDidMoveToWindow()
         if window == nil {
             clearActiveDividerCursor(restoreArrow: false)
+            cancelHostedInspectorDividerDragForTeardown()
         }
         updateSplitDividerResizeObserver()
         invalidateSplitDividerRegionCache()
@@ -751,6 +752,14 @@ final class WindowBrowserHostView: NSView {
         }
 
         return nil
+    }
+
+    private func cancelHostedInspectorDividerDragForTeardown() {
+        guard let dragState = hostedInspectorDividerDrag else { return }
+        dragState.slotView.isHostedInspectorDividerDragActive = false
+        hostedInspectorDividerDrag = nil
+        cachedHostedInspectorDividerHit = nil
+        hostedInspectorDragFrameSilencer.end()
     }
 
     private func cacheHostedInspectorDividerHit(_ hit: HostedInspectorDividerHit, at point: NSPoint) {
