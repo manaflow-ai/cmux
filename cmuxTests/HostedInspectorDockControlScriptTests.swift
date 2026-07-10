@@ -126,6 +126,32 @@ struct HostedInspectorDockControlScriptTests {
         #expect(context.evaluateScript("updateCount").toInt32() == 2)
     }
 
+    @Test func disablesFrontendDockedResizerSoCmuxOwnsAttachedResize() throws {
+        let context = try makeDockControlContext(dockConfiguration: "bottom")
+        context.evaluateScript(
+            """
+            var dockedResizer = { style: {} };
+            var document = {
+                getElementById: function(id) {
+                    return id === "docked-resizer" ? dockedResizer : null;
+                }
+            };
+            """
+        )
+
+        context.evaluateScript(
+            HostedInspectorDockControlScript(
+                allowSideDock: true,
+                detachedFromHostWindow: false
+            ).source
+        )
+
+        #expect(
+            context.evaluateScript("dockedResizer.style.pointerEvents").toString() == "none",
+            "The inspector frontend's own docked resizer must be inert so every attached resize goes through cmux's clamped divider"
+        )
+    }
+
     private func makeDockControlContext(dockConfiguration: String) throws -> JSContext {
         let context = try #require(JSContext())
         context.evaluateScript(

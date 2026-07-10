@@ -62,132 +62,6 @@ private extension NSWindow {
     }
 }
 
-enum HostedInspectorDockSide {
-    case leading
-    case trailing
-
-    static func resolve(
-        pageFrame: NSRect,
-        inspectorFrame: NSRect,
-        epsilon: CGFloat = 1
-    ) -> Self? {
-        if pageFrame.maxX <= inspectorFrame.minX + epsilon {
-            return .trailing
-        }
-        if inspectorFrame.maxX <= pageFrame.minX + epsilon {
-            return .leading
-        }
-        return nil
-    }
-
-    func dividerX(pageFrame: NSRect, inspectorFrame: NSRect) -> CGFloat {
-        switch self {
-        case .leading:
-            return inspectorFrame.maxX
-        case .trailing:
-            return inspectorFrame.minX
-        }
-    }
-
-    func dividerHitRect(
-        in bounds: NSRect,
-        pageFrame: NSRect,
-        inspectorFrame: NSRect,
-        expansion: CGFloat
-    ) -> NSRect {
-        return NSRect(
-            x: dividerX(pageFrame: pageFrame, inspectorFrame: inspectorFrame) - expansion,
-            y: bounds.minY,
-            width: expansion * 2,
-            height: max(0, bounds.height)
-        )
-    }
-
-    func clampedDividerX(
-        _ proposedDividerX: CGFloat,
-        containerBounds: NSRect,
-        pageFrame: NSRect,
-        minimumInspectorWidth: CGFloat
-    ) -> CGFloat {
-        switch self {
-        case .leading:
-            let minDividerX = min(containerBounds.maxX, containerBounds.minX + minimumInspectorWidth)
-            let maxDividerX = max(minDividerX, min(containerBounds.maxX, pageFrame.maxX))
-            return max(minDividerX, min(maxDividerX, proposedDividerX))
-        case .trailing:
-            let minDividerX = max(containerBounds.minX, pageFrame.minX)
-            let maxDividerX = max(minDividerX, containerBounds.maxX - minimumInspectorWidth)
-            return max(minDividerX, min(maxDividerX, proposedDividerX))
-        }
-    }
-
-    func inspectorWidth(forDividerX dividerX: CGFloat, in containerBounds: NSRect) -> CGFloat {
-        switch self {
-        case .leading:
-            return max(0, dividerX - containerBounds.minX)
-        case .trailing:
-            return max(0, containerBounds.maxX - dividerX)
-        }
-    }
-
-    func resizedFrames(
-        preferredWidth: CGFloat,
-        in containerBounds: NSRect,
-        pageFrame: NSRect,
-        inspectorFrame: NSRect,
-        minimumInspectorWidth: CGFloat
-    ) -> (pageFrame: NSRect, inspectorFrame: NSRect) {
-        let normalizedMinY = containerBounds.minY
-        let normalizedHeight = max(0, containerBounds.height)
-
-        switch self {
-        case .leading:
-            let maximumInspectorWidth = max(0, containerBounds.width)
-            let clampedMinimumInspectorWidth = min(maximumInspectorWidth, max(0, minimumInspectorWidth))
-            let clampedInspectorWidth = min(
-                maximumInspectorWidth,
-                max(clampedMinimumInspectorWidth, preferredWidth)
-            )
-            let dividerX = min(containerBounds.maxX, containerBounds.minX + clampedInspectorWidth)
-
-            var nextPageFrame = pageFrame
-            nextPageFrame.origin.x = dividerX
-            nextPageFrame.origin.y = normalizedMinY
-            nextPageFrame.size.width = max(0, containerBounds.maxX - dividerX)
-            nextPageFrame.size.height = normalizedHeight
-
-            var nextInspectorFrame = inspectorFrame
-            nextInspectorFrame.origin.x = containerBounds.minX
-            nextInspectorFrame.origin.y = normalizedMinY
-            nextInspectorFrame.size.width = max(0, dividerX - containerBounds.minX)
-            nextInspectorFrame.size.height = normalizedHeight
-            return (pageFrame: nextPageFrame, inspectorFrame: nextInspectorFrame)
-
-        case .trailing:
-            let maximumInspectorWidth = max(0, containerBounds.width)
-            let clampedMinimumInspectorWidth = min(maximumInspectorWidth, max(0, minimumInspectorWidth))
-            let clampedInspectorWidth = min(
-                maximumInspectorWidth,
-                max(clampedMinimumInspectorWidth, preferredWidth)
-            )
-            let dividerX = max(containerBounds.minX, containerBounds.maxX - clampedInspectorWidth)
-
-            var nextPageFrame = pageFrame
-            nextPageFrame.origin.x = containerBounds.minX
-            nextPageFrame.origin.y = normalizedMinY
-            nextPageFrame.size.width = max(0, dividerX - containerBounds.minX)
-            nextPageFrame.size.height = normalizedHeight
-
-            var nextInspectorFrame = inspectorFrame
-            nextInspectorFrame.origin.x = dividerX
-            nextInspectorFrame.origin.y = normalizedMinY
-            nextInspectorFrame.size.width = max(0, containerBounds.maxX - dividerX)
-            nextInspectorFrame.size.height = normalizedHeight
-            return (pageFrame: nextPageFrame, inspectorFrame: nextInspectorFrame)
-        }
-    }
-}
-
 final class WindowBrowserHostView: NSView {
     private typealias DividerRegion = PortalSplitDividerRegion
 
@@ -210,9 +84,15 @@ final class WindowBrowserHostView: NSView {
         let pageView: NSView
         let inspectorView: NSView
         let dockSide: HostedInspectorDockSide
-        let initialWindowX: CGFloat
+        let initialWindowPoint: NSPoint
         let initialPageFrame: NSRect
         let initialInspectorFrame: NSRect
+    }
+
+    private struct CachedHostedInspectorDividerHit {
+        let point: NSPoint
+        let hit: HostedInspectorDividerHit
+        let timestamp: TimeInterval
     }
 
     private enum DividerCursorKind: Equatable {
@@ -231,7 +111,7 @@ final class WindowBrowserHostView: NSView {
     private static let sidebarLeadingEdgeEpsilon: CGFloat = 1
     private static let minimumVisibleLeadingContentWidth: CGFloat = 24
     private static let hostedInspectorDividerHitExpansion: CGFloat = 6
-    private static let minimumHostedInspectorWidth: CGFloat = 120
+    private static let hostedInspectorHitCacheLifetime: TimeInterval = 0.1
     private var cachedSidebarDividerX: CGFloat?
     private var sidebarDividerMissCount = 0
     private var cachedSplitDividerRegions: [DividerRegion]?
@@ -241,6 +121,8 @@ final class WindowBrowserHostView: NSView {
     private var trackingArea: NSTrackingArea?
     private var activeDividerCursorKind: DividerCursorKind?
     private var hostedInspectorDividerDrag: HostedInspectorDividerDragState?
+    private var cachedHostedInspectorDividerHit: CachedHostedInspectorDividerHit?
+    private let hostedInspectorDragFrameSilencer = HostedInspectorDragFrameNotificationSilencer()
     private var lastHostedInspectorLayoutBoundsSize: NSSize?
 
     deinit {
@@ -296,6 +178,7 @@ final class WindowBrowserHostView: NSView {
         super.viewDidMoveToWindow()
         if window == nil {
             clearActiveDividerCursor(restoreArrow: false)
+            cancelHostedInspectorDividerDragForTeardown()
         }
         updateSplitDividerResizeObserver()
         invalidateSplitDividerRegionCache()
@@ -478,7 +361,9 @@ final class WindowBrowserHostView: NSView {
         }
 
         if let hostedInspectorHit {
-            if let nativeHit = nativeHostedInspectorHit(at: point, hostedInspectorHit: hostedInspectorHit) {
+            cacheHostedInspectorDividerHit(hostedInspectorHit, at: point)
+            if !hostedInspectorHit.dockSide.isHorizontalDivider,
+               let nativeHit = nativeHostedInspectorHit(at: point, hostedInspectorHit: hostedInspectorHit) {
 #if DEBUG
                 debugLogPointerRouting(
                     stage: "hitTest.hostedInspectorNative",
@@ -519,19 +404,21 @@ final class WindowBrowserHostView: NSView {
 
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
-        guard let hostedInspectorHit = hostedInspectorDividerHit(at: point) else {
+        guard let hostedInspectorHit = hostedInspectorDividerHit(at: point) ?? cachedHostedInspectorDividerHit(at: point) else {
             super.mouseDown(with: event)
             return
         }
+        cachedHostedInspectorDividerHit = nil
 
         hostedInspectorHit.slotView.isHostedInspectorDividerDragActive = true
+        hostedInspectorDragFrameSilencer.begin(hostedInspectorHit.pageView)
         hostedInspectorDividerDrag = HostedInspectorDividerDragState(
             slotView: hostedInspectorHit.slotView,
             containerView: hostedInspectorHit.containerView,
             pageView: hostedInspectorHit.pageView,
             inspectorView: hostedInspectorHit.inspectorView,
             dockSide: hostedInspectorHit.dockSide,
-            initialWindowX: event.locationInWindow.x,
+            initialWindowPoint: event.locationInWindow,
             initialPageFrame: hostedInspectorHit.pageView.frame,
             initialInspectorFrame: hostedInspectorHit.inspectorView.frame
         )
@@ -554,34 +441,39 @@ final class WindowBrowserHostView: NSView {
         guard dragState.slotView.window === window else {
             dragState.slotView.isHostedInspectorDividerDragActive = false
             hostedInspectorDividerDrag = nil
+            hostedInspectorDragFrameSilencer.end()
             super.mouseDragged(with: event)
             return
         }
 
         let containerBounds = dragState.containerView.bounds
-        let minimumInspectorWidth = min(
-            Self.minimumHostedInspectorWidth,
-            max(60, dragState.initialInspectorFrame.width)
-        )
-        let initialDividerX = dragState.dockSide.dividerX(
+        let initialDividerPosition = dragState.dockSide.dividerPosition(
             pageFrame: dragState.initialPageFrame,
             inspectorFrame: dragState.initialInspectorFrame
         )
-        let proposedDividerX = initialDividerX + (event.locationInWindow.x - dragState.initialWindowX)
-        let clampedDividerX = dragState.dockSide.clampedDividerX(
-            proposedDividerX,
+        let windowDeltaX = event.locationInWindow.x - dragState.initialWindowPoint.x
+        let windowDeltaY = event.locationInWindow.y - dragState.initialWindowPoint.y
+        let proposedDividerPosition = initialDividerPosition +
+            (dragState.dockSide.isHorizontalDivider ? windowDeltaY : windowDeltaX)
+        let clampedDividerPosition = dragState.dockSide.clampedDividerPosition(
+            proposedDividerPosition,
             containerBounds: containerBounds,
             pageFrame: dragState.initialPageFrame,
-            minimumInspectorWidth: minimumInspectorWidth
+            inspectorFrame: dragState.initialInspectorFrame,
+            policy: HostedInspectorMinimumSizePolicy(dockSide: dragState.dockSide)
         )
-        let inspectorWidth = dragState.dockSide.inspectorWidth(
-            forDividerX: clampedDividerX,
+        let inspectorExtent = dragState.dockSide.inspectorExtent(
+            forDividerPosition: clampedDividerPosition,
             in: containerBounds
         )
 
-        dragState.slotView.recordPreferredHostedInspectorWidth(inspectorWidth, containerBounds: containerBounds)
-        let appliedFrames = applyHostedInspectorDividerWidth(
-            inspectorWidth,
+        dragState.slotView.recordPreferredHostedInspectorExtent(
+            inspectorExtent,
+            dockSide: dragState.dockSide,
+            containerBounds: containerBounds
+        )
+        let appliedFrames = applyHostedInspectorDividerExtent(
+            inspectorExtent,
             to: HostedInspectorDividerHit(
                 slotView: dragState.slotView,
                 containerView: dragState.containerView,
@@ -589,9 +481,11 @@ final class WindowBrowserHostView: NSView {
                 inspectorView: dragState.inspectorView,
                 dockSide: dragState.dockSide
             ),
-            minimumInspectorWidth: Self.minimumHostedInspectorWidth,
             reason: "drag"
         )
+        // Do not sync the attachment size to WebKit per drag event: queued
+        // setAttachedWindow* calls echo back as stale WebKit frame applies
+        // during fast scrubs. One sync on mouseUp reconciles WebKit.
         updateDividerCursor(
             at: convert(event.locationInWindow, from: nil),
             dividerHit: nil,
@@ -606,7 +500,7 @@ final class WindowBrowserHostView: NSView {
 #if DEBUG
         cmuxDebugLog(
             "browser.portal.manualInspectorDrag stage=update slot=\(browserPortalDebugToken(dragState.slotView)) " +
-            "dividerX=\(String(format: "%.1f", clampedDividerX)) " +
+            "divider=\(String(format: "%.1f", clampedDividerPosition)) " +
             "pageFrame=\(browserPortalDebugFrame(appliedFrames.pageFrame)) " +
             "inspectorFrame=\(browserPortalDebugFrame(appliedFrames.inspectorFrame))"
         )
@@ -616,6 +510,15 @@ final class WindowBrowserHostView: NSView {
     override func mouseUp(with event: NSEvent) {
         if let dragState = hostedInspectorDividerDrag {
             dragState.slotView.isHostedInspectorDividerDragActive = false
+            hostedInspectorDragFrameSilencer.end()
+            let finalExtent = dragState.dockSide.inspectorExtent(
+                inspectorFrame: dragState.inspectorView.frame,
+                in: dragState.containerView.bounds
+            )
+            HostedInspectorAttachedSizeSync.sync(
+                pageWebView: dragState.slotView.hostedInspectorPageWebViewForAttachedSizeSync,
+                dockSide: dragState.dockSide, extent: finalExtent
+            )
 #if DEBUG
             cmuxDebugLog(
                 "browser.portal.manualInspectorDrag stage=end slot=\(browserPortalDebugToken(dragState.slotView)) " +
@@ -626,6 +529,7 @@ final class WindowBrowserHostView: NSView {
             scheduleHostedInspectorDividerReapply(in: dragState.slotView, reason: "dragEndAsync")
         }
         hostedInspectorDividerDrag = nil
+        cachedHostedInspectorDividerHit = nil
         updateDividerCursor(at: convert(event.locationInWindow, from: nil))
         super.mouseUp(with: event)
     }
@@ -763,7 +667,9 @@ final class WindowBrowserHostView: NSView {
             return
         }
 
-        let nextKind = resolvedDividerHit?.kind ?? (resolvedHostedInspectorHit == nil ? nil : .vertical)
+        let nextKind = resolvedDividerHit?.kind ?? resolvedHostedInspectorHit.map {
+            $0.dockSide.isHorizontalDivider ? .horizontal : .vertical
+        }
         guard let nextKind else {
             clearActiveDividerCursor(restoreArrow: true)
             return
@@ -843,6 +749,38 @@ final class WindowBrowserHostView: NSView {
         return nil
     }
 
+    private func cancelHostedInspectorDividerDragForTeardown() {
+        guard let dragState = hostedInspectorDividerDrag else { return }
+        dragState.slotView.isHostedInspectorDividerDragActive = false
+        hostedInspectorDividerDrag = nil
+        cachedHostedInspectorDividerHit = nil
+        hostedInspectorDragFrameSilencer.end()
+    }
+
+    private func cacheHostedInspectorDividerHit(_ hit: HostedInspectorDividerHit, at point: NSPoint) {
+        cachedHostedInspectorDividerHit = CachedHostedInspectorDividerHit(
+            point: point,
+            hit: hit,
+            timestamp: ProcessInfo.processInfo.systemUptime
+        )
+    }
+
+    private func cachedHostedInspectorDividerHit(at point: NSPoint) -> HostedInspectorDividerHit? {
+        guard let cachedHostedInspectorDividerHit else { return nil }
+        let age = ProcessInfo.processInfo.systemUptime - cachedHostedInspectorDividerHit.timestamp
+        guard age <= Self.hostedInspectorHitCacheLifetime else {
+            self.cachedHostedInspectorDividerHit = nil
+            return nil
+        }
+        let dx = abs(point.x - cachedHostedInspectorDividerHit.point.x)
+        let dy = abs(point.y - cachedHostedInspectorDividerHit.point.y)
+        guard dx <= Self.hostedInspectorDividerHitExpansion,
+              dy <= Self.hostedInspectorDividerHitExpansion else {
+            return nil
+        }
+        return cachedHostedInspectorDividerHit.hit
+    }
+
     private func hostedInspectorDividerCandidate(in slot: WindowBrowserSlotView) -> HostedInspectorDividerHit? {
         let inspectorCandidates = Self.visibleDescendants(in: slot)
             .filter { Self.isVisibleHostedInspectorCandidate($0) && Self.isInspectorView($0) }
@@ -882,21 +820,23 @@ final class WindowBrowserHostView: NSView {
             let pageCandidates = containerView.subviews.compactMap { candidate -> (view: NSView, dockSide: HostedInspectorDockSide)? in
                 guard Self.isVisibleHostedInspectorSiblingCandidate(candidate) else { return nil }
                 guard candidate !== inspectorView else { return nil }
-                guard Self.verticalOverlap(between: candidate.frame, and: inspectorView.frame) > 8 else {
-                    return nil
-                }
                 guard let dockSide = HostedInspectorDockSide.resolve(
                     pageFrame: candidate.frame,
                     inspectorFrame: inspectorView.frame
                 ) else {
                     return nil
                 }
+                guard dockSide.hasSufficientCrossAxisOverlap(
+                    pageFrame: candidate.frame,
+                    inspectorFrame: inspectorView.frame,
+                    containerBounds: containerView.bounds
+                ) else { return nil }
                 return (view: candidate, dockSide: dockSide)
             }
 
             if let pageCandidate = pageCandidates.max(by: {
-                hostedInspectorPageCandidateScore($0.view, inspectorView: inspectorView)
-                    < hostedInspectorPageCandidateScore($1.view, inspectorView: inspectorView)
+                hostedInspectorPageCandidateScore($0.view, inspectorView: inspectorView, dockSide: $0.dockSide)
+                    < hostedInspectorPageCandidateScore($1.view, inspectorView: inspectorView, dockSide: $1.dockSide)
             }) {
                 bestHit = HostedInspectorDividerHit(
                     slotView: slot,
@@ -928,15 +868,23 @@ final class WindowBrowserHostView: NSView {
     private func hostedInspectorDividerCandidateScore(_ hit: HostedInspectorDividerHit) -> CGFloat {
         let pageFrame = hit.slotView.convert(hit.pageView.bounds, from: hit.pageView)
         let inspectorFrame = hit.slotView.convert(hit.inspectorView.bounds, from: hit.inspectorView)
-        let overlap = Self.verticalOverlap(between: pageFrame, and: inspectorFrame)
-        let coverageWidth = max(pageFrame.maxX, inspectorFrame.maxX) - min(pageFrame.minX, inspectorFrame.minX)
-        return (overlap * 1_000) + coverageWidth + pageFrame.width
+        let overlap = hit.dockSide.crossAxisOverlap(pageFrame: pageFrame, inspectorFrame: inspectorFrame)
+        let coverage = hit.dockSide.isHorizontalDivider
+            ? max(pageFrame.maxY, inspectorFrame.maxY) - min(pageFrame.minY, inspectorFrame.minY)
+            : max(pageFrame.maxX, inspectorFrame.maxX) - min(pageFrame.minX, inspectorFrame.minX)
+        return (overlap * 1_000) + coverage + hit.dockSide.pageExtent(pageFrame: pageFrame)
     }
 
-    private func hostedInspectorPageCandidateScore(_ pageView: NSView, inspectorView: NSView) -> CGFloat {
-        let overlap = Self.verticalOverlap(between: pageView.frame, and: inspectorView.frame)
-        let coverageWidth = max(pageView.frame.maxX, inspectorView.frame.maxX) - min(pageView.frame.minX, inspectorView.frame.minX)
-        return (overlap * 1_000) + coverageWidth + pageView.frame.width
+    private func hostedInspectorPageCandidateScore(
+        _ pageView: NSView,
+        inspectorView: NSView,
+        dockSide: HostedInspectorDockSide
+    ) -> CGFloat {
+        let overlap = dockSide.crossAxisOverlap(pageFrame: pageView.frame, inspectorFrame: inspectorView.frame)
+        let coverage = dockSide.isHorizontalDivider
+            ? max(pageView.frame.maxY, inspectorView.frame.maxY) - min(pageView.frame.minY, inspectorView.frame.minY)
+            : max(pageView.frame.maxX, inspectorView.frame.maxX) - min(pageView.frame.minX, inspectorView.frame.minX)
+        return (overlap * 1_000) + coverage + dockSide.pageExtent(pageFrame: pageView.frame)
     }
 
     private func reapplyHostedInspectorDividersIfNeeded(reason: String) {
@@ -948,7 +896,7 @@ final class WindowBrowserHostView: NSView {
     }
 
     private func scheduleHostedInspectorDividerReapply(in slot: WindowBrowserSlotView, reason: String) {
-        guard slot.preferredHostedInspectorWidth != nil else { return }
+        guard slot.hasPreferredHostedInspectorExtent else { return }
         DispatchQueue.main.async { [weak self, weak slot] in
             guard let self, let slot, slot.isDescendant(of: self) else { return }
             self.reapplyHostedInspectorDividerIfNeeded(in: slot, reason: reason)
@@ -959,21 +907,28 @@ final class WindowBrowserHostView: NSView {
     fileprivate func reapplyHostedInspectorDividerIfNeeded(in slot: WindowBrowserSlotView, reason: String) -> Bool {
         guard !slot.isHostedInspectorDividerDragActive else {
 #if DEBUG
-            cmuxDebugLog(
-                "browser.portal.manualInspectorDrag stage=skipReapply slot=\(browserPortalDebugToken(slot)) " +
-                "reason=\(reason)"
-            )
+            cmuxDebugLog("browser.portal.manualInspectorDrag stage=skipReapply slot=\(browserPortalDebugToken(slot)) reason=\(reason)")
 #endif
             return false
         }
-        guard let preferredWidth = slot.resolvedPreferredHostedInspectorWidth(in: slot.bounds) else { return false }
         guard let hit = hostedInspectorDividerCandidate(in: slot) else { return false }
+        guard let preferredExtent = slot.resolvedPreferredHostedInspectorExtent(
+            dockSide: hit.dockSide,
+            in: hit.containerView.bounds
+        ) else {
+            // A stored extent for the other dock axis (post-redock) must not
+            // block adopting this axis's current layout as its preference.
+            let currentExtent = hit.dockSide.inspectorExtent(inspectorFrame: hit.inspectorView.frame, in: hit.containerView.bounds)
+            if currentExtent > 1 {
+                slot.recordPreferredHostedInspectorExtent(currentExtent, dockSide: hit.dockSide, containerBounds: hit.containerView.bounds)
+            }
+            return false
+        }
         let oldPageFrame = hit.pageView.frame
         let oldInspectorFrame = hit.inspectorView.frame
-        _ = applyHostedInspectorDividerWidth(
-            preferredWidth,
+        _ = applyHostedInspectorDividerExtent(
+            preferredExtent,
             to: hit,
-            minimumInspectorWidth: Self.minimumHostedInspectorWidth,
             reason: reason
         )
         return !Self.rectApproximatelyEqual(oldPageFrame, hit.pageView.frame, epsilon: 0.5) ||
@@ -981,19 +936,18 @@ final class WindowBrowserHostView: NSView {
     }
 
     @discardableResult
-    private func applyHostedInspectorDividerWidth(
-        _ preferredWidth: CGFloat,
+    private func applyHostedInspectorDividerExtent(
+        _ preferredExtent: CGFloat,
         to hit: HostedInspectorDividerHit,
-        minimumInspectorWidth: CGFloat,
         reason: String
     ) -> (pageFrame: NSRect, inspectorFrame: NSRect) {
         let containerBounds = hit.containerView.bounds
         let nextFrames = hit.dockSide.resizedFrames(
-            preferredWidth: preferredWidth,
+            preferredExtent: preferredExtent,
             in: containerBounds,
             pageFrame: hit.pageView.frame,
             inspectorFrame: hit.inspectorView.frame,
-            minimumInspectorWidth: minimumInspectorWidth
+            policy: HostedInspectorMinimumSizePolicy(dockSide: hit.dockSide)
         )
         let pageFrame = nextFrames.pageFrame
         let inspectorFrame = nextFrames.inspectorFrame
@@ -1027,7 +981,7 @@ final class WindowBrowserHostView: NSView {
         cmuxDebugLog(
             "browser.portal.manualInspectorDrag stage=reapply slot=\(browserPortalDebugToken(hit.slotView)) " +
             "container=\(browserPortalDebugToken(hit.containerView)) reason=\(reason) " +
-            "preferredWidth=\(String(format: "%.1f", preferredWidth)) " +
+            "preferredExtent=\(String(format: "%.1f", preferredExtent)) " +
             "liveDrag=\(isLiveDrag ? 1 : 0) " +
             "pageChanged=\(pageChanged ? 1 : 0) inspectorChanged=\(inspectorChanged ? 1 : 0) " +
             "oldPageFrame=\(browserPortalDebugFrame(oldPageFrame)) oldInspectorFrame=\(browserPortalDebugFrame(oldInspectorFrame)) " +
@@ -1089,10 +1043,6 @@ final class WindowBrowserHostView: NSView {
             }
         }
         return nil
-    }
-
-    private static func verticalOverlap(between lhs: NSRect, and rhs: NSRect) -> CGFloat {
-        max(0, min(lhs.maxY, rhs.maxY) - max(lhs.minY, rhs.minY))
     }
 
     private static func rectApproximatelyEqual(_ lhs: NSRect, _ rhs: NSRect, epsilon: CGFloat = 0.01) -> Bool {
@@ -1183,6 +1133,8 @@ final class WindowBrowserSlotView: NSView {
     private var paneTopChromeHeight: CGFloat = 0
     var preferredHostedInspectorWidth: CGFloat?
     private var preferredHostedInspectorWidthFraction: CGFloat?
+    var preferredHostedInspectorHeight: CGFloat?
+    private var preferredHostedInspectorHeightFraction: CGFloat?
     fileprivate var isRightSidebarDockSlot = false
     fileprivate var isHostedInspectorDividerDragActive = false
     var onHostedInspectorLayout: ((WindowBrowserSlotView) -> Void)?
@@ -1238,7 +1190,28 @@ final class WindowBrowserSlotView: NSView {
         applyResolvedDropZoneOverlay()
     }
 
-    func recordPreferredHostedInspectorWidth(_ width: CGFloat, containerBounds: NSRect) {
+    fileprivate var hostedInspectorPageWebViewForAttachedSizeSync: WKWebView? { hostedWebView }
+
+    var hasPreferredHostedInspectorExtent: Bool {
+        preferredHostedInspectorWidth != nil ||
+            preferredHostedInspectorWidthFraction != nil ||
+            preferredHostedInspectorHeight != nil ||
+            preferredHostedInspectorHeightFraction != nil
+    }
+
+    func recordPreferredHostedInspectorExtent(
+        _ extent: CGFloat,
+        dockSide: HostedInspectorDockSide,
+        containerBounds: NSRect
+    ) {
+        if dockSide.isHorizontalDivider {
+            recordPreferredHostedInspectorHeight(extent, containerBounds: containerBounds)
+        } else {
+            recordPreferredHostedInspectorWidth(extent, containerBounds: containerBounds)
+        }
+    }
+
+    private func recordPreferredHostedInspectorWidth(_ width: CGFloat, containerBounds: NSRect) {
         preferredHostedInspectorWidth = width
         guard containerBounds.width > 0 else {
             preferredHostedInspectorWidthFraction = nil
@@ -1247,11 +1220,37 @@ final class WindowBrowserSlotView: NSView {
         preferredHostedInspectorWidthFraction = width / containerBounds.width
     }
 
-    func resolvedPreferredHostedInspectorWidth(in containerBounds: NSRect) -> CGFloat? {
+    private func recordPreferredHostedInspectorHeight(_ height: CGFloat, containerBounds: NSRect) {
+        preferredHostedInspectorHeight = height
+        guard containerBounds.height > 0 else {
+            preferredHostedInspectorHeightFraction = nil
+            return
+        }
+        preferredHostedInspectorHeightFraction = height / containerBounds.height
+    }
+
+    func resolvedPreferredHostedInspectorExtent(
+        dockSide: HostedInspectorDockSide,
+        in containerBounds: NSRect
+    ) -> CGFloat? {
+        if dockSide.isHorizontalDivider {
+            return resolvedPreferredHostedInspectorHeight(in: containerBounds)
+        }
+        return resolvedPreferredHostedInspectorWidth(in: containerBounds)
+    }
+
+    private func resolvedPreferredHostedInspectorWidth(in containerBounds: NSRect) -> CGFloat? {
         if let preferredHostedInspectorWidthFraction, containerBounds.width > 0 {
             return max(0, containerBounds.width * preferredHostedInspectorWidthFraction)
         }
         return preferredHostedInspectorWidth
+    }
+
+    private func resolvedPreferredHostedInspectorHeight(in containerBounds: NSRect) -> CGFloat? {
+        if let preferredHostedInspectorHeightFraction, containerBounds.height > 0 {
+            return max(0, containerBounds.height * preferredHostedInspectorHeightFraction)
+        }
+        return preferredHostedInspectorHeight
     }
 
     private static func sizeApproximatelyEqual(_ lhs: NSSize, _ rhs: NSSize, epsilon: CGFloat = 0.5) -> Bool {
@@ -3441,6 +3440,7 @@ final class WindowBrowserPortal: NSObject {
         let inspectorSubviews = Self.inspectorSubviewCount(in: containerView)
 #endif
         if containerOwnsWebView,
+           !containerView.isHostedInspectorDividerDragActive,
            let repairedBottomDockFrame = Self.repairedBottomDockedPageFrame(
                in: containerView,
                primaryWebView: webView
