@@ -1425,6 +1425,7 @@
 		C0DE53360000000000000001 /* TerminalSearchOverlayMouseReleaseTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE53360000000000000002 /* TerminalSearchOverlayMouseReleaseTests.swift */; };
 		A11E5E1E0000000000000011 /* TerminalSelectionAccessibilityIngressGateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11E5E1E0000000000000012 /* TerminalSelectionAccessibilityIngressGateTests.swift */; };
 		A11E5E1E0000000000000001 /* TerminalSelectionAccessibilityNotifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11E5E1E0000000000000002 /* TerminalSelectionAccessibilityNotifier.swift */; };
+		A11E5E1E0000000000000003 /* TerminalSelectionAccessibilityNotifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11E5E1E0000000000000002 /* TerminalSelectionAccessibilityNotifier.swift */; };
 		C75100020000000000000001 /* TerminalSelectionTranslation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C75100020000000000000002 /* TerminalSelectionTranslation.swift */; };
 		C75100030000000000000001 /* TerminalSelectionTranslationAnchorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C75100030000000000000002 /* TerminalSelectionTranslationAnchorView.swift */; };
 		A5001543 /* TerminalSSHSessionDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001545 /* TerminalSSHSessionDetector.swift */; };
@@ -6930,6 +6931,7 @@
 				D5671101D5671101D5671101 /* TerminalScrollSpeedSettingsFileStoreTests.swift in Sources */,
 				C0DE53360000000000000001 /* TerminalSearchOverlayMouseReleaseTests.swift in Sources */,
 				A11E5E1E0000000000000011 /* TerminalSelectionAccessibilityIngressGateTests.swift in Sources */,
+				A11E5E1E0000000000000003 /* TerminalSelectionAccessibilityNotifier.swift in Sources */,
 				D3052001000000000000001 /* TerminalSurfaceResizePolicyTests.swift in Sources */,
 				A91C0D0E0000000000000004 /* TerminalTabAgentIconTests.swift in Sources */,
 				EC010C01 /* TerminalUploadCommandTests.swift in Sources */,
