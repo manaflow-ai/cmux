@@ -14,13 +14,14 @@ final class AppDelegateSurfaceResumeTerminalIdTests: XCTestCase {
     func testSurfaceResumeUsesTerminalIdAliasForTargetSurface() throws {
         _ = NSApplication.shared
         let previousAppDelegate = AppDelegate.shared
+        let previousActiveManager = TerminalController.shared.activeTabManagerForCallerNotification()
         let app = AppDelegate()
         defer { AppDelegate.shared = previousAppDelegate }
 
         let windowId = UUID()
         let window = makeMainWindow(id: windowId)
         defer {
-            TerminalController.shared.setActiveTabManager(nil)
+            TerminalController.shared.setActiveTabManager(previousActiveManager)
             app.unregisterMainWindowContextForTesting(windowId: windowId)
             window.orderOut(nil)
         }
@@ -75,13 +76,14 @@ final class AppDelegateSurfaceResumeTerminalIdTests: XCTestCase {
     func testSurfaceResumeSetAcceptsStableSurfaceIdForRestoredAgentBinding() throws {
         _ = NSApplication.shared
         let previousAppDelegate = AppDelegate.shared
+        let previousActiveManager = TerminalController.shared.activeTabManagerForCallerNotification()
         let app = AppDelegate()
         defer { AppDelegate.shared = previousAppDelegate }
 
         let windowId = UUID()
         let window = makeMainWindow(id: windowId)
         defer {
-            TerminalController.shared.setActiveTabManager(nil)
+            TerminalController.shared.setActiveTabManager(previousActiveManager)
             app.unregisterMainWindowContextForTesting(windowId: windowId)
             window.orderOut(nil)
         }
