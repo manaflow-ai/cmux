@@ -1,17 +1,21 @@
 import { describe, expect, test } from "bun:test";
 import { createHash, createHmac, generateKeyPairSync, sign } from "node:crypto";
 import { readFileSync } from "node:fs";
+import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import {
   assertCurrentSigningKey,
   createOfflinePairSessionRecord,
   deriveAccountSubject,
   deriveLanRendezvousKey,
   parseVerificationKeys,
+  registrationTranscript,
   signEndpointAttestation,
   signPairGrant,
   verifyEndpointAttestation,
+  verifyEndpointRegistrationSignature,
   verifyAndConsumeOfflineSameAccountPair,
   verifyPairGrant,
   type EndpointAttestationClaims,
@@ -60,6 +64,33 @@ describe("Iroh LAN rendezvous derivation", () => {
     ).not.toBe(expected);
     expect(() => deriveLanRendezvousKey(Buffer.alloc(31).toString("base64"), "account-a", 1))
       .toThrow();
+  });
+});
+
+describe("Iroh endpoint registration signatures", () => {
+  test("rejects a valid signature encoded with noncanonical padding", () => {
+    const keys = generateKeyPairSync("ed25519");
+    const endpointId = keys.publicKey
+      .export({ format: "der", type: "spki" })
+      .subarray(-32)
+      .toString("hex");
+    const input = {
+      endpointId,
+      challengeId: "10000000-0000-4000-8000-000000000001",
+      nonce: Buffer.alloc(32, 0x42).toString("base64url"),
+      payloadSha256: "ab".repeat(32),
+    };
+    const signature = sign(
+      null,
+      registrationTranscript(input),
+      keys.privateKey,
+    ).toString("base64url");
+
+    expect(() => verifyEndpointRegistrationSignature({ ...input, signature })).not.toThrow();
+    expect(() => verifyEndpointRegistrationSignature({
+      ...input,
+      signature: `${signature}=`,
+    })).toThrow();
   });
 });
 
@@ -622,6 +653,36 @@ describe("Iroh relay minter response bounds", () => {
     expect(new Headers(request?.init.headers).get("x-cmux-iroh-timestamp")).toBe(timestamp);
     expect(new Headers(request?.init.headers).get("x-cmux-iroh-signature")).toBe(expectedSignature);
     expect(new Headers(request?.init.headers).get("content-type")).toBe("application/json");
+  });
+
+  test("preserves an invalid EndpointID as an input error", async () => {
+    const config: IrohTrustBrokerConfigShape = {
+      relayMinterUrl: "https://minter.cmux.test/api/relay-token",
+      relayMinterHmacSecretBase64: Buffer.alloc(32, 0x63).toString("base64"),
+      deviceLimitOverrideEnabled: false,
+      deviceLimitOverrideUserIds: new Set(),
+      deviceLimitOverrideEnvironments: new Set(),
+      deploymentEnvironment: "test",
+    };
+    const layer = IrohRelayMinterLive.pipe(
+      Layer.provide(Layer.succeed(IrohTrustBrokerConfig, config)),
+    );
+    const exit = await Effect.runPromiseExit(
+      Effect.gen(function* () {
+        const minter = yield* IrohRelayMinter;
+        return yield* minter.mint({
+          endpointId: "not-an-endpoint-id",
+          lifetimeSeconds: 86_400,
+          now: NOW,
+        });
+      }).pipe(Effect.provide(layer)),
+    );
+
+    expect(exit._tag).toBe("Failure");
+    const failure = exit._tag === "Failure"
+      ? Option.getOrUndefined(Cause.failureOption(exit.cause))
+      : undefined;
+    expect((failure as { _tag?: string } | undefined)?._tag).toBe("IrohInvalidInputError");
   });
 
   test("matches the Rust minter HMAC wire fixture", () => {
