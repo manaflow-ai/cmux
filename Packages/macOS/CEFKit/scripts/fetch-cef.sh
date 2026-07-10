@@ -41,10 +41,17 @@ else
   ln -sfn "$CEF_DIST" "$CEF_DIR/current"
 fi
 
-# CEF headers include each other via "include/..." paths. Exposing the dist's
-# include tree as a symlink inside the CCEF target's include directory lets
-# SwiftPM's normal header-search propagation resolve them with no unsafe
-# flags.
-ln -sfn "../../../third_party/cef/current/include" "$ROOT_DIR/Sources/CCEF/include/include"
+# The CEF headers are vendored at Sources/CCEF/include/include so CEFKit
+# compiles without a fetched distribution (libcef is dlopen/dlsym'd, never
+# linked). The distribution is only needed to run: its framework and helpers
+# get bundled into app builds. Guard against version skew between the
+# vendored headers and the fetched runtime.
+VENDORED_HASH="$(grep 'define CEF_COMMIT_HASH' "$ROOT_DIR/Sources/CCEF/include/include/cef_version.h")"
+DIST_HASH="$(grep 'define CEF_COMMIT_HASH' "$CEF_DIR/current/include/cef_version.h")"
+if [[ "$VENDORED_HASH" != "$DIST_HASH" ]]; then
+  echo "CEF version skew: vendored headers ($VENDORED_HASH) != distribution ($DIST_HASH)." >&2
+  echo "Re-vendor with: ditto $CEF_DIR/current/include $ROOT_DIR/Sources/CCEF/include/include" >&2
+  exit 1
+fi
 
 echo "CEF ready at $CEF_DIR/current"
