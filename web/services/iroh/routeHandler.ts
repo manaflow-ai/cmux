@@ -13,6 +13,7 @@ import {
 } from "./trustBroker";
 
 const MAX_BODY_BYTES = 64 * 1_024;
+const FIREWALL_TIMEOUT_MS = 2_500;
 
 export type IrohRouteOperation =
   | "challenge"
@@ -27,6 +28,11 @@ type RouteDependencies = {
   readonly verify?: typeof verifyRequest;
   readonly broker?: IrohTrustBrokerShape;
   readonly runtime?: Layer.Layer<IrohTrustBroker, never, never>;
+  readonly firewall?: {
+    readonly id: string;
+    readonly check: typeof checkRateLimit;
+    readonly timeoutMs?: number;
+  };
 };
 
 export async function handleIrohRoute(
@@ -43,11 +49,29 @@ export async function handleIrohRoute(
   }
   if (!user) return unauthorized();
 
-  if (process.env.VERCEL === "1" && env.CMUX_IROH_RATE_LIMIT_ID) {
-    const { error, rateLimited } = await checkRateLimit(env.CMUX_IROH_RATE_LIMIT_ID, {
-      request,
-      rateLimitKey: createHash("sha256").update(`iroh-rate:${user.id}:${operation}`).digest("hex"),
-    });
+  const firewall = dependencies.firewall ?? (
+    process.env.VERCEL === "1" && env.CMUX_IROH_RATE_LIMIT_ID
+      ? { id: env.CMUX_IROH_RATE_LIMIT_ID, check: checkRateLimit }
+      : undefined
+  );
+  if (firewall) {
+    let result: Awaited<ReturnType<typeof checkRateLimit>>;
+    try {
+      result = await withTimeout(
+        firewall.check(firewall.id, {
+          request,
+          rateLimitKey: createHash("sha256").update(`iroh-rate:${user.id}:${operation}`).digest("hex"),
+        }),
+        firewall.timeoutMs ?? FIREWALL_TIMEOUT_MS,
+      );
+    } catch {
+      console.error("iroh trust broker firewall unavailable", {
+        operation,
+        failure: "request_failed_or_timed_out",
+      });
+      return jsonResponse({ error: "iroh_service_unavailable" }, 503);
+    }
+    const { error, rateLimited } = result;
     if (rateLimited || error === "blocked") {
       return irohJsonResponse({ error: "rate_limited" }, 429, { "retry-after": "60" });
     }
@@ -86,6 +110,18 @@ export async function handleIrohRoute(
     // and coarse failure class are enough for operational correlation.
     console.error("iroh trust broker request failed", { operation, failure: "unexpected" });
     return jsonResponse({ error: "iroh_internal_error" }, 500);
+  }
+}
+
+async function withTimeout<T>(work: Promise<T>, timeoutMs: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error("firewall_timeout")), timeoutMs);
+  });
+  try {
+    return await Promise.race([work, deadline]);
+  } finally {
+    if (timer) clearTimeout(timer);
   }
 }
 
