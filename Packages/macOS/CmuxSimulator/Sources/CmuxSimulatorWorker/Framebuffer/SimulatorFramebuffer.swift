@@ -91,16 +91,16 @@ final class SimulatorFramebuffer {
             throw SimulatorWorkerFailure.framebufferUnavailable("Simulator device I/O is unavailable.")
         }
         _ = invokeVoid(ioClient, selectorName: "updateIOPorts")
-        guard let ports = objectProperty(ioClient, selectorName: "deviceIOPorts") as? [NSObject] else {
+        let ports = objectProperty(ioClient, selectorName: "ioPorts") as? [NSObject]
+            ?? objectProperty(ioClient, selectorName: "deviceIOPorts") as? [NSObject]
+        guard let ports else {
             throw SimulatorWorkerFailure.framebufferUnavailable("SimulatorKit did not publish device I/O ports.")
         }
 
         var candidates: [NSObject] = []
         for port in ports {
-            guard let identifier = objectProperty(port, selectorName: "portIdentifier"),
-                  String(describing: identifier) == "com.apple.framebuffer.display",
-                  let descriptor = objectProperty(port, selectorName: "descriptor") as? NSObject,
-                  descriptor.responds(to: NSSelectorFromString("framebufferSurface"))
+            guard let descriptor = objectProperty(port, selectorName: "descriptor") as? NSObject,
+                  Self.hasFramebufferSurface(descriptor)
             else {
                 continue
             }
@@ -367,7 +367,7 @@ final class SimulatorFramebuffer {
         var bestOrientationRawValue: UInt32?
         var bestArea = 0
         for descriptor in descriptors {
-            guard let rawSurface = objectProperty(descriptor, selectorName: "framebufferSurface") else {
+            guard let rawSurface = Self.framebufferSurface(descriptor) else {
                 continue
             }
             guard let surface = rawSurface as? IOSurface else { continue }
@@ -387,6 +387,17 @@ final class SimulatorFramebuffer {
             }
         }
         return best.map { ($0, bestOrientationRawValue) }
+    }
+
+    private static func hasFramebufferSurface(_ descriptor: NSObject) -> Bool {
+        ["framebufferSurface", "ioSurface"].contains {
+            descriptor.responds(to: NSSelectorFromString($0))
+        }
+    }
+
+    private static func framebufferSurface(_ descriptor: NSObject) -> AnyObject? {
+        objectProperty(descriptor, selectorName: "framebufferSurface")
+            ?? objectProperty(descriptor, selectorName: "ioSurface")
     }
 
     private static func unsignedIntegerProperty(
