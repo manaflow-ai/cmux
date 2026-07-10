@@ -227,6 +227,42 @@ struct TerminalPortalHostAuthorityTests {
 
     @MainActor
     @Test
+    func portalTearDownRetiresStoredAnchorHostLease() throws {
+        let window = NSWindow(
+            contentRect: CGRect(x: 0, y: 0, width: 520, height: 340),
+            styleMask: [.titled], backing: .buffered, defer: false
+        )
+        defer { window.orderOut(nil) }
+        let contentView = try #require(window.contentView)
+        let surface = makeSurface()
+        let host = TerminalPortalHostContainerView(
+            frame: CGRect(x: 20, y: 20, width: 360, height: 240)
+        )
+        contentView.addSubview(host)
+        let portal = WindowTerminalPortal(window: window)
+        let ownershipGeneration = surface.currentPortalHostOwnershipGeneration()
+        portal.bind(hostedView: surface.hostedView, to: host, visibleInUI: true)
+        #expect(surface.claimPortalHost(
+            hostId: ObjectIdentifier(host), paneId: PaneID(),
+            ownershipGeneration: ownershipGeneration, inWindow: true,
+            bounds: host.bounds, reason: "test.teardown.owner"
+        ))
+        surface.hostedView.setVisibleInUI(true, refreshPolicy: .deferredToPortal)
+
+        portal.tearDown()
+
+        #expect(!surface.isPortalHostOwner(hostId: ObjectIdentifier(host)))
+        #expect(!surface.isRendererPortalVisible)
+        let replacementHost = NSView(frame: host.frame)
+        #expect(surface.claimPortalHost(
+            hostId: ObjectIdentifier(replacementHost), paneId: PaneID(),
+            ownershipGeneration: ownershipGeneration, inWindow: true,
+            bounds: replacementHost.bounds, reason: "test.teardown.replacement"
+        ))
+    }
+
+    @MainActor
+    @Test
     func workspaceOwnershipTransferDoesNotInvalidateBindingLifecycle() {
         let surface = makeSurface()
         let bindingGeneration = surface.portalBindingGeneration()
