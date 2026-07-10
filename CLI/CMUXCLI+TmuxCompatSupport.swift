@@ -337,7 +337,8 @@ extension CMUXCLI {
             "workspace_id": workspaceId,
             "pane_id": paneId,
             "absolute_axis": axis,
-            "target_pixels": targetCells * cellSize
+            "target_pixels": targetCells * cellSize,
+            "target_cells": targetCells
         ])
     }
 

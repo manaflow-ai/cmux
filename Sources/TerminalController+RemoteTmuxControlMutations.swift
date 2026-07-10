@@ -267,7 +267,7 @@ extension TerminalController {
             guard context.hasSplitAncestor else {
                 return .noAbsoluteSplitAncestor(paneID: paneID, absoluteAxis: axis)
             }
-            let targetCells = metrics.requestedTmuxSpan(
+            let targetCells = inputs.targetCells ?? metrics.requestedTmuxSpan(
                 pane: context.pane,
                 orientation: orientation,
                 outerExtent: CGFloat(targetPixels)
@@ -314,12 +314,20 @@ extension TerminalController {
         guard hasRequestedBorder else {
             return .noAdjacentBorder(paneID: paneID, direction: directionRaw)
         }
-        let amountCells = metrics.requestedTmuxCellDelta(
+        let amountCells = inputs.amountCells ?? metrics.requestedTmuxCellDelta(
             pointDelta: CGFloat(inputs.amount),
             orientation: orientation
         )
+        let commandPaneID: Int
+        if direction.requiresPaneInFirstChild {
+            commandPaneID = location.pane.tmuxPaneID
+        } else if let leadingTarget = context.leadingResizeTargetPaneID {
+            commandPaneID = leadingTarget
+        } else {
+            return .noAdjacentBorder(paneID: paneID, direction: directionRaw)
+        }
         guard location.mirror.requestResizePane(
-            location.pane.tmuxPaneID,
+            commandPaneID,
             direction: directionRaw,
             amountCells: amountCells
         ) else {

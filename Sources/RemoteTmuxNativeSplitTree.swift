@@ -38,13 +38,14 @@ indirect enum RemoteTmuxNativeSplitTree: Sendable {
         pane: RemoteTmuxLayoutNode,
         hasSplitAncestor: Bool,
         hasLeadingBorder: Bool,
-        hasTrailingBorder: Bool
+        hasTrailingBorder: Bool,
+        leadingResizeTargetPaneID: Int?
     )? {
         switch self {
         case .atomic(let layout):
             guard case .pane(let candidateID) = layout.content,
                   candidateID == paneID else { return nil }
-            return (layout, false, false, false)
+            return (layout, false, false, false, nil)
         case .split(_, let splitOrientation, let first, let second):
             if var context = first.paneResizeContext(paneID: paneID, orientation: orientation) {
                 if splitOrientation == orientation {
@@ -59,8 +60,59 @@ indirect enum RemoteTmuxNativeSplitTree: Sendable {
             if splitOrientation == orientation {
                 context.hasSplitAncestor = true
                 context.hasLeadingBorder = true
+                if context.leadingResizeTargetPaneID == nil {
+                    context.leadingResizeTargetPaneID = first.trailingBoundaryPaneID(
+                        along: orientation,
+                        overlapping: context.pane
+                    )
+                }
             }
             return context
+        }
+    }
+
+    private func trailingBoundaryPaneID(
+        along orientation: SplitOrientation,
+        overlapping target: RemoteTmuxLayoutNode
+    ) -> Int? {
+        let boundary = orientation == .horizontal
+            ? layout.x + layout.width
+            : layout.y + layout.height
+        return trailingBoundaryPaneID(
+            along: orientation,
+            boundary: boundary,
+            overlapping: target
+        )
+    }
+
+    private func trailingBoundaryPaneID(
+        along orientation: SplitOrientation,
+        boundary: Int,
+        overlapping target: RemoteTmuxLayoutNode
+    ) -> Int? {
+        switch self {
+        case .atomic(let pane):
+            guard case .pane(let paneID) = pane.content else { return nil }
+            let trailingEdge = orientation == .horizontal
+                ? pane.x + pane.width
+                : pane.y + pane.height
+            let overlaps: Bool
+            if orientation == .horizontal {
+                overlaps = max(pane.y, target.y) < min(pane.y + pane.height, target.y + target.height)
+            } else {
+                overlaps = max(pane.x, target.x) < min(pane.x + pane.width, target.x + target.width)
+            }
+            return trailingEdge == boundary && overlaps ? paneID : nil
+        case .split(_, _, let first, let second):
+            return first.trailingBoundaryPaneID(
+                along: orientation,
+                boundary: boundary,
+                overlapping: target
+            ) ?? second.trailingBoundaryPaneID(
+                along: orientation,
+                boundary: boundary,
+                overlapping: target
+            )
         }
     }
 

@@ -13,33 +13,45 @@ public struct ControlPaneResizeInputs: Sendable, Equatable {
     /// The lowercased `absolute_axis` (`horizontal`/`vertical`), if the request
     /// took the absolute-resize path.
     public let absoluteAxis: String?
-    /// The `target_pixels` for the absolute-resize path, if present.
+    /// The requested outer pane extent in native points, carried under the
+    /// historical `target_pixels` wire key.
     public let targetPixels: Double?
+    /// Exact tmux grid cells accompanying `target_pixels` when a compatibility
+    /// adapter already owns the cell-space intent.
+    public let targetCells: Int?
     /// The lowercased `direction` (`left|right|up|down`), if the request took the
     /// relative-resize path.
     public let direction: String?
-    /// The relative-resize `amount` in pixels (defaulting to 1, as the legacy body did).
+    /// The relative-resize delta in native points (defaulting to 1, as the legacy body did).
     public let amount: Int
+    /// Exact tmux cell delta accompanying `amount` from a compatibility adapter.
+    public let amountCells: Int?
 
     /// Creates the pane-resize inputs.
     ///
     /// - Parameters:
     ///   - paneID: The explicit `pane_id` target, if any.
     ///   - absoluteAxis: The lowercased absolute axis, if present.
-    ///   - targetPixels: The absolute target pixels, if present.
+    ///   - targetPixels: The requested outer pane extent in native points.
+    ///   - targetCells: The compatibility adapter's exact tmux cell target.
     ///   - direction: The lowercased relative direction, if present.
-    ///   - amount: The relative amount in pixels.
+    ///   - amount: The relative delta in native points.
+    ///   - amountCells: The compatibility adapter's exact tmux cell delta.
     public init(
         paneID: UUID?,
         absoluteAxis: String?,
         targetPixels: Double?,
+        targetCells: Int?,
         direction: String?,
-        amount: Int
+        amount: Int,
+        amountCells: Int?
     ) {
         self.paneID = paneID
         self.absoluteAxis = absoluteAxis
         self.targetPixels = targetPixels
+        self.targetCells = targetCells
         self.direction = direction
         self.amount = amount
+        self.amountCells = amountCells
     }
 }

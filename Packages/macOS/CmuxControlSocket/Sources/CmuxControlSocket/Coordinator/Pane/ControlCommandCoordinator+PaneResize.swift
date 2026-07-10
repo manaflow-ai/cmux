@@ -10,8 +10,10 @@ extension ControlCommandCoordinator {
 
         let absoluteAxis = string(params, "absolute_axis")?.lowercased()
         let targetPixels = double(params, "target_pixels")
+        let targetCells = int(params, "target_cells").flatMap { $0 > 0 ? $0 : nil }
         let directionRaw = (string(params, "direction") ?? "").lowercased()
         let amount = int(params, "amount") ?? 1
+        let amountCells = int(params, "amount_cells").flatMap { $0 > 0 ? $0 : nil }
         let directionValid = ["left", "right", "up", "down"].contains(directionRaw)
         let hasAbsoluteIntent = params.keys.contains("absolute_axis") || params.keys.contains("target_pixels")
         if hasAbsoluteIntent {
@@ -31,8 +33,10 @@ extension ControlCommandCoordinator {
             paneID: uuid(params, "pane_id"),
             absoluteAxis: absoluteAxis,
             targetPixels: targetPixels,
+            targetCells: targetCells,
             direction: directionValid ? directionRaw : nil,
-            amount: amount
+            amount: amount,
+            amountCells: amountCells
         )
         let resolution = context?.controlPaneResize(routing: routing, inputs: inputs)
             ?? .tabManagerUnavailable

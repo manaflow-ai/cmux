@@ -99,9 +99,80 @@ extension RemoteTmuxMirrorCLIObservabilityTests {
             Issue.record("Positive subcell mirror pane resize failed: \(String(describing: subcellResult))")
             return
         }
+        let cellHintResult = ControlCommandCoordinator(context: TerminalController.shared).handle(
+            ControlRequest(
+                id: .int(3),
+                method: "pane.resize",
+                params: [
+                    "workspace_id": .string(harness.workspace.id.uuidString),
+                    "pane_id": .string(paneID.uuidString),
+                    "absolute_axis": .string("vertical"),
+                    "target_pixels": .double(targetPoints),
+                    "target_cells": .int(7),
+                ]
+            )
+        )
+        guard case .ok? = cellHintResult else {
+            Issue.record("Exact-cell mirror pane resize failed: \(String(describing: cellHintResult))")
+            return
+        }
         let commands = try readControlCommands(harness)
         #expect(commands.contains("resize-pane -t @3.%\(tmuxPaneID) -y 3\n"))
         #expect(commands.contains("resize-pane -t @3.%\(tmuxPaneID) -y 1\n"))
+        #expect(commands.contains("resize-pane -t @3.%\(tmuxPaneID) -y 7\n"))
+    }
+
+    @Test func paneResizeTargetsTheSelectedLeadingBorderInNaryLayout() throws {
+        let layout = RemoteTmuxLayoutNode(
+            width: 120, height: 24, x: 0, y: 0,
+            content: .horizontal([
+                RemoteTmuxLayoutNode(width: 39, height: 24, x: 0, y: 0, content: .pane(11)),
+                RemoteTmuxLayoutNode(width: 39, height: 24, x: 40, y: 0, content: .pane(22)),
+                RemoteTmuxLayoutNode(width: 40, height: 24, x: 80, y: 0, content: .pane(33)),
+            ])
+        )
+        let harness = try Harness(connectedTransport: true, mirrorLayout: layout)
+        defer { harness.tearDown() }
+        let paneID = try #require(harness.mirror.syntheticPaneID(forPane: 22)?.id)
+
+        let result = ControlCommandCoordinator(context: TerminalController.shared).handle(
+            ControlRequest(
+                id: .int(1),
+                method: "pane.resize",
+                params: [
+                    "workspace_id": .string(harness.workspace.id.uuidString),
+                    "pane_id": .string(paneID.uuidString),
+                    "direction": .string("left"),
+                    "amount": .int(8),
+                ]
+            )
+        )
+        guard case .ok? = result else {
+            Issue.record("Middle-pane leading resize failed: \(String(describing: result))")
+            return
+        }
+        let firstPaneID = try #require(harness.mirror.syntheticPaneID(forPane: 11)?.id)
+        let hintedResult = ControlCommandCoordinator(context: TerminalController.shared).handle(
+            ControlRequest(
+                id: .int(2),
+                method: "pane.resize",
+                params: [
+                    "workspace_id": .string(harness.workspace.id.uuidString),
+                    "pane_id": .string(firstPaneID.uuidString),
+                    "direction": .string("right"),
+                    "amount": .int(160),
+                    "amount_cells": .int(2),
+                ]
+            )
+        )
+        guard case .ok? = hintedResult else {
+            Issue.record("Exact-cell relative resize failed: \(String(describing: hintedResult))")
+            return
+        }
+        let commands = try readControlCommands(harness)
+        #expect(commands.contains("resize-pane -t @3.%11 -L 1\n"))
+        #expect(!commands.contains("resize-pane -t @3.%22 -L"))
+        #expect(commands.contains("resize-pane -t @3.%11 -R 2\n"))
     }
 
     @Test func paneResizeRejectsAbsentRemoteSplitBordersAndAxes() throws {

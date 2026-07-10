@@ -1879,6 +1879,7 @@ func tmuxResizePane(rc *rpcContext, args []string) error {
 								"pane_id":      paneId,
 								"direction":    dir,
 								"amount":       delta * cellW,
+								"amount_cells": delta,
 							})
 						}
 					}
@@ -1909,6 +1910,7 @@ func tmuxResizePane(rc *rpcContext, args []string) error {
 			"pane_id":      paneId,
 			"direction":    dir,
 			"amount":       amount,
+			"amount_cells": amount,
 		})
 		return err
 	}

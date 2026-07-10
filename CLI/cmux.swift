@@ -23069,7 +23069,6 @@ struct CMUXCLI {
 
             if !hasDirectionalFlags, let absWidth = parsed.value("-x").flatMap({ Int($0.replacingOccurrences(of: "%", with: "")) }) {
                 // Absolute width: resize-pane -t <pane> -x <columns>
-                // Compute pixel delta from current width to desired width.
                 try tmuxResizePaneToCells(
                     workspaceId: target.workspaceId,
                     paneId: target.paneId,
@@ -23105,7 +23104,8 @@ struct CMUXCLI {
                     "workspace_id": target.workspaceId,
                     "pane_id": target.paneId,
                     "direction": direction,
-                    "amount": max(1, amount)
+                    "amount": max(1, amount),
+                    "amount_cells": max(1, amount)
                 ])
             }
 

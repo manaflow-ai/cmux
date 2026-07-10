@@ -437,11 +437,17 @@ func TestTmuxCorpusResizePaneDispatchesAbsoluteAndDirectionalResize(t *testing.T
 	if got := asInt(t, resizeRequests[0].Params["amount"], "absolute resize amount"); got != 160 {
 		t.Fatalf("absolute resize amount = %v, want 160", got)
 	}
+	if got := asInt(t, resizeRequests[0].Params["amount_cells"], "absolute resize cells"); got != 20 {
+		t.Fatalf("absolute resize cells = %v, want 20", got)
+	}
 	if got := resizeRequests[1].Params["direction"]; got != "left" {
 		t.Fatalf("directional resize direction = %v, want left", got)
 	}
 	if got := asInt(t, resizeRequests[1].Params["amount"], "directional resize amount"); got != 7 {
 		t.Fatalf("directional resize amount = %v, want 7", got)
+	}
+	if got := asInt(t, resizeRequests[1].Params["amount_cells"], "directional resize cells"); got != 7 {
+		t.Fatalf("directional resize cells = %v, want 7", got)
 	}
 }
 
