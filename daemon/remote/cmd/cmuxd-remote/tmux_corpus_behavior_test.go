@@ -17,18 +17,24 @@ type tmuxCorpusRPCRequest struct {
 }
 
 type tmuxCorpusRPCRecorder struct {
-	socketPath string
-	mu         sync.Mutex
-	requests   []tmuxCorpusRPCRequest
-	workspaces []map[string]any
-	readText   string
+	socketPath         string
+	mu                 sync.Mutex
+	requests           []tmuxCorpusRPCRequest
+	workspaces         []map[string]any
+	readText           string
+	includePaneMetrics bool
 }
 
 func startTmuxCorpusRPCRecorder(t *testing.T) *tmuxCorpusRPCRecorder {
+	return startTmuxCorpusRPCRecorderWithPaneMetrics(t, true)
+}
+
+func startTmuxCorpusRPCRecorderWithPaneMetrics(t *testing.T, includePaneMetrics bool) *tmuxCorpusRPCRecorder {
 	t.Helper()
 
 	recorder := &tmuxCorpusRPCRecorder{
-		socketPath: makeShortUnixSocketPath(t),
+		socketPath:         makeShortUnixSocketPath(t),
+		includePaneMetrics: includePaneMetrics,
 		workspaces: []map[string]any{{
 			"id":    "11111111-1111-4111-8111-111111111111",
 			"ref":   "workspace:1",
@@ -131,21 +137,23 @@ func (r *tmuxCorpusRPCRecorder) serveConn(conn net.Conn) {
 	case "surface.send_text":
 		resp["result"] = map[string]any{"ok": true}
 	case "pane.list":
-		resp["result"] = map[string]any{
-			"container_frame": map[string]any{"width": 640, "height": 384},
-			"panes": []map[string]any{{
-				"id":                 "33333333-3333-4333-8333-333333333333",
-				"ref":                "pane:1",
-				"index":              1,
-				"focused":            true,
-				"columns":            80,
-				"rows":               24,
-				"cell_width_px":      8,
-				"cell_height_px":     16,
-				"cell_width_points":  4,
-				"cell_height_points": 8,
-			}},
+		pane := map[string]any{
+			"id":      "33333333-3333-4333-8333-333333333333",
+			"ref":     "pane:1",
+			"index":   1,
+			"focused": true,
+			"columns": 80,
+			"rows":    24,
 		}
+		result := map[string]any{"panes": []map[string]any{pane}}
+		if r.includePaneMetrics {
+			pane["cell_width_px"] = 8
+			pane["cell_height_px"] = 16
+			pane["cell_width_points"] = 4
+			pane["cell_height_points"] = 8
+			result["container_frame"] = map[string]any{"width": 640, "height": 384}
+		}
+		resp["result"] = result
 	case "pane.surfaces":
 		resp["result"] = map[string]any{"surfaces": []map[string]any{{
 			"id":       "44444444-4444-4444-8444-444444444444",
@@ -502,6 +510,44 @@ func TestTmuxCorpusResizePaneDispatchesAbsoluteAndDirectionalResize(t *testing.T
 	}
 	if got := asInt(t, resizeRequests[4].Params["amount"], "attached directional resize amount"); got != 28 {
 		t.Fatalf("attached directional resize amount = %v, want 28", got)
+	}
+}
+
+func TestTmuxCorpusExactAbsoluteResizeDoesNotRequirePaneMetrics(t *testing.T) {
+	recorder := startTmuxCorpusRPCRecorderWithPaneMetrics(t, false)
+	rc := &rpcContext{socketPath: recorder.socketPath}
+
+	if err := dispatchTmuxCommand(rc, "resize-pane", []string{"-t", "pane:1", "-x", "3"}); err != nil {
+		t.Fatalf("resize-pane cells without metrics: %v", err)
+	}
+	if err := dispatchTmuxCommand(rc, "resize-pane", []string{"-t", "pane:1", "-x", "50%"}); err != nil {
+		t.Fatalf("resize-pane percentage without metrics: %v", err)
+	}
+	if err := dispatchTmuxCommand(rc, "resize-pane", []string{"-t", "pane:1", "-L7"}); err != nil {
+		t.Fatalf("resize-pane relative without metrics: %v", err)
+	}
+
+	requests := recorder.requestsFor("pane.resize")
+	if len(requests) != 3 {
+		t.Fatalf("pane.resize requests = %d, want 3", len(requests))
+	}
+	if got := asInt(t, requests[0].Params["target_cells"], "cell target"); got != 3 {
+		t.Fatalf("target_cells = %v, want 3", got)
+	}
+	if got := asInt(t, requests[0].Params["target_pixels"], "cell fallback"); got != 3 {
+		t.Fatalf("target_pixels = %v, want 3", got)
+	}
+	if got := asInt(t, requests[1].Params["target_percentage"], "percentage target"); got != 50 {
+		t.Fatalf("target_percentage = %v, want 50", got)
+	}
+	if got := asInt(t, requests[1].Params["target_pixels"], "percentage fallback"); got != 50 {
+		t.Fatalf("target_pixels = %v, want 50", got)
+	}
+	if got := asInt(t, requests[2].Params["amount_cells"], "relative cells"); got != 7 {
+		t.Fatalf("amount_cells = %v, want 7", got)
+	}
+	if got := asInt(t, requests[2].Params["amount"], "relative fallback"); got != 7 {
+		t.Fatalf("amount = %v, want 7", got)
 	}
 }
 

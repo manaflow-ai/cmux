@@ -21,6 +21,20 @@ extension CLITmuxCompatRemoteSplitTests {
         #expect(params["tmux_compat"] as? Bool == true)
     }
 
+    @Test func exactAbsoluteResizeDoesNotRequireLocalPaneMetrics() throws {
+        let cells = try captureResize(arguments: ["-x", "3"], includeMetrics: false)
+        #expect((cells["target_cells"] as? NSNumber)?.intValue == 3)
+        #expect((cells["target_pixels"] as? NSNumber)?.intValue == 3)
+
+        let percentage = try captureResize(arguments: ["-x", "50%"], includeMetrics: false)
+        #expect((percentage["target_percentage"] as? NSNumber)?.intValue == 50)
+        #expect((percentage["target_pixels"] as? NSNumber)?.intValue == 50)
+
+        let relative = try captureResize(arguments: ["-L", "7"], includeMetrics: false)
+        #expect((relative["amount_cells"] as? NSNumber)?.intValue == 7)
+        #expect((relative["amount"] as? NSNumber)?.intValue == 7)
+    }
+
     @Test func directionalResizeUsesPositionalAmountAndDefaultsToOneCell() throws {
         let explicit = try captureResize(arguments: ["-L", "7"])
         #expect(explicit["direction"] as? String == "left")
@@ -38,7 +52,10 @@ extension CLITmuxCompatRemoteSplitTests {
         #expect((defaulted["amount_cells"] as? NSNumber)?.intValue == 1)
     }
 
-    private func captureResize(arguments: [String]) throws -> [String: Any] {
+    private func captureResize(
+        arguments: [String],
+        includeMetrics: Bool = true
+    ) throws -> [String: Any] {
         let cliPath = try BundledCLITestSupport.bundledCLIPath(
             for: CLITmuxCompatRemoteSplitBundleToken.self
         )
@@ -67,21 +84,24 @@ extension CLITmuxCompatRemoteSplitTests {
                     "workspaces": [["id": workspaceID, "ref": "workspace:1", "selected": true]],
                 ])
             case "pane.list":
-                return Self.v2Response(id: id, ok: true, result: [
-                    "container_frame": ["width": 640, "height": 816],
-                    "panes": [[
-                        "id": paneID,
-                        "ref": "pane:1",
-                        "index": 0,
-                        "focused": true,
-                        "columns": 80,
-                        "rows": 24,
-                        "cell_width_px": 16,
-                        "cell_height_px": 34,
-                        "cell_width_points": 8,
-                        "cell_height_points": 17,
-                    ]],
-                ])
+                var pane: [String: Any] = [
+                    "id": paneID,
+                    "ref": "pane:1",
+                    "index": 0,
+                    "focused": true,
+                    "columns": 80,
+                    "rows": 24,
+                ]
+                var result: [String: Any] = ["panes": [pane]]
+                if includeMetrics {
+                    pane["cell_width_px"] = 16
+                    pane["cell_height_px"] = 34
+                    pane["cell_width_points"] = 8
+                    pane["cell_height_points"] = 17
+                    result["panes"] = [pane]
+                    result["container_frame"] = ["width": 640, "height": 816]
+                }
+                return Self.v2Response(id: id, ok: true, result: result)
             case "pane.resize":
                 capture.record(payload["params"] as? [String: Any] ?? [:])
                 return Self.v2Response(id: id, ok: true, result: ["pane_id": paneID])
