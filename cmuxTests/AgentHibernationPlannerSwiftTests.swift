@@ -1,3 +1,4 @@
+import AppKit
 import Darwin
 import Foundation
 import os
@@ -464,6 +465,11 @@ struct AgentHibernationPlannerSwiftTests {
         let workspaceId = workspace.id
         let panelId = try #require(workspace.focusedPanelId)
         let panel = try #require(workspace.panels[panelId] as? TerminalPanel)
+        let terminalWindow = try Self.hostTerminalPanel(panel)
+        defer {
+            panel.hostedView.removeFromSuperview()
+            terminalWindow.orderOut(nil)
+        }
         let panelKey = AgentHibernationPanelKey(workspaceId: workspaceId, panelId: panelId)
         let agent = SessionRestorableAgentSnapshot(
             kind: .codex,
@@ -532,6 +538,9 @@ struct AgentHibernationPlannerSwiftTests {
             hasLiveProcess: false,
             processIDs: []
         )
+        try #require(Self.waitForCondition {
+            controller.hibernationFingerprint(for: record) != nil
+        })
         let confirmationFingerprint = try #require(controller.hibernationFingerprint(for: record))
         let request = AgentHibernationController.ConfirmedTeardownRequest(
             record: record,
@@ -586,6 +595,45 @@ struct AgentHibernationPlannerSwiftTests {
         controller.postSnapshotValidationIndexTask?.task.cancel()
         controller.postSnapshotValidationIndexSequence = 0
         controller.postSnapshotValidationIndexTask = nil
+    }
+
+    @MainActor
+    private static func hostTerminalPanel(_ panel: TerminalPanel) throws -> NSWindow {
+        _ = NSApplication.shared
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let contentView = try #require(window.contentView)
+        let hostedView = panel.hostedView
+        hostedView.frame = contentView.bounds
+        hostedView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostedView)
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        hostedView.setVisibleInUI(true)
+        hostedView.setActive(true)
+        try #require(waitForCondition { panel.surface.surface != nil })
+        return window
+    }
+
+    @MainActor
+    private static func waitForCondition(
+        timeout: TimeInterval = 5,
+        pollInterval: TimeInterval = 0.01,
+        _ condition: () -> Bool
+    ) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if condition() {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(pollInterval))
+        }
+        return condition()
     }
 
     nonisolated private static func wait(
