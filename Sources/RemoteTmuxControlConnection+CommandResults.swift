@@ -68,7 +68,14 @@ extension RemoteTmuxControlConnection {
         case let .paneRects(windowId, generation):
             handlePaneRectsReply(windowId: windowId, generation: generation, lines: lines)
         case let .listWindows(requestGeneration):
+            // A pending order verification owns the window-order ledger: an
+            // incidental topology refetch (e.g. a %window-add landing mid-batch)
+            // shares the current generation tag, and letting it replace the
+            // optimistic order would make the follow-up `listWindowOrder`
+            // verification compare the server order against itself — reporting
+            // success for a reorder that never reached the desired order.
             let shouldApplyWindowOrder = requestGeneration == windowReorderGeneration
+                && windowReorderVerificationGeneration == nil
             let completesReorderRecovery = windowReorderRecoveryGeneration == requestGeneration
             var order: [Int] = []
             var next: [Int: RemoteTmuxWindow] = [:]

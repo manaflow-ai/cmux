@@ -182,6 +182,32 @@ import Testing
         #expect(connection.connectionState == .reconnecting)
     }
 
+    @Test func topologyRefreshDuringPendingVerificationKeepsOptimisticOrder() {
+        let (connection, writer, pipe) = attachedConnection()
+        defer { writer.close(); try? pipe.fileHandleForReading.close() }
+        publishWindows(connection, order: [1, 2, 3])
+        var verification: Bool?
+
+        #expect(connection.sendWindowReorder(
+            ["swap-window -d -s @1 -t @2"],
+            verification: { verification = $0 }
+        ))
+        connection.applyWindowReorder([2, 1, 3])
+        // An incidental topology refetch (e.g. triggered by %window-add) is
+        // tagged with the current generation while the batch is unverified.
+        connection.requestWindows()
+        reply(connection, lines: [])
+        reply(connection, lines: windowLines([1, 2, 3]))
+
+        // The refetch must not replace the optimistic order mid-verification;
+        // the pending `listWindowOrder` remains the authority for this batch.
+        #expect(connection.windowOrder == [2, 1, 3])
+        #expect(verification == nil)
+        reply(connection, lines: windowOrderLines([2, 1, 3]))
+        #expect(verification == true)
+        #expect(connection.windowOrder == [2, 1, 3])
+    }
+
     @Test func matchingOrderCompletesVerificationSuccessfully() {
         let (connection, writer, pipe) = attachedConnection()
         defer { writer.close(); try? pipe.fileHandleForReading.close() }
