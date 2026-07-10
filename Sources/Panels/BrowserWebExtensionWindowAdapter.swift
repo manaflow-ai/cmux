@@ -62,6 +62,6 @@ final class BrowserWebExtensionWindowAdapter: NSObject, WKWebExtensionWindow {
     }
 
     private var hostWindow: NSWindow? {
-        support?.activeTabAdapter?.panel?.webView.window ?? NSApp.keyWindow
+        support?.activeTabAdapter?.panel?.webView.window
     }
 }

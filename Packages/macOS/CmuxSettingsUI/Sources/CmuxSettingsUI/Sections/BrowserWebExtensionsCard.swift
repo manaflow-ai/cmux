@@ -49,7 +49,10 @@ struct BrowserWebExtensionsCard: View {
             }
         }
         .onChange(of: model.current) { _, current in
-            cardState.reconcileObservedEntries(current)
+            cardState.reconcileObservedEntries(
+                current,
+                observationRevision: model.observationRevision
+            )
         }
         .onChange(of: model.writeResultRevision) { _, _ in
             cardState.reconcileWriteResult(
@@ -249,7 +252,11 @@ struct BrowserWebExtensionsCard: View {
     }
 
     private func commitEntries(_ entries: [BrowserWebExtensionEntry]) {
-        cardState.beginWrite(entries: entries, writeID: model.set(entries))
+        cardState.beginWrite(
+            entries: entries,
+            writeID: model.set(entries),
+            observationRevision: model.observationRevision
+        )
     }
 
     private func importSafariExtension(_ candidate: SettingsDiscoveredBrowserExtension) {

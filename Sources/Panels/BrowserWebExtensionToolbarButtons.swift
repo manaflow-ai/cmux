@@ -40,10 +40,7 @@ private struct BrowserWebExtensionActionButton: View {
     var body: some View {
         Button(action: {
 #if DEBUG
-            cmuxDebugLog(
-                "browser.webext.action panel=\(panel.id.uuidString.prefix(5)) " +
-                "name=\(snapshot.displayName)"
-            )
+            cmuxDebugLog(BrowserWebExtensionDiagnostics.success(operation: .action))
 #endif
             performAction(anchorViewHolder.view)
         }) {

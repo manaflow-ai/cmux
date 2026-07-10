@@ -7,6 +7,9 @@ struct BrowserWebExtensionsCardState {
     private(set) var pendingEntries: [BrowserWebExtensionEntry]?
     private(set) var pendingWriteID: UInt64?
     private(set) var hasWriteError = false
+    private var pendingStartObservationRevision: UInt64 = 0
+    private var matchingObservationRevision: UInt64?
+    private var completedWriteSucceeded = false
 
     func effectiveEntries(observed: [BrowserWebExtensionEntry]) -> [BrowserWebExtensionEntry] {
         pendingEntries ?? observed
@@ -29,23 +32,48 @@ struct BrowserWebExtensionsCardState {
         isDiscoveryComplete = true
     }
 
-    mutating func beginWrite(entries: [BrowserWebExtensionEntry], writeID: UInt64) {
+    mutating func beginWrite(
+        entries: [BrowserWebExtensionEntry],
+        writeID: UInt64,
+        observationRevision: UInt64 = 0
+    ) {
         pendingEntries = entries
         pendingWriteID = writeID
+        pendingStartObservationRevision = observationRevision
+        matchingObservationRevision = nil
+        completedWriteSucceeded = false
         hasWriteError = false
     }
 
-    mutating func reconcileObservedEntries(_ entries: [BrowserWebExtensionEntry]) {
-        guard entries == pendingEntries else { return }
-        pendingEntries = nil
-        pendingWriteID = nil
-        hasWriteError = false
+    mutating func reconcileObservedEntries(
+        _ entries: [BrowserWebExtensionEntry],
+        observationRevision: UInt64 = .max
+    ) {
+        guard entries == pendingEntries,
+              observationRevision > pendingStartObservationRevision
+        else { return }
+        matchingObservationRevision = observationRevision
+        finishIfWriteSucceeded()
     }
 
     mutating func reconcileWriteResult(completedWriteID: UInt64, failed: Bool) {
         guard completedWriteID == pendingWriteID else { return }
+        completedWriteSucceeded = !failed
+        if failed {
+            pendingEntries = nil
+            pendingWriteID = nil
+            matchingObservationRevision = nil
+            hasWriteError = true
+        } else {
+            finishIfWriteSucceeded()
+        }
+    }
+
+    private mutating func finishIfWriteSucceeded() {
+        guard completedWriteSucceeded, matchingObservationRevision != nil else { return }
         pendingEntries = nil
         pendingWriteID = nil
-        hasWriteError = failed
+        matchingObservationRevision = nil
+        hasWriteError = false
     }
 }

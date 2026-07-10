@@ -153,9 +153,9 @@ extension BrowserWebExtensionSupport {
         do {
             try controller.unload(record.context)
         } catch {
-            recordLoadError(error.localizedDescription, entryID: entryID)
+            recordLoadError(entryID: entryID)
 #if DEBUG
-            cmuxDebugLog("browser.webext.unloadFailed id=\(entryID) error=\(error.localizedDescription)")
+            cmuxDebugLog(BrowserWebExtensionDiagnostics.failure(operation: .unload, error: error))
 #endif
             return record.entry
         }
@@ -178,7 +178,7 @@ extension BrowserWebExtensionSupport {
             popout.closeFromExtensionOrUser()
         }
 #if DEBUG
-        cmuxDebugLog("browser.webext.unloaded id=\(entryID)")
+        cmuxDebugLog(BrowserWebExtensionDiagnostics.success(operation: .unload))
 #endif
         return nil
     }
@@ -227,16 +227,13 @@ extension BrowserWebExtensionSupport {
             loadErrorsByEntryID.removeValue(forKey: entry.id)
             refreshLoadErrors()
 #if DEBUG
-            cmuxDebugLog(
-                "browser.webext.loaded name=\(webExtension.displayName ?? "?") " +
-                "version=\(webExtension.displayVersion ?? "?") url=\(entry.path)"
-            )
+            cmuxDebugLog(BrowserWebExtensionDiagnostics.success(operation: .load))
 #endif
         } catch {
             guard canApplyWebExtensionLoad(generation: generation) else { return }
-            recordLoadError(error.localizedDescription, entryID: entry.id)
+            recordLoadError(entryID: entry.id)
 #if DEBUG
-            cmuxDebugLog("browser.webext.loadFailed url=\(entry.path) error=\(error.localizedDescription)")
+            cmuxDebugLog(BrowserWebExtensionDiagnostics.failure(operation: .load, error: error))
 #endif
         }
     }
@@ -256,13 +253,14 @@ extension BrowserWebExtensionSupport {
             try await settingsStore.set(restoredEntries, for: settingsKey)
         } catch {
             for entry in failedEntries {
-                recordLoadError(error.localizedDescription, entryID: entry.id)
+                recordLoadError(entryID: entry.id)
             }
 #if DEBUG
-            cmuxDebugLog("browser.webext.rollbackSettingsFailed error=\(error.localizedDescription)")
+            cmuxDebugLog(BrowserWebExtensionDiagnostics.failure(operation: .rollbackSettings, error: error))
 #endif
         }
     }
+
 
     private func makeWebExtension(for entry: BrowserWebExtensionEntry) async throws -> WKWebExtension {
         let url = URL(fileURLWithPath: entry.path)
@@ -322,8 +320,8 @@ extension BrowserWebExtensionSupport {
         return "cmux-\(String(decoding: hexBytes, as: UTF8.self))"
     }
 
-    private func recordLoadError(_ message: String, entryID: String) {
-        loadErrorsByEntryID[entryID] = "\(entryID): \(message)"
+    func recordLoadError(entryID: String) {
+        loadErrorsByEntryID[entryID] = BrowserWebExtensionDiagnostics.genericFailureMessage
         refreshLoadErrors()
     }
 
@@ -334,5 +332,24 @@ extension BrowserWebExtensionSupport {
         for continuation in loadErrorUpdateContinuations.values {
             continuation.yield(loadErrorsByEntryID)
         }
+    }
+}
+
+enum BrowserWebExtensionDiagnostics {
+    static let genericFailureMessage = "Web extension failed"
+    enum Operation: String {
+        case load
+        case unload
+        case action
+        case rollbackSettings
+    }
+
+    static func success(operation: Operation) -> String {
+        "browser.webext operation=\(operation.rawValue) result=success"
+    }
+
+    static func failure(operation: Operation, error: Error) -> String {
+        "browser.webext operation=\(operation.rawValue) result=failure " +
+            "errorType=\(String(describing: type(of: error)))"
     }
 }

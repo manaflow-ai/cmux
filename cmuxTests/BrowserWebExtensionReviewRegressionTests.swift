@@ -92,6 +92,44 @@ struct BrowserWebExtensionReviewRegressionTests {
 
     @MainActor
     @Test
+    func extensionShortcutPreflightSkipsPlainTypingContextResolutionAndKeepsControlOptionEligible() throws {
+        let appDelegate = try #require(AppDelegate.shared)
+
+        let plainTypingEvent = try #require(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: 0,
+            context: nil,
+            characters: "a",
+            charactersIgnoringModifiers: "a",
+            isARepeat: false,
+            keyCode: 0
+        ))
+        appDelegate.shortcutEventFocusContextCache = nil
+        #expect(!appDelegate.shouldOfferBrowserWebExtensionCommand(plainTypingEvent))
+        #expect(appDelegate.shortcutEventFocusContextCache == nil)
+
+        for modifierFlags in [NSEvent.ModifierFlags.control, .option] {
+            let event = try #require(NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: modifierFlags,
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: 0,
+                context: nil,
+                characters: "z",
+                charactersIgnoringModifiers: "z",
+                isARepeat: false,
+                keyCode: 6
+            ))
+            #expect(appDelegate.shouldOfferBrowserWebExtensionCommand(event, browserFocusModeActive: true))
+        }
+    }
+
+    @MainActor
+    @Test
     func browserFocusModeOffersExtensionCommandDespiteConfiguredShortcut() throws {
         let appDelegate = try #require(AppDelegate.shared)
         let action = KeyboardShortcutSettings.Action.openBrowser
@@ -224,6 +262,112 @@ struct BrowserWebExtensionReviewRegressionTests {
             support.extensionPagePanels(usingContextIdentifier: ObjectIdentifier(NSObject())).isEmpty
         )
     }
+
+    @MainActor
+    @Test
+    @available(macOS 15.4, *)
+    func extensionDiagnosticsExcludeControlledValuesAndRawErrors() {
+        let extensionPath = "/tmp/extension-controlled-path"
+        let extensionID = "extension-controlled-id"
+        let manifestName = "Extension Controlled Name"
+        let rawError = "raw upstream error with secret"
+        let error = SentinelWebExtensionError(message: rawError)
+
+        let loadLog = BrowserWebExtensionDiagnostics.success(operation: .load)
+        let actionLog = BrowserWebExtensionDiagnostics.success(operation: .action)
+        let failureLog = BrowserWebExtensionDiagnostics.failure(operation: .load, error: error)
+
+        #expect(!loadLog.contains(extensionPath))
+        #expect(!loadLog.contains(extensionID))
+        #expect(!loadLog.contains(manifestName))
+        #expect(!failureLog.contains(rawError))
+        #expect(!actionLog.contains(manifestName))
+
+        let support = BrowserWebExtensionSupport()
+        support.recordLoadError(entryID: extensionID)
+        #expect(support.loadErrors == [BrowserWebExtensionDiagnostics.genericFailureMessage])
+    }
+
+    @MainActor
+    @Test
+    @available(macOS 15.4, *)
+    func sameContextExtensionNavigationPreservesWebViewIdentity() throws {
+        let extensionURL = try #require(URL(string: "webkit-extension://cmux-test/options.html"))
+        let siblingURL = try #require(URL(string: "webkit-extension://cmux-test/vault.html"))
+        let host = BrowserWebExtensionReviewTestHost(extensionHost: extensionURL.host)
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: extensionURL,
+            renderInitialNavigation: true,
+            browserWebExtensionHost: host
+        )
+        defer { panel.close() }
+        let originalWebView = panel.webView
+        let originalInstanceID = panel.webViewInstanceID
+
+        panel.navigateFromWebExtension(
+            to: siblingURL,
+            webViewConfiguration: WKWebViewConfiguration()
+        )
+
+        #expect(panel.webView === originalWebView)
+        #expect(panel.webViewInstanceID == originalInstanceID)
+    }
+
+    @MainActor
+    @Test
+    @available(macOS 15.4, *)
+    func staleExtensionTabNavigationCommandsReturnUnavailableTabError() throws {
+        let support = BrowserWebExtensionSupport()
+        let adapter: BrowserWebExtensionTabAdapter
+        do {
+            let panel = BrowserPanel(workspaceId: UUID(), browserWebExtensionHost: support)
+            adapter = BrowserWebExtensionTabAdapter(panel: panel, support: support)
+        }
+        let context = unsafeBitCast(NSObject(), to: WKWebExtensionContext.self)
+
+        var errors: [NSError?] = []
+        adapter.reload(fromOrigin: false, for: context) { errors.append($0 as NSError?) }
+        adapter.reload(fromOrigin: true, for: context) { errors.append($0 as NSError?) }
+        adapter.goBack(for: context) { errors.append($0 as NSError?) }
+        adapter.goForward(for: context) { errors.append($0 as NSError?) }
+
+        #expect(errors.count == 4)
+        #expect(errors.allSatisfy { $0?.domain == "cmux.webExtension.tab" && $0?.code == 3 })
+    }
+
+    @MainActor
+    @Test
+    @available(macOS 15.4, *)
+    func extensionWindowAdapterDoesNotUseUnrelatedKeyWindow() {
+        let support = BrowserWebExtensionSupport()
+        let panel = BrowserPanel(workspaceId: UUID(), browserWebExtensionHost: support)
+        support.register(panel: panel)
+        support.noteActivated(panelID: panel.id)
+        let unrelatedWindow = NSWindow(
+            contentRect: NSRect(x: 40, y: 40, width: 300, height: 200),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        defer {
+            support.unregister(panelID: panel.id)
+            panel.close()
+            unrelatedWindow.close()
+        }
+        unrelatedWindow.makeKeyAndOrderFront(nil)
+        let context = unsafeBitCast(NSObject(), to: WKWebExtensionContext.self)
+
+        #expect(support.windowAdapter.frame(for: context) == .null)
+        var focusError: Error?
+        support.windowAdapter.focus(for: context) { focusError = $0 }
+        #expect((focusError as NSError?)?.code == 3)
+        #expect(NSApp.keyWindow === unrelatedWindow)
+    }
+}
+
+private struct SentinelWebExtensionError: Error {
+    let message: String
 }
 
 @MainActor

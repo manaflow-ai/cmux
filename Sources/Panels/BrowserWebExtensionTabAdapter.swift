@@ -87,21 +87,33 @@ final class BrowserWebExtensionTabAdapter: NSObject, WKWebExtensionTab {
     }
 
     func reload(fromOrigin: Bool, for context: WKWebExtensionContext, completionHandler: @escaping (Error?) -> Void) {
+        guard let webView = panel?.webView else {
+            completionHandler(webExtensionTabError(code: 3))
+            return
+        }
         if fromOrigin {
-            panel?.webView.reloadFromOrigin()
+            webView.reloadFromOrigin()
         } else {
-            panel?.webView.reload()
+            webView.reload()
         }
         completionHandler(nil)
     }
 
     func goBack(for context: WKWebExtensionContext, completionHandler: @escaping (Error?) -> Void) {
-        panel?.webView.goBack()
+        guard let webView = panel?.webView else {
+            completionHandler(webExtensionTabError(code: 3))
+            return
+        }
+        webView.goBack()
         completionHandler(nil)
     }
 
     func goForward(for context: WKWebExtensionContext, completionHandler: @escaping (Error?) -> Void) {
-        panel?.webView.goForward()
+        guard let webView = panel?.webView else {
+            completionHandler(webExtensionTabError(code: 3))
+            return
+        }
+        webView.goForward()
         completionHandler(nil)
     }
 

@@ -23,6 +23,10 @@ public final class JSONValueModel<Value: SettingCodable> {
     /// watcher.
     public private(set) var current: Value
 
+    /// Monotonic identity for each value delivered by the change stream.
+    /// Consumers can use this to reject observations captured before a write.
+    public private(set) var observationRevision: UInt64 = 0
+
     /// Whether the JSON change stream has yielded at least once.
     public private(set) var hasObservedValue = false
 
@@ -96,6 +100,7 @@ public final class JSONValueModel<Value: SettingCodable> {
     public func startObserving() {
         observation.activate(makeStream) { [weak self] value in
             guard let self else { return }
+            self.observationRevision &+= 1
             self.current = value
             self.hasObservedValue = true
         }

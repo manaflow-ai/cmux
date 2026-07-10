@@ -65,7 +65,10 @@ public struct BrowserWebExtensionEntry: Codable, Sendable, Equatable, Hashable, 
     /// - Parameter path: The path to normalize.
     /// - Returns: The standardized file URL path.
     public static func standardizedPath(_ path: String) -> String {
-        URL(fileURLWithPath: path).standardizedFileURL.path
+        URL(fileURLWithPath: path)
+            .resolvingSymlinksInPath()
+            .standardizedFileURL
+            .path
     }
 
     /// Returns the effective resource root for a configured extension path.
@@ -92,10 +95,13 @@ public struct BrowserWebExtensionEntry: Codable, Sendable, Equatable, Hashable, 
     /// - Returns: `Contents/Resources` inside the bundle when `path` points at
     ///   an `.appex`, otherwise the standardized original path.
     public static func standardizedSafariAppExtensionResourceRootPath(_ path: String) -> String {
-        let url = URL(fileURLWithPath: path).standardizedFileURL
+        let url = URL(fileURLWithPath: path)
+            .resolvingSymlinksInPath()
+            .standardizedFileURL
         guard url.pathExtension == "appex" else { return url.path }
         return url
             .appendingPathComponent("Contents/Resources", isDirectory: true)
+            .resolvingSymlinksInPath()
             .standardizedFileURL
             .path
     }

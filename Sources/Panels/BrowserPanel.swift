@@ -5758,10 +5758,12 @@ final class BrowserPanel: Panel, ObservableObject {
             let contextIdentifier = browserWebExtensionHost?
                 .webViewConfiguration(forNavigatingTo: url)?
                 .contextIdentifier
-            replaceWebViewForWebExtensionNavigation(
-                webViewConfiguration: webViewConfiguration,
-                contextIdentifier: contextIdentifier
-            )
+            if contextIdentifier != webExtensionPageContextIdentifier {
+                replaceWebViewForWebExtensionNavigation(
+                    webViewConfiguration: webViewConfiguration,
+                    contextIdentifier: contextIdentifier
+                )
+            }
         }
         navigate(to: url)
     }

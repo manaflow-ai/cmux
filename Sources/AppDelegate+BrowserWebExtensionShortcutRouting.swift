@@ -61,7 +61,11 @@ extension AppDelegate {
 
     /// Extension manifest commands run only after configured cmux shortcuts decline the event.
     func shouldOfferBrowserWebExtensionCommand(_ event: NSEvent) -> Bool {
-        shouldOfferBrowserWebExtensionCommand(
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        guard !flags.intersection([.command, .control, .option]).isEmpty else {
+            return false
+        }
+        return shouldOfferBrowserWebExtensionCommand(
             event,
             browserFocusModeActive: browserFocusModePanelForShortcutEvent(event) != nil
         )
