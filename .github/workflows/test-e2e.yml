@@ -40,7 +40,6 @@ on:
           - tart-canary
           - tart-dual
           - tart-small
-          - tart-macos-26
 
 concurrency:
   group: e2e-${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') || inputs.runner }}-${{ inputs.ref || github.ref_name }}-${{ inputs.test_filter }}

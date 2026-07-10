@@ -75,9 +75,9 @@ defaults to `auto`. Manual `auto` runs follow `MACOS_RUNNER_15` then the Warp
 fallback, so flipping the repo variable redirects those workflows. An explicit
 manual choice wins over the variable; both dropdowns expose Blacksmith, Warp,
 and `depot-macos-*` choices, with a Depot identity guard for GUI-activation
-runs. `test-e2e.yml` also exposes `tart-canary`, `tart-dual`, `tart-small`, and
-`tart-macos-26` for targeted fleet validation. These choices are available only
-through `workflow_dispatch`.
+runs. `test-e2e.yml` also exposes `tart-canary`, `tart-dual`, and `tart-small`
+for targeted fleet validation. These choices are available only through
+`workflow_dispatch`.
 
 ## Guard
 
