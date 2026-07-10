@@ -33,17 +33,53 @@ extension AgentHibernationController {
                 }
             }
 
-            let snapshotOutcomes = await Self.snapshotOutcomes(for: requests)
+            var snapshotOutcomes = await Self.snapshotOutcomes(for: requests)
             var restoreOwnedSnapshotPaths: Set<String> = []
             defer {
                 for outcome in snapshotOutcomes.values {
                     guard case .snapshot(let snapshot) = outcome,
-                          !restoreOwnedSnapshotPaths.contains(snapshot.snapshotPath) else {
+                          !restoreOwnedSnapshotPaths.contains(snapshot.snapshotPath),
+                          AgentHibernationTranscriptGuard.liveFileVersionStillMatches(snapshot) else {
                         continue
                     }
+                    // A snapshot is disposable only while the live path still
+                    // identifies the exact bytes it protected. Any later rewrite
+                    // retains the snapshot as a recovery backup.
                     try? FileManager.default.removeItem(atPath: snapshot.snapshotPath)
                 }
             }
+
+            // Monitors cancelled by a bulk stop are no longer registered but can
+            // still be inside a final restore commit; wait for them so no unawaited
+            // writer races this batch. Registered monitors stay armed until this
+            // teardown commits — replacement is a handoff, never destroy-then-abort.
+            await drainCancelledPostTeardownRestoreTasks()
+            let revalidation = await Self.revalidatedSnapshotOutcomes(in: snapshotOutcomes)
+            snapshotOutcomes = revalidation.outcomes
+            let recordsByKey = Dictionary(
+                requests.map { ($0.record.key, $0.record) },
+                uniquingKeysWith: { first, _ in first }
+            )
+            for (key, snapshot) in revalidation.forfeitedSnapshots {
+                // The live path changed under the fresh snapshot (e.g. an older
+                // monitor restored a stale copy). Arm a restore monitor on the
+                // forfeited snapshot so its newest turns stay protected instead of
+                // rotting as an orphan; store refuses if a monitor already guards
+                // this path, and then that monitor's own snapshot keeps guarding.
+                if armPostTeardownRestoreMonitor(
+                    snapshot: snapshot,
+                    processIDs: recordsByKey[key]?.processIDs ?? [],
+                    snapshotDisposal: .retainForRecovery(sessionId: recordsByKey[key]?.agent.sessionId)
+                ) {
+                    restoreOwnedSnapshotPaths.insert(snapshot.snapshotPath)
+                } else {
+                    AgentHibernationTranscriptGuard.retainSnapshotForRecovery(
+                        snapshot,
+                        sessionId: recordsByKey[key]?.agent.sessionId
+                    )
+                }
+            }
+
             let postSnapshotSequence = markPostSnapshotValidationPoint()
             let postSnapshotIndex = await sharedPostSnapshotValidationIndexTask(
                 minimumStartSequence: postSnapshotSequence
@@ -103,6 +139,39 @@ extension AgentHibernationController {
                     continue
                 }
 
+                if let snapshot {
+                    // An armed monitor for this transcript (a prior hibernation's,
+                    // or one stored earlier in this batch) hands off here: quiesce
+                    // it only now that this request is otherwise committed, and
+                    // re-check the path version. Nothing may suspend between the
+                    // check and SIGTERM, or a rewrite can invalidate the snapshot.
+                    await cancelPostTeardownRestoreTaskForReplacement(
+                        transcriptPath: snapshot.transcriptPath
+                    )
+                    guard AgentHibernationTranscriptGuard.liveFileVersionStillMatches(snapshot) else {
+                        self.unableToProtectByPanel[record.key] = UnableToProtectMarker(
+                            fingerprint: request.confirmationFingerprint,
+                            lastActivityAt: request.effectiveLastActivityAt,
+                            retryAfter: Date().timeIntervalSince1970 + Self.unableToProtectRetrySeconds
+                        )
+                        // The quiesce above disarmed the path's previous monitor, so
+                        // forfeiting must re-arm protection with the fresh snapshot;
+                        // its restore checks fail closed if the live file has turns.
+                        if self.armPostTeardownRestoreMonitor(
+                            snapshot: snapshot,
+                            processIDs: record.processIDs,
+                            snapshotDisposal: .retainForRecovery(sessionId: record.agent.sessionId)
+                        ) {
+                            restoreOwnedSnapshotPaths.insert(snapshot.snapshotPath)
+                        } else {
+                            AgentHibernationTranscriptGuard.retainSnapshotForRecovery(
+                                snapshot,
+                                sessionId: record.agent.sessionId
+                            )
+                        }
+                        continue
+                    }
+                }
                 self.terminateScopedProcessesForHibernation(record: record)
                 record.workspace.enterAgentHibernation(
                     panelId: record.key.panelId,
@@ -110,23 +179,9 @@ extension AgentHibernationController {
                     lastActivityAt: Date(timeIntervalSince1970: request.effectiveLastActivityAt)
                 )
                 guard let snapshot else { continue }
-                restoreOwnedSnapshotPaths.insert(snapshot.snapshotPath)
-                let processIDs = record.processIDs
-                let restoreKey = record.key
-                let restoreRequestID = UUID()
-                let restoreTask = Task.detached(priority: .utility) {
-                    await AgentHibernationTranscriptGuard.runPostTeardownRestoreChecks(
-                        snapshot: snapshot,
-                        processIDs: processIDs
-                    )
-                    await MainActor.run {
-                        AgentHibernationController.shared.clearPostTeardownRestoreTask(
-                            restoreKey,
-                            requestID: restoreRequestID
-                        )
-                    }
+                if self.armPostTeardownRestoreMonitor(snapshot: snapshot, processIDs: record.processIDs) {
+                    restoreOwnedSnapshotPaths.insert(snapshot.snapshotPath)
                 }
-                self.storePostTeardownRestoreTask(restoreTask, key: restoreKey, requestID: restoreRequestID)
             }
         }
     }
@@ -162,6 +217,55 @@ extension AgentHibernationController {
         }
     }
 
+    struct SnapshotRevalidation {
+        var outcomes: [AgentHibernationPanelKey: AgentHibernationTranscriptGuard.TeardownSnapshotOutcome]
+        var forfeitedSnapshots: [(AgentHibernationPanelKey, AgentHibernationTranscriptGuard.TeardownTranscriptSnapshot)]
+    }
+
+    private static func revalidatedSnapshotOutcomes(
+        in outcomes: [AgentHibernationPanelKey: AgentHibernationTranscriptGuard.TeardownSnapshotOutcome]
+    ) async -> SnapshotRevalidation {
+        let snapshots = outcomes.compactMap { key, outcome -> (AgentHibernationPanelKey, AgentHibernationTranscriptGuard.TeardownTranscriptSnapshot)? in
+            guard case .snapshot(let snapshot) = outcome else { return nil }
+            return (key, snapshot)
+        }
+        let originalSnapshotsByKey = Dictionary(snapshots, uniquingKeysWith: { first, _ in first })
+        return await withTaskGroup(
+            of: (AgentHibernationPanelKey, AgentHibernationTranscriptGuard.TeardownTranscriptSnapshot?).self
+        ) { group in
+            var nextSnapshotIndex = 0
+            let initialTaskCount = min(Self.maxConcurrentTeardownSnapshotTasks, snapshots.count)
+            for _ in 0..<initialTaskCount {
+                let (key, snapshot) = snapshots[nextSnapshotIndex]
+                nextSnapshotIndex += 1
+                group.addTask(priority: .utility) {
+                    (key, AgentHibernationTranscriptGuard.snapshotStillMatchesLive(snapshot))
+                }
+            }
+            var revalidation = SnapshotRevalidation(outcomes: outcomes, forfeitedSnapshots: [])
+            while let (key, revalidatedSnapshot) = await group.next() {
+                if let revalidatedSnapshot {
+                    revalidation.outcomes[key] = .snapshot(revalidatedSnapshot)
+                } else {
+                    // A stale older monitor or live Claude write changed the path.
+                    // Forfeit this hibernation and report the populated snapshot so
+                    // the caller can arm a protective monitor on it.
+                    revalidation.outcomes[key] = .unableToProtect
+                    if let originalSnapshot = originalSnapshotsByKey[key] {
+                        revalidation.forfeitedSnapshots.append((key, originalSnapshot))
+                    }
+                }
+                guard nextSnapshotIndex < snapshots.count else { continue }
+                let (nextKey, nextSnapshot) = snapshots[nextSnapshotIndex]
+                nextSnapshotIndex += 1
+                group.addTask(priority: .utility) {
+                    (nextKey, AgentHibernationTranscriptGuard.snapshotStillMatchesLive(nextSnapshot))
+                }
+            }
+            return revalidation
+        }
+    }
+
     func postSnapshotLifecycle(
         for record: AgentHibernationRecord,
         index: RestorableAgentSessionIndex
@@ -183,13 +287,71 @@ extension AgentHibernationController {
         return max(indexActivity, localActivity, createdAt)
     }
 
+    /// Builds and registers a restore monitor guarding the snapshot's transcript
+    /// path. Returns false without any restore side effects when another monitor
+    /// already guards that path — the existing monitor keeps its protection.
+    @discardableResult
+    func armPostTeardownRestoreMonitor(
+        snapshot: AgentHibernationTranscriptGuard.TeardownTranscriptSnapshot,
+        processIDs: Set<Int>,
+        snapshotDisposal: AgentHibernationTranscriptGuard.PostTeardownSnapshotDisposal = .deleteWhenSafe
+    ) -> Bool {
+        let transcriptPath = snapshot.transcriptPath
+        let requestID = UUID()
+        let cancellationState = PostTeardownRestoreCancellationState()
+        let task = Task.detached(priority: .utility) {
+            await AgentHibernationTranscriptGuard.runPostTeardownRestoreChecks(
+                snapshot: snapshot,
+                processIDs: processIDs,
+                snapshotDisposal: snapshotDisposal,
+                shouldContinue: {
+                    await MainActor.run {
+                        AgentHibernationController.shared.postTeardownRestoreTaskIsCurrent(
+                            transcriptPath: transcriptPath,
+                            requestID: requestID
+                        )
+                    }
+                },
+                shouldRestoreOnCancellation: {
+                    await MainActor.run {
+                        cancellationState.restoresSnapshotOnCancellation
+                    }
+                }
+            )
+            await MainActor.run {
+                AgentHibernationController.shared.clearPostTeardownRestoreTask(
+                    transcriptPath: transcriptPath,
+                    requestID: requestID
+                )
+            }
+        }
+        return storePostTeardownRestoreTask(
+            task,
+            transcriptPath: transcriptPath,
+            requestID: requestID,
+            cancellationState: cancellationState
+        )
+    }
+
+    @discardableResult
     func storePostTeardownRestoreTask(
         _ task: Task<Void, Never>,
-        key: AgentHibernationPanelKey,
-        requestID: UUID
-    ) {
-        cancelPostTeardownRestoreTask(key)
-        postTeardownRestoreTasksByPanel[key] = PostTeardownRestoreTask(requestID: requestID, task: task)
+        transcriptPath: String,
+        requestID: UUID,
+        cancellationState: PostTeardownRestoreCancellationState
+    ) -> Bool {
+        let key = Self.postTeardownRestoreTaskKey(transcriptPath: transcriptPath)
+        guard postTeardownRestoreTasksByTranscriptPath[key] == nil else {
+            cancellationState.restoresSnapshotOnCancellation = false
+            task.cancel()
+            return false
+        }
+        postTeardownRestoreTasksByTranscriptPath[key] = PostTeardownRestoreTask(
+            requestID: requestID,
+            cancellationState: cancellationState,
+            task: task
+        )
+        return true
     }
 
     func markPostSnapshotValidationPoint() -> UInt64 {
@@ -222,22 +384,50 @@ extension AgentHibernationController {
         return task
     }
 
-    func cancelPostTeardownRestoreTask(workspaceId: UUID, panelId: UUID) {
-        cancelPostTeardownRestoreTask(AgentHibernationPanelKey(workspaceId: workspaceId, panelId: panelId))
-    }
-
-    func cancelPostTeardownRestoreTask(_ key: AgentHibernationPanelKey) {
-        postTeardownRestoreTasksByPanel.removeValue(forKey: key)?.task.cancel()
+    func cancelPostTeardownRestoreTaskForReplacement(transcriptPath: String) async {
+        let key = Self.postTeardownRestoreTaskKey(transcriptPath: transcriptPath)
+        guard let entry = postTeardownRestoreTasksByTranscriptPath.removeValue(forKey: key) else { return }
+        entry.cancellationState.restoresSnapshotOnCancellation = false
+        entry.task.cancel()
+        await entry.task.value
     }
 
     func cancelPostTeardownRestoreTasks() {
-        let tasks = Array(postTeardownRestoreTasksByPanel.values)
-        postTeardownRestoreTasksByPanel.removeAll(keepingCapacity: false)
-        tasks.forEach { $0.task.cancel() }
+        let entries = Array(postTeardownRestoreTasksByTranscriptPath.values)
+        postTeardownRestoreTasksByTranscriptPath.removeAll(keepingCapacity: false)
+        guard !entries.isEmpty else { return }
+        // Cancellation keeps the final protective restore enabled (stop/disable
+        // paths want one last check). The drain task makes those unregistered
+        // in-flight restores awaitable so a later teardown cannot race them.
+        entries.forEach { $0.task.cancel() }
+        let previousDrain = postTeardownRestoreDrainTask
+        postTeardownRestoreDrainTask = Task.detached(priority: .utility) {
+            await previousDrain?.value
+            for entry in entries {
+                await entry.task.value
+            }
+        }
     }
 
-    func clearPostTeardownRestoreTask(_ key: AgentHibernationPanelKey, requestID: UUID) {
-        guard postTeardownRestoreTasksByPanel[key]?.requestID == requestID else { return }
-        postTeardownRestoreTasksByPanel.removeValue(forKey: key)
+    func drainCancelledPostTeardownRestoreTasks() async {
+        await postTeardownRestoreDrainTask?.value
+    }
+
+    func postTeardownRestoreTaskIsCurrent(transcriptPath: String, requestID: UUID) -> Bool {
+        let key = Self.postTeardownRestoreTaskKey(transcriptPath: transcriptPath)
+        return postTeardownRestoreTasksByTranscriptPath[key]?.requestID == requestID
+    }
+
+    func clearPostTeardownRestoreTask(transcriptPath: String, requestID: UUID) {
+        let key = Self.postTeardownRestoreTaskKey(transcriptPath: transcriptPath)
+        guard postTeardownRestoreTasksByTranscriptPath[key]?.requestID == requestID else { return }
+        postTeardownRestoreTasksByTranscriptPath.removeValue(forKey: key)
+    }
+
+    static func postTeardownRestoreTaskKey(transcriptPath: String) -> String {
+        // Resolve symlinks, not just path text: hook-recorded and derived
+        // transcript paths can alias one physical file, and aliased keys would
+        // let two monitors guard (and race on) the same inode.
+        (transcriptPath as NSString).resolvingSymlinksInPath
     }
 }

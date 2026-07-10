@@ -1,55 +1,9 @@
 import CMUXAgentLaunch
-import Darwin
 import Foundation
 
 enum AgentHibernationTranscriptGuard {
     static let restoreCheckDelaysSeconds: [UInt64] = [20, 60, 180, 600]
     private static let maxScannedLineBytes = 16 * 1024 * 1024
-
-    static func runPostTeardownRestoreChecks(
-        snapshot: TeardownTranscriptSnapshot,
-        processIDs: Set<Int>,
-        initialRetryDelaysNanoseconds: [UInt64] = [0, 250_000_000, 500_000_000, 1_000_000_000, 2_000_000_000],
-        backstopDelaysSeconds: [UInt64] = Self.restoreCheckDelaysSeconds,
-        clock: ContinuousClock = ContinuousClock(),
-        fileManager: FileManager = .default
-    ) async {
-        var canDeleteSnapshot = false
-        func markSnapshotDeletableIfSafe() {
-            let restored = restoreIfClobbered(snapshot, fileManager: fileManager)
-            let safe = transcriptHasConversationTurns(atPath: snapshot.transcriptPath, fileManager: fileManager)
-            canDeleteSnapshot = restored || safe
-        }
-        defer { if Task.isCancelled { markSnapshotDeletableIfSafe() } else if canDeleteSnapshot { try? fileManager.removeItem(atPath: snapshot.snapshotPath) } }
-        if !processIDs.isEmpty {
-            let deadline = clock.now.advanced(by: .seconds(30))
-            while clock.now < deadline {
-                let anyAlive = processIDs.contains { pid in
-                    pid > 0 && pid <= Int(Int32.max) && kill(pid_t(pid), 0) == 0
-                }
-                if !anyAlive { break }
-                // Bounded process-exit grace period before transcript restore checks; controller state cancels this task.
-                try? await clock.sleep(for: .milliseconds(250))
-                if Task.isCancelled { return }
-            }
-        }
-
-        for delayNanoseconds in initialRetryDelaysNanoseconds {
-            if delayNanoseconds > 0 {
-                // Bounded Claude transcript-rewrite check window; controller state cancels this task.
-                try? await clock.sleep(for: .nanoseconds(Int64(clamping: delayNanoseconds)))
-            }
-            if Task.isCancelled { return }
-            markSnapshotDeletableIfSafe()
-        }
-
-        for delaySeconds in backstopDelaysSeconds {
-            // Bounded delayed restore backstop; controller state cancels this task.
-            try? await clock.sleep(for: .seconds(Int64(clamping: delaySeconds)))
-            if Task.isCancelled { return }
-            markSnapshotDeletableIfSafe()
-        }
-    }
 
     static func resolveTranscriptPath(
         agent: SessionRestorableAgentSnapshot,
@@ -151,12 +105,36 @@ enum AgentHibernationTranscriptGuard {
             pruneOldSnapshots(in: directory, fileManager: fileManager)
             let snapshotURL = directory.appendingPathComponent("\(agent.sessionId)-\(UUID().uuidString).jsonl", isDirectory: false)
             try fileManager.copyItem(atPath: transcriptPath, toPath: snapshotURL.path)
-            guard transcriptHasConversationTurns(atPath: snapshotURL.path, fileManager: fileManager) else {
+            let copiedSnapshotHasConversation = transcriptHasConversationTurns(
+                atPath: snapshotURL.path,
+                fileManager: fileManager
+            )
+            guard copiedSnapshotHasConversation else {
                 try? fileManager.removeItem(at: snapshotURL)
                 return .unableToProtect
             }
+            guard let liveFileVersion = matchingLiveFileVersion(
+                transcriptPath,
+                snapshotURL.path,
+                fileManager: fileManager
+            ) else {
+                // The live path may have advanced, or an older restore monitor may
+                // have won a replace race. Keep the populated copy for recovery in
+                // the session's single retained slot so repeated failed attempts
+                // replace it instead of accumulating full-transcript copies.
+                retainSnapshotForRecovery(
+                    TeardownTranscriptSnapshot(transcriptPath: transcriptPath, snapshotPath: snapshotURL.path),
+                    sessionId: agent.sessionId,
+                    fileManager: fileManager
+                )
+                return .unableToProtect
+            }
             try fileManager.setAttributes([.modificationDate: Date()], ofItemAtPath: snapshotURL.path)
-            return .snapshot(TeardownTranscriptSnapshot(transcriptPath: transcriptPath, snapshotPath: snapshotURL.path))
+            return .snapshot(TeardownTranscriptSnapshot(
+                transcriptPath: transcriptPath,
+                snapshotPath: snapshotURL.path,
+                liveFileVersion: liveFileVersion
+            ))
         } catch {
             return .unableToProtect
         }
@@ -209,6 +187,36 @@ enum AgentHibernationTranscriptGuard {
         } catch {
             try? fileManager.removeItem(at: tempURL)
             return false
+        }
+    }
+
+    /// Moves a populated snapshot whose live path drifted into the session's
+    /// single retained recovery slot. Repeated failed protection attempts
+    /// replace the slot instead of accumulating full-transcript copies; the
+    /// slot ages out through the regular snapshot pruning. Never touches the
+    /// UUID-suffixed snapshots that active restore monitors own.
+    static func retainSnapshotForRecovery(
+        _ snapshot: TeardownTranscriptSnapshot,
+        sessionId: String?,
+        fileManager: FileManager = .default
+    ) {
+        let snapshotURL = URL(fileURLWithPath: snapshot.snapshotPath)
+        guard let sessionId, isSafeSessionIdPathComponent(sessionId) else {
+            try? fileManager.setAttributes([.modificationDate: Date()], ofItemAtPath: snapshotURL.path)
+            return
+        }
+        let retainedURL = snapshotURL.deletingLastPathComponent()
+            .appendingPathComponent("\(sessionId)-retained.jsonl", isDirectory: false)
+        guard retainedURL.path != snapshotURL.path else {
+            try? fileManager.setAttributes([.modificationDate: Date()], ofItemAtPath: retainedURL.path)
+            return
+        }
+        do {
+            try? fileManager.removeItem(at: retainedURL)
+            try fileManager.moveItem(at: snapshotURL, to: retainedURL)
+            try? fileManager.setAttributes([.modificationDate: Date()], ofItemAtPath: retainedURL.path)
+        } catch {
+            try? fileManager.setAttributes([.modificationDate: Date()], ofItemAtPath: snapshotURL.path)
         }
     }
 

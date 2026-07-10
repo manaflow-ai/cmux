@@ -36,7 +36,8 @@ final class AgentHibernationController {
     var teardownValidationEpochByPanel: [AgentHibernationPanelKey: UInt64] = [:]
     var teardownValidationGeneration: UInt64 = 0
     var unableToProtectByPanel: [AgentHibernationPanelKey: UnableToProtectMarker] = [:]
-    var postTeardownRestoreTasksByPanel: [AgentHibernationPanelKey: PostTeardownRestoreTask] = [:]
+    var postTeardownRestoreTasksByTranscriptPath: [String: PostTeardownRestoreTask] = [:]
+    var postTeardownRestoreDrainTask: Task<Void, Never>?
     var postSnapshotValidationIndexSequence: UInt64 = 0
     var postSnapshotValidationIndexTask: PostSnapshotValidationIndexTask?
     private var teardownInFlightByPanel: [AgentHibernationPanelKey: InFlightTeardown] = [:]

@@ -85,17 +85,26 @@ struct AgentHibernationPlannerSwiftTests {
         defer { resetSharedHibernationState(controller) }
 
         let key = AgentHibernationPanelKey(workspaceId: UUID(), panelId: UUID())
+        let transcriptPath = "/tmp/cmux-hibernation-monitor-\(UUID().uuidString)/../transcript.jsonl"
         let task = Task<Void, Never> {
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(60))
             }
         }
         AgentHibernationTrackingGate.setEnabled(true)
-        controller.storePostTeardownRestoreTask(task, key: key, requestID: UUID())
+        controller.storePostTeardownRestoreTask(
+            task,
+            transcriptPath: transcriptPath,
+            requestID: UUID(),
+            cancellationState: AgentHibernationController.PostTeardownRestoreCancellationState()
+        )
 
         controller.recordTerminalFocus(workspaceId: key.workspaceId, panelId: key.panelId)
 
-        #expect(controller.postTeardownRestoreTasksByPanel[key] != nil)
+        let monitorKey = AgentHibernationController.postTeardownRestoreTaskKey(
+            transcriptPath: transcriptPath
+        )
+        #expect(controller.postTeardownRestoreTasksByTranscriptPath[monitorKey] != nil)
         #expect(task.isCancelled == false)
     }
 
