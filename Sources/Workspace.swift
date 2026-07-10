@@ -409,19 +409,7 @@ extension Workspace {
             clearRestoredAgentSnapshot(panelId: panelId)
         }
         if let compatibleRestorableAgent = compatibleIndexedRestorableAgent {
-            let fingerprint = TabManager.restorableAgentSnapshotFingerprint(compatibleRestorableAgent)
-            if invalidatedRestoredAgentFingerprintsByPanelId[panelId] == fingerprint {
-                clearRestoredAgentSnapshot(panelId: panelId)
-            } else {
-                restoredAgentSnapshotsByPanelId[panelId] = compatibleRestorableAgent
-                if restoredAgentResumeStatesByPanelId[panelId] == nil {
-                    restoredAgentResumeStatesByPanelId[panelId] = restoredAgentResumeStateForAcceptedSnapshot(
-                        panelId: panelId
-                    )
-                }
-                invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: panelId)
-                syncTerminalTabAgentIconAsset(forPanelId: panelId)
-            }
+            adoptIndexedRestorableAgentSnapshot(compatibleRestorableAgent, panelId: panelId)
         }
         let hibernationState = (panel as? TerminalPanel)?.agentHibernationState
         let effectiveHibernationState = hibernationState.flatMap { state in
@@ -2362,6 +2350,14 @@ final class Workspace: Identifiable, ObservableObject {
         case awaitingAutoResumeCommand
         case autoResumeCommandRunning
         case observedAgentCommandRunning
+        /// The session is recorded and resumable (persisted for relaunch,
+        /// forkable, manually resumable) but the agent is known not to be
+        /// running in this panel right now — either the persist-time adoption
+        /// happened while no command was running, or a recorded agent process
+        /// was proven dead. Unlike the seeded `.manualResumeAvailable`, this
+        /// state must not drive the tab's agent brand icon: the panel is a
+        /// plain shell (#7822).
+        case recordedSessionOnly
     }
     var restoredAgentResumeStatesByPanelId: [UUID: RestoredAgentResumeState] = [:]
     var invalidatedRestoredAgentFingerprintsByPanelId: [UUID: Int] = [:]
@@ -4581,12 +4577,6 @@ final class Workspace: Identifiable, ObservableObject {
         return didResume
     }
 
-    private func restoredAgentResumeStateForAcceptedSnapshot(panelId: UUID) -> RestoredAgentResumeState {
-        panelShellActivityStates[panelId] == .commandRunning
-            ? .observedAgentCommandRunning
-            : .manualResumeAvailable
-    }
-
     private func updateRestoredAgentResumeState(
         panelId: UUID,
         restoredAgent: SessionRestorableAgentSnapshot,
@@ -4599,14 +4589,15 @@ final class Workspace: Identifiable, ObservableObject {
                 restoredAgentResumeStatesByPanelId[panelId] = .autoResumeCommandRunning
             case .some(.autoResumeCommandRunning), .some(.observedAgentCommandRunning):
                 break
-            case .some(.manualResumeAvailable), nil:
+            case .some(.manualResumeAvailable), .some(.recordedSessionOnly), nil:
                 invalidateRestoredAgentSnapshot(panelId: panelId, restoredAgent: restoredAgent)
             }
         case .promptIdle:
             switch restoredAgentResumeStatesByPanelId[panelId] {
             case .some(.autoResumeCommandRunning), .some(.observedAgentCommandRunning):
                 invalidateRestoredAgentSnapshot(panelId: panelId, restoredAgent: restoredAgent)
-            case .some(.awaitingAutoResumeCommand), .some(.manualResumeAvailable), nil:
+            case .some(.awaitingAutoResumeCommand), .some(.manualResumeAvailable),
+                 .some(.recordedSessionOnly), nil:
                 break
             }
         case .unknown:
