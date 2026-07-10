@@ -29,6 +29,12 @@ public actor CmxIrohServerSession {
         guard !admitted, controlStream == nil else {
             throw CmxIrohServerSessionError.alreadyAdmitted
         }
+        // One control stream plus sixteen bounded terminal or artifact lanes.
+        // Client-created unidirectional streams are not part of this protocol.
+        try await connection.setIncomingStreamLimits(
+            maximumBidirectionalStreamCount: 17,
+            maximumUnidirectionalStreamCount: 0
+        )
         let stream = try await connection.acceptBidirectionalStream()
         do {
             let decoded = try await readHeader(from: stream.receiveStream)

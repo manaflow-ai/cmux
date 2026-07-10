@@ -1,3 +1,4 @@
+import CMUXMobileCore
 public import Foundation
 
 /// Owns one account-scoped Mac endpoint, broker binding, relay rotation, and accept loop.

@@ -238,6 +238,10 @@ public actor CmxIrohClientSession {
             guard await establishedConnection.remoteIdentity() == targetIdentity else {
                 throw CmxIrohClientSessionError.remoteIdentityMismatch
             }
+            try await establishedConnection.setIncomingStreamLimits(
+                maximumBidirectionalStreamCount: 0,
+                maximumUnidirectionalStreamCount: 16
+            )
             let stream = try await establishedConnection.openBidirectionalStream()
             let header = try CmxIrohStreamHeader(
                 lane: .control,
