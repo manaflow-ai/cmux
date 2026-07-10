@@ -2145,7 +2145,7 @@ private struct NotificationsPopoverView: View {
     // UserDefaults.didChangeNotification, which wakes up every observer in the app.
     @State private var liveWidth: CGFloat?
     @State private var liveHeight: CGFloat?
-    @State private var workspaceTitles: [UUID: String] = [:]
+    @State private var loadedWorkspaceTitles: [UUID: String]?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -2338,7 +2338,7 @@ private struct NotificationsPopoverView: View {
             let snapshot = notificationStore.notifications
             let lastIndex = snapshot.count - 1
             // One tabId -> title index per render, not an O(tabs) scan per row (#5794).
-            let titleSnapshot = workspaceTitles.isEmpty ? currentWorkspaceTitles() : workspaceTitles
+            let titleSnapshot = loadedWorkspaceTitles ?? currentWorkspaceTitles()
             ScrollView {
                 LazyVStack(spacing: 0) {
                     ForEach(Array(snapshot.enumerated()), id: \.element.id) { index, notification in
@@ -2393,8 +2393,8 @@ private struct NotificationsPopoverView: View {
         let notificationWorkspaceIds = Set(notificationStore.notifications.map(\.tabId))
         guard let notification else {
             let nextTitles = currentWorkspaceTitles()
-            guard nextTitles != workspaceTitles else { return }
-            workspaceTitles = nextTitles
+            guard loadedWorkspaceTitles != nextTitles else { return }
+            loadedWorkspaceTitles = nextTitles
             return
         }
 
@@ -2421,7 +2421,7 @@ private struct NotificationsPopoverView: View {
 
         let relevantIds = changedWorkspaceIds.intersection(notificationWorkspaceIds)
         guard !relevantIds.isEmpty else { return }
-        var nextTitles = workspaceTitles
+        var nextTitles = loadedWorkspaceTitles ?? currentWorkspaceTitles()
         for workspaceId in relevantIds {
             if let title = changedTitles[workspaceId] {
                 nextTitles[workspaceId] = title
@@ -2429,8 +2429,8 @@ private struct NotificationsPopoverView: View {
                 nextTitles.removeValue(forKey: workspaceId)
             }
         }
-        guard nextTitles != workspaceTitles else { return }
-        workspaceTitles = nextTitles
+        guard loadedWorkspaceTitles != nextTitles else { return }
+        loadedWorkspaceTitles = nextTitles
     }
 
     private func emptyState(systemImage: String, title: String, subtitle: String?) -> some View {

@@ -1,3 +1,4 @@
+import CmuxFoundation
 import SwiftUI
 
 struct NotificationPopoverRow: View, Equatable {
@@ -107,11 +108,6 @@ struct NotificationPopoverRow: View, Equatable {
                             .accessibilityIdentifier(
                                 "NotificationPopoverRow.\(notification.id.uuidString).workspaceTitle"
                             )
-
-                        Text(notification.title)
-                            .cmuxFont(size: 10.5, weight: .medium)
-                            .foregroundColor(.secondary)
-                            .lineLimit(1)
                     } else {
                         Text(notification.title)
                             .cmuxFont(size: 12.5, weight: .semibold)
@@ -124,6 +120,13 @@ struct NotificationPopoverRow: View, Equatable {
                         .foregroundColor(.secondary)
                         .padding(.trailing, 34)
                         .layoutPriority(2)
+                }
+
+                if let workspaceTitle, !workspaceTitle.isEmpty {
+                    Text(notification.title)
+                        .cmuxFont(size: 10.5, weight: .medium)
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
                 }
 
                 if !notification.body.isEmpty {
