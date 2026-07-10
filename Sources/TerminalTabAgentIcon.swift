@@ -1,5 +1,23 @@
+import AppKit
 import Bonsplit
+import CmuxAppKitSupportUI
 import Foundation
+
+struct TerminalTabAgentIconPayload: Equatable {
+    let imageData: Data?
+    let assetName: String?
+}
+
+@MainActor
+fileprivate func terminalTabAgentIconImageData(assetName: String) -> Data? {
+    CmuxResolvedIconRenderer().pngData(
+        for: CmuxResolvedIconRequest(
+            source: .asset(name: assetName, bundle: .main),
+            size: NSSize(width: 14, height: 14)
+        ),
+        appearance: NSApplication.shared.effectiveAppearance
+    )
+}
 
 /// Resolves the asset-catalog brand mark shown in a terminal tab's fixed icon
 /// slot from the panel's agent state: live agents win over a restored
@@ -53,6 +71,16 @@ nonisolated struct TerminalTabAgentIconResolver {
         }
         guard let restoredAgent else { return nil }
         return restoredAgent.registrationIconAssetName ?? builtInAssetName(statusKey: restoredAgent.kind)
+    }
+
+    func payload(assetName: String?, imageData: (String) -> Data?) -> TerminalTabAgentIconPayload {
+        guard let assetName else {
+            return TerminalTabAgentIconPayload(imageData: nil, assetName: nil)
+        }
+        if let renderedData = imageData(assetName) {
+            return TerminalTabAgentIconPayload(imageData: renderedData, assetName: nil)
+        }
+        return TerminalTabAgentIconPayload(imageData: nil, assetName: assetName)
     }
 
     /// - Parameter knownStatusKeys: Status keys known to be exact agent ids
@@ -176,6 +204,7 @@ extension Workspace {
         var didMutatePanelTitle = false
         var didMutateWorkspaceTitle = false
         var didMutateTitleDerivedAgent = false
+        var didPruneStaleAgentRuntime = false
 
         if panelTitles[panelId] != trimmed {
             panelTitles[panelId] = trimmed
@@ -183,28 +212,34 @@ extension Workspace {
             didMutatePanelTitle = true
         }
 
-        if panels[panelId] is TerminalPanel,
-           updateTitleDerivedTerminalAgentStatusKey(forPanelId: panelId, title: trimmed) {
-            didMutate = true
-            didMutateTitleDerivedAgent = true
+        if panels[panelId] is TerminalPanel {
+            if updateTitleDerivedTerminalAgentStatusKey(forPanelId: panelId, title: trimmed) {
+                didMutate = true
+                didMutateTitleDerivedAgent = true
+            }
+            if clearStaleAgentPIDs(panelId: panelId, refreshPorts: true) {
+                didMutate = true
+                didPruneStaleAgentRuntime = true
+            }
         }
 
         // Update bonsplit tab title only when this panel's title changed, and
-        // update the icon when the title-derived agent fallback changes.
-        if (didMutatePanelTitle || didMutateTitleDerivedAgent),
+        // update the icon when the current agent signal changes.
+        if (didMutatePanelTitle || didMutateTitleDerivedAgent || didPruneStaleAgentRuntime),
            let tabId = surfaceIdFromPanelId(panelId),
            let panel = panels[panelId],
            let existing = bonsplitController.tab(tabId) {
             let baseTitle = panelTitles[panelId] ?? panel.displayTitle
             let resolvedTitle = resolvedPanelTitle(panelId: panelId, fallback: baseTitle)
             let titleUpdate: String? = existing.title == resolvedTitle ? nil : resolvedTitle
-            let iconAssetUpdate: String?? = didMutateTitleDerivedAgent
-                ? .some(terminalTabAgentIconAsset(forPanelId: panelId))
+            let iconPayloadUpdate = didMutateTitleDerivedAgent || didPruneStaleAgentRuntime
+                ? terminalTabAgentIconPayload(forPanelId: panelId)
                 : nil
             bonsplitController.updateTab(
                 tabId,
                 title: titleUpdate,
-                iconAsset: iconAssetUpdate,
+                iconImageData: iconPayloadUpdate.map(\.imageData),
+                iconAsset: iconPayloadUpdate.map(\.assetName),
                 hasCustomTitle: panelCustomTitles[panelId] != nil
             )
         }
@@ -328,15 +363,31 @@ extension Workspace {
         )
     }
 
+    @MainActor
+    func terminalTabAgentIconPayload(forPanelId panelId: UUID) -> TerminalTabAgentIconPayload {
+        TerminalTabAgentIconResolver().payload(
+            assetName: terminalTabAgentIconAsset(forPanelId: panelId),
+            imageData: terminalTabAgentIconImageData(assetName:)
+        )
+    }
+
+    @MainActor
+    func terminalTabAgentIconPayload(forDetached detached: DetachedSurfaceTransfer) -> TerminalTabAgentIconPayload {
+        guard detached.panel is TerminalPanel else {
+            return TerminalTabAgentIconPayload(imageData: detached.iconImageData, assetName: nil)
+        }
+        return terminalTabAgentIconPayload(forPanelId: detached.panelId)
+    }
+
     func syncTerminalTabAgentIconAsset(forPanelId panelId: UUID) {
         guard panels[panelId] is TerminalPanel,
               let tabId = surfaceIdFromPanelId(panelId),
               let existing = bonsplitController.tab(tabId) else {
             return
         }
-        let iconAsset = terminalTabAgentIconAsset(forPanelId: panelId)
-        guard existing.iconAsset != iconAsset else { return }
-        bonsplitController.updateTab(tabId, iconAsset: .some(iconAsset))
+        let payload = terminalTabAgentIconPayload(forPanelId: panelId)
+        guard existing.iconImageData != payload.imageData || existing.iconAsset != payload.assetName else { return }
+        bonsplitController.updateTab(tabId, iconImageData: .some(payload.imageData), iconAsset: .some(payload.assetName))
     }
 
     /// Convenience for agent-lifecycle call sites that may touch several
@@ -382,5 +433,27 @@ extension DockSplitStore {
                 registration?.id == statusKey ? registration?.iconAssetName : nil
             }
         )
+    }
+
+    @MainActor
+    func terminalTabAgentIconPayload(forPanelId panelId: UUID) -> TerminalTabAgentIconPayload {
+        TerminalTabAgentIconResolver().payload(
+            assetName: terminalTabAgentIconAsset(forPanelId: panelId),
+            imageData: terminalTabAgentIconImageData(assetName:)
+        )
+    }
+
+    func syncTerminalTabAgentIconAssetsForAllTerminalPanels() {
+        for (panelId, panel) in panels where panel is TerminalPanel {
+            guard let tabId = surfaceId(forPanelId: panelId),
+                  let existing = bonsplitController.tab(tabId) else {
+                continue
+            }
+            let payload = terminalTabAgentIconPayload(forPanelId: panelId)
+            guard existing.iconImageData != payload.imageData || existing.iconAsset != payload.assetName else {
+                continue
+            }
+            bonsplitController.updateTab(tabId, iconImageData: .some(payload.imageData), iconAsset: .some(payload.assetName))
+        }
     }
 }

@@ -207,6 +207,48 @@ struct TerminalTabAgentIconTests {
         #expect(asset == "AgentIcons/Codex")
     }
 
+    @MainActor
+    @Test func terminalTitleDoesNotBecomeAgentIdentity() throws {
+        let workspace = Workspace()
+        let panel = try #require(workspace.focusedTerminalPanel)
+        let tabId = try #require(workspace.surfaceIdFromPanelId(panel.id))
+
+        #expect(workspace.updatePanelTitle(panelId: panel.id, title: "codex --yolo"))
+        #expect(workspace.terminalTabAgentIconAsset(forPanelId: panel.id) == nil)
+        #expect(workspace.bonsplitController.tab(tabId)?.iconImageData == nil)
+        #expect(workspace.bonsplitController.tab(tabId)?.iconAsset == nil)
+    }
+
+    @MainActor
+    @Test func terminalTitleChangeReplacesStaleClaudeRuntimeIconWithCodex() throws {
+        try assertStaleAgentIconTransition(
+            stalePIDKey: "claude_code.old-session",
+            staleAsset: "AgentIcons/Claude",
+            title: "codex --yolo",
+            expectedAsset: "AgentIcons/Codex"
+        )
+    }
+
+    @MainActor
+    @Test func terminalTitleChangeReplacesStaleCodexRuntimeIconWithClaude() throws {
+        try assertStaleAgentIconTransition(
+            stalePIDKey: "codex.old-session",
+            staleAsset: "AgentIcons/Codex",
+            title: "claude --resume",
+            expectedAsset: "AgentIcons/Claude"
+        )
+    }
+
+    @MainActor
+    @Test func terminalTitleChangeClearsStaleAgentRuntimeIconForPlainShell() throws {
+        try assertStaleAgentIconTransition(
+            stalePIDKey: "claude_code.old-session",
+            staleAsset: "AgentIcons/Claude",
+            title: "zsh",
+            expectedAsset: nil
+        )
+    }
+
     @Test func liveRegisteredAgentResolvesThroughRegistrationLookup() {
         var lookedUpKeys: [String] = []
         let asset = TerminalTabAgentIconResolver().assetName(
@@ -262,5 +304,85 @@ struct TerminalTabAgentIconTests {
         )
 
         #expect(asset == "AgentIcons/HermesAgent")
+    }
+
+    @MainActor
+    private func assertStaleAgentIconTransition(
+        stalePIDKey: String,
+        staleAsset: String,
+        title: String,
+        expectedAsset: String?
+    ) throws {
+        let workspace = Workspace()
+        let panel = try #require(workspace.focusedTerminalPanel)
+        let tabId = try #require(workspace.surfaceIdFromPanelId(panel.id))
+        let notificationStore = TerminalNotificationStore.shared
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let previousNotificationStore = appDelegate.notificationStore
+        let previousNotifications = notificationStore.notifications
+        appDelegate.notificationStore = notificationStore
+        defer {
+            notificationStore.replaceNotificationsForTesting(previousNotifications)
+            appDelegate.notificationStore = previousNotificationStore
+        }
+
+        workspace.recordAgentPID(key: stalePIDKey, pid: 0, panelId: panel.id, refreshPorts: false)
+        let staleAgentPort = 54_321
+        workspace.agentListeningPorts = [staleAgentPort]
+        workspace.recomputeListeningPorts()
+        let staleNotification = TerminalNotification(
+            id: UUID(), tabId: workspace.id, surfaceId: panel.id,
+            title: "Stale agent", subtitle: "", body: "Needs input",
+            createdAt: Date(), isRead: false
+        )
+        let siblingNotification = TerminalNotification(
+            id: UUID(), tabId: workspace.id, surfaceId: UUID(),
+            title: "Sibling", subtitle: "", body: "Keep me",
+            createdAt: Date(), isRead: false
+        )
+        notificationStore.replaceNotificationsForTesting([staleNotification, siblingNotification])
+
+        #expect(workspace.terminalTabAgentIconAsset(forPanelId: panel.id) == staleAsset)
+        let stalePayload = workspace.terminalTabAgentIconPayload(forPanelId: panel.id)
+        #expect(workspace.bonsplitController.tab(tabId)?.iconImageData == stalePayload.imageData)
+        #expect(workspace.bonsplitController.tab(tabId)?.iconAsset == stalePayload.assetName)
+        #expect(workspace.listeningPorts.contains(staleAgentPort))
+        #expect(notificationStore.notifications.contains { $0.id == staleNotification.id })
+
+        #expect(workspace.updatePanelTitle(panelId: panel.id, title: title))
+        #expect(workspace.terminalTabAgentIconAsset(forPanelId: panel.id) == expectedAsset)
+        let expectedPayload = workspace.terminalTabAgentIconPayload(forPanelId: panel.id)
+        #expect(workspace.bonsplitController.tab(tabId)?.iconImageData == expectedPayload.imageData)
+        #expect(workspace.bonsplitController.tab(tabId)?.iconAsset == expectedPayload.assetName)
+        #expect(workspace.agentPIDs[stalePIDKey] == nil)
+        #expect(workspace.agentPIDKeysByPanelId[panel.id]?.contains(stalePIDKey) != true)
+        #expect(workspace.agentListeningPorts.isEmpty)
+        #expect(!workspace.listeningPorts.contains(staleAgentPort))
+        #expect(!notificationStore.notifications.contains { $0.id == staleNotification.id })
+        #expect(notificationStore.notifications.contains { $0.id == siblingNotification.id })
+    }
+
+    @Test func payloadUsesRenderedImageDataWhenAvailable() {
+        let rendered = Data([0x63, 0x6d, 0x75, 0x78])
+        let payload = TerminalTabAgentIconResolver().payload(assetName: "AgentIcons/Codex") { assetName in
+            assetName == "AgentIcons/Codex" ? rendered : nil
+        }
+
+        #expect(payload.imageData == rendered)
+        #expect(payload.assetName == nil)
+    }
+
+    @Test func payloadFallsBackToAssetNameWhenRenderingMisses() {
+        let payload = TerminalTabAgentIconResolver().payload(assetName: "AgentIcons/Claude") { _ in nil }
+
+        #expect(payload.imageData == nil)
+        #expect(payload.assetName == "AgentIcons/Claude")
+    }
+
+    @Test func payloadClearsBothIconFieldsWhenNoAssetIsResolved() {
+        let payload = TerminalTabAgentIconResolver().payload(assetName: nil) { _ in Data([1]) }
+
+        #expect(payload.imageData == nil)
+        #expect(payload.assetName == nil)
     }
 }

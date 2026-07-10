@@ -1942,7 +1942,7 @@ struct ContentView: View {
         return windowChrome.appearanceSnapshot(
             settings: WindowAppearanceUserSettingsSnapshot(
                 unifySurfaceBackdrops: sidebarMatchTerminalBackground,
-                colorScheme: AppearanceSettings.colorScheme(for: appearanceMode, fallback: colorScheme),
+                colorScheme: AppearanceSettings.effectiveColorScheme(for: appearanceMode, fallback: colorScheme),
                 sidebarMaterial: sidebarMaterial,
                 sidebarBlendMode: sidebarBlendMode,
                 sidebarState: sidebarStateSetting,
@@ -2644,7 +2644,7 @@ struct ContentView: View {
                 backgroundSource: source,
                 notificationPayloadHex: payloadHex
             )
-        })
+        }.onReceive(NotificationCenter.default.publisher(for: .systemAppearanceDidChange)) { _ in scheduleTitlebarThemeRefresh(reason: "systemAppearanceChanged") })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .ghosttyDidFocusTab)) { _ in
             sidebarSelectionState.selection = .tabs
@@ -5523,8 +5523,6 @@ struct ContentView: View {
             return String(localized: "commandPalette.kind.project", defaultValue: "Project")
         case .extensionBrowser:
             return String(localized: "sidebar.extensions.browser.title", defaultValue: "Sidebar Extensions")
-        case .workspaceTodo:
-            return String(localized: "commandPalette.kind.workspaceTodo", defaultValue: "Todos")
         case .cloudVMLoading:
             return String(localized: "commandPalette.kind.cloudVMLoading", defaultValue: "Cloud VM")
         }
@@ -5549,8 +5547,6 @@ struct ContentView: View {
             return ["project", "xcode", "build", "settings", "schemes", "targets"]
         case .extensionBrowser:
             return ["sidebar", "extensions", "extensionkit", "browser"]
-        case .workspaceTodo:
-            return ["todo", "todos", "checklist", "task", "status"]
         case .cloudVMLoading:
             return ["cloud", "vm", "loading"]
         }
@@ -6733,7 +6729,6 @@ struct ContentView: View {
                 when: { $0.bool(CommandPaletteContextKeys.hasWorkspace) }
             )
         )
-        contributions.append(contentsOf: WorkspaceTodoPaletteCommands.contributions(workspaceSubtitle: workspaceSubtitle))
         for entry in WorkspaceTabColorSettings.palette() {
             contributions.append(
                 CommandPaletteCommandContribution(
@@ -7825,7 +7820,6 @@ struct ContentView: View {
             tabManager.moveTabsToTop([workspace.id])
             tabManager.selectWorkspace(workspace)
         }
-        WorkspaceTodoPaletteCommands.registerHandlers(in: &registry, tabManager: tabManager)
         registry.register(commandId: "palette.closeOtherWorkspaces") {
             closeOtherSelectedWorkspaces()
         }
@@ -9566,7 +9560,6 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
     let notificationBadgeColorHex: String?
     let visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility
     let iMessageModeEnabled: Bool
-    let workspaceTodoChecklistStyle: WorkspaceTodoChecklistStyle
 
     init(
         defaults: UserDefaults = .standard,
@@ -9624,7 +9617,6 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
         selectionColorHex = defaults.string(forKey: "sidebarSelectionColorHex")
         notificationBadgeColorHex = defaults.string(forKey: "sidebarNotificationBadgeColorHex")
         iMessageModeEnabled = IMessageModeSettings.isEnabled(defaults: defaults)
-        workspaceTodoChecklistStyle = settings.value(for: catalog.betaFeatures.workspaceTodosChecklistStyle)
     }
 
     private static func bool(
@@ -10038,18 +10030,6 @@ struct VerticalTabsSidebar: View {
     @State private var workspaceScrollContentMinHeight: CGFloat = 0
     @State private var collapsedExtensionSidebarSectionIds: Set<String> = []
     @State private var extensionSidebarWorktreeCreationInFlightSectionIds: Set<String> = []
-    // Per-workspace transient checklist UI state (never persisted): which
-    // rows show their expanded checklist, and a monotonically bumped token
-    // per workspace that arms the row's add-item field after a context-menu
-    // or palette "Add Checklist Item…". Held at the container so rows stay
-    // behind the snapshot boundary (they receive a Bool/Int + closures).
-    @State private var expandedChecklistWorkspaceIds: Set<UUID> = []
-    @State private var checklistAddFieldActivationTokens: [UUID: Int] = [:]
-    // Which workspace row's status popover / checklist popover is open (at
-    // most one of each across the sidebar; opening one closes the other).
-    // Held at the container so rows stay behind the snapshot boundary.
-    @State private var statusPopoverWorkspaceId: UUID?
-    @State private var checklistPopoverWorkspaceId: UUID?
     @State private var extensionSidebarUpdateToken: UInt64 = 0
     // Stable, memoized merged observation publishers for the extension
     // sidebar's `.onReceive` handlers. Rebuilding them inline each body pass
@@ -10467,13 +10447,8 @@ struct VerticalTabsSidebar: View {
             } else {
                 extensionSidebarScrollArea(renderContext: renderContext)
             }
-            SidebarFooter(
-                updateViewModel: updateViewModel,
-                fileExplorerState: fileExplorerState,
-                modifierKeyMonitor: modifierKeyMonitor,
-                onSendFeedback: onSendFeedback
-            )
-            .frame(maxWidth: .infinity, alignment: .leading)
+            SidebarFooter(updateViewModel: updateViewModel, fileExplorerState: fileExplorerState, onSendFeedback: onSendFeedback)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
         .accessibilityIdentifier("Sidebar")
         .ignoresSafeArea()
@@ -10540,21 +10515,6 @@ struct VerticalTabsSidebar: View {
                 frozenShortcutHintsTabId = nil
                 frozenShortcutHintsValue = false
             }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .workspaceChecklistAddItemRequested)) { notification in
-            guard let workspaceId = notification.userInfo?[WorkspaceTodoActions.workspaceIdUserInfoKey] as? UUID,
-                  let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { return }
-            // Popover style routes the add request into the checklist popover
-            // (armed add field); empty checklists keep the inline ghost row
-            // because there is no summary line to anchor a popover to.
-            if WorkspaceTodoFeature.checklistStyle == .popover,
-               !workspace.todoState.checklist.isEmpty {
-                statusPopoverWorkspaceId = nil
-                checklistPopoverWorkspaceId = workspaceId
-            } else {
-                expandedChecklistWorkspaceIds.insert(workspaceId)
-            }
-            checklistAddFieldActivationTokens[workspaceId, default: 0] += 1
         }
         .onChange(of: dragState.draggedTabId) { newDraggedTabId in
             SidebarDragLifecycleNotification().postStateDidChange(
@@ -11040,7 +11000,7 @@ struct VerticalTabsSidebar: View {
             return .project
         case .extensionBrowser:
             return .unknown
-        case .workspaceTodo, .cloudVMLoading:
+        case .cloudVMLoading:
             return .unknown
         }
     }
@@ -12388,32 +12348,6 @@ struct VerticalTabsSidebar: View {
                 lastSidebarSelectionIndex = nil
             }
         }
-        let onToggleChecklistExpansion: () -> Void = { [tabId = tab.id] in
-            if expandedChecklistWorkspaceIds.contains(tabId) {
-                expandedChecklistWorkspaceIds.remove(tabId)
-            } else {
-                expandedChecklistWorkspaceIds.insert(tabId)
-            }
-        }
-        let onConsumeChecklistAddFieldActivation: () -> Void = { [tabId = tab.id] in
-            checklistAddFieldActivationTokens[tabId] = nil
-        }
-        let onStatusPopoverPresentedChange: @MainActor (Bool) -> Void = { [tabId = tab.id] presented in
-            if presented {
-                checklistPopoverWorkspaceId = nil
-                statusPopoverWorkspaceId = tabId
-            } else if statusPopoverWorkspaceId == tabId {
-                statusPopoverWorkspaceId = nil
-            }
-        }
-        let onChecklistPopoverPresentedChange: @MainActor (Bool) -> Void = { [tabId = tab.id] presented in
-            if presented {
-                statusPopoverWorkspaceId = nil
-                checklistPopoverWorkspaceId = tabId
-            } else if checklistPopoverWorkspaceId == tabId {
-                checklistPopoverWorkspaceId = nil
-            }
-        }
         let row = TabItemView(
             tabManager: tabManager,
             notificationStore: notificationStore,
@@ -12450,14 +12384,6 @@ struct VerticalTabsSidebar: View {
             contextMenuPinState: contextMenuPinState,
             workspaceGroupMenuSnapshot: renderContext.workspaceGroupMenuSnapshot,
             settings: renderContext.tabItemSettings,
-            isChecklistExpanded: expandedChecklistWorkspaceIds.contains(tab.id),
-            checklistAddFieldActivationToken: checklistAddFieldActivationTokens[tab.id] ?? 0,
-            onToggleChecklistExpansion: onToggleChecklistExpansion,
-            onConsumeChecklistAddFieldActivation: onConsumeChecklistAddFieldActivation,
-            isStatusPopoverPresented: statusPopoverWorkspaceId == tab.id,
-            isChecklistPopoverPresented: checklistPopoverWorkspaceId == tab.id,
-            onStatusPopoverPresentedChange: onStatusPopoverPresentedChange,
-            onChecklistPopoverPresentedChange: onChecklistPopoverPresentedChange,
             onContextMenuAppear: onContextMenuAppear,
             onContextMenuDisappear: onContextMenuDisappear
         )
@@ -12691,14 +12617,13 @@ private struct SidebarExternalDropDelegate: DropDelegate {
 private struct SidebarFooter: View {
     var updateViewModel: UpdateStateModel
     @ObservedObject var fileExplorerState: FileExplorerState
-    let modifierKeyMonitor: WindowScopedShortcutHintModifierMonitor
     let onSendFeedback: () -> Void
 
     var body: some View {
 #if DEBUG
-        SidebarDevFooter(updateViewModel: updateViewModel, fileExplorerState: fileExplorerState, modifierKeyMonitor: modifierKeyMonitor, onSendFeedback: onSendFeedback)
+        SidebarDevFooter(updateViewModel: updateViewModel, fileExplorerState: fileExplorerState, onSendFeedback: onSendFeedback)
 #else
-        SidebarFooterButtons(updateViewModel: updateViewModel, fileExplorerState: fileExplorerState, modifierKeyMonitor: modifierKeyMonitor, onSendFeedback: onSendFeedback)
+        SidebarFooterButtons(updateViewModel: updateViewModel, fileExplorerState: fileExplorerState, onSendFeedback: onSendFeedback)
             .padding(.leading, 6)
             .padding(.trailing, 10)
             .padding(.bottom, 6)
@@ -12706,21 +12631,12 @@ private struct SidebarFooter: View {
     }
 }
 
-struct SidebarFooterButtons: View {
+private struct SidebarFooterButtons: View {
     var updateViewModel: UpdateStateModel
     @ObservedObject var fileExplorerState: FileExplorerState
-    let modifierKeyMonitor: WindowScopedShortcutHintModifierMonitor
     let onSendFeedback: () -> Void
     @State private var extensionBrowserAnchorView: NSView?
     @LiveSetting(\.betaFeatures.extensions) private var extensionsExperimentalEnabled
-    // Reuse the exact Command-hold shortcut-hint signal that drives the per-row
-    // shortcut badges (`showModifierHoldHints && modifierKeyMonitor.isModifierPressed`,
-    // see `resolvedShowsModifierShortcutHints`). Reading `isModifierPressed`
-    // (the monitor is `@Observable`) here localizes the reveal re-render to the
-    // footer instead of the whole sidebar body.
-    @LiveSetting(\.shortcuts.showModifierHoldHints) private var showModifierHoldHints
-    /// Owns the discovery popover so it persists after ⌘ is released.
-    @State private var isShortcutPopoverPresented = false
 
     var body: some View {
         HStack(spacing: 4) {
@@ -12748,14 +12664,6 @@ struct SidebarFooterButtons: View {
             }
             if let updateActionsHost = AppDelegate.shared {
                 UpdatePill(model: updateViewModel, accent: cmuxAccentColor(), actions: updateActionsHost)
-            }
-            // Command-hold reveal: sits at the trailing end of the footer, so it
-            // appears next to the update pill when one is showing, otherwise next
-            // to the help button. Hidden unless ⌘ is held (the shortcut-hint
-            // signal), matching the sidebar's modifier-hold badges. Stays mounted
-            // while its popover is open so releasing ⌘ does not dismiss it.
-            if (showModifierHoldHints && modifierKeyMonitor.isModifierPressed) || isShortcutPopoverPresented {
-                ShortcutDiscoveryButton(isPopoverPresented: $isShortcutPopoverPresented)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -13000,6 +12908,213 @@ private struct SidebarHelpMenuButton: View {
 
 }
 
+private struct SidebarFooterIconButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        SidebarFooterIconButtonStyleBody(configuration: configuration)
+    }
+}
+
+private struct SidebarFooterIconButtonStyleBody: View {
+    let configuration: SidebarFooterIconButtonStyle.Configuration
+
+    @Environment(\.isEnabled) private var isEnabled
+    @State private var isHovered = false
+
+    private var backgroundOpacity: Double {
+        guard isEnabled else { return 0.0 }
+        if configuration.isPressed { return 0.16 }
+        if isHovered { return 0.08 }
+        return 0.0
+    }
+
+    var body: some View {
+        configuration.label
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(Color.primary.opacity(backgroundOpacity))
+            )
+            .onHover { hovering in
+                isHovered = hovering
+            }
+            .animation(.easeOut(duration: 0.12), value: isHovered)
+            .animation(.easeOut(duration: 0.08), value: configuration.isPressed)
+    }
+}
+
+#if DEBUG
+private struct SidebarDevFooter: View {
+    var updateViewModel: UpdateStateModel
+    @ObservedObject var fileExplorerState: FileExplorerState
+    let onSendFeedback: () -> Void
+    @AppStorage(DevBuildBannerDebugSettings.sidebarBannerVisibleKey)
+    private var showSidebarDevBuildBanner = DevBuildBannerDebugSettings.defaultShowSidebarBanner
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            SidebarFooterButtons(updateViewModel: updateViewModel, fileExplorerState: fileExplorerState, onSendFeedback: onSendFeedback)
+            if showSidebarDevBuildBanner {
+                Text(String(localized: "debug.devBuildBanner.title", defaultValue: "THIS IS A DEV BUILD"))
+                    .cmuxFont(size: 11, weight: .semibold)
+                    .foregroundColor(.red)
+            }
+        }
+        .padding(.leading, 6)
+        .padding(.trailing, 10)
+        .padding(.bottom, 6)
+    }
+}
+#endif
+
+private struct SidebarEmptyArea: View {
+    @EnvironmentObject var tabManager: TabManager
+    let rowSpacing: CGFloat
+    @Binding var selection: SidebarSelection
+    @Binding var selectedTabIds: Set<UUID>
+    @Binding var lastSidebarSelectionIndex: Int?
+    let dragAutoScrollController: SidebarDragAutoScrollController
+    // Value snapshot + closure bundles instead of an @Observable store
+    // reference (snapshot-boundary rule).
+    let topDropIndicatorVisible: Bool
+    var tabDropDelegate: SidebarTabDropDelegate? = nil
+    let bonsplitDropIndicator: Binding<SidebarDropIndicator?>
+    var expandsVertically = true
+    var minimumHeight: CGFloat? = nil
+
+    var body: some View {
+        dropTarget
+            .overlay {
+                SidebarBonsplitTabNewWorkspaceDropOverlay(
+                    tabManager: tabManager,
+                    selectedTabIds: $selectedTabIds,
+                    lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
+                    dropIndicator: bonsplitDropIndicator
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            .overlay(alignment: .top) {
+                if topDropIndicatorVisible {
+                    Rectangle()
+                        .fill(cmuxAccentColor())
+                        .frame(height: 2)
+                        .padding(.horizontal, 8)
+                        .offset(y: -(rowSpacing / 2))
+                }
+            }
+    }
+
+    @ViewBuilder
+    private var dropTarget: some View {
+        let base = hitTarget
+            .onTapGesture(count: 2) {
+                // When the active workspace is a remote-tmux mirror, route through
+                // performNewWorkspaceAction so a new workspace becomes a new tmux
+                // session instead of a local (orphan) workspace. Gate on the
+                // SELECTED tab, not `tabs.contains`: a dedicated remote window can
+                // be polluted with a dragged-in local workspace (move targets don't
+                // exclude dedicated windows), and `contains` would then misroute a
+                // local empty-area double-tap into spawning an unwanted tmux session.
+                if tabManager.selectedTab?.isRemoteTmuxMirror == true {
+                    _ = AppDelegate.shared?.performNewWorkspaceAction(
+                        tabManager: tabManager,
+                        debugSource: "sidebar.emptyArea.remoteTmux"
+                    )
+                } else {
+                    tabManager.addWorkspace(placementOverride: .end)
+                }
+                if let selectedId = tabManager.selectedTabId {
+                    selectedTabIds = [selectedId]
+                    lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == selectedId }
+                }
+                selection = .tabs
+            }
+        if let tabDropDelegate {
+            base
+                .sidebarEmptyAreaWorkspaceGroupContextMenu(tabManager: tabManager)
+                .onDrop(of: SidebarTabDragPayload.dropContentTypes, delegate: tabDropDelegate)
+        } else {
+            base
+                .sidebarEmptyAreaWorkspaceGroupContextMenu(tabManager: tabManager)
+        }
+    }
+
+    @ViewBuilder
+    private var hitTarget: some View {
+        if expandsVertically {
+            Color.clear
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .contentShape(Rectangle())
+        } else {
+            Color.clear
+                .frame(maxWidth: .infinity, minHeight: minimumHeight ?? 0)
+                .contentShape(Rectangle())
+        }
+    }
+}
+
+private extension View {
+    func sidebarEmptyAreaWorkspaceGroupContextMenu(tabManager: TabManager) -> some View {
+        contextMenu {
+            let newWorkspaceGroupShortcut = KeyboardShortcutSettings.shortcut(for: .newWorkspaceGroup)
+            let newWorkspaceGroupLabel = String(
+                localized: "contextMenu.workspaceGroup.newEmpty",
+                defaultValue: "New Empty Workspace Group"
+            )
+            if let key = newWorkspaceGroupShortcut.keyEquivalent {
+                Button(newWorkspaceGroupLabel) {
+                    _ = AppDelegate.shared?.createEmptyWorkspaceGroup(tabManager: tabManager)
+                }
+                .keyboardShortcut(key, modifiers: newWorkspaceGroupShortcut.eventModifiers)
+            } else {
+                Button(newWorkspaceGroupLabel) {
+                    _ = AppDelegate.shared?.createEmptyWorkspaceGroup(tabManager: tabManager)
+                }
+            }
+        }
+    }
+}
+
+private struct ExtensionSidebarBrowserStackEmptyArea: View {
+    let rowSpacing: CGFloat
+    let orderedRows: [ExtensionSidebarBrowserStackDropRow]
+    let dragAutoScrollController: SidebarDragAutoScrollController
+    @Binding var draggedTabId: UUID?
+    @Binding var dropIndicator: SidebarDropIndicator?
+    let onNewTab: () -> Void
+    let onMove: (CmuxSidebarProviderWorkspaceMove) -> Bool
+
+    var body: some View {
+        Color.clear
+            .contentShape(Rectangle())
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .onTapGesture(count: 2, perform: onNewTab)
+            .onDrop(of: SidebarTabDragPayload.dropContentTypes, delegate: ExtensionSidebarBrowserStackEndDropDelegate(
+                orderedRows: orderedRows,
+                draggedTabId: $draggedTabId,
+                dragAutoScrollController: dragAutoScrollController,
+                dropIndicator: $dropIndicator,
+                onMove: onMove
+            ))
+            .overlay(alignment: .top) {
+                if shouldShowTopDropIndicator {
+                    Rectangle()
+                        .fill(cmuxAccentColor())
+                        .frame(height: 2)
+                        .padding(.horizontal, 8)
+                        .offset(y: -(rowSpacing / 2))
+                }
+            }
+    }
+
+    private var shouldShowTopDropIndicator: Bool {
+        guard let indicator = dropIndicator else { return false }
+        if indicator.tabId == nil {
+            return true
+        }
+        guard indicator.edge == .bottom, let lastWorkspaceId = orderedRows.last?.workspaceId else { return false }
+        return indicator.tabId == lastWorkspaceId
+    }
+}
+
 // PERF: TabItemView is Equatable so SwiftUI skips body re-evaluation when
 // the parent rebuilds with unchanged values. Without this, every TabManager
 // or NotificationStore publish causes ALL tab items to re-evaluate (~18% of
@@ -13010,6 +13125,68 @@ private struct SidebarHelpMenuButton: View {
 // and bridge only sidebar-visible workspace changes into local state.
 // Do NOT add @EnvironmentObject or new @Binding without updating ==.
 // Do NOT remove .equatable() from the ForEach call site in VerticalTabsSidebar.
+struct SidebarWorkspaceSnapshotBuilder {
+    struct PresentationKey: Equatable {
+        let showsWorkspaceDescription: Bool
+        let usesVerticalBranchLayout: Bool
+        let showsGitBranch: Bool
+        let usesViewportAwarePath: Bool
+        let showsAgentActivity: Bool
+        let visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility
+    }
+
+    struct VerticalBranchDirectoryLine: Equatable {
+        let branch: String?
+        // Ordered longest → shortest. Empty means no directory to show.
+        // First element is the canonical display string when only one is needed.
+        let directoryCandidates: [String]
+
+        var directory: String? { directoryCandidates.first }
+    }
+
+    struct PullRequestDisplay: Identifiable, Equatable {
+        let id: String
+        let number: Int
+        let label: String
+        let url: URL
+        let status: SidebarPullRequestStatus
+        let isStale: Bool
+    }
+
+    struct Snapshot: Equatable {
+        let presentationKey: PresentationKey
+        let title: String
+        let customDescription: String?
+        let isPinned: Bool
+        let customColorHex: String?
+        let remoteWorkspaceSidebarText: String?
+        let remoteConnectionStatusText: String
+        let remoteStateHelpText: String
+        let showsRemoteReconnectAffordance: Bool
+        let copyableSidebarSSHError: String?
+        let latestConversationMessage: String?
+        let metadataEntries: [SidebarStatusEntry]
+        let metadataBlocks: [SidebarMetadataBlock]
+        let latestLog: SidebarLogEntry?
+        let progress: SidebarProgressState?
+        let activeCodingAgentCount: Int
+        let compactGitBranchSummaryText: String?
+        let compactDirectoryCandidates: [String]
+        let compactBranchDirectoryCandidates: [String]
+        let branchDirectoryLines: [VerticalBranchDirectoryLine]
+        let branchLinesContainBranch: Bool
+        let pullRequestRows: [PullRequestDisplay]
+        let listeningPorts: [Int]
+        let finderDirectoryPath: String?
+        let mediaActivity: BrowserMediaActivity
+    }
+}
+
+private struct SidebarTabItemContextMenuState {
+    var hasDeferredWorkspaceObservationInvalidation = false
+    var pendingWorkspaceSnapshot: SidebarWorkspaceSnapshotBuilder.Snapshot?
+}
+
 struct TabItemView: View, Equatable {
     private static let workspaceObservationCoalesceInterval: RunLoop.SchedulerTimeType.Stride = .milliseconds(40)
     private static let legacyVMWebSocketDescription = "VM WebSocket PTY"
@@ -13038,10 +13215,6 @@ struct TabItemView: View, Equatable {
         lhs.topDropIndicatorVisible == rhs.topDropIndicatorVisible &&
         lhs.bottomDropIndicatorVisible == rhs.bottomDropIndicatorVisible &&
         lhs.isBonsplitWorkspaceDropActive == rhs.isBonsplitWorkspaceDropActive &&
-        lhs.isChecklistExpanded == rhs.isChecklistExpanded &&
-        lhs.checklistAddFieldActivationToken == rhs.checklistAddFieldActivationToken &&
-        lhs.isStatusPopoverPresented == rhs.isStatusPopoverPresented &&
-        lhs.isChecklistPopoverPresented == rhs.isChecklistPopoverPresented &&
         lhs.settings == rhs.settings
     }
 
@@ -13102,21 +13275,6 @@ struct TabItemView: View, Equatable {
     let contextMenuPinState: WorkspaceActionDispatcher.PinState?
     let workspaceGroupMenuSnapshot: WorkspaceGroupMenuSnapshot
     let settings: SidebarTabItemSettingsSnapshot
-    // Checklist expansion is per-workspace transient UI state owned by the
-    // sidebar container (a Set<UUID> there), passed in as a Bool + closures to
-    // respect the snapshot boundary. The activation token arms the checklist
-    // add-item field when a context-menu/palette "Add Checklist Item…" fires.
-    let isChecklistExpanded: Bool
-    let checklistAddFieldActivationToken: Int
-    let onToggleChecklistExpansion: () -> Void
-    let onConsumeChecklistAddFieldActivation: () -> Void
-    // The status and checklist popovers are per-workspace transient UI state
-    // owned by the sidebar container (UUID? there, at most one of each open),
-    // passed in as Bools + change closures like the checklist expansion.
-    let isStatusPopoverPresented: Bool
-    let isChecklistPopoverPresented: Bool
-    let onStatusPopoverPresentedChange: @MainActor (Bool) -> Void
-    let onChecklistPopoverPresentedChange: @MainActor (Bool) -> Void
     /// Called from this row's contextMenu.onAppear so the parent can freeze
     /// `showsModifierShortcutHints` to the value it last passed in. Prevents
     /// modifier-key transitions from flipping the badges on the row sitting
@@ -13508,6 +13666,11 @@ struct TabItemView: View, Equatable {
             maxDisplayedCharacters: Self.maxDisplayedTitleCharacters
         )
         let scaledUnreadBadgeSize = 16 * fontScale
+        let scaledLoadingSpinnerSize = max(10, 12 * fontScale)
+        let titleFirstLineCenter = GlobalFontMagnification.scaledSize(
+            scaledFontSize(12.5),
+            percent: globalFontMagnificationPercent
+        ) * 0.6
         let scaledCloseButtonHitSize = max(16, 16 * fontScale)
         let scaledCloseButtonWidth = max(
             SidebarTrailingAccessoryWidthPolicy().closeButtonWidth,
@@ -13526,34 +13689,9 @@ struct TabItemView: View, Equatable {
         let spinnerTooltip = SidebarWorkspaceLoadingTooltip.text(count: workspaceSnapshot.activeCodingAgentCount)
         let spinnerColor = usesInvertedActiveForeground ? selectedWorkspaceForegroundNSColor(opacity: 0.55) : .secondaryLabelColor
         let rowView = VStack(alignment: .leading, spacing: 4) {
-            HStack(alignment: .top, spacing: titleRowSpacing) {
-
-                if let taskStatus = workspaceSnapshot.taskStatus {
-                    SidebarWorkspaceTaskStatusGlyphControl(
-                        status: taskStatus,
-                        inferred: workspaceSnapshot.taskStatusInferred ?? taskStatus,
-                        hasOverride: workspaceSnapshot.taskStatusHasOverride,
-                        usesMonochrome: usesInvertedActiveForeground,
-                        monochromeColor: activeSecondaryColor(0.85),
-                        neutralColor: activeSecondaryColor(0.6),
-                        fontScale: fontScale,
-                        isPopoverPresented: isStatusPopoverPresented,
-                        onPopoverPresentedChange: onStatusPopoverPresentedChange,
-                        onSelectLane: { [tab] status in
-                            WorkspaceTodoActions.applyStatusOverride(status, to: [tab])
-                        },
-                        onSelectNone: { [tab] in
-                            WorkspaceTodoActions.hideStatus(for: [tab])
-                        },
-                        onOptionToggleDone: { [tab] in
-                            WorkspaceTodoActions.toggleDone(for: tab)
-                        }
-                    )
-                    .padding(.top, 2)
-                }
-
+            HStack(alignment: .sidebarTitleFirstLineCenter, spacing: titleRowSpacing) {
                 if leadingSlotActive {
-                    SidebarWorkspaceLeadingStatusSlot(showsBadge: badgeOnLeading, showsSpinner: spinnerOnLeading, unreadCount: unreadCount, side: scaledUnreadBadgeSize, badgeFont: badgeFont, badgeFillColor: activeUnreadBadgeFillColor, badgeTextColor: activeUnreadBadgeTextColor, spinnerColor: spinnerColor, spinnerTooltip: spinnerTooltip)
+                    SidebarWorkspaceLeadingStatusSlot(showsBadge: badgeOnLeading, showsSpinner: spinnerOnLeading, unreadCount: unreadCount, side: badgeOnLeading ? scaledUnreadBadgeSize : scaledLoadingSpinnerSize, spinnerSide: scaledLoadingSpinnerSize, badgeFont: badgeFont, badgeFillColor: activeUnreadBadgeFillColor, badgeTextColor: activeUnreadBadgeTextColor, spinnerColor: spinnerColor, spinnerTooltip: spinnerTooltip)
                 }
 
                 if workspaceSnapshot.isPinned {
@@ -13566,38 +13704,11 @@ struct TabItemView: View, Equatable {
                 // background browser pane is surfaced on its workspace row,
                 // styled like the pin indicator. Audio is the must-have signal;
                 // mic/camera follow the macOS orange/green convention.
-                if workspaceSnapshot.mediaActivity.isPlayingAudio {
-                    let audioPlayingTooltip = String(
-                        localized: "sidebar.mediaActivity.audio.tooltip",
-                        defaultValue: "Playing audio"
-                    )
-                    CmuxSystemSymbolImage(magnified: "speaker.wave.2.fill", pointSize: scaledFontSize(9), weight: .semibold)
-                        .foregroundColor(activeSecondaryColor(0.8))
-                        .safeHelp(audioPlayingTooltip)
-                        .accessibilityLabel(audioPlayingTooltip)
-                }
-
-                if workspaceSnapshot.mediaActivity.isUsingMicrophone {
-                    let microphoneInUseTooltip = String(
-                        localized: "sidebar.mediaActivity.microphone.tooltip",
-                        defaultValue: "Microphone in use"
-                    )
-                    CmuxSystemSymbolImage(magnified: "mic.fill", pointSize: scaledFontSize(9), weight: .semibold)
-                        .foregroundColor(.orange)
-                        .safeHelp(microphoneInUseTooltip)
-                        .accessibilityLabel(microphoneInUseTooltip)
-                }
-
-                if workspaceSnapshot.mediaActivity.isUsingCamera {
-                    let cameraInUseTooltip = String(
-                        localized: "sidebar.mediaActivity.camera.tooltip",
-                        defaultValue: "Camera in use"
-                    )
-                    CmuxSystemSymbolImage(magnified: "video.fill", pointSize: scaledFontSize(9), weight: .semibold)
-                        .foregroundColor(.green)
-                        .safeHelp(cameraInUseTooltip)
-                        .accessibilityLabel(cameraInUseTooltip)
-                }
+                SidebarMediaActivityIndicators(
+                    mediaActivity: workspaceSnapshot.mediaActivity,
+                    symbolPointSize: scaledFontSize(9),
+                    audioColor: activeSecondaryColor(0.8)
+                )
 
                 if isEditing {
                     SidebarInlineRenameField(
@@ -13624,6 +13735,7 @@ struct TabItemView: View, Equatable {
                         onCancel: { isEditing = false }
                     )
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    .alignmentGuide(.sidebarTitleFirstLineCenter) { _ in titleFirstLineCenter }
                     .layoutPriority(1)
                 } else {
                     Text(displayedTitle)
@@ -13633,6 +13745,7 @@ struct TabItemView: View, Equatable {
                         .truncationMode(.tail)
                         .fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: .infinity, alignment: .leading)
+                        .alignmentGuide(.sidebarTitleFirstLineCenter) { _ in titleFirstLineCenter }
                         .layoutPriority(1)
                 }
 
@@ -13689,7 +13802,7 @@ struct TabItemView: View, Equatable {
             }
 
             if detailVisibility.showsLog, let latestLog = workspaceSnapshot.latestLog {
-                HStack(spacing: 4) {
+                HStack(alignment: .center, spacing: 4) {
                     CmuxSystemSymbolImage(magnified: logLevelIcon(latestLog.level), pointSize: scaledFontSize(8))
                         .foregroundColor(logLevelColor(latestLog.level, isActive: usesInvertedActiveForeground))
                     Text(latestLog.message)
@@ -13823,7 +13936,7 @@ struct TabItemView: View, Equatable {
                     ForEach(workspaceSnapshot.pullRequestRows) { pullRequest in
                         let pullRequestNumber = String(pullRequest.number)
                         let pullRequestTitle = "\(pullRequest.label) #\(pullRequestNumber)"
-                        let rowContent = HStack(spacing: 4) {
+                        let rowContent = HStack(alignment: .center, spacing: 4) {
                             PullRequestStatusIcon(
                                 status: pullRequest.status,
                                 color: pullRequestForegroundColor,
@@ -13870,38 +13983,7 @@ struct TabItemView: View, Equatable {
                 .foregroundColor(activeSecondaryColor(0.75))
                 .lineLimit(1)
             }
-
-            // Checklist summary line + inline expansion. Rendered while the
-            // workspace-todos feature is on and there is either content or a
-            // pending "Add Checklist Item…" request (which needs the add
-            // field visible on an empty checklist).
-            if workspaceSnapshot.taskStatus != nil,
-               !workspaceSnapshot.checklistItems.isEmpty || checklistAddFieldActivationToken > 0 {
-                SidebarWorkspaceChecklistSection(
-                    items: workspaceSnapshot.checklistItems,
-                    completedCount: workspaceSnapshot.checklistCompletedCount,
-                    totalCount: workspaceSnapshot.checklistTotalCount,
-                    firstUncheckedText: workspaceSnapshot.checklistFirstUncheckedText,
-                    workspaceTitle: workspaceSnapshot.title,
-                    isExpanded: isChecklistExpanded,
-                    addFieldActivationToken: checklistAddFieldActivationToken,
-                    usesPopoverPresentation: settings.workspaceTodoChecklistStyle == .popover,
-                    isPopoverPresented: isChecklistPopoverPresented,
-                    primaryColor: activeSecondaryColor(0.9),
-                    secondaryColor: activeSecondaryColor(0.65),
-                    summaryFont: magnifiedFont(scaledFontSize(10), weight: .semibold, monospacedDigit: true),
-                    itemFont: magnifiedFont(scaledFontSize(10)),
-                    fontScale: fontScale,
-                    onToggleExpansion: onToggleChecklistExpansion,
-                    onPopoverPresentedChange: onChecklistPopoverPresentedChange,
-                    onConsumeAddFieldActivation: onConsumeChecklistAddFieldActivation,
-                    actions: workspaceTodoChecklistActions
-                )
-            }
         }
-        // Done rows read as settled: dim the row content (not the selection
-        // background) to ~60%; hit-testing is unaffected by opacity.
-        .opacity(workspaceSnapshot.taskStatus == .done ? 0.6 : 1)
         // No implicit .animation(value:) on agent-mutable fields: animating a
         // row-height change interpolates the LazyVStack's measured height over
         // every frame of the 0.2s curve, and with dozens of agent sessions some
@@ -14428,19 +14510,6 @@ struct TabItemView: View, Equatable {
             guard detailVisibility.showsPullRequests, let orderedPanelIds else { return [] }
             return pullRequestDisplays(orderedPanelIds: orderedPanelIds)
         }()
-        // Pure reads only: effective-status resolution never mutates; the
-        // expired-override cleanup happens at explicit mutation entry points.
-        // A workspace can opt out of the status feature (None): no glyph slot
-        // is reserved.
-        let workspaceStatusVisible = !tab.todoState.statusHidden
-        let inferredTaskStatus = workspaceStatusVisible ? tab.inferredTaskStatus : nil
-        let taskStatusResolution: WorkspaceTaskStatusOverride.Resolution? = inferredTaskStatus.map { inferred in
-            WorkspaceTaskStatusOverride.effectiveStatus(
-                override: tab.todoState.statusOverride,
-                inferred: inferred
-            )
-        }
-        let checklistProgress = tab.checklistProgressSummary
 
         return SidebarWorkspaceSnapshotBuilder.Snapshot(
             presentationKey: workspaceSnapshotPresentationKey,
@@ -14471,16 +14540,7 @@ struct TabItemView: View, Equatable {
             pullRequestRows: pullRequestRows,
             listeningPorts: detailVisibility.showsPorts ? tab.listeningPorts : [],
             finderDirectoryPath: WorkspaceFinderDirectoryResolver.path(for: tab),
-            mediaActivity: tab.browserMediaActivity,
-            taskStatus: taskStatusResolution?.effective,
-            taskStatusHasOverride: taskStatusResolution.map { resolution in
-                tab.todoState.statusOverride != nil && !resolution.shouldClearOverride
-            } ?? false,
-            taskStatusInferred: inferredTaskStatus,
-            checklistItems: tab.todoState.checklist,
-            checklistCompletedCount: checklistProgress.completedCount,
-            checklistTotalCount: checklistProgress.totalCount,
-            checklistFirstUncheckedText: checklistProgress.firstUncheckedText
+            mediaActivity: tab.browserMediaActivity
         )
     }
 
@@ -15113,7 +15173,7 @@ private struct SidebarMetadataEntryRow: View {
 
     @ViewBuilder
     private func rowContent(underlined: Bool) -> some View {
-        HStack(spacing: 4) {
+        HStack(alignment: .center, spacing: 4) {
             if let icon = iconView {
                 icon
                     .foregroundColor(foregroundColor.opacity(0.95))
@@ -15998,6 +16058,80 @@ private struct ExtensionSidebarBrowserStackDropDelegate: DropDelegate {
             targetWorkspaceId: targetWorkspaceId,
             indicator: indicator
         )
+    }
+}
+
+private struct ExtensionSidebarBrowserStackEndDropDelegate: DropDelegate {
+    let orderedRows: [ExtensionSidebarBrowserStackDropRow]
+    @Binding var draggedTabId: UUID?
+    let dragAutoScrollController: SidebarDragAutoScrollController
+    @Binding var dropIndicator: SidebarDropIndicator?
+    let onMove: (CmuxSidebarProviderWorkspaceMove) -> Bool
+
+    func validateDrop(info: DropInfo) -> Bool {
+        info.hasItemsConforming(to: [SidebarTabDragPayload.typeIdentifier])
+            && draggedTabId != nil
+            && orderedRows.count > 1
+    }
+
+    func dropEntered(info: DropInfo) {
+        dragAutoScrollController.updateFromDragLocation()
+        updateDropIndicator()
+    }
+
+    func dropExited(info: DropInfo) {
+        if dropIndicator?.tabId == nil {
+            dropIndicator = nil
+        }
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        dragAutoScrollController.updateFromDragLocation()
+        updateDropIndicator()
+        return DropProposal(operation: .move)
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        defer {
+            draggedTabId = nil
+            dropIndicator = nil
+            dragAutoScrollController.stop()
+        }
+        guard let draggedTabId,
+              let insertionPosition = insertionPositionForEndMove(draggedWorkspaceId: draggedTabId),
+              let move = ExtensionSidebarBrowserStackDropPlanner(orderedRows: orderedRows).move(
+                draggedWorkspaceId: draggedTabId,
+                insertionPosition: insertionPosition
+              ) else {
+            return false
+        }
+        return onMove(move)
+    }
+
+    private func updateDropIndicator() {
+        let workspaceIds = orderedRows.map(\.workspaceId)
+        let nextIndicator = SidebarDropPlanner().indicator(
+            draggedTabId: draggedTabId,
+            targetTabId: nil,
+            tabIds: workspaceIds,
+            pinnedTabIds: []
+        )
+        guard dropIndicator != nextIndicator else { return }
+        dropIndicator = nextIndicator
+    }
+
+    private func insertionPositionForEndMove(draggedWorkspaceId: UUID) -> Int? {
+        let workspaceIds = orderedRows.map(\.workspaceId)
+        guard workspaceIds.contains(draggedWorkspaceId) else { return nil }
+        guard SidebarDropPlanner().indicator(
+            draggedTabId: draggedWorkspaceId,
+            targetTabId: nil,
+            tabIds: workspaceIds,
+            pinnedTabIds: []
+        ) != nil else {
+            return nil
+        }
+        return workspaceIds.count
     }
 }
 

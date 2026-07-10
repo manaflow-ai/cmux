@@ -119,7 +119,7 @@ extension Workspace {
             (notificationStore?.hasUnreadNotification(forTabId: id, surfaceId: nil) ?? false) ||
             (notificationStore?.hasRestoredUnreadIndicator(forTabId: id) ?? false)
         let workspaceNotificationSnapshots = notificationSnapshots(surfaceId: nil)
-        var snapshot = SessionWorkspaceSnapshot(
+        return SessionWorkspaceSnapshot(
             workspaceId: id,
             stableId: stableId,
             processTitle: processTitle,
@@ -145,8 +145,6 @@ extension Workspace {
             remote: remoteConfiguration?.sessionSnapshot(),
             environment: workspaceEnvironment.isEmpty ? nil : workspaceEnvironment
         )
-        snapshot.captureTodoState(from: self)
-        return snapshot
     }
 
     @discardableResult
@@ -233,7 +231,6 @@ extension Workspace {
         setCustomColor(snapshot.customColor)
         isPinned = snapshot.isPinned
         groupId = snapshot.groupId
-        restoreTodoState(from: snapshot)
 
         // Status entries and agent PIDs are ephemeral runtime state tied to running
         // processes (e.g. claude_code "Running"). Don't restore them across app
@@ -502,7 +499,6 @@ extension Workspace {
         let rightSidebarToolSnapshot: SessionRightSidebarToolPanelSnapshot?; var customSidebarSnapshot: SessionCustomSidebarPanelSnapshot? = nil
         let agentSessionSnapshot: SessionAgentSessionPanelSnapshot?
         let projectSnapshot: SessionProjectPanelSnapshot?
-        var workspaceTodoSnapshot: SessionWorkspaceTodoPanelSnapshot? = nil
         switch panel.panelType {
         case .terminal:
             guard let terminalPanel = panel as? TerminalPanel else { return nil }
@@ -663,15 +659,6 @@ extension Workspace {
                 selectedConfigurationName: projectPanel.selectedConfigurationName
             )
             agentSessionSnapshot = nil
-        case .workspaceTodo:
-            terminalSnapshot = nil
-            browserSnapshot = nil
-            markdownSnapshot = nil
-            filePreviewSnapshot = nil
-            rightSidebarToolSnapshot = nil
-            agentSessionSnapshot = nil
-            projectSnapshot = nil
-            workspaceTodoSnapshot = SessionWorkspaceTodoPanelSnapshot()
         case .extensionBrowser:
             return nil
         case .cloudVMLoading:
@@ -702,8 +689,7 @@ extension Workspace {
             rightSidebarTool: rightSidebarToolSnapshot,
             customSidebar: customSidebarSnapshot,
             agentSession: agentSessionSnapshot,
-            project: projectSnapshot,
-            workspaceTodo: workspaceTodoSnapshot
+            project: projectSnapshot
         )
     }
     private func closedPanelHistoryEntry(panelId: UUID, tabId: TabID, pane: PaneID) -> ClosedPanelHistoryEntry? {
@@ -1669,15 +1655,6 @@ extension Workspace {
             }
             applySessionPanelMetadata(snapshot, toPanelId: projectPanel.id)
             return projectPanel.id
-        case .workspaceTodo:
-            guard let todoPanel = newWorkspaceTodoSurface(
-                inPane: paneId,
-                focus: false
-            ) else {
-                return nil
-            }
-            applySessionPanelMetadata(snapshot, toPanelId: todoPanel.id)
-            return todoPanel.id
         case .extensionBrowser:
             return nil
         case .cloudVMLoading:
@@ -2364,9 +2341,6 @@ final class Workspace: Identifiable, ObservableObject {
     /// Agent runtime maps that affect sidebar status visibility.
     let sidebarAgentRuntimeObservation = WorkspaceSidebarAgentRuntimeObservationModel()
     let sidebarProcessTitleObservation: WorkspaceSidebarProcessTitleObservationModel
-    /// Todo lifecycle state: manual status override + persisted checklist
-    /// (all logic lives in `Workspace+Todos.swift`).
-    let todoState = WorkspaceTodoState()
     var restoredTerminalScrollbackByPanelId: [UUID: String] = [:]
 #if DEBUG
     var debugSessionSnapshotScrollbackFallbackPanelIds: Set<UUID> = []
@@ -3892,6 +3866,7 @@ final class Workspace: Identifiable, ObservableObject {
         AppDelegate.shared?.notificationStore?.hasVisibleNotificationIndicator(forTabId: id, surfaceId: panelId) ?? false
     }
 
+
     private func attentionPersistentState() -> WorkspaceAttentionPersistentState {
         let notificationStore = AppDelegate.shared?.notificationStore
         let unreadPanelIDs = Set(
@@ -5173,25 +5148,6 @@ final class Workspace: Identifiable, ObservableObject {
             ])
         }
         try controller.closePTYSession(sessionID: sessionID)
-    }
-
-    func startRemotePTYBridge(
-        sessionID: String,
-        attachmentID: String,
-        command: String?,
-        requireExisting: Bool
-    ) throws -> RemotePTYBridgeServer.Endpoint {
-        guard let controller = remoteSessionController else {
-            throw NSError(domain: "cmux.remote.pty", code: 12, userInfo: [
-                NSLocalizedDescriptionKey: "remote connection is not active",
-            ])
-        }
-        return try controller.startPTYBridge(
-            sessionID: sessionID,
-            attachmentID: attachmentID,
-            command: command,
-            requireExisting: requireExisting
-        )
     }
 
     func resizeRemotePTY(sessionID: String, attachmentID: String, attachmentToken: String, cols: Int, rows: Int) throws {
@@ -7719,13 +7675,13 @@ final class Workspace: Identifiable, ObservableObject {
         panels[pair.key] = replacementPanel
         panelTitles[pair.key] = replacementPanel.displayTitle
         seedTerminalInheritanceFontPoints(panelId: pair.key, configTemplate: inheritedConfig)
-
+        let iconPayload = terminalTabAgentIconPayload(forPanelId: pair.key)
         bonsplitController.updateTab(
             tabId,
             title: replacementPanel.displayTitle,
             icon: .some(replacementPanel.displayIcon),
-            iconImageData: .some(nil),
-            iconAsset: .some(terminalTabAgentIconAsset(forPanelId: pair.key)),
+            iconImageData: .some(iconPayload.imageData),
+            iconAsset: .some(iconPayload.assetName),
             kind: .some(SurfaceKind.terminal.rawValue),
             hasCustomTitle: false,
             isDirty: replacementPanel.isDirty,
@@ -7855,14 +7811,14 @@ final class Workspace: Identifiable, ObservableObject {
         }
         bindSurface(tabId, toPanelId: panelId)
         seedTerminalInheritanceFontPoints(panelId: panelId, configTemplate: inheritedConfig)
-
         let resolvedTitle = resolvedPanelTitle(panelId: panelId, fallback: replacementPanel.displayTitle)
+        let iconPayload = terminalTabAgentIconPayload(forPanelId: panelId)
         bonsplitController.updateTab(
             tabId,
             title: resolvedTitle,
             icon: .some(replacementPanel.displayIcon),
-            iconImageData: .some(nil),
-            iconAsset: .some(terminalTabAgentIconAsset(forPanelId: panelId)),
+            iconImageData: .some(iconPayload.imageData),
+            iconAsset: .some(iconPayload.assetName),
             kind: .some(SurfaceKind.terminal.rawValue),
             hasCustomTitle: customTitle != nil,
             isDirty: replacementPanel.isDirty,
@@ -9335,13 +9291,13 @@ final class Workspace: Identifiable, ObservableObject {
         }
         let detachedBrowserMuted = (detached.panel as? BrowserPanel)?.isMuted ?? false
         let detachedBrowserPlayingAudio = (detached.panel as? BrowserPanel)?.isPlayingAudio ?? false
-
+        let detachedIconPayload = terminalTabAgentIconPayload(forDetached: detached)
         guard let newTabId = bonsplitController.createTab(
             title: detached.title,
             hasCustomTitle: detached.customTitle?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false,
             icon: detached.icon,
-            iconImageData: detached.iconImageData,
-            iconAsset: terminalTabAgentIconAsset(forPanelId: detached.panelId),
+            iconImageData: detachedIconPayload.imageData,
+            iconAsset: detachedIconPayload.assetName,
             kind: detached.kind,
             isDirty: detached.panel.isDirty,
             isLoading: detached.isLoading,
@@ -10701,7 +10657,7 @@ final class Workspace: Identifiable, ObservableObject {
         for panel in panels.values {
             guard let terminalPanel = panel as? TerminalPanel else { continue }
             // A multi-pane remote-tmux window-tab is rendered by its
-            // RemoteTmuxWindowMirrorView (its own panel's surface is not mounted),
+            // RemoteTmuxWindowMirrorSplitView (its own panel's surface is not mounted),
             // so the workspace must not drive that panel's portal here.
             if remoteTmuxWindowMirrors[terminalPanel.id] != nil { continue }
             let shouldBeVisible = visiblePanelIds.contains(terminalPanel.id)
