@@ -8,4 +8,8 @@ enum AgentGUIConstants {
     static let initialTailLineCap = 2_000
     static let journalWindowEntryCap = initialTailLineCap
     static let maxEntriesLimit = 200
+    static let sendTicketIdempotencyWindowMS = 300 * 1_000
+    static let sendEchoTimeoutMS = 120 * 1_000
+    static let sendEchoUnmatchedAppendLimit = 3
+    static let askTimeoutMS = 120 * 1_000
 }

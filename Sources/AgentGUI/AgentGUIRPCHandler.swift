@@ -24,6 +24,15 @@ struct AgentGUIRPCHandler {
             case GuiWireMethod.entries:
                 let params = try AgentGUICodableBridge.decode(GuiEntriesParams.self, from: request.params)
                 return .ok(try await AgentGUICodableBridge.dictionary(service.entriesResult(params: params)))
+            case GuiWireMethod.send:
+                let params = try AgentGUICodableBridge.decode(GuiSendParams.self, from: request.params)
+                return .ok(try AgentGUICodableBridge.dictionary(service.sendResult(params: params)))
+            case GuiWireMethod.interrupt:
+                let params = try AgentGUICodableBridge.decode(GuiInterruptParams.self, from: request.params)
+                return .ok(try AgentGUICodableBridge.dictionary(service.interruptResult(params: params)))
+            case GuiWireMethod.answer:
+                let params = try AgentGUICodableBridge.decode(GuiAnswerParams.self, from: request.params)
+                return .ok(try AgentGUICodableBridge.dictionary(service.answerResult(params: params)))
             case GuiWireMethod.capabilities:
                 let params = try AgentGUICodableBridge.decode(GuiCapabilitiesParams.self, from: request.params)
                 return .ok(try AgentGUICodableBridge.dictionary(service.capabilitiesResult(params: params)))
@@ -31,7 +40,7 @@ struct AgentGUIRPCHandler {
                 return nil
             }
         } catch let error as AgentGUIRPCError {
-            return .failure(MobileHostRPCError(code: error.code, message: error.message))
+            return .failure(MobileHostRPCError(code: error.code, message: error.message, data: error.data))
         } catch {
             return .failure(MobileHostRPCError(code: AgentGUIRPCError.invalidParams.code, message: AgentGUIRPCError.invalidParams.message))
         }
@@ -44,7 +53,7 @@ struct AgentGUIRPCHandler {
         }
         let result = GuiHelloResult(
             protocol: 1,
-            serverCaps: [GuiWireCaps.entriesPaging, GuiWireCaps.capabilitiesReport],
+            serverCaps: [GuiWireCaps.entriesPaging, GuiWireCaps.sendTickets, GuiWireCaps.answers, GuiWireCaps.capabilitiesReport],
             epoch: service.epoch,
             macDeviceID: service.macDeviceID,
             serverTimeMS: Int64(Date().timeIntervalSince1970 * 1_000)

@@ -14,6 +14,8 @@
 		A9F200000000000000000002 /* AgentExecutableResolverError.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000002 /* AgentExecutableResolverError.swift */; };
 		A9E020000000000000000005 /* AgentExecutableResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9E010000000000000000005 /* AgentExecutableResolverTests.swift */; };
 		C0DEF0C10000000000000001 /* AgentForkSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF0C10000000000000002 /* AgentForkSupport.swift */; };
+		A6E170000000000000000079 /* AgentGUIAskRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E17000000000000000001F /* AgentGUIAskRegistry.swift */; };
+		A6E17000000000000000012F /* AgentGUIAskRegistryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E1700000000000000000CB /* AgentGUIAskRegistryTests.swift */; };
 		A6E170000000000000000064 /* AgentGUICapabilityMapper.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E17000000000000000000A /* AgentGUICapabilityMapper.swift */; };
 		A6E170000000000000000065 /* AgentGUICodableBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E17000000000000000000B /* AgentGUICodableBridge.swift */; };
 		A6E170000000000000000066 /* AgentGUIConstants.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E17000000000000000000C /* AgentGUIConstants.swift */; };
@@ -29,9 +31,14 @@
 		A6E17000000000000000006E /* AgentGUIRPCError.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E170000000000000000014 /* AgentGUIRPCError.swift */; };
 		A6E17000000000000000006F /* AgentGUIRPCHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E170000000000000000015 /* AgentGUIRPCHandler.swift */; };
 		A6E17000000000000000012E /* AgentGUIRPCHandlerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E1700000000000000000CA /* AgentGUIRPCHandlerTests.swift */; };
+		A6E17000000000000000007A /* AgentGUISendLedger.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E170000000000000000020 /* AgentGUISendLedger.swift */; };
+		A6E170000000000000000130 /* AgentGUISendLedgerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E1700000000000000000CC /* AgentGUISendLedgerTests.swift */; };
 		A6E170000000000000000070 /* AgentGUIService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E170000000000000000016 /* AgentGUIService.swift */; };
 		A6E170000000000000000071 /* AgentGUIStampedEntry.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E170000000000000000017 /* AgentGUIStampedEntry.swift */; };
 		A6E170000000000000000072 /* AgentGUISubscriptionPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E170000000000000000018 /* AgentGUISubscriptionPolicy.swift */; };
+		A6E17000000000000000007B /* AgentGUITerminalInjecting.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E170000000000000000021 /* AgentGUITerminalInjecting.swift */; };
+		A6E17000000000000000007C /* AgentGUITerminalInjectionResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E170000000000000000022 /* AgentGUITerminalInjectionResult.swift */; };
+		A6E17000000000000000007D /* AgentGUITerminalInjector.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E170000000000000000023 /* AgentGUITerminalInjector.swift */; };
 		A6E170000000000000000073 /* AgentGUIToolPairingIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E170000000000000000019 /* AgentGUIToolPairingIndex.swift */; };
 		A6E170000000000000000074 /* AgentGUITranscriptDecoderBox.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E17000000000000000001A /* AgentGUITranscriptDecoderBox.swift */; };
 		A6E170000000000000000075 /* AgentGUITranscriptResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E17000000000000000001B /* AgentGUITranscriptResolver.swift */; };
@@ -1670,6 +1677,8 @@
 		A9F100000000000000000002 /* AgentExecutableResolverError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentExecutableResolverError.swift; sourceTree = "<group>"; };
 		A9E010000000000000000005 /* AgentExecutableResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentExecutableResolverTests.swift; sourceTree = "<group>"; };
 		C0DEF0C10000000000000002 /* AgentForkSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentForkSupport.swift; sourceTree = "<group>"; };
+		A6E17000000000000000001F /* AgentGUIAskRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentGUIAskRegistry.swift; sourceTree = "<group>"; };
+		A6E1700000000000000000CB /* AgentGUIAskRegistryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentGUIAskRegistryTests.swift; sourceTree = "<group>"; };
 		A6E17000000000000000000A /* AgentGUICapabilityMapper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentGUICapabilityMapper.swift; sourceTree = "<group>"; };
 		A6E17000000000000000000B /* AgentGUICodableBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentGUICodableBridge.swift; sourceTree = "<group>"; };
 		A6E17000000000000000000C /* AgentGUIConstants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentGUIConstants.swift; sourceTree = "<group>"; };
@@ -1685,9 +1694,14 @@
 		A6E170000000000000000014 /* AgentGUIRPCError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentGUIRPCError.swift; sourceTree = "<group>"; };
 		A6E170000000000000000015 /* AgentGUIRPCHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentGUIRPCHandler.swift; sourceTree = "<group>"; };
 		A6E1700000000000000000CA /* AgentGUIRPCHandlerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentGUIRPCHandlerTests.swift; sourceTree = "<group>"; };
+		A6E170000000000000000020 /* AgentGUISendLedger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentGUISendLedger.swift; sourceTree = "<group>"; };
+		A6E1700000000000000000CC /* AgentGUISendLedgerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentGUISendLedgerTests.swift; sourceTree = "<group>"; };
 		A6E170000000000000000016 /* AgentGUIService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentGUIService.swift; sourceTree = "<group>"; };
 		A6E170000000000000000017 /* AgentGUIStampedEntry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentGUIStampedEntry.swift; sourceTree = "<group>"; };
 		A6E170000000000000000018 /* AgentGUISubscriptionPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentGUISubscriptionPolicy.swift; sourceTree = "<group>"; };
+		A6E170000000000000000021 /* AgentGUITerminalInjecting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentGUITerminalInjecting.swift; sourceTree = "<group>"; };
+		A6E170000000000000000022 /* AgentGUITerminalInjectionResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentGUITerminalInjectionResult.swift; sourceTree = "<group>"; };
+		A6E170000000000000000023 /* AgentGUITerminalInjector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentGUITerminalInjector.swift; sourceTree = "<group>"; };
 		A6E170000000000000000019 /* AgentGUIToolPairingIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentGUIToolPairingIndex.swift; sourceTree = "<group>"; };
 		A6E17000000000000000001A /* AgentGUITranscriptDecoderBox.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentGUITranscriptDecoderBox.swift; sourceTree = "<group>"; };
 		A6E17000000000000000001B /* AgentGUITranscriptResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentGUITranscriptResolver.swift; sourceTree = "<group>"; };
@@ -4441,9 +4455,11 @@
 		F1000003A1B2C3D4E5F60718 /* cmuxTests */ = {
 			isa = PBXGroup;
 			children = (
+				A6E1700000000000000000CB /* AgentGUIAskRegistryTests.swift */,
 				A6E1700000000000000000C8 /* AgentGUIHookFactMapperTests.swift */,
 				A6E1700000000000000000C9 /* AgentGUIJournalPipelineTests.swift */,
 				A6E1700000000000000000CA /* AgentGUIRPCHandlerTests.swift */,
+				A6E1700000000000000000CC /* AgentGUISendLedgerTests.swift */,
 				F2000001A1B2C3D4E5F60718 /* UpdatePillReleaseVisibilityTests.swift */,
 				F3000001A1B2C3D4E5F60718 /* CJKIMEInputTests.swift */,
 				D3571003A1B2C3D4E5F60718 /* CJKIMEMarkedSelectionTests.swift */,
@@ -4870,6 +4886,7 @@
 				A6E17000000000000000000C /* AgentGUIConstants.swift */,
 				A6E17000000000000000000D /* AgentGUIFileIdentity.swift */,
 				A6E17000000000000000000E /* AgentGUIHookFactMapper.swift */,
+				A6E17000000000000000001F /* AgentGUIAskRegistry.swift */,
 				A6E17000000000000000000F /* AgentGUIJournalBookkeeper.swift */,
 				A6E170000000000000000010 /* AgentGUIJournalPipeline.swift */,
 				A6E170000000000000000011 /* AgentGUIJournalPipelineEvent.swift */,
@@ -4877,9 +4894,13 @@
 				A6E170000000000000000013 /* AgentGUIOpenTranscriptPathScanner.swift */,
 				A6E170000000000000000014 /* AgentGUIRPCError.swift */,
 				A6E170000000000000000015 /* AgentGUIRPCHandler.swift */,
+				A6E170000000000000000020 /* AgentGUISendLedger.swift */,
 				A6E170000000000000000016 /* AgentGUIService.swift */,
 				A6E170000000000000000017 /* AgentGUIStampedEntry.swift */,
 				A6E170000000000000000018 /* AgentGUISubscriptionPolicy.swift */,
+				A6E170000000000000000021 /* AgentGUITerminalInjecting.swift */,
+				A6E170000000000000000022 /* AgentGUITerminalInjectionResult.swift */,
+				A6E170000000000000000023 /* AgentGUITerminalInjector.swift */,
 				A6E170000000000000000019 /* AgentGUIToolPairingIndex.swift */,
 				A6E17000000000000000001A /* AgentGUITranscriptDecoderBox.swift */,
 				A6E17000000000000000001B /* AgentGUITranscriptResolver.swift */,
@@ -5319,6 +5340,7 @@
 				A9F200000000000000000001 /* AgentExecutableResolver.swift in Sources */,
 				A9F200000000000000000002 /* AgentExecutableResolverError.swift in Sources */,
 				C0DEF0C10000000000000001 /* AgentForkSupport.swift in Sources */,
+				A6E170000000000000000079 /* AgentGUIAskRegistry.swift in Sources */,
 				A6E170000000000000000064 /* AgentGUICapabilityMapper.swift in Sources */,
 				A6E170000000000000000065 /* AgentGUICodableBridge.swift in Sources */,
 				A6E170000000000000000066 /* AgentGUIConstants.swift in Sources */,
@@ -5331,9 +5353,13 @@
 				A6E17000000000000000006D /* AgentGUIOpenTranscriptPathScanner.swift in Sources */,
 				A6E17000000000000000006E /* AgentGUIRPCError.swift in Sources */,
 				A6E17000000000000000006F /* AgentGUIRPCHandler.swift in Sources */,
+				A6E17000000000000000007A /* AgentGUISendLedger.swift in Sources */,
 				A6E170000000000000000070 /* AgentGUIService.swift in Sources */,
 				A6E170000000000000000071 /* AgentGUIStampedEntry.swift in Sources */,
 				A6E170000000000000000072 /* AgentGUISubscriptionPolicy.swift in Sources */,
+				A6E17000000000000000007B /* AgentGUITerminalInjecting.swift in Sources */,
+				A6E17000000000000000007C /* AgentGUITerminalInjectionResult.swift in Sources */,
+				A6E17000000000000000007D /* AgentGUITerminalInjector.swift in Sources */,
 				A6E170000000000000000073 /* AgentGUIToolPairingIndex.swift in Sources */,
 				A6E170000000000000000074 /* AgentGUITranscriptDecoderBox.swift in Sources */,
 				A6E170000000000000000075 /* AgentGUITranscriptResolver.swift in Sources */,
@@ -6431,9 +6457,11 @@
 			buildActionMask = 2147483647;
 			files = (
 				A9E020000000000000000005 /* AgentExecutableResolverTests.swift in Sources */,
+				A6E17000000000000000012F /* AgentGUIAskRegistryTests.swift in Sources */,
 				A6E17000000000000000012C /* AgentGUIHookFactMapperTests.swift in Sources */,
 				A6E17000000000000000012D /* AgentGUIJournalPipelineTests.swift in Sources */,
 				A6E17000000000000000012E /* AgentGUIRPCHandlerTests.swift in Sources */,
+				A6E170000000000000000130 /* AgentGUISendLedgerTests.swift in Sources */,
 				D72260010000000000000001 /* AgentHibernationPortalVisibilityTests.swift in Sources */,
 				D36A00020000000000000001 /* AgentHibernationTests.swift in Sources */,
 				A76110010000000000000003 /* AgentHookNotificationPolicy.swift in Sources */,

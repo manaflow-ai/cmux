@@ -13,6 +13,8 @@ final class AgentGUIService {
     let macDeviceID: MacDeviceID
     private let reducer: AgentTruthReducer
     private let publisher: AgentGUIWirePublisher
+    private let clock: () -> Int
+    private let terminalInjector: any AgentGUITerminalInjecting
     private let hookMapper = AgentGUIHookFactMapper()
     private let transcriptResolver = AgentGUITranscriptResolver()
     private let capabilityBuilder = CapabilityReportBuilder()
@@ -21,6 +23,8 @@ final class AgentGUIService {
     private var exitWatcher: AgentProcessExitWatcher?
     private var reevaluationTimer: DispatchSourceTimer?
     private var pipelines: [AgentSessionID: AgentGUIJournalPipeline] = [:]
+    private var sendLedgers: [AgentSessionID: AgentGUISendLedger] = [:]
+    private let askRegistry: AgentGUIAskRegistry
     private var removalVersions: [AgentSessionID: UInt64] = [:]
     private var subscriptionObserver: NSObjectProtocol?
     private let hookTapStream: AsyncStream<WorkstreamEvent>
@@ -28,11 +32,25 @@ final class AgentGUIService {
     private var hookTapTask: Task<Void, Never>?
     private var started = false
 
-    init(macDeviceID: String = MobileHostIdentity.deviceID()) {
+    init(
+        macDeviceID: String = MobileHostIdentity.deviceID(),
+        clock: @escaping () -> Int = { Int(Date().timeIntervalSince1970 * 1_000) },
+        terminalInjector: (any AgentGUITerminalInjecting)? = nil
+    ) {
         self.epoch = ReplicaEpoch(rawValue: UUID().uuidString)
         self.macDeviceID = MacDeviceID(rawValue: macDeviceID)
         self.reducer = AgentTruthReducer(macDeviceID: self.macDeviceID)
         self.publisher = AgentGUIWirePublisher(epoch: epoch)
+        self.clock = clock
+        let resolvedTerminalInjector = terminalInjector ?? AgentGUITerminalInjector()
+        self.terminalInjector = resolvedTerminalInjector
+        self.askRegistry = AgentGUIAskRegistry(
+            clock: clock,
+            injector: resolvedTerminalInjector,
+            publish: { [publisher] ask in
+                publisher.publishAskState(ask)
+            }
+        )
         let hookTap = AsyncStream<WorkstreamEvent>.makeStream()
         self.hookTapStream = hookTap.stream
         self.hookTapContinuation = hookTap.continuation
@@ -110,9 +128,7 @@ final class AgentGUIService {
             throw AgentGUIRPCError.notFound
         }
         let initialEvents = await pipeline.ingestInitial()
-        for event in initialEvents {
-            publisher.publishJournalEvent(event, sessionID: params.sessionID)
-        }
+        handleJournalEvents(initialEvents, sessionID: params.sessionID)
         let limit = max(1, min(params.limit, AgentGUIConstants.maxEntriesLimit))
         guard let page = pipeline.entries(beforeSeq: params.beforeSeq, afterSeq: params.afterSeq, limit: limit) else {
             throw AgentGUIRPCError.notFound
@@ -142,6 +158,53 @@ final class AgentGUIService {
             steerable: report.steerable,
             answerable: report.answerable
         )
+    }
+
+    /// Wire attachment descriptors are rejected with `send_rejected` and `attachment_unsupported` until binary transfer is implemented.
+    func sendResult(params: GuiSendParams) throws -> GuiSendResult {
+        guard let ticketID = UUID(uuidString: params.ticketID) else {
+            throw AgentGUIRPCError.invalidParams
+        }
+        let attachments = params.attachments ?? []
+        guard attachments.isEmpty else {
+            throw AgentGUIRPCError.sendRejected(detail: "attachment_unsupported")
+        }
+        let text = params.text ?? ""
+        guard !text.isEmpty else {
+            throw AgentGUIRPCError.invalidParams
+        }
+        let snapshot = reducer.snapshots[params.sessionID]
+        guard snapshot != nil else {
+            throw AgentGUIRPCError.notFound
+        }
+        let result = try ledger(sessionID: params.sessionID).submit(
+            ticketID: ticketID,
+            text: text,
+            attachmentCount: attachments.count,
+            snapshot: snapshot
+        )
+        updateGates()
+        return result
+    }
+
+    func interruptResult(params: GuiInterruptParams) throws -> GuiInterruptResult {
+        guard let snapshot = reducer.snapshots[params.sessionID] else {
+            throw AgentGUIRPCError.notFound
+        }
+        guard let surfaceID = snapshot.surfaceID, !surfaceID.isEmpty else {
+            throw AgentGUIRPCError.bindingLost
+        }
+        let result = terminalInjector.sendKey(surfaceID: surfaceID, keyName: params.hard ? "ctrl+c" : "escape")
+        guard result.accepted else {
+            throw AgentGUIRPCError.fromInjectionFailure(result)
+        }
+        return GuiInterruptResult(interrupted: true)
+    }
+
+    func answerResult(params: GuiAnswerParams) throws -> GuiAnswerResult {
+        let result = try askRegistry.answer(params: params)
+        updateGates()
+        return result
     }
 
     private func handleProcessObservations(_ observations: [ProcessObservation]) {
@@ -195,9 +258,7 @@ final class AgentGUIService {
                     let events = await pipeline.ingestInitial()
                     await MainActor.run {
                         guard let self else { return }
-                        for event in events {
-                            self.publisher.publishJournalEvent(event, sessionID: sessionID)
-                        }
+                        self.handleJournalEvents(events, sessionID: sessionID)
                     }
                 }
             }
@@ -209,7 +270,11 @@ final class AgentGUIService {
             switch change {
             case .sessionUpserted(let session):
                 publisher.publishSessionUpserted(session)
+                sendLedgers[session.id]?.handleSessionSnapshot(session)
+                askRegistry.handleSessionSnapshot(session)
             case .sessionRemoved(let sessionID):
+                sendLedgers.removeValue(forKey: sessionID)
+                askRegistry.removeSession(sessionID)
                 let version = nextRemovalVersion(sessionID: sessionID)
                 publisher.publishSessionRemoved(sessionID, version: EntityVersion(rawValue: version))
             }
@@ -218,6 +283,7 @@ final class AgentGUIService {
 
     private func updateGates() {
         let nowTick = currentActivityHintMS()
+        expirePendingAgentGUIState(now: nowTick)
         let hasSessionSubscribers = MobileHostService.hasEventSubscribers(topic: GuiWireTopic.sessions)
         let hasLiveRecent = reducer.snapshots.values.contains {
             AgentGUISubscriptionPolicy.isLiveOrRecentlyActive($0, nowMS: nowTick)
@@ -235,12 +301,10 @@ final class AgentGUIService {
             )
             pipeline.setWatching(shouldRun) { [weak self] events in
                 guard let self else { return }
-                for event in events {
-                    self.publisher.publishJournalEvent(event, sessionID: sessionID)
-                }
+                self.handleJournalEvents(events, sessionID: sessionID)
             }
         }
-        updateReevaluationTimer(hasRunningSessions: reducer.snapshots.values.contains { $0.phase != .ended })
+        updateReevaluationTimer(hasRunningSessions: reducer.snapshots.values.contains { $0.phase != .ended } || hasPendingAgentGUIExpirations)
     }
 
     private func updateReevaluationTimer(hasRunningSessions: Bool) {
@@ -268,6 +332,44 @@ final class AgentGUIService {
     }
 
     private func currentActivityHintMS() -> Int {
-        Int(Date().timeIntervalSince1970 * 1_000)
+        clock()
+    }
+
+    private var hasPendingAgentGUIExpirations: Bool {
+        askRegistry.hasPendingExpirations || sendLedgers.values.contains { $0.hasPendingExpirations }
+    }
+
+    private func expirePendingAgentGUIState(now: Int) {
+        for ledger in sendLedgers.values {
+            ledger.expire(now: now)
+        }
+        askRegistry.expire(now: now)
+    }
+
+    private func handleJournalEvents(_ events: [AgentGUIJournalPipelineEvent], sessionID: AgentSessionID) {
+        for event in events {
+            publisher.publishJournalEvent(event, sessionID: sessionID)
+            sendLedgers[sessionID]?.handleJournalEvent(event)
+            askRegistry.handleJournalEvent(event, sessionID: sessionID)
+        }
+    }
+
+    private func ledger(sessionID: AgentSessionID) -> AgentGUISendLedger {
+        if let ledger = sendLedgers[sessionID] {
+            return ledger
+        }
+        let ledger = AgentGUISendLedger(
+            sessionID: sessionID,
+            clock: clock,
+            injector: terminalInjector,
+            publish: { [publisher] ticket in
+                publisher.publishSendState(ticket)
+            }
+        )
+        if let snapshot = reducer.snapshots[sessionID] {
+            ledger.handleSessionSnapshot(snapshot)
+        }
+        sendLedgers[sessionID] = ledger
+        return ledger
     }
 }

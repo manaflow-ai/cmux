@@ -65,6 +65,28 @@ final class AgentGUIWirePublisher {
         }
     }
 
+    func publishSendState(_ ticket: SendTicket) {
+        publish(
+            topic: GuiWireTopic.journal(sessionID: ticket.sessionID),
+            frame: GuiEventFrame(
+                epoch: epoch,
+                sessionID: ticket.sessionID,
+                payload: .sendState(GuiSendStateEvent(ticket: ticket))
+            )
+        )
+    }
+
+    func publishAskState(_ ask: PendingAsk) {
+        publish(
+            topic: GuiWireTopic.journal(sessionID: ask.sessionID),
+            frame: GuiEventFrame(
+                epoch: epoch,
+                sessionID: ask.sessionID,
+                payload: .askState(GuiAskStateEvent(ask: ask))
+            )
+        )
+    }
+
     private func publish(topic: String, frame: GuiEventFrame) {
         guard MobileHostService.hasEventSubscribers(topic: topic) else {
             return
