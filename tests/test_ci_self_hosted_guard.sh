@@ -216,8 +216,12 @@ check_ios_tart_canary() {
     echo "FAIL: both macOS iOS test jobs must fail closed on Tart identity mismatch"
     exit 1
   fi
-  if [[ "$(grep -Fc "(!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26') || inputs.runner" "$IOS_FILE")" -ne 2 ]]; then
+  if [[ "$(grep -Fc "runs-on: \${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26') || inputs.runner }}" "$IOS_FILE")" -ne 2 ]]; then
     echo "FAIL: both macOS iOS test jobs must honor the dispatch runner override"
+    exit 1
+  fi
+  if [[ "$(grep -Fc "startsWith((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26') || inputs.runner, 'tart-')" "$IOS_FILE")" -ne 2 ]]; then
+    echo "FAIL: both macOS iOS test jobs must validate Tart identity for explicit and repo-variable routing"
     exit 1
   fi
   echo "PASS: test-ios.yml exposes the guarded Tart iOS canary"
@@ -860,19 +864,16 @@ check_no_bare_github_hosted_runners() {
 }
 
 check_no_self_hosted_fleet_runners() {
-  # We do NOT use our self-hosted mac fleet for required CI. Those runners carry
-  # custom labels that collide with cloud labels, and GitHub PREFERS a matching
-  # self-hosted runner, so any required job that names such a label can land on
-  # a mini that cannot foreground a GUI app. Forbid every real fleet label (see
-  # the runner registry) and the bare self-hosted/macOS/ARM64 combos in
-  # runner-selection positions, so required jobs only ever use cloud runners.
+  # Required jobs route through repository variables. Forbid hardcoded fleet
+  # labels so Tart cutover and paid-provider fallback remain configuration
+  # changes and a physical host label cannot bypass the isolated VM pool.
   # Allowed macOS labels (none carried by any fleet runner):
   #   blacksmith-6vcpu-macos-{15,26,latest}, warp-macos-15-arm64-6x,
   #   depot-macos-{latest,14}.
   # NOTE: reload-build.yml is the dev-build offload path (workflow_dispatch,
   # not required CI) and intentionally targets the fleet via a free-form input;
   # this guard only inspects runner-selection lines, not its input description.
-  local fleet='macos-26|warp-macos-26-arm64-6x|cmux-aws-macos|cmux-macos|cmux-local-macos|macfleet|tart-canary|(^|[^a-z0-9-])mac4([^a-z0-9]|$)|(^|[^a-z0-9-])mac-mini([^a-z0-9]|$)|slot-[0-9]|xcode-[0-9]+-[0-9]|(^|[^a-z0-9-])cmux([^a-z0-9-]|$)'
+  local fleet='macos-26|warp-macos-26-arm64-6x|cmux-aws-macos|cmux-macos|cmux-local-macos|macfleet|tart-[a-z0-9-]+|(^|[^a-z0-9-])mac4([^a-z0-9]|$)|(^|[^a-z0-9-])mac-mini([^a-z0-9]|$)|slot-[0-9]|xcode-[0-9]+-[0-9]|(^|[^a-z0-9-])cmux([^a-z0-9-]|$)'
   local allowed='blacksmith-6vcpu-macos-(15|26|latest)|warp-macos-15-arm64-6x|depot-macos-(latest|14)'
 
   # Bare self-hosted/macOS/ARM64 targeting (inline array or multi-line list).
@@ -885,7 +886,7 @@ check_no_self_hosted_fleet_runners() {
   # known fleet/self-hosted label must be caught, every allowed cloud label
   # must pass. Probes are raw YAML values (no path:lineno: prefix).
   local probe
-  for probe in 'runs-on: macfleet' '- tart-canary' '- mac4' '- mac-mini' '- slot-3' '- xcode-26-3' '- cmux' \
+  for probe in 'runs-on: macfleet' '- tart-canary' '- tart-dual' '- tart-small' '- tart-macos-26' '- tart-ios' '- mac4' '- mac-mini' '- slot-3' '- xcode-26-3' '- cmux' \
                "runs-on: \${{ vars.X || 'macos-26' }}" '- warp-macos-26-arm64-6x' \
                '- cmux-aws-macos-15' '- cmux-macos-26' '- self-hosted' '- macOS' '- ARM64' \
                'runs-on: [self-hosted, macOS, ARM64]'; do

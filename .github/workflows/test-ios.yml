@@ -123,7 +123,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Validate Tart runner identity
-        if: ${{ inputs.runner == 'tart-ios' }}
+        if: ${{ startsWith((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26') || inputs.runner, 'tart-') }}
         env:
           RUNNER_CONTEXT_NAME: ${{ runner.name }}
         run: |
@@ -194,7 +194,7 @@ jobs:
         family: [iphone, ipad]
     steps:
       - name: Validate Tart runner identity
-        if: ${{ inputs.runner == 'tart-ios' && !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
+        if: ${{ startsWith((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26') || inputs.runner, 'tart-') && !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
         env:
           RUNNER_CONTEXT_NAME: ${{ runner.name }}
         run: |
