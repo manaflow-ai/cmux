@@ -284,18 +284,21 @@ describe("Iroh trust broker database behavior", () => {
     const results = await Promise.allSettled([register(), register()]);
     expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
     expect(results.filter((result) => result.status === "rejected")).toHaveLength(1);
-    const [{ bindings, consumed, nextExpiry }] = await requiredSql()<Array<{
+    const [{ bindings, consumed, nextExpiry, pathHints }] = await requiredSql()<Array<{
       bindings: string;
       consumed: string;
       nextExpiry: Date | null;
+      pathHints: unknown[];
     }>>`
       select
         (select count(*)::text from iroh_endpoint_bindings) as bindings,
         (select count(*)::text from iroh_registration_challenges where consumed_at is not null) as consumed,
-        (select path_hints_next_expiry from iroh_endpoint_bindings limit 1) as "nextExpiry"
+        (select path_hints_next_expiry from iroh_endpoint_bindings limit 1) as "nextExpiry",
+        (select path_hints from iroh_endpoint_bindings limit 1) as "pathHints"
     `;
     expect({ bindings, consumed }).toEqual({ bindings: "1", consumed: "1" });
-    expect(nextExpiry?.getTime()).toBe(pathHintExpiry.getTime());
+    expect(nextExpiry).toBeNull();
+    expect(pathHints).toEqual([]);
   });
 
   dbTest("requires revocation before changing an active binding platform", async () => {

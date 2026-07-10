@@ -21,6 +21,7 @@ import {
   PAIRED_MACS_COLLECTION,
   PAIRED_MACS_COLLECTION_TOMBSTONE_PREFIXES,
   parsePairedMacBackup,
+  sanitizePairedMacSyncFrame,
   type PairedMacBackupRecord,
 } from "../src/syncPairedMacs";
 import {
@@ -28,6 +29,7 @@ import {
   gcTombstones,
   listRecords,
   listTombstonedCollections,
+  upsertRecord,
   type SyncStorage,
 } from "../src/syncStorage";
 
@@ -113,9 +115,124 @@ describe("parsePairedMacBackup", () => {
     if (op?.kind !== "upsert") throw new Error("expected an upsert op");
     expect(op.record.routes).toEqual([{ id: "ok" }]);
   });
+
+  it("strips private Iroh hints from backup ingestion and keeps legacy routes", () => {
+    const legacy = record("x", "100.64.1.2", 49152).routes[0];
+    const parsed = parsePairedMacBackup({
+      ops: [{
+        macDeviceID: "x",
+        record: {
+          ...record("x", "100.64.1.2", 49152),
+          routes: [
+            legacy,
+            {
+              id: "iroh",
+              kind: "iroh",
+              priority: 1,
+              endpoint: {
+                type: "peer",
+                id: "a".repeat(64),
+                direct_addrs: ["192.168.1.20:49152"],
+                relay_hint: "legacy-private-relay-hint",
+                relay_url: "https://use1-1.relay.lawrence.cmux.iroh.link/",
+              },
+            },
+          ],
+        },
+      }],
+    });
+    if (!parsed.ok) throw new Error(parsed.error);
+    const op = parsed.ops[0];
+    if (op?.kind !== "upsert") throw new Error("expected an upsert op");
+    expect(op.record.routes).toEqual([
+      legacy,
+      {
+        id: "iroh",
+        kind: "iroh",
+        priority: 1,
+        endpoint: {
+          type: "peer",
+          id: "a".repeat(64),
+          relay_url: "https://use1-1.relay.lawrence.cmux.iroh.link/",
+        },
+      },
+    ]);
+  });
 });
 
 describe("applyBackupOps", () => {
+  it("sanitizes direct writes, deltas, and legacy stored backup responses", async () => {
+    const storage = new FakeStorage();
+    const unsafe = {
+      ...record("mac-a", "100.64.1.2", 49152),
+      routes: [
+        record("mac-a", "100.64.1.2", 49152).routes[0],
+        {
+          id: "iroh",
+          kind: "iroh",
+          endpoint: {
+            type: "peer",
+            id: "a".repeat(64),
+            direct_addrs: ["192.168.1.20:49152"],
+            relay_hint: "legacy-private-relay-hint",
+            relay_url: "https://use1-1.relay.lawrence.cmux.iroh.link/",
+          },
+        },
+      ],
+    };
+    const deltas = await applyBackupOps(
+      storage,
+      "user-1",
+      [{ kind: "upsert", id: "mac-a", record: unsafe }],
+      T0,
+    );
+    expect(JSON.stringify(deltas)).not.toContain("192.168.1.20");
+    expect(JSON.stringify(deltas)).not.toContain("legacy-private-relay-hint");
+    const stored = await listRecords<PairedMacBackupRecord>(storage, pairedMacsCollection("user-1"));
+    expect(JSON.stringify(stored)).not.toContain("192.168.1.20");
+
+    // Seed an unsafe pre-hardening record directly. Restore must scrub it even
+    // before the next client write migrates the stored payload.
+    await upsertRecord(
+      storage,
+      pairedMacsCollection("legacy-user"),
+      "mac-a",
+      unsafe,
+      T0,
+    );
+    const restored = await listBackupSnapshot(storage, "legacy-user");
+    expect(JSON.stringify(restored)).not.toContain("192.168.1.20");
+    expect(JSON.stringify(restored)).not.toContain("legacy-private-relay-hint");
+    expect(restored.records[0]?.routes).toEqual([
+      unsafe.routes[0],
+      {
+        id: "iroh",
+        kind: "iroh",
+        endpoint: {
+          type: "peer",
+          id: "a".repeat(64),
+          relay_url: "https://use1-1.relay.lawrence.cmux.iroh.link/",
+        },
+      },
+    ]);
+
+    const legacyFrame = sanitizePairedMacSyncFrame({
+      type: "sync.delta",
+      collection: pairedMacsCollection("legacy-user"),
+      rev: 1,
+      records: [{
+        id: "mac-a",
+        rev: 1,
+        updatedAt: T0,
+        deleted: false,
+        schemaVersion: 1,
+        payload: unsafe,
+      }],
+    });
+    expect(JSON.stringify(legacyFrame)).not.toContain("192.168.1.20");
+    expect(JSON.stringify(legacyFrame)).not.toContain("legacy-private-relay-hint");
+  });
+
   it("normalizes optional client scopes into separate per-user collections", async () => {
     const storage = new FakeStorage();
     await applyBackupOps(

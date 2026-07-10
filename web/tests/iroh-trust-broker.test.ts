@@ -46,6 +46,7 @@ describe("Iroh trust broker registration", () => {
     expect(result.binding.endpoint_id).toBe(fixture.endpointId);
     expect(result.relay.status).toBe("issued");
     expect(fixture.repository.bindings).toHaveLength(1);
+    expect(fixture.repository.bindings[0]?.pathHints).toEqual([]);
     expect(fixture.minter.calls).toBe(1);
   });
 
@@ -181,6 +182,27 @@ describe("Iroh discovery and grants", () => {
       "previous",
     ]);
     expect(JSON.stringify(discovered.grant_verification_keys)).not.toContain("PRIVATE KEY");
+  });
+
+  test("defensively withholds unexpired direct hints from discovery", async () => {
+    const fixture = makeFixture();
+    fixture.repository.bindings.push(binding({
+      userId: USER_A,
+      pathHints: [{
+        kind: "direct_address",
+        value: "10.0.0.2:4433",
+        source: "lan",
+        privacy_scope: "local_network",
+        observed_at: "2026-07-09T19:55:00.000Z",
+        expires_at: "2026-07-09T20:30:00.000Z",
+        network_profile: { source: "lan", profile_id: "local" },
+      }],
+    }));
+
+    const discovered = await Effect.runPromise(fixture.broker.discover(USER_A, NOW)) as {
+      bindings: Array<{ path_hints: unknown[] }>;
+    };
+    expect(discovered.bindings[0]?.path_hints).toEqual([]);
   });
 
   test("does not combine a pre-revocation binding with a post-revocation LAN generation", async () => {
