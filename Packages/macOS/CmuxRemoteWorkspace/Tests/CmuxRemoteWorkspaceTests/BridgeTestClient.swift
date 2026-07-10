@@ -37,15 +37,15 @@ final class BridgeTestClient: @unchecked Sendable {
     }
 
     /// Sends data and returns a thread-safe pollable flag that flips once the
-    /// network stack has accepted the entire payload. When the server pauses
-    /// reads, assert this only after acks drain the input window.
+    /// network stack has accepted the entire payload without error. When the
+    /// server pauses reads, assert this only after acks drain the input window.
     func sendTracked(_ data: Data) -> @Sendable () -> Bool {
         let lock = NSLock()
         // Guarded by `lock`; read and written only by the completion and returned closure.
         nonisolated(unsafe) var completed = false
-        connection.send(content: data, completion: .contentProcessed { _ in
+        connection.send(content: data, completion: .contentProcessed { error in
             lock.lock()
-            completed = true
+            completed = (error == nil)
             lock.unlock()
         })
         return {
