@@ -42,7 +42,8 @@ extension ContentView {
             panelId: panelId
         )
 
-        let fallbackSnapshot = currentContext.workspace.restoredAgentSnapshotsByPanelId[panelId]
+        let allowsAgentContinuation = currentContext.workspace.allowsAgentContinuation(forPanelId: panelId)
+        let fallbackSnapshot = currentContext.workspace.restoredAgentSnapshotForContinuation(panelId: panelId)
         let isRemoteContext = currentContext.workspace.isRemoteTerminalSurface(panelId)
         let selection = Self.commandPaletteImmediateForkExecutionSnapshotSelection(
             workspaceId: workspaceId,
@@ -52,7 +53,8 @@ extension ContentView {
             supportedRemoteContextsByPanelKey: commandPaletteForkableAgentRemoteContextsByPanelKey,
             snapshotFingerprintsByPanelKey: commandPaletteForkableAgentSnapshotFingerprintsByPanelKey,
             fallbackSnapshot: fallbackSnapshot,
-            cachedSnapshot: commandPaletteForkableAgentSnapshotsByPanelKey[panelKey]
+            cachedSnapshot: commandPaletteForkableAgentSnapshotsByPanelKey[panelKey],
+            allowsAgentContinuation: allowsAgentContinuation
         )
         guard let selection else {
             clearCommandPaletteForkableAgentCache(panelKey: panelKey)
@@ -149,6 +151,36 @@ extension ContentView {
         let usedFallbackSnapshot: Bool
     }
 
+    static func commandPalettePanelHasForkableAgent(
+        workspaceId: UUID,
+        panelId: UUID,
+        supportedPanelKeys: Set<String>,
+        supportedRemoteContextsByPanelKey: [String: Bool] = [:],
+        fallbackSnapshot: SessionRestorableAgentSnapshot?,
+        isRemoteTerminal: Bool = false,
+        allowsAgentContinuation: Bool
+    ) -> Bool {
+        guard allowsAgentContinuation else { return false }
+        let panelKey = commandPaletteForkableAgentPanelKey(
+            workspaceId: workspaceId,
+            panelId: panelId
+        )
+        if supportedPanelKeys.contains(panelKey) {
+            if let supportedRemoteContext = supportedRemoteContextsByPanelKey[panelKey],
+               supportedRemoteContext != isRemoteTerminal {
+                return false
+            }
+            if let fallbackSnapshot {
+                return commandPaletteSnapshotForkAvailability(
+                    fallbackSnapshot,
+                    isRemoteTerminal: isRemoteTerminal
+                ) != .unsupported
+            }
+            return true
+        }
+        return false
+    }
+
     static func commandPaletteImmediateForkExecutionSnapshot(
         workspaceId: UUID,
         panelId: UUID,
@@ -157,7 +189,8 @@ extension ContentView {
         supportedRemoteContextsByPanelKey: [String: Bool],
         snapshotFingerprintsByPanelKey: [String: String],
         fallbackSnapshot: SessionRestorableAgentSnapshot?,
-        cachedSnapshot: SessionRestorableAgentSnapshot?
+        cachedSnapshot: SessionRestorableAgentSnapshot?,
+        allowsAgentContinuation: Bool
     ) -> SessionRestorableAgentSnapshot? {
         commandPaletteImmediateForkExecutionSnapshotSelection(
             workspaceId: workspaceId,
@@ -167,7 +200,8 @@ extension ContentView {
             supportedRemoteContextsByPanelKey: supportedRemoteContextsByPanelKey,
             snapshotFingerprintsByPanelKey: snapshotFingerprintsByPanelKey,
             fallbackSnapshot: fallbackSnapshot,
-            cachedSnapshot: cachedSnapshot
+            cachedSnapshot: cachedSnapshot,
+            allowsAgentContinuation: allowsAgentContinuation
         )?.snapshot
     }
 
@@ -179,8 +213,10 @@ extension ContentView {
         supportedRemoteContextsByPanelKey: [String: Bool],
         snapshotFingerprintsByPanelKey: [String: String],
         fallbackSnapshot: SessionRestorableAgentSnapshot?,
-        cachedSnapshot: SessionRestorableAgentSnapshot?
+        cachedSnapshot: SessionRestorableAgentSnapshot?,
+        allowsAgentContinuation: Bool
     ) -> CommandPaletteForkSnapshotSelection? {
+        guard allowsAgentContinuation else { return nil }
         let panelKey = commandPaletteForkableAgentPanelKey(
             workspaceId: workspaceId,
             panelId: panelId

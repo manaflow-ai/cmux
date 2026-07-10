@@ -334,12 +334,18 @@ struct RemoteTmuxMirrorCLIObservabilityTests {
         let outerPanelID: UUID
         let nonMirrorPanelID: UUID?
         let peerSurfaceID: UUID?
+        let connection: RemoteTmuxControlConnection
+        let controlWriter: RemoteTmuxControlPipeWriter?
+        let controlPipe: Pipe?
         let mirror: RemoteTmuxWindowMirror
 
         init(
             focusAwayFromMirror: Bool = false,
             addPeerSurface: Bool = false,
-            activeTmuxPaneID: Int? = 22
+            activeTmuxPaneID: Int? = 22,
+            connectedTransport: Bool = false,
+            geometryScale: CGFloat = 2,
+            mirrorLayout: RemoteTmuxLayoutNode? = nil
         ) throws {
             appDelegate = try #require(AppDelegate.shared)
             windowID = appDelegate.createMainWindow()
@@ -365,11 +371,30 @@ struct RemoteTmuxMirrorCLIObservabilityTests {
                 peerSurfaceID = nil
             }
 
-            let connection = RemoteTmuxControlConnection(
+            connection = RemoteTmuxControlConnection(
                 host: RemoteTmuxHost(destination: "user@host"),
                 sessionName: "work"
             )
-            let layout = RemoteTmuxLayoutNode(
+            if connectedTransport {
+                let pipe = Pipe()
+                let writer = RemoteTmuxControlPipeWriter(
+                    handle: pipe.fileHandleForWriting,
+                    label: "remote-tmux-mirror-control-command-test",
+                    maxPendingBytes: 1 << 20,
+                    onFailure: {}
+                )
+                controlPipe = pipe
+                controlWriter = writer
+                connection.installStdinWriterForTesting(writer)
+                connection.handleMessageForTesting(.enter)
+                connection.handleMessageForTesting(
+                    .commandResult(commandNumber: 0, lines: [], isError: false)
+                )
+            } else {
+                controlPipe = nil
+                controlWriter = nil
+            }
+            let layout = mirrorLayout ?? RemoteTmuxLayoutNode(
                 width: 80,
                 height: 24,
                 x: 0,
@@ -379,11 +404,19 @@ struct RemoteTmuxMirrorCLIObservabilityTests {
                     RemoteTmuxLayoutNode(width: 39, height: 24, x: 41, y: 0, content: .pane(22)),
                 ])
             )
+            let geometry = RemoteTmuxMirrorGeometry(
+                cellWidthPx: Int(8 * geometryScale),
+                cellHeightPx: Int(17 * geometryScale),
+                surfacePadWidthPx: Int(4 * geometryScale),
+                surfacePadHeightPx: Int(4 * geometryScale),
+                scale: geometryScale
+            )
             mirror = RemoteTmuxWindowMirror(
                 windowId: 3,
                 panelId: outerPanelID,
                 connection: connection,
                 layout: layout,
+                geometrySource: { geometry },
                 onControlPaneRemoved: { paneID, surfaceID in
                     TerminalController.shared.cleanupSurfaceState(
                         surfaceIds: [surfaceID],
@@ -416,6 +449,8 @@ struct RemoteTmuxMirrorCLIObservabilityTests {
             workspace.setRemoteTmuxWindowMirror(nil, forPanelId: outerPanelID)
             workspace.isRemoteTmuxMirror = false
             mirror.teardown()
+            controlWriter?.close()
+            try? controlPipe?.fileHandleForReading.close()
             let identifier = "cmux.main.\(windowID.uuidString)"
             if let window = NSApp.windows.first(where: { $0.identifier?.rawValue == identifier }) {
                 window.performClose(nil)
