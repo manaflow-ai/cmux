@@ -30,6 +30,19 @@ mock.module("next-intl/server", () => ({
   setRequestLocale: () => undefined,
 }));
 
+// AccountPlanBadge is a client component using the client `useTranslations`.
+// Mock it here (like next-intl/server above) so the render is self-contained;
+// depending on another file's leaked next-intl mock made CI's sorted test
+// order fail while local readdir order passed. Export the full client surface
+// the app imports (NextIntlClientProvider, useLocale, useTranslations) so this
+// mock never shadows an export a later file's module evaluation needs — bun's
+// mock.module is global and persists across files.
+mock.module("next-intl", () => ({
+  NextIntlClientProvider: ({ children }: { children: React.ReactNode }) => children,
+  useLocale: () => "en",
+  useTranslations: (namespace?: string) => translator(namespace),
+}));
+
 mock.module("@/i18n/navigation", () => ({
   Link: ({ href, children, ...props }: { href: string; children: React.ReactNode }) => (
     <a href={href} {...props}>
@@ -61,6 +74,7 @@ mock.module("../db/client", () => ({
 }));
 
 const { default: DashboardBillingPage } = await import("../app/[locale]/dashboard/billing/page");
+const { DashboardQueryProvider } = await import("../app/[locale]/dashboard/components/query-provider");
 
 describe("dashboard billing page", () => {
   beforeEach(() => {
@@ -216,7 +230,11 @@ async function renderBillingPage(searchParams: Record<string, string> = {}) {
     params: Promise.resolve({ locale: "en" }),
     searchParams: Promise.resolve(searchParams),
   });
-  return renderToStaticMarkup(element);
+  // DashboardQueryProvider supplies the QueryClient that AccountPlanBadge's
+  // useQuery needs; next-intl is mocked above so useTranslations resolves.
+  return renderToStaticMarkup(
+    <DashboardQueryProvider>{element}</DashboardQueryProvider>,
+  );
 }
 
 function stripeSubscriptionRow({
