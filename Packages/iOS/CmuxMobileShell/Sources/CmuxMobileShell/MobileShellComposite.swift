@@ -2942,7 +2942,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // A fresh re-pair can also carry one route; merging here is bounded
             // and preserves known fallbacks instead of eroding the route set.
             let routesToPersist = ticket.routes.count == 1 && !storedRoutes.isEmpty
-                ? Self.mergedReconnectRoutes(ticketRoutes: ticket.routes, storedRoutes: storedRoutes)
+                ? Self.mergedReconnectRoutes(ticketRoutes: ticket.routes, storedRoutes: storedRoutes, at: self.runtime?.now() ?? Date())
                 : ticket.routes
             do {
                 try await pairedMacStore.upsert(

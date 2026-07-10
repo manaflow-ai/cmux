@@ -168,7 +168,8 @@ extension MobileShellComposite {
     /// endpoint collides, then keep the remaining stored fallbacks.
     static func mergedReconnectRoutes(
         ticketRoutes: [CmxAttachRoute],
-        storedRoutes: [CmxAttachRoute]
+        storedRoutes: [CmxAttachRoute],
+        at now: Date
     ) -> [CmxAttachRoute] {
         var merged: [CmxAttachRoute] = []
         var seenIDs = Set<String>()
@@ -201,7 +202,10 @@ extension MobileShellComposite {
             }
         }
 
-        func append(_ route: CmxAttachRoute) {
+        func append(_ rawRoute: CmxAttachRoute) {
+            guard let route = rawRoute.disclosed(for: .authenticated, at: now) else {
+                return
+            }
             let key = endpointKey(route)
             guard seenIDs.insert(route.id).inserted,
                   seenEndpoints.insert(key).inserted else {

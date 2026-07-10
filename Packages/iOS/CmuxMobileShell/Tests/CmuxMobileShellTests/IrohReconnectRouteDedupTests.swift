@@ -38,13 +38,15 @@ import Testing
 
         let merged = MobileShellComposite.mergedReconnectRoutes(
             ticketRoutes: [siteA],
-            storedRoutes: [siteB]
+            storedRoutes: [siteB],
+            at: now
         )
 
         #expect(Set(merged.map(\.id)) == ["iroh-site-a", "iroh-site-b"])
     }
 
     @Test func reconnectDedupReplacesStaleFreshnessForSameIrohPath() throws {
+        let now = Date(timeIntervalSince1970: 2_000)
         let endpointID = try CmxIrohPeerIdentity(
             endpointID: String(repeating: "a", count: 64)
         )
@@ -71,12 +73,13 @@ import Testing
                 )
             )
         }
-        let fresh = try route(id: "fresh", observedAt: Date(timeIntervalSince1970: 2_000))
-        let stale = try route(id: "stale", observedAt: Date(timeIntervalSince1970: 1_000))
+        let fresh = try route(id: "fresh", observedAt: now.addingTimeInterval(-30))
+        let stale = try route(id: "stale", observedAt: now.addingTimeInterval(-120))
 
         let merged = MobileShellComposite.mergedReconnectRoutes(
             ticketRoutes: [fresh],
-            storedRoutes: [stale]
+            storedRoutes: [stale],
+            at: now
         )
 
         #expect(merged.map(\.id) == ["fresh"])
@@ -118,7 +121,8 @@ import Testing
 
         let merged = MobileShellComposite.mergedReconnectRoutes(
             ticketRoutes: [fresh],
-            storedRoutes: [stored]
+            storedRoutes: [stored],
+            at: now
         )
 
         #expect(merged.map(\.id) == ["fresh"])
@@ -160,7 +164,8 @@ import Testing
 
         let merged = MobileShellComposite.mergedReconnectRoutes(
             ticketRoutes: [fresh],
-            storedRoutes: [stored]
+            storedRoutes: [stored],
+            at: now
         )
 
         #expect(merged.map(\.id) == ["fresh"])
