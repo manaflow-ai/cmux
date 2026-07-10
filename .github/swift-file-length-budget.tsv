@@ -173,7 +173,6 @@
 650	Sources/Panels/MarkdownRemoteImageLoader.swift
 648	cmuxTests/TerminalNotificationQueueTests.swift
 644	Packages/macOS/CMUXAgentLaunch/Tests/CMUXAgentLaunchTests/AgentLaunchSanitizerTests.swift
-643	Sources/SidebarAgentStatusRowViews.swift
 641	cmuxTests/CommandPaletteNucleoFFITests.swift
 638	cmuxTests/RemoteTmuxControlParserTests.swift
 637	Packages/iOS/CmuxMobileShell/Tests/CmuxMobileShellTests/MobileShellRenderGridLivenessTestSupport.swift
@@ -234,9 +233,7 @@
 526	Packages/macOS/CMUXAgentLaunch/Sources/CMUXAgentLaunch/Workstream/WorkstreamStore.swift
 525	Packages/macOS/CmuxSettings/Sources/CmuxSettings/SocketControl/SocketControlSettings.swift
 524	CLI/CMUXCLI+AutoNaming.swift
-523	cmuxTests/SidebarWorkspaceSnapshotRefreshPolicyTests.swift
 522	Sources/TerminalPaneDropTargetView.swift
-522	cmuxTests/PerAgentSidebarStatusRowTests.swift
 520	CLI/CMUXCLI+AmpExtension.swift
 520	cmuxTests/MainWindowVisibilityControllerTests.swift
 519	Packages/macOS/CmuxSwiftRender/Tests/CmuxSwiftRenderTests/Corpus/stress-two-column-cockpit-sidebar.swift
