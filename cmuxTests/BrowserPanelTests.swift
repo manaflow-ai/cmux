@@ -2896,6 +2896,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
 
     private final class PortalTargetWindow: NSWindow {
         private var reportedContentView: NSView?
+        private(set) var displayIfNeededCallCount = 0
 
         override var contentView: NSView? {
             get { reportedContentView ?? super.contentView }
@@ -2912,6 +2913,15 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
             reference.autoresizingMask = [.width, .height]
             container.addSubview(reference)
             reportedContentView = reference
+        }
+
+        override func displayIfNeeded() {
+            displayIfNeededCallCount += 1
+            super.displayIfNeeded()
+        }
+
+        func resetDisplayIfNeededCallCount() {
+            displayIfNeededCallCount = 0
         }
     }
 
@@ -3063,13 +3073,19 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
 
         let originalFirstSlotFrame = firstSlot.frame
         firstAnchor.frame = NSRect(x: 44, y: 24, width: 150, height: 140)
-        NotificationCenter.default.post(name: NSWindow.didResizeNotification, object: window)
-        drainMainQueue()
+        layoutRoot.needsDisplay = true
+        window.resetDisplayIfNeededCallCount()
+        portal.browserPortalTestSynchronizeExternalGeometryNow()
 
         XCTAssertEqual(
             layoutRoot.layoutSubtreeCallCount,
             0,
             "Applying changed external geometry must still avoid selected-root layout"
+        )
+        XCTAssertEqual(
+            window.displayIfNeededCallCount,
+            0,
+            "A geometry-only browser refresh must not flush unrelated window-wide display work"
         )
         XCTAssertGreaterThan(
             firstSlot.frame.minX,

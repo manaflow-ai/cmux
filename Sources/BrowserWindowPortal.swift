@@ -1949,6 +1949,12 @@ final class WindowBrowserPortal: NSObject {
         _ = synchronizeAllWebViews(excluding: nil, source: "externalGeometry")
     }
 
+#if DEBUG
+    func browserPortalTestSynchronizeExternalGeometryNow() {
+        synchronizeAllEntriesFromExternalGeometryChange()
+    }
+#endif
+
     @discardableResult
     private func ensureInstalled() -> Bool {
         guard let window else { return false }
