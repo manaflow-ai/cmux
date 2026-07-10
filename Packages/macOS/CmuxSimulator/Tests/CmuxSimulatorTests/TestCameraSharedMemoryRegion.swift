@@ -35,18 +35,7 @@ final class TestCameraSharedMemoryRegion {
 }
 
 private func openTestCameraSharedMemory(name: String, flags: Int32) throws -> Int32 {
-    typealias Function = @convention(c) (
-        UnsafePointer<CChar>,
-        Int32,
-        mode_t
-    ) -> Int32
-    guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "shm_open") else {
-        throw POSIXError(.ENOSYS)
-    }
-    let function = unsafeBitCast(symbol, to: Function.self)
-    let descriptor = name.withCString {
-        function($0, flags, S_IRUSR | S_IWUSR)
-    }
+    let descriptor = try simulatorOpenSharedMemory(named: name, flags: flags)
     guard descriptor >= 0 else {
         throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
     }

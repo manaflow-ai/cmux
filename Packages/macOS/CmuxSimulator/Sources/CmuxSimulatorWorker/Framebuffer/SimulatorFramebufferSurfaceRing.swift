@@ -1,64 +1,73 @@
 import CmuxSimulator
+import CmuxSimulatorSystem
 import CoreImage
-import CoreVideo
 import Darwin
 import Foundation
 import IOSurface
-import libkern
 
-/// Worker-owned producer ring whose surfaces are retained and rendered by cmux.
+/// Worker-owned producer for a permission-restricted packed-BGRA triple ring.
 ///
-/// The worker copies private Simulator framebuffer surfaces into global
-/// IOSurfaces. The host resolves and retains those surfaces, so worker death
-/// cannot leave Core Animation waiting on a worker-owned render context.
+/// Simulator IOSurface and GPU synchronization remain inside the isolated
+/// worker. The host receives only read-only shared bytes with versioned slots.
 // SAFETY: ownership moves to one detached frame-publisher task after initial
-// creation. No other executor accesses the ring or its CIContext concurrently.
+// creation. No other executor accesses the mapping or CIContext concurrently.
 final class SimulatorFramebufferSurfaceRing: @unchecked Sendable {
-    private let controlByteCount = 32
-    private let magic: UInt32 = 0x434D_5846
-    private let version: UInt32 = 1
     private let context = CIContext(options: [.cacheIntermediates: false])
     private let colorSpace = CGColorSpaceCreateDeviceRGB()
     private let descriptorHandle: Int32
     private let mapping: UnsafeMutableRawPointer
-    private let surfaces: [IOSurface]
+    private let layout: SimulatorFrameSharedMemoryLayout
+    private var frameSequence: UInt64 = 0
 
     let descriptor: SimulatorFrameTransportDescriptor
 
-    init(width: Int, height: Int, surfaceCount: Int = 3) throws {
-        guard (1...16_384).contains(width),
-            (1...16_384).contains(height),
-            (2...4).contains(surfaceCount)
-        else {
+    init(width: Int, height: Int) throws {
+        let layout: SimulatorFrameSharedMemoryLayout
+        do {
+            layout = try SimulatorFrameSharedMemoryLayout(width: width, height: height)
+        } catch {
+            throw SimulatorWorkerFailure.framebufferUnavailable(error.localizedDescription)
+        }
+        guard cmux_simulator_atomic_u64_is_lock_free() else {
             throw SimulatorWorkerFailure.framebufferUnavailable(
-                "The Simulator framebuffer dimensions are outside the supported transport bounds."
+                "Lock-free Simulator framebuffer publication is unavailable."
             )
         }
 
-        let name = simulatorFramebufferSharedMemoryName()
-        shm_unlink(name)
-        let handle = try simulatorOpenSharedMemory(
-            named: name,
-            flags: O_CREAT | O_EXCL | O_RDWR
-        )
-        guard handle >= 0 else {
-            throw SimulatorWorkerFailure.framebufferUnavailable(
-                "Could not create the Simulator framebuffer control region: \(simulatorFramebufferErrnoDescription())."
-            )
-        }
-        _ = fcntl(handle, F_SETFD, FD_CLOEXEC)
-        guard ftruncate(handle, off_t(controlByteCount)) == 0 else {
+        let (name, handle) = try createSimulatorFramebufferSharedMemory()
+        guard fcntl(handle, F_SETFD, FD_CLOEXEC) != -1 else {
             let detail = simulatorFramebufferErrnoDescription()
             close(handle)
             shm_unlink(name)
             throw SimulatorWorkerFailure.framebufferUnavailable(
-                "Could not size the Simulator framebuffer control region: \(detail)."
+                "Could not isolate the Simulator framebuffer descriptor: \(detail)."
+            )
+        }
+        var metadata = stat()
+        let metadataResult = fstat(handle, &metadata)
+        guard metadataResult == 0,
+              metadata.st_uid == geteuid(),
+              metadata.st_mode & (S_IRWXU | S_IRWXG | S_IRWXO)
+                == (S_IRUSR | S_IWUSR) else {
+            let detail = simulatorFramebufferErrnoDescription()
+            close(handle)
+            shm_unlink(name)
+            throw SimulatorWorkerFailure.framebufferUnavailable(
+                "Simulator framebuffer ring permissions are unsafe: \(detail)."
+            )
+        }
+        guard ftruncate(handle, off_t(layout.totalByteCount)) == 0 else {
+            let detail = simulatorFramebufferErrnoDescription()
+            close(handle)
+            shm_unlink(name)
+            throw SimulatorWorkerFailure.framebufferUnavailable(
+                "Could not size the Simulator framebuffer ring: \(detail)."
             )
         }
         guard
             let mapping = mmap(
                 nil,
-                controlByteCount,
+                layout.totalByteCount,
                 PROT_READ | PROT_WRITE,
                 MAP_SHARED,
                 handle,
@@ -69,79 +78,109 @@ final class SimulatorFramebufferSurfaceRing: @unchecked Sendable {
             close(handle)
             shm_unlink(name)
             throw SimulatorWorkerFailure.framebufferUnavailable(
-                "Could not map the Simulator framebuffer control region: \(detail)."
+                "Could not map the Simulator framebuffer ring: \(detail)."
             )
-        }
-
-        var surfaces: [IOSurface] = []
-        let properties: [String: Any] = [
-            kIOSurfaceWidth as String: width,
-            kIOSurfaceHeight as String: height,
-            kIOSurfaceBytesPerElement as String: 4,
-            kIOSurfacePixelFormat as String: kCVPixelFormatType_32BGRA,
-            "IOSurfaceIsGlobal": true,
-        ]
-        for _ in 0..<surfaceCount {
-            guard let surface = IOSurfaceCreate(properties as CFDictionary),
-                IOSurfaceGetID(surface) != 0
-            else {
-                munmap(mapping, controlByteCount)
-                close(handle)
-                shm_unlink(name)
-                throw SimulatorWorkerFailure.framebufferUnavailable(
-                    "Could not allocate a global IOSurface for Simulator frames."
-                )
-            }
-            surfaces.append(surface)
         }
 
         descriptorHandle = handle
         self.mapping = mapping
-        self.surfaces = surfaces
+        self.layout = layout
         descriptor = SimulatorFrameTransportDescriptor(
             sharedMemoryName: name,
-            surfaceIdentifiers: surfaces.map(IOSurfaceGetID),
             width: width,
-            height: height
+            height: height,
+            bytesPerRow: layout.bytesPerRow,
+            slotCount: layout.slotCount,
+            sharedMemoryByteCount: layout.totalByteCount
         )
-        memset(mapping, 0, controlByteCount)
-        mapping.storeBytes(of: magic, toByteOffset: 0, as: UInt32.self)
-        mapping.storeBytes(of: version, toByteOffset: 4, as: UInt32.self)
-        mapping.storeBytes(of: Int32(-1), toByteOffset: 8, as: Int32.self)
-        mapping.storeBytes(of: Int64(0), toByteOffset: 16, as: Int64.self)
+        layout.initializeHeader(at: mapping)
+        cmux_simulator_atomic_store_u64_release(
+            layout.publishedWordPointer(in: mapping),
+            0
+        )
+        for slot in 0..<layout.slotCount {
+            guard let versionPointer = layout.slotVersionPointer(slot: slot, in: mapping) else {
+                continue
+            }
+            cmux_simulator_atomic_store_u64_release(versionPointer, 0)
+        }
     }
 
     deinit {
-        munmap(mapping, controlByteCount)
+        munmap(mapping, layout.totalByteCount)
         close(descriptorHandle)
         shm_unlink(descriptor.sharedMemoryName)
     }
 
     func publish(_ source: IOSurface) throws {
-        guard IOSurfaceGetWidth(source) == descriptor.width,
-            IOSurfaceGetHeight(source) == descriptor.height
-        else {
+        guard IOSurfaceGetWidth(source) == layout.width,
+              IOSurfaceGetHeight(source) == layout.height else {
             throw SimulatorWorkerFailure.framebufferUnavailable(
                 "The Simulator framebuffer changed dimensions before its transport was replaced."
             )
         }
-        let currentPointer = mapping.advanced(by: 8).assumingMemoryBound(to: Int32.self)
-        let currentIndex = OSAtomicAdd32Barrier(0, currentPointer)
-        let nextIndex = currentIndex < 0 ? 0 : (currentIndex + 1) % Int32(surfaces.count)
-        let bounds = CGRect(x: 0, y: 0, width: descriptor.width, height: descriptor.height)
+        let (nextSequence, sequenceOverflow) = frameSequence.addingReportingOverflow(1)
+        let nextSlot = Int(frameSequence % UInt64(layout.slotCount))
+        guard !sequenceOverflow,
+              let completedVersion = layout.completedSlotVersion(frameSequence: nextSequence),
+              let nextPublishedWord = layout.publishedWord(
+                frameSequence: nextSequence,
+                slot: nextSlot
+              ),
+              let versionPointer = layout.slotVersionPointer(slot: nextSlot, in: mapping),
+              let slotBytes = layout.slotBytes(slot: nextSlot, in: mapping)
+        else {
+            throw SimulatorWorkerFailure.framebufferUnavailable(
+                "The Simulator framebuffer sequence exceeded transport bounds."
+            )
+        }
+
+        let writingVersion = completedVersion - 1
+        _ = cmux_simulator_atomic_exchange_u64_acq_rel(
+            versionPointer,
+            UInt64(bitPattern: writingVersion)
+        )
+
+        let bounds = CGRect(x: 0, y: 0, width: layout.width, height: layout.height)
         context.render(
             CIImage(ioSurface: source),
-            to: surfaces[Int(nextIndex)],
+            toBitmap: UnsafeMutableRawPointer(mutating: slotBytes),
+            rowBytes: layout.bytesPerRow,
             bounds: bounds,
+            format: .BGRA8,
             colorSpace: colorSpace
         )
-        let sequence = mapping.advanced(by: 16).assumingMemoryBound(to: Int64.self)
-        // Publish through an odd/even sequence lock. Readers only accept an
-        // even sequence observed unchanged on both sides of the index load.
-        _ = OSAtomicIncrement64Barrier(sequence)
-        _ = OSAtomicCompareAndSwap32Barrier(currentIndex, nextIndex, currentPointer)
-        _ = OSAtomicIncrement64Barrier(sequence)
+
+        cmux_simulator_atomic_store_u64_release(
+            versionPointer,
+            UInt64(bitPattern: completedVersion)
+        )
+        cmux_simulator_atomic_store_u64_release(
+            layout.publishedWordPointer(in: mapping),
+            UInt64(bitPattern: nextPublishedWord)
+        )
+        frameSequence = nextSequence
     }
+}
+
+private func createSimulatorFramebufferSharedMemory() throws -> (name: String, handle: Int32) {
+    for _ in 0..<8 {
+        let name = simulatorFramebufferSharedMemoryName()
+        let handle = try simulatorOpenSharedMemory(
+            named: name,
+            flags: O_CREAT | O_EXCL | O_RDWR
+        )
+        if handle >= 0 { return (name, handle) }
+        guard errno == EEXIST else {
+            throw SimulatorWorkerFailure.framebufferUnavailable(
+                "Could not create the Simulator framebuffer ring: "
+                    + "\(simulatorFramebufferErrnoDescription())."
+            )
+        }
+    }
+    throw SimulatorWorkerFailure.framebufferUnavailable(
+        "Could not reserve a unique Simulator framebuffer ring name."
+    )
 }
 
 private func simulatorFramebufferSharedMemoryName() -> String {

@@ -17,8 +17,13 @@ let package = Package(
     ],
     targets: [
         .target(
+            name: "CmuxSimulatorSystem",
+            publicHeadersPath: "include"
+        ),
+        .target(
             name: "CmuxSimulator",
             dependencies: [
+                "CmuxSimulatorSystem",
                 .product(name: "CmuxFoundation", package: "CmuxFoundation"),
             ],
             swiftSettings: [
@@ -27,7 +32,7 @@ let package = Package(
         ),
         .target(
             name: "CmuxSimulatorWorker",
-            dependencies: ["CmuxSimulator"],
+            dependencies: ["CmuxSimulator", "CmuxSimulatorSystem"],
             resources: [
                 .copy("Resources/CameraInjector"),
                 .copy("Resources/SimulatorAXSettings"),
@@ -43,12 +48,11 @@ let package = Package(
         ),
         .target(
             name: "CmuxSimulatorUI",
-            dependencies: ["CmuxSimulator"],
+            dependencies: ["CmuxSimulator", "CmuxSimulatorSystem"],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
             ],
             linkerSettings: [
-                .linkedFramework("IOSurface"),
                 .linkedFramework("QuartzCore"),
             ]
         ),
@@ -61,14 +65,18 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxSimulatorUITests",
-            dependencies: ["CmuxSimulatorUI", "CmuxSimulatorWorker"],
+            dependencies: [
+                "CmuxSimulatorSystem",
+                "CmuxSimulatorUI",
+                "CmuxSimulatorWorker",
+            ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
             ]
         ),
         .testTarget(
             name: "CmuxSimulatorWorkerTests",
-            dependencies: ["CmuxSimulatorWorker"],
+            dependencies: ["CmuxSimulator", "CmuxSimulatorWorker"],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
             ]

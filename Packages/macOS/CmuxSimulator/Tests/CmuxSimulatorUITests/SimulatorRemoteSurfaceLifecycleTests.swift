@@ -40,6 +40,112 @@ struct SimulatorRemoteSurfaceLifecycleTests {
         #expect(isCGImage(view.frameLayer?.contents))
     }
 
+    @Test("A blocked frame copy leaves MainActor responsive and coalesces to newest")
+    func blockedCopyDoesNotBlockMainActor() async throws {
+        let descriptor = simulatorFrameTransportDescriptor(43)
+        let source = BlockingSimulatorFrameSurfaceSource(snapshot: simulatorFrameSnapshot(
+            pixel: 0xFF_11_22_33,
+            sequence: 1
+        ))
+        let view = SimulatorRemoteSurfaceView(frameSourceFactory: { _ in source })
+        view.update(
+            frameTransport: descriptor,
+            display: simulatorTestDisplay,
+            chrome: nil
+        )
+        view.renderLatestFrame()
+        try await waitUntil { source.hasStarted() }
+
+        let heartbeat = await Task { @MainActor in true }.value
+        #expect(heartbeat)
+        source.update(snapshot: simulatorFrameSnapshot(
+            pixel: 0xFF_44_55_66,
+            sequence: 1_001
+        ))
+        for _ in 0..<1_000 {
+            view.renderLatestFrame()
+            await Task.yield()
+        }
+        #expect(source.copyCount() == 1)
+
+        source.release()
+        try await waitUntil {
+            view.renderLatestFrame()
+            return simulatorFrameImageFirstPixel(
+                view.frameLayer?.contents
+            ) == 0xFF_44_55_66
+        }
+        #expect(source.copyCount() == 2)
+    }
+
+    @Test("A released stale copy cannot replace a newer transport frame")
+    func replacementRejectsStaleCopyCompletion() async throws {
+        let oldDescriptor = simulatorFrameTransportDescriptor(44)
+        let newDescriptor = simulatorFrameTransportDescriptor(45)
+        let oldSource = BlockingSimulatorFrameSurfaceSource(snapshot: simulatorFrameSnapshot(
+            pixel: 0xFF_AA_00_00,
+            sequence: 1
+        ))
+        let newSource = EmptySimulatorFrameSurfaceSource(snapshot: simulatorFrameSnapshot(
+            pixel: 0xFF_00_BB_00,
+            sequence: 1
+        ))
+        let view = SimulatorRemoteSurfaceView(frameSourceFactory: {
+            descriptor -> any SimulatorFrameSurfaceReading in
+            if descriptor == oldDescriptor { return oldSource }
+            return newSource
+        })
+        view.update(
+            frameTransport: oldDescriptor,
+            display: simulatorTestDisplay,
+            chrome: nil
+        )
+        view.renderLatestFrame()
+        try await waitUntil { oldSource.hasStarted() }
+
+        view.update(
+            frameTransport: newDescriptor,
+            display: simulatorTestDisplay,
+            chrome: nil
+        )
+        try await waitUntil {
+            view.renderLatestFrame()
+            return simulatorFrameImageFirstPixel(
+                view.frameLayer?.contents
+            ) == 0xFF_00_BB_00
+        }
+        oldSource.release()
+        for _ in 0..<100 {
+            view.renderLatestFrame()
+            await Task.yield()
+        }
+        #expect(simulatorFrameImageFirstPixel(
+            view.frameLayer?.contents
+        ) == 0xFF_00_BB_00)
+    }
+
+    @Test("A released copy cannot restore a torn-down frame layer")
+    func teardownRejectsStaleCopyCompletion() async throws {
+        let source = BlockingSimulatorFrameSurfaceSource(snapshot: simulatorFrameSnapshot(
+            pixel: 0xFF_CC_DD_EE,
+            sequence: 1
+        ))
+        let view = SimulatorRemoteSurfaceView(frameSourceFactory: { _ in source })
+        view.update(
+            frameTransport: simulatorFrameTransportDescriptor(46),
+            display: simulatorTestDisplay,
+            chrome: nil
+        )
+        view.renderLatestFrame()
+        try await waitUntil { source.hasStarted() }
+
+        view.teardown()
+        source.release()
+        for _ in 0..<100 { await Task.yield() }
+
+        #expect(view.frameLayer == nil)
+    }
+
     @Test("Dismantling drops retained frame surfaces and rejects late updates")
     func dismantleIsTerminalForViewInstance() throws {
         let firstDescriptor = simulatorFrameTransportDescriptor(41)
@@ -186,5 +292,26 @@ struct SimulatorRemoteSurfaceLifecycleTests {
     private func isCGImage(_ value: Any?) -> Bool {
         guard let value else { return false }
         return CFGetTypeID(value as CFTypeRef) == CGImage.typeID
+    }
+
+    private var simulatorTestDisplay: SimulatorDisplayMetadata {
+        SimulatorDisplayMetadata(
+            width: 2,
+            height: 2,
+            orientation: .portrait,
+            scale: 1
+        )
+    }
+
+    private func waitUntil(
+        _ condition: @escaping @MainActor () -> Bool
+    ) async throws {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(2))
+        while clock.now < deadline {
+            if condition() { return }
+            try await clock.sleep(for: .milliseconds(1))
+        }
+        Issue.record("Condition did not become true before the deadline")
     }
 }

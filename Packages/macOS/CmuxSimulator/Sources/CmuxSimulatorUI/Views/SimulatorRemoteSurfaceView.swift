@@ -11,13 +11,15 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
     var onFrameTransportFailure: ((SimulatorFrameTransportDescriptor, SimulatorFailure) -> Void)?
 
     var frameLayer: CALayer?
-    private var frameSource: (any SimulatorFrameSurfaceReading)?
+    private var framePipeline: SimulatorFramePresentationPipeline?
     private var frameTransportDescriptor: SimulatorFrameTransportDescriptor?
     private let frameSourceFactory:
         @MainActor (
             SimulatorFrameTransportDescriptor
         ) throws -> any SimulatorFrameSurfaceReading
     private var displayLink: CADisplayLink?
+    private var frameTickTask: Task<Void, Never>?
+    private var frameGeneration: UInt64 = 0
     private var screenObserver: NSObjectProtocol?
     private var lastFrameSequence: UInt64?
     private var isTornDown = false
@@ -104,9 +106,9 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
             self.screenObserver = nil
         }
         stopDisplayLink()
+        retireFramePipeline()
         frameLayer?.removeFromSuperlayer()
         frameLayer = nil
-        frameSource = nil
         frameTransportDescriptor = nil
         lastFrameSequence = nil
         display = nil
@@ -365,9 +367,9 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
             return
         }
         stopDisplayLink()
+        retireFramePipeline()
         frameLayer?.removeFromSuperlayer()
         frameLayer = nil
-        frameSource = nil
         frameTransportDescriptor = nil
         lastFrameSequence = nil
         let frameLayer = CALayer()
@@ -376,7 +378,7 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
         frameLayer.magnificationFilter = .linear
         layer?.addSublayer(frameLayer)
         self.frameLayer = frameLayer
-        frameSource = source
+        framePipeline = SimulatorFramePresentationPipeline(source: source)
         frameTransportDescriptor = frameTransport
         renderLatestFrame()
         layoutFrameLayer()
@@ -384,20 +386,34 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
     }
 
     func renderLatestFrame() {
-        guard let frame = frameSource?.latestFrame,
-            frame.sequence != lastFrameSequence,
-            let frameLayer
-        else { return }
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        frameLayer.contents = frame.surface
-        CATransaction.commit()
-        lastFrameSequence = frame.sequence
+        guard frameTickTask == nil,
+              let pipeline = framePipeline else { return }
+        let generation = frameGeneration
+        frameTickTask = Task { @MainActor [weak self] in
+            let presentation = await pipeline.displayTick()
+            guard let self else { return }
+            defer {
+                if self.frameGeneration == generation {
+                    self.frameTickTask = nil
+                }
+            }
+            guard !Task.isCancelled,
+                  self.frameGeneration == generation,
+                  self.framePipeline === pipeline,
+                  let presentation,
+                  presentation.sequence != self.lastFrameSequence,
+                  let frameLayer = self.frameLayer else { return }
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            frameLayer.contents = presentation.image
+            CATransaction.commit()
+            self.lastFrameSequence = presentation.sequence
+        }
     }
 
     private func startDisplayLink() {
         guard displayLink == nil,
-            frameSource != nil,
+            framePipeline != nil,
             let window,
             let screen = window.screen ?? NSScreen.main ?? NSScreen.screens.first
         else { return }
@@ -410,15 +426,26 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
         displayLink?.invalidate()
         displayLink = nil
     }
-
     private func rebuildDisplayLink() {
-        guard !isTornDown, frameSource != nil else { return }
+        guard !isTornDown, framePipeline != nil else { return }
         stopDisplayLink()
         startDisplayLink()
     }
 
     @objc private func displayLinkDidFire(_ link: CADisplayLink) {
         renderLatestFrame()
+    }
+
+    private func retireFramePipeline() {
+        frameGeneration &+= 1
+        frameTickTask?.cancel()
+        frameTickTask = nil
+        let pipeline = framePipeline
+        framePipeline = nil
+        frameLayer?.contents = nil
+        if let pipeline {
+            Task { await pipeline.invalidate() }
+        }
     }
 
     private func normalizedPoint(for event: NSEvent, clamped: Bool = false) -> SimulatorPoint? {

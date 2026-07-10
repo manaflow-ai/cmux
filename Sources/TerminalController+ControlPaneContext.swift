@@ -378,11 +378,7 @@ extension TerminalController: ControlPaneContext {
         )
     }
 
-    /// Maps the coordinator's raw token through the shared control API parser.
-    private func panelType(forRawToken raw: String) -> PanelType? {
-        v2PanelType(rawToken: raw)
-    }
-
+    private func panelType(forRawToken raw: String) -> PanelType? { v2PanelType(rawToken: raw) }
     /// The byte-faithful twin of `v2BrowserDisabledExternalOpenResult`, mapped
     /// onto ``ControlPaneCreateResolution``.
     private func browserDisabledCreateResolution(

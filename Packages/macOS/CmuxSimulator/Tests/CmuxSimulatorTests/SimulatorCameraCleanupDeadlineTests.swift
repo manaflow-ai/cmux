@@ -50,25 +50,16 @@ extension SimulatorWorkerClientTests {
             await client.stop()
             await stopProbe.finish()
         }
-        for _ in 0..<1_000 {
-            if await control.isBlocked { break }
-            await Task.yield()
-        }
+        await control.waitUntilBlocked()
         #expect(await control.isBlocked)
 
         await sleeper.fireDeadline()
-        for _ in 0..<1_000 {
-            if await stopProbe.didFinish { break }
-            await Task.yield()
-        }
+        await stopProbe.waitUntilFinished()
         #expect(await stopProbe.didFinish)
 
         await control.release()
         await stop.value
-        for _ in 0..<1_000 {
-            if await control.blockedCallReturned { break }
-            await Task.yield()
-        }
+        await control.waitUntilBlockedCallReturns()
         #expect(await control.blockedCallReturned)
         #expect(await control.actions == [
             .terminateApplication(

@@ -40,11 +40,34 @@ final class SimulatorCameraSurfaceRing: @unchecked Sendable {
             processIdentifier: getpid()
         )
         shm_unlink(sharedMemoryName)
-        let descriptor = try openSimulatorCameraSharedMemory(named: sharedMemoryName)
+        let descriptor = try simulatorOpenSharedMemory(
+            named: sharedMemoryName,
+            flags: O_CREAT | O_RDWR
+        )
         guard descriptor >= 0 else {
             let detail = simulatorCameraErrnoDescription(operation: "shm_open")
             throw SimulatorWorkerFailure.privateAPIUnavailable(
                 "Could not create the synthetic-camera shared-memory control region: \(detail)"
+            )
+        }
+        guard fcntl(descriptor, F_SETFD, FD_CLOEXEC) != -1 else {
+            let detail = simulatorCameraErrnoDescription(operation: "fcntl")
+            close(descriptor)
+            shm_unlink(sharedMemoryName)
+            throw SimulatorWorkerFailure.privateAPIUnavailable(
+                "Could not isolate the synthetic-camera descriptor: \(detail)"
+            )
+        }
+        var metadata = stat()
+        guard fstat(descriptor, &metadata) == 0,
+              metadata.st_uid == geteuid(),
+              metadata.st_mode & (S_IRWXU | S_IRWXG | S_IRWXO)
+                == (S_IRUSR | S_IWUSR) else {
+            let detail = simulatorCameraErrnoDescription(operation: "fstat")
+            close(descriptor)
+            shm_unlink(sharedMemoryName)
+            throw SimulatorWorkerFailure.privateAPIUnavailable(
+                "Synthetic-camera shared-memory permissions are unsafe: \(detail)"
             )
         }
         guard ftruncate(descriptor, off_t(Self.controlByteCount)) == 0 else {
@@ -286,16 +309,4 @@ private func simulatorCameraMonotonicNanoseconds() -> UInt64 {
 private func simulatorCameraErrnoDescription(operation: String) -> String {
     let code = errno
     return "\(operation) errno \(code) (\(String(cString: strerror(code))))"
-}
-
-/// Swift cannot import variadic `shm_open`; resolve its fixed ABI from libc.
-private func openSimulatorCameraSharedMemory(named name: String) throws -> Int32 {
-    typealias Function = @convention(c) (UnsafePointer<CChar>, Int32, mode_t) -> Int32
-    guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "shm_open") else {
-        throw SimulatorWorkerFailure.privateAPIUnavailable(
-            "The host C library does not expose POSIX shared memory."
-        )
-    }
-    let function = unsafeBitCast(symbol, to: Function.self)
-    return name.withCString { function($0, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR) }
 }

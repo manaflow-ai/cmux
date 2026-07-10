@@ -18,7 +18,7 @@ public final class SimulatorPaneCoordinator {
     public internal(set) var capabilities: Set<SimulatorCapability> = []
     /// Live framebuffer metadata.
     public internal(set) var display: SimulatorDisplayMetadata?
-    /// Host-resolvable framebuffer surfaces published by the isolated worker.
+    /// Read-only packed-frame shared memory published by the isolated worker.
     public internal(set) var frameTransport: SimulatorFrameTransportDescriptor?
     /// The latest recoverable or terminal failure.
     public internal(set) var failure: SimulatorFailure?

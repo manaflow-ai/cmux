@@ -1,5 +1,7 @@
+import Darwin
 import Foundation
 import Testing
+@testable import CmuxSimulator
 @testable import CmuxSimulatorWorker
 
 @Suite("Simulator camera surface containment")
@@ -29,6 +31,27 @@ struct SimulatorCameraSurfaceRingTests {
             deviceIdentifier: device,
             processIdentifier: 42
         ))
+    }
+
+    @Test("Camera control shared memory is private")
+    func cameraControlPermissions() throws {
+        let ring = try SimulatorCameraSurfaceRing(deviceIdentifier: "PERMISSIONS-TEST")
+        let descriptor = try simulatorOpenSharedMemory(
+            named: ring.sharedMemoryName,
+            flags: O_RDONLY
+        )
+        defer { close(descriptor) }
+        var metadata = stat()
+
+        #expect(descriptor >= 0)
+        #expect(fstat(descriptor, &metadata) == 0)
+        #expect(metadata.st_uid == geteuid())
+        #expect(
+            metadata.st_mode & (S_IRWXU | S_IRWXG | S_IRWXO)
+                == (S_IRUSR | S_IWUSR)
+        )
+        #expect(fcntl(descriptor, F_GETFL) & O_ACCMODE == O_RDONLY)
+        withExtendedLifetime(ring) {}
     }
 
     @Test("Camera sources aspect-fit by default instead of cropping")

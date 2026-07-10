@@ -4,7 +4,7 @@ import Foundation
 public enum SimulatorWorkerOutbound: Codable, Equatable, Sendable {
     /// Acknowledges an ordered host ping after all earlier commands were handled.
     case ack(UInt64)
-    /// Announces host-resolvable framebuffer surfaces and their control region.
+    /// Announces a permission-restricted packed-frame shared-memory ring.
     case frameTransport(SimulatorFrameTransportDescriptor)
     /// Reports a session lifecycle transition.
     case status(SimulatorSessionStatus)

@@ -50,7 +50,7 @@ These controls cover the iPhone and iPad device capabilities in [serve-sim](http
 
 ## Crash containment
 
-Private CoreSimulator, SimulatorKit, Indigo, HID, accessibility, camera, and Web Inspector work runs in a supervised child process. cmux retains copied IOSurface frames in the host process and never composites a child-owned Core Animation context.
+Private CoreSimulator, SimulatorKit, Indigo, HID, accessibility, camera, and Web Inspector work runs in a supervised child process. The worker resolves framebuffer GPU synchronization and writes a permission-restricted packed-BGRA ring. cmux copies stable slots off-main into immutable images and never gives Core Animation worker-owned storage.
 
 The first worker crash restarts the selected device session. A second consecutive crash trips a fuse and leaves cmux responsive with the last safe frame. Use Recover in the pane or call the recovery RPC to start a fresh session:
 

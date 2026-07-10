@@ -1,107 +1,126 @@
 import CmuxSimulator
+import CmuxSimulatorSystem
 import Darwin
 import Foundation
-import IOSurface
-import libkern
 
-/// Host-owned view of one worker-published framebuffer ring.
+/// Read-only host mapping of one worker-published packed-BGRA frame ring.
 ///
-/// Resolving the global identifiers retains each IOSurface in cmux. The last
-/// complete frame therefore remains a local Core Animation resource even when
-/// the producer process exits without cleanup.
-final class SimulatorFrameSurfaceSource: SimulatorFrameSurfaceReading {
-    private let controlByteCount = 32
+/// Every successful read is a deep copy bracketed by acquire-loads of both the
+/// publication word and per-slot version. Shared bytes never reach Core Animation.
+// SAFETY: the descriptor, file descriptor, mapping, and layout are immutable.
+// The mapping is read-only and remains alive for every call through `self`.
+final class SimulatorFrameSurfaceSource: SimulatorFrameSurfaceReading, @unchecked Sendable {
     private let descriptorHandle: Int32
     private let mapping: UnsafeMutableRawPointer
-    private let surfaces: [IOSurface]
+    private let layout: SimulatorFrameSharedMemoryLayout
+    private let byteCopier: any SimulatorFrameByteCopying
 
-    init(descriptor: SimulatorFrameTransportDescriptor) throws {
-        guard simulatorFrameSharedMemoryNameIsValid(descriptor.sharedMemoryName),
-            (2...4).contains(descriptor.surfaceIdentifiers.count),
-            Set(descriptor.surfaceIdentifiers).count == descriptor.surfaceIdentifiers.count,
-            (1...16_384).contains(descriptor.width),
-            (1...16_384).contains(descriptor.height),
-            descriptor.surfaceIdentifiers.allSatisfy({ $0 != 0 })
-        else {
-            throw simulatorFrameTransportError("The worker supplied an invalid frame descriptor.")
+    init(
+        descriptor: SimulatorFrameTransportDescriptor,
+        byteCopier: any SimulatorFrameByteCopying = SimulatorFrameByteCopier()
+    ) throws {
+        guard simulatorFrameSharedMemoryNameIsValid(descriptor.sharedMemoryName) else {
+            throw SimulatorFrameLayoutError("The worker supplied an invalid frame-ring name.")
+        }
+        let layout = try SimulatorFrameSharedMemoryLayout(descriptor: descriptor)
+        guard cmux_simulator_atomic_u64_is_lock_free() else {
+            throw SimulatorFrameLayoutError("Lock-free frame publication is unavailable.")
         }
         let handle = try simulatorOpenSharedMemory(
             named: descriptor.sharedMemoryName,
-            flags: O_RDWR
+            flags: O_RDONLY
         )
         guard handle >= 0 else {
-            throw simulatorFrameTransportError("The worker frame control region is unavailable.")
+            throw SimulatorFrameLayoutError("The worker frame ring is unavailable.")
         }
-        _ = fcntl(handle, F_SETFD, FD_CLOEXEC)
-        var status = stat()
-        guard fstat(handle, &status) == 0, status.st_size >= controlByteCount else {
+        guard fcntl(handle, F_SETFD, FD_CLOEXEC) != -1 else {
             close(handle)
-            throw simulatorFrameTransportError("The worker frame control region is truncated.")
+            throw SimulatorFrameLayoutError("The worker frame-ring descriptor is unsafe.")
+        }
+        var status = stat()
+        guard fstat(handle, &status) == 0,
+              status.st_uid == geteuid(),
+              status.st_mode & (S_IRWXU | S_IRWXG | S_IRWXO)
+                == (S_IRUSR | S_IWUSR),
+              status.st_size == off_t(layout.totalByteCount) else {
+            close(handle)
+            throw SimulatorFrameLayoutError(
+                "The worker frame ring has unsafe ownership, permissions, or size."
+            )
         }
         guard
             let mapping = mmap(
                 nil,
-                controlByteCount,
-                PROT_READ | PROT_WRITE,
+                layout.totalByteCount,
+                PROT_READ,
                 MAP_SHARED,
                 handle,
                 0
             ), mapping != MAP_FAILED
         else {
             close(handle)
-            throw simulatorFrameTransportError("The worker frame control region could not be mapped.")
+            throw SimulatorFrameLayoutError("The worker frame ring could not be mapped read-only.")
         }
-        guard mapping.load(fromByteOffset: 0, as: UInt32.self) == 0x434D_5846,
-            mapping.load(fromByteOffset: 4, as: UInt32.self) == 1
-        else {
-            munmap(mapping, controlByteCount)
+        guard layout.headerIsValid(at: UnsafeRawPointer(mapping)) else {
+            munmap(mapping, layout.totalByteCount)
             close(handle)
-            throw simulatorFrameTransportError("The worker frame control protocol is unsupported.")
-        }
-        let surfaces = descriptor.surfaceIdentifiers.compactMap(IOSurfaceLookup)
-        guard surfaces.count == descriptor.surfaceIdentifiers.count,
-            surfaces.allSatisfy({
-                IOSurfaceGetWidth($0) == descriptor.width
-                    && IOSurfaceGetHeight($0) == descriptor.height
-            })
-        else {
-            munmap(mapping, controlByteCount)
-            close(handle)
-            throw simulatorFrameTransportError("The worker frame surfaces could not be retained.")
+            throw SimulatorFrameLayoutError("The worker frame-ring header is invalid.")
         }
         descriptorHandle = handle
         self.mapping = mapping
-        self.surfaces = surfaces
+        self.layout = layout
+        self.byteCopier = byteCopier
     }
 
     deinit {
-        munmap(mapping, controlByteCount)
+        munmap(mapping, layout.totalByteCount)
         close(descriptorHandle)
     }
 
-    var latestSurface: IOSurface? {
-        latestFrame?.surface
-    }
+    func copyLatestFrame(after sequence: UInt64?) -> SimulatorFrameSnapshot? {
+        let publicationPointer = layout.publishedWordPointer(in: mapping)
+        let firstWord = Int64(bitPattern: cmux_simulator_atomic_load_u64_acquire(
+            publicationPointer
+        ))
+        guard let published = layout.decodePublishedWord(firstWord),
+              sequence.map({ published.sequence > $0 }) ?? true,
+              let expectedVersion = layout.completedSlotVersion(
+                frameSequence: published.sequence
+              ),
+              let versionPointer = layout.slotVersionPointer(
+                slot: published.slot,
+                in: mapping
+              ),
+              let slotBytes = layout.slotBytes(
+                slot: published.slot,
+                in: UnsafeRawPointer(mapping)
+              ) else { return nil }
+        let firstVersion = Int64(bitPattern: cmux_simulator_atomic_load_u64_acquire(
+            versionPointer
+        ))
+        guard firstVersion == expectedVersion, firstVersion.isMultiple(of: 2) else {
+            return nil
+        }
 
-    var latestFrame: (surface: IOSurface, sequence: UInt64)? {
-        let sequencePointer = mapping.advanced(by: 16).assumingMemoryBound(to: Int64.self)
-        let firstSequence = UInt64(bitPattern: OSAtomicAdd64Barrier(0, sequencePointer))
-        guard firstSequence > 0, firstSequence.isMultiple(of: 2) else { return nil }
-        let indexPointer = mapping.advanced(by: 8).assumingMemoryBound(to: Int32.self)
-        let index = OSAtomicAdd32Barrier(0, indexPointer)
-        let secondSequence = UInt64(bitPattern: OSAtomicAdd64Barrier(0, sequencePointer))
-        guard firstSequence == secondSequence,
-            index >= 0,
-            Int(index) < surfaces.count
-        else { return nil }
-        return (surfaces[Int(index)], secondSequence)
-    }
-}
+        let pixels = byteCopier.copyBytes(from: slotBytes, count: layout.slotByteCount)
+        // A trailing acquire load does not order the pixel reads that precede
+        // it. Keep the complete copy before both seqlock retry loads.
+        cmux_simulator_atomic_thread_fence_seq_cst()
 
-private func simulatorFrameTransportError(_ message: String) -> NSError {
-    NSError(
-        domain: "com.cmux.simulator.frame-transport",
-        code: 1,
-        userInfo: [NSLocalizedDescriptionKey: message]
-    )
+        let secondVersion = Int64(bitPattern: cmux_simulator_atomic_load_u64_acquire(
+            versionPointer
+        ))
+        let secondWord = Int64(bitPattern: cmux_simulator_atomic_load_u64_acquire(
+            publicationPointer
+        ))
+        guard firstVersion == secondVersion,
+              firstWord == secondWord else { return nil }
+        return SimulatorFrameSnapshot(
+            pixels: pixels,
+            width: layout.width,
+            height: layout.height,
+            bytesPerRow: layout.bytesPerRow,
+            sequence: published.sequence
+        )
+    }
 }

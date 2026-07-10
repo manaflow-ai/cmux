@@ -1,7 +1,8 @@
+import CmuxSimulatorSystem
 import Darwin
 import Foundation
 
-/// Opens POSIX shared memory through libc's fixed ABI.
+/// Opens POSIX shared memory through a C bridge that preserves its variadic ABI.
 ///
 /// Swift cannot import the variadic `shm_open` declaration directly.
 package func simulatorOpenSharedMemory(
@@ -9,17 +10,9 @@ package func simulatorOpenSharedMemory(
     flags: Int32,
     permissions: mode_t = S_IRUSR | S_IWUSR
 ) throws -> Int32 {
-    typealias Function =
-        @convention(c) (
-            UnsafePointer<CChar>,
-            Int32,
-            mode_t
-        ) -> Int32
-    guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "shm_open") else {
-        throw POSIXError(.ENOSYS)
+    name.withCString {
+        cmux_simulator_shm_open($0, flags, UInt16(permissions))
     }
-    let function = unsafeBitCast(symbol, to: Function.self)
-    return name.withCString { function($0, flags, permissions) }
 }
 
 package func simulatorFrameSharedMemoryNameIsValid(_ name: String) -> Bool {
