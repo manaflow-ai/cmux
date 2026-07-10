@@ -11,6 +11,44 @@ import CmuxTerminal
 extension TerminalWindowPortalLifecycleTests {
 
     @MainActor
+    func testDockVisibilityRevealDefersRefreshToPortalReconcile() throws {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 340),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer {
+            NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
+            window.orderOut(nil)
+        }
+        realizeWindowLayout(window)
+        let contentView = try XCTUnwrap(window.contentView)
+        let anchor = NSView(frame: NSRect(x: 20, y: 20, width: 360, height: 240))
+        contentView.addSubview(anchor)
+
+        let store = DockSplitStore(workspaceId: UUID(), baseDirectoryProvider: { nil })
+        defer { store.closeAllPanels() }
+        let pane = try XCTUnwrap(store.bonsplitController.allPaneIds.first)
+        let panelId = try XCTUnwrap(store.newSurface(kind: .terminal, inPane: pane, focus: true))
+        let panel = try XCTUnwrap(store.panels[panelId] as? TerminalPanel)
+        let portal = WindowTerminalPortal(window: window)
+        portal.bind(hostedView: panel.hostedView, to: anchor, visibleInUI: false)
+        drainMainQueue()
+        realizeWindowLayout(window)
+        XCTAssertNotNil(panel.surface.surface)
+
+        panel.surface.resetDebugForceRefreshCount()
+        store.setVisibleInUI(true)
+
+        XCTAssertEqual(
+            panel.surface.debugForceRefreshCount(),
+            0,
+            "Dock activation must leave redraw to its scheduled portal reconcile"
+        )
+    }
+
+    @MainActor
     func testDeferredPortalBindRefreshesAfterRepresentableTurn() throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 520, height: 340),
