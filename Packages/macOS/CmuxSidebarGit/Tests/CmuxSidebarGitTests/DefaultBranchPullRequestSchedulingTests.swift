@@ -37,9 +37,17 @@ import CmuxGit
         let host = RecordingSidebarGitHost()
         host.pollingEnabled = true
         let (workspaceId, panelId) = host.addWorkspace(panelDirectory: "/tmp/repo")
+        host.workspaces[0].state.panels[panelId]?.badge = SidebarPullRequestBadge(
+            number: 42,
+            label: "PR",
+            url: URL(string: "https://github.com/manaflow-ai/cmux/pull/42")!,
+            status: .open,
+            branch: "feature/old"
+        )
         let clock = ManualGitPollClock()
         let reader = GatedMetadataReader(metadata: .repository(branch: "main"))
         let pullRequestProbing = RecordingPullRequestProbing()
+        pullRequestProbing.trackedPanelIdsByWorkspace[workspaceId] = [panelId]
         let service = makeService(
             host: host,
             reader: reader,
@@ -59,5 +67,9 @@ import CmuxGit
             host.workspaces[0].state.panels[panelId]?.branch?.branch == "main"
         })
         #expect(pullRequestProbing.scheduledRefreshes.isEmpty)
+        #expect(host.workspaces[0].state.panels[panelId]?.badge == nil)
+        #expect(pullRequestProbing.clearedTrackingKeys.contains {
+            $0.workspaceId == workspaceId && $0.panelId == panelId
+        })
     }
 }
