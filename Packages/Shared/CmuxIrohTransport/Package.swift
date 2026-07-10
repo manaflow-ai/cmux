@@ -16,11 +16,18 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../CMUXMobileCore"),
+        .package(
+            url: "https://github.com/manaflow-ai/iroh-ffi.git",
+            exact: "1.0.0-cmux.2"
+        ),
     ],
     targets: [
         .target(
             name: "CmuxIrohTransport",
-            dependencies: ["CMUXMobileCore"],
+            dependencies: [
+                "CMUXMobileCore",
+                .product(name: "IrohLib", package: "iroh-ffi"),
+            ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
                 .enableUpcomingFeature("ExistentialAny"),
@@ -32,7 +39,11 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxIrohTransportTests",
-            dependencies: ["CmuxIrohTransport", "CMUXMobileCore"],
+            dependencies: [
+                "CmuxIrohTransport",
+                "CMUXMobileCore",
+                .product(name: "IrohLib", package: "iroh-ffi"),
+            ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
                 .enableUpcomingFeature("ExistentialAny"),
