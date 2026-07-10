@@ -6,9 +6,12 @@ import Foundation
 extension MobileShellComposite {
     /// Supported routes for reconnecting an already-paired Mac.
     ///
-    /// Unlike the legacy host/port helper, this preserves Iroh peer routes. On
-    /// a physical device, loopback remains excluded whenever any real route is
-    /// available, so adding Iroh cannot reintroduce the phone-self dial threat.
+    /// Unlike the legacy host/port helper, this preserves Iroh peer routes. Once
+    /// a supported Iroh route exists, it also pins the pairing to Iroh and drops
+    /// every raw host/port fallback. Otherwise an admission or revocation failure
+    /// could silently downgrade to a Stack-bearer Tailscale request and bypass the
+    /// Iroh device grant. Legacy Macs that never advertised Iroh keep their raw
+    /// private-network routes.
     static func storedReconnectRoutes(
         _ routes: [CmxAttachRoute],
         supportedKinds: [CmxAttachTransportKind],
@@ -20,6 +23,10 @@ extension MobileShellComposite {
             .sorted(by: Self.routeSortsBefore)
         if preferNonLoopback, ordered.contains(where: { $0.kind != .debugLoopback }) {
             ordered.removeAll { $0.kind == .debugLoopback }
+        }
+        let irohRoutes = ordered.filter { $0.kind == .iroh }
+        if !irohRoutes.isEmpty {
+            return irohRoutes
         }
         return ordered
     }
@@ -76,6 +83,13 @@ extension MobileShellComposite {
         scope: MobileShellScopeSnapshot,
         triedRoutes: [(host: String, port: Int, routeID: String)]
     ) async -> RefreshedReconnectRoutes? {
+        let supportedKinds = runtime?.supportedRouteKinds ?? []
+        let localRoutes = Self.storedReconnectRoutes(
+            mac.routes,
+            supportedKinds: supportedKinds,
+            preferNonLoopback: Self.prefersNonLoopbackRoutes
+        )
+        let requiresIroh = localRoutes.contains { $0.kind == .iroh }
         guard let deviceRegistry,
               await isScopeCurrent(scope),
               await !isForgottenMacDeviceID(mac.macDeviceID, scope: scope),
@@ -86,7 +100,6 @@ extension MobileShellComposite {
               ) else {
             return nil
         }
-        let supportedKinds = runtime?.supportedRouteKinds ?? []
         let reconnectRoutes = Self.storedReconnectRoutes(
             updatedRoutes,
             supportedKinds: supportedKinds,
@@ -95,6 +108,10 @@ extension MobileShellComposite {
         if reconnectRoutes.contains(where: { $0.kind == .iroh }) {
             return .ticket(reconnectRoutes)
         }
+        // Once this pairing has used Iroh, a cloud refresh that omits Iroh is
+        // stale or downgraded input. Keep the local Iroh capability pin instead
+        // of converting a grant failure into raw private-network RPC.
+        guard !requiresIroh else { return nil }
         let refreshed = Self.reconnectHostPortRoutes(
             updatedRoutes,
             supportedKinds: supportedKinds,
@@ -152,6 +169,13 @@ extension MobileShellComposite {
         preferNonLoopback: Bool = false
     ) -> [(host: String, port: Int, routeID: String)] {
         let supportedKinds = Set(supportedKinds)
+        let hasSupportedIrohRoute = routes.contains { route in
+            route.kind == .iroh
+                && (supportedKinds.isEmpty || supportedKinds.contains(.iroh))
+        }
+        guard !hasSupportedIrohRoute else {
+            return []
+        }
         let ordered = routes.sorted(by: Self.routeSortsBefore)
         var seenEndpoints = Set<String>()
 

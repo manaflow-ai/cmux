@@ -222,6 +222,27 @@ import Testing
         #expect(attemptedKinds.allSatisfy { $0 == .tailscale })
     }
 
+    @Test func switchingToIrohCapableMacUsesPinnedIrohRoute() async throws {
+        let clock = TestClock()
+        let router = LivenessHostRouter()
+        let box = TransportBox()
+        let factory = KindRecordingTransportFactory(router: router, box: box)
+        let store = try await makeReconnectStore(
+            routes: [try tailscale(), try iroh()],
+            runtime: LivenessTestRuntime(
+                transportFactory: factory,
+                now: { clock.now },
+                supportedRouteKinds: [.iroh, .tailscale]
+            )
+        )
+
+        let connected = await store.switchToMac(macDeviceID: "test-mac")
+
+        #expect(connected)
+        #expect(factory.attemptedKinds() == [.iroh])
+        #expect(store.activeRoute?.kind == .iroh)
+    }
+
     private func magicDNS(_ port: Int = 50906) throws -> CmxAttachRoute {
         // A MagicDNS hostname route, advertised BEFORE the IP route by priority.
         try CmxAttachRoute(

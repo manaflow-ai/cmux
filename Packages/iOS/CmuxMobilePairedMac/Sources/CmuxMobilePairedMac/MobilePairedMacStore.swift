@@ -343,6 +343,25 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
                 )
                 claimedLegacy = legacy
             }
+            let existingRoutes: [CmxAttachRoute]
+            if existing != nil || claimedLegacy != nil {
+                existingRoutes = try fetchRoutes(
+                    macDeviceID: macDeviceID,
+                    ownerKey: ownerKey
+                )
+            } else {
+                existingRoutes = []
+            }
+            let incomingHasIroh = routes.contains { $0.kind == .iroh }
+            let pinnedIrohRoutes = existingRoutes.filter { $0.kind == .iroh }
+            // Iroh capability is sticky for one paired Mac. Presence, backup, or
+            // an older host build may temporarily publish only raw private-network
+            // routes; replacing the stored Iroh identity in that case would allow
+            // a later admission failure to downgrade into Stack-bearer RPC. A new
+            // Iroh route replaces the old identity normally.
+            let routesToPersist = incomingHasIroh || pinnedIrohRoutes.isEmpty
+                ? routes
+                : routes + pinnedIrohRoutes
             let createdAt = existing?.createdAt ?? claimedLegacy?.createdAt ?? now
             try upsertMacRow(
                 macDeviceID: macDeviceID,
@@ -358,7 +377,7 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
                 "DELETE FROM mac_routes WHERE mac_device_id = ? AND owner_key = ?;",
                 binding: [.text(macDeviceID), .text(ownerKey)]
             )
-            for route in routes {
+            for route in routesToPersist {
                 guard let persistedRoute = route.disclosed(
                     for: .authenticated,
                     at: now

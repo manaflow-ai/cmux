@@ -1566,13 +1566,28 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         )
     }
 
+    private static func storedMacTicket(
+        name: String,
+        routes: [CmxAttachRoute],
+        pairedMacDeviceID: String
+    ) throws -> CmxAttachTicket {
+        try CmxAttachTicket(
+            workspaceID: "stored-workspace",
+            terminalID: nil,
+            macDeviceID: pairedMacDeviceID,
+            macDisplayName: name,
+            macPairingCompatibilityVersion: CmxMobileDefaults.pairingCompatibilityVersion,
+            routes: routes
+        )
+    }
+
     /// Reconnects an already-paired Mac through its full route set.
     ///
     /// This path is used only when the set contains an authenticated Iroh peer
-    /// route. `connect(ticket:)` then tries Iroh first by priority and retains
-    /// the existing Tailscale/custom-network routes as fallbacks. The synthetic
-    /// ticket names the already-paired device; it is never used to discover or
-    /// create a new pairing.
+    /// route. `connect(ticket:)` pins the pairing to Iroh, so an admission or
+    /// revocation failure cannot downgrade to raw Tailscale/custom-network RPC.
+    /// The synthetic ticket names the already-paired device; it is never used to
+    /// discover or create a new pairing.
     private func connectStoredMacRoutes(
         name: String,
         routes: [CmxAttachRoute],
@@ -1581,13 +1596,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     ) async {
         let ticket: CmxAttachTicket
         do {
-            ticket = try CmxAttachTicket(
-                workspaceID: "stored-workspace",
-                terminalID: nil,
-                macDeviceID: pairedMacDeviceID,
-                macDisplayName: name,
-                macPairingCompatibilityVersion: CmxMobileDefaults.pairingCompatibilityVersion,
-                routes: routes
+            ticket = try Self.storedMacTicket(
+                name: name,
+                routes: routes,
+                pairedMacDeviceID: pairedMacDeviceID
             )
             _ = try await connect(
                 ticket: ticket,
@@ -1604,6 +1616,73 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             macConnectionStatus = .unavailable
             clearRemoteConnectionContext()
         }
+    }
+
+    /// Connects an existing pairing through its strongest supported transport.
+    /// A supported Iroh identity pins the attempt to Iroh. Raw Tailscale/custom
+    /// host routes remain available only for legacy pairings without Iroh.
+    @discardableResult
+    private func connectStoredMac(
+        name: String,
+        routes: [CmxAttachRoute],
+        pairedMacDeviceID: String,
+        recordsPairingAttempt: Bool = false,
+        ifStillCurrent: (() -> Bool)? = nil
+    ) async -> Bool {
+        guard ifStillCurrent?() ?? true else { return false }
+        let supportedKinds = runtime?.supportedRouteKinds ?? []
+        let pinnedRoutes = Self.storedReconnectRoutes(
+            routes,
+            supportedKinds: supportedKinds,
+            preferNonLoopback: Self.prefersNonLoopbackRoutes
+        )
+        guard let firstRoute = pinnedRoutes.first else { return false }
+
+        if firstRoute.kind == .iroh {
+            await connectStoredMacRoutes(
+                name: name,
+                routes: pinnedRoutes,
+                pairedMacDeviceID: pairedMacDeviceID,
+                ifStillCurrent: ifStillCurrent
+            )
+        } else {
+            let candidates = Self.reconnectHostPortRoutes(
+                pinnedRoutes,
+                supportedKinds: supportedKinds,
+                preferNonLoopback: Self.prefersNonLoopbackRoutes
+            ).filter { MobileShellRouteAuthPolicy.normalizedManualHost($0.host) != nil }
+            for route in candidates {
+                guard ifStillCurrent?() ?? true else { return false }
+                if recordsPairingAttempt {
+                    await connectManualHost(
+                        name: name,
+                        host: route.host,
+                        port: route.port,
+                        pairedMacDeviceID: pairedMacDeviceID,
+                        recordsPairingAttempt: true,
+                        ifStillCurrent: ifStillCurrent
+                    )
+                } else {
+                    await connectStoredMacHost(
+                        name: name,
+                        host: route.host,
+                        port: route.port,
+                        pairedMacDeviceID: pairedMacDeviceID,
+                        ifStillCurrent: ifStillCurrent
+                    )
+                }
+                if connectionState == .connected,
+                   remoteClient != nil,
+                   foregroundMacDeviceID == pairedMacDeviceID {
+                    break
+                }
+            }
+        }
+
+        return (ifStillCurrent?() ?? true)
+            && connectionState == .connected
+            && remoteClient != nil
+            && foregroundMacDeviceID == pairedMacDeviceID
     }
 
     /// - Parameter pairedMacDeviceID: the REAL paired-Mac device id when the caller
@@ -1742,16 +1821,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 preferNonLoopback: Self.prefersNonLoopbackRoutes
             )
         }
-        func irohReconnectRoutes(_ mac: MobilePairedMac) -> [CmxAttachRoute]? {
-            let routes = Self.storedReconnectRoutes(
+        func storedReconnectRoutes(_ mac: MobilePairedMac) -> [CmxAttachRoute] {
+            Self.storedReconnectRoutes(
                 mac.routes,
                 supportedKinds: supportedKinds,
                 preferNonLoopback: Self.prefersNonLoopbackRoutes
             )
-            return routes.contains(where: { $0.kind == .iroh }) ? routes : nil
         }
         func hasReachableRoute(_ mac: MobilePairedMac) -> Bool {
-            irohReconnectRoutes(mac) != nil || !reachableRoutes(mac).isEmpty
+            !storedReconnectRoutes(mac).isEmpty
         }
         let loadedActiveMac: MobilePairedMac?
         let loadedMacs: [MobilePairedMac]
@@ -1833,27 +1911,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // Best-effort registry refresh for this Mac in the background.
             refreshRoutesFromRegistry(for: mac, scope: scope)
             let localRoutes = reachableRoutes(mac)
-            if let routes = irohReconnectRoutes(mac) {
-                await connectStoredMacRoutes(
-                    name: mac.displayName ?? mac.macDeviceID,
-                    routes: routes,
-                    pairedMacDeviceID: mac.macDeviceID,
-                    ifStillCurrent: { [weak self] in
-                        self?.storedMacReconnectGeneration == generation
-                    }
-                )
-            } else {
-                for route in localRoutes {
-                    guard generation == storedMacReconnectGeneration,
-                          await isScopeCurrent(scope) else { break }
-                    await connectStoredMacHost(
-                        name: mac.displayName ?? route.host,
-                        host: route.host,
-                        port: route.port,
-                        pairedMacDeviceID: mac.macDeviceID)
-                    if connectionState == .connected { break }
+            await connectStoredMac(
+                name: mac.displayName ?? mac.macDeviceID,
+                routes: mac.routes,
+                pairedMacDeviceID: mac.macDeviceID,
+                ifStillCurrent: { [weak self] in
+                    self?.storedMacReconnectGeneration == generation
                 }
-            }
+            )
             if connectionState != .connected,
                mac.macDeviceID == activeMac?.macDeviceID,
                let refreshedRoutes = await freshReconnectRoutesAfterLocalFailure(
@@ -2372,12 +2437,34 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         device: RegistryDevice,
         instance: RegistryAppInstance
     ) async {
+        let scope = await currentScopeSnapshot()
+        let cachedMac = (storedPairedMacs + pairedMacs).first {
+            $0.macDeviceID == device.deviceId
+        }
+        let persistedMac: MobilePairedMac?
+        if let cachedMac {
+            persistedMac = cachedMac
+        } else if let pairedMacStore {
+            persistedMac = try? await pairedMacStore.loadAll(
+                stackUserID: scope?.userID,
+                teamID: scope?.teamID
+            ).first { $0.macDeviceID == device.deviceId }
+        } else {
+            persistedMac = nil
+        }
+        let reconnectRoutes = persistedMac.map {
+            Self.mergedReconnectRoutes(
+                ticketRoutes: instance.routes,
+                storedRoutes: $0.routes,
+                at: runtime?.now() ?? Date()
+            )
+        } ?? instance.routes
         let supportedKinds = runtime?.supportedRouteKinds ?? []
-        let candidateRoutes = Self.reconnectHostPortRoutes(
-            instance.routes,
+        let candidateRoutes = Self.storedReconnectRoutes(
+            reconnectRoutes,
             supportedKinds: supportedKinds,
             preferNonLoopback: Self.prefersNonLoopbackRoutes
-        ).filter { MobileShellRouteAuthPolicy.normalizedManualHost($0.host) != nil }
+        )
         guard !candidateRoutes.isEmpty else {
             mobileShellLog.error(
                 "connectToRegistryInstance: no reconnectable route device=\(device.deviceId, privacy: .public) tag=\(instance.tag, privacy: .public)"
@@ -2387,13 +2474,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // Already connected to this exact device/instance route: nothing to do.
         if connectionState == .connected,
            connectedMacDeviceID == device.deviceId,
-           case let .hostPort(liveHost, livePort)? = activeRoute?.endpoint {
-            for route in candidateRoutes {
-                if MobileShellRouteAuthPolicy.normalizedManualHost(route.host) == liveHost,
-                   livePort == route.port {
-                    return
-                }
-            }
+           let liveRoute = activeRoute,
+           candidateRoutes.contains(where: {
+               $0.id == liveRoute.id || $0.endpoint == liveRoute.endpoint
+           }) {
+            return
         }
         // The currently-active Mac to fall back to if the connect fails, so the
         // destructive connect below can be rolled back. Unlike switchToMac, this
@@ -2403,28 +2488,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // stale/offline. Excluding it would strand the user on a same-device tag
         // switch failure.
         let previousActive = pairedMacs.first { $0.isActive }
-        let scope = await currentScopeSnapshot()
-        var connectedRoute: (host: String, port: Int, routeID: String)?
-        for route in candidateRoutes {
-            await connectManualHost(
-                name: device.displayName ?? route.host,
-                host: route.host,
-                port: route.port,
-                pairedMacDeviceID: device.deviceId)
-            guard connectionState == .connected,
-                  case let .hostPort(liveHost, livePort)? = activeRoute?.endpoint,
-                  liveHost == MobileShellRouteAuthPolicy.normalizedManualHost(route.host),
-                  livePort == route.port else {
-                continue
-            }
-            connectedRoute = route
-            break
-        }
+        let connectedRoute = await connectStoredMac(
+            name: device.displayName ?? device.deviceId,
+            routes: candidateRoutes,
+            pairedMacDeviceID: device.deviceId,
+            recordsPairingAttempt: true
+        )
         // Persist as the active paired Mac only when the live connection is to
         // THIS route (a switch tapped while this connect was in flight could win
         // the connection; matching the live route avoids persisting a stale
         // target). Uses the real device id so reconnect-on-relaunch finds it.
-        guard connectedRoute != nil else {
+        guard connectedRoute else {
             // The connect did not land on this route. If the destructive path
             // dropped a previously-active session, reconnect it so a failed tap on
             // a stale/offline tag does not strand the user disconnected.
@@ -2672,11 +2746,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             macSwitchRestoreBaseline = nil
         }
         let supportedKinds = runtime?.supportedRouteKinds ?? []
-        let candidateRoutes = Self.reconnectHostPortRoutes(
+        let candidateRoutes = Self.storedReconnectRoutes(
             refreshedTarget.routes,
             supportedKinds: supportedKinds,
             preferNonLoopback: Self.prefersNonLoopbackRoutes
-        ).filter { MobileShellRouteAuthPolicy.normalizedManualHost($0.host) != nil }
+        )
         guard !candidateRoutes.isEmpty else {
             mobileShellLog.error("switchToMac: no reconnectable route mac=\(macDeviceID, privacy: .private)")
             if !hasActiveMacConnection,
@@ -2688,26 +2762,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
             return false
         }
-        for route in candidateRoutes {
-            await connectManualHost(
-                name: refreshedTarget.displayName ?? route.host,
-                host: route.host,
-                port: route.port,
-                pairedMacDeviceID: macDeviceID,
-                recordsPairingAttempt: true,
-                ifStillCurrent: { [weak self] in
-                    self?.isCurrentMacSwitchAttempt(switchAttemptID) == true
-                }
-            )
-            guard isCurrentMacSwitchAttempt(switchAttemptID) else {
-                await restoreMacSwitchBaselineIfCancelled(switchAttemptID, fallback: previousForegroundMac)
-                return false
+        await connectStoredMac(
+            name: refreshedTarget.displayName ?? macDeviceID,
+            routes: candidateRoutes,
+            pairedMacDeviceID: macDeviceID,
+            recordsPairingAttempt: true,
+            ifStillCurrent: { [weak self] in
+                self?.isCurrentMacSwitchAttempt(switchAttemptID) == true
             }
-            if connectionState == .connected,
-               remoteClient != nil,
-               foregroundMacDeviceID == macDeviceID {
-                break
-            }
+        )
+        guard isCurrentMacSwitchAttempt(switchAttemptID) else {
+            await restoreMacSwitchBaselineIfCancelled(switchAttemptID, fallback: previousForegroundMac)
+            return false
         }
         // The switch succeeded only if the live foreground identity is THIS Mac.
         // `connect(..., pairedMacDeviceID:)` stamps the foreground state with the
@@ -2805,43 +2871,34 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             && foregroundMacDeviceID.map { previousIDs.contains($0) } == true
         guard !previousStillForeground else { return true }
         let supportedKinds = runtime?.supportedRouteKinds ?? []
-        let candidateRoutes = Self.reconnectHostPortRoutes(
+        let candidateRoutes = Self.storedReconnectRoutes(
             previousActive.routes,
             supportedKinds: supportedKinds,
             preferNonLoopback: Self.prefersNonLoopbackRoutes
-        ).filter { MobileShellRouteAuthPolicy.normalizedManualHost($0.host) != nil }
+        )
         guard !candidateRoutes.isEmpty else {
             mobileShellLog.error("restorePreviousMacIfNeeded: no reconnectable route mac=\(previousActive.macDeviceID, privacy: .private)")
             return false
         }
-        for route in candidateRoutes {
-            guard await isScopeCurrent(restoreScope), isRestoreCurrent() else { return false }
-            await connectStoredMacHost(
-                name: previousActive.displayName ?? route.host,
-                host: route.host,
-                port: route.port,
-                pairedMacDeviceID: previousActive.macDeviceID,
-                ifStillCurrent: isRestoreCurrent
-            )
-            let restoreScopeIsCurrent = await isScopeCurrent(restoreScope)
-            guard restoreScopeIsCurrent, isRestoreCurrent() else {
-                if !restoreScopeIsCurrent,
-                   connectionState == .connected,
-                   remoteClient != nil,
-                   foregroundMacDeviceID.map({ previousIDs.contains($0) }) == true {
-                    suppressNextConnectionOutageEdge = true
-                    connectionState = .disconnected
-                    macConnectionStatus = .unavailable
-                    clearRemoteConnectionContext()
-                    workspacesByMac = workspacesByMac.filter { !previousIDs.contains($0.key) }
-                }
-                return false
-            }
-            if connectionState == .connected,
+        await connectStoredMac(
+            name: previousActive.displayName ?? previousActive.macDeviceID,
+            routes: candidateRoutes,
+            pairedMacDeviceID: previousActive.macDeviceID,
+            ifStillCurrent: isRestoreCurrent
+        )
+        let restoreScopeIsCurrent = await isScopeCurrent(restoreScope)
+        guard restoreScopeIsCurrent, isRestoreCurrent() else {
+            if !restoreScopeIsCurrent,
+               connectionState == .connected,
                remoteClient != nil,
                foregroundMacDeviceID.map({ previousIDs.contains($0) }) == true {
-                break
+                suppressNextConnectionOutageEdge = true
+                connectionState = .disconnected
+                macConnectionStatus = .unavailable
+                clearRemoteConnectionContext()
+                workspacesByMac = workspacesByMac.filter { !previousIDs.contains($0.key) }
             }
+            return false
         }
         let restored = connectionState == .connected
             && remoteClient != nil
@@ -3483,42 +3540,53 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private func makeSecondaryClient(for mac: MobilePairedMac) async -> SecondaryClientHandle? {
         guard let runtime else { return nil }
         let supportedKinds = runtime.supportedRouteKinds
-        guard let (host, port) = Self.firstReconnectHostPortRoute(
+        let pinnedRoutes = Self.storedReconnectRoutes(
             mac.routes,
             supportedKinds: supportedKinds,
             preferNonLoopback: Self.prefersNonLoopbackRoutes
-        ) else {
-            return nil
-        }
+        )
+        guard let firstRoute = pinnedRoutes.first else { return nil }
         let ticket: CmxAttachTicket
+        let route: CmxAttachRoute
         do {
-            ticket = try await manualHostTicket(
-                name: mac.displayName ?? host,
-                host: host,
-                port: port,
-                attemptStartedAt: nil
-            )
+            if firstRoute.kind == .iroh {
+                ticket = try Self.storedMacTicket(
+                    name: mac.displayName ?? mac.macDeviceID,
+                    routes: pinnedRoutes,
+                    pairedMacDeviceID: mac.macDeviceID
+                )
+                route = firstRoute
+            } else {
+                guard let (host, port) = Self.firstReconnectHostPortRoute(
+                    pinnedRoutes,
+                    supportedKinds: supportedKinds,
+                    preferNonLoopback: Self.prefersNonLoopbackRoutes
+                ) else { return nil }
+                ticket = try await manualHostTicket(
+                    name: mac.displayName ?? host,
+                    host: host,
+                    port: port,
+                    attemptStartedAt: nil
+                )
+                let supportedRoutes = Self.supportedRoutes(
+                    for: ticket,
+                    supportedKinds: supportedKinds
+                )
+                guard let selectedRoute = supportedRoutes.first(where: { candidate in
+                    if case let .hostPort(routeHost, routePort) = candidate.endpoint {
+                        return routeHost == host && routePort == port
+                    }
+                    return false
+                }) ?? supportedRoutes.first(where: { $0.kind != .debugLoopback })
+                    ?? supportedRoutes.first else { return nil }
+                route = selectedRoute
+            }
         } catch {
             mobileShellLog.warning(
                 "secondary client: ticket failed mac=\(mac.macDeviceID, privacy: .public) error=\(String(describing: error), privacy: .public)"
             )
             return nil
         }
-        let supportedRoutes = Self.supportedRoutes(for: ticket, supportedKinds: supportedKinds)
-        // Dial the route we PROVED reachable above (the non-loopback host/port the
-        // ticket was built from), NOT `supportedRoutes.first`: on a physical phone a
-        // Mac ticket can advertise a higher-priority `debugLoopback` (127.0.0.1)
-        // route, and dialing that makes every secondary subscription connect to the
-        // phone itself — so the Mac is unreachable and silently drops out of the
-        // aggregate. Prefer the exact matching route, then any non-loopback, then any.
-        let route = supportedRoutes.first(where: { route in
-            if case let .hostPort(routeHost, routePort) = route.endpoint {
-                return routeHost == host && routePort == port
-            }
-            return false
-        }) ?? supportedRoutes.first(where: { $0.kind != .debugLoopback })
-            ?? supportedRoutes.first
-        guard let route else { return nil }
         let client = MobileCoreRPCClient(
             runtime: runtime,
             route: route,
@@ -5214,13 +5282,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         supportedKinds: [CmxAttachTransportKind]
     ) -> [CmxAttachRoute] {
         let orderedRoutes = ticket.routes.sorted(by: Self.routeSortsBefore)
-        guard !supportedKinds.isEmpty else {
-            return orderedRoutes
+        let supportedRoutes: [CmxAttachRoute]
+        if supportedKinds.isEmpty {
+            supportedRoutes = orderedRoutes
+        } else {
+            let supportedKinds = Set(supportedKinds)
+            supportedRoutes = orderedRoutes.filter { route in
+                supportedKinds.contains(route.kind)
+            }
         }
-        let supportedKinds = Set(supportedKinds)
-        return orderedRoutes.filter { route in
-            supportedKinds.contains(route.kind)
+        let irohRoutes = supportedRoutes.filter { route in
+            route.kind == .iroh
         }
+        return irohRoutes.isEmpty ? supportedRoutes : irohRoutes
     }
 
     private static func attachTicketIsUnexpired(_ ticket: CmxAttachTicket, now: Date) -> Bool {
