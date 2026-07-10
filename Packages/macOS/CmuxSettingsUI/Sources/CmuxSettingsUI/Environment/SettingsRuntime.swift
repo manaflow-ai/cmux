@@ -12,22 +12,63 @@ import SwiftUI
 /// `Sendable`. Construct one at app startup and pass it via
 /// ``View/settingsRuntime(_:)``.
 public struct SettingsRuntime: @unchecked Sendable {
+    /// Immutable reference storage keeps the environment value cheap to copy.
+    /// SwiftUI duplicates environment values while rebuilding view closures, so
+    /// embedding the catalog directly here would copy its full declaration tree.
+    private final class Storage: @unchecked Sendable {
+        let catalog: SettingCatalog
+        let searchIndex: SettingsSearchIndex
+        let userDefaultsStore: UserDefaultsSettingsStore
+        let jsonStore: JSONConfigStore
+        let secretStore: SecretFileStore
+        let errorLog: SettingsErrorLog
+        let accountFlow: AccountFlow?
+        let hostActions: SettingsHostActions
+
+        @MainActor
+        init(
+            catalog: SettingCatalog,
+            userDefaultsStore: UserDefaultsSettingsStore,
+            jsonStore: JSONConfigStore,
+            secretStore: SecretFileStore,
+            errorLog: SettingsErrorLog,
+            accountFlow: AccountFlow?,
+            hostActions: SettingsHostActions,
+            searchIndex: SettingsSearchIndex?
+        ) {
+            self.catalog = catalog
+            self.searchIndex = searchIndex ?? SettingsSearchIndex(catalog: catalog)
+            self.userDefaultsStore = userDefaultsStore
+            self.jsonStore = jsonStore
+            self.secretStore = secretStore
+            self.errorLog = errorLog
+            self.accountFlow = accountFlow
+            self.hostActions = hostActions
+        }
+    }
+
+    private let storage: Storage
+
     /// Immutable setting declarations used by stores and section views.
-    public let catalog: SettingCatalog
+    public var catalog: SettingCatalog {
+        _read { yield storage.catalog }
+    }
     /// Search index shared by every settings window root for this runtime.
-    public let searchIndex: SettingsSearchIndex
+    public var searchIndex: SettingsSearchIndex {
+        _read { yield storage.searchIndex }
+    }
     /// UserDefaults-backed settings store.
-    public let userDefaultsStore: UserDefaultsSettingsStore
+    public var userDefaultsStore: UserDefaultsSettingsStore { storage.userDefaultsStore }
     /// cmux.json-backed settings store.
-    public let jsonStore: JSONConfigStore
+    public var jsonStore: JSONConfigStore { storage.jsonStore }
     /// Secret-file-backed settings store.
-    public let secretStore: SecretFileStore
+    public var secretStore: SecretFileStore { storage.secretStore }
     /// Rolling settings error log displayed as alerts.
-    public let errorLog: SettingsErrorLog
+    public var errorLog: SettingsErrorLog { storage.errorLog }
     /// Optional host-owned account flow actions.
-    public let accountFlow: AccountFlow?
+    public var accountFlow: AccountFlow? { storage.accountFlow }
     /// Host callbacks for actions the package cannot perform itself.
-    public let hostActions: SettingsHostActions
+    public var hostActions: SettingsHostActions { storage.hostActions }
 
     /// Creates the settings runtime bundle injected into the settings UI.
     ///
@@ -52,14 +93,16 @@ public struct SettingsRuntime: @unchecked Sendable {
         hostActions: SettingsHostActions = NoopSettingsHostActions(),
         searchIndex: SettingsSearchIndex? = nil
     ) {
-        self.catalog = catalog
-        self.searchIndex = searchIndex ?? SettingsSearchIndex(catalog: catalog)
-        self.userDefaultsStore = userDefaultsStore
-        self.jsonStore = jsonStore
-        self.secretStore = secretStore
-        self.errorLog = errorLog
-        self.accountFlow = accountFlow
-        self.hostActions = hostActions
+        storage = Storage(
+            catalog: catalog,
+            userDefaultsStore: userDefaultsStore,
+            jsonStore: jsonStore,
+            secretStore: secretStore,
+            errorLog: errorLog,
+            accountFlow: accountFlow,
+            hostActions: hostActions,
+            searchIndex: searchIndex
+        )
     }
 }
 
