@@ -199,6 +199,8 @@ extension MobileShellComposite {
                 return existing
             }
             var seenHints = Set<String>()
+            // A constrained ticket is not a complete discovery snapshot. Keep
+            // other hints that remain safe and unexpired as bounded fallbacks.
             let combinedHints = (existingHints + incomingHints).filter {
                 seenHints.insert(hintKey($0)).inserted
             }
