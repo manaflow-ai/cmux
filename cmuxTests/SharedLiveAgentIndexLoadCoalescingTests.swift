@@ -127,6 +127,55 @@ struct SharedLiveAgentIndexLoadCoalescingTests {
         )
     }
 
+    @Test
+    func forkAvailabilitySuccessorCachesFreshMissingResult() async {
+        let firstLoadStarted = DispatchSemaphore(value: 0)
+        let releaseFirstLoad = DispatchSemaphore(value: 0)
+        let refreshReachedSuspension = DispatchSemaphore(value: 0)
+        defer { releaseFirstLoad.signal() }
+        let loadCount = OSAllocatedUnfairLock(initialState: 0)
+        let hookDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-shared-index-missing-successor-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: hookDirectory) }
+        let sharedIndex = SharedLiveAgentIndex(
+            indexLoader: {
+                let invocation = loadCount.withLock { count in
+                    count += 1
+                    return count
+                }
+                if invocation == 1 {
+                    firstLoadStarted.signal()
+                    releaseFirstLoad.wait()
+                }
+                return Self.emptyLoadResult
+            },
+            hookStoreDirectoryProvider: { hookDirectory.path },
+            dateProvider: { Date(timeIntervalSince1970: 100) }
+        )
+        let workspaceId = UUID()
+        let panelId = UUID()
+
+        sharedIndex.scheduleRefreshIfStale()
+        #expect(await Self.wait(for: firstLoadStarted))
+
+        let refresh = Task { @MainActor in
+            Task { @MainActor in
+                refreshReachedSuspension.signal()
+            }
+            await sharedIndex.refreshForkAvailabilityNow(workspaceId: workspaceId, panelId: panelId)
+        }
+        #expect(await Self.wait(for: refreshReachedSuspension))
+        releaseFirstLoad.signal()
+        await refresh.value
+
+        #expect(loadCount.withLock { $0 } == 2)
+        #expect(
+            sharedIndex.prepareForkAvailabilityProbe(workspaceId: workspaceId, panelId: panelId),
+            "A fresh missing result must suppress a redundant third full index load."
+        )
+        #expect(loadCount.withLock { $0 } == 2)
+    }
+
     nonisolated private static var emptyLoadResult: SharedLiveAgentIndexLoader.LoadResult {
         (
             index: .empty,
