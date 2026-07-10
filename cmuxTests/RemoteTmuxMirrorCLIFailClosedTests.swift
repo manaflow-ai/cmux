@@ -276,6 +276,66 @@ extension RemoteTmuxMirrorCLIObservabilityTests {
         #expect(focused["surface_id"] as? String == expectedSurfaceIDs.last?.uuidString)
     }
 
+    @Test func createPathsHonorProjectedPaneIdentities() throws {
+        do {
+            let harness = try Harness()
+            defer { harness.tearDown() }
+            let firstTmuxPaneID = try #require(harness.mirror.paneIDsInOrder.first)
+            let firstPaneID = try #require(harness.mirror.syntheticPaneID(forPane: firstTmuxPaneID)?.id)
+
+            let result = TerminalController.shared.controlSurfaceCreate(
+                routing: harness.routing(),
+                inputs: ControlSurfaceCreateInputs(
+                    typeRaw: nil,
+                    providerRaw: nil,
+                    rendererRaw: nil,
+                    urlRaw: nil,
+                    workingDirectory: nil,
+                    initialCommand: nil,
+                    tmuxStartCommand: nil,
+                    remotePTYSessionID: nil,
+                    remoteContextRaw: nil,
+                    startupEnvironment: [:],
+                    requestedPaneID: firstPaneID,
+                    requestedFocus: false
+                )
+            )
+
+            // tmux panes cannot host surface tabs; the projected pane handle is
+            // tombstoned rather than silently redirected.
+            #expect(result == .paneNotFound)
+        }
+
+        do {
+            let harness = try Harness()
+            defer { harness.tearDown() }
+            let firstTmuxPaneID = try #require(harness.mirror.paneIDsInOrder.first)
+            let firstSurfaceID = try #require(harness.mirror.panel(forPane: firstTmuxPaneID)?.id)
+
+            let result = TerminalController.shared.controlPaneCreate(
+                routing: harness.routing(),
+                inputs: ControlPaneCreateInputs(
+                    directionRaw: "right",
+                    typeRaw: nil,
+                    urlRaw: nil,
+                    workingDirectory: nil,
+                    initialCommand: nil,
+                    tmuxStartCommand: nil,
+                    startupEnvironment: [:],
+                    requestedSourceSurfaceID: firstSurfaceID,
+                    requestedFocus: false,
+                    hasInitialDividerPosition: false,
+                    initialDividerPositionRaw: nil
+                )
+            )
+
+            // The projected source surface resolves to its tmux pane and the
+            // split routes to tmux; the never-connected transport then fails
+            // closed instead of splitting the local Bonsplit wrapper.
+            #expect(result == .createFailed)
+        }
+    }
+
     private func activeSurfaceID(in harness: Harness) throws -> UUID {
         let paneID = try #require(harness.mirror.activePaneId)
         return try #require(harness.mirror.panel(forPane: paneID)?.id)
