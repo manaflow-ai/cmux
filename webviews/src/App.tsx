@@ -1427,7 +1427,13 @@ function usePendingReplacement(payload: any, label: DiffViewerLabelResolver, dis
         type: "set-status",
         status: createDiffViewerStatus(payload.statusMessage ?? label("loadingDiff"), { loading: true, pending: true }),
       });
-      fetch("/__cmux_diff_viewer_wait" + location.pathname, { cache: "no-store" })
+      // The native host replaces the file and navigates this surface when Git
+      // generation completes. Custom-scheme resources never use an HTTP wait
+      // endpoint, so keep the loading state until that navigation arrives.
+      if (window.location.protocol === "cmux-diff-viewer:") {
+        return;
+      }
+      fetch("/__cmux_diff_viewer_wait" + window.location.pathname, { cache: "no-store" })
         .then(async (response) => {
           if (!response.ok) {
             throw new Error("replacement failed");

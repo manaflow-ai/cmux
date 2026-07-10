@@ -315,9 +315,9 @@ final class CMUXOpenCommandTests: XCTestCase {
                   params["focus"] as? Bool == true,
                   let rawURL = params["url"] as? String,
                   let viewerURL = URL(string: rawURL),
-                  viewerURL.scheme == "http",
-                  viewerURL.host == "127.0.0.1",
-                  viewerURL.fragment == "cmux-diff-viewer" else {
+                  viewerURL.scheme == "cmux-diff-viewer",
+                  viewerURL.host?.isEmpty == false,
+                  viewerURL.fragment == nil else {
                 return Self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": method])
             }
             return Self.v2Response(
@@ -357,11 +357,9 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertEqual(params["bypass_remote_proxy"] as? Bool, true)
         let rawURL = try XCTUnwrap(params["url"] as? String)
         let viewerURL = try XCTUnwrap(URL(string: rawURL))
-        XCTAssertEqual(viewerURL.scheme, "http")
-        XCTAssertEqual(viewerURL.host, "127.0.0.1")
-        XCTAssertEqual(viewerURL.fragment, "cmux-diff-viewer")
-        XCTAssertNil(params["diff_viewer_token"])
-        XCTAssertNil(params["diff_viewer_files"])
+        XCTAssertEqual(viewerURL.scheme, "cmux-diff-viewer")
+        XCTAssertEqual(params["diff_viewer_token"] as? String, viewerURL.host)
+        XCTAssertNotNil(params["diff_viewer_files"] as? [[String: Any]])
         let viewerFileURL = try diffViewerHTMLFileURL(from: params)
         defer { try? FileManager.default.removeItem(at: viewerFileURL) }
         let patchSidecarURL = viewerFileURL.deletingPathExtension().appendingPathExtension("patch")
@@ -372,6 +370,10 @@ final class CMUXOpenCommandTests: XCTestCase {
         let viewerConfig = try diffViewerConfig(from: html)
         let viewerPayload = try diffViewerPayload(from: viewerConfig)
         let viewerAssets = try diffViewerAssets(from: viewerConfig)
+        let transport = try XCTUnwrap(viewerPayload["transport"] as? [String: Any])
+        XCTAssertEqual(transport["kind"] as? String, "webKit")
+        XCTAssertEqual(transport["endpoint"] as? String, "cmuxDiff")
+        XCTAssertEqual(transport["protocolVersion"] as? Int, 1)
         let shortcuts = try XCTUnwrap(viewerPayload["shortcuts"] as? [String: Any])
         let scrollDown = try XCTUnwrap(shortcuts["diffViewerScrollDown"] as? [String: Any])
         let scrollDownFirst = try XCTUnwrap(scrollDown["first"] as? [String: Any])
@@ -459,7 +461,7 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertTrue(darkOnlyTheme.html.contains("\"ghosttyName\":\"Unit Dark\""), darkOnlyTheme.html)
     }
 
-    func testDiffCommandUsesTaggedSocketAppAssetsAndServer() throws {
+    func testDiffCommandUsesTaggedSocketAppAssetsWithoutServer() throws {
         let cliPath = try bundledCLIPath()
         let tag = "asset\(UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(6).lowercased())"
         let socketPath = URL(fileURLWithPath: NSTemporaryDirectory())
@@ -543,23 +545,27 @@ final class CMUXOpenCommandTests: XCTestCase {
         let appFilePath = try XCTUnwrap(appEntry["file_path"] as? String)
         let appMain = try String(contentsOfFile: appFilePath, encoding: .utf8)
         XCTAssertTrue(appMain.contains("cmuxTaggedSocketAssetMarker = 'target-\(tag)'"), appMain)
-
-        let stateURL = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
-            .appendingPathComponent("cmux-diff-viewer-\(Darwin.getuid())", isDirectory: true)
-            .appendingPathComponent(".server-state", isDirectory: false)
-        let serverState = try JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any]
-        XCTAssertEqual(serverState?["executablePath"] as? String, targetCLIURL.path)
+        XCTAssertEqual(URL(string: rawURL)?.scheme, "cmux-diff-viewer")
     }
 
-    func testDiffCommandLinksOriginalDiffshubPRURL() throws {
+    func testDiffCommandMaterializesRemotePatchForCustomScheme() throws {
         let cliPath = try bundledCLIPath()
+        let fakeBin = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-diff-fake-curl-\(UUID().uuidString)", isDirectory: true)
+        let fakeCurl = fakeBin.appendingPathComponent("curl", isDirectory: false)
+        try FileManager.default.createDirectory(at: fakeBin, withIntermediateDirectories: true)
+        try """
+        #!/bin/sh
+        printf 'diff --git a/file.txt b/file.txt\n--- a/file.txt\n+++ b/file.txt\n@@ -1 +1 @@\n-old\n+new\n'
+        """.write(to: fakeCurl, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeCurl.path)
+        defer { try? FileManager.default.removeItem(at: fakeBin) }
 
         let originalURL = "https://diffshub.com/oven-sh/bun/pull/30412"
         let result = try runDiffCLIAndReadHTML(
             cliPath: cliPath,
             arguments: ["diff", originalURL, "--title", "Bun PR"],
-            environmentOverrides: ["CMUX_DIFF_VIEWER_STREAM_REMOTE": "1"],
-            readPatchSidecar: false
+            environmentOverrides: ["PATH": "\(fakeBin.path):/usr/bin:/bin"]
         )
 
         XCTAssertEqual(result.params["show_omnibar"] as? Bool, false)
@@ -571,11 +577,12 @@ final class CMUXOpenCommandTests: XCTestCase {
         let patchFile = try XCTUnwrap(files.first { file in
             file["mime_type"] as? String == "text/x-diff"
         })
-        XCTAssertEqual(patchFile["file_path"] as? String, "")
-        XCTAssertEqual(patchFile["remote_url"] as? String, "https://github.com/oven-sh/bun/pull/30412.diff")
+        XCTAssertFalse((patchFile["file_path"] as? String ?? "").isEmpty)
+        XCTAssertNil(patchFile["remote_url"])
         let viewerFileURL = try diffViewerHTMLFileURL(for: rawURL, from: result.params)
         let patchSidecarURL = viewerFileURL.deletingPathExtension().appendingPathExtension("patch")
-        XCTAssertFalse(FileManager.default.fileExists(atPath: patchSidecarURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: patchSidecarURL.path))
+        XCTAssertFalse(result.patch.isEmpty)
     }
 
     func testDiffViewerServerBoundsDeferredWaitRequests() throws {
@@ -2254,11 +2261,9 @@ final class CMUXOpenCommandTests: XCTestCase {
         let rawURL = try XCTUnwrap(params["url"] as? String)
         XCTAssertEqual(params["bypass_remote_proxy"] as? Bool, true)
         let viewerURL = try XCTUnwrap(URL(string: rawURL))
-        XCTAssertEqual(viewerURL.scheme, "http")
-        XCTAssertEqual(viewerURL.host, "127.0.0.1")
-        XCTAssertEqual(viewerURL.fragment, "cmux-diff-viewer")
-        XCTAssertNil(params["diff_viewer_token"])
-        XCTAssertNil(params["diff_viewer_files"])
+        XCTAssertEqual(viewerURL.scheme, "cmux-diff-viewer")
+        XCTAssertEqual(params["diff_viewer_token"] as? String, viewerURL.host)
+        XCTAssertNotNil(params["diff_viewer_files"] as? [[String: Any]])
         let openedFileURL = try diffViewerHTMLFileURL(for: rawURL, from: params)
         let viewerFileURL = try resolvedDiffViewerHTMLFileURL(openedFileURL, from: params)
         if openedFileURL != viewerFileURL {

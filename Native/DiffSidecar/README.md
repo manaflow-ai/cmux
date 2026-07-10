@@ -1,8 +1,8 @@
 # Diff sidecar
 
-`cmux-diff-sidecar` is the portable backend boundary for the diff viewer. It owns the loopback HTTP server, capability-token resource allowlist, remote patch streaming, typed command protocol, and Fetch/WebSocket endpoints. Swift starts the bundled process and still handles cmux-specific Git semantics through hidden CLI commands, which preserves existing diff behavior while the portable boundary moves to Rust.
+`cmux-diff-sidecar` is the portable command boundary for the diff viewer. The macOS app sends one typed request over stdin/stdout when the branch picker needs backend work, then the sidecar exits. Diff HTML, modules, and patch files use the app-owned `cmux-diff-viewer://` allowlist, so opening a viewer creates no TCP listener or idle backend process. Rust still delegates cmux-specific Git semantics to hidden CLI commands while that behavior moves behind the portable boundary.
 
-`src/protocol.rs` is the protocol source of truth. `scripts/generate-diff-sidecar-types.sh` generates `webviews/src/diff/generated/protocol.ts`; CI rejects stale generated types. The React client selects a `fetch`, `webSocket`, or `webKit` command transport from the payload. Patch bodies remain streamable resources, so HTTP and custom WebKit URL schemes do not require buffering a diff into a message reply.
+`src/protocol.rs` is the protocol source of truth. `scripts/generate-diff-sidecar-types.sh` generates `webviews/src/diff/generated/protocol.ts`; CI rejects stale generated types. React selects a `fetch`, `webSocket`, or `webKit` frontend transport from the payload. macOS uses WebKit reply messages backed by sidecar stdio. Future browser hosts can select Fetch or WebSocket without changing commands or result types. Patch bodies stay outside command replies and are served by each host's resource transport.
 
 Rust is a required macOS build dependency. `scripts/setup.sh` verifies the toolchain using the same rustup and Homebrew paths available to Xcode build phases.
 

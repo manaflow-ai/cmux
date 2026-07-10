@@ -1,8 +1,51 @@
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
 use std::process::{Command, Stdio};
 
 use futures_util::{SinkExt, StreamExt};
+
+#[test]
+fn rpc_uses_stdio_without_server_state() {
+    let root = std::env::temp_dir().join(format!(
+        "cmux-diff-sidecar-rpc-test-{}-{}",
+        std::process::id(),
+        uuid::Uuid::new_v4()
+    ));
+    std::fs::create_dir_all(&root).expect("create root");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o700))
+            .expect("secure root permissions");
+    }
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_cmux-diff-sidecar"))
+        .arg("rpc")
+        .arg("--root")
+        .arg(&root)
+        .arg("--cmux")
+        .arg(env!("CARGO_BIN_EXE_diff-sidecar-test-host"))
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit())
+        .spawn()
+        .expect("start stdio sidecar");
+    child
+        .stdin
+        .take()
+        .expect("sidecar stdin")
+        .write_all(br#"{"id":"probe","version":1,"method":"protocolHandshake"}"#)
+        .expect("write request");
+    let output = child.wait_with_output().expect("wait for sidecar");
+    assert!(output.status.success());
+    let response: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("decode response");
+    assert_eq!(response["id"], "probe");
+    assert_eq!(response["result"]["type"], "handshake");
+    assert!(!root.join(".server.json").exists());
+
+    let _ = std::fs::remove_dir_all(root);
+}
 
 #[test]
 fn serves_only_manifest_allowlisted_files() {

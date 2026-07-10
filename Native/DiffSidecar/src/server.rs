@@ -19,7 +19,7 @@ use axum::{Json, Router};
 use futures_util::StreamExt;
 use notify::{RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::process::Command;
 use tokio::sync::{RwLock, Semaphore};
 use tokio_util::io::ReaderStream;
@@ -107,29 +107,8 @@ pub async fn run(config: ServerConfig) -> Result<(), String> {
         .port();
     write_state_file(&config, port).await?;
 
-    let state = AppState {
-        config: Arc::new(config),
-        client: reqwest::Client::builder()
-            .redirect(reqwest::redirect::Policy::limited(5))
-            .timeout(Duration::from_secs(120))
-            .build()
-            .map_err(|error| error.to_string())?,
-        port,
-        manifests: Arc::new(RwLock::new(HashMap::new())),
-        child_processes: Arc::new(Semaphore::new(MAX_CONCURRENT_CHILD_PROCESSES)),
-    };
-    let app = Router::new()
-        .route("/__cmux_diff_viewer_healthz", get(health))
-        .route("/__cmux_diff_rpc", post(rpc))
-        .route("/__cmux_diff_ws", get(websocket))
-        .route("/__cmux_diff_viewer_refs", get(branch_refs))
-        .route("/__cmux_diff_viewer_branch", get(branch_change))
-        .route(
-            "/__cmux_diff_viewer_wait/{*resource}",
-            get(wait_for_resource),
-        )
-        .route("/{*resource}", any(resource))
-        .with_state(state);
+    let state = app_state(config, port)?;
+    let app = router(state);
 
     let mut stdout = tokio::io::stdout();
     stdout
@@ -140,6 +119,72 @@ pub async fn run(config: ServerConfig) -> Result<(), String> {
     axum::serve(listener, app)
         .await
         .map_err(|error| error.to_string())
+}
+
+fn app_state(config: ServerConfig, port: u16) -> Result<AppState, String> {
+    Ok(AppState {
+        config: Arc::new(config),
+        client: reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::limited(5))
+            .timeout(Duration::from_secs(120))
+            .build()
+            .map_err(|error| error.to_string())?,
+        port,
+        manifests: Arc::new(RwLock::new(HashMap::new())),
+        child_processes: Arc::new(Semaphore::new(MAX_CONCURRENT_CHILD_PROCESSES)),
+    })
+}
+
+/// Handles one typed request from standard input and writes one response to
+/// standard output. This is the native `WebKit` transport boundary: it performs
+/// no bind, connect, or listen operation.
+///
+/// # Errors
+///
+/// Returns an error when the secure root, request envelope, or stdio operation
+/// is invalid.
+pub async fn run_rpc(config: ServerConfig) -> Result<(), String> {
+    validate_root(&config.root).await?;
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    let mut input = Vec::new();
+    tokio::io::stdin()
+        .take(1024 * 1024 + 1)
+        .read_to_end(&mut input)
+        .await
+        .map_err(|error| error.to_string())?;
+    if input.len() > 1024 * 1024 {
+        return Err("request exceeds 1 MiB".to_owned());
+    }
+    let request: DiffRequest =
+        serde_json::from_slice(&input).map_err(|error| format!("invalid request: {error}"))?;
+    let state = app_state(config, 0)?;
+    let response = handle_protocol_request(request, Some(&state)).await;
+    let bytes = serde_json::to_vec(&response).map_err(|error| error.to_string())?;
+    let mut stdout = tokio::io::stdout();
+    stdout
+        .write_all(&bytes)
+        .await
+        .map_err(|error| error.to_string())?;
+    stdout
+        .write_all(b"\n")
+        .await
+        .map_err(|error| error.to_string())?;
+    stdout.flush().await.map_err(|error| error.to_string())
+}
+
+fn router(state: AppState) -> Router {
+    Router::new()
+        .route("/__cmux_diff_viewer_healthz", get(health))
+        .route("/__cmux_diff_rpc", post(rpc))
+        .route("/__cmux_diff_ws", get(websocket))
+        .route("/__cmux_diff_viewer_refs", get(branch_refs))
+        .route("/__cmux_diff_viewer_branch", get(branch_change))
+        .route(
+            "/__cmux_diff_viewer_wait/{*resource}",
+            get(wait_for_resource),
+        )
+        .route("/{*resource}", any(resource))
+        .with_state(state)
 }
 
 async fn validate_root(root: &Path) -> Result<(), String> {
@@ -453,11 +498,15 @@ async fn change_branch(
     if resolve_allowed_file(state, &resource_path).await.is_none() {
         return Err(());
     }
-    Ok(format!(
-        "http://127.0.0.1:{}/{token}{}#cmux-diff-viewer",
-        server_port(state),
-        url.path()
-    ))
+    if state.port == 0 {
+        Ok(url.to_string())
+    } else {
+        Ok(format!(
+            "http://127.0.0.1:{}/{token}{}#cmux-diff-viewer",
+            server_port(state),
+            url.path()
+        ))
+    }
 }
 
 fn server_port(state: &AppState) -> u16 {

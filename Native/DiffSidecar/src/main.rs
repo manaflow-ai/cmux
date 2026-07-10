@@ -34,6 +34,26 @@ async fn run() -> Result<(), String> {
             })
             .await
         }
+        Some("rpc") => {
+            let mut root = None;
+            let mut cmux = None;
+            while let Some(argument) = args.next() {
+                match argument.as_str() {
+                    "--root" => root = args.next().map(PathBuf::from),
+                    "--cmux" => cmux = args.next().map(PathBuf::from),
+                    _ => return Err(format!("unexpected argument: {argument}")),
+                }
+            }
+            let root = root.ok_or_else(|| "rpc requires --root".to_owned())?;
+            let cmux_executable = cmux.ok_or_else(|| "rpc requires --cmux".to_owned())?;
+            let executable_path = std::env::current_exe().map_err(|error| error.to_string())?;
+            server::run_rpc(ServerConfig {
+                root,
+                cmux_executable,
+                executable_path,
+            })
+            .await
+        }
         Some("handshake") => server::write_handshake_to_stdout().await,
         Some("benchmark") => {
             let sample_bytes = args
@@ -56,7 +76,7 @@ async fn run() -> Result<(), String> {
             enforce_benchmark_budget(&report)?;
             Ok(())
         }
-        _ => Err("usage: cmux-diff-sidecar <serve|handshake|benchmark>".to_owned()),
+        _ => Err("usage: cmux-diff-sidecar <serve|rpc|handshake|benchmark>".to_owned()),
     }
 }
 

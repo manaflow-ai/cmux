@@ -58,6 +58,33 @@ test("App renders the React-owned shell without starting a patch fetch for statu
   expect(fetched).toBe(false);
 });
 
+test("custom-scheme pending pages wait for native navigation without HTTP polling", async () => {
+  dom = createDom("cmux-diff-viewer://0123456789abcdef/opening.html");
+  let fetched = false;
+  installDomGlobals(dom, () => {
+    fetched = true;
+    throw new Error("unexpected fetch");
+  });
+
+  renderApp(
+    <App
+      config={{
+        payload: {
+          pendingReplacement: true,
+          statusMessage: "Loading diff",
+          title: "Diff",
+        },
+      }}
+      initialStatus={createDiffViewerStatus("Loading diff", { loading: true, pending: true })}
+    />,
+  );
+
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(dom.window.document.getElementById("status-text")?.textContent).toBe("Loading diff");
+  expect(fetched).toBe(false);
+  expect(dom.window.document.documentElement.dataset.cmuxDiffWait).toBeUndefined();
+});
+
 test("App still starts diff rendering when statusMessage is an empty string", async () => {
   dom = createDom();
   let fetchCount = 0;
@@ -195,9 +222,9 @@ test("layout toggle persists user choice while explicit payload layout wins", as
   expect(dom.window.document.documentElement.dataset.layout).toBe("unified");
 });
 
-function createDom(): JSDOM {
+function createDom(url = "http://127.0.0.1/diff"): JSDOM {
   return new JSDOM("<!doctype html><html><body><div id='root'></div></body></html>", {
-    url: "http://127.0.0.1/diff",
+    url,
   });
 }
 

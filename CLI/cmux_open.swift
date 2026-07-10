@@ -1044,9 +1044,35 @@ extension CMUXCLI {
         if let surfaceHandle { params["surface_id"] = surfaceHandle }
 
         let payload = try activeClient.sendV2(method: "browser.open_split", params: params)
+        let completedViewer = try completeDeferredDiffViewer(viewer)
+
+        // Custom-scheme pages cannot poll the old HTTP wait endpoint. Keep the
+        // fast opening placeholder, then navigate the new browser surface after
+        // the deferred Git work atomically replaces it. The same URL reloads the
+        // selected page; a source fallback may navigate to a sibling page.
+        if viewer.completeDeferred != nil,
+           viewer.url.scheme == DiffViewerURLMapper.scheme,
+           let openedSurface = (payload["surface_id"] as? String) ?? (payload["surface_ref"] as? String) {
+            // Diff generation can outlive the socket server's idle-connection
+            // window. Reconnect for the completion navigation instead of
+            // depending on the connection that opened the placeholder.
+            if let navigationClient = try? connectClient(
+                socketPath: socketPath,
+                explicitPassword: explicitPassword,
+                launchIfNeeded: false
+            ) {
+                _ = try? navigationClient.sendV2(
+                    method: "browser.navigate",
+                    params: [
+                        "surface_id": openedSurface,
+                        "url": completedViewer.url.absoluteString,
+                    ]
+                )
+                navigationClient.close()
+            }
+        }
 
         if jsonOutput {
-            let completedViewer = try completeDeferredDiffViewer(viewer)
             var response = payload
             response["path"] = completedViewer.fileURL.path
             response["url"] = completedViewer.url.absoluteString
@@ -1056,10 +1082,6 @@ extension CMUXCLI {
             return
         }
 
-        // Finalize the deferred viewer (writes the real diff HTML in place of the
-        // opening placeholder); its temp file path is an internal detail, so keep it
-        // out of the human output. Scripts that need it can use `--json`.
-        _ = try completeDeferredDiffViewer(viewer)
         let surfaceText = formatHandle(payload, kind: "surface", idFormat: idFormat) ?? "unknown"
         let paneText = formatHandle(payload, kind: "pane", idFormat: idFormat) ?? "unknown"
         print("OK surface=\(surfaceText) pane=\(paneText)")
@@ -1510,16 +1532,6 @@ extension CMUXCLI {
 
         if let trustedRemoteURL = diffInputTrustedRemotePatchURL(rawInput) {
             let sourceURL = URL(string: rawInput) ?? trustedRemoteURL
-            if diffViewerShouldStreamRemotePatch() {
-                return DiffInput(
-                    patch: "",
-                    sourceLabel: sourceURL.absoluteString,
-                    defaultTitle: diffInputURLTitle(sourceURL),
-                    emptyMessage: nil,
-                    externalURL: diffInputExternalURL(sourceURL).absoluteString,
-                    remotePatchURL: trustedRemoteURL
-                )
-            }
             do {
                 return DiffInput(
                     patch: try fetchDiffURL(trustedRemoteURL),
@@ -1573,13 +1585,6 @@ extension CMUXCLI {
             emptyMessage: nil,
             externalURL: nil
         )
-    }
-
-    private func diffViewerShouldStreamRemotePatch() -> Bool {
-        let value = ProcessInfo.processInfo.environment["CMUX_DIFF_VIEWER_STREAM_REMOTE"]?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-        return value == "1" || value == "true" || value == "yes"
     }
 
     private func readGitDiffInput(source: DiffSource, context: DiffSourceContext) throws -> DiffInput {
@@ -3942,9 +3947,12 @@ extension CMUXCLI {
 
         let title = titleOverride ?? input.defaultTitle
         let directory = try diffViewerDirectory()
-        let origin = try diffViewerHTTPServerOrigin(rootDirectory: directory, runtime: runtime)
+        let token = UUID().uuidString.lowercased()
+        guard let origin = URL(string: "\(DiffViewerURLMapper.scheme)://\(token)") else {
+            throw CLIError(message: "Failed to build diff viewer scheme origin")
+        }
         let mapper = DiffViewerURLMapper(
-            token: UUID().uuidString.lowercased(),
+            token: token,
             rootDirectory: directory,
             origin: origin
         )
@@ -4020,9 +4028,12 @@ extension CMUXCLI {
 
     private func makeDiffViewerGitHTMLSetTarget(runtime: URL?) throws -> DiffViewerGitHTMLSetTarget {
         let directory = try diffViewerDirectory()
-        let origin = try diffViewerHTTPServerOrigin(rootDirectory: directory, runtime: runtime)
+        let token = UUID().uuidString.lowercased()
+        guard let origin = URL(string: "\(DiffViewerURLMapper.scheme)://\(token)") else {
+            throw CLIError(message: "Failed to build diff viewer scheme origin")
+        }
         let mapper = DiffViewerURLMapper(
-            token: UUID().uuidString.lowercased(),
+            token: token,
             rootDirectory: directory,
             origin: origin
         )
@@ -7442,13 +7453,14 @@ extension CMUXCLI {
             "baseOptions": baseOptions.map(\.jsonObject),
             "generatedAt": ISO8601DateFormatter().string(from: Date())
         ]
-        // The legacy cmux server remains a development fallback when the bundled
-        // sidecar is missing. It has only the GET picker routes, so advertise
-        // typed Fetch RPC only when the selected server is the Rust sidecar.
+        // Browser-hosted builds can select Fetch or WebSocket with the same
+        // generated protocol. The macOS app uses its reply-capable WebKit bridge,
+        // which forwards one request over stdio to the Rust sidecar without a
+        // listener or idle daemon.
         if diffViewerUsesTypedSidecar(runtime: runtime) {
             payload["transport"] = [
-                "kind": "fetch",
-                "endpoint": "/__cmux_diff_rpc",
+                "kind": "webKit",
+                "endpoint": "cmuxDiff",
                 "protocolVersion": 1,
             ]
         }

@@ -267,6 +267,7 @@ pub fn handshake(id: String) -> DiffResponse {
                 "transport.fetch".to_owned(),
                 "transport.websocket".to_owned(),
                 "transport.webkit".to_owned(),
+                "transport.stdio".to_owned(),
             ],
         }),
     )
