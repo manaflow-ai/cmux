@@ -63,10 +63,16 @@ describe("SEO metadata helpers", () => {
   test("does not split Unicode characters at the metadata cutoff", () => {
     const description = seoDescription(
       "en",
-      `${"A".repeat(158)}😀${"B".repeat(20)}`,
+      `${"A".repeat(158)}👩🏽‍💻${"B".repeat(20)}`,
     );
-    expect(description).toContain("😀");
-    expect(Array.from(description).length).toBeLessThanOrEqual(160);
+    expect(description).toContain("👩🏽‍💻");
+    expect(
+      Array.from(
+        new Intl.Segmenter("en", { granularity: "grapheme" }).segment(
+          description,
+        ),
+      ).length,
+    ).toBeLessThanOrEqual(160);
   });
 
   test("adds useful context to short titles and trims long titles", () => {

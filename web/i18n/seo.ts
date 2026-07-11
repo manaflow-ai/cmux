@@ -30,6 +30,9 @@ const MIN_DESCRIPTION_LENGTH = 110;
 const MAX_DESCRIPTION_LENGTH = 160;
 const MIN_TITLE_LENGTH = 30;
 const MAX_TITLE_LENGTH = 60;
+const metadataSegmenter = new Intl.Segmenter("en", {
+  granularity: "grapheme",
+});
 
 const openGraphImageAlts: Record<string, string> = {
   en: "cmux - The terminal built for multitasking",
@@ -110,7 +113,7 @@ export function hasLocalizedSeoCopy(locale: string) {
 
 export function seoDescription(locale: string, description: string) {
   const trimmed = description.trim();
-  if (trimmed.length >= MIN_DESCRIPTION_LENGTH) {
+  if (metadataLength(trimmed) >= MIN_DESCRIPTION_LENGTH) {
     return truncateMetadataText(
       trimmed,
       MAX_DESCRIPTION_LENGTH,
@@ -146,7 +149,7 @@ export function seoTitle(
   const maxLength = options.maxLength ?? MAX_TITLE_LENGTH;
   let normalized = title.trim();
 
-  if (normalized.length < minLength) {
+  if (metadataLength(normalized) < minLength) {
     const context = openGraphImageTagline(locale);
     if (!normalized.includes(context)) {
       normalized = `${normalized} — ${context}`;
@@ -161,7 +164,7 @@ function truncateMetadataText(
   maxLength: number,
   minLength = 0,
 ) {
-  const characters = Array.from(value);
+  const characters = metadataCharacters(value);
   if (characters.length <= maxLength) return value;
 
   const candidate = characters.slice(0, maxLength - 1);
@@ -190,10 +193,18 @@ function truncateMetadataText(
     .join("")
     .replace(/[-,:;–—]+$/u, "")
     .trimEnd();
-  if (Array.from(truncated).length + 1 < minLength) {
+  if (metadataLength(truncated) + 1 < minLength) {
     truncated = candidate.join("").trimEnd();
   }
   return `${truncated}…`;
+}
+
+function metadataCharacters(value: string) {
+  return Array.from(metadataSegmenter.segment(value), ({ segment }) => segment);
+}
+
+function metadataLength(value: string) {
+  return metadataCharacters(value).length;
 }
 
 export function openGraphDefaults(

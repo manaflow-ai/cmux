@@ -6,6 +6,7 @@ import {
   buildAlternates,
   openGraphDefaults,
   seoDescription,
+  seoTitle,
   twitterSummary,
 } from "@/i18n/seo";
 import { DocsSchema } from "../../docs-schema";
@@ -14,10 +15,10 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
   const { locale } = await params;
   const t = await getTranslations({ locale, namespace: "docs.ohMyPi" });
   const alternates = buildAlternates(locale, "/docs/agent-integrations/oh-my-pi");
-  const title = t("metaTitle");
+  const title = seoTitle(locale, t("metaTitle"));
   const description = seoDescription(locale, t("metaDescription"));
   return {
-    title,
+    title: { absolute: title },
     description,
     alternates,
     openGraph: {
