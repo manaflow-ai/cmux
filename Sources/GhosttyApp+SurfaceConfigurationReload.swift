@@ -1,6 +1,8 @@
 import Foundation
+import CmuxTerminal
 
 extension GhosttyApp {
+    @MainActor
     func updateAppConfigurationSurrenderingMobileViewportFontFits(
         _ updatedConfig: ghostty_config_t,
         source: String
@@ -19,6 +21,7 @@ extension GhosttyApp {
         // an independent surface-action reload acquires another lease.
     }
 
+    @MainActor
     func reloadSurfaceConfigurationSurrenderingMobileViewportFontFit(
         _ surface: ghostty_surface_t,
         terminalSurface: TerminalSurface?,
