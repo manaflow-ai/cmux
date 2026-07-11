@@ -672,7 +672,11 @@ private func configureFileDropOverlay(_ overlay: FileDropOverlayView, tabManager
         MainActor.assumeIsolated {
             guard let tabManager, !directories.isEmpty else { return false }
             for directory in directories {
-                tabManager.addWorkspace(workingDirectory: directory.path)
+                tabManager.addWorkspace(
+                    title: (directory.path as NSString).lastPathComponent,
+                    workingDirectory: directory.path,
+                    initialTerminalInput: "claude\n"
+                )
             }
             return true
         }
