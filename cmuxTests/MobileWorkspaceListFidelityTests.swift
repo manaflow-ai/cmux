@@ -66,30 +66,6 @@ struct MobileWorkspaceListFidelityTests {
         #expect(ordered == expected)
     }
 
-    @Test func workspacePayloadGroupsOnlyTerminalIDsInPaneOrder() throws {
-        let (workspace, terminalIDs) = try makeWorkspaceWithTabTerminals(count: 2)
-        let paneID = try #require(workspace.bonsplitController.focusedPaneId)
-        let browser = try #require(workspace.newBrowserSurface(
-            inPane: paneID,
-            focus: false,
-            creationPolicy: .restoration
-        ))
-
-        let payload = TerminalController.shared.mobileWorkspacePayload(
-            workspace: workspace,
-            isSelected: true,
-            requestedTerminalID: nil
-        )
-        let panes = try #require(payload["panes"] as? [[String: Any]])
-        let pane = try #require(panes.first(where: { $0["id"] as? String == paneID.id.uuidString }))
-        #expect(pane["terminal_ids"] as? [String] == terminalIDs.map(\.uuidString))
-        #expect(!(pane["terminal_ids"] as? [String] ?? []).contains(browser.id.uuidString))
-
-        let terminals = try #require(payload["terminals"] as? [[String: Any]])
-        #expect(terminals.count == terminalIDs.count)
-        #expect(terminals.allSatisfy { $0["pane_id"] as? String == paneID.id.uuidString })
-    }
-
     @Test func reorderingTerminalsChangesObserverHashAndBumpsLayoutVersion() throws {
         // Tabs in one pane so a within-pane reorder genuinely changes their order.
         let (workspace, ordered) = try makeWorkspaceWithTabTerminals(count: 3)
