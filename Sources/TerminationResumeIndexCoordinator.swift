@@ -12,6 +12,18 @@ final class TerminationResumeIndexCoordinator {
     private var didComplete = false
     private var pendingLoad: PendingLoad?
 
+    func loadForNewTerminationAttempt() async -> ProcessDetectedResumeIndexes? {
+        invalidate()
+        return await load()
+    }
+
+    func invalidate() {
+        pendingLoad?.task.cancel()
+        pendingLoad = nil
+        completed = nil
+        didComplete = false
+    }
+
     func load() async -> ProcessDetectedResumeIndexes? {
         await load(coordinatedBy: .shared)
     }
