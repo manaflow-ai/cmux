@@ -59,6 +59,30 @@ final class CEFClientImpl {
         return ptr
     }
 
+    /// Drops the allocation reference on each cached sub-handler once the
+    /// browser is gone. CEF releases only the references handed out by the
+    /// get_*_handler callbacks; without this, the initial +1 from
+    /// CEFHandler.allocate keeps every sub-handler struct — and, through the
+    /// retain each struct holds on its owner, this client impl — alive
+    /// forever after close (same pattern as CEFAppHandlerImpl
+    /// .releaseHeldReferences). Called from on_before_close, where CEF still
+    /// holds its own reference on the invoking life-span handler, so the
+    /// struct cannot be freed mid-callback.
+    func releaseCachedSubHandlers() {
+        if let ptr = lifeSpanPtr {
+            lifeSpanPtr = nil
+            cefRelease(UnsafeMutableRawPointer(ptr))
+        }
+        if let ptr = loadPtr {
+            loadPtr = nil
+            cefRelease(UnsafeMutableRawPointer(ptr))
+        }
+        if let ptr = displayPtr {
+            displayPtr = nil
+            cefRelease(UnsafeMutableRawPointer(ptr))
+        }
+    }
+
     func browserWasCreated(_ browser: CEFBrowser) {
         self.browser = browser
         pendingBrowser = browser
@@ -87,6 +111,7 @@ final class CEFClientImpl {
             CEFApp.shared.browserDidStop()
             CEFBrowser.unregisterLiveBrowser(browser)
             impl.pendingBrowser = nil
+            impl.releaseCachedSubHandlers()
         }
         lifeSpanPtr = ptr
         return ptr

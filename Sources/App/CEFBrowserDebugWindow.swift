@@ -201,7 +201,6 @@ final class CEFBrowserDebugView: NSView {
     // MARK: Browsers
 
     private func profile(for name: String) -> CEFProfile? {
-        if name == "Default" { return nil }
         if let existing = profiles[name] { return existing }
         let profile = CEFProfile(name: name)
         profiles[name] = profile
@@ -210,6 +209,18 @@ final class CEFBrowserDebugView: NSView {
 
     private func ensureBrowser(for name: String) {
         guard browsers[name] == nil, !pendingProfiles.contains(name) else { return }
+
+        // A named profile must never silently fall back to the default
+        // request context: that would share cookies/storage across profiles
+        // the UI presents as isolated. Fail the tab instead.
+        var profile: CEFProfile?
+        if name != "Default" {
+            guard let resolved = self.profile(for: name) else {
+                NSLog("CEFBrowserDebugWindow: failed to create request context for profile %@", name)
+                return
+            }
+            profile = resolved
+        }
         pendingProfiles.insert(name)
 
         let container = CEFBrowserContainerView(frame: profilesHost.bounds)
@@ -222,12 +233,20 @@ final class CEFBrowserDebugView: NSView {
             in: container,
             frame: container.bounds,
             url: urlField.stringValue,
-            profile: profile(for: name),
+            profile: profile,
             delegate: self
         ) { [weak self] browser in
             guard let self else { return }
             self.pendingProfiles.remove(name)
-            guard let browser else { return }
+            guard let browser else {
+                // Failed create: drop the orphan container so a retry does
+                // not stack duplicate hosts for the same profile.
+                if self.containers[name] === container {
+                    self.containers[name] = nil
+                }
+                container.removeFromSuperview()
+                return
+            }
             self.browsers[name] = browser
             if name == self.activeProfileName {
                 self.refreshControls()

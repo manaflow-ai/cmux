@@ -173,23 +173,32 @@ public final class CEFApp {
     /// Number of live CEF browsers (created and not yet destroyed).
     public private(set) var liveBrowserCount = 0
     private var terminationCompletion: (() -> Void)?
+    /// True while the post-close message-loop drain is still running; quit
+    /// must keep waiting even though liveBrowserCount is already zero.
+    private var isDrainingAfterClose = false
 
     func browserDidStart() { liveBrowserCount += 1 }
 
     func browserDidStop() {
         liveBrowserCount = max(0, liveBrowserCount - 1)
-        if liveBrowserCount == 0, let completion = terminationCompletion {
-            terminationCompletion = nil
-            // browserDidStop runs inside the last browser's on_before_close,
-            // which fires BEFORE destruction finishes. Defer a turn and
-            // drain the deferred UI-thread destruction tasks so the browser
-            // finishes tearing down before the host re-initiates
-            // termination.
-            DispatchQueue.main.async {
-                for _ in 0..<20 {
-                    CEFRuntime.doMessageLoopWork()
-                    RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01))
-                }
+        guard liveBrowserCount == 0, terminationCompletion != nil, !isDrainingAfterClose else { return }
+        // browserDidStop runs inside the last browser's on_before_close,
+        // which fires BEFORE destruction finishes. Defer a turn and
+        // drain the deferred UI-thread destruction tasks so the browser
+        // finishes tearing down before the host re-initiates
+        // termination. The completion is consumed at drain END (not
+        // captured here): the drain's run-loop turns can re-enter
+        // applicationShouldTerminate, and prepareForTermination must keep
+        // reporting "not ready" until the drain has finished.
+        isDrainingAfterClose = true
+        DispatchQueue.main.async {
+            for _ in 0..<20 {
+                CEFRuntime.doMessageLoopWork()
+                RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01))
+            }
+            self.isDrainingAfterClose = false
+            if let completion = self.terminationCompletion {
+                self.terminationCompletion = nil
                 completion()
             }
         }
@@ -212,12 +221,14 @@ public final class CEFApp {
     /// process exit skips Chromium teardown via finalizeProcessExitIfNeeded.
     public func prepareForTermination(onReady: @escaping () -> Void) -> Bool {
         guard isInitialized else { return true }
-        if liveBrowserCount == 0 {
+        if liveBrowserCount == 0, !isDrainingAfterClose {
             return true
         }
         if terminationCompletion == nil {
             terminationCompletion = onReady
-            CEFBrowser.forceCloseAllLiveBrowsers()
+            if liveBrowserCount > 0 {
+                CEFBrowser.forceCloseAllLiveBrowsers()
+            }
         }
         return false
     }

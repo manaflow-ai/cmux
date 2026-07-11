@@ -28,6 +28,11 @@ extension CEFApp {
             var result: String?
             if let data,
                let targets = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] {
+                // Known limitation: the CDP target list carries no browser
+                // identity, so the inspected page is matched by exact URL.
+                // When several browsers show the same URL this picks the
+                // first, and a URL that drifted mid-navigation resolves nil
+                // (the caller completes nil and the user retries).
                 let match = targets.first { target in
                     target["type"] as? String == "page" && target["url"] as? String == inspectedURL
                 }
