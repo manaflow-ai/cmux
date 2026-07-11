@@ -25,7 +25,7 @@ extension TranscriptListViewController {
             chromeView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             chromeView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
         ])
-        let host = UIHostingController(rootView: ScrollToBottomPill(unreadCount: 0) { [weak self] in
+        let host = UIHostingController(rootView: ScrollToBottomPill(theme: currentTheme, unreadCount: 0) { [weak self] in
             self?.scrollToBottom()
         })
         host.sizingOptions = .intrinsicContentSize
@@ -65,7 +65,7 @@ extension TranscriptListViewController {
             return
         }
         if renderedPillUnreadCount != unreadCount {
-            host.rootView = ScrollToBottomPill(unreadCount: unreadCount) { [weak self] in
+            host.rootView = ScrollToBottomPill(theme: currentTheme, unreadCount: unreadCount) { [weak self] in
                 self?.scrollToBottom()
             }
             host.view.invalidateIntrinsicContentSize()
@@ -101,6 +101,16 @@ extension TranscriptListViewController {
         } else {
             UIView.animate(withDuration: 0.14, delay: 0, options: [.beginFromCurrentState, .curveEaseIn], animations: animations)
         }
+    }
+
+    func refreshPillTheme() {
+        guard let host = pillHost else {
+            return
+        }
+        host.rootView = ScrollToBottomPill(theme: currentTheme, unreadCount: unreadCount) { [weak self] in
+            self?.scrollToBottom()
+        }
+        host.view.invalidateIntrinsicContentSize()
     }
 }
 #endif

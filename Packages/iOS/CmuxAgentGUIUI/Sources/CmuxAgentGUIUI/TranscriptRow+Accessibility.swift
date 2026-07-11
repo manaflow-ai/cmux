@@ -26,6 +26,10 @@ extension TranscriptRow {
             )
         case .genericActivity(let activity):
             "\(AgentGUIL10n.activityKind(activity.kindLabel)) \(activity.summary)"
+        case .activitySummary(let summary):
+            AgentGUIL10n.activitySummary(summary)
+        case .activityItem(let item):
+            AgentGUIL10n.activityAccessibility(item)
         case .unsupported(let rawKind, let summary):
             "\(rawKind) \(summary)"
         }

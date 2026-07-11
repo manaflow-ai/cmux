@@ -20,6 +20,10 @@ public enum TranscriptRowKind: Hashable, Sendable {
     case streaming(textTail: String)
     /// Compact display for known rich activity kinds not expanded in this slice.
     case genericActivity(TranscriptGenericActivity)
+    /// Folded completed activity for one turn.
+    case activitySummary(TranscriptActivitySummary)
+    /// One visible live activity item.
+    case activityItem(TranscriptActivityItem)
     /// Fail-open display for an unrecognized payload.
     case unsupported(rawKind: String, summary: String)
 }

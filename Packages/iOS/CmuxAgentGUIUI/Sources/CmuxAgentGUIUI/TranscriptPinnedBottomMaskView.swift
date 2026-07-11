@@ -1,8 +1,11 @@
 #if os(iOS)
+import CMUXMobileCore
+import CmuxAgentGUIProjection
 import UIKit
 
 final class TranscriptPinnedBottomMaskView: UIView {
     override class var layerClass: AnyClass { CAGradientLayer.self }
+    private var theme = AgentGUITheme(terminalTheme: .monokai)
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -15,6 +18,11 @@ final class TranscriptPinnedBottomMaskView: UIView {
         nil
     }
 
+    func apply(theme: AgentGUITheme) {
+        self.theme = theme
+        updateColors()
+    }
+
     override func layoutSubviews() {
         super.layoutSubviews()
         updateColors()
@@ -22,7 +30,7 @@ final class TranscriptPinnedBottomMaskView: UIView {
 
     private func updateColors() {
         guard let gradient = layer as? CAGradientLayer else { return }
-        let background = UIColor.systemBackground
+        let background = UIColor(theme.background)
         gradient.colors = [
             background.withAlphaComponent(0).cgColor,
             background.withAlphaComponent(0.72).cgColor,

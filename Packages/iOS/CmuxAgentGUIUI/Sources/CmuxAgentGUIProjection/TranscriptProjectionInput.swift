@@ -14,6 +14,8 @@ public struct TranscriptProjectionInput: Sendable {
     public let asks: [PendingAsk]
     /// The optional streaming tail preview.
     public let streamingTail: TranscriptStreamingTail?
+    /// Current session phase used to keep live activity unfolded.
+    public let sessionPhase: SessionPhase
     /// The read pointer sequence.
     public let unreadPointer: EntrySeq
     /// Maps an entry to a deterministic display tick.
@@ -29,6 +31,7 @@ public struct TranscriptProjectionInput: Sendable {
     ///   - sendTickets: FIFO local send tickets.
     ///   - asks: Pending asks in stable order.
     ///   - streamingTail: Optional streaming tail preview.
+    ///   - sessionPhase: Current phase used to keep live activity unfolded.
     ///   - unreadPointer: Read pointer sequence.
     ///   - displayTick: Deterministic display tick provider.
     ///   - dayKey: Display day key provider for a tick.
@@ -39,6 +42,7 @@ public struct TranscriptProjectionInput: Sendable {
         sendTickets: [SendTicket] = [],
         asks: [PendingAsk] = [],
         streamingTail: TranscriptStreamingTail? = nil,
+        sessionPhase: SessionPhase = .idle,
         unreadPointer: EntrySeq = EntrySeq(rawValue: 0),
         displayTick: @escaping @Sendable (EntrySnapshot) -> Int = { $0.seq.rawValue },
         dayKey: @escaping @Sendable (Int) -> String = { "day-\($0 / 86_400)" }
@@ -49,6 +53,7 @@ public struct TranscriptProjectionInput: Sendable {
         self.sendTickets = sendTickets
         self.asks = asks
         self.streamingTail = streamingTail
+        self.sessionPhase = sessionPhase
         self.unreadPointer = unreadPointer
         self.displayTick = displayTick
         self.dayKey = dayKey
@@ -59,12 +64,14 @@ public struct TranscriptProjectionInput: Sendable {
     ///   - state: The replica state snapshot.
     ///   - hasMoreBefore: Whether older history exists before the retained window.
     ///   - streamingTail: Optional streaming tail preview.
+    ///   - sessionPhase: Current phase used to keep live activity unfolded.
     ///   - displayTick: Deterministic display tick provider.
     ///   - dayKey: Display day key provider for a tick.
     public init(
         state: ConversationReplicaState,
         hasMoreBefore: Bool,
         streamingTail: TranscriptStreamingTail? = nil,
+        sessionPhase: SessionPhase = .idle,
         displayTick: @escaping @Sendable (EntrySnapshot) -> Int = { $0.seq.rawValue },
         dayKey: @escaping @Sendable (Int) -> String = { "day-\($0 / 86_400)" }
     ) {
@@ -75,6 +82,7 @@ public struct TranscriptProjectionInput: Sendable {
             sendTickets: state.sendTickets,
             asks: state.asks,
             streamingTail: streamingTail,
+            sessionPhase: sessionPhase,
             unreadPointer: state.readPointer,
             displayTick: displayTick,
             dayKey: dayKey

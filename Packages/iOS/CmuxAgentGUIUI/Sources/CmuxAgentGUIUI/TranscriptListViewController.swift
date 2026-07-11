@@ -1,14 +1,14 @@
 #if os(iOS)
+import CMUXMobileCore
 public import CmuxAgentGUIProjection
 import SwiftUI
 public import UIKit
-
 /// UIKit transcript list with flipped collection-view physics.
 @MainActor public final class TranscriptListViewController: UIViewController {
     /// The collection view that owns transcript virtualization and scroll physics.
     public private(set) var collectionView: UICollectionView!
-
     private let projector = TranscriptProjector()
+    var currentTheme: AgentGUITheme
     private var dataSource: UICollectionViewDiffableDataSource<TranscriptListSection, TranscriptRowID>!
     private var rowsByID: [TranscriptRowID: TranscriptRow] = [:]
     private var spacingByID: [TranscriptRowID: TranscriptRowSpacing] = [:]
@@ -28,9 +28,12 @@ public import UIKit
     var pillBottomConstraint: NSLayoutConstraint?
     var unreadCount = 0
     var renderedPillUnreadCount = 0
+    private var topMaskView: TranscriptPinnedTopMaskView?
+    private var bottomMaskView: TranscriptPinnedBottomMaskView?
 
     /// Creates the transcript list controller.
-    public init() {
+    public init(theme: AgentGUITheme) {
+        currentTheme = theme
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -59,6 +62,7 @@ public import UIKit
 
     public override func viewDidLoad() {
         super.viewDidLoad()
+        view.backgroundColor = UIColor(currentTheme.background)
         view.clipsToBounds = true
         configureCollectionView()
         configureDataSource()
@@ -84,6 +88,31 @@ public import UIKit
         let projection = projector.project(input, previousRows: currentRows)
         currentRows = projection.rows
         applyRows(projection.rows, diff: projection.diff)
+    }
+    /// Recolors the mounted transcript and chrome without replacing the list controller.
+    public func apply(theme: AgentGUITheme) {
+        guard theme != currentTheme else {
+            return
+        }
+        currentTheme = theme
+        guard isViewLoaded else {
+            return
+        }
+        let anchor = captureAnchor()
+        view.backgroundColor = UIColor(theme.background)
+        collectionView.backgroundColor = UIColor(theme.background)
+        topMaskView?.apply(theme: theme)
+        bottomMaskView?.apply(theme: theme)
+        refreshPillTheme()
+        var snapshot = dataSource.snapshot()
+        snapshot.reconfigureItems(snapshot.itemIdentifiers)
+        UIView.performWithoutAnimation {
+            dataSource.apply(snapshot, animatingDifferences: false)
+            collectionView.layoutIfNeeded()
+            if let anchor {
+                restore(anchor: anchor)
+            }
+        }
     }
 
     /// Scrolls to the newest transcript row in flipped space.
@@ -141,7 +170,7 @@ public import UIKit
         let layout = UICollectionViewCompositionalLayout.list(using: configuration)
         let collection = TranscriptCollectionView(frame: .zero, collectionViewLayout: layout)
         collection.translatesAutoresizingMaskIntoConstraints = false
-        collection.backgroundColor = .systemBackground
+        collection.backgroundColor = UIColor(currentTheme.background)
         collection.transform = CGAffineTransform(scaleX: 1, y: -1)
         collection.contentInsetAdjustmentBehavior = .never
         collection.keyboardDismissMode = .interactive
@@ -193,13 +222,14 @@ public import UIKit
                 withReuseIdentifier: "TranscriptCollectionCell",
                 for: indexPath
             ) as? TranscriptCollectionCell
-            guard let cell,
-                  let row = self?.rowsByID[rowID],
-                  let spacing = self?.spacingByID[rowID]
+            guard let self,
+                  let cell,
+                  let row = rowsByID[rowID],
+                  let spacing = spacingByID[rowID]
             else {
                 return UICollectionViewCell()
             }
-            cell.configure(row: row, spacing: spacing)
+            cell.configure(row: row, spacing: spacing, theme: currentTheme)
             return cell
         }
         var snapshot = NSDiffableDataSourceSnapshot<TranscriptListSection, TranscriptRowID>()
@@ -417,11 +447,15 @@ public import UIKit
             collection.bottomEdgeEffect.isHidden = true
         }
         let topMask = TranscriptPinnedTopMaskView()
+        topMask.apply(theme: currentTheme)
         topMask.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(topMask)
         let bottomMask = TranscriptPinnedBottomMaskView()
+        bottomMask.apply(theme: currentTheme)
         bottomMask.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(bottomMask)
+        topMaskView = topMask
+        bottomMaskView = bottomMask
         NSLayoutConstraint.activate([
             topMask.topAnchor.constraint(equalTo: view.topAnchor),
             topMask.leadingAnchor.constraint(equalTo: view.leadingAnchor),

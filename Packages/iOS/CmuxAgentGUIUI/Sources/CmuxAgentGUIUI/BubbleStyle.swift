@@ -1,5 +1,7 @@
 #if os(iOS)
+import CmuxAgentGUIProjection
 import SwiftUI
+import UIKit
 
 enum BubbleStyle {
     case agent
@@ -7,26 +9,36 @@ enum BubbleStyle {
     case pending
     case streaming
 
-    var foreground: Color {
+    func foreground(theme: AgentGUITheme) -> Color {
         switch self {
-        case .agent, .pending, .streaming:
-            .primary
-        case .user:
-            .white
+        case .agent, .user, .pending, .streaming:
+            Color(theme.foreground)
         }
     }
 
-    var background: Color {
+    func background(theme: AgentGUITheme) -> Color {
         switch self {
         case .agent:
-            Color(uiColor: .secondarySystemBackground)
+            .clear
         case .user:
-            .accentColor
+            Color(theme.inputBackground)
         case .pending:
-            Color(uiColor: .tertiarySystemFill)
+            Color(theme.raisedBackground)
         case .streaming:
-            Color(uiColor: .secondarySystemFill)
+            .clear
         }
+    }
+}
+
+extension Color {
+    init(_ color: AgentGUIRGBColor) {
+        self.init(red: color.red, green: color.green, blue: color.blue)
+    }
+}
+
+extension UIColor {
+    convenience init(_ color: AgentGUIRGBColor) {
+        self.init(red: CGFloat(color.red), green: CGFloat(color.green), blue: CGFloat(color.blue), alpha: 1)
     }
 }
 #endif

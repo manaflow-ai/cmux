@@ -259,6 +259,108 @@
         "en" : { "stringUnit" : { "state" : "translated", "value" : "%d unread" } },
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "未読%d件" } }
       }
+    },
+    "agent.activity.assistant" : {
+      "extractionState" : "manual", "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Assistant" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "アシスタント" } }
+      }
+    },
+    "agent.activity.status" : {
+      "extractionState" : "manual", "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Status" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "状態" } }
+      }
+    },
+    "agent.activity.attachment" : {
+      "extractionState" : "manual", "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Attachment" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "添付ファイル" } }
+      }
+    },
+    "agent.activity.expanded" : {
+      "extractionState" : "manual", "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Expanded" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "展開" } }
+      }
+    },
+    "agent.activity.collapsed" : {
+      "extractionState" : "manual", "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Collapsed" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "折りたたみ" } }
+      }
+    },
+    "agent.activity.toggleHint" : {
+      "extractionState" : "manual", "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Shows or hides completed activity" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "完了したアクティビティの表示と非表示を切り替えます" } }
+      }
+    },
+    "agent.activity.summary.edited.one" : {
+      "extractionState" : "manual", "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Edited 1 file" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "1個のファイルを編集" } }
+      }
+    },
+    "agent.activity.summary.edited.other" : {
+      "extractionState" : "manual", "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Edited %d files" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "%d個のファイルを編集" } }
+      }
+    },
+    "agent.activity.summary.read.one" : {
+      "extractionState" : "manual", "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Read 1 file" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "1個のファイルを読み取り" } }
+      }
+    },
+    "agent.activity.summary.read.other" : {
+      "extractionState" : "manual", "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Read %d files" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "%d個のファイルを読み取り" } }
+      }
+    },
+    "agent.activity.summary.searched" : {
+      "extractionState" : "manual", "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Searched code" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "コードを検索" } }
+      }
+    },
+    "agent.activity.summary.listed" : {
+      "extractionState" : "manual", "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Listed files" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ファイル一覧を表示" } }
+      }
+    },
+    "agent.activity.summary.command.one" : {
+      "extractionState" : "manual", "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Ran 1 command" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "1個のコマンドを実行" } }
+      }
+    },
+    "agent.activity.summary.command.other" : {
+      "extractionState" : "manual", "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Ran %d commands" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "%d個のコマンドを実行" } }
+      }
+    },
+    "agent.activity.summary.event.one" : {
+      "extractionState" : "manual", "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Processed 1 event" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "1件のイベントを処理" } }
+      }
+    },
+    "agent.activity.summary.event.other" : {
+      "extractionState" : "manual", "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Processed %d events" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "%d件のイベントを処理" } }
+      }
+    },
+    "agent.activity.summary.none" : {
+      "extractionState" : "manual", "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "No activity" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "アクティビティなし" } }
+      }
     }
   },
   "version" : "1.0"

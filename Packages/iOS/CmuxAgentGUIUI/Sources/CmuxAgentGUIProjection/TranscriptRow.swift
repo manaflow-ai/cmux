@@ -6,6 +6,10 @@ public struct TranscriptRow: Hashable, Identifiable, Sendable {
     public let rowKind: TranscriptRowKind
     /// Whether this row is newer than the read pointer.
     public let isUnread: Bool
+    /// Stable prompt-led turn identity, when the row belongs to a turn.
+    public let turnID: TranscriptTurnID?
+    /// Whether this row is the chronological end of its turn.
+    public let endsTurn: Bool
 
     /// The `Identifiable` identity.
     public var id: TranscriptRowID { rowID }
@@ -15,9 +19,19 @@ public struct TranscriptRow: Hashable, Identifiable, Sendable {
     ///   - rowID: Stable identity used by diffable data sources.
     ///   - rowKind: Renderable row payload.
     ///   - isUnread: Whether this row is newer than the read pointer.
-    public init(rowID: TranscriptRowID, rowKind: TranscriptRowKind, isUnread: Bool = false) {
+    ///   - turnID: Stable prompt-led turn identity.
+    ///   - endsTurn: Whether this row ends its turn chronologically.
+    public init(
+        rowID: TranscriptRowID,
+        rowKind: TranscriptRowKind,
+        isUnread: Bool = false,
+        turnID: TranscriptTurnID? = nil,
+        endsTurn: Bool = false
+    ) {
         self.rowID = rowID
         self.rowKind = rowKind
         self.isUnread = isUnread
+        self.turnID = turnID
+        self.endsTurn = endsTurn
     }
 }

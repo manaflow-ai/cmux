@@ -2,9 +2,6 @@ import CmuxAgentReplica
 
 /// Projects replica snapshots into immutable transcript row values.
 public struct TranscriptProjector: Sendable {
-    /// Maximum display-tick distance for grouping consecutive same-role prose.
-    public static let groupingTickWindow = 60
-
     /// Creates a transcript projector.
     public init() {}
 
@@ -29,22 +26,29 @@ public struct TranscriptProjector: Sendable {
                 dayKey: input.dayKey(input.displayTick(entry))
             )
         }
-        let proseGroups = Self.proseGroups(for: entryContexts)
-
         var entryIndex = 0
         var lastDayKey: String?
+        var turn: TranscriptTurnAccumulator?
+        let latestTurnID = Self.latestTurnID(in: entryContexts)
         for hole in input.holes {
             while entryIndex < entryContexts.count,
                   entryContexts[entryIndex].entry.seq < hole.lowerBound {
-                Self.appendEntry(
+                Self.appendContext(
                     entryContexts[entryIndex],
-                    grouping: proseGroups[entryContexts[entryIndex].entry.seq] ?? .single,
-                    unreadPointer: input.unreadPointer,
+                    input: input,
+                    latestTurnID: latestTurnID,
                     lastDayKey: &lastDayKey,
+                    turn: &turn,
                     rows: &chronological
                 )
                 entryIndex += 1
             }
+            Self.flush(
+                &turn,
+                input: input,
+                latestTurnID: latestTurnID,
+                rows: &chronological
+            )
             chronological.append(TranscriptRow(rowID: .hole(hole), rowKind: .hole(range: hole)))
             while entryIndex < entryContexts.count,
                   hole.contains(entryContexts[entryIndex].entry.seq) {
@@ -52,15 +56,17 @@ public struct TranscriptProjector: Sendable {
             }
         }
         while entryIndex < entryContexts.count {
-            Self.appendEntry(
+            Self.appendContext(
                 entryContexts[entryIndex],
-                grouping: proseGroups[entryContexts[entryIndex].entry.seq] ?? .single,
-                unreadPointer: input.unreadPointer,
+                input: input,
+                latestTurnID: latestTurnID,
                 lastDayKey: &lastDayKey,
+                turn: &turn,
                 rows: &chronological
             )
             entryIndex += 1
         }
+        Self.flush(&turn, input: input, latestTurnID: latestTurnID, rows: &chronological)
 
         for ask in input.asks where Self.isActive(ask.state) {
             chronological.append(TranscriptRow(
@@ -80,7 +86,9 @@ public struct TranscriptProjector: Sendable {
             chronological.append(TranscriptRow(
                 rowID: .streaming(journalID: tail.journalID, afterSeq: tail.afterSeq),
                 rowKind: .streaming(textTail: tail.textTail),
-                isUnread: true
+                isUnread: true,
+                turnID: latestTurnID,
+                endsTurn: true
             ))
         }
 
@@ -89,87 +97,222 @@ public struct TranscriptProjector: Sendable {
         return TranscriptProjection(rows: projected, diff: Self.diff(previous: previousRows, current: projected))
     }
 
-    private static func appendEntry(
+    private static func appendContext(
         _ context: EntryContext,
-        grouping: TranscriptProseGrouping,
-        unreadPointer: EntrySeq,
+        input: TranscriptProjectionInput,
+        latestTurnID: TranscriptTurnID?,
         lastDayKey: inout String?,
+        turn: inout TranscriptTurnAccumulator?,
         rows: inout [TranscriptRow]
     ) {
         if lastDayKey != context.dayKey {
+            flush(&turn, input: input, latestTurnID: latestTurnID, rows: &rows)
             rows.append(TranscriptRow(
                 rowID: .dateHeader(context.dayKey),
                 rowKind: .dateHeader(dayKey: context.dayKey)
             ))
             lastDayKey = context.dayKey
         }
-        rows.append(TranscriptRow(
+        if case .userMessage = context.entry.content.payload {
+            flush(&turn, input: input, latestTurnID: latestTurnID, rows: &rows)
+            turn = TranscriptTurnAccumulator(
+                id: TranscriptTurnID(journalID: context.entry.journalID, promptSeq: context.entry.seq),
+                user: context
+            )
+            return
+        }
+        if turn?.id.journalID != context.entry.journalID {
+            flush(&turn, input: input, latestTurnID: latestTurnID, rows: &rows)
+            turn = TranscriptTurnAccumulator(
+                id: TranscriptTurnID(journalID: context.entry.journalID, promptSeq: nil)
+            )
+        }
+        turn?.append(context)
+    }
+
+    private static func flush(
+        _ turn: inout TranscriptTurnAccumulator?,
+        input: TranscriptProjectionInput,
+        latestTurnID: TranscriptTurnID?,
+        rows: inout [TranscriptRow]
+    ) {
+        guard let current = turn else {
+            return
+        }
+        turn = nil
+        let hasStreaming = current.id == latestTurnID && input.streamingTail?.textTail.isEmpty == false
+        let live = current.id == latestTurnID && (
+            input.sessionPhase == .starting
+                || input.sessionPhase == .working
+                || current.activity.contains(where: isRunningActivity)
+                || hasStreaming
+        )
+        var turnRows = [TranscriptRow]()
+        if let user = current.user, case .userMessage(let payload) = user.entry.content.payload {
+            turnRows.append(entryRow(
+                user,
+                kind: .proseUser(text: payload.text, ticketState: nil, grouping: .single),
+                turnID: current.id,
+                unreadPointer: input.unreadPointer
+            ))
+        }
+        let items = current.activity.map(activityItem)
+        if !items.isEmpty {
+            if live {
+                turnRows.append(contentsOf: zip(current.activity, items).map { context, item in
+                    entryRow(
+                        context,
+                        kind: .activityItem(item),
+                        turnID: current.id,
+                        unreadPointer: input.unreadPointer
+                    )
+                })
+            } else {
+                turnRows.append(TranscriptRow(
+                    rowID: .activitySummary(current.id),
+                    rowKind: .activitySummary(activitySummary(items: items)),
+                    isUnread: current.activity.contains { $0.entry.seq > input.unreadPointer },
+                    turnID: current.id
+                ))
+            }
+        }
+        if let assistant = current.assistant,
+           case .agentProse(let payload) = assistant.entry.content.payload {
+            turnRows.append(entryRow(
+                assistant,
+                kind: .proseAgent(text: payload.markdown, grouping: .single),
+                turnID: current.id,
+                unreadPointer: input.unreadPointer
+            ))
+        }
+        if !hasStreaming, let last = turnRows.popLast() {
+            turnRows.append(TranscriptRow(
+                rowID: last.rowID,
+                rowKind: last.rowKind,
+                isUnread: last.isUnread,
+                turnID: last.turnID,
+                endsTurn: true
+            ))
+        }
+        rows.append(contentsOf: turnRows)
+    }
+
+    private static func latestTurnID(in contexts: [EntryContext]) -> TranscriptTurnID? {
+        guard let latest = contexts.last else {
+            return nil
+        }
+        let prompt = contexts.last(where: {
+            guard $0.entry.journalID == latest.entry.journalID else { return false }
+            if case .userMessage = $0.entry.content.payload { return true }
+            return false
+        })
+        return TranscriptTurnID(
+            journalID: prompt?.entry.journalID ?? latest.entry.journalID,
+            promptSeq: prompt?.entry.seq
+        )
+    }
+
+    private static func entryRow(
+        _ context: EntryContext,
+        kind: TranscriptRowKind,
+        turnID: TranscriptTurnID,
+        unreadPointer: EntrySeq
+    ) -> TranscriptRow {
+        TranscriptRow(
             rowID: .entry(journalID: context.entry.journalID, seq: context.entry.seq),
-            rowKind: Self.rowKind(for: context.entry, grouping: grouping),
-            isUnread: context.entry.seq.rawValue > unreadPointer.rawValue
-        ))
+            rowKind: kind,
+            isUnread: context.entry.seq > unreadPointer,
+            turnID: turnID
+        )
     }
 
-    private static func rowKind(for entry: EntrySnapshot, grouping: TranscriptProseGrouping) -> TranscriptRowKind {
-        switch entry.content.payload {
+    private static func activityItem(_ context: EntryContext) -> TranscriptActivityItem {
+        let entry = context.entry
+        let id = TranscriptRowID.entry(journalID: entry.journalID, seq: entry.seq)
+        return switch entry.content.payload {
         case .userMessage(let payload):
-            .proseUser(text: payload.text, ticketState: nil, grouping: grouping)
+            TranscriptActivityItem(id: id, kind: .unknown("user"), summary: payload.text, isRunning: false)
         case .agentProse(let payload):
-            .proseAgent(text: payload.markdown, grouping: grouping)
+            TranscriptActivityItem(id: id, kind: .assistant, summary: payload.markdown, isRunning: false)
         case .thought(let payload):
-            .genericActivity(TranscriptGenericActivity(kindLabel: "thought", summary: payload.text))
+            TranscriptActivityItem(id: id, kind: .thought, summary: payload.text, isRunning: false)
         case .toolRun(let payload):
-            .genericActivity(TranscriptGenericActivity(
-                kindLabel: payload.isTerminal ? "command" : "tool",
-                summary: Self.joined([payload.toolName, payload.argumentSummary, payload.resultSummary])
-            ))
+            TranscriptActivityItem(
+                id: id,
+                kind: payload.isTerminal ? .command : .tool,
+                summary: joined([payload.toolName, payload.argumentSummary, payload.resultSummary]),
+                isRunning: payload.isRunning
+            )
         case .fileChange(let payload):
-            .genericActivity(TranscriptGenericActivity(
-                kindLabel: "file",
-                summary: Self.joined([payload.changeKind.rawValue, payload.path, payload.resultSummary])
-            ))
+            TranscriptActivityItem(
+                id: id,
+                kind: .file,
+                summary: joined([payload.changeKind.rawValue, payload.path, payload.resultSummary]),
+                isRunning: false
+            )
         case .question(let payload):
-            .genericActivity(TranscriptGenericActivity(kindLabel: "question", summary: payload.prompt))
+            TranscriptActivityItem(id: id, kind: .question, summary: payload.prompt, isRunning: false)
         case .permission(let payload):
-            .genericActivity(TranscriptGenericActivity(
-                kindLabel: "permission",
-                summary: Self.joined([payload.toolName, payload.detail])
-            ))
+            TranscriptActivityItem(
+                id: id,
+                kind: .permission,
+                summary: joined([payload.toolName, payload.detail]),
+                isRunning: false
+            )
         case .status(let payload):
-            .status(code: payload.code, detail: payload.detail)
+            TranscriptActivityItem(id: id, kind: .status, summary: joined([payload.code.rawValue, payload.detail]), isRunning: false)
         case .attachment(let payload):
-            .genericActivity(TranscriptGenericActivity(kindLabel: payload.kind, summary: payload.summary))
+            TranscriptActivityItem(id: id, kind: .attachment, summary: joined([payload.kind, payload.summary]), isRunning: false)
         case .unknown(let payload):
-            .unsupported(rawKind: payload.rawKind, summary: payload.summary ?? payload.rawKind)
+            TranscriptActivityItem(
+                id: id,
+                kind: .unknown(payload.rawKind),
+                summary: payload.summary ?? payload.rawKind,
+                isRunning: false
+            )
         }
     }
 
-    private static func proseGroups(for contexts: [EntryContext]) -> [EntrySeq: TranscriptProseGrouping] {
-        var result: [EntrySeq: TranscriptProseGrouping] = [:]
-        for index in contexts.indices {
-            guard let role = contexts[index].proseRole else {
-                continue
-            }
-            let previousConnects: Bool
-            if contexts.indices.contains(index - 1), contexts[index - 1].proseRole == role {
-                previousConnects = contexts[index].tick - contexts[index - 1].tick <= groupingTickWindow
-            } else {
-                previousConnects = false
-            }
-            let nextConnects: Bool
-            if contexts.indices.contains(index + 1), contexts[index + 1].proseRole == role {
-                nextConnects = contexts[index + 1].tick - contexts[index].tick <= groupingTickWindow
-            } else {
-                nextConnects = false
-            }
-            result[contexts[index].entry.seq] = switch (previousConnects, nextConnects) {
-            case (false, false): .single
-            case (false, true): .first
-            case (true, true): .middle
-            case (true, false): .last
+    private static func activitySummary(items: [TranscriptActivityItem]) -> TranscriptActivitySummary {
+        var editedFileCount = 0
+        var readFileCount = 0
+        var searchedCode = false
+        var listedFiles = false
+        var commandCount = 0
+        var eventCount = 0
+        for item in items {
+            switch item.kind {
+            case .file:
+                editedFileCount += 1
+            case .tool, .command:
+                commandCount += 1
+                let tokens = Set(item.summary.lowercased().split { !$0.isLetter && !$0.isNumber }.map(String.init))
+                if !tokens.isDisjoint(with: ["read", "cat", "sed", "nl", "open"]) { readFileCount += 1 }
+                if !tokens.isDisjoint(with: ["rg", "grep", "search"]) { searchedCode = true }
+                if !tokens.isDisjoint(with: ["ls", "find", "list"]) { listedFiles = true }
+                if !tokens.isDisjoint(with: ["edit", "write", "apply_patch", "patch"]) { editedFileCount += 1 }
+            case .assistant:
+                break
+            case .thought, .question, .permission, .status, .attachment, .unknown:
+                eventCount += 1
             }
         }
-        return result
+        return TranscriptActivitySummary(
+            editedFileCount: editedFileCount,
+            readFileCount: readFileCount,
+            searchedCode: searchedCode,
+            listedFiles: listedFiles,
+            commandCount: commandCount,
+            eventCount: eventCount,
+            items: items
+        )
+    }
+
+    private static func isRunningActivity(_ context: EntryContext) -> Bool {
+        if case .toolRun(let payload) = context.entry.content.payload {
+            return payload.isRunning
+        }
+        return false
     }
 
     private static func diff(previous: [TranscriptRow], current: [TranscriptRow]) -> TranscriptProjectionDiff {

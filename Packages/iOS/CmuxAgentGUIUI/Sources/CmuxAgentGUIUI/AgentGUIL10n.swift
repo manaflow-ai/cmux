@@ -1,4 +1,5 @@
 import CmuxAgentReplica
+import CmuxAgentGUIProjection
 import Foundation
 
 enum AgentGUIL10n {
@@ -30,6 +31,87 @@ enum AgentGUIL10n {
         case "thought": string("agent.activity.thought", defaultValue: "Thought")
         default: kind
         }
+    }
+
+    static func activityKind(_ kind: TranscriptActivityKind) -> String {
+        switch kind {
+        case .assistant: string("agent.activity.assistant", defaultValue: "Assistant")
+        case .thought: string("agent.activity.thought", defaultValue: "Thought")
+        case .command: string("agent.activity.command", defaultValue: "Command")
+        case .tool: string("agent.activity.tool", defaultValue: "Tool")
+        case .file: string("agent.activity.file", defaultValue: "File")
+        case .question: string("agent.activity.question", defaultValue: "Question")
+        case .permission: string("agent.activity.permission", defaultValue: "Permission")
+        case .status: string("agent.activity.status", defaultValue: "Status")
+        case .attachment: string("agent.activity.attachment", defaultValue: "Attachment")
+        case .unknown(let rawKind): rawKind
+        }
+    }
+
+    static func activityAccessibility(_ item: TranscriptActivityItem) -> String {
+        [activityKind(item.kind), item.summary].filter { !$0.isEmpty }.joined(separator: ", ")
+    }
+
+    static func activitySummary(_ summary: TranscriptActivitySummary) -> String {
+        var parts = [String]()
+        if summary.editedFileCount > 0 {
+            parts.append(activityCount(
+                summary.editedFileCount,
+                oneKey: "agent.activity.summary.edited.one",
+                oneDefault: "Edited 1 file",
+                otherKey: "agent.activity.summary.edited.other",
+                otherDefault: "Edited %d files"
+            ))
+        }
+        if summary.readFileCount > 0 {
+            parts.append(activityCount(
+                summary.readFileCount,
+                oneKey: "agent.activity.summary.read.one",
+                oneDefault: "Read 1 file",
+                otherKey: "agent.activity.summary.read.other",
+                otherDefault: "Read %d files"
+            ))
+        }
+        if summary.searchedCode {
+            parts.append(string("agent.activity.summary.searched", defaultValue: "Searched code"))
+        }
+        if summary.listedFiles {
+            parts.append(string("agent.activity.summary.listed", defaultValue: "Listed files"))
+        }
+        if summary.commandCount > 0 {
+            parts.append(activityCount(
+                summary.commandCount,
+                oneKey: "agent.activity.summary.command.one",
+                oneDefault: "Ran 1 command",
+                otherKey: "agent.activity.summary.command.other",
+                otherDefault: "Ran %d commands"
+            ))
+        }
+        if summary.commandCount == 0, summary.eventCount > 0 {
+            parts.append(activityCount(
+                summary.eventCount,
+                oneKey: "agent.activity.summary.event.one",
+                oneDefault: "Processed 1 event",
+                otherKey: "agent.activity.summary.event.other",
+                otherDefault: "Processed %d events"
+            ))
+        }
+        return parts.isEmpty
+            ? string("agent.activity.summary.none", defaultValue: "No activity")
+            : parts.formatted(.list(type: .and))
+    }
+
+    private static func activityCount(
+        _ count: Int,
+        oneKey: StaticString,
+        oneDefault: String.LocalizationValue,
+        otherKey: StaticString,
+        otherDefault: String.LocalizationValue
+    ) -> String {
+        guard count != 1 else {
+            return string(oneKey, defaultValue: oneDefault)
+        }
+        return String(format: string(otherKey, defaultValue: otherDefault), count)
     }
 
     static func statusCode(_ code: StatusCode) -> String {

@@ -17,6 +17,8 @@ public enum TranscriptRowID: Hashable, Sendable, CustomStringConvertible {
     case pendingAsk(String)
     /// The single ephemeral streaming preview row.
     case streaming(journalID: JournalID, afterSeq: EntrySeq)
+    /// The folded activity for a completed turn.
+    case activitySummary(TranscriptTurnID)
 
     /// A deterministic string form suitable for diff diagnostics and UI reuse identifiers.
     public var description: String {
@@ -35,6 +37,8 @@ public enum TranscriptRowID: Hashable, Sendable, CustomStringConvertible {
             "ask:\(id)"
         case .streaming(let journalID, let afterSeq):
             "streaming:\(journalID.rawValue):\(afterSeq.rawValue)"
+        case .activitySummary(let turnID):
+            "activity:\(turnID.description)"
         }
     }
 }

@@ -36,43 +36,99 @@ struct TranscriptProjectorTests {
     }
 
     @Test
-    func proseGroupingFollowsRoleAndTickWindow() throws {
+    func promptStartsStableTurnAndEarlierAssistantDemotesInOrder() throws {
+        let rows = projector.project(TranscriptProjectionInput(entries: [
+            Self.user(seq: 1, text: "prompt"),
+            Self.agent(seq: 2, text: "draft"),
+            Self.tool(seq: 3, name: "rg", detail: "Theme"),
+            Self.agent(seq: 4, text: "final"),
+        ])).rows
+        let summaryRow = try #require(rows.first { if case .activitySummary = $0.rowKind { true } else { false } })
+        let expectedTurn = TranscriptTurnID(journalID: Self.journal, promptSeq: EntrySeq(rawValue: 1))
+
+        #expect(summaryRow.rowID == .activitySummary(expectedTurn))
+        #expect(summaryRow.turnID == expectedTurn)
+        guard case .activitySummary(let summary) = summaryRow.rowKind else { return }
+        #expect(summary.items.map(\.id) == [
+            .entry(journalID: Self.journal, seq: EntrySeq(rawValue: 2)),
+            .entry(journalID: Self.journal, seq: EntrySeq(rawValue: 3)),
+        ])
+        #expect(rows.row(seq: 4)?.turnID == expectedTurn)
+        #expect(rows.row(seq: 4)?.endsTurn == true)
+    }
+
+    @Test
+    func preludeUsesStableJournalIdentityAndKeepsFinalAnswerVisible() throws {
+        let rows = projector.project(TranscriptProjectionInput(entries: [
+            Self.tool(seq: 1, name: "ls", detail: "Sources"),
+            Self.agent(seq: 2, text: "answer"),
+        ])).rows
+        let prelude = TranscriptTurnID(journalID: Self.journal, promptSeq: nil)
+
+        #expect(rows.contains { $0.rowID == .activitySummary(prelude) })
+        #expect(rows.row(seq: 2)?.turnID == prelude)
+        #expect(rows.row(seq: 2)?.agentText == "answer")
+    }
+
+    @Test
+    func latestTurnDoesNotBorrowPromptIdentityFromAnOlderJournal() {
+        let olderJournal = JournalID(rawValue: "older")
+        let latestJournal = JournalID(rawValue: "latest")
+        let rows = projector.project(TranscriptProjectionInput(entries: [
+            Self.entry(seq: 1, journalID: olderJournal, payload: .userMessage(UserMessagePayload(
+                text: "old prompt",
+                attachmentCount: 0,
+                hasImage: false
+            ))),
+            Self.entry(seq: 2, journalID: latestJournal, payload: .toolRun(ToolRunPayload(
+                toolName: "bash",
+                argumentSummary: "work",
+                isTerminal: true,
+                isRunning: true
+            ))),
+        ], sessionPhase: .working))
+
+        let latestTurn = TranscriptTurnID(journalID: latestJournal, promptSeq: nil)
+        #expect(rows.rows.contains { $0.turnID == latestTurn })
+        #expect(!rows.rows.contains { row in
+            row.turnID?.journalID == latestJournal && row.turnID?.promptSeq == EntrySeq(rawValue: 1)
+        })
+    }
+
+    @Test
+    func runningActivityRemainsVisibleAndKeepsEntryIdentity() {
         let rows = projector.project(TranscriptProjectionInput(
             entries: [
-                Self.agent(seq: 1, text: "one"),
-                Self.agent(seq: 2, text: "two"),
-                Self.user(seq: 3, text: "three"),
-                Self.agent(seq: 4, text: "four"),
+                Self.user(seq: 1, text: "prompt"),
+                Self.tool(seq: 2, name: "bash", detail: "swift test", isRunning: true),
             ],
-            displayTick: { entry in entry.seq.rawValue == 4 ? 200 : entry.seq.rawValue * 10 },
-            dayKey: { _ in "today" }
+            sessionPhase: .working
         )).rows
 
-        let first = try #require(rows.row(seq: 1))
-        let second = try #require(rows.row(seq: 2))
-        let third = try #require(rows.row(seq: 3))
-        let fourth = try #require(rows.row(seq: 4))
+        #expect(rows.contains { row in
+            row.rowID == .entry(journalID: Self.journal, seq: EntrySeq(rawValue: 2))
+                && { if case .activityItem(let item) = row.rowKind { item.isRunning } else { false } }()
+        })
+        #expect(!rows.contains { if case .activitySummary = $0.rowKind { true } else { false } })
+    }
 
-        #expect(first.agentGrouping == .first)
-        #expect(second.agentGrouping == .last)
-        #expect(third.userGrouping == .single)
-        #expect(fourth.agentGrouping == .single)
+    @Test
+    func completedActivitySummarizesDeterministicallyAndUnknownFailsOpen() throws {
+        let rows = projector.project(TranscriptProjectionInput(entries: [
+            Self.user(seq: 1, text: "prompt"),
+            Self.tool(seq: 2, name: "rg", detail: "Theme"),
+            Self.file(seq: 3, path: "Theme.swift"),
+            Self.unknown(seq: 4, rawKind: "future-event"),
+        ])).rows
+        let row = try #require(rows.first { if case .activitySummary = $0.rowKind { true } else { false } })
+        guard case .activitySummary(let summary) = row.rowKind else { return }
 
-        let tickTable: [(distance: Int, expected: [TranscriptProseGrouping])] = [
-            (60, [.first, .last]),
-            (61, [.single, .single]),
-        ]
-        for testCase in tickTable {
-            let distance = testCase.distance
-            let tableRows = projector.project(TranscriptProjectionInput(
-                entries: [Self.agent(seq: 1, text: "one"), Self.agent(seq: 2, text: "two")],
-                displayTick: { entry in entry.seq.rawValue == 1 ? 0 : distance },
-                dayKey: { _ in "today" }
-            )).rows
-
-            #expect(tableRows.row(seq: 1)?.agentGrouping == testCase.expected[0])
-            #expect(tableRows.row(seq: 2)?.agentGrouping == testCase.expected[1])
-        }
+        #expect(summary.commandCount == 1)
+        #expect(summary.searchedCode)
+        #expect(summary.editedFileCount == 1)
+        #expect(summary.eventCount == 1)
+        #expect(summary.items.last?.kind == .unknown("future-event"))
+        #expect(Set(summary.items.map(\.id)).count == summary.items.count)
     }
 
     @Test
@@ -224,9 +280,26 @@ struct TranscriptProjectorTests {
         entry(seq: seq, payload: .userMessage(UserMessagePayload(text: text, attachmentCount: 0, hasImage: false)))
     }
 
-    private static func entry(seq: Int, payload: EntryPayload) -> EntrySnapshot {
+    private static func tool(seq: Int, name: String, detail: String, isRunning: Bool = false) -> EntrySnapshot {
+        entry(seq: seq, payload: .toolRun(ToolRunPayload(
+            toolName: name,
+            argumentSummary: detail,
+            isTerminal: name == "bash",
+            isRunning: isRunning
+        )))
+    }
+
+    private static func file(seq: Int, path: String) -> EntrySnapshot {
+        entry(seq: seq, payload: .fileChange(FileChangePayload(path: path, changeKind: .edit)))
+    }
+
+    private static func unknown(seq: Int, rawKind: String) -> EntrySnapshot {
+        entry(seq: seq, payload: .unknown(UnknownPayload(rawKind: rawKind, summary: "preserved")))
+    }
+
+    private static func entry(seq: Int, journalID: JournalID = Self.journal, payload: EntryPayload) -> EntrySnapshot {
         EntrySnapshot(
-            journalID: journal,
+            journalID: journalID,
             seq: EntrySeq(rawValue: seq),
             kind: payload.kind,
             content: EntryContent(contentHash: seq, payload: payload),
@@ -242,6 +315,13 @@ private extension [TranscriptRow] {
 }
 
 private extension TranscriptRow {
+    var agentText: String? {
+        if case .proseAgent(let text, _) = rowKind {
+            return text
+        }
+        return nil
+    }
+
     var agentGrouping: TranscriptProseGrouping? {
         if case .proseAgent(_, let grouping) = rowKind {
             return grouping

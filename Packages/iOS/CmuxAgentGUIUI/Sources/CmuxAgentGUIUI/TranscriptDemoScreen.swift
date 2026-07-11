@@ -1,4 +1,6 @@
 #if DEBUG && os(iOS)
+import CMUXMobileCore
+import CmuxAgentGUIProjection
 import CmuxMobileSupport
 public import SwiftUI
 
@@ -17,6 +19,7 @@ public struct TranscriptDemoScreen: View {
         ZStack(alignment: .bottom) {
             TranscriptDemoControllerRepresentable(
                 input: model.input,
+                theme: AgentGUITheme(terminalTheme: TerminalThemeStore.current),
                 jumpToken: jumpToken,
                 bottomChromeHeight: bottomChromeHeight
             )

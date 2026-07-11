@@ -27,12 +27,14 @@ final class TranscriptCollectionCell: UICollectionViewListCell {
     }
 
     private(set) var rowKind: TranscriptRowKind?
+    private(set) var row: TranscriptRow?
 
-    func configure(row: TranscriptRow, spacing: TranscriptRowSpacing) {
+    func configure(row: TranscriptRow, spacing: TranscriptRowSpacing, theme: AgentGUITheme) {
+        self.row = row
         rowKind = row.rowKind
         rowSpacing = spacing
         contentConfiguration = UIHostingConfiguration {
-            TranscriptRowContentView(row: row, spacing: rowSpacing)
+            TranscriptRowContentView(row: row, spacing: rowSpacing, theme: theme)
         }
         .margins(.all, 0)
         isAccessibilityElement = true

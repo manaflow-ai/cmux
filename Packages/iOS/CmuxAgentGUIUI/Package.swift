@@ -19,6 +19,7 @@ let package = Package(
         ),
     ],
     dependencies: [
+        .package(path: "../../Shared/CMUXMobileCore"),
         .package(path: "../../Shared/CmuxAgentReplica"),
         .package(path: "../../Shared/CmuxAgentSync"),
         .package(path: "../CmuxMobileSupport"),
@@ -27,6 +28,7 @@ let package = Package(
         .target(
             name: "CmuxAgentGUIProjection",
             dependencies: [
+                "CMUXMobileCore",
                 "CmuxAgentReplica",
             ],
             swiftSettings: [
@@ -38,6 +40,7 @@ let package = Package(
         .target(
             name: "CmuxAgentGUIUI",
             dependencies: [
+                "CMUXMobileCore",
                 "CmuxAgentGUIProjection",
                 "CmuxAgentReplica",
                 "CmuxAgentSync",
@@ -55,6 +58,7 @@ let package = Package(
         .testTarget(
             name: "CmuxAgentGUIProjectionTests",
             dependencies: [
+                "CMUXMobileCore",
                 "CmuxAgentGUIProjection",
                 "CmuxAgentGUIUI",
                 "CmuxAgentReplica",

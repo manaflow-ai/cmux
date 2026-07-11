@@ -1,10 +1,12 @@
 #if os(iOS)
+import CmuxAgentGUIProjection
 import CmuxMobileSupport
 import SwiftUI
 
 struct ScrollToBottomPill: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    let theme: AgentGUITheme
     let unreadCount: Int
     let action: () -> Void
 
@@ -28,6 +30,8 @@ struct ScrollToBottomPill: View {
             .padding(.vertical, 8)
             .frame(minHeight: 44)
         }
+        .foregroundStyle(Color(theme.foreground))
+        .background(Color(theme.raisedBackground), in: Capsule())
         .mobileGlassPill()
         .accessibilityLabel(AgentGUIL10n.string(
             "agent.transcript.pill.label",

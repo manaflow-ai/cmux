@@ -105,9 +105,9 @@ final class TranscriptCollectionView: UICollectionView, UIGestureRecognizerDeleg
         for pair in zip(cells, cells.dropFirst()) {
             let geometricGap = pair.1.frame.minY - pair.0.frame.maxY
             assert(abs(geometricGap) < 0.5, "Transcript cells must remain contiguous")
-            guard let newerKind = pair.0.rowKind, let olderKind = pair.1.rowKind else { continue }
+            guard let newerRow = pair.0.row, let olderRow = pair.1.row else { continue }
             let visualGap = pair.0.rowSpacing.top + pair.1.rowSpacing.bottom
-            let expected = TranscriptRowSpacing.gap(betweenNewer: newerKind, older: olderKind)
+            let expected = TranscriptRowSpacing.gap(betweenNewer: newerRow, older: olderRow)
             assert(abs(expected - visualGap) < 0.5, "Transcript row gap must equal its adjacent-kind rhythm token")
         }
     }

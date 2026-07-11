@@ -3,7 +3,16 @@ import CmuxAgentGUIProjection
 import UIKit
 
 final class TranscriptDemoContainerViewController: UIViewController {
-    private let transcript = TranscriptListViewController()
+    private let transcript: TranscriptListViewController
+
+    init(theme: AgentGUITheme) {
+        transcript = TranscriptListViewController(theme: theme)
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    required init?(coder: NSCoder) {
+        nil
+    }
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -23,6 +32,10 @@ final class TranscriptDemoContainerViewController: UIViewController {
     func apply(input: TranscriptProjectionInput) {
         loadViewIfNeeded()
         transcript.apply(input: input)
+    }
+
+    func apply(theme: AgentGUITheme) {
+        transcript.apply(theme: theme)
     }
 
     func scrollToBottom() {
