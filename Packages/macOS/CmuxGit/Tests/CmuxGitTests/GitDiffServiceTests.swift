@@ -168,9 +168,13 @@ import Testing
         environment["GIT_EXTERNAL_DIFF"] = "echo EXTERNAL"
         let service = GitDiffService(environment: environment)
         let diff = try #require(service.fileDiff(repoRoot: repo.path, path: "driven.txt"))
+        let changed = try #require(service.changedFiles(repoRoot: repo.path))
+        let summary = try #require(changed.files.first { $0.path == "driven.txt" })
 
         #expect(diff.unifiedDiff.contains("+changed"))
         #expect(!diff.unifiedDiff.contains("EXTERNAL"))
+        #expect(summary.additions == 1)
+        #expect(summary.deletions == 1)
     }
 
     @Test func directoryShapedFileDiffRequestIsRejected() throws {

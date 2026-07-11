@@ -107,6 +107,31 @@ import Testing
         #expect(diff.unifiedDiff.contains("�"))
     }
 
+    @Test func symlinkToDirectoryRemainsOneDiffableFile() throws {
+        let repo = try makeTempRepo()
+        defer { try? FileManager.default.removeItem(at: repo) }
+        try FileManager.default.createDirectory(
+            at: repo.appendingPathComponent("TargetA"),
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.createDirectory(
+            at: repo.appendingPathComponent("TargetB"),
+            withIntermediateDirectories: true
+        )
+        let link = repo.appendingPathComponent("Current")
+        try FileManager.default.createSymbolicLink(atPath: link.path, withDestinationPath: "TargetA")
+        try runTestGit(in: repo, ["add", "--", "Current"])
+        try runTestGit(in: repo, ["commit", "--quiet", "-m", "add directory symlink"])
+        try FileManager.default.removeItem(at: link)
+        try FileManager.default.createSymbolicLink(atPath: link.path, withDestinationPath: "TargetB")
+
+        let service = GitDiffService()
+        let diff = try #require(service.fileDiff(repoRoot: repo.path, path: "Current"))
+
+        #expect(diff.unifiedDiff.contains("-TargetA"))
+        #expect(diff.unifiedDiff.contains("+TargetB"))
+    }
+
     private func makeTempRepo() throws -> URL {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-git-diff-boundary-tests-\(UUID().uuidString)")
