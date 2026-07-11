@@ -3751,18 +3751,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// at most one extra scan after the in-flight one (not one scan, and one
     /// MainActor aggregate update, per event). Bounded — each fetch completes
     /// before the next starts, so there is no cancel/restart starvation.
-    private func scheduleSecondaryRefresh(
-        macID: String,
-        client: MobileCoreRPCClient,
-        displayName: String?
-    ) {
+    @discardableResult
+    private func scheduleSecondaryRefresh(macID: String, client: MobileCoreRPCClient, displayName: String?) -> Task<Void, Never>? {
         guard let subscription = secondaryMacSubscriptions[macID],
-              subscription.client === client else { return }
-        guard subscription.refreshTask == nil else {
+              subscription.client === client else { return nil }
+        if let refreshTask = subscription.refreshTask {
             subscription.refreshPending = true
-            return
+            return refreshTask
         }
-        subscription.refreshTask = Task { @MainActor [weak self] in
+        let refreshTask = Task { @MainActor [weak self] in
             guard let self else { return }
             repeat {
                 // Clear before the fetch; an event during the await re-sets it and
@@ -3784,6 +3781,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             } while self.secondaryMacSubscriptions[macID]?.refreshPending == true
             self.secondaryMacSubscriptions[macID]?.refreshTask = nil
         }
+        subscription.refreshTask = refreshTask
+        return refreshTask
     }
 
     /// Routing target for a workspace mutation (rename / pin / unread / close): the
@@ -3814,8 +3813,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         if target.isForeground {
             await refreshWorkspaces()
         } else if let macID = target.macDeviceID, let sub = secondaryMacSubscriptions[macID] {
-            scheduleSecondaryRefresh(
-                macID: macID, client: sub.client, displayName: workspacesByMac[macID]?.displayName)
+            let refreshTask = scheduleSecondaryRefresh(macID: macID, client: sub.client, displayName: workspacesByMac[macID]?.displayName)
+            await refreshTask?.value
         }
     }
 

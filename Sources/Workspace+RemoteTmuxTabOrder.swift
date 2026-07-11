@@ -6,14 +6,26 @@ extension Workspace {
     func reorderSurface(panelId: UUID, toIndex index: Int, focus: Bool = true) -> Bool {
         guard let tabId = surfaceIdFromPanelId(panelId) else { return false }
         let mirrorPaneId = isRemoteTmuxMirror ? paneId(forPanelId: panelId) : nil
-        let reordered: Bool
-        if let mirrorPaneId {
-            reordered = performRemoteTmuxMirrorOrderMutation(in: mirrorPaneId) {
-                bonsplitController.reorderTab(tabId, toIndex: index)
+        let reorder: () -> Bool = { [self] in
+            if let mirrorPaneId {
+                return performRemoteTmuxMirrorOrderMutation(in: mirrorPaneId) {
+                    bonsplitController.reorderTab(tabId, toIndex: index)
+                }
             }
-        } else {
             guard !isRemoteTmuxMirror else { return false }
-            reordered = bonsplitController.reorderTab(tabId, toIndex: index)
+            return bonsplitController.reorderTab(tabId, toIndex: index)
+        }
+        let reordered: Bool
+        if focus {
+            reordered = reorder()
+        } else {
+            // Bonsplit selects and focuses the moved tab even for a pure reorder.
+            // Keep the shared mutation transaction active so its snapshot restores
+            // every pane selection and the original focused pane before callbacks
+            // can redirect keyboard input.
+            reordered = performRemoteTmuxMirrorMutation {
+                reorder()
+            }
         }
         guard reordered else { return false }
         if focus, let paneId = paneId(forPanelId: panelId) {

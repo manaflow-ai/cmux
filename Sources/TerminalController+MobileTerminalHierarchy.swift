@@ -100,6 +100,7 @@ extension TerminalController {
         guard let destinationIndex = MobileTerminalReorderIndexResolver.destinationIndex(
             panePanelIDs: panePanelIDs,
             terminalPanelIDs: terminalIDs,
+            pinnedPanelIDs: workspace.pinnedPanelIds,
             movingPanelID: surfaceID,
             targetTerminalIndex: targetIndex
         ) else {
