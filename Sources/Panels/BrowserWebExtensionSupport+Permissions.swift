@@ -18,9 +18,11 @@ extension BrowserWebExtensionSupport {
         entryID: String,
         standardizedPath: String
     ) {
+        // Granted match patterns accrue from normal browsing (per-site access),
+        // so only explicit API-permission grants or any denial count as a user
+        // decision that blocks the one-time manifest grant.
         let hasDecisions = !context.grantedPermissions.isEmpty
             || !context.deniedPermissions.isEmpty
-            || !context.grantedPermissionMatchPatterns.isEmpty
             || !context.deniedPermissionMatchPatterns.isEmpty
         guard !hasDecisions else { return }
 
