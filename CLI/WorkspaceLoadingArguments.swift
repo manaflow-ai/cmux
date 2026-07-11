@@ -8,6 +8,50 @@ struct WorkspaceLoadingArguments {
 }
 
 extension CMUXCLI {
+    /// Single source of truth for commands whose workspace target is optional.
+    /// Explicit windows suppress caller context because the caller may belong to
+    /// another window; `resolveWorkspaceId` then selects that window's workspace.
+    func resolveWorkspaceTarget(
+        workspaceOption: String?,
+        positional: String?,
+        windowOption: String?,
+        client: SocketClient,
+        windowOverride: String?
+    ) throws -> (workspaceId: String, windowId: String?) {
+        let windowId = try normalizeWindowHandle(windowOption ?? windowOverride, client: client)
+        let callerWorkspace = windowId == nil
+            ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
+            : nil
+        let workspaceId = try resolveWorkspaceId(
+            workspaceOption ?? positional ?? callerWorkspace,
+            client: client,
+            windowHandle: windowId
+        )
+        return (workspaceId, windowId)
+    }
+
+    /// Resolve the common target grammar for `cmux workspace <subcommand>`:
+    /// `--workspace`, then a positional handle, then the invoking workspace,
+    /// then the selected workspace. An explicit window suppresses caller context
+    /// and resolves against that window's selection.
+    func resolveWorkspaceNamespaceTarget(
+        commandArgs: [String],
+        client: SocketClient,
+        windowOverride: String?
+    ) throws -> (workspaceId: String, windowId: String?, remaining: [String]) {
+        let (workspaceOption, argsAfterWorkspace) = parseOption(commandArgs, name: "--workspace")
+        let (windowOption, remaining) = parseOption(argsAfterWorkspace, name: "--window")
+        let positional = remaining.first { !$0.hasPrefix("--") }
+        let target = try resolveWorkspaceTarget(
+            workspaceOption: workspaceOption,
+            positional: positional,
+            windowOption: windowOption,
+            client: client,
+            windowOverride: windowOverride
+        )
+        return (target.workspaceId, target.windowId, remaining)
+    }
+
     func validateWorkspaceLoadingCommandBeforeSocket(
         command: String,
         commandArgs: [String]
@@ -162,14 +206,14 @@ extension CMUXCLI {
             key = manual
         }
 
-        let windowRaw = parsed.window ?? windowId
-        let workspaceArg = parsed.workspace ?? Self.callerWorkspaceForSurfaceHandle(nil, windowRaw: windowRaw)
-        let winId = try normalizeWindowHandle(windowRaw, client: client)
-        let wsId = try resolveWorkspaceId(
-            workspaceArg,
+        let target = try resolveWorkspaceTarget(
+            workspaceOption: parsed.workspace,
+            positional: nil,
+            windowOption: parsed.window,
             client: client,
-            windowHandle: winId
+            windowOverride: windowId
         )
+        let wsId = target.workspaceId
 
         let response = try sendV1Command(
             "workspace_loading \(key) \(parsed.turnOn ? "on" : "off") --tab=\(wsId)",

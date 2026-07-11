@@ -4374,7 +4374,8 @@ struct CMUXCLI {
                 commandArgs: commandArgs,
                 client: client,
                 jsonOutput: jsonOutput,
-                idFormat: idFormat
+                idFormat: idFormat,
+                windowOverride: windowId
             )
 
         case "workspace":
@@ -7636,8 +7637,8 @@ struct CMUXCLI {
 
     /// `cmux workspace env [<handle>] [--mask]` — print a workspace's configured
     /// environment variables (issue #5995). Resolves the positional/`--workspace`
-    /// handle, falling back to the selected workspace. `--mask` redacts values so
-    /// secrets aren't echoed in full.
+    /// handle, falling back to the caller's workspace and then the selected one.
+    /// `--mask` redacts values so secrets aren't echoed in full.
     private func runWorkspaceEnvCommand(
         commandArgs: [String],
         client: SocketClient,
@@ -7649,9 +7650,12 @@ struct CMUXCLI {
         let mask = rest.contains("--mask")
         rest.removeAll { $0 == "--mask" }
 
-        let (workspaceArg, rem0) = parseOption(rest, name: "--workspace")
-        let (_, rem1) = parseOption(rem0, name: "--window")
-        if let unknown = rem1.first(where: { $0.hasPrefix("--") }) {
+        let target = try resolveWorkspaceNamespaceTarget(
+            commandArgs: rest,
+            client: client,
+            windowOverride: windowOverride
+        )
+        if let unknown = target.remaining.first(where: { $0.hasPrefix("--") }) {
             throw CLIError(message: String(
                 format: String(
                     localized: "cli.workspace.env.error.unknownFlag",
@@ -7661,20 +7665,9 @@ struct CMUXCLI {
                 unknown
             ))
         }
-        let positional = rem1.first(where: { !$0.hasPrefix("--") })
-        let windowRaw = windowFromArgsOrOverride(commandArgs, windowOverride: windowOverride)
-        // Match reconnect/disconnect: default to the caller's workspace
-        // ($CMUX_WORKSPACE_ID) before the selected one, but only when no explicit
-        // --window is given (the caller's workspace may live in another window).
-        let target = workspaceArg
-            ?? positional
-            ?? (windowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
-
         var params: [String: Any] = [:]
-        let winId = try normalizeWindowHandle(windowRaw, client: client)
-        if let winId { params["window_id"] = winId }
-        let wsId = try normalizeWorkspaceHandle(target, client: client, windowHandle: winId)
-        if let wsId { params["workspace_id"] = wsId }
+        if let windowId = target.windowId { params["window_id"] = windowId }
+        params["workspace_id"] = target.workspaceId
 
         let payload = try client.sendV2(method: "workspace.env", params: params)
         let rawEnv = (payload["env"] as? [String: Any]) ?? [:]
@@ -7715,27 +7708,32 @@ struct CMUXCLI {
         windowOverride: String?,
         requireWorkspaceFlag: Bool
     ) throws {
-        let target: String?
+        let winId: String?
+        let wsId: String
         if requireWorkspaceFlag {
             guard let workspaceRaw = optionValue(commandArgs, name: "--workspace") else {
                 throw CLIError(message: "\(commandName) requires --workspace")
             }
-            target = workspaceRaw
+            winId = try normalizeWindowHandle(
+                windowFromArgsOrOverride(commandArgs, windowOverride: windowOverride),
+                client: client
+            )
+            wsId = try resolveWorkspaceId(workspaceRaw, client: client, windowHandle: winId)
         } else {
-            let (workspaceArg, rem0) = parseOption(commandArgs, name: "--workspace")
-            let (_, rem1) = parseOption(rem0, name: "--window")
-            target = workspaceArg ?? rem1.first(where: { !$0.hasPrefix("--") })
+            let resolved = try resolveWorkspaceNamespaceTarget(
+                commandArgs: commandArgs,
+                client: client,
+                windowOverride: windowOverride
+            )
+            winId = resolved.windowId
+            wsId = resolved.workspaceId
         }
 
-        var params: [String: Any] = [:]
-        let winId = try normalizeWindowHandle(windowFromArgsOrOverride(commandArgs, windowOverride: windowOverride), client: client)
+        var params: [String: Any] = ["workspace_id": wsId]
         if let winId { params["window_id"] = winId }
-        let wsId = try normalizeWorkspaceHandle(target, client: client, windowHandle: winId)
-        if let wsId { params["workspace_id"] = wsId }
         let payload = try client.sendV2(method: "workspace.close", params: params)
-        if let closedWorkspaceId = (payload["workspace_id"] as? String) ?? wsId {
-            try? tmuxPruneCompatWorkspaceState(workspaceId: closedWorkspaceId)
-        }
+        let closedWorkspaceId = (payload["workspace_id"] as? String) ?? wsId
+        try? tmuxPruneCompatWorkspaceState(workspaceId: closedWorkspaceId)
         printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["workspace"]))
     }
 
@@ -7748,30 +7746,29 @@ struct CMUXCLI {
         windowOverride: String?,
         requireWorkspaceFlag: Bool
     ) throws {
-        let target: String?
+        let winId: String?
+        let wsId: String
         if requireWorkspaceFlag {
             guard let workspaceRaw = optionValue(commandArgs, name: "--workspace") else {
                 throw CLIError(message: "\(commandName) requires --workspace")
             }
-            target = workspaceRaw
+            winId = try normalizeWindowHandle(
+                windowFromArgsOrOverride(commandArgs, windowOverride: windowOverride),
+                client: client
+            )
+            wsId = try resolveWorkspaceId(workspaceRaw, client: client, windowHandle: winId)
         } else {
-            let (workspaceArg, rem0) = parseOption(commandArgs, name: "--workspace")
-            let (_, rem1) = parseOption(rem0, name: "--window")
-            target = workspaceArg ?? rem1.first(where: { !$0.hasPrefix("--") })
+            let resolved = try resolveWorkspaceNamespaceTarget(
+                commandArgs: commandArgs,
+                client: client,
+                windowOverride: windowOverride
+            )
+            winId = resolved.windowId
+            wsId = resolved.workspaceId
         }
 
-        var params: [String: Any] = [:]
-        let winId = try normalizeWindowHandle(windowFromArgsOrOverride(commandArgs, windowOverride: windowOverride), client: client)
+        var params: [String: Any] = ["workspace_id": wsId]
         if let winId { params["window_id"] = winId }
-        let wsId = try normalizeWorkspaceHandle(target, client: client, windowHandle: winId)
-        if !requireWorkspaceFlag {
-            guard let wsId else {
-                throw CLIError(message: "\(commandName): could not resolve workspace handle")
-            }
-            params["workspace_id"] = wsId
-        } else if let wsId {
-            params["workspace_id"] = wsId
-        }
         let payload = try client.sendV2(method: "workspace.select", params: params)
         printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["workspace"]))
     }
@@ -7805,19 +7802,17 @@ struct CMUXCLI {
 
         case .namespace:
             let (titleOpt, rem0) = parseOption(commandArgs, name: "--title")
-            let (workspaceArg, rem1) = parseOption(rem0, name: "--workspace")
-            let (_, rem2) = parseOption(rem1, name: "--window")
-            let positional = rem2.first(where: { !$0.hasPrefix("--") })
-            let target = workspaceArg ?? positional
             guard let titleOpt else {
                 throw CLIError(message: "\(commandName) requires --title <new>")
             }
             title = titleOpt
-            winId = try normalizeWindowHandle(windowFromArgsOrOverride(commandArgs, windowOverride: windowOverride), client: client)
-            guard let normalizedWorkspaceId = try normalizeWorkspaceHandle(target, client: client, windowHandle: winId) else {
-                throw CLIError(message: "\(commandName): could not resolve workspace handle")
-            }
-            wsId = normalizedWorkspaceId
+            let target = try resolveWorkspaceNamespaceTarget(
+                commandArgs: rem0,
+                client: client,
+                windowOverride: windowOverride
+            )
+            winId = target.windowId
+            wsId = target.workspaceId
         }
 
         var params: [String: Any] = ["title": title, "workspace_id": wsId]
@@ -7927,7 +7922,8 @@ struct CMUXCLI {
         commandArgs: [String],
         client: SocketClient,
         jsonOutput: Bool,
-        idFormat: CLIIDFormat
+        idFormat: CLIIDFormat,
+        windowOverride: String?
     ) throws {
         guard let sub = commandArgs.first?.lowercased() else {
             throw CLIError(message: "canvas requires a subcommand. Try: info, mode, set-frame, align, reveal, overview, zoom, set-viewport, new-pane")
@@ -7947,11 +7943,14 @@ struct CMUXCLI {
             }
         }
 
-        var params: [String: Any] = [:]
-        if let workspaceRaw = optionValue(rest, name: "--workspace"),
-           let wsId = try normalizeWorkspaceHandle(workspaceRaw, client: client) {
-            params["workspace_id"] = wsId
-        }
+        let workspaceTarget = try resolveWorkspaceTarget(
+            workspaceOption: optionValue(rest, name: "--workspace"),
+            positional: nil,
+            windowOption: nil,
+            client: client,
+            windowOverride: windowOverride
+        )
+        var params: [String: Any] = ["workspace_id": workspaceTarget.workspaceId]
 
         func surfaceParam(positional: String?, required: Bool) throws {
             let raw = optionValue(rest, name: "--surface") ?? positional
@@ -8226,23 +8225,13 @@ struct CMUXCLI {
         idFormat: CLIIDFormat,
         windowOverride: String?
     ) throws {
-        let (workspaceArg, rem0) = parseOption(commandArgs, name: "--workspace")
-        let (_, rem1) = parseOption(rem0, name: "--window")
-        let positional = rem1.first(where: { !$0.hasPrefix("--") })
-        let windowRaw = windowFromArgsOrOverride(commandArgs, windowOverride: windowOverride)
-        // With an explicit --window and no workspace argument, target that
-        // window's selected workspace on the server instead of the caller's
-        // CMUX_WORKSPACE_ID, which may live in a different window.
-        let target = workspaceArg
-            ?? positional
-            ?? (windowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
-
-        var params: [String: Any] = [:]
-        let winId = try normalizeWindowHandle(windowRaw, client: client)
-        if let winId { params["window_id"] = winId }
-        if let wsId = try normalizeWorkspaceHandle(target, client: client, windowHandle: winId) {
-            params["workspace_id"] = wsId
-        }
+        let target = try resolveWorkspaceNamespaceTarget(
+            commandArgs: commandArgs,
+            client: client,
+            windowOverride: windowOverride
+        )
+        var params: [String: Any] = ["workspace_id": target.workspaceId]
+        if let windowId = target.windowId { params["window_id"] = windowId }
         let payload = try client.sendV2(method: method, params: params)
         printV2Payload(
             payload,
@@ -15772,16 +15761,16 @@ struct CMUXCLI {
               env [workspace] [--mask]
                                       Print a workspace's configured environment
                                       variables (--mask redacts the values)
-              close <workspace>       Close a workspace
-              rename <workspace> --title <new>
-              select <workspace>      Make a workspace active
+              close [workspace]       Close a workspace
+              rename [workspace] --title <new>
+              select [workspace]      Make a workspace active
               reconnect [workspace]   Reconnect a remote (SSH) workspace, including one
                                       whose automatic reconnect paused because the host
                                       was unreachable
               disconnect [workspace]  Stop a remote (SSH) workspace's connection
               loading <on|off> [--id <name>] Toggle the workspace loading spinner.
               group <subcommand>      Workspace group operations (see cmux workspace-group --help)
-            env/reconnect/disconnect accept a positional handle or --workspace
+            close/rename/select/env/reconnect/disconnect accept a positional handle or --workspace
             <id|ref|index>, defaulting to the caller's workspace, then the
             selected one (of --window's window when given).
             Examples:
