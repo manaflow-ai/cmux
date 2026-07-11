@@ -14472,10 +14472,16 @@ class TerminalController {
         _ = applyMobileViewportReport(params: params, terminalPanel: terminalPanel, reason: "mobile.terminal.replay")
         let state = MobileTerminalByteTee.shared.replayState(surfaceID: surfaceId)
         let seq = state?.seq ?? 0
+        let prefetchWindow = mobileScrollPrefetchWindow(
+            params: params,
+            defaultBeforeRows: Self.mobileReplayScrollbackLineBudget
+        )
         let renderGrid = mobileTerminalRenderGridFrame(
             terminalPanel: terminalPanel,
             surfaceID: surfaceId,
-            seq: seq
+            seq: seq,
+            scrollbackLines: prefetchWindow.before,
+            scrollForwardLines: prefetchWindow.after
         )
         #if DEBUG
         cmuxDebugLog("mobile.terminal.replay surface=\(surfaceId.uuidString.prefix(8)) renderGrid=\(renderGrid != nil) seq=\(seq) hasState=\(state != nil)")

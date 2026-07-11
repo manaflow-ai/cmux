@@ -1819,7 +1819,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     @discardableResult
     public func processOutputAndWait(
         _ data: Data,
-        scrollbackOffsetFromBottomRows: Int = 0
+        scrollbackOffsetFromBottomRows: Int? = nil
     ) async -> Bool {
         return await withCheckedContinuation { continuation in
             let operationID = registerPendingOutputApply(
@@ -1957,7 +1957,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     private func processOutput(
         _ data: Data,
-        scrollbackOffsetFromBottomRows: Int = 0,
+        scrollbackOffsetFromBottomRows: Int? = nil,
         completion: (@MainActor @Sendable (Bool) -> Void)?
     ) {
         guard !renderPipelineRecoveryPaused else {
@@ -2004,12 +2004,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 let pointer = baseAddress.assumingMemoryBound(to: CChar.self)
                 ghostty_surface_process_output(surface, pointer, UInt(buffer.count))
             }
-            let offsetRows = min(max(0, scrollbackOffsetFromBottomRows), Int(Int16.max))
-            if offsetRows > 0 {
-                let action = "scroll_page_lines:-\(offsetRows)"
-                action.withCString { pointer in
-                    _ = ghostty_surface_binding_action(surface, pointer, UInt(action.utf8.count))
-                }
+            if let scrollbackOffsetFromBottomRows {
+                Self.positionAuthoritativeScrollbackViewport(
+                    surface,
+                    rowsFromBottom: scrollbackOffsetFromBottomRows
+                )
             }
             #if DEBUG
             // `ghostty_surface_read_text` takes the same internal surface lock as

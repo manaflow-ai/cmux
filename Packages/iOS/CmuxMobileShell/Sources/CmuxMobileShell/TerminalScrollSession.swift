@@ -148,6 +148,13 @@ final class TerminalScrollSession {
     private var lastCol = 0
     private var lastRow = 0
 
+    /// Bounded history needed to reconstruct this mounted surface after replay.
+    /// The direction survives connection invalidation so reconnect, renderer
+    /// recovery, and cold attach all refill the side the user was moving toward.
+    var replayPrefetchWindow: TerminalScrollPrefetchWindow {
+        .directional(for: lastDirectionLines)
+    }
+
     init(
         token: UUID = UUID(),
         surfaceID: String,

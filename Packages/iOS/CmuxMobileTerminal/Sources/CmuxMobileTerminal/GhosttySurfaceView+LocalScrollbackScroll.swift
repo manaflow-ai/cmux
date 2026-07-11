@@ -69,14 +69,39 @@ extension GhosttySurfaceView {
     @discardableResult
     public func positionAuthoritativeScrollbackViewportAndWait(rowsFromBottom: Int) async -> Bool {
         let rows = min(max(0, rowsFromBottom), Int(Int16.max))
-        guard rows > 0, let state = localScrollbackScrollState() else {
-            return rows == 0
-        }
+        guard let state = localScrollbackScrollState() else { return false }
         return await performLocalScrollbackOperation(state: state) {
-            let action = "scroll_page_lines:-\(rows)"
-            action.withCString { pointer in
-                _ = ghostty_surface_binding_action(state.surface, pointer, UInt(action.utf8.count))
-            }
+            Self.positionAuthoritativeScrollbackViewport(
+                state.surface,
+                rowsFromBottom: rows
+            )
+        }
+    }
+
+    /// Establishes an absolute local scrollback position after a full replay.
+    /// Resetting to bottom first prevents a pre-reconnect offset from surviving
+    /// after the bounded history has been cleared and rebuilt.
+    nonisolated static func positionAuthoritativeScrollbackViewport(
+        _ surface: ghostty_surface_t,
+        rowsFromBottom: Int
+    ) {
+        let bottomAction = "scroll_to_bottom"
+        bottomAction.withCString { pointer in
+            _ = ghostty_surface_binding_action(
+                surface,
+                pointer,
+                UInt(bottomAction.utf8.count)
+            )
+        }
+        let rows = min(max(0, rowsFromBottom), Int(Int16.max))
+        guard rows > 0 else { return }
+        let offsetAction = "scroll_page_lines:-\(rows)"
+        offsetAction.withCString { pointer in
+            _ = ghostty_surface_binding_action(
+                surface,
+                pointer,
+                UInt(offsetAction.utf8.count)
+            )
         }
     }
 

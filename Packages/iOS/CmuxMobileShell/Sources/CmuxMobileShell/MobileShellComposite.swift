@@ -7013,6 +7013,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let reportedViewport = reportedViewportSizesByTerminalKey[viewportKey]
             .map { (clientID: clientID, columns: $0.columns, rows: $0.rows,
                     generation: viewportReportGenerationsBySurfaceID[surfaceID]) }
+        let replayPrefetchWindow = terminalScrollSessionsBySurfaceID[surfaceID]?.replayPrefetchWindow
         let interactionEpochForRequest = interactionEpoch
             ?? currentTerminalInteractionEpoch(surfaceID: surfaceID)
         let interactionClientID = clientID
@@ -7034,6 +7035,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     if let generation = reportedViewport.generation {
                         params["viewport_generation"] = Int(clamping: generation)
                     }
+                }
+                if let replayPrefetchWindow {
+                    params["prefetch_before_rows"] = replayPrefetchWindow.rowsBeforeViewport
+                    params["prefetch_after_rows"] = replayPrefetchWindow.rowsAfterViewport
+                    params["max_scrollback_rows"] = max(
+                        replayPrefetchWindow.rowsBeforeViewport,
+                        replayPrefetchWindow.rowsAfterViewport
+                    )
                 }
                 let request = try MobileCoreRPCClient.requestData(
                     method: "mobile.terminal.replay",
@@ -7240,7 +7249,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 let accepted = self.deliverTerminalBytes(
                     deliverBytes,
                     surfaceID: surfaceID,
-                    bypassReplayBarrier: replayBarrierTokenForRequest != nil
+                    bypassReplayBarrier: replayBarrierTokenForRequest != nil,
+                    scrollbackOffsetFromBottomRows: snapshotBytes?.isEmpty == false ? 0 : nil
                 )
                 if accepted,
                    self.terminalReplayBarrierAckStreamTokensBySurfaceID[surfaceID] != nil {

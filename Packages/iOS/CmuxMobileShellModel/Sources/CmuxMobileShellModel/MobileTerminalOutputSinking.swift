@@ -28,23 +28,23 @@ public struct MobileTerminalOutputChunk: Sendable {
     /// discard a yielded-but-not-started viewport repaint.
     public let deliveryID: UUID
     public let viewportPolicy: MobileTerminalOutputViewportPolicy?
-    /// Rows newer than the authoritative viewport that were replayed behind
-    /// it. After applying `data`, the local Ghostty surface scrolls up by this
-    /// bounded count to restore the captured viewport.
-    public let scrollbackOffsetFromBottomRows: Int
+    /// Rows newer than a full authoritative primary-screen viewport. `nil`
+    /// preserves the current position for raw bytes and delta frames; zero is
+    /// an explicit bottom position after a full history rebuild.
+    public let scrollbackOffsetFromBottomRows: Int?
 
     public init(
         data: Data,
         streamToken: UUID,
         deliveryID: UUID = UUID(),
         viewportPolicy: MobileTerminalOutputViewportPolicy? = nil,
-        scrollbackOffsetFromBottomRows: Int = 0
+        scrollbackOffsetFromBottomRows: Int? = nil
     ) {
         self.data = data
         self.streamToken = streamToken
         self.deliveryID = deliveryID
         self.viewportPolicy = viewportPolicy
-        self.scrollbackOffsetFromBottomRows = max(0, scrollbackOffsetFromBottomRows)
+        self.scrollbackOffsetFromBottomRows = scrollbackOffsetFromBottomRows.map { max(0, $0) }
     }
 }
 

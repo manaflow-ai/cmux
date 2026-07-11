@@ -916,3 +916,36 @@ private func waitForReplayRequestCount(
     #expect(fullViewportDelta.isReplaceableViewportPatchForMobileDelivery)
     #expect(!partialDelta.isReplaceableViewportPatchForMobileDelivery)
 }
+
+@Test func fullPrimaryFrameCarriesExplicitAuthoritativeScrollbackPosition() throws {
+    let fullAtBottom = try MobileTerminalRenderGridFrame.fromPlainRows(
+        surfaceID: "terminal",
+        stateSeq: 1,
+        columns: 12,
+        rows: 2,
+        text: "full\nframe"
+    )
+    let delta = try MobileTerminalRenderGridFrame.fromPlainRows(
+        surfaceID: "terminal",
+        stateSeq: 2,
+        columns: 12,
+        rows: 2,
+        text: "delta\nframe",
+        full: false,
+        changedRows: [0, 1]
+    )
+
+    #expect(TerminalOutputDelivery(
+        renderGrid: fullAtBottom,
+        replaceable: false
+    ).scrollbackOffsetFromBottomRows == 0)
+    #expect(TerminalOutputDelivery(
+        renderGrid: delta,
+        replaceable: true
+    ).scrollbackOffsetFromBottomRows == nil)
+    #expect(TerminalOutputDelivery(
+        bytes: Data("snapshot".utf8),
+        replaceable: false,
+        scrollbackOffsetFromBottomRows: 0
+    ).scrollbackOffsetFromBottomRows == 0)
+}

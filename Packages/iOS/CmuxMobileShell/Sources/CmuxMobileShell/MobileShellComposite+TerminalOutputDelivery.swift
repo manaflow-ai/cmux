@@ -226,13 +226,15 @@ extension MobileShellComposite {
     func deliverTerminalBytes(
         _ bytes: Data,
         surfaceID: String,
-        bypassReplayBarrier: Bool = false
+        bypassReplayBarrier: Bool = false,
+        scrollbackOffsetFromBottomRows: Int? = nil
     ) -> Bool {
         return deliverTerminalOutput(
             TerminalOutputDelivery(
                 bytes: bytes,
                 replaceable: false,
-                viewportPolicy: .natural
+                viewportPolicy: .natural,
+                scrollbackOffsetFromBottomRows: scrollbackOffsetFromBottomRows
             ),
             surfaceID: surfaceID,
             bypassReplayBarrier: bypassReplayBarrier

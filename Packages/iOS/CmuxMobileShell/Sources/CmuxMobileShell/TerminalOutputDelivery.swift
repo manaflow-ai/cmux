@@ -25,6 +25,9 @@ struct TerminalOutputDelivery: Equatable, Sendable {
     var replacementScope: ReplacementScope?
     var viewportPolicy: MobileTerminalOutputViewportPolicy?
     var scrollReconciliation: TerminalScrollReconciliation?
+    /// An explicit authoritative viewport position. `nil` preserves the local
+    /// position; `.some(0)` snaps to the bottom after a full history rebuild.
+    var scrollbackOffsetFromBottomRows: Int?
 
     var replaceable: Bool {
         replacementScope != nil
@@ -35,13 +38,15 @@ struct TerminalOutputDelivery: Equatable, Sendable {
         bytes: Data,
         replaceable: Bool,
         replacementScope: ReplacementScope? = nil,
-        viewportPolicy: MobileTerminalOutputViewportPolicy? = nil
+        viewportPolicy: MobileTerminalOutputViewportPolicy? = nil,
+        scrollbackOffsetFromBottomRows: Int? = nil
     ) {
         self.deliveryID = deliveryID
         self.payload = .bytes(bytes)
         self.replacementScope = replaceable ? (replacementScope ?? .byteViewport) : nil
         self.viewportPolicy = viewportPolicy
         self.scrollReconciliation = nil
+        self.scrollbackOffsetFromBottomRows = scrollbackOffsetFromBottomRows.map { max(0, $0) }
     }
 
     init(
@@ -57,6 +62,9 @@ struct TerminalOutputDelivery: Equatable, Sendable {
         self.replacementScope = replaceable ? (replacementScope ?? .renderGridViewport) : nil
         self.viewportPolicy = viewportPolicy
         self.scrollReconciliation = scrollReconciliation
+        self.scrollbackOffsetFromBottomRows = frame.full && frame.activeScreen == .primary
+            ? frame.scrollForwardRows
+            : nil
     }
 
     static func == (lhs: Self, rhs: Self) -> Bool {
@@ -64,6 +72,7 @@ struct TerminalOutputDelivery: Equatable, Sendable {
             && lhs.replacementScope == rhs.replacementScope
             && lhs.viewportPolicy == rhs.viewportPolicy
             && lhs.scrollReconciliation == rhs.scrollReconciliation
+            && lhs.scrollbackOffsetFromBottomRows == rhs.scrollbackOffsetFromBottomRows
     }
 
     var isRenderGrid: Bool {
@@ -84,14 +93,6 @@ struct TerminalOutputDelivery: Equatable, Sendable {
         }
     }
 
-    var scrollbackOffsetFromBottomRows: Int {
-        switch payload {
-        case .bytes:
-            0
-        case .renderGrid(let frame):
-            frame.full && frame.activeScreen == .primary ? frame.scrollForwardRows : 0
-        }
-    }
 }
 
 /// Backpressure queue for one mounted mobile terminal output stream.

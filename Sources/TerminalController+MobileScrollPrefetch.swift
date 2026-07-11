@@ -93,10 +93,17 @@ extension TerminalController {
         return payload
     }
 
-    private func mobileScrollPrefetchWindow(params: [String: Any]) -> (before: Int, after: Int) {
-        let legacyRows = (params["max_scrollback_rows"] as? NSNumber)?.intValue ?? 0
-        let requestedBefore = (params["prefetch_before_rows"] as? NSNumber)?.intValue ?? legacyRows
-        let requestedAfter = (params["prefetch_after_rows"] as? NSNumber)?.intValue ?? 0
+    func mobileScrollPrefetchWindow(
+        params: [String: Any],
+        defaultBeforeRows: Int = 0,
+        defaultAfterRows: Int = 0
+    ) -> (before: Int, after: Int) {
+        let legacyRows = (params["max_scrollback_rows"] as? NSNumber)?.intValue
+        let requestedBefore = (params["prefetch_before_rows"] as? NSNumber)?.intValue
+            ?? legacyRows
+            ?? defaultBeforeRows
+        let requestedAfter = (params["prefetch_after_rows"] as? NSNumber)?.intValue
+            ?? defaultAfterRows
         return (
             before: min(max(0, requestedBefore), Self.mobileScrollPrefetchScrollbackLineBudget),
             after: min(max(0, requestedAfter), Self.mobileScrollPrefetchScrollbackLineBudget)
