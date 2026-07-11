@@ -273,6 +273,79 @@ private struct FixedConsent: AnalyticsConsentProviding {
         #expect(counter.starts == 1)
     }
 
+    @Test func concurrentConsentTransitionsKeepSDKActionsInConsentOrder() {
+        final class LockedConsent: AnalyticsConsentProviding, @unchecked Sendable {
+            private let lock = NSLock()
+            private var enabled = false
+
+            var isTelemetryEnabled: Bool {
+                lock.withLock { enabled }
+            }
+
+            func setEnabled(_ enabled: Bool) {
+                lock.withLock { self.enabled = enabled }
+            }
+        }
+        final class Recorder: @unchecked Sendable {
+            private let lock = NSLock()
+            private var values: [String] = []
+
+            func append(_ value: String) {
+                lock.withLock { values.append(value) }
+            }
+
+            var sequence: [String] {
+                lock.withLock { values }
+            }
+        }
+
+        let consent = LockedConsent()
+        let recorder = Recorder()
+        let center = NotificationCenter()
+        let enableEntered = DispatchSemaphore(value: 0)
+        let allowEnableToFinish = DispatchSemaphore(value: 0)
+        let enableFinished = DispatchSemaphore(value: 0)
+        let revokeAttempted = DispatchSemaphore(value: 0)
+        let revokeFinished = DispatchSemaphore(value: 0)
+
+        MobileCrashReporter.startIfEnabled(
+            consent: consent,
+            arguments: ["cmux"],
+            environment: [:],
+            notificationCenter: center,
+            revocationWatcher: MobileCrashReporter.RevocationWatcher(),
+            start: { _ in
+                enableEntered.signal()
+                allowEnableToFinish.wait()
+                recorder.append("enable")
+            },
+            close: { recorder.append("revoke") },
+            purgeCache: {},
+            crash: {}
+        )
+
+        consent.setEnabled(true)
+        DispatchQueue.global().async {
+            center.post(name: UserDefaults.didChangeNotification, object: nil)
+            enableFinished.signal()
+        }
+        #expect(enableEntered.wait(timeout: .now() + 1) == .success)
+
+        consent.setEnabled(false)
+        DispatchQueue.global().async {
+            revokeAttempted.signal()
+            center.post(name: UserDefaults.didChangeNotification, object: nil)
+            revokeFinished.signal()
+        }
+        #expect(revokeAttempted.wait(timeout: .now() + 1) == .success)
+        #expect(revokeFinished.wait(timeout: .now() + 0.1) == .timedOut)
+
+        allowEnableToFinish.signal()
+        #expect(enableFinished.wait(timeout: .now() + 1) == .success)
+        #expect(revokeFinished.wait(timeout: .now() + 1) == .success)
+        #expect(recorder.sequence == ["enable", "revoke"])
+    }
+
     @Test func beforeSendDropsEventsWhenConsentRevokedMidSession() throws {
         final class ToggleConsent: AnalyticsConsentProviding, @unchecked Sendable {
             var enabled = true

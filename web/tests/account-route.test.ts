@@ -269,13 +269,7 @@ const postHogDeleteFetch = mock(async (...args: unknown[]) => {
   routeEvents.push("posthog-delete");
   postHogDeleteRequests.push(fetchArgs);
   if (postHogDeleteError) throw postHogDeleteError;
-  return new Response(JSON.stringify({
-    persons_found: 1,
-    persons_deleted: 1,
-    events_queued_for_deletion: true,
-    recordings_queued_for_deletion: true,
-    deletion_errors: [],
-  }), { status: postHogDeleteStatus });
+  return new Response(JSON.stringify(postHogDeleteResponse), { status: postHogDeleteStatus });
 });
 
 let deletedTableCount = 0;
@@ -324,6 +318,13 @@ let vaultLockUsers: string[] = [];
 let postHogDeleteRequests: Parameters<typeof fetch>[] = [];
 let postHogDeleteError: unknown = null;
 let postHogDeleteStatus = 202;
+let postHogDeleteResponse: unknown = {
+  persons_found: 1,
+  persons_deleted: 1,
+  events_queued_for_deletion: true,
+  recordings_queued_for_deletion: true,
+  deletion_errors: [],
+};
 const originalConsoleError = console.error;
 const consoleError = mock(() => {});
 
@@ -639,6 +640,13 @@ beforeEach(() => {
   postHogDeleteRequests = [];
   postHogDeleteError = null;
   postHogDeleteStatus = 202;
+  postHogDeleteResponse = {
+    persons_found: 1,
+    persons_deleted: 1,
+    events_queued_for_deletion: true,
+    recordings_queued_for_deletion: true,
+    deletion_errors: [],
+  };
 });
 
 afterEach(() => {
@@ -794,9 +802,14 @@ describe("account deletion route", () => {
     )).toBe(true);
   });
 
-  test("fails closed before PostHog deletion when no explicit environment is configured", async () => {
-    delete process.env.POSTHOG_ENVIRONMENT_ID;
-    delete process.env.POSTHOG_PROJECT_ID;
+  test("blocks Stack deletion when PostHog reports partial deletion errors", async () => {
+    postHogDeleteResponse = {
+      persons_found: 1,
+      persons_deleted: 0,
+      events_queued_for_deletion: false,
+      recordings_queued_for_deletion: false,
+      deletion_errors: [{ distinct_id: ACCOUNT_USER_ID, error: "person delete failed" }],
+    };
 
     const response = await DELETE(accountDeletionRequest());
 
@@ -806,10 +819,31 @@ describe("account deletion route", () => {
       retryable: true,
       destroyedVms: 2,
     });
+    expectPostHogAccountDeleteRequest();
+    expect(deleteStackUser).not.toHaveBeenCalled();
+    expect(routeEvents).not.toContain("stack-delete");
+  });
+
+  test("fails closed before PostHog deletion when no explicit environment is configured", async () => {
+    delete process.env.POSTHOG_ENVIRONMENT_ID;
+    delete process.env.POSTHOG_PROJECT_ID;
+
+    const response = await DELETE(accountDeletionRequest());
+
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({ error: "account_delete_failed" });
     expect(postHogDeleteFetch).not.toHaveBeenCalled();
     expect(deleteStackUser).not.toHaveBeenCalled();
+    expect(updateStackUser).not.toHaveBeenCalled();
+    expect(cancelSubscription).not.toHaveBeenCalled();
+    expect(removeTester).not.toHaveBeenCalled();
+    expect(revokeUserIdentityLeasesForAccountDeletion).not.toHaveBeenCalled();
+    expect(listUserVms).not.toHaveBeenCalled();
+    expect(destroyVm).not.toHaveBeenCalled();
+    expect(deleteObject).not.toHaveBeenCalled();
+    expect(revokeTenant).not.toHaveBeenCalled();
     expect(consoleError).toHaveBeenCalledWith(
-      "account.delete.partial_after_destructive_cleanup",
+      "account.delete.failed",
       "Error: POSTHOG_ENVIRONMENT_ID is required for account deletion",
     );
   });
