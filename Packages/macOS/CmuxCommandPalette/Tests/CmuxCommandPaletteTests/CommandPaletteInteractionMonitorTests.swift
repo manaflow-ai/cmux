@@ -47,8 +47,9 @@ struct CommandPaletteInteractionMonitorTests {
         panelMarker.frame = panelFrame
         overlayView.addSubview(panelMarker)
         overlayView.layoutSubtreeIfNeeded()
+        let panelCenter = NSPoint(x: panelFrame.midX, y: panelFrame.midY)
 
-        #expect(overlayView.commandPalettePanelContains(windowPoint: panelFrame.center) == true)
+        #expect(overlayView.commandPalettePanelContains(windowPoint: panelCenter) == true)
         #expect(overlayView.commandPalettePanelContains(windowPoint: NSPoint(x: 20, y: 20)) == false)
         #expect(NSView().commandPalettePanelContains(windowPoint: .zero) == nil)
 
@@ -75,7 +76,7 @@ struct CommandPaletteInteractionMonitorTests {
         )
         defer { monitor.deactivate() }
 
-        NSApp.sendEvent(try mouseDownEvent(at: panelFrame.center, in: window))
+        NSApp.sendEvent(try mouseDownEvent(at: panelCenter, in: window))
         #expect(dismissCount == 0)
         #expect(overlayView.mouseDownCount == 1)
         #expect(underlyingView.mouseDownCount == 0)
@@ -232,94 +233,88 @@ struct CommandPaletteInteractionMonitorTests {
             notificationCenter.removedObserverIDs == notificationCenter.addedObservers.map(\.token.id)
         )
     }
-}
 
-private extension NSRect {
-    var center: NSPoint {
-        NSPoint(x: midX, y: midY)
-    }
-}
+    @MainActor
+    private final class RecordingMouseDownView: NSView {
+        private(set) var mouseDownCount = 0
 
-@MainActor
-private final class RecordingMouseDownView: NSView {
-    private(set) var mouseDownCount = 0
-
-    override func mouseDown(with event: NSEvent) {
-        mouseDownCount += 1
-    }
-}
-
-@MainActor
-private final class RecordingCommandPaletteEventMonitorSource: CommandPaletteEventMonitorSource {
-    private var handler: ((CommandPalettePointerEvent) -> Void)?
-    private(set) var addCount = 0
-    private(set) var removeCount = 0
-
-    func addLocalMouseDownMonitor(
-        for window: AnyObject,
-        handler: @escaping (CommandPalettePointerEvent) -> Void
-    ) -> Any? {
-        addCount += 1
-        self.handler = handler
-        return NSObject()
+        override func mouseDown(with event: NSEvent) {
+            mouseDownCount += 1
+        }
     }
 
-    func removeLocalMonitor(_ monitor: Any) {
-        removeCount += 1
-        handler = nil
+    @MainActor
+    private final class RecordingCommandPaletteEventMonitorSource: CommandPaletteEventMonitorSource {
+        private var handler: ((CommandPalettePointerEvent) -> Void)?
+        private(set) var addCount = 0
+        private(set) var removeCount = 0
+
+        func addLocalMouseDownMonitor(
+            for window: AnyObject,
+            handler: @escaping (CommandPalettePointerEvent) -> Void
+        ) -> Any? {
+            addCount += 1
+            self.handler = handler
+            return NSObject()
+        }
+
+        func removeLocalMonitor(_ monitor: Any) {
+            removeCount += 1
+            handler = nil
+        }
+
+        func send(_ event: CommandPalettePointerEvent) {
+            handler?(event)
+        }
     }
 
-    func send(_ event: CommandPalettePointerEvent) {
-        handler?(event)
-    }
-}
+    private final class RecordingCommandPaletteObserverToken: NSObject {
+        let id: Int
 
-private final class RecordingCommandPaletteObserverToken: NSObject {
-    let id: Int
-
-    init(id: Int) {
-        self.id = id
-        super.init()
-    }
-}
-
-// Test callbacks are invoked synchronously on MainActor; no state crosses concurrency domains.
-private final class RecordingCommandPaletteNotificationCenter: NotificationCenter, @unchecked Sendable {
-    struct AddedObserver {
-        let name: Notification.Name?
-        weak var object: AnyObject?
-        let token: RecordingCommandPaletteObserverToken
-        let block: @Sendable (Notification) -> Void
+        init(id: Int) {
+            self.id = id
+            super.init()
+        }
     }
 
-    private(set) var addedObservers: [AddedObserver] = []
-    private(set) var removedObserverIDs: [Int] = []
+    // Test callbacks are invoked synchronously on MainActor; no state crosses concurrency domains.
+    private final class RecordingCommandPaletteNotificationCenter: NotificationCenter, @unchecked Sendable {
+        struct AddedObserver {
+            let name: Notification.Name?
+            weak var object: AnyObject?
+            let token: RecordingCommandPaletteObserverToken
+            let block: @Sendable (Notification) -> Void
+        }
 
-    override func addObserver(
-        forName name: Notification.Name?,
-        object obj: Any?,
-        queue: OperationQueue?,
-        using block: @escaping @Sendable (Notification) -> Void
-    ) -> any NSObjectProtocol {
-        let token = RecordingCommandPaletteObserverToken(id: addedObservers.count + 1)
-        addedObservers.append(AddedObserver(
-            name: name,
-            object: obj as AnyObject?,
-            token: token,
-            block: block
-        ))
-        return token
-    }
+        private(set) var addedObservers: [AddedObserver] = []
+        private(set) var removedObserverIDs: [Int] = []
 
-    override func removeObserver(_ observer: Any) {
-        guard let token = observer as? RecordingCommandPaletteObserverToken else { return }
-        removedObserverIDs.append(token.id)
-    }
+        override func addObserver(
+            forName name: Notification.Name?,
+            object obj: Any?,
+            queue: OperationQueue?,
+            using block: @escaping @Sendable (Notification) -> Void
+        ) -> any NSObjectProtocol {
+            let token = RecordingCommandPaletteObserverToken(id: addedObservers.count + 1)
+            addedObservers.append(AddedObserver(
+                name: name,
+                object: obj as AnyObject?,
+                token: token,
+                block: block
+            ))
+            return token
+        }
 
-    func send(name: Notification.Name, object: AnyObject) {
-        for observer in addedObservers where
-            observer.name == name && (observer.object == nil || observer.object === object) {
-            observer.block(Notification(name: name, object: object))
+        override func removeObserver(_ observer: Any) {
+            guard let token = observer as? RecordingCommandPaletteObserverToken else { return }
+            removedObserverIDs.append(token.id)
+        }
+
+        func send(name: Notification.Name, object: AnyObject) {
+            for observer in addedObservers where
+                observer.name == name && (observer.object == nil || observer.object === object) {
+                observer.block(Notification(name: name, object: object))
+            }
         }
     }
 }

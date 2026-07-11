@@ -1,16 +1,6 @@
 public import AppKit
 public import SwiftUI
 
-private let commandPalettePanelHitRegionIdentifier = NSUserInterfaceItemIdentifier(
-    "cmux.commandPalette.panelHitRegion"
-)
-
-private final class CommandPalettePanelHitRegionView: NSView {
-    override func hitTest(_ point: NSPoint) -> NSView? {
-        nil
-    }
-}
-
 /// Marks the command palette panel's bounds for AppKit-level outside-click routing.
 ///
 /// The marker never participates in hit testing. The overlay controller queries its
@@ -25,7 +15,7 @@ public struct CommandPalettePanelHitRegion: NSViewRepresentable {
     /// - Returns: A transparent, non-hit-testing marker view.
     public func makeNSView(context: Context) -> NSView {
         let view = CommandPalettePanelHitRegionView(frame: .zero)
-        view.identifier = commandPalettePanelHitRegionIdentifier
+        view.identifier = CommandPalettePanelHitRegionView.interfaceIdentifier
         return view
     }
 
@@ -37,6 +27,7 @@ public struct CommandPalettePanelHitRegion: NSViewRepresentable {
     public func updateNSView(_ nsView: NSView, context: Context) {}
 }
 
+/// AppKit lookup support for a mounted command-palette panel marker.
 public extension NSView {
     /// Returns whether a window-coordinate point is inside the mounted palette panel.
     ///
@@ -51,7 +42,7 @@ public extension NSView {
     }
 
     private func commandPalettePanelHitRegionDescendant() -> NSView? {
-        if identifier == commandPalettePanelHitRegionIdentifier {
+        if identifier == CommandPalettePanelHitRegionView.interfaceIdentifier {
             return self
         }
         for subview in subviews {
