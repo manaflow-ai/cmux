@@ -66,6 +66,42 @@ struct CLICallerWorkspaceDefaultTests {
         #expect(renameParams["workspace_id"] as? String == Self.focusedWorkspaceId)
     }
 
+    /// A global window override must reach canvas commands just like a namespace-local
+    /// `--window`, instead of being discarded and leaving canvas scoped to the caller.
+    @Test func canvasGlobalWindowDefaultsWithinThatWindow() throws {
+        let windowId = "77777777-7777-7777-7777-777777777777"
+        let (requests, result) = try runWorkspaceNamespaceCommand(
+            arguments: ["--window", windowId, "canvas", "info"],
+            expectedMethod: "canvas.info",
+            focusedWorkspaceId: Self.focusedWorkspaceId,
+            callerWorkspaceId: Self.callerWorkspaceId
+        )
+        #expect(result.status == 0, Comment(rawValue: result.stderr + result.stdout))
+
+        let methods = requests.compactMap { $0["method"] as? String }
+        #expect(methods == ["workspace.current", "canvas.info"])
+        let currentParams = try #require(requests.first?["params"] as? [String: Any])
+        #expect(currentParams["window_id"] as? String == windowId)
+        let canvasParams = try #require(requests.last?["params"] as? [String: Any])
+        #expect(canvasParams["workspace_id"] as? String == Self.focusedWorkspaceId)
+    }
+
+    /// A malformed injected caller ID must fail closed rather than being treated as
+    /// absent and silently redirecting a mutating command to the focused workspace.
+    @Test func malformedCallerWorkspaceFailsClosed() throws {
+        let (requests, result) = try runWorkspaceNamespaceCommand(
+            arguments: ["workspace", "rename", "--title", "renamed"],
+            expectedMethod: "workspace.rename",
+            focusedWorkspaceId: Self.focusedWorkspaceId,
+            callerWorkspaceId: "malformed-caller-workspace"
+        )
+
+        #expect(result.status != 0, Comment(rawValue: "expected nonzero exit, got \(result.status)"))
+        let methods = requests.compactMap { $0["method"] as? String }
+        #expect(!methods.contains("workspace.current"), Comment(rawValue: methods.joined(separator: ",")))
+        #expect(!methods.contains("workspace.rename"), Comment(rawValue: methods.joined(separator: ",")))
+    }
+
     /// A blank `--workspace` from a caller pane must target the caller's workspace and
     /// must never consult `workspace.current` (the focused workspace).
     @Test func blankWorkspaceArgDefaultsToCallerWorkspace() throws {
