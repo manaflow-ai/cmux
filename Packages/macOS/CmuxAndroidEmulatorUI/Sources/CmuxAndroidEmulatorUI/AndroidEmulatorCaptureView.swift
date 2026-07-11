@@ -304,13 +304,13 @@ private final class AndroidEmulatorBridgeSession {
 
     private let process: Process
     private let handle: FileHandle
+    private let commandWriter: AndroidBridgeCommandWriter
     private let directoryURL: URL
     private let mappedFrames: AndroidMappedFrameBuffer
     private let onFrame: (CGImage, Int, Bool) -> Void
     private let onError: (any Error) -> Void
     private var readTask: Task<Void, Never>?
     private var stopped = false
-    private let encoder = JSONEncoder()
 
     private init(
         process: Process,
@@ -322,6 +322,7 @@ private final class AndroidEmulatorBridgeSession {
     ) {
         self.process = process
         self.handle = handle
+        self.commandWriter = AndroidBridgeCommandWriter(handle: handle)
         self.directoryURL = directoryURL
         self.mappedFrames = mappedFrames
         self.onFrame = onFrame
@@ -465,12 +466,8 @@ private final class AndroidEmulatorBridgeSession {
 
     private func send(_ command: AndroidBridgeCommand) {
         guard !stopped else { return }
-        do {
-            var data = try encoder.encode(command)
-            data.append(0x0A)
-            try handle.write(contentsOf: data)
-        } catch {
-            onError(error)
+        Task { [commandWriter] in
+            await commandWriter.enqueue(command)
         }
     }
 
@@ -479,6 +476,7 @@ private final class AndroidEmulatorBridgeSession {
         stopped = true
         readTask?.cancel()
         readTask = nil
+        Task { [commandWriter] in await commandWriter.stop() }
         try? handle.close()
         if process.isRunning { process.terminate() }
         try? FileManager.default.removeItem(at: directoryURL)
@@ -486,6 +484,65 @@ private final class AndroidEmulatorBridgeSession {
 
     deinit {
         if process.isRunning { process.terminate() }
+    }
+}
+
+private actor AndroidBridgeCommandWriter {
+    private static let maximumQueuedCommands = 64
+
+    private let handle: FileHandle
+    private let encoder = JSONEncoder()
+    private var commands: [AndroidBridgeCommand] = []
+    private var isDraining = false
+    private var isStopped = false
+
+    init(handle: FileHandle) {
+        self.handle = handle
+    }
+
+    func enqueue(_ command: AndroidBridgeCommand) {
+        guard !isStopped else { return }
+        if command.isTouchMove,
+           let pendingMove = commands.lastIndex(where: \.isTouchMove) {
+            commands[pendingMove] = command
+        } else {
+            if commands.count >= Self.maximumQueuedCommands {
+                if let pendingMove = commands.firstIndex(where: \.isTouchMove) {
+                    commands.remove(at: pendingMove)
+                } else {
+                    isStopped = true
+                    commands.removeAll()
+                    try? handle.close()
+                    return
+                }
+            }
+            commands.append(command)
+        }
+        guard !isDraining else { return }
+        isDraining = true
+        Task { await drain() }
+    }
+
+    func stop() {
+        isStopped = true
+        commands.removeAll()
+    }
+
+    private func drain() async {
+        while !isStopped, !commands.isEmpty {
+            let command = commands.removeFirst()
+            do {
+                var data = try encoder.encode(command)
+                data.append(0x0A)
+                let handle = self.handle
+                try await Task.detached { try handle.write(contentsOf: data) }.value
+            } catch {
+                isStopped = true
+                commands.removeAll()
+                try? handle.close()
+            }
+        }
+        isDraining = false
     }
 }
 
@@ -528,6 +585,8 @@ private struct AndroidBridgeCommand: Encodable, Sendable {
         self.text = text
         self.key = key
     }
+
+    var isTouchMove: Bool { type == "touch" && phase == "move" }
 }
 
 private final class AndroidMappedFrameBuffer: @unchecked Sendable {
