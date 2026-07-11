@@ -397,3 +397,37 @@ struct CrashDiagnosticSessionPolicyTests {
         return url
     }
 }
+
+@Suite("Startup breadcrumb batching")
+struct StartupBreadcrumbLogTests {
+    @Test
+    func deferredBufferCapsPendingRecordsAndReportsDrops() throws {
+        let first = StartupBreadcrumbLog.Record(timestamp: Date(timeIntervalSince1970: 1), event: "first", fields: [:])
+        let second = StartupBreadcrumbLog.Record(timestamp: Date(timeIntervalSince1970: 2), event: "second", fields: [:])
+        let third = StartupBreadcrumbLog.Record(timestamp: Date(timeIntervalSince1970: 3), event: "third", fields: [:])
+        var buffer = StartupBreadcrumbLog.DeferredBuffer(capacity: 2)
+
+        #expect(buffer.enqueue(first))
+        #expect(!buffer.enqueue(second))
+        #expect(!buffer.enqueue(third))
+
+        let batch = try #require(buffer.takeBatch())
+        #expect(batch.records.map(\.event) == ["first", "second"])
+        #expect(batch.droppedRecordCount == 1)
+        #expect(buffer.takeBatch() == nil)
+        #expect(buffer.enqueue(third))
+    }
+
+    @Test
+    func boundedLogTailKeepsOnlyCompleteRecentLines() {
+        let existing = Data("old-1\nold-2\nold-3\n".utf8)
+        let appended = Data("new-1\nnew-2\n".utf8)
+        var combined = existing
+        combined.append(appended)
+
+        let bounded = StartupBreadcrumbLog.boundedJSONLTail(combined, maximumByteCount: 19)
+
+        #expect(bounded.count <= 19)
+        #expect(String(decoding: bounded, as: UTF8.self) == "old-3\nnew-1\nnew-2\n")
+    }
+}
