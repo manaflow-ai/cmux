@@ -309,6 +309,10 @@ import WebKit
             return
         }
 
+        if handleAuthCallbackNavigationAction(navigationAction, webView: webView, decisionHandler: decisionHandler) {
+            return
+        }
+
         if let url = navigationAction.request.url,
            navigationAction.targetFrame?.isMainFrame != false,
            shouldBlockInsecureHTTPNavigation?(url) == true {
@@ -422,6 +426,8 @@ import WebKit
         }
         decisionHandler(.allow)
     }
+
+    let authCallbackNavigationPolicy = BrowserAuthCallbackNavigationPolicy()
 
     private func shouldOpenCheckoutInSystemBrowser(_ navigationAction: WKNavigationAction, url: URL) -> Bool {
         guard navigationAction.targetFrame?.isMainFrame != false else { return false }

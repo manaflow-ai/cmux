@@ -622,6 +622,8 @@
     "billingUnavailable": "現在、決済をご利用いただけません。時間をおいてお試しください。",
     "billingCancelled": "チェックアウトはキャンセルされました。請求は発生していません。",
     "billingInvalidPlan": "指定されたプランはご利用いただけません。以下からプランをお選びください。",
+    "signedOutNotice": "サインインしていません。サインインすると、現在のプランの確認や購入済みプランの復元ができます。",
+    "signedOutSignIn": "サインイン",
     "welcomeTeam": "cmux Team のご購入が完了しました。"
   },
   "home": {
