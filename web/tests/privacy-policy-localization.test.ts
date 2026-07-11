@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { NextRequest } from "next/server";
 
+import middleware from "../proxy";
 import {
   privacyPolicyContent,
   type PrivacyPolicyContent,
@@ -35,6 +37,15 @@ describe("privacy policy localization", () => {
     );
     expect(policyEntries).toHaveLength(locales.length);
     expect(policyEntries.every((entry) => entry.lastModified === "2026-07-10")).toBe(true);
+  });
+
+  test("serves every localized policy route without an English redirect", () => {
+    for (const locale of locales) {
+      const path = locale === "en" ? "/privacy-policy" : `/${locale}/privacy-policy`;
+      const response = middleware(new NextRequest(`https://cmux.com${path}`));
+      expect(response.status).toBe(200);
+      expect(response.headers.get("location")).toBeNull();
+    }
   });
 });
 
