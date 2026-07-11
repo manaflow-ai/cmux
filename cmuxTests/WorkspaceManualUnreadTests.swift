@@ -522,7 +522,7 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         XCTAssertEqual(store.unreadCount(forTabId: workspace.id), 1)
     }
 
-    func testMarkLatestNotificationAsOldestUnreadDefersCurrentNotificationBehindUnreadQueue() {
+    func testMarkLatestNotificationAsOldestUnreadPreservesChronologicalFeedOrder() {
         let store = TerminalNotificationStore.shared
         let currentWorkspaceId = UUID()
         let currentSurfaceId = UUID()
@@ -570,11 +570,8 @@ final class WorkspaceManualUnreadTests: XCTestCase {
             store.markLatestNotificationAsOldestUnread(forTabId: currentWorkspaceId, surfaceId: currentSurfaceId),
             currentNotificationId
         )
-        XCTAssertEqual(
-            store.notifications.map(\.id),
-            [nextNotificationId, oldestNotificationId, currentNotificationId]
-        )
-        XCTAssertFalse(store.notifications.last?.isRead ?? true)
+        XCTAssertEqual(store.notifications.map(\.id), [currentNotificationId, nextNotificationId, oldestNotificationId])
+        XCTAssertFalse(store.notifications.first?.isRead ?? true)
     }
 
     func testMarkLatestNotificationAsOldestUnreadFallsBackToManualWorkspaceUnreadWhenNoSurfaceExists() {

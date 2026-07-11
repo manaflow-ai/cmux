@@ -11,6 +11,56 @@ import Testing
 @MainActor
 struct NotificationChronologyTests {
     @Test
+    func acceptedIdentityAndTimestampDriveRecordOrderAndReplayIsIdempotent() {
+        let store = TerminalNotificationStore.shared
+        let tabId = UUID()
+        let surfaceId = UUID()
+        let earlierId = UUID(uuidString: "10000000-0000-0000-0000-000000000000")!
+        let laterId = UUID(uuidString: "20000000-0000-0000-0000-000000000000")!
+
+        store.replaceNotificationsForTesting([])
+        store.configureNotificationDeliveryHandlerForTesting { _, _ in }
+        store.configureSuppressedNotificationFeedbackHandlerForTesting { _, _ in }
+        defer {
+            store.replaceNotificationsForTesting([])
+            store.resetNotificationDeliveryHandlerForTesting()
+            store.resetSuppressedNotificationFeedbackHandlerForTesting()
+        }
+
+        store.addNotification(
+            id: earlierId,
+            acceptedAt: Date(timeIntervalSince1970: 10),
+            tabId: tabId,
+            surfaceId: surfaceId,
+            title: "Earlier",
+            subtitle: "",
+            body: "same payload"
+        )
+        store.addNotification(
+            id: laterId,
+            acceptedAt: Date(timeIntervalSince1970: 20),
+            tabId: tabId,
+            surfaceId: surfaceId,
+            title: "Later",
+            subtitle: "",
+            body: "same payload"
+        )
+        store.addNotification(
+            id: earlierId,
+            acceptedAt: Date(timeIntervalSince1970: 30),
+            tabId: tabId,
+            surfaceId: surfaceId,
+            title: "Replay must not replace",
+            subtitle: "",
+            body: "same payload"
+        )
+
+        #expect(store.notifications.map(\.id) == [laterId, earlierId])
+        #expect(store.notifications.first(where: { $0.id == earlierId })?.title == "Earlier")
+        #expect(store.notifications.first(where: { $0.id == earlierId })?.createdAt == Date(timeIntervalSince1970: 10))
+    }
+
+    @Test
     func restoreMergesLiveAndRestoredNotificationsExactlyOnceInStableOrder() {
         let store = TerminalNotificationStore.shared
         let tabId = UUID(uuidString: "10000000-0000-0000-0000-000000000000")!

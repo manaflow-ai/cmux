@@ -7,6 +7,8 @@ fileprivate struct QueuedTerminalNotificationKey: Hashable, Sendable {
 }
 
 fileprivate struct QueuedTerminalNotification: Sendable {
+    let id: UUID
+    let acceptedAt: Date
     let key: QueuedTerminalNotificationKey
     let title: String
     let subtitle: String
@@ -25,7 +27,6 @@ fileprivate struct TerminalSocketMutationEntry {
     let sequence: UInt64
     let mutation: TerminalSocketMutation
     let notificationGeneration: UInt64?
-    let notificationCoalescingKey: TerminalNotificationCoalescingKey?
     let performReplaceKey: TerminalMutationReplaceKey?
 }
 
@@ -41,11 +42,6 @@ struct TerminalMutationReplaceKey: Hashable, Sendable {
     let tabId: UUID
     let surfaceId: UUID
     let kind: Kind
-}
-
-fileprivate struct TerminalNotificationCoalescingKey: Hashable {
-    let generation: UInt64
-    let notificationKey: QueuedTerminalNotificationKey
 }
 
 final class TerminalMutationBus: @unchecked Sendable {
@@ -66,15 +62,16 @@ final class TerminalMutationBus: @unchecked Sendable {
         surfaceId: UUID?,
         title: String,
         subtitle: String,
-        body: String,
-        coalesces: Bool = true
+        body: String
     ) {
         enqueueNotification(QueuedTerminalNotification(
+            id: UUID(),
+            acceptedAt: Date(),
             key: QueuedTerminalNotificationKey(tabId: tabId, surfaceId: surfaceId),
             title: title,
             subtitle: subtitle,
             body: body
-        ), coalesces: coalesces)
+        ))
     }
 
     nonisolated func enqueueClearAllNotifications() {
@@ -135,34 +132,19 @@ final class TerminalMutationBus: @unchecked Sendable {
         }
     }
 
-    private func enqueueNotification(_ notification: QueuedTerminalNotification, coalesces: Bool) {
+    private func enqueueNotification(_ notification: QueuedTerminalNotification) {
         let shouldScheduleDrain: Bool
-        let removedCount: Int
         let pendingCount: Int
         let sequence: UInt64
         let generation: UInt64
         lock.lock()
         generation = currentNotificationGeneration
-        let coalescingKey = coalesces
-            ? TerminalNotificationCoalescingKey(
-                generation: generation,
-                notificationKey: notification.key
-            )
-            : nil
-        let beforeCount = pending.count
-        if let coalescingKey {
-            pending.removeAll { entry in
-                entry.notificationCoalescingKey == coalescingKey
-            }
-        }
-        removedCount = beforeCount - pending.count
         nextSequence &+= 1
         sequence = nextSequence
         pending.append(TerminalSocketMutationEntry(
             sequence: sequence,
             mutation: .deliverNotification(notification),
             notificationGeneration: generation,
-            notificationCoalescingKey: coalescingKey,
             performReplaceKey: nil
         ))
         shouldScheduleDrain = !drainScheduled
@@ -174,7 +156,7 @@ final class TerminalMutationBus: @unchecked Sendable {
 
 #if DEBUG
         cmuxDebugLog(
-            "notification.queue.enqueue seq=\(sequence) workspace=\(notification.key.tabId.uuidString.prefix(8)) surface=\(notification.key.surfaceId?.uuidString.prefix(8) ?? "nil") coalesces=\(coalesces ? 1 : 0) removed=\(removedCount) pending=\(pendingCount) generation=\(generation) titleLen=\(notification.title.count) subtitleLen=\(notification.subtitle.count) bodyLen=\(notification.body.count)"
+            "notification.queue.enqueue seq=\(sequence) workspace=\(notification.key.tabId.uuidString.prefix(8)) surface=\(notification.key.surfaceId?.uuidString.prefix(8) ?? "nil") pending=\(pendingCount) generation=\(generation) titleLen=\(notification.title.count) subtitleLen=\(notification.subtitle.count) bodyLen=\(notification.body.count)"
         )
 #endif
 
@@ -199,7 +181,6 @@ final class TerminalMutationBus: @unchecked Sendable {
             sequence: nextSequence,
             mutation: mutation,
             notificationGeneration: nil,
-            notificationCoalescingKey: nil,
             performReplaceKey: nil
         ))
         shouldScheduleDrain = !drainScheduled
@@ -220,7 +201,6 @@ final class TerminalMutationBus: @unchecked Sendable {
             sequence: nextSequence,
             mutation: mutation,
             notificationGeneration: nil,
-            notificationCoalescingKey: nil,
             performReplaceKey: nil
         ))
         shouldScheduleDrain = !drainScheduled
@@ -235,8 +215,7 @@ final class TerminalMutationBus: @unchecked Sendable {
 
     /// Last-write-wins `enqueueMainActorMutation`: drops any still-pending
     /// mutation with the same `replaceKey` before appending, so the survivor
-    /// applies at its new enqueue position (the notification coalescing
-    /// semantics above, for `.perform` mutations).
+    /// applies at its new enqueue position.
     nonisolated func enqueueReplacingMainActorMutation(
         replaceKey: TerminalMutationReplaceKey,
         _ mutation: @escaping @MainActor () -> Void
@@ -249,7 +228,6 @@ final class TerminalMutationBus: @unchecked Sendable {
             sequence: nextSequence,
             mutation: .perform(mutation),
             notificationGeneration: nil,
-            notificationCoalescingKey: nil,
             performReplaceKey: replaceKey
         ))
         shouldScheduleDrain = !drainScheduled
@@ -442,6 +420,8 @@ extension TerminalNotificationStore {
         )
 #endif
         addNotification(
+            id: notification.id,
+            acceptedAt: notification.acceptedAt,
             tabId: notification.key.tabId,
             surfaceId: notification.key.surfaceId,
             title: notification.title,

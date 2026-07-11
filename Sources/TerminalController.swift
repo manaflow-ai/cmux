@@ -12325,8 +12325,7 @@ class TerminalController {
             surfaceId: surfaceId,
             title: title,
             subtitle: subtitle,
-            body: body,
-            coalesces: false
+            body: body
         )
         return "OK"
     }
