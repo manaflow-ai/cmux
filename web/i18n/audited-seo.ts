@@ -4,6 +4,7 @@ import {
   openGraphImageTagline,
   detailedSeoDescriptionCandidate,
   joinMetadataSentences,
+  joinMetadataQuestionAndAnswer,
   seoDescription,
   seoTitle,
   shortSeoDescriptionCandidate,
@@ -86,6 +87,13 @@ function selectDescription(
     ),
     ...completeCandidates.map((candidate) =>
       joinMetadataSentences(locale, candidate, detailed),
+    ),
+    ...completeCandidates.map((candidate) =>
+      joinMetadataSentences(
+        locale,
+        joinMetadataSentences(locale, candidate, short),
+        tagline,
+      ),
     ),
     ...contextFragments.map((candidate) =>
       joinMetadataSentences(locale, candidate, short),
@@ -259,9 +267,9 @@ export function comparePageSeoCopy(
     description: selectDescription(locale, t("metaDescription"), {
       completeCandidates: [
         ...completeDescriptionCandidates,
-        joinMetadataSentences(locale, t("faqQ1"), t("faqA1")),
-        joinMetadataSentences(locale, t("faqQ2"), t("faqA2")),
-        joinMetadataSentences(locale, t("faqQ3"), t("faqA3")),
+        joinMetadataQuestionAndAnswer(locale, t("faqQ1"), t("faqA1")),
+        joinMetadataQuestionAndAnswer(locale, t("faqQ2"), t("faqA2")),
+        joinMetadataQuestionAndAnswer(locale, t("faqQ3"), t("faqA3")),
       ],
       contextFragments: descriptionFragments,
     }),

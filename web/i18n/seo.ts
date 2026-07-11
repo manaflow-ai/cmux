@@ -168,6 +168,25 @@ export function completeMetadataSentence(locale: string, value: string) {
     : `${trimmed}${localizedSentenceTerminator(locale)}`;
 }
 
+export function joinMetadataQuestionAndAnswer(
+  locale: string,
+  question: string,
+  answer: string,
+) {
+  const trimmedQuestion = question.trim();
+  const questionTerminator =
+    locale === "ja" || locale === "zh-CN" || locale === "zh-TW"
+      ? "？"
+      : locale === "ar"
+        ? "؟"
+        : "?";
+  const completedQuestion = /[?？؟]$/u.test(trimmedQuestion)
+    ? trimmedQuestion
+    : `${trimmedQuestion.replace(/[.!。！។៕]+$/u, "")}${questionTerminator}`;
+  const spacing = usesCompactSentenceSpacing(locale) ? "" : " ";
+  return `${completedQuestion}${spacing}${completeMetadataSentence(locale, answer)}`;
+}
+
 function localizedSentenceTerminator(locale: string) {
   if (usesCompactSentenceSpacing(locale)) return "。";
   return locale === "km" ? "។" : ".";
@@ -245,21 +264,27 @@ function selectCompleteMetadataCandidate(
 ) {
   const normalizedCandidates = candidates
     .map((candidate) => candidate.trim())
-    .filter(
-      (candidate) =>
-        !/<\/?[a-z][^>]*>/iu.test(candidate) &&
-        !/\{[a-z][a-z0-9_]*\}/iu.test(candidate),
-    );
+    .filter(isSafeMetadataText);
   const withinAllBounds = normalizedCandidates.find((candidate) => {
     const length = metadataSearchLength(candidate);
     return length >= minLength && length <= maxLength;
   });
   const originalLength = metadataSearchLength(original);
-  if (originalLength >= minLength && originalLength <= maxLength) {
+  const originalIsSafe = isSafeMetadataText(original);
+  if (
+    originalIsSafe &&
+    originalLength >= minLength &&
+    originalLength <= maxLength
+  ) {
     return original;
   }
   if (withinAllBounds) return withinAllBounds;
-  return original;
+  if (originalIsSafe) return original;
+  return normalizedCandidates[0] ?? "";
+}
+
+function isSafeMetadataText(value: string) {
+  return !/<\/?[a-z][^>]*>/iu.test(value) && !/[{}]/u.test(value);
 }
 
 function metadataSearchLength(value: string) {

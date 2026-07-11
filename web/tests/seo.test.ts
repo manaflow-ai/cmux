@@ -10,6 +10,7 @@ import {
   completeMetadataSentence,
   hasLocalizedSeoCopy,
   joinMetadataSentences,
+  joinMetadataQuestionAndAnswer,
   openGraphDefaults,
   openGraphImageTagline,
   seoDescription,
@@ -79,6 +80,9 @@ describe("SEO metadata helpers", () => {
       completeMetadataSentence("en", "The terminal built for multitasking"),
     ).toBe("The terminal built for multitasking.");
     expect(completeMetadataSentence("en", "Examples:")).toBe("Examples:");
+    expect(joinMetadataQuestionAndAnswer("th", "ทำไมต้อง cmux", "เพราะเร็ว")).toBe(
+      "ทำไมต้อง cmux? เพราะเร็ว.",
+    );
   });
 
   test("preserves overbound authored copy when no complete candidate fits", () => {
@@ -96,11 +100,16 @@ describe("SEO metadata helpers", () => {
       seoDescription("en", "X".repeat(200), {
         minLength: 110,
         fallbackCandidates: [
-          `Literal {new} placeholder ${"A".repeat(85)}`,
+          `Literal {count, plural, one {item} other {items}} ${"A".repeat(60)}`,
           safeCandidate,
         ],
       }),
     ).toBe(safeCandidate);
+    expect(
+      seoTitle("en", "Compare {product} for AI coding agents", {
+        fallbackCandidates: ["Complete safe metadata title for cmux"],
+      }),
+    ).toBe("Complete safe metadata title for cmux");
   });
 
   test("adds useful context to short titles and selects complete fallbacks", () => {
@@ -197,7 +206,11 @@ describe("SEO metadata helpers", () => {
         auditedRow(
           "/blog",
           blogIndexSeoCopy(locale, messageLookup(messages.blog), siteMeta),
-          [messages.blog.title, messages.blog.metaDescription],
+          [
+            messages.blog.title,
+            messages.blog.metaDescription,
+            messages.blog.description,
+          ],
         ),
         auditedRow(
           "/blog/cmux-history",
@@ -371,7 +384,7 @@ describe("SEO metadata helpers", () => {
           /…|<\/?(?:link|code)>/u,
         );
         expect(`${row.copy.title}${row.copy.description}`).not.toMatch(
-          /\{[a-z][a-z0-9_]*\}/iu,
+          /[{}]/u,
         );
         expect(row.copy.description).not.toMatch(/[!?។៕。！？؟]\./u);
         expect(row.copy.description).not.toMatch(/[:：][.。]/u);
@@ -440,6 +453,7 @@ describe("SEO metadata helpers", () => {
     );
 
     expect(bestTerminalCopy.description).toContain(bestTerminal.faqQ2);
+    expect(bestTerminalCopy.description).toContain(`${bestTerminal.faqQ2}?`);
     expect(bestTerminalCopy.description).toContain(bestTerminal.faqA2);
     expect(bestTerminalCopy.description).not.toBe(bestTerminal.faqA1);
     expect(multipleAgentsCopy.title).toContain(
@@ -484,6 +498,16 @@ describe("SEO metadata helpers", () => {
         messages.pricing.title,
         "Built for AI coding agents on macOS.",
       ),
+    );
+
+    const khmerMessages = await messagesFor("km");
+    const khmerBlogCopy = blogIndexSeoCopy(
+      "km",
+      messageLookup(khmerMessages.blog),
+      messageLookup(khmerMessages.meta),
+    );
+    expect(khmerBlogCopy.description).toContain(
+      khmerMessages.blog.description,
     );
   });
 });
