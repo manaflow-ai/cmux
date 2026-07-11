@@ -10,6 +10,9 @@ enum DeflatedAssetTestSupport {
     static func loadText(path: String) throws -> String {
         let data = try Data(contentsOf: URL(fileURLWithPath: path))
         let decompressed = try (data as NSData).decompressed(using: .zlib) as Data
-        return String(decoding: decompressed, as: UTF8.self)
+        guard let text = String(bytes: decompressed, encoding: .utf8) else {
+            throw CocoaError(.fileReadCorruptFile)
+        }
+        return text
     }
 }
