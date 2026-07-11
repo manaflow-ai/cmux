@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
+import { CmuxTimeoutError } from "cmux/browser";
 import type {
   CmuxClient,
   DecodedOutputEvent,
@@ -54,7 +55,20 @@ export function useAttachedTerminal({ client, surface, onError }: AttachedTermin
     void (async () => {
       try {
         stream = await client.attachSurface(surface);
-        for await (const event of stream) {
+        // Cleanup may have raced the attach round-trip; close the stream we
+        // just opened or its buffered events leak for the surface's lifetime.
+        if (cancelled) return;
+        for (;;) {
+          let event;
+          try {
+            event = await stream.next();
+          } catch (error) {
+            if (cancelled) return;
+            // Idle terminals produce no output within the SDK's per-read
+            // timeout; keep reading. Anything else ends the attachment.
+            if (error instanceof CmuxTimeoutError) continue;
+            throw error;
+          }
           if (cancelled) return;
           if (event.event === "vt-state") {
             const replay = event as DecodedVtStateEvent;
@@ -71,6 +85,8 @@ export function useAttachedTerminal({ client, surface, onError }: AttachedTermin
         }
       } catch (error) {
         if (!cancelled) onError(error instanceof Error ? error : new Error(String(error)));
+      } finally {
+        stream?.close();
       }
     })();
 

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   CmuxClient,
+  CmuxTimeoutError,
   WebSocketTransport,
   type Id,
   type IdentifyResult,
@@ -91,26 +92,36 @@ export function useCmuxClient() {
         const tree = await client.listWorkspaces();
         if (cancelled) return;
         canReconnect = true;
+        // A successful (re)connect resets the retry baseline so the next drop
+        // starts from the first backoff step, not the cap.
+        previousAttempt = 0;
         setState({ status: "connected", client, info, tree, error: null, reconnect: null });
 
         void (async () => {
-          try {
-            for await (const event of events) {
+          for (;;) {
+            let event;
+            try {
+              event = await events.next();
+            } catch (error) {
               if (cancelled) return;
-              if (event.event === "notification") {
-                const notification = event as NotificationEvent;
-                setToasts((current) => [...current.slice(-2), notification]);
-                if (notification.surface !== null) {
-                  setUnread((current) => new Set(current).add(notification.surface!));
-                }
-              }
-              if (["tree-changed", "layout-changed", "surface-resized", "surface-exited", "title-changed"].includes(event.event)) {
-                await refresh();
+              // An idle session simply produces no events within the SDK's
+              // per-read timeout; only a real transport failure is a drop.
+              if (error instanceof CmuxTimeoutError) continue;
+              void client.close();
+              scheduleRetry();
+              return;
+            }
+            if (cancelled) return;
+            if (event.event === "notification") {
+              const notification = event as NotificationEvent;
+              setToasts((current) => [...current.slice(-2), notification]);
+              if (notification.surface !== null) {
+                setUnread((current) => new Set(current).add(notification.surface!));
               }
             }
-          } catch {
-            void client.close();
-            scheduleRetry();
+            if (["tree-changed", "layout-changed", "surface-resized", "surface-exited", "title-changed"].includes(event.event)) {
+              await refresh();
+            }
           }
         })();
       } catch (error) {

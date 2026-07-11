@@ -11,10 +11,23 @@ interface TerminalPaneProps {
 }
 
 export function TerminalPane({ client, screen, onSelectTab }: TerminalPaneProps) {
-  const [terminalError, setTerminalError] = useState<string | null>(null);
-  const reportError = useCallback((error: Error) => setTerminalError(error.message), []);
+  // Errors are keyed to the attachment they came from, so a stale alert never
+  // overlays a healthy terminal after a reconnect (new client) or tab switch.
+  const [errorState, setErrorState] = useState<{
+    client: CmuxClient | null;
+    surface: Id | null;
+    message: string;
+  } | null>(null);
   const surface = screen?.tab?.kind === "pty" && !screen.tab.dead ? screen.tab.surface : null;
+  const reportError = useCallback(
+    (error: Error) => setErrorState({ client, surface, message: error.message }),
+    [client, surface],
+  );
   const terminalRef = useAttachedTerminal({ client, surface, onError: reportError });
+  const terminalError =
+    errorState !== null && errorState.client === client && errorState.surface === surface
+      ? errorState.message
+      : null;
 
   return (
     <section className="terminal-panel" aria-label={t("terminal")}>
