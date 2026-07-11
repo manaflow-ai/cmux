@@ -844,6 +844,7 @@ final class BrowserPanelDiffViewerSchemeTests: XCTestCase {
 }
 
 
+@MainActor
 final class BrowserPanelReactGrabBridgeTests: XCTestCase {
     @MainActor
     func testExplicitWebViewFocusDoesNotSuppressOmnibarAutofocusWhenFocusFails() {

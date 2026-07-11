@@ -224,5 +224,3 @@ struct PortScanSnapshotStoreTests {
         return predicate()
     }
 }
-
-#if DEBUG

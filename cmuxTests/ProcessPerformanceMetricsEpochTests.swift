@@ -7,6 +7,8 @@ import Testing
 #elseif canImport(cmux)
 @testable import cmux
 #endif
+
+#if DEBUG
 @Suite
 struct ProcessPerformanceMetricsEpochTests {
     @Test

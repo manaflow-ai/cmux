@@ -68,8 +68,6 @@ final class BrowserPanelOmnibarPillBackgroundColorTests: XCTestCase {
         XCTAssertNotEqual(actual.redComponent, themeSRGB.redComponent, file: file, line: line)
     }
 }
-
-
 @MainActor
 final class BrowserPanelProfileIsolationTests: XCTestCase {
     func testStaleDidFinishDoesNotRecordVisitIntoSwitchedProfileHistory() throws {
@@ -115,8 +113,6 @@ final class BrowserPanelProfileIsolationTests: XCTestCase {
         )
     }
 }
-
-
 @MainActor
 final class BrowserPanelAddressBarFocusRequestTests: XCTestCase {
     func testRequestPersistsUntilAcknowledged() {
@@ -311,6 +307,3 @@ final class BrowserPanelAddressBarFocusRequestTests: XCTestCase {
         )
     }
 }
-
-
-@MainActor
