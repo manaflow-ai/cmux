@@ -56,14 +56,17 @@ import Testing
 
 @Test func hierarchyReorderGateRejectsOverlapUntilAuthoritativeMutationFinishes() {
     var gate = TerminalHierarchyReorderGate()
-    #expect(gate.begin(paneID: "pane-left"))
+    let beganFirst = gate.begin(paneID: "pane-left")
+    #expect(beganFirst)
     #expect(gate.isActive)
-    #expect(!gate.begin(paneID: "pane-right"))
+    let beganOverlapping = gate.begin(paneID: "pane-right")
+    #expect(!beganOverlapping)
     gate.finish(paneID: "pane-right")
     #expect(gate.isActive)
     gate.finish(paneID: "pane-left")
     #expect(!gate.isActive)
-    #expect(gate.begin(paneID: "pane-right"))
+    let beganAfterFinish = gate.begin(paneID: "pane-right")
+    #expect(beganAfterFinish)
 }
 
 @Test func hierarchyOptimisticOrderAppliesAndCanRollbackToPreviousIdentityOrder() throws {
