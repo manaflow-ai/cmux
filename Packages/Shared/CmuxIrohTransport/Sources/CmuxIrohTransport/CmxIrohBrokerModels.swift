@@ -338,6 +338,7 @@ public struct CmxIrohRegistrationResponse: Decodable, Equatable, Sendable {
 public enum CmxIrohRegistrationRelay: Decodable, Equatable, Sendable {
     case issued(CmxIrohRelayTokenResponse)
     case unavailable
+    case notRequested
 
     private enum CodingKeys: String, CodingKey { case status }
 
@@ -349,6 +350,8 @@ public enum CmxIrohRegistrationRelay: Decodable, Equatable, Sendable {
             self = try .issued(CmxIrohRelayTokenResponse(from: decoder))
         case "unavailable":
             self = .unavailable
+        case "not_requested":
+            self = .notRequested
         default:
             throw DecodingError.dataCorrupted(
                 .init(codingPath: decoder.codingPath, debugDescription: "Unknown relay status")

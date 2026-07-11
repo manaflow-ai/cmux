@@ -555,7 +555,7 @@ public actor CmxIrohClientRuntime {
             switch registration.relay {
             case let .issued(response):
                 bootstrap = response
-            case .unavailable:
+            case .unavailable, .notRequested:
                 bootstrap = startRelays ? configuration.cachedRelayCredential : nil
             }
         } else {

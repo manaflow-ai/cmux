@@ -440,7 +440,7 @@ public actor CmxIrohHostRuntime {
             let relayBootstrap: CmxIrohRelayTokenResponse?
             switch registration.relay {
             case let .issued(response): relayBootstrap = response
-            case .unavailable: relayBootstrap = nil
+            case .unavailable, .notRequested: relayBootstrap = nil
             }
             return try cachedPolicy(
                 after: error,
@@ -780,7 +780,7 @@ public actor CmxIrohHostRuntime {
     ) -> CmxIrohRelayTokenResponse? {
         switch registration.relay {
         case let .issued(response): response
-        case .unavailable: configuration.cachedRelayCredential
+        case .unavailable, .notRequested: configuration.cachedRelayCredential
         }
     }
 

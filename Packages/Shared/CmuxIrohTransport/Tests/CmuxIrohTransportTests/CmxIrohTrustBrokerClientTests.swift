@@ -82,6 +82,7 @@ struct CmxIrohTrustBrokerClientTests {
         )
 
         #expect(response.binding.tag == "stable")
+        #expect(response.relay == .notRequested)
     }
 
     @Test
