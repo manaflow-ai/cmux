@@ -47,6 +47,10 @@
 //!   "scrollbar": {
 //!     "position": "column"
 //!   },
+//!   "server": {
+//!     "ws": "127.0.0.1:7681",
+//!     "ws_token": "replace-with-a-secret"
+//!   },
 //!   "keys": {
 //!     "prefix": "ctrl+b",
 //!     "alt_shortcuts": true,
@@ -128,11 +132,20 @@ struct RawConfig {
     browser: RawBrowser,
     #[serde(default)]
     scrollbar: RawScrollbar,
+    #[serde(default)]
+    server: RawServer,
     /// Key bindings: `"prefix"` plus one entry per action. Values may be
     /// a chord string, an array of chord strings, `"none"`, or
     /// `"alt_shortcuts": false`.
     #[serde(default)]
     keys: HashMap<String, Value>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawServer {
+    ws: Option<String>,
+    ws_token: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -924,7 +937,14 @@ pub struct Config {
     pub sidebar: Sidebar,
     pub browser: Browser,
     pub scrollbar: Scrollbar,
+    pub server: Server,
     pub keys: Keys,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Server {
+    pub ws: Option<String>,
+    pub ws_token: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -1090,6 +1110,8 @@ pub fn load() -> Config {
     if let Some(position) = raw.scrollbar.position {
         config.scrollbar.position = position;
     }
+    config.server.ws = raw.server.ws.filter(|value| !value.trim().is_empty());
+    config.server.ws_token = raw.server.ws_token;
     config.keys.apply(&raw.keys);
     config
 }
@@ -1413,6 +1435,15 @@ mod tests {
         assert!(err.contains("light"), "{err}");
         assert!(err.contains("dark"), "{err}");
         assert!(err.contains("auto"), "{err}");
+    }
+
+    #[test]
+    fn parses_websocket_server_config() {
+        let raw: RawConfig =
+            serde_json::from_str(r#"{"server":{"ws":"127.0.0.1:7681","ws_token":"secret"}}"#)
+                .unwrap();
+        assert_eq!(raw.server.ws.as_deref(), Some("127.0.0.1:7681"));
+        assert_eq!(raw.server.ws_token.as_deref(), Some("secret"));
     }
 
     #[test]
