@@ -439,6 +439,35 @@ struct CmxIrohRegistryContextProviderTests {
     }
 
     @Test
+    func legacyUppercaseUUIDMatchesCanonicalBrokerDeviceID() async throws {
+        let fixture = try RegistryFixture()
+        let response = try fixture.pairGrantResponse(
+            issuedAt: fixture.nowSeconds,
+            expiresAt: fixture.nowSeconds + 7 * 24 * 60 * 60
+        )
+        let broker = TestIrohRegistryBroker(
+            discovery: try fixture.discovery(targetHints: []),
+            pairGrantResponses: [response]
+        )
+        let provider = CmxIrohRegistryContextProvider(
+            supervisor: try await fixture.activeSupervisor(),
+            broker: broker,
+            localBindingExpectation: try fixture.localExpectation(),
+            managedRelayURLs: [fixture.relayURL],
+            activeNetworkProfiles: { [] },
+            now: { fixture.now }
+        )
+
+        let context = try await provider.context(for: fixture.request(
+            hints: [],
+            expectedPeerDeviceID: fixture.acceptor.deviceID.uppercased()
+        ))
+
+        #expect(context.credential.pairGrantToken == response.grant)
+        #expect(await broker.pairGrantRequestCount() == 1)
+    }
+
+    @Test
     func localEndpointIDCannotSubstituteAnotherAppInstanceBinding() async throws {
         let fixture = try RegistryFixture()
         let broker = TestIrohRegistryBroker(
