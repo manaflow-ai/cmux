@@ -38,27 +38,59 @@ extension RemoteTmuxMirrorCLIObservabilityTests {
         })
         let topPanes = try #require(topWorkspace["panes"] as? [[String: Any]])
 
-        let topPaneIDs = topPanes.compactMap {
-            ($0["id"] as? String).flatMap(UUID.init(uuidString:))
+        let workspaceRef = try #require(topWorkspace["ref"] as? String)
+        #expect(TerminalController.shared.v2ResolveHandleRef(workspaceRef) == harness.workspace.id)
+
+        let topPaneIDs = try topPanes.map { pane in
+            let id = try #require(pane["id"] as? String)
+            return try #require(UUID(uuidString: id))
         }
-        let topSurfaces = topPanes.flatMap {
-            $0["surfaces"] as? [[String: Any]] ?? []
+        let topSurfacesByPane = try topPanes.map { pane in
+            try #require(pane["surfaces"] as? [[String: Any]])
         }
-        let topSurfaceIDs = topSurfaces.compactMap {
-            ($0["id"] as? String).flatMap(UUID.init(uuidString:))
+        let topSurfaceIDsByPane = try topSurfacesByPane.map { surfaces in
+            try surfaces.map { surface in
+                let id = try #require(surface["id"] as? String)
+                return try #require(UUID(uuidString: id))
+            }
         }
+        let topSurfaceIDs = topSurfaceIDsByPane.flatMap { $0 }
 
         #expect(topPaneIDs == expectedPaneIDs)
         #expect(topSurfaceIDs == expectedSurfaceIDs)
         #expect(!topSurfaceIDs.contains(harness.outerPanelID))
 
-        for (pane, paneID) in zip(topPanes, topPaneIDs) {
+        let expectedPanesByID = Dictionary(uniqueKeysWithValues: treeWorkspace.panes.map {
+            ($0.paneID, $0)
+        })
+        for (index, pane) in topPanes.enumerated() {
+            let paneID = topPaneIDs[index]
+            let surfaces = topSurfacesByPane[index]
+            let surfaceIDs = topSurfaceIDsByPane[index]
+            let expectedPane = try #require(expectedPanesByID[paneID])
+
             let ref = try #require(pane["ref"] as? String)
             #expect(TerminalController.shared.v2ResolveHandleRef(ref) == paneID)
-        }
-        for (surface, surfaceID) in zip(topSurfaces, topSurfaceIDs) {
-            let ref = try #require(surface["ref"] as? String)
-            #expect(TerminalController.shared.v2ResolveHandleRef(ref) == surfaceID)
+
+            #expect(surfaceIDs == expectedPane.surfaceIDs)
+            let surfaceRefs = try #require(pane["surface_refs"] as? [String])
+            let resolvedSurfaceRefs = surfaceRefs.map {
+                TerminalController.shared.v2ResolveHandleRef($0)
+            }
+            #expect(resolvedSurfaceRefs == expectedPane.surfaceIDs.map { Optional($0) })
+
+            let selectedSurfaceID = try #require(expectedPane.selectedSurfaceID)
+            let selectedSurfaceRef = try #require(pane["selected_surface_ref"] as? String)
+            #expect(TerminalController.shared.v2ResolveHandleRef(selectedSurfaceRef) == selectedSurfaceID)
+
+            for (surfaceIndex, surface) in surfaces.enumerated() {
+                let surfaceID = surfaceIDs[surfaceIndex]
+                let surfaceRef = try #require(surface["ref"] as? String)
+                #expect(TerminalController.shared.v2ResolveHandleRef(surfaceRef) == surfaceID)
+
+                let paneRef = try #require(surface["pane_ref"] as? String)
+                #expect(TerminalController.shared.v2ResolveHandleRef(paneRef) == paneID)
+            }
         }
     }
 }
