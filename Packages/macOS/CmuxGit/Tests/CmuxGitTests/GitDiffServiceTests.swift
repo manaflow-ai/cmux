@@ -70,6 +70,20 @@ import Testing
         #expect(diff.unifiedDiff.contains("+let flagged = true"))
     }
 
+    @Test func untrackedBareDashPathDiffs() throws {
+        let repo = try makeTempRepo()
+        defer { try? FileManager.default.removeItem(at: repo) }
+        let dashName = "-"
+        try Data("bare dash\n".utf8)
+            .write(to: repo.appendingPathComponent(dashName))
+
+        let service = GitDiffService()
+        let diff = try #require(service.fileDiff(repoRoot: repo.path, path: dashName))
+
+        #expect(diff.path == dashName)
+        #expect(diff.unifiedDiff.contains("+bare dash"))
+    }
+
     @Test func fileDiffOutputIsBoundedByMaxOutputBytes() throws {
         let repo = try makeTempRepo()
         defer { try? FileManager.default.removeItem(at: repo) }
