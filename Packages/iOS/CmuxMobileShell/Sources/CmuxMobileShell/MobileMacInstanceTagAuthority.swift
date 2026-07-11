@@ -16,7 +16,9 @@ enum MobileMacInstanceTagResolution: Equatable, Sendable {
     case reject
 }
 
-enum MobileMacInstanceTagAuthority {
+struct MobileMacInstanceTagAuthority {
+    private init() {}
+
     static func expectation(
         storedInstanceTag: String?
     ) -> MobileMacInstanceTagExpectation {
