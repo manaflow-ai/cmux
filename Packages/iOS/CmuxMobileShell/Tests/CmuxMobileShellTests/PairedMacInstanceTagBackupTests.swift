@@ -25,8 +25,8 @@ import Testing
 
     private func uploadedRecord(from op: PairedMacBackupOp) -> PairedMacBackupRecord? {
         switch op {
-        case .upsert(let record), .upsertPreservingCustomizations(let record),
-             .revive(let record), .revivePreservingCustomizations(let record):
+        case .upsert(let record, _), .upsertPreservingCustomizations(let record, _),
+             .revive(let record, _), .revivePreservingCustomizations(let record, _):
             return record
         case .delete:
             return nil
@@ -57,8 +57,10 @@ import Testing
         )
 
         #expect(try await inner.loadAll(stackUserID: "user-1").first?.instanceTag == "feature-a")
-        let uploaded = await backup.uploadedOps().first.flatMap(uploadedRecord(from:))
+        let first = try #require(await backup.uploadedOps().first)
+        let uploaded = uploadedRecord(from: first)
         #expect(uploaded?.instanceTag == "feature-a")
+        #expect(try encodedRecordObject(from: first)["instanceTagWriteMode"] == nil)
     }
 
     @Test func restoreAppliesInstanceTagFromBackup() async throws {
@@ -137,5 +139,76 @@ import Testing
         let keys = try encodedRecordObject(from: first)
         #expect(keys.keys.contains("instanceTag"))
         #expect(keys["instanceTag"] is NSNull)
+    }
+
+    @Test func metadataOnlyMirrorsPreserveServerInstanceAuthority() async throws {
+        let (inner, directory) = try makeInnerStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try await inner.upsert(
+            macDeviceID: "mac-a",
+            displayName: "Studio",
+            routes: [try route()],
+            instanceTag: "feature-a",
+            markActive: false,
+            stackUserID: "user-1",
+            teamID: nil,
+            now: Date(timeIntervalSince1970: 1)
+        )
+        let backup = FakeBackup()
+        let store = BackingUpPairedMacStore(inner: inner, backup: backup)
+
+        try await store.setActive(
+            macDeviceID: "mac-a", stackUserID: "user-1", teamID: nil
+        )
+        try await store.clearActive(stackUserID: "user-1", teamID: nil)
+        try await store.setCustomization(
+            macDeviceID: "mac-a",
+            customName: "Desk",
+            customColor: nil,
+            customIcon: nil,
+            stackUserID: "user-1",
+            teamID: nil,
+            now: Date(timeIntervalSince1970: 2)
+        )
+
+        let uploads = await backup.uploadedOps()
+        #expect(uploads.count == 3)
+        for op in uploads {
+            let record = try encodedRecordObject(from: op)
+            #expect(record["instanceTagWriteMode"] as? String == "preserve")
+        }
+    }
+
+    @Test func authorizedRouteMirrorUsesInstanceAuthorityCompareAndSet() async throws {
+        let (inner, directory) = try makeInnerStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try await inner.upsert(
+            macDeviceID: "mac-a",
+            displayName: "Studio",
+            routes: [try route()],
+            instanceTag: "feature-a",
+            markActive: false,
+            stackUserID: "user-1",
+            teamID: nil,
+            now: Date(timeIntervalSince1970: 1)
+        )
+        let backup = FakeBackup()
+        let store = BackingUpPairedMacStore(inner: inner, backup: backup)
+
+        let wrote = try await store.upsertRoutesIfAuthorized(
+            macDeviceID: "mac-a",
+            displayName: "Studio",
+            routes: [try route()],
+            condition: .matchingInstanceTag("feature-a"),
+            markActive: nil,
+            stackUserID: "user-1",
+            teamID: nil,
+            now: Date(timeIntervalSince1970: 2)
+        )
+
+        #expect(wrote)
+        let first = try #require(await backup.uploadedOps().first)
+        let record = try encodedRecordObject(from: first)
+        #expect(record["instanceTagWriteMode"] as? String == "compare_and_set")
     }
 }

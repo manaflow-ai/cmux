@@ -131,8 +131,9 @@ export type PairedMacBackupOp =
        * so their uploads preserve newer stored authority instead of clearing it. */
       providedInstanceTag?: boolean;
       /** Mac self-publishers may claim an empty/same-tag row but cannot switch
-       * another authenticated app instance's authority. */
-      instanceTagWriteMode?: "compare_and_set";
+       * another authenticated app instance's authority. Routine iOS metadata
+       * writes preserve an existing live row's authenticated host authority. */
+      instanceTagWriteMode?: "compare_and_set" | "preserve";
       /** Explicit user re-add of an id with a retained server tombstone. Normal
        * route refreshes and full reconciles must leave tombstones authoritative. */
       allowTombstoneRevive?: boolean;
@@ -245,7 +246,11 @@ export function parsePairedMacBackup(body: Record<string, unknown>): PairedMacBa
       return { ok: false, error: "invalid_instance_tag" };
     }
     const rawInstanceTagWriteMode = r.instanceTagWriteMode;
-    if (rawInstanceTagWriteMode !== undefined && rawInstanceTagWriteMode !== "compare_and_set") {
+    if (
+      rawInstanceTagWriteMode !== undefined &&
+      rawInstanceTagWriteMode !== "compare_and_set" &&
+      rawInstanceTagWriteMode !== "preserve"
+    ) {
       return { ok: false, error: "invalid_instance_tag_write_mode" };
     }
     // User customizations: opaque strings, bounded like the display name. Over-long
@@ -422,7 +427,9 @@ export async function applyBackupOps(
     const provided = op.providedCustom ?? { name: true, color: true, icon: true };
     if (existing !== undefined && !existing.deleted) {
       const prev = existing.payload;
-      const legacyCannotReplaceAuthority = !(op.providedInstanceTag ?? true) && prev.instanceTag;
+      const preservesExistingAuthority = op.instanceTagWriteMode === "preserve";
+      const legacyCannotReplaceAuthority =
+        !preservesExistingAuthority && !(op.providedInstanceTag ?? true) && prev.instanceTag;
       const publisherCannotSwitchAuthority =
         op.instanceTagWriteMode === "compare_and_set" &&
         !!prev.instanceTag &&
@@ -435,6 +442,18 @@ export async function applyBackupOps(
         // CAS rule when another nonnil tag owns the row. Explicit authenticated
         // iOS pairing uploads carry the key without CAS and may switch authority.
         continue;
+      }
+      if (preservesExistingAuthority) {
+        // Active selection and user customization writes do not authenticate a
+        // Mac process. Keep the server's current host-owned authority tuple even
+        // when the phone's local row is stale, while still applying the metadata
+        // fields below. A missing/tombstoned row has no authority to preserve and
+        // is created/revived from the incoming snapshot instead.
+        record.displayName = prev.displayName;
+        record.instanceTag = prev.instanceTag;
+        record.routes = prev.routes;
+        record.createdAt = prev.createdAt;
+        record.lastSeenAt = Math.max(prev.lastSeenAt, record.lastSeenAt);
       }
       if (!provided.name) record.customName = prev.customName;
       if (!provided.color) record.customColor = prev.customColor;

@@ -46,7 +46,8 @@ extension BackingUpPairedMacStore {
             account: account,
             teamID: team,
             includesCustomizations: false,
-            allowTombstoneRevive: allowsTombstoneRevive
+            allowTombstoneRevive: allowsTombstoneRevive,
+            instanceAuthority: .compareAndSet
         )
         if markActive == true,
            let previousActive,
@@ -55,7 +56,8 @@ extension BackingUpPairedMacStore {
                 macDeviceID: previousActive.macDeviceID,
                 account: account,
                 teamID: team,
-                includesCustomizations: false
+                includesCustomizations: false,
+                instanceAuthority: .preserve
             )
         }
         return true

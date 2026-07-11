@@ -112,6 +112,26 @@ describe("parsePairedMacBackup", () => {
     if (op?.kind !== "upsert") throw new Error("expected an upsert op");
     expect(op.record.routes).toEqual([{ id: "ok" }]);
   });
+
+  it("accepts preserve authority mode and rejects unknown modes", () => {
+    const preserved = parsePairedMacBackup({
+      ops: [{
+        macDeviceID: "mac-a",
+        record: { ...record("mac-a", "10.0.0.1", 22), instanceTagWriteMode: "preserve" },
+      }],
+    });
+    expect(preserved.ok).toBe(true);
+    if (preserved.ok) {
+      expect(preserved.ops[0]).toMatchObject({ kind: "upsert", instanceTagWriteMode: "preserve" });
+    }
+
+    expect(parsePairedMacBackup({
+      ops: [{
+        macDeviceID: "mac-a",
+        record: { ...record("mac-a", "10.0.0.1", 22), instanceTagWriteMode: "replace" },
+      }],
+    }).ok).toBe(false);
+  });
 });
 
 describe("applyBackupOps", () => {
@@ -184,6 +204,107 @@ describe("applyBackupOps", () => {
     expect(retained?.instanceTag).toBe("feature-b");
     expect(retained?.routes).toEqual(explicitB.routes);
     expect(retained).toEqual(explicitB);
+  });
+
+  it("preserves cross-tag host authority while applying active and customization metadata", async () => {
+    const storage = new FakeStorage();
+    const authenticatedB = {
+      ...record("mac-a", "10.0.0.2", 23),
+      displayName: "Authenticated B",
+      instanceTag: "feature-b",
+      createdAt: T0 + 20,
+      lastSeenAt: T0 + 500,
+      customName: "Old name",
+    };
+    await applyBackupOps(storage, "user-1", [{
+      kind: "upsert",
+      id: "mac-a",
+      record: authenticatedB,
+      providedInstanceTag: true,
+    }], T0);
+
+    const staleMetadataWrite = {
+      ...record("mac-a", "10.0.0.1", 22),
+      displayName: "Stale A",
+      instanceTag: "feature-a",
+      createdAt: T0,
+      lastSeenAt: T0 + 100,
+      isActive: false,
+      customName: "New name",
+    };
+    await applyBackupOps(storage, "user-1", [{
+      kind: "upsert",
+      id: "mac-a",
+      record: staleMetadataWrite,
+      providedInstanceTag: true,
+      providedCustom: { name: true, color: false, icon: false },
+      instanceTagWriteMode: "preserve",
+    }], T0 + 1);
+
+    const restored = (await listBackupSnapshot(storage, "user-1")).records[0];
+    expect(restored?.instanceTag).toBe("feature-b");
+    expect(restored?.routes).toEqual(authenticatedB.routes);
+    expect(restored?.displayName).toBe("Authenticated B");
+    expect(restored?.createdAt).toBe(T0 + 20);
+    expect(restored?.lastSeenAt).toBe(T0 + 500);
+    expect(restored?.isActive).toBe(false);
+    expect(restored?.customName).toBe("New name");
+  });
+
+  it("preserves same-tag fresh routes while accepting newer metadata freshness", async () => {
+    const storage = new FakeStorage();
+    const fresh = {
+      ...record("mac-a", "10.0.0.2", 23),
+      instanceTag: "feature-a",
+      createdAt: T0 + 20,
+      lastSeenAt: T0 + 500,
+    };
+    await applyBackupOps(storage, "user-1", [{
+      kind: "upsert",
+      id: "mac-a",
+      record: fresh,
+      providedInstanceTag: true,
+    }], T0);
+
+    const staleRoutes = {
+      ...record("mac-a", "10.0.0.1", 22),
+      instanceTag: "feature-a",
+      lastSeenAt: T0 + 600,
+      isActive: false,
+    };
+    await applyBackupOps(storage, "user-1", [{
+      kind: "upsert",
+      id: "mac-a",
+      record: staleRoutes,
+      providedInstanceTag: true,
+      instanceTagWriteMode: "preserve",
+    }], T0 + 1);
+
+    const restored = (await listBackupSnapshot(storage, "user-1")).records[0];
+    expect(restored?.instanceTag).toBe("feature-a");
+    expect(restored?.routes).toEqual(fresh.routes);
+    expect(restored?.createdAt).toBe(T0 + 20);
+    expect(restored?.lastSeenAt).toBe(T0 + 600);
+    expect(restored?.isActive).toBe(false);
+  });
+
+  it("creates a missing row from a preserve-mode snapshot", async () => {
+    const storage = new FakeStorage();
+    const incoming = {
+      ...record("mac-a", "10.0.0.1", 22),
+      instanceTag: "feature-a",
+      customName: "Desk",
+    };
+
+    await applyBackupOps(storage, "user-1", [{
+      kind: "upsert",
+      id: "mac-a",
+      record: incoming,
+      providedInstanceTag: true,
+      instanceTagWriteMode: "preserve",
+    }], T0);
+
+    expect((await listBackupSnapshot(storage, "user-1")).records[0]).toEqual(incoming);
   });
 
   it("normalizes optional client scopes into separate per-user collections", async () => {

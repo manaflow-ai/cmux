@@ -125,7 +125,8 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
                 macDeviceID: previouslyActive.macDeviceID,
                 account: account,
                 teamID: team,
-                includesCustomizations: false
+                includesCustomizations: false,
+                instanceAuthority: .preserve
             )
         }
     }
@@ -195,14 +196,16 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
             macDeviceID: macDeviceID,
             account: account,
             teamID: team,
-            includesCustomizations: false
+            includesCustomizations: false,
+            instanceAuthority: .preserve
         )
         if let previouslyActive, previouslyActive.macDeviceID != macDeviceID {
             await uploadCurrentRecord(
                 macDeviceID: previouslyActive.macDeviceID,
                 account: account,
                 teamID: team,
-                includesCustomizations: false
+                includesCustomizations: false,
+                instanceAuthority: .preserve
             )
         }
     }
@@ -219,7 +222,8 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
             macDeviceID: previous.macDeviceID,
             account: stackUserID,
             teamID: team,
-            includesCustomizations: false
+            includesCustomizations: false,
+            instanceAuthority: .preserve
         )
     }
 
@@ -256,7 +260,8 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
             macDeviceID: macDeviceID,
             account: account,
             teamID: team,
-            includesCustomizations: true
+            includesCustomizations: true,
+            instanceAuthority: .preserve
         )
     }
 
@@ -431,7 +436,8 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         account: String,
         teamID: String? = nil,
         includesCustomizations: Bool = false,
-        allowTombstoneRevive: Bool = false
+        allowTombstoneRevive: Bool = false,
+        instanceAuthority: PairedMacBackupInstanceAuthorityWriteMode = .authoritative
     ) async -> Bool {
         let team = await resolvedTeam(teamID)
         guard let mac = (try? await inner.loadAll(stackUserID: account, teamID: team))?
@@ -440,12 +446,18 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         let op: PairedMacBackupOp
         if allowTombstoneRevive {
             op = includesCustomizations
-                ? .revive(record)
-                : .revivePreservingCustomizations(record)
+                ? .revive(record, instanceAuthority: instanceAuthority)
+                : .revivePreservingCustomizations(
+                    record,
+                    instanceAuthority: instanceAuthority
+                )
         } else if includesCustomizations {
-            op = .upsert(record)
+            op = .upsert(record, instanceAuthority: instanceAuthority)
         } else {
-            op = .upsertPreservingCustomizations(record)
+            op = .upsertPreservingCustomizations(
+                record,
+                instanceAuthority: instanceAuthority
+            )
         }
         return await backup.upload(ops: [op], teamID: team, expectedUserID: account)
     }

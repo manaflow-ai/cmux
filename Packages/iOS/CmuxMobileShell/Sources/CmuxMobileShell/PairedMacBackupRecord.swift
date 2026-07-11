@@ -53,6 +53,7 @@ public struct PairedMacBackupRecord: Codable, Sendable, Equatable {
     enum CodingKeys: String, CodingKey {
         case macDeviceID, displayName, routes, createdAt, lastSeenAt, isActive
         case customName, customColor, customIcon, instanceTag
+        case instanceTagWriteMode
     }
 
     /// Decode one saved-host backup record, dropping unsupported route entries
