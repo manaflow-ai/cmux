@@ -42,8 +42,8 @@ final class SidebarLazyLayoutScaleTests {
         var workspaceSnapshotBuilds = 0
         // Snapshot builds bracketed by workspaceRowBody/workspaceRowBodyEnd,
         // i.e. synchronous work inside a single TabItemView.body evaluation.
-        // Builds outside the bracket (onAppear refresh, observation publishers)
-        // are legitimate and not counted here.
+        // Builds outside the bracket (observation publishers) are legitimate
+        // and not counted here.
         var insideWorkspaceRowBody = false
         var snapshotBuildsInCurrentRowBody = 0
         var maxSnapshotBuildsInOneRowBody = 0
@@ -265,12 +265,11 @@ final class SidebarLazyLayoutScaleTests {
 
     /// One TabItemView.body evaluation must build the workspace snapshot at
     /// most once. The snapshot is a full per-workspace projection (bonsplit
-    /// tree walk, git branch summaries, PR rows); until `onAppear` seeds
-    /// `workspaceSnapshotStorage`, every `workspaceSnapshot` access in the
-    /// first body evaluation used to rebuild it from scratch, so each row a
-    /// scroll mounts paid the walk several times over. Builds outside body
-    /// evaluations (onAppear refresh, observation publishers) are legitimate
-    /// and excluded by the probe bracket.
+    /// tree walk, git branch summaries, PR rows). Every `workspaceSnapshot`
+    /// access in the first body evaluation used to rebuild it from scratch, so
+    /// each row a scroll mounts paid the walk several times over. Builds
+    /// outside body evaluations from observation publishers are legitimate and
+    /// excluded by the probe bracket.
     @Test
     @MainActor
     func testRowBodyEvaluationBuildsWorkspaceSnapshotAtMostOnce() async throws {
@@ -289,8 +288,8 @@ final class SidebarLazyLayoutScaleTests {
             """
             A single TabItemView.body evaluation built the workspace snapshot \(worstBody) \
             times. The snapshot fallback in the `workspaceSnapshot` getter must memoize \
-            within a body evaluation; N accesses before onAppear seeds storage must not \
-            mean N bonsplit tree walks per mounted row.
+            within a body evaluation; N accesses before observation-backed storage is \
+            seeded must not mean N bonsplit tree walks per mounted row.
             """
         )
     }

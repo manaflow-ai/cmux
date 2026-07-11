@@ -12363,6 +12363,7 @@ struct VerticalTabsSidebar: View {
             unreadCount: liveUnreadCount,
             latestNotificationText: liveLatestNotificationText,
             showsAgentActivity: renderContext.showsAgentActivity,
+            isActive: tabManager.selectedTabId == tab.id,
             rowSpacing: tabRowSpacing,
             setSelectionToTabs: { selection = .tabs },
             selectedTabIds: $selectedTabIds,
@@ -13203,6 +13204,7 @@ struct TabItemView: View, Equatable {
         lhs.unreadCount == rhs.unreadCount &&
         lhs.latestNotificationText == rhs.latestNotificationText &&
         lhs.showsAgentActivity == rhs.showsAgentActivity &&
+        lhs.isActive == rhs.isActive &&
         lhs.rowSpacing == rhs.rowSpacing &&
         lhs.showsModifierShortcutHints == rhs.showsModifierShortcutHints &&
         lhs.contextMenuWorkspaceIds == rhs.contextMenuWorkspaceIds &&
@@ -13248,6 +13250,7 @@ struct TabItemView: View, Equatable {
     let unreadCount: Int
     let latestNotificationText: String?
     let showsAgentActivity: Bool
+    let isActive: Bool
     let rowSpacing: CGFloat
     let setSelectionToTabs: () -> Void
     @Binding var selectedTabIds: Set<UUID>
@@ -13284,15 +13287,13 @@ struct TabItemView: View, Equatable {
     @State private var workspaceSnapshotStorage: SidebarWorkspaceSnapshotBuilder.Snapshot?
     // Fallback memo for the `workspaceSnapshot` getter: a plain box, not
     // observed state, so body evaluations can fill it without invalidating the
-    // row. Before onAppear seeds workspaceSnapshotStorage, every access used to
-    // rebuild the snapshot (a full bonsplit tree walk) — several times per
-    // mounted row per scroll.
+    // row. It also remains the initial snapshot source until a real observation
+    // update arrives, avoiding an @State write while LazyVStack is mounting and
+    // estimating a newly visible row.
     final class WorkspaceSnapshotScratch {
         var value: SidebarWorkspaceSnapshotBuilder.Snapshot?
     }
     @State private var workspaceSnapshotScratch = WorkspaceSnapshotScratch()
-    // Row-local selection projection: selectedTabId changes update only rows whose boolean flips.
-    @State private var observedIsActive: Bool?
     @State private var contextMenuState = SidebarTabItemContextMenuState()
     @State private var rowInteractionState = SidebarWorkspaceRowInteractionState()
     @State var workspaceFinderDirectoryOpenRequest: WorkspaceFinderDirectoryOpenRequest?
@@ -13360,10 +13361,6 @@ struct TabItemView: View, Equatable {
 
     private var activeTabIndicatorStyle: WorkspaceIndicatorStyle {
         settings.activeTabIndicatorStyle
-    }
-
-    private var isActive: Bool {
-        observedIsActive ?? (tabManager.selectedTabId == tab.id)
     }
 
     private var sidebarSelectionColorHex: String? {
@@ -14059,17 +14056,6 @@ struct TabItemView: View, Equatable {
                 isBottomEdge: true
             )
         }
-        .onAppear {
-            updateObservedActiveState(tabManager.selectedTabId == tab.id)
-            refreshWorkspaceSnapshot(force: true)
-        }
-        .onReceive(
-            tabManager.selectedTabIdPublisher
-                .map { $0 == tab.id }
-                .removeDuplicates()
-        ) { isSelected in
-            updateObservedActiveState(isSelected)
-        }
         .task(id: workspaceFinderDirectoryOpenRequest) {
             guard let request = workspaceFinderDirectoryOpenRequest else { return }
             await WorkspaceFinderDirectoryOpener.openInFinder(request.directoryURL)
@@ -14171,11 +14157,6 @@ struct TabItemView: View, Equatable {
         renameDraft = workspaceSnapshot.title
         renameBaselineHadUserCustomTitle = tab.effectiveCustomTitleSource == .user
         isEditing = true
-    }
-
-    private func updateObservedActiveState(_ isActive: Bool) {
-        guard observedIsActive != isActive else { return }
-        observedIsActive = isActive
     }
 
     func refreshWorkspaceSnapshot(force: Bool = false) {
