@@ -54,14 +54,15 @@ extension GhosttyTerminalView {
                 reason: reason
             )
         }
-        Task { @MainActor [weak hostedView] in
-            await drain.value
-            guard let candidateRegistrationToken else { return }
-            hostedView?.unregisterTransientPortalHostCandidate(
-                hostId: hostId,
-                ownershipGeneration: snapshot.ownershipGeneration,
-                registrationToken: candidateRegistrationToken
-            )
+        if let candidateRegistrationToken {
+            Task { @MainActor [weak hostedView] in
+                await drain.value
+                hostedView?.unregisterTransientPortalHostCandidate(
+                    hostId: hostId,
+                    ownershipGeneration: snapshot.ownershipGeneration,
+                    registrationToken: candidateRegistrationToken
+                )
+            }
         }
         return drain
     }
