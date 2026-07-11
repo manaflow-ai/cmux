@@ -14,10 +14,24 @@ public final class CEFProfile {
     public init?(name: String) {
         guard CEFApp.shared.isInitialized, let root = CEFApp.shared.rootCachePath else { return nil }
         let sanitized = name.map { $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" ? $0 : "-" }
+        var directoryName = String(sanitized)
+        if directoryName != name {
+            // Character replacement is not injective ("Work?" and "Work!"
+            // both sanitize to "Work-"), and distinct profiles sharing one
+            // cache directory would silently share cookies/storage. A stable
+            // hash of the original name keeps every accepted identity on its
+            // own directory. djb2, not hashValue: Swift string hashes are
+            // seeded per process and would move the directory every launch.
+            var hash: UInt64 = 5381
+            for byte in name.utf8 {
+                hash = hash &* 33 &+ UInt64(byte)
+            }
+            directoryName += "-" + String(hash, radix: 16)
+        }
         // Chrome-bootstrap CEF requires profile directories to be direct
         // children of root_cache_path; nesting fails with "Cannot create
         // profile at path".
-        let cachePath = root.appendingPathComponent("Profile-\(String(sanitized))", isDirectory: true)
+        let cachePath = root.appendingPathComponent("Profile-\(directoryName)", isDirectory: true)
 
         var settings = cef_request_context_settings_t()
         settings.size = numericCast(MemoryLayout<cef_request_context_settings_t>.size)

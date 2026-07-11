@@ -56,6 +56,8 @@ private final class CEFDevToolsTargetIdProbe {
     private var completion: ((String?) -> Void)?
     var registrationPtr: UnsafeMutablePointer<cef_registration_t>?
     var messageId: Int32 = 0
+    /// Bounded-deadline fallback; cancelled by finish().
+    var timeoutTask: Task<Void, Never>?
 
     init(completion: @escaping (String?) -> Void) {
         self.completion = completion
@@ -64,6 +66,8 @@ private final class CEFDevToolsTargetIdProbe {
     func finish(_ targetId: String?) {
         guard let completion else { return }
         self.completion = nil
+        timeoutTask?.cancel()
+        timeoutTask = nil
         if let registrationPtr {
             self.registrationPtr = nil
             cefRelease(UnsafeMutableRawPointer(registrationPtr))
@@ -166,6 +170,17 @@ extension CEFBrowser {
         }
         if !submitted {
             probe.finish(nil)
+        } else {
+            // CEF answers every submitted method with a result or an
+            // agent-detached callback, but a dropped response would
+            // otherwise pin the probe (and its observer registration)
+            // forever and leave the caller's DevTools UI pending/blank.
+            // Bounded timeout, cancelled when either callback finishes.
+            probe.timeoutTask = Task { @MainActor in
+                try? await Task.sleep(for: .seconds(10))
+                guard !Task.isCancelled else { return }
+                probe.finish(nil)
+            }
         }
     }
 

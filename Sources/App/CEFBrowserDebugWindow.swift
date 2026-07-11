@@ -100,7 +100,10 @@ final class CEFBrowserDebugWindowController: ReleasingWindowController {
             backing: .buffered,
             defer: false
         )
-        window.title = "Chromium Browser (CEF)"
+        window.title = String(
+            localized: "cef.debugWindow.title",
+            defaultValue: "Chromium Browser (CEF)"
+        )
         window.identifier = NSUserInterfaceItemIdentifier("cmux.cefBrowserDebug")
         window.isReleasedWhenClosed = false
         window.center()
@@ -117,14 +120,20 @@ final class CEFBrowserDebugWindowController: ReleasingWindowController {
     func show() {
         guard CEFRuntimeSupport.isRuntimeBundled else {
             let alert = NSAlert()
-            alert.messageText = "CEF runtime is not bundled in this build"
-            alert.informativeText = """
-            Fetch the CEF distribution and rebuild:
-              Packages/macOS/CEFKit/scripts/fetch-cef.sh
-              ./scripts/reload.sh --tag <tag>
-            The dev build phase bundles CEF automatically when the \
-            distribution is present.
-            """
+            alert.messageText = String(
+                localized: "cef.debugWindow.runtimeMissing.title",
+                defaultValue: "CEF runtime is not bundled in this build"
+            )
+            alert.informativeText = String(
+                localized: "cef.debugWindow.runtimeMissing.message",
+                defaultValue: """
+                Fetch the CEF distribution and rebuild:
+                  Packages/macOS/CEFKit/scripts/fetch-cef.sh
+                  ./scripts/reload.sh --tag <tag>
+                The dev build phase bundles CEF automatically when the \
+                distribution is present.
+                """
+            )
             alert.runModal()
             return
         }
@@ -132,7 +141,10 @@ final class CEFBrowserDebugWindowController: ReleasingWindowController {
             try CEFRuntimeSupport.startIfNeeded()
         } catch {
             let alert = NSAlert()
-            alert.messageText = "CEF failed to initialize"
+            alert.messageText = String(
+                localized: "cef.debugWindow.initFailed.title",
+                defaultValue: "CEF failed to initialize"
+            )
             alert.informativeText = "\(error)"
             alert.runModal()
             return
@@ -396,7 +408,11 @@ final class CEFBrowserDebugView: NSView {
         profilePicker.addItems(withTitles: profileNames)
         profilePicker.target = self
         profilePicker.action = #selector(profileChanged(_:))
-        devToolsPicker.addItems(withTitles: ["DevTools: Off", "DevTools: Docked", "DevTools: Window"])
+        devToolsPicker.addItems(withTitles: [
+            String(localized: "cef.debugWindow.devtools.off", defaultValue: "DevTools: Off"),
+            String(localized: "cef.debugWindow.devtools.docked", defaultValue: "DevTools: Docked"),
+            String(localized: "cef.debugWindow.devtools.window", defaultValue: "DevTools: Window"),
+        ])
         devToolsPicker.target = self
         devToolsPicker.action = #selector(devToolsChanged(_:))
 
