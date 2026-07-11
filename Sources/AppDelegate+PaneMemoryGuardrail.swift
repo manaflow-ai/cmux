@@ -3,12 +3,9 @@ import Foundation
 @MainActor
 protocol AppMemoryMonitoringServices: AnyObject {
     func startEventDrivenMemoryPressureMonitoring()
-    func startPeriodicPaneMemorySampling()
 }
 
-/// The launch composition deliberately starts only event-driven memory
-/// pressure handling. Keeping the retired periodic sampler as an injectable
-/// service method makes that negative startup contract behavior-testable.
+/// The launch composition starts event-driven memory pressure handling.
 @MainActor
 struct AppMemoryMonitoringStartup {
     let services: any AppMemoryMonitoringServices
@@ -53,10 +50,6 @@ extension AppDelegate: AppMemoryMonitoringServices {
         }
         monitor.start()
     }
-
-    /// Retained only as a startup-composition test seam. Production startup
-    /// must not call this retired periodic service.
-    func startPeriodicPaneMemorySampling() {}
 
 #if DEBUG
     /// Explicit LLDB/debug-command hook for a single attributed pane-memory

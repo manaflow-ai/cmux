@@ -210,14 +210,6 @@ actor CmuxTopProcessSnapshotStore {
     }
 }
 
-#if DEBUG
-// Actor-owned generations start at one. Keep synchronous compatibility captures
-// in a separate namespace while feeding the same aggregate in-flight counters.
-private nonisolated let cmuxTopSynchronousCaptureGeneration = OSAllocatedUnfairLock(
-    initialState: UInt64(0)
-)
-#endif
-
 nonisolated extension CmuxTopProcessSnapshot {
     /// Measured escape hatch for lifecycle and compatibility code that cannot await
     /// ``CmuxTopProcessSnapshotStore``. Live and periodic consumers must use the actor.
@@ -233,10 +225,7 @@ nonisolated extension CmuxTopProcessSnapshot {
             )
         }
     ) -> CmuxTopProcessSnapshot {
-        let generation = cmuxTopSynchronousCaptureGeneration.withLock { counter in
-            counter &+= 1
-            return (UInt64(1) << 63) | counter
-        }
+        let generation = metrics.nextSynchronousCaptureGeneration()
         var requirements = CmuxTopProcessSnapshotRequirements.basic
         if includeProcessDetails { requirements.insert(.processDetails) }
         if includeCMUXScope { requirements.insert(.cmuxScope) }

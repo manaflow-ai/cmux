@@ -23,7 +23,10 @@ extension GhosttyNSView {
 
         guard needsSchedule else { return }
         if profilingEnabled, let metadata = rendererProfilingMetadata(coalescedUpdateCount: 1) {
-            rendererProfilingUpdateState = rendererProfilingSignposts.beginUpdate(metadata)
+            let profilingState = rendererProfilingSignposts.beginUpdate(metadata)
+            _renderedFrameLock.lock()
+            rendererProfilingUpdateState = profilingState
+            _renderedFrameLock.unlock()
         }
         DispatchQueue.main.async { [weak self] in
             self?.flushRenderedFrameUpdate()

@@ -40,10 +40,24 @@ public struct TerminalRendererProfilingMetadata: Equatable, Sendable {
     public var details: String {
         let dirtyRows = dirtyRowCount.map(String.init) ?? "unknown"
         let redraw = fullRedraw.map { $0 ? "1" : "0" } ?? "unknown"
-        return "workspace=\(identity.workspaceId.uuidString) " +
-            "surface=\(identity.surfaceId.uuidString) " +
-            "visible=\(visible ? 1 : 0) focused=\(focused ? 1 : 0) " +
-            "wake=\(wakeReason.rawValue) coalesced=\(coalescedUpdateCount) " +
-            "dirty_rows=\(dirtyRows) full_redraw=\(redraw)"
+        var details = String()
+        details.reserveCapacity(200)
+        details.append("workspace=")
+        details.append(identity.workspaceId.uuidString)
+        details.append(" surface=")
+        details.append(identity.surfaceId.uuidString)
+        details.append(" visible=")
+        details.append(visible ? "1" : "0")
+        details.append(" focused=")
+        details.append(focused ? "1" : "0")
+        details.append(" wake=")
+        details.append(wakeReason.rawValue)
+        details.append(" coalesced=")
+        details.append(String(coalescedUpdateCount))
+        details.append(" dirty_rows=")
+        details.append(dirtyRows)
+        details.append(" full_redraw=")
+        details.append(redraw)
+        return details
     }
 }

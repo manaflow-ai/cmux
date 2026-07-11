@@ -29,6 +29,8 @@ final class SharedLiveAgentIndex {
     // DispatchSource file watching requires a delivery queue; state hops back to MainActor.
     private let watchQueue = DispatchQueue(label: "com.cmuxterm.app.sharedLiveAgentIndexWatch")
 
+    /// Loaders must move synchronous CPU and file-I/O work off the main actor
+    /// before their first suspension point. This owner awaits the closure directly.
     private let indexLoader: @Sendable () async -> SharedLiveAgentIndexLoader.LoadResult
     private let hookStoreDirectoryProvider: @MainActor () -> String
     private let dateProvider: @MainActor () -> Date

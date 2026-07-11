@@ -200,6 +200,7 @@ nonisolated final class ProcessPerformanceMetrics: @unchecked Sendable {
 
     private struct State {
         var epoch: UInt64
+        var synchronousCaptureGeneration: UInt64 = 0
         var resetAtUnixMilliseconds = ProcessPerformanceMetrics.unixMilliseconds()
         var processSnapshots = ProcessPerformanceSnapshotCaptureMetrics()
         var generations: [UInt64: ProcessPerformanceGenerationMetrics] = [:]
@@ -240,6 +241,13 @@ nonisolated final class ProcessPerformanceMetrics: @unchecked Sendable {
     func recordProcessSnapshotRequest(consumer: ProcessSnapshotConsumer) {
         state.withLock { state in
             state.requestCountsByConsumer[consumer.rawValue, default: 0] += 1
+        }
+    }
+
+    func nextSynchronousCaptureGeneration() -> UInt64 {
+        state.withLock { state in
+            state.synchronousCaptureGeneration &+= 1
+            return (UInt64(1) << 63) | state.synchronousCaptureGeneration
         }
     }
 

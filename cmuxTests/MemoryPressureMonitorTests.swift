@@ -43,26 +43,20 @@ private struct FixedMemoryPressureFootprintSampler: MemoryPressureFootprintSampl
 @MainActor
 private final class RecordingAppMemoryMonitoringServices: AppMemoryMonitoringServices {
     private(set) var eventDrivenMonitorStartCount = 0
-    private(set) var periodicPaneSamplerStartCount = 0
 
     func startEventDrivenMemoryPressureMonitoring() {
         eventDrivenMonitorStartCount += 1
-    }
-
-    func startPeriodicPaneMemorySampling() {
-        periodicPaneSamplerStartCount += 1
     }
 }
 
 @MainActor
 struct AppMemoryMonitoringStartupTests {
-    @Test func startsPressureMonitorWithoutStartingPeriodicPaneSampler() {
+    @Test func startsEventDrivenPressureMonitor() {
         let services = RecordingAppMemoryMonitoringServices()
 
         AppMemoryMonitoringStartup(services: services).start()
 
         #expect(services.eventDrivenMonitorStartCount == 1)
-        #expect(services.periodicPaneSamplerStartCount == 0)
     }
 }
 

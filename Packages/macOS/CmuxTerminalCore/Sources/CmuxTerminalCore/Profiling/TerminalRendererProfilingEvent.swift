@@ -77,9 +77,18 @@ public struct TerminalRendererEventProfilingMetadata: Equatable, Sendable {
     }
 
     public var details: String {
-        "workspace=\(identity.workspaceId.uuidString) " +
-            "surface=\(identity.surfaceId.uuidString) " +
-            "visible=\(visible ? 1 : 0) focused=\(focused ? 1 : 0) " +
-            "event=\(event.rawValue)"
+        var details = String()
+        details.reserveCapacity(160)
+        details.append("workspace=")
+        details.append(identity.workspaceId.uuidString)
+        details.append(" surface=")
+        details.append(identity.surfaceId.uuidString)
+        details.append(" visible=")
+        details.append(visible ? "1" : "0")
+        details.append(" focused=")
+        details.append(focused ? "1" : "0")
+        details.append(" event=")
+        details.append(event.rawValue)
+        return details
     }
 }
