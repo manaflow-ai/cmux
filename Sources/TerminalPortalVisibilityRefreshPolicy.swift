@@ -10,7 +10,7 @@ extension GhosttyTerminalView {
         coordinator: Coordinator,
         snapshot: TerminalPortalMutationSnapshot,
         reason: String
-    ) -> Task<Void, Never>? {
+    ) -> TerminalPortalMutationSchedule? {
         guard coordinator.attachGeneration == snapshot.attachGeneration else { return nil }
         let hostId = ObjectIdentifier(host)
         let candidatePresentationIsVisible: Bool
@@ -54,7 +54,7 @@ extension GhosttyTerminalView {
                 reason: reason
             )
         }
-        Task { @MainActor [weak hostedView] in
+        let candidateCleanupTask = Task { @MainActor [weak hostedView] in
             await drain.value
             guard let candidateRegistrationToken else { return }
             hostedView?.unregisterTransientPortalHostCandidate(
@@ -63,7 +63,10 @@ extension GhosttyTerminalView {
                 registrationToken: candidateRegistrationToken
             )
         }
-        return drain
+        return TerminalPortalMutationSchedule(
+            drain: drain,
+            candidateCleanupTask: candidateCleanupTask
+        )
     }
 
     static func installPortalHostHandlers(
