@@ -22,10 +22,7 @@ extension WorkspaceDetailView {
                 .opacity(surface == .terminal ? 1 : 0)
                 .allowsHitTesting(surface == .terminal)
                 .accessibilityHidden(surface != .terminal)
-            if surface == .chat, let session = chosenChatSession {
-                chatContent(session)
-                    .background(TerminalPalette.background)
-            } else if surface == .browser, let browser = activeBrowser {
+            if surface == .browser, let browser = activeBrowser {
                 browserContent(browser)
                     .background(TerminalPalette.background)
             }

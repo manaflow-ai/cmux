@@ -2,20 +2,16 @@ import Foundation
 
 enum WorkspaceActiveSurface: Equatable {
     case terminal
-    case chat
     case browser
 
-    static func derive(isChatMode: Bool, hasChosenChatSession: Bool, hasActiveBrowser: Bool) -> Self {
-        if isChatMode, hasChosenChatSession {
-            return .chat
-        }
+    static func derive(hasActiveBrowser: Bool) -> Self {
         if hasActiveBrowser {
             return .browser
         }
         return .terminal
     }
 
-    /// The terminal to refocus when chrome (chat/browser) returns to the
+    /// The terminal to refocus when chrome (the browser) returns to the
     /// terminal surface, or nil when autofocus must stay suppressed.
     ///
     /// The terminal stays mounted under chrome (an opacity swap, not a

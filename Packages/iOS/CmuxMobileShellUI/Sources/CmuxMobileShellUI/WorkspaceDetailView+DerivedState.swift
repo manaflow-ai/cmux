@@ -1,4 +1,3 @@
-import CmuxAgentChat
 import CmuxMobileShellModel
 import CmuxMobileWorkspace
 import CoreGraphics
@@ -6,6 +5,10 @@ import CoreGraphics
 extension WorkspaceDetailView {
     var selectedTerminal: MobileTerminalPreview? {
         workspace.terminals.first { $0.id == store.selectedTerminalID } ?? workspace.terminals.first
+    }
+
+    var selectedTerminalID: String? {
+        selectedTerminal?.id.rawValue
     }
 
     var selectedToolbarSubtitle: String? {
@@ -24,11 +27,4 @@ extension WorkspaceDetailView {
         workspace.name
         #endif
     }
-
-    #if os(iOS)
-    /// The tab/terminal name for a session, for the chat header subtitle.
-    func tabName(for session: ChatSessionDescriptor) -> String? {
-        workspace.terminals.first { $0.id.rawValue == session.terminalID }?.name
-    }
-    #endif
 }

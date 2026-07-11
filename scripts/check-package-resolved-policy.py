@@ -292,6 +292,7 @@ def main() -> int:
     merge_base = merge_base_with_base_ref()
     changed_files = changed_files_since(merge_base)
     changed_dependency_roots: set[str] = set()
+    remote_delta_roots: set[str] = set()
 
     if merge_base is not None:
         current_remote_memo: dict[str, bool] = {}
@@ -312,10 +313,13 @@ def main() -> int:
             )
             if current_calls == previous_calls:
                 continue
-            # Local path-only dependency edits do not always change the resolved
-            # external pins. Require a matching Package.resolved diff only when
-            # the edited manifest's graph currently has, previously had, or
-            # directly changes a remote dependency.
+            call_delta = list(set(current_calls) ^ set(previous_calls))
+            # The edited root's originHash covers its own manifest, but
+            # downstream roots only encode resolved pins. Path-only dependency
+            # deltas leave downstream lockfiles byte-identical when pins do not
+            # change, so only remote deltas propagate downstream.
+            if dependency_calls_include_url(call_delta):
+                remote_delta_roots.add(root)
             if (
                 dependency_calls_include_url(current_calls + previous_calls)
                 or has_remote_dependency(root, graph, current_remote_memo, set())
@@ -366,8 +370,12 @@ def main() -> int:
         )
         if not has_or_requires_lockfile:
             continue
-        affected_dependency_roots = (
-            package_dependency_closure(root, graph) & changed_dependency_roots
+        dependency_closure = package_dependency_closure(root, graph)
+        affected_dependency_roots = set()
+        if root in changed_dependency_roots:
+            affected_dependency_roots.add(root)
+        affected_dependency_roots.update(
+            (dependency_closure - {root}) & remote_delta_roots
         )
         if not affected_dependency_roots:
             continue

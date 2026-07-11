@@ -11,7 +11,13 @@
       location = "container:Packages/Shared"
       name = "Packages (Shared)">
       <FileRef
-         location = "group:CmuxAgentChat">
+         location = "group:CmuxAgentReplica">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxAgentSync">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxAgentWire">
       </FileRef>
       <FileRef
          location = "group:CmuxAPIClient">
@@ -39,7 +45,7 @@
          location = "container:ios/cmuxPackage">
       </FileRef>
       <FileRef
-         location = "group:CmuxAgentChatUI">
+         location = "group:CmuxAgentGUIUI">
       </FileRef>
       <FileRef
          location = "group:CmuxMobileAnalytics">
@@ -92,6 +98,9 @@
       name = "Packages (macOS)">
       <FileRef
          location = "group:CMUXAgentLaunch">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxAgentTruthKit">
       </FileRef>
       <FileRef
          location = "group:CmuxAppKitSupportUI">

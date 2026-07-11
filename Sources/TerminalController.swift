@@ -124,7 +124,6 @@ class TerminalController {
     /// listener starts. Socket auth commands read these on the main actor.
     @MainActor private(set) var authCoordinator: AuthCoordinator?
     @MainActor private(set) var browserSignInFlow: HostBrowserSignInFlow?
-    @MainActor var agentChatTranscriptService: AgentChatTranscriptService?
     // Sendable value type; injected at construction so socket auth never reaches a global.
     private nonisolated let passwordStore: SocketControlPasswordStore
     /// Process-wide proxy-tunnel broker (one shared tunnel per remote transport across all
@@ -2189,7 +2188,7 @@ class TerminalController {
         case "system.capabilities":
             return v2Ok(id: id, result: v2Capabilities())
         // mobile.host.status/mobile.workspace.list/mobile.terminal.* (+terminal.*
-        // aliases), mobile.terminal.paste/terminal.paste, and chat.sessions.dump
+        // aliases), and mobile.terminal.paste/terminal.paste
         // handled by ControlCommandCoordinator (bodies stay; shared with
         // mobileHostHandleRPC).
 
@@ -5686,9 +5685,8 @@ class TerminalController {
         }
 
         CmuxEventBus.shared.publishWorkstreamEvent(event, phase: "received")
+        AgentGUIService.shared?.handleHookEvent(event)
         v2ApplyIMessageModeSideEffects(for: event)
-        Task { @MainActor in self.agentChatTranscriptService?.noteHookEvent(event) }
-
         let result = FeedCoordinator.shared.ingestBlocking(
             event: event,
             waitTimeout: waitTimeout
@@ -13996,6 +13994,11 @@ class TerminalController {
         // MobileHostRPCResult` type round-trip with no behavior change. The v2
         // control socket shares the same bodies through `handleMobileHost`, so the
         // wire bytes stay identical across both entrypoints without a bridge here.
+        if let service = AgentGUIService.shared,
+           let result = await AgentGUIRPCHandler(service: service).handle(request) {
+            return result
+        }
+
         let result: V2CallResult
         switch request.method {
         case "mobile.host.status":
@@ -14028,8 +14031,6 @@ class TerminalController {
             result = v2MobileWorkspaceMove(params: request.params)
         case "workspace.group.action":
             result = v2MobileWorkspaceGroupAction(params: request.params)
-        case let method where method.hasPrefix("mobile.chat."):
-            result = await v2MobileChatDispatch(method: method, params: request.params)
         case "workspace.close":
             result = v2MobileWorkspaceClose(params: request.params)
         case "workspace.group.collapse":
