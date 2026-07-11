@@ -100,7 +100,7 @@ final class AndroidEmulatorCaptureNSView: NSView {
             stopCapture()
             return
         }
-        guard configuration != next || capture == nil else { return }
+        guard configuration != next else { return }
         stopCapture()
         configuration = next
         captureTask = Task { @MainActor [weak self] in
@@ -246,19 +246,32 @@ private final class AndroidEmulatorWindowCapture: NSObject, SCStreamOutput, SCSt
         displayLayer: AVSampleBufferDisplayLayer
     ) async throws -> AndroidEmulatorWindowCapture {
         let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
-        let port = serial.split(separator: "-").last.map(String.init) ?? serial
-        let expectedTitle = "Android Emulator - \(avdName):\(port)"
-        guard let window = content.windows.first(where: { window in
-            guard window.title == expectedTitle,
-                  let processID = window.owningApplication?.processID,
+        let deviceAspect = CGFloat(displaySize.width) / CGFloat(displaySize.height)
+        let window = content.windows
+            .filter { window in
+                guard window.frame.width > 0,
+                      window.frame.height > 0,
+                      let processID = window.owningApplication?.processID,
                   let executableURL = NSRunningApplication(processIdentifier: processID)?.executableURL else {
-                return false
+                    return false
+                }
+                return AndroidEmulatorCapturePolicy.isExpectedEmulatorExecutable(
+                    executableURL,
+                    sdkRootURL: sdkRootURL
+                ) && AndroidEmulatorProcessIdentity.matches(
+                    processIdentifier: Int32(processID),
+                    avdName: avdName
+                )
             }
-            return AndroidEmulatorCapturePolicy.isExpectedEmulatorExecutable(
-                executableURL,
-                sdkRootURL: sdkRootURL
-            )
-        }), let application = window.owningApplication else {
+            .min { lhs, rhs in
+                let lhsError = AndroidEmulatorCapturePolicy.aspectError(lhs.frame.size, deviceAspect: deviceAspect)
+                let rhsError = AndroidEmulatorCapturePolicy.aspectError(rhs.frame.size, deviceAspect: deviceAspect)
+                if abs(lhsError - rhsError) > 0.001 {
+                    return lhsError < rhsError
+                }
+                return lhs.frame.width * lhs.frame.height > rhs.frame.width * rhs.frame.height
+            }
+        guard let window, let application = window.owningApplication else {
             throw AndroidEmulatorCaptureError.windowNotFound(avdName)
         }
 
@@ -318,6 +331,10 @@ private final class AndroidEmulatorWindowCapture: NSObject, SCStreamOutput, SCSt
 }
 
 enum AndroidEmulatorCapturePolicy {
+    static func aspectError(_ windowSize: CGSize, deviceAspect: CGFloat) -> CGFloat {
+        abs((windowSize.width / windowSize.height) - deviceAspect)
+    }
+
     static func isExpectedEmulatorExecutable(_ executableURL: URL, sdkRootURL: URL) -> Bool {
         let emulatorDirectory = sdkRootURL
             .appendingPathComponent("emulator", isDirectory: true)

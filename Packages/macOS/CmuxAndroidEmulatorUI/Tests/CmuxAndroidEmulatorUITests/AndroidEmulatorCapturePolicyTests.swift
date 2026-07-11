@@ -36,4 +36,19 @@ struct AndroidEmulatorCapturePolicyTests {
         #expect(rect.width == 411)
         #expect(abs(rect.height - 922.4) < 0.1)
     }
+
+    @Test
+    func ranksTheDeviceWindowAheadOfVendorAuxiliaryWindows() {
+        let aspect = CGFloat(1080) / CGFloat(2424)
+
+        #expect(
+            AndroidEmulatorCapturePolicy.aspectError(
+                CGSize(width: 411, height: 951),
+                deviceAspect: aspect
+            ) < AndroidEmulatorCapturePolicy.aspectError(
+                CGSize(width: 54, height: 506),
+                deviceAspect: aspect
+            )
+        )
+    }
 }
