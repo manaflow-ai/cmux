@@ -35,6 +35,37 @@ struct AgentChatSessionRegistryHookStoreTests {
         #expect(entry?.surfaceID == surfaceID)
     }
 
+    @Test func hookStoreReadsPreBundleScopeRecordDuringUpgrade() throws {
+        let home = try temporaryHomeDirectory()
+        let applicationSupport = home.appendingPathComponent("Application Support", isDirectory: true)
+        let bundleIdentifier = "com.cmuxterm.app.nightly"
+        let scopedDirectory = applicationSupport
+            .appendingPathComponent("cmux", isDirectory: true)
+            .appendingPathComponent("agent-hooks", isDirectory: true)
+            .appendingPathComponent(bundleIdentifier, isDirectory: true)
+        let sessionID = "legacy-upgrade-session"
+        let workspaceID = UUID().uuidString
+        let surfaceID = UUID().uuidString
+        try writeClaudeHookStore(
+            home: home,
+            sessionID: sessionID,
+            workspaceID: workspaceID,
+            surfaceID: surfaceID,
+            transcriptPath: "/tmp/legacy-upgrade-session.jsonl",
+            pid: 123
+        )
+
+        let entry = AgentChatHookSessionStore(
+            environment: ["CMUX_AGENT_HOOK_STATE_DIR": scopedDirectory.path],
+            applicationSupportDirectory: applicationSupport,
+            bundleIdentifier: bundleIdentifier,
+            legacyHomeDirectory: home
+        ).entry(agentSource: "claude", sessionID: sessionID)
+
+        #expect(entry?.workspaceID == workspaceID)
+        #expect(entry?.surfaceID == surfaceID)
+    }
+
     @Test func mobileChatObserverDetectsCmuxLaunchedOpaqueClaudeWrapper() throws {
         let workspaceID = UUID()
         let surfaceID = UUID()

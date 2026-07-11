@@ -73,4 +73,40 @@ struct AgentHookStateLocationTests {
 
         #expect(directory == home.appendingPathComponent(".cmuxterm", isDirectory: true))
     }
+
+    @Test("Reads legacy hook state after moving writers into a bundle scope")
+    func resolvesBundleScopedReadFallback() {
+        let applicationSupport = URL(fileURLWithPath: "/tmp/app-support", isDirectory: true)
+        let home = URL(fileURLWithPath: "/tmp/home", isDirectory: true)
+        let scoped = applicationSupport
+            .appendingPathComponent("cmux", isDirectory: true)
+            .appendingPathComponent("agent-hooks", isDirectory: true)
+            .appendingPathComponent("com.cmuxterm.app.nightly", isDirectory: true)
+
+        let directories = AgentHookStateLocation.resolveReadDirectoryURLs(
+            environment: ["CMUX_AGENT_HOOK_STATE_DIR": scoped.path],
+            applicationSupportDirectory: applicationSupport,
+            bundleIdentifier: "com.cmuxterm.app.nightly",
+            legacyHomeDirectory: home
+        )
+
+        #expect(directories == [
+            scoped,
+            home.appendingPathComponent(".cmuxterm", isDirectory: true),
+        ])
+    }
+
+    @Test("Keeps an unrelated explicit hook state override isolated")
+    func explicitReadOverrideDoesNotUseLegacyFallback() {
+        let override = URL(fileURLWithPath: "/tmp/custom-hook-state", isDirectory: true)
+
+        let directories = AgentHookStateLocation.resolveReadDirectoryURLs(
+            environment: ["CMUX_AGENT_HOOK_STATE_DIR": override.path],
+            applicationSupportDirectory: URL(fileURLWithPath: "/tmp/app-support", isDirectory: true),
+            bundleIdentifier: "com.cmuxterm.app.nightly",
+            legacyHomeDirectory: URL(fileURLWithPath: "/tmp/home", isDirectory: true)
+        )
+
+        #expect(directories == [override])
+    }
 }
