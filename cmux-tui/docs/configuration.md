@@ -93,6 +93,15 @@ The default launched profile is `~/Library/Application Support/cmux-tui/chrome-p
 | --- | --- | --- | --- |
 | `scrollbar.position` | `"column"` or `"border"` | `"column"` | Dedicated scrollbar column or right-border overlay |
 
+## Server
+
+| Key | Type | Default | Effect |
+| --- | --- | --- | --- |
+| `server.ws` | socket address string | unset | Enables the WebSocket control listener, for example `127.0.0.1:7681` |
+| `server.ws_token` | string | unset | Requires the first WebSocket text frame to be `{"auth":{"token":"..."}}` |
+
+WebSocket binds must be loopback unless cmux-tui is started with `--ws-insecure-bind`. The listener has no TLS; use an authenticated TLS reverse proxy for remote access. See the [transport contract](../spec/transports.md#websocket).
+
 ## Keys
 
 | Key | Type | Default | Effect |
@@ -189,6 +198,10 @@ Chord strings can be single characters or a key name with optional `ctrl`, `cont
   },
   "scrollbar": {
     "position": "column"
+  },
+  "server": {
+    "ws": "127.0.0.1:7681",
+    "ws_token": "replace-with-a-secret"
   },
   "keys": {
     "prefix": "ctrl+a",
