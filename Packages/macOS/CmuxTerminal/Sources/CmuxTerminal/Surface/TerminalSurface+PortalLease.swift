@@ -197,7 +197,8 @@ extension TerminalSurface {
                 if !Self.portalHostIsUsable(next) {
                     allowPortalHostReplacementIfAuthoritative(hostId: hostId)
                 }
-                return true
+                guard let committed = activePortalHostLease else { return false }
+                return committed.hostId == hostId && Self.portalHostIsUsable(committed)
             }
 
             guard Self.portalHostIsUsable(next) else {
