@@ -1,4 +1,5 @@
 import AppKit
+import CCEF
 import Foundation
 
 // Docked DevTools. CEF cannot parent its native DevTools browser to an
@@ -7,6 +8,11 @@ import Foundation
 // standard embedder pattern instead: an ordinary embedded browser loading
 // the DevTools frontend for the inspected page from the Chrome DevTools
 // Protocol endpoint. Requires CEFConfiguration.remoteDebuggingPort != 0.
+//
+// The inspected page is resolved by its CDP target id (fetched from the
+// browser itself via Target.getTargetInfo), never by URL: several browsers
+// commonly display the same URL, and a URL can drift mid-navigation, so URL
+// matching could attach DevTools to the wrong browser.
 
 extension CEFApp {
     /// Whether embedded DevTools (docked pane or app-owned window) can be
@@ -15,10 +21,10 @@ extension CEFApp {
         remoteDebuggingPort != 0
     }
 
-    /// Resolves the CDP target whose URL matches the inspected page and
-    /// builds the frontend URL from its devtoolsFrontendUrl. Completion runs
-    /// on the main thread.
-    func devToolsFrontendURL(inspectedURL: String, completion: @escaping (String?) -> Void) {
+    /// Looks up the CDP target with the given id and builds the DevTools
+    /// frontend URL from its devtoolsFrontendUrl. Completion runs on the
+    /// main thread.
+    func devToolsFrontendURL(targetId: String, completion: @escaping (String?) -> Void) {
         let port = remoteDebuggingPort
         guard port != 0, let listURL = URL(string: "http://127.0.0.1:\(port)/json") else {
             completion(nil)
@@ -28,14 +34,7 @@ extension CEFApp {
             var result: String?
             if let data,
                let targets = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] {
-                // Known limitation: the CDP target list carries no browser
-                // identity, so the inspected page is matched by exact URL.
-                // When several browsers show the same URL this picks the
-                // first, and a URL that drifted mid-navigation resolves nil
-                // (the caller completes nil and the user retries).
-                let match = targets.first { target in
-                    target["type"] as? String == "page" && target["url"] as? String == inspectedURL
-                }
+                let match = targets.first { $0["id"] as? String == targetId }
                 if let frontendPath = match?["devtoolsFrontendUrl"] as? String {
                     result = frontendPath.hasPrefix("http")
                         ? frontendPath
@@ -45,6 +44,31 @@ extension CEFApp {
             DispatchQueue.main.async { completion(result) }
         }
         task.resume()
+    }
+}
+
+/// One-shot CDP probe resolving a browser's DevTools target id via
+/// Target.getTargetInfo. The observer struct allocation retains this object;
+/// the registration returned by add_dev_tools_message_observer is released
+/// when the probe finishes, which unregisters the observer and drops the
+/// struct's references.
+private final class CEFDevToolsTargetIdProbe {
+    private var completion: ((String?) -> Void)?
+    var registrationPtr: UnsafeMutablePointer<cef_registration_t>?
+    var messageId: Int32 = 0
+
+    init(completion: @escaping (String?) -> Void) {
+        self.completion = completion
+    }
+
+    func finish(_ targetId: String?) {
+        guard let completion else { return }
+        self.completion = nil
+        if let registrationPtr {
+            self.registrationPtr = nil
+            cefRelease(UnsafeMutableRawPointer(registrationPtr))
+        }
+        completion(targetId)
     }
 }
 
@@ -60,11 +84,11 @@ extension CEFBrowser {
         delegate: CEFBrowserDelegate? = nil,
         completion: @escaping (CEFBrowser?) -> Void
     ) {
-        guard CEFApp.shared.isDevToolsDockingAvailable, let inspectedURL = url else {
+        guard CEFApp.shared.isDevToolsDockingAvailable else {
             completion(nil)
             return
         }
-        CEFApp.shared.devToolsFrontendURL(inspectedURL: inspectedURL) { frontend in
+        devToolsFrontendURL { frontend in
             guard let frontend else {
                 completion(nil)
                 return
@@ -78,6 +102,70 @@ extension CEFBrowser {
                 devToolsBrowser?.applyDevToolsEmbedderDefaults()
                 completion(devToolsBrowser)
             }
+        }
+    }
+
+    /// Resolves this browser's DevTools frontend URL: fetches the CDP target
+    /// id from the browser itself, then matches it in the CDP endpoint's
+    /// target list. Completion runs on the main thread.
+    func devToolsFrontendURL(completion: @escaping (String?) -> Void) {
+        fetchDevToolsTargetId { targetId in
+            guard let targetId else {
+                completion(nil)
+                return
+            }
+            CEFApp.shared.devToolsFrontendURL(targetId: targetId, completion: completion)
+        }
+    }
+
+    /// Asks the browser's own DevTools agent for its target id
+    /// (Target.getTargetInfo), giving an exact identity mapping into the CDP
+    /// /json target list regardless of the page URL. Must be called on the
+    /// main thread; completion runs on the main thread.
+    func fetchDevToolsTargetId(completion: @escaping (String?) -> Void) {
+        let probe = CEFDevToolsTargetIdProbe(completion: completion)
+        let observerPtr = CEFHandler.allocate(cef_dev_tools_message_observer_t.self, object: probe)
+        observerPtr.pointee.on_dev_tools_method_result = { selfPtr, _, messageId, success, result, resultSize in
+            guard let selfPtr else { return }
+            let probe = CEFHandler.object(CEFDevToolsTargetIdProbe.self, from: selfPtr)
+            guard messageId == probe.messageId else { return }
+            var targetId: String?
+            if success != 0, let result, resultSize > 0 {
+                let data = Data(bytes: result, count: resultSize)
+                if let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   let info = payload["targetInfo"] as? [String: Any] {
+                    targetId = info["targetId"] as? String
+                }
+            }
+            probe.finish(targetId)
+        }
+        // Pending results are dropped when the agent detaches; fail the probe
+        // instead of leaving it (and its registration) pending forever.
+        observerPtr.pointee.on_dev_tools_agent_detached = { selfPtr, _ in
+            guard let selfPtr else { return }
+            CEFHandler.object(CEFDevToolsTargetIdProbe.self, from: selfPtr).finish(nil)
+        }
+        var transferred = false
+        var submitted = false
+        withHost { host in
+            guard let addObserver = host.pointee.add_dev_tools_message_observer else { return }
+            // The observer struct's allocation reference transfers to CEF
+            // here; the returned registration (owned +1) keeps it alive
+            // until the probe finishes.
+            probe.registrationPtr = addObserver(host, observerPtr)
+            transferred = true
+            let assigned = withCEFString("Target.getTargetInfo") { methodPtr in
+                host.pointee.execute_dev_tools_method?(host, 0, methodPtr, nil) ?? 0
+            }
+            probe.messageId = assigned
+            submitted = assigned != 0
+        }
+        if !transferred {
+            // Closed browser: the allocation reference is still ours.
+            cefRelease(UnsafeMutableRawPointer(observerPtr))
+        }
+        if !submitted {
+            probe.finish(nil)
         }
     }
 

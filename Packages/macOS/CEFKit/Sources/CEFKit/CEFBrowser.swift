@@ -230,7 +230,7 @@ public final class CEFBrowser {
         return result
     }
 
-    private func withHost(_ body: (UnsafeMutablePointer<cef_browser_host_t>) -> Void) {
+    func withHost(_ body: (UnsafeMutablePointer<cef_browser_host_t>) -> Void) {
         guard !isClosed, let host = ptr.pointee.get_host?(ptr) else { return }
         defer { cefRelease(UnsafeMutableRawPointer(host)) }
         body(host)

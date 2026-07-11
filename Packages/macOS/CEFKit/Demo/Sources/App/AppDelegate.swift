@@ -24,6 +24,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var pendingProfiles: Set<String> = []
     private var activeProfileName = "Default"
     private var dockedDevTools: CEFBrowser?
+    /// Bumped by closeAllDevTools; stale async open results are closed.
+    private var devToolsRequestGeneration = 0
     private var devToolsWidthConstraint: NSLayoutConstraint?
     private var devToolsWindow: CEFDevToolsWindow?
 
@@ -203,14 +205,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             profile: profile,
             delegate: self
         ) { [weak self] browser in
-            guard let self else { return }
+            // Creation is asynchronous: the owner may be gone (or this
+            // profile's container replaced) before it completes. Close an
+            // unadopted browser instead of orphaning it.
+            guard let self, self.containers[name] === container else {
+                browser?.close(force: true)
+                container.removeFromSuperview()
+                return
+            }
             self.pendingProfiles.remove(name)
             guard let browser else {
                 // Failed create: drop the orphan container so a retry does
                 // not stack duplicate hosts for the same profile.
-                if self.containers[name] === container {
-                    self.containers[name] = nil
-                }
+                self.containers[name] = nil
                 container.removeFromSuperview()
                 return
             }
@@ -303,9 +310,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 return
             }
             closeAllDevTools()
+            let generation = devToolsRequestGeneration
             setDevToolsPaneVisible(true)
             browser.openDockedDevTools(in: devToolsContainer, delegate: self) { [weak self] devtools in
-                self?.dockedDevTools = devtools
+                guard let self, self.devToolsRequestGeneration == generation else {
+                    devtools?.close(force: true)
+                    return
+                }
+                self.dockedDevTools = devtools
             }
         case 2:  // Window: app-owned NSWindow hosting the DevTools frontend.
             guard CEFApp.shared.isDevToolsDockingAvailable else {
@@ -314,8 +326,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 return
             }
             closeAllDevTools()
+            let generation = devToolsRequestGeneration
             CEFDevToolsWindow.open(for: browser) { [weak self] devToolsWindow in
-                self?.devToolsWindow = devToolsWindow
+                guard let self, self.devToolsRequestGeneration == generation else {
+                    devToolsWindow?.close()
+                    return
+                }
+                self.devToolsWindow = devToolsWindow
             }
         default:  // Off
             closeAllDevTools()
@@ -323,6 +340,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func closeAllDevTools() {
+        // Invalidate in-flight open requests: a result arriving after the
+        // user switched profile/Off must not be adopted.
+        devToolsRequestGeneration += 1
         dockedDevTools?.close(force: true)
         dockedDevTools = nil
         devToolsWindow?.close()

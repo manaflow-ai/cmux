@@ -21,11 +21,11 @@ public final class CEFDevToolsWindow: NSObject, NSWindowDelegate {
         title: String = "DevTools",
         completion: @escaping (CEFDevToolsWindow?) -> Void
     ) {
-        guard CEFApp.shared.isDevToolsDockingAvailable, let inspectedURL = browser.url else {
+        guard CEFApp.shared.isDevToolsDockingAvailable else {
             completion(nil)
             return
         }
-        CEFApp.shared.devToolsFrontendURL(inspectedURL: inspectedURL) { frontend in
+        browser.devToolsFrontendURL { frontend in
             guard let frontend else {
                 completion(nil)
                 return

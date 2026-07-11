@@ -151,6 +151,8 @@ final class CEFBrowserDebugView: NSView {
     private var pendingProfiles: Set<String> = []
     private var activeProfileName = "Default"
     private var dockedDevTools: CEFBrowser?
+    /// Bumped by closeAllDevTools; stale async open results are closed.
+    private var devToolsRequestGeneration = 0
     private var devToolsWidthConstraint: NSLayoutConstraint?
     private var devToolsWindow: CEFDevToolsWindow?
     private var started = false
@@ -236,14 +238,20 @@ final class CEFBrowserDebugView: NSView {
             profile: profile,
             delegate: self
         ) { [weak self] browser in
-            guard let self else { return }
+            // Creation is asynchronous: the window may have been torn down
+            // (or this profile's container replaced) before it completes. An
+            // unadopted browser would stay alive, hidden, for the rest of
+            // the session — close it instead of orphaning it.
+            guard let self, self.containers[name] === container else {
+                browser?.close(force: true)
+                container.removeFromSuperview()
+                return
+            }
             self.pendingProfiles.remove(name)
             guard let browser else {
                 // Failed create: drop the orphan container so a retry does
                 // not stack duplicate hosts for the same profile.
-                if self.containers[name] === container {
-                    self.containers[name] = nil
-                }
+                self.containers[name] = nil
                 container.removeFromSuperview()
                 return
             }
@@ -304,6 +312,10 @@ final class CEFBrowserDebugView: NSView {
     }
 
     private func closeAllDevTools() {
+        // Invalidate in-flight open requests: target discovery and browser
+        // creation are asynchronous, and a result arriving after the user
+        // switched profile/Off (or the window closed) must not be adopted.
+        devToolsRequestGeneration += 1
         dockedDevTools?.close(force: true)
         dockedDevTools = nil
         devToolsWindow?.close()
@@ -339,14 +351,24 @@ final class CEFBrowserDebugView: NSView {
         switch sender.indexOfSelectedItem {
         case 1:
             closeAllDevTools()
+            let generation = devToolsRequestGeneration
             setDevToolsPaneVisible(true)
             browser.openDockedDevTools(in: devToolsContainer) { [weak self] devtools in
-                self?.dockedDevTools = devtools
+                guard let self, self.devToolsRequestGeneration == generation else {
+                    devtools?.close(force: true)
+                    return
+                }
+                self.dockedDevTools = devtools
             }
         case 2:
             closeAllDevTools()
+            let generation = devToolsRequestGeneration
             CEFDevToolsWindow.open(for: browser) { [weak self] devToolsWindow in
-                self?.devToolsWindow = devToolsWindow
+                guard let self, self.devToolsRequestGeneration == generation else {
+                    devToolsWindow?.close()
+                    return
+                }
+                self.devToolsWindow = devToolsWindow
             }
         default:
             closeAllDevTools()
