@@ -64,7 +64,11 @@ struct CommandPaletteInteractionMonitorTests {
                 )
             },
             onWindowStateChange: {},
-            onDismiss: {
+            onDismiss: { dismissal in
+                #expect(dismissal == .pointer(CommandPalettePointerEvent(
+                    isInObservedWindow: true,
+                    locationInWindow: NSPoint(x: 20, y: 20)
+                )))
                 dismissCount += 1
                 overlayView.removeFromSuperview()
             }
@@ -105,13 +109,13 @@ struct CommandPaletteInteractionMonitorTests {
         )
         let window = NSObject()
 
-        var dismissCount = 0
+        var dismissals: [CommandPaletteInteractionDismissal] = []
         var windowStateChangeCount = 0
         monitor.activate(
             for: window,
             shouldDismiss: { _ in true },
             onWindowStateChange: { windowStateChangeCount += 1 },
-            onDismiss: { dismissCount += 1 }
+            onDismiss: { dismissals.append($0) }
         )
 
         #expect(eventSource.addCount == 1)
@@ -124,7 +128,10 @@ struct CommandPaletteInteractionMonitorTests {
             isInObservedWindow: true,
             locationInWindow: CGPoint(x: 20, y: 20)
         ))
-        #expect(dismissCount == 1)
+        #expect(dismissals == [.pointer(CommandPalettePointerEvent(
+            isInObservedWindow: true,
+            locationInWindow: CGPoint(x: 20, y: 20)
+        ))])
 
         notificationCenter.send(
             name: CommandPaletteInteractionMonitor.windowDidBecomeKeyNotification,
@@ -136,7 +143,13 @@ struct CommandPaletteInteractionMonitorTests {
             object: window
         )
         #expect(windowStateChangeCount == 2)
-        #expect(dismissCount == 2)
+        #expect(dismissals == [
+            .pointer(CommandPalettePointerEvent(
+                isInObservedWindow: true,
+                locationInWindow: CGPoint(x: 20, y: 20)
+            )),
+            .windowResignedKey,
+        ])
 
         monitor.deactivate()
         #expect(eventSource.removeCount == 1)
@@ -160,13 +173,13 @@ struct CommandPaletteInteractionMonitorTests {
             for: window,
             shouldDismiss: { _ in true },
             onWindowStateChange: {},
-            onDismiss: { firstDismissCount += 1 }
+            onDismiss: { _ in firstDismissCount += 1 }
         )
         monitor.activate(
             for: window,
             shouldDismiss: { _ in true },
             onWindowStateChange: {},
-            onDismiss: { secondDismissCount += 1 }
+            onDismiss: { _ in secondDismissCount += 1 }
         )
 
         eventSource.send(CommandPalettePointerEvent(isInObservedWindow: true, locationInWindow: .zero))
@@ -189,7 +202,7 @@ struct CommandPaletteInteractionMonitorTests {
             for: window,
             shouldDismiss: { _ in false },
             onWindowStateChange: {},
-            onDismiss: {}
+            onDismiss: { _ in }
         )
 
         weak let weakMonitor = monitor

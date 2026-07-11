@@ -1,5 +1,14 @@
 import AppKit
 
+/// The interaction that ended one visible command-palette lifecycle.
+public enum CommandPaletteInteractionDismissal: Sendable, Equatable {
+    /// A process-local pointer event occurred outside the palette panel.
+    case pointer(CommandPalettePointerEvent)
+
+    /// The palette's host window stopped being the key window.
+    case windowResignedKey
+}
+
 /// Owns every process-level observation used while one command palette is visible.
 ///
 /// Activation is idempotent for a window: repeated render updates refresh the
@@ -16,7 +25,7 @@ public final class CommandPaletteInteractionMonitor {
     private var windowObserverTokens: [any NSObjectProtocol] = []
     private var shouldDismiss: ((CommandPalettePointerEvent) -> Bool)?
     private var onWindowStateChange: (() -> Void)?
-    private var onDismiss: (() -> Void)?
+    private var onDismiss: ((CommandPaletteInteractionDismissal) -> Void)?
 
     /// Creates a monitor backed by the process event stream and default notification center.
     public convenience init() {
@@ -52,7 +61,7 @@ public final class CommandPaletteInteractionMonitor {
         for window: AnyObject,
         shouldDismiss: @escaping (CommandPalettePointerEvent) -> Bool,
         onWindowStateChange: @escaping () -> Void,
-        onDismiss: @escaping () -> Void
+        onDismiss: @escaping (CommandPaletteInteractionDismissal) -> Void
     ) {
         if self.window !== window {
             deactivate()
@@ -66,14 +75,14 @@ public final class CommandPaletteInteractionMonitor {
         if localMouseDownMonitor == nil {
             localMouseDownMonitor = eventSource.addLocalMouseDownMonitor(for: window) { [weak self] event in
                 guard let self, self.shouldDismiss?(event) == true else { return }
-                self.onDismiss?()
+                self.onDismiss?(.pointer(event))
             }
         }
 
         guard windowObserverTokens.isEmpty else { return }
         windowObserverTokens = [
-            observe(Self.windowDidBecomeKeyNotification, window: window, dismiss: false),
-            observe(Self.windowDidResignKeyNotification, window: window, dismiss: true),
+            observe(Self.windowDidBecomeKeyNotification, window: window, dismissal: nil),
+            observe(Self.windowDidResignKeyNotification, window: window, dismissal: .windowResignedKey),
         ]
     }
 
@@ -96,7 +105,7 @@ public final class CommandPaletteInteractionMonitor {
     private func observe(
         _ name: Notification.Name,
         window: AnyObject,
-        dismiss: Bool
+        dismissal: CommandPaletteInteractionDismissal?
     ) -> any NSObjectProtocol {
         notificationCenter.addObserver(
             forName: name,
@@ -106,8 +115,8 @@ public final class CommandPaletteInteractionMonitor {
             MainActor.assumeIsolated {
                 guard let self else { return }
                 self.onWindowStateChange?()
-                if dismiss {
-                    self.onDismiss?()
+                if let dismissal {
+                    self.onDismiss?(dismissal)
                 }
             }
         }

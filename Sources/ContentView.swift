@@ -508,7 +508,7 @@ private final class WindowCommandPaletteOverlayController: NSObject {
 
     func update(
         isVisible: Bool,
-        onDismiss: @MainActor @escaping () -> Void = {},
+        onDismiss: @MainActor @escaping (CommandPaletteInteractionDismissal) -> Void = { _ in },
         makeRootView: @MainActor () -> AnyView = { AnyView(EmptyView()) }
     ) {
         let wasVisible = isPaletteVisible
@@ -552,10 +552,10 @@ private final class WindowCommandPaletteOverlayController: NSObject {
                 onWindowStateChange: { [weak self] in
                     self?.updateFocusLockForWindowState()
                 },
-                onDismiss: { [weak self] in
+                onDismiss: { [weak self] dismissal in
                     guard let self, self.isPaletteVisible else { return }
                     self.hideOverlay()
-                    onDismiss()
+                    onDismiss(dismissal)
                 }
             )
         }
@@ -2925,9 +2925,9 @@ struct ContentView: View {
             let overlayController = commandPaletteWindowOverlayController(for: window)
             overlayController.update(
                 isVisible: isCommandPalettePresented,
-                // The monitored mouse-down is returned after synchronous teardown;
-                // that event, not the palette's saved responder, owns focus next.
-                onDismiss: { dismissCommandPalette(restoreFocus: false) }
+                onDismiss: { dismissal in
+                    dismissCommandPalette(for: dismissal, in: window)
+                }
             ) { AnyView(commandPaletteOverlay) }
         }))
 
@@ -3155,8 +3155,9 @@ struct ContentView: View {
             commandPaletteWindowOverlayController(for: window)
                 .update(
                     isVisible: isCommandPalettePresented,
-                    // Preserve focus chosen by the returned event or newly key window.
-                    onDismiss: { dismissCommandPalette(restoreFocus: false) }
+                    onDismiss: { dismissal in
+                        dismissCommandPalette(for: dismissal, in: window)
+                    }
                 ) { commandPaletteOverlayView }
             TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: window)
             BrowserWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: window)
@@ -8687,6 +8688,64 @@ struct ContentView: View {
         syncCommandPaletteOverlayCommandListState()
         resetCommandPaletteSearchFocus()
         syncCommandPaletteDebugStateForObservedWindow()
+    }
+
+    private func dismissCommandPalette(
+        for dismissal: CommandPaletteInteractionDismissal,
+        in window: NSWindow
+    ) {
+        guard case .pointer(let event) = dismissal, event.isInObservedWindow else {
+            dismissCommandPalette(restoreFocus: false)
+            return
+        }
+
+        // Other local monitors have no ordering contract. Reconcile a clicked
+        // terminal/browser target directly after hiding the overlay; the returned
+        // mouse-down can still replace this provisional focus during dispatch.
+        let clickedFocusTarget = commandPalettePointerFocusTarget(
+            atWindowPoint: event.locationInWindow,
+            in: window
+        )
+        dismissCommandPalette(
+            restoreFocus: clickedFocusTarget != nil,
+            preferredFocusTarget: clickedFocusTarget
+        )
+    }
+
+    private func commandPalettePointerFocusTarget(
+        atWindowPoint windowPoint: NSPoint,
+        in window: NSWindow
+    ) -> CommandPaletteRestoreFocusTarget? {
+        if let terminalView = TerminalWindowPortalRegistry.terminalViewAtWindowPoint(windowPoint, in: window),
+           let workspaceId = terminalView.tabId,
+           let panelId = terminalView.terminalSurface?.id,
+           tabManager.tabs.contains(where: { $0.id == workspaceId }) {
+            return CommandPaletteRestoreFocusTarget(
+                workspaceId: workspaceId,
+                panelId: panelId,
+                intent: .terminal(.surface)
+            )
+        }
+
+        guard let webView = BrowserWindowPortalRegistry.webViewAtWindowPoint(windowPoint, in: window) else {
+            return nil
+        }
+        let selectedWorkspaceId = tabManager.selectedTabId
+        let orderedWorkspaces = tabManager.tabs.filter { $0.id == selectedWorkspaceId }
+            + tabManager.tabs.filter { $0.id != selectedWorkspaceId }
+        for workspace in orderedWorkspaces {
+            for (panelId, panel) in workspace.panels {
+                guard let browserPanel = panel as? BrowserPanel, browserPanel.webView === webView else {
+                    continue
+                }
+                return CommandPaletteRestoreFocusTarget(
+                    workspaceId: workspace.id,
+                    panelId: panelId,
+                    intent: .browser(.webView)
+                )
+            }
+        }
+        return nil
     }
 
     private func dismissCommandPalette(restoreFocus: Bool = true) {
