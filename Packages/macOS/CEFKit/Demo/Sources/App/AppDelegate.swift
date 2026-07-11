@@ -150,11 +150,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    func applicationWillTerminate(_ notification: Notification) {
-        // Last statement of the quit flow: Chromium's atexit handlers DCHECK
-        // even after a clean drain, so end the process without them.
-        CEFApp.shared.finalizeProcessExitIfNeeded()
-    }
+    // No applicationWillTerminate needed: Chromium's DCHECKing atexit
+    // handlers are skipped by the _exit handler CEFKit registers at
+    // initialize (it runs inside exit(), after all willTerminate
+    // observers).
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         // Cancel-close-reterminate: browser closes cannot complete while a
