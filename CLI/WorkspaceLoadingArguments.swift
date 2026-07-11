@@ -8,12 +8,6 @@ struct WorkspaceLoadingArguments {
 }
 
 extension CMUXCLI {
-    struct WorkspaceNamespaceTarget {
-        let workspaceId: String
-        let windowId: String?
-        let remaining: [String]
-    }
-
     /// Single source of truth for commands whose workspace target is optional.
     /// Explicit windows suppress caller context because the caller may belong to
     /// another window; `resolveWorkspaceId` then selects that window's workspace.
@@ -41,7 +35,7 @@ extension CMUXCLI {
         commandArgs: [String],
         client: SocketClient,
         windowOverride: String?
-    ) throws -> WorkspaceNamespaceTarget {
+    ) throws -> (workspaceId: String, windowId: String?, remaining: [String]) {
         let (workspaceOption, argsAfterWorkspace) = parseOption(commandArgs, name: "--workspace")
         let (windowOption, remaining) = parseOption(argsAfterWorkspace, name: "--window")
         let positional = remaining.first { $0 != "--" && !$0.hasPrefix("--") }
@@ -52,11 +46,7 @@ extension CMUXCLI {
             client: client,
             windowOverride: windowOverride
         )
-        return WorkspaceNamespaceTarget(
-            workspaceId: target.workspaceId,
-            windowId: target.windowId,
-            remaining: remaining
-        )
+        return (target.workspaceId, target.windowId, remaining)
     }
 
     func validateWorkspaceLoadingCommandBeforeSocket(
