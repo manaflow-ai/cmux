@@ -23,24 +23,24 @@ import Testing
         #expect(anchor.topRow(in: scrollbar(total: 400, offset: 356, visible: 44)) == 356)
     }
 
-    /// Output appended after capture does not move the captured content.
-    @Test func preservesCapturedOutputWhenNewRowsArrive() {
+    /// A live-bottom anchor follows the current bottom as new rows arrive.
+    @Test func keepsLiveBottomWhenNewRowsArrive() {
         let anchor = TerminalScrollbackViewportAnchor(
             rowsBelowViewport: 0,
             capturedTotalRows: 400
         )
 
-        #expect(anchor.topRow(in: scrollbar(total: 450, offset: 406, visible: 44)) == 356)
+        #expect(anchor.topRow(in: scrollbar(total: 450, offset: 406, visible: 44)) == 406)
     }
 
-    /// A scrollback review anchor round-trips through the bottom-relative model.
-    @Test func restoresCapturedScrollbackReviewPosition() {
+    /// An addressable scrollback review anchor remains on its captured output.
+    @Test func restoresCapturedScrollbackReviewPositionAfterOutputArrives() {
         let anchor = TerminalScrollbackViewportAnchor(
             rowsBelowViewport: 138,
             capturedTotalRows: 400
         )
 
-        #expect(anchor.topRow(in: scrollbar(total: 400, offset: 218, visible: 44)) == 218)
+        #expect(anchor.topRow(in: scrollbar(total: 450, offset: 406, visible: 44)) == 218)
     }
 
     /// Restoration clamps trimmed history and waits for nonzero viewport geometry.

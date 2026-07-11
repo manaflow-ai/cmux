@@ -45,9 +45,10 @@ public struct TerminalScrollbackViewportAnchor: Equatable, Sendable {
 
     /// Resolves the first visible row for Ghostty's current scrollback geometry.
     ///
-    /// The captured viewport bottom remains attached to the same output while
-    /// its rows remain addressable. If history or viewport geometry makes that
-    /// position invalid, the result is clamped to the current scroll range.
+    /// A live-bottom anchor follows the runtime's current bottom. Other anchors
+    /// remain attached to the same output while their rows remain addressable.
+    /// If history or viewport geometry makes a position invalid, the result is
+    /// clamped to the current scroll range.
     ///
     /// - Parameter scrollbar: The current top-relative Ghostty scrollbar state.
     /// - Returns: The absolute first visible row, or `nil` before the runtime has
@@ -57,6 +58,9 @@ public struct TerminalScrollbackViewportAnchor: Equatable, Sendable {
         let currentVisibleRows = min(currentTotalRows, Int(clamping: scrollbar.len))
         guard currentVisibleRows > 0 else { return nil }
         let currentLastTopRow = currentTotalRows - currentVisibleRows
+        if rowsBelowViewport == 0 {
+            return currentLastTopRow
+        }
         let capturedViewportBottomRow = capturedTotalRows - rowsBelowViewport
         let unclampedTopRow = max(0, capturedViewportBottomRow - currentVisibleRows)
         return min(currentLastTopRow, unclampedTopRow)
