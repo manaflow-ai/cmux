@@ -55,11 +55,10 @@ import Testing
         #expect(response.files[1].deletions == nil)
     }
 
-    @Test func diffStatusToleratesMissingForwardCompatibleFields() throws {
-        let response = try MobileWorkspaceDiffStatusResponse.decode(Data("{}".utf8))
-
-        #expect(response.repoRoot == "")
-        #expect(response.files.isEmpty)
+    @Test func diffStatusRejectsMissingRequiredFields() {
+        #expect(throws: DecodingError.self) {
+            try MobileWorkspaceDiffStatusResponse.decode(Data("{}".utf8))
+        }
     }
 
     @Test func diffFileDecodesUnifiedDiffAndTruncationFlag() throws {

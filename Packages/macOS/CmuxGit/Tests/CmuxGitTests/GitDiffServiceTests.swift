@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import Testing
 
@@ -334,6 +335,32 @@ import Testing
         let signalled = finished.wait(timeout: .now() + 5)
         #expect(signalled == .success)
         #expect(box.value == nil)
+    }
+
+    @Test func deadlineTerminatesDescendantsInTheGitProcessGroup() throws {
+        let repo = try makeTempRepo()
+        defer { try? FileManager.default.removeItem(at: repo) }
+        let stalledGit = repo.appendingPathComponent("descendant-git.sh")
+        try Data(
+            "#!/bin/sh\ntrap '' TERM\nsleep 30 &\necho $! > child.pid\nwait\n".utf8
+        ).write(to: stalledGit)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755], ofItemAtPath: stalledGit.path
+        )
+
+        let service = GitDiffService(
+            gitExecutableURL: stalledGit,
+            processDeadlineSeconds: 5
+        )
+        #expect(service.repositoryRoot(for: repo.path) == nil)
+
+        let pidText = try String(contentsOf: repo.appendingPathComponent("child.pid"), encoding: .utf8)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let childPID = try #require(Int32(pidText))
+        let killResult = kill(childPID, 0)
+        let killError = errno
+        #expect(killResult == -1)
+        #expect(killError == ESRCH)
     }
 
     private func makeTempRepo() throws -> URL {
