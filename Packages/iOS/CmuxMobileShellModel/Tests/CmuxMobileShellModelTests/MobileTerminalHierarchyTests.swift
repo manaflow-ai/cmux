@@ -83,3 +83,16 @@ import Testing
     #expect(fallback.resolvedSelection(availableTerminalIDs: ["terminal-a", "terminal-b"]) == "terminal-a")
     #expect(fallback.resolvedSelection(availableTerminalIDs: ["terminal-b"]) == nil)
 }
+
+@Test func closeFallbackPreservesSelectionMadeWhileCloseWasInFlight() {
+    let fallback = MobileTerminalCloseFallback(
+        closedTerminalID: "terminal-b",
+        selectedTerminalID: "terminal-b",
+        orderedTerminalIDs: ["terminal-a", "terminal-b", "terminal-c"]
+    )
+
+    #expect(fallback.resolvedSelection(
+        currentSelection: "terminal-a",
+        availableTerminalIDs: ["terminal-a", "terminal-c"]
+    ) == "terminal-a")
+}
