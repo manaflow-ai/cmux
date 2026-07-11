@@ -4,6 +4,64 @@ import Testing
 
 @Suite("Mobile viewport fit geometry")
 struct MobileViewportFitGeometryTests {
+    @Test func destinationScaleProjectsMeasuredCellsAndPadding() {
+        let projection = MobileViewportScaleProjection(
+            currentXScale: 1,
+            currentYScale: 1,
+            destinationXScale: 2,
+            destinationYScale: 1.5
+        )
+
+        #expect(projection.cellWidth(10) == 20)
+        #expect(projection.cellHeight(20) == 30)
+        #expect(projection.horizontalNonGridPixels(4) == 8)
+        #expect(projection.verticalNonGridPixels(4) == 6)
+    }
+
+    @Test func explicitZoomReplacesTheCachedAutomaticFitBaseline() {
+        var state = MobileViewportFontFitState(
+            baseFontPointSize: 12,
+            fittedFontPointSize: 8,
+            baseWasUserAdjusted: false
+        )
+
+        state.reconcile(liveFontPointSize: 9, configuredFontPointSize: 12)
+
+        #expect(state.baseFontPointSize == 9)
+        #expect(state.fittedFontPointSize == nil)
+        #expect(state.baseWasUserAdjusted == true)
+        #expect(state.resolvedCurrentFontPointSize(liveFontPointSize: 9) == 9)
+    }
+
+    @Test func configuredBaselineTracksConfigChangesDuringAutomaticFit() {
+        var state = MobileViewportFontFitState(
+            baseFontPointSize: 12,
+            fittedFontPointSize: 8,
+            baseWasUserAdjusted: false
+        )
+
+        state.reconcile(liveFontPointSize: 8, configuredFontPointSize: 14)
+
+        #expect(state.baseFontPointSize == 14)
+        #expect(state.fittedFontPointSize == 8)
+    }
+
+    @Test func restoreClearsAutomaticAdjustmentButPreservesUserAdjustment() {
+        let automatic = MobileViewportFontFitState(
+            baseFontPointSize: 12,
+            fittedFontPointSize: 8,
+            baseWasUserAdjusted: false
+        )
+        let userAdjusted = MobileViewportFontFitState(
+            baseFontPointSize: 14,
+            fittedFontPointSize: 9,
+            baseWasUserAdjusted: true
+        )
+
+        #expect(automatic.restorePlan(configuredFontPointSize: 12) == .resetToConfigured)
+        #expect(userAdjusted.restorePlan(configuredFontPointSize: 12) == .resetThenSet(14))
+    }
+
     @Test func fitNotNeededKeepsBaseFontAndGrantBox() {
         let geometry = geometry(paneWidthPx: 1000, paneHeightPx: 600, cellWidthPx: 10, cellHeightPx: 20)
         let font = geometry.targetFontPointSize(
