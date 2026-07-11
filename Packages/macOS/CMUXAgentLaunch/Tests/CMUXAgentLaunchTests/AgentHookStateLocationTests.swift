@@ -278,8 +278,8 @@ struct AgentHookStateLocationTests {
         #expect(try Data(contentsOf: scoped.appendingPathComponent(filename)) == legacyData)
     }
 
-    @Test("Migration coordinates with concurrent hook writers")
-    func migrationCoordinatesWithHookWriterLock() throws {
+    @Test("Migration defers instead of blocking on a concurrent hook writer")
+    func migrationDefersWhileHookWriterIsLocked() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-hook-state-writer-race-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -293,6 +293,7 @@ struct AgentHookStateLocationTests {
         let filename = "codex-hook-sessions.json"
         let legacyFile = legacy.appendingPathComponent(filename)
         let scopedFile = scoped.appendingPathComponent(filename)
+        let marker = scoped.appendingPathComponent(".legacy-hook-state-migrated-v1")
         try JSONSerialization.data(withJSONObject: [
             "sessions": ["legacy-only": ["workspaceId": "legacy"]],
         ]).write(to: legacyFile)
@@ -322,13 +323,26 @@ struct AgentHookStateLocationTests {
             finished.signal()
         }
         #expect(started.wait(timeout: .now() + 1) == .success)
-        #expect(finished.wait(timeout: .now() + 1) == .timedOut)
+        let initialResult = finished.wait(timeout: .now() + 1)
+        #expect(initialResult == .success)
 
         try JSONSerialization.data(withJSONObject: [
             "sessions": ["writer-update": ["workspaceId": "writer"]],
         ]).write(to: scopedFile, options: .atomic)
         #expect(flock(lockDescriptor, LOCK_UN) == 0)
-        #expect(finished.wait(timeout: .now() + 2) == .success)
+        if initialResult != .success {
+            #expect(finished.wait(timeout: .now() + 2) == .success)
+        }
+        #expect(!FileManager.default.fileExists(atPath: marker.path))
+
+        _ = AgentHookStateReaderLocation(
+            environment: [:],
+            applicationSupportDirectory: applicationSupport,
+            bundleIdentifier: "com.cmuxterm.app.nightly",
+            legacyHomeDirectory: home,
+            fileManager: .default
+        )
+        #expect(FileManager.default.fileExists(atPath: marker.path))
 
         let data = try Data(contentsOf: scopedFile)
         let rootObject = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
