@@ -187,6 +187,24 @@ struct SSHStartupManualReconnectTests {
         #expect(workspace.remoteConnectionState == .reconnecting)
     }
 
+    @MainActor
+    @Test func completedRemoteCommandKeepsLogicalSurfaceAndScrollback() throws {
+        let manager = TabManager()
+        let workspace = manager.addWorkspace(select: true)
+        let panel = try #require(workspace.focusedTerminalPanel)
+        let output = "remote-command-output\n"
+        workspace.configureRemoteConnection(Self.makeRemoteConfiguration(), autoConnect: false)
+        workspace.restoredTerminalScrollbackByPanelId[panel.id] = output
+
+        manager.closePanelAfterChildExited(tabId: workspace.id, surfaceId: panel.id)
+
+        let disconnectedPanel = try #require(workspace.terminalPanel(for: panel.id))
+        #expect(disconnectedPanel.surface !== panel.surface)
+        #expect(workspace.remoteDisconnectPlaceholderPanelIds.contains(panel.id))
+        let replayPath = try #require(disconnectedPanel.surface.startupEnvironmentValue(SessionScrollbackReplayStore.environmentKey))
+        #expect(try String(contentsOfFile: replayPath, encoding: .utf8) == output)
+    }
+
     private static func makeRemoteConfiguration() -> WorkspaceRemoteConfiguration {
         WorkspaceRemoteConfiguration(
             destination: "cmux-macmini",
