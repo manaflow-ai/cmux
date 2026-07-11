@@ -17,7 +17,10 @@ export async function generateMetadata({
     locale,
     t,
     siteMeta,
-    ["title", "description", "subtitle"],
+    {
+      complete: ["description", "subtitle"],
+      context: ["title"],
+    },
   );
   return {
     title,

@@ -404,7 +404,10 @@ describe("SEO metadata helpers", () => {
             locale,
             messageLookup(messages.nightly),
             siteMeta,
-            ["title", "description", "subtitle"],
+            {
+              complete: ["description", "subtitle"],
+              context: ["title"],
+            },
           ),
           [
             messages.nightly.metaDescription,
@@ -420,7 +423,10 @@ describe("SEO metadata helpers", () => {
             locale,
             messageLookup(messages.landing.guides),
             siteMeta,
-            ["title", "intro"],
+            {
+              complete: ["intro"],
+              context: ["title"],
+            },
           ),
           [
             messages.landing.guides.metaDescription,

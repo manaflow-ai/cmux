@@ -35,10 +35,7 @@ const blogDescriptionCandidateKeys: Record<
   sessionRestore: ["summary", "p1", "p2", "agentP2", "limitsP"],
   cmuxHome: ["summary", "p2", "p3", "p4"],
   introducingCmux: ["summary", "p1", "whyP"],
-  claudeCodeBestWorktreeManager: [
-    "summary",
-    "p1",
-  ],
+  claudeCodeBestWorktreeManager: ["summary", "p1"],
   zenOfCmux: ["summary", "p1", "p2", "p3", "p4"],
   cmdShiftU: ["summary", "p1"],
   unreadShortcuts: ["summary", "p1", "p2", "p3", "p4", "p5"],
@@ -208,11 +205,10 @@ export function blogPostSeoCopy(
   );
   return {
     title: selectTitle(locale, metadata("metaTitle"), siteMeta, [title]),
-    description: selectDescription(locale, metadata("metaDescription"), [
-      post("summary"),
-      `${title}. ${post("summary")}`,
-      ...authoredDescriptions,
-    ]),
+    description: selectDescription(locale, metadata("metaDescription"), {
+      completeCandidates: authoredDescriptions,
+      contextFragments: [title],
+    }),
   };
 }
 
@@ -220,16 +216,22 @@ export function landingPageSeoCopy(
   locale: string,
   t: SeoMessageLookup,
   siteMeta: SeoMessageLookup,
-  candidateKeys: readonly string[],
+  candidateKeys: {
+    complete: readonly string[];
+    context: readonly string[];
+  },
 ) {
-  const authoredCandidates = candidateKeys.map((key) => t(key));
+  const completeCandidates = candidateKeys.complete.map((key) => t(key));
+  const contextFragments = candidateKeys.context.map((key) => t(key));
   return {
-    title: selectTitle(locale, t("metaTitle"), siteMeta, authoredCandidates),
-    description: selectDescription(
-      locale,
-      t("metaDescription"),
-      authoredCandidates,
-    ),
+    title: selectTitle(locale, t("metaTitle"), siteMeta, [
+      ...contextFragments,
+      ...completeCandidates,
+    ]),
+    description: selectDescription(locale, t("metaDescription"), {
+      completeCandidates,
+      contextFragments,
+    }),
   };
 }
 

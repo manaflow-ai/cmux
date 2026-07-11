@@ -16,7 +16,10 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
     locale,
     t,
     siteMeta,
-    ["title", "intro"],
+    {
+      complete: ["intro"],
+      context: ["title"],
+    },
   );
   return {
     title,
