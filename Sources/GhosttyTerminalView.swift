@@ -2850,10 +2850,10 @@ class GhosttyApp {
             )
             DispatchQueue.main.async {
                 surfaceView.cellSize = cellSize
+                surfaceView.terminalSurface?.mobileViewportFontMetricsDidChange()
                 NotificationCenter.default.post(
                     name: .ghosttyDidUpdateCellSize,
-                    object: surfaceView,
-                    userInfo: [GhosttyNotificationKey.cellSize: cellSize]
+                    object: surfaceView, userInfo: [GhosttyNotificationKey.cellSize: cellSize]
                 )
             }
             return true

@@ -56,7 +56,9 @@ public struct GhosttySurfaceRuntimeProbe {
             return nil
         }
 
-        let ctFont = Unmanaged<CTFont>.fromOpaque(quicklookFont).takeUnretainedValue()
+        // Ghostty returns a CoreText copy (+1). Consuming the retained value
+        // balances that ownership after this scoped size read.
+        let ctFont = Unmanaged<CTFont>.fromOpaque(quicklookFont).takeRetainedValue()
         let points = Float(CTFontGetSize(ctFont))
         guard points > 0 else { return nil }
         return points

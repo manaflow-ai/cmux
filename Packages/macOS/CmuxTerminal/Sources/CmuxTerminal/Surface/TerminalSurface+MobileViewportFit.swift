@@ -50,6 +50,15 @@ struct MobileViewportFitResult {
 }
 
 extension TerminalSurface {
+    /// Marks a Ghostty cell-metrics update as a possible explicit font change.
+    /// The next constrained sizing pass samples the live font once, then returns
+    /// to the cached ownership state until Ghostty signals another change.
+    @MainActor
+    public func mobileViewportFontMetricsDidChange() {
+        guard mobileViewportCellLimit != nil else { return }
+        mobileViewportFontFitState.cellMetricsDidChange()
+    }
+
     /// Caps the surface grid to a paired iPhone's viewport.
     ///
     /// - Returns: The actual cell grid applied after capping to the Mac pane, or
@@ -251,7 +260,10 @@ extension TerminalSurface {
         let paneHeight = max(1, Int(height))
         let configuredFont = configuredFontPointSizeOverride
             ?? configuredMobileViewportFontPointSize()
-        let liveFont = GhosttySurfaceRuntimeProbe.currentSurfaceFontSizePoints(surface)
+        let probedLiveFont = mobileViewportFontFitState.consumeLiveFontProbeRequest()
+            ? GhosttySurfaceRuntimeProbe.currentSurfaceFontSizePoints(surface)
+            : nil
+        let liveFont = probedLiveFont
             ?? mobileViewportFontFitState.fittedFontPointSize
             ?? mobileViewportFontFitState.baseFontPointSize
             ?? configuredFont
@@ -286,8 +298,7 @@ extension TerminalSurface {
             if abs(targetFont - currentFont) >= 0.25 {
                 if applyMobileViewportFontPointSize(targetFont) {
                     mobileViewportFontFitState.recordFittedFontPointSize(targetFont)
-                    currentFont = GhosttySurfaceRuntimeProbe.currentSurfaceFontSizePoints(surface)
-                        ?? targetFont
+                    currentFont = targetFont
                     fontChanged = true
                     measurement = mobileViewportMeasurement(
                         surface: surface,
@@ -316,8 +327,7 @@ extension TerminalSurface {
             }
             if applyMobileViewportFontPointSize(nextTarget) {
                 mobileViewportFontFitState.recordFittedFontPointSize(nextTarget)
-                currentFont = GhosttySurfaceRuntimeProbe.currentSurfaceFontSizePoints(surface)
-                    ?? nextTarget
+                currentFont = nextTarget
                 fontChanged = true
                 measurement = mobileViewportMeasurement(
                     surface: surface,
@@ -345,8 +355,7 @@ extension TerminalSurface {
                 return .fallback(width: fallback.width, height: fallback.height, columns: fallback.columns, rows: fallback.rows, grant: appliedBox, baseFont: baseFont, currentFont: currentFont, fontChanged: fontChanged)
             }
             mobileViewportFontFitState.recordFittedFontPointSize(fontFloor)
-            currentFont = GhosttySurfaceRuntimeProbe.currentSurfaceFontSizePoints(surface)
-                ?? fontFloor
+            currentFont = fontFloor
             fontChanged = true
             measurement = mobileViewportMeasurement(
                 surface: surface,
