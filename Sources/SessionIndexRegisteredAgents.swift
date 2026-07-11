@@ -146,13 +146,11 @@ enum GrokSessionLocator {
     ) -> [String] {
         var seen = Set<String>()
         var homes: [String] = []
-        let storeURL = RestorableAgentKind.grok.hookStoreFileURL(
+        guard let data = RestorableAgentKind.grok.hookStoreData(
             homeDirectory: homeDirectory,
             environment: environment,
             fileManager: fileManager
-        )
-        guard fileManager.fileExists(atPath: storeURL.path),
-              let data = try? Data(contentsOf: storeURL),
+        ),
               let state = try? JSONDecoder().decode(GrokHookObservedSessionStoreFile.self, from: data) else {
             return []
         }

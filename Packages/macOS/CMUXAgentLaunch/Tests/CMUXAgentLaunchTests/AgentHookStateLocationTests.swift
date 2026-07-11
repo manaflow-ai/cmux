@@ -120,18 +120,20 @@ struct AgentHookStateLocationTests {
             legacyHomeDirectory: home,
             fileManager: .default
         )
+        location.migrateLegacyStoresIfNeeded(fileManager: .default)
 
         #expect(location.directoryURL == scoped)
         #expect(try Data(contentsOf: scoped.appendingPathComponent(filename)) == legacyData)
 
         try Data(#"{"sessions":{"new":{"workspaceId":"new"}}}"#.utf8).write(to: legacyFile)
-        _ = AgentHookStateReaderLocation(
+        let retryLocation = AgentHookStateReaderLocation(
             environment: [:],
             applicationSupportDirectory: applicationSupport,
             bundleIdentifier: "com.cmuxterm.app.nightly",
             legacyHomeDirectory: home,
             fileManager: .default
         )
+        retryLocation.migrateLegacyStoresIfNeeded(fileManager: .default)
         #expect(try Data(contentsOf: scoped.appendingPathComponent(filename)) == legacyData)
     }
 
@@ -200,13 +202,14 @@ struct AgentHookStateLocationTests {
             to: scoped.appendingPathComponent(filename)
         )
 
-        _ = AgentHookStateReaderLocation(
+        let location = AgentHookStateReaderLocation(
             environment: [:],
             applicationSupportDirectory: applicationSupport,
             bundleIdentifier: "com.cmuxterm.app.nightly",
             legacyHomeDirectory: home,
             fileManager: .default
         )
+        location.migrateLegacyStoresIfNeeded(fileManager: .default)
 
         let data = try Data(contentsOf: scoped.appendingPathComponent(filename))
         let rootObject = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
@@ -260,13 +263,14 @@ struct AgentHookStateLocationTests {
         try legacyData.write(to: legacy.appendingPathComponent(filename))
 
         DispatchQueue.concurrentPerform(iterations: 24) { _ in
-            _ = AgentHookStateReaderLocation(
+            let location = AgentHookStateReaderLocation(
                 environment: [:],
                 applicationSupportDirectory: applicationSupport,
                 bundleIdentifier: "com.cmuxterm.app.nightly",
                 legacyHomeDirectory: home,
                 fileManager: .default
             )
+            location.migrateLegacyStoresIfNeeded(fileManager: .default)
         }
 
         #expect(FileManager.default.fileExists(
@@ -313,13 +317,14 @@ struct AgentHookStateLocationTests {
         let finished = DispatchSemaphore(value: 0)
         DispatchQueue.global().async {
             started.signal()
-            _ = AgentHookStateReaderLocation(
+            let location = AgentHookStateReaderLocation(
                 environment: [:],
                 applicationSupportDirectory: applicationSupport,
                 bundleIdentifier: "com.cmuxterm.app.nightly",
                 legacyHomeDirectory: home,
                 fileManager: .default
             )
+            location.migrateLegacyStoresIfNeeded(fileManager: .default)
             finished.signal()
         }
         #expect(started.wait(timeout: .now() + 1) == .success)
@@ -335,13 +340,14 @@ struct AgentHookStateLocationTests {
         }
         #expect(!FileManager.default.fileExists(atPath: marker.path))
 
-        _ = AgentHookStateReaderLocation(
+        let retryLocation = AgentHookStateReaderLocation(
             environment: [:],
             applicationSupportDirectory: applicationSupport,
             bundleIdentifier: "com.cmuxterm.app.nightly",
             legacyHomeDirectory: home,
             fileManager: .default
         )
+        retryLocation.migrateLegacyStoresIfNeeded(fileManager: .default)
         #expect(FileManager.default.fileExists(atPath: marker.path))
 
         let data = try Data(contentsOf: scopedFile)
@@ -389,6 +395,7 @@ struct AgentHookStateLocationTests {
             legacyHomeDirectory: home,
             fileManager: .default
         )
+        location.migrateLegacyStoresIfNeeded(fileManager: .default)
         let data = try #require(location.storeData(named: filename, fileManager: .default))
         let rootObject = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
         let sessions = try #require(rootObject["sessions"] as? [String: Any])
@@ -413,26 +420,28 @@ struct AgentHookStateLocationTests {
         let marker = scoped.appendingPathComponent(".legacy-hook-state-migrated-v1")
         try Data("{".utf8).write(to: legacyFile)
 
-        _ = AgentHookStateReaderLocation(
+        let location = AgentHookStateReaderLocation(
             environment: [:],
             applicationSupportDirectory: applicationSupport,
             bundleIdentifier: "com.cmuxterm.app.nightly",
             legacyHomeDirectory: home,
             fileManager: .default
         )
+        location.migrateLegacyStoresIfNeeded(fileManager: .default)
         #expect(!FileManager.default.fileExists(atPath: marker.path))
 
         try Data(#"{"sessions":{"repaired":{"workspaceId":"workspace"}}}"#.utf8).write(
             to: legacyFile,
             options: .atomic
         )
-        _ = AgentHookStateReaderLocation(
+        let retryLocation = AgentHookStateReaderLocation(
             environment: [:],
             applicationSupportDirectory: applicationSupport,
             bundleIdentifier: "com.cmuxterm.app.nightly",
             legacyHomeDirectory: home,
             fileManager: .default
         )
+        retryLocation.migrateLegacyStoresIfNeeded(fileManager: .default)
 
         #expect(FileManager.default.fileExists(atPath: marker.path))
         let data = try Data(contentsOf: scoped.appendingPathComponent(filename))

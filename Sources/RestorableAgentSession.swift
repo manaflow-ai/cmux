@@ -1094,8 +1094,7 @@ struct RestorableAgentSessionIndex: Sendable {
         var hookCandidatesByPanelAndKind: [PanelKindKey: Entry] = [:]
 
         for (kind, registration) in hookKinds {
-            let fileURL = kind.hookStoreFileURL(homeDirectory: homeDirectory, fileManager: fileManager)
-            guard let data = try? Data(contentsOf: fileURL),
+            guard let data = kind.hookStoreData(homeDirectory: homeDirectory, fileManager: fileManager),
                   let state = try? decoder.decode(RestorableAgentHookSessionStoreFile.self, from: data) else {
                 continue
             }

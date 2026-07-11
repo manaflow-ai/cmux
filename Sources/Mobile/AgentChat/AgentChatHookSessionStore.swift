@@ -28,7 +28,7 @@ struct AgentChatHookSessionStore: Sendable {
         let updatedAt: Date?
     }
 
-    private let stateDirectory: URL
+    private let stateLocation: AgentHookStateReaderLocation
     private let fileManager: FileManager
 
     /// Creates a store reader.
@@ -47,7 +47,7 @@ struct AgentChatHookSessionStore: Sendable {
         legacyHomeDirectory: URL? = nil,
         fileManager: FileManager = .default
     ) {
-        stateDirectory = AgentHookStateReaderLocation(
+        stateLocation = AgentHookStateReaderLocation(
             environment: environment,
             applicationSupportDirectory: homeDirectory == nil ? applicationSupportDirectory : nil,
             bundleIdentifier: homeDirectory == nil ? bundleIdentifier : nil,
@@ -55,7 +55,7 @@ struct AgentChatHookSessionStore: Sendable {
                 ?? homeDirectory
                 ?? fileManager.homeDirectoryForCurrentUser,
             fileManager: fileManager
-        ).directoryURL
+        )
         self.fileManager = fileManager
     }
 
@@ -65,9 +65,10 @@ struct AgentChatHookSessionStore: Sendable {
     ///   `codex`, ...), which names the store file.
     /// - Returns: All entries, or empty when the store is absent/malformed.
     func entries(agentSource: String) -> [Entry] {
-        let file = stateDirectory
-            .appendingPathComponent("\(agentSource)-hook-sessions.json", isDirectory: false)
-        guard let data = fileManager.contents(atPath: file.path),
+        guard let data = stateLocation.storeData(
+            named: "\(agentSource)-hook-sessions.json",
+            fileManager: fileManager
+        ),
               let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             return []
         }

@@ -1,21 +1,25 @@
 import Darwin
 import Foundation
 
-/// Prepares the bundle-scoped hook state directory used by app-side readers.
+/// Resolves and reads the bundle-scoped hook state used by app-side readers.
 ///
-/// Stable and Nightly copy pre-scoping hook stores once, then read only the
-/// scoped directory. Tagged debug builds never import the shared legacy store.
-public struct AgentHookStateReaderLocation {
-    /// The sole directory app-side readers should consult.
+/// Stable and Nightly expose a scoped-preferred compatibility view until a
+/// background migration completes. Tagged debug builds never consult the
+/// shared legacy store.
+public struct AgentHookStateReaderLocation: Sendable {
+    /// The sole directory app-side readers should watch for new hook writes.
     public let directoryURL: URL
 
-    /// Resolves the reader directory and performs the one-time legacy migration.
+    private let legacyDirectoryURL: URL?
+    private let migrationMarkerURL: URL?
+
+    /// Resolves the reader directory without blocking on migration work.
     public init(
         environment: [String: String],
         applicationSupportDirectory: URL?,
         bundleIdentifier: String?,
         legacyHomeDirectory: URL,
-        fileManager: FileManager
+        fileManager _: FileManager
     ) {
         directoryURL = AgentHookStateLocation(
             environment: environment,
@@ -34,17 +38,58 @@ public struct AgentHookStateReaderLocation {
                   bundleIdentifier: bundleIdentifier
               ),
               directoryURL.standardizedFileURL == bundleLocation.directoryURL.standardizedFileURL else {
+            legacyDirectoryURL = nil
+            migrationMarkerURL = nil
             return
         }
 
-        try? migrateLegacyStores(
-            from: legacyHomeDirectory.appendingPathComponent(".cmuxterm", isDirectory: true),
+        let legacyDirectory = legacyHomeDirectory.appendingPathComponent(".cmuxterm", isDirectory: true)
+        guard legacyDirectory.standardizedFileURL != directoryURL.standardizedFileURL else {
+            legacyDirectoryURL = nil
+            migrationMarkerURL = nil
+            return
+        }
+        legacyDirectoryURL = legacyDirectory
+        migrationMarkerURL = directoryURL
+            .appendingPathComponent(".legacy-hook-state-migrated-v1", isDirectory: false)
+    }
+
+    /// Returns one store's scoped-preferred compatibility snapshot.
+    ///
+    /// Before migration completes, the returned JSON merges missing legacy
+    /// sessions and routing records in memory. This keeps one-shot readers
+    /// correct without waiting for hook-writer or migration locks; hook writers
+    /// publish each complete store snapshot with an atomic rename.
+    public func storeData(named filename: String, fileManager: FileManager) -> Data? {
+        guard filename.hasSuffix("-hook-sessions.json"),
+              filename == URL(fileURLWithPath: filename).lastPathComponent else {
+            return nil
+        }
+        let scopedStore = directoryURL.appendingPathComponent(filename, isDirectory: false)
+        guard let legacyDirectoryURL, let migrationMarkerURL else {
+            return regularStoreData(at: scopedStore, fileManager: fileManager)
+        }
+        guard !fileManager.fileExists(atPath: migrationMarkerURL.path) else {
+            return regularStoreData(at: scopedStore, fileManager: fileManager)
+        }
+        let scopedData = regularStoreData(at: scopedStore, fileManager: fileManager)
+        let legacyData = regularStoreData(
+            at: legacyDirectoryURL.appendingPathComponent(filename, isDirectory: false),
             fileManager: fileManager
         )
+        return mergedStoreData(scopedData: scopedData, legacyData: legacyData)
+    }
+
+    /// Best-effort durable compaction for a background loader.
+    ///
+    /// Busy locks leave the marker absent so later background reloads retry;
+    /// compatibility reads remain complete while migration is pending.
+    public func migrateLegacyStoresIfNeeded(fileManager: FileManager) {
+        guard let legacyDirectoryURL else { return }
+        try? migrateLegacyStores(from: legacyDirectoryURL, fileManager: fileManager)
     }
 
     private func migrateLegacyStores(from legacyDirectory: URL, fileManager: FileManager) throws {
-        guard legacyDirectory.standardizedFileURL != directoryURL.standardizedFileURL else { return }
         let directoryPermissions = NSNumber(value: Int16(0o700))
         try fileManager.createDirectory(
             at: directoryURL,
@@ -118,8 +163,28 @@ public struct AgentHookStateReaderLocation {
         into destination: URL,
         fileManager: FileManager
     ) throws {
-        var destinationRoot = try storeRoot(at: destination, fileManager: fileManager)
+        let destinationRoot = try storeRoot(at: destination, fileManager: fileManager)
+        let merge = mergingMissingStoreEntries(sourceRoot: sourceRoot, into: destinationRoot)
+        guard merge.changed else { return }
+        let mergedData = try JSONSerialization.data(withJSONObject: merge.root, options: [.sortedKeys])
+        try mergedData.write(to: destination, options: .atomic)
+    }
 
+    private func mergedStoreData(scopedData: Data?, legacyData: Data?) -> Data? {
+        let scopedRoot = scopedData.flatMap(storeRoot(from:))
+        let legacyRoot = legacyData.flatMap(storeRoot(from:))
+        guard let legacyRoot else { return scopedRoot == nil ? nil : scopedData }
+        guard let scopedRoot else { return legacyData }
+        let merge = mergingMissingStoreEntries(sourceRoot: legacyRoot, into: scopedRoot)
+        guard merge.changed else { return scopedData }
+        return try? JSONSerialization.data(withJSONObject: merge.root, options: [.sortedKeys])
+    }
+
+    private func mergingMissingStoreEntries(
+        sourceRoot: [String: Any],
+        into destination: [String: Any]
+    ) -> (root: [String: Any], changed: Bool) {
+        var destinationRoot = destination
         let sourceSessions = sessionEntries(in: sourceRoot)
         var destinationSessions = sessionEntries(in: destinationRoot)
         var changed = false
@@ -151,19 +216,30 @@ public struct AgentHookStateReaderLocation {
             }
         }
 
-        guard changed else { return }
-        let mergedData = try JSONSerialization.data(withJSONObject: destinationRoot, options: [.sortedKeys])
-        try mergedData.write(to: destination, options: .atomic)
+        return (destinationRoot, changed)
     }
 
     private func storeRoot(at url: URL, fileManager: FileManager) throws -> [String: Any] {
         guard let data = fileManager.contents(atPath: url.path) else {
             throw CocoaError(.fileReadUnknown, userInfo: [NSFilePathErrorKey: url.path])
         }
-        guard let root = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+        guard let root = storeRoot(from: data) else {
             throw CocoaError(.fileReadCorruptFile, userInfo: [NSFilePathErrorKey: url.path])
         }
         return root
+    }
+
+    private func storeRoot(from data: Data) -> [String: Any]? {
+        try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+    }
+
+    private func regularStoreData(at url: URL, fileManager: FileManager) -> Data? {
+        guard let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey]),
+              values.isRegularFile == true,
+              values.isSymbolicLink != true else {
+            return nil
+        }
+        return fileManager.contents(atPath: url.path)
     }
 
     private func sessionEntries(in root: [String: Any]) -> [String: Any] {

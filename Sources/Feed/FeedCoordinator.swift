@@ -573,8 +573,7 @@ extension FeedCoordinator {
     }
 
     /// Parses `workstreamId` in the form `<agent>-<sessionId>` and
-    /// looks up the matching hook-session entry in
-    /// `~/.cmuxterm/<agent>-hook-sessions.json` (written by
+    /// looks up the matching hook-session entry in the app's hook store (written by
     /// `cmux <agent>-hook session-start`). Returns `true` if a match
     /// was found so the UI can gate the jump gesture.
     ///
@@ -641,10 +640,14 @@ enum FeedJumpResolver {
     }
 
     static func lookup(agent: String, sessionId: String, stateDirectory: URL? = nil) -> Target? {
-        let directory = stateDirectory
-            ?? RestorableAgentKind.claude.hookStoreFileURL().deletingLastPathComponent()
-        let file = directory.appendingPathComponent("\(agent)-hook-sessions.json", isDirectory: false)
-        guard let data = try? Data(contentsOf: file),
+        let data: Data?
+        if let stateDirectory {
+            let file = stateDirectory.appendingPathComponent("\(agent)-hook-sessions.json", isDirectory: false)
+            data = try? Data(contentsOf: file)
+        } else {
+            data = RestorableAgentKind(rawValue: agent)?.hookStoreData()
+        }
+        guard let data,
               let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             return nil
         }

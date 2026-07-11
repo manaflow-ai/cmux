@@ -255,11 +255,10 @@ enum AgentHibernationTranscriptGuard {
         homeDirectory: String,
         fileManager: FileManager
     ) -> (path: String?, isAmbiguous: Bool) {
-        let storeURL = RestorableAgentKind.claude.hookStoreFileURL(
+        guard let data = RestorableAgentKind.claude.hookStoreData(
             homeDirectory: homeDirectory,
             fileManager: fileManager
-        )
-        guard let data = fileManager.contents(atPath: storeURL.path),
+        ),
               let store = try? JSONDecoder().decode(AgentHibernationTranscriptHookStoreFileMirror.self, from: data),
               let sessions = store.sessions else {
             return (nil, false)

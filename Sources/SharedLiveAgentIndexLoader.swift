@@ -52,6 +52,13 @@ struct SharedLiveAgentIndexLoader {
     }
 
     func loadResultSynchronously() -> LoadResult {
+        // SharedLiveAgentIndex runs this loader in a detached utility task and
+        // retries it on normal refreshes, so it owns best-effort legacy
+        // compaction without making synchronous app readers wait for locks.
+        RestorableAgentKind.migrateLegacyHookStoresIfNeeded(
+            homeDirectory: homeDirectory,
+            fileManager: fileManager
+        )
         let resolvedRegistry = registry
             ?? CmuxVaultAgentRegistry.load(homeDirectory: homeDirectory, fileManager: fileManager)
         let processSnapshot = processSnapshotProvider()

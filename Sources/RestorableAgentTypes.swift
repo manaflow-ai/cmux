@@ -170,6 +170,60 @@ enum RestorableAgentKind: Codable, Hashable, Sendable {
         bundleIdentifier: String? = Bundle.main.bundleIdentifier,
         fileManager: FileManager = .default
     ) -> URL {
+        Self.hookStoreReaderLocation(
+            homeDirectory: homeDirectory,
+            environment: environment,
+            applicationSupportDirectory: applicationSupportDirectory,
+            bundleIdentifier: bundleIdentifier,
+            fileManager: fileManager
+        ).directoryURL.appendingPathComponent(hookStoreFilename, isDirectory: false)
+    }
+
+    func hookStoreData(
+        homeDirectory: String? = nil,
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        applicationSupportDirectory: URL? = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first,
+        bundleIdentifier: String? = Bundle.main.bundleIdentifier,
+        fileManager: FileManager = .default
+    ) -> Data? {
+        Self.hookStoreReaderLocation(
+            homeDirectory: homeDirectory,
+            environment: environment,
+            applicationSupportDirectory: applicationSupportDirectory,
+            bundleIdentifier: bundleIdentifier,
+            fileManager: fileManager
+        ).storeData(named: hookStoreFilename, fileManager: fileManager)
+    }
+
+    static func migrateLegacyHookStoresIfNeeded(
+        homeDirectory: String? = nil,
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        applicationSupportDirectory: URL? = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first,
+        bundleIdentifier: String? = Bundle.main.bundleIdentifier,
+        fileManager: FileManager = .default
+    ) {
+        hookStoreReaderLocation(
+            homeDirectory: homeDirectory,
+            environment: environment,
+            applicationSupportDirectory: applicationSupportDirectory,
+            bundleIdentifier: bundleIdentifier,
+            fileManager: fileManager
+        ).migrateLegacyStoresIfNeeded(fileManager: fileManager)
+    }
+
+    private static func hookStoreReaderLocation(
+        homeDirectory: String?,
+        environment: [String: String],
+        applicationSupportDirectory: URL?,
+        bundleIdentifier: String?,
+        fileManager: FileManager
+    ) -> AgentHookStateReaderLocation {
         let legacyHomeDirectory = URL(
             fileURLWithPath: homeDirectory ?? NSHomeDirectory(),
             isDirectory: true
@@ -177,14 +231,13 @@ enum RestorableAgentKind: Codable, Hashable, Sendable {
         let usesCurrentUserHome = homeDirectory == nil
             || legacyHomeDirectory.standardizedFileURL
                 == fileManager.homeDirectoryForCurrentUser.standardizedFileURL
-        let directory = AgentHookStateReaderLocation(
+        return AgentHookStateReaderLocation(
             environment: environment,
             applicationSupportDirectory: usesCurrentUserHome ? applicationSupportDirectory : nil,
             bundleIdentifier: usesCurrentUserHome ? bundleIdentifier : nil,
             legacyHomeDirectory: legacyHomeDirectory,
             fileManager: fileManager
-        ).directoryURL
-        return directory.appendingPathComponent(hookStoreFilename, isDirectory: false)
+        )
     }
 }
 
