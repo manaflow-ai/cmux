@@ -25,9 +25,9 @@ dependencies, fully testable against temp directories.
 - `repositorySlugs(forDirectory:)` — the GitHub `owner/name` remotes, ordered
   `upstream`, `origin`, then the rest.
 - `WorktreeIncludeSyncService.sync(from:to:)` — asks Git to resolve a source
-  checkout's `.worktreeinclude` patterns, then copies matching untracked files
-  and collapsed directory trees into a fresh worktree without making copy
-  failures fatal.
+  checkout's `.worktreeinclude` patterns against its standard ignore rules,
+  then copies matching ignored, untracked files and collapsed directory trees
+  into a fresh worktree without making copy failures fatal.
 
 Dirty detection mirrors git's stat-based check (size/mode/mtime per tracked
 entry, plus submodule-commit comparison for gitlinks), and excludes
