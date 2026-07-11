@@ -1,6 +1,7 @@
 import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
+import Foundation
 import SwiftUI
 #if canImport(UIKit)
 @preconcurrency import UIKit
@@ -16,6 +17,8 @@ struct TerminalHierarchySheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var pendingClose: TerminalHierarchyRowSnapshot?
     @State private var mutationFailed = false
+    @State private var reorderGate = TerminalHierarchyReorderGate()
+    @State private var optimisticTerminalIDsByPane: [MobilePanePreview.ID: [MobileTerminalPreview.ID]] = [:]
 
     var body: some View {
         NavigationStack {
@@ -41,7 +44,7 @@ struct TerminalHierarchySheet: View {
                     emptyState
                 } else {
                     ForEach(snapshot.panes) { pane in
-                        terminalSection(pane)
+                        terminalSection(presentedPane(pane))
                     }
                 }
             }
@@ -106,13 +109,24 @@ struct TerminalHierarchySheet: View {
                     .foregroundStyle(.secondary)
             } else {
                 ForEach(pane.rows) { row in
+                    let rowIndex = pane.rows.firstIndex(where: { $0.id == row.id })
                     TerminalHierarchyRow(
                         snapshot: row,
                         select: { select(row) },
-                        requestClose: { pendingClose = row }
+                        requestClose: { pendingClose = row },
+                        moveEarlier: reorderAction(
+                            rowIndex: rowIndex,
+                            destination: rowIndex.map { $0 - 1 },
+                            in: pane
+                        ),
+                        moveLater: reorderAction(
+                            rowIndex: rowIndex,
+                            destination: rowIndex.map { $0 + 2 },
+                            in: pane
+                        )
                     )
                 }
-                .onMove(perform: snapshot.canReorder ? { source, destination in
+                .onMove(perform: snapshot.canReorder && !reorderGate.isActive ? { source, destination in
                     move(source: source, destination: destination, in: pane)
                 } : nil)
             }
@@ -124,6 +138,7 @@ struct TerminalHierarchySheet: View {
                             "mobile.terminal.hierarchy.paneTitle",
                             defaultValue: "Pane %d"
                         ),
+                        locale: Locale.current,
                         pane.spatialIndex + 1
                     )
                 )
@@ -151,6 +166,7 @@ struct TerminalHierarchySheet: View {
         ToolbarItemGroup(placement: .primaryAction) {
             if snapshot.canReorder, snapshot.panes.contains(where: { $0.rows.count > 1 }) {
                 EditButton()
+                    .disabled(reorderGate.isActive)
                     .accessibilityIdentifier("MobileTerminalHierarchyEdit")
             }
             Button(action: createAndAnnounce) {
@@ -167,16 +183,7 @@ struct TerminalHierarchySheet: View {
     }
 
     private var closeConsequence: String {
-        guard pendingClose?.requiresCloseConfirmation == true else {
-            return L10n.string(
-                "mobile.terminal.hierarchy.closeMessage",
-                defaultValue: "The terminal will close and its position will be removed from this pane."
-            )
-        }
-        return L10n.string(
-            "mobile.terminal.hierarchy.closeRunningMessage",
-            defaultValue: "This terminal is running a process. Closing it ends that process and cannot be undone."
-        )
+        pendingClose?.closeConsequence ?? ""
     }
 
     private var connectionLabel: String {
@@ -193,6 +200,7 @@ struct TerminalHierarchySheet: View {
                     "mobile.terminal.hierarchy.switchedAnnouncement",
                     defaultValue: "Switched to %@"
                 ),
+                locale: Locale.current,
                 row.title
             )
         )
@@ -209,7 +217,8 @@ struct TerminalHierarchySheet: View {
         destination: Int,
         in pane: TerminalHierarchyPaneSnapshot
     ) {
-        guard source.count == 1,
+        guard !reorderGate.isActive,
+              source.count == 1,
               let sourceIndex = source.first,
               pane.rows.indices.contains(sourceIndex),
               let intent = MobileTerminalReorderIntent(
@@ -221,14 +230,57 @@ struct TerminalHierarchySheet: View {
             mutationFailed = true
             return
         }
+        guard reorderGate.begin(paneID: pane.id) else { return }
+        guard let optimisticOrder = TerminalHierarchyOptimisticOrder.applying(
+            intent,
+            to: pane.rows.map(\.id)
+        ) else {
+            reorderGate.finish(paneID: pane.id)
+            mutationFailed = true
+            return
+        }
+        optimisticTerminalIDsByPane[pane.id] = optimisticOrder
         Task { @MainActor in
+            defer { reorderGate.finish(paneID: pane.id) }
             let result = await reorderTerminal(intent)
             guard case .success = result else {
+                optimisticTerminalIDsByPane[pane.id] = nil
                 mutationFailed = true
                 return
             }
+            optimisticTerminalIDsByPane[pane.id] = nil
             announce(L10n.string("mobile.terminal.hierarchy.reorderedAnnouncement", defaultValue: "Terminal order updated"))
         }
+    }
+
+    private func presentedPane(_ pane: TerminalHierarchyPaneSnapshot) -> TerminalHierarchyPaneSnapshot {
+        guard let optimisticIDs = optimisticTerminalIDsByPane[pane.id] else { return pane }
+        let rowsByID = Dictionary(uniqueKeysWithValues: pane.rows.map { ($0.id, $0) })
+        return TerminalHierarchyPaneSnapshot(
+            id: pane.id,
+            spatialIndex: pane.spatialIndex,
+            isFocused: pane.isFocused,
+            rows: optimisticIDs.compactMap { rowsByID[$0] },
+            pane: pane.pane
+        )
+    }
+
+    private func reorderAction(
+        rowIndex: Int?,
+        destination: Int?,
+        in pane: TerminalHierarchyPaneSnapshot
+    ) -> (() -> Void)? {
+        guard snapshot.canReorder,
+              !reorderGate.isActive,
+              let rowIndex,
+              let destination,
+              destination >= 0,
+              destination <= pane.rows.count,
+              destination != rowIndex,
+              destination != rowIndex + 1 else {
+            return nil
+        }
+        return { move(source: IndexSet(integer: rowIndex), destination: destination, in: pane) }
     }
 
     private func confirmPendingClose() {

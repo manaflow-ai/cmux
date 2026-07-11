@@ -33,6 +33,56 @@ import Testing
     #expect(snapshot.panes[0].rows.map(\.duplicateOrdinal) == [1, 2])
     #expect(snapshot.panes[0].rows.map(\.isSelected) == [false, true])
     #expect(snapshot.panes[1].rows.first?.duplicateOrdinal == nil)
+    let activeRow = try #require(snapshot.panes[0].rows.last)
+    let accessibilityLabel = activeRow.accessibilityLabel.lowercased()
+    #expect(accessibilityLabel.contains("terminal"))
+    #expect(accessibilityLabel.contains("workspace a very long workspace name"))
+    #expect(accessibilityLabel.contains("pane 1"))
+    #expect(accessibilityLabel.contains("active"))
+    #expect(!accessibilityLabel.contains("surface"))
+    #expect(!accessibilityLabel.contains("tab"))
+    let closeLabel = activeRow.closeAccessibilityLabel.lowercased()
+    #expect(closeLabel.contains("shell, 2"))
+    #expect(closeLabel.contains("workspace a very long workspace name"))
+    #expect(closeLabel.contains("pane 1"))
+    let consequence = activeRow.closeConsequence.lowercased()
+    #expect(consequence.contains("shell, 2"))
+    #expect(consequence.contains("workspace a very long workspace name"))
+    #expect(consequence.contains("pane 1"))
+    #expect(consequence.contains("running process"))
+    #expect(!consequence.contains("surface"))
+    #expect(!consequence.contains("tab"))
+}
+
+@Test func hierarchyReorderGateRejectsOverlapUntilAuthoritativeMutationFinishes() {
+    var gate = TerminalHierarchyReorderGate()
+    #expect(gate.begin(paneID: "pane-left"))
+    #expect(gate.isActive)
+    #expect(!gate.begin(paneID: "pane-right"))
+    gate.finish(paneID: "pane-right")
+    #expect(gate.isActive)
+    gate.finish(paneID: "pane-left")
+    #expect(!gate.isActive)
+    #expect(gate.begin(paneID: "pane-right"))
+}
+
+@Test func hierarchyOptimisticOrderAppliesAndCanRollbackToPreviousIdentityOrder() throws {
+    let pane = MobilePanePreview(
+        id: "pane-left",
+        spatialIndex: 0,
+        terminalIDs: ["terminal-a", "terminal-b", "terminal-c"]
+    )
+    let intent = try #require(MobileTerminalReorderIntent(
+        terminalID: "terminal-a",
+        sourceIndex: 0,
+        destinationIndex: 3,
+        pane: pane
+    ))
+    let previous = pane.terminalIDs
+    #expect(TerminalHierarchyOptimisticOrder.applying(intent, to: previous) == [
+        "terminal-b", "terminal-c", "terminal-a",
+    ])
+    #expect(previous == ["terminal-a", "terminal-b", "terminal-c"])
 }
 
 @Test func hierarchySnapshotHandlesEmptyAndSingleTerminalWorkspaces() {
@@ -44,4 +94,5 @@ import Testing
     let snapshot = TerminalHierarchySnapshot(workspace: single, selectedTerminalID: terminal.id)
     #expect(snapshot.panes.count == 1)
     #expect(snapshot.panes[0].rows.first?.isSelected == true)
+    #expect(snapshot.connectionStatus == .unavailable)
 }

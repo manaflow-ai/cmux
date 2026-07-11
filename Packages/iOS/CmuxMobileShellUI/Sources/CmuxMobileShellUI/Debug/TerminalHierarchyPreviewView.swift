@@ -161,6 +161,7 @@ public struct TerminalHierarchyPreviewView: View {
             supportsTerminalCreateInPane: true,
             supportsTerminalReorderActions: true
         )
+        workspace.macConnectionStatus = .connected
         return workspace
     }()
 }

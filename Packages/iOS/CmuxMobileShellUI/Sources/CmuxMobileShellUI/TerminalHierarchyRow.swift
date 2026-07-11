@@ -6,6 +6,8 @@ struct TerminalHierarchyRow: View {
     let snapshot: TerminalHierarchyRowSnapshot
     let select: () -> Void
     let requestClose: () -> Void
+    let moveEarlier: (() -> Void)?
+    let moveLater: (() -> Void)?
 
     var body: some View {
         HStack(spacing: 12) {
@@ -14,7 +16,7 @@ struct TerminalHierarchyRow: View {
                     Image(systemName: snapshot.isSelected ? "checkmark.circle.fill" : "terminal")
                         .frame(width: 24)
                     VStack(alignment: .leading, spacing: 3) {
-                        Text(displayTitle)
+                        Text(snapshot.displayTitle)
                             .lineLimit(2)
                         if snapshot.isSelected {
                             Text(L10n.string("mobile.terminal.hierarchy.active", defaultValue: "Active"))
@@ -32,7 +34,7 @@ struct TerminalHierarchyRow: View {
                 .frame(minHeight: 44)
             }
             .buttonStyle(.plain)
-            .accessibilityLabel(accessibilityLabel)
+            .accessibilityLabel(snapshot.accessibilityLabel)
             .accessibilityIdentifier("MobileTerminalHierarchyRow-\(snapshot.id.rawValue)")
 
             if snapshot.canClose {
@@ -41,34 +43,35 @@ struct TerminalHierarchyRow: View {
                         .frame(width: 44, height: 44)
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel(L10n.string("mobile.terminal.hierarchy.close", defaultValue: "Close Terminal"))
+                .accessibilityLabel(snapshot.closeAccessibilityLabel)
                 .accessibilityIdentifier("MobileTerminalHierarchyClose-\(snapshot.id.rawValue)")
             }
         }
         .accessibilityAction(named: L10n.string("mobile.terminal.hierarchy.switch", defaultValue: "Switch to Terminal"), select)
-    }
-
-    private var displayTitle: String {
-        guard let duplicateOrdinal = snapshot.duplicateOrdinal else { return snapshot.title }
-        return String(
-            format: L10n.string(
-                "mobile.terminal.hierarchy.duplicateTitle",
-                defaultValue: "%1$@, %2$d"
-            ),
-            snapshot.title,
-            duplicateOrdinal
-        )
-    }
-
-    private var accessibilityLabel: String {
-        snapshot.isSelected
-            ? String(
-                format: L10n.string(
-                    "mobile.terminal.hierarchy.activeLabel",
-                    defaultValue: "%@, active terminal"
-                ),
-                displayTitle
-            )
-            : displayTitle
+        .accessibilityActions {
+            if let moveEarlier {
+                Button(
+                    L10n.string("mobile.terminal.hierarchy.moveEarlier", defaultValue: "Move Terminal Earlier"),
+                    action: moveEarlier
+                )
+            }
+            if let moveLater {
+                Button(
+                    L10n.string("mobile.terminal.hierarchy.moveLater", defaultValue: "Move Terminal Later"),
+                    action: moveLater
+                )
+            }
+            if snapshot.canClose {
+                Button(snapshot.closeAccessibilityLabel, role: .destructive, action: requestClose)
+            }
+        }
+        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+            if snapshot.canClose {
+                Button(role: .destructive, action: requestClose) {
+                    Label(snapshot.closeAccessibilityLabel, systemImage: "trash")
+                }
+                .accessibilityIdentifier("MobileTerminalHierarchySwipeClose-\(snapshot.id.rawValue)")
+            }
+        }
     }
 }

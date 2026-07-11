@@ -31,6 +31,7 @@ extension MobileShellComposite {
             actionName: "terminal_close"
         )
         guard case .success = result,
+              selectedWorkspaceID == workspaceID,
               let refreshedWorkspace = workspaces.first(where: { $0.id == workspaceID }) else {
             return result
         }

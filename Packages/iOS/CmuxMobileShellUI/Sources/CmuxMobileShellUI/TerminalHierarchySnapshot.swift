@@ -11,34 +11,37 @@ struct TerminalHierarchySnapshot: Equatable {
         workspaceID = workspace.id
         workspaceName = workspace.name
         canReorder = workspace.actionCapabilities.supportsTerminalReorderActions
-        connectionStatus = workspace.macConnectionStatus ?? .connected
+        connectionStatus = workspace.macConnectionStatus ?? .unavailable
         let titleCounts = Dictionary(grouping: workspace.terminals, by: \.name).mapValues(\.count)
         var titleOrdinals: [String: Int] = [:]
-        var rowsByID: [MobileTerminalPreview.ID: TerminalHierarchyRowSnapshot] = [:]
+        var terminalsByID: [MobileTerminalPreview.ID: MobileTerminalPreview] = [:]
+        var duplicateOrdinalByID: [MobileTerminalPreview.ID: Int] = [:]
         for terminal in workspace.terminals {
-            let ordinal: Int?
+            terminalsByID[terminal.id] = terminal
             if titleCounts[terminal.name, default: 0] > 1 {
                 titleOrdinals[terminal.name, default: 0] += 1
-                ordinal = titleOrdinals[terminal.name]
-            } else {
-                ordinal = nil
+                duplicateOrdinalByID[terminal.id] = titleOrdinals[terminal.name]
             }
-            rowsByID[terminal.id] = TerminalHierarchyRowSnapshot(
-                id: terminal.id,
-                title: terminal.name,
-                duplicateOrdinal: ordinal,
-                isSelected: terminal.id == selectedTerminalID,
-                isReady: terminal.isReady,
-                canClose: terminal.canClose && workspace.actionCapabilities.supportsTerminalCloseActions,
-                requiresCloseConfirmation: terminal.requiresCloseConfirmation
-            )
         }
         panes = workspace.resolvedPanes.map { pane in
             TerminalHierarchyPaneSnapshot(
                 id: pane.id,
                 spatialIndex: pane.spatialIndex,
                 isFocused: pane.isFocused,
-                rows: pane.terminalIDs.compactMap { rowsByID[$0] },
+                rows: pane.terminalIDs.compactMap { terminalID in
+                    guard let terminal = terminalsByID[terminalID] else { return nil }
+                    return TerminalHierarchyRowSnapshot(
+                        id: terminal.id,
+                        title: terminal.name,
+                        duplicateOrdinal: duplicateOrdinalByID[terminal.id],
+                        workspaceName: workspace.name,
+                        paneNumber: pane.spatialIndex + 1,
+                        isSelected: terminal.id == selectedTerminalID,
+                        isReady: terminal.isReady,
+                        canClose: terminal.canClose && workspace.actionCapabilities.supportsTerminalCloseActions,
+                        requiresCloseConfirmation: terminal.requiresCloseConfirmation
+                    )
+                },
                 pane: pane
             )
         }

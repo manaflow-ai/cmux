@@ -54,8 +54,8 @@ extension MobileTerminalPreview {
             id: ID(rawValue: remote.id),
             name: remote.title,
             paneID: remote.paneID.map(MobilePanePreview.ID.init(rawValue:)),
-            canClose: remote.canClose ?? true,
-            requiresCloseConfirmation: remote.requiresCloseConfirmation ?? false,
+            canClose: remote.canClose ?? false,
+            requiresCloseConfirmation: remote.requiresCloseConfirmation ?? true,
             isReady: remote.isReady ?? true,
             isFocused: remote.isFocused
         )

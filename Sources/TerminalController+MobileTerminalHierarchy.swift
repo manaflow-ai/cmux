@@ -93,15 +93,19 @@ extension TerminalController {
               workspace.terminalPanel(for: surfaceID) != nil else {
             return .err(code: "not_found", message: "Terminal is not in that workspace and pane", data: nil)
         }
-        let terminalIDs = workspace.bonsplitController.tabs(inPane: paneID).compactMap { tab in
-            workspace.panelIdFromSurfaceId(tab.id).flatMap { panelID in
-                workspace.terminalPanel(for: panelID) == nil ? nil : panelID
-            }
+        let panePanelIDs = workspace.bonsplitController.tabs(inPane: paneID).compactMap {
+            workspace.panelIdFromSurfaceId($0.id)
         }
-        guard targetIndex < terminalIDs.count else {
+        let terminalIDs = Set(panePanelIDs.filter { workspace.terminalPanel(for: $0) != nil })
+        guard let destinationIndex = MobileTerminalReorderIndexResolver.destinationIndex(
+            panePanelIDs: panePanelIDs,
+            terminalPanelIDs: terminalIDs,
+            movingPanelID: surfaceID,
+            targetTerminalIndex: targetIndex
+        ) else {
             return .err(code: "invalid_params", message: "Terminal reorder index is out of range", data: nil)
         }
-        guard workspace.reorderSurface(panelId: surfaceID, toIndex: targetIndex, focus: false) else {
+        guard workspace.reorderSurface(panelId: surfaceID, toIndex: destinationIndex, focus: false) else {
             return .err(code: "internal_error", message: "Failed to reorder terminal", data: nil)
         }
         return .ok([

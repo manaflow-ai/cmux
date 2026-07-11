@@ -9429,6 +9429,48 @@
         "en": { "stringUnit": { "state": "translated", "value": "Terminal closed" } },
         "ja": { "stringUnit": { "state": "translated", "value": "ターミナルを閉じました" } }
       }
+    },
+    "mobile.terminal.hierarchy.ready": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Ready" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "準備完了" } }
+      }
+    },
+    "mobile.terminal.hierarchy.rowLabel": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%1$@, terminal, workspace %2$@, pane %3$d, %4$@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%1$@、ターミナル、ワークスペース %2$@、ペイン %3$d、%4$@" } }
+      }
+    },
+    "mobile.terminal.hierarchy.closeTargetLabel": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Close %1$@ terminal in workspace %2$@, pane %3$d" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%1$@ ターミナルを閉じる、ワークスペース %2$@、ペイン %3$d" } }
+      }
+    },
+    "mobile.terminal.hierarchy.moveEarlier": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Move Terminal Earlier" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ターミナルを前へ移動" } }
+      }
+    },
+    "mobile.terminal.hierarchy.moveLater": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Move Terminal Later" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ターミナルを後ろへ移動" } }
+      }
+    },
+    "mobile.terminal.hierarchy.closeContextMessage": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Close %1$@ in workspace %2$@, pane %3$d. Its position will be removed." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ワークスペース %2$@ のペイン %3$d にある %1$@ を閉じます。この位置は削除されます。" } }
+      }
+    },
+    "mobile.terminal.hierarchy.closeRunningContextMessage": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Close %1$@ in workspace %2$@, pane %3$d. Its running process will end and this cannot be undone." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ワークスペース %2$@ のペイン %3$d にある %1$@ を閉じます。実行中のプロセスは終了し、元に戻せません。" } }
+      }
     }
   },
   "version": "1.0"

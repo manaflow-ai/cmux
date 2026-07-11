@@ -35,3 +35,19 @@ import Testing
     #expect(workspace.terminals.first(where: { $0.id == "terminal-b" })?.requiresCloseConfirmation == true)
     #expect(workspace.terminals.first(where: { $0.id == "terminal-c" })?.canClose == false)
 }
+
+@Test func legacyTerminalPayloadFailsClosedAndGetsCompatibilityPane() throws {
+    let json = Data("""
+    {"workspaces":[{"id":"ws-legacy","title":"Legacy","is_selected":true,
+      "terminals":[{"id":"terminal-a","title":"shell","is_focused":true}]}]}
+    """.utf8)
+
+    let response = try MobileSyncWorkspaceListResponse.decode(json)
+    let remote = try #require(response.workspaces.first)
+    let workspace = MobileWorkspacePreview(remote: remote)
+    let terminal = try #require(workspace.terminals.first)
+    #expect(!terminal.canClose)
+    #expect(terminal.requiresCloseConfirmation)
+    #expect(workspace.resolvedPanes.count == 1)
+    #expect(workspace.resolvedPanes[0].terminalIDs == [terminal.id])
+}

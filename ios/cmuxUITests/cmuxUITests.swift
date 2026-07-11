@@ -138,6 +138,13 @@ final class cmuxUITests: XCTestCase {
         app.buttons["MobileTerminalHierarchyNewTerminal"].tap()
         XCTAssertTrue(app.buttons["MobileTerminalHierarchyRow-terminal-created-5"].waitForExistence(timeout: 3))
 
+        let swipeRow = app.buttons["MobileTerminalHierarchyRow-terminal-shell"]
+        swipeRow.swipeLeft()
+        app.buttons["MobileTerminalHierarchySwipeClose-terminal-shell"].tap()
+        XCTAssertTrue(app.buttons["Cancel"].waitForExistence(timeout: 3))
+        app.buttons["Cancel"].tap()
+        XCTAssertTrue(swipeRow.exists, "Cancel must preserve the exact stable terminal identity")
+
         app.buttons["MobileTerminalHierarchyClose-terminal-agent-2"].tap()
         XCTAssertTrue(app.buttons["Cancel"].waitForExistence(timeout: 3))
         app.buttons["Cancel"].tap()
