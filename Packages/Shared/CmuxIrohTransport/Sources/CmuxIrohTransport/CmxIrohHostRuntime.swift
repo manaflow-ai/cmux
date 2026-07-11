@@ -558,7 +558,7 @@ public actor CmxIrohHostRuntime {
             expected: endpointExpectation(for: binding),
             now: validationTime
         )
-        guard let envelopeExpiry = Self.date(policy.endpointAttestation.expiresAt),
+        guard let envelopeExpiry = CmxIrohISO8601Date.parse(policy.endpointAttestation.expiresAt),
               Self.seconds(envelopeExpiry) == claims.expiresAt,
               envelopeExpiry > validationTime else {
             throw CmxIrohHostPolicyCacheError.invalidAttestationEnvelope
@@ -792,12 +792,6 @@ public actor CmxIrohHostRuntime {
             return false
         }
         return brokerError == .connectivity
-    }
-
-    private static func date(_ value: String) -> Date? {
-        let fractional = ISO8601DateFormatter()
-        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return fractional.date(from: value) ?? ISO8601DateFormatter().date(from: value)
     }
 
     private static func seconds(_ date: Date) -> Int64? {

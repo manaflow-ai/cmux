@@ -58,7 +58,7 @@ public struct CmxIrohBrokerBinding: Codable, Equatable, Sendable {
               !pathHints.enumerated().contains(where: { index, hint in
                   pathHints[..<index].contains(hint)
               }),
-              Self.date(lastSeenAt) != nil else {
+              CmxIrohISO8601Date.parse(lastSeenAt) != nil else {
             throw DecodingError.dataCorrupted(
                 .init(codingPath: decoder.codingPath, debugDescription: "Invalid Iroh binding")
             )
@@ -128,11 +128,6 @@ public struct CmxIrohBrokerBinding: Codable, Equatable, Sendable {
         return true
     }
 
-    private static func date(_ value: String) -> Date? {
-        let fractional = ISO8601DateFormatter()
-        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return fractional.date(from: value) ?? ISO8601DateFormatter().date(from: value)
-    }
 }
 
 /// Broker-published Ed25519 key used to verify grants and attestations locally.
@@ -306,8 +301,8 @@ public struct CmxIrohRelayTokenResponse: Decodable, Equatable, Sendable {
 
     /// Validates the broker timestamps and creates one credential per relay.
     public func relayConfigurations(now: Date) throws -> [CmxIrohRelayConfiguration] {
-        guard let expiresAt = Self.date(expiresAt),
-              let refreshAfter = Self.date(refreshAfter) else {
+        guard let expiresAt = CmxIrohISO8601Date.parse(expiresAt),
+              let refreshAfter = CmxIrohISO8601Date.parse(refreshAfter) else {
             throw CmxIrohTrustBrokerClientError.invalidResponse
         }
         return try relayFleet.map { url in
@@ -321,11 +316,6 @@ public struct CmxIrohRelayTokenResponse: Decodable, Equatable, Sendable {
         }
     }
 
-    private static func date(_ value: String) -> Date? {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return formatter.date(from: value) ?? ISO8601DateFormatter().date(from: value)
-    }
 }
 
 /// Registration response. Relay bootstrap failure never rolls back the binding.

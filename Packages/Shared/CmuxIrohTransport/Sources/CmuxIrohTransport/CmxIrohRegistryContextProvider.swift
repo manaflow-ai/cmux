@@ -539,18 +539,12 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
             && left.networkProfile == right.networkProfile
     }
 
-    private static func date(_ value: String) -> Date? {
-        let fractional = ISO8601DateFormatter()
-        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return fractional.date(from: value) ?? ISO8601DateFormatter().date(from: value)
-    }
-
     private static func requireMatchingGrantExpiry(
         _ response: CmxIrohPairGrantResponse,
         signedExpiry: Date,
         now: Date
     ) throws {
-        guard let responseExpiry = date(response.expiresAt),
+        guard let responseExpiry = CmxIrohISO8601Date.parse(response.expiresAt),
               abs(responseExpiry.timeIntervalSince(signedExpiry)) < 1,
               signedExpiry > now else {
             throw CmxIrohRegistryContextError.invalidGrantExpiry

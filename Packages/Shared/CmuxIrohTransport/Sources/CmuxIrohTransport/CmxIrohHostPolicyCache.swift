@@ -157,7 +157,7 @@ public actor CmxIrohHostPolicyCache {
             ),
             now: now
         )
-        guard let envelopeExpiry = Self.date(
+        guard let envelopeExpiry = CmxIrohISO8601Date.parse(
             policy.endpointAttestation.expiresAt
         ),
             let envelopeExpirySeconds = Self.seconds(envelopeExpiry),
@@ -176,12 +176,6 @@ public actor CmxIrohHostPolicyCache {
         return SHA256.hash(data: transcript)
             .map { String(format: "%02x", $0) }
             .joined()
-    }
-
-    private static func date(_ value: String) -> Date? {
-        let fractional = ISO8601DateFormatter()
-        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return fractional.date(from: value) ?? ISO8601DateFormatter().date(from: value)
     }
 
     private static func seconds(_ date: Date) -> Int64? {

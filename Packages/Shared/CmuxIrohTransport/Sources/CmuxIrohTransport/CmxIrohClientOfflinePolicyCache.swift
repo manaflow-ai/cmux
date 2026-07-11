@@ -516,7 +516,7 @@ public actor CmxIrohClientOfflinePolicyCache {
             now: now
         )
         let signedExpiry = Date(timeIntervalSince1970: TimeInterval(claims.expiresAt))
-        guard let envelopeExpiry = Self.date(response.expiresAt),
+        guard let envelopeExpiry = CmxIrohISO8601Date.parse(response.expiresAt),
               abs(envelopeExpiry.timeIntervalSince(signedExpiry)) < 1,
               envelopeExpiry > now else {
             throw CmxIrohClientOfflinePolicyCacheError.invalidGrantEnvelope
@@ -558,9 +558,4 @@ public actor CmxIrohClientOfflinePolicyCache {
             .joined()
     }
 
-    private static func date(_ value: String) -> Date? {
-        let fractional = ISO8601DateFormatter()
-        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return fractional.date(from: value) ?? ISO8601DateFormatter().date(from: value)
-    }
 }
