@@ -234,7 +234,6 @@ struct ClaudeHookSessionStoreFile: Codable {
 }
 
 final class ClaudeHookSessionStore {
-    private static let defaultStatePath = "~/.cmuxterm/claude-hook-sessions.json"
     private static let maxStateAgeSeconds: TimeInterval = 60 * 60 * 24 * 7
     private static let maxRememberedTerminalPromptTurnIds = 32
     private static let maxAutoNameRecentMessages = 24
@@ -247,18 +246,20 @@ final class ClaudeHookSessionStore {
 
     init(
         processEnv: [String: String] = ProcessInfo.processInfo.environment,
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        applicationSupportDirectory: URL? = nil
     ) {
         if let overridePath = processEnv["CMUX_CLAUDE_HOOK_STATE_PATH"]?.trimmingCharacters(in: .whitespacesAndNewlines),
            !overridePath.isEmpty {
             self.statePath = NSString(string: overridePath).expandingTildeInPath
-        } else if let overrideDirectory = processEnv["CMUX_AGENT_HOOK_STATE_DIR"]?.trimmingCharacters(in: .whitespacesAndNewlines),
-                  !overrideDirectory.isEmpty {
-            self.statePath = URL(fileURLWithPath: NSString(string: overrideDirectory).expandingTildeInPath, isDirectory: true)
+        } else {
+            self.statePath = resolveAgentHookStateWriterLocation(
+                environment: processEnv,
+                fileManager: fileManager,
+                applicationSupportDirectory: applicationSupportDirectory
+            ).directoryURL
                 .appendingPathComponent("claude-hook-sessions.json", isDirectory: false)
                 .path
-        } else {
-            self.statePath = NSString(string: Self.defaultStatePath).expandingTildeInPath
         }
         self.fileManager = fileManager
         self.encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -27986,10 +27987,7 @@ struct CMUXCLI {
 
     func agentHookStatePath(sessionStoreSuffix: String, env: [String: String]) -> String {
         let filename = "\(sessionStoreSuffix)-hook-sessions.json"
-        guard let overrideDirectory = normalizedHookValue(env["CMUX_AGENT_HOOK_STATE_DIR"]) else {
-            return "~/.cmuxterm/\(filename)"
-        }
-        return URL(fileURLWithPath: NSString(string: overrideDirectory).expandingTildeInPath, isDirectory: true)
+        return resolveAgentHookStateWriterLocation(environment: env, fileManager: .default).directoryURL
             .appendingPathComponent(filename, isDirectory: false)
             .path
     }

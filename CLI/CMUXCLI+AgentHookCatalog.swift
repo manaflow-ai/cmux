@@ -1,4 +1,34 @@
+import CMUXAgentLaunch
 import Foundation
+
+func resolveAgentHookStateWriterLocation(
+    environment: [String: String],
+    fileManager: FileManager,
+    applicationSupportDirectory: URL? = nil,
+    containingBundleIdentifier: String? = nil,
+    legacyHomeDirectory: URL? = nil
+) -> AgentHookStateWriterLocation {
+    let inheritedHome = environment["HOME"]?
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+    let resolvedLegacyHomeDirectory: URL
+    if let legacyHomeDirectory {
+        resolvedLegacyHomeDirectory = legacyHomeDirectory
+    } else if let inheritedHome, !inheritedHome.isEmpty {
+        resolvedLegacyHomeDirectory = URL(fileURLWithPath: inheritedHome, isDirectory: true)
+    } else {
+        resolvedLegacyHomeDirectory = fileManager.homeDirectoryForCurrentUser
+    }
+    return AgentHookStateWriterLocation(
+        environment: environment,
+        applicationSupportDirectory: applicationSupportDirectory ?? fileManager.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first,
+        containingBundleIdentifier: containingBundleIdentifier
+            ?? CLIExecutableLocator.enclosingAppBundle()?.bundleIdentifier,
+        legacyHomeDirectory: resolvedLegacyHomeDirectory
+    )
+}
 
 extension CMUXCLI {
     // MARK: Agent definitions
