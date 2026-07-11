@@ -181,6 +181,11 @@ final class WindowTerminalHostView: NSView {
                 return nil
             }
 
+#if DEBUG
+            if currentEvent?.type == .leftMouseDown {
+                logDividerDownDiagnostics(at: point)
+            }
+#endif
             if let kind = splitDividerCursorKind(at: point) {
                 // Intersection drags resize two split views at once, which
                 // NSSplitView cannot do natively — claim the mouseDown. Gate
@@ -465,6 +470,26 @@ final class WindowTerminalHostView: NSView {
             self.window?.invalidateCursorRects(for: self)
         }
     }
+
+#if DEBUG
+    private func logDividerDownDiagnostics(at point: NSPoint) {
+        let windowPoint = convert(point, to: nil)
+        let regions = splitDividerRegions()
+        var contained = 0, live = 0, interactable = 0
+        for region in regions where region.intersectionHitRectInWindow.contains(windowPoint) {
+            contained += 1
+            if region.isLive { live += 1 }
+            if region.isInteractable { interactable += 1 }
+        }
+        let kind = Self.dividerCursorKind(at: windowPoint, in: regions, checkLiveness: false)
+        let liveIntersection = DividerRegion.dividerIntersection(at: windowPoint, in: regions) != nil
+        cmuxDebugLog(
+            "portal.dividerDown point=\(Int(windowPoint.x))x\(Int(windowPoint.y)) regions=\(regions.count) " +
+            "contained=\(contained) live=\(live) interactable=\(interactable) " +
+            "kind=\(kind.map { String(describing: $0) } ?? "nil") liveIntersection=\(liveIntersection ? 1 : 0)"
+        )
+    }
+#endif
 
     private static func dividerCursorKind(at windowPoint: NSPoint, in regions: [DividerRegion], checkLiveness: Bool = true) -> DividerCursorKind? {
         let hits = DividerRegion.dividerHits(at: windowPoint, in: regions, checkLiveness: checkLiveness)
