@@ -149,6 +149,7 @@ extension WKWebView {
 
     func browserPortalNotifyHidden(reason: String) {
         browserPortalNeedsRenderingStateReattach = true
+        browserPortalMarkNeedsFirstSizedRevealNudge(reason: reason)
         let firedSelectors = ["viewDidHide", "_exitInWindow"].filter {
             browserPortalCallVoidIfAvailable($0)
         }

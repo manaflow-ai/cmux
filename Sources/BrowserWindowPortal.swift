@@ -2403,6 +2403,13 @@ final class WindowBrowserPortal: NSObject {
             if reattachRenderingState {
                 webKitSubview.browserPortalReattachRenderingState(reason: "\(reason):\(phase)")
             }
+            if webKitSubview === webView {
+                webView.browserPortalApplyFirstSizedRevealGeometryNudgeIfNeeded(
+                    reason: "\(reason):\(phase)",
+                    hasCompanionWKSubviews: containerView.hasVisibleWebKitCompanionSubview(for: webView),
+                    managedByExternalFullscreenWindow: webView.cmuxIsManagedByExternalFullscreenWindow(relativeTo: window)
+                )
+            }
             webKitSubview.displayIfNeeded()
         }
         containerView.displayIfNeeded()
@@ -2530,6 +2537,7 @@ final class WindowBrowserPortal: NSObject {
             "reveal",
             "transientRecovery",
             "anchor",
+            "firstSizedReveal",
         ]
 
         static func resolve(reasons: [String]) -> Self {
@@ -3536,6 +3544,9 @@ final class WindowBrowserPortal: NSObject {
         }
         if forcePresentationRefresh {
             refreshReasons.append("anchor")
+        }
+        if webView.browserPortalRequiresFirstSizedRevealNudge {
+            refreshReasons.append("firstSizedReveal")
         }
         if transientRecoveryReason == nil {
             resetTransientRecoveryRetryIfNeeded(forWebViewId: webViewId, entry: &entry)
