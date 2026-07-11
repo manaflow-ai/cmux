@@ -14,8 +14,12 @@ final class SplitIntersectionDragUITests: XCTestCase {
         // fails with "does not have a process ID" on CI runners, and UI-test
         // mode keeps launch activation deterministic (every passing UI test
         // sets it; without it the app stays Running Background on runners).
-        app.launchEnvironment["CMUX_TAG"] = "ui-tests-intersection-\(UUID().uuidString.prefix(8))"
+        let launchTag = "ui-tests-intersection-\(UUID().uuidString.prefix(8))"
+        app.launchEnvironment["CMUX_TAG"] = launchTag
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        addTeardownBlock {
+            Self.dumpDividerDebugLog(tag: launchTag)
+        }
         app.launch()
         XCTAssertTrue(
             ensureForegroundAfterLaunch(app, timeout: 15.0),
@@ -27,10 +31,10 @@ final class SplitIntersectionDragUITests: XCTestCase {
 
         XCTAssertTrue(waitForTerminalPaneCount(app, 1, timeout: 15.0), "Expected the initial terminal pane")
 
-        app.typeKey("d", modifierFlags: [.command])
+        typeKeyForegrounded(app, "d", modifierFlags: [.command])
         XCTAssertTrue(waitForTerminalPaneCount(app, 2, timeout: 10.0), "Expected split-right to add a second pane")
 
-        app.typeKey("d", modifierFlags: [.command, .shift])
+        typeKeyForegrounded(app, "d", modifierFlags: [.command, .shift])
         XCTAssertTrue(waitForTerminalPaneCount(app, 3, timeout: 10.0), "Expected split-down to add a third pane")
 
         guard let before = paneGeometry(app) else {
@@ -45,6 +49,7 @@ final class SplitIntersectionDragUITests: XCTestCase {
         let start = window.coordinate(withNormalizedOffset: .zero).withOffset(
             CGVector(dx: startX - window.frame.minX, dy: startY - window.frame.minY)
         )
+        reforeground(app)
         let end = start.withOffset(CGVector(dx: -60, dy: -60))
         start.press(forDuration: 0.15, thenDragTo: end)
 
@@ -115,6 +120,35 @@ final class SplitIntersectionDragUITests: XCTestCase {
             return app.wait(for: .runningForeground, timeout: 10.0)
         }
         return false
+    }
+
+    /// Busy GUI sessions can deactivate the app between steps; re-activate
+    /// before synthesizing keyboard or pointer events.
+    private func reforeground(_ app: XCUIApplication) {
+        guard app.state != .runningForeground else { return }
+        app.activate()
+        _ = app.wait(for: .runningForeground, timeout: 5.0)
+    }
+
+    private func typeKeyForegrounded(_ app: XCUIApplication, _ key: String, modifierFlags: XCUIElement.KeyModifierFlags) {
+        reforeground(app)
+        app.typeKey(key, modifierFlags: modifierFlags)
+    }
+
+    /// CI runners discard the app's tagged debug log; surface the divider
+    /// routing lines in the test output so a corner-drag failure is
+    /// diagnosable from the posted artifacts alone.
+    private static func dumpDividerDebugLog(tag: String) {
+        let candidates = ["/tmp/cmux-debug-\(tag.uppercased()).log", "/tmp/cmux-debug-\(tag).log"]
+        guard let content = candidates.lazy.compactMap({ try? String(contentsOfFile: $0, encoding: .utf8) }).first else {
+            print("[intersection-test] no debug log for tag \(tag)")
+            return
+        }
+        let lines = content.split(separator: "\n").filter {
+            $0.contains("divider.") || $0.contains("portal.divider")
+        }
+        print("[intersection-test] divider log (\(lines.count) lines):")
+        for line in lines.suffix(120) { print("[intersection-test] \(line)") }
     }
 
     private func waitForTerminalPaneCount(_ app: XCUIApplication, _ count: Int, timeout: TimeInterval) -> Bool {
