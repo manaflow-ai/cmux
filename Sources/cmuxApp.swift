@@ -529,14 +529,7 @@ struct cmuxApp: App {
 
                 Divider()
                 Menu("Debug Windows") {
-                    Button(
-                        String(
-                            localized: "debug.menu.cefBrowser",
-                            defaultValue: "Chromium Browser (CEF)…"
-                        )
-                    ) {
-                        CEFBrowserDebugWindowController.shared.show()
-                    }
+                    Button(String(localized: "debug.menu.cefBrowser", defaultValue: "Chromium Browser (CEF)…")) { CEFBrowserDebugWindowController.shared.show() }
                     Button("Background Debug…") { BackgroundDebugWindowController.shared.show() }
                     Button("Pro Badge Style…") {
                         ProBadgeDebugWindowController.shared.show()
