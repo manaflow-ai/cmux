@@ -1,6 +1,7 @@
 import { useLocale, useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
-import { buildAlternates, openGraphDefaults, seoDescription, twitterSummary } from "@/i18n/seo";
+import { buildAlternates, openGraphDefaults, twitterSummary } from "@/i18n/seo";
+import { landingPageSeoCopy } from "@/i18n/audited-seo";
 import { SiteHeader } from "@/app/[locale]/components/site-header";
 import { comparePages, comparePath } from "../../../lib/compare-pages";
 import { TrackedLink } from "../tracked-link";
@@ -9,9 +10,14 @@ import { remoteTmuxDocsLocales } from "@/i18n/locale-availability";
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
   const t = await getTranslations({ locale, namespace: "landing.guides" });
+  const siteMeta = await getTranslations({ locale, namespace: "meta" });
   const alternates = buildAlternates(locale, "/guides");
-  const title = t("metaTitle");
-  const description = seoDescription(locale, t("metaDescription"));
+  const { title, description } = landingPageSeoCopy(
+    locale,
+    t,
+    siteMeta,
+    ["title", "intro"],
+  );
   return {
     title,
     description,

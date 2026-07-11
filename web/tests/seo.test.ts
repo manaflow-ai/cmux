@@ -356,6 +356,12 @@ describe("SEO metadata helpers", () => {
         ["passkey-auth", "passkeyAuth"],
       ] as const;
       for (const [slug, postKey] of auditedBlogPosts) {
+        if (
+          locale !== "en" &&
+          (postKey === "cmuxOmo" || postKey === "gpl")
+        ) {
+          continue;
+        }
         const metadata = messages.blog[postKey];
         const post = messages.blog.posts[postKey];
         rows.push(
@@ -368,7 +374,13 @@ describe("SEO metadata helpers", () => {
               messageLookup(post),
               siteMeta,
             ),
-            [metadata.metaDescription, post.title, post.summary],
+            [
+              metadata.metaDescription,
+              ...Object.values(post).filter(
+                (value): value is string =>
+                  typeof value === "string" && !value.includes("<"),
+              ),
+            ],
             [metadata.metaTitle, post.title],
           ),
         );
@@ -759,6 +771,38 @@ describe("SEO middleware", () => {
       "https://cmux.com/ja/pricing",
       "https://cmux.com/docs/agent-integrations/oh-my-pi",
       "https://cmux.com/ja/docs/agent-integrations/oh-my-pi",
+    ]);
+  });
+
+  test("canonicalizes English-only blog posts", () => {
+    for (const canonicalPath of ["/blog/cmux-omo", "/blog/gpl"]) {
+      const localized = middleware(
+        requestFor(`/ja${canonicalPath}`, { "accept-language": "ja" }),
+      );
+      expect(localized.status).toBe(301);
+      expect(localized.headers.get("location")).toBe(
+        `https://cmux.com${canonicalPath}`,
+      );
+
+      const canonical = middleware(
+        requestFor(canonicalPath, { "accept-language": "ja" }),
+      );
+      expect(canonical.status).toBe(200);
+      expect(canonical.headers.get("x-middleware-rewrite")).toBe(
+        `https://cmux.com/en${canonicalPath}`,
+      );
+      expect(canonical.headers.get("Link")).toContain('hreflang="en"');
+      expect(canonical.headers.get("Link")).not.toContain('hreflang="ja"');
+    }
+
+    const urls = sitemap()
+      .map((entry) => entry.url)
+      .filter(
+        (url) => url.endsWith("/blog/cmux-omo") || url.endsWith("/blog/gpl"),
+      );
+    expect(urls).toEqual([
+      "https://cmux.com/blog/cmux-omo",
+      "https://cmux.com/blog/gpl",
     ]);
   });
 });

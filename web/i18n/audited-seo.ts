@@ -12,6 +12,42 @@ import {
 
 export type SeoMessageLookup = (key: string) => string;
 
+export type AuditedBlogPostKey =
+  | "cmuxOmo"
+  | "gpl"
+  | "showHnLaunch"
+  | "sessionRestore"
+  | "cmuxHome"
+  | "introducingCmux"
+  | "claudeCodeBestWorktreeManager"
+  | "zenOfCmux"
+  | "cmdShiftU"
+  | "unreadShortcuts"
+  | "passkeyAuth";
+
+const blogDescriptionCandidateKeys: Record<
+  AuditedBlogPostKey,
+  readonly string[]
+> = {
+  cmuxOmo: ["summary"],
+  gpl: ["summary", "p1"],
+  showHnLaunch: ["summary", "intro", "cta"],
+  sessionRestore: ["summary", "p1", "p2", "agentP2", "limitsP"],
+  cmuxHome: ["summary", "p1", "p2", "p3", "p4", "p5"],
+  introducingCmux: ["summary", "p1", "whyP", "getStartedP"],
+  claudeCodeBestWorktreeManager: [
+    "summary",
+    "p1",
+    "p2",
+    "cmuxP1",
+    "cmuxP2",
+  ],
+  zenOfCmux: ["summary", "p1", "p2", "p3", "p4"],
+  cmdShiftU: ["summary", "p1", "p2"],
+  unreadShortcuts: ["summary", "p1", "p2", "p3", "p4", "p5"],
+  passkeyAuth: ["summary", "p1", "p2", "p3"],
+};
+
 const conciseTitleLocales = new Set(["ja", "zh-CN", "zh-TW", "ko"]);
 
 const shortTitleContexts: Record<string, string> = {
@@ -159,6 +195,44 @@ export function blogIndexSeoCopy(
       completeCandidates: [t("description")],
       contextFragments: [t("title")],
     }),
+  };
+}
+
+export function blogPostSeoCopy(
+  locale: string,
+  postKey: AuditedBlogPostKey,
+  metadata: SeoMessageLookup,
+  post: SeoMessageLookup,
+  siteMeta: SeoMessageLookup,
+) {
+  const title = post("title");
+  const authoredDescriptions = blogDescriptionCandidateKeys[postKey].map(
+    (key) => post(key),
+  );
+  return {
+    title: selectTitle(locale, metadata("metaTitle"), siteMeta, [title]),
+    description: selectDescription(locale, metadata("metaDescription"), [
+      post("summary"),
+      `${title}. ${post("summary")}`,
+      ...authoredDescriptions,
+    ]),
+  };
+}
+
+export function landingPageSeoCopy(
+  locale: string,
+  t: SeoMessageLookup,
+  siteMeta: SeoMessageLookup,
+  candidateKeys: readonly string[],
+) {
+  const authoredCandidates = candidateKeys.map((key) => t(key));
+  return {
+    title: selectTitle(locale, t("metaTitle"), siteMeta, authoredCandidates),
+    description: selectDescription(
+      locale,
+      t("metaDescription"),
+      authoredCandidates,
+    ),
   };
 }
 

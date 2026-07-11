@@ -1,6 +1,7 @@
 import type { MetadataRoute } from "next";
 import {
   fallbackContentLocales,
+  englishFallbackContentLocales,
   featureWorkflowContentLocales,
   remoteTmuxDocsLocales,
 } from "../i18n/locale-availability";
@@ -36,9 +37,9 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { path: "/blog/introducing-cmux", lastModified: "2026-02-12", changeFrequency: "monthly" as const, priority: 0.7 },
     { path: "/blog/zen-of-cmux", lastModified: "2026-02-27", changeFrequency: "monthly" as const, priority: 0.7 },
     { path: "/blog/cmux-claude-teams", lastModified: "2026-03-30", changeFrequency: "monthly" as const, priority: 0.7 },
-    { path: "/blog/cmux-omo", lastModified: "2026-03-30", changeFrequency: "monthly" as const, priority: 0.7 },
+    { path: "/blog/cmux-omo", lastModified: "2026-03-30", changeFrequency: "monthly" as const, priority: 0.7, locales: englishFallbackContentLocales },
     { path: "/blog/cmux-ssh", lastModified: "2026-07-03", changeFrequency: "monthly" as const, priority: 0.7 },
-    { path: "/blog/gpl", lastModified: "2026-03-30", changeFrequency: "monthly" as const, priority: 0.7 },
+    { path: "/blog/gpl", lastModified: "2026-03-30", changeFrequency: "monthly" as const, priority: 0.7, locales: englishFallbackContentLocales },
     { path: "/blog/cmd-shift-u", lastModified: "2026-03-04", changeFrequency: "monthly" as const, priority: 0.7 },
     { path: "/docs/getting-started", lastModified: "2026-03-18", changeFrequency: "monthly" as const, priority: 0.9 },
     { path: "/docs/concepts", lastModified: "2026-03-18", changeFrequency: "monthly" as const, priority: 0.8 },

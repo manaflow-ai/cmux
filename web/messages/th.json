@@ -596,7 +596,7 @@
       "metaDescription": "ทำไมเราถึงสร้าง cmux เทอร์มินัลใหม่สำหรับ macOS"
     },
     "passkeyAuth": {
-      "metaTitle": "การยืนยันตัวตนด้วยพาสคีย์ในเบราว์เซอร์ cmux",
+      "metaTitle": "พาสคีย์ในเบราว์เซอร์ cmux",
       "metaDescription": "cmux v0.64+ รองรับการยืนยันตัวตนด้วยพาสคีย์ในแผงเบราว์เซอร์ และนำเข้าคุกกี้จากเบราว์เซอร์อื่นได้ด้วย cmux browser import",
       "metaKeywords": [
         "การยืนยันตัวตนด้วยพาสคีย์ในเบราว์เซอร์ cmux",
@@ -628,7 +628,7 @@
       ]
     },
     "sessionRestore": {
-      "metaDescription": "วิธีกู้คืนเซสชัน Claude Code, Codex, OpenCode, Gemini CLI, Antigravity CLI, Grok Build CLI และเอเจนต์เขียนโค้ดอื่นหลังเปิดใหม่หรือหลัง terminal ล่มด้วย cmux",
+      "metaDescription": "cmux กู้คืนเลย์เอาต์และเซสชันของ Claude Code, Codex และเอเจนต์อื่นหลังเปิดใหม่หรือ terminal ล่มผ่าน hooks",
       "metaKeywords": [
         "cmux",
         "กู้คืนเซสชัน",
@@ -1830,7 +1830,7 @@
       "faqA4": "ฟรี cmux เป็นโอเพนซอร์สและใช้ฟรีสำหรับ macOS"
     },
     "guides": {
-      "metaTitle": "คู่มือ cmux: การเปรียบเทียบและกรณีใช้งานเทอร์มินัล",
+      "metaTitle": "คู่มือและการเปรียบเทียบ cmux",
       "metaDescription": "คู่มือที่เปรียบเทียบ cmux กับเทอร์มินัล macOS อื่น ๆ วิธีที่มันสร้างบน Ghostty และวิธีรัน Claude Code, Codex และ OpenCode ใน cmux",
       "title": "คู่มือ",
       "intro": "การเปรียบเทียบ ภูมิหลัง และคู่มือกรณีใช้งานสำหรับ cmux สำหรับเอกสารผลิตภัณฑ์ ดูได้ที่ docs"
