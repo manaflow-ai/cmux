@@ -1,4 +1,5 @@
 import CMUXAgentLaunch
+import Darwin
 import Dispatch
 import Foundation
 import Testing
@@ -230,6 +231,65 @@ struct AgentHookStateLocationTests {
             atPath: scoped.appendingPathComponent(".legacy-hook-state-migrated-v1").path
         ))
         #expect(try Data(contentsOf: scoped.appendingPathComponent(filename)) == Data("legacy".utf8))
+    }
+
+    @Test("Migration coordinates with concurrent hook writers")
+    func migrationCoordinatesWithHookWriterLock() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-hook-state-writer-race-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let applicationSupport = root.appendingPathComponent("app-support", isDirectory: true)
+        let home = root.appendingPathComponent("home", isDirectory: true)
+        let legacy = home.appendingPathComponent(".cmuxterm", isDirectory: true)
+        let scoped = applicationSupport
+            .appendingPathComponent("cmux/agent-hooks/com.cmuxterm.app.nightly", isDirectory: true)
+        try FileManager.default.createDirectory(at: legacy, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: scoped, withIntermediateDirectories: true)
+        let filename = "codex-hook-sessions.json"
+        let legacyFile = legacy.appendingPathComponent(filename)
+        let scopedFile = scoped.appendingPathComponent(filename)
+        try JSONSerialization.data(withJSONObject: [
+            "sessions": ["legacy-only": ["workspaceId": "legacy"]],
+        ]).write(to: legacyFile)
+        try JSONSerialization.data(withJSONObject: [
+            "sessions": ["before-writer": ["workspaceId": "before"]],
+        ]).write(to: scopedFile)
+
+        let lockFile = scoped.appendingPathComponent(filename + ".lock")
+        let lockDescriptor = lockFile.withUnsafeFileSystemRepresentation { path in
+            path.map { open($0, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR) } ?? -1
+        }
+        #expect(lockDescriptor >= 0)
+        defer { close(lockDescriptor) }
+        #expect(flock(lockDescriptor, LOCK_EX) == 0)
+
+        let started = DispatchSemaphore(value: 0)
+        let finished = DispatchSemaphore(value: 0)
+        DispatchQueue.global().async {
+            started.signal()
+            _ = AgentHookStateReaderLocation(
+                environment: [:],
+                applicationSupportDirectory: applicationSupport,
+                bundleIdentifier: "com.cmuxterm.app.nightly",
+                legacyHomeDirectory: home,
+                fileManager: .default
+            )
+            finished.signal()
+        }
+        #expect(started.wait(timeout: .now() + 1) == .success)
+        #expect(finished.wait(timeout: .now() + 1) == .timedOut)
+
+        try JSONSerialization.data(withJSONObject: [
+            "sessions": ["writer-update": ["workspaceId": "writer"]],
+        ]).write(to: scopedFile, options: .atomic)
+        #expect(flock(lockDescriptor, LOCK_UN) == 0)
+        #expect(finished.wait(timeout: .now() + 2) == .success)
+
+        let data = try Data(contentsOf: scopedFile)
+        let rootObject = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let sessions = try #require(rootObject["sessions"] as? [String: Any])
+        #expect((sessions["legacy-only"] as? [String: Any])?["workspaceId"] as? String == "legacy")
+        #expect((sessions["writer-update"] as? [String: Any])?["workspaceId"] as? String == "writer")
     }
 
     @Test("Sanitizes non-ASCII bundle identifier characters")
