@@ -56,6 +56,29 @@ struct CmxIrohLibEndpointTests {
     }
 
     @Test
+    func monitoringDoesNotSynthesizeNetworkChangeEvents() async throws {
+        let endpoint = try await makeEndpoint(managedRelayURLs: [])
+        let events = await endpoint.healthEvents()
+        let collected = Task { () -> Int in
+            var networkChanges = 0
+            for await event in events {
+                if event == .networkChanged {
+                    networkChanges += 1
+                }
+                if networkChanges == 32 {
+                    break
+                }
+            }
+            return networkChanges
+        }
+
+        try await Task.sleep(for: .milliseconds(100))
+        await endpoint.close()
+
+        #expect(await collected.value < 32)
+    }
+
+    @Test
     func unmanagedRelayFailsAndManagedRelayFailoverBuildsSeparateAttempts() async throws {
         let first = "https://use1-1.relay.lawrence.cmux.iroh.link/"
         let second = "https://usw1-1.relay.lawrence.cmux.iroh.link/"
