@@ -335,6 +335,50 @@ struct AgentHookStateLocationTests {
         #expect((sessions["writer-update"] as? [String: Any])?["workspaceId"] as? String == "writer")
     }
 
+    @Test("Malformed legacy stores leave migration pending for a later retry")
+    func malformedLegacyStoreRetriesAfterRepair() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-hook-state-retry-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let applicationSupport = root.appendingPathComponent("app-support", isDirectory: true)
+        let home = root.appendingPathComponent("home", isDirectory: true)
+        let legacy = home.appendingPathComponent(".cmuxterm", isDirectory: true)
+        let scoped = applicationSupport
+            .appendingPathComponent("cmux/agent-hooks/com.cmuxterm.app.nightly", isDirectory: true)
+        try FileManager.default.createDirectory(at: legacy, withIntermediateDirectories: true)
+        let filename = "codex-hook-sessions.json"
+        let legacyFile = legacy.appendingPathComponent(filename)
+        let marker = scoped.appendingPathComponent(".legacy-hook-state-migrated-v1")
+        try Data("{".utf8).write(to: legacyFile)
+
+        _ = AgentHookStateReaderLocation(
+            environment: [:],
+            applicationSupportDirectory: applicationSupport,
+            bundleIdentifier: "com.cmuxterm.app.nightly",
+            legacyHomeDirectory: home,
+            fileManager: .default
+        )
+        #expect(!FileManager.default.fileExists(atPath: marker.path))
+
+        try Data(#"{"sessions":{"repaired":{"workspaceId":"workspace"}}}"#.utf8).write(
+            to: legacyFile,
+            options: .atomic
+        )
+        _ = AgentHookStateReaderLocation(
+            environment: [:],
+            applicationSupportDirectory: applicationSupport,
+            bundleIdentifier: "com.cmuxterm.app.nightly",
+            legacyHomeDirectory: home,
+            fileManager: .default
+        )
+
+        #expect(FileManager.default.fileExists(atPath: marker.path))
+        let data = try Data(contentsOf: scoped.appendingPathComponent(filename))
+        let rootObject = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let sessions = try #require(rootObject["sessions"] as? [String: Any])
+        #expect((sessions["repaired"] as? [String: Any])?["workspaceId"] as? String == "workspace")
+    }
+
     @Test("Sanitizes non-ASCII bundle identifier characters")
     func sanitizesUnicodeBundleIdentifierCharacters() throws {
         let location = try #require(AgentHookStateLocation(
