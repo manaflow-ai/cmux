@@ -3311,6 +3311,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// so it must not clear ``hasKnownPairedMac`` (that belongs to the explicit
     /// forget-active path below).
     func disconnectLiveConnection(preservingOtherMacWorkspaceState: Bool = false) {
+        resetConnectionLifecycle()
         suppressNextConnectionOutageEdge = true
         invalidatePairingAttempt()
         clearMacSwitchAttemptState()
@@ -5216,7 +5217,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     private func clearRemoteConnectionContext(preservingOtherMacWorkspaceState: Bool = false) {
-        failStreamRepairLifecycleEpisodeIfNeeded()
+        completeStreamRepairLifecycleEpisodeIfNeeded()
         connectionGeneration = UUID()
         connectionAttemptGeneration = UUID()
         cancelRemoteOperationTasks()

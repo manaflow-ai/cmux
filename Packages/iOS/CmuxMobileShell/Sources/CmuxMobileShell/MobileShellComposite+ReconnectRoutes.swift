@@ -107,12 +107,6 @@ extension MobileShellComposite {
         finishConnectionLifecycleEpisode(id: episode.id)
     }
 
-    func failStreamRepairLifecycleEpisodeIfNeeded() {
-        guard let episode = connectionLifecycle.activeEpisode,
-              episode.kind == .streamRepair else { return }
-        finishConnectionLifecycleEpisode(id: episode.id)
-    }
-
     private func connectionLifecycleHealth(at now: Date) -> MobileConnectionLifecycleHealthSnapshot {
         let lastEvent = lastTerminalEventAt ?? now
         return MobileConnectionLifecycleHealthSnapshot(
