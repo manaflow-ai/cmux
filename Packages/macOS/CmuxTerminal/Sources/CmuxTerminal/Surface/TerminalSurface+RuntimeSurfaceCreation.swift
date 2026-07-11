@@ -275,21 +275,16 @@ extension TerminalSurface {
     }
 
     private static func agentHookStateDirectory(bundleIdentifier: String) -> String? {
-        if let configuredDirectory = ProcessInfo.processInfo.environment["CMUX_AGENT_HOOK_STATE_DIR"]?
-            .trimmingCharacters(in: .whitespacesAndNewlines),
-            !configuredDirectory.isEmpty {
-            return configuredDirectory
-        }
-        guard let applicationSupport = FileManager.default.urls(
+        let applicationSupport = FileManager.default.urls(
             for: .applicationSupportDirectory,
             in: .userDomainMask
-        ).first else {
-            return nil
-        }
-        return AgentHookStateLocation(
+        ).first
+        return AgentHookStateLocation.resolveDirectoryURL(
+            environment: ProcessInfo.processInfo.environment,
             applicationSupportDirectory: applicationSupport,
-            bundleIdentifier: bundleIdentifier
-        )?.directoryURL.path
+            bundleIdentifier: bundleIdentifier,
+            legacyHomeDirectory: FileManager.default.homeDirectoryForCurrentUser
+        ).path
     }
 
     private func makeGhosttySurface(
