@@ -352,6 +352,8 @@ describe("agent page variants", () => {
 
     expect(llms).toContain("[Getting Started](https://cmux.com/docs/getting-started.md)");
     expect(llms).toContain("[Skills](https://cmux.com/docs/skills.md)");
+    expect(llms).toContain("[Remote tmux](https://cmux.com/docs/remote-tmux.md)");
+    expect(llms).toContain("Remote tmux: attach to existing tmux sessions over SSH");
     expect(llms).toContain("Text: https://cmux.com/docs/getting-started.txt");
     expect(variantPathForPage("/", "md")).toBe("/index.md");
   });
@@ -375,6 +377,9 @@ describe("agent page variants", () => {
     expect(resolveAgentPageVariant("/docs/task-manager.txt")).not.toBeNull();
     expect(resolveAgentPageVariant("/ja/docs/task-manager.txt")).not.toBeNull();
     expect(resolveAgentPageVariant("/de/docs/task-manager.txt")).toBeNull();
+    expect(resolveAgentPageVariant("/docs/remote-tmux.md")).not.toBeNull();
+    expect(resolveAgentPageVariant("/ja/docs/remote-tmux.md")).not.toBeNull();
+    expect(resolveAgentPageVariant("/de/docs/remote-tmux.md")).toBeNull();
 
     const sitemapPaths = sitemap().map((entry) => new URL(String(entry.url)).pathname);
     expect(sitemapPaths).toContain("/docs/vault");
@@ -383,6 +388,9 @@ describe("agent page variants", () => {
     expect(sitemapPaths).toContain("/docs/task-manager");
     expect(sitemapPaths).toContain("/ja/docs/task-manager");
     expect(sitemapPaths).not.toContain("/de/docs/task-manager");
+    expect(sitemapPaths).toContain("/docs/remote-tmux");
+    expect(sitemapPaths).toContain("/ja/docs/remote-tmux");
+    expect(sitemapPaths).not.toContain("/de/docs/remote-tmux");
   });
 
   test("limits en-ja docs alternate links to live localized routes", () => {
