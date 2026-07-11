@@ -72,11 +72,6 @@ struct BranchSessionAuthorization {
     allowed_repo_roots: Vec<String>,
 }
 
-#[derive(Deserialize)]
-struct ResolvedBranchBase {
-    r#ref: String,
-}
-
 const MAX_CACHED_MANIFESTS: usize = 64;
 const MAX_RPC_REQUEST_BYTES: usize = 1024 * 1024;
 const MAX_RPC_RESPONSE_BYTES: usize = 32 * 1024 * 1024;
@@ -566,7 +561,7 @@ async fn resolve_session_source(
     let output = tokio::time::timeout(
         SESSION_GIT_TIMEOUT,
         Command::new(&state.config.cmux_executable)
-            .arg("__diff-viewer-base")
+            .arg("__diff-viewer-refs")
             .arg("--repo")
             .arg(repo)
             .stdin(Stdio::null())
@@ -580,14 +575,20 @@ async fn resolve_session_source(
     if !output.status.success() || output.stdout.len() > 4096 {
         return Err(SessionOpenError::Failed);
     }
-    let resolved: ResolvedBranchBase =
+    let resolved: BranchListResult =
         serde_json::from_slice(&output.stdout).map_err(|_| SessionOpenError::Failed)?;
-    if resolved.r#ref.is_empty() {
-        return Err(SessionOpenError::Failed);
-    }
+    let base_ref = resolved
+        .groups
+        .iter()
+        .find(|group| group.id == "suggested")
+        .and_then(|group| group.rows.first())
+        .or_else(|| resolved.groups.iter().find_map(|group| group.rows.first()))
+        .map(|row| row.r#ref.clone())
+        .filter(|value| !value.is_empty())
+        .ok_or(SessionOpenError::Failed)?;
     Ok(DiffSource::Branch {
         repo_root,
-        base_ref: Some(resolved.r#ref),
+        base_ref: Some(base_ref),
     })
 }
 

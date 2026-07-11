@@ -3226,7 +3226,6 @@ struct CMUXCLI {
         if command == "__sigpipe-inspect" { try runSIGPIPEInspect(commandArgs: commandArgs); return }
         if command == "diff-viewer-server" { try runDiffViewerServerCommand(commandArgs: commandArgs); return }
         if command == "__diff-viewer-refs" { try runDiffViewerRefsCommand(commandArgs: commandArgs); return }
-        if command == "__diff-viewer-base" { try runDiffViewerBaseCommand(commandArgs: commandArgs); return }
         if command == "__diff-viewer-branch" { try runDiffViewerBranchRegenerateCommand(commandArgs: commandArgs); return }
         if command == "settings",
            settingsCommandDoesNotNeedSocket(commandArgs) {

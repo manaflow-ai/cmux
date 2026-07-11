@@ -2,11 +2,8 @@ fn main() {
     let arguments = std::env::args().collect::<Vec<_>>();
     let command = arguments.get(1).map(String::as_str).unwrap_or_default();
     match command {
-        "__diff-viewer-base" => {
-            println!(r#"{{"ref":"HEAD","reason":"default","confidence":"low"}}"#);
-        }
         "__diff-viewer-refs" => println!(
-            r#"{{"groups":[{{"id":"branches","label":"Branches","rows":[{{"ref":"main","label":"main","current":true}}]}}]}}"#
+            r#"{{"groups":[{{"id":"suggested","label":"Suggested","rows":[{{"ref":"HEAD","label":"HEAD","current":true}}]}}]}}"#
         ),
         "__diff-viewer-branch" => {
             let base = arguments

@@ -443,7 +443,7 @@ async fn verify_rpc(client: &reqwest::Client, port: u16, token: &str, group: &st
     assert_eq!(branches["result"]["type"], "branches");
     assert_eq!(
         branches["result"]["value"]["groups"][0]["rows"][0]["ref"],
-        "main"
+        "HEAD"
     );
 
     let unauthorized_request = serde_json::json!({
