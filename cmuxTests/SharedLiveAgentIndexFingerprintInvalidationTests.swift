@@ -12,14 +12,10 @@ import Testing
 @Suite(.serialized)
 struct SharedLiveAgentIndexFingerprintInvalidationTests {
     @Test(arguments: [false, true])
-    func expiredCacheIsRejectedWhenRefreshTimesOut(joinExistingRefresh: Bool) async {
-        let timeoutWaiter = ManualGenerationTimeoutWaiter()
-        let secondLoadStarted = DispatchSemaphore(value: 0)
-        let releaseSecondLoad = DispatchSemaphore(value: 0)
-        defer { releaseSecondLoad.signal() }
+    func expiredCacheIsRejectedWhenRefreshIsUnavailable(joinExistingRefresh: Bool) async {
         var now = Date()
         let hookDirectory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-expired-index-timeout-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("cmux-expired-index-unavailable-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: hookDirectory) }
         let cachedResult: SharedLiveAgentIndex.LoadResult = (
             index: .empty,
@@ -29,13 +25,7 @@ struct SharedLiveAgentIndexFingerprintInvalidationTests {
             forkValidatedPanels: []
         )
         let sharedIndex = SharedLiveAgentIndex(
-            indexLoader: {
-                secondLoadStarted.signal()
-                releaseSecondLoad.wait()
-                return cachedResult
-            },
             processScopeFingerprintProvider: { [] },
-            generationTimeoutWaiter: { await timeoutWaiter.wait() },
             hookStoreDirectoryProvider: { hookDirectory.path },
             dateProvider: { now }
         )
@@ -45,25 +35,35 @@ struct SharedLiveAgentIndexFingerprintInvalidationTests {
         now = now.addingTimeInterval(61)
 
         if joinExistingRefresh {
-            sharedIndex.scheduleRefreshIfStale()
-            #expect(await SharedLiveAgentIndexLoadCoalescingTests.wait(for: secondLoadStarted))
+            let generationID = UUID()
+            sharedIndex.refreshGenerationsByID[generationID] = .init(
+                id: generationID,
+                ordinal: 1,
+                phase: .capturing,
+                publication: .scoped,
+                validationPanelsByPanelID: [:]
+            )
+            sharedIndex.refreshTasksByID[generationID] = Task { nil }
+            sharedIndex.refreshTailID = generationID
+        } else {
+            for ordinal in 1 ... SharedLiveAgentIndex.maximumConcurrentPhysicalLoads {
+                let generationID = UUID()
+                sharedIndex.refreshGenerationsByID[generationID] = .init(
+                    id: generationID,
+                    ordinal: UInt64(ordinal),
+                    phase: .capturing,
+                    publication: .scoped,
+                    validationPanelsByPanelID: [:]
+                )
+            }
         }
-        let refresh = Task { @MainActor in
-            await sharedIndex.resumeIndexesRefreshingIfNeeded(maximumAge: 60)
-        }
-        if !joinExistingRefresh {
-            #expect(await SharedLiveAgentIndexLoadCoalescingTests.wait(for: secondLoadStarted))
-        }
-        await timeoutWaiter.waitUntilPendingCount(1)
-        await timeoutWaiter.fireLast()
+
+        let refreshed = await sharedIndex.resumeIndexesRefreshingIfNeeded(maximumAge: 60)
 
         #expect(
-            await refresh.value == nil,
-            "A timed-out refresh must not revive an index older than the requested maximum age."
+            refreshed == nil,
+            "An unavailable refresh must not revive an index older than the requested maximum age."
         )
-
-        releaseSecondLoad.signal()
-        await timeoutWaiter.cancelAll()
     }
 
     @Test
