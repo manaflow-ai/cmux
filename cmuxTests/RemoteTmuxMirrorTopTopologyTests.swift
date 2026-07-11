@@ -93,4 +93,32 @@ extension RemoteTmuxMirrorCLIObservabilityTests {
             }
         }
     }
+
+    /// Task Manager navigation must consume the same projected surface IDs
+    /// that its top snapshot displays.
+    @Test func taskManagerViewsProjectedMirrorSurface() async throws {
+        let harness = try Harness(connectedTransport: true)
+        defer { harness.tearDown() }
+
+        let targetTmuxPaneID = try #require(harness.mirror.paneIDsInOrder.first)
+        let targetSurfaceID = try #require(harness.mirror.panel(forPane: targetTmuxPaneID)?.id)
+        let payload = try await TerminalController.shared.taskManagerTopPayload(
+            includeProcesses: false
+        )
+        let snapshot = CmuxTaskManagerSnapshot(payload: payload)
+        let row = try #require(snapshot.rows.first {
+            $0.kind == .terminalSurface && $0.surfaceId == targetSurfaceID
+        })
+
+        CmuxTaskManagerModel().viewTerminal(for: row)
+
+        let writer = try #require(harness.controlWriter)
+        let pipe = try #require(harness.controlPipe)
+        writer.close()
+        let commands = try #require(String(
+            bytes: try pipe.fileHandleForReading.readToEnd() ?? Data(),
+            encoding: .utf8
+        ))
+        #expect(commands == "select-pane -t @3.%\(targetTmuxPaneID)\n")
+    }
 }
