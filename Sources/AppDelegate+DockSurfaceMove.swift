@@ -50,17 +50,16 @@ extension AppDelegate {
     /// SwiftUI render path uses, so a background layout reconcile cannot
     /// re-activate a main terminal while the sidebar is focused.
     func rightSidebarOwnsInputFocus(for workspace: Workspace) -> Bool {
-        guard let manager = workspace.owningTabManager,
-              let context = mainWindowContexts.values.first(where: { $0.tabManager === manager }) else {
-            return false
-        }
-        return context.fileExplorerState?.rightSidebarOwnsInputFocus ?? false
+        rightSidebarOwnsInputFocus(forManager: workspace.owningTabManager)
     }
 
     /// Whether the right sidebar currently owns input focus in `dock`'s window.
     func rightSidebarOwnsInputFocus(for dock: DockSplitStore) -> Bool {
-        guard let manager = dockReferenceTabManager(for: dock),
-              let context = mainWindowContexts.values.first(where: { $0.tabManager === manager }) else {
+        rightSidebarOwnsInputFocus(forManager: dockReferenceTabManager(for: dock))
+    }
+
+    private func rightSidebarOwnsInputFocus(forManager manager: TabManager?) -> Bool {
+        guard let manager, let context = mainWindowContext(for: manager) else {
             return false
         }
         return context.fileExplorerState?.rightSidebarOwnsInputFocus ?? false
