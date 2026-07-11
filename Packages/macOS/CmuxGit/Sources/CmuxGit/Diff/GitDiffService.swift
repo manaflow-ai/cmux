@@ -118,13 +118,16 @@ public struct GitDiffService: Sendable {
             return nil
         }
         if isUntracked(repoRoot: repoRoot, path: path, maxOutputBytes: maxOutputBytes) {
+            // In `--no-index` mode a bare `-` names stdin even after `--`.
+            // Prefix only the git-side spelling while preserving the API path.
+            let gitPath = path == "-" ? "./-" : path
             let result = runGit(
                 in: repoRoot,
                 // `--no-ext-diff --no-textconv`: this output feeds a
                 // machine parser, so repo/user-configured `diff.external`
                 // or textconv drivers must neither execute nor replace the
                 // unified format.
-                arguments: ["diff", "--no-index", "--no-ext-diff", "--no-textconv", "--no-color", "--", "/dev/null", path],
+                arguments: ["diff", "--no-index", "--no-ext-diff", "--no-textconv", "--no-color", "--", "/dev/null", gitPath],
                 acceptedTerminationStatuses: [0, 1],
                 maxOutputBytes: maxOutputBytes
             )
