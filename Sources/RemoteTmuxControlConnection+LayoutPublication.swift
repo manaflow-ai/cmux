@@ -109,6 +109,7 @@ extension RemoteTmuxControlConnection {
     func flushInitialBatchIfDrained() {
         guard let awaiting = initialBatchAwaiting, awaiting.isEmpty else { return }
         for (id, window) in initialBatchStaged { windowsByID[id] = window }
+        rebuildPublishedPaneOwnership()
         initialBatchStaged = [:]
         initialBatchAwaiting = nil
         prunePaneState(keeping: Set(windowsByID.values.flatMap { $0.paneIDsInOrder }))
@@ -235,6 +236,10 @@ extension RemoteTmuxControlConnection {
             return
         }
         windowsByID[windowId] = published
+        recordPublishedPaneOwnership(
+            windowId: windowId,
+            paneIds: published.paneIDsInOrder
+        )
         if !windowOrder.contains(windowId) { windowOrder.append(windowId) }
         prunePaneState(keeping: Set(windowsByID.values.flatMap { $0.paneIDsInOrder }))
         observers.notifyTopologyChanged()
@@ -247,6 +252,32 @@ extension RemoteTmuxControlConnection {
         // the true pre-apply size. One-shot guarded — no-op when already
         // consumed (or when reseedAfterReconnect ran it).
         scheduleAttachRedrawKickIfNeeded()
+    }
+
+    func recordPublishedPaneOwnership(windowId: Int, paneIds: [Int]) {
+        let livePaneIds = Set(paneIds)
+        publishedWindowIdByPane = publishedWindowIdByPane.filter {
+            $0.value != windowId || livePaneIds.contains($0.key)
+        }
+        for paneId in paneIds { publishedWindowIdByPane[paneId] = windowId }
+    }
+
+    func removePublishedPaneOwnership(windowId: Int) {
+        publishedWindowIdByPane = publishedWindowIdByPane.filter { $0.value != windowId }
+    }
+
+    func prunePublishedPaneOwnership(liveWindowIds: Set<Int>) {
+        publishedWindowIdByPane = publishedWindowIdByPane.filter {
+            liveWindowIds.contains($0.value)
+        }
+    }
+
+    func rebuildPublishedPaneOwnership() {
+        publishedWindowIdByPane.removeAll(keepingCapacity: true)
+        for windowId in windowOrder {
+            guard let window = windowsByID[windowId] else { continue }
+            for paneId in window.paneIDsInOrder { publishedWindowIdByPane[paneId] = windowId }
+        }
     }
 
 
