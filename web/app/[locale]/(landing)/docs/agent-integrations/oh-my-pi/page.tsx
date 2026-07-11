@@ -9,13 +9,21 @@ import {
   seoTitle,
   twitterSummary,
 } from "@/i18n/seo";
+import {
+  fallbackContentLocales,
+  hasFallbackContent,
+} from "@/i18n/locale-availability";
 import { DocsSchema } from "../../docs-schema";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
   const t = await getTranslations({ locale, namespace: "docs.ohMyPi" });
-  const contentLocale = locale === "ja" ? "ja" : "en";
-  const alternates = buildAlternates(locale, "/docs/agent-integrations/oh-my-pi");
+  const contentLocale = hasFallbackContent(locale) ? locale : "en";
+  const alternates = buildAlternates(
+    contentLocale,
+    "/docs/agent-integrations/oh-my-pi",
+    fallbackContentLocales,
+  );
   const title = seoTitle(contentLocale, t("metaTitle"));
   const description = seoDescription(contentLocale, t("metaDescription"), {
     minLength: 110,

@@ -28,10 +28,10 @@ const shortDescriptionSuffixes: Record<string, string> = {
 
 const detailedDescriptionSuffixes: Record<string, string> = {
   en: "Built for AI coding agents on macOS, with vertical tabs, notifications, split panes, and browser automation.",
-  ja: "macOS の AI コーディングエージェント向け。縦型タブ、通知、分割ペイン、ブラウザ自動化を備えています。",
-  "zh-CN": "面向 macOS 上的 AI 编码代理，提供垂直标签页、通知、分屏窗格和浏览器自动化。",
-  "zh-TW": "面向 macOS 上的 AI 程式碼代理，提供垂直分頁、通知、分割窗格與瀏覽器自動化。",
-  ko: "macOS의 AI 코딩 에이전트를 위해 수직 탭, 알림, 분할 패널, 브라우저 자동화를 제공합니다.",
+  ja: "macOS の AI コーディングエージェント向け。縦型タブ、通知、分割ペイン、ブラウザ自動化、セッション復元を備えています。",
+  "zh-CN": "面向 macOS 上的 AI 编码代理，提供垂直标签页、通知、分屏窗格、浏览器自动化、多代理工作区、会话恢复和快捷命令。",
+  "zh-TW": "面向 macOS 上的 AI 程式碼代理，提供垂直分頁、通知、分割窗格、瀏覽器自動化、多代理工作區、工作階段復原與快捷指令。",
+  ko: "macOS의 AI 코딩 에이전트를 위해 수직 탭, 알림, 분할 패널, 브라우저 자동화와 세션 복원을 제공합니다.",
   de: "Für KI-Coding-Agenten auf macOS, mit vertikalen Tabs, Benachrichtigungen, geteilten Bereichen und Browser-Automatisierung.",
   es: "Creado para agentes de código con IA en macOS, con pestañas verticales, notificaciones, paneles divididos y automatización del navegador.",
   fr: "Conçu pour les agents de codage IA sur macOS, avec onglets verticaux, notifications, panneaux divisés et automatisation du navigateur.",
@@ -57,6 +57,8 @@ const MAX_TITLE_LENGTH = 60;
 const metadataSegmenter = new Intl.Segmenter("en", {
   granularity: "grapheme",
 });
+const wideMetadataGrapheme =
+  /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\p{Script=Thai}\p{Script=Khmer}\p{Extended_Pictographic}]/u;
 
 const openGraphImageAlts: Record<string, string> = {
   en: "cmux - The terminal built for multitasking",
@@ -143,7 +145,7 @@ export function seoDescription(
 ) {
   const minLength = options.minLength ?? DEFAULT_MIN_DESCRIPTION_LENGTH;
   const trimmed = description.trim();
-  if (metadataLength(trimmed) >= minLength) {
+  if (metadataSearchLength(trimmed) >= minLength) {
     return truncateMetadataText(trimmed, MAX_DESCRIPTION_LENGTH, minLength);
   }
 
@@ -218,7 +220,7 @@ function truncateMetadataText(
     .join("")
     .replace(/[-,:;–—]+$/u, "")
     .trimEnd();
-  if (metadataLength(truncated) + 1 < minLength) {
+  if (metadataSearchLength(truncated) + 1 < minLength) {
     truncated = candidate.join("").trimEnd();
   }
   return `${truncated}…`;
@@ -230,6 +232,14 @@ function metadataCharacters(value: string) {
 
 function metadataLength(value: string) {
   return metadataCharacters(value).length;
+}
+
+function metadataSearchLength(value: string) {
+  return metadataCharacters(value).reduce(
+    (length, grapheme) =>
+      length + (wideMetadataGrapheme.test(grapheme) ? 2 : 1),
+    0,
+  );
 }
 
 export function openGraphDefaults(

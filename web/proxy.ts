@@ -3,8 +3,10 @@ import createMiddleware from "next-intl/middleware";
 import { routing } from "./i18n/routing";
 import { isAgentPageVariantPath } from "./app/lib/agent-page-paths";
 import {
+  fallbackContentRequestForPathname,
   featureWorkflowContentLocales,
   featureWorkflowDocRequestForPathname,
+  hasFallbackContent,
   remoteTmuxDocsLocales,
 } from "./i18n/locale-availability";
 import { buildAlternateLinkHeader } from "./i18n/seo";
@@ -74,6 +76,16 @@ export default function middleware(request: NextRequest) {
       featureWorkflowDocRequest.path,
     );
     return response;
+  }
+
+  const fallbackContentRequest = fallbackContentRequestForPathname(pathname);
+  if (
+    fallbackContentRequest?.locale &&
+    !hasFallbackContent(fallbackContentRequest.locale)
+  ) {
+    const url = request.nextUrl.clone();
+    url.pathname = fallbackContentRequest.path;
+    return NextResponse.redirect(url, 301);
   }
 
   // Legal pages are English-only. Redirect /<locale>/legal-page to /legal-page,

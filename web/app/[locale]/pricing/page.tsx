@@ -15,6 +15,10 @@ import {
   twitterSummary,
 } from "../../../i18n/seo";
 import {
+  fallbackContentLocales,
+  hasFallbackContent,
+} from "../../../i18n/locale-availability";
+import {
   CurrentPlanBadge,
   DisabledButton,
   FeatureList,
@@ -48,13 +52,17 @@ export async function generateMetadata({
 }) {
   const { locale } = await params;
   const t = await getTranslations({ locale, namespace: "pricing" });
-  const contentLocale = locale === "ja" ? "ja" : "en";
+  const contentLocale = hasFallbackContent(locale) ? locale : "en";
   const description = seoDescription(
     contentLocale,
     SHOW_VAULT ? t("metaDescription") : t("metaDescriptionNoVault"),
     { minLength: 110 },
   );
-  const alternates = buildAlternates(locale, "/pricing");
+  const alternates = buildAlternates(
+    contentLocale,
+    "/pricing",
+    fallbackContentLocales,
+  );
   const title = seoTitle(contentLocale, t("metaTitle"));
   return {
     title,

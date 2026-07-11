@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { NextRequest } from "next/server";
+import sitemap from "../app/sitemap";
 import middleware from "../proxy";
 import {
   buildAlternates,
@@ -141,6 +142,11 @@ describe("SEO metadata helpers", () => {
       expect(seoDescription(locale, "CLI reference").length).toBeLessThanOrEqual(
         160,
       );
+      expect(
+        searchSnippetLength(
+          seoDescription(locale, "CLI reference", { minLength: 110 }),
+        ),
+      ).toBeGreaterThanOrEqual(110);
     }
   });
 });
@@ -164,7 +170,56 @@ describe("SEO middleware", () => {
     );
     expect(canonicalEnglish.headers.get("location")).toBeNull();
   });
+
+  test("redirects fallback-only locale routes to translated content", () => {
+    for (const path of [
+      "/de/pricing",
+      "/de/docs/agent-integrations/oh-my-pi",
+    ]) {
+      const response = middleware(
+        requestFor(path, { "accept-language": "de" }),
+      );
+      expect(response.status).toBe(301);
+      expect(response.headers.get("location")).toBe(
+        `https://cmux.com${path.replace("/de", "")}`,
+      );
+    }
+
+    expect(
+      middleware(
+        requestFor("/ja/pricing", { "accept-language": "ja" }),
+      ).status,
+    ).toBe(200);
+  });
+
+  test("lists only translated fallback-content locales in the sitemap", () => {
+    const urls = sitemap()
+      .map((entry) => entry.url)
+      .filter(
+        (url) =>
+          url.endsWith("/pricing") ||
+          url.endsWith("/docs/agent-integrations/oh-my-pi"),
+      );
+    expect(urls).toEqual([
+      "https://cmux.com/pricing",
+      "https://cmux.com/ja/pricing",
+      "https://cmux.com/docs/agent-integrations/oh-my-pi",
+      "https://cmux.com/ja/docs/agent-integrations/oh-my-pi",
+    ]);
+  });
 });
+
+const searchWidthSegmenter = new Intl.Segmenter("en", {
+  granularity: "grapheme",
+});
+const wideSearchGrapheme =
+  /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\p{Script=Thai}\p{Script=Khmer}\p{Extended_Pictographic}]/u;
+
+function searchSnippetLength(value: string) {
+  return Array.from(searchWidthSegmenter.segment(value), ({ segment }) =>
+    wideSearchGrapheme.test(segment) ? 2 : 1,
+  ).reduce((sum, length) => sum + length, 0);
+}
 
 function requestFor(pathname: string, headers: Record<string, string> = {}) {
   return new NextRequest(`https://cmux.com${pathname}`, {

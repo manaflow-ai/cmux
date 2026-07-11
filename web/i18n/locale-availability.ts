@@ -15,6 +15,17 @@ export const remoteTmuxDocsLocales = [
   "ja",
 ] as const satisfies readonly Locale[];
 
+// These routes currently ship page copy and metadata only in English and Japanese.
+export const fallbackContentLocales = [
+  "en",
+  "ja",
+] as const satisfies readonly Locale[];
+
+export const fallbackContentPaths = [
+  "/pricing",
+  "/docs/agent-integrations/oh-my-pi",
+] as const;
+
 export function hasFeatureWorkflowContent(
   locale: string,
 ): locale is (typeof featureWorkflowContentLocales)[number] {
@@ -43,6 +54,34 @@ export function featureWorkflowDocRequestForPathname(
   ) {
     return {
       path: path as (typeof featureWorkflowDocPaths)[number],
+      locale,
+    };
+  }
+  return null;
+}
+
+export function hasFallbackContent(
+  locale: string,
+): locale is (typeof fallbackContentLocales)[number] {
+  return fallbackContentLocales.includes(
+    locale as (typeof fallbackContentLocales)[number],
+  );
+}
+
+export function fallbackContentRequestForPathname(
+  pathname: string,
+): {
+  path: (typeof fallbackContentPaths)[number];
+  locale: Locale | null;
+} | null {
+  const { locale, path } = unprefixLocale(pathname);
+  if (
+    fallbackContentPaths.includes(
+      path as (typeof fallbackContentPaths)[number],
+    )
+  ) {
+    return {
+      path: path as (typeof fallbackContentPaths)[number],
       locale,
     };
   }
