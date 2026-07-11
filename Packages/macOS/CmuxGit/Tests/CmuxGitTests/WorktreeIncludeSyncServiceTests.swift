@@ -250,6 +250,46 @@ struct WorktreeIncludeSyncServiceTests {
         #expect(!FileManager.default.fileExists(atPath: destination.appendingPathComponent("unignored.env").path))
     }
 
+    @Test("whole-directory includes copy only ignored descendants")
+    func wholeDirectoryIncludeFiltersDescendants() async throws {
+        let root = try makeRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = root.appendingPathComponent("source", isDirectory: true)
+        let destination = root.appendingPathComponent("destination", isDirectory: true)
+        try initializeGitRepository(at: source)
+        try FileManager.default.createDirectory(
+            at: source.appendingPathComponent("config", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+        try "config/*.local\n".write(
+            to: source.appendingPathComponent(".gitignore"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "config/\n".write(
+            to: source.appendingPathComponent(".worktreeinclude"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "local\n".write(
+            to: source.appendingPathComponent("config/app.local"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "visible\n".write(
+            to: source.appendingPathComponent("config/visible.txt"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let diagnostics = await WorktreeIncludeSyncService().sync(from: source, to: destination)
+
+        #expect(diagnostics.isEmpty)
+        #expect(try contents(at: destination.appendingPathComponent("config/app.local")) == "local\n")
+        #expect(!FileManager.default.fileExists(atPath: destination.appendingPathComponent("config/visible.txt").path))
+    }
+
     @Test("copy failures are diagnostics and do not stop later copies")
     func copyFailuresAreNonFatal() async throws {
         let root = try makeRoot()
