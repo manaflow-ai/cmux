@@ -324,6 +324,7 @@ struct MobileHostAuthorizationTests {
             ],
             activeConnectionCount: 0,
             activeTransportCounts: [.iroh: 1],
+            irohLaneState: .active,
             lastErrorDescription: nil
         )
 

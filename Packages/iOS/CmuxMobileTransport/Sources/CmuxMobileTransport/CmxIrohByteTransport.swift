@@ -69,6 +69,7 @@ public actor CmxIrohByteTransport: CmxByteTransport {
     private let endpointManager: CmxIrohEndpointManager
     private let ffiClient: any CmxIrohFFIClient
     private let maximumReceiveLength: Int
+    private let connectTimeoutNanoseconds: UInt64
     private let connectTimeoutMilliseconds: UInt64
     private var state: State = .idle
 
@@ -116,6 +117,7 @@ public actor CmxIrohByteTransport: CmxByteTransport {
         self.endpointManager = endpointManager
         self.ffiClient = ffiClient
         self.maximumReceiveLength = maximumReceiveLength
+        self.connectTimeoutNanoseconds = connectTimeoutNanoseconds
         self.connectTimeoutMilliseconds = max(1, connectTimeoutNanoseconds / 1_000_000)
     }
 
@@ -131,19 +133,74 @@ public actor CmxIrohByteTransport: CmxByteTransport {
             throw CmxIrohByteTransportError.alreadyClosed
         }
 
-        let endpoint = try await endpointManager.boundEndpoint()
+        let connectStartedAt = DispatchTime.now().uptimeNanoseconds
+        let endpoint = try await boundEndpointBeforeDeadline()
+        let elapsed = DispatchTime.now().uptimeNanoseconds - connectStartedAt
+        guard elapsed < connectTimeoutNanoseconds else {
+            throw CmxIrohByteTransportError.endpointBindFailed(
+                "iroh endpoint key load timed out",
+                .timedOut
+            )
+        }
+        let remainingTimeoutMilliseconds = max(
+            1,
+            (connectTimeoutNanoseconds - elapsed) / 1_000_000
+        )
         do {
             let connection = try ffiClient.connect(
                 endpoint: endpoint,
                 peerID: peerID,
                 relayURL: relayURL,
                 directAddrs: directAddrs,
-                timeoutMilliseconds: connectTimeoutMilliseconds
+                timeoutMilliseconds: min(connectTimeoutMilliseconds, remainingTimeoutMilliseconds)
             )
             state = .ready(connection)
         } catch let failure as CmxIrohFailure {
             throw CmxIrohByteTransportError.connectFailed(failure)
         }
+    }
+
+    private func boundEndpointBeforeDeadline() async throws -> CmxIrohEndpointReference {
+        let endpointManager = endpointManager
+        let timeoutNanoseconds = connectTimeoutNanoseconds
+        let stream = AsyncThrowingStream<CmxIrohEndpointReference, any Error> { continuation in
+            let endpointTask = Task.detached(priority: .userInitiated) {
+                do {
+                    continuation.yield(try await endpointManager.boundEndpoint())
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            let timeoutTask = Task {
+                do {
+                    let capped = min(timeoutNanoseconds, UInt64(Int64.max))
+                    // Genuine connect deadline: endpoint key loading and binding
+                    // share the same budget as the subsequent peer dial.
+                    try await ContinuousClock().sleep(for: .nanoseconds(Int64(capped)))
+                } catch {
+                    return
+                }
+                continuation.finish(throwing: CmxIrohByteTransportError.endpointBindFailed(
+                    "iroh endpoint key load timed out",
+                    .timedOut
+                ))
+            }
+            continuation.onTermination = { _ in
+                endpointTask.cancel()
+                timeoutTask.cancel()
+            }
+        }
+        for try await endpoint in stream {
+            return endpoint
+        }
+        if Task.isCancelled {
+            throw CancellationError()
+        }
+        throw CmxIrohByteTransportError.endpointBindFailed(
+            "iroh endpoint key load timed out",
+            .timedOut
+        )
     }
 
     /// Receives the next chunk of bytes, or `nil` at end of stream.

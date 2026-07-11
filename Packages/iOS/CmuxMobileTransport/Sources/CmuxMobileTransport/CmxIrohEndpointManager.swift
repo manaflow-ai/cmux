@@ -11,6 +11,8 @@ public actor CmxIrohEndpointManager {
     private let enableRelay: Bool
     private let acceptConnections: Bool
     private var endpoint: CmxIrohEndpointReference?
+    private var bindingGeneration = UUID()
+    private var bindingTask: Task<CmxIrohEndpointReference, any Error>?
 
     /// Creates a production endpoint manager using the iOS Keychain.
     public init(
@@ -41,26 +43,61 @@ public actor CmxIrohEndpointManager {
         self.acceptConnections = acceptConnections
     }
 
-    func boundEndpoint() throws -> CmxIrohEndpointReference {
+    func boundEndpoint() async throws -> CmxIrohEndpointReference {
         if let endpoint {
             return endpoint
         }
-        let secretKey = try keyProvider.secretKey()
+
+        let generation: UUID
+        let task: Task<CmxIrohEndpointReference, any Error>
+        if let bindingTask {
+            generation = bindingGeneration
+            task = bindingTask
+        } else {
+            generation = UUID()
+            bindingGeneration = generation
+            let keyProvider = keyProvider
+            let ffiClient = ffiClient
+            let enableRelay = enableRelay
+            let acceptConnections = acceptConnections
+            task = Task.detached(priority: .userInitiated) {
+                let secretKey = try keyProvider.secretKey()
+                do {
+                    return try ffiClient.bindEndpoint(
+                        secretKey: secretKey,
+                        enableRelay: enableRelay,
+                        acceptConnections: acceptConnections
+                    )
+                } catch let failure as CmxIrohFailure {
+                    throw CmxIrohByteTransportError.bindFailed(failure)
+                }
+            }
+            bindingTask = task
+        }
+
         do {
-            let endpoint = try ffiClient.bindEndpoint(
-                secretKey: secretKey,
-                enableRelay: enableRelay,
-                acceptConnections: acceptConnections
-            )
-            self.endpoint = endpoint
-            return endpoint
-        } catch let failure as CmxIrohFailure {
-            throw CmxIrohByteTransportError.bindFailed(failure)
+            let candidate = try await task.value
+            guard generation == bindingGeneration else {
+                ffiClient.close(endpoint: candidate)
+                throw CancellationError()
+            }
+            bindingTask = nil
+            endpoint = candidate
+            try Task.checkCancellation()
+            return candidate
+        } catch {
+            if generation == bindingGeneration {
+                bindingTask = nil
+            }
+            throw error
         }
     }
 
     /// Closes and forgets the current bound endpoint, if any.
     public func closeEndpoint() {
+        bindingTask?.cancel()
+        bindingTask = nil
+        bindingGeneration = UUID()
         guard let endpoint else {
             return
         }

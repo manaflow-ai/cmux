@@ -171,6 +171,7 @@ private final class MobileHostConnectionRegistry: @unchecked Sendable {
 private enum MobileHostPublicStatusCache {
     private static let lock = NSLock()
     private nonisolated(unsafe) static var routes: [CmxAttachRoute] = []
+    private nonisolated(unsafe) static var irohLaneState: MobileHostIrohLaneState = .inactive
 
     static func update(routes nextRoutes: [CmxAttachRoute]) {
         lock.lock()
@@ -179,15 +180,29 @@ private enum MobileHostPublicStatusCache {
         NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
     }
 
+    static func update(irohLaneState nextState: MobileHostIrohLaneState) {
+        lock.lock()
+        irohLaneState = nextState
+        lock.unlock()
+        NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
+    }
+
     static func result(includeIdentity: Bool = false) -> MobileHostRPCResult {
         lock.lock()
         let cachedRoutes = routes
+        let cachedIrohLaneState = irohLaneState
         lock.unlock()
         let routesPayload = cachedRoutes.map(\.mobileHostJSONObject)
         return .ok(
             includeIdentity
-                ? MobileHostService.identityStatusPayload(routesPayload: routesPayload)
-                : MobileHostService.publicStatusPayload(routesPayload: routesPayload)
+                ? MobileHostService.identityStatusPayload(
+                    routesPayload: routesPayload,
+                    irohLaneState: cachedIrohLaneState
+                )
+                : MobileHostService.publicStatusPayload(
+                    routesPayload: routesPayload,
+                    irohLaneState: cachedIrohLaneState
+                )
         )
     }
 }
@@ -258,6 +273,14 @@ enum MobileHostRequestActivity {
     #endif
 }
 
+enum MobileHostIrohLaneState: String, Sendable, Equatable {
+    case inactive
+    case starting
+    case active
+    case unavailableKeychain = "unavailable_keychain"
+    case unavailableBind = "unavailable_bind"
+}
+
 struct MobileHostServiceStatus {
     let isRunning: Bool
     let port: Int?
@@ -269,6 +292,7 @@ struct MobileHostServiceStatus {
     let routes: [CmxAttachRoute]
     let activeConnectionCount: Int
     let activeTransportCounts: [CmxAttachTransportKind: Int]
+    let irohLaneState: MobileHostIrohLaneState
     let lastErrorDescription: String?
 
     var payload: [String: Any] {
@@ -282,6 +306,7 @@ struct MobileHostServiceStatus {
             "active_transport_counts": Dictionary(
                 uniqueKeysWithValues: activeTransportCounts.map { ($0.key.rawValue, $0.value) }
             ),
+            "iroh_lane_state": irohLaneState.rawValue,
             "last_error": lastErrorDescription ?? NSNull()
         ]
     }
@@ -324,7 +349,10 @@ final class MobileHostService {
     /// (`mac_device_id`, `mac_display_name`) is never on this unauthenticated
     /// surface — see ``networkStatusResult(for:)`` for the verified-caller
     /// reply that carries it.
-    nonisolated static func publicStatusPayload(routesPayload: [[String: Any]]) -> [String: Any] {
+    nonisolated static func publicStatusPayload(
+        routesPayload: [[String: Any]],
+        irohLaneState: MobileHostIrohLaneState = .inactive
+    ) -> [String: Any] {
         // The Mac's resolved terminal theme is caller-independent, so it rides
         // the public payload (identity merges on top). `GhosttyConfig.load()`
         // resolves named ghostty themes, cmux's managed defaults, and explicit
@@ -334,6 +362,7 @@ final class MobileHostService {
         let theme = TerminalTheme(ghosttyConfig: GhosttyConfig.load())
         return [
             "routes": routesPayload,
+            "iroh_lane_state": irohLaneState.rawValue,
             "terminal_fidelity": "render_grid",
             "capabilities": mobileHostCapabilities,
             "theme": theme.mobileHostJSONObject,
@@ -345,8 +374,14 @@ final class MobileHostService {
     /// the display name or the device id, so this reply is where a freshly
     /// paired phone learns what to call this Mac and which paired-Mac record
     /// the connection belongs to.
-    nonisolated static func identityStatusPayload(routesPayload: [[String: Any]]) -> [String: Any] {
-        var payload = publicStatusPayload(routesPayload: routesPayload)
+    nonisolated static func identityStatusPayload(
+        routesPayload: [[String: Any]],
+        irohLaneState: MobileHostIrohLaneState = .inactive
+    ) -> [String: Any] {
+        var payload = publicStatusPayload(
+            routesPayload: routesPayload,
+            irohLaneState: irohLaneState
+        )
         payload["mac_device_id"] = MobileHostIdentity.deviceID()
         if let displayName = MobileHostIdentity.displayName() {
             payload["mac_display_name"] = displayName
@@ -404,14 +439,18 @@ final class MobileHostService {
     private let ticketStore = MobileAttachTicketStore()
     private let irohFFIClient: any MobileHostIrohFFIClient
     private let irohSecretKeyProvider: MobileHostIrohSecretKeyProvider
+    private let isListeningEnabledProvider: @Sendable () -> Bool
     private var listener: NWListener?
     private var listenerGeneration = UUID()
     private var listenerUsesEphemeralFallback = false
     private var listenerPort: Int?
     private var irohEndpoint: MobileHostIrohEndpointReference?
     private var irohEndpointGeneration = UUID()
+    private var irohStartupGeneration = UUID()
+    private var irohStartupTask: Task<Void, Never>?
     private var irohAcceptTask: Task<Void, Never>?
     private var irohRoute: CmxAttachRoute?
+    private var irohLaneState: MobileHostIrohLaneState = .inactive
     /// The preferred port the active start-sequence targeted (regardless of an
     /// ephemeral fallback). Used to decide whether a settings change needs a
     /// restart. `nil` while stopped.
@@ -434,9 +473,10 @@ final class MobileHostService {
     private var debugAcceptedStackAuthToken: String?
     #endif
 
-    private init(
+    init(
         irohFFIClient: any MobileHostIrohFFIClient = MobileHostIrohSystemFFIClient(),
-        irohSecretKeyProvider: MobileHostIrohSecretKeyProvider? = nil
+        irohSecretKeyProvider: MobileHostIrohSecretKeyProvider? = nil,
+        isListeningEnabled: @escaping @Sendable () -> Bool = { MobileHostService.isListeningEnabled }
     ) {
         let resolvedIrohFFIClient = irohFFIClient
         self.irohFFIClient = resolvedIrohFFIClient
@@ -444,6 +484,7 @@ final class MobileHostService {
             store: MobileHostIrohKeychainSecretStore(),
             generate: { try resolvedIrohFFIClient.generateSecretKey() }
         )
+        self.isListeningEnabledProvider = isListeningEnabled
     }
 
     /// Inject the auth dependency. Call once at the composition root.
@@ -782,7 +823,7 @@ final class MobileHostService {
     }
 
     func start() {
-        guard Self.isListeningEnabled else {
+        guard isListeningEnabledProvider() else {
             #if DEBUG
             if Self.canPublishRoutesWithoutListenerForXCTest(defaults: .standard) {
                 publishRoutesWithoutListenerForXCTest()
@@ -792,13 +833,10 @@ final class MobileHostService {
             mobileHostLog.info("mobile host listener disabled; not binding")
             return
         }
-        guard listener == nil else {
-            startIrohEndpointIfNeeded()
-            return
+        if listener == nil {
+            startListener(usePreferredPort: true)
         }
-
         startIrohEndpointIfNeeded()
-        startListener(usePreferredPort: true)
     }
 
     #if DEBUG
@@ -877,45 +915,113 @@ final class MobileHostService {
 
     private func startIrohEndpointIfNeeded() {
         guard MobileHostIrohFlag.resolved().isEnabled else {
+            setIrohLaneState(.inactive)
             return
         }
-        guard irohEndpoint == nil else {
+        guard irohEndpoint == nil, irohStartupTask == nil else {
             return
         }
-        do {
-            let secretKey = try irohSecretKeyProvider.secretKey()
-            let endpoint = try irohFFIClient.bindEndpoint(
-                secretKey: secretKey,
-                enableRelay: true,
-                acceptConnections: true
+        let startupGeneration = UUID()
+        irohStartupGeneration = startupGeneration
+        setIrohLaneState(.starting)
+        let keyProvider = irohSecretKeyProvider
+        let ffiClient = irohFFIClient
+        irohStartupTask = Task.detached(priority: .userInitiated) { [weak self] in
+            let secretKey: Data
+            do {
+                secretKey = try keyProvider.secretKey()
+            } catch {
+                await self?.finishIrohKeyLoadFailure(error, generation: startupGeneration)
+                return
+            }
+            guard !Task.isCancelled else { return }
+
+            let endpoint: MobileHostIrohEndpointReference
+            do {
+                endpoint = try ffiClient.bindEndpoint(
+                    secretKey: secretKey,
+                    enableRelay: true,
+                    acceptConnections: true
+                )
+            } catch {
+                await self?.finishIrohBindFailure(error, generation: startupGeneration)
+                return
+            }
+            guard let self else {
+                ffiClient.close(endpoint: endpoint)
+                return
+            }
+            await self.finishIrohStartup(
+                endpoint: endpoint,
+                generation: startupGeneration
             )
-            let generation = UUID()
-            irohEndpoint = endpoint
-            irohEndpointGeneration = generation
-            irohRoute = route(forIrohEndpoint: endpoint) ?? irohRoute
-            startIrohAcceptLoop(endpoint: endpoint, generation: generation)
-            if listenerPort == nil {
-                MobileHostPublicStatusCache.update(routes: resolvedRoutesForCurrentHost())
-            }
-            if let endpointID = irohFFIClient.endpointID(endpoint) {
-                mobileHostLog.info("mobile host iroh endpoint ready \(endpointID, privacy: .public)")
-            } else {
-                mobileHostLog.info("mobile host iroh endpoint ready")
-            }
-        } catch {
-            irohEndpoint = nil
-            irohRoute = nil
-            mobileHostLog.error("mobile host iroh endpoint failed to bind: \(String(describing: error), privacy: .public)")
         }
     }
 
+    private func finishIrohKeyLoadFailure(_ error: any Error, generation: UUID) {
+        guard generation == irohStartupGeneration else { return }
+        irohStartupTask = nil
+        irohEndpoint = nil
+        irohRoute = nil
+        setIrohLaneState(.unavailableKeychain)
+        mobileHostLog.error("mobile host iroh endpoint unavailable (keychain): \(String(describing: error), privacy: .public)")
+        #if DEBUG
+        cmuxDebugLog("mobile.host.iroh unavailable=keychain error=\(String(describing: error))")
+        #endif
+    }
+
+    private func finishIrohBindFailure(_ error: any Error, generation: UUID) {
+        guard generation == irohStartupGeneration else { return }
+        irohStartupTask = nil
+        irohEndpoint = nil
+        irohRoute = nil
+        setIrohLaneState(.unavailableBind)
+        mobileHostLog.error("mobile host iroh endpoint failed to bind: \(String(describing: error), privacy: .public)")
+        #if DEBUG
+        cmuxDebugLog("mobile.host.iroh unavailable=bind error=\(String(describing: error))")
+        #endif
+    }
+
+    private func finishIrohStartup(
+        endpoint: MobileHostIrohEndpointReference,
+        generation: UUID
+    ) {
+        guard generation == irohStartupGeneration, !Task.isCancelled else {
+            irohFFIClient.close(endpoint: endpoint)
+            return
+        }
+        irohStartupTask = nil
+        let endpointGeneration = UUID()
+        irohEndpoint = endpoint
+        irohEndpointGeneration = endpointGeneration
+        irohRoute = route(forIrohEndpoint: endpoint) ?? irohRoute
+        setIrohLaneState(.active)
+        startIrohAcceptLoop(endpoint: endpoint, generation: endpointGeneration)
+        MobileHostPublicStatusCache.update(routes: resolvedRoutesForCurrentHost())
+        if let endpointID = irohFFIClient.endpointID(endpoint) {
+            mobileHostLog.info("mobile host iroh endpoint ready \(endpointID, privacy: .public)")
+        } else {
+            mobileHostLog.info("mobile host iroh endpoint ready")
+        }
+    }
+
+    private func setIrohLaneState(_ state: MobileHostIrohLaneState) {
+        guard irohLaneState != state else { return }
+        irohLaneState = state
+        MobileHostPublicStatusCache.update(irohLaneState: state)
+    }
+
     private func stopIrohEndpoint() {
+        irohStartupTask?.cancel()
+        irohStartupTask = nil
+        irohStartupGeneration = UUID()
         irohAcceptTask?.cancel()
         irohAcceptTask = nil
         irohEndpointGeneration = UUID()
         let endpoint = irohEndpoint
         irohEndpoint = nil
         irohRoute = nil
+        setIrohLaneState(.inactive)
         if let endpoint {
             irohFFIClient.close(endpoint: endpoint)
         }
@@ -1138,6 +1244,7 @@ final class MobileHostService {
             routes: routes,
             activeConnectionCount: MobileHostConnectionRegistry.shared.count,
             activeTransportCounts: MobileHostConnectionRegistry.shared.transportCounts,
+            irohLaneState: irohLaneState,
             lastErrorDescription: lastErrorDescription
         )
     }
@@ -1161,7 +1268,7 @@ final class MobileHostService {
             ?? Self.configuredPort(defaults: defaults)
         switch Self.syncDecision(
             enabled: Self.isListeningEnabled(defaults: defaults),
-            listenerRunning: listener != nil || irohEndpoint != nil,
+            listenerRunning: listener != nil || irohEndpoint != nil || irohStartupTask != nil,
             desiredPort: desiredPort,
             appliedPort: appliedPreferredPort
         ) {
@@ -1184,7 +1291,7 @@ final class MobileHostService {
     }
 
     private func republishRoutesForCurrentHost() {
-        guard listener != nil || irohEndpoint != nil else { return }
+        guard listener != nil || irohEndpoint != nil || irohStartupTask != nil else { return }
         MobileHostPublicStatusCache.update(routes: resolvedRoutesForCurrentHost())
     }
 
@@ -1192,7 +1299,7 @@ final class MobileHostService {
         guard Self.isListeningEnabled(defaults: defaults) else { return }
         if MobileHostIrohFlag.resolved(defaults: defaults).isEnabled {
             startIrohEndpointIfNeeded()
-        } else if irohEndpoint != nil {
+        } else if irohEndpoint != nil || irohStartupTask != nil {
             stopIrohEndpoint()
         }
     }
@@ -1861,6 +1968,10 @@ final class MobileHostService {
 
 #if DEBUG
 extension MobileHostService {
+    func debugWaitForIrohStartupForTesting() async {
+        await irohStartupTask?.value
+    }
+
     func debugResetMobileLifecycleStateForTesting() {
         stopIrohEndpoint()
         listenerGeneration = UUID()
