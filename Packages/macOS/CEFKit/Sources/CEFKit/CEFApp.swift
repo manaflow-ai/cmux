@@ -55,12 +55,22 @@ public final class CEFApp {
     }
 
     /// Initializes CEF in the browser process. Must run on the main thread
-    /// with NSApplication (a CEFKitApplication) already created. Browsers can
+    /// with NSApplication already created (CEFKitApplication, or any
+    /// NSApplication — conformance is injected when missing). Browsers can
     /// be created once `onContextInitialized` fires.
     public func initialize(_ configuration: CEFConfiguration) throws {
         precondition(Thread.isMainThread)
         guard !isInitialized else { throw CEFAppError.alreadyInitialized }
         guard CEFLibraryLoader.loadInMainProcess() else { throw CEFAppError.frameworkLoadFailed }
+
+        // libcef requires NSApp to conform to CrAppProtocol; Chromium
+        // SIGTRAPs on its first nested run loop (context menu, modal)
+        // otherwise. Hosts that installed CEFKitApplication already conform;
+        // SwiftUI hosts ignore NSPrincipalClass and need the runtime
+        // injection.
+        guard CEFKitApplication.ensureNSAppConformance() else {
+            throw CEFAppError.initializeFailed
+        }
 
         let fm = FileManager.default
         try? fm.createDirectory(at: configuration.rootCachePath, withIntermediateDirectories: true)
