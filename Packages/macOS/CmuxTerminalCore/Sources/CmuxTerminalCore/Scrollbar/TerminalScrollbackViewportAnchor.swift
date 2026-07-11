@@ -1,0 +1,62 @@
+/// A terminal viewport position that remains stable as output grows.
+///
+/// The anchor stores the viewport's bottom edge relative to the end of the
+/// captured scrollback. Use ``topRow(in:)`` to translate that semantic position
+/// into Ghostty's top-relative `scroll_to_row` coordinate.
+public struct TerminalScrollbackViewportAnchor: Equatable, Sendable {
+    /// The number of captured rows below the viewport's bottom edge.
+    public let rowsBelowViewport: Int
+
+    /// The total number of rows when the viewport position was captured.
+    public let capturedTotalRows: Int
+
+    /// Creates an anchor from persisted bottom-relative scrollback geometry.
+    ///
+    /// Values outside the captured scrollback are clamped so the anchor always
+    /// describes a valid bottom edge.
+    ///
+    /// - Parameters:
+    ///   - rowsBelowViewport: Rows between the viewport's bottom edge and the
+    ///     end of scrollback.
+    ///   - capturedTotalRows: Total scrollback rows at capture time.
+    public init(rowsBelowViewport: Int, capturedTotalRows: Int) {
+        let normalizedTotalRows = max(0, capturedTotalRows)
+        self.rowsBelowViewport = min(normalizedTotalRows, max(0, rowsBelowViewport))
+        self.capturedTotalRows = normalizedTotalRows
+    }
+
+    /// Captures the semantic viewport position from Ghostty's runtime geometry.
+    ///
+    /// - Parameter scrollbar: The current top-relative Ghostty scrollbar state.
+    /// - Returns: `nil` when the runtime has not established a visible viewport.
+    public init?(scrollbar: GhosttyScrollbar) {
+        let totalRows = Int(clamping: scrollbar.total)
+        let visibleRows = min(totalRows, Int(clamping: scrollbar.len))
+        guard visibleRows > 0 else { return nil }
+        let lastTopRow = totalRows - visibleRows
+        let topRow = min(lastTopRow, Int(clamping: scrollbar.offset))
+        self.init(
+            rowsBelowViewport: totalRows - topRow - visibleRows,
+            capturedTotalRows: totalRows
+        )
+    }
+
+    /// Resolves the first visible row for Ghostty's current scrollback geometry.
+    ///
+    /// The captured viewport bottom remains attached to the same output when new
+    /// rows arrive. If history or viewport geometry makes that position invalid,
+    /// the result is clamped to the current scroll range.
+    ///
+    /// - Parameter scrollbar: The current top-relative Ghostty scrollbar state.
+    /// - Returns: The absolute first visible row, or `nil` before the runtime has
+    ///   established a visible viewport.
+    public func topRow(in scrollbar: GhosttyScrollbar) -> Int? {
+        let currentTotalRows = Int(clamping: scrollbar.total)
+        let currentVisibleRows = min(currentTotalRows, Int(clamping: scrollbar.len))
+        guard currentVisibleRows > 0 else { return nil }
+        let currentLastTopRow = currentTotalRows - currentVisibleRows
+        let capturedViewportBottomRow = capturedTotalRows - rowsBelowViewport
+        let unclampedTopRow = max(0, capturedViewportBottomRow - currentVisibleRows)
+        return min(currentLastTopRow, unclampedTopRow)
+    }
+}

@@ -286,6 +286,8 @@ struct NotificationRowSnapshotBoundaryTests {
         #expect(restoredNotification.scrollPosition?.totalRows == 100)
     }
 
+    /// Verifies that a bottom-relative notification anchor reaches Ghostty as
+    /// the absolute first visible row at the live bottom.
     @Test func openingNotificationCapturedAtBottomRestoresLiveViewport() {
         let surfaceView = NotificationScrollRecordingSurfaceView(frame: .zero)
         surfaceView.scrollbar = GhosttyScrollbar(
@@ -323,6 +325,7 @@ struct NotificationRowSnapshotBoundaryTests {
 private final class NotificationScrollRecordingSurfaceView: GhosttyNSView {
     private(set) var performedBindingActions: [String] = []
 
+    /// Records the binding action so the test observes the production restore path.
     override func performBindingAction(_ action: String) -> Bool {
         performedBindingActions.append(action)
         return true
