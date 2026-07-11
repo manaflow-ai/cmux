@@ -38,7 +38,7 @@ extension AndroidEmulatorService {
         }
     }
 
-    /// Reads `wm size` from the same validated transport used by the pane controls.
+    /// Reads the orientation-aware display size from the same validated transport used by the pane controls.
     public func displaySize(
         avdName: String,
         serial: String,
@@ -64,7 +64,17 @@ extension AndroidEmulatorService {
         guard Self.succeeded(result), let size = Self.parseDisplaySize(result.stdout ?? "") else {
             throw AndroidEmulatorError.commandFailed(tool: "adb", detail: Self.failureDetail(result))
         }
-        return size
+        let rotationResult = await adbCommands.run(
+            directory: installation.rootURL.path,
+            executable: adbURL.path,
+            arguments: ["-t", transportID, "shell", "settings", "get", "system", "user_rotation"],
+            timeout: 3
+        )
+        guard Self.succeeded(rotationResult),
+              let rotation = Self.parseDisplayRotation(rotationResult.stdout ?? "") else {
+            throw AndroidEmulatorError.commandFailed(tool: "adb", detail: Self.failureDetail(rotationResult))
+        }
+        return Self.orientedDisplaySize(size, rotation: rotation)
     }
 
     static func parseDisplaySize(_ output: String) -> AndroidEmulatorDisplaySize? {
@@ -85,6 +95,22 @@ extension AndroidEmulatorService {
             return nil
         }
         return AndroidEmulatorDisplaySize(width: width, height: height)
+    }
+
+    static func parseDisplayRotation(_ output: String) -> Int? {
+        guard let rotation = Int(output.trimmingCharacters(in: .whitespacesAndNewlines)),
+              (0...3).contains(rotation) else {
+            return nil
+        }
+        return rotation
+    }
+
+    static func orientedDisplaySize(
+        _ size: AndroidEmulatorDisplaySize,
+        rotation: Int
+    ) -> AndroidEmulatorDisplaySize {
+        guard rotation == 1 || rotation == 3 else { return size }
+        return AndroidEmulatorDisplaySize(width: size.height, height: size.width)
     }
 
     private func validateTransport(

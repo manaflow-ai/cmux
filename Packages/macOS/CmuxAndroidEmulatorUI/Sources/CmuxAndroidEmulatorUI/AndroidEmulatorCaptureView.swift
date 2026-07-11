@@ -281,6 +281,7 @@ private final class AndroidEmulatorWindowCapture: NSObject, SCStreamOutput, SCSt
     private nonisolated(unsafe) var latestSampleBuffer: CMSampleBuffer?
     private let stream: SCStream
     private let processIdentifier: pid_t
+    private var isStreamOutputRegistered = false
 
     private init(stream: SCStream, displayLayer: AVSampleBufferDisplayLayer, processIdentifier: pid_t) {
         self.stream = stream
@@ -358,12 +359,29 @@ private final class AndroidEmulatorWindowCapture: NSObject, SCStreamOutput, SCSt
             processIdentifier: application.processID
         )
         try stream.addStreamOutput(capture, type: .screen, sampleHandlerQueue: .main)
-        try await stream.startCapture()
+        capture.isStreamOutputRegistered = true
+        do {
+            try await stream.startCapture()
+        } catch {
+            await capture.stop()
+            throw error
+        }
         return capture
     }
 
+    @MainActor
     func stop() async {
         try? await stream.stopCapture()
+        removeStreamOutputIfNeeded()
+        latestSampleBuffer = nil
+        displayLayer = nil
+    }
+
+    @MainActor
+    private func removeStreamOutputIfNeeded() {
+        guard isStreamOutputRegistered else { return }
+        isStreamOutputRegistered = false
+        try? stream.removeStreamOutput(self, type: .screen)
     }
 
     @MainActor

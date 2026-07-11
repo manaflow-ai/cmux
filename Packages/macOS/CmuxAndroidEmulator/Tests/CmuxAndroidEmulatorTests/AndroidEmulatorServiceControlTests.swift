@@ -12,6 +12,33 @@ import Testing
         #expect(size == AndroidEmulatorDisplaySize(width: 720, height: 1280))
     }
 
+    @Test func displaySizeTracksQuarterTurnRotation() async throws {
+        let commands = StubCommandRunner(results: Self.validatedResults.merging([
+            Self.command(["-t", "42", "shell", "wm", "size"]): .success("Physical size: 1080x2424\n"),
+            Self.command(["-t", "42", "shell", "settings", "get", "system", "user_rotation"]): .success("1\n"),
+        ]) { _, latest in latest })
+        let service = Self.makeService(commands: commands)
+
+        let size = try await service.displaySize(
+            avdName: "Pixel_9_API_35",
+            serial: "emulator-5554",
+            transportID: "42"
+        )
+
+        #expect(size == AndroidEmulatorDisplaySize(width: 2424, height: 1080))
+        #expect(await commands.invocations.map { $0.arguments } == [
+            ["devices", "-l"],
+            ["-t", "42", "emu", "avd", "name"],
+            ["-t", "42", "shell", "wm", "size"],
+            ["-t", "42", "shell", "settings", "get", "system", "user_rotation"],
+        ])
+    }
+
+    @Test func rejectsInvalidDisplayRotation() {
+        #expect(AndroidEmulatorService.parseDisplayRotation("4\n") == nil)
+        #expect(AndroidEmulatorService.parseDisplayRotation("undefined\n") == nil)
+    }
+
     @Test func homeControlRevalidatesTransportAndAVDIdentity() async throws {
         let commands = StubCommandRunner(results: Self.validatedResults.merging([
             Self.command(["-t", "42", "shell", "input", "keyevent", "3"]): .success(""),
