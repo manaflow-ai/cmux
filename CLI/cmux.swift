@@ -22543,6 +22543,7 @@ struct CMUXCLI {
             cmuxBinEnvVar: "CMUX_OMC_CMUX_BIN",
             termOverrideEnvVar: "CMUX_OMC_TERM"
         )
+        clearInheritedClaudeSessionEnvironment()
         // omc wraps Claude Code, so it needs the same NODE_OPTIONS restore module
         guard let restoreModuleURL = try? createClaudeNodeOptionsRestoreModule() else {
             unsetenv("CMUX_ORIGINAL_NODE_OPTIONS_PRESENT")
