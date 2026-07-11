@@ -1,4 +1,5 @@
 import CMUXAgentLaunch
+import Dispatch
 import Foundation
 import Testing
 
@@ -196,6 +197,39 @@ struct AgentHookStateLocationTests {
                     .appendingPathComponent("agent-hooks", isDirectory: true)
                     .appendingPathComponent("com.cmuxterm.app.debug.restore-test", isDirectory: true)
         )
+    }
+
+    @Test("Concurrent readers serialize the first migration")
+    func concurrentReadersSerializeMigration() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-hook-state-concurrent-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let applicationSupport = root.appendingPathComponent("app-support", isDirectory: true)
+        let home = root.appendingPathComponent("home", isDirectory: true)
+        let legacy = home.appendingPathComponent(".cmuxterm", isDirectory: true)
+        let scoped = applicationSupport
+            .appendingPathComponent("cmux/agent-hooks/com.cmuxterm.app.nightly", isDirectory: true)
+        try FileManager.default.createDirectory(at: legacy, withIntermediateDirectories: true)
+        let filename = "codex-hook-sessions.json"
+        try Data("legacy".utf8).write(to: legacy.appendingPathComponent(filename))
+
+        DispatchQueue.concurrentPerform(iterations: 24) { _ in
+            _ = AgentHookStateReaderLocation(
+                environment: [:],
+                applicationSupportDirectory: applicationSupport,
+                bundleIdentifier: "com.cmuxterm.app.nightly",
+                legacyHomeDirectory: home,
+                fileManager: .default
+            )
+        }
+
+        #expect(FileManager.default.fileExists(
+            atPath: scoped.appendingPathComponent(".legacy-hook-state-migration.lock").path
+        ))
+        #expect(FileManager.default.fileExists(
+            atPath: scoped.appendingPathComponent(".legacy-hook-state-migrated-v1").path
+        ))
+        #expect(try Data(contentsOf: scoped.appendingPathComponent(filename)) == Data("legacy".utf8))
     }
 
     @Test("Sanitizes non-ASCII bundle identifier characters")
