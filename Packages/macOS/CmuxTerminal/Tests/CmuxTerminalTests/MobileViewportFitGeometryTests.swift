@@ -33,6 +33,30 @@ struct MobileViewportFitGeometryTests {
         #expect(state.resolvedCurrentFontPointSize(liveFontPointSize: 9) == 9)
     }
 
+    @Test func explicitZoomReplacesAnUnfittedCachedBaseline() {
+        var state = MobileViewportFontFitState(
+            baseFontPointSize: 12,
+            fittedFontPointSize: nil,
+            baseWasUserAdjusted: false
+        )
+
+        state.reconcile(liveFontPointSize: 14, configuredFontPointSize: 12)
+
+        #expect(state.baseFontPointSize == 14)
+        #expect(state.baseWasUserAdjusted == true)
+    }
+
+    @Test func activeRuntimeConfigWinsWhenSurfaceHasNoTemplateFont() {
+        let resolved = MobileViewportConfiguredFontPointSize.resolve(
+            templateBaseFontPointSize: nil,
+            runtimeConfigFontPointSize: 16,
+            fallbackBaseFontPointSize: 12,
+            magnificationPercent: 100
+        )
+
+        #expect(resolved == 16)
+    }
+
     @Test func configuredBaselineTracksConfigChangesDuringAutomaticFit() {
         var state = MobileViewportFontFitState(
             baseFontPointSize: 12,
