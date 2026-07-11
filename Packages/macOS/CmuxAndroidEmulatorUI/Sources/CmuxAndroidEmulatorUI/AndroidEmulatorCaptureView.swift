@@ -385,8 +385,8 @@ private final class AndroidEmulatorBridgeSession {
     }
 
     private func startReading() {
-        readTask = Task { @MainActor [weak self] in
-            guard let self else { return }
+        let handle = self.handle
+        readTask = Task.detached { [weak self, handle] in
             let decoder = JSONDecoder()
             var pending = Data()
             do {
@@ -396,18 +396,25 @@ private final class AndroidEmulatorBridgeSession {
                         guard !pending.isEmpty else { continue }
                         let event = try decoder.decode(AndroidBridgeEvent.self, from: pending)
                         pending.removeAll(keepingCapacity: true)
-                        process(event)
+                        await self?.process(event)
                     } else {
                         pending.append(byte)
+                        guard pending.count <= 64 * 1024 else {
+                            throw AndroidEmulatorBridgeError.incompatibleProtocol
+                        }
                     }
                 }
-                if !stopped { throw AndroidEmulatorBridgeError.disconnected }
+                await self?.reportReadFailure(AndroidEmulatorBridgeError.disconnected)
             } catch is CancellationError {
                 return
             } catch {
-                if !stopped { onError(error) }
+                await self?.reportReadFailure(error)
             }
         }
+    }
+
+    private func reportReadFailure(_ error: any Error) {
+        if !stopped { onError(error) }
     }
 
     private func process(_ event: AndroidBridgeEvent) {
