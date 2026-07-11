@@ -4,6 +4,83 @@ import Testing
 @testable import CmuxGit
 
 @Suite struct WorktreeIncludeSafetyLimitTests {
+    @Test func collapsedDirectoryOverCopyBudgetIsNotCopied() async throws {
+        let (root, source, destination) = try makeRepositoryFixture()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let cache = source.appendingPathComponent("cache", isDirectory: true)
+        try FileManager.default.createDirectory(at: cache, withIntermediateDirectories: true)
+        try "cache/\n".write(
+            to: source.appendingPathComponent(".gitignore"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "cache/\n".write(
+            to: source.appendingPathComponent(".worktreeinclude"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let sparseFile = cache.appendingPathComponent("oversized.bin")
+        #expect(FileManager.default.createFile(atPath: sparseFile.path, contents: Data()))
+        let handle = try FileHandle(forWritingTo: sparseFile)
+        try handle.truncate(atOffset: 51 * 1024 * 1024 * 1024)
+        try handle.close()
+
+        let diagnostics = await WorktreeIncludeSyncService().sync(from: source, to: destination)
+
+        #expect(diagnostics.contains { $0.localizedCaseInsensitiveContains("copy limit") })
+        #expect(!FileManager.default.fileExists(atPath: destination.appendingPathComponent("cache").path))
+    }
+
+    @Test func failedStandardIgnoreBatchStopsTheStage() async throws {
+        let (root, source, destination) = try makeRepositoryFixture()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try "cache*/\n".write(
+            to: source.appendingPathComponent(".worktreeinclude"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let runner = FailingWorktreeIncludeCommandRunner()
+
+        let diagnostics = await WorktreeIncludeSyncService(commandRunner: runner).sync(
+            from: source,
+            to: destination
+        )
+
+        #expect(diagnostics.contains { $0.localizedCaseInsensitiveContains("timed out") })
+        #expect(await runner.standardIgnoreCallCount() == 1)
+    }
+
+    @Test func duplicatePassResultsCountOnceTowardMatchLimit() async throws {
+        let (root, source, destination) = try makeRepositoryFixture()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let runner = DuplicateWorktreeIncludeCommandRunner()
+        try "cache/\n".write(
+            to: source.appendingPathComponent(".worktreeinclude"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try FileManager.default.createDirectory(
+            at: source.appendingPathComponent("cache", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+        for index in 0..<5_001 {
+            #expect(FileManager.default.createFile(
+                atPath: source.appendingPathComponent("cache/file-\(index)").path,
+                contents: Data()
+            ))
+        }
+
+        let diagnostics = await WorktreeIncludeSyncService(commandRunner: runner).sync(
+            from: source,
+            to: destination
+        )
+
+        #expect(!diagnostics.contains { $0.localizedCaseInsensitiveContains("too many paths") })
+        #expect(FileManager.default.fileExists(
+            atPath: destination.appendingPathComponent("cache/file-5000").path
+        ))
+    }
+
     @Test func tooManyCandidatePathsProduceDiagnosticWithoutCopying() async throws {
         let (root, source, destination) = try makeRepositoryFixture()
         defer { try? FileManager.default.removeItem(at: root) }
