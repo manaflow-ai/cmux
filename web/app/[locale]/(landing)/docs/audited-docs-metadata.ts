@@ -26,7 +26,7 @@ export async function auditedDocsMetadata({
 }) {
   const docs = await getTranslations({ locale, namespace: "docs" });
   const alternates = buildAlternates(locale, path, availableLocales);
-  const { title, description } = docsPageSeoCopy(
+  const { title, socialTitle, description } = docsPageSeoCopy(
     locale,
     pageKey,
     messages,
@@ -38,10 +38,10 @@ export async function auditedDocsMetadata({
     alternates,
     openGraph: {
       ...openGraphDefaults(locale, "article"),
-      title,
+      title: socialTitle,
       description,
       url: alternates.canonical,
     },
-    twitter: twitterSummary(locale, title, description),
+    twitter: twitterSummary(locale, socialTitle, description),
   };
 }

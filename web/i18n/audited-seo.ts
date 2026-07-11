@@ -1,4 +1,5 @@
 import {
+  boundedMetadataExcerpt,
   completeMetadataSentence,
   openGraphImageAlt,
   openGraphImageTagline,
@@ -86,29 +87,6 @@ const docsDescriptionCandidateKeys: Record<
     "requirementsDesc",
     "behaviorCwd",
   ],
-};
-
-const docsContextFragmentKeys: Partial<
-  Record<AuditedDocsPageKey, readonly string[]>
-> = {
-  configuration: ["configLocations", "appSettings"],
-  ios: ["accessTitle", "networkingTitle", "notificationsTitle"],
-  ssh: ["usage", "agentsTitle", "browserTitle", "daemonTitle"],
-  workspaceGroups: [
-    "identityTitle",
-    "managingTitle",
-    "persistenceTitle",
-    "pinningTitle",
-  ],
-  textBox: ["defaultsTitle", "configTitle"],
-  customCommands: ["simpleCommands", "customActions", "workspaceCommands"],
-  sessionRestore: [
-    "supportedTitle",
-    "agentResumeTitle",
-    "restoredTitle",
-    "surfaceBindingsTitle",
-  ],
-  dock: ["configTitle", "exampleTitle", "sharingTitle"],
 };
 
 const conciseTitleLocales = new Set(["ja", "zh-CN", "zh-TW", "ko"]);
@@ -214,6 +192,55 @@ function selectDocsTitle(
     : effectiveTitle;
 }
 
+function selectDocsSocialTitle(
+  locale: string,
+  original: string,
+  pageTitle?: string,
+  compactTitle?: string,
+) {
+  const shortContext = shortTitleContexts[locale] ?? shortTitleContexts.en;
+  const fallbackTitles = [pageTitle, compactTitle].filter(
+    (candidate): candidate is string => Boolean(candidate),
+  );
+  return seoTitle(locale, original, {
+    minLength: conciseTitleLocales.has(locale) ? 0 : undefined,
+    fallbackCandidates: fallbackTitles.flatMap((candidate) => [
+      `${candidate} — ${shortContext} — cmux`,
+      `${candidate} — ${shortContext}`,
+      `${candidate} — cmux`,
+      candidate,
+    ]),
+    appendLocalizedContext: false,
+  });
+}
+
+function metadataSentenceFragments(value: string) {
+  const fragments = value
+    .split(/(?<=[。！？])|(?<=[.!?؟។៕])\s+/u)
+    .map((fragment) => fragment.trim())
+    .filter(Boolean);
+  return fragments.length ? fragments : [value.trim()];
+}
+
+function metadataClauseFragments(locale: string, sentence: string) {
+  const fragments: string[] = [];
+  for (const match of sentence.matchAll(/[,;:：៖]\s*/gu)) {
+    const boundary = match.index;
+    const prefix = sentence.slice(0, boundary).trim();
+    const suffix = sentence.slice(boundary + match[0].length).trim();
+    if (prefix.length >= 20) {
+      fragments.push(completeMetadataSentence(locale, prefix));
+    }
+    if (suffix.length >= 20) {
+      const capitalized = suffix.replace(/^\p{L}/u, (letter) =>
+        letter.toLocaleUpperCase(locale),
+      );
+      fragments.push(completeMetadataSentence(locale, capitalized));
+    }
+  }
+  return fragments;
+}
+
 function selectDescription(
   locale: string,
   original: string,
@@ -304,28 +331,44 @@ export function docsPageSeoCopy(
   t: SeoMessageLookup,
   layoutTitle: string,
 ) {
-  const title = pageKey === "ohMyOpenCode" ? t("metaTitle") : t("title");
+  const pageTitle = pageKey === "ohMyOpenCode" ? undefined : t("title");
+  const title = pageTitle ?? t("metaTitle");
+  const metaTitle = t("metaTitle");
+  const metaDescription = t("metaDescription");
   const authoredDescriptions = docsDescriptionCandidateKeys[pageKey].map(
     (key) => t(key),
   );
-  const sectionLabels = (docsContextFragmentKeys[pageKey] ?? []).map(
-    (key) => t(key),
+  const proseFragments = [metaDescription, ...authoredDescriptions].flatMap(
+    metadataSentenceFragments,
   );
+  const clauseFragments = proseFragments.flatMap((fragment) =>
+    metadataClauseFragments(locale, fragment),
+  );
+  const boundedExcerpts = [metaDescription, ...authoredDescriptions]
+    .map((candidate) => boundedMetadataExcerpt(locale, candidate))
+    .filter((candidate): candidate is string => Boolean(candidate));
+  const compactTitle =
+    pageKey === "ohMyOpenCode" ? "oh-my-opencode" : undefined;
   return {
     title: selectDocsTitle(
       locale,
-      t("metaTitle"),
+      metaTitle,
       title,
       layoutTitle,
-      pageKey === "ohMyOpenCode" ? "oh-my-opencode" : undefined,
+      compactTitle,
     ),
-    description: selectDescription(locale, t("metaDescription"), {
-      completeCandidates: authoredDescriptions,
-      contextFragments: [
-        title,
-        ...sectionLabels.map((label) =>
-          joinMetadataSentences(locale, title, label),
-        ),
+    socialTitle: selectDocsSocialTitle(
+      locale,
+      metaTitle,
+      pageTitle,
+      compactTitle,
+    ),
+    description: selectDescription(locale, metaDescription, {
+      completeCandidates: [
+        ...authoredDescriptions,
+        ...proseFragments,
+        ...clauseFragments,
+        ...boundedExcerpts,
       ],
     }),
   };

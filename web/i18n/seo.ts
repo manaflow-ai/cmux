@@ -156,6 +156,28 @@ export function shortSeoDescriptionCandidate(locale: string) {
   return shortDescriptionSuffixes[locale] ?? shortDescriptionSuffixes.en;
 }
 
+export function boundedMetadataExcerpt(
+  locale: string,
+  value: string,
+  minLength = AUDIT_MIN_DESCRIPTION_LENGTH,
+  maxLength = MAX_DESCRIPTION_LENGTH,
+) {
+  const words = value.trim().split(/\s+/u);
+  if (words.length < 2) return undefined;
+
+  let best: string | undefined;
+  for (let count = 1; count <= words.length; count += 1) {
+    const excerpt = completeMetadataSentence(
+      locale,
+      words.slice(0, count).join(" ").replace(/[,;:：៖]+$/u, ""),
+    );
+    const length = metadataSearchLength(excerpt);
+    if (length > maxLength) break;
+    if (length >= minLength) best = excerpt;
+  }
+  return best;
+}
+
 export function joinMetadataSentences(
   locale: string,
   first: string,
