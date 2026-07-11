@@ -154,11 +154,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     var nextSurfaceOperationID: UInt64 = 0
     var pendingOutputApply: PendingSurfaceOperation?
     var pendingGeometryApply: PendingSurfaceOperation?
+    var localScrollbackScrollStartedAt: CFTimeInterval?
     var pendingVisibleSnapshot: PendingVisibleSnapshot?
     var pendingCopyableTextRead: PendingCopyableTextRead?
     private var hasPendingSurfaceOperationDeadline: Bool {
-        pendingOutputApply != nil || pendingGeometryApply != nil || pendingVisibleSnapshot != nil
-            || pendingCopyableTextRead != nil
+        pendingOutputApply != nil || pendingGeometryApply != nil || localScrollbackScrollStartedAt != nil
+            || pendingVisibleSnapshot != nil || pendingCopyableTextRead != nil
     }
     private static let scrollMechanicsContentHeight: CGFloat = 1_000_000
     private var scrollMechanicsIsRecentering = false
@@ -1838,7 +1839,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         return nextSurfaceOperationID
     }
 
-    private func ensureSurfaceOperationDeadlinePump() {
+    func ensureSurfaceOperationDeadlinePump() {
         guard window != nil, displayLink == nil, !renderingSuspended, !renderPipelineRecoveryPaused else { return }
         startDisplayLink()
     }
@@ -2151,6 +2152,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// and resume; only ``prepareForDismantle()`` marks the surface dead.
     private func prepareForReuseAfterDetach() {
         completePendingSurfaceOperations(returning: false)
+        resetLocalScrollbackScroll()
         cancelRenderPipelineRecoveryResumeTimer()
         renderPipelineRecoveryPaused = false
         renderPipelineRecoveryPausedAt = nil
@@ -2439,10 +2441,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// in `scrollInitialOutputToBottomIfNeeded`).
     private func handleUserProducedInput() {
         resetCursorBlink()
-        // A decelerating flick would fight the snap. Drop both unflushed and
-        // coalesced deltas, then freeze momentum so typed input stays at bottom.
+        // Drop stale flick work and freeze momentum so typed input stays at bottom.
         pendingScrollLines = 0
-        discardPendingLocalScrollbackScroll()
+        suppressOutstandingLocalScrollbackScrollForwarding()
         scrollMechanicsView.setContentOffset(scrollMechanicsView.contentOffset, animated: false)
         enqueueScrollToBottom()
     }

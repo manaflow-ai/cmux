@@ -21,7 +21,7 @@ extension GhosttySurfaceView {
 
     /// Sends Ghostty's scroll-to-bottom action for the scrollback reversal stress harness.
     func scrollToBottomForScrollbackReversalStress() {
-        discardPendingLocalScrollbackScroll()
+        suppressOutstandingLocalScrollbackScrollForwarding()
         enqueueScrollToBottom()
     }
 

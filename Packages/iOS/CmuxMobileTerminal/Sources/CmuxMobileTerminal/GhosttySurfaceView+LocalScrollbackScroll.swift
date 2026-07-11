@@ -12,7 +12,7 @@ extension GhosttySurfaceView {
     }
 
     func localScrollbackScrollState() -> GhosttySurfaceWorkSnapshot? {
-        guard let surface, !isDismantled else { return nil }
+        guard let surface, !isDismantled, !renderPipelineRecoveryPaused else { return nil }
         return GhosttySurfaceWorkSnapshot(
             surface: surface,
             generation: surfaceGeneration,
@@ -44,21 +44,30 @@ extension GhosttySurfaceView {
         )
         guard let state = localScrollbackScrollState() else {
             forwardAppliedLocalScrollbackScroll(request)
+            localScrollbackScrollQueue.finishDraining()
             return
         }
         guard let immediate = localScrollbackScrollQueue.enqueue(request) else { return }
         enqueueLocalScrollbackScroll(immediate, state: state)
     }
 
-    func discardPendingLocalScrollbackScroll() {
-        localScrollbackScrollQueue.discardPending()
+    func suppressOutstandingLocalScrollbackScrollForwarding() {
+        localScrollbackScrollQueue.suppressInFlightForwardingAndDiscardPending()
+    }
+
+    func waitForLocalScrollbackScrollDrain() async {
+        await withCheckedContinuation { continuation in
+            localScrollbackScrollQueue.registerDrainWaiter(continuation)
+        }
     }
 
     func takeOutstandingLocalScrollbackScroll() -> LocalScrollbackScrollRequest? {
-        localScrollbackScrollQueue.takeOutstanding()
+        localScrollbackScrollStartedAt = nil
+        return localScrollbackScrollQueue.takeOutstanding()
     }
 
     func resetLocalScrollbackScroll() {
+        localScrollbackScrollStartedAt = nil
         localScrollbackScrollQueue.reset()
     }
 
@@ -66,6 +75,8 @@ extension GhosttySurfaceView {
         _ request: LocalScrollbackScrollRequest,
         state: GhosttySurfaceWorkSnapshot
     ) {
+        localScrollbackScrollStartedAt = CACurrentMediaTime()
+        ensureSurfaceOperationDeadlinePump()
         state.queue.async { [weak self] in
             let size = ghostty_surface_size(state.surface)
             let cellWidthPt = max(Double(size.cell_width_px) / state.scale, 1)
@@ -85,18 +96,32 @@ extension GhosttySurfaceView {
         generation: UInt64
     ) {
         guard surfaceGeneration == generation else { return }
-        let next = localScrollbackScrollQueue.completeInFlight()
+        guard let completion = localScrollbackScrollQueue.completeInFlight() else { return }
+        localScrollbackScrollStartedAt = nil
         guard surface != nil, !isDismantled else {
             localScrollbackScrollQueue.reset()
             return
         }
         requestDrawAfterLocalScrollbackScroll(generation: generation)
-        forwardAppliedLocalScrollbackScroll(request)
-        guard let next, let state = localScrollbackScrollState() else { return }
+        if completion.shouldForward {
+            forwardAppliedLocalScrollbackScroll(request)
+        }
+        guard let next = completion.next else { return }
+        guard let state = localScrollbackScrollState() else {
+            if let outstanding = takeOutstandingLocalScrollbackScroll() {
+                forwardAppliedLocalScrollbackScroll(outstanding)
+            }
+            finishLocalScrollbackScrollDrain()
+            return
+        }
         enqueueLocalScrollbackScroll(next, state: state)
     }
 
-    private func forwardAppliedLocalScrollbackScroll(_ request: LocalScrollbackScrollRequest) {
+    func finishLocalScrollbackScrollDrain() {
+        localScrollbackScrollQueue.finishDraining()
+    }
+
+    func forwardAppliedLocalScrollbackScroll(_ request: LocalScrollbackScrollRequest) {
         delegate?.ghosttySurfaceView(
             self,
             didScrollLines: request.lines,

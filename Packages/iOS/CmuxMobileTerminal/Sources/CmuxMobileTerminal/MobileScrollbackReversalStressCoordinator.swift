@@ -100,6 +100,7 @@ final class MobileScrollbackReversalStressCoordinator: NSObject, GhosttySurfaceV
         in view: GhosttySurfaceView,
         timeoutNanoseconds: UInt64
     ) async -> String? {
+        await view.waitForLocalScrollbackScrollDrain()
         let clock = ContinuousClock()
         let deadline = clock.now + .nanoseconds(Int(timeoutNanoseconds))
         var lastFailure = "settle-timeout"

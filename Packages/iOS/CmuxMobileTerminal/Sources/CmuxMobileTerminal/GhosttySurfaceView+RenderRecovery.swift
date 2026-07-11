@@ -38,6 +38,23 @@ extension GhosttySurfaceView {
             return recovered
         }
 
+        if let startedAt = localScrollbackScrollStartedAt,
+           now - startedAt >= Self.outputApplyTimeout {
+            let elapsedMs = Int((now - startedAt) * 1000)
+            let outstanding = takeOutstandingLocalScrollbackScroll()
+            MobileDebugLog.anchormux("scroll.local.TIMEOUT elapsedMs=\(elapsedMs)")
+            let recovered = recoverRenderPipeline(
+                reason: "local_scroll_timeout",
+                stalledMs: elapsedMs,
+                replay: .delegateWhenNoCaller
+            )
+            if let outstanding {
+                forwardAppliedLocalScrollbackScroll(outstanding)
+            }
+            finishLocalScrollbackScrollDrain()
+            return recovered
+        }
+
         if let pending = pendingVisibleSnapshot,
            now - pending.startedAt >= Self.visibleSnapshotTimeout {
             pendingVisibleSnapshot = nil
@@ -85,6 +102,10 @@ extension GhosttySurfaceView {
         ensureRenderPipelineRecoveryResumeTimer()
         stopDisplayLink()
         _ = completePendingSurfaceOperations(returning: false)
+        if let outstanding = takeOutstandingLocalScrollbackScroll() {
+            forwardAppliedLocalScrollbackScroll(outstanding)
+        }
+        finishLocalScrollbackScrollDrain()
         renderInFlight = false
         renderInFlightSince = nil
         needsAnotherRender = false
