@@ -12325,7 +12325,8 @@ class TerminalController {
             surfaceId: surfaceId,
             title: title,
             subtitle: subtitle,
-            body: body
+            body: body,
+            backpressure: { v2MainSync { TerminalMutationBus.shared.drainForBackpressure() } }
         )
         return "OK"
     }

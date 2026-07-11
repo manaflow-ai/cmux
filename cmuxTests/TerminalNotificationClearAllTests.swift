@@ -43,7 +43,7 @@ final class TerminalNotificationClearAllTests: XCTestCase {
             return
         }
 
-        TerminalMutationBus.shared.enqueueNotification(
+        TerminalMutationBus.shared.enqueueNotificationForTesting(
             tabId: workspace.id,
             surfaceId: focusedPanelId,
             title: "Delivered",
@@ -92,14 +92,14 @@ final class TerminalNotificationClearAllTests: XCTestCase {
             workspace.newTerminalSplit(from: firstPanelId, orientation: .horizontal)
         )
 
-        TerminalMutationBus.shared.enqueueNotification(
+        TerminalMutationBus.shared.enqueueNotificationForTesting(
             tabId: workspace.id,
             surfaceId: firstPanelId,
             title: "Grok",
             subtitle: "Waiting",
             body: "First"
         )
-        TerminalMutationBus.shared.enqueueNotification(
+        TerminalMutationBus.shared.enqueueNotificationForTesting(
             tabId: workspace.id,
             surfaceId: secondPanel.id,
             title: "Grok",

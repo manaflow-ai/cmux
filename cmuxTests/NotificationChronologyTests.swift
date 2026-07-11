@@ -108,6 +108,89 @@ struct NotificationChronologyTests {
     }
 
     @Test
+    func longHistorySupersedesOnlyImmediateExternalBannerOwner() {
+        let tabId = UUID()
+        let surfaceId = UUID()
+        let history = (0..<70).map { offset in
+            notification(
+                id: UUID(),
+                tabId: tabId,
+                surfaceId: surfaceId,
+                title: "History \(offset)",
+                createdAt: Date(timeIntervalSince1970: TimeInterval(offset))
+            )
+        }.sorted(by: TerminalNotificationStore.notificationSortPrecedes)
+        let latestExisting = history[0]
+        let incoming = notification(
+            id: UUID(),
+            tabId: tabId,
+            surfaceId: surfaceId,
+            title: "Incoming",
+            createdAt: Date(timeIntervalSince1970: 100)
+        )
+
+        let transition = TerminalNotificationStore.externalBannerTransition(
+            incoming: incoming,
+            latestExisting: latestExisting
+        )
+
+        #expect(transition.supersededId == latestExisting.id.uuidString)
+        #expect(!transition.suppressIncoming)
+    }
+
+    @Test
+    func boundedQueueBackpressuresWithoutDroppingAcceptedNotifications() throws {
+        let store = TerminalNotificationStore.shared
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let manager = appDelegate.tabManager ?? TabManager()
+        let originalTabManager = appDelegate.tabManager
+        let originalNotificationStore = appDelegate.notificationStore
+        let originalAppFocusOverride = AppFocusState.overrideIsFocused
+
+        store.replaceNotificationsForTesting([])
+        store.configureNotificationDeliveryHandlerForTesting { _, _ in }
+        store.configureSuppressedNotificationFeedbackHandlerForTesting { _, _ in }
+        appDelegate.tabManager = manager
+        appDelegate.notificationStore = store
+        AppFocusState.overrideIsFocused = false
+
+        let workspace = manager.addWorkspace(select: true)
+        defer {
+            if manager.tabs.contains(where: { $0.id == workspace.id }) {
+                manager.closeWorkspace(workspace)
+            }
+            store.replaceNotificationsForTesting([])
+            store.resetNotificationDeliveryHandlerForTesting()
+            store.resetSuppressedNotificationFeedbackHandlerForTesting()
+            appDelegate.tabManager = originalTabManager
+            appDelegate.notificationStore = originalNotificationStore
+            AppFocusState.overrideIsFocused = originalAppFocusOverride
+        }
+        let surfaceId = try #require(workspace.focusedPanelId)
+        let notificationCount = TerminalMutationBus.maximumPendingMutationCount + 1
+        var backpressureCount = 0
+
+        for offset in 0..<notificationCount {
+            TerminalMutationBus.shared.enqueueNotification(
+                tabId: workspace.id,
+                surfaceId: surfaceId,
+                title: "Queued \(offset)",
+                subtitle: "",
+                body: "",
+                backpressure: {
+                    backpressureCount += 1
+                    TerminalMutationBus.shared.drainForBackpressure()
+                }
+            )
+        }
+        TerminalMutationBus.shared.drainForTesting()
+
+        #expect(backpressureCount == 1)
+        #expect(store.notifications.count == notificationCount)
+        #expect(Set(store.notifications.map(\.title)).count == notificationCount)
+    }
+
+    @Test
     func restoreMergesLiveAndRestoredNotificationsExactlyOnceInStableOrder() {
         let store = TerminalNotificationStore.shared
         let tabId = UUID(uuidString: "10000000-0000-0000-0000-000000000000")!
@@ -322,13 +405,10 @@ struct NotificationChronologyTests {
             dates: &dates
         ))
 
-        reservations.commit(earlier, at: earlierDate, dates: &dates)
-        #expect(dates[key] == laterDate)
-
         reservations.commit(later, at: laterDate, dates: &dates)
         #expect(dates[key] == laterDate)
 
-        reservations.restore(earlier, dates: &dates)
+        reservations.commit(earlier, at: earlierDate, dates: &dates)
         #expect(dates[key] == laterDate)
     }
 
@@ -373,6 +453,26 @@ struct NotificationChronologyTests {
             body: "same payload",
             createdAt: createdAt,
             isRead: false
+        )
+    }
+}
+
+@MainActor
+extension TerminalMutationBus {
+    func enqueueNotificationForTesting(
+        tabId: UUID,
+        surfaceId: UUID?,
+        title: String,
+        subtitle: String,
+        body: String
+    ) {
+        enqueueNotification(
+            tabId: tabId,
+            surfaceId: surfaceId,
+            title: title,
+            subtitle: subtitle,
+            body: body,
+            backpressure: { drainForBackpressure() }
         )
     }
 }

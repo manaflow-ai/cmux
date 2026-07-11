@@ -29,22 +29,9 @@ fileprivate struct TerminalSocketMutationEntry {
     let performReplaceKey: TerminalMutationReplaceKey?
 }
 
-/// Identity for last-write-wins `.perform` mutations: a fresh enqueue removes
-/// the pending same-key entry, bounding `pending` at one entry per key even
-/// while the main actor is blocked and cannot drain.
-struct TerminalMutationReplaceKey: Hashable, Sendable {
-    enum Kind: Hashable, Sendable {
-        case shellActivity, gitBranch, directory
-        case portsKick(PortScanKickReason)
-    }
-
-    let tabId: UUID
-    let surfaceId: UUID
-    let kind: Kind
-}
-
 final class TerminalMutationBus: @unchecked Sendable {
     static let shared = TerminalMutationBus()
+    static let maximumPendingMutationCount = 256
 
     private let lock = NSLock()
     private var pending: [TerminalSocketMutationEntry] = []
@@ -62,16 +49,20 @@ final class TerminalMutationBus: @unchecked Sendable {
         surfaceId: UUID?,
         title: String,
         subtitle: String,
-        body: String
+        body: String,
+        backpressure: () -> Void
     ) {
-        enqueueNotification(QueuedTerminalNotification(
+        let notification = QueuedTerminalNotification(
             id: UUID(),
             acceptedAt: Date(),
             key: QueuedTerminalNotificationKey(tabId: tabId, surfaceId: surfaceId),
             title: title,
             subtitle: subtitle,
             body: body
-        ))
+        )
+        while !tryEnqueueNotification(notification) {
+            backpressure()
+        }
     }
 
     nonisolated func enqueueClearAllNotifications() {
@@ -131,12 +122,16 @@ final class TerminalMutationBus: @unchecked Sendable {
         }
     }
 
-    private func enqueueNotification(_ notification: QueuedTerminalNotification) {
+    private func tryEnqueueNotification(_ notification: QueuedTerminalNotification) -> Bool {
         let shouldScheduleDrain: Bool
         let pendingCount: Int
         let sequence: UInt64
         let generation: UInt64
         lock.lock()
+        guard pending.count - pendingHead < Self.maximumPendingMutationCount else {
+            lock.unlock()
+            return false
+        }
         generation = currentNotificationGeneration
         nextSequence &+= 1
         sequence = nextSequence
@@ -157,8 +152,10 @@ final class TerminalMutationBus: @unchecked Sendable {
             "notification.queue.enqueue seq=\(sequence) workspace=\(notification.key.tabId.uuidString.prefix(8)) surface=\(notification.key.surfaceId?.uuidString.prefix(8) ?? "nil") pending=\(pendingCount) generation=\(generation) titleLen=\(notification.title.count) subtitleLen=\(notification.subtitle.count) bodyLen=\(notification.body.count)"
         )
 #endif
-        guard shouldScheduleDrain else { return }
-        scheduleDrain()
+        if shouldScheduleDrain {
+            scheduleDrain()
+        }
+        return true
     }
 
     private func enqueueClear(
@@ -294,6 +291,14 @@ final class TerminalMutationBus: @unchecked Sendable {
     }
 #endif
 
+    /// Applies one bounded FIFO batch when a socket producer reaches the queue
+    /// limit. The producer does not receive `OK` until its notification has a
+    /// slot, so accepted events remain lossless without unbounded buffering.
+    @MainActor
+    func drainForBackpressure() {
+        drainOnMainActor()
+    }
+
     @MainActor
     private func drainOnMainActor() {
         let batch = takeNextBatch()
@@ -397,30 +402,6 @@ final class TerminalMutationBus: @unchecked Sendable {
                 mutation()
             }
         }
-    }
-}
-
-extension TerminalController {
-    func deliverNotificationSynchronously(
-        tabId: UUID,
-        surfaceId: UUID?,
-        title: String,
-        subtitle: String,
-        body: String
-    ) {
-        TerminalMutationBus.shared.discardPendingNotifications(forTabId: tabId, surfaceId: surfaceId)
-#if DEBUG
-        cmuxDebugLog(
-            "notification.sync.deliver workspace=\(tabId.uuidString.prefix(8)) surface=\(surfaceId?.uuidString.prefix(8) ?? "nil") titleLen=\(title.count) subtitleLen=\(subtitle.count) bodyLen=\(body.count)"
-        )
-#endif
-        TerminalNotificationStore.shared.addNotification(
-            tabId: tabId,
-            surfaceId: surfaceId,
-            title: title,
-            subtitle: subtitle,
-            body: body
-        )
     }
 }
 

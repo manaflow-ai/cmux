@@ -126,7 +126,7 @@ final class TerminalNotificationQueueTests: XCTestCase {
             return
         }
 
-        TerminalMutationBus.shared.enqueueNotification(
+        TerminalMutationBus.shared.enqueueNotificationForTesting(
             tabId: workspace.id,
             surfaceId: focusedPanelId,
             title: "Async",
@@ -173,7 +173,7 @@ final class TerminalNotificationQueueTests: XCTestCase {
             return
         }
 
-        TerminalMutationBus.shared.enqueueNotification(
+        TerminalMutationBus.shared.enqueueNotificationForTesting(
             tabId: workspace.id,
             surfaceId: focusedPanelId,
             title: "Stale",
@@ -181,7 +181,7 @@ final class TerminalNotificationQueueTests: XCTestCase {
             body: "Body"
         )
         TerminalMutationBus.shared.enqueueClearNotifications(forTabId: workspace.id)
-        TerminalMutationBus.shared.enqueueNotification(
+        TerminalMutationBus.shared.enqueueNotificationForTesting(
             tabId: workspace.id,
             surfaceId: focusedPanelId,
             title: "Fresh",
@@ -231,7 +231,7 @@ final class TerminalNotificationQueueTests: XCTestCase {
             return
         }
 
-        TerminalMutationBus.shared.enqueueNotification(
+        TerminalMutationBus.shared.enqueueNotificationForTesting(
             tabId: workspace.id,
             surfaceId: focusedPanelId,
             title: "Stale",
@@ -239,7 +239,7 @@ final class TerminalNotificationQueueTests: XCTestCase {
             body: "Body"
         )
         TerminalMutationBus.shared.enqueueClearAllNotifications()
-        TerminalMutationBus.shared.enqueueNotification(
+        TerminalMutationBus.shared.enqueueNotificationForTesting(
             tabId: workspace.id,
             surfaceId: focusedPanelId,
             title: "Fresh",
@@ -292,7 +292,7 @@ final class TerminalNotificationQueueTests: XCTestCase {
         TerminalMutationBus.shared.setDrainsSuspendedForTesting(true)
         defer { TerminalMutationBus.shared.setDrainsSuspendedForTesting(false) }
         for title in ["First", "Second"] {
-            TerminalMutationBus.shared.enqueueNotification(
+            TerminalMutationBus.shared.enqueueNotificationForTesting(
                 tabId: workspace.id,
                 surfaceId: focusedPanelId,
                 title: title,
@@ -359,7 +359,7 @@ final class TerminalNotificationQueueTests: XCTestCase {
         XCTAssertEqual(deliveredTitles, ["First", "Second"])
     }
 
-    func testScopedDiscardDoesNotSplitUnrelatedNotificationCoalescing() throws {
+    func testScopedDiscardPreservesUnrelatedNotificationsExactlyOnce() throws {
         let store = TerminalNotificationStore.shared
         let appDelegate = AppDelegate.shared ?? AppDelegate()
         let manager = appDelegate.tabManager ?? TabManager()
@@ -402,7 +402,7 @@ final class TerminalNotificationQueueTests: XCTestCase {
         TerminalMutationBus.shared.setDrainsSuspendedForTesting(true)
         defer { TerminalMutationBus.shared.setDrainsSuspendedForTesting(false) }
 
-        TerminalMutationBus.shared.enqueueNotification(
+        TerminalMutationBus.shared.enqueueNotificationForTesting(
             tabId: unrelatedWorkspace.id,
             surfaceId: unrelatedPanelId,
             title: "Stale unrelated",
@@ -413,7 +413,7 @@ final class TerminalNotificationQueueTests: XCTestCase {
             forTabId: clearedWorkspace.id,
             surfaceId: clearedPanelId
         )
-        TerminalMutationBus.shared.enqueueNotification(
+        TerminalMutationBus.shared.enqueueNotificationForTesting(
             tabId: unrelatedWorkspace.id,
             surfaceId: unrelatedPanelId,
             title: "Fresh unrelated",
@@ -424,8 +424,8 @@ final class TerminalNotificationQueueTests: XCTestCase {
         TerminalMutationBus.shared.drainForTesting()
 
         let unrelatedNotifications = store.notifications.filter { $0.tabId == unrelatedWorkspace.id }
-        XCTAssertEqual(unrelatedNotifications.map(\.title), ["Fresh unrelated"])
-        XCTAssertEqual(deliveredTitles, ["Fresh unrelated"])
+        XCTAssertEqual(unrelatedNotifications.map(\.title), ["Fresh unrelated", "Stale unrelated"])
+        XCTAssertEqual(deliveredTitles, ["Stale unrelated", "Fresh unrelated"])
     }
 
     func testQueuedNotificationResolvesWorkspaceInRegisteredWindowContext() throws {
@@ -465,7 +465,7 @@ final class TerminalNotificationQueueTests: XCTestCase {
             return
         }
 
-        TerminalMutationBus.shared.enqueueNotification(
+        TerminalMutationBus.shared.enqueueNotificationForTesting(
             tabId: workspace.id,
             surfaceId: focusedPanelId,
             title: "Async",

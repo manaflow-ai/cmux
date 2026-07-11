@@ -1,5 +1,18 @@
 import Foundation
 
+extension TerminalNotificationStore {
+    static func externalBannerTransition(
+        incoming: TerminalNotification,
+        latestExisting: TerminalNotification?
+    ) -> (supersededId: String?, suppressIncoming: Bool) {
+        guard let latestExisting else { return (nil, false) }
+        guard notificationSortPrecedes(incoming, latestExisting) else { return (nil, true) }
+        // Every chronological owner superseded its predecessor, so retained
+        // history must not re-enter bounded external-dismissal buffers.
+        return (latestExisting.id.uuidString, false)
+    }
+}
+
 struct NotificationCooldownReservations {
     struct Reservation: Sendable {
         let key: String

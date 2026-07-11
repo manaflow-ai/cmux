@@ -187,6 +187,7 @@ final class TerminalNotificationStore: ObservableObject {
         var unreadByTabSurface = Set<TabSurfaceKey>()
         var latestUnreadByTabId: [UUID: TerminalNotification] = [:]
         var latestByTabId: [UUID: TerminalNotification] = [:]
+        var latestByTabSurface: [TabSurfaceKey: TerminalNotification] = [:]
     }
 
     static let shared = TerminalNotificationStore()
@@ -1163,16 +1164,15 @@ final class TerminalNotificationStore: ObservableObject {
         let insertionIndex = updated.firstIndex {
             Self.notificationSortPrecedes(notification, $0)
         } ?? updated.endIndex
-        let matchingExisting = updated.filter {
-            $0.matches(tabId: notification.tabId, surfaceId: notification.surfaceId)
-        }
-        let supersededExternalIds = matchingExisting.compactMap { existing in
-            Self.notificationSortPrecedes(notification, existing) ? existing.id.uuidString : nil
-        }
-        let hasNewerExternalOwner = matchingExisting.contains {
-            Self.notificationSortPrecedes($0, notification)
-        }
-        let suppressExternalDelivery = shouldSuppressExternalDelivery || hasNewerExternalOwner
+        let latestExisting = indexes.latestByTabSurface[
+            TabSurfaceKey(tabId: notification.tabId, surfaceId: notification.surfaceId)
+        ]
+        let externalBannerTransition = Self.externalBannerTransition(
+            incoming: notification,
+            latestExisting: latestExisting
+        )
+        let supersededExternalIds = externalBannerTransition.supersededId.map { [$0] } ?? []
+        let suppressExternalDelivery = shouldSuppressExternalDelivery || externalBannerTransition.suppressIncoming
         updated.insert(notification, at: insertionIndex)
         setWorkspaceManualUnread(false, forTabId: notification.tabId)
         notifications = updated
@@ -1990,6 +1990,10 @@ final class TerminalNotificationStore: ObservableObject {
             indexes.ids.insert(notification.id)
             if indexes.latestByTabId[notification.tabId] == nil {
                 indexes.latestByTabId[notification.tabId] = notification
+            }
+            let tabSurfaceKey = TabSurfaceKey(tabId: notification.tabId, surfaceId: notification.surfaceId)
+            if indexes.latestByTabSurface[tabSurfaceKey] == nil {
+                indexes.latestByTabSurface[tabSurfaceKey] = notification
             }
             guard !notification.isRead else { continue }
             indexes.unreadCount += 1
