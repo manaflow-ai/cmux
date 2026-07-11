@@ -64,7 +64,7 @@ public struct AgentHookStateReaderLocation {
                     let destinationLock = URL(fileURLWithPath: destination.path + ".lock", isDirectory: false)
                     try withExclusiveFileLock(at: destinationLock) {
                         if fileManager.fileExists(atPath: destination.path) {
-                            try mergeMissingSessions(from: source, into: destination, fileManager: fileManager)
+                            try mergeMissingStoreEntries(from: source, into: destination, fileManager: fileManager)
                         } else {
                             try fileManager.copyItem(at: source, to: destination)
                         }
@@ -95,7 +95,7 @@ public struct AgentHookStateReaderLocation {
         return try body()
     }
 
-    private func mergeMissingSessions(from source: URL, into destination: URL, fileManager: FileManager) throws {
+    private func mergeMissingStoreEntries(from source: URL, into destination: URL, fileManager: FileManager) throws {
         guard let sourceData = fileManager.contents(atPath: source.path),
               let sourceRoot = try? JSONSerialization.jsonObject(with: sourceData) as? [String: Any] else {
             return
@@ -112,15 +112,31 @@ public struct AgentHookStateReaderLocation {
             destinationSessions[sessionID] = record
             changed = true
         }
-        guard changed else { return }
-
-        if destinationRoot["sessions"] is [String: Any] {
-            destinationRoot["sessions"] = destinationSessions
-        } else {
-            for (sessionID, record) in destinationSessions {
-                destinationRoot[sessionID] = record
+        if changed {
+            if destinationRoot["sessions"] is [String: Any] {
+                destinationRoot["sessions"] = destinationSessions
+            } else {
+                for (sessionID, record) in destinationSessions {
+                    destinationRoot[sessionID] = record
+                }
             }
         }
+
+        for key in ["activeSessionsByWorkspace", "activeSessionsBySurface"] {
+            guard let sourceEntries = sourceRoot[key] as? [String: Any] else { continue }
+            var destinationEntries = destinationRoot[key] as? [String: Any] ?? [:]
+            var importedEntry = false
+            for (identifier, record) in sourceEntries where destinationEntries[identifier] == nil {
+                destinationEntries[identifier] = record
+                importedEntry = true
+            }
+            if importedEntry {
+                destinationRoot[key] = destinationEntries
+                changed = true
+            }
+        }
+
+        guard changed else { return }
         let mergedData = try JSONSerialization.data(withJSONObject: destinationRoot, options: [.sortedKeys])
         try mergedData.write(to: destination, options: .atomic)
     }
