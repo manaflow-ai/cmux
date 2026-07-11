@@ -135,6 +135,10 @@ pid, fd = pty.fork()
 if pid == 0:
     os.chdir(tmpdir.name)
     os.environ["TERM"] = "xterm-256color"
+    # Hermetic shell: zsh/bash init on CI runners can report a different pwd
+    # (which the files sidebar follows); /bin/sh reports nothing, so the
+    # sidebar deterministically roots at the spawn cwd (this tmpdir).
+    os.environ["SHELL"] = "/bin/sh"
     os.environ["CMUX_MUX_CDP_URL"] = "http://127.0.0.1:1/"
     os.environ.pop("NO_COLOR", None)
     os.execv(BIN, [BIN, "--session", SESSION, "--socket", SOCK])
@@ -397,9 +401,8 @@ print("prefix-S returns focus to the pane ok")
 with open(config_path, "w", encoding="utf-8") as f:
     json.dump({"sidebar": {"width": 22}}, f)
 assert rpc({"id": 31, "cmd": "reload-config"})["ok"]
-drain(1.0)
-snapshot = render_text_snapshot(output)
-assert sidebar_marker in snapshot, snapshot[-1200:]
+# The cwd follow runs on a 2s cadence; wait event-driven rather than a fixed drain.
+wait_render_contains(sidebar_marker)
 print("sidebar plugin config reload falls back to default files sidebar ok")
 os.write(fd, b"\x02S")
 drain(0.4)
