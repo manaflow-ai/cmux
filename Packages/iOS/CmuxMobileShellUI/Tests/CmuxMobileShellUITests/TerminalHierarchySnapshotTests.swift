@@ -57,6 +57,10 @@ import Testing
     #expect(consequence.contains("running process"))
     #expect(!consequence.contains("surface"))
     #expect(!consequence.contains("tab"))
+    let ordinaryRow = try #require(snapshot.panes[0].rows.first)
+    #expect(!ordinaryRow.closeConsequence.lowercased().contains("running process"))
+    #expect(ordinaryRow.closeConsequence(requiresProcessConfirmation: true)
+        .lowercased().contains("running process"))
 }
 
 @Test func hierarchyReorderGateRejectsOverlapUntilAuthoritativeMutationFinishes() {
