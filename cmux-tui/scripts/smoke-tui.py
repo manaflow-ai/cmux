@@ -1,6 +1,6 @@
 import os, pty, select, socket, json, time, sys, signal, subprocess, re, tempfile
 
-BIN = os.environ.get("CMUX_TUI_BIN", "target/debug/cmux-tui")
+BIN = os.path.abspath(os.environ.get("CMUX_TUI_BIN", "target/debug/cmux-tui"))
 SESSION = f"smoke-{os.getpid()}"
 SOCK = None
 CONTROL_SOCKET_RE = re.compile(r"control socket at (.+)$")

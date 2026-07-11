@@ -128,8 +128,12 @@ impl FileBrowser {
         self.reload_directory();
     }
 
+    pub fn refresh_due(&self, now: Instant) -> bool {
+        now.duration_since(self.last_refresh) >= REFRESH_EVERY
+    }
+
     pub fn tick(&mut self, now: Instant) -> bool {
-        if now.duration_since(self.last_refresh) < REFRESH_EVERY {
+        if !self.refresh_due(now) {
             return false;
         }
         self.reload_directory();
@@ -142,6 +146,10 @@ impl FileBrowser {
             return self.handle_filter_key(key);
         }
 
+        // Only plain (or shifted) character keys act; control/alt chords must
+        // never fall through to actions (Ctrl-C reaching the 'c' arm would cd
+        // the user's shell). ctrl+j/k are the explicit exceptions.
+        let plain = key.modifiers.is_empty() || key.modifiers == KeyModifiers::SHIFT;
         match key.code {
             KeyCode::Up => self.move_selection(-1),
             KeyCode::Char('k') if key.modifiers.contains(KeyModifiers::CONTROL) => {
@@ -153,15 +161,16 @@ impl FileBrowser {
             }
             KeyCode::Right => self.descend_selected(),
             KeyCode::Enter => return self.activate_selected(),
-            KeyCode::Left | KeyCode::Char('h') => self.go_parent(),
-            KeyCode::Char('.') => {
+            KeyCode::Left => self.go_parent(),
+            KeyCode::Char('h') if plain => self.go_parent(),
+            KeyCode::Char('.') if plain => {
                 self.show_hidden = !self.show_hidden;
                 self.reload_directory();
             }
-            KeyCode::Char('/') => self.filter_mode = true,
-            KeyCode::Char('~') => return Some(FileCommand::Reroot),
-            KeyCode::Char('c') => return self.cd_selected(),
-            KeyCode::Char('o') => return self.browser_selected(),
+            KeyCode::Char('/') if plain => self.filter_mode = true,
+            KeyCode::Char('~') if plain => return Some(FileCommand::Reroot),
+            KeyCode::Char('c') if plain => return self.cd_selected(),
+            KeyCode::Char('o') if plain => return self.browser_selected(),
             _ => {}
         }
         None
@@ -339,6 +348,21 @@ mod tests {
 
     fn key(code: KeyCode) -> KeyEvent {
         KeyEvent::new(code, KeyModifiers::NONE)
+    }
+
+    #[test]
+    fn control_chords_never_trigger_character_actions() {
+        // Regression: Ctrl-C fell through to the 'c' arm and cd'd the shell.
+        let dir = temp_dir("ctrl-chords");
+        create_dir(dir.join("sub")).unwrap();
+        let mut browser = FileBrowser::new(dir.clone());
+        browser.reload_directory();
+        for ch in ['c', 'o', 'h', '.', '/', '~'] {
+            let ev = KeyEvent::new(KeyCode::Char(ch), KeyModifiers::CONTROL);
+            assert!(browser.handle_key(&ev).is_none(), "ctrl+{ch} must be inert");
+        }
+        assert!(!browser.filter_mode, "ctrl+/ must not enter filter mode");
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     fn temp_dir(name: &str) -> PathBuf {

@@ -907,13 +907,18 @@ impl App {
         {
             return false;
         }
+        // The cwd follow can be a synchronous socket round-trip for remote
+        // sessions; the event loop ticks up to ~33x/sec, so gate it behind the
+        // same 2s refresh cadence as the directory reload.
+        let now = Instant::now();
         let mut changed = false;
-        if !self.sidebar_files.is_pinned()
+        if self.sidebar_files.refresh_due(now)
+            && !self.sidebar_files.is_pinned()
             && let Some(cwd) = self.focused_surface_cwd()
         {
             changed |= self.sidebar_files.follow_focused_cwd(&cwd);
         }
-        changed | self.sidebar_files.tick(Instant::now())
+        changed | self.sidebar_files.tick(now)
     }
 
     fn write_window_title(&self, title: &str) -> anyhow::Result<()> {
