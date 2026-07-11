@@ -30,6 +30,16 @@ func resolveAgentHookStateWriterLocation(
     )
 }
 
+func ensurePrivateAgentHookStateDirectory(at directoryURL: URL, fileManager: FileManager) throws {
+    let permissions = NSNumber(value: Int16(0o700))
+    try fileManager.createDirectory(
+        at: directoryURL,
+        withIntermediateDirectories: true,
+        attributes: [.posixPermissions: permissions]
+    )
+    try fileManager.setAttributes([.posixPermissions: permissions], ofItemAtPath: directoryURL.path)
+}
+
 extension CMUXCLI {
     // MARK: Agent definitions
 

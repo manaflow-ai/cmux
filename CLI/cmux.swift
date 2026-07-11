@@ -1461,6 +1461,10 @@ final class ClaudeHookSessionStore {
     }
 
     private func withLockedState<T>(_ body: (inout ClaudeHookSessionStoreFile) throws -> T) throws -> T {
+        try ensurePrivateAgentHookStateDirectory(
+            at: URL(fileURLWithPath: statePath).deletingLastPathComponent(),
+            fileManager: fileManager
+        )
         let lockPath = statePath + ".lock"
         let fd = open(lockPath, O_CREAT | O_RDWR, mode_t(S_IRUSR | S_IWUSR))
         if fd < 0 {
@@ -1511,12 +1515,7 @@ final class ClaudeHookSessionStore {
     private func saveUnlocked(_ state: ClaudeHookSessionStoreFile) throws {
         let stateURL = URL(fileURLWithPath: statePath)
         let parentURL = stateURL.deletingLastPathComponent()
-        try fileManager.createDirectory(
-            at: parentURL,
-            withIntermediateDirectories: true,
-            attributes: [.posixPermissions: NSNumber(value: Int16(0o700))]
-        )
-        try? fileManager.setAttributes([.posixPermissions: NSNumber(value: Int16(0o700))], ofItemAtPath: parentURL.path)
+        try ensurePrivateAgentHookStateDirectory(at: parentURL, fileManager: fileManager)
         let data = try encoder.encode(state)
         let tempURL = parentURL.appendingPathComponent(".\(stateURL.lastPathComponent).\(UUID().uuidString).tmp")
         guard fileManager.createFile(atPath: tempURL.path, contents: data, attributes: [
