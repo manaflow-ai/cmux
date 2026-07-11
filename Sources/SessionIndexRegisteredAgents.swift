@@ -144,25 +144,25 @@ enum GrokSessionLocator {
         environment: [String: String] = ProcessInfo.processInfo.environment,
         fileManager: FileManager = .default
     ) -> [String] {
-        let storeURL = RestorableAgentKind.grok.hookStoreFileURL(
-            homeDirectory: homeDirectory,
-            environment: environment
-        )
-        guard fileManager.fileExists(atPath: storeURL.path),
-              let data = try? Data(contentsOf: storeURL),
-              let state = try? JSONDecoder().decode(GrokHookObservedSessionStoreFile.self, from: data) else {
-            return []
-        }
-
         var seen = Set<String>()
         var homes: [String] = []
-        for record in state.sessions.values {
-            guard let rawHome = normalized(record.launchCommand?.environment?["GROK_HOME"]) else {
+        for storeURL in RestorableAgentKind.grok.hookStoreFileURLs(
+            homeDirectory: homeDirectory,
+            environment: environment
+        ) {
+            guard fileManager.fileExists(atPath: storeURL.path),
+                  let data = try? Data(contentsOf: storeURL),
+                  let state = try? JSONDecoder().decode(GrokHookObservedSessionStoreFile.self, from: data) else {
                 continue
             }
-            let home = expandTilde(rawHome, homeDirectory: homeDirectory)
-            guard seen.insert(home).inserted else { continue }
-            homes.append(home)
+            for record in state.sessions.values {
+                guard let rawHome = normalized(record.launchCommand?.environment?["GROK_HOME"]) else {
+                    continue
+                }
+                let home = expandTilde(rawHome, homeDirectory: homeDirectory)
+                guard seen.insert(home).inserted else { continue }
+                homes.append(home)
+            }
         }
         return homes
     }

@@ -255,26 +255,26 @@ enum AgentHibernationTranscriptGuard {
         homeDirectory: String,
         fileManager: FileManager
     ) -> (path: String?, isAmbiguous: Bool) {
-        let storeURL = RestorableAgentKind.claude.hookStoreFileURL(homeDirectory: homeDirectory)
-        guard let data = fileManager.contents(atPath: storeURL.path),
-              let store = try? JSONDecoder().decode(AgentHibernationTranscriptHookStoreFileMirror.self, from: data),
-              let sessions = store.sessions else {
-            return (nil, false)
-        }
-
         var paths: [String] = []
         var seenPaths: Set<String> = []
-        for record in sessions.values {
-            guard normalized(record.sessionId) == agent.sessionId,
-                  panelKey.map({ record.matches(panelKey: $0) }) ?? true,
-                  let transcriptPath = normalized(record.transcriptPath) else {
+        for storeURL in RestorableAgentKind.claude.hookStoreFileURLs(homeDirectory: homeDirectory) {
+            guard let data = fileManager.contents(atPath: storeURL.path),
+                  let store = try? JSONDecoder().decode(AgentHibernationTranscriptHookStoreFileMirror.self, from: data),
+                  let sessions = store.sessions else {
                 continue
             }
-            let expandedPath = expandTilde(in: transcriptPath, homeDirectory: homeDirectory)
-            let standardizedPath = (expandedPath as NSString).standardizingPath
-            if seenPaths.insert(standardizedPath).inserted,
-               isRegularFile(atPath: expandedPath, fileManager: fileManager) {
-                paths.append(expandedPath)
+            for record in sessions.values {
+                guard normalized(record.sessionId) == agent.sessionId,
+                      panelKey.map({ record.matches(panelKey: $0) }) ?? true,
+                      let transcriptPath = normalized(record.transcriptPath) else {
+                    continue
+                }
+                let expandedPath = expandTilde(in: transcriptPath, homeDirectory: homeDirectory)
+                let standardizedPath = (expandedPath as NSString).standardizingPath
+                if seenPaths.insert(standardizedPath).inserted,
+                   isRegularFile(atPath: expandedPath, fileManager: fileManager) {
+                    paths.append(expandedPath)
+                }
             }
         }
         guard let path = paths.first else { return (nil, false) }

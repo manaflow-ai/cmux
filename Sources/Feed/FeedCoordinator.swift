@@ -623,8 +623,8 @@ extension FeedCoordinator {
     }
 }
 
-/// Reads the per-agent hook session stores (`~/.cmuxterm/<agent>-hook-sessions.json`)
-/// to map a feed `workstream_id` back to a cmux `(workspaceId, surfaceId)` pair.
+/// Reads bundle-scoped per-agent hook stores, with a legacy `~/.cmuxterm`
+/// fallback, to map a feed `workstream_id` to a cmux `(workspaceId, surfaceId)` pair.
 /// The schema is the same one written by `cmux <agent>-hook session-start`.
 enum FeedJumpResolver {
     struct Target: Equatable {
@@ -641,25 +641,27 @@ enum FeedJumpResolver {
     }
 
     static func lookup(agent: String, sessionId: String, stateDirectory: URL? = nil) -> Target? {
-        let file = (stateDirectory ?? RestorableAgentKind.claude.hookStoreFileURL().deletingLastPathComponent())
-            .appendingPathComponent("\(agent)-hook-sessions.json", isDirectory: false)
-        guard let data = try? Data(contentsOf: file),
-              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-        else { return nil }
-        // Stores have a consistent shape: top-level `sessions` dict keyed
-        // by sessionId. Tolerate older flat layouts too.
-        let sessions: [String: Any]
-        if let nested = root["sessions"] as? [String: Any] {
-            sessions = nested
-        } else {
-            sessions = root
+        let stateDirectories = stateDirectory.map { [$0] }
+            ?? RestorableAgentKind.claude.hookStoreFileURLs().map { $0.deletingLastPathComponent() }
+        for directory in stateDirectories {
+            let file = directory
+                .appendingPathComponent("\(agent)-hook-sessions.json", isDirectory: false)
+            guard let data = try? Data(contentsOf: file),
+                  let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                continue
+            }
+            // Stores have a consistent shape: top-level `sessions` dict keyed
+            // by sessionId. Tolerate older flat layouts too.
+            let sessions = (root["sessions"] as? [String: Any]) ?? root
+            guard let entry = sessions[sessionId] as? [String: Any],
+                  let workspaceId = entry["workspaceId"] as? String,
+                  let surfaceId = entry["surfaceId"] as? String,
+                  !workspaceId.isEmpty, !surfaceId.isEmpty else {
+                continue
+            }
+            return Target(workspaceId: workspaceId, surfaceId: surfaceId)
         }
-        guard let entry = sessions[sessionId] as? [String: Any],
-              let workspaceId = entry["workspaceId"] as? String,
-              let surfaceId = entry["surfaceId"] as? String,
-              !workspaceId.isEmpty, !surfaceId.isEmpty
-        else { return nil }
-        return Target(workspaceId: workspaceId, surfaceId: surfaceId)
+        return nil
     }
 
     /// Dispatches a workspace-select + surface-focus intent. Posts

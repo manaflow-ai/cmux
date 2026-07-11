@@ -54,4 +54,35 @@ public struct AgentHookStateLocation: Sendable, Equatable {
         }
         return legacyHomeDirectory.appendingPathComponent(".cmuxterm", isDirectory: true)
     }
+
+    /// Resolves reader directories in precedence order. Bundle-scoped app readers
+    /// also consult the pre-scoping store so an app upgrade does not hide sessions
+    /// written by the previous version. Unrelated explicit overrides stay isolated.
+    public static func resolveReadDirectoryURLs(
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        applicationSupportDirectory: URL? = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first,
+        bundleIdentifier: String? = Bundle.main.bundleIdentifier,
+        legacyHomeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
+    ) -> [URL] {
+        let primary = resolveDirectoryURL(
+            environment: environment,
+            applicationSupportDirectory: applicationSupportDirectory,
+            bundleIdentifier: bundleIdentifier,
+            legacyHomeDirectory: legacyHomeDirectory
+        )
+        let legacy = legacyHomeDirectory.appendingPathComponent(".cmuxterm", isDirectory: true)
+        guard primary.standardizedFileURL != legacy.standardizedFileURL,
+              let applicationSupportDirectory,
+              let bundleScope = AgentHookStateLocation(
+                  applicationSupportDirectory: applicationSupportDirectory,
+                  bundleIdentifier: bundleIdentifier
+              ),
+              primary.standardizedFileURL == bundleScope.directoryURL.standardizedFileURL else {
+            return [primary]
+        }
+        return [primary, legacy]
+    }
 }

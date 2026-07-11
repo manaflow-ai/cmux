@@ -184,6 +184,32 @@ enum RestorableAgentKind: Codable, Hashable, Sendable {
         )
         return directory.appendingPathComponent(hookStoreFilename, isDirectory: false)
     }
+
+    /// Hook store files read by app-side indexes, ordered from the current
+    /// bundle scope to the pre-scoping legacy location.
+    func hookStoreFileURLs(
+        homeDirectory: String? = nil,
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        applicationSupportDirectory: URL? = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first,
+        bundleIdentifier: String? = Bundle.main.bundleIdentifier
+    ) -> [URL] {
+        let legacyHomeDirectory = URL(
+            fileURLWithPath: homeDirectory ?? NSHomeDirectory(),
+            isDirectory: true
+        )
+        let usesCurrentUserHome = homeDirectory == nil
+            || legacyHomeDirectory.standardizedFileURL
+                == FileManager.default.homeDirectoryForCurrentUser.standardizedFileURL
+        return AgentHookStateLocation.resolveReadDirectoryURLs(
+            environment: environment,
+            applicationSupportDirectory: usesCurrentUserHome ? applicationSupportDirectory : nil,
+            bundleIdentifier: usesCurrentUserHome ? bundleIdentifier : nil,
+            legacyHomeDirectory: legacyHomeDirectory
+        ).map { $0.appendingPathComponent(hookStoreFilename, isDirectory: false) }
+    }
 }
 
 struct AgentLaunchCommandSnapshot: Codable, Equatable, Sendable {
