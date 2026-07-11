@@ -42,9 +42,16 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
     /// advances, it rebuilds the runtime config and refreshes the mounted
     /// surface's background/colors in place via `GhosttyRuntime.applyLiveThemeIfRunning()`.
     var themeGeneration: UInt64 = 0
+    var composerSubmitAction: (@MainActor () async -> Void)? = nil
+    var onComposerChromeHeightChange: ((CGFloat) -> Void)? = nil
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(surfaceID: surfaceID, store: store)
+        Coordinator(
+            surfaceID: surfaceID,
+            store: store,
+            composerSubmitAction: composerSubmitAction,
+            onComposerChromeHeightChange: onComposerChromeHeightChange
+        )
     }
 
     func makeUIView(context: Context) -> UIView {
@@ -106,6 +113,10 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         // composer band. This is a UIKit-internal mutation, not a sibling-observed
         // state write, so it is safe in `updateUIView`.
         guard let surfaceView = uiView as? GhosttySurfaceView else { return }
+        context.coordinator.updateComposerRouting(
+            submitAction: composerSubmitAction,
+            chromeHeightChange: onComposerChromeHeightChange
+        )
         surfaceView.autoFocusOnWindowAttach = autoFocusOnWindowAttach
         surfaceView.setComposerActive(isComposerActive)
         context.coordinator.setComposerMounted(isComposerActive)
@@ -138,8 +149,10 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         /// Hosts the SwiftUI ``TerminalComposerView`` so it can be installed into the
         /// surface's composer band. Built lazily on first open and torn down on
         /// dismantle; mounted/unmounted by ``setComposerMounted(_:)``.
-        private var composerController: UIHostingController<TerminalComposerView>?
-        private var composerMounted = false
+        var composerController: UIHostingController<TerminalComposerView>?
+        let composerSubmitRouter: TerminalComposerSubmitRouter
+        var onComposerChromeHeightChange: ((CGFloat) -> Void)?
+        var composerMounted = false
         /// The theme generation already pushed to the live runtime, so a repeated
         /// `updateUIView` for the same generation does not rebuild the config again.
         var lastAppliedThemeGeneration: UInt64 = 0
@@ -156,12 +169,27 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         /// close-then-quickly-reopen race: an interrupted close animation still runs
         /// its completion, which must not unmount a composer that was remounted in
         /// the meantime.
-        private var composerMountGeneration = 0
+        var composerMountGeneration = 0
 
-        init(surfaceID: String, store: CMUXMobileShellStore) {
+        init(
+            surfaceID: String,
+            store: CMUXMobileShellStore,
+            composerSubmitAction: (@MainActor () async -> Void)?,
+            onComposerChromeHeightChange: ((CGFloat) -> Void)?
+        ) {
             self.surfaceID = surfaceID
             self.store = store
+            self.composerSubmitRouter = TerminalComposerSubmitRouter(action: composerSubmitAction)
+            self.onComposerChromeHeightChange = onComposerChromeHeightChange
             super.init()
+        }
+
+        func updateComposerRouting(
+            submitAction: (@MainActor () async -> Void)?,
+            chromeHeightChange: ((CGFloat) -> Void)?
+        ) {
+            composerSubmitRouter.action = submitAction
+            onComposerChromeHeightChange = chromeHeightChange
         }
 
         func attach(surfaceView: GhosttySurfaceView) {
@@ -279,118 +307,6 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             liveFontTask = nil
             viewportReportScheduler?.cancel()
             viewportReportScheduler = nil
-        }
-
-        // MARK: - Composer band hosting
-
-        /// Mount or unmount the SwiftUI compose field into the surface's composer
-        /// band so the surface owns its position and grid reservation. Idempotent.
-        @MainActor
-        func setComposerMounted(_ mounted: Bool) {
-            guard mounted != composerMounted, let store, let surfaceView else { return }
-            composerMounted = mounted
-            composerMountGeneration &+= 1
-            if mounted {
-                let controller = composerController ?? makeComposerController(store: store)
-                composerController = controller
-                surfaceView.mountComposerView(controller.view)
-                // The field opens at one line; report its initial height without
-                // animation (the composer's open transition already animates), then
-                // live grows/shrinks animate.
-                reportComposerHeight(animated: false)
-            } else {
-                // Symmetric close: animate the band to 0 with the field STILL
-                // mounted, on the keyboard curve, then unmount it in the completion.
-                // Unmounting first left the band collapsing over empty space (a janky
-                // close). Keep the surface reference for the deferred unmount.
-                //
-                // The completion is generation-guarded: UIKit runs animation
-                // completions even when the animation is interrupted, so a
-                // close-then-quick-reopen would otherwise unmount the freshly
-                // remounted field and leave `composerMounted` true with no view.
-                let generation = composerMountGeneration
-                surfaceView.setComposerBandHeight(0, animated: true) { [weak self] in
-                    guard let self,
-                          self.composerMountGeneration == generation,
-                          !self.composerMounted else { return }
-                    self.surfaceView?.mountComposerView(nil)
-                }
-            }
-        }
-
-        /// Build the hosting controller for the compose field. The field asks for a
-        /// re-measure (via ``reportComposerHeight(animated:)``) whenever its content
-        /// changes; the coordinator measures the ideal height with `sizeThatFits` and
-        /// sizes the surface band.
-        @MainActor
-        private func makeComposerController(store: CMUXMobileShellStore) -> UIHostingController<TerminalComposerView> {
-            let view = TerminalComposerView(store: store, terminalID: surfaceID) { [weak self] in
-                // Content changed (a line added/removed, or cleared after send): live
-                // grows/shrinks animate. `setComposerBandHeight` is idempotent on
-                // unchanged heights, so a no-op change is harmless.
-                self?.reportComposerHeight(animated: true)
-            }
-            let controller = UIHostingController(rootView: view)
-            // The field is pinned edge-to-edge in the band, so the band frame (not an
-            // intrinsic size) drives the hosting view's height; the measured ideal
-            // height flows separately through `sizeThatFits`. Clear background so the
-            // terminal/glass shows through.
-            controller.view.backgroundColor = .clear
-            return controller
-        }
-
-        /// Measure the hosted compose field's ideal height and size the surface band.
-        /// `sizeThatFits` returns the height the content wants independent of the band's
-        /// current (pinned) frame, so it is not circular: the band height is set FROM
-        /// this measurement, and the measurement does not depend on the band height.
-        /// The proposed width is the surface width and the proposed height is unbounded
-        /// so a multi-line field measures its full desired height (capped to 14 lines by
-        /// the field's own `lineLimit`).
-        ///
-        /// `requestHeightRemeasure` fires the instant the field's content changes — a
-        /// `.onChange(of:)` action, or the post-send clear — which is BEFORE SwiftUI has
-        /// committed that change into the hosted controller's view graph. Measuring a
-        /// `UIHostingController` synchronously at that point captures the PRE-change
-        /// (tall) ideal height, so after a send the band stays reserved tall and the
-        /// empty field renders as a tall box that never collapses. It is worst for an
-        /// image-only send: clearing the text fires no `.onChange(of: terminalInputText)`
-        /// (it was already empty), so the stale measurement is never corrected by a
-        /// follow-up. Flush the host's pending SwiftUI update into a concrete layout pass
-        /// BEFORE calling `sizeThatFits` — mirroring the `setNeedsLayout()`/
-        /// `layoutIfNeeded()` the GUI chat composer relies on to keep its hosted-field
-        /// measurement current — so the measurement reflects the new (e.g. collapsed
-        /// one-line) content. `sizeThatFits` re-proposes the surface width itself, so the
-        /// flush only needs to apply the pending content change, not fix the width.
-        @MainActor
-        private func reportComposerHeight(animated: Bool) {
-            guard let controller = composerController, let surfaceView else { return }
-            // The hosting controller is mounted before any remeasure, so its view is
-            // loaded; annotate to force-unwrap the `UIView!` rather than infer `UIView?`.
-            let hostView: UIView = controller.view
-            hostView.setNeedsLayout()
-            hostView.layoutIfNeeded()
-            let width = max(1, surfaceView.bounds.width)
-            let target = CGSize(width: width, height: .greatestFiniteMagnitude)
-            let fitting = controller.sizeThatFits(in: target)
-            surfaceView.setComposerBandHeight(fitting.height, animated: animated)
-        }
-
-        /// Re-measure the open composer after a non-text layout change (rotation /
-        /// width change). A no-op when the composer is closed; `setComposerBandHeight`
-        /// is idempotent on an unchanged height. Animated so a rotation reflow is smooth.
-        @MainActor
-        func remeasureComposerForLayoutChange() {
-            guard composerMounted else { return }
-            reportComposerHeight(animated: true)
-        }
-
-        /// Tear the hosting controller down on dismantle so a removed surface does not
-        /// leave a detached SwiftUI host alive.
-        @MainActor
-        func tearDownComposer() {
-            surfaceView?.mountComposerView(nil)
-            composerController = nil
-            composerMounted = false
         }
 
         // MARK: - GhosttySurfaceViewDelegate

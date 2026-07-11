@@ -1,3 +1,4 @@
+import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileWorkspace
 import CoreGraphics
@@ -27,4 +28,32 @@ extension WorkspaceDetailView {
         workspace.name
         #endif
     }
+
+    #if os(iOS)
+    var agentGUIAvailability: AgentGUIAvailability? {
+        guard let engine = store.agentSyncEngine else { return nil }
+        return AgentGUIAvailability.derive(
+            sessions: engine.directory.sessions,
+            selectedTerminalID: selectedTerminalID
+        )
+    }
+
+    var isAgentGUIVisible: Bool {
+        activeSurface == .terminal && guiModeSelected && agentGUIAvailability != nil
+    }
+
+    var agentGUIComposerSubmitAction: (@MainActor () async -> Void)? {
+        guard isAgentGUIVisible,
+              let engine = store.agentSyncEngine,
+              let availability = agentGUIAvailability else {
+            return nil
+        }
+        return { @MainActor in
+            let text = store.terminalInputText
+            guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+            engine.send(sessionID: availability.sessionID, text: text)
+            store.terminalInputText = ""
+        }
+    }
+    #endif
 }

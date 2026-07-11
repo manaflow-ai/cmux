@@ -766,6 +766,40 @@
         }
       }
     },
+    "mobile.agentGUI.showTerminal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Terminal"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルを表示"
+          }
+        }
+      }
+    },
+    "mobile.agentGUI.showTranscript": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Agent Transcript"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントの会話を表示"
+          }
+        }
+      }
+    },
     "mobile.browser.forward": {
       "extractionState": "manual",
       "localizations": {

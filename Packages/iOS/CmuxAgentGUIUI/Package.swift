@@ -22,6 +22,7 @@ let package = Package(
         .package(path: "../../Shared/CMUXMobileCore"),
         .package(path: "../../Shared/CmuxAgentReplica"),
         .package(path: "../../Shared/CmuxAgentSync"),
+        .package(path: "../../Shared/CmuxAgentWire"),
         .package(path: "../CmuxMobileSupport"),
     ],
     targets: [
@@ -62,6 +63,8 @@ let package = Package(
                 "CmuxAgentGUIProjection",
                 "CmuxAgentGUIUI",
                 "CmuxAgentReplica",
+                "CmuxAgentSync",
+                "CmuxAgentWire",
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),

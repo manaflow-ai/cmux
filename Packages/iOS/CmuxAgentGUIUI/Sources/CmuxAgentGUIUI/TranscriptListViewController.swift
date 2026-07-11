@@ -48,16 +48,8 @@ public import UIKit
         return pixelRounded(max(0, obstruction - view.safeAreaInsets.bottom))
     }
 
-    /// Updates the transcript's reserved visual bottom chrome height.
-    /// - Parameter height: Height obstructed by floating composer chrome.
-    public func setBottomChromeHeight(_ height: CGFloat) {
-        let height = pixelRounded(max(0, height))
-        guard abs(bottomChromeHeight - height) > 0.5 else {
-            return
-        }
-        bottomChromeHeight = height
-        updateCollectionViewportConstraints()
-        updatePillBottomConstraint()
+    public override func loadView() {
+        view = TranscriptChromePassthroughView()
     }
 
     public override func viewDidLoad() {
@@ -377,14 +369,14 @@ public import UIKit
 
     private static let visualBottomBreathingGap: CGFloat = 8
 
-    private func updateCollectionViewportConstraints() {
+    func updateCollectionViewportConstraints() {
         guard collectionViewportView != nil else { return }
         let chromeBlock = pixelRounded(bottomChromeHeight + Self.visualBottomBreathingGap)
         collectionViewportBottomConstraint.constant = -chromeBlock
         collectionViewportHeightConstraint.constant = -pixelRounded(view.safeAreaInsets.bottom + chromeBlock)
     }
 
-    private func pixelRounded(_ value: CGFloat) -> CGFloat {
+    func pixelRounded(_ value: CGFloat) -> CGFloat {
         let scale = view.window?.screen.scale ?? traitCollection.displayScale
         return (value * scale).rounded() / scale
     }

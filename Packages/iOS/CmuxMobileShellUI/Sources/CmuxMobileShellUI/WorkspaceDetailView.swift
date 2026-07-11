@@ -50,6 +50,8 @@ struct WorkspaceDetailView: View {
     /// Terminal captured for the current "View as Text" sheet presentation.
     @State private var textSheetSurfaceID: String?
     @State var terminalPickerRows: [TerminalPickerMenuRow] = []
+    @State var guiModeSelected = false
+    @State var transcriptBottomChromeHeight = GhosttySurfaceView.persistentBottomToolbarHeight
     #endif
     /// The active browser surface for this workspace, when a browser pane is open.
     var activeBrowser: BrowserSurfaceState? {
@@ -71,6 +73,18 @@ struct WorkspaceDetailView: View {
             .toolbar { workspaceDetailToolbar }
             .onChange(of: selectedTerminalID) { _, _ in
                 syncTerminalPickerRows(includeTitleChanges: true)
+            }
+            .onChange(of: guiModeSelected) { _, isSelected in
+                if isSelected {
+                    dismissTerminalKeyboardForChrome()
+                }
+            }
+            .onChange(of: agentGUIAvailability) { _, availability in
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    if availability == nil {
+                        guiModeSelected = false
+                    }
+                }
             }
             .closeWorkspaceConfirmation(
                 isPresented: $isConfirmingClose,
@@ -131,7 +145,7 @@ struct WorkspaceDetailView: View {
             contentWidth: contentWidth,
             hasBackButton: backButtonConfiguration != nil,
             hasTrailingCluster: true,
-            hasChatToggle: false,
+            hasChatToggle: agentGUIAvailability != nil,
             isEnabled: hasTitleMenuActions,
             menuContent: { titleMenuContent }
         ) {
@@ -142,10 +156,16 @@ struct WorkspaceDetailView: View {
     @ViewBuilder
     private var toolbarTrailingCluster: some View {
         HStack(spacing: 8) {
+            if agentGUIAvailability != nil {
+                AgentGUIToggleButton(isSelected: $guiModeSelected)
+                    .frame(width: 44, height: 44)
+                    .transition(.scale.combined(with: .opacity))
+            }
             terminalPickerToolbarButton
                 .frame(width: 44, height: 44)
         }
-        .frame(width: 44, height: 44, alignment: .trailing)
+        .animation(.easeInOut(duration: 0.2), value: agentGUIAvailability)
+        .frame(width: agentGUIAvailability == nil ? 44 : 96, height: 44, alignment: .trailing)
     }
 
     @ViewBuilder
@@ -184,7 +204,14 @@ struct WorkspaceDetailView: View {
                     // config + recolors the mounted surface in place (background,
                     // letterbox, default cell colors) without a remount, so
                     // scrollback survives a theme change.
-                    themeGeneration: store.terminalThemeGeneration
+                    themeGeneration: store.terminalThemeGeneration,
+                    composerSubmitAction: agentGUIComposerSubmitAction,
+                    onComposerChromeHeightChange: { height in
+                        Task { @MainActor in
+                            guard abs(transcriptBottomChromeHeight - height) > 0.5 else { return }
+                            transcriptBottomChromeHeight = height
+                        }
+                    }
                 )
                 // Identity must track the selected terminal. The representable's
                 // coordinator binds its byte sink to the surfaceID at make time and

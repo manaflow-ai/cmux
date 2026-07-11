@@ -713,6 +713,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// toolbar's live top edge equal to the viewport edge; any whole-cell render
     /// remainder stays inside the terminal viewport instead of becoming toolbar fill.
     private static let persistentToolbarHeight: CGFloat = TerminalInputTextView.dockedButtonRowHeight
+    /// Height reserved above the keyboard by the persistent terminal accessory toolbar.
+    public static var persistentBottomToolbarHeight: CGFloat {
+        persistentToolbarHeight
+    }
     /// The docked accessory bar. Positioned by ``bottomDockFrames()`` with the
     /// SAME bottom-occupancy math as the grid reservation, so its top is always
     /// flush with the grid bottom (no gap) and its bottom rests on the keyboard

@@ -1,8 +1,21 @@
 #if os(iOS)
 import SwiftUI
-import UIKit
+public import UIKit
 
 extension TranscriptListViewController {
+    /// Updates the transcript's reserved visual bottom chrome height.
+    /// - Parameter height: Height obstructed by floating composer chrome.
+    public func setBottomChromeHeight(_ height: CGFloat) {
+        let height = pixelRounded(max(0, height))
+        guard abs(bottomChromeHeight - height) > 0.5 else {
+            return
+        }
+        bottomChromeHeight = height
+        (view as? TranscriptChromePassthroughView)?.bottomPassthroughHeight = height
+        updateCollectionViewportConstraints()
+        updatePillBottomConstraint()
+    }
+
     var distanceFromBottom: CGFloat {
         max(0, collectionView.contentOffset.y - bottomRestOffset.y)
     }

@@ -1,3 +1,5 @@
+import CMUXMobileCore
+import CmuxAgentGUIUI
 import CmuxMobileBrowser
 import CmuxMobileTerminal
 import SwiftUI
@@ -25,6 +27,19 @@ extension WorkspaceDetailView {
             if surface == .browser, let browser = activeBrowser {
                 browserContent(browser)
                     .background(TerminalPalette.background)
+            }
+            if isAgentGUIVisible,
+               let engine = store.agentSyncEngine,
+               let availability = agentGUIAvailability {
+                TranscriptLiveView(
+                    engine: engine,
+                    sessionID: availability.sessionID,
+                    bottomChromeHeight: transcriptBottomChromeHeight,
+                    terminalTheme: TerminalThemeStore.current,
+                    terminalThemeGeneration: store.terminalThemeGeneration
+                )
+                .ignoresSafeArea(.keyboard, edges: .bottom)
+                .transition(.opacity)
             }
         }
         .onChange(of: surface) { _, newSurface in

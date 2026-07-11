@@ -46,6 +46,7 @@ struct TerminalComposerView: View {
     /// whenever the field's content changes (the only driver of this view's height);
     /// the host measures the ideal height via `sizeThatFits` and animates the band.
     let requestHeightRemeasure: () -> Void
+    let submitRouter: TerminalComposerSubmitRouter?
     @FocusState private var isFieldFocused: Bool
     /// Photo-picker selection bound to the system `PhotosPicker`. Cleared after
     /// each batch is encoded and staged so re-picking the same image fires again.
@@ -70,9 +71,15 @@ struct TerminalComposerView: View {
     /// `state` it reads (mic button enabled/listening) automatically.
     @State private var dictation = ComposerDictationController()
 
-    init(store: CMUXMobileShellStore, terminalID: String, requestHeightRemeasure: @escaping () -> Void) {
+    init(
+        store: CMUXMobileShellStore,
+        terminalID: String,
+        submitRouter: TerminalComposerSubmitRouter? = nil,
+        requestHeightRemeasure: @escaping () -> Void
+    ) {
         self.store = store
         self.terminalID = terminalID
+        self.submitRouter = submitRouter
         self.requestHeightRemeasure = requestHeightRemeasure
     }
 
@@ -96,19 +103,6 @@ struct TerminalComposerView: View {
 
     /// Minimum height of the compose field, matching the one-line baseline.
     private let composerFieldMinHeight: CGFloat = 40
-
-    /// Whether the field's text alone is empty. Drives only secondary visuals;
-    /// the Send affordance keys on ``canSend`` so an images-only message (empty
-    /// text, attachments staged) is still sendable.
-    private var trimmedIsEmpty: Bool {
-        store.terminalInputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
-
-    /// Send is enabled when the text is non-empty OR at least one attachment is
-    /// staged for this terminal (iMessage-style images-only send).
-    private var canSend: Bool {
-        store.composerCanSend(forTerminalID: terminalID)
-    }
 
     /// This terminal's staged image attachments, shown as the chip row above the
     /// field and sent (in order) ahead of the text on submit.
@@ -454,7 +448,9 @@ struct TerminalComposerView: View {
             // Sends staged images first (in order), then the text. Acknowledged
             // attachments are removed from the staged set; a failed send keeps the
             // rest staged for a retry.
-            await store.submitComposer()
+            await submitRouter.submit {
+                await store.submitComposer()
+            }
             // Drop cached thumbnails for attachments that are no longer staged
             // (the acknowledged ones), keeping any that a failed send left behind.
             thumbnailCache.retain(ids: pendingAttachments.map(\.id))

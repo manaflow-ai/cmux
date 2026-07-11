@@ -34,6 +34,7 @@ public final class AgentSyncEngine {
     @ObservationIgnored private var retryTask: Task<Void, Never>?
     @ObservationIgnored private var resyncTask: Task<Void, Never>?
     @ObservationIgnored private var tailPullTasks: [AgentSessionID: Task<Void, Never>]
+    @ObservationIgnored private var conversationOwnerCounts: [AgentSessionID: Int]
     @ObservationIgnored private var retryAttempt: Int
     @ObservationIgnored private var resyncRequested: Bool
     @ObservationIgnored private var started: Bool
@@ -69,6 +70,7 @@ public final class AgentSyncEngine {
         encoder = JSONEncoder()
         decoder = JSONDecoder()
         tailPullTasks = [:]
+        conversationOwnerCounts = [:]
         retryAttempt = 0
         resyncRequested = false
         started = false
@@ -123,24 +125,25 @@ public final class AgentSyncEngine {
         tailPullTasks.removeAll()
     }
 
-    /// Opens or returns the conversation replica for a session.
+    /// Opens or retains the conversation replica for a session.
+    ///
+    /// Each call claims one owner. Balance it with ``closeConversation(sessionID:)``;
+    /// the replica remains live until its final owner closes it.
     /// - Parameter sessionID: The session to open.
     /// - Returns: The conversation replica for the session.
     public func openConversation(sessionID: AgentSessionID) -> ConversationReplica {
-        if let conversation = conversations[sessionID] {
-            return conversation
-        }
-        let conversation = ConversationReplica(sessionID: sessionID, clock: replicaClock)
-        conversations[sessionID] = conversation
-        if started {
-            triggerResync()
-        }
-        return conversation
+        conversationOwnerCounts[sessionID, default: 0] += 1
+        return conversationForUse(sessionID: sessionID)
     }
-
-    /// Closes a conversation and drops its live subscription.
+    /// Releases one conversation owner and drops its live subscription after the last release.
     /// - Parameter sessionID: The session to close.
     public func closeConversation(sessionID: AgentSessionID) {
+        guard let ownerCount = conversationOwnerCounts[sessionID] else { return }
+        if ownerCount > 1 {
+            conversationOwnerCounts[sessionID] = ownerCount - 1
+            return
+        }
+        conversationOwnerCounts[sessionID] = nil
         guard conversations.removeValue(forKey: sessionID) != nil else { return }
         streamingTails[sessionID] = nil
         hasMoreBeforeBySession[sessionID] = nil
@@ -158,7 +161,7 @@ public final class AgentSyncEngine {
     /// - Returns: The minted send-ticket identifier.
     @discardableResult
     public func send(sessionID: AgentSessionID, text: String) -> UUID {
-        let conversation = openConversation(sessionID: sessionID)
+        let conversation = conversationForUse(sessionID: sessionID)
         let ticketID = ticketIDGenerator.nextTicketID()
         let ticket = SendTicket(
             id: ticketID,
@@ -180,6 +183,18 @@ public final class AgentSyncEngine {
             }
         }
         return ticketID
+    }
+    private func conversationForUse(sessionID: AgentSessionID) -> ConversationReplica {
+        if let conversation = conversations[sessionID] {
+            return conversation
+        }
+        conversationOwnerCounts[sessionID] = max(conversationOwnerCounts[sessionID] ?? 0, 1)
+        let conversation = ConversationReplica(sessionID: sessionID, clock: replicaClock)
+        conversations[sessionID] = conversation
+        if started {
+            triggerResync()
+        }
+        return conversation
     }
 
     /// Interrupts a connected session without offline queueing.
