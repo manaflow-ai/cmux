@@ -48,6 +48,7 @@ final class AndroidEmulatorCaptureNSView: NSView {
     private var latestImage: CGImage?
     private var retainedSlots: [Int] = []
     private var frameIsBottomUp = false
+    private var activeTouchPoint: (x: Int, y: Int)?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -138,6 +139,10 @@ final class AndroidEmulatorCaptureNSView: NSView {
         configuration = nil
         bridgeTask?.cancel()
         bridgeTask = nil
+        if let activeTouchPoint {
+            bridge?.sendTouch(x: activeTouchPoint.x, y: activeTouchPoint.y, phase: "up")
+            self.activeTouchPoint = nil
+        }
         bridge?.stop()
         bridge = nil
         retainedSlots.removeAll()
@@ -191,16 +196,21 @@ final class AndroidEmulatorCaptureNSView: NSView {
     override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
         guard let point = androidPoint(for: convert(event.locationInWindow, from: nil)) else { return }
+        activeTouchPoint = point
         bridge?.sendTouch(x: point.x, y: point.y, phase: "down")
     }
 
     override func mouseDragged(with event: NSEvent) {
-        guard let point = androidPoint(for: convert(event.locationInWindow, from: nil)) else { return }
+        guard activeTouchPoint != nil else { return }
+        let point = clampedAndroidPoint(for: convert(event.locationInWindow, from: nil))
+        activeTouchPoint = point
         bridge?.sendTouch(x: point.x, y: point.y, phase: "move")
     }
 
     override func mouseUp(with event: NSEvent) {
-        guard let point = androidPoint(for: convert(event.locationInWindow, from: nil)) else { return }
+        guard activeTouchPoint != nil else { return }
+        let point = clampedAndroidPoint(for: convert(event.locationInWindow, from: nil))
+        activeTouchPoint = nil
         bridge?.sendTouch(x: point.x, y: point.y, phase: "up")
     }
 
@@ -260,6 +270,18 @@ final class AndroidEmulatorCaptureNSView: NSView {
         }
         let normalizedX = (point.x - displayLayer.frame.minX) / displayLayer.frame.width
         let normalizedY = 1 - ((point.y - displayLayer.frame.minY) / displayLayer.frame.height)
+        return (
+            min(displaySize.width - 1, max(0, Int(normalizedX * CGFloat(displaySize.width)))),
+            min(displaySize.height - 1, max(0, Int(normalizedY * CGFloat(displaySize.height))))
+        )
+    }
+
+    private func clampedAndroidPoint(for point: CGPoint) -> (x: Int, y: Int) {
+        let normalizedX = min(1, max(0, (point.x - displayLayer.frame.minX) / max(1, displayLayer.frame.width)))
+        let normalizedY = min(
+            1,
+            max(0, 1 - ((point.y - displayLayer.frame.minY) / max(1, displayLayer.frame.height)))
+        )
         return (
             min(displaySize.width - 1, max(0, Int(normalizedX * CGFloat(displaySize.width)))),
             min(displaySize.height - 1, max(0, Int(normalizedY * CGFloat(displaySize.height))))
