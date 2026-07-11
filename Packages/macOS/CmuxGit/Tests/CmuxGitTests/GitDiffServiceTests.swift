@@ -220,6 +220,45 @@ import Testing
         #expect(bounded.files.allSatisfy { $0.path.hasSuffix(".txt") })
     }
 
+    @Test func unbornRepositoryIncludesStagedFileAndDiff() throws {
+        let repo = try makeUnbornTempRepo()
+        defer { try? FileManager.default.removeItem(at: repo) }
+        let path = "Initial.swift"
+        try Data("let initial = true\n".utf8).write(to: repo.appendingPathComponent(path))
+        try runTestGit(in: repo, ["add", "--", path])
+
+        let service = GitDiffService()
+        let changed = service.changedFiles(repoRoot: repo.path)
+        let file = try #require(changed.files.first { $0.path == path })
+        let diff = try #require(service.fileDiff(repoRoot: repo.path, path: path))
+
+        #expect(file.status == .added)
+        #expect(file.additions == 1)
+        #expect(diff.unifiedDiff.contains("+let initial = true"))
+    }
+
+    @Test func deadlineEscalatesWhenGitIgnoresTerminationAndChildKeepsPipeOpen() throws {
+        let repo = try makeTempRepo()
+        defer { try? FileManager.default.removeItem(at: repo) }
+        let stalledGit = repo.appendingPathComponent("term-ignoring-git.sh")
+        try Data("#!/bin/sh\ntrap '' TERM\nsleep 3 &\nwait\n".utf8).write(to: stalledGit)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755], ofItemAtPath: stalledGit.path
+        )
+
+        let service = GitDiffService(
+            gitExecutableURL: stalledGit,
+            processDeadlineSeconds: 0.1
+        )
+        let finished = DispatchSemaphore(value: 0)
+        DispatchQueue.global().async {
+            _ = service.repositoryRoot(for: repo.path)
+            finished.signal()
+        }
+
+        #expect(finished.wait(timeout: .now() + 1) == .success)
+    }
+
     @Test func cancelledTaskSpawnsNoGitWork() async throws {
         let repo = try makeTempRepo()
         defer { try? FileManager.default.removeItem(at: repo) }
@@ -309,6 +348,14 @@ import Testing
         ] {
             try runTestGit(in: root, arguments)
         }
+        return root
+    }
+
+    private func makeUnbornTempRepo() throws -> URL {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-git-diff-unborn-tests-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try runTestGit(in: root, ["init", "--quiet"])
         return root
     }
 

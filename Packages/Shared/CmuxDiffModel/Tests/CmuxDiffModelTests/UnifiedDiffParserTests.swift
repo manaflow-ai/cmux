@@ -122,4 +122,26 @@ import Testing
         #expect(result.isTruncated)
         #expect(result.hunks.count == 1)
     }
+
+    @Test func capsRowsPerHunkAndMarksResultTruncated() {
+        let additions = (0..<2_100).map { "+line-\($0)" }.joined(separator: "\n")
+        let result = parser.parse("@@ -0,0 +1,2100 @@\n\(additions)")
+
+        #expect(result.hunks.count == 1)
+        #expect(result.hunks[0].lines.count == 2_000)
+        #expect(result.isTruncated)
+    }
+
+    @Test func capsTotalRowsAcrossHunksAndMarksResultTruncated() {
+        let hunks = (0..<11).map { hunk in
+            let start = hunk * 2_000 + 1
+            let additions = (0..<2_000).map { "+h\(hunk)-line-\($0)" }.joined(separator: "\n")
+            return "@@ -0,0 +\(start),2000 @@\n\(additions)"
+        }.joined(separator: "\n")
+
+        let result = parser.parse(hunks)
+
+        #expect(result.hunks.flatMap(\.lines).count == 20_000)
+        #expect(result.isTruncated)
+    }
 }
