@@ -25,8 +25,9 @@ public nonisolated enum FileWatchEventIdentity: Equatable, Sendable {
     /// delivery must advance authority because its exact event identity is not
     /// trustworthy.
     case mustRescan
-    /// FSEvents IDs wrapped. The consumer must advance authority and discard its
-    /// prior stable watermark so the next lower ID can establish a new sequence.
+    /// FSEvents IDs wrapped. The consumer must advance authority. Consumers that
+    /// compare IDs as unsigned serial numbers retain the prior watermark so a
+    /// wrapped low ID is newer while delayed pre-wrap delivery stays older.
     case eventIDsWrapped
 
     func merged(with other: Self) -> Self {
