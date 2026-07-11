@@ -29,6 +29,7 @@ struct WorkspaceShellView: View {
     @State private var showingCompactSettings = false
     @State private var showingCompactDeviceTree = false
     @State private var macSelection: WorkspaceMacSelection = .all
+    @State private var isCreatingTerminalFromSurfaceGrid = false
     @State var workspaceActionToast: WorkspaceActionToastContent?
     @State private var pendingMacSwitchID: String?
     @State private var pendingMacSwitchGeneration: UInt64 = 0
@@ -125,7 +126,11 @@ struct WorkspaceShellView: View {
                 createTerminal: createTerminalFromSurfaceGrid,
                 showSettings: { showingCompactSettings = true },
                 showDevices: { showingCompactDeviceTree = true },
-                reconnect: reconnectClosure
+                reconnect: reconnectClosure,
+                isInitialConnectionLoading: isInitialConnectionLoading,
+                initialConnectionTimedOut: initialConnectionTimedOut,
+                retryInitialConnection: retryInitialConnection,
+                showAddDevice: showAddDevice
             )
             .navigationDestination(for: MobileWorkspacePreview.ID.self) { workspaceID in
                 workspaceDestination(
@@ -309,10 +314,23 @@ struct WorkspaceShellView: View {
     }
 
     private func createTerminalFromSurfaceGrid(_ workspaceID: MobileWorkspacePreview.ID) {
+        guard !isCreatingTerminalFromSurfaceGrid else { return }
+        isCreatingTerminalFromSurfaceGrid = true
         pendingCompactCreateNavigationWorkspaceIDs = nil
-        if store.createTerminal(in: workspaceID) {
-            browserStore.showNonBrowserSurface(for: workspaceID.rawValue)
-            compactNavigationPath = [workspaceID]
+        Task { @MainActor in
+            defer { isCreatingTerminalFromSurfaceGrid = false }
+            // The compact grid includes aggregated workspaces from secondary
+            // Macs. Reuse the shared open path to foreground the owning Mac
+            // before terminal.create can use the foreground remote client.
+            await store.openWorkspace(workspaceID)
+            guard let resolvedWorkspaceID = store.selectedWorkspaceID,
+                  store.workspaces.contains(where: { $0.id == resolvedWorkspaceID }),
+                  store.createTerminal(in: resolvedWorkspaceID)
+            else {
+                return
+            }
+            browserStore.showNonBrowserSurface(for: resolvedWorkspaceID.rawValue)
+            compactNavigationPath = [resolvedWorkspaceID]
         }
     }
 
@@ -339,7 +357,7 @@ struct WorkspaceShellView: View {
     }
 
     private var canCreateTerminal: Bool {
-        canCreateWorkspaceOnForegroundConnection
+        canCreateWorkspaceOnForegroundConnection && !isCreatingTerminalFromSurfaceGrid
     }
 
     private var compactSurfaceGridSelectedWorkspaceID: MobileWorkspacePreview.ID? {

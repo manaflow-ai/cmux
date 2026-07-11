@@ -52,9 +52,37 @@ public struct CMUXMobileAppView: View {
         #if os(iOS)
         CMUXMobileRootView(store: store, onboardingStore: onboardingStore)
             .environment(browserStore)
+            .onAppear(perform: reconcileBrowserSurfacesIfAuthoritative)
+            .onChange(of: store.connectionState) { _, _ in
+                reconcileBrowserSurfacesIfAuthoritative()
+            }
+            .onChange(of: browserWorkspaceIDs) { _, workspaceIDs in
+                guard store.connectionState == .connected else { return }
+                browserStore.reconcileWorkspaces(workspaceIDs)
+            }
         #else
         CMUXMobileRootView(store: store)
             .environment(browserStore)
+            .onAppear(perform: reconcileBrowserSurfacesIfAuthoritative)
+            .onChange(of: store.connectionState) { _, _ in
+                reconcileBrowserSurfacesIfAuthoritative()
+            }
+            .onChange(of: browserWorkspaceIDs) { _, workspaceIDs in
+                guard store.connectionState == .connected else { return }
+                browserStore.reconcileWorkspaces(workspaceIDs)
+            }
         #endif
+    }
+
+    private var browserWorkspaceIDs: Set<String> {
+        Set(store.workspaces.map(\.id.rawValue))
+    }
+
+    private func reconcileBrowserSurfacesIfAuthoritative() {
+        // A connected store has already applied its initial workspace list.
+        // Before that point an empty list is transitional and must not erase
+        // restorable browser sessions from the prior launch.
+        guard store.connectionState == .connected else { return }
+        browserStore.reconcileWorkspaces(browserWorkspaceIDs)
     }
 }

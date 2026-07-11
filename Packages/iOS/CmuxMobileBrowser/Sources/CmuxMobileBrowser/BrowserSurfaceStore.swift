@@ -37,6 +37,12 @@ public final class BrowserSurfaceStore {
     /// UserDefaults key for the versioned snapshot array.
     private let persistenceKey: String
 
+    /// Coalesces page-controlled same-document URL churn into bounded durable
+    /// writes instead of serializing every retained surface for every callback.
+    private var scheduledPersistenceTask: Task<Void, Never>?
+    private var hasPendingPersistence = false
+    private static let persistenceCoalescingInterval: Duration = .milliseconds(250)
+
     /// Creates a browser surface store.
     ///
     /// - Parameters:
@@ -61,6 +67,7 @@ public final class BrowserSurfaceStore {
         self.persistenceKey = persistenceKey
         self.surfacesByWorkspace = [:]
         self.selectedBrowserWorkspaceIDs = []
+        self.scheduledPersistenceTask = nil
 
         restorePersistedSurfaces()
         installPersistenceCallbacks()
@@ -114,14 +121,14 @@ public final class BrowserSurfaceStore {
     public func openBrowser(for workspaceID: String) -> BrowserSurfaceState {
         if let existing = surfacesByWorkspace[workspaceID] {
             selectedBrowserWorkspaceIDs.insert(workspaceID)
-            persist()
+            persistImmediately()
             return existing
         }
         let surface = BrowserSurfaceState(id: makeSurfaceID(), initialURL: defaultURL)
         surfacesByWorkspace[workspaceID] = surface
         selectedBrowserWorkspaceIDs.insert(workspaceID)
         installPersistenceCallback(on: surface)
-        persist()
+        persistImmediately()
         return surface
     }
 
@@ -131,7 +138,7 @@ public final class BrowserSurfaceStore {
     /// - Parameter workspaceID: The workspace's raw identifier string.
     public func showNonBrowserSurface(for workspaceID: String) {
         guard selectedBrowserWorkspaceIDs.remove(workspaceID) != nil else { return }
-        persist()
+        persistImmediately()
     }
 
     /// Close the browser pane for a workspace, returning the UI to its terminal.
@@ -140,7 +147,28 @@ public final class BrowserSurfaceStore {
     public func closeBrowser(for workspaceID: String) {
         surfacesByWorkspace.removeValue(forKey: workspaceID)
         selectedBrowserWorkspaceIDs.remove(workspaceID)
-        persist()
+        persistImmediately()
+    }
+
+    /// Remove browser surfaces whose authoritative workspace no longer exists.
+    ///
+    /// - Parameter workspaceIDs: The complete current workspace identifier set.
+    public func reconcileWorkspaces(_ workspaceIDs: Set<String>) {
+        let removedWorkspaceIDs = surfacesByWorkspace.keys.filter { !workspaceIDs.contains($0) }
+        guard !removedWorkspaceIDs.isEmpty else { return }
+        for workspaceID in removedWorkspaceIDs {
+            surfacesByWorkspace.removeValue(forKey: workspaceID)
+            selectedBrowserWorkspaceIDs.remove(workspaceID)
+        }
+        persistImmediately()
+    }
+
+    /// Remove every retained browser when the signed-in workspace scope ends.
+    public func removeAllBrowsers() {
+        guard !surfacesByWorkspace.isEmpty || !selectedBrowserWorkspaceIDs.isEmpty else { return }
+        surfacesByWorkspace.removeAll()
+        selectedBrowserWorkspaceIDs.removeAll()
+        persistImmediately()
     }
 
     private func installPersistenceCallbacks() {
@@ -150,8 +178,12 @@ public final class BrowserSurfaceStore {
     }
 
     private func installPersistenceCallback(on surface: BrowserSurfaceState) {
-        surface.installPersistence { [weak self] in
-            self?.persist()
+        surface.installPersistence { [weak self] immediately in
+            if immediately {
+                self?.persistImmediately()
+            } else {
+                self?.schedulePersistence()
+            }
         }
     }
 
@@ -176,6 +208,34 @@ public final class BrowserSurfaceStore {
             surfacesByWorkspace[snapshot.workspaceID] = surface
             if snapshot.isSelected {
                 selectedBrowserWorkspaceIDs.insert(snapshot.workspaceID)
+            }
+        }
+    }
+
+    private func persistImmediately() {
+        scheduledPersistenceTask?.cancel()
+        scheduledPersistenceTask = nil
+        hasPendingPersistence = false
+        persist()
+    }
+
+    private func schedulePersistence() {
+        guard persistenceDefaults != nil else { return }
+        hasPendingPersistence = true
+        guard scheduledPersistenceTask == nil else { return }
+        scheduledPersistenceTask = Task { @MainActor [weak self] in
+            while let self {
+                self.hasPendingPersistence = false
+                do {
+                    try await ContinuousClock().sleep(for: Self.persistenceCoalescingInterval)
+                } catch {
+                    return
+                }
+                self.persist()
+                guard self.hasPendingPersistence else {
+                    self.scheduledPersistenceTask = nil
+                    return
+                }
             }
         }
     }

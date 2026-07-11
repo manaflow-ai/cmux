@@ -126,6 +126,10 @@ public final class BrowserSurfaceState: Identifiable {
     /// recoverable error UI for retry.
     public var lastFailedURL: URL?
 
+    /// Whether the visible failure happened before WebKit committed the failed
+    /// destination. The previously committed page remains underneath that error.
+    public var lastFailureWasProvisional: Bool
+
     /// A pending URL the representable should load, set by ``load(_:)``. The
     /// view consumes it via ``consumeLoadRequest()`` and clears it so the same
     /// request is not replayed on re-render.
@@ -139,7 +143,7 @@ public final class BrowserSurfaceState: Identifiable {
     /// Invoked after the durable subset of this state changes. The owning
     /// ``BrowserSurfaceStore`` installs this so workspace association and the
     /// last committed page survive a cold app launch.
-    private var persistDurableState: (@MainActor () -> Void)?
+    private var persistDurableState: (@MainActor (_ immediately: Bool) -> Void)?
 
     /// Creates a browser surface state.
     ///
@@ -162,6 +166,7 @@ public final class BrowserSurfaceState: Identifiable {
         self.canGoForward = false
         self.lastErrorMessage = nil
         self.lastFailedURL = nil
+        self.lastFailureWasProvisional = false
         self.loadRequest = initialURL
         self.persistDurableState = nil
     }
@@ -175,6 +180,7 @@ public final class BrowserSurfaceState: Identifiable {
         addressText = url.absoluteString
         lastErrorMessage = nil
         lastFailedURL = nil
+        lastFailureWasProvisional = false
         savedInteractionState = nil
     }
 
@@ -194,7 +200,7 @@ public final class BrowserSurfaceState: Identifiable {
     public func setContentModePreference(_ preference: ContentModePreference) {
         guard contentModePreference != preference else { return }
         contentModePreference = preference
-        persistDurableState?()
+        persistDurableState?(true)
         if loadRequest == nil, currentURL != nil {
             request(.reload)
         }
@@ -265,6 +271,7 @@ public final class BrowserSurfaceState: Identifiable {
         estimatedProgress = 0
         lastErrorMessage = nil
         lastFailedURL = nil
+        lastFailureWasProvisional = false
     }
 
     /// Commit a URL change that WebKit reports without a full navigation
@@ -277,7 +284,7 @@ public final class BrowserSurfaceState: Identifiable {
         if !isAddressEditing {
             addressText = url.absoluteString
         }
-        persistDurableState?()
+        persistDurableState?(false)
     }
 
     /// Mark a successful navigation finish and save its committed identity.
@@ -299,7 +306,8 @@ public final class BrowserSurfaceState: Identifiable {
         }
         lastErrorMessage = nil
         lastFailedURL = nil
-        persistDurableState?()
+        lastFailureWasProvisional = false
+        persistDurableState?(true)
     }
 
     /// Mark a navigation failure with a user-facing message.
@@ -307,11 +315,17 @@ public final class BrowserSurfaceState: Identifiable {
     /// - Parameters:
     ///   - message: The error description to surface in the chrome.
     ///   - url: The failed destination, when known.
-    public func navigationDidFail(message: String, url: URL? = nil) {
+    ///   - wasProvisional: Whether WebKit failed before committing the destination.
+    public func navigationDidFail(
+        message: String,
+        url: URL? = nil,
+        wasProvisional: Bool = false
+    ) {
         isLoading = false
         estimatedProgress = 0
         lastErrorMessage = message
         lastFailedURL = url
+        lastFailureWasProvisional = wasProvisional
     }
 
     /// Retry the failed destination, if one was recorded.
@@ -324,10 +338,11 @@ public final class BrowserSurfaceState: Identifiable {
     public func clearNavigationError() {
         lastErrorMessage = nil
         lastFailedURL = nil
+        lastFailureWasProvisional = false
     }
 
     /// Install the store-owned durable-state callback.
-    func installPersistence(_ action: @escaping @MainActor () -> Void) {
+    func installPersistence(_ action: @escaping @MainActor (_ immediately: Bool) -> Void) {
         persistDurableState = action
     }
 }

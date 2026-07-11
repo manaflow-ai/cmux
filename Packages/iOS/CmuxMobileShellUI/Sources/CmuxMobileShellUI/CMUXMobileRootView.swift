@@ -1,5 +1,6 @@
 import Foundation
 import CmuxAuthRuntime
+import CmuxMobileBrowser
 import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
@@ -15,6 +16,7 @@ struct CMUXMobileRootView: View {
     @Bindable var store: CMUXMobileShellStore
     @Environment(\.scenePhase) private var scenePhase
     @Environment(AuthCoordinator.self) private var authManager
+    @Environment(BrowserSurfaceStore.self) private var browserStore
     #if os(iOS)
     @Environment(MobilePushCoordinator.self) private var pushCoordinator
     /// The persisted first-run onboarding "seen" flag store. The one-time
@@ -462,6 +464,7 @@ struct CMUXMobileRootView: View {
     }
 
     private func signOut() {
+        browserStore.removeAllBrowsers()
         #if os(iOS)
         // The hook receives the tokens captured before the local-first clear:
         // by the time it runs, the live token store is already empty.

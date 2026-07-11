@@ -85,7 +85,11 @@ public struct WorkspaceListLayoutPreviewView: View {
                         createTerminal: createTerminal,
                         showSettings: {},
                         showDevices: {},
-                        reconnect: nil
+                        reconnect: nil,
+                        isInitialConnectionLoading: false,
+                        initialConnectionTimedOut: false,
+                        retryInitialConnection: nil,
+                        showAddDevice: nil
                     )
                 }
             }

@@ -23,6 +23,10 @@ struct WorkspaceSurfaceGridView: View {
     let showSettings: () -> Void
     let showDevices: (() -> Void)?
     let reconnect: (() -> Void)?
+    let isInitialConnectionLoading: Bool
+    let initialConnectionTimedOut: Bool
+    let retryInitialConnection: (() -> Void)?
+    let showAddDevice: (() -> Void)?
 
     @Environment(BrowserSurfaceStore.self) private var browserStore
     @State private var isSearching = false
@@ -229,30 +233,82 @@ struct WorkspaceSurfaceGridView: View {
     }
 
     private var connectionBanner: some View {
-        HStack(spacing: 10) {
-            Image(systemName: connectionStatus == .reconnecting ? "arrow.triangle.2.circlepath" : "wifi.slash")
-                .foregroundStyle(.orange)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(connectionStatus.label)
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                if isInitialConnectionLoading {
+                    ProgressView()
+                        .controlSize(.small)
+                        .frame(width: 24)
+                        .accessibilityHidden(true)
+                } else {
+                    Image(systemName: connectionStatus == .reconnecting ? "arrow.triangle.2.circlepath" : "wifi.slash")
+                        .foregroundStyle(.orange)
+                        .frame(width: 24)
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(
+                        initialConnectionTimedOut
+                            ? L10n.string("mobile.loading.timeout.title", defaultValue: "Still loading")
+                            : connectionStatus.label
+                    )
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(TerminalPalette.foreground)
-                Text(host)
+                    Text(
+                        initialConnectionTimedOut
+                            ? L10n.string(
+                                "mobile.loading.timeout.message",
+                                defaultValue: "cmux could not finish restoring this session. Check that the selected cmux build is running, then retry or add this computer again."
+                            )
+                            : host
+                    )
                     .font(.caption)
                     .foregroundStyle(TerminalPalette.dimForeground)
-            }
-            Spacer()
-            if let reconnect {
-                Button(action: reconnect) {
-                    Text(L10n.string("mobile.workspace.reconnect", defaultValue: "Reconnect"))
-                        .font(.caption.weight(.semibold))
-                        .frame(minHeight: 44)
+                    .fixedSize(horizontal: false, vertical: true)
                 }
-                .buttonStyle(.borderedProminent)
+                Spacer(minLength: 8)
+            }
+
+            if hasConnectionBannerActions {
+                HStack(spacing: 10) {
+                    if initialConnectionTimedOut, let retryInitialConnection {
+                        Button(action: retryInitialConnection) {
+                            Text(L10n.string("mobile.common.retry", defaultValue: "Retry"))
+                                .font(.caption.weight(.semibold))
+                                .frame(minHeight: 44)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .accessibilityIdentifier("MobileInitialConnectionRetry")
+                    } else if connectionStatus == .unavailable, let reconnect {
+                        Button(action: reconnect) {
+                            Text(L10n.string("mobile.workspace.reconnect", defaultValue: "Reconnect"))
+                                .font(.caption.weight(.semibold))
+                                .frame(minHeight: 44)
+                        }
+                        .buttonStyle(.borderedProminent)
+                    }
+                    if initialConnectionTimedOut, let showAddDevice {
+                        Button(action: showAddDevice) {
+                            Text(L10n.string("mobile.addDevice.title", defaultValue: "Add Computer"))
+                                .font(.caption.weight(.semibold))
+                                .frame(minHeight: 44)
+                        }
+                        .buttonStyle(.bordered)
+                        .accessibilityIdentifier("MobileInitialConnectionAddDevice")
+                    }
+                    Spacer(minLength: 0)
+                }
             }
         }
         .padding(12)
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .accessibilityIdentifier("MobileSurfaceGridConnectionBanner")
+    }
+
+    private var hasConnectionBannerActions: Bool {
+        if initialConnectionTimedOut {
+            return retryInitialConnection != nil || showAddDevice != nil
+        }
+        return connectionStatus == .unavailable && reconnect != nil
     }
 
     private func grid(items: [WorkspaceSurfaceGridItem]) -> some View {

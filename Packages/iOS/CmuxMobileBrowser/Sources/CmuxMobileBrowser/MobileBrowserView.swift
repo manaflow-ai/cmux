@@ -269,15 +269,19 @@ public struct MobileBrowserView: UIViewRepresentable {
 
         public func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: any Error) {
             guard acceptsCallbacks(from: webView) else { return }
-            failNavigation(on: webView, with: error)
+            failNavigation(on: webView, with: error, wasProvisional: false)
         }
 
         public func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: any Error) {
             guard acceptsCallbacks(from: webView) else { return }
-            failNavigation(on: webView, with: error)
+            failNavigation(on: webView, with: error, wasProvisional: true)
         }
 
-        private func failNavigation(on webView: WKWebView, with error: any Error) {
+        private func failNavigation(
+            on webView: WKWebView,
+            with error: any Error,
+            wasProvisional: Bool
+        ) {
             // A cancelled load reports `NSURLErrorCancelled`. This is not a
             // failure to surface; it happens on a user stop AND when a new
             // navigation replaces an in-flight one. Mirror the web view's real
@@ -294,7 +298,11 @@ public struct MobileBrowserView: UIViewRepresentable {
                 ?? (failingValue as? String).flatMap(URL.init(string:))
                 ?? webView.url
                 ?? state.currentURL
-            state.navigationDidFail(message: error.localizedDescription, url: failedURL)
+            state.navigationDidFail(
+                message: error.localizedDescription,
+                url: failedURL,
+                wasProvisional: wasProvisional
+            )
         }
 
         /// Applies the surface's content-mode preference (mobile/desktop/

@@ -262,8 +262,9 @@ public struct MobileBrowserPane: View {
     }
 
     private func recoverBackwardFromError() {
+        let shouldNavigateBack = !state.lastFailureWasProvisional
         state.clearNavigationError()
-        if state.canGoBack {
+        if shouldNavigateBack, state.canGoBack {
             state.request(.goBack)
         }
     }
