@@ -561,9 +561,12 @@ clear_inherited_claude_auth_selection_env() {
 }
 
 clear_inherited_claude_session_env() {
+    # Keep this behavior synchronized with ClaudeSessionEnvironmentPolicy;
+    # ClaudeWrapperResumeEnvironmentTests exercises every canonical key here.
     unset CLAUDECODE
     unset CLAUDE_CODE
     unset CLAUDE_CODE_CHILD_SESSION
+    unset CLAUDE_CODE_BRIDGE_SESSION_ID
     unset CLAUDE_CODE_PARENT_SESSION_ID
     unset CLAUDE_CODE_SESSION_ID
     unset CLAUDE_CODE_ENTRYPOINT

@@ -231,16 +231,7 @@ extension CMUXCLI {
     }
 
     func clearInheritedClaudeSessionEnvironment() {
-        for key in [
-            "CLAUDECODE",
-            "CLAUDE_CODE",
-            "CLAUDE_CODE_CHILD_SESSION",
-            "CLAUDE_CODE_PARENT_SESSION_ID",
-            "CLAUDE_CODE_SESSION_ID",
-            "CLAUDE_CODE_ENTRYPOINT",
-            "CLAUDE_CODE_EXECPATH",
-            "CLAUDE_CODE_SSE_PORT",
-        ] {
+        for key in ClaudeSessionEnvironmentPolicy().inheritedSessionIdentityKeys {
             unsetenv(key)
         }
     }
