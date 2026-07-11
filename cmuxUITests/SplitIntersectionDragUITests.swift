@@ -14,6 +14,10 @@ final class SplitIntersectionDragUITests: XCTestCase {
         // fails with "does not have a process ID" on CI runners.
         app.launchEnvironment["CMUX_TAG"] = "ui-tests-intersection-\(UUID().uuidString.prefix(8))"
         app.launch()
+        XCTAssertTrue(
+            ensureForegroundAfterLaunch(app, timeout: 15.0),
+            "Expected the app to reach the foreground after launch"
+        )
 
         let window = app.windows.firstMatch
         XCTAssertTrue(window.waitForExistence(timeout: 10.0))
@@ -97,6 +101,17 @@ final class SplitIntersectionDragUITests: XCTestCase {
         app.windows.firstMatch.descendants(matching: .textView).allElementsBoundByIndex
             .map { $0.frame }
             .filter { $0.width >= 100 && $0.height >= 100 }
+    }
+
+    /// Busy UI runners can launch the app backgrounded; activate once and
+    /// re-wait before failing (same recovery as AutomationSocketUITests).
+    private func ensureForegroundAfterLaunch(_ app: XCUIApplication, timeout: TimeInterval) -> Bool {
+        if app.wait(for: .runningForeground, timeout: timeout) { return true }
+        if app.state == .runningBackground {
+            app.activate()
+            return app.wait(for: .runningForeground, timeout: 10.0)
+        }
+        return false
     }
 
     private func waitForTerminalPaneCount(_ app: XCUIApplication, _ count: Int, timeout: TimeInterval) -> Bool {
