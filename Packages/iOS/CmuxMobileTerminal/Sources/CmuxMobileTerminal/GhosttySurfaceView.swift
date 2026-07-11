@@ -321,6 +321,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// initial scrollback filled with the prompt duplicated at every width.
     private var pendingViewportReport: TerminalGridSize?
     private var viewportReportSettleFrames = 0
+    /// Widest container this surface has actually rendered in the current
+    /// window geometry. A phone split-view sidebar is an overlay, but UIKit can
+    /// briefly size the detail view as a split column while it transitions.
+    private var widestRenderedContainerWidth: CGFloat = 0
+    private var reportWidthWindowSize: CGSize = .zero
     /// Bounded retries for the viewport report round-trip. The report goes to
     /// the Mac, which echoes back the effective grid via `applyViewSize`. If the
     /// round-trip yields no effective grid (RPC timeout / lost reply), the
@@ -3169,22 +3174,28 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         syncSnapshotFallback()
 
         let naturalSize = result.naturalSize
-        // Stretch-to-fill: keep the RENDERED font tracking the daemon-granted
-        // rows so a Mac-constrained grid fills the phone instead of parking a
-        // letterbox band above the content.
-        autoFitFontToEffectiveRows(
-            renderedRows: naturalSize.rows,
-            containerPixelHeight: containerH * scale,
-            cellPixelHeight: result.cellPixelSize.height
-        )
-        // Report the row CAPACITY at the user's base font, not the rendered
-        // rows: a report derived from the fitted font would ratchet the
-        // negotiated minimum down and the phone could never learn when the
-        // constraining device grew back. Columns stay at the rendered font
-        // (the PTY must never be wider than the rendered grid can show).
+        let reportContainerWidth = columnReportContainerWidth(currentWidth: containerW)
+        // Report capacity at the user's base font, not the rendered font: a
+        // report derived from the fitted font would ratchet the negotiated
+        // minimum down and the phone could never learn when the constraining
+        // device grew back. Columns use the same base-font normalization as
+        // rows so a row-stretched font cannot under-report the phone's width.
         let reportGrid = capacityReportGrid(
             for: naturalSize,
+            containerPixelWidth: reportContainerWidth * scale,
             containerPixelHeight: containerH * scale,
+            cellPixelWidth: result.cellPixelSize.width,
+            cellPixelHeight: result.cellPixelSize.height
+        )
+        // Stretch-to-fill: keep the RENDERED font tracking only real row
+        // constraints. When the daemon grants the base-font natural grid back,
+        // decay to the user's base font so the full-width grid can render
+        // without horizontal overflow.
+        autoFitFontToEffectiveRows(
+            renderedRows: naturalSize.rows,
+            containerPixelWidth: containerW * scale,
+            containerPixelHeight: containerH * scale,
+            cellPixelWidth: result.cellPixelSize.width,
             cellPixelHeight: result.cellPixelSize.height
         )
         let effectiveMatchesNatural = effectiveGrid.map { grid in
@@ -3200,21 +3211,45 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         viewportReportSettleFrames = 0
     }
 
-    /// The viewport report for the current geometry: rendered columns plus the
-    /// base-font row capacity (see `TerminalRowCapacityFit.capacityRows`).
+    /// Keeps phone overlay-sidebar transitions from replacing a proven
+    /// full-width report with a temporary split-column width. iPad panes always
+    /// report their current drawable width.
+    private func columnReportContainerWidth(currentWidth: CGFloat) -> CGFloat {
+        let currentWindowSize = window?.bounds.size ?? bounds.size
+        if abs(currentWindowSize.width - reportWidthWindowSize.width) > 1 ||
+            abs(currentWindowSize.height - reportWidthWindowSize.height) > 1 {
+            reportWidthWindowSize = currentWindowSize
+            widestRenderedContainerWidth = currentWidth
+        } else {
+            widestRenderedContainerWidth = max(widestRenderedContainerWidth, currentWidth)
+        }
+        return TerminalColumnReportWidthSelection.width(
+            currentWidth: currentWidth,
+            widestRenderedWidth: widestRenderedContainerWidth,
+            preservesWidestRenderedWidth: traitCollection.userInterfaceIdiom == .phone
+        ) ?? currentWidth
+    }
+
+    /// The viewport report for the current geometry: base-font row and column
+    /// capacity (see `TerminalRowCapacityFit`).
     private func capacityReportGrid(
         for natural: TerminalGridSize,
+        containerPixelWidth: CGFloat,
         containerPixelHeight: CGFloat,
+        cellPixelWidth: CGFloat,
         cellPixelHeight: CGFloat
     ) -> TerminalGridSize {
         guard let fit = TerminalRowCapacityFit(
             containerPixelHeight: containerPixelHeight,
             cellPixelHeight: cellPixelHeight,
+            containerPixelWidth: containerPixelWidth,
+            cellPixelWidth: cellPixelWidth,
             liveFontSize: liveFontSize
-        ), let capacity = fit.capacityRows(atBaseFontSize: userBaseFontSize) else { return natural }
+        ), let rows = fit.capacityRows(atBaseFontSize: userBaseFontSize),
+              let columns = fit.capacityColumns(atBaseFontSize: userBaseFontSize) else { return natural }
         return TerminalGridSize(
-            columns: natural.columns,
-            rows: capacity,
+            columns: columns,
+            rows: rows,
             pixelWidth: natural.pixelWidth,
             pixelHeight: natural.pixelHeight
         )
@@ -3228,7 +3263,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// steps to base instead of collapsing the font toward the minimum.
     private func autoFitFontToEffectiveRows(
         renderedRows: Int,
+        containerPixelWidth: CGFloat,
         containerPixelHeight: CGFloat,
+        cellPixelWidth: CGFloat,
         cellPixelHeight: CGFloat
     ) {
         // Never fight an in-flight explicit zoom step.
@@ -3240,17 +3277,43 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             }
             return
         }
+        guard let fit = TerminalRowCapacityFit(
+            containerPixelHeight: containerPixelHeight,
+            cellPixelHeight: cellPixelHeight,
+            containerPixelWidth: containerPixelWidth,
+            cellPixelWidth: cellPixelWidth,
+            liveFontSize: liveFontSize
+        ), let baseRows = fit.capacityRows(atBaseFontSize: userBaseFontSize),
+              let baseColumns = fit.capacityColumns(atBaseFontSize: userBaseFontSize) else { return }
+        if eff.cols >= baseColumns && eff.rows >= baseRows {
+            if abs(liveFontSize - userBaseFontSize) >= 0.25 {
+                MobileDebugLog.anchormux(
+                    "zoom.autofit.decay-full eff=\(eff.cols)x\(eff.rows) baseGrid=\(baseColumns)x\(baseRows)"
+                )
+                applyAbsoluteFontSize(userBaseFontSize)
+            }
+            return
+        }
+        guard eff.rows < baseRows else {
+            if abs(liveFontSize - userBaseFontSize) >= 0.25 {
+                MobileDebugLog.anchormux(
+                    "zoom.autofit.decay-rows eff=\(eff.cols)x\(eff.rows) baseGrid=\(baseColumns)x\(baseRows)"
+                )
+                applyAbsoluteFontSize(userBaseFontSize)
+            }
+            return
+        }
         guard TerminalRowCapacityFit.shouldRefit(renderedRows: renderedRows, effectiveRows: eff.rows),
-              let fit = TerminalRowCapacityFit(
-                  containerPixelHeight: containerPixelHeight,
-                  cellPixelHeight: cellPixelHeight,
-                  liveFontSize: liveFontSize
-              ),
               let target = fit.fitFontSize(forEffectiveRows: eff.rows) else { return }
-        let clamped = min(max(target, userBaseFontSize), MobileTerminalFontPreference.maximumSize)
+        let horizontalLimit = fit.maximumFontSize(
+            forEffectiveColumns: eff.cols,
+            atBaseFontSize: userBaseFontSize
+        )
+        let maxWithoutHorizontalOverflow = max(userBaseFontSize, horizontalLimit ?? MobileTerminalFontPreference.maximumSize)
+        let clamped = min(max(target, userBaseFontSize), maxWithoutHorizontalOverflow, MobileTerminalFontPreference.maximumSize)
         guard abs(clamped - liveFontSize) >= 0.25 else { return }
         MobileDebugLog.anchormux(
-            "zoom.autofit eff=\(eff.cols)x\(eff.rows) rendered=\(renderedRows) font \(liveFontSize)->\(clamped)"
+            "zoom.autofit eff=\(eff.cols)x\(eff.rows) baseGrid=\(baseColumns)x\(baseRows) rendered=\(renderedRows) font \(liveFontSize)->\(clamped)"
         )
         applyAbsoluteFontSize(clamped)
     }
