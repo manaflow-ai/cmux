@@ -8630,6 +8630,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let context = livePreferredContext
             ?? preferredMainWindowContextForWorkspaceCreation(event: event, debugSource: debugSource)
 
+        // On a remote-tmux mirror workspace, a new terminal workspace means
+        // "create a new tmux session on that workspace's host" — route it to the
+        // remote and mirror it back instead of creating a local workspace. The
+        // browser variant always stays local.
+        if initialSurface == .terminal,
+           let context,
+           remoteTmuxController.handleNewWorkspaceRequested(in: context.tabManager) {
+            return true
+        }
+
         // An explicit placement override is the caller's own decision about
         // where the workspace lands, so it outranks the selection-derived group
         // target: `createWorkspaceInGroup` takes a group placement instead and
@@ -17694,7 +17704,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     if didStart { onExecuted?() }
                     return didStart
                 }
-                guard context.tabManager.addWorkspaceIfActive() != nil else { return false }
+                // Same routing as Cmd+N: on an active mirror workspace the
+                // built-in action creates a session on that mirror's host.
+                if !remoteTmuxController.handleNewWorkspaceRequested(in: context.tabManager) {
+                    guard context.tabManager.addWorkspaceIfActive() != nil else { return false }
+                }
                 onExecuted?()
                 return true
             case .newAgentChat: return performConfiguredNewAgentChatAction(context: context, preferredWindow: preferredWindow, onExecuted: onExecuted)
