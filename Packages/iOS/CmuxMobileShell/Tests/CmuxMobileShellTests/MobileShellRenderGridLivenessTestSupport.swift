@@ -53,9 +53,16 @@ struct LivenessTestRuntime: MobileSyncRuntime {
 /// arrived yet (establishment window) or a host that stopped answering
 /// (dead stream).
 actor LivenessHostRouter {
+    struct ReplayPrefetch: Equatable, Sendable {
+        var beforeRows: Int?
+        var afterRows: Int?
+        var legacyRows: Int?
+    }
+
     struct RecordedRequest: Sendable {
         var method: String?
         var topics: [String]?
+        var replayPrefetch: ReplayPrefetch?
     }
 
     private var recorded: [RecordedRequest] = []
@@ -84,8 +91,12 @@ actor LivenessHostRouter {
     private var replayFailuresRemaining = 0
     private var emptyReplayResponsesRemaining = 0; private var viewportEffectiveGridOverride: LivenessViewportReport?; private var emptyViewportResponsesRemaining = 0
 
-    func record(method: String?, topics: [String]?) {
-        recorded.append(RecordedRequest(method: method, topics: topics))
+    func record(method: String?, topics: [String]?, replayPrefetch: ReplayPrefetch?) {
+        recorded.append(RecordedRequest(
+            method: method,
+            topics: topics,
+            replayPrefetch: replayPrefetch
+        ))
         resumeSatisfiedCountWaiters()
     }
 
@@ -175,6 +186,13 @@ actor LivenessHostRouter {
         recorded.compactMap { request in
             guard request.method == method else { return nil }
             return request.topics
+        }
+    }
+
+    func replayPrefetches() -> [ReplayPrefetch] {
+        recorded.compactMap { request in
+            guard request.method == "mobile.terminal.replay" else { return nil }
+            return request.replayPrefetch
         }
     }
 
@@ -466,6 +484,14 @@ actor LivenessTransport: CmxByteTransport {
             let id = parsed?["id"] as? String
             let params = parsed?["params"] as? [String: Any]
             let topics = params?["topics"] as? [String]
+            let replayPrefetch: LivenessHostRouter.ReplayPrefetch? = {
+                guard method == "mobile.terminal.replay" else { return nil }
+                return LivenessHostRouter.ReplayPrefetch(
+                    beforeRows: (params?["prefetch_before_rows"] as? NSNumber)?.intValue,
+                    afterRows: (params?["prefetch_after_rows"] as? NSNumber)?.intValue,
+                    legacyRows: (params?["max_scrollback_rows"] as? NSNumber)?.intValue
+                )
+            }()
             let viewportReport: LivenessViewportReport? = {
                 guard method == "mobile.terminal.viewport",
                       let columns = (params?["viewport_columns"] as? NSNumber)?.intValue,
@@ -474,7 +500,11 @@ actor LivenessTransport: CmxByteTransport {
                 }
                 return LivenessViewportReport(columns: columns, rows: rows)
             }()
-            await router.record(method: method, topics: topics)
+            await router.record(
+                method: method,
+                topics: topics,
+                replayPrefetch: replayPrefetch
+            )
             // Answer each request concurrently so one held response cannot
             // head-of-line block later RPCs, matching the Mac host's
             // per-frame response tasks.
