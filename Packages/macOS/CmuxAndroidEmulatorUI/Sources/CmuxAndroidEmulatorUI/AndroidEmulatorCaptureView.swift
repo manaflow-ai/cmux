@@ -47,6 +47,7 @@ final class AndroidEmulatorCaptureNSView: NSView {
     private var zoomScale: CGFloat = 1
     private var latestImage: CGImage?
     private var retainedSlots: [Int] = []
+    private var frameIsBottomUp = false
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -114,8 +115,8 @@ final class AndroidEmulatorCaptureNSView: NSView {
                     avdName: avdName,
                     serial: serial,
                     displaySize: displaySize,
-                    onFrame: { [weak self] image, slot in
-                        self?.display(image, from: slot)
+                    onFrame: { [weak self] image, slot, bottomUp in
+                        self?.display(image, from: slot, bottomUp: bottomUp)
                     },
                     onError: onError
                 )
@@ -146,6 +147,7 @@ final class AndroidEmulatorCaptureNSView: NSView {
 
     func saveScreenshot() {
         guard let latestImage else { return }
+        let screenshotImage = frameIsBottomUp ? Self.verticallyFlippedCopy(latestImage) : latestImage
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.png]
         panel.nameFieldStringValue = "\(configuration?.avdName ?? "android")-screenshot.png"
@@ -160,10 +162,26 @@ final class AndroidEmulatorCaptureNSView: NSView {
             bundle: .module
         )
         guard panel.runModal() == .OK, let url = panel.url,
-              let data = NSBitmapImageRep(cgImage: latestImage).representation(using: .png, properties: [:]) else {
+              let data = NSBitmapImageRep(cgImage: screenshotImage).representation(using: .png, properties: [:]) else {
             return
         }
         try? data.write(to: url, options: .atomic)
+    }
+
+    private static func verticallyFlippedCopy(_ image: CGImage) -> CGImage {
+        guard let context = CGContext(
+            data: nil,
+            width: image.width,
+            height: image.height,
+            bitsPerComponent: 8,
+            bytesPerRow: 0,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else { return image }
+        context.translateBy(x: 0, y: CGFloat(image.height))
+        context.scaleBy(x: 1, y: -1)
+        context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        return context.makeImage() ?? image
     }
 
     func showVendorWindow() {
@@ -211,9 +229,13 @@ final class AndroidEmulatorCaptureNSView: NSView {
         }
     }
 
-    private func display(_ image: CGImage, from slot: Int) {
+    private func display(_ image: CGImage, from slot: Int, bottomUp: Bool) {
         retainedSlots.append(slot)
         latestImage = image
+        if frameIsBottomUp != bottomUp {
+            frameIsBottomUp = bottomUp
+            layoutDisplayLayer()
+        }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         displayLayer.contents = image
@@ -244,7 +266,7 @@ final class AndroidEmulatorCaptureNSView: NSView {
         let size = CGSize(width: fitWidth * zoomScale, height: fitHeight * zoomScale)
         displayLayer.bounds = CGRect(origin: .zero, size: size)
         displayLayer.position = CGPoint(x: bounds.midX, y: bounds.midY)
-        displayLayer.setAffineTransform(.identity)
+        displayLayer.setAffineTransform(CGAffineTransform(scaleX: 1, y: frameIsBottomUp ? -1 : 1))
     }
 
     private func androidPoint(for point: CGPoint) -> (x: Int, y: Int)? {
@@ -277,7 +299,7 @@ private final class AndroidEmulatorBridgeSession {
     private let handle: FileHandle
     private let directoryURL: URL
     private let mappedFrames: AndroidMappedFrameBuffer
-    private let onFrame: (CGImage, Int) -> Void
+    private let onFrame: (CGImage, Int, Bool) -> Void
     private let onError: (any Error) -> Void
     private var readTask: Task<Void, Never>?
     private var stopped = false
@@ -288,7 +310,7 @@ private final class AndroidEmulatorBridgeSession {
         handle: FileHandle,
         directoryURL: URL,
         mappedFrames: AndroidMappedFrameBuffer,
-        onFrame: @escaping (CGImage, Int) -> Void,
+        onFrame: @escaping (CGImage, Int, Bool) -> Void,
         onError: @escaping (any Error) -> Void
     ) {
         self.process = process
@@ -303,7 +325,7 @@ private final class AndroidEmulatorBridgeSession {
         avdName: String,
         serial: String,
         displaySize: AndroidEmulatorDisplaySize,
-        onFrame: @escaping (CGImage, Int) -> Void,
+        onFrame: @escaping (CGImage, Int, Bool) -> Void,
         onError: @escaping (any Error) -> Void
     ) async throws -> AndroidEmulatorBridgeSession {
         let helperURL = try AndroidEmulatorBridgeLocator().executableURL()
@@ -403,7 +425,7 @@ private final class AndroidEmulatorBridgeSession {
             release(slot: slot)
             return
         }
-        onFrame(image, slot)
+        onFrame(image, slot, event.bottomUp ?? false)
     }
 
     func sendTouch(x: Int, y: Int, phase: String) {
@@ -458,6 +480,7 @@ private struct AndroidBridgeEvent: Decodable, Sendable {
     var width: Int?
     var height: Int?
     var bytesPerRow: Int?
+    var bottomUp: Bool?
 }
 
 private struct AndroidBridgeCommand: Encodable, Sendable {
