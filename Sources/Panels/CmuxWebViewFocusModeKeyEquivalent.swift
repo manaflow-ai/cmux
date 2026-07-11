@@ -32,7 +32,7 @@ extension CmuxWebView {
             // way they do in Safari. Focus mode suspends configured cmux
             // shortcuts, which is exactly when a binding like the default ⌘⇧L
             // Open Browser frees the stroke for the extension.
-            if cmuxPerformBrowserWebExtensionCommandKeyEquivalent(event) {
+            if AppDelegate.shared?.performBrowserWebExtensionCommandKeyEquivalent(event) == true {
                 return true
             }
             let result = super.performKeyEquivalent(with: event)

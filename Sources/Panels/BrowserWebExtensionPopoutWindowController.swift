@@ -51,7 +51,7 @@ final class BrowserWebExtensionPopoutWindowController: NSObject, WKWebExtensionW
             defer: false
         )
         // Standalone closable window: the stable identifier opts it into the
-        // shared close-shortcut routing (cmuxWindowShouldOwnCloseShortcut).
+        // shared close-shortcut routing (`NSWindow.cmuxShouldOwnCloseShortcut`).
         window.identifier = NSUserInterfaceItemIdentifier("cmux.webExtensionPopout")
         window.isReleasedWhenClosed = false
         window.level = .floating

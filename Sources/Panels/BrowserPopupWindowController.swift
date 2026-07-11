@@ -425,7 +425,7 @@ private class PopupUIDelegate: BrowserPDFPreviewActionUIDelegate {
         windowFeatures: WKWindowFeatures
     ) -> WKWebView? {
         if let url = navigationAction.request.url,
-           browserShouldRouteExternalNavigation(url) {
+           url.browserShouldRouteExternalNavigation {
             browserHandleExternalNavigation(
                 url,
                 source: "popupUIDelegate",
@@ -651,7 +651,7 @@ private class PopupUIDelegate: BrowserPDFPreviewActionUIDelegate {
         }
 
         // External URL schemes → hand off to macOS
-        if browserShouldRouteExternalNavigation(url) {
+        if url.browserShouldRouteExternalNavigation {
             clearAttemptedRequest(discardPendingBypasses: true)
             browserHandleExternalNavigation(
                 url,

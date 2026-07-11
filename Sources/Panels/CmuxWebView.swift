@@ -670,7 +670,7 @@ final class CmuxWebView: WKWebView {
             return finish(AppDelegate.shared?.handleBrowserSurfaceKeyEquivalent(event) == true)
         }
 
-        if cmuxPerformBrowserWebExtensionCommandKeyEquivalent(event) {
+        if AppDelegate.shared?.performBrowserWebExtensionCommandKeyEquivalent(event) == true {
             return finish(true)
         }
 

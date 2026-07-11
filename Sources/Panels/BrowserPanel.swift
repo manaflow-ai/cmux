@@ -1102,7 +1102,7 @@ func browserHandleExternalNavigation(
     presentAlert: @escaping BrowserAlertPresenter = browserPresentAlert,
     onTerminalExternalNavigation: @escaping () -> Void = {}
 ) -> BrowserExternalNavigationHandlingResult {
-    guard let action = browserExternalNavigationAction(for: url) else { return .notHandled }
+    guard let action = url.browserExternalNavigationAction else { return .notHandled }
 
     switch action {
     case let .browserFallback(fallbackURL):
@@ -8408,7 +8408,7 @@ private class BrowserUIDelegate: BrowserPDFPreviewActionUIDelegate {
 #endif
         // External URL schemes → hand off to macOS, don't create a popup
         if let url = navigationAction.request.url,
-           browserShouldRouteExternalNavigation(url) {
+           url.browserShouldRouteExternalNavigation {
             browserHandleExternalNavigation(
                 url,
                 source: "uiDelegate",

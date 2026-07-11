@@ -1,10 +1,6 @@
 import AppKit
 import CmuxWorkspaces
 
-final class WorkspacePendingTerminalInputObserver: @unchecked Sendable {
-    var observer: NSObjectProtocol?
-}
-
 extension Workspace {
 
     /// Delivers config-driven startup input (`Workspace+CustomLayout.swift`) once
@@ -46,21 +42,24 @@ extension Workspace {
         panel.surface.requestBackgroundSurfaceStartIfNeeded()
 
         guard let timeout else { return }
-        DispatchQueue.main.asyncAfter(deadline: .now() + timeout) { [weak self, registration] in
-            Task { @MainActor [weak self, registration] in
-                guard
-                    let self,
-                    self.hasPendingTerminalInputObserver(registration, forPanelId: panelId)
-                else {
-                    return
-                }
-
-                self.removePendingTerminalInputObserver(registration, forPanelId: panelId)
-                #if DEBUG
-                NSLog("[CmuxConfig] surface not ready after 3s, dropping command (%d chars)", text.count)
-                #endif
+        // A one-shot DispatchSourceTimer bridges this synchronous notification
+        // lifecycle to the genuine terminal-readiness deadline.
+        let timer = DispatchSource.makeTimerSource(queue: .main)
+        timer.schedule(deadline: .now() + timeout)
+        timer.setEventHandler { [weak self, weak registration] in
+            guard let self,
+                  let registration,
+                  self.hasPendingTerminalInputObserver(registration, forPanelId: panelId) else {
+                return
             }
+
+            self.removePendingTerminalInputObserver(registration, forPanelId: panelId)
+            #if DEBUG
+            NSLog("[CmuxConfig] surface not ready after 3s, dropping command (%d chars)", text.count)
+            #endif
         }
+        registration.timeoutTimer = timer
+        timer.resume()
     }
 
     private func hasPendingTerminalInputObserver(
@@ -80,6 +79,8 @@ extension Workspace {
             NotificationCenter.default.removeObserver(observer)
             registration.observer = nil
         }
+        registration.timeoutTimer?.cancel()
+        registration.timeoutTimer = nil
         pendingTerminalInputObserversByPanelId[panelId]?.removeAll {
             $0 === registration
         }
@@ -97,6 +98,8 @@ extension Workspace {
                 NotificationCenter.default.removeObserver(observer)
                 registration.observer = nil
             }
+            registration.timeoutTimer?.cancel()
+            registration.timeoutTimer = nil
         }
     }
 

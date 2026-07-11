@@ -186,7 +186,7 @@ struct cmuxApp: App {
         KeyboardShortcutSettings.settingsFileStore.applyDeferredManagedDefaultSideEffects()
         StartupBreadcrumbLog.append("app.init.keyboardShortcuts.sideEffectsApplied")
         StartupBreadcrumbLog.append("app.init.tabManager.begin")
-        let browserWebExtensionHost = makeBrowserWebExtensionHostAtLaunch(
+        let browserWebExtensionHost = Self.makeBrowserWebExtensionHostAtLaunch(
             jsonStore: settingsRuntime.jsonStore,
             catalog: settingsCatalog
         )
@@ -228,6 +228,18 @@ struct cmuxApp: App {
             browserWebExtensionHost: browserWebExtensionHost
         )
         StartupBreadcrumbLog.append("app.init.delegate.configured")
+    }
+
+    /// Creates the app-wide web-extension host on supported OS versions.
+    private static func makeBrowserWebExtensionHostAtLaunch(
+        jsonStore: JSONConfigStore,
+        catalog: SettingCatalog
+    ) -> (any BrowserWebExtensionHosting)? {
+        guard #available(macOS 15.4, *) else { return nil }
+        let support = BrowserWebExtensionSupport()
+        support.configure(jsonStore: jsonStore, catalog: catalog)
+        StartupBreadcrumbLog.append("app.init.browserWebExtensions.configured")
+        return support
     }
 
     private static func terminateForMissingLaunchTag() -> Never {
@@ -1394,7 +1406,7 @@ struct cmuxApp: App {
 
     private func closePanelOrWindow() {
         let window = NSApp.keyWindow ?? NSApp.mainWindow
-        if let window, cmuxWindowShouldOwnCloseShortcut(window) { window.performClose(nil); return }
+        if let window, window.cmuxShouldOwnCloseShortcut { window.performClose(nil); return }
         if appDelegate.closeFocusedDockPanelForCommand(preferredWindow: window) { return }
         activeTabManager.closeCurrentPanelWithConfirmation()
     }

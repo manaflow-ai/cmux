@@ -35,10 +35,11 @@ private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
     "cmux.webExtensionPopout",
 ]
 
-/// Returns whether the given window should handle the standard close shortcut
-/// as a standalone auxiliary window instead of routing it through workspace or
-/// panel-close behavior.
-func cmuxWindowShouldOwnCloseShortcut(_ window: NSWindow?) -> Bool {
-    guard let identifier = window?.identifier?.rawValue else { return false }
-    return cmuxAuxiliaryWindowIdentifiers.contains(identifier)
+extension NSWindow {
+    /// Whether this window handles the standard close shortcut instead of
+    /// routing it through workspace or panel-close behavior.
+    var cmuxShouldOwnCloseShortcut: Bool {
+        guard let identifier = identifier?.rawValue else { return false }
+        return cmuxAuxiliaryWindowIdentifiers.contains(identifier)
+    }
 }

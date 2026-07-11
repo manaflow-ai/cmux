@@ -6378,7 +6378,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             resolvedShortcutEventWindow(event),
         ]
         .compactMap { $0 }
-        .first { cmuxWindowShouldOwnCloseShortcut($0) }
+        .first { $0.cmuxShouldOwnCloseShortcut }
     }
 
     /// Re-sync app-level active window pointers from the currently focused main terminal window.
@@ -8509,7 +8509,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         if shortcutEventHasAddressableWindow(event) {
             if let eventWindow = resolvedShortcutEventWindow(event),
-               cmuxWindowShouldOwnCloseShortcut(eventWindow) {
+               eventWindow.cmuxShouldOwnCloseShortcut {
                 // Auxiliary cmux windows do not own a terminal tab manager. Let them fall back
                 // to the active main terminal window so app shortcuts like Close Tab still route.
             } else {
@@ -16528,7 +16528,10 @@ private extension NSApplication {
             let responder = event.window?.firstResponder
                 ?? AppDelegate.shared?.shortcutRoutingKeyWindow?.firstResponder
                 ?? mainWindow?.firstResponder
-            if cmuxRouteWebExtensionCommandForStaleMenuShortcut(event, responder: responder) {
+            if AppDelegate.shared?.routeWebExtensionCommandForStaleMenuShortcut(
+                event,
+                responder: responder
+            ) == true {
                 return
             }
             if let ghosttyView = cmuxOwningGhosttyView(for: responder) {

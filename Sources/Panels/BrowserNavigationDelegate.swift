@@ -337,7 +337,7 @@ import WebKit
         }
 
         if let url = navigationAction.request.url,
-           browserShouldRouteExternalNavigation(url) {
+           url.browserShouldRouteExternalNavigation {
             clearAttemptedRequest(discardPendingBypasses: true)
             let reportTerminalCancellation = terminalPolicyCancellationReporter?(navigationAction, webView) ?? {}
             browserHandleExternalNavigation(

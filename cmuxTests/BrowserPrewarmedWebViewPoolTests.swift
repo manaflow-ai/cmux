@@ -44,29 +44,6 @@ private final class PrewarmPoolHarness {
     }
 }
 
-@MainActor
-private final class PrewarmTestWebExtensionHost: BrowserWebExtensionHosting {
-    private(set) var attachedConfigurationCount = 0
-
-    func attach(to configuration: WKWebViewConfiguration) {
-        attachedConfigurationCount += 1
-    }
-
-    func webViewConfiguration(forNavigatingTo url: URL) -> BrowserWebExtensionNavigationConfiguration? {
-        nil
-    }
-
-    func register(panel: BrowserPanel) {}
-
-    func unregister(panelID: UUID) {}
-
-    func noteActivated(panelID: UUID) {}
-
-    func noteTabMetadataChanged(panelID: UUID) {}
-
-    func performCommand(for event: NSEvent) -> Bool { false }
-}
-
 private let pricingURL = URL(string: "https://cmux.com/app-pricing?appearance=dark")!
 private let otherURL = URL(string: "https://cmux.com/docs")!
 private let profileID = UUID()

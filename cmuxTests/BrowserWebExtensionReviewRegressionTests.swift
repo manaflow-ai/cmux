@@ -220,38 +220,3 @@ struct BrowserWebExtensionReviewRegressionTests {
         )
     }
 }
-
-@MainActor
-private final class BrowserWebExtensionReviewTestHost: BrowserWebExtensionHosting {
-    private let extensionHost: String?
-    private let contextToken = NSObject()
-
-    init(extensionHost: String?) {
-        self.extensionHost = extensionHost
-    }
-
-    var contextIdentifier: ObjectIdentifier {
-        ObjectIdentifier(contextToken)
-    }
-
-    func attach(to configuration: WKWebViewConfiguration) {}
-
-    func webViewConfiguration(forNavigatingTo url: URL) -> BrowserWebExtensionNavigationConfiguration? {
-        guard url.scheme?.lowercased() == "webkit-extension",
-              url.host == extensionHost else { return nil }
-        // Mirror WKWebExtensionContext.webViewConfiguration: a fresh configuration
-        // (with its own user content controller) per navigation. A single shared
-        // instance would make every second extension-page panel re-add fixed-name
-        // script message handlers to the same controller, which WebKit rejects.
-        return BrowserWebExtensionNavigationConfiguration(
-            contextIdentifier: contextIdentifier,
-            webViewConfiguration: WKWebViewConfiguration()
-        )
-    }
-
-    func register(panel: BrowserPanel) {}
-    func unregister(panelID: UUID) {}
-    func noteActivated(panelID: UUID) {}
-    func noteTabMetadataChanged(panelID: UUID) {}
-    func performCommand(for event: NSEvent) -> Bool { false }
-}

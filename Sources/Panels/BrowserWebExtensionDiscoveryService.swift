@@ -1,23 +1,5 @@
 import Foundation
 
-/// One web extension that can be loaded into the browser: either a Safari web
-/// extension installed on this Mac (inside some app's `.appex`) or a directory
-/// containing an unpacked WebExtension the user added manually.
-struct BrowserWebExtensionCandidate: Identifiable, Hashable, Sendable {
-    enum Kind: String, Sendable {
-        case safariAppExtension
-        case unpackedDirectory
-    }
-
-    /// Stable identity used for the enabled-set in settings: the appex plugin
-    /// identifier for Safari extensions, or the directory path for unpacked ones.
-    let id: String
-    let kind: Kind
-    let path: String
-    let version: String?
-    let displayName: String?
-}
-
 /// Discovers Safari web extensions registered with the system.
 ///
 /// Uses `pluginkit -m -p com.apple.Safari.web-extension` — the same registry
@@ -135,6 +117,8 @@ actor BrowserWebExtensionDiscoveryService {
         try await withThrowingTaskGroup(of: String.self) { group in
             group.addTask { try await self.readActivePluginkitOutput() }
             group.addTask {
+                // This bounded sleep is the intended subprocess deadline; the
+                // task group cancels it as soon as pluginkit reaches EOF.
                 try await Task.sleep(for: Self.pluginkitTimeout)
                 await self.terminateActivePluginkitProcess()
                 throw CancellationError()

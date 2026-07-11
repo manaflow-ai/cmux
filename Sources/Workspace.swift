@@ -3040,12 +3040,13 @@ final class Workspace: Identifiable, ObservableObject {
 
     private var sharedLiveAgentIndexObserver: NSObjectProtocol?
 
-    deinit {
+    isolated deinit {
         for registrations in pendingTerminalInputObserversByPanelId.values {
             for registration in registrations {
                 if let observer = registration.observer {
                     NotificationCenter.default.removeObserver(observer)
                 }
+                registration.timeoutTimer?.cancel()
             }
         }
         if let sharedLiveAgentIndexObserver {
