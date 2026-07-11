@@ -7,21 +7,8 @@ import Testing
 @testable import cmux
 #endif
 
-@Suite("Text box mention Git ignore")
-struct TextBoxMentionGitIgnoreTests {
-    @Test
-    func closedInputPipeReturnsFailureWithoutRaisingSIGPIPE() throws {
-        let pipe = Pipe()
-        try pipe.fileHandleForReading.close()
-
-        let didWrite = TextBoxGitIgnoreResolver().writeInput(
-            Data("Sources\nSources/\n".utf8),
-            to: pipe.fileHandleForWriting
-        )
-
-        #expect(!didWrite)
-    }
-
+@Suite("Text box mention Git ignore probe")
+struct TextBoxMentionGitIgnoreProbeTests {
     @Test
     func fileSuggestionsSurviveGitIgnoreClosingItsInputPipe() async throws {
         let fileManager = FileManager.default
@@ -39,17 +26,30 @@ struct TextBoxMentionGitIgnoreTests {
             encoding: .utf8
         )
 
+        // Fill each probe batch beyond a normal pipe buffer. This makes the
+        // parent observe the child closing stdin instead of winning the race
+        // by buffering its entire write before Git exits.
+        for index in 0..<256 {
+            let prefix = String(format: "probe-%03d-", index)
+            let directoryName = prefix + String(repeating: "x", count: 255 - prefix.utf8.count)
+            try fileManager.createDirectory(
+                at: root.appendingPathComponent(directoryName, isDirectory: true),
+                withIntermediateDirectories: false
+            )
+        }
+
         let gitInit = Process()
         gitInit.executableURL = URL(fileURLWithPath: "/usr/bin/git")
         gitInit.arguments = ["-C", root.path, "init", "--quiet"]
+        gitInit.standardInput = FileHandle.nullDevice
         gitInit.standardOutput = FileHandle.nullDevice
         gitInit.standardError = FileHandle.nullDevice
         try gitInit.run()
         gitInit.waitUntilExit()
         #expect(gitInit.terminationStatus == 0)
 
-        // rev-parse still recognizes this as a worktree, while check-ignore exits
-        // before reading stdin because it must parse the corrupt index first.
+        // rev-parse still recognizes the worktree, but check-ignore exits 128
+        // before consuming stdin because it must parse the corrupt index.
         try Data("corrupt index".utf8).write(to: root.appendingPathComponent(".git/index"))
 
         let suggestions = await TextBoxMentionIndexStore.shared.suggestions(

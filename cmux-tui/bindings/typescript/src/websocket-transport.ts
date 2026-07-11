@@ -31,6 +31,8 @@ export interface WebSocketConstructor {
 
 export interface WebSocketTransportOptions {
   protocols?: string | string[];
+  /** Sends the cmux-tui WebSocket authentication preamble before queued protocol requests. */
+  authToken?: string;
   /** Inject a compatible constructor such as the Node `ws` package. */
   WebSocket?: WebSocketConstructor;
 }
@@ -42,11 +44,13 @@ export class WebSocketTransport implements Transport {
   private readonly messageHandlers = new Set<(json: string) => void>();
   private readonly closeHandlers = new Set<() => void>();
   private readonly errorHandlers = new Set<(error: Error) => void>();
+  private readonly authToken: string | undefined;
   private closed = false;
 
   constructor(url: string | URL, options: WebSocketTransportOptions | WebSocketConstructor = {}) {
     const normalized = typeof options === "function" ? { WebSocket: options } : options;
     const Constructor = normalized.WebSocket ?? this.globalConstructor();
+    this.authToken = normalized.authToken;
     this.socket = new Constructor(url, normalized.protocols);
     this.listen("open", () => this.flush());
     this.listen("message", (event) => this.receive(event));
@@ -104,6 +108,9 @@ export class WebSocketTransport implements Transport {
 
   private flush(): void {
     if (this.closed) return;
+    if (this.authToken !== undefined) {
+      this.socket.send(JSON.stringify({ auth: { token: this.authToken } }));
+    }
     while (this.pending.length > 0) this.socket.send(this.pending.shift()!);
   }
 

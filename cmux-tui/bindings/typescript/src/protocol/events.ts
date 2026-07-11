@@ -54,7 +54,9 @@ export interface ResizedEvent {
   surface: Id;
   cols: number;
   rows: number;
-  replay: Base64;
+  data: Base64;
+  /** @deprecated Compatibility with early protocol-v6 drafts. Servers send `data`. */
+  replay?: Base64;
 }
 
 export interface DetachedEvent { event: "detached"; surface: Id }
@@ -118,7 +120,11 @@ export interface DecodedVtStateEvent extends Omit<VtStateEvent, "data"> { data: 
 export interface DecodedOutputEvent extends Omit<OutputEvent, "data"> { data: Uint8Array }
 
 /** A decoded replacement replay yielded by `attachSurface()`. */
-export interface DecodedResizedEvent extends Omit<ResizedEvent, "replay"> { replay: Uint8Array }
+export interface DecodedResizedEvent extends Omit<ResizedEvent, "data" | "replay"> {
+  data: Uint8Array;
+  /** @deprecated Use `data`. Retained for compatibility with early protocol-v6 SDK builds. */
+  replay: Uint8Array;
+}
 
 /** Attach events as yielded by the client after base64 decoding. */
 export type DecodedAttachEvent =

@@ -3,7 +3,6 @@ import Foundation
 actor TextBoxMentionIndexStore {
     static let shared = TextBoxMentionIndexStore()
 
-    private static let gitIgnoreResolver = TextBoxGitIgnoreResolver()
     private static let fileIndexTTL: TimeInterval = 30
     private static let maxCachedFileIndexes = 8
     private static let directorySeedBatchSize = 128
@@ -392,8 +391,9 @@ actor TextBoxMentionIndexStore {
         let relativePaths = candidateURLs.map {
             Self.relativePath(for: $0.path, rootPath: rootPath)
         }
-        let ignoredRelativePaths = await gitIgnoreResolver.isGitWorkTree(rootURL: rootURL)
-            ? await gitIgnoreResolver.ignoredRelativePaths(rootURL: rootURL, relativePaths: relativePaths)
+        let gitIgnoreProbe = TextBoxGitIgnoreProbe(rootURL: rootURL)
+        let ignoredRelativePaths = await gitIgnoreProbe.isWorkTree()
+            ? await gitIgnoreProbe.ignoredRelativePaths(relativePaths)
             : []
 
         var candidates: [TextBoxMentionCandidate] = []
@@ -448,6 +448,7 @@ actor TextBoxMentionIndexStore {
         process.currentDirectoryURL = rootURL
 
         let stdout = Pipe()
+        let outputHandle = stdout.fileHandleForReading
         process.standardOutput = stdout
         process.standardError = FileHandle.nullDevice
         let terminationStatus = TextBoxProcessTerminationStatus()
@@ -461,8 +462,12 @@ actor TextBoxMentionIndexStore {
         do {
             try process.run()
         } catch {
+            try? stdout.fileHandleForWriting.close()
+            try? outputHandle.close()
             return nil
         }
+        try? stdout.fileHandleForWriting.close()
+        defer { try? outputHandle.close() }
 
         let directorySeed = await scanDirectoryCandidateSeed(rootURL: rootURL)
         var directoryCandidates = directorySeed.candidates
@@ -513,7 +518,7 @@ actor TextBoxMentionIndexStore {
         var buffer = Data()
         let newline: UInt8 = 10
         do {
-            for try await byte in stdout.fileHandleForReading.bytes {
+            for try await byte in outputHandle.bytes {
                 buffer.append(byte)
                 guard byte == newline else { continue }
 
@@ -555,7 +560,8 @@ actor TextBoxMentionIndexStore {
     ) async -> (candidates: [TextBoxMentionCandidate], seenRelativePaths: Set<String>) {
         let fileManager = FileManager.default
         let rootPath = rootURL.standardizedFileURL.path
-        let checksGitIgnore = await gitIgnoreResolver.isGitWorkTree(rootURL: rootURL)
+        let gitIgnoreProbe = TextBoxGitIgnoreProbe(rootURL: rootURL)
+        let checksGitIgnore = await gitIgnoreProbe.isWorkTree()
         var candidates: [TextBoxMentionCandidate] = []
         var seenRelativePaths = Set<String>()
         candidates.reserveCapacity(min(maxIndexedDirectories, 256))
@@ -572,7 +578,7 @@ actor TextBoxMentionIndexStore {
                 Self.relativePath(for: $0.path, rootPath: rootPath)
             }
             let ignoredRelativePaths = checksGitIgnore
-                ? await gitIgnoreResolver.ignoredRelativePaths(rootURL: rootURL, relativePaths: relativePaths)
+                ? await gitIgnoreProbe.ignoredRelativePaths(relativePaths)
                 : []
 
             for standardizedURL in directoryBatch {
