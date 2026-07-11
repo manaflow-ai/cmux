@@ -25,6 +25,7 @@ import {
   communitySeoCopy,
   compareIndexSeoCopy,
   comparePageSeoCopy,
+  docsPageSeoCopy,
   homeSeoCopy,
   ohMyPiSeoCopy,
   pricingSeoCopy,
@@ -339,6 +340,52 @@ describe("SEO metadata helpers", () => {
         );
       }
       expect(new Set(compareTitles).size).toBe(comparePages.length);
+
+      const auditedDocsPages = [
+        ["/docs/agent-integrations/oh-my-opencode", "ohMyOpenCode"],
+        ["/docs/api", "api"],
+        ["/docs/configuration", "configuration"],
+        ["/docs/browser-automation", "browserAutomation"],
+        ["/docs/ios", "ios"],
+        ["/docs/ssh", "ssh"],
+        ["/docs/workspace-groups", "workspaceGroups"],
+        ["/docs/textbox", "textBox"],
+        ["/docs/concepts", "concepts"],
+        ["/docs/custom-commands", "customCommands"],
+        ["/docs/notifications", "notifications"],
+        ["/docs/session-restore", "sessionRestore"],
+        ["/docs/skills", "skills"],
+        ["/docs/dock", "dock"],
+        ["/docs/keyboard-shortcuts", "keyboardShortcuts"],
+        ["/docs/getting-started", "gettingStarted"],
+        ["/docs/remote-tmux", "remoteTmux"],
+      ] as const;
+      for (const [path, pageKey] of auditedDocsPages) {
+        if (
+          pageKey === "remoteTmux" &&
+          locale !== "en" &&
+          locale !== "ja"
+        ) {
+          continue;
+        }
+        const page = messages.docs[pageKey];
+        rows.push(
+          auditedRow(
+            path,
+            docsPageSeoCopy(
+              locale,
+              pageKey,
+              messageLookup(page),
+              siteMeta,
+            ),
+            Object.values(page).filter(
+              (value): value is string =>
+                typeof value === "string" && !value.includes("<"),
+            ),
+            [page.metaTitle, page.title],
+          ),
+        );
+      }
 
       if (locale === "en" || locale === "ja") {
         const pricing = messageLookup(messages.pricing);
