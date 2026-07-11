@@ -18,8 +18,17 @@ public struct MobileTerminalCloseFallback: Equatable, Sendable {
         self.orderedTerminalIDs = orderedTerminalIDs
     }
 
-    /// Chooses the terminal now at the closed index, otherwise the previous one.
-    public func resolvedSelection(availableTerminalIDs: Set<MobileTerminalPreview.ID>) -> MobileTerminalPreview.ID? {
+    /// Preserves a newer live selection, otherwise chooses the terminal now at
+    /// the closed index, then the previous survivor.
+    public func resolvedSelection(
+        currentSelection: MobileTerminalPreview.ID? = nil,
+        availableTerminalIDs: Set<MobileTerminalPreview.ID>
+    ) -> MobileTerminalPreview.ID? {
+        if let currentSelection,
+           currentSelection != closedTerminalID,
+           availableTerminalIDs.contains(currentSelection) {
+            return currentSelection
+        }
         guard selectedTerminalID == closedTerminalID,
               let closedIndex = orderedTerminalIDs.firstIndex(of: closedTerminalID) else {
             return selectedTerminalID.flatMap { availableTerminalIDs.contains($0) ? $0 : nil }

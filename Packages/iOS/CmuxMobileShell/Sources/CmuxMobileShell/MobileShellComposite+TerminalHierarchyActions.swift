@@ -36,6 +36,7 @@ extension MobileShellComposite {
             return result
         }
         selectedTerminalID = fallback.resolvedSelection(
+            currentSelection: selectedTerminalID,
             availableTerminalIDs: Set(refreshedWorkspace.terminals.map(\.id))
         ) ?? refreshedWorkspace.selectedTerminalID ?? refreshedWorkspace.terminals.first?.id
         suppressTerminalAutoFocusOnNextAttach(for: selectedTerminalID)
