@@ -14364,6 +14364,15 @@ class TerminalController {
         }
     }
 
+    /// Removes viewport state for one terminal without disturbing other surfaces.
+    func clearMobileViewportReports(surfaceID: UUID, reason: String) {
+        mobileViewportReportCleanupTimersBySurfaceID[surfaceID]?.cancel()
+        mobileViewportReportCleanupTimersBySurfaceID[surfaceID] = nil
+        mobileViewportReportsBySurfaceID[surfaceID] = nil
+        mobileViewportGenerationsBySurfaceID[surfaceID] = nil
+        terminalPanel(surfaceID: surfaceID)?.surface.clearMobileViewportLimit(reason: reason)
+    }
+
     #if DEBUG
     func debugResetMobileViewportReportsForTesting() {
         clearAllMobileViewportReports(reason: "mobile.viewport.testReset")

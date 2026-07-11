@@ -70,7 +70,7 @@ extension TerminalController {
         guard closeSurfaceRecordingHistory(in: resolved.workspace, surfaceId: surfaceID, force: true) else {
             return .err(code: "internal_error", message: "Failed to close terminal", data: nil)
         }
-        clearMobileViewportReports(surfaceID: surfaceID, reason: "mobile.terminal.close", clearGenerations: true)
+        clearMobileViewportReports(surfaceID: surfaceID, reason: "mobile.terminal.close")
         return .ok([
             "closed": true,
             "workspace_id": resolved.workspace.id.uuidString,

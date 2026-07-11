@@ -9,6 +9,32 @@ import Testing
 
 @Suite("Mobile terminal reorder index resolver")
 struct MobileTerminalReorderIndexResolverTests {
+    @MainActor
+    @Test func surfaceCleanupLeavesOtherTerminalViewportReportsIntact() {
+        let controller = TerminalController.shared
+        let closingSurfaceID = UUID()
+        let survivingSurfaceID = UUID()
+        controller.debugResetMobileViewportReportsForTesting()
+        defer { controller.debugResetMobileViewportReportsForTesting() }
+        controller.debugSetMobileViewportReportForTesting(
+            surfaceID: closingSurfaceID,
+            clientID: "phone",
+            columns: 40,
+            rows: 20
+        )
+        controller.debugSetMobileViewportReportForTesting(
+            surfaceID: survivingSurfaceID,
+            clientID: "tablet",
+            columns: 80,
+            rows: 30
+        )
+
+        controller.clearMobileViewportReports(surfaceID: closingSurfaceID, reason: "test")
+
+        #expect(controller.debugMobileViewportReportClientIDsForTesting(surfaceID: closingSurfaceID) == nil)
+        #expect(controller.debugMobileViewportReportClientIDsForTesting(surfaceID: survivingSurfaceID) == ["tablet"])
+    }
+
     @Test func translatesTerminalOrderAcrossInterleavedNonTerminalPanels() throws {
         let firstTerminal = UUID()
         let browser = UUID()
