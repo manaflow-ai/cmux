@@ -201,7 +201,7 @@ struct WorkspaceForkConversationContextMenuTests {
                 .loadResultSynchronously()
             },
             hookStoreDirectoryProvider: {
-                [root.appendingPathComponent(".cmuxterm", isDirectory: true).path]
+                root.appendingPathComponent(".cmuxterm", isDirectory: true).path
             }
         )
 
@@ -316,7 +316,7 @@ struct WorkspaceForkConversationContextMenuTests {
                 .loadResultSynchronously()
             },
             hookStoreDirectoryProvider: {
-                [root.appendingPathComponent(".cmuxterm", isDirectory: true).path]
+                root.appendingPathComponent(".cmuxterm", isDirectory: true).path
             },
             dateProvider: {
                 now.withLock { $0 }
@@ -371,7 +371,7 @@ struct WorkspaceForkConversationContextMenuTests {
                 .loadResultSynchronously()
             },
             hookStoreDirectoryProvider: {
-                [root.appendingPathComponent(".cmuxterm", isDirectory: true).path]
+                root.appendingPathComponent(".cmuxterm", isDirectory: true).path
             },
             dateProvider: {
                 now.withLock { $0 }

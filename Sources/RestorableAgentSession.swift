@@ -1094,14 +1094,12 @@ struct RestorableAgentSessionIndex: Sendable {
         var hookCandidatesByPanelAndKind: [PanelKindKey: Entry] = [:]
 
         for (kind, registration) in hookKinds {
-            let hookRecords = kind.hookStoreFileURLs(homeDirectory: homeDirectory).flatMap { fileURL -> [RestorableAgentHookSessionRecord] in
-                guard let data = try? Data(contentsOf: fileURL),
-                      let state = try? decoder.decode(RestorableAgentHookSessionStoreFile.self, from: data) else {
-                    return []
-                }
-                return Array(state.sessions.values)
+            let fileURL = kind.hookStoreFileURL(homeDirectory: homeDirectory, fileManager: fileManager)
+            guard let data = try? Data(contentsOf: fileURL),
+                  let state = try? decoder.decode(RestorableAgentHookSessionStoreFile.self, from: data) else {
+                continue
             }
-            for record in hookRecords {
+            for record in state.sessions.values {
                 var effectiveRecord = kind == .claude
                     ? resolvedClaudeWorkflowRecord(
                         record,

@@ -28,7 +28,8 @@ struct AgentChatHookSessionStore: Sendable {
         let updatedAt: Date?
     }
 
-    private let stateDirectories: [URL]
+    private let stateDirectory: URL
+    private let fileManager: FileManager
 
     /// Creates a store reader.
     ///
@@ -43,16 +44,19 @@ struct AgentChatHookSessionStore: Sendable {
             in: .userDomainMask
         ).first,
         bundleIdentifier: String? = Bundle.main.bundleIdentifier,
-        legacyHomeDirectory: URL? = nil
+        legacyHomeDirectory: URL? = nil,
+        fileManager: FileManager = .default
     ) {
-        stateDirectories = AgentHookStateLocation.resolveReadDirectoryURLs(
+        stateDirectory = AgentHookStateReaderLocation(
             environment: environment,
             applicationSupportDirectory: homeDirectory == nil ? applicationSupportDirectory : nil,
             bundleIdentifier: homeDirectory == nil ? bundleIdentifier : nil,
             legacyHomeDirectory: legacyHomeDirectory
                 ?? homeDirectory
-                ?? FileManager.default.homeDirectoryForCurrentUser
-        )
+                ?? fileManager.homeDirectoryForCurrentUser,
+            fileManager: fileManager
+        ).directoryURL
+        self.fileManager = fileManager
     }
 
     /// Reads one agent's hook session store.
@@ -61,35 +65,26 @@ struct AgentChatHookSessionStore: Sendable {
     ///   `codex`, ...), which names the store file.
     /// - Returns: All entries, or empty when the store is absent/malformed.
     func entries(agentSource: String) -> [Entry] {
-        var entriesBySessionID: [String: Entry] = [:]
-        for stateDirectory in stateDirectories {
-            let file = stateDirectory
-                .appendingPathComponent("\(agentSource)-hook-sessions.json", isDirectory: false)
-            guard let data = try? Data(contentsOf: file),
-                  let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-                continue
-            }
-            let sessions = (root["sessions"] as? [String: Any]) ?? root
-            for (key, value) in sessions {
-                guard let entry = value as? [String: Any] else { continue }
-                let updatedAt = (entry["updatedAt"] as? TimeInterval).map(Date.init(timeIntervalSince1970:))
-                let candidate = Entry(
-                    sessionID: key,
-                    workspaceID: Self.nonEmpty(entry["workspaceId"] as? String),
-                    surfaceID: Self.nonEmpty(entry["surfaceId"] as? String),
-                    workingDirectory: Self.nonEmpty(entry["cwd"] as? String),
-                    transcriptPath: Self.nonEmpty(entry["transcriptPath"] as? String),
-                    pid: entry["pid"] as? Int,
-                    updatedAt: updatedAt
-                )
-                if let existing = entriesBySessionID[key],
-                   (candidate.updatedAt ?? .distantPast) <= (existing.updatedAt ?? .distantPast) {
-                    continue
-                }
-                entriesBySessionID[key] = candidate
-            }
+        let file = stateDirectory
+            .appendingPathComponent("\(agentSource)-hook-sessions.json", isDirectory: false)
+        guard let data = fileManager.contents(atPath: file.path),
+              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return []
         }
-        return Array(entriesBySessionID.values)
+        let sessions = (root["sessions"] as? [String: Any]) ?? root
+        return sessions.compactMap { key, value in
+            guard let entry = value as? [String: Any] else { return nil }
+            let updatedAt = (entry["updatedAt"] as? TimeInterval).map(Date.init(timeIntervalSince1970:))
+            return Entry(
+                sessionID: key,
+                workspaceID: Self.nonEmpty(entry["workspaceId"] as? String),
+                surfaceID: Self.nonEmpty(entry["surfaceId"] as? String),
+                workingDirectory: Self.nonEmpty(entry["cwd"] as? String),
+                transcriptPath: Self.nonEmpty(entry["transcriptPath"] as? String),
+                pid: entry["pid"] as? Int,
+                updatedAt: updatedAt
+            )
+        }
     }
 
     /// Reads one session's entry from one agent's store.
