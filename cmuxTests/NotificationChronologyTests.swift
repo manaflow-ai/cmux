@@ -223,6 +223,13 @@ struct NotificationChronologyTests {
                 createdAt: timestamp.addingTimeInterval(-1)
             ),
             notification(
+                id: earlierId,
+                tabId: tabId,
+                surfaceId: surfaceId,
+                title: "Replay must not replace first occurrence",
+                createdAt: timestamp.addingTimeInterval(100)
+            ),
+            notification(
                 id: equalLaterId,
                 tabId: tabId,
                 surfaceId: surfaceId,
@@ -247,6 +254,7 @@ struct NotificationChronologyTests {
 
         #expect(store.notifications.map(\.id) == [equalEarlierId, replayedId, equalLaterId, earlierId])
         #expect(store.notifications.first(where: { $0.id == replayedId })?.title == "Live")
+        #expect(store.notifications.first(where: { $0.id == earlierId })?.title == "Earlier")
         #expect(Set(store.notifications.map(\.id)).count == store.notifications.count)
     }
 
