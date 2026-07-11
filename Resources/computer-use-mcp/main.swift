@@ -15,6 +15,9 @@ let providerDirectoryURL = providerExecutableURL.deletingLastPathComponent()
 let resourcesDirectoryURL = providerDirectoryURL.deletingLastPathComponent()
 let contentsDirectoryURL = resourcesDirectoryURL.deletingLastPathComponent()
 let appBundleURL = contentsDirectoryURL.deletingLastPathComponent()
+let appExecutableURL = Bundle(url: appBundleURL)?.executableURL?
+    .standardizedFileURL
+    .resolvingSymlinksInPath()
 let expectedParentURL = resourcesDirectoryURL
     .appendingPathComponent("bin", isDirectory: true)
     .appendingPathComponent("cmux-computer-use-mcp", isDirectory: false)
@@ -39,13 +42,64 @@ let appValidationFlags = SecCSFlags(
 let appSignatureIsValid = appCodeStatus == errSecSuccess && appStaticCode.map {
     SecStaticCodeCheckValidity($0, appValidationFlags, nil) == errSecSuccess
 } == true
+// The bundled MCP binary is public, so its signature alone is not authorization.
+// Require the live request chain to descend from this validated app's executable.
+var ancestorPID = getppid()
+var visitedAncestorPIDs = Set<pid_t>()
+var hasValidAppHostAncestor = false
+while ancestorPID > 1, visitedAncestorPIDs.insert(ancestorPID).inserted {
+    var ancestorPathBuffer = [CChar](repeating: 0, count: 4096)
+    let ancestorPathLength = proc_pidpath(
+        ancestorPID,
+        &ancestorPathBuffer,
+        UInt32(ancestorPathBuffer.count)
+    )
+    let ancestorExecutableURL = ancestorPathLength > 0
+        ? URL(fileURLWithPath: String(cString: ancestorPathBuffer))
+            .standardizedFileURL
+            .resolvingSymlinksInPath()
+        : nil
+    if ancestorExecutableURL == appExecutableURL {
+        var ancestorCode: SecCode?
+        let ancestorAttributes = [
+            kSecGuestAttributePid as String: NSNumber(value: ancestorPID)
+        ] as CFDictionary
+        let ancestorCodeStatus = SecCodeCopyGuestWithAttributes(
+            nil,
+            ancestorAttributes,
+            [],
+            &ancestorCode
+        )
+        hasValidAppHostAncestor = ancestorCodeStatus == errSecSuccess && ancestorCode.map {
+            SecCodeCheckValidity($0, [], nil) == errSecSuccess
+        } == true
+        break
+    }
+
+    var processInfo = proc_bsdinfo()
+    let processInfoSize = MemoryLayout<proc_bsdinfo>.size
+    let copiedProcessInfoSize = withUnsafeMutablePointer(to: &processInfo) {
+        proc_pidinfo(
+            ancestorPID,
+            PROC_PIDTBSDINFO,
+            0,
+            $0,
+            Int32(processInfoSize)
+        )
+    }
+    guard copiedProcessInfoSize == processInfoSize else { break }
+    let parentPID = pid_t(processInfo.pbi_ppid)
+    guard parentPID > 1, parentPID != ancestorPID else { break }
+    ancestorPID = parentPID
+}
 guard providerDirectoryURL.lastPathComponent == "libexec",
       resourcesDirectoryURL.lastPathComponent == "Resources",
       contentsDirectoryURL.lastPathComponent == "Contents",
       appBundleURL.pathExtension == "app",
       parentExecutableURL == expectedParentURL,
       parentSignatureIsValid,
-      appSignatureIsValid else {
+      appSignatureIsValid,
+      hasValidAppHostAncestor else {
     fail(
         "provider.authorizationRequired",
         "The bundled computer-use provider only accepts requests from the bundled MCP server."
