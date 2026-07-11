@@ -94,8 +94,9 @@ public struct TerminalRowCapacityFit {
     /// measured live cell without a second libghostty round trip.
     public func capacityColumns(atBaseFontSize baseFontSize: Float32) -> Int? {
         guard let containerPixelWidth, let cellPixelWidth, baseFontSize > 0 else { return nil }
-        guard cellPixelWidth > 0 else { return nil }
-        return max(1, Int((containerPixelWidth / cellPixelWidth).rounded(.down)))
+        let baseCellWidth = cellPixelWidth * CGFloat(baseFontSize) / CGFloat(liveFontSize)
+        guard baseCellWidth > 0 else { return nil }
+        return max(1, Int((containerPixelWidth / baseCellWidth).rounded(.down)))
     }
 
     /// The font size at which exactly `effectiveRows` rows fill the container.

@@ -20,6 +20,8 @@ public struct TerminalColumnReportWidthSelection {
         preservesWidestRenderedWidth: Bool
     ) -> CGFloat? {
         guard currentWidth > 0, widestRenderedWidth > 0 else { return nil }
-        return currentWidth
+        return preservesWidestRenderedWidth
+            ? max(currentWidth, widestRenderedWidth)
+            : currentWidth
     }
 }
