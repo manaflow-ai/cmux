@@ -40,7 +40,25 @@ The client should support context-manager usage to close sockets deterministical
 
 TypeScript bindings should expose promise-based command methods and discriminated unions for results and events. The `event` field is the event discriminator. Command errors should reject with a typed error carrying the server message and optional command id.
 
-The package should support Node.js first because the implemented transport is a Unix socket. Browser support is out of scope until HTTP is implemented.
+The `cmux` package is the frontend client library. Its package root conditionally exports a browser-safe ESM entry, while `cmux/node` explicitly exports the Node entry with the default Unix-socket behavior. Shared modules must not import Node builtins at module scope.
+
+All clients accept a `Transport` with this contract:
+
+```ts
+interface Transport {
+  send(json: string): void;
+  onMessage(handler: (json: string) => void): () => void;
+  onClose(handler: () => void): () => void;
+  onError(handler: (error: Error) => void): () => void;
+  close(): void;
+}
+```
+
+`UnixSocketTransport` frames each JSON message as one line. `WebSocketTransport` frames each JSON message as one text frame, uses the browser global by default, and accepts an injected WebSocket-compatible constructor in Node without requiring a runtime dependency.
+
+`CmuxRequest` is discriminated by exact wire `cmd`; `CmuxEvent` is discriminated by exact wire `event` and retains an unknown-event fallback. `request({cmd,...params})` infers successful response data from the request member. Typed command methods remain the preferred surface.
+
+`attachSurface()` yields an async iterable. Its `vt-state.data`, `output.data`, and `resized.replay` values are decoded to `Uint8Array` without relying on `Buffer` in shared browser code. Wire event types continue to expose their exact base64 string fields.
 
 Generated types must preserve exact field optionality. Unknown event names should be represented as `{ event: string; [key: string]: unknown }` rather than being dropped.
 

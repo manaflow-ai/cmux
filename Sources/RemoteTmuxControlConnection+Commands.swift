@@ -50,10 +50,30 @@ extension RemoteTmuxControlConnection {
     /// id and layout tokens never do — so the result parses as
     /// `@id <layout> <name with spaces…>`.
     func requestWindows() {
-        sendInternal(
+        guard !windowListRequestInFlight else {
+            windowListRequestDirty = true
+            return
+        }
+        guard sendInternal(
             "list-windows -F \"#{window_id} #{window_layout} #{window_visible_layout} [#{window_flags}] #{window_name}\"",
-            kind: .listWindows(reorderGeneration: windowReorderGeneration)
-        )
+            kind: .listWindows(
+                reorderGeneration: windowReorderGeneration,
+                retainedPaneIDs: paneIDsRetainedUntilWindowList
+            )
+        ) else { return }
+        windowListRequestInFlight = true
+    }
+
+    func completeWindowListRequest() {
+        windowListRequestInFlight = false
+        guard windowListRequestDirty else { return }
+        windowListRequestDirty = false
+        requestWindows()
+    }
+
+    func resetWindowListRequestCoalescing() {
+        windowListRequestInFlight = false
+        windowListRequestDirty = false
     }
 
     func restartAfterWindowReorderRecoveryFailure() {

@@ -183,6 +183,12 @@ jobs:
       - name: Validate release-build timeout guard
         run: ./tests/test_ci_release_build_timeout.sh
 
+      - name: Validate markdown viewer asset compression
+        run: ./tests/test_compress_markdown_viewer_assets.sh
+
+      - name: Validate release bundle stripping
+        run: ./tests/test_strip_release_bundle.sh
+
       - name: Validate current GhosttyKit checksum pin
         run: ./tests/test_ci_ghosttykit_checksum_present.sh
 
@@ -616,6 +622,25 @@ jobs:
             -destination "platform=macOS" \
             CMUX_SKIP_ZIG_BUILD=1 \
             -only-testing:cmuxTests/RemoteTmuxWindowMirrorFocusSeedTests \
+            test
+
+      - name: Run remote tmux mirror layout identity regression
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        run: |
+          # The tolerant full-suite step may accept expected failures or stop
+          # after an app-host crash. Keep #7833's identity suite non-tolerant
+          # so a missing incremental-reconcile regression cannot pass the shard.
+          set -euo pipefail
+          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          scripts/ci/run-in-console-session.sh \
+            scripts/ci/run-app-host-xcodebuild.sh \
+            -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+            -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+            -disableAutomaticPackageResolution \
+            -destination "platform=macOS" \
+            CMUX_SKIP_ZIG_BUILD=1 \
+            -only-testing:cmuxTests/RemoteTmuxMirrorLayoutIdentityTests \
             test
 
       - name: Run unit tests
