@@ -459,4 +459,29 @@ struct AgentHookStateLocationTests {
 
         #expect(location.directoryURL.lastPathComponent == "com.-.app")
     }
+
+    @Test("Sidecar compatibility URLs preserve production fallback isolation")
+    func sidecarCompatibilityURLs() {
+        let applicationSupport = URL(fileURLWithPath: "/tmp/app-support", isDirectory: true)
+        let home = URL(fileURLWithPath: "/tmp/home", isDirectory: true)
+        let filename = "agent-turn-diff-baselines.json"
+        let production = AgentHookStateReaderLocation(
+            environment: [:],
+            applicationSupportDirectory: applicationSupport,
+            bundleIdentifier: "com.cmuxterm.app.nightly",
+            legacyHomeDirectory: home,
+            fileManager: .default
+        )
+        let debug = AgentHookStateReaderLocation(
+            environment: [:],
+            applicationSupportDirectory: applicationSupport,
+            bundleIdentifier: "com.cmuxterm.app.dev.baseline",
+            legacyHomeDirectory: home,
+            fileManager: .default
+        )
+
+        #expect(production.compatibilityFileURLs(named: filename).count == 2)
+        #expect(debug.compatibilityFileURLs(named: filename).count == 1)
+        #expect(production.compatibilityFileURLs(named: "../\(filename)").isEmpty)
+    }
 }
