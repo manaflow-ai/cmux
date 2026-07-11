@@ -142,6 +142,7 @@ struct WorkspaceContentView: View {
     @State private var config = WorkspaceContentView.resolveGhosttyAppearanceConfig(reason: "stateInit")
     @State private var lastAppliedUsesHostLayerBackground = GhosttyApp.shared.usesHostLayerBackground
     @State private var deferredThemeRefresh: DeferredThemeRefresh?
+    @State private var visibilityHostId = UUID()
     @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject var notificationStore: TerminalNotificationStore
 #if DEBUG
@@ -376,8 +377,11 @@ struct WorkspaceContentView: View {
             updateWorkspacePresentationVisibility()
         }
         .onDisappear {
-            workspace.setPortalPresentationVisible(false)
-            workspace.setAgentHibernationAutoResumePresentationVisible(false)
+            workspace.setContentViewPresentationVisibility(
+                isVisible: false,
+                isInputActive: false,
+                hostId: visibilityHostId
+            )
         }
     }
 
@@ -545,8 +549,11 @@ struct WorkspaceContentView: View {
     }
 
     private func updateWorkspacePresentationVisibility() {
-        workspace.setPortalPresentationVisible(isWorkspaceVisible)
-        workspace.setAgentHibernationAutoResumePresentationVisible(isWorkspaceVisible && isWorkspaceInputActive)
+        workspace.setContentViewPresentationVisibility(
+            isVisible: isWorkspaceVisible,
+            isInputActive: isWorkspaceInputActive,
+            hostId: visibilityHostId
+        )
     }
 
     private func refreshGhosttyAppearanceConfig(
