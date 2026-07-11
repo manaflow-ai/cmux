@@ -10,7 +10,7 @@ extension CMUXCLI {
         surfaceArg: String?,
         hookSurfaceFlagIsExplicit: Bool,
         preferCallerTTYRouting: Bool,
-        callerTTYBindingProvider: (() -> CallerTerminalBinding?)?,
+        callerTTYBindingProvider: (() -> CallerTerminalBindingResolution)?,
         markFeedTelemetryHandled: () -> Void,
         sendFeedTelemetry: (String?, String?) -> Void
     ) throws {

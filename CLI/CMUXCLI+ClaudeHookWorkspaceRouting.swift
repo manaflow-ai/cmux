@@ -3,6 +3,11 @@
 import Foundation
 
 extension CMUXCLI {
+    struct CallerTerminalBindingResolution {
+        let binding: CallerTerminalBinding?
+        let isAmbiguous: Bool
+    }
+
     /// Resolve the workspace a Claude hook should mutate, in strict priority order:
     /// the recorded/preferred workspace, an unambiguous caller-TTY binding (only when
     /// `preferCallerTTYOverFallback`), the live `CMUX_WORKSPACE_ID` fallback, then an
@@ -19,7 +24,7 @@ extension CMUXCLI {
         preferred: String?,
         fallback: String?,
         preferCallerTTYOverFallback: Bool = false,
-        callerTerminalBinding: (() -> CallerTerminalBinding?)? = nil,
+        callerTerminalBinding: (() -> CallerTerminalBindingResolution)? = nil,
         client: SocketClient
     ) throws -> String? {
         if let preferred = nonEmptyClaudeHookIdentifier(preferred),
@@ -32,6 +37,10 @@ extension CMUXCLI {
                client: client
            ) {
             return callerWorkspaceId
+        }
+        if preferCallerTTYOverFallback,
+           callerTerminalBinding?().isAmbiguous == true {
+            return nil
         }
         if let fallback = nonEmptyClaudeHookIdentifier(fallback),
            let resolved = strictClaudeHookWorkspaceId(fallback, client: client) {
@@ -70,8 +79,8 @@ extension CMUXCLI {
     /// Caller-TTY binding that refuses ambiguous TTY matches: returns a binding only
     /// when every `debug.terminals` entry for the caller's TTY name agrees on a single
     /// workspace and surface (macOS reuses `ttysNNN` names, and stale entries can
-    /// shadow live ones).
-    /// PID-derived bindings don't need this guard — a PID lives in exactly one surface.
+    /// shadow live ones). PID-derived bindings don't need this guard because a PID
+    /// lives in exactly one surface.
     func uniqueCallerTerminalBindingByTTY(
         client: SocketClient,
         includeAmbientTTY: Bool = true
@@ -85,10 +94,10 @@ extension CMUXCLI {
     func callerTerminalBindingResolutionByTTY(
         client: SocketClient,
         includeAmbientTTY: Bool = true
-    ) -> (binding: CallerTerminalBinding?, isAmbiguous: Bool) {
+    ) -> CallerTerminalBindingResolution {
         guard let ttyName = resolveCallerTTYName(includeAmbientTTY: includeAmbientTTY),
               let payload = try? client.sendV2(method: "debug.terminals") else {
-            return (nil, false)
+            return CallerTerminalBindingResolution(binding: nil, isAmbiguous: false)
         }
         let terminals = payload["terminals"] as? [[String: Any]] ?? []
         var matched: [CallerTerminalBinding] = []
@@ -101,25 +110,27 @@ extension CMUXCLI {
             matched.append(CallerTerminalBinding(workspaceId: workspaceId, surfaceId: surfaceId))
         }
         guard let first = matched.first else {
-            return (nil, false)
+            return CallerTerminalBindingResolution(binding: nil, isAmbiguous: false)
         }
         guard matched.allSatisfy({ $0.workspaceId == first.workspaceId && $0.surfaceId == first.surfaceId }) else {
-            return (nil, true)
+            return CallerTerminalBindingResolution(binding: nil, isAmbiguous: true)
         }
-        return (first, false)
+        return CallerTerminalBindingResolution(binding: first, isAmbiguous: false)
     }
 
     /// Like `resolveCallerWorkspaceIdForClaudeHook`, but refuses to guess when the
     /// caller's TTY name maps to more than one workspace. macOS reuses `ttysNNN`
     /// device names across panes/sessions, so a first-match on a shared name would
-    /// route to an arbitrary sibling session. The provider closure yields only
-    /// unambiguous-TTY or PID-derived bindings, so it is trusted directly.
+    /// route to an arbitrary sibling session. The provider preserves positive
+    /// ambiguity after PID recovery fails, so ambient fallbacks can fail closed.
     func uniqueCallerWorkspaceIdForClaudeHook(
-        callerTerminalBinding: (() -> CallerTerminalBinding?)?,
+        callerTerminalBinding: (() -> CallerTerminalBindingResolution)?,
         client: SocketClient
     ) -> String? {
         if let callerTerminalBinding {
-            guard let binding = callerTerminalBinding(),
+            let resolution = callerTerminalBinding()
+            guard !resolution.isAmbiguous,
+                  let binding = resolution.binding,
                   claudeHookSurfaceIsListed(binding.surfaceId, workspaceId: binding.workspaceId, client: client) else {
                 return nil
             }

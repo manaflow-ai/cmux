@@ -23915,37 +23915,39 @@ struct CMUXCLI {
         let hookSurfaceFlag = optionValue(hookArgs, name: "--surface")
         let surfaceArg = hookSurfaceFlag ?? (hookWsFlag == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
         let preferCallerTTYRouting = hookWsFlag == nil && hookSurfaceFlag == nil
-        var callerTTYBindingCache: CallerTerminalBinding?
-        var didResolveCallerTTYBinding = false
-        func callerTTYBinding() -> CallerTerminalBinding? {
-            if !didResolveCallerTTYBinding {
-                didResolveCallerTTYBinding = true
-                let ttyBinding = uniqueCallerTerminalBindingByTTY(
-                    client: client,
-                    includeAmbientTTY: workspaceArg == nil && surfaceArg == nil
+        var callerTTYBindingResolutionCache: CallerTerminalBindingResolution?
+        func callerTTYBindingResolution() -> CallerTerminalBindingResolution {
+            if let callerTTYBindingResolutionCache { return callerTTYBindingResolutionCache }
+            let ttyResolution = callerTerminalBindingResolutionByTTY(
+                client: client,
+                includeAmbientTTY: workspaceArg == nil && surfaceArg == nil
+            )
+            var binding = ttyResolution.binding.flatMap {
+                claudeHookSurfaceIsListed($0.surfaceId, workspaceId: $0.workspaceId, client: client) ? $0 : nil
+            }
+            if binding == nil {
+                let processBinding = resolveAgentProcessTerminalBinding(
+                    pid: claudeAgentPID(from: ProcessInfo.processInfo.environment),
+                    socketPath: client.socketPath,
+                    socketPassword: socketPassword
                 )
-                if let ttyBinding,
-                   claudeHookSurfaceIsListed(ttyBinding.surfaceId, workspaceId: ttyBinding.workspaceId, client: client) {
-                    callerTTYBindingCache = ttyBinding
-                } else {
-                    let processBinding = resolveAgentProcessTerminalBinding(
-                        pid: claudeAgentPID(from: ProcessInfo.processInfo.environment),
-                        socketPath: client.socketPath,
-                        socketPassword: socketPassword
-                    )
-                    if let processBinding,
-                       claudeHookSurfaceIsListed(
-                           processBinding.surfaceId,
-                           workspaceId: processBinding.workspaceId,
-                           client: client
-                       ) {
-                        callerTTYBindingCache = processBinding
-                    }
+                if let processBinding,
+                   claudeHookSurfaceIsListed(
+                       processBinding.surfaceId,
+                       workspaceId: processBinding.workspaceId,
+                       client: client
+                   ) {
+                    binding = processBinding
                 }
             }
-            return callerTTYBindingCache
+            let resolution = CallerTerminalBindingResolution(
+                binding: binding,
+                isAmbiguous: ttyResolution.isAmbiguous && binding == nil
+            )
+            callerTTYBindingResolutionCache = resolution
+            return resolution
         }
-        let callerTTYBindingProvider: (() -> CallerTerminalBinding?)? = preferCallerTTYRouting ? callerTTYBinding : nil
+        let callerTTYBindingProvider: (() -> CallerTerminalBindingResolution)? = preferCallerTTYRouting ? callerTTYBindingResolution : nil
         let rawInput = String(data: FileHandle.standardInput.readDataToEndOfFile(), encoding: .utf8) ?? ""
         let parsedInput = parseClaudeHookInput(rawInput: rawInput)
         let sessionStore = ClaudeHookSessionStore()
@@ -25088,7 +25090,7 @@ struct CMUXCLI {
         fallback: String?,
         fallbackIsExplicit: Bool = false,
         workspaceId: String,
-        callerTerminalBinding: (() -> CallerTerminalBinding?)? = nil,
+        callerTerminalBinding: (() -> CallerTerminalBindingResolution)? = nil,
         client: SocketClient
     ) throws -> String {
         try resolvePreferredSurfaceForClaudeHookDetailed(
@@ -25113,7 +25115,7 @@ struct CMUXCLI {
         fallback: String?,
         fallbackIsExplicit: Bool = false,
         workspaceId: String,
-        callerTerminalBinding: (() -> CallerTerminalBinding?)? = nil,
+        callerTerminalBinding: (() -> CallerTerminalBindingResolution)? = nil,
         client: SocketClient
     ) throws -> ClaudeHookResolvedSurface {
         if fallbackIsExplicit, let fallback = nonEmptyClaudeHookIdentifier(fallback) {
@@ -25356,7 +25358,7 @@ struct CMUXCLI {
         workspaceId: String,
         client: SocketClient,
         preferCallerTTYOverRaw: Bool = false,
-        callerTerminalBinding: (() -> CallerTerminalBinding?)? = nil
+        callerTerminalBinding: (() -> CallerTerminalBindingResolution)? = nil
     ) throws -> ClaudeHookResolvedSurface {
         let rawCandidate: String? = if let raw,
             !raw.isEmpty,
@@ -25412,12 +25414,14 @@ struct CMUXCLI {
     }
 
     private func resolveCallerWorkspaceIdForClaudeHook(
-        callerTerminalBinding: (() -> CallerTerminalBinding?)? = nil,
+        callerTerminalBinding: (() -> CallerTerminalBindingResolution)? = nil,
         client: SocketClient
     ) -> String? {
         let binding: CallerTerminalBinding?
         if let callerTerminalBinding {
-            binding = callerTerminalBinding()
+            let resolution = callerTerminalBinding()
+            guard !resolution.isAmbiguous else { return nil }
+            binding = resolution.binding
         } else {
             binding = resolveCallerTerminalBindingByTTY(client: client)
         }
@@ -25430,12 +25434,14 @@ struct CMUXCLI {
 
     private func resolveCallerSurfaceIdByTTY(
         workspaceId: String,
-        callerTerminalBinding: (() -> CallerTerminalBinding?)? = nil,
+        callerTerminalBinding: (() -> CallerTerminalBindingResolution)? = nil,
         client: SocketClient
     ) -> String? {
         let binding: CallerTerminalBinding?
         if let callerTerminalBinding {
-            binding = callerTerminalBinding()
+            let resolution = callerTerminalBinding()
+            guard !resolution.isAmbiguous else { return nil }
+            binding = resolution.binding
         } else {
             binding = uniqueCallerTerminalBindingByTTY(client: client)
         }
@@ -30404,10 +30410,14 @@ export default CMUXSessionRestore;
                 return (workspaceId, surfaceId)
             }
 
-            func allowsDefaultSurfaceFallback() -> Bool {
-                guard hookWsFlag == nil, explicitSurfaceFlag == nil, resolvedDirectSurfaceArg == nil else { return true }
+            func ambientDirectBindingIsBlocked() -> Bool {
+                guard hookWsFlag == nil, explicitSurfaceFlag == nil else { return false }
                 _ = processBinding()
-                return !processBindingBlockedByAmbiguousTTY
+                return processBindingBlockedByAmbiguousTTY
+            }
+
+            func allowsDefaultSurfaceFallback() -> Bool {
+                !ambientDirectBindingIsBlocked()
             }
 
             // G3 (codex jumble defense-in-depth): the surface id can arrive from the ambient env
@@ -30439,7 +30449,8 @@ export default CMUXSessionRestore;
                 return boundSurface
             }
 
-            if let workspaceId = resolvedDirectWorkspaceArg {
+            if let workspaceId = resolvedDirectWorkspaceArg,
+               !ambientDirectBindingIsBlocked() {
                 let preferredSurfaceId = correctedDirectSurfaceId(workspaceId: workspaceId)
                     ?? (hookWsFlag == nil ? processBinding()?.surfaceId : nil)
                 let target = resolveTarget(workspaceId: workspaceId, preferredSurfaceId: preferredSurfaceId, mapped: mapped, allowDefaultSurfaceFallback: allowsDefaultSurfaceFallback())
