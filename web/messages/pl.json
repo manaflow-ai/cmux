@@ -819,6 +819,7 @@
     "workspaceGroups": {
       "metaTitle": "Grupy workspace'ów",
       "metaDescription": "Zagnieżdżaj przestrzenie robocze w zwijanych, nazwanych sekcjach na pasku bocznym cmux. Model kotwicy, sposób tworzenia grupy i zarządzania nią oraz interfejs CLI workspace-group.",
+      "metaDescriptionShort": "Grupuj przestrzenie robocze w zwijanych sekcjach paska bocznego cmux. Poznaj model kotwicy, zarządzanie grupami i CLI workspace-group.",
       "title": "Grupy workspace'ów",
       "intro": "Grupy workspace'ów pozwalają zagnieżdżać workspace'y w zwijanych, nazwanych sekcjach w pasku bocznym. Każda grupa ma niejawny kotwicowy workspace, konfigurowalny przycisk + do tworzenia nowych workspace'ów w jej wnętrzu oraz akcje dostępne po kliknięciu prawym przyciskiem do zmiany nazwy, przypinania, rozgrupowywania i edycji jej konfiguracji.",
       "concepts": "Koncepty",
@@ -1278,6 +1279,7 @@
     "browserAutomation": {
       "title": "Automatyzacja przeglądarki",
       "metaDescription": "Dokumentacja poleceń przeglądarki cmux: nawigacja, interakcja z DOM, oczekiwanie, inspekcja, ewaluacja JavaScript, karty, dialogi, ramki, pobieranie i stan przeglądarki.",
+      "metaDescriptionShort": "Dokumentacja cmux browser: nawigacja, DOM, oczekiwanie, inspekcja, JavaScript, karty, okna dialogowe, ramki, pobieranie i stan przeglądarki.",
       "intro": "Grupa poleceń cmux browser zapewnia automatyzację przeglądarki wobec surface'ów przeglądarki cmux. Używaj jej do nawigacji, interakcji z elementami DOM, inspekcji stanu strony, ewaluacji JavaScript i zarządzania danymi sesji przeglądarki.",
       "commandIndex": "Indeks poleceń",
       "categoryHeader": "Kategoria",

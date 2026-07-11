@@ -42,9 +42,16 @@ export async function auditedDocsMetadata({
     pageKey,
     messages,
     layoutTitle,
-    typeof pageMessages.metaDescriptionShort === "string"
-      ? pageMessages.metaDescriptionShort
-      : undefined,
+    {
+      curatedDescription:
+        typeof pageMessages.metaDescriptionShort === "string"
+          ? pageMessages.metaDescriptionShort
+          : undefined,
+      intro:
+        typeof pageMessages.intro === "string"
+          ? pageMessages.intro
+          : undefined,
+    },
   );
   return {
     title,

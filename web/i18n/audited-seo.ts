@@ -31,63 +31,6 @@ export type AuditedDocsPageKey =
   | "gettingStarted"
   | "remoteTmux";
 
-const docsDescriptionCandidateKeys: Record<
-  AuditedDocsPageKey,
-  readonly string[]
-> = {
-  ohMyOpenCode: [],
-  api: ["intro", "capabilitiesDesc", "idFormat"],
-  configuration: ["intro", "configLocationsDesc", "appSettingsDesc"],
-  browserAutomation: [
-    "intro",
-    "inspectionDesc",
-    "targetingDesc",
-    "waitingDesc",
-    "stateDesc",
-    "tabsDesc",
-  ],
-  ios: ["intro", "accessDesc", "networkingDesc", "notificationsDesc"],
-  ssh: ["intro", "usageDesc", "agentsDesc", "browserDesc", "daemonDesc"],
-  workspaceGroups: [
-    "intro",
-    "identityDesc",
-    "layoutIntro",
-    "persistenceDesc",
-    "pinningDesc",
-  ],
-  textBox: ["intro", "defaultsDesc", "configDesc"],
-  concepts: ["intro", "workspaceDesc", "paneDesc", "surfaceDesc"],
-  customCommands: [
-    "intro",
-    "simpleCommandsDesc",
-    "customActionsDesc",
-    "workspaceCommandsDesc",
-  ],
-  notifications: [
-    "intro",
-    "notificationPanelDesc",
-    "suppressionDesc",
-    "osc777Desc",
-    "osc99Desc",
-  ],
-  sessionRestore: [
-    "intro",
-    "agentResumeDesc",
-    "restoredDesc",
-    "surfaceBindingsDesc",
-  ],
-  skills: ["intro", "includedIntro", "installIntro", "helpMenuIntro"],
-  dock: ["intro", "configIntro", "exampleIntro", "sharingIntro"],
-  keyboardShortcuts: ["description"],
-  gettingStarted: ["intro", "dmgDesc", "cliDesc", "verifyDesc"],
-  remoteTmux: [
-    "intro",
-    "howDesc",
-    "requirementsDesc",
-    "behaviorCwd",
-  ],
-};
-
 const conciseTitleLocales = new Set(["ja", "zh-CN", "zh-TW", "ko"]);
 
 const shortTitleContexts: Record<string, string> = {
@@ -213,12 +156,11 @@ function selectDocsSocialTitle(
   });
 }
 
-function metadataSentenceFragments(value: string) {
-  const fragments = value
+function firstMetadataSentence(value: string) {
+  return value
     .split(/(?<=[。！？])|(?<=[.!?؟។៕])\s+/u)
     .map((fragment) => fragment.trim())
-    .filter(Boolean);
-  return fragments.length ? fragments : [value.trim()];
+    .find(Boolean);
 }
 
 function selectDescription(
@@ -310,18 +252,19 @@ export function docsPageSeoCopy(
   pageKey: AuditedDocsPageKey,
   t: SeoMessageLookup,
   layoutTitle: string,
-  curatedDescription?: string,
+  options: {
+    curatedDescription?: string;
+    intro?: string;
+  } = {},
 ) {
   const pageTitle = pageKey === "ohMyOpenCode" ? undefined : t("title");
   const title = pageTitle ?? t("metaTitle");
   const metaTitle = t("metaTitle");
   const metaDescription = t("metaDescription");
-  const authoredDescriptions = docsDescriptionCandidateKeys[pageKey].map(
-    (key) => t(key),
-  );
-  const proseFragments = [metaDescription, ...authoredDescriptions].flatMap(
-    metadataSentenceFragments,
-  );
+  const standaloneDescriptions = [metaDescription, options.intro]
+    .filter((candidate): candidate is string => Boolean(candidate))
+    .map(firstMetadataSentence)
+    .filter((candidate): candidate is string => Boolean(candidate));
   const compactTitle =
     pageKey === "ohMyOpenCode" ? "oh-my-opencode" : undefined;
   return {
@@ -340,9 +283,8 @@ export function docsPageSeoCopy(
     ),
     description: selectDescription(locale, metaDescription, {
       completeCandidates: [
-        ...(curatedDescription ? [curatedDescription] : []),
-        ...authoredDescriptions,
-        ...proseFragments,
+        ...(options.curatedDescription ? [options.curatedDescription] : []),
+        ...standaloneDescriptions,
       ],
     }),
   };

@@ -1136,6 +1136,7 @@
     "api": {
       "title": "เอกสาร CLI",
       "metaDescription": "เอกสาร cmux CLI และ Unix socket API การจัดการ workspace, แยกหน้าจอ, ควบคุม input, แจ้งเตือน, metadata แถบข้าง, ตัวแปรสภาพแวดล้อม และวิธีตรวจจับ",
+      "metaDescriptionShort": "ใช้ cmux CLI และ Unix socket เพื่อจัดการ workspace แยกหน้าจอ ควบคุม input แจ้งเตือน และตรวจจับสถานะ.",
       "intro": "cmux มีทั้งเครื่องมือ CLI และ Unix socket สำหรับการควบคุมแบบโปรแกรม ทุกคำสั่งพร้อมใช้งานผ่านทั้งสองอินเทอร์เฟซ",
       "socket": "Socket",
       "buildHeader": "Build",
@@ -1280,6 +1281,7 @@
     "browserAutomation": {
       "title": "Browser Automation",
       "metaDescription": "เอกสารคำสั่ง cmux browser สำหรับ navigation, DOM interaction, waiting, inspection, JavaScript evaluation, แท็บ, dialog, frame, download และสถานะเบราว์เซอร์",
+      "metaDescriptionShort": "ใช้ cmux browser เพื่อนำทาง DOM รอ ตรวจสอบ รัน JavaScript จัดการแท็บ dialog frame download และสถานะเบราว์เซอร์.",
       "intro": "กลุ่มคำสั่ง cmux browser ให้ browser automation กับ cmux browser surface ใช้สำหรับ navigate, โต้ตอบกับ DOM element, ตรวจสอบสถานะหน้าเว็บ, evaluate JavaScript และจัดการข้อมูลเซสชันเบราว์เซอร์",
       "commandIndex": "ดัชนีคำสั่ง",
       "categoryHeader": "หมวดหมู่",
@@ -1321,6 +1323,7 @@
       "title": "ทักษะ",
       "metaTitle": "ทักษะ",
       "metaDescription": "ติดตั้งและใช้ทักษะของ agent สำหรับ cmux เพื่อควบคุม CLI หลัก ทำงานอัตโนมัติในเบราว์เซอร์ ใช้พาเนล Markdown หน้าต่าง debug และงาน release",
+      "metaDescriptionShort": "ติดตั้งทักษะ agent ของ cmux เพื่อควบคุม CLI ทำงานกับเบราว์เซอร์ พาเนล Markdown การ debug และ release.",
       "intro": "cmux มาพร้อมทักษะที่สอน coding agents ให้ใช้การควบคุม cmux CLI, พื้นผิวเบราว์เซอร์, พาเนล Markdown, หน้าต่าง debug และ workflow สำหรับ release",
       "installTitle": "ติดตั้ง",
       "installIntro": "รัน <code>skills.sh</code> เพื่อติดตั้งทักษะที่อยู่ใน repo ลงในไดเรกทอรีทักษะของ Codex",

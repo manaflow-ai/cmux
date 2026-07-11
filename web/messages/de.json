@@ -1466,6 +1466,7 @@
       "title": "SSH",
       "metaTitle": "SSH",
       "metaDescription": "Stellen Sie mit cmux ssh eine Verbindung zu Remote-Computern her. Browserfenster werden durch das Remote-Netzwerk geleitet, Bilder werden per Drag-and-Drop per SCP verschoben und Agentenbenachrichtigungen kommen sofort nach Hause.",
+      "metaDescriptionShort": "Verbinde dich mit cmux ssh mit Remote-Computern. Browser laufen über das Remote-Netzwerk, Dateien über scp und Agentenmeldungen zurück zum Mac.",
       "intro": "cmux ssh erstellt einen Arbeitsbereich für einen Remote-Computer. Browserfenster werden durch das Remote-Netzwerk weitergeleitet, Dateien werden per Drag-and-Drop per SCP verschoben, Codierungsagenten senden Benachrichtigungen an Ihre lokale Seitenleiste und Sitzungen werden beim Ablegen wieder verbunden.",
       "usage": "Nutzung",
       "usageDesc": "cmux ssh liest Ihre ~/.ssh/config für Host-Aliase, Identitätsdateien und Proxy-Einstellungen. Alle Flags spiegeln ihre SSH-Entsprechungen wider.",
@@ -1540,6 +1541,7 @@
     "ios": {
       "metaTitle": "iOS-App",
       "metaDescription": "Richte die cmux-Begleit-App für iOS ein: TestFlight-Zugang, eigenes Netzwerk mit Tailscale oder WireGuard, Kopplung, Benachrichtigungen und welche Daten cmux speichert.",
+      "metaDescriptionShort": "Richte die cmux-App für iOS ein: TestFlight-Zugang, Tailscale- oder WireGuard-Netzwerk, Kopplung, Benachrichtigungen und gespeicherte Daten.",
       "title": "iOS-App",
       "intro": "Die cmux-App für iOS ist ein Begleiter für deinen Mac. Koppele dein iPhone oder iPad mit einem Mac, auf dem cmux läuft, und verbinde dich vom Telefon aus mit deinen Terminals, mit optionaler Weiterleitung von Terminal-Benachrichtigungen.",
       "betaNote": "Die iOS-App ist in der Beta. Sie wird über TestFlight als cmux BETA bereitgestellt.",

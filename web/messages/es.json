@@ -1388,6 +1388,7 @@
     "dock": {
       "metaTitle": "Dock",
       "metaDescription": "Agrega controles TUI personalizados a la barra lateral derecha de cmux con Dock JSON.",
+      "metaDescriptionShort": "Agrega controles TUI personalizados a la barra lateral derecha de cmux con Dock JSON para feeds, registros, colas y herramientas interactivas.",
       "title": "Dock",
       "intro": "Dock te permite agregar controles TUI a la barra lateral derecha. Cada control es un comando definido en JSON y se muestra en su propia sección de terminal basada en Ghostty. Úsalo para feeds, registros, colas, estado de git, servidores de desarrollo o cualquier TUI que tu equipo quiera tener junto a cada workspace.",
       "configTitle": "Configuración",

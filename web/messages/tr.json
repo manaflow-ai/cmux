@@ -1540,6 +1540,7 @@
     "ios": {
       "metaTitle": "iOS Uygulaması",
       "metaDescription": "cmux iOS yardımcı uygulamasını kurun: TestFlight erişimi, Tailscale veya WireGuard ile kendi ağınızı kullanma, eşleştirme, bildirimler ve cmux'un hangi verileri sakladığı.",
+      "metaDescriptionShort": "cmux iOS uygulamasını TestFlight, Tailscale veya WireGuard ağı, Mac eşleştirmesi, bildirimler ve veri denetimiyle kurun.",
       "title": "iOS Uygulaması",
       "intro": "cmux iOS uygulaması, Mac'iniz için bir yardımcıdır. iPhone veya iPad'inizi cmux çalıştıran bir Mac ile eşleştirin ve terminallerinize telefonunuzdan bağlanın; isteğe bağlı olarak terminal bildirimlerini iletebilirsiniz.",
       "betaNote": "iOS uygulaması beta aşamasındadır. TestFlight'ta cmux BETA olarak yayınlanır.",

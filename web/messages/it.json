@@ -1466,6 +1466,7 @@
       "title": "SSH",
       "metaTitle": "SSH",
       "metaDescription": "Connettiti a macchine remote con cmux ssh. I riquadri del browser vengono instradati attraverso la rete remota, le immagini vengono trascinate e rilasciate tramite scp e le notifiche degli agenti arrivano a casa.",
+      "metaDescriptionShort": "Connettiti con cmux ssh a macchine remote. Instrada il browser sulla rete remota, trasferisci file via scp e ricevi notifiche degli agenti.",
       "intro": "cmux ssh crea uno spazio di lavoro per un computer remoto. I riquadri del browser vengono instradati attraverso la rete remota, i file vengono trascinati e rilasciati tramite scp, gli agenti di codifica inviano notifiche alla barra laterale locale e le sessioni si riconnettono in caso di rilascio.",
       "usage": "Utilizzo",
       "usageDesc": "cmux ssh legge il tuo ~/.ssh/config per alias host, file di identità e impostazioni proxy. Tutti i flag rispecchiano i loro equivalenti ssh.",
@@ -1540,6 +1541,7 @@
     "ios": {
       "metaTitle": "App per iOS",
       "metaDescription": "Configura l'app companion di cmux per iOS: accesso tramite TestFlight, rete personale con Tailscale o WireGuard, abbinamento, notifiche e quali dati memorizza cmux.",
+      "metaDescriptionShort": "Configura l'app cmux per iOS con TestFlight, rete Tailscale o WireGuard, abbinamento al Mac, notifiche e controllo dei dati memorizzati.",
       "title": "App per iOS",
       "intro": "L'app cmux per iOS è un companion per il tuo Mac. Abbina il tuo iPhone o iPad a un Mac che esegue cmux e collegati ai tuoi terminali dal telefono, con inoltro opzionale delle notifiche del terminale.",
       "betaNote": "L'app per iOS è in beta. Viene distribuita su TestFlight come cmux BETA.",

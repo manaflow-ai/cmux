@@ -1319,6 +1319,7 @@
       "title": "ជំនាញ",
       "metaTitle": "ជំនាញ",
       "metaDescription": "ដំឡើង និងប្រើជំនាញ agent របស់ cmux សម្រាប់ការគ្រប់គ្រង CLI មូលដ្ឋាន ការធ្វើស្វ័យប្រវត្តិកម្ម browser, ផ្ទាំង Markdown, បង្អួច debug និងការចេញផ្សាយ។",
+      "metaDescriptionShort": "ជំនាញ cmux គ្រប់គ្រង CLI និង browser ព្រមទាំងផ្ទាំង Markdown ការ debug release និងលំហូរការងារ agent។",
       "intro": "cmux ភ្ជាប់មកជាមួយជំនាញដែលបង្រៀន coding agents ឱ្យប្រើការគ្រប់គ្រង cmux CLI, ផ្ទៃ browser, ផ្ទាំង Markdown, បង្អួច debug និង workflow ចេញផ្សាយ។",
       "installTitle": "ដំឡើង",
       "installIntro": "រត់ <code>skills.sh</code> ដើម្បីដំឡើងជំនាញដែលមានក្នុង repo ទៅកាន់ថតជំនាញ Codex របស់អ្នក។",
