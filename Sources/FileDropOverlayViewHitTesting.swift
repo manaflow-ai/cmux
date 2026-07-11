@@ -12,6 +12,18 @@ extension FileDropOverlayView {
             pasteboardTypes: types,
             hasLocalDraggingSource: hasLocalDraggingSource
         )
+        switch classifySidebarFolderDrop(sender) {
+        case .openFolders:
+            hintBadgeView.hide()
+            exitActiveDragTargets(sender)
+            return .copy
+        case .rejectOverSidebar:
+            hintBadgeView.hide()
+            exitActiveDragTargets(sender)
+            return []
+        case .notSidebar:
+            break
+        }
         updateHintBadge(sender: sender, pasteboardTypes: types)
 
         if shouldRouteFileDropToTextDestination(sender) {

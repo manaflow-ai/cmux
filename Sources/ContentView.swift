@@ -668,6 +668,15 @@ private func configureFileDropOverlay(_ overlay: FileDropOverlayView, tabManager
             return terminal.hostedView.handleDroppedURLs(urls)
         }
     }
+    overlay.onFoldersDroppedOnSidebar = { [weak tabManager] directories in
+        MainActor.assumeIsolated {
+            guard let tabManager, !directories.isEmpty else { return false }
+            for directory in directories {
+                tabManager.addWorkspace(workingDirectory: directory.path)
+            }
+            return true
+        }
+    }
 }
 
 private func attachFileDropOverlay(
@@ -1657,6 +1666,7 @@ struct ContentView: View {
         )
         .frame(width: sidebarWidth)
         .frame(maxHeight: .infinity, alignment: .topLeading)
+        .background(SidebarDropRegionProbe())
     }
 
     /// Native titlebar inset reported by AppKit. Standard mode follows cmux's visual chrome;
