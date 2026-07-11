@@ -8,7 +8,6 @@ actor CmxIrohLibEndpoint: CmxIrohEndpoint {
     private let alpns: Set<Data>
     private let managedRelayURLs: Set<String>
     private var relayConfigurations: [String: CmxIrohRelayConfiguration]
-    private var networkWatch: WatchHandle?
     private var addressWatch: WatchHandle?
     private var onlineTask: Task<Void, Never>?
     private var closureTask: Task<Void, Never>?
@@ -34,12 +33,10 @@ actor CmxIrohLibEndpoint: CmxIrohEndpoint {
     }
 
     func startMonitoring() {
-        guard networkWatch == nil, addressWatch == nil, closureTask == nil else { return }
-        networkWatch = driver.watchNetworkChange(
-            callback: CmxIrohLibNetworkChangeCallback { [weak self] in
-                await self?.publish(.networkChanged)
-            }
-        )
+        guard addressWatch == nil, closureTask == nil else { return }
+        // Iroh's `network_change()` is an input that tells the endpoint to
+        // rescan, not an observable event. `watchAddr` is the authoritative
+        // output for route changes after Iroh's native network monitor runs.
         addressWatch = driver.watchAddr(
             callback: CmxIrohLibAddressChangeCallback { [weak self] in
                 await self?.publish(.networkChanged)
@@ -186,9 +183,7 @@ actor CmxIrohLibEndpoint: CmxIrohEndpoint {
         closureTask?.cancel()
         onlineTask = nil
         closureTask = nil
-        await networkWatch?.stop()
         await addressWatch?.stop()
-        networkWatch = nil
         addressWatch = nil
         try? await driver.close()
         closed = true
@@ -245,9 +240,7 @@ actor CmxIrohLibEndpoint: CmxIrohEndpoint {
         onlineTask?.cancel()
         onlineTask = nil
         closureTask = nil
-        await networkWatch?.stop()
         await addressWatch?.stop()
-        networkWatch = nil
         addressWatch = nil
         finishObservers()
     }
