@@ -66,9 +66,11 @@ def run_wrapper(
     with tempfile.TemporaryDirectory(prefix="cmux-codex-wrapper-test-") as td:
         tmp = Path(td)
         wrapper_dir = tmp / "wrapper-bin"
+        libexec_dir = tmp / "libexec"
         real_dir = tmp / "real-bin"
         computer_use_dir = tmp / "computer-use-mcp"
         wrapper_dir.mkdir(parents=True)
+        libexec_dir.mkdir(parents=True)
         real_dir.mkdir(parents=True)
         computer_use_dir.mkdir(parents=True)
 
@@ -107,7 +109,7 @@ exit 1
 """,
         )
         make_executable(
-            wrapper_dir / "cmux-computer-use-provider",
+            libexec_dir / "cmux-computer-use-provider",
             "#!/usr/bin/env bash\nexit 0\n",
         )
         if bundled_mcp:

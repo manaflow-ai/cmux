@@ -288,12 +288,12 @@ async function runProviderClosedStdinSmoke() {
   const tmp = await mkdtemp(join(tmpdir(), "cmux-cu-provider-stdin-"));
   try {
     const moduleDir = join(tmp, "computer-use-mcp");
-    const binDir = join(tmp, "bin");
+    const libexecDir = join(tmp, "libexec");
     await mkdir(moduleDir, { recursive: true });
-    await mkdir(binDir, { recursive: true });
+    await mkdir(libexecDir, { recursive: true });
     const copiedServerPath = join(moduleDir, "cmux-computer-use-mcp.mjs");
     await cp(serverPath, copiedServerPath);
-    const providerPath = join(binDir, "cmux-computer-use-provider");
+    const providerPath = join(libexecDir, "cmux-computer-use-provider");
     await writeFile(
       providerPath,
       [
@@ -330,6 +330,44 @@ async function runProviderClosedStdinSmoke() {
     }
     await client.close();
     return { failed, followUp };
+  } finally {
+    await rm(tmp, { recursive: true, force: true });
+  }
+}
+
+async function runPrivateProviderLayoutSmoke() {
+  const tmp = await mkdtemp(join(tmpdir(), "cmux-cu-private-provider-"));
+  try {
+    const binDir = join(tmp, "bin");
+    const libexecDir = join(tmp, "libexec");
+    await mkdir(binDir, { recursive: true });
+    await mkdir(libexecDir, { recursive: true });
+    const copiedServerPath = join(binDir, "cmux-computer-use-mcp.mjs");
+    await cp(serverPath, copiedServerPath);
+    const providerPath = join(libexecDir, "cmux-computer-use-provider");
+    await writeFile(
+      providerPath,
+      [
+        "#!/bin/sh",
+        "cat >/dev/null",
+        "printf '%s' '{\"ok\":true,\"apps\":[{\"name\":\"PrivateProviderApp\",\"bundleIdentifier\":\"com.cmux.private-provider\",\"pid\":4242}]}'",
+        "",
+      ].join("\n"),
+      "utf8"
+    );
+    await chmod(providerPath, 0o755);
+
+    const transport = new StdioClientTransport({
+      command: process.execPath,
+      args: [copiedServerPath],
+      env: fakeEnv({ CMUX_CU_FAKE_PROVIDER: "0", CMUX_CU_AUTO_APPROVE: "1" }),
+      stderr: "pipe",
+    });
+    const client = new Client({ name: "cu-private-provider-smoke", version: "0.0.1" });
+    await client.connect(transport);
+    const result = summarizeResult(await client.callTool({ name: "computer_apps", arguments: {} }));
+    await client.close();
+    return result;
   } finally {
     await rm(tmp, { recursive: true, force: true });
   }
@@ -920,6 +958,13 @@ if (
   providerClosedStdin.followUp.isError
 ) {
   console.error("FAIL: provider stdin errors should return an error without crashing the MCP server");
+  process.exit(1);
+}
+
+const privateProviderLayout = await runPrivateProviderLayoutSmoke();
+console.log(`private provider layout -> isError=${privateProviderLayout.isError} text=${privateProviderLayout.text}`);
+if (privateProviderLayout.isError || !privateProviderLayout.text.includes("PrivateProviderApp")) {
+  console.error("FAIL: bundled MCP server should resolve the native provider from private libexec");
   process.exit(1);
 }
 

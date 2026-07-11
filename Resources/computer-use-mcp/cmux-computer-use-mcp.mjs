@@ -545,6 +545,7 @@ class FakeComputerUseProvider {
     this.rotatingIdentityPid = 2000;
     this.disposed = false;
     this.dormantTestAppOpened = false;
+    this.dormantTestAppResolveAttempts = 0;
   }
 
   ensureActive() {
@@ -568,7 +569,7 @@ class FakeComputerUseProvider {
       { name: "NoScreenshotApp", bundleIdentifier: "com.cmux.noscreenshot", pid: 1006 },
       { name: "RotatingIdentityApp", bundleIdentifier: "com.cmux.rotating", pid: this.rotatingIdentityPid },
     ];
-    if (this.dormantTestAppOpened) {
+    if (this.dormantTestAppResolveAttempts >= 2) {
       identities.push({ name: "DormantTestApp", bundleIdentifier: "com.cmux.dormant", pid: 1007 });
     }
     return identities;
@@ -597,6 +598,12 @@ class FakeComputerUseProvider {
 
   async resolveApp(app, { allowPartialMatch = false } = {}) {
     this.ensureActive();
+    if (
+      this.dormantTestAppOpened &&
+      ["dormanttestapp", "com.cmux.dormant"].includes(app.toLowerCase())
+    ) {
+      this.dormantTestAppResolveAttempts += 1;
+    }
     if (app === "RotatingIdentityApp") {
       this.rotatingIdentityPid += 1;
       return { name: app, bundleIdentifier: "com.cmux.rotating", pid: this.rotatingIdentityPid };
@@ -624,7 +631,7 @@ class FakeComputerUseProvider {
     this.ensureActive();
     if (["dormanttestapp", "com.cmux.dormant"].includes(app.toLowerCase())) {
       this.dormantTestAppOpened = true;
-      return this.identityForApp("DormantTestApp");
+      return null;
     }
     return this.resolveApp(app, { allowPartialMatch: true });
   }

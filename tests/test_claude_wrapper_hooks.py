@@ -935,8 +935,10 @@ def computer_use_sandbox(
                 "// test stub\n", encoding="utf-8"
             )
         if provider:
+            libexec_dir = tmp / "libexec"
+            libexec_dir.mkdir(parents=True, exist_ok=True)
             make_executable(
-                tmp / "wrapper-bin" / "cmux-computer-use-provider",
+                libexec_dir / "cmux-computer-use-provider",
                 "#!/usr/bin/env bash\nexit 0\n",
             )
         if workspace_node_first:
