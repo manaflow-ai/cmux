@@ -228,6 +228,39 @@ private final class BlockingSnapshotLoadGate: @unchecked Sendable {
         #expect(duplicatePostResetAuthority == postResetAuthority)
     }
 
+    @Test func delayedPreResetWatermarkCannotBlockWrappedSequence() async throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("main")
+        let repository = try #require(
+            GitMetadataService.resolveGitRepository(containing: fixture.root.path)
+        )
+        let identity = GitTrackedChangesRepositoryIdentity(repository: repository)
+        let scope = GitTrackedChangesSnapshotScope()
+
+        let preReset = await scope.recordWatcherEvent(
+            for: identity,
+            source: .stable(GitTrackedPathEventID(rawValue: UInt64.max - 2))
+        )
+        let reset = await scope.recordWatcherEvent(for: identity, source: .sequenceReset)
+        let delayedPreReset = await scope.recordWatcherEvent(
+            for: identity,
+            source: .stable(GitTrackedPathEventID(rawValue: UInt64.max - 1))
+        )
+        let wrapped = await scope.recordWatcherEvent(
+            for: identity,
+            source: .stable(GitTrackedPathEventID(rawValue: 1))
+        )
+        let duplicateWrapped = await scope.recordWatcherEvent(
+            for: identity,
+            source: .stable(GitTrackedPathEventID(rawValue: 1))
+        )
+
+        #expect(reset != preReset)
+        #expect(delayedPreReset != reset)
+        #expect(wrapped != delayedPreReset)
+        #expect(duplicateWrapped == wrapped)
+    }
+
     @Test func laterFallbackRescansAndCatchesMissedWatcherEvent() async throws {
         let fixture = try GitRepositoryFixture()
         try fixture.writeBranch("main")
