@@ -53,4 +53,36 @@ struct CanvasPortalHostOwnershipTests {
         #expect(replacementFocusCount == 1)
         #expect(replacementFlashCount == 1)
     }
+
+    @Test
+    @MainActor
+    func staleCanvasUnmountLeavesReparentedDirectHostIntact() {
+        let panel = TerminalPanel(workspaceId: UUID())
+        let hostedView = panel.hostedView
+        defer {
+            hostedView.removeFromSuperview()
+            panel.surface.teardownSurface()
+        }
+
+        let canvasContainer = NSView(frame: CGRect(x: 0, y: 0, width: 400, height: 300))
+        let staleCanvasMount = CanvasPaneContentMount(
+            content: .terminal(panel),
+            panelId: panel.id,
+            container: canvasContainer,
+            onFocusPanel: { _ in }
+        )
+        let replacementDirectHost = NSView(frame: canvasContainer.bounds)
+        replacementDirectHost.addSubview(hostedView)
+        hostedView.setActive(true)
+        hostedView.setInactiveOverlay(color: .red, opacity: 0.5, visible: true)
+
+        staleCanvasMount.unmount()
+
+        #expect(
+            hostedView.superview === replacementDirectHost,
+            "A stale Canvas unmount must not detach a terminal that AppKit already reparented"
+        )
+        #expect(hostedView.debugPortalActive)
+        #expect(!hostedView.debugInactiveOverlayState().isHidden)
+    }
 }
