@@ -60,16 +60,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
         }
 
         let stateURL = root.appendingPathComponent("claude-hook-sessions.json")
-        try JSONSerialization.data(withJSONObject: [
-            "sessions": [sessionId: [
-                "sessionId": sessionId,
-                "workspaceId": workspaceId,
-                "surfaceId": surfaceId,
-                "startedAt": Date().timeIntervalSince1970,
-                "updatedAt": Date().timeIntervalSince1970,
-            ]],
-        ]).write(to: stateURL, options: .atomic)
-
         let serverHandled = startMockServer(listenerFD: listenerFD, state: state, connectionCount: 2) { line in
             guard let payload = self.jsonObject(line),
                   let id = payload["id"] as? String,
