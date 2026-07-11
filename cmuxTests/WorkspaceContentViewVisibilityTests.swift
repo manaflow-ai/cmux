@@ -4,6 +4,7 @@ import CmuxUpdater
 import CoreGraphics
 import SwiftUI
 import Bonsplit
+import CmuxCanvasUI
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -361,11 +362,26 @@ struct CanvasPortalLifecycleTests {
             "The selected workspace portal must become visible before the Canvas transition"
         )
         let workspace = try #require(tabManager.selectedWorkspace)
+        let hostedView = try #require(workspace.focusedTerminalPanel?.hostedView)
+        let initialTerminalBecamePortalBound = await Self.waitForPortalCondition(in: window) {
+            guard let portal = TerminalWindowPortalRegistry.mappedPortal(for: hostedView),
+                  let entry = portal.entriesByHostedId[ObjectIdentifier(hostedView)],
+                  let anchor = entry.anchorView else {
+                return false
+            }
+            return TerminalWindowPortalRegistry.isHostedView(hostedView, boundTo: anchor)
+        }
+        #expect(
+            initialTerminalBecamePortalBound,
+            "The terminal must start in the split layout's window portal"
+        )
         #expect(workspace.portalPresentationVisible)
 
         workspace.setLayoutMode(.canvas)
         let canvasPortalStayedVisible = await Self.waitForPortalCondition(in: window) {
-            workspace.layoutMode == .canvas && workspace.portalPresentationVisible
+            workspace.layoutMode == .canvas &&
+                workspace.portalPresentationVisible &&
+                Self.hasCanvasRootAncestor(hostedView)
         }
 
         #expect(workspace.layoutMode == .canvas)
@@ -458,5 +474,15 @@ struct CanvasPortalLifecycleTests {
         }
         window.contentView?.layoutSubtreeIfNeeded()
         return condition()
+    }
+
+    @MainActor
+    private static func hasCanvasRootAncestor(_ view: NSView) -> Bool {
+        var ancestor = view.superview
+        while let current = ancestor {
+            if current is CanvasRootView { return true }
+            ancestor = current.superview
+        }
+        return false
     }
 }
