@@ -1,6 +1,6 @@
 import { useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
-import { buildAlternates } from "@/i18n/seo";
+import { buildAlternates, openGraphDefaults, seoDescription, twitterSummary } from "@/i18n/seo";
 import { DocsSchema } from "../docs-schema";
 import { CodeBlock } from "@/app/[locale]/components/code-block";
 import { Callout } from "@/app/[locale]/components/callout";
@@ -13,10 +13,20 @@ export async function generateMetadata({
 }) {
   const { locale } = await params;
   const t = await getTranslations({ locale, namespace: "docs.dock" });
+  const alternates = buildAlternates(locale, "/docs/dock");
+  const title = t("metaTitle");
+  const description = seoDescription(locale, t("metaDescription"));
   return {
-    title: t("metaTitle"),
-    description: t("metaDescription"),
-    alternates: buildAlternates(locale, "/docs/dock"),
+    title,
+    description,
+    alternates,
+    openGraph: {
+      ...openGraphDefaults(locale, "article"),
+      title,
+      description,
+      url: alternates.canonical,
+    },
+    twitter: twitterSummary(locale, title, description),
   };
 }
 
