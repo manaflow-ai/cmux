@@ -54,7 +54,8 @@ struct BrowserWebExtensionsCard: View {
         .onChange(of: model.writeResultRevision) { _, _ in
             cardState.reconcileWriteResult(
                 completedWriteID: model.lastCompletedWriteID,
-                failed: model.lastWriteError != nil
+                failed: model.lastWriteError != nil,
+                observedEntries: model.current
             )
         }
     }

@@ -36,11 +36,19 @@ struct BrowserWebExtensionsCardStateTests {
         var state = BrowserWebExtensionsCardState()
         state.beginWrite(entries: pending, writeID: 2)
 
-        state.reconcileWriteResult(completedWriteID: 1, failed: true)
+        state.reconcileWriteResult(
+            completedWriteID: 1,
+            failed: true,
+            observedEntries: observed
+        )
         #expect(state.effectiveEntries(observed: observed) == pending)
         #expect(!state.hasWriteError)
 
-        state.reconcileWriteResult(completedWriteID: 2, failed: true)
+        state.reconcileWriteResult(
+            completedWriteID: 2,
+            failed: true,
+            observedEntries: observed
+        )
         #expect(state.effectiveEntries(observed: observed) == observed)
         #expect(state.hasWriteError)
 
@@ -84,7 +92,7 @@ struct BrowserWebExtensionsCardStateTests {
     }
 
     @Test
-    func successfulWriteKeepsPendingStateUntilDelayedObservationArrives() {
+    func successfulWriteKeepsPendingStateUntilNextAuthoritativeObservationArrives() {
         let observed = [entry(id: "existing")]
         let pending = observed + [entry(id: "new")]
         var state = BrowserWebExtensionsCardState()
@@ -97,9 +105,11 @@ struct BrowserWebExtensionsCardStateTests {
         )
         #expect(state.effectiveEntries(observed: observed) == pending)
 
-        state.reconcileObservedEntries(pending)
+        let externallyUpdated = [entry(id: "external")]
+        state.reconcileObservedEntries(externallyUpdated)
         #expect(state.pendingEntries == nil)
         #expect(state.pendingWriteID == nil)
+        #expect(state.effectiveEntries(observed: externallyUpdated) == externallyUpdated)
     }
 
     private func entry(id: String) -> BrowserWebExtensionEntry {
