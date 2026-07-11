@@ -100,13 +100,10 @@ extension AppDelegate {
         reason: String
     ) -> [(surface: TerminalSurface, lease: MobileViewportFontFitReloadLease)] {
         var prepared: [(surface: TerminalSurface, lease: MobileViewportFontFitReloadLease)] = []
-        var seenSurfaceIDs = Set<UUID>()
-        forEachTerminalPanel { terminalPanel in
-            let surface = terminalPanel.surface
-            guard seenSurfaceIDs.insert(surface.id).inserted,
-                  let lease = surface.prepareMobileViewportFontFitForConfigurationReload(
-                      reason: reason
-                  ) else { return }
+        for surface in GhosttyApp.terminalSurfaceRegistry.allTerminalSurfaces() {
+            guard let lease = surface.prepareMobileViewportFontFitForConfigurationReload(
+                reason: reason
+            ) else { continue }
             prepared.append((surface: surface, lease: lease))
         }
         return prepared

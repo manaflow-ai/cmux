@@ -14,9 +14,16 @@ struct MobileViewportFontFitState: Equatable {
     mutating func begin(
         baseFontPointSize: Float,
         configuredFontPointSize: Float,
-        preservedUserAdjustedBaseFontPointSize _: Float? = nil
+        preservedUserAdjustedBaseFontPointSize: Float? = nil
     ) {
         guard self.baseFontPointSize == nil else { return }
+        if let preservedUserAdjustedBaseFontPointSize,
+           preservedUserAdjustedBaseFontPointSize.isFinite,
+           preservedUserAdjustedBaseFontPointSize > 0 {
+            self.baseFontPointSize = preservedUserAdjustedBaseFontPointSize
+            baseWasUserAdjusted = true
+            return
+        }
         self.baseFontPointSize = baseFontPointSize
         baseWasUserAdjusted = !Self.approximatelyEqual(
             baseFontPointSize,

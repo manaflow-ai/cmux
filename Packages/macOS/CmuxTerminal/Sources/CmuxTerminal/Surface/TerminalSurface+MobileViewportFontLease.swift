@@ -3,10 +3,11 @@ import Foundation
 
 /// Opaque token pairing a synchronous configuration reload with its active
 /// mobile viewport font lease.
-public struct MobileViewportFontFitReloadLease {
+nonisolated public struct MobileViewportFontFitReloadLease {
     let columns: Int
     let rows: Int
     let surrendered: Bool
+    let userAdjustedBaseFontPointSize: Float?
 }
 
 extension TerminalSurface {
@@ -57,11 +58,15 @@ extension TerminalSurface {
         }
 
         let hadAutomaticFit = mobileViewportFontFitState.fittedFontPointSize != nil
+        let userAdjustedBaseFontPointSize = mobileViewportFontFitState.baseWasUserAdjusted == true
+            ? mobileViewportFontFitState.baseFontPointSize
+            : nil
         let surrendered = !hadAutomaticFit || restoreMobileViewportFitFontIfNeeded()
         return MobileViewportFontFitReloadLease(
             columns: limit.columns,
             rows: limit.rows,
-            surrendered: surrendered
+            surrendered: surrendered,
+            userAdjustedBaseFontPointSize: userAdjustedBaseFontPointSize
         )
     }
 
@@ -80,6 +85,12 @@ extension TerminalSurface {
             : nil
         if lease.surrendered {
             mobileViewportFontFitState.clear()
+            let liveFont = configuredFontOverride ?? configuredMobileViewportFontPointSize()
+            mobileViewportFontFitState.begin(
+                baseFontPointSize: liveFont,
+                configuredFontPointSize: liveFont,
+                preservedUserAdjustedBaseFontPointSize: lease.userAdjustedBaseFontPointSize
+            )
         }
         _ = applyMobileViewportLimit(
             columns: lease.columns,

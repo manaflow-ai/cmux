@@ -1,6 +1,6 @@
 import Foundation
 
-struct MobileViewportScaleProjection: Equatable {
+nonisolated struct MobileViewportScaleProjection: Equatable {
     let xRatio: Double
     let yRatio: Double
 
