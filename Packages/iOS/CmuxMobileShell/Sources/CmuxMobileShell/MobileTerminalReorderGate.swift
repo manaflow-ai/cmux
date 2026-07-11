@@ -5,31 +5,35 @@ public import Observation
 @MainActor
 @Observable
 public final class MobileTerminalReorderGate {
-    private(set) var activeWorkspaceID: MobileWorkspacePreview.ID?
-    private(set) var activePaneID: MobilePanePreview.ID?
+    private var activeReservation: MobileTerminalReorderReservation?
 
     /// Creates an inactive reorder gate.
     public init() {}
 
     /// Whether an authoritative reorder is still in flight.
-    public var isActive: Bool { activeWorkspaceID != nil }
+    public var isActive: Bool { activeReservation != nil }
 
-    func begin(
+    /// Claims the reorder owner before optimistic UI changes are applied.
+    public func reserve(
         workspaceID: MobileWorkspacePreview.ID,
         paneID: MobilePanePreview.ID
-    ) -> Bool {
-        guard !isActive else { return false }
-        activeWorkspaceID = workspaceID
-        activePaneID = paneID
-        return true
+    ) -> MobileTerminalReorderReservation? {
+        guard !isActive else { return nil }
+        let reservation = MobileTerminalReorderReservation(
+            workspaceID: workspaceID,
+            paneID: paneID
+        )
+        activeReservation = reservation
+        return reservation
     }
 
-    func finish(
-        workspaceID: MobileWorkspacePreview.ID,
-        paneID: MobilePanePreview.ID
-    ) {
-        guard activeWorkspaceID == workspaceID, activePaneID == paneID else { return }
-        activeWorkspaceID = nil
-        activePaneID = nil
+    /// Releases the owner only for the matching reorder operation.
+    public func finish(_ reservation: MobileTerminalReorderReservation) {
+        guard activeReservation == reservation else { return }
+        activeReservation = nil
+    }
+
+    func owns(_ reservation: MobileTerminalReorderReservation) -> Bool {
+        activeReservation == reservation
     }
 }

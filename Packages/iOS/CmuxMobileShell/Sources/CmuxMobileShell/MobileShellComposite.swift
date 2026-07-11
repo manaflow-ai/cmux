@@ -3746,47 +3746,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         workspacesByMac[macID] = state
     }
 
-    /// Coalesced full-list refresh for a secondary Mac driven by
-    /// `workspace.updated` pushes. Leading + trailing: if a refresh is already
-    /// running we only flag a trailing pass, so a hot event stream collapses to
-    /// at most one extra scan after the in-flight one (not one scan, and one
-    /// MainActor aggregate update, per event). Bounded — each fetch completes
-    /// before the next starts, so there is no cancel/restart starvation.
-    private func scheduleSecondaryRefresh(
-        macID: String,
-        client: MobileCoreRPCClient,
-        displayName: String?
-    ) {
-        guard let subscription = secondaryMacSubscriptions[macID],
-              subscription.client === client else { return }
-        guard subscription.refreshTask == nil else {
-            subscription.refreshPending = true
-            return
-        }
-        subscription.refreshTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            repeat {
-                // Clear before the fetch; an event during the await re-sets it and
-                // we loop once more (the trailing refresh).
-                self.secondaryMacSubscriptions[macID]?.refreshPending = false
-                let previews = await self.fetchSecondaryWorkspaces(on: client, macDeviceID: macID)
-                // Bail if the subscription was replaced/torn down across the await.
-                guard let current = self.secondaryMacSubscriptions[macID],
-                      current.client === client else { return }
-                if let previews {
-                    self.workspacesByMac[macID] = MacWorkspaceState(
-                        macDeviceID: macID,
-                        displayName: displayName,
-                        workspaces: previews,
-                        status: .connected,
-                        actionCapabilities: current.actionCapabilities
-                    )
-                }
-            } while self.secondaryMacSubscriptions[macID]?.refreshPending == true
-            self.secondaryMacSubscriptions[macID]?.refreshTask = nil
-        }
-    }
-
     /// Routing target for a workspace mutation (rename / pin / unread / close): the
     /// connection that owns `id` in the aggregated multi-Mac list.
     ///

@@ -10,19 +10,24 @@ extension MobileShellComposite {
         guard let macID = target.macDeviceID,
               let subscription = secondaryMacSubscriptions[macID] else { return }
         let displayName = workspacesByMac[macID]?.displayName
-        let previews = await fetchSecondaryWorkspaces(
-            on: subscription.client,
-            macDeviceID: macID
+        let targetGeneration = subscription.refreshStartedGeneration &+ 1
+        subscription.refreshPending = true
+        scheduleSecondaryRefresh(
+            macID: macID,
+            client: subscription.client,
+            displayName: displayName
         )
-        guard let current = secondaryMacSubscriptions[macID],
-              current.client === subscription.client,
-              let previews else { return }
-        workspacesByMac[macID] = MacWorkspaceState(
-            macDeviceID: macID,
-            displayName: displayName,
-            workspaces: previews,
-            status: .connected,
-            actionCapabilities: current.actionCapabilities
-        )
+        while secondaryMacSubscriptions[macID] === subscription,
+              subscription.refreshCompletedGeneration < targetGeneration {
+            guard let refreshTask = subscription.refreshTask else {
+                scheduleSecondaryRefresh(
+                    macID: macID,
+                    client: subscription.client,
+                    displayName: displayName
+                )
+                continue
+            }
+            await refreshTask.value
+        }
     }
 }

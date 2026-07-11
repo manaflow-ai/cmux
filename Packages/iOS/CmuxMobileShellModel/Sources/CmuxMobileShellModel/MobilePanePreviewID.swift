@@ -1,7 +1,7 @@
 /// A stable, string-backed mobile pane identifier.
 public struct MobilePanePreviewID: RawRepresentable, Hashable, Codable, Sendable, ExpressibleByStringLiteral {
     /// The underlying pane identifier string.
-    public var rawValue: String
+    public let rawValue: String
 
     /// Creates an identifier from its raw string value.
     public init(rawValue: String) {

@@ -79,8 +79,10 @@ public struct TerminalHierarchyPreviewView: View {
     }
 
     private func reorderTerminal(
-        _ intent: MobileTerminalReorderIntent
+        _ intent: MobileTerminalReorderIntent,
+        reservation: MobileTerminalReorderReservation
     ) async -> Result<Void, MobileWorkspaceMutationFailure> {
+        defer { reorderGate.finish(reservation) }
         if simulatesMutationFailure, !hasSimulatedMutationFailure {
             hasSimulatedMutationFailure = true
             return .failure(.notConnected(hostDisplayName: workspace.macDisplayName))

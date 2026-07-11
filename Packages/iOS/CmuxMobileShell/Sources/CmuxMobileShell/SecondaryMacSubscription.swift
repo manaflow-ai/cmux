@@ -21,6 +21,8 @@ final class SecondaryMacSubscription {
     /// Coalesces hot `workspace.updated` bursts to one leading and one trailing fetch.
     var refreshTask: Task<Void, Never>?
     var refreshPending = false
+    var refreshStartedGeneration: UInt64 = 0
+    var refreshCompletedGeneration: UInt64 = 0
 
     init(
         macDeviceID: String,

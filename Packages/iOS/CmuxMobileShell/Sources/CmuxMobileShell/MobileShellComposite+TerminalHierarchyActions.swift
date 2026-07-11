@@ -49,7 +49,8 @@ extension MobileShellComposite {
     @discardableResult
     public func reorderTerminal(
         workspaceID: MobileWorkspacePreview.ID,
-        intent: MobileTerminalReorderIntent
+        intent: MobileTerminalReorderIntent,
+        reservation: MobileTerminalReorderReservation
     ) async -> Result<Void, MobileWorkspaceMutationFailure> {
         guard let workspace = workspaces.first(where: { $0.id == workspaceID }),
               workspace.actionCapabilities.supportsTerminalReorderActions,
@@ -57,11 +58,13 @@ extension MobileShellComposite {
               pane.terminalIDs.contains(intent.terminalID) else {
             return .failure(.rejected(hostDisplayName: workspaceHostDisplayName(for: workspaceID)))
         }
-        guard terminalReorderGate.begin(workspaceID: workspaceID, paneID: intent.paneID) else {
+        guard reservation.workspaceID == workspaceID,
+              reservation.paneID == intent.paneID,
+              terminalReorderGate.owns(reservation) else {
             return .failure(.busy(hostDisplayName: workspaceHostDisplayName(for: workspaceID)))
         }
         defer {
-            terminalReorderGate.finish(workspaceID: workspaceID, paneID: intent.paneID)
+            terminalReorderGate.finish(reservation)
         }
         var params = workspaceMutationParams(id: workspaceID)
         params["surface_id"] = intent.terminalID.rawValue

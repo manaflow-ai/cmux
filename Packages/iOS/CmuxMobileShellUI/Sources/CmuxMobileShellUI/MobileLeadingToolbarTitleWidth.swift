@@ -10,7 +10,7 @@ struct MobileLeadingToolbarTitleWidth {
     let hasBackButton: Bool
     let hasTrailingCluster: Bool
     let hasChatToggle: Bool
-    var hasTerminalAdd = false
+    let hasTerminalAdd: Bool
 
     static let backButtonReserve: CGFloat = 44
     static let trailingReserveBase: CGFloat = 64

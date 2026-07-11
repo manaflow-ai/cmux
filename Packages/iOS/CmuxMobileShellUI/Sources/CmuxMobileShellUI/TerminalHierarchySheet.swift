@@ -12,7 +12,10 @@ struct TerminalHierarchySheet: View {
     let createTerminal: () -> Void
     let selectTerminal: (MobileTerminalPreview.ID) -> Void
     let reorderGate: MobileTerminalReorderGate
-    let reorderTerminal: (MobileTerminalReorderIntent) async -> Result<Void, MobileWorkspaceMutationFailure>
+    let reorderTerminal: (
+        MobileTerminalReorderIntent,
+        MobileTerminalReorderReservation
+    ) async -> Result<Void, MobileWorkspaceMutationFailure>
     let closeTerminal: (MobileTerminalPreview.ID, Bool) async -> Result<Void, MobileWorkspaceMutationFailure>
 
     @Environment(\.dismiss) private var dismiss
@@ -228,8 +231,7 @@ struct TerminalHierarchySheet: View {
         if destination == sourceIndex || destination == sourceIndex + 1 {
             return
         }
-        guard !reorderGate.isActive,
-              let intent = MobileTerminalReorderIntent(
+        guard let intent = MobileTerminalReorderIntent(
                   terminalID: pane.rows[sourceIndex].id,
                   sourceIndex: sourceIndex,
                   destinationIndex: destination,
@@ -238,13 +240,18 @@ struct TerminalHierarchySheet: View {
             mutationFailed = true
             return
         }
+        guard let reservation = reorderGate.reserve(
+            workspaceID: snapshot.workspaceID,
+            paneID: pane.id
+        ) else { return }
         guard let optimisticOrder = intent.applying(to: pane.rows.map(\.id)) else {
+            reorderGate.finish(reservation)
             mutationFailed = true
             return
         }
         optimisticTerminalIDsByPane[pane.id] = optimisticOrder
         Task { @MainActor in
-            let result = await reorderTerminal(intent)
+            let result = await reorderTerminal(intent, reservation)
             guard case .success = result else {
                 optimisticTerminalIDsByPane[pane.id] = nil
                 mutationFailed = true

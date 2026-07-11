@@ -22,7 +22,10 @@ struct WorkspaceDetailView: View {
     let createWorkspace: () -> Void
     let canCreateWorkspace: Bool
     let createTerminal: () -> Void
-    let reorderTerminal: (MobileTerminalReorderIntent) async -> Result<Void, MobileWorkspaceMutationFailure>
+    let reorderTerminal: (
+        MobileTerminalReorderIntent,
+        MobileTerminalReorderReservation
+    ) async -> Result<Void, MobileWorkspaceMutationFailure>
     let closeTerminal: (MobileTerminalPreview.ID, Bool) async -> Result<Void, MobileWorkspaceMutationFailure>
     let renameWorkspace: ((MobileWorkspacePreview.ID, String) -> Void)?
     let setWorkspaceUnread: ((MobileWorkspacePreview.ID, Bool) -> Void)?
