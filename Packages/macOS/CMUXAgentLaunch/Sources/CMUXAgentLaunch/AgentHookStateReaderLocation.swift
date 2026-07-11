@@ -45,7 +45,13 @@ public struct AgentHookStateReaderLocation {
 
     private func migrateLegacyStores(from legacyDirectory: URL, fileManager: FileManager) throws {
         guard legacyDirectory.standardizedFileURL != directoryURL.standardizedFileURL else { return }
-        try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        let directoryPermissions = NSNumber(value: Int16(0o700))
+        try fileManager.createDirectory(
+            at: directoryURL,
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: directoryPermissions]
+        )
+        try fileManager.setAttributes([.posixPermissions: directoryPermissions], ofItemAtPath: directoryURL.path)
         let lock = directoryURL.appendingPathComponent(".legacy-hook-state-migration.lock", isDirectory: false)
         try withExclusiveFileLock(at: lock) {
             let marker = directoryURL.appendingPathComponent(".legacy-hook-state-migrated-v1", isDirectory: false)
@@ -60,13 +66,25 @@ public struct AgentHookStateReaderLocation {
                 for source in candidates where source.lastPathComponent.hasSuffix("-hook-sessions.json") {
                     let values = try source.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
                     guard values.isRegularFile == true, values.isSymbolicLink != true else { continue }
-                    let destination = directoryURL.appendingPathComponent(source.lastPathComponent, isDirectory: false)
-                    let destinationLock = URL(fileURLWithPath: destination.path + ".lock", isDirectory: false)
-                    try withExclusiveFileLock(at: destinationLock) {
-                        if fileManager.fileExists(atPath: destination.path) {
-                            try mergeMissingStoreEntries(from: source, into: destination, fileManager: fileManager)
-                        } else {
-                            try fileManager.copyItem(at: source, to: destination)
+                    let sourceLock = URL(fileURLWithPath: source.path + ".lock", isDirectory: false)
+                    try withExclusiveFileLock(at: sourceLock) {
+                        let sourceRoot = try storeRoot(at: source, fileManager: fileManager)
+                        let destination = directoryURL.appendingPathComponent(source.lastPathComponent, isDirectory: false)
+                        let destinationLock = URL(fileURLWithPath: destination.path + ".lock", isDirectory: false)
+                        try withExclusiveFileLock(at: destinationLock) {
+                            if fileManager.fileExists(atPath: destination.path) {
+                                try mergeMissingStoreEntries(
+                                    sourceRoot: sourceRoot,
+                                    into: destination,
+                                    fileManager: fileManager
+                                )
+                            } else {
+                                try fileManager.copyItem(at: source, to: destination)
+                            }
+                            try fileManager.setAttributes(
+                                [.posixPermissions: NSNumber(value: Int16(0o600))],
+                                ofItemAtPath: destination.path
+                            )
                         }
                     }
                 }
@@ -95,15 +113,12 @@ public struct AgentHookStateReaderLocation {
         return try body()
     }
 
-    private func mergeMissingStoreEntries(from source: URL, into destination: URL, fileManager: FileManager) throws {
-        guard let sourceData = fileManager.contents(atPath: source.path),
-              let sourceRoot = try? JSONSerialization.jsonObject(with: sourceData) as? [String: Any] else {
-            return
-        }
-        guard let destinationData = fileManager.contents(atPath: destination.path),
-              var destinationRoot = try? JSONSerialization.jsonObject(with: destinationData) as? [String: Any] else {
-            throw NSError(domain: "AgentHookStateMigration", code: 1)
-        }
+    private func mergeMissingStoreEntries(
+        sourceRoot: [String: Any],
+        into destination: URL,
+        fileManager: FileManager
+    ) throws {
+        var destinationRoot = try storeRoot(at: destination, fileManager: fileManager)
 
         let sourceSessions = sessionEntries(in: sourceRoot)
         var destinationSessions = sessionEntries(in: destinationRoot)
@@ -139,6 +154,16 @@ public struct AgentHookStateReaderLocation {
         guard changed else { return }
         let mergedData = try JSONSerialization.data(withJSONObject: destinationRoot, options: [.sortedKeys])
         try mergedData.write(to: destination, options: .atomic)
+    }
+
+    private func storeRoot(at url: URL, fileManager: FileManager) throws -> [String: Any] {
+        guard let data = fileManager.contents(atPath: url.path) else {
+            throw CocoaError(.fileReadUnknown, userInfo: [NSFilePathErrorKey: url.path])
+        }
+        guard let root = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw CocoaError(.fileReadCorruptFile, userInfo: [NSFilePathErrorKey: url.path])
+        }
+        return root
     }
 
     private func sessionEntries(in root: [String: Any]) -> [String: Any] {

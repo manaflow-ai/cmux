@@ -110,7 +110,8 @@ struct AgentHookStateLocationTests {
         try FileManager.default.createDirectory(at: legacy, withIntermediateDirectories: true)
         let filename = "codex-hook-sessions.json"
         let legacyFile = legacy.appendingPathComponent(filename, isDirectory: false)
-        try Data("legacy".utf8).write(to: legacyFile)
+        let legacyData = Data(#"{"sessions":{"legacy":{"workspaceId":"legacy"}}}"#.utf8)
+        try legacyData.write(to: legacyFile)
 
         let location = AgentHookStateReaderLocation(
             environment: [:],
@@ -121,9 +122,9 @@ struct AgentHookStateLocationTests {
         )
 
         #expect(location.directoryURL == scoped)
-        #expect(try Data(contentsOf: scoped.appendingPathComponent(filename)) == Data("legacy".utf8))
+        #expect(try Data(contentsOf: scoped.appendingPathComponent(filename)) == legacyData)
 
-        try Data("new legacy write".utf8).write(to: legacyFile)
+        try Data(#"{"sessions":{"new":{"workspaceId":"new"}}}"#.utf8).write(to: legacyFile)
         _ = AgentHookStateReaderLocation(
             environment: [:],
             applicationSupportDirectory: applicationSupport,
@@ -131,7 +132,7 @@ struct AgentHookStateLocationTests {
             legacyHomeDirectory: home,
             fileManager: .default
         )
-        #expect(try Data(contentsOf: scoped.appendingPathComponent(filename)) == Data("legacy".utf8))
+        #expect(try Data(contentsOf: scoped.appendingPathComponent(filename)) == legacyData)
     }
 
     @Test("Keeps an explicit reader override isolated")
@@ -255,7 +256,8 @@ struct AgentHookStateLocationTests {
             .appendingPathComponent("cmux/agent-hooks/com.cmuxterm.app.nightly", isDirectory: true)
         try FileManager.default.createDirectory(at: legacy, withIntermediateDirectories: true)
         let filename = "codex-hook-sessions.json"
-        try Data("legacy".utf8).write(to: legacy.appendingPathComponent(filename))
+        let legacyData = Data(#"{"sessions":{"legacy":{"workspaceId":"legacy"}}}"#.utf8)
+        try legacyData.write(to: legacy.appendingPathComponent(filename))
 
         DispatchQueue.concurrentPerform(iterations: 24) { _ in
             _ = AgentHookStateReaderLocation(
@@ -273,7 +275,7 @@ struct AgentHookStateLocationTests {
         #expect(FileManager.default.fileExists(
             atPath: scoped.appendingPathComponent(".legacy-hook-state-migrated-v1").path
         ))
-        #expect(try Data(contentsOf: scoped.appendingPathComponent(filename)) == Data("legacy".utf8))
+        #expect(try Data(contentsOf: scoped.appendingPathComponent(filename)) == legacyData)
     }
 
     @Test("Migration coordinates with concurrent hook writers")
