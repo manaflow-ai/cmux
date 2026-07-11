@@ -52,6 +52,21 @@ test("WebSocketTransport queues until open and sends one JSON text frame", () =>
   transport.close();
 });
 
+test("WebSocketTransport sends the optional auth preamble before queued requests", () => {
+  const transport = new WebSocketTransport("ws://localhost/cmux", {
+    WebSocket: Constructor,
+    authToken: "secret-token",
+  });
+  const socket = FakeWebSocket.instances.at(-1)!;
+  transport.send('{"id":1,"cmd":"identify"}');
+  socket.open();
+  assert.deepEqual(socket.sent, [
+    '{"auth":{"token":"secret-token"}}',
+    '{"id":1,"cmd":"identify"}',
+  ]);
+  transport.close();
+});
+
 test("WebSocketTransport forwards text, errors, and close", () => {
   const transport = new WebSocketTransport("ws://localhost/cmux", Constructor);
   const socket = FakeWebSocket.instances.at(-1)!;

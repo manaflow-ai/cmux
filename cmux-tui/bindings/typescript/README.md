@@ -43,6 +43,16 @@ void (async () => {
 await client.send(surface, { bytes: new TextEncoder().encode("ls\r") });
 ```
 
+For a server started with `--ws-token`, pass the token to the transport. It
+sends the required authentication preamble as the first frame, before any
+queued protocol request:
+
+```ts
+const transport = new WebSocketTransport("ws://127.0.0.1:7681", {
+  authToken: "replace-with-a-secret",
+});
+```
+
 `WebSocketTransport` uses the browser's global `WebSocket`. In Node, inject any
 compatible constructor without adding a runtime dependency to this package:
 
