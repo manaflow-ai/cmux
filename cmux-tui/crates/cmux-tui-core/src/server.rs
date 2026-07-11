@@ -23,6 +23,7 @@ use std::io::{BufRead, BufReader, Write};
 use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::mpsc::{Sender, TryRecvError, channel};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -34,7 +35,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tungstenite::protocol::CloseFrame;
 use tungstenite::protocol::frame::coding::CloseCode;
-use tungstenite::{Error as WebSocketError, Message, WebSocket, accept};
+use tungstenite::{Error as WebSocketError, Message, accept};
 
 use crate::model::{Screen, State};
 use crate::platform::{self, transport};
@@ -464,32 +465,17 @@ impl MessageSink for LineSink {
     fn close(&self) {}
 }
 
-struct WebSocketSink(Mutex<WebSocket<TcpStream>>);
+struct WebSocketSink(Sender<String>);
 
-impl WebSocketSink {
-    fn read(&self) -> Result<Message, WebSocketError> {
-        self.0.lock().unwrap().read()
-    }
-
-    fn flush(&self) -> Result<(), WebSocketError> {
-        self.0.lock().unwrap().flush()
-    }
-
-    fn reject_auth(&self) {
-        let frame = CloseFrame { code: CloseCode::Policy, reason: "authentication failed".into() };
-        let _ = self.0.lock().unwrap().close(Some(frame));
-    }
-}
-
-impl MessageSink for Arc<WebSocketSink> {
+impl MessageSink for WebSocketSink {
     fn send(&self, value: &Value) -> std::io::Result<()> {
         let text = serde_json::to_string(value)?;
-        self.0.lock().unwrap().send(Message::Text(text.into())).map_err(websocket_io_error)
+        self.0.send(text).map_err(|_| {
+            std::io::Error::new(std::io::ErrorKind::BrokenPipe, "WebSocket connection closed")
+        })
     }
 
-    fn close(&self) {
-        let _ = self.0.lock().unwrap().close(None);
-    }
+    fn close(&self) {}
 }
 
 /// Bind the socket and serve connections on background threads.
@@ -572,7 +558,18 @@ pub fn serve_websocket(
     let thread_connections = connections.clone();
     let thread = std::thread::Builder::new().name("mux-ws-server".into()).spawn(move || {
         while !thread_shutdown.load(Ordering::Acquire) {
-            let Ok((stream, _)) = listener.accept() else { continue };
+            let stream = match listener.accept() {
+                Ok((stream, _)) => stream,
+                Err(_) => {
+                    if thread_shutdown.load(Ordering::Acquire) {
+                        break;
+                    }
+                    // Accept errors can persist (for example, after resource exhaustion).
+                    // A short backoff prevents a hot retry loop while still recovering promptly.
+                    std::thread::sleep(STREAM_DISCONNECT_POLL);
+                    continue;
+                }
+            };
             if thread_shutdown.load(Ordering::Acquire) {
                 break;
             }
@@ -624,33 +621,46 @@ fn handle_connection(mux: Arc<Mux>, stream: Box<dyn transport::Stream>) {
 }
 
 fn handle_websocket_connection(mux: Arc<Mux>, stream: TcpStream, token: Option<&str>) {
-    let Ok(websocket) = accept(stream) else { return };
-    let sink = Arc::new(WebSocketSink(Mutex::new(websocket)));
-    let writer = MessageWriter::new(sink.clone());
+    let Ok(mut websocket) = accept(stream) else { return };
 
     if let Some(expected) = token {
-        let authenticated = match sink.read() {
+        let authenticated = match websocket.read() {
             Ok(Message::Text(text)) => auth_token(&text)
                 .is_some_and(|provided| constant_time_eq(provided.as_bytes(), expected.as_bytes())),
             _ => false,
         };
         if !authenticated {
-            sink.reject_auth();
-            writer.close();
+            let frame =
+                CloseFrame { code: CloseCode::Policy, reason: "authentication failed".into() };
+            let _ = websocket.close(Some(frame));
             return;
         }
     }
-    let _ = sink.0.lock().unwrap().get_mut().set_read_timeout(Some(STREAM_DISCONNECT_POLL));
+    let _ = websocket.get_mut().set_read_timeout(Some(STREAM_DISCONNECT_POLL));
+    let (outbound_tx, outbound_rx) = channel();
+    let writer = MessageWriter::new(WebSocketSink(outbound_tx));
 
-    while writer.is_open() {
-        match sink.read() {
+    'connection: while writer.is_open() {
+        loop {
+            match outbound_rx.try_recv() {
+                Ok(text) => {
+                    if websocket.send(Message::Text(text.into())).is_err() {
+                        break 'connection;
+                    }
+                }
+                Err(TryRecvError::Empty) => break,
+                Err(TryRecvError::Disconnected) => break 'connection,
+            }
+        }
+
+        match websocket.read() {
             Ok(Message::Text(text)) => {
                 if !handle_message(&mux, &text, &writer) {
                     break;
                 }
             }
             Ok(Message::Ping(_)) | Ok(Message::Pong(_)) => {
-                let _ = sink.flush();
+                let _ = websocket.flush();
             }
             Ok(Message::Close(_)) => break,
             Ok(_) => break,
@@ -663,6 +673,7 @@ fn handle_websocket_connection(mux: Arc<Mux>, stream: TcpStream, token: Option<&
         }
     }
     writer.close();
+    let _ = websocket.close(None);
 }
 
 fn handle_message(mux: &Arc<Mux>, message: &str, writer: &MessageWriter) -> bool {
@@ -702,10 +713,6 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
             usize::from(a.get(index).copied().unwrap_or(0) ^ b.get(index).copied().unwrap_or(0));
     }
     difference == 0
-}
-
-fn websocket_io_error(error: WebSocketError) -> std::io::Error {
-    std::io::Error::other(error)
 }
 
 fn node_json(node: &Node) -> Value {

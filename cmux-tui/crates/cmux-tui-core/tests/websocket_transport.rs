@@ -127,10 +127,21 @@ fn websocket_streams_subscribe_and_attach_and_survives_unclean_disconnect() {
 }
 
 #[test]
-fn websocket_refuses_non_loopback_without_explicit_insecure_opt_in() {
+fn websocket_non_loopback_bind_requires_and_accepts_explicit_insecure_opt_in() {
     let mux = Mux::new("ws-bind", SurfaceOptions::default());
-    let error = server::serve_websocket(mux, "0.0.0.0:0".parse().unwrap(), None, false)
+    let error = server::serve_websocket(mux.clone(), "0.0.0.0:0".parse().unwrap(), None, false)
         .err()
         .expect("non-loopback bind should fail");
     assert!(error.to_string().contains("--ws-insecure-bind"));
+
+    let server =
+        server::serve_websocket(mux.clone(), "0.0.0.0:0".parse().unwrap(), None, true).unwrap();
+    let addr = SocketAddr::from(([127, 0, 0, 1], server.local_addr().port()));
+    let mut websocket = connect(addr);
+    send_json(&mut websocket, json!({"id": 1, "cmd": "identify"}));
+    let identify = read_json(&mut websocket);
+    assert_eq!(identify["ok"], true);
+    assert_eq!(identify["data"]["protocol"], server::PROTOCOL_VERSION);
+
+    mux.shutdown();
 }

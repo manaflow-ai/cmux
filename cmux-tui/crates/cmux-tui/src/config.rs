@@ -1111,7 +1111,7 @@ pub fn load() -> Config {
         config.scrollbar.position = position;
     }
     config.server.ws = raw.server.ws.filter(|value| !value.trim().is_empty());
-    config.server.ws_token = raw.server.ws_token;
+    config.server.ws_token = raw.server.ws_token.filter(|value| !value.trim().is_empty());
     config.keys.apply(&raw.keys);
     config
 }
@@ -1444,6 +1444,26 @@ mod tests {
                 .unwrap();
         assert_eq!(raw.server.ws.as_deref(), Some("127.0.0.1:7681"));
         assert_eq!(raw.server.ws_token.as_deref(), Some("secret"));
+    }
+
+    #[test]
+    fn ignores_empty_websocket_server_config_values() {
+        let _guard = CONFIG_ENV_LOCK.lock().unwrap();
+        let old_mux_config = std::env::var_os("CMUX_MUX_CONFIG");
+        let dir = std::env::temp_dir()
+            .join(format!("mux-config-test-empty-websocket-values-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("mux.json");
+        std::fs::write(&path, r#"{"server":{"ws":"","ws_token":"   "}}"#).unwrap();
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe { std::env::set_var("CMUX_MUX_CONFIG", &path) };
+
+        let config = load();
+
+        restore_env_var("CMUX_MUX_CONFIG", old_mux_config);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(config.server.ws, None);
+        assert_eq!(config.server.ws_token, None);
     }
 
     #[test]
