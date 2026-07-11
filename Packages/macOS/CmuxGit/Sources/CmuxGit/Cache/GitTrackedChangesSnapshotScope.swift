@@ -11,7 +11,6 @@ public actor GitTrackedChangesSnapshotScope {
         var epoch = UUID()
         var revision: UInt64 = 0
         var lastStableWatcherEventID: GitTrackedPathEventID?
-        var stableWatcherEventIDsAreReliable = true
     }
 
     private let snapshotCache: GitTrackedChangesSnapshotCache
@@ -63,9 +62,8 @@ public actor GitTrackedChangesSnapshotScope {
         var state = state(for: repositoryIdentity)
         switch source {
         case .stable(let eventID):
-            if state.stableWatcherEventIDsAreReliable,
-               let lastEventID = state.lastStableWatcherEventID,
-               eventID <= lastEventID {
+            if let lastEventID = state.lastStableWatcherEventID,
+               !eventID.isNewer(than: lastEventID) {
                 return snapshotAuthority(
                     repositoryIdentity: repositoryIdentity,
                     state: state,
@@ -73,12 +71,13 @@ public actor GitTrackedChangesSnapshotScope {
                 )
             }
             state.lastStableWatcherEventID = eventID
-            state.stableWatcherEventIDsAreReliable = true
         case .unknown:
             break
         case .sequenceReset:
-            state.lastStableWatcherEventID = nil
-            state.stableWatcherEventIDsAreReliable = false
+            // The reset signal advances revision. Preserve the last stable ID:
+            // serial-number ordering accepts the wrapped low sequence while
+            // rejecting delayed events from before the wrap.
+            break
         }
         if state.revision == .max {
             state.epoch = UUID()

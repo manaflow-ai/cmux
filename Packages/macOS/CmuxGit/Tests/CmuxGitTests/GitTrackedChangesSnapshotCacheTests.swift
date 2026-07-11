@@ -127,7 +127,7 @@ private final class BlockingSnapshotLoadGate: @unchecked Sendable {
             trackedChangesSnapshotScope: scope
         )
         let identity = GitTrackedChangesRepositoryIdentity(repository: repository)
-        let sourceEventID = GitTrackedPathEventID(rawValue: 8_080)
+        let sourceEventID = GitTrackedPathEventID(rawValue: UInt64.max - 2)
         let firstAuthority = await firstWindow.recordTrackedPathEvent(
             for: identity,
             sourceEvent: .stable(sourceEventID)
@@ -169,7 +169,7 @@ private final class BlockingSnapshotLoadGate: @unchecked Sendable {
 
         let newerAuthority = await firstWindow.recordTrackedPathEvent(
             for: identity,
-            sourceEvent: .stable(GitTrackedPathEventID(rawValue: 8_081))
+            sourceEvent: .stable(GitTrackedPathEventID(rawValue: UInt64.max - 1))
         )
         #expect(newerAuthority != firstAuthority)
         _ = await firstWindow.gitTrackedChangesSnapshot(
@@ -180,7 +180,7 @@ private final class BlockingSnapshotLoadGate: @unchecked Sendable {
 
         let olderAuthority = await secondWindow.recordTrackedPathEvent(
             for: identity,
-            sourceEvent: .stable(GitTrackedPathEventID(rawValue: 8_079))
+            sourceEvent: .stable(GitTrackedPathEventID(rawValue: UInt64.max - 3))
         )
         #expect(olderAuthority == newerAuthority)
         _ = await secondWindow.gitTrackedChangesSnapshot(
@@ -236,29 +236,59 @@ private final class BlockingSnapshotLoadGate: @unchecked Sendable {
         )
         let identity = GitTrackedChangesRepositoryIdentity(repository: repository)
         let scope = GitTrackedChangesSnapshotScope()
+        let firstWindow = GitMetadataService(trackedChangesSnapshotScope: scope)
+        let secondWindow = GitMetadataService(trackedChangesSnapshotScope: scope)
 
-        let preReset = await scope.recordWatcherEvent(
+        let preReset = await firstWindow.recordTrackedPathEvent(
             for: identity,
-            source: .stable(GitTrackedPathEventID(rawValue: UInt64.max - 2))
+            sourceEvent: .stable(GitTrackedPathEventID(rawValue: UInt64.max - 3))
         )
-        let reset = await scope.recordWatcherEvent(for: identity, source: .sequenceReset)
-        let delayedPreReset = await scope.recordWatcherEvent(
+        let reset = await firstWindow.recordTrackedPathEvent(
             for: identity,
-            source: .stable(GitTrackedPathEventID(rawValue: UInt64.max - 1))
+            sourceEvent: .sequenceReset
         )
-        let wrapped = await scope.recordWatcherEvent(
+        let delayedNewerPreReset = await secondWindow.recordTrackedPathEvent(
             for: identity,
-            source: .stable(GitTrackedPathEventID(rawValue: 1))
+            sourceEvent: .stable(GitTrackedPathEventID(rawValue: UInt64.max - 2))
         )
-        let duplicateWrapped = await scope.recordWatcherEvent(
+        let delayedOlderPreReset = await secondWindow.recordTrackedPathEvent(
             for: identity,
-            source: .stable(GitTrackedPathEventID(rawValue: 1))
+            sourceEvent: .stable(GitTrackedPathEventID(rawValue: UInt64.max - 4))
+        )
+        let wrapped = await firstWindow.recordTrackedPathEvent(
+            for: identity,
+            sourceEvent: .stable(GitTrackedPathEventID(rawValue: 1))
+        )
+        let repeatedReset = await secondWindow.recordTrackedPathEvent(
+            for: identity,
+            sourceEvent: .sequenceReset
+        )
+        let duplicateWrapped = await secondWindow.recordTrackedPathEvent(
+            for: identity,
+            sourceEvent: .stable(GitTrackedPathEventID(rawValue: 1))
+        )
+        let delayedPreResetAfterWrap = await secondWindow.recordTrackedPathEvent(
+            for: identity,
+            sourceEvent: .stable(GitTrackedPathEventID(rawValue: UInt64.max - 1))
+        )
+        let nextWrapped = await firstWindow.recordTrackedPathEvent(
+            for: identity,
+            sourceEvent: .stable(GitTrackedPathEventID(rawValue: 2))
+        )
+        let duplicateNextWrapped = await secondWindow.recordTrackedPathEvent(
+            for: identity,
+            sourceEvent: .stable(GitTrackedPathEventID(rawValue: 2))
         )
 
         #expect(reset != preReset)
-        #expect(delayedPreReset != reset)
-        #expect(wrapped != delayedPreReset)
-        #expect(duplicateWrapped == wrapped)
+        #expect(delayedNewerPreReset != reset)
+        #expect(delayedOlderPreReset == delayedNewerPreReset)
+        #expect(wrapped != delayedNewerPreReset)
+        #expect(repeatedReset != wrapped)
+        #expect(duplicateWrapped == repeatedReset)
+        #expect(delayedPreResetAfterWrap == repeatedReset)
+        #expect(nextWrapped != repeatedReset)
+        #expect(duplicateNextWrapped == nextWrapped)
     }
 
     @Test func laterFallbackRescansAndCatchesMissedWatcherEvent() async throws {
