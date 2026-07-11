@@ -407,15 +407,21 @@ struct StartupBreadcrumbLogTests {
         let third = StartupBreadcrumbLog.Record(timestamp: Date(timeIntervalSince1970: 3), event: "third", fields: [:])
         var buffer = StartupBreadcrumbLog.DeferredBuffer(capacity: 2)
 
-        #expect(buffer.enqueue(first))
-        #expect(!buffer.enqueue(second))
-        #expect(!buffer.enqueue(third))
+        let acceptedFirst = buffer.enqueue(first)
+        let acceptedSecond = buffer.enqueue(second)
+        let acceptedThird = buffer.enqueue(third)
+        #expect(acceptedFirst)
+        #expect(!acceptedSecond)
+        #expect(!acceptedThird)
 
-        let batch = try #require(buffer.takeBatch())
+        let firstBatch = buffer.takeBatch()
+        let batch = try #require(firstBatch)
         #expect(batch.records.map(\.event) == ["first", "second"])
         #expect(batch.droppedRecordCount == 1)
-        #expect(buffer.takeBatch() == nil)
-        #expect(buffer.enqueue(third))
+        let secondBatch = buffer.takeBatch()
+        let acceptedAfterDrain = buffer.enqueue(third)
+        #expect(secondBatch == nil)
+        #expect(acceptedAfterDrain)
     }
 
     @Test
