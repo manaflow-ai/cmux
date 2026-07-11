@@ -31,6 +31,7 @@ import {
   ohMyPiSeoCopy,
   pricingSeoCopy,
 } from "../i18n/audited-seo";
+import { englishFallbackContentLocales } from "../i18n/locale-availability";
 import { locales } from "../i18n/routing";
 
 describe("SEO metadata helpers", () => {
@@ -40,6 +41,16 @@ describe("SEO metadata helpers", () => {
     expect(buildAlternates("ja", "/docs").canonical).toBe(
       "https://cmux.com/ja/docs",
     );
+    expect(
+      buildAlternates(
+        "en",
+        "/blog/cmux-omo",
+        englishFallbackContentLocales,
+      ).languages,
+    ).toEqual({
+      en: "https://cmux.com/blog/cmux-omo",
+      "x-default": "https://cmux.com/blog/cmux-omo",
+    });
   });
 
   test("extends short descriptions with localized product context", () => {
@@ -371,7 +382,7 @@ describe("SEO metadata helpers", () => {
               locale,
               postKey,
               messageLookup(metadata),
-              messageLookup(post),
+              plainSeoMessageLookup(post),
               siteMeta,
             ),
             [
@@ -827,6 +838,17 @@ function messageLookup(messages: object) {
     const value = (messages as Record<string, unknown>)[key];
     if (typeof value !== "string") {
       throw new Error(`Expected a string message for ${key}`);
+    }
+    return value;
+  };
+}
+
+function plainSeoMessageLookup(messages: object) {
+  const lookup = messageLookup(messages);
+  return (key: string) => {
+    const value = lookup(key);
+    if (value.includes("<")) {
+      throw new Error(`SEO metadata requested rich message ${key} as plain text`);
     }
     return value;
   };
