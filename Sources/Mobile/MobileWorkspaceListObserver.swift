@@ -21,6 +21,7 @@ final class MobileWorkspaceListObserver {
     private weak var notificationStore: TerminalNotificationStore?
     private var tabsCancellable: AnyCancellable?
     private var selectionCancellable: AnyCancellable?
+    private var focusedSurfaceCancellable: AnyCancellable?
     private var groupsCancellable: AnyCancellable?
     private var notificationsCancellable: AnyCancellable?
     private var unreadIndicatorsCancellable: AnyCancellable?
@@ -72,6 +73,21 @@ final class MobileWorkspaceListObserver {
             .throttle(for: .milliseconds(throttleMilliseconds), scheduler: RunLoop.main, latest: true)
             .sink { [weak self] _ in
                 self?.emitIfNeeded(force: false)
+            }
+        // Bonsplit pane focus and tab selection are serialized to iOS but are
+        // not @Published Workspace state. The existing deferred focus broadcast
+        // fires after selection converges, so use it as the scoped wakeup and
+        // let summaryHash suppress duplicate notifications.
+        focusedSurfaceCancellable = NotificationCenter.default
+            .publisher(for: .ghosttyDidFocusSurface)
+            .throttle(for: .milliseconds(throttleMilliseconds), scheduler: RunLoop.main, latest: true)
+            .sink { [weak self] notification in
+                guard let self,
+                      let workspaceID = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID,
+                      self.tabManager?.tabs.contains(where: { $0.id == workspaceID }) == true else {
+                    return
+                }
+                self.emitIfNeeded(force: false)
             }
         // Group structure (order, name, collapse/pin, anchor, membership) is
         // iOS-facing: the phone renders collapsible group sections. A pure
