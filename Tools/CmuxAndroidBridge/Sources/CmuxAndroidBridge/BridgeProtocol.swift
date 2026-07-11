@@ -32,7 +32,7 @@ struct BridgeEvent: Codable, Sendable {
         width: Int? = nil,
         height: Int? = nil,
         bytesPerRow: Int? = nil,
-        bottomUp: Bool? = nil,
+        bottomUp: Bool? = false,
         message: String? = nil
     ) {
         self.type = type

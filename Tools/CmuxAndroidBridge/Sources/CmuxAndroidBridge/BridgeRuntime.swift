@@ -98,8 +98,7 @@ struct BridgeRuntime {
                     timestampMicroseconds: frame.timestampUs,
                     width: Int(frame.format.width),
                     height: Int(frame.format.height),
-                    bytesPerRow: Int(frame.format.width) * 4,
-                    bottomUp: true
+                    bytesPerRow: Int(frame.format.width) * 4
                 ))
             } catch {
                 await frameBuffer.release(slot: slot)
