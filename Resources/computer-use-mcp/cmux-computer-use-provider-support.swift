@@ -120,10 +120,13 @@ func appInfo(_ app: NSRunningApplication) -> [String: Any] {
 }
 
 extension NSRunningApplication {
-    func matchesApplicationQuery(_ query: String) -> Bool {
+    func matchesApplicationQuery(_ query: String, exactBundleIdentifier: Bool) -> Bool {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return false }
         let lower = trimmed.lowercased()
+        if exactBundleIdentifier {
+            return (bundleIdentifier ?? "").lowercased() == lower
+        }
         return (bundleIdentifier ?? "").lowercased().contains(lower) ||
             (localizedName ?? "").localizedStandardContains(trimmed)
     }

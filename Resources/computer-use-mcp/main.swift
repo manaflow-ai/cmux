@@ -77,6 +77,7 @@ if op == "list_windows" {
 let appQuery = inputObject["app"] as? String ?? ""
 if op == "open_app" {
     let trimmedAppQuery = appQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+    let isBundleIdentifier = inputObject["bundleIdentifier"] as? Bool ?? false
     guard !trimmedAppQuery.isEmpty else {
         fail("provider.appNotFound", "app not found: \(appQuery)", details: ["app": appQuery])
     }
@@ -84,7 +85,7 @@ if op == "open_app" {
         trimmedAppQuery,
         targetPid: nil,
         targetBundleIdentifier: nil,
-        allowPartialMatch: true
+        allowPartialMatch: !isBundleIdentifier
     ) {
         _ = runningApp.activate(options: [])
         jsonOut(["ok": true, "target": appInfo(runningApp)])
@@ -104,7 +105,10 @@ if op == "open_app" {
         queue: .main
     ) { notification in
         guard let launchedApp = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
-              launchedApp.matchesApplicationQuery(trimmedAppQuery) else { return }
+              launchedApp.matchesApplicationQuery(
+                trimmedAppQuery,
+                exactBundleIdentifier: isBundleIdentifier
+              ) else { return }
         launchDeadline.cancel()
         _ = launchedApp.activate(options: [])
         jsonOut(["ok": true, "target": appInfo(launchedApp)])
@@ -112,7 +116,6 @@ if op == "open_app" {
 
     let openProcess = Process()
     openProcess.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-    let isBundleIdentifier = inputObject["bundleIdentifier"] as? Bool ?? false
     openProcess.arguments = [isBundleIdentifier ? "-b" : "-a", trimmedAppQuery]
     openProcess.standardOutput = Pipe()
     openProcess.standardError = Pipe()
@@ -129,7 +132,7 @@ if op == "open_app" {
         trimmedAppQuery,
         targetPid: nil,
         targetBundleIdentifier: nil,
-        allowPartialMatch: true
+        allowPartialMatch: !isBundleIdentifier
     ) {
         launchDeadline.cancel()
         _ = launchedApp.activate(options: [])

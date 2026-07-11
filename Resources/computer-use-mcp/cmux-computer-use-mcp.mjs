@@ -1577,7 +1577,11 @@ const TOOLS = [
       let target;
       try {
         s = await session();
-        target = retainableTarget(await s.provider.resolveApp(normalizedApp, { allowPartialMatch: true }));
+        target = retainableTarget(
+          await s.provider.resolveApp(normalizedApp, {
+            allowPartialMatch: !isBundleIdentifier(normalizedApp),
+          })
+        );
       } catch (error) {
         if (error?.providerCode !== "provider.appNotFound") return providerError(error);
         target = null;
@@ -1596,7 +1600,7 @@ const TOOLS = [
       // agent-visible state so the next input must refresh its snapshot.
       s.revoke(normalizedApp, target);
       try {
-        let openedTarget = retainableTarget(
+        const openedTarget = retainableTarget(
           await s.provider.openApp(target?.bundleIdentifier || target?.name || normalizedApp)
         );
         if (!openedTarget) {
