@@ -408,7 +408,6 @@ struct TaskComposerSheet: View {
     private func validateMacSelection() {
         guard selectedMachine == nil else { return }
         selectedMacDeviceID = machines.first?.macDeviceID ?? ""
-        didEditDirectory = false
         failureText = nil
         syncSuggestedDirectory()
     }
