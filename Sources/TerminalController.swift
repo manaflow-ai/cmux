@@ -1315,6 +1315,10 @@ class TerminalController {
             // Keep ref payloads fresh like the main-actor dispatch path does.
             v2MainSync { self.v2RefreshKnownRefs() }
             return v2Result(id: request.id, v2BrowserAutomationCommandOnSocketWorker(method: request.method, params: request.params))
+        case let method where method.hasPrefix("browser.extension."):
+            return v2VmCall(id: request.id, timeoutSeconds: 60) {
+                try await BrowserWebExtensionAutomation.handle(method: method, params: request.params)
+            }
         case "browser.profiles.list":
             return v2VmCall(id: request.id, timeoutSeconds: 30) {
                 try await BrowserProfileAutomation.list(params: request.params)
@@ -2244,10 +2248,8 @@ class TerminalController {
         // Browser
         case "browser.open_split":
             return v2Result(id: id, self.v2BrowserOpenSplit(params: params))
-        // Browser automation methods that can wait on page JavaScript, WebKit
-        // cookies, or capture callbacks run on the socket worker (see
-        // ControlCommandExecutionPolicy.socketWorkerMethods and
-        // v2BrowserAutomationCommandOnSocketWorker); they never reach this switch.
+        // Browser automation methods that can wait on page JS/WebKit callbacks run
+        // on the socket worker (ControlCommandExecutionPolicy); they never reach this switch.
         case "browser.react_grab.toggle":
             return v2Result(id: id, self.v2BrowserReactGrabToggle(params: params))
         case "browser.devtools.toggle":
@@ -11017,8 +11019,7 @@ class TerminalController {
     private func prepareWindowForSyntheticInput(_ window: NSWindow?) {
         guard socketCommandAllowsInAppFocusMutations(),
               let window else { return }
-        // Keep socket-driven input simulation focused on the intended window without
-        // paying repeated activation/order-front costs for every synthetic key event.
+        // Keep synthetic input on the intended window without per-event activation costs.
         if !NSApp.isActive {
             NSApp.activate(ignoringOtherApps: true)
         }
@@ -11084,9 +11085,8 @@ class TerminalController {
                 isARepeat: false,
                 keyCode: parsed.keyCode
             )
-            // Socket-driven shortcut simulation should reuse the exact same matching logic as the
-            // app-level shortcut monitor (so tests are hermetic), while still falling back to the
-            // normal responder chain for plain typing.
+            // Reuse the app-level shortcut monitor's matching (hermetic tests),
+            // falling back to the normal responder chain for plain typing.
             if let delegate = AppDelegate.shared, delegate.debugHandleCustomShortcut(event: keyDownEvent) {
                 result = "OK"
                 return

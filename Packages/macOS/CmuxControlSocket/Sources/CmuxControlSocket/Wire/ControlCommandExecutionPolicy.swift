@@ -32,6 +32,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         if method == "remote.tmux.test_exec" || method == "remote.tmux.test_set_frame" { self = .socketWorker(mainThreadCallable: false); return }
 #endif
         if method.hasPrefix("vm.") || method.hasPrefix("remotes.") || method.hasPrefix("aiAccounts.")
+            || method.hasPrefix("browser.extension.")
             || Self.socketWorkerMethods.contains(method) {
             self = .socketWorker(
                 mainThreadCallable: Self.mainThreadCallableSocketWorkerMethods.contains(method)
