@@ -8,6 +8,7 @@ extension GhosttyApp {
         source: String
     ) {
         let reason = "app.reloadConfig.\(source)"
+        let configuredFontPointSize = configuredFontPointSize(from: updatedConfig)
         let prepared = AppDelegate.shared?
             .prepareTerminalSurfaceFontFitsForGhosttyAppConfigurationReload(
                 reason: reason
@@ -15,6 +16,7 @@ extension GhosttyApp {
         ghostty_app_update_config(app, updatedConfig)
         AppDelegate.shared?.finishTerminalSurfaceFontFitsAfterGhosttyAppConfigurationReload(
             prepared,
+            configuredFontPointSize: configuredFontPointSize,
             reason: reason
         )
         // The scheduled per-surface refresh preserves this fitted state. Only
@@ -41,7 +43,7 @@ extension GhosttyApp {
         terminalSurface.withMobileViewportFontFitSurrenderedForConfigurationReload(
             reason: "surface.reloadConfig"
         ) {
-            reloadSurfaceConfiguration(
+            self.reloadSurfaceConfiguration(
                 surface,
                 soft: soft,
                 source: source,
@@ -57,19 +59,20 @@ extension GhosttyApp {
         return effectiveTerminalColorSchemePreference
     }
 
+    @discardableResult
     func reloadSurfaceConfiguration(
         _ surface: ghostty_surface_t,
         soft: Bool = false,
         source: String = "unspecified",
         preferredColorScheme: GhosttyConfig.ColorSchemePreference? = nil
-    ) {
+    ) -> Float? {
         if soft, let config {
             ghostty_surface_update_config(surface, config)
             finishSurfaceConfigurationReload(source: source, soft: soft, mode: "soft")
-            return
+            return configuredFontPointSize(from: config)
         }
 
-        guard let newConfig = ghostty_config_new() else { return }
+        guard let newConfig = ghostty_config_new() else { return nil }
         let reloadColorScheme = preferredColorScheme ?? effectiveTerminalColorSchemePreference
         let conditionalThemeColorScheme = appearanceBackedColorSchemePreference()
         _ = loadDefaultConfigFilesWithLegacyFallback(
@@ -80,8 +83,22 @@ extension GhosttyApp {
         // Ghostty Surface.updateConfig derives its own surface state from the
         // passed config. The C API does not retain this temporary pointer.
         ghostty_surface_update_config(surface, newConfig)
+        let configuredFontPointSize = configuredFontPointSize(from: newConfig)
         finishSurfaceConfigurationReload(source: source, soft: soft, mode: "full")
         ghostty_config_free(newConfig)
+        return configuredFontPointSize
+    }
+
+    private func configuredFontPointSize(from config: ghostty_config_t) -> Float? {
+        var fontSize: Float32 = 0
+        let key = "font-size"
+        guard ghostty_config_get(
+            config,
+            &fontSize,
+            key,
+            UInt(key.lengthOfBytes(using: .utf8))
+        ), fontSize.isFinite, fontSize > 0 else { return nil }
+        return fontSize
     }
 
     private func finishSurfaceConfigurationReload(source: String, soft: Bool, mode: String) {
@@ -98,26 +115,32 @@ extension GhosttyApp {
 extension AppDelegate {
     func prepareTerminalSurfaceFontFitsForGhosttyAppConfigurationReload(
         reason: String
-    ) -> [(surface: TerminalSurface, lease: MobileViewportFontFitReloadLease)] {
-        var prepared: [(surface: TerminalSurface, lease: MobileViewportFontFitReloadLease)] = []
+    ) -> [(surface: TerminalSurface, lease: MobileViewportFontFitReloadLease?)] {
+        var prepared: [(surface: TerminalSurface, lease: MobileViewportFontFitReloadLease?)] = []
         for surface in GhosttyApp.terminalSurfaceRegistry.allTerminalSurfaces() {
-            guard let lease = surface.prepareMobileViewportFontFitForConfigurationReload(
+            let lease = surface.prepareMobileViewportFontFitForConfigurationReload(
                 reason: reason
-            ) else { continue }
+            )
             prepared.append((surface: surface, lease: lease))
         }
         return prepared
     }
 
     func finishTerminalSurfaceFontFitsAfterGhosttyAppConfigurationReload(
-        _ prepared: [(surface: TerminalSurface, lease: MobileViewportFontFitReloadLease)],
+        _ prepared: [(surface: TerminalSurface, lease: MobileViewportFontFitReloadLease?)],
+        configuredFontPointSize: Float?,
         reason: String
     ) {
         for entry in prepared {
-            entry.surface.finishMobileViewportFontFitConfigurationReload(
-                entry.lease,
-                reason: reason
-            )
+            if let lease = entry.lease {
+                entry.surface.finishMobileViewportFontFitConfigurationReload(
+                    lease,
+                    configuredFontPointSize: configuredFontPointSize,
+                    reason: reason
+                )
+            } else {
+                entry.surface.recordMobileViewportConfiguredFontPointSize(configuredFontPointSize)
+            }
         }
     }
 }

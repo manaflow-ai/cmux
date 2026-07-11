@@ -60,6 +60,12 @@ struct MobileViewportFitGeometryTests {
         let nextSteadyStateRequest = state.consumeLiveFontProbeRequest()
         #expect(signaledRequest)
         #expect(!nextSteadyStateRequest)
+
+        state.cellMetricsDidChange()
+        state.suppressLiveFontProbeUntilMetricsChange()
+        #expect(!state.consumeLiveFontProbeRequest())
+        state.cellMetricsDidChange()
+        #expect(state.consumeLiveFontProbeRequest())
     }
 
     @Test func activeRuntimeConfigWinsWhenSurfaceHasNoTemplateFont() {

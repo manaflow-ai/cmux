@@ -13,11 +13,16 @@ nonisolated public struct MobileViewportFontFitReloadLease {
 
 nonisolated enum MobileViewportResetFontPointSize {
     static func resolve(
-        surfaceConfigFontPointSize _: Float? = nil,
+        surfaceConfigFontPointSize: Float? = nil,
         runtimeConfigFontPointSize: Float?,
         fallbackBaseFontPointSize: Float,
         magnificationPercent: Int
     ) -> Float {
+        if let surfaceConfigFontPointSize,
+           surfaceConfigFontPointSize.isFinite,
+           surfaceConfigFontPointSize > 0 {
+            return surfaceConfigFontPointSize
+        }
         if let runtimeConfigFontPointSize,
            runtimeConfigFontPointSize.isFinite,
            runtimeConfigFontPointSize > 0 {
@@ -34,11 +39,21 @@ extension TerminalSurface {
     @MainActor
     func configuredMobileViewportFontPointSize() -> Float {
         MobileViewportResetFontPointSize.resolve(
-            surfaceConfigFontPointSize: nil,
+            surfaceConfigFontPointSize: mobileViewportConfiguredFontPointSize,
             runtimeConfigFontPointSize: runtimeConfigFontPointSize(),
             fallbackBaseFontPointSize: Float(GhosttyConfig().fontSize),
             magnificationPercent: globalFontMagnificationPercent()
         )
+    }
+
+    /// Records the finalized configuration applied to this specific surface.
+    @MainActor
+    public func recordMobileViewportConfiguredFontPointSize(_ points: Float?) {
+        guard let points, points.isFinite, points > 0 else {
+            mobileViewportConfiguredFontPointSize = nil
+            return
+        }
+        mobileViewportConfiguredFontPointSize = points
     }
 
     @MainActor
@@ -109,14 +124,16 @@ extension TerminalSurface {
     @MainActor
     public func finishMobileViewportFontFitConfigurationReload(
         _ lease: MobileViewportFontFitReloadLease,
+        configuredFontPointSize: Float?,
         reason: String
     ) {
-        guard let surface = liveSurfaceForGhosttyAccess(reason: "\(reason).refit") else {
+        recordMobileViewportConfiguredFontPointSize(configuredFontPointSize)
+        guard liveSurfaceForGhosttyAccess(reason: "\(reason).refit") != nil else {
             mobileViewportFontFitState.clear()
             return
         }
         let configuredFontOverride = lease.surrendered
-            ? GhosttySurfaceRuntimeProbe.currentSurfaceFontSizePoints(surface)
+            ? configuredMobileViewportFontPointSize()
             : nil
         if lease.surrendered {
             mobileViewportFontFitState.clear()
@@ -126,6 +143,9 @@ extension TerminalSurface {
                 configuredFontPointSize: liveFont,
                 preservedUserAdjustedBaseFontPointSize: lease.userAdjustedBaseFontPointSize
             )
+            // The finalized config is authoritative until Ghostty confirms its
+            // asynchronous renderer update through the cell-metrics callback.
+            mobileViewportFontFitState.suppressLiveFontProbeUntilMetricsChange()
         }
         _ = applyMobileViewportLimit(
             columns: lease.columns,
@@ -139,12 +159,18 @@ extension TerminalSurface {
     @MainActor
     public func withMobileViewportFontFitSurrenderedForConfigurationReload(
         reason: String,
-        reload: () -> Void
+        reload: () -> Float?
     ) {
         let lease = prepareMobileViewportFontFitForConfigurationReload(reason: reason)
-        reload()
+        let configuredFontPointSize = reload()
         if let lease {
-            finishMobileViewportFontFitConfigurationReload(lease, reason: reason)
+            finishMobileViewportFontFitConfigurationReload(
+                lease,
+                configuredFontPointSize: configuredFontPointSize,
+                reason: reason
+            )
+        } else {
+            recordMobileViewportConfiguredFontPointSize(configuredFontPointSize)
         }
     }
 
