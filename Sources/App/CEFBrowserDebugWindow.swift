@@ -313,7 +313,7 @@ final class CEFBrowserDebugView: NSView {
     }
 
     @objc private func devToolsChanged(_ sender: NSPopUpButton) {
-        guard let browser = activeBrowser, CEFDevTools.isDockingAvailable else {
+        guard let browser = activeBrowser, CEFApp.shared.isDevToolsDockingAvailable else {
             sender.selectItem(at: 0)
             return
         }
@@ -321,7 +321,7 @@ final class CEFBrowserDebugView: NSView {
         case 1:
             closeAllDevTools()
             setDevToolsPaneVisible(true)
-            CEFDevTools.openDocked(for: browser, in: devToolsContainer) { [weak self] devtools in
+            browser.openDockedDevTools(in: devToolsContainer) { [weak self] devtools in
                 self?.dockedDevTools = devtools
             }
         case 2:

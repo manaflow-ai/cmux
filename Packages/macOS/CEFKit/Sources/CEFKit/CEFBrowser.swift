@@ -202,7 +202,7 @@ public final class CEFBrowser {
     /// Demo CEFDEMO_STRESS_MODE=devtools,resize). Prefer
     /// CEFDevToolsWindow.open, which hosts the DevTools frontend in an
     /// app-owned NSWindow and does not use the chrome window layer. Docked
-    /// DevTools must use CEFDevTools.openDocked regardless: CEF cannot parent
+    /// DevTools must use openDockedDevTools regardless: CEF cannot parent
     /// a DevTools browser to a native view on macOS (DevTools must be Chrome
     /// style, and Chrome style with a native parent is unsupported there,
     /// CEF issue #3294; violating this is a fatal CEF DCHECK).

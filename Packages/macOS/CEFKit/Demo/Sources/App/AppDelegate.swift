@@ -278,18 +278,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         switch sender.indexOfSelectedItem {
         case 1:  // Docked: DevTools frontend embedded in the split pane.
-            guard CEFDevTools.isDockingAvailable else {
+            guard CEFApp.shared.isDevToolsDockingAvailable else {
                 NSSound.beep()
                 sender.selectItem(at: 0)
                 return
             }
             closeAllDevTools()
             setDevToolsPaneVisible(true)
-            CEFDevTools.openDocked(for: browser, in: devToolsContainer, delegate: self) { [weak self] devtools in
+            browser.openDockedDevTools(in: devToolsContainer, delegate: self) { [weak self] devtools in
                 self?.dockedDevTools = devtools
             }
         case 2:  // Window: app-owned NSWindow hosting the DevTools frontend.
-            guard CEFDevTools.isDockingAvailable else {
+            guard CEFApp.shared.isDevToolsDockingAvailable else {
                 NSSound.beep()
                 sender.selectItem(at: 0)
                 return

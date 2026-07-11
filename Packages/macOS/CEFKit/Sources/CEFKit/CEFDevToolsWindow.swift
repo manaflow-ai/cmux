@@ -1,7 +1,7 @@
 import AppKit
 
 /// DevTools in a separate window, hosted in an app-owned NSWindow with an
-/// embedded frontend browser (same mechanism as CEFDevTools.openDocked).
+/// embedded frontend browser (same mechanism as CEFBrowser.openDockedDevTools).
 /// This avoids CEF's chrome-style native DevTools window, which is unstable
 /// under window churn in CEF 146 (see CEFBrowser.showDevToolsWindow).
 /// Requires CEFConfiguration.remoteDebuggingPort != 0.
@@ -21,12 +21,11 @@ public final class CEFDevToolsWindow: NSObject, NSWindowDelegate {
         title: String = "DevTools",
         completion: @escaping (CEFDevToolsWindow?) -> Void
     ) {
-        let port = CEFApp.shared.remoteDebuggingPort
-        guard port != 0, let inspectedURL = browser.url else {
+        guard CEFApp.shared.isDevToolsDockingAvailable, let inspectedURL = browser.url else {
             completion(nil)
             return
         }
-        CEFDevTools.frontendURL(port: port, inspectedURL: inspectedURL) { frontend in
+        CEFApp.shared.devToolsFrontendURL(inspectedURL: inspectedURL) { frontend in
             guard let frontend else {
                 completion(nil)
                 return
@@ -47,7 +46,7 @@ public final class CEFDevToolsWindow: NSObject, NSWindowDelegate {
                     return
                 }
                 devToolsWindow.browser = devToolsBrowser
-                CEFDevTools.applyEmbedderDefaults(to: devToolsBrowser)
+                devToolsBrowser.applyDevToolsEmbedderDefaults()
                 devToolsWindow.window.makeKeyAndOrderFront(nil)
                 completion(devToolsWindow)
             }
