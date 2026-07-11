@@ -25,20 +25,22 @@ final class SharedLiveAgentIndex {
     // measured ~350ms-1.8s loader running at near-continuous duty cycle.
     private static let minEventReloadInterval: TimeInterval = 5.0
 
-    private var directoryWatchSource: DispatchSourceFileSystemObject?
+    private var directoryWatchSources: [String: DispatchSourceFileSystemObject] = [:]
     // DispatchSource file watching requires a delivery queue; state hops back to MainActor.
     private let watchQueue = DispatchQueue(label: "com.cmuxterm.app.sharedLiveAgentIndexWatch")
 
     private let indexLoader: @Sendable () -> SharedLiveAgentIndexLoader.LoadResult
-    private let hookStoreDirectoryProvider: @MainActor () -> String
+    private let hookStoreDirectoryProvider: @MainActor () -> [String]
     private let dateProvider: @MainActor () -> Date
 
     init(
         indexLoader: @escaping @Sendable () -> SharedLiveAgentIndexLoader.LoadResult = {
             SharedLiveAgentIndexLoader().loadResultSynchronously()
         },
-        hookStoreDirectoryProvider: @escaping @MainActor () -> String = {
-            RestorableAgentKind.claude.hookStoreFileURL().deletingLastPathComponent().path
+        hookStoreDirectoryProvider: @escaping @MainActor () -> [String] = {
+            RestorableAgentKind.claude.hookStoreFileURLs().map {
+                $0.deletingLastPathComponent().path
+            }
         },
         dateProvider: @escaping @MainActor () -> Date = {
             Date()
@@ -53,7 +55,7 @@ final class SharedLiveAgentIndex {
         refreshTask?.cancel()
         forkAvailabilityRefreshTask?.cancel()
         deferredReloadTimer?.cancel()
-        directoryWatchSource?.cancel()
+        directoryWatchSources.values.forEach { $0.cancel() }
     }
 
     /// Read the cached snapshot for stale-tolerant callers. Never blocks.
@@ -300,25 +302,29 @@ final class SharedLiveAgentIndex {
     }
 
     private func ensureWatchingHookStoreDirectory() {
-        guard directoryWatchSource == nil else { return }
-        let dir = hookStoreDirectoryProvider()
-        try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
-        let fd = open(dir, O_EVTONLY)
-        guard fd >= 0 else {
-            return
+        let unwatchedDirectories = Set(hookStoreDirectoryProvider()).filter {
+            directoryWatchSources[$0] == nil
         }
-        // DispatchSource is the platform file-watch bridge; events re-enter MainActor.
-        let source = DispatchSource.makeFileSystemObjectSource(
-            fileDescriptor: fd,
-            eventMask: [.write, .link, .rename],
-            queue: watchQueue
-        )
-        source.setEventHandler { [weak self] in
-            Task { @MainActor in self?.handleHookStoreChange() }
+        var addedWatcher = false
+        for directory in unwatchedDirectories {
+            try? FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)
+            let fd = open(directory, O_EVTONLY)
+            guard fd >= 0 else { continue }
+            // DispatchSource is the platform file-watch bridge; events re-enter MainActor.
+            let source = DispatchSource.makeFileSystemObjectSource(
+                fileDescriptor: fd,
+                eventMask: [.write, .link, .rename],
+                queue: watchQueue
+            )
+            source.setEventHandler { [weak self] in
+                Task { @MainActor in self?.handleHookStoreChange() }
+            }
+            source.setCancelHandler { Darwin.close(fd) }
+            directoryWatchSources[directory] = source
+            source.resume()
+            addedWatcher = true
         }
-        source.setCancelHandler { Darwin.close(fd) }
-        source.resume()
-        directoryWatchSource = source
+        guard addedWatcher else { return }
         if refreshTask == nil {
             startReload()
         } else {

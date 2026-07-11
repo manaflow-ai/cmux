@@ -130,7 +130,7 @@ struct SharedLiveAgentIndexAgentLivenessTests {
                 .loadResultSynchronously()
             },
             hookStoreDirectoryProvider: {
-                root.appendingPathComponent(".cmuxterm", isDirectory: true).path
+                [root.appendingPathComponent(".cmuxterm", isDirectory: true).path]
             }
         )
 
@@ -235,7 +235,7 @@ struct SharedLiveAgentIndexAgentLivenessTests {
                 .loadResultSynchronously()
             },
             hookStoreDirectoryProvider: {
-                root.appendingPathComponent(".cmuxterm", isDirectory: true).path
+                [root.appendingPathComponent(".cmuxterm", isDirectory: true).path]
             }
         )
 
@@ -323,7 +323,7 @@ struct SharedLiveAgentIndexAgentLivenessTests {
                 .loadResultSynchronously()
             },
             hookStoreDirectoryProvider: {
-                root.appendingPathComponent(".cmuxterm", isDirectory: true).path
+                [root.appendingPathComponent(".cmuxterm", isDirectory: true).path]
             }
         )
 
