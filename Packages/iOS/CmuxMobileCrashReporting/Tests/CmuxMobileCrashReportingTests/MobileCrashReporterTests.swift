@@ -338,11 +338,12 @@ private struct FixedConsent: AnalyticsConsentProviding {
             revokeFinished.signal()
         }
         #expect(revokeAttempted.wait(timeout: .now() + 1) == .success)
-        #expect(revokeFinished.wait(timeout: .now() + 0.1) == .timedOut)
+        // Notification delivery must not wait for Sentry lifecycle work.
+        #expect(revokeFinished.wait(timeout: .now() + 1) == .success)
+        #expect(recorder.sequence.isEmpty)
 
         allowEnableToFinish.signal()
         #expect(enableFinished.wait(timeout: .now() + 1) == .success)
-        #expect(revokeFinished.wait(timeout: .now() + 1) == .success)
         #expect(recorder.sequence == ["enable", "revoke"])
     }
 

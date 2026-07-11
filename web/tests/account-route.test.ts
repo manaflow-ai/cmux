@@ -824,6 +824,24 @@ describe("account deletion route", () => {
     expect(routeEvents).not.toContain("stack-delete");
   });
 
+  test("blocks Stack deletion until PostHog queues event and recording deletion", async () => {
+    postHogDeleteResponse = {
+      persons_found: 1,
+      persons_deleted: 1,
+      events_queued_for_deletion: false,
+      recordings_queued_for_deletion: false,
+      deletion_errors: [],
+    };
+
+    const response = await DELETE(accountDeletionRequest());
+
+    expect(response.status).toBe(500);
+    expect(deleteStackUser).not.toHaveBeenCalled();
+    expect(tombstoneUpdates.some((values) =>
+      (values as { readonly analyticsDeletedAt?: unknown }).analyticsDeletedAt instanceof Date
+    )).toBe(false);
+  });
+
   test("fails closed before PostHog deletion when no explicit environment is configured", async () => {
     delete process.env.POSTHOG_ENVIRONMENT_ID;
     delete process.env.POSTHOG_PROJECT_ID;

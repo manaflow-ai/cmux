@@ -85,7 +85,8 @@ private actor BlockingAnalyticsUploader: AnalyticsUploading {
         consentEnabled: Bool = true,
         anonymousID: String = "anon-1",
         flushBatchSize: Int = 50,
-        maxPendingEvents: Int = 1000
+        maxPendingEvents: Int = 1000,
+        notificationCenter: NotificationCenter = .default
     ) -> AnalyticsEmitter {
         AnalyticsEmitter(
             uploader: uploader,
@@ -93,7 +94,8 @@ private actor BlockingAnalyticsUploader: AnalyticsUploading {
             anonymousID: anonymousID,
             now: { Date(timeIntervalSince1970: 1_000_000) },
             flushBatchSize: flushBatchSize,
-            maxPendingEvents: maxPendingEvents
+            maxPendingEvents: maxPendingEvents,
+            notificationCenter: notificationCenter
         )
     }
 
@@ -247,6 +249,26 @@ private actor BlockingAnalyticsUploader: AnalyticsUploading {
         await emitter.flush()
 
         #expect(await uploader.identifyCalls == 0)
+    }
+
+    @Test func quickReenableDoesNotResurrectPreRevocationEvents() async {
+        let consent = MutableConsent(enabled: true)
+        let uploader = RecordingAnalyticsUploader()
+        let center = NotificationCenter()
+        let emitter = makeEmitter(
+            uploader: uploader,
+            consent: consent,
+            notificationCenter: center
+        )
+
+        emitter.capture("ios_app_launched", [:])
+        consent.set(false)
+        center.post(name: UserDefaults.didChangeNotification, object: nil)
+        consent.set(true)
+        center.post(name: UserDefaults.didChangeNotification, object: nil)
+        await emitter.flush()
+
+        #expect(await uploader.uploadedEvents.isEmpty)
     }
 
     @Test func sustainedRetryBoundsBacklogByDroppingOldest() async {
