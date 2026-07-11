@@ -120,6 +120,7 @@ final class PostHogAnalytics: @unchecked Sendable {
         let config = PostHogConfig(apiKey: apiKey, host: host)
         config.captureApplicationLifecycleEvents = false
         config.captureScreenViews = false
+        config.preloadFeatureFlags = false
 #if DEBUG
         config.debug = ProcessInfo.processInfo.environment["CMUX_POSTHOG_DEBUG"] == "1"
 #endif
