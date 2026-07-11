@@ -35,7 +35,7 @@ final class RestorableAgentNonInteractiveTests: XCTestCase {
         )
     }
 
-    func testHookStoreReadURLsIncludePreBundleScopeStore() {
+    func testHookStoreReadURLUsesBundleScope() {
         let home = FileManager.default.homeDirectoryForCurrentUser
         let applicationSupport = URL(fileURLWithPath: "/tmp/cmux-app-support", isDirectory: true)
         let scopedDirectory = applicationSupport
@@ -43,19 +43,17 @@ final class RestorableAgentNonInteractiveTests: XCTestCase {
             .appendingPathComponent("agent-hooks", isDirectory: true)
             .appendingPathComponent("com.cmuxterm.app.nightly", isDirectory: true)
 
-        let urls = RestorableAgentKind.codex.hookStoreFileURLs(
+        let url = RestorableAgentKind.codex.hookStoreFileURL(
             homeDirectory: home.path,
             environment: ["CMUX_AGENT_HOOK_STATE_DIR": scopedDirectory.path],
             applicationSupportDirectory: applicationSupport,
             bundleIdentifier: "com.cmuxterm.app.nightly"
         )
 
-        XCTAssertEqual(urls, [
-            scopedDirectory.appendingPathComponent("codex-hook-sessions.json", isDirectory: false),
-            home
-                .appendingPathComponent(".cmuxterm", isDirectory: true)
-                .appendingPathComponent("codex-hook-sessions.json", isDirectory: false),
-        ])
+        XCTAssertEqual(
+            url,
+            scopedDirectory.appendingPathComponent("codex-hook-sessions.json", isDirectory: false)
+        )
     }
 
     func testNonInteractiveAgentLaunchesAreNotAutoRestored() {
