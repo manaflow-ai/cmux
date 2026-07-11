@@ -285,24 +285,37 @@ struct NotificationRowSnapshotBoundaryTests {
         #expect(restoredNotification.scrollPosition?.totalRows == 100)
     }
 
-    @Test func notificationScrollRestoreUsesGhosttyAbsoluteRow() {
+    @Test func notificationScrollTargetUsesGhosttyAbsoluteRow() {
         let surfaceView = GhosttyNSView(frame: .zero)
         surfaceView.scrollbar = GhosttyScrollbar(
             c: ghostty_action_scrollbar_s(total: 400, offset: 218, len: 44)
         )
         let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
-        var performedAction: String?
 
-        let restored = hostedView.restoreNotificationScrollPosition(
-            TerminalNotificationScrollPosition(row: 138, totalRows: 400),
-            performBindingAction: { action in
-                performedAction = action
-                return true
-            }
+        let targetRow = hostedView.notificationScrollTargetRow(
+            TerminalNotificationScrollPosition(row: 138, totalRows: 400)
         )
 
-        #expect(restored)
-        #expect(performedAction == "scroll_to_row:218")
+        #expect(targetRow == 218)
+    }
+
+    @Test func notificationScrollTargetRequiresCaptureTotalAndVisibleRows() {
+        let surfaceView = GhosttyNSView(frame: .zero)
+        surfaceView.scrollbar = GhosttyScrollbar(
+            c: ghostty_action_scrollbar_s(total: 400, offset: 218, len: 44)
+        )
+        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+
+        #expect(hostedView.notificationScrollTargetRow(
+            TerminalNotificationScrollPosition(row: 138, totalRows: nil)
+        ) == nil)
+
+        surfaceView.scrollbar = GhosttyScrollbar(
+            c: ghostty_action_scrollbar_s(total: 400, offset: 218, len: 0)
+        )
+        #expect(hostedView.notificationScrollTargetRow(
+            TerminalNotificationScrollPosition(row: 138, totalRows: 400)
+        ) == nil)
     }
 
     // MARK: - Fixtures
