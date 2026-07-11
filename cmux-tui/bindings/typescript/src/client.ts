@@ -1,149 +1,263 @@
-import { Buffer } from "node:buffer";
-import * as net from "node:net";
-import * as os from "node:os";
-import * as path from "node:path";
+import { decodeBase64, encodeBase64 } from "./base64.js";
 import {
+  CmuxCommandError,
+  CmuxConnectionError,
+  CmuxError,
+  CmuxProtocolError,
+  CmuxTimeoutError,
+} from "./errors.js";
+import type {
+  ApplyLayoutResult,
   AttachEvent,
-  ClientOptions,
+  CmuxCommand,
+  CmuxRequest,
+  CmuxRequestParams,
+  CmuxResponse,
+  CmuxResponseData,
+  CmuxResponseDataFor,
+  ColorHex,
+  CopyMode,
+  CopyResult,
+  DecodedAttachEvent,
   EmptyResult,
+  ExportLayoutResult,
+  Id,
+  IdKind,
+  IdRef,
+  IdsResult,
   IdentifyResult,
+  Json,
   JsonObject,
-  NewBrowserTabOptions,
-  NewScreenOptions,
-  NewTabOptions,
-  NewWorkspaceOptions,
+  ListAgentsResult,
+  NotificationLevel,
+  NotifyResult,
+  PaneDirection,
+  PaneNeighborResult,
+  PingResult,
+  ProcessInfoResult,
   ReadScreenResult,
-  SelectOptions,
-  SelectTabOptions,
-  SendOptions,
-  SplitOptions,
+  ReloadConfigResult,
+  ReportAgentResult,
+  RunResult,
+  SidebarPluginResult,
+  SplitDirection,
   SubscribeEvent,
   SurfaceResult,
   Tree,
+  UnknownEvent,
   VtStateResult,
-} from "./types.js";
-import { CmuxCommandError, CmuxConnectionError, CmuxProtocolError, CmuxTimeoutError } from "./errors.js";
+  WaitForResult,
+  ZoomPaneResult,
+  AgentReportSource,
+  AgentState,
+  DeclarativeLayout,
+  FocusDirectionResult,
+} from "./protocol/index.js";
+import type { Transport, Unsubscribe } from "./transport.js";
 
-type ResponseEnvelope = { id?: unknown; ok: true; data: unknown } | { id?: unknown; ok: false; error: string };
-type EventObject = { event: string; [key: string]: unknown };
-
-export function defaultSocketPath(session = "main"): string {
-  const base = process.env.TMPDIR || os.tmpdir();
-  return path.join(base, `cmux-tui-${process.getuid?.() ?? 0}`, `${session}.sock`);
+export interface CmuxClientOptions {
+  transport: Transport;
+  timeoutMs?: number;
+  allowProtocolV6Attach?: boolean;
+  /** Creates dedicated subscribe/attach transports when supplied. */
+  streamTransportFactory?: () => Transport;
 }
 
-export function envSocketPath(): string | undefined {
-  return process.env.CMUX_TUI_SOCKET || process.env.CMUX_MUX_SOCKET;
+export type NewTabOptions = CmuxRequestParams<"new-tab">;
+export type NewBrowserTabOptions = Omit<CmuxRequestParams<"new-browser-tab">, "url">;
+export type NewWorkspaceOptions = CmuxRequestParams<"new-workspace">;
+export type NewScreenOptions = CmuxRequestParams<"new-screen">;
+export type SplitOptions = Omit<CmuxRequestParams<"split">, "pane" | "dir">;
+export type SelectOptions = CmuxRequestParams<"select-screen">;
+export type SelectTabOptions = CmuxRequestParams<"select-tab">;
+export interface SendOptions { text?: string | null; bytes?: string | Uint8Array | null }
+
+interface PendingResponse {
+  resolve: (response: CmuxResponse<unknown>) => void;
+  reject: (error: Error) => void;
+  timer: ReturnType<typeof setTimeout>;
 }
 
-class JsonLineConnection {
-  private socket: net.Socket;
-  private buffer = "";
-  private lines: string[] = [];
-  private waiters: Array<{
-    active: boolean;
-    resolve: (line: string) => void;
-    reject: (error: Error) => void;
-  }> = [];
-  private closedError: Error | null = null;
+class MessageRouter {
+  private readonly pending = new Map<string, PendingResponse>();
+  private readonly eventHandlers = new Set<(event: UnknownEvent) => void>();
+  private readonly terminalHandlers = new Set<(error: Error) => void>();
+  private terminalError: Error | null = null;
 
-  private constructor(socket: net.Socket) {
-    this.socket = socket;
-    socket.setEncoding("utf8");
-    socket.on("data", (chunk: string) => this.onData(chunk));
-    socket.on("error", (err: Error) => this.closeWith(new CmuxConnectionError(`socket error: ${err.message}`)));
-    socket.on("close", () => this.closeWith(new CmuxConnectionError("session socket closed")));
+  constructor(readonly transport: Transport) {
+    transport.onMessage((json) => this.receive(json));
+    transport.onError((error) => this.terminate(this.connectionError(error)));
+    transport.onClose(() => this.terminate(new CmuxConnectionError("session transport closed")));
   }
 
-  static connect(socketPath: string): Promise<JsonLineConnection> {
+  send(request: JsonObject, timeoutMs: number): Promise<CmuxResponse<unknown>> {
+    const key = this.idKey(request.id);
+    if (this.terminalError) return Promise.reject(this.terminalError);
+    if (this.pending.has(key)) return Promise.reject(new CmuxProtocolError(`duplicate request id ${key}`));
+
     return new Promise((resolve, reject) => {
-      const socket = net.createConnection({ path: socketPath });
-      socket.once("connect", () => resolve(new JsonLineConnection(socket)));
-      socket.once("error", (err: Error) => reject(new CmuxConnectionError(`cannot connect to session socket ${socketPath}: ${err.message}`)));
-    });
-  }
-
-  send(value: JsonObject): Promise<void> {
-    const line = `${JSON.stringify(value)}\n`;
-    return new Promise((resolve, reject) => {
-      this.socket.write(line, "utf8", (err?: Error | null) => {
-        if (err) reject(new CmuxConnectionError(`socket write failed: ${err.message}`));
-        else resolve();
-      });
-    });
-  }
-
-  async recv(timeoutMs: number): Promise<JsonObject> {
-    const pending = this.nextLine();
-    const line = await withTimeout(pending.promise, timeoutMs, "session did not respond", pending.cancel);
-    try {
-      const value = JSON.parse(line) as unknown;
-      if (!value || typeof value !== "object" || Array.isArray(value)) {
-        throw new CmuxProtocolError("server sent non-object JSON line");
+      const timer = setTimeout(() => {
+        this.pending.delete(key);
+        reject(new CmuxTimeoutError("session did not respond"));
+      }, timeoutMs);
+      this.pending.set(key, { resolve, reject, timer });
+      try {
+        this.transport.send(JSON.stringify(request));
+      } catch (error) {
+        clearTimeout(timer);
+        this.pending.delete(key);
+        reject(this.connectionError(error));
       }
-      return value as JsonObject;
-    } catch (err) {
-      if (err instanceof CmuxProtocolError) throw err;
-      throw new CmuxProtocolError(`bad JSON from server: ${(err as Error).message}`);
+    });
+  }
+
+  onEvent(handler: (event: UnknownEvent) => void): Unsubscribe {
+    this.eventHandlers.add(handler);
+    return () => this.eventHandlers.delete(handler);
+  }
+
+  onTerminal(handler: (error: Error) => void): Unsubscribe {
+    this.terminalHandlers.add(handler);
+    if (this.terminalError) queueMicrotask(() => handler(this.terminalError!));
+    return () => this.terminalHandlers.delete(handler);
+  }
+
+  private receive(json: string): void {
+    let value: unknown;
+    try {
+      value = JSON.parse(json);
+    } catch (error) {
+      this.terminate(new CmuxProtocolError(`bad JSON from server: ${(error as Error).message}`));
+      return;
     }
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      this.terminate(new CmuxProtocolError("server sent non-object JSON message"));
+      return;
+    }
+
+    const object = value as Record<string, unknown>;
+    if (typeof object.event === "string") {
+      for (const handler of this.eventHandlers) handler(object as UnknownEvent);
+      return;
+    }
+
+    const key = object.id === undefined ? this.pending.keys().next().value : this.idKey(object.id as Json);
+    if (key === undefined) return;
+    const pending = this.pending.get(key);
+    if (!pending) return;
+    clearTimeout(pending.timer);
+    this.pending.delete(key);
+    pending.resolve(object as unknown as CmuxResponse<unknown>);
+  }
+
+  private terminate(error: Error): void {
+    if (this.terminalError) return;
+    this.terminalError = error;
+    for (const pending of this.pending.values()) {
+      clearTimeout(pending.timer);
+      pending.reject(error);
+    }
+    this.pending.clear();
+    for (const handler of this.terminalHandlers) handler(error);
+  }
+
+  private idKey(id: Json | undefined): string {
+    return id === undefined ? "undefined" : JSON.stringify(id);
+  }
+
+  private connectionError(error: unknown): Error {
+    if (error instanceof CmuxError) return error;
+    return new CmuxConnectionError(error instanceof Error ? error.message : String(error));
+  }
+}
+
+interface StreamWaiter<T> {
+  active: boolean;
+  resolve: (event: T) => void;
+  reject: (error: Error) => void;
+}
+
+/** A closeable async event stream with optional per-read timeouts. */
+export class CmuxStream<T extends { event: string }> implements AsyncIterable<T> {
+  private readonly buffered: T[] = [];
+  private readonly waiters: StreamWaiter<T>[] = [];
+  private closed = false;
+  private endsAfterDrain = false;
+
+  constructor(
+    private readonly timeoutMs: number,
+    private readonly cleanup: () => void,
+  ) {}
+
+  async next(timeoutMs = this.timeoutMs): Promise<T> {
+    if (this.buffered.length > 0) {
+      const event = this.buffered.shift()!;
+      if (this.endsAfterDrain && this.buffered.length === 0) this.finish();
+      return event;
+    }
+    if (this.closed) throw new CmuxConnectionError("stream is closed");
+
+    const waiter: StreamWaiter<T> = {
+      active: true,
+      resolve: () => undefined,
+      reject: () => undefined,
+    };
+    const event = await new Promise<T>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        waiter.active = false;
+        reject(new CmuxTimeoutError("stream did not produce an event"));
+      }, timeoutMs);
+      waiter.resolve = (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      };
+      waiter.reject = (error) => {
+        clearTimeout(timer);
+        reject(error);
+      };
+      this.waiters.push(waiter);
+    });
+    if (this.endsAfterDrain && this.buffered.length === 0) this.finish();
+    return event;
   }
 
   close(): void {
-    this.socket.destroy();
+    if (this.closed) return;
+    this.finish();
+    this.rejectWaiters(new CmuxConnectionError("stream is closed"));
   }
 
-  private nextLine(): { promise: Promise<string>; cancel: () => void } {
-    if (this.lines.length > 0) {
-      return { promise: Promise.resolve(this.lines.shift()!), cancel: () => undefined };
+  push(event: T, terminal = false): void {
+    if (this.closed) return;
+    let delivered = false;
+    while (this.waiters.length > 0) {
+      const waiter = this.waiters.shift()!;
+      if (!waiter.active) continue;
+      waiter.resolve(event);
+      delivered = true;
+      break;
     }
-    if (this.closedError) {
-      return { promise: Promise.reject(this.closedError), cancel: () => undefined };
-    }
-    const waiter: {
-      active: boolean;
-      resolve: (line: string) => void;
-      reject: (error: Error) => void;
-    } = {
-      active: true,
-      resolve: (_line: string) => {},
-      reject: (_error: Error) => {},
-    };
-    const promise = new Promise<string>((resolve, reject) => {
-      waiter.resolve = resolve;
-      waiter.reject = reject;
-    });
-    this.waiters.push(waiter);
-    return {
-      promise,
-      cancel: () => {
-        waiter.active = false;
-      },
-    };
+    if (!delivered) this.buffered.push(event);
+    if (terminal) this.endsAfterDrain = true;
   }
 
-  private onData(chunk: string): void {
-    this.buffer += chunk;
-    for (;;) {
-      const index = this.buffer.indexOf("\n");
-      if (index < 0) break;
-      const line = this.buffer.slice(0, index);
-      this.buffer = this.buffer.slice(index + 1);
-      if (line.trim() === "") continue;
-      let delivered = false;
-      while (this.waiters.length > 0) {
-        const waiter = this.waiters.shift()!;
-        if (!waiter.active) continue;
-        waiter.resolve(line);
-        delivered = true;
-        break;
-      }
-      if (!delivered) this.lines.push(line);
-    }
+  fail(error: Error): void {
+    if (this.closed) return;
+    this.finish();
+    this.rejectWaiters(error);
   }
 
-  private closeWith(error: Error): void {
-    if (this.closedError) return;
-    this.closedError = error;
+  async *[Symbol.asyncIterator](): AsyncIterator<T> {
+    while (!this.closed) yield await this.next();
+  }
+
+  private finish(): void {
+    if (this.closed) return;
+    this.closed = true;
+    this.cleanup();
+  }
+
+  private rejectWaiters(error: Error): void {
     while (this.waiters.length > 0) {
       const waiter = this.waiters.shift()!;
       if (waiter.active) waiter.reject(error);
@@ -151,172 +265,242 @@ class JsonLineConnection {
   }
 }
 
-export class CmuxStream<T extends EventObject> implements AsyncIterable<T> {
-  private readonly buffered: T[] = [];
-  private closed = false;
-
-  private constructor(
-    private readonly conn: JsonLineConnection,
-    private readonly timeoutMs: number,
-    buffered: T[],
-  ) {
-    this.buffered = buffered;
-  }
-
-  static async open<T extends EventObject>(
-    socketPath: string,
-    timeoutMs: number,
-    request: JsonObject,
-  ): Promise<CmuxStream<T>> {
-    const conn = await JsonLineConnection.connect(socketPath);
-    await conn.send(request);
-    const requestId = request.id;
-    const buffered: T[] = [];
-    for (;;) {
-      const value = await conn.recv(timeoutMs);
-      if (typeof value.event === "string") {
-        buffered.push(value as T);
-        continue;
-      }
-      if (value.id !== requestId) continue;
-      const response = value as ResponseEnvelope;
-      if (response.ok === true) return new CmuxStream(conn, timeoutMs, buffered);
-      throw new CmuxCommandError(response.error || "unknown error", response.id, response);
-    }
-  }
-
-  async next(timeoutMs = this.timeoutMs): Promise<T> {
-    if (this.closed) throw new CmuxConnectionError("stream is closed");
-    if (this.buffered.length > 0) return this.buffered.shift()!;
-    for (;;) {
-      const value = await this.conn.recv(timeoutMs);
-      if (typeof value.event !== "string") continue;
-      const event = value as T;
-      if (event.event === "detached") this.close();
-      return event;
-    }
-  }
-
-  close(): void {
-    if (!this.closed) {
-      this.closed = true;
-      this.conn.close();
-    }
-  }
-
-  async *[Symbol.asyncIterator](): AsyncIterator<T> {
-    while (!this.closed) {
-      yield await this.next();
-    }
-  }
-}
-
+/** Promise-based typed client for any cmux JSON transport. */
 export class CmuxClient {
-  readonly socketPath: string;
   readonly timeoutMs: number;
   readonly allowProtocolV6Attach: boolean;
-  private connPromise: Promise<JsonLineConnection>;
+  private readonly transport: Transport;
+  private readonly router: MessageRouter;
+  private readonly streamTransportFactory?: () => Transport;
   private nextRequestId = 1;
   private protocol: number | null = null;
 
-  constructor(options: ClientOptions = {}) {
-    this.socketPath = options.socketPath ?? envSocketPath() ?? defaultSocketPath(options.session ?? "main");
+  constructor(options: CmuxClientOptions) {
+    this.transport = options.transport;
     this.timeoutMs = options.timeoutMs ?? 10_000;
     this.allowProtocolV6Attach = options.allowProtocolV6Attach ?? true;
-    this.connPromise = JsonLineConnection.connect(this.socketPath);
+    this.streamTransportFactory = options.streamTransportFactory;
+    this.router = new MessageRouter(this.transport);
   }
 
   async close(): Promise<void> {
-    const conn = await this.connPromise;
-    conn.close();
+    this.transport.close();
   }
 
-  async sendRaw(obj: JsonObject): Promise<ResponseEnvelope> {
-    const payload = { ...obj };
+  async sendRaw(obj: JsonObject): Promise<CmuxResponse<unknown>> {
+    const payload = this.dropUndefined({ ...obj });
     if (!("id" in payload)) payload.id = this.nextId();
-    const requestId = payload.id;
-    const conn = await this.connPromise;
-    await conn.send(payload);
-    for (;;) {
-      const response = await conn.recv(this.timeoutMs);
-      if (typeof response.event === "string") continue;
-      if (response.id !== requestId && response.id !== undefined) continue;
-      return response as ResponseEnvelope;
-    }
+    return this.router.send(payload, this.timeoutMs);
   }
 
-  async request(cmd: string, params: JsonObject = {}): Promise<unknown> {
-    const response = await this.sendRaw({ id: this.nextId(), cmd, ...dropUndefined(params) });
-    if (response.ok === true) return response.data;
+  request<C extends CmuxRequest>(request: C): Promise<CmuxResponseData<C>>;
+  // params is only optional when the command genuinely has no required params;
+  // otherwise `client.request("send")` would compile and fail server-side.
+  request<C extends CmuxCommand>(
+    cmd: C,
+    ...args: Record<string, never> extends CmuxRequestParams<C>
+      ? [params?: CmuxRequestParams<C>]
+      : [params: CmuxRequestParams<C>]
+  ): Promise<CmuxResponseDataFor<C>>;
+  async request<C extends CmuxCommand>(
+    requestOrCommand: CmuxRequest | C,
+    params?: CmuxRequestParams<C>,
+  ): Promise<CmuxResponseDataFor<C>> {
+    const request = typeof requestOrCommand === "string"
+      ? { cmd: requestOrCommand, ...(params ?? {}) }
+      : requestOrCommand;
+    const response = await this.sendRaw(request as unknown as JsonObject);
+    if (response.ok) return response.data as CmuxResponseDataFor<C>;
     throw new CmuxCommandError(response.error || "unknown error", response.id, response);
   }
 
   async identify(): Promise<IdentifyResult> {
-    const result = await this.request("identify") as IdentifyResult;
+    const result = await this.request("identify");
     this.protocol = result.protocol;
     return result;
   }
 
-  async listWorkspaces(): Promise<Tree> { return this.request("list-workspaces") as Promise<Tree>; }
-  async send(surface: number, options: SendOptions = {}): Promise<EmptyResult> {
-    const bytes = options.bytes instanceof Uint8Array ? Buffer.from(options.bytes).toString("base64") : options.bytes;
-    await this.request("send", dropUndefined({ surface, text: options.text, bytes }));
-    return {};
-  }
-  async readScreen(surface: number): Promise<ReadScreenResult> { return this.request("read-screen", { surface }) as Promise<ReadScreenResult>; }
-  async vtState(surface: number): Promise<VtStateResult> { return this.request("vt-state", { surface }) as Promise<VtStateResult>; }
-  async newTab(options: NewTabOptions = {}): Promise<SurfaceResult> { return this.request("new-tab", options as JsonObject) as Promise<SurfaceResult>; }
-  async newBrowserTab(url: string, options: NewBrowserTabOptions = {}): Promise<SurfaceResult> { return this.request("new-browser-tab", dropUndefined({ url, ...options })) as Promise<SurfaceResult>; }
-  async newWorkspace(options: NewWorkspaceOptions = {}): Promise<SurfaceResult> { return this.request("new-workspace", options as JsonObject) as Promise<SurfaceResult>; }
-  async newScreen(options: NewScreenOptions = {}): Promise<SurfaceResult> { return this.request("new-screen", options as JsonObject) as Promise<SurfaceResult>; }
-  async split(pane: number, dir: "right" | "down", options: SplitOptions = {}): Promise<SurfaceResult> { return this.request("split", dropUndefined({ pane, dir, ...options })) as Promise<SurfaceResult>; }
-  async setRatio(pane: number, dir: "right" | "down", ratio: number): Promise<EmptyResult> { await this.request("set-ratio", { pane, dir, ratio }); return {}; }
-  async setDefaultColors(fg?: string, bg?: string): Promise<EmptyResult> { await this.request("set-default-colors", dropUndefined({ fg, bg })); return {}; }
-  async closeSurface(surface: number): Promise<EmptyResult> { await this.request("close-surface", { surface }); return {}; }
-  async closePane(pane: number): Promise<EmptyResult> { await this.request("close-pane", { pane }); return {}; }
-  async closeScreen(screen: number): Promise<EmptyResult> { await this.request("close-screen", { screen }); return {}; }
-  async closeWorkspace(workspace: number): Promise<EmptyResult> { await this.request("close-workspace", { workspace }); return {}; }
-  async renamePane(pane: number, name: string): Promise<EmptyResult> { await this.request("rename-pane", { pane, name }); return {}; }
-  async renameSurface(surface: number, name: string): Promise<EmptyResult> { await this.request("rename-surface", { surface, name }); return {}; }
-  async renameScreen(screen: number, name: string): Promise<EmptyResult> { await this.request("rename-screen", { screen, name }); return {}; }
-  async renameWorkspace(workspace: number, name: string): Promise<EmptyResult> { await this.request("rename-workspace", { workspace, name }); return {}; }
-  async resizeSurface(surface: number, cols: number, rows: number): Promise<EmptyResult> { await this.request("resize-surface", { surface, cols, rows }); return {}; }
-  async focusPane(pane: number): Promise<EmptyResult> { await this.request("focus-pane", { pane }); return {}; }
-  async selectTab(options: SelectTabOptions = {}): Promise<EmptyResult> { await this.request("select-tab", options as JsonObject); return {}; }
-  async selectScreen(options: SelectOptions = {}): Promise<EmptyResult> { await this.request("select-screen", options as JsonObject); return {}; }
-  async selectWorkspace(options: SelectOptions = {}): Promise<EmptyResult> { await this.request("select-workspace", options as JsonObject); return {}; }
-  async moveTab(surface: number, pane: number, index: number): Promise<EmptyResult> { await this.request("move-tab", { surface, pane, index }); return {}; }
-  async moveWorkspace(workspace: number, index: number): Promise<EmptyResult> { await this.request("move-workspace", { workspace, index }); return {}; }
-  async scrollSurface(surface: number, delta: number): Promise<EmptyResult> { await this.request("scroll-surface", { surface, delta }); return {}; }
-
-  async subscribe(): Promise<CmuxStream<SubscribeEvent>> {
-    return CmuxStream.open<SubscribeEvent>(this.socketPath, this.timeoutMs, { id: this.nextId(), cmd: "subscribe" });
+  ping(): Promise<PingResult> { return this.request("ping"); }
+  reloadConfig(): Promise<ReloadConfigResult> { return this.request("reload-config"); }
+  setWindowTitle(title: string): Promise<EmptyResult> { return this.request("set-window-title", { title }); }
+  clearWindowTitle(): Promise<EmptyResult> { return this.request("clear-window-title"); }
+  listWorkspaces(): Promise<Tree> { return this.request("list-workspaces"); }
+  exportLayout(screen?: Id | null): Promise<ExportLayoutResult> { return this.request("export-layout", { screen }); }
+  applyLayout(layout: DeclarativeLayout, options: Omit<CmuxRequestParams<"apply-layout">, "layout"> = {}): Promise<ApplyLayoutResult> {
+    return this.request("apply-layout", { ...options, layout });
   }
 
-  async attachSurface(surface: number): Promise<CmuxStream<AttachEvent>> {
+  async send(surface: Id, options: SendOptions = {}): Promise<EmptyResult> {
+    const bytes = options.bytes instanceof Uint8Array ? encodeBase64(options.bytes) : options.bytes;
+    return this.request("send", { surface, text: options.text, bytes });
+  }
+
+  readScreen(surface: Id): Promise<ReadScreenResult> { return this.request("read-screen", { surface }); }
+  sidebarPlugin(cols: number, rows: number, relaunch?: boolean | null): Promise<SidebarPluginResult> {
+    return this.request("sidebar-plugin", { cols, rows, relaunch });
+  }
+  vtState(surface: Id): Promise<VtStateResult> { return this.request("vt-state", { surface }); }
+  newTab(options: NewTabOptions = {}): Promise<SurfaceResult> { return this.request("new-tab", options); }
+  newBrowserTab(url: string, options: NewBrowserTabOptions = {}): Promise<SurfaceResult> {
+    return this.request("new-browser-tab", { url, ...options });
+  }
+  newWorkspace(options: NewWorkspaceOptions = {}): Promise<SurfaceResult> { return this.request("new-workspace", options); }
+  newScreen(options: NewScreenOptions = {}): Promise<SurfaceResult> { return this.request("new-screen", options); }
+  split(pane: Id, dir: SplitDirection, options: SplitOptions = {}): Promise<SurfaceResult> {
+    return this.request("split", { pane, dir, ...options });
+  }
+  setRatio(pane: Id, dir: SplitDirection, ratio: number): Promise<EmptyResult> {
+    return this.request("set-ratio", { pane, dir, ratio });
+  }
+  paneNeighbor(pane: Id, dir: PaneDirection): Promise<PaneNeighborResult> {
+    return this.request("pane-neighbor", { pane, dir });
+  }
+  focusDirection(dir: PaneDirection, pane?: Id | null): Promise<FocusDirectionResult> {
+    return this.request("focus-direction", { pane, dir });
+  }
+  swapPane(params: CmuxRequestParams<"swap-pane">): Promise<EmptyResult> { return this.request("swap-pane", params); }
+  zoomPane(params: CmuxRequestParams<"zoom-pane"> = {}): Promise<ZoomPaneResult> { return this.request("zoom-pane", params); }
+  processInfo(surface: Id): Promise<ProcessInfoResult> { return this.request("process-info", { surface }); }
+  setDefaultColors(fg?: ColorHex | null, bg?: ColorHex | null): Promise<EmptyResult> {
+    return this.request("set-default-colors", { fg, bg });
+  }
+  closeSurface(surface: Id): Promise<EmptyResult> { return this.request("close-surface", { surface }); }
+  closePane(pane: Id): Promise<EmptyResult> { return this.request("close-pane", { pane }); }
+  closeScreen(screen: Id): Promise<EmptyResult> { return this.request("close-screen", { screen }); }
+  closeWorkspace(workspace: Id): Promise<EmptyResult> { return this.request("close-workspace", { workspace }); }
+  renamePane(pane: Id, name: string): Promise<EmptyResult> { return this.request("rename-pane", { pane, name }); }
+  renameSurface(surface: Id, name: string): Promise<EmptyResult> { return this.request("rename-surface", { surface, name }); }
+  renameScreen(screen: Id, name: string): Promise<EmptyResult> { return this.request("rename-screen", { screen, name }); }
+  renameWorkspace(workspace: Id, name: string): Promise<EmptyResult> { return this.request("rename-workspace", { workspace, name }); }
+  resizeSurface(surface: Id, cols: number, rows: number): Promise<EmptyResult> {
+    return this.request("resize-surface", { surface, cols, rows });
+  }
+  focusPane(pane: Id): Promise<EmptyResult> { return this.request("focus-pane", { pane }); }
+  selectTab(options: SelectTabOptions = {}): Promise<EmptyResult> { return this.request("select-tab", options); }
+  selectScreen(options: SelectOptions = {}): Promise<EmptyResult> { return this.request("select-screen", options); }
+  selectWorkspace(options: SelectOptions = {}): Promise<EmptyResult> { return this.request("select-workspace", options); }
+  moveTab(surface: Id, pane: Id, index: number): Promise<EmptyResult> { return this.request("move-tab", { surface, pane, index }); }
+  moveWorkspace(workspace: Id, index: number): Promise<EmptyResult> { return this.request("move-workspace", { workspace, index }); }
+  scrollSurface(surface: Id, delta: number): Promise<EmptyResult> { return this.request("scroll-surface", { surface, delta }); }
+
+  async subscribe(options: CmuxRequestParams<"subscribe"> = {}): Promise<CmuxStream<SubscribeEvent>> {
+    return this.openStream(
+      { cmd: "subscribe", ...options },
+      (event) => event as SubscribeEvent,
+      (event, dedicated) => dedicated || !this.attachOnlyEvent(event.event),
+    );
+  }
+
+  async attachSurface(surface: Id): Promise<CmuxStream<DecodedAttachEvent>> {
     const protocol = this.protocol ?? (await this.identify()).protocol;
     if (protocol > 6 || (protocol > 5 && !this.allowProtocolV6Attach)) {
       throw new CmuxProtocolError(`unsupported attach protocol ${protocol}`);
     }
-    return CmuxStream.open<AttachEvent>(this.socketPath, this.timeoutMs, { id: this.nextId(), cmd: "attach-surface", surface });
+    return this.openStream(
+      { cmd: "attach-surface", surface },
+      (event) => this.decodeAttachEvent(event as AttachEvent),
+      (event, dedicated) => dedicated || this.matchesAttachEvent(event, surface),
+      (event) => event.event === "detached",
+    );
+  }
+
+  waitFor(surface: IdRef, pattern: string, timeoutMs: number): Promise<WaitForResult> {
+    return this.request("wait-for", { surface, pattern, timeout_ms: timeoutMs });
+  }
+  run(options: CmuxRequestParams<"run">): Promise<RunResult> { return this.request("run", options); }
+  sendKey(surface: IdRef, keys: string[]): Promise<EmptyResult> { return this.request("send-key", { surface, keys }); }
+  copy(surface: IdRef, mode: CopyMode): Promise<CopyResult> { return this.request("copy", { surface, mode }); }
+  ids(kind?: IdKind | null): Promise<IdsResult> { return this.request("ids", { kind }); }
+  notify(
+    title: string,
+    body: string,
+    options: { level?: NotificationLevel | null; surface?: IdRef | null } = {},
+  ): Promise<NotifyResult> {
+    return this.request("notify", { title, body, ...options });
+  }
+  listAgents(options: CmuxRequestParams<"list-agents"> = {}): Promise<ListAgentsResult> {
+    return this.request("list-agents", options);
+  }
+  reportAgent(
+    surface: IdRef,
+    state: AgentState,
+    source: AgentReportSource,
+    session?: string | null,
+  ): Promise<ReportAgentResult> {
+    return this.request("report-agent", { surface, state, source, session });
+  }
+
+  private async openStream<T extends { event: string }>(
+    request: CmuxRequest,
+    map: (event: UnknownEvent) => T,
+    accept: (event: UnknownEvent, dedicated: boolean) => boolean,
+    terminal: (event: T) => boolean = () => false,
+  ): Promise<CmuxStream<T>> {
+    const dedicated = this.streamTransportFactory !== undefined;
+    const transport = this.streamTransportFactory?.() ?? this.transport;
+    const router = dedicated ? new MessageRouter(transport) : this.router;
+    let eventSubscription: Unsubscribe = () => undefined;
+    let terminalSubscription: Unsubscribe = () => undefined;
+    const stream = new CmuxStream<T>(this.timeoutMs, () => {
+      eventSubscription();
+      terminalSubscription();
+      if (dedicated) transport.close();
+    });
+    eventSubscription = router.onEvent((event) => {
+      if (!accept(event, dedicated)) return;
+      try {
+        const mapped = map(event);
+        stream.push(mapped, terminal(mapped));
+      } catch (error) {
+        stream.fail(new CmuxProtocolError(`invalid stream event: ${(error as Error).message}`));
+      }
+    });
+    terminalSubscription = router.onTerminal((error) => stream.fail(error));
+
+    const payload = this.dropUndefined({ id: this.nextId(), ...request });
+    const response = await router.send(payload, this.timeoutMs).catch((error) => {
+      stream.fail(error as Error);
+      throw error;
+    });
+    if (!response.ok) {
+      stream.close();
+      throw new CmuxCommandError(response.error || "unknown error", response.id, response);
+    }
+    return stream;
+  }
+
+  private decodeAttachEvent(event: AttachEvent): DecodedAttachEvent {
+    switch (event.event) {
+      case "vt-state": {
+        if (typeof event.data !== "string") throw new Error("vt-state data is not base64 text");
+        return { ...event, data: decodeBase64(event.data) } as DecodedAttachEvent;
+      }
+      case "output": {
+        if (typeof event.data !== "string") throw new Error("output data is not base64 text");
+        return { ...event, data: decodeBase64(event.data) } as DecodedAttachEvent;
+      }
+      case "resized": {
+        if (typeof event.replay !== "string") throw new Error("resized replay is not base64 text");
+        return { ...event, replay: decodeBase64(event.replay) } as DecodedAttachEvent;
+      }
+      default: return event as DecodedAttachEvent;
+    }
+  }
+
+  private matchesAttachEvent(event: UnknownEvent, surface: Id): boolean {
+    if (!("surface" in event) || event.surface !== surface) return false;
+    return this.attachOnlyEvent(event.event) || event.event === "scroll-changed";
+  }
+
+  private attachOnlyEvent(event: string): boolean {
+    return event === "vt-state" || event === "output" || event === "resized" || event === "detached";
+  }
+
+  private dropUndefined(value: Record<string, unknown>): JsonObject {
+    return Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined)) as JsonObject;
   }
 
   private nextId(): number {
     return this.nextRequestId++;
   }
-}
-
-function dropUndefined(value: Record<string, unknown>): JsonObject {
-  return Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined)) as JsonObject;
-}
-
-function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string, onTimeout?: () => void): Promise<T> {
-  let timer: NodeJS.Timeout;
-  const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => {
-      onTimeout?.();
-      reject(new CmuxTimeoutError(message));
-    }, timeoutMs);
-  });
-  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer!));
 }
