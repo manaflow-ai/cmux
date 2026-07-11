@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Foundation
 import Testing
 @testable import CmuxGit
@@ -290,6 +291,53 @@ struct WorktreeIncludeSyncServiceTests {
         #expect(try contents(at: destination.appendingPathComponent("settings.local")) == "settings\n")
     }
 
+    @Test("standard-ignore checks are candidate-scoped and time bounded")
+    func standardIgnoreChecksAreBounded() async throws {
+        let root = try makeRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = root.appendingPathComponent("source", isDirectory: true)
+        let destination = root.appendingPathComponent("destination", isDirectory: true)
+        let runner = CandidateFilteringCommandRunner()
+        try FileManager.default.createDirectory(
+            at: source.appendingPathComponent("node_modules/pkg", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+        try "node_modules/\n.env\n".write(
+            to: source.appendingPathComponent(".worktreeinclude"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "module\n".write(
+            to: source.appendingPathComponent("node_modules/pkg/index.js"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "secret=value\n".write(
+            to: source.appendingPathComponent(".env"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let diagnostics = await WorktreeIncludeSyncService(commandRunner: runner).sync(
+            from: source,
+            to: destination
+        )
+        let invocations = await runner.invocations()
+
+        #expect(diagnostics.isEmpty)
+        #expect(try contents(at: destination.appendingPathComponent(".env")) == "secret=value\n")
+        #expect(try contents(at: destination.appendingPathComponent("node_modules/pkg/index.js")) == "module\n")
+        #expect(invocations.allSatisfy { $0.timeout != nil })
+        let standardIgnoreInvocations = invocations.filter { $0.arguments.contains("--exclude-standard") }
+        #expect(!standardIgnoreInvocations.isEmpty)
+        #expect(standardIgnoreInvocations.allSatisfy { invocation in
+            guard let separator = invocation.arguments.firstIndex(of: "--") else { return false }
+            let pathspecs = invocation.arguments.suffix(from: invocation.arguments.index(after: separator))
+            return !pathspecs.isEmpty && pathspecs.allSatisfy { $0.hasPrefix(":(top,literal)") }
+        })
+    }
+
     private func makeRoot() throws -> URL {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-worktree-include-\(UUID().uuidString)", isDirectory: true)
@@ -326,5 +374,54 @@ struct WorktreeIncludeSyncServiceTests {
 
     private func contents(at url: URL) throws -> String {
         try String(contentsOf: url, encoding: .utf8)
+    }
+}
+
+private actor CandidateFilteringCommandRunner: CommandRunning {
+    struct Invocation: Sendable {
+        let arguments: [String]
+        let timeout: TimeInterval?
+    }
+
+    private var recordedInvocations: [Invocation] = []
+
+    func run(
+        directory: String,
+        executable: String,
+        arguments: [String],
+        timeout: TimeInterval?
+    ) async -> CommandResult {
+        recordedInvocations.append(Invocation(arguments: arguments, timeout: timeout))
+        let isStandardIgnoreCheck = arguments.contains("--exclude-standard")
+        let isDirectoryQuery = arguments.contains("--directory")
+        let literalPathspecs = arguments.compactMap { argument -> String? in
+            let prefix = ":(top,literal)"
+            guard argument.hasPrefix(prefix) else { return nil }
+            return String(argument.dropFirst(prefix.count))
+        }
+
+        let stdout: String
+        if isStandardIgnoreCheck {
+            stdout = literalPathspecs.compactMap { path in
+                if path == "node_modules/" { return "node_modules/" }
+                if path == ".env" { return ".env" }
+                return nil
+            }.joined(separator: "\0") + (literalPathspecs.isEmpty ? "" : "\0")
+        } else if isDirectoryQuery {
+            stdout = "node_modules/\0"
+        } else {
+            stdout = ".env\0"
+        }
+        return CommandResult(
+            stdout: stdout,
+            stderr: "",
+            exitStatus: 0,
+            timedOut: false,
+            executionError: nil
+        )
+    }
+
+    func invocations() -> [Invocation] {
+        recordedInvocations
     }
 }
