@@ -36,7 +36,7 @@ const docsDescriptionCandidateKeys: Record<
   readonly string[]
 > = {
   ohMyOpenCode: [],
-  api: ["intro", "capabilitiesDesc", "socketCallout", "idFormat"],
+  api: ["intro", "capabilitiesDesc", "idFormat"],
   configuration: ["intro", "configLocationsDesc", "appSettingsDesc"],
   browserAutomation: [
     "intro",
