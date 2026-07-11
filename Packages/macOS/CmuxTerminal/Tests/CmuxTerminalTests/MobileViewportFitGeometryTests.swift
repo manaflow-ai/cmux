@@ -62,6 +62,22 @@ struct MobileViewportFitGeometryTests {
         #expect(userAdjusted.restorePlan(configuredFontPointSize: 12) == .resetThenSet(14))
     }
 
+    @Test func reloadRefitPreservesUserAdjustedFontOwnership() {
+        var state = MobileViewportFontFitState()
+
+        state.begin(
+            baseFontPointSize: 14,
+            configuredFontPointSize: 14,
+            preservedUserAdjustedBaseFontPointSize: 14
+        )
+        state.recordFittedFontPointSize(9)
+        state.reconcile(liveFontPointSize: 9, configuredFontPointSize: 12)
+
+        #expect(state.baseFontPointSize == 14)
+        #expect(state.baseWasUserAdjusted == true)
+        #expect(state.restorePlan(configuredFontPointSize: 12) == .resetThenSet(14))
+    }
+
     @Test func fitNotNeededKeepsBaseFontAndGrantBox() {
         let geometry = geometry(paneWidthPx: 1000, paneHeightPx: 600, cellWidthPx: 10, cellHeightPx: 20)
         let font = geometry.targetFontPointSize(
