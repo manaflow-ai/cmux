@@ -110,6 +110,29 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
 
     @MainActor
     @Test
+    func portalMutationSchedulerReadsLiveWorkspacePresentationVisibility() async throws {
+        let manager = TabManager()
+        defer { manager.tabs.forEach { $0.teardownAllPanels() } }
+        let workspace = try #require(manager.selectedWorkspace)
+        let pane = try #require(workspace.bonsplitController.allPaneIds.first)
+        let panel = try #require(workspace.focusedTerminalPanel)
+        let scheduler = TerminalPortalMutationScheduler()
+        var committedPresentation: TerminalPortalPresentation?
+
+        let commit = scheduler.schedule {
+            committedPresentation = workspace.terminalPortalPresentation(
+                panelId: panel.id,
+                paneId: pane
+            )
+        }
+        workspace.setPortalPresentationVisible(false)
+
+        await commit.value
+        #expect(committedPresentation == .hidden)
+    }
+
+    @MainActor
+    @Test
     func dockPresentationReadsLiveSidebarFocusOwnership() async throws {
         try await AppContextSerialGate.withExclusiveAppContext {
             let previousAppDelegate = AppDelegate.shared
@@ -141,13 +164,13 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
             fileExplorerState.rightSidebarOwnsInputFocus = false
             #expect(
                 dock.terminalPortalPresentation(panelId: panelId, tabId: tabId, paneId: pane) ==
-                    .visible(isActive: false, zPriority: 1)
+                    .visible(isActive: true, zPriority: 1)
             )
 
             fileExplorerState.rightSidebarOwnsInputFocus = true
             #expect(
                 dock.terminalPortalPresentation(panelId: panelId, tabId: tabId, paneId: pane) ==
-                    .visible(isActive: true, zPriority: 1)
+                    .visible(isActive: false, zPriority: 1)
             )
         }
     }
