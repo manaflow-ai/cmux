@@ -1,3 +1,4 @@
+import CmuxTerminalCore
 import Foundation
 import SwiftUI
 import Testing
@@ -285,6 +286,21 @@ struct NotificationRowSnapshotBoundaryTests {
         #expect(restoredNotification.scrollPosition?.totalRows == 100)
     }
 
+    @Test func openingNotificationCapturedAtBottomRestoresLiveViewport() {
+        let surfaceView = NotificationScrollRecordingSurfaceView(frame: .zero)
+        surfaceView.scrollbar = GhosttyScrollbar(
+            c: ghostty_action_scrollbar_s(total: 400, offset: 356, len: 44)
+        )
+        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+
+        let didRestore = hostedView.restoreNotificationScrollPosition(
+            TerminalNotificationScrollPosition(row: 0, totalRows: 400)
+        )
+
+        #expect(didRestore)
+        #expect(surfaceView.performedBindingActions == ["scroll_to_row:356"])
+    }
+
     // MARK: - Fixtures
 
     private static func makeNotification(
@@ -301,5 +317,14 @@ struct NotificationRowSnapshotBoundaryTests {
             createdAt: Date(timeIntervalSince1970: 1_700_000_000),
             isRead: isRead
         )
+    }
+}
+
+private final class NotificationScrollRecordingSurfaceView: GhosttyNSView {
+    private(set) var performedBindingActions: [String] = []
+
+    override func performBindingAction(_ action: String) -> Bool {
+        performedBindingActions.append(action)
+        return true
     }
 }
