@@ -19,7 +19,7 @@ import Testing
         let result = composer.compose(template: template, prompt: " \n ")
 
         #expect(result.initialCommand == "echo \"${CMUX_TASK_PROMPT}\"")
-        #expect(result.initialEnv.isEmpty)
+        #expect(result.initialEnv == ["CMUX_TASK_PROMPT": ""])
         #expect(result.title == nil)
     }
 

@@ -29,7 +29,9 @@ public struct MobileTaskCommandComposer: Sendable {
             initialCommand = command
         }
 
-        let env = prompt.isEmpty ? [:] : ["CMUX_TASK_PROMPT": prompt]
+        let env = interpolation.didReplacePrompt || !prompt.isEmpty
+            ? ["CMUX_TASK_PROMPT": prompt]
+            : [:]
         return MobileTaskComposition(initialCommand: initialCommand, initialEnv: env, title: title)
     }
 
