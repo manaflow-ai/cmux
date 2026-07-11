@@ -324,4 +324,89 @@ struct AgentResumeArgvTests {
             ) == "'/Applications/cmux.app/Contents/Resources/bin/cmux' 'codex-teams' 'resume' 'SID'"
         )
     }
+
+    @Test("Rendered direct Codex fork preserves a captured executable through the wrapper")
+    func renderedPortableCodexForkWithCapturedExecutable() {
+        let quote: (String) -> String = { "'" + $0 + "'" }
+        let rendered = AgentResumeArgv.renderedPortableCodexResumeShellCommand(
+            parts: [
+                "env",
+                "CODEX_HOME=/tmp/codex home",
+                "/opt/custom/codex",
+                "fork",
+                "SID",
+                "--model",
+                "gpt-5.4",
+            ],
+            quote: quote
+        )
+        let substituted = [
+            "'env'",
+            "'CODEX_HOME=/tmp/codex home'",
+            "'CMUX_CUSTOM_CODEX_PATH=/opt/custom/codex'",
+            AgentResumeArgv.codexWrapperShellExecutableToken,
+            "'fork'",
+            "'SID'",
+            "'--model'",
+            "'gpt-5.4'",
+        ].joined(separator: " ")
+
+        #expect(
+            rendered == AgentResumeArgv.portableCodexResumeShellCommand(posixCommand: substituted)
+        )
+    }
+
+    @Test("Rendered Codex Teams fork leaves prompt tokens named codex unchanged")
+    func renderedCodexTeamsForkLeavesCodexPromptUnchanged() {
+        let quote: (String) -> String = { "'" + $0 + "'" }
+
+        #expect(
+            AgentResumeArgv.renderedPortableCodexResumeShellCommand(
+                parts: ["/Applications/cmux.app/Contents/Resources/bin/cmux", "codex-teams", "fork", "SID", "codex"],
+                quote: quote
+            ) == "'/Applications/cmux.app/Contents/Resources/bin/cmux' 'codex-teams' 'fork' 'SID' 'codex'"
+        )
+    }
+
+    @Test("Rendered Codex fork recognizes an absolute env launcher")
+    func renderedCodexForkWithAbsoluteEnvLauncher() {
+        let quote: (String) -> String = { "'" + $0 + "'" }
+        let rendered = AgentResumeArgv.renderedPortableCodexResumeShellCommand(
+            parts: ["/usr/bin/env", "CODEX_HOME=/tmp/codex", "/opt/custom/codex", "fork", "SID"],
+            quote: quote
+        )
+        let substituted = [
+            "'/usr/bin/env'",
+            "'CODEX_HOME=/tmp/codex'",
+            "'CMUX_CUSTOM_CODEX_PATH=/opt/custom/codex'",
+            AgentResumeArgv.codexWrapperShellExecutableToken,
+            "'fork'",
+            "'SID'",
+        ].joined(separator: " ")
+
+        #expect(
+            rendered == AgentResumeArgv.portableCodexResumeShellCommand(posixCommand: substituted)
+        )
+    }
+
+    @Test("Rendered Codex fork normalizes leading environment assignments")
+    func renderedCodexForkWithLeadingEnvironmentAssignment() {
+        let quote: (String) -> String = { "'" + $0 + "'" }
+        let rendered = AgentResumeArgv.renderedPortableCodexResumeShellCommand(
+            parts: ["CODEX_HOME=/tmp/codex", "/opt/custom/codex", "fork", "SID"],
+            quote: quote
+        )
+        let substituted = [
+            "'env'",
+            "'CODEX_HOME=/tmp/codex'",
+            "'CMUX_CUSTOM_CODEX_PATH=/opt/custom/codex'",
+            AgentResumeArgv.codexWrapperShellExecutableToken,
+            "'fork'",
+            "'SID'",
+        ].joined(separator: " ")
+
+        #expect(
+            rendered == AgentResumeArgv.portableCodexResumeShellCommand(posixCommand: substituted)
+        )
+    }
 }
