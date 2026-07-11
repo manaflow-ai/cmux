@@ -1,13 +1,15 @@
 # cmux shell integration for zsh
 # Injected automatically — do not source manually
 
-# Prefer zsh/net/unix for socket sends (no fork, ~0.2ms per send vs ~3ms
-# for fork+exec of ncat/socat/nc).  Falls back to external tools if the
-# module is unavailable.
-typeset -g _CMUX_HAS_ZSOCKET=0
-if zmodload zsh/net/unix 2>/dev/null; then
-    _CMUX_HAS_ZSOCKET=1
-fi
+# Socket sends exec a unix-socket-capable client in a detached child. The
+# historical zsocket fast path (zmodload zsh/net/unix) never activated: that
+# module does not exist (zsocket lives in zsh/net/socket), and enabling it has
+# three known defects — its instant-exit child loses the server's live
+# peer-ancestry authorization race in cmuxOnly mode, per-connection handler
+# threads make cross-connection ordering nondeterministic unless the client
+# waits for responses, and a timeout-free blocked child can outlive its shell.
+# A future fast path needs one connection per batch plus response reads; until
+# then the external-client transport below is the only send path.
 
 typeset -g _CMUX_HAS_ZSH_JOBSTATES=0
 if zmodload zsh/parameter 2>/dev/null && (( ${+jobstates} )); then
@@ -31,14 +33,22 @@ _cmux_restore_status() {
     builtin return "$1"
 }
 
+# BSD nc at /usr/bin/nc is preferred: it always supports -U, it waits for the
+# server to process the line and close (which preserves send order across a
+# batched child and keeps the peer alive through cmuxOnly ancestry checks),
+# and -w bounds its lifetime. PATH `nc` cannot be trusted first: GNU netcat
+# (e.g. Homebrew in /usr/local/bin) lacks -U and fails silently, which dropped
+# every hook message (report_tty, ports_kick, report_shell_state) on machines
+# where it shadows the system nc.
 _cmux_send() {
     local payload="$1"
-    if (( _CMUX_HAS_ZSOCKET )); then
-        local fd
-        zsocket "$CMUX_SOCKET_PATH" 2>/dev/null || return 1
-        fd=$REPLY
-        print -u $fd -r -- "$payload" 2>/dev/null
-        exec {fd}>&- 2>/dev/null
+    if [[ -x /usr/bin/nc ]]; then
+        # Apple's nc defines -N as `num_probes` (it is not OpenBSD's no-arg
+        # shutdown-after-EOF flag), so the -N form fails option parsing; use
+        # the bounded -w form directly. nc still waits for the server to
+        # process the line and close, preserving order in a batched child and
+        # keeping the peer alive through cmuxOnly ancestry checks.
+        print -r -- "$payload" | /usr/bin/nc -w 1 -U "$CMUX_SOCKET_PATH" >/dev/null 2>&1 || true
         return 0
     fi
     if command -v ncat >/dev/null 2>&1; then
@@ -54,15 +64,26 @@ _cmux_send() {
     fi
 }
 
-# Fire-and-forget send: synchronous when zsocket is available (fast, no fork),
-# backgrounded otherwise.
+# Fire-and-forget send, always detached from the interactive shell: the
+# client's connect and response wait must never run in the foreground, or a
+# wedged cmux listener (hung app, full backlog, post-wake socket) blocks every
+# precmd/preexec hook and freezes the user's prompt. Each child self-bounds
+# via its client timeout (-w 1 / -T 1), so a wedged listener cannot
+# accumulate children beyond roughly one second's worth of sends.
+# Accepts multiple payloads: they are sent sequentially inside ONE child, so
+# callers with an ordering dependency between two messages (report_tty before
+# ports_kick) batch them instead of racing two independent children.
+# Returns nonzero when the payload was dropped (job-table saturation) so
+# callers with edge-triggered latches can leave them unset and retry.
 _cmux_send_bg() {
-    if (( _CMUX_HAS_ZSOCKET )); then
-        _cmux_send "$1"
-    else
-        _cmux_zsh_job_table_saturated && return 0
-        { _cmux_send "$1" } >/dev/null 2>&1 &!
-    fi
+    _cmux_zsh_job_table_saturated && return 1
+    {
+        local _cmux_msg
+        for _cmux_msg in "$@"; do
+            _cmux_send "$_cmux_msg"
+        done
+    } >/dev/null 2>&1 &!
+    return 0
 }
 
 _cmux_socket_is_unix() {
@@ -805,8 +826,16 @@ _cmux_report_tty_once() {
         local payload=""
         payload="$(_cmux_report_tty_payload)"
         [[ -n "$payload" ]] || return 0
+        # Batch the first ports kick behind the registration in the same
+        # child: the scanner drops kicks for unregistered TTYs, and two
+        # detached children can connect out of order. Latch only after the
+        # send was actually enqueued so a cap-dropped registration retries.
+        if [[ -n "$CMUX_TAB_ID" && -n "$CMUX_PANEL_ID" ]]; then
+            _cmux_send_bg "$payload" "ports_kick --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID --reason=command" || return 0
+        else
+            _cmux_send_bg "$payload" || return 0
+        fi
         _CMUX_TTY_REPORTED=1
-        _cmux_send_bg "$payload"
     else
         [[ -n "$_CMUX_TTY_NAME" ]] || return 0
         # Keep the first relay TTY report synchronous so the server can resolve
@@ -824,7 +853,8 @@ _cmux_report_shell_activity_state() {
     [[ -n "$CMUX_PANEL_ID" ]] || return 0
     [[ "$_CMUX_SHELL_ACTIVITY_LAST" == "$state" ]] && return 0
     _CMUX_SHELL_ACTIVITY_LAST="$state"
-    _cmux_send_bg "report_shell_state $state --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
+    _cmux_send_bg "report_shell_state $state --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID" \
+        || _CMUX_SHELL_ACTIVITY_LAST=""
 }
 
 _cmux_reset_terminal_keyboard_protocols() {

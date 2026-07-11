@@ -2,7 +2,9 @@
 
 ## Click Targets
 
-The sidebar shows a `workspaces` header, two rows per workspace, and `+ new workspace`. Click either row of a workspace to select it. Click `+ new workspace` to create one. Drag the sidebar's right border to set a session-local width override. Configured `sidebar.max_width` limits the drag width when it is greater than zero, and the TUI still leaves at least 40 columns for panes.
+The default files sidebar shows the focused pane's cwd, one row per directory/file, and a count or filter footer. A single click selects a file row. Crossterm's mouse events do not expose an existing double-click concept here, so clicks do not open or descend; use Enter or Right while the sidebar is focused. Toggle to the workspaces view with focused-sidebar `Tab` or the `toggle-sidebar-view` action.
+
+The workspaces view shows a `workspaces` header, two rows per workspace, and `+ new workspace`. Click either row of a workspace to select it. Click `+ new workspace` to create one. Drag the sidebar's right border in either built-in view to set a session-local width override. Configured `sidebar.max_width` limits the drag width when it is greater than zero, and the TUI still leaves at least 40 columns for panes.
 
 Each pane has a border box. Click inside a pane to focus it. The top border is the tab bar: click a tab chip to select it, click `+` to create a PTY tab, click `‹` or `›` to scroll overflowing tabs, or wheel over the bar to scroll tab chips while keeping the active tab visible.
 
@@ -12,7 +14,7 @@ The status bar lists screens for the active workspace. Click a screen segment to
 
 Drag a tab chip to reorder it within the same pane. Drag it to another pane's tab bar to move the tab across panes. The dragged tab is dimmed, and the target insertion point is shown with a `▌` marker.
 
-Drag a workspace entry in the sidebar to reorder workspaces. The drop position is shown with a horizontal `─` marker.
+In the workspaces view, drag a workspace entry to reorder workspaces. The drop position is shown with a horizontal `─` marker.
 
 ## Scrollbars
 

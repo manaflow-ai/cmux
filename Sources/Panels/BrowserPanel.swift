@@ -2522,7 +2522,6 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
             now.timeIntervalSince(session.createdAt) <= maxSessionAge
         }
     }
-
     private func responseHeaders(for file: RegisteredFile) -> [String: String] {
         var headers = [
             "Content-Type": "\(file.mimeType); charset=utf-8",
@@ -2530,6 +2529,7 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
             "X-Content-Type-Options": "nosniff",
             "Cross-Origin-Resource-Policy": "same-origin"
         ]
+        if file.fileURL.lastPathComponent.hasSuffix(".deflate") { headers["Content-Encoding"] = "deflate" }
         if file.mimeType == "text/html" {
             headers["Content-Security-Policy"] = [
                 "default-src 'none'",
