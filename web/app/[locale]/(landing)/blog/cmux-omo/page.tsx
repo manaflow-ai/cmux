@@ -2,6 +2,7 @@ import { useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
 import { buildAlternates, openGraphDefaults, twitterSummary } from "@/i18n/seo";
 import { blogPostSeoCopy } from "@/i18n/audited-seo";
+import { englishFallbackContentLocales } from "@/i18n/locale-availability";
 import { BlogSchema } from "../blog-schema";
 import { Link } from "@/i18n/navigation";
 
@@ -10,7 +11,11 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
   const t = await getTranslations({ locale, namespace: "blog.cmuxOmo" });
   const post = await getTranslations({ locale, namespace: "blog.posts.cmuxOmo" });
   const siteMeta = await getTranslations({ locale, namespace: "meta" });
-  const alternates = buildAlternates(locale, "/blog/cmux-omo");
+  const alternates = buildAlternates(
+    locale,
+    "/blog/cmux-omo",
+    englishFallbackContentLocales,
+  );
   const { title, description } = blogPostSeoCopy(locale, "cmuxOmo", t, post, siteMeta);
   return {
     title: { absolute: title },

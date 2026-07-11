@@ -31,19 +31,16 @@ const blogDescriptionCandidateKeys: Record<
 > = {
   cmuxOmo: ["summary"],
   gpl: ["summary", "p1"],
-  showHnLaunch: ["summary", "intro", "cta"],
+  showHnLaunch: ["summary"],
   sessionRestore: ["summary", "p1", "p2", "agentP2", "limitsP"],
-  cmuxHome: ["summary", "p1", "p2", "p3", "p4", "p5"],
-  introducingCmux: ["summary", "p1", "whyP", "getStartedP"],
+  cmuxHome: ["summary", "p2", "p3", "p4"],
+  introducingCmux: ["summary", "p1", "whyP"],
   claudeCodeBestWorktreeManager: [
     "summary",
     "p1",
-    "p2",
-    "cmuxP1",
-    "cmuxP2",
   ],
   zenOfCmux: ["summary", "p1", "p2", "p3", "p4"],
-  cmdShiftU: ["summary", "p1", "p2"],
+  cmdShiftU: ["summary", "p1"],
   unreadShortcuts: ["summary", "p1", "p2", "p3", "p4", "p5"],
   passkeyAuth: ["summary", "p1", "p2", "p3"],
 };
