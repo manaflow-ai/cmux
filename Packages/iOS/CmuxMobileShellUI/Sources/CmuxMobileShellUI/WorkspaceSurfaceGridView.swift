@@ -456,21 +456,3 @@ struct WorkspaceSurfaceGridView: View {
         }
     }
 }
-
-private struct WorkspaceSurfaceGridContent {
-    let selectedWorkspace: MobileWorkspacePreview?
-    let filteredSurfaceItems: [WorkspaceSurfaceGridItem]
-}
-
-struct WorkspaceSurfaceGridSelection {
-    let workspace: MobileWorkspacePreview
-    let selectedTerminalID: MobileTerminalPreview.ID?
-
-    func terminalIDToOpen() -> MobileTerminalPreview.ID? {
-        if let selectedTerminalID,
-           workspace.terminals.contains(where: { $0.id == selectedTerminalID }) {
-            return selectedTerminalID
-        }
-        return workspace.terminals.first?.id
-    }
-}

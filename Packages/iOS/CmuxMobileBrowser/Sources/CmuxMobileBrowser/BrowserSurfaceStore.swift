@@ -257,7 +257,7 @@ public final class BrowserSurfaceStore {
         persistenceDefaults.set(data, forKey: persistenceKey)
     }
 
-    private func contentModePreference(_ rawValue: String) -> BrowserSurfaceState.ContentModePreference {
+    private func contentModePreference(_ rawValue: String) -> BrowserContentModePreference {
         switch rawValue {
         case "mobile": .mobile
         case "desktop": .desktop
@@ -265,7 +265,7 @@ public final class BrowserSurfaceStore {
         }
     }
 
-    private func contentModeRawValue(_ preference: BrowserSurfaceState.ContentModePreference) -> String {
+    private func contentModeRawValue(_ preference: BrowserContentModePreference) -> String {
         switch preference {
         case .recommended: "recommended"
         case .mobile: "mobile"

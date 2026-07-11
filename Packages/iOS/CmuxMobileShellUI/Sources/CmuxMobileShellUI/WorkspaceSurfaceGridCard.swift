@@ -1,27 +1,8 @@
-import CmuxMobileShellModel
 import CmuxMobileSupport
 import SwiftUI
 #if os(iOS)
 import UIKit
 #endif
-
-struct WorkspaceSurfaceGridItem: Identifiable, Equatable {
-    enum Kind: Equatable {
-        case terminal(MobileTerminalPreview.ID)
-        case browser
-    }
-
-    let id: String
-    let workspaceID: MobileWorkspacePreview.ID
-    let kind: Kind
-    let title: String
-    let subtitle: String
-    let detail: String
-    let systemImage: String
-    let isSelected: Bool
-    let isDimmed: Bool
-    let canClose: Bool
-}
 
 struct WorkspaceSurfaceGridCard: View {
     let item: WorkspaceSurfaceGridItem

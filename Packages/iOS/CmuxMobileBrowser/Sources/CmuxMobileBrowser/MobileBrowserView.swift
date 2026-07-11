@@ -343,7 +343,7 @@ public struct MobileBrowserView: UIViewRepresentable {
     }
 }
 
-extension BrowserSurfaceState.ContentModePreference {
+extension BrowserContentModePreference {
     /// The WebKit content mode this preference requests for page loads.
     var webKitContentMode: WKWebpagePreferences.ContentMode {
         switch self {

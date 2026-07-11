@@ -70,31 +70,20 @@ public final class BrowserSurfaceState: Identifiable {
     /// value, so it is held as-is and only ever handed back to WebKit.
     public var savedInteractionState: Any?
 
-    /// The user's explicit content-mode choice for this surface.
-    public enum ContentModePreference: Equatable, Sendable {
-        /// Follow WebKit's recommended mode for the device (mobile on iPhone,
-        /// desktop on iPad).
-        case recommended
-        /// Force the mobile site.
-        case mobile
-        /// Force the desktop site.
-        case desktop
-    }
-
     /// The content mode subsequent page loads should request. Starts as
-    /// ``ContentModePreference/recommended`` and becomes an explicit mode once
+    /// ``BrowserContentModePreference/recommended`` and becomes an explicit mode once
     /// the user toggles the desktop-site menu item.
-    public var contentModePreference: ContentModePreference
+    public var contentModePreference: BrowserContentModePreference
 
     /// Whether this device's recommended WebKit content mode is desktop
     /// (true on iPad, false on iPhone). Injected by the hosting view when the
     /// web view attaches, so this package stays UIKit-free and the toggle's
     /// label and first action are correct on iPads, whose default
-    /// ``ContentModePreference/recommended`` mode already loads desktop sites.
+    /// ``BrowserContentModePreference/recommended`` mode already loads desktop sites.
     public var recommendedContentModeIsDesktop: Bool
 
     /// Whether subsequent page loads request the desktop site, resolving
-    /// ``ContentModePreference/recommended`` to the device default. Drives the
+    /// ``BrowserContentModePreference/recommended`` to the device default. Drives the
     /// menu label and the toggle direction.
     public var prefersDesktopSite: Bool {
         switch contentModePreference {
@@ -197,7 +186,7 @@ public final class BrowserSurfaceState: Identifiable {
     /// already loaded.
     ///
     /// - Parameter preference: The content mode subsequent loads should request.
-    public func setContentModePreference(_ preference: ContentModePreference) {
+    public func setContentModePreference(_ preference: BrowserContentModePreference) {
         guard contentModePreference != preference else { return }
         contentModePreference = preference
         persistDurableState?(true)
