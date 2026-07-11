@@ -128,7 +128,7 @@ extension WorkspaceDetailView {
                 .frame(width: 44, height: 44)
         }
         .frame(width: shouldShowChatToggle ? 148 : 96, height: 44, alignment: .trailing)
-        .animation(accessibilityReduceMotion ? nil : .snappy(duration: 0.25), value: shouldShowChatToggle)
+        .animation(.snappy(duration: 0.25), value: shouldShowChatToggle)
     }
 
     var chatToggleButton: some View {

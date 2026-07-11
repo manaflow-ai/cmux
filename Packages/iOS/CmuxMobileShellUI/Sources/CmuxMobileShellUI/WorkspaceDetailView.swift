@@ -36,7 +36,6 @@ struct WorkspaceDetailView: View {
     let signOut: (() -> Void)?
     @Environment(BrowserSurfaceStore.self) var browserStore
     @Environment(MobileDisplaySettings.self) private var displaySettings
-    @Environment(\.accessibilityReduceMotion) var accessibilityReduceMotion
     /// Drives the destructive close-workspace confirmation dialog.
     @State var isConfirmingClose = false
     #if canImport(UIKit)
