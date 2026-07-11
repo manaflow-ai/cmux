@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 actor TextBoxMentionIndexStore {
@@ -690,10 +691,24 @@ actor TextBoxMentionIndexStore {
 
         let probePaths = relativePaths + relativePaths.map { "\($0)/" }
         let input = probePaths.joined(separator: "\n") + "\n"
-        if let data = input.data(using: .utf8) {
-            stdin.fileHandleForWriting.write(data)
+        let inputHandle = stdin.fileHandleForWriting
+        guard fcntl(inputHandle.fileDescriptor, F_SETNOSIGPIPE, 1) == 0 else {
+            try? inputHandle.close()
+            _ = await outputTask.value
+            _ = await terminationStatus.wait()
+            return []
         }
-        stdin.fileHandleForWriting.closeFile()
+        do {
+            if let data = input.data(using: .utf8) {
+                try inputHandle.write(contentsOf: data)
+            }
+            try inputHandle.close()
+        } catch {
+            try? inputHandle.close()
+            _ = await outputTask.value
+            _ = await terminationStatus.wait()
+            return []
+        }
 
         let output = await outputTask.value
         let status = await terminationStatus.wait()
