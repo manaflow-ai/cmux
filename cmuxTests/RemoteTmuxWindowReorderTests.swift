@@ -241,6 +241,23 @@ import Testing
         #expect(connection.paneIDsRetainedUntilWindowList.isEmpty)
     }
 
+    @Test(arguments: [true, false])
+    func unusableCloseRefreshReconnectsWithoutReleasingIdentity(isError: Bool) {
+        let (connection, writer, pipe) = attachedConnection()
+        defer { writer.close(); try? pipe.fileHandleForReading.close() }
+        publishWindows(connection, order: [1, 2])
+
+        connection.handleMessageForTesting(.windowClose(windowId: 1))
+        reply(
+            connection,
+            lines: [isError ? "refresh rejected" : "garbled topology"],
+            isError: isError
+        )
+
+        #expect(connection.connectionState == .reconnecting)
+        #expect(connection.paneIDsRetainedUntilWindowList == [10])
+    }
+
     @Test func recoveryEscalationVerifiesAgainstAuthoritativeOrder() {
         let (connection, writer, pipe) = attachedConnection()
         defer { writer.close(); try? pipe.fileHandleForReading.close() }

@@ -41,9 +41,13 @@ extension RemoteTmuxControlConnection {
             if case let .windowReorder(isLast) = kind {
                 completeWindowReorderCommand(isLast: isLast, failed: true)
             }
-            if case let .listWindows(requestGeneration, _) = kind,
-               windowReorderRecoveryGeneration == requestGeneration {
-                restartAfterWindowReorderRecoveryFailure()
+            if case let .listWindows(requestGeneration, retainedPaneIDs) = kind {
+                if windowReorderRecoveryGeneration == requestGeneration {
+                    restartAfterWindowReorderRecoveryFailure()
+                } else if !retainedPaneIDs.isEmpty {
+                    record("window-list-retention-reconnect")
+                    beginReconnecting()
+                }
             }
             if case .listWindowOrder = kind {
                 requestFullWindowOrderRecovery()
@@ -214,6 +218,9 @@ extension RemoteTmuxControlConnection {
                 // publishes only when the rects replies land.
             } else if completesReorderRecovery {
                 restartAfterWindowReorderRecoveryFailure()
+            } else if !retainedPaneIDs.isEmpty {
+                record("window-list-retention-reconnect")
+                beginReconnecting()
             }
         case let .listWindowOrder(requestGeneration):
             let order = lines.compactMap { line in
