@@ -31,10 +31,10 @@ public struct MobileCrashReporter {
         environment: [String: String] = ProcessInfo.processInfo.environment,
         notificationCenter: NotificationCenter = .default,
         revocationWatcher: RevocationWatcher,
-        start: (Options) -> Void = { SentrySDK.start(options: $0) },
+        start: @escaping (Options) -> Void = { SentrySDK.start(options: $0) },
         close: @escaping @Sendable () -> Void = { SentrySDK.close() },
         purgeCache: @escaping @Sendable () -> Void = { Self.purgeSentryCache() },
-        crash: () -> Void = { SentrySDK.crash() }
+        crash: @escaping () -> Void = { SentrySDK.crash() }
     ) {
         Self().startIfEnabled(
             consent: consent,
@@ -74,18 +74,11 @@ public struct MobileCrashReporter {
         environment: [String: String] = ProcessInfo.processInfo.environment,
         notificationCenter: NotificationCenter = .default,
         revocationWatcher: RevocationWatcher,
-        start: (Options) -> Void = { SentrySDK.start(options: $0) },
+        start: @escaping (Options) -> Void = { SentrySDK.start(options: $0) },
         close: @escaping @Sendable () -> Void = { SentrySDK.close() },
         purgeCache: @escaping @Sendable () -> Void = { Self.purgeSentryCache() },
-        crash: () -> Void = { SentrySDK.crash() }
+        crash: @escaping () -> Void = { SentrySDK.crash() }
     ) {
-        guard consent.isTelemetryEnabled else {
-            // A crash captured during an earlier opted-out window must never
-            // upload after a later re-opt-in: with consent off, any envelopes
-            // Sentry persisted before the opt-out landed are deleted.
-            purgeCache()
-            return
-        }
         // Never report from test runs: unit-test hosts, XCUITest
         // app-under-test launches (which do NOT get XCTestConfigurationFilePath;
         // they carry other XCTest markers or this repo's CMUX_UITEST_ keys),
@@ -93,42 +86,54 @@ public struct MobileCrashReporter {
         // shared Sentry project.
         guard !Self.isTestRun(environment: environment) else { return }
 
-        let options = makeOptions()
-        // Consent is re-read per event, mirroring the analytics emitter's
-        // per-capture gate: flipping sendAnonymousTelemetry off mid-session
-        // drops every subsequent envelope (crash, hang, MetricKit) without
-        // requiring a relaunch.
-        options.beforeSend = { event in
-            consent.isTelemetryEnabled ? event : nil
+        let startReporting = {
+            let options = makeOptions()
+            // Consent is re-read per event, mirroring the analytics emitter's
+            // per-capture gate: flipping sendAnonymousTelemetry off mid-session
+            // drops every subsequent envelope (crash, hang, MetricKit) without
+            // requiring a relaunch.
+            options.beforeSend = { event in
+                consent.isTelemetryEnabled ? event : nil
+            }
+            start(options)
+
+            #if DEBUG
+            if arguments.contains(Self.debugCrashArgument) {
+                crash()
+            }
+            #endif
         }
-        start(options)
-        // Mid-session revocation fails closed at the SDK level too: the crash
-        // handlers stop persisting reports and cached envelopes are deleted, so
-        // nothing captured after (or pending from before) the opt-out can ever
-        // leave the device. Re-enabling takes effect on the next launch.
-        revocationWatcher.arm(
+        let stopReporting = {
+            // Purge BEFORE close: close() flushes pending envelopes to the
+            // network, so persisted opted-out data must be gone first. The
+            // second purge removes anything close() persisted while draining
+            // its in-memory queue. Events close() flushes are dropped by the
+            // consent beforeSend gate; the only residual is an envelope already
+            // serialized into the in-memory transport queue at the instant of
+            // revocation, which the public SDK API cannot cancel.
+            purgeCache()
+            close()
+            purgeCache()
+        }
+
+        // Keep monitoring both consent directions for the process lifetime.
+        // This starts Sentry immediately after a mid-session opt-in and closes
+        // it after opt-out, while transition tracking prevents defaults churn
+        // from initializing or closing the SDK more than once.
+        let isInitiallyEnabled = revocationWatcher.arm(
             consent: consent,
             notificationCenter: notificationCenter,
-            onRevoke: {
-                // Purge BEFORE close: close() flushes pending envelopes to the
-                // network, so persisted opted-out data must be gone first. The
-                // second purge removes anything close() persisted while
-                // draining its in-memory queue. Events close() flushes are
-                // dropped by the consent beforeSend gate; the only residual is
-                // an envelope already serialized into the in-memory transport
-                // queue at the instant of revocation, which the public SDK API
-                // cannot cancel.
-                purgeCache()
-                close()
-                purgeCache()
-            }
+            onEnable: startReporting,
+            onRevoke: stopReporting
         )
-
-        #if DEBUG
-        if arguments.contains(Self.debugCrashArgument) {
-            crash()
+        if isInitiallyEnabled {
+            startReporting()
+        } else {
+            // A crash captured during an earlier opted-out window must never
+            // upload after a later re-opt-in: with consent off, any envelopes
+            // Sentry persisted before the opt-out landed are deleted.
+            purgeCache()
         }
-        #endif
     }
 
     /// Builds the mobile Sentry options without starting the SDK.
@@ -175,10 +180,10 @@ public struct MobileCrashReporter {
         return options
     }
 
-    /// Watches for the shared telemetry opt-out flipping off after Sentry has
-    /// started and closes the SDK + purges its cache exactly once. UserDefaults
-    /// changes are observed via `UserDefaults.didChangeNotification`, the same
-    /// backing store the consent provider reads.
+    /// Watches the shared telemetry consent setting for process-lifetime
+    /// transitions. UserDefaults changes are observed via
+    /// `UserDefaults.didChangeNotification`, the same backing store the consent
+    /// provider reads.
     public final class RevocationWatcher: @unchecked Sendable {
         /// Owned by the app composition root (one per process); tests create
         /// fresh instances so parallel suites cannot stomp each other.
@@ -190,36 +195,52 @@ public struct MobileCrashReporter {
         private let lock = NSLock()
         private var token: (any NSObjectProtocol)?
         private var center: NotificationCenter?
+        private var consent: (any AnalyticsConsentProviding)?
+        private var isEnabled: Bool?
+        private var onEnable: (() -> Void)?
+        private var onRevoke: (() -> Void)?
 
+        @discardableResult
         func arm(
             consent: any AnalyticsConsentProviding,
             notificationCenter: NotificationCenter,
-            onRevoke: @escaping @Sendable () -> Void
-        ) {
+            onEnable: @escaping () -> Void,
+            onRevoke: @escaping () -> Void
+        ) -> Bool {
             lock.lock()
             defer { lock.unlock() }
             if let token, let center { center.removeObserver(token) }
+            let initialIsEnabled = consent.isTelemetryEnabled
             center = notificationCenter
+            self.consent = consent
+            self.isEnabled = initialIsEnabled
+            self.onEnable = onEnable
+            self.onRevoke = onRevoke
             token = notificationCenter.addObserver(
                 forName: UserDefaults.didChangeNotification,
                 object: nil,
                 queue: nil
             ) { _ in
-                // Strong self on purpose: the observation (and this watcher)
-                // must stay alive until revocation fires or a re-arm replaces
-                // it; disarm breaks the center->closure->self cycle.
-                guard !consent.isTelemetryEnabled else { return }
-                self.disarm()
-                onRevoke()
+                self.handleConsentChange()
             }
+            return initialIsEnabled
         }
 
-        private func disarm() {
+        private func handleConsentChange() {
             lock.lock()
-            defer { lock.unlock() }
-            if let token, let center { center.removeObserver(token) }
-            token = nil
-            center = nil
+            guard let consent else {
+                lock.unlock()
+                return
+            }
+            let nextIsEnabled = consent.isTelemetryEnabled
+            guard nextIsEnabled != isEnabled else {
+                lock.unlock()
+                return
+            }
+            isEnabled = nextIsEnabled
+            let action = nextIsEnabled ? onEnable : onRevoke
+            lock.unlock()
+            action?()
         }
     }
 

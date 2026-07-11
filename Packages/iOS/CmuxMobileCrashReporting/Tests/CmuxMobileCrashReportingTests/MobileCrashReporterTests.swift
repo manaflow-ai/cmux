@@ -209,7 +209,7 @@ private struct FixedConsent: AnalyticsConsentProviding {
         // flush persisted.
         #expect(recorder.sequence == ["purge", "close", "purge"])
 
-        // The watcher disarms after firing; further churn is a no-op.
+        // The watcher records the disabled state; further churn is a no-op.
         center.post(name: UserDefaults.didChangeNotification, object: nil)
         #expect(recorder.sequence == ["purge", "close", "purge"])
     }
