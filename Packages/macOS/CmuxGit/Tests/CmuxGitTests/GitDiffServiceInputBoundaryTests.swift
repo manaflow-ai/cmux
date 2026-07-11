@@ -44,6 +44,38 @@ import Testing
         #expect(changed.files.map(\.path) == ["checking-git.sh", "visible.txt"])
     }
 
+    @Test func renamedFileDiffIncludesSourceAndDestination() throws {
+        let repo = try makeTempRepo()
+        defer { try? FileManager.default.removeItem(at: repo) }
+        try Data("unchanged content\n".utf8).write(to: repo.appendingPathComponent("Old.swift"))
+        try runTestGit(in: repo, ["add", "--", "Old.swift"])
+        try runTestGit(in: repo, ["commit", "--quiet", "-m", "add old path"])
+        try runTestGit(in: repo, ["mv", "--", "Old.swift", "New.swift"])
+
+        let service = GitDiffService()
+        let diff = try #require(
+            service.fileDiff(repoRoot: repo.path, path: "New.swift", oldPath: "Old.swift")
+        )
+
+        #expect(diff.unifiedDiff.contains("rename from Old.swift"))
+        #expect(diff.unifiedDiff.contains("rename to New.swift"))
+        #expect(!diff.unifiedDiff.contains("new file mode"))
+    }
+
+    @Test func renameSourceCannotExpandToARepositoryDirectory() throws {
+        let repo = try makeTempRepo()
+        defer { try? FileManager.default.removeItem(at: repo) }
+        let file = repo.appendingPathComponent("Tracked.swift")
+        try Data("original\n".utf8).write(to: file)
+        try runTestGit(in: repo, ["add", "--", "Tracked.swift"])
+        try runTestGit(in: repo, ["commit", "--quiet", "-m", "add tracked file"])
+        try Data("changed\n".utf8).write(to: file)
+
+        let service = GitDiffService()
+
+        #expect(service.fileDiff(repoRoot: repo.path, path: "Tracked.swift", oldPath: ".") == nil)
+    }
+
     private func makeTempRepo() throws -> URL {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-git-diff-boundary-tests-\(UUID().uuidString)")
