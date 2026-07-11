@@ -72,9 +72,8 @@ public actor GitTrackedChangesSnapshotScope {
                     fallbackRoundID: nil
                 )
             }
-            if state.stableWatcherEventIDsAreReliable {
-                state.lastStableWatcherEventID = eventID
-            }
+            state.lastStableWatcherEventID = eventID
+            state.stableWatcherEventIDsAreReliable = true
         case .unknown:
             break
         case .sequenceReset:

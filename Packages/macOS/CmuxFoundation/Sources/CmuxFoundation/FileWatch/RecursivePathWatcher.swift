@@ -44,8 +44,9 @@ public actor RecursivePathWatcher {
     /// for the same underlying event, allowing process-wide consumers to
     /// coalesce duplicate delivery without a timing heuristic. The single
     /// newest-element buffer bounds memory while a consumer is busy. Stable IDs
-    /// are cumulative watermarks; once a dropped/wrapped batch occurs, this
-    /// watcher stays conservative so that signal cannot be overwritten.
+    /// are cumulative watermarks. A dropped/wrapped batch remains conservative
+    /// until a later yield proves the consumer drained that signal, then stable
+    /// watermark delivery resumes.
     public nonisolated let events: AsyncStream<FileWatchEventIdentity>
 
     private let continuation: AsyncStream<FileWatchEventIdentity>.Continuation
@@ -58,6 +59,7 @@ public actor RecursivePathWatcher {
     private var throttleTask: Task<Void, Never>?
     private var pendingEventIdentity: FileWatchEventIdentity?
     private var conservativeEventIdentity: FileWatchEventIdentity?
+    private var conservativeEventIdentityWasYielded = false
     private var isStopped = false
 
     /// The `FSEventStream` coalescing latency, in seconds.
@@ -161,10 +163,12 @@ public actor RecursivePathWatcher {
         case .stable:
             break
         case .mustRescan:
+            conservativeEventIdentityWasYielded = false
             if conservativeEventIdentity != .eventIDsWrapped {
                 conservativeEventIdentity = .mustRescan
             }
         case .eventIDsWrapped:
+            conservativeEventIdentityWasYielded = false
             conservativeEventIdentity = .eventIDsWrapped
         }
         let effectiveIdentity = conservativeEventIdentity ?? identity
@@ -183,7 +187,26 @@ public actor RecursivePathWatcher {
         throttleTask = nil
         guard !isStopped, let identity = pendingEventIdentity else { return }
         pendingEventIdentity = nil
-        continuation.yield(identity)
+        let result = continuation.yield(identity)
+        guard conservativeEventIdentity != nil else { return }
+        switch result {
+        case .enqueued:
+            if conservativeEventIdentityWasYielded {
+                conservativeEventIdentity = nil
+                conservativeEventIdentityWasYielded = false
+            } else {
+                conservativeEventIdentityWasYielded = true
+            }
+        case .dropped:
+            // The newest-element buffer replaced an unconsumed conservative
+            // signal with the same conservative identity. Keep repeating it
+            // until a later enqueue proves the consumer drained the buffer.
+            conservativeEventIdentityWasYielded = true
+        case .terminated:
+            conservativeEventIdentityWasYielded = false
+        @unknown default:
+            conservativeEventIdentityWasYielded = false
+        }
     }
 
     /// Feeds a synthetic filesystem event into the throttle. Test-only seam used
