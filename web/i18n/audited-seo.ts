@@ -92,8 +92,24 @@ const docsDescriptionCandidateKeys: Record<
 const docsContextFragmentKeys: Partial<
   Record<AuditedDocsPageKey, readonly string[]>
 > = {
+  configuration: ["configLocations", "appSettings"],
   ios: ["accessTitle", "networkingTitle", "notificationsTitle"],
   ssh: ["usage", "agentsTitle", "browserTitle", "daemonTitle"],
+  workspaceGroups: [
+    "identityTitle",
+    "managingTitle",
+    "persistenceTitle",
+    "pinningTitle",
+  ],
+  textBox: ["defaultsTitle", "configTitle"],
+  customCommands: ["simpleCommands", "customActions", "workspaceCommands"],
+  sessionRestore: [
+    "supportedTitle",
+    "agentResumeTitle",
+    "restoredTitle",
+    "surfaceBindingsTitle",
+  ],
+  dock: ["configTitle", "exampleTitle", "sharingTitle"],
 };
 
 const conciseTitleLocales = new Set(["ja", "zh-CN", "zh-TW", "ko"]);
