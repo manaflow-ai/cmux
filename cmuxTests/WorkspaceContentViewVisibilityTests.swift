@@ -353,16 +353,24 @@ struct CanvasPortalLifecycleTests {
             window.close()
         }
 
-        await Self.drainMainRunLoop(for: window)
+        let initialPortalBecameVisible = await Self.waitForPortalCondition(in: window) {
+            tabManager.selectedWorkspace?.portalPresentationVisible == true
+        }
+        #expect(
+            initialPortalBecameVisible,
+            "The selected workspace portal must become visible before the Canvas transition"
+        )
         let workspace = try #require(tabManager.selectedWorkspace)
         #expect(workspace.portalPresentationVisible)
 
         workspace.setLayoutMode(.canvas)
-        await Self.drainMainRunLoop(for: window)
+        let canvasPortalStayedVisible = await Self.waitForPortalCondition(in: window) {
+            workspace.layoutMode == .canvas && workspace.portalPresentationVisible
+        }
 
         #expect(workspace.layoutMode == .canvas)
         #expect(
-            workspace.portalPresentationVisible,
+            canvasPortalStayedVisible && workspace.portalPresentationVisible,
             "Replacing the Bonsplit subtree with Canvas must not report that the visible workspace disappeared"
         )
     }
@@ -435,11 +443,20 @@ struct CanvasPortalLifecycleTests {
     }
 
     @MainActor
-    private static func drainMainRunLoop(for window: NSWindow, iterations: Int = 20) async {
-        for _ in 0..<iterations {
+    private static func waitForPortalCondition(
+        in window: NSWindow,
+        timeout: Duration = .seconds(2),
+        _ condition: @MainActor () -> Bool
+    ) async -> Bool {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: timeout)
+        while clock.now < deadline {
             window.contentView?.layoutSubtreeIfNeeded()
+            if condition() { return true }
             _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.001))
             await Task.yield()
         }
+        window.contentView?.layoutSubtreeIfNeeded()
+        return condition()
     }
 }
