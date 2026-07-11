@@ -162,14 +162,14 @@ extension CMUXCLI {
             key = manual
         }
 
-        let windowRaw = parsed.window ?? windowId
-        let workspaceArg = parsed.workspace ?? Self.callerWorkspaceForSurfaceHandle(nil, windowRaw: windowRaw)
-        let winId = try normalizeWindowHandle(windowRaw, client: client)
-        let wsId = try resolveWorkspaceId(
-            workspaceArg,
+        let target = try resolveWorkspaceTarget(
+            workspaceOption: parsed.workspace,
+            positional: nil,
+            windowOption: parsed.window,
             client: client,
-            windowHandle: winId
+            windowOverride: windowId
         )
+        let wsId = target.workspaceId
 
         let response = try sendV1Command(
             "workspace_loading \(key) \(parsed.turnOn ? "on" : "off") --tab=\(wsId)",
