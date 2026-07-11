@@ -12471,7 +12471,12 @@ extension Workspace: BonsplitDelegate {
         if let builtInAction = executable.builtInAction {
             switch builtInAction {
             case .newWorkspace:
-                owningTabManager?.addWorkspace()
+                // Same routing as Cmd+N: on an active mirror workspace the
+                // button creates a session on that mirror's host.
+                if let manager = owningTabManager,
+                   AppDelegate.shared?.remoteTmuxController.handleNewWorkspaceRequested(in: manager) != true {
+                    manager.addWorkspace()
+                }
             case .newAgentChat: performSurfaceTabBarNewAgentChatAction(presentingWindow: presentingWindow)
             case .cloudVM:
                 _ = AppDelegate.shared?.performCloudVMAction(tabManager: owningTabManager, preferredWindow: presentingWindow, debugSource: "surfaceTabBar.cloudVM")
