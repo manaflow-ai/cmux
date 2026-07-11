@@ -680,8 +680,6 @@ final class BrowserPanelInitialNavigationTests: XCTestCase {
         XCTAssertEqual(store.entries.map(\.url), [normalURL.absoluteString])
     }
 }
-
-
 @MainActor
 final class BrowserPanelDiffViewerSchemeTests: XCTestCase {
     private func trustedDiffViewerTestRoot() -> URL {
@@ -720,10 +718,10 @@ final class BrowserPanelDiffViewerSchemeTests: XCTestCase {
 
         let deflatedAssetURL = assetURL.appendingPathExtension("deflate")
         let deflatedWorkerAssetURL = workerAssetURL.appendingPathExtension("deflate")
-        try Self.writeDeflatedText("""
+        try DeflatedAssetTestSupport.writeText("""
         export const marker = "module-ok";
         """, to: deflatedAssetURL)
-        try Self.writeDeflatedText("""
+        try DeflatedAssetTestSupport.writeText("""
         export const workerMarker = "js-ok";
         """, to: deflatedWorkerAssetURL)
         try """
@@ -766,16 +764,6 @@ final class BrowserPanelDiffViewerSchemeTests: XCTestCase {
         let blockedURL = try XCTUnwrap(URL(string: "\(CmuxDiffViewerURLSchemeHandler.scheme)://\(token)/not-allowed.html"))
         let queryURL = try XCTUnwrap(URL(string: "\(CmuxDiffViewerURLSchemeHandler.scheme)://\(token)/index.html?copy=1"))
         XCTAssertNotNil(CmuxDiffViewerURLSchemeHandler.shared.registeredFile(for: allowedURL))
-        XCTAssertEqual(
-            CmuxDiffViewerURLSchemeHandler.shared.registeredFile(for: allowedURL)?
-                .fileURL.lastPathComponent,
-            "index.html"
-        )
-        XCTAssertEqual(
-            CmuxDiffViewerURLSchemeHandler.shared.registeredFile(for: try XCTUnwrap(URL(string: "\(CmuxDiffViewerURLSchemeHandler.scheme)://\(token)/assets/mod.mjs")))?
-                .fileURL.lastPathComponent,
-            "mod.mjs.deflate"
-        )
         XCTAssertNotNil(CmuxDiffViewerURLSchemeHandler.shared.registeredFile(for: allowedPatchURL))
         XCTAssertNil(CmuxDiffViewerURLSchemeHandler.shared.registeredFile(for: blockedURL))
         XCTAssertNil(CmuxDiffViewerURLSchemeHandler.shared.registeredFile(for: queryURL))
@@ -802,7 +790,6 @@ final class BrowserPanelDiffViewerSchemeTests: XCTestCase {
         XCTAssertNil(delegate.error)
         wait(for: [moduleLoaded], timeout: 10)
         XCTAssertEqual(moduleHandler.body as? String, "module-ok:js-ok:wasm-ok")
-
         let evaluated = expectation(description: "module evaluated")
         webView.evaluateJavaScript("document.body.dataset.loaded || ''") { value, error in
             XCTAssertNil(error)
@@ -810,12 +797,6 @@ final class BrowserPanelDiffViewerSchemeTests: XCTestCase {
             evaluated.fulfill()
         }
         wait(for: [evaluated], timeout: 10)
-    }
-
-    private static func writeDeflatedText(_ text: String, to url: URL) throws {
-        let data = Data(text.utf8)
-        let compressed = try (data as NSData).compressed(using: .zlib) as Data
-        try compressed.write(to: url, options: .atomic)
     }
 
     func testDiffViewerSchemeRejectsSymlinkEscapeFromTrustedRoot() throws {

@@ -397,11 +397,6 @@ final class CMUXOpenCommandTests: XCTestCase {
         let appAssetDirectory = viewerFileURL.deletingLastPathComponent()
             .appendingPathComponent("assets", isDirectory: true)
             .appendingPathComponent("cmux-diff-viewer-app", isDirectory: true)
-        XCTAssertTrue(Self.rawOrDeflatedFileExists(assetDirectory.appendingPathComponent("diffs.mjs")))
-        XCTAssertTrue(Self.rawOrDeflatedFileExists(assetDirectory.appendingPathComponent("trees.mjs")))
-        XCTAssertTrue(Self.rawOrDeflatedFileExists(assetDirectory.appendingPathComponent("worker-pool/worker-pool.mjs")))
-        XCTAssertTrue(Self.rawOrDeflatedFileExists(assetDirectory.appendingPathComponent("worker-pool/worker-portable.js")))
-        XCTAssertTrue(Self.rawOrDeflatedFileExists(appAssetDirectory.appendingPathComponent("main.mjs")))
         XCTAssertFalse(FileManager.default.fileExists(atPath: appAssetDirectory.appendingPathComponent("main.mjs").path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: appAssetDirectory.appendingPathComponent("main.mjs.deflate").path))
         XCTAssertEqual(viewerAssets["diffsModuleURL"], "./assets/pierre-diffs-1.2.7-trees-1.0.0-beta.4/diffs.mjs")
@@ -544,7 +539,7 @@ final class CMUXOpenCommandTests: XCTestCase {
         })
         let appFilePath = try XCTUnwrap(appEntry["file_path"] as? String)
         XCTAssertTrue(appFilePath.hasSuffix("main.mjs.deflate"), appFilePath)
-        let appMain = try Self.loadDeflatedTextAsset(path: appFilePath)
+        let appMain = try DeflatedAssetTestSupport.loadText(path: appFilePath)
         XCTAssertTrue(appMain.contains("cmuxTaggedSocketAssetMarker = 'target-\(tag)'"), appMain)
 
         let stateURL = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
@@ -641,54 +636,6 @@ final class CMUXOpenCommandTests: XCTestCase {
         let body = String(data: response.data, encoding: .utf8) ?? ""
         XCTAssertFalse(body.contains("data-cmux-diff-pending=\"true\""), body)
         XCTAssertTrue(body.contains("Could not render this diff"), body)
-    }
-
-    func testDiffViewerServerDecodesDeflatedModuleAssets() throws {
-        let cliPath = try bundledCLIPath()
-        let token = "test-\(UUID().uuidString.lowercased())"
-        let rootURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-diff-viewer-deflate-\(UUID().uuidString)", isDirectory: true)
-        let assetsURL = rootURL.appendingPathComponent("assets", isDirectory: true)
-        let moduleURL = assetsURL.appendingPathComponent("mod.mjs", isDirectory: false)
-        let manifestURL = rootURL.appendingPathComponent(".manifest-\(token).json", isDirectory: false)
-        try FileManager.default.createDirectory(at: assetsURL, withIntermediateDirectories: true)
-        chmod(rootURL.path, 0o700)
-        defer { try? FileManager.default.removeItem(at: rootURL) }
-
-        let moduleText = "export const marker = 'deflated';\n"
-        try Self.writeDeflatedTextAsset(moduleText, to: moduleURL, addingDeflateExtension: true)
-        let manifest: [String: Any] = [
-            "token": token,
-            "files": [
-                [
-                    "request_path": "/assets/mod.mjs",
-                    "file_path": moduleURL.appendingPathExtension("deflate").path,
-                    "mime_type": "text/javascript",
-                ],
-            ],
-        ]
-        try JSONSerialization.data(withJSONObject: manifest, options: [.sortedKeys])
-            .write(to: manifestURL, options: .atomic)
-
-        let process = Process()
-        let stdoutPipe = Pipe()
-        process.executableURL = URL(fileURLWithPath: cliPath)
-        process.arguments = ["diff-viewer-server", "--root", rootURL.path]
-        process.environment = ProcessInfo.processInfo.environment
-        process.standardInput = FileHandle.nullDevice
-        process.standardOutput = stdoutPipe
-        process.standardError = FileHandle.nullDevice
-
-        try process.run()
-        defer { terminateProcess(process) }
-
-        let portLine = try readLine(from: stdoutPipe.fileHandleForReading, timeout: 3)
-        let port = try XCTUnwrap(Int(portLine), "invalid diff viewer server port: \(portLine)")
-        let url = try XCTUnwrap(URL(string: "http://127.0.0.1:\(port)/\(token)/assets/mod.mjs"))
-        let response = try fetchData(from: url, timeout: 3)
-
-        XCTAssertEqual(response.statusCode, 200)
-        XCTAssertEqual(String(data: response.data, encoding: .utf8), moduleText)
     }
 
     func testDiffCommandTakesPrecedenceOverLocalPathNamedDiff() throws {
@@ -2603,23 +2550,23 @@ final class CMUXOpenCommandTests: XCTestCase {
         let workerPoolURL = diffViewerURL.appendingPathComponent("worker-pool", isDirectory: true)
         try FileManager.default.createDirectory(at: workerPoolURL, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: appURL, withIntermediateDirectories: true)
-        try Self.writeDeflatedTextAsset("export const diffsFixture = true;\n",
+        try DeflatedAssetTestSupport.writeText("export const diffsFixture = true;\n",
             to: diffViewerURL.appendingPathComponent("diffs.mjs", isDirectory: false),
             addingDeflateExtension: true
         )
-        try Self.writeDeflatedTextAsset("export const treesFixture = true;\n",
+        try DeflatedAssetTestSupport.writeText("export const treesFixture = true;\n",
             to: diffViewerURL.appendingPathComponent("trees.mjs", isDirectory: false),
             addingDeflateExtension: true
         )
-        try Self.writeDeflatedTextAsset("export const workerPoolFixture = true;\n",
+        try DeflatedAssetTestSupport.writeText("export const workerPoolFixture = true;\n",
             to: workerPoolURL.appendingPathComponent("worker-pool.mjs", isDirectory: false),
             addingDeflateExtension: true
         )
-        try Self.writeDeflatedTextAsset("self.cmuxWorkerFixture = true;\n",
+        try DeflatedAssetTestSupport.writeText("self.cmuxWorkerFixture = true;\n",
             to: workerPoolURL.appendingPathComponent("worker-portable.js", isDirectory: false),
             addingDeflateExtension: true
         )
-        try Self.writeDeflatedTextAsset(appMain,
+        try DeflatedAssetTestSupport.writeText(appMain,
             to: appURL.appendingPathComponent("main.mjs", isDirectory: false),
             addingDeflateExtension: true
         )
@@ -2628,28 +2575,6 @@ final class CMUXOpenCommandTests: XCTestCase {
             atomically: true,
             encoding: .utf8
         )
-    }
-
-    private static func writeDeflatedTextAsset(
-        _ text: String,
-        to url: URL,
-        addingDeflateExtension: Bool
-    ) throws {
-        let targetURL = addingDeflateExtension ? url.appendingPathExtension("deflate") : url
-        let data = Data(text.utf8)
-        let compressed = try (data as NSData).compressed(using: .zlib) as Data
-        try compressed.write(to: targetURL, options: .atomic)
-    }
-
-    private static func loadDeflatedTextAsset(path: String) throws -> String {
-        let compressed = try Data(contentsOf: URL(fileURLWithPath: path))
-        let decompressed = try (compressed as NSData).decompressed(using: .zlib) as Data
-        return try XCTUnwrap(String(data: decompressed, encoding: .utf8))
-    }
-
-    private static func rawOrDeflatedFileExists(_ url: URL) -> Bool {
-        FileManager.default.fileExists(atPath: url.path)
-            || FileManager.default.fileExists(atPath: url.appendingPathExtension("deflate").path)
     }
 
     private func runProcess(

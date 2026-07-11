@@ -7621,22 +7621,16 @@ extension CMUXCLI {
               assetPaths.contains("worker-pool/worker-portable.js") else {
             throw CLIError(message: "Bundled diff viewer entry assets not found")
         }
-        var copiedAssetURLs: [URL] = []
-        for assetPath in assetPaths {
-            copiedAssetURLs.append(
-                try copyDiffViewerAsset(relativePath: assetPath, from: sourceDirectory, to: targetDirectory)
-            )
+        let copiedAssetURLs = try assetPaths.map {
+            try copyDiffViewerAsset(relativePath: $0, from: sourceDirectory, to: targetDirectory)
         }
 
         let appAssetPaths = try diffViewerBundledAssetRelativePaths(in: appAssets.sourceDirectory)
         guard appAssetPaths.contains("main.mjs") else {
             throw CLIError(message: "Bundled cmux diff viewer app entry asset not found")
         }
-        var copiedAppAssetURLs: [URL] = []
-        for assetPath in appAssetPaths {
-            copiedAppAssetURLs.append(
-                try copyDiffViewerAsset(relativePath: assetPath, from: appAssets.sourceDirectory, to: targetAppDirectory)
-            )
+        let copiedAppAssetURLs = try appAssetPaths.map {
+            try copyDiffViewerAsset(relativePath: $0, from: appAssets.sourceDirectory, to: targetAppDirectory)
         }
 
         return DiffViewerAssets(
@@ -7691,8 +7685,7 @@ extension CMUXCLI {
     private func copyDiffViewerAsset(relativePath: String, from sourceDirectory: URL, to targetDirectory: URL) throws -> URL {
         let fileManager = FileManager.default
         let sourceURL = try diffViewerBundledAssetFileURL(relativePath: relativePath, in: sourceDirectory)
-        let sourceIsDeflated = sourceURL.lastPathComponent == URL(fileURLWithPath: relativePath, isDirectory: false).lastPathComponent + ".deflate"
-        let targetRelativePath = sourceIsDeflated ? relativePath + ".deflate" : relativePath
+        let targetRelativePath = sourceURL.path.hasSuffix(".deflate") ? relativePath + ".deflate" : relativePath
         let targetURL = targetDirectory.appendingPathComponent(targetRelativePath, isDirectory: false)
         guard fileManager.fileExists(atPath: sourceURL.path) else {
             throw CLIError(message: "Bundled diff viewer asset not found: \(relativePath)")
@@ -7725,48 +7718,6 @@ extension CMUXCLI {
             throw error
         }
         return targetURL
-    }
-
-    private func diffViewerBundledAssetRelativePaths(in sourceDirectory: URL) throws -> [String] {
-        let rootURL = sourceDirectory.standardizedFileURL.resolvingSymlinksInPath()
-        guard let enumerator = FileManager.default.enumerator(
-            at: rootURL,
-            includingPropertiesForKeys: [.isRegularFileKey],
-            options: [.skipsHiddenFiles]
-        ) else {
-            throw CLIError(message: "Failed to enumerate diff viewer assets")
-        }
-
-        var relativePaths: Set<String> = []
-        for case let fileURL as URL in enumerator {
-            let standardized = fileURL.standardizedFileURL.resolvingSymlinksInPath()
-            guard standardized.path.hasPrefix(rootURL.path + "/"),
-                  let values = try? fileURL.resourceValues(forKeys: [.isRegularFileKey]),
-                  values.isRegularFile == true else {
-                continue
-            }
-            var relativePath = String(standardized.path.dropFirst(rootURL.path.count + 1))
-            if relativePath.hasSuffix(".deflate") {
-                relativePath.removeLast(".deflate".count)
-            }
-            guard ["js", "mjs"].contains(URL(fileURLWithPath: relativePath, isDirectory: false).pathExtension) else {
-                continue
-            }
-            relativePaths.insert(relativePath)
-        }
-        return relativePaths.sorted()
-    }
-
-    private func diffViewerBundledAssetFileURL(relativePath: String, in sourceDirectory: URL) throws -> URL {
-        let deflatedURL = sourceDirectory.appendingPathComponent(relativePath + ".deflate", isDirectory: false)
-        if FileManager.default.fileExists(atPath: deflatedURL.path) {
-            return deflatedURL
-        }
-        let rawURL = sourceDirectory.appendingPathComponent(relativePath, isDirectory: false)
-        if FileManager.default.fileExists(atPath: rawURL.path) {
-            return rawURL
-        }
-        throw CLIError(message: "Bundled diff viewer asset not found: \(relativePath)")
     }
 
     private func isCurrentDiffViewerAsset(targetURL: URL, sourceValues: URLResourceValues) -> Bool {
