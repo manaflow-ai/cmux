@@ -419,6 +419,9 @@ extension MobileShellComposite {
             return .authorizationFailed(hostDisplayName: hostDisplayName)
         case let .rpcError(code, _):
             let normalizedCode = code?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            if normalizedCode == "confirmation_required" {
+                return .confirmationRequired(hostDisplayName: hostDisplayName)
+            }
             if let normalizedCode,
                ["unauthorized", "forbidden", "invalid_token", "token_expired", "expired_token", "auth_required", "account_mismatch"].contains(normalizedCode) {
                 return .authorizationFailed(hostDisplayName: hostDisplayName)

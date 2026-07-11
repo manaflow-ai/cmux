@@ -21,6 +21,7 @@ extension MobileShellComposite {
             selectedTerminalID: selectedTerminalID,
             orderedTerminalIDs: paneIDs.isEmpty ? workspace.terminals.map(\.id) : paneIDs
         )
+        let selectionRevision = userTerminalSelectionRevision
         var params = workspaceMutationParams(id: workspaceID)
         params["surface_id"] = terminalID.rawValue
         params["confirmed"] = confirmed
@@ -36,7 +37,7 @@ extension MobileShellComposite {
             return result
         }
         selectedTerminalID = fallback.resolvedSelection(
-            currentSelection: selectedTerminalID,
+            currentSelection: userTerminalSelectionRevision == selectionRevision ? nil : selectedTerminalID,
             availableTerminalIDs: Set(refreshedWorkspace.terminals.map(\.id))
         ) ?? refreshedWorkspace.selectedTerminalID ?? refreshedWorkspace.terminals.first?.id
         suppressTerminalAutoFocusOnNextAttach(for: selectedTerminalID)

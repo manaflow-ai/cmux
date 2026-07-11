@@ -91,7 +91,7 @@ import Testing
         pane: pane
     ))
     let previous = pane.terminalIDs
-    #expect(TerminalHierarchyOptimisticOrder.applying(intent, to: previous) == [
+    #expect(intent.applying(to: previous) == [
         "terminal-b", "terminal-c", "terminal-a",
     ])
     #expect(previous == ["terminal-a", "terminal-b", "terminal-c"])

@@ -16,6 +16,7 @@ struct TerminalHierarchySheet: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var pendingClose: TerminalHierarchyRowSnapshot?
+    @State private var closeConfirmationIncludesRunningProcess = false
     @State private var mutationFailed = false
     @State private var reorderGate = TerminalHierarchyReorderGate()
     @State private var optimisticTerminalIDsByPane: [MobilePanePreview.ID: [MobileTerminalPreview.ID]] = [:]
@@ -55,7 +56,7 @@ struct TerminalHierarchySheet: View {
                 L10n.string("mobile.terminal.hierarchy.closeTitle", defaultValue: "Close Terminal?"),
                 isPresented: Binding(
                     get: { pendingClose != nil },
-                    set: { if !$0 { pendingClose = nil } }
+                    set: { if !$0 { clearPendingClose() } }
                 ),
                 titleVisibility: .visible
             ) {
@@ -65,7 +66,7 @@ struct TerminalHierarchySheet: View {
                     action: confirmPendingClose
                 )
                 Button(L10n.string("mobile.common.cancel", defaultValue: "Cancel"), role: .cancel) {
-                    pendingClose = nil
+                    clearPendingClose()
                 }
             } message: {
                 Text(closeConsequence)
@@ -113,7 +114,7 @@ struct TerminalHierarchySheet: View {
                     TerminalHierarchyRow(
                         snapshot: row,
                         select: { select(row) },
-                        requestClose: { pendingClose = row },
+                        requestClose: { requestClose(row) },
                         moveEarlier: reorderAction(
                             rowIndex: rowIndex,
                             destination: rowIndex.map { $0 - 1 },
@@ -183,7 +184,9 @@ struct TerminalHierarchySheet: View {
     }
 
     private var closeConsequence: String {
-        pendingClose?.closeConsequence ?? ""
+        pendingClose?.closeConsequence(
+            requiresProcessConfirmation: closeConfirmationIncludesRunningProcess
+        ) ?? ""
     }
 
     private var connectionLabel: String {
@@ -231,10 +234,7 @@ struct TerminalHierarchySheet: View {
             return
         }
         guard reorderGate.begin(paneID: pane.id) else { return }
-        guard let optimisticOrder = TerminalHierarchyOptimisticOrder.applying(
-            intent,
-            to: pane.rows.map(\.id)
-        ) else {
+        guard let optimisticOrder = intent.applying(to: pane.rows.map(\.id)) else {
             reorderGate.finish(paneID: pane.id)
             mutationFailed = true
             return
@@ -285,15 +285,29 @@ struct TerminalHierarchySheet: View {
 
     private func confirmPendingClose() {
         guard let pendingClose else { return }
-        self.pendingClose = nil
+        let confirmed = closeConfirmationIncludesRunningProcess
+        clearPendingClose()
         Task { @MainActor in
-            let result = await closeTerminal(pendingClose.id, true)
-            guard case .success = result else {
+            switch await closeTerminal(pendingClose.id, confirmed) {
+            case .success:
+                announce(L10n.string("mobile.terminal.hierarchy.closedAnnouncement", defaultValue: "Terminal closed"))
+            case .failure(.confirmationRequired):
+                self.pendingClose = pendingClose
+                closeConfirmationIncludesRunningProcess = true
+            case .failure:
                 mutationFailed = true
-                return
             }
-            announce(L10n.string("mobile.terminal.hierarchy.closedAnnouncement", defaultValue: "Terminal closed"))
         }
+    }
+
+    private func requestClose(_ row: TerminalHierarchyRowSnapshot) {
+        pendingClose = row
+        closeConfirmationIncludesRunningProcess = row.requiresCloseConfirmation
+    }
+
+    private func clearPendingClose() {
+        pendingClose = nil
+        closeConfirmationIncludesRunningProcess = false
     }
 
     private func announce(_ message: String) {

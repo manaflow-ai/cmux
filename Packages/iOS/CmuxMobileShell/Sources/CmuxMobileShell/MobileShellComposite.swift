@@ -534,6 +534,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
         }
     }
+    @ObservationIgnored private(set) var userTerminalSelectionRevision: UInt64 = 0
 
     /// The per-terminal composer-draft seam. `nil` in previews/tests that do not
     /// exercise drafts; every draft hook is then a no-op and the in-memory
@@ -3486,7 +3487,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Fetch one Mac's workspace list over an EXISTING client, tagged with its
     /// `macDeviceID`. Nil on any failure (best-effort; an unreachable Mac just
     /// contributes nothing).
-    private func fetchSecondaryWorkspaces(
+    func fetchSecondaryWorkspaces(
         on client: MobileCoreRPCClient,
         macDeviceID: String
     ) async -> [MobileWorkspacePreview]? {
@@ -3751,15 +3752,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// at most one extra scan after the in-flight one (not one scan, and one
     /// MainActor aggregate update, per event). Bounded — each fetch completes
     /// before the next starts, so there is no cancel/restart starvation.
-    @discardableResult
-    private func scheduleSecondaryRefresh(macID: String, client: MobileCoreRPCClient, displayName: String?) -> Task<Void, Never>? {
+    private func scheduleSecondaryRefresh(
+        macID: String,
+        client: MobileCoreRPCClient,
+        displayName: String?
+    ) {
         guard let subscription = secondaryMacSubscriptions[macID],
-              subscription.client === client else { return nil }
-        if let refreshTask = subscription.refreshTask {
+              subscription.client === client else { return }
+        guard subscription.refreshTask == nil else {
             subscription.refreshPending = true
-            return refreshTask
+            return
         }
-        let refreshTask = Task { @MainActor [weak self] in
+        subscription.refreshTask = Task { @MainActor [weak self] in
             guard let self else { return }
             repeat {
                 // Clear before the fetch; an event during the await re-sets it and
@@ -3781,8 +3785,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             } while self.secondaryMacSubscriptions[macID]?.refreshPending == true
             self.secondaryMacSubscriptions[macID]?.refreshTask = nil
         }
-        subscription.refreshTask = refreshTask
-        return refreshTask
     }
 
     /// Routing target for a workspace mutation (rename / pin / unread / close): the
@@ -3804,18 +3806,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return WorkspaceMutationTarget(client: sub.client, isForeground: false, macDeviceID: owner)
         }
         return WorkspaceMutationTarget(client: nil, isForeground: false, macDeviceID: owner)
-    }
-
-    /// Re-sync the authoritative workspace list for the Mac a mutation actually hit:
-    /// the foreground's coalesced refresh, or the owning secondary's coalesced
-    /// re-fetch (so a pin/close on a secondary row snaps to the Mac's real state).
-    func refreshAfterWorkspaceMutation(_ target: WorkspaceMutationTarget) async {
-        if target.isForeground {
-            await refreshWorkspaces()
-        } else if let macID = target.macDeviceID, let sub = secondaryMacSubscriptions[macID] {
-            let refreshTask = scheduleSecondaryRefresh(macID: macID, client: sub.client, displayName: workspacesByMac[macID]?.displayName)
-            await refreshTask?.value
-        }
     }
 
     /// Fire the server-side `mobile.events.subscribe` enable for a secondary
@@ -4184,6 +4174,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     /// Select the active terminal by id without changing workspace selection.
     public func selectTerminal(_ id: MobileTerminalPreview.ID?) {
+        guard id != selectedTerminalID else { return }
+        userTerminalSelectionRevision &+= 1
         selectedTerminalID = id
     }
 
@@ -4201,6 +4193,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// a no-op suppression, since no surface re-attach happens.
     public func selectTerminalFromChrome(_ id: MobileTerminalPreview.ID) {
         if id != selectedTerminalID {
+            userTerminalSelectionRevision &+= 1
             terminalAutoFocusSuppressedSurfaceIDs.insert(id.rawValue)
         }
         selectedTerminalID = id

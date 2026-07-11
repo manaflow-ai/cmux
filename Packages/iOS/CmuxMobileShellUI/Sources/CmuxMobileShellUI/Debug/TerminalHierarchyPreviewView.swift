@@ -47,6 +47,7 @@ public struct TerminalHierarchyPreviewView: View {
         simulatesMutationFailure = scenario == "error"
     }
 
+    /// Renders the deterministic hierarchy fixture for UI verification.
     public var body: some View {
         TerminalHierarchySheet(
             snapshot: TerminalHierarchySnapshot(
@@ -100,10 +101,12 @@ public struct TerminalHierarchyPreviewView: View {
             hasSimulatedMutationFailure = true
             return .failure(.notConnected(hostDisplayName: workspace.macDisplayName))
         }
-        guard confirmed,
-              let terminal = workspace.terminals.first(where: { $0.id == terminalID }),
+        guard let terminal = workspace.terminals.first(where: { $0.id == terminalID }),
               terminal.canClose else {
             return .failure(.rejected(hostDisplayName: nil))
+        }
+        if terminal.requiresCloseConfirmation, !confirmed {
+            return .failure(.confirmationRequired(hostDisplayName: nil))
         }
         let paneID = terminal.paneID
         let fallbackIDs = paneID.map { workspace.terminals(in: $0).map(\.id) } ?? workspace.terminals.map(\.id)

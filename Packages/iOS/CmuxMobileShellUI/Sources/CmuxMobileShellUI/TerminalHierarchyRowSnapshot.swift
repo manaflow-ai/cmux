@@ -63,8 +63,12 @@ struct TerminalHierarchyRowSnapshot: Identifiable, Equatable {
     }
 
     var closeConsequence: String {
+        closeConsequence(requiresProcessConfirmation: requiresCloseConfirmation)
+    }
+
+    func closeConsequence(requiresProcessConfirmation: Bool) -> String {
         String(
-            format: requiresCloseConfirmation
+            format: requiresProcessConfirmation
                 ? L10n.string(
                     "mobile.terminal.hierarchy.closeRunningContextMessage",
                     defaultValue: "Close %1$@ in workspace %2$@, pane %3$d. Its running process will end and this cannot be undone."
