@@ -525,6 +525,31 @@ describe("SEO metadata helpers", () => {
     expect(khmerDock.description).not.toMatch(/៖[.។]/u);
   });
 
+  test("accounts for the docs title template without stacking taglines", async () => {
+    const englishMessages = await messagesFor("en");
+    const englishSsh = docsPageSeoCopy(
+      "en",
+      "ssh",
+      messageLookup(englishMessages.docs.ssh),
+      englishMessages.docs.layoutTitle,
+    );
+    const englishTitle = `${englishSsh.title} — ${englishMessages.docs.layoutTitle}`;
+    expect(englishTitle).toBe("SSH — AI coding on macOS — cmux docs");
+    expect(englishTitle).not.toContain("terminal built for multitasking");
+
+    const arabicMessages = await messagesFor("ar");
+    const arabicTextBox = docsPageSeoCopy(
+      "ar",
+      "textBox",
+      messageLookup(arabicMessages.docs.textBox),
+      arabicMessages.docs.layoutTitle,
+    );
+    const arabicTitle = `${arabicTextBox.title} — ${arabicMessages.docs.layoutTitle}`;
+    expect(arabicTitle.split(arabicMessages.docs.layoutTitle)).toHaveLength(2);
+    expect(searchSnippetLength(arabicTitle)).toBeGreaterThanOrEqual(30);
+    expect(searchSnippetLength(arabicTitle)).toBeLessThanOrEqual(60);
+  });
+
   test("keeps synthesized compare metadata tied to its localized route", async () => {
     const messages = await messagesFor("th");
     const lookup = messageLookup(messages.landing.links);
