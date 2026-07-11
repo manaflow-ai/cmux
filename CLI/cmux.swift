@@ -4374,7 +4374,8 @@ struct CMUXCLI {
                 commandArgs: commandArgs,
                 client: client,
                 jsonOutput: jsonOutput,
-                idFormat: idFormat
+                idFormat: idFormat,
+                windowOverride: windowId
             )
 
         case "workspace":
@@ -7921,7 +7922,8 @@ struct CMUXCLI {
         commandArgs: [String],
         client: SocketClient,
         jsonOutput: Bool,
-        idFormat: CLIIDFormat
+        idFormat: CLIIDFormat,
+        windowOverride: String?
     ) throws {
         guard let sub = commandArgs.first?.lowercased() else {
             throw CLIError(message: "canvas requires a subcommand. Try: info, mode, set-frame, align, reveal, overview, zoom, set-viewport, new-pane")
@@ -7946,7 +7948,7 @@ struct CMUXCLI {
             positional: nil,
             windowOption: nil,
             client: client,
-            windowOverride: nil
+            windowOverride: windowOverride
         )
         var params: [String: Any] = ["workspace_id": workspaceTarget.workspaceId]
 

@@ -19,8 +19,11 @@ extension CMUXCLI {
         windowOverride: String?
     ) throws -> (workspaceId: String, windowId: String?) {
         let windowId = try normalizeWindowHandle(windowOption ?? windowOverride, client: client)
+        let callerWorkspace = windowId == nil
+            ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
+            : nil
         let workspaceId = try resolveWorkspaceId(
-            workspaceOption ?? positional,
+            workspaceOption ?? positional ?? callerWorkspace,
             client: client,
             windowHandle: windowId
         )
@@ -38,7 +41,7 @@ extension CMUXCLI {
     ) throws -> (workspaceId: String, windowId: String?, remaining: [String]) {
         let (workspaceOption, argsAfterWorkspace) = parseOption(commandArgs, name: "--workspace")
         let (windowOption, remaining) = parseOption(argsAfterWorkspace, name: "--window")
-        let positional = remaining.first { $0 != "--" && !$0.hasPrefix("--") }
+        let positional = remaining.first { !$0.hasPrefix("--") }
         let target = try resolveWorkspaceTarget(
             workspaceOption: workspaceOption,
             positional: positional,
