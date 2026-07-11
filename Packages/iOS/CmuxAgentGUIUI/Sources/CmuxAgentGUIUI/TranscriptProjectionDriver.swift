@@ -50,10 +50,12 @@ final class TranscriptProjectionDriver {
     }
 
     private func makeInput(conversation: ConversationReplica) -> TranscriptProjectionInput {
-        TranscriptProjectionInput(
+        let sessionPhase = engine.directory.sessions.first { $0.id == sessionID }?.phase ?? .unknown
+        return TranscriptProjectionInput(
             state: conversation.state,
             hasMoreBefore: engine.hasMoreBeforeBySession[sessionID] ?? false,
-            streamingTail: engine.streamingTails[sessionID].map(TranscriptStreamingTail.init)
+            streamingTail: engine.streamingTails[sessionID].map(TranscriptStreamingTail.init),
+            sessionPhase: sessionPhase
         )
     }
 }

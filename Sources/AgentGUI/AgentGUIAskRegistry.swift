@@ -63,8 +63,9 @@ final class AgentGUIAskRegistry {
                 supersedeActiveAsks(beforeCreatingAskFrom: entry, journalID: journalID, sessionID: sessionID)
                 trackPendingAskEntry(entry, journalID: journalID, sessionID: sessionID)
             }
-        case .reset(let journalID, _):
-            pendingEntries.removeValue(forKey: JournalKey(sessionID: sessionID, journalID: journalID))
+        case .reset:
+            pendingEntries = pendingEntries.filter { $0.key.sessionID != sessionID }
+            supersedeActiveAsks(for: sessionID)
         case .replaced:
             break
         }
@@ -174,6 +175,15 @@ final class AgentGUIAskRegistry {
                   record.seq.rawValue < entry.seq.rawValue else {
                 continue
             }
+            transition(askID, to: .superseded)
+        }
+    }
+
+    private func supersedeActiveAsks(for sessionID: AgentSessionID) {
+        let askIDs = records.compactMap { askID, record in
+            record.ask.sessionID == sessionID && record.ask.state == .active ? askID : nil
+        }
+        for askID in askIDs {
             transition(askID, to: .superseded)
         }
     }
