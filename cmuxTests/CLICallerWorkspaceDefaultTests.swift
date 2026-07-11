@@ -45,6 +45,27 @@ struct CLICallerWorkspaceDefaultTests {
         }
     }
 
+    /// An explicit window changes the defaulting scope: the caller workspace may
+    /// belong to another window, so the target must be that window's selection.
+    @Test func workspaceNamespaceExplicitWindowDefaultsWithinThatWindow() throws {
+        let windowId = "77777777-7777-7777-7777-777777777777"
+        let (requests, result) = try runWorkspaceNamespaceCommand(
+            arguments: ["workspace", "rename", "--window", windowId, "--title", "renamed"],
+            expectedMethod: "workspace.rename",
+            focusedWorkspaceId: Self.focusedWorkspaceId,
+            callerWorkspaceId: Self.callerWorkspaceId
+        )
+        #expect(result.status == 0, Comment(rawValue: result.stderr + result.stdout))
+
+        let methods = requests.compactMap { $0["method"] as? String }
+        #expect(methods == ["workspace.current", "workspace.rename"])
+        let currentParams = try #require(requests.first?["params"] as? [String: Any])
+        #expect(currentParams["window_id"] as? String == windowId)
+        let renameParams = try #require(requests.last?["params"] as? [String: Any])
+        #expect(renameParams["window_id"] as? String == windowId)
+        #expect(renameParams["workspace_id"] as? String == Self.focusedWorkspaceId)
+    }
+
     /// A blank `--workspace` from a caller pane must target the caller's workspace and
     /// must never consult `workspace.current` (the focused workspace).
     @Test func blankWorkspaceArgDefaultsToCallerWorkspace() throws {
