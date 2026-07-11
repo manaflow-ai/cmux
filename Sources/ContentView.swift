@@ -8694,6 +8694,12 @@ struct ContentView: View {
         for dismissal: CommandPaletteInteractionDismissal,
         in window: NSWindow
     ) {
+        if dismissal == .mainMenuBeganTracking {
+            // Menu tracking keeps this window key. Restore the saved panel before
+            // entering the nested menu loop; a selected command can still replace it.
+            dismissCommandPalette(restoreFocus: true)
+            return
+        }
         guard case .pointer(let event) = dismissal, event.isInObservedWindow else {
             dismissCommandPalette(restoreFocus: false)
             return
