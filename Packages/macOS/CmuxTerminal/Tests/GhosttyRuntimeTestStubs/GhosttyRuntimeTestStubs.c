@@ -24,6 +24,13 @@ bool ghostty_surface_clear_selection(void *surface) {
 
 void ghostty_config_diagnostics_count(void) {}
 void ghostty_config_get_diagnostic(void) {}
+bool ghostty_config_get(void *config, void *out, const char *key, uintptr_t len) {
+    (void)config;
+    (void)out;
+    (void)key;
+    (void)len;
+    return false;
+}
 void ghostty_string_free(ghostty_string_s string) {
     (void)string;
 }

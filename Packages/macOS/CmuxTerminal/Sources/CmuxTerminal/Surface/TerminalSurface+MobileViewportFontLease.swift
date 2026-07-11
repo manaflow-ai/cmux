@@ -1,5 +1,6 @@
 internal import CmuxTerminalCore
 import Foundation
+internal import GhosttyKit
 
 /// Opaque token pairing a synchronous configuration reload with its active
 /// mobile viewport font lease.
@@ -13,13 +14,25 @@ nonisolated public struct MobileViewportFontFitReloadLease {
 nonisolated enum MobileViewportConfiguredFontPointSize {
     static func resolve(
         templateBaseFontPointSize: Float?,
-        runtimeConfigFontPointSize _: Float?,
+        runtimeConfigFontPointSize: Float?,
         fallbackBaseFontPointSize: Float,
         magnificationPercent: Int
     ) -> Float {
-        let baseFont = templateBaseFontPointSize ?? fallbackBaseFontPointSize
+        if let templateBaseFontPointSize,
+           templateBaseFontPointSize.isFinite,
+           templateBaseFontPointSize > 0 {
+            return CmuxSurfaceConfigTemplate.runtimeFontSize(
+                fromBasePoints: templateBaseFontPointSize,
+                percent: magnificationPercent
+            )
+        }
+        if let runtimeConfigFontPointSize,
+           runtimeConfigFontPointSize.isFinite,
+           runtimeConfigFontPointSize > 0 {
+            return runtimeConfigFontPointSize
+        }
         return CmuxSurfaceConfigTemplate.runtimeFontSize(
-            fromBasePoints: baseFont > 0 ? baseFont : fallbackBaseFontPointSize,
+            fromBasePoints: fallbackBaseFontPointSize,
             percent: magnificationPercent
         )
     }
@@ -30,10 +43,24 @@ extension TerminalSurface {
     func configuredMobileViewportFontPointSize() -> Float {
         MobileViewportConfiguredFontPointSize.resolve(
             templateBaseFontPointSize: configTemplate?.fontSize,
-            runtimeConfigFontPointSize: nil,
+            runtimeConfigFontPointSize: runtimeConfigFontPointSize(),
             fallbackBaseFontPointSize: Float(GhosttyConfig().fontSize),
             magnificationPercent: globalFontMagnificationPercent()
         )
+    }
+
+    @MainActor
+    private func runtimeConfigFontPointSize() -> Float? {
+        guard let config = engine.runtimeConfig else { return nil }
+        var fontSize: Float32 = 0
+        let key = "font-size"
+        guard ghostty_config_get(
+            config,
+            &fontSize,
+            key,
+            UInt(key.lengthOfBytes(using: .utf8))
+        ), fontSize.isFinite, fontSize > 0 else { return nil }
+        return fontSize
     }
 
     @discardableResult

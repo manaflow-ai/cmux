@@ -39,21 +39,31 @@ struct MobileViewportFontFitState: Equatable {
         guard liveFontPointSize.isFinite, liveFontPointSize > 0,
               configuredFontPointSize.isFinite, configuredFontPointSize > 0 else { return }
 
-        if let fittedFontPointSize,
-           !Self.approximatelyEqual(liveFontPointSize, fittedFontPointSize) {
-            baseFontPointSize = liveFontPointSize
-            self.fittedFontPointSize = nil
+        if let fittedFontPointSize {
+            if !Self.approximatelyEqual(liveFontPointSize, fittedFontPointSize) {
+                baseFontPointSize = liveFontPointSize
+                self.fittedFontPointSize = nil
+                baseWasUserAdjusted = !Self.approximatelyEqual(
+                    liveFontPointSize,
+                    configuredFontPointSize
+                )
+                return
+            }
+
+            if baseWasUserAdjusted == false,
+               !Self.approximatelyEqual(baseFontPointSize, configuredFontPointSize) {
+                baseFontPointSize = configuredFontPointSize
+            }
+            return
+        }
+
+        if let baseFontPointSize,
+           !Self.approximatelyEqual(liveFontPointSize, baseFontPointSize) {
+            self.baseFontPointSize = liveFontPointSize
             baseWasUserAdjusted = !Self.approximatelyEqual(
                 liveFontPointSize,
                 configuredFontPointSize
             )
-            return
-        }
-
-        if fittedFontPointSize != nil,
-           baseWasUserAdjusted == false,
-           !Self.approximatelyEqual(baseFontPointSize, configuredFontPointSize) {
-            baseFontPointSize = configuredFontPointSize
         }
     }
 
