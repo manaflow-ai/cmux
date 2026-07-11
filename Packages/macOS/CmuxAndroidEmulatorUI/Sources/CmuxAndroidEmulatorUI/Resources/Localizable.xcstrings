@@ -1,0 +1,389 @@
+{
+  "sourceLanguage": "en",
+  "strings": {
+    "androidEmulator.action.dismiss": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Dismiss" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "閉じる" } }
+      }
+    },
+    "androidEmulator.action.launch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Launch" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "起動" } }
+      }
+    },
+    "androidEmulator.action.openInPane": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Open" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "開く" } }
+      }
+    },
+    "androidEmulator.capture.windowNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The vendor window for “%@” is not available." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "「%@」のベンダーウインドウを利用できません。" } }
+      }
+    },
+    "androidEmulator.capture.retry": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Retry" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "再試行" } }
+      }
+    },
+    "androidEmulator.bridge.disconnected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The Android bridge disconnected." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Android ブリッジが切断されました。" } }
+      }
+    },
+    "androidEmulator.bridge.handshakeTimedOut": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The Android bridge did not respond. Retry to start it again." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Android ブリッジが応答しませんでした。再試行してもう一度起動してください。" } }
+      }
+    },
+    "androidEmulator.bridge.incompatible": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The installed Android bridge is incompatible with this version of cmux." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "インストールされている Android ブリッジは、このバージョンの cmux と互換性がありません。" } }
+      }
+    },
+    "androidEmulator.bridge.notInstalled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Install cmux-android-bridge to show the emulator in this pane." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "このペインにエミュレータを表示するには、cmux-android-bridge をインストールしてください。" } }
+      }
+    },
+    "androidEmulator.bridge.socketPathTooLong": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The Android bridge socket path is too long." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Android ブリッジのソケットパスが長すぎます。" } }
+      }
+    },
+    "androidEmulator.bridge.systemCallFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%1$@ failed with error %2$ld." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%1$@ がエラー %2$ld で失敗しました。" } }
+      }
+    },
+    "androidEmulator.control.back": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Back" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "戻る" } }
+      }
+    },
+    "androidEmulator.control.collapse": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Hide Controls" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "コントロールを隠す" } }
+      }
+    },
+    "androidEmulator.control.home": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Home" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ホーム" } }
+      }
+    },
+    "androidEmulator.control.more": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "More Controls" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "その他のコントロール" } }
+      }
+    },
+    "androidEmulator.control.overview": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Overview" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "履歴" } }
+      }
+    },
+    "androidEmulator.control.power": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Power" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "電源" } }
+      }
+    },
+    "androidEmulator.control.rotateLeft": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Rotate Left" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "左に回転" } }
+      }
+    },
+    "androidEmulator.control.rotateRight": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Rotate Right" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "右に回転" } }
+      }
+    },
+    "androidEmulator.control.screenshot": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Take Screenshot" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "スクリーンショットを撮る" } }
+      }
+    },
+    "androidEmulator.control.stop": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Stop Emulator" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "エミュレータを停止" } }
+      }
+    },
+    "androidEmulator.control.show": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Show Controls" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "コントロールを表示" } }
+      }
+    },
+    "androidEmulator.control.volumeDown": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Volume Down" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "音量を下げる" } }
+      }
+    },
+    "androidEmulator.control.volumeUp": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Volume Up" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "音量を上げる" } }
+      }
+    },
+    "androidEmulator.control.zoom": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Zoom" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "拡大" } }
+      }
+    },
+    "androidEmulator.screenshot.save": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Save" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "保存" } }
+      }
+    },
+    "androidEmulator.screenshot.title": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Save Android Screenshot" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Androidスクリーンショットを保存" } }
+      }
+    },
+    "androidEmulator.action.refresh": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Refresh" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "更新" } }
+      }
+    },
+    "androidEmulator.action.stop": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Stop" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "停止" } }
+      }
+    },
+    "androidEmulator.empty.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Create an Android Virtual Device in Android Studio, then refresh." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Android StudioでAndroid仮想デバイスを作成してから、更新してください。" } }
+      }
+    },
+    "androidEmulator.empty.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No Android Virtual Devices" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Android仮想デバイスがありません" } }
+      }
+    },
+    "androidEmulator.error.adbMissing.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The SDK at %@ does not contain Android Debug Bridge." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@ のSDKにAndroid Debug Bridgeが含まれていません。" } }
+      }
+    },
+    "androidEmulator.error.avdNotFound.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The AVD “%@” is no longer available. Refresh the list." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "AVD「%@」は利用できなくなりました。一覧を更新してください。" } }
+      }
+    },
+    "androidEmulator.error.avdIdentityChanged.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The emulator changed from AVD “%@” to “%@”. Refresh before stopping it." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "エミュレータがAVD「%@」から「%@」に変わりました。停止する前に更新してください。" } }
+      }
+    },
+    "androidEmulator.error.command.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%@ failed: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@ に失敗しました: %@" } }
+      }
+    },
+    "androidEmulator.error.command.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Android Emulator Unavailable" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Android Emulatorを利用できません" } }
+      }
+    },
+    "androidEmulator.error.emulatorMissing.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The SDK at %@ does not contain the emulator component." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@ のSDKにemulatorコンポーネントが含まれていません。" } }
+      }
+    },
+    "androidEmulator.error.emulatorMissing.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Android Emulator Not Installed" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Android Emulatorがインストールされていません" } }
+      }
+    },
+    "androidEmulator.error.invalidSerial.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Refused to stop the invalid emulator serial “%@”." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "無効なエミュレータシリアル「%@」の停止を拒否しました。" } }
+      }
+    },
+    "androidEmulator.error.launch.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The vendor emulator could not launch: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ベンダーのエミュレータを起動できませんでした: %@" } }
+      }
+    },
+    "androidEmulator.error.launchNotConfirmed.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The AVD “%@” launched but did not appear in adb. Refresh to check again." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "AVD「%@」は起動しましたが、adbに表示されませんでした。もう一度確認するには更新してください。" } }
+      }
+    },
+    "androidEmulator.error.noConsolePort.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "All supported Android emulator console ports are in use." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "対応するAndroidエミュレータのコンソールポートはすべて使用中です。" } }
+      }
+    },
+    "androidEmulator.error.sdkNotFound.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "cmux checked ANDROID_HOME, ANDROID_SDK_ROOT, and ~/Library/Android/sdk." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "cmuxはANDROID_HOME、ANDROID_SDK_ROOT、~/Library/Android/sdkを確認しました。" } }
+      }
+    },
+    "androidEmulator.error.sdkNotFound.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Android SDK Not Found" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Android SDKが見つかりません" } }
+      }
+    },
+    "androidEmulator.install.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Install Android Studio or the Android SDK command-line tools, create an AVD, then refresh." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Android StudioまたはAndroid SDKコマンドラインツールをインストールし、AVDを作成してから更新してください。" } }
+      }
+    },
+    "androidEmulator.sdkPath": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "SDK:" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "SDK:" } }
+      }
+    },
+    "androidEmulator.status.launching": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Launching…" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "起動中…" } }
+      }
+    },
+    "androidEmulator.status.running": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Running · %@ · %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "実行中 · %@ · %@" } }
+      }
+    },
+    "androidEmulator.status.stopped": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Stopped" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "停止中" } }
+      }
+    },
+    "androidEmulator.action.restartADB": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Restart adb" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "adbを再起動" } }
+      }
+    },
+    "androidEmulator.status.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "State unavailable" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "状態を確認できません" } }
+      }
+    },
+    "androidEmulator.status.stopping": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Stopping…" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "停止処理中…" } }
+      }
+    },
+    "androidEmulator.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Uses Android tools already installed on this Mac." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "このMacにインストール済みのAndroidツールを使用します。" } }
+      }
+    },
+    "androidEmulator.error.stopNotConfirmed.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The emulator “%@” is still visible in adb. Refresh to check again." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "エミュレータ「%@」はまだadbに表示されています。もう一度確認するには更新してください。" } }
+      }
+    },
+    "androidEmulator.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Android Emulators" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Androidエミュレータ" } }
+      }
+    },
+    "androidEmulator.warning.adbFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Could not read running devices from adb: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "adbから実行中のデバイスを読み取れませんでした: %@" } }
+      }
+    },
+    "androidEmulator.warning.adbMissing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Android Debug Bridge is not installed. Install adb so cmux can safely launch and stop AVDs." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Android Debug Bridgeがインストールされていません。cmuxからAVDを安全に起動および停止するにはadbをインストールしてください。" } }
+      }
+    }
+  },
+  "version": "1.0"
+}

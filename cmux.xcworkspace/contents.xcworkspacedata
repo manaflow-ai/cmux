@@ -94,6 +94,12 @@
          location = "group:CMUXAgentLaunch">
       </FileRef>
       <FileRef
+         location = "group:CmuxAndroidEmulator">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxAndroidEmulatorUI">
+      </FileRef>
+      <FileRef
          location = "group:CmuxAppKitSupportUI">
       </FileRef>
       <FileRef

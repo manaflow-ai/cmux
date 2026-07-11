@@ -875,9 +875,8 @@ struct cmuxApp: App {
     @CommandsBuilder
     private var windowAndViewCommands: some Commands {
         CommandGroup(after: .windowArrangement) {
-            Button(String(localized: "menu.window.taskManager", defaultValue: "Task Manager...")) {
-                TaskManagerWindowController.shared.show()
-            }
+            Button(String(localized: "menu.window.taskManager", defaultValue: "Task Manager...")) { TaskManagerWindowController.shared.show() }
+            Button(String(localized: "menu.window.androidEmulators", defaultValue: "Android Emulators...")) { appDelegate.showAndroidEmulators() }
         }
         helpCommands
         historyCommands

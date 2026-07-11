@@ -1,0 +1,428 @@
+public import CmuxFoundation
+import Foundation
+
+/// Android SDK adapter that lists, launches, and stops user-installed AVDs.
+public actor AndroidEmulatorService: AndroidEmulatorServicing {
+    private static let maximumConcurrentNameQueries = 4
+
+    let sdkLocator: any AndroidSDKLocating
+    let commands: any CommandRunning
+    let adbCommands: any CommandRunning
+    private let processLauncher: any AndroidEmulatorProcessLaunching
+    private var reservedConsolePorts: Set<Int> = []
+
+    /// Creates an Android emulator service from injected machine boundaries.
+    ///
+    /// - Parameters:
+    ///   - sdkLocator: Discovers the user's Android SDK executables.
+    ///   - commands: Runs short-lived vendor commands.
+    ///   - processLauncher: Starts long-lived vendor emulator windows.
+    public init(
+        sdkLocator: any AndroidSDKLocating,
+        commands: any CommandRunning,
+        processLauncher: any AndroidEmulatorProcessLaunching,
+        adbCommands: (any CommandRunning)? = nil
+    ) {
+        self.sdkLocator = sdkLocator
+        self.commands = commands
+        self.adbCommands = adbCommands ?? commands
+        self.processLauncher = processLauncher
+    }
+
+    /// Reads installed AVDs and maps connected emulator serials back to AVD names.
+    public func snapshot() async throws -> AndroidEmulatorSnapshot {
+        let installation = try resolvedInstallation()
+        let avdNames = try await availableAVDNames(using: installation)
+
+        guard let adbURL = installation.adbURL else {
+            return AndroidEmulatorSnapshot(
+                sdkRootURL: installation.rootURL,
+                devices: avdNames.map { AndroidVirtualDevice(name: $0, state: .unavailable) },
+                warning: .adbMissing,
+                connectedEmulatorSerials: nil
+            )
+        }
+
+        let devicesResult = await adbCommands.run(
+            directory: installation.rootURL.path,
+            executable: adbURL.path,
+            arguments: ["devices", "-l"],
+            timeout: 5
+        )
+        guard Self.succeeded(devicesResult) else {
+            return AndroidEmulatorSnapshot(
+                sdkRootURL: installation.rootURL,
+                devices: avdNames.map { AndroidVirtualDevice(name: $0, state: .unavailable) },
+                warning: .adbQueryFailed(detail: Self.failureDetail(devicesResult)),
+                connectedEmulatorSerials: nil
+            )
+        }
+
+        let connectedEmulators = Self.parseConnectedEmulators(devicesResult.stdout ?? "")
+        let connectedEmulatorSerials = Set(connectedEmulators.map(\.serial))
+        let commands = self.adbCommands
+        let identityResolution = await withTaskGroup(
+            of: Result<[String: AndroidVirtualDeviceState], AndroidEmulatorError>.self,
+            returning: ([String: AndroidVirtualDeviceState], String?).self
+        ) { group in
+            var pending = connectedEmulators.makeIterator()
+            for _ in 0..<min(Self.maximumConcurrentNameQueries, connectedEmulators.count) {
+                guard let connected = pending.next() else { break }
+                group.addTask {
+                    await Self.resolveConnectedEmulator(
+                        connected,
+                        installation: installation,
+                        adbURL: adbURL,
+                        commands: commands
+                    )
+                }
+            }
+
+            var resolved: [String: AndroidVirtualDeviceState] = [:]
+            var firstFailureDetail: String?
+            while let result = await group.next() {
+                switch result {
+                case .success(let device):
+                    resolved.merge(device) { _, latest in latest }
+                case .failure(.commandFailed(_, let detail)):
+                    firstFailureDetail = firstFailureDetail ?? detail
+                case .failure(let error):
+                    firstFailureDetail = firstFailureDetail ?? String(describing: error)
+                }
+
+                if let connected = pending.next() {
+                    group.addTask {
+                        await Self.resolveConnectedEmulator(
+                            connected,
+                            installation: installation,
+                            adbURL: adbURL,
+                            commands: commands
+                        )
+                    }
+                }
+            }
+            return (resolved, firstFailureDetail)
+        }
+
+        let runningByName = identityResolution.0
+        let fallbackState: AndroidVirtualDeviceState = identityResolution.1 == nil ? .stopped : .unavailable
+        let allNames = Set(avdNames).union(runningByName.keys)
+        let devices = allNames
+            .map { name in
+                AndroidVirtualDevice(name: name, state: runningByName[name] ?? fallbackState)
+            }
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+
+        return AndroidEmulatorSnapshot(
+            sdkRootURL: installation.rootURL,
+            devices: devices,
+            warning: identityResolution.1.map(AndroidEmulatorWarning.adbQueryFailed),
+            connectedEmulatorSerials: connectedEmulatorSerials
+        )
+    }
+
+    /// Restarts the SDK's adb server so stale emulator transports can be rediscovered.
+    public func restartADB() async throws {
+        let installation = try resolvedInstallation()
+        guard let adbURL = installation.adbURL else {
+            throw AndroidEmulatorError.adbMissing(sdkPath: installation.rootURL.path)
+        }
+
+        let killResult = await adbCommands.run(
+            directory: installation.rootURL.path,
+            executable: adbURL.path,
+            arguments: ["kill-server"],
+            timeout: 5
+        )
+        guard Self.succeeded(killResult) else {
+            throw AndroidEmulatorError.commandFailed(tool: "adb", detail: Self.failureDetail(killResult))
+        }
+
+        let startResult = await adbCommands.run(
+            directory: installation.rootURL.path,
+            executable: adbURL.path,
+            arguments: ["start-server"],
+            timeout: 10
+        )
+        guard Self.succeeded(startResult) else {
+            throw AndroidEmulatorError.commandFailed(tool: "adb", detail: Self.failureDetail(startResult))
+        }
+    }
+
+    /// Validates the AVD against the installed emulator before spawning it.
+    public func launch(avdName: String) async throws {
+        let installation = try resolvedInstallation()
+        let avdNames = try await availableAVDNames(using: installation)
+        guard avdNames.contains(avdName) else {
+            throw AndroidEmulatorError.avdNotFound(name: avdName)
+        }
+        guard let adbURL = installation.adbURL else {
+            throw AndroidEmulatorError.adbMissing(sdkPath: installation.rootURL.path)
+        }
+
+        let devicesResult = await adbCommands.run(
+            directory: installation.rootURL.path,
+            executable: adbURL.path,
+            arguments: ["devices"],
+            timeout: 5
+        )
+        guard Self.succeeded(devicesResult) else {
+            throw AndroidEmulatorError.commandFailed(tool: "adb", detail: Self.failureDetail(devicesResult))
+        }
+        guard let consolePort = await reserveAvailableConsolePort(devicesResult.stdout ?? "") else {
+            throw AndroidEmulatorError.noConsolePortAvailable
+        }
+        defer { reservedConsolePorts.remove(consolePort) }
+
+        let processID = try await processLauncher.launch(
+            executableURL: installation.emulatorURL,
+            avdName: avdName,
+            sdkRootURL: installation.rootURL,
+            consolePort: consolePort
+        )
+        let serial = "emulator-\(consolePort)"
+        let waitResult = await adbCommands.run(
+            directory: installation.rootURL.path,
+            executable: adbURL.path,
+            arguments: ["-s", serial, "wait-for-device"],
+            timeout: 180
+        )
+        guard Self.succeeded(waitResult) else {
+            await processLauncher.terminate(processID: processID)
+            throw AndroidEmulatorError.launchNotConfirmed(name: avdName)
+        }
+
+        let nameResult = await adbCommands.run(
+            directory: installation.rootURL.path,
+            executable: adbURL.path,
+            arguments: ["-s", serial, "emu", "avd", "name"],
+            timeout: 3
+        )
+        guard Self.succeeded(nameResult), Self.parseAVDName(nameResult.stdout ?? "") == avdName else {
+            await processLauncher.terminate(processID: processID)
+            throw AndroidEmulatorError.launchNotConfirmed(name: avdName)
+        }
+    }
+
+    /// Stops a running emulator after revalidating its AVD name and transport identity.
+    public func stop(avdName: String, serial: String, transportID: String) async throws {
+        guard serial.hasPrefix("emulator-"),
+              serial.dropFirst("emulator-".count).allSatisfy(\.isNumber) else {
+            throw AndroidEmulatorError.invalidEmulatorSerial(serial)
+        }
+
+        let installation = try resolvedInstallation()
+        guard let adbURL = installation.adbURL else {
+            throw AndroidEmulatorError.adbMissing(sdkPath: installation.rootURL.path)
+        }
+
+        let devicesResult = await adbCommands.run(
+            directory: installation.rootURL.path,
+            executable: adbURL.path,
+            arguments: ["devices", "-l"],
+            timeout: 5
+        )
+        guard Self.succeeded(devicesResult) else {
+            throw AndroidEmulatorError.commandFailed(tool: "adb", detail: Self.failureDetail(devicesResult))
+        }
+        let connectedEmulators = Self.parseConnectedEmulators(devicesResult.stdout ?? "")
+        guard connectedEmulators.contains(where: { $0.serial == serial && $0.transportID == transportID }) else {
+            if !connectedEmulators.contains(where: { $0.serial == serial }) {
+                return
+            }
+            throw AndroidEmulatorError.stopNotConfirmed(serial: serial)
+        }
+
+        let nameResult = await adbCommands.run(
+            directory: installation.rootURL.path,
+            executable: adbURL.path,
+            arguments: ["-t", transportID, "emu", "avd", "name"],
+            timeout: 3
+        )
+        guard Self.succeeded(nameResult), let currentAVDName = Self.parseAVDName(nameResult.stdout ?? "") else {
+            throw AndroidEmulatorError.commandFailed(tool: "adb", detail: Self.failureDetail(nameResult))
+        }
+        guard currentAVDName == avdName else {
+            throw AndroidEmulatorError.avdIdentityChanged(expected: avdName, actual: currentAVDName)
+        }
+
+        let result = await adbCommands.run(
+            directory: installation.rootURL.path,
+            executable: adbURL.path,
+            arguments: ["-t", transportID, "emu", "kill"],
+            timeout: 5
+        )
+        guard Self.consoleCommandSucceeded(result) else {
+            throw AndroidEmulatorError.commandFailed(tool: "adb", detail: Self.failureDetail(result))
+        }
+
+        let disconnectResult = await adbCommands.run(
+            directory: installation.rootURL.path,
+            executable: adbURL.path,
+            arguments: ["-t", transportID, "wait-for-disconnect"],
+            timeout: 15
+        )
+        guard Self.succeeded(disconnectResult) else {
+            let refreshedDevicesResult = await adbCommands.run(
+                directory: installation.rootURL.path,
+                executable: adbURL.path,
+                arguments: ["devices", "-l"],
+                timeout: 5
+            )
+            guard Self.succeeded(refreshedDevicesResult) else {
+                throw AndroidEmulatorError.commandFailed(
+                    tool: "adb",
+                    detail: Self.failureDetail(refreshedDevicesResult)
+                )
+            }
+            let originalTransportIsStillUsable = Self.parseConnectedEmulators(
+                refreshedDevicesResult.stdout ?? ""
+            ).contains { connected in
+                connected.transportID == transportID && connected.connectionState == "device"
+            }
+            guard !originalTransportIsStillUsable else {
+                throw AndroidEmulatorError.stopNotConfirmed(serial: serial)
+            }
+            return
+        }
+    }
+
+    func resolvedInstallation() throws -> AndroidSDKInstallation {
+        switch sdkLocator.locate() {
+        case .available(let installation):
+            return installation
+        case .emulatorMissing(let rootURL):
+            throw AndroidEmulatorError.emulatorMissing(sdkPath: rootURL.path)
+        case .sdkNotFound:
+            throw AndroidEmulatorError.sdkNotFound
+        }
+    }
+
+    private func availableAVDNames(using installation: AndroidSDKInstallation) async throws -> [String] {
+        let result = await commands.run(
+            directory: installation.rootURL.path,
+            executable: installation.emulatorURL.path,
+            arguments: ["-list-avds"],
+            timeout: 5
+        )
+        guard Self.succeeded(result) else {
+            throw AndroidEmulatorError.commandFailed(tool: "emulator", detail: Self.failureDetail(result))
+        }
+        return Self.parseAVDNames(result.stdout ?? "")
+    }
+
+    static func parseAVDNames(_ output: String) -> [String] {
+        var seen: Set<String> = []
+        return output
+            .split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty && seen.insert($0).inserted }
+            .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }
+
+    static func parseConnectedEmulators(
+        _ output: String
+    ) -> [(serial: String, connectionState: String, transportID: String?)] {
+        output
+            .split(whereSeparator: \.isNewline)
+            .compactMap { line -> (String, String, String?)? in
+                let fields = line.split(whereSeparator: \.isWhitespace).map(String.init)
+                guard fields.count >= 2, fields[0].hasPrefix("emulator-") else { return nil }
+                let transportID = fields
+                    .dropFirst(2)
+                    .first(where: { $0.hasPrefix("transport_id:") })?
+                    .dropFirst("transport_id:".count)
+                return (fields[0], fields[1], transportID.map(String.init))
+            }
+    }
+
+    static func parseAVDName(_ output: String) -> String? {
+        let lines = output
+            .split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        guard lines.count >= 2,
+              lines.last == "OK",
+              let name = lines.first,
+              !Self.isConsoleErrorLine(name) else {
+            return nil
+        }
+        return name
+    }
+
+    private func reserveAvailableConsolePort(_ devicesOutput: String) async -> Int? {
+        let occupiedSerials = Set(Self.parseConnectedEmulators(devicesOutput).map(\.serial))
+        // ADB discovers 16 local emulator pairs by default, ending at port 5585.
+        for consolePort in stride(from: 5554, through: 5584, by: 2) {
+            guard !reservedConsolePorts.contains(consolePort),
+                  !occupiedSerials.contains("emulator-\(consolePort)") else {
+                continue
+            }
+            reservedConsolePorts.insert(consolePort)
+            guard await processLauncher.consolePortPairIsAvailable(consolePort) else {
+                reservedConsolePorts.remove(consolePort)
+                continue
+            }
+            return consolePort
+        }
+        return nil
+    }
+
+    private static func resolveConnectedEmulator(
+        _ connected: (serial: String, connectionState: String, transportID: String?),
+        installation: AndroidSDKInstallation,
+        adbURL: URL,
+        commands: any CommandRunning
+    ) async -> Result<[String: AndroidVirtualDeviceState], AndroidEmulatorError> {
+        let nameResult = await commands.run(
+            directory: installation.rootURL.path,
+            executable: adbURL.path,
+            arguments: ["-s", connected.serial, "emu", "avd", "name"],
+            timeout: 3
+        )
+        guard succeeded(nameResult),
+              let avdName = parseAVDName(nameResult.stdout ?? ""),
+              let transportID = connected.transportID else {
+            return .failure(.commandFailed(tool: "adb", detail: failureDetail(nameResult)))
+        }
+        return .success([avdName: .running(
+            serial: connected.serial,
+            connectionState: connected.connectionState,
+            transportID: transportID
+        )])
+    }
+
+    static func succeeded(_ result: CommandResult) -> Bool {
+        result.executionError == nil && !result.timedOut && result.exitStatus == 0
+    }
+
+    private static func consoleCommandSucceeded(_ result: CommandResult) -> Bool {
+        guard succeeded(result) else { return false }
+        let lines = [result.stdout, result.stderr]
+            .compactMap { $0 }
+            .joined(separator: "\n")
+            .split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        return !lines.contains(where: isConsoleErrorLine)
+    }
+
+    private static func isConsoleErrorLine(_ line: String) -> Bool {
+        let normalized = line.lowercased()
+        return normalized.hasPrefix("ko:")
+            || normalized.hasPrefix("error:")
+            || normalized.hasPrefix("android console:")
+            || normalized.hasPrefix("authentication required")
+    }
+
+    static func failureDetail(_ result: CommandResult) -> String {
+        if let executionError = result.executionError { return executionError }
+        if result.timedOut { return "timeout" }
+        if let stderr = result.stderr?.trimmingCharacters(in: .whitespacesAndNewlines), !stderr.isEmpty {
+            return stderr
+        }
+        if let stdout = result.stdout?.trimmingCharacters(in: .whitespacesAndNewlines), !stdout.isEmpty {
+            return stdout
+        }
+        return "exit_status=\(result.exitStatus.map(String.init) ?? "unknown")"
+    }
+}

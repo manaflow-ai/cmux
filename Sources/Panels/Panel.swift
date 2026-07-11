@@ -14,6 +14,7 @@ public enum PanelType: String, Codable, Sendable {
     case project
     case extensionBrowser
     case cloudVMLoading
+    case androidEmulator
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()

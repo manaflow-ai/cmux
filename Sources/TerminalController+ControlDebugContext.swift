@@ -78,6 +78,14 @@ extension TerminalController: ControlDebugContext {
         ProWelcomeChecklistPresenter.present()
     }
 
+    func controlDebugShowAndroidEmulators() {
+        AppDelegate.shared?.showAndroidEmulators()
+    }
+
+    func controlDebugOpenRunningAndroidEmulator() -> Bool {
+        AppDelegate.shared?.openFirstRunningAndroidEmulatorPane() ?? false
+    }
+
     func controlDebugIsTerminalFocused(surfaceArgument: String) -> String {
         isTerminalFocused(surfaceArgument)
     }

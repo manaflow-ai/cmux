@@ -102,6 +102,9 @@
 		A9F200000000000000000014 /* AgentSessionWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000014 /* AgentSessionWebView.swift */; };
 		REE0CA0000000000000000F2 /* AIAccountCredentialSources.swift in Sources */ = {isa = PBXBuildFile; fileRef = REE0CA0000000000000000F1 /* AIAccountCredentialSources.swift */; };
 		REE0CA0000000000000000E2 /* AIAccountsClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = REE0CA0000000000000000E1 /* AIAccountsClient.swift */; };
+		AD000000000000000000000C /* AndroidEmulatorEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD000000000000000000000B /* AndroidEmulatorEnvironment.swift */; };
+		AD000000000000000000000E /* AndroidEmulatorPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD000000000000000000000D /* AndroidEmulatorPanel.swift */; };
+		AD000000000000000000000A /* AndroidEmulatorWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD0000000000000000000009 /* AndroidEmulatorWindowController.swift */; };
 		F4350A110000000000000001 /* AppBundleIconPersistencePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4350A130000000000000001 /* AppBundleIconPersistencePolicy.swift */; };
 		F4350A120000000000000001 /* AppBundleIconPersistencePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4350A130000000000000001 /* AppBundleIconPersistencePolicy.swift */; };
 		C0DE45AC0000000000000001 /* AppDelegate+AgentChat.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE45AC0000000000000002 /* AppDelegate+AgentChat.swift */; };
@@ -389,6 +392,10 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		A5B00003A1B2C3D4E5F60718 /* CMUXAgentLaunch in Frameworks */ = {isa = PBXBuildFile; productRef = A5B00002A1B2C3D4E5F60718 /* CMUXAgentLaunch */; };
 		A5B00004A1B2C3D4E5F60718 /* CMUXAgentLaunch in Frameworks */ = {isa = PBXBuildFile; productRef = A5B00002A1B2C3D4E5F60718 /* CMUXAgentLaunch */; };
 		A5B00005A1B2C3D4E5F60718 /* CMUXAgentLaunch in Frameworks */ = {isa = PBXBuildFile; productRef = A5B00002A1B2C3D4E5F60718 /* CMUXAgentLaunch */; };
+		AD0000000000000000000001 /* CmuxAndroidEmulator in Frameworks */ = {isa = PBXBuildFile; productRef = AD0000000000000000000005 /* CmuxAndroidEmulator */; };
+		AD0000000000000000000002 /* CmuxAndroidEmulator in Frameworks */ = {isa = PBXBuildFile; productRef = AD0000000000000000000005 /* CmuxAndroidEmulator */; };
+		AD0000000000000000000003 /* CmuxAndroidEmulatorUI in Frameworks */ = {isa = PBXBuildFile; productRef = AD0000000000000000000006 /* CmuxAndroidEmulatorUI */; };
+		AD0000000000000000000004 /* CmuxAndroidEmulatorUI in Frameworks */ = {isa = PBXBuildFile; productRef = AD0000000000000000000006 /* CmuxAndroidEmulatorUI */; };
 		E3309A07 /* cmuxApp+EqualizeSplitsMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3309A08 /* cmuxApp+EqualizeSplitsMenu.swift */; };
 		C4160A010000000000000001 /* cmuxApp+HistoryMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4160A010000000000000002 /* cmuxApp+HistoryMenu.swift */; };
 		A5001001 /* cmuxApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001011 /* cmuxApp.swift */; };
@@ -1620,6 +1627,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		D7632B13A1B2C3D4E5F60718 /* WKWebView+CmuxPrintOperation.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7632B14A1B2C3D4E5F60718 /* WKWebView+CmuxPrintOperation.swift */; };
 		C0DE43000000000000000007 /* Workspace+AgentChat.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE43000000000000000008 /* Workspace+AgentChat.swift */; };
 		A6AC73020000000000000001 /* Workspace+AgentLifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6AC73020000000000000002 /* Workspace+AgentLifecycle.swift */; };
+		AD0000000000000000000010 /* Workspace+AndroidEmulator.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD000000000000000000000F /* Workspace+AndroidEmulator.swift */; };
 		CA52B0150000000000000000 /* Workspace+CanvasLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA52C0150000000000000000 /* Workspace+CanvasLayout.swift */; };
 		C54860020000000000000001 /* Workspace+CmuxNavigationDescriptor.swift in Sources */ = {isa = PBXBuildFile; fileRef = C54860020000000000000002 /* Workspace+CmuxNavigationDescriptor.swift */; };
 		A5FB120D /* Workspace+CustomLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5FB120E /* Workspace+CustomLayout.swift */; };
@@ -1882,6 +1890,9 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		A9F100000000000000000014 /* AgentSessionWebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/AgentSessionWebView.swift; sourceTree = "<group>"; };
 		REE0CA0000000000000000F1 /* AIAccountCredentialSources.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AIAccountCredentialSources.swift; sourceTree = "<group>"; };
 		REE0CA0000000000000000E1 /* AIAccountsClient.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AIAccountsClient.swift; sourceTree = "<group>"; };
+		AD000000000000000000000B /* AndroidEmulatorEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AndroidEmulator/AndroidEmulatorEnvironment.swift; sourceTree = "<group>"; };
+		AD000000000000000000000D /* AndroidEmulatorPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AndroidEmulator/AndroidEmulatorPanel.swift; sourceTree = "<group>"; };
+		AD0000000000000000000009 /* AndroidEmulatorWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AndroidEmulator/AndroidEmulatorWindowController.swift; sourceTree = "<group>"; };
 		F4350A130000000000000001 /* AppBundleIconPersistencePolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/AppBundleIconPersistencePolicy.swift; sourceTree = "<group>"; };
 		C0DE45AC0000000000000002 /* AppDelegate+AgentChat.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+AgentChat.swift"; sourceTree = "<group>"; };
 C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+AgentChatNotifications.swift"; sourceTree = "<group>"; };
@@ -3327,6 +3338,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		D7632B14A1B2C3D4E5F60718 /* WKWebView+CmuxPrintOperation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/WKWebView+CmuxPrintOperation.swift"; sourceTree = "<group>"; };
 		C0DE43000000000000000008 /* Workspace+AgentChat.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+AgentChat.swift"; sourceTree = "<group>"; };
 		A6AC73020000000000000002 /* Workspace+AgentLifecycle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+AgentLifecycle.swift"; sourceTree = "<group>"; };
+		AD000000000000000000000F /* Workspace+AndroidEmulator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AndroidEmulator/Workspace+AndroidEmulator.swift"; sourceTree = "<group>"; };
 		CA52C0150000000000000000 /* Workspace+CanvasLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+CanvasLayout.swift"; sourceTree = "<group>"; };
 		C54860020000000000000002 /* Workspace+CmuxNavigationDescriptor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+CmuxNavigationDescriptor.swift"; sourceTree = "<group>"; };
 		A5FB120E /* Workspace+CustomLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+CustomLayout.swift"; sourceTree = "<group>"; };
@@ -3430,6 +3442,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			files = (
 				AC4A6E7C4A700001AC4A0001 /* CmuxAgentChat in Frameworks */,
 				A5B00003A1B2C3D4E5F60718 /* CMUXAgentLaunch in Frameworks */,
+				AD0000000000000000000001 /* CmuxAndroidEmulator in Frameworks */,
+				AD0000000000000000000003 /* CmuxAndroidEmulatorUI in Frameworks */,
 				C9A2B00000000000000000B3 /* CmuxAppKitSupportUI in Frameworks */,
 				5EDB6027B346C46521A93C74 /* CMUXAuthCore in Frameworks */,
 				53750003A0B1C2D3E4F50003 /* CmuxAuthRuntime in Frameworks */,
@@ -3510,6 +3524,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			buildActionMask = 2147483647;
 			files = (
 				B057B0017E57B0017E57B001 /* Bonsplit in Frameworks */,
+				AD0000000000000000000002 /* CmuxAndroidEmulator in Frameworks */,
+				AD0000000000000000000004 /* CmuxAndroidEmulatorUI in Frameworks */,
 				C9A2B00000000000000000C3 /* CmuxAppKitSupportUI in Frameworks */,
 				D7032A060000000000000001 /* CmuxBrowser in Frameworks */,
 				CA52A007CA52A007CA52A007 /* CmuxCanvas in Frameworks */,
@@ -3719,6 +3735,10 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				D7C6F5010000000000000001 /* GhosttyTitleChangeSubscription.swift */,
 				A11EAD000000000000000001 /* WorkspaceAppearanceResolution.swift */,
 				A5001011 /* cmuxApp.swift */,
+				AD0000000000000000000009 /* AndroidEmulatorWindowController.swift */,
+				AD000000000000000000000B /* AndroidEmulatorEnvironment.swift */,
+				AD000000000000000000000D /* AndroidEmulatorPanel.swift */,
+				AD000000000000000000000F /* Workspace+AndroidEmulator.swift */,
 				CA5CADF00000000000000001 /* CanvasDebugMenuButtons.swift */,
 				C46790000000000000000004 /* CLIForwardingLaunchRouter.swift */,
 				C46790000000000000000006 /* RosettaNativeRelaunch.swift */,
@@ -5306,6 +5326,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				29813FE5A6CBC1019289A251 /* CMUXAuthCore */,
 				53750002A0B1C2D3E4F50002 /* CmuxAuthRuntime */,
 				AC4A6E7C4A700001AC4A0002 /* CmuxAgentChat */,
+				AD0000000000000000000005 /* CmuxAndroidEmulator */,
+				AD0000000000000000000006 /* CmuxAndroidEmulatorUI */,
 				C0DE45000000000000000002 /* CmuxExtensionKit */,
 				C0DE4A000000000000000002 /* CmuxSidebarProviderKit */,
 				C0DE49000000000000000002 /* CmuxExtensionSidebarExamples */,
@@ -5420,6 +5442,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			name = cmuxTests;
 			packageProductDependencies = (
 				A5B00002A1B2C3D4E5F60718 /* CMUXAgentLaunch */,
+				AD0000000000000000000005 /* CmuxAndroidEmulator */,
+				AD0000000000000000000006 /* CmuxAndroidEmulatorUI */,
 				EFB18E3B3099DFE2ECA3C263 /* CMUXMobileCore */,
 				CA52A005CA52A005CA52A005 /* CmuxCanvas */,
 				5E2701040000000000000001 /* Sentry */,
@@ -5483,6 +5507,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				40B63BB4A170F0BD2D1DEFD1 /* XCLocalSwiftPackageReference "CMUXAuthCore" */,
 				53750001A0B1C2D3E4F50001 /* XCLocalSwiftPackageReference "CmuxAuthRuntime" */,
 				AC4A6E7C4A700001AC4A0003 /* XCLocalSwiftPackageReference "CmuxAgentChat" */,
+				AD0000000000000000000007 /* XCLocalSwiftPackageReference "CmuxAndroidEmulator" */,
+				AD0000000000000000000008 /* XCLocalSwiftPackageReference "CmuxAndroidEmulatorUI" */,
 				C0DE45000000000000000003 /* XCLocalSwiftPackageReference "CmuxExtensionKit" */,
 				C0DE4A000000000000000003 /* XCLocalSwiftPackageReference "CmuxSidebarProviderKit" */,
 				C0DE49000000000000000003 /* XCLocalSwiftPackageReference "CmuxExtensionSidebarExamples" */,
@@ -5755,6 +5781,9 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A9F200000000000000000014 /* AgentSessionWebView.swift in Sources */,
 				REE0CA0000000000000000F2 /* AIAccountCredentialSources.swift in Sources */,
 				REE0CA0000000000000000E2 /* AIAccountsClient.swift in Sources */,
+				AD000000000000000000000C /* AndroidEmulatorEnvironment.swift in Sources */,
+				AD000000000000000000000E /* AndroidEmulatorPanel.swift in Sources */,
+				AD000000000000000000000A /* AndroidEmulatorWindowController.swift in Sources */,
 				F4350A110000000000000001 /* AppBundleIconPersistencePolicy.swift in Sources */,
 				C0DE45AC0000000000000001 /* AppDelegate+AgentChat.swift in Sources */,
 				C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources */,
@@ -6671,6 +6700,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				D7632B13A1B2C3D4E5F60718 /* WKWebView+CmuxPrintOperation.swift in Sources */,
 				C0DE43000000000000000007 /* Workspace+AgentChat.swift in Sources */,
 				A6AC73020000000000000001 /* Workspace+AgentLifecycle.swift in Sources */,
+				AD0000000000000000000010 /* Workspace+AndroidEmulator.swift in Sources */,
 				CA52B0150000000000000000 /* Workspace+CanvasLayout.swift in Sources */,
 				C54860020000000000000001 /* Workspace+CmuxNavigationDescriptor.swift in Sources */,
 				A5FB120D /* Workspace+CustomLayout.swift in Sources */,
@@ -7736,6 +7766,14 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
+		AD0000000000000000000007 /* XCLocalSwiftPackageReference "CmuxAndroidEmulator" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/macOS/CmuxAndroidEmulator;
+		};
+		AD0000000000000000000008 /* XCLocalSwiftPackageReference "CmuxAndroidEmulatorUI" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/macOS/CmuxAndroidEmulatorUI;
+		};
 		0C69E6A5FA9B0513E68DF443 /* XCLocalSwiftPackageReference "CMUXMobileCore" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/Shared/CMUXMobileCore;
@@ -7938,6 +7976,16 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		AD0000000000000000000005 /* CmuxAndroidEmulator */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = AD0000000000000000000007 /* XCLocalSwiftPackageReference "CmuxAndroidEmulator" */;
+			productName = CmuxAndroidEmulator;
+		};
+		AD0000000000000000000006 /* CmuxAndroidEmulatorUI */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = AD0000000000000000000008 /* XCLocalSwiftPackageReference "CmuxAndroidEmulatorUI" */;
+			productName = CmuxAndroidEmulatorUI;
+		};
 		29813FE5A6CBC1019289A251 /* CMUXAuthCore */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 40B63BB4A170F0BD2D1DEFD1 /* XCLocalSwiftPackageReference "CMUXAuthCore" */;
