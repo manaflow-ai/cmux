@@ -110,6 +110,9 @@ SOCK = discover_socket_path()
 
 tmpdir = tempfile.TemporaryDirectory(prefix="cmux-tui-smoke-")
 config_path = os.path.join(tmpdir.name, "cmux-tui.json")
+sidebar_marker = "tui-file.txt"
+with open(os.path.join(tmpdir.name, sidebar_marker), "w", encoding="utf-8") as f:
+    f.write("file sidebar smoke marker\n")
 with open(config_path, "w", encoding="utf-8") as f:
     json.dump(
         {
@@ -130,6 +133,7 @@ os.environ["CMUX_TUI_CONFIG"] = config_path
 
 pid, fd = pty.fork()
 if pid == 0:
+    os.chdir(tmpdir.name)
     os.environ["TERM"] = "xterm-256color"
     os.environ["CMUX_MUX_CDP_URL"] = "http://127.0.0.1:1/"
     os.environ.pop("NO_COLOR", None)
@@ -394,8 +398,15 @@ with open(config_path, "w", encoding="utf-8") as f:
     json.dump({"sidebar": {"width": 22}}, f)
 assert rpc({"id": 31, "cmd": "reload-config"})["ok"]
 drain(1.0)
+snapshot = render_text_snapshot(output)
+assert sidebar_marker in snapshot, snapshot[-1200:]
+print("sidebar plugin config reload falls back to default files sidebar ok")
+os.write(fd, b"\x02S")
+drain(0.4)
+os.write(fd, b"\t")
+drain(0.5)
 assert "workspaces" in render_text_snapshot(output), output[-1200:]
-print("sidebar plugin config reload falls back to built-in sidebar ok")
+print("focused sidebar Tab toggles files to workspaces ok")
 
 # Prefix-B creates a browser tab immediately and focuses its in-pane
 # omnibar. The dead CDP endpoint keeps this Chrome-free and fast.
