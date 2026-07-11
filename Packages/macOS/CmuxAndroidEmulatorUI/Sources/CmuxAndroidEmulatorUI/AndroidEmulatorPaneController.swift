@@ -12,6 +12,7 @@ public final class AndroidEmulatorPaneController {
     public let sdkRootURL: URL
     public private(set) var displaySize = AndroidEmulatorDisplaySize(width: 1080, height: 1920)
     public private(set) var isCaptureReady = false
+    public private(set) var isPreparingCapture = false
     public private(set) var captureError: String?
     public private(set) var captureRetryGeneration = 0
     public private(set) var operationError: String?
@@ -27,6 +28,7 @@ public final class AndroidEmulatorPaneController {
     @ObservationIgnored private var stopQueued = false
     @ObservationIgnored private var pendingOperations: [PendingOperation] = []
     @ObservationIgnored private var operationTask: Task<Void, Never>?
+    @ObservationIgnored private var displaySizeTask: Task<Void, Never>?
 
     public init(
         avdName: String,
@@ -43,21 +45,27 @@ public final class AndroidEmulatorPaneController {
     }
 
     public func prepare() async {
-        guard !isCaptureReady else { return }
+        guard !isCaptureReady, !isPreparingCapture else { return }
         await refreshDisplaySize()
     }
 
     private func refreshDisplaySize() async {
+        guard !isPreparingCapture else { return }
+        isPreparingCapture = true
+        defer { isPreparingCapture = false }
         do {
             let size = try await coordinator.displaySize(
                 avdName: avdName,
                 serial: serial,
                 transportID: transportID
             )
+            try Task.checkCancellation()
             displaySize = size
             captureView?.setDisplaySize(size)
             isCaptureReady = true
             clearCaptureError()
+        } catch is CancellationError {
+            return
         } catch {
             isCaptureReady = false
             reportCaptureError(error)
@@ -133,7 +141,17 @@ public final class AndroidEmulatorPaneController {
 
     public func retryCapture() {
         captureError = nil
-        captureRetryGeneration += 1
+        if isCaptureReady {
+            captureRetryGeneration += 1
+            return
+        }
+        guard !isPreparingCapture else { return }
+        displaySizeTask?.cancel()
+        displaySizeTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await refreshDisplaySize()
+            displaySizeTask = nil
+        }
     }
 
     public func retryOperation() {
@@ -151,6 +169,8 @@ public final class AndroidEmulatorPaneController {
     }
 
     public func closePane() {
+        displaySizeTask?.cancel()
+        displaySizeTask = nil
         operationTask?.cancel()
         operationTask = nil
         pendingOperations.removeAll()

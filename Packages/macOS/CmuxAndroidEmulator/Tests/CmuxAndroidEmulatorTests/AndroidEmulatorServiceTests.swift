@@ -132,6 +132,32 @@ import Testing
         #expect(await launcher.requests.map(\.consolePort) == [5556])
     }
 
+    @Test func launchDoesNotUsePortsOutsideADBsDiscoveryRange() async {
+        let installation = Self.installation
+        let unavailablePorts = Set(stride(from: 5554, through: 5584, by: 2))
+        let launcher = RecordingAndroidEmulatorLauncher(unavailableConsolePorts: unavailablePorts)
+        let commands = StubCommandRunner(results: [
+            StubCommand(
+                executable: installation.emulatorURL.path,
+                arguments: ["-list-avds"]
+            ): .success("Pixel_9_API_35\n"),
+            StubCommand(
+                executable: installation.adbURL!.path,
+                arguments: ["devices"]
+            ): .success("List of devices attached\n"),
+        ])
+        let service = AndroidEmulatorService(
+            sdkLocator: StubSDKLocator(resolution: .available(installation)),
+            commands: commands,
+            processLauncher: launcher
+        )
+
+        await #expect(throws: AndroidEmulatorError.noConsolePortAvailable) {
+            try await service.launch(avdName: "Pixel_9_API_35")
+        }
+        #expect(await launcher.requests.isEmpty)
+    }
+
     @Test func snapshotRejectsConsoleErrorReturnedWithZeroExitStatus() async throws {
         let installation = Self.installation
         let commands = StubCommandRunner(results: [

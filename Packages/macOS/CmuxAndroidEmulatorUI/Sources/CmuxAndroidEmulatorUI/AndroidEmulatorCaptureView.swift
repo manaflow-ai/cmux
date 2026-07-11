@@ -609,19 +609,35 @@ private enum AndroidUnixSocket {
     }
 
     static func readLine(from handle: FileHandle) async throws -> Data {
-        try await Task.detached {
-            var line = Data()
-            while true {
-                guard let byte = try handle.read(upToCount: 1), !byte.isEmpty else {
-                    throw AndroidEmulatorBridgeError.disconnected
-                }
-                if byte[0] == 0x0A { return line }
+        let descriptor = handle.fileDescriptor
+        let flags = fcntl(descriptor, F_GETFL)
+        guard flags >= 0, fcntl(descriptor, F_SETFL, flags | O_NONBLOCK) >= 0 else {
+            throw AndroidEmulatorBridgeError.systemCall("fcntl", errno)
+        }
+        defer { _ = fcntl(descriptor, F_SETFL, flags) }
+
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(3))
+        var line = Data()
+        var byte: UInt8 = 0
+        while clock.now < deadline {
+            try Task.checkCancellation()
+            let count = Darwin.read(descriptor, &byte, 1)
+            if count == 1 {
+                if byte == 0x0A { return line }
                 line.append(byte)
                 guard line.count <= 64 * 1024 else {
                     throw AndroidEmulatorBridgeError.incompatibleProtocol
                 }
+                continue
             }
-        }.value
+            if count == 0 { throw AndroidEmulatorBridgeError.disconnected }
+            guard errno == EAGAIN || errno == EWOULDBLOCK else {
+                throw AndroidEmulatorBridgeError.systemCall("read", errno)
+            }
+            try await clock.sleep(for: .milliseconds(20))
+        }
+        throw AndroidEmulatorBridgeError.handshakeTimedOut
     }
 
     private static func connectOnce(path: String) throws -> FileHandle {
@@ -663,6 +679,7 @@ private enum AndroidUnixSocket {
 private enum AndroidEmulatorBridgeError: LocalizedError {
     case helperNotInstalled
     case incompatibleProtocol
+    case handshakeTimedOut
     case disconnected
     case socketPathTooLong
     case systemCall(String, Int32)
@@ -679,6 +696,12 @@ private enum AndroidEmulatorBridgeError: LocalizedError {
             return String(
                 localized: "androidEmulator.bridge.incompatible",
                 defaultValue: "The installed Android bridge is incompatible with this version of cmux.",
+                bundle: .module
+            )
+        case .handshakeTimedOut:
+            return String(
+                localized: "androidEmulator.bridge.handshakeTimedOut",
+                defaultValue: "The Android bridge did not respond. Retry to start it again.",
                 bundle: .module
             )
         case .disconnected:

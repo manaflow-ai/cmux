@@ -43,6 +43,13 @@
         "ja": { "stringUnit": { "state": "translated", "value": "Android ブリッジが切断されました。" } }
       }
     },
+    "androidEmulator.bridge.handshakeTimedOut": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The Android bridge did not respond. Retry to start it again." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Android ブリッジが応答しませんでした。再試行してもう一度起動してください。" } }
+      }
+    },
     "androidEmulator.bridge.incompatible": {
       "extractionState": "manual",
       "localizations": {

@@ -324,7 +324,8 @@ public actor AndroidEmulatorService: AndroidEmulatorServicing {
 
     private func reserveAvailableConsolePort(_ devicesOutput: String) async -> Int? {
         let occupiedSerials = Set(Self.parseConnectedEmulators(devicesOutput).map(\.serial))
-        for consolePort in stride(from: 5554, through: 5682, by: 2) {
+        // ADB discovers 16 local emulator pairs by default, ending at port 5585.
+        for consolePort in stride(from: 5554, through: 5584, by: 2) {
             guard !reservedConsolePorts.contains(consolePort),
                   !occupiedSerials.contains("emulator-\(consolePort)") else {
                 continue

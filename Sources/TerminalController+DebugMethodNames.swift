@@ -11,6 +11,7 @@ extension TerminalController {
         "debug.app.activate",
         "debug.pro_welcome_checklist.show",
         "debug.android_emulators.show",
+        "debug.android_emulators.open_running",
         "debug.command_palette.toggle",
         "debug.command_palette.rename_tab.open",
         "debug.command_palette.visible",

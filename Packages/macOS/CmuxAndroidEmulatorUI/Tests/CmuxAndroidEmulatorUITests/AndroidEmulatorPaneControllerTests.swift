@@ -48,6 +48,39 @@ struct AndroidEmulatorPaneControllerTests {
         #expect(controller.captureError == nil)
         #expect(controller.operationError == nil)
     }
+
+    @MainActor
+    @Test
+    func retryRepeatsDisplayDiscoveryAfterTransientFailure() async {
+        let service = RetryDisplaySizeService()
+        let controller = AndroidEmulatorPaneController(
+            avdName: "Pixel_9_API_35",
+            serial: "emulator-5554",
+            transportID: "42",
+            sdkRootURL: URL(fileURLWithPath: "/sdk"),
+            coordinator: AndroidEmulatorCoordinator(service: service)
+        )
+
+        await controller.prepare()
+        #expect(!controller.isCaptureReady)
+        #expect(controller.captureError != nil)
+
+        let becameReady = Task { @MainActor in
+            await withCheckedContinuation { continuation in
+                withObservationTracking {
+                    _ = controller.isCaptureReady
+                } onChange: {
+                    continuation.resume()
+                }
+            }
+        }
+        controller.retryCapture()
+        await becameReady.value
+
+        #expect(controller.isCaptureReady)
+        #expect(controller.captureError == nil)
+        #expect(await service.displaySizeRequestCount == 2)
+    }
 }
 
 @MainActor
@@ -71,6 +104,36 @@ private enum TestCaptureError: LocalizedError {
     case disconnected
 
     var errorDescription: String? { "The file couldn’t be saved." }
+}
+
+private actor RetryDisplaySizeService: AndroidEmulatorServicing {
+    private var requestCount = 0
+    var displaySizeRequestCount: Int { requestCount }
+
+    func snapshot() async throws -> AndroidEmulatorSnapshot { throw TestError.unused }
+    func launch(avdName: String) async throws { throw TestError.unused }
+    func stop(avdName: String, serial: String, transportID: String) async throws { throw TestError.unused }
+    func perform(
+        _ action: AndroidEmulatorControlAction,
+        avdName: String,
+        serial: String,
+        transportID: String
+    ) async throws { throw TestError.unused }
+
+    func displaySize(
+        avdName: String,
+        serial: String,
+        transportID: String
+    ) async throws -> AndroidEmulatorDisplaySize {
+        requestCount += 1
+        if requestCount == 1 { throw TestError.transient }
+        return AndroidEmulatorDisplaySize(width: 1080, height: 1920)
+    }
+
+    private enum TestError: Error {
+        case transient
+        case unused
+    }
 }
 
 private actor SuccessfulStopService: AndroidEmulatorServicing {
