@@ -144,6 +144,24 @@ struct MobileHostAuthorizationTests {
             #expect(error.code == "forbidden")
         }
     }
+
+    @Test func testAttachTicketWithoutListenerPreservesNoRoutesError() async {
+        let service = MobileHostService.shared
+        service.debugSetListenerStateForTesting(
+            generation: UUID(),
+            usesEphemeralFallback: false,
+            port: nil
+        )
+
+        await #expect(throws: MobileAttachTicketStoreError.noRoutes) {
+            try await service.createAttachTicket(
+                workspaceID: "workspace-main",
+                terminalID: nil,
+                ttl: 3600,
+                target: .physicalDevice
+            )
+        }
+    }
     #endif
     @Test func testMobileHostRPCRejectsInvalidParamsShape() {
         let data = Data(#"{"id":"bad-params","method":"workspace.list","params":[]}"#.utf8)
