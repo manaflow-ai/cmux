@@ -58,6 +58,33 @@ struct CmxIrohTrustBrokerClientTests {
     }
 
     @Test
+    func existingRegistrationAcceptsNotRequestedRelayBootstrap() async throws {
+        var responseObject = try #require(
+            JSONSerialization.jsonObject(
+                with: Data(Self.registrationResponse.utf8)
+            ) as? [String: Any]
+        )
+        responseObject["relay"] = ["status": "not_requested"]
+        let responseData = try JSONSerialization.data(withJSONObject: responseObject)
+        let responseBody = try #require(String(data: responseData, encoding: .utf8))
+        let transport = RecordingBrokerTransport(responses: [
+            .json(status: 201, body: responseBody),
+        ])
+        let client = try makeClient(transport: transport)
+
+        let response = try await client.register(
+            CmxIrohRegisterRequest(
+                challengeID: "123e4567-e89b-42d3-a456-426614174000",
+                nonce: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+                payload: "e30",
+                signature: String(repeating: "A", count: 86)
+            )
+        )
+
+        #expect(response.binding.tag == "stable")
+    }
+
+    @Test
     func revokeUsesTheBrokerDeleteRoute() async throws {
         let transport = RecordingBrokerTransport(responses: [
             .json(
