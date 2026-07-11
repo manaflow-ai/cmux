@@ -90,6 +90,7 @@ export const accountDeletionTombstones = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     startedAt: timestamp("started_at", { withTimezone: true }),
     completedAt: timestamp("completed_at", { withTimezone: true }),
+    analyticsDeletedAt: timestamp("analytics_deleted_at", { withTimezone: true }),
     errorMessage: text("error_message"),
   },
   (table) => [

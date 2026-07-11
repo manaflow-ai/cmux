@@ -1920,6 +1920,9 @@ describe("account deletion route", () => {
     expectPostHogAccountDeleteRequest();
     expect(deleteStackUser).toHaveBeenCalledTimes(1);
     expect(tombstoneUpdates.some((values) =>
+      (values as { readonly analyticsDeletedAt?: unknown }).analyticsDeletedAt instanceof Date
+    )).toBe(true);
+    expect(tombstoneUpdates.some((values) =>
       (values as { readonly status?: unknown; readonly errorMessage?: unknown }).status === "failed" &&
       (values as { readonly errorMessage?: unknown }).errorMessage === "Error: raw [redacted] leaked by upstream"
     )).toBe(true);

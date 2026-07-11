@@ -219,7 +219,7 @@ export async function DELETE(request: Request): Promise<Response> {
         destructiveCleanupStarted = true;
       },
       afterExternalMutation: async () => {
-        await refreshAccountDeletionTombstoneLease(userId);
+        await markAccountDeletionTombstoneAnalyticsDeleted(userId);
       },
     });
     // Delete cmux-owned data before the Stack user so a Stack-side failure does
@@ -357,6 +357,14 @@ async function markAccountDeletionTombstoneCompleted(userId: string): Promise<vo
       completedAt: now,
       errorMessage: null,
     })
+    .where(eq(accountDeletionTombstones.userIdHash, accountDeletionUserHash(userId)));
+}
+
+async function markAccountDeletionTombstoneAnalyticsDeleted(userId: string): Promise<void> {
+  const now = new Date();
+  await cloudDb()
+    .update(accountDeletionTombstones)
+    .set({ analyticsDeletedAt: now, updatedAt: now })
     .where(eq(accountDeletionTombstones.userIdHash, accountDeletionUserHash(userId)));
 }
 

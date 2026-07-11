@@ -26,6 +26,14 @@ public protocol AnalyticsUploading: Sendable {
         anonymousID: String?,
         properties: [String: any Sendable]
     ) async -> AnalyticsUploadResult
+
+    /// Cancels requests that are in flight when telemetry consent is revoked.
+    func cancelPendingUploads()
+}
+
+public extension AnalyticsUploading {
+    /// Uploaders without a cancellable transport have no pending work to stop.
+    func cancelPendingUploads() {}
 }
 
 /// The outcome of an upload attempt.

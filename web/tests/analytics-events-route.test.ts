@@ -1,11 +1,13 @@
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { checkRateLimit as checkVercelRateLimit } from "@vercel/firewall";
 
 import { makeAnalyticsEventsHandler } from "../app/api/analytics/events/route";
 import type { cloudDb } from "../db/client";
 import { accountDeletionUserHash } from "../services/account/deletionLock";
-import { checkRateLimit } from "./vercel-firewall-mock";
 
 const deletedUserID = "3241a285-8329-4d69-8f3d-316e08cf140c";
+const originalVercel = process.env.VERCEL;
+const originalRateLimitId = process.env.CMUX_CLIENT_CONFIG_RATE_LIMIT_ID;
 let tombstoneRows: Array<{
   readonly userIdHash: string;
   readonly status: string;
@@ -14,31 +16,43 @@ let tombstoneRows: Array<{
 }> = [];
 
 const postHogFetch = mock(async () => new Response(null, { status: 200 }));
-const db = {
-  select: () => ({
-    from: () => ({
-      where: async () => tombstoneRows,
-    }),
+let rateLimitCalls = 0;
+let rateLimitResult: Awaited<ReturnType<typeof checkVercelRateLimit>> = { rateLimited: false };
+const checkRateLimit: typeof checkVercelRateLimit = async () => {
+  rateLimitCalls += 1;
+  return rateLimitResult;
+};
+const verifyRequest = mock(async () => null);
+const selectRows = mock(() => ({
+  from: () => ({
+    where: async () => tombstoneRows,
   }),
+}));
+const db = {
+  select: selectRows,
 } as unknown as ReturnType<typeof cloudDb>;
 const POST = makeAnalyticsEventsHandler({
-  verifyRequest: async () => null,
+  verifyRequest,
   db: () => db,
   postHogFetch,
+  checkRateLimit,
 });
 
 beforeEach(() => {
   delete process.env.VERCEL;
   process.env.CMUX_CLIENT_CONFIG_RATE_LIMIT_ID = "cmux-client-config-test";
   tombstoneRows = [];
-  checkRateLimit.mockClear();
-  checkRateLimit.mockResolvedValue({ rateLimited: false, error: null });
+  verifyRequest.mockClear();
+  selectRows.mockClear();
+  rateLimitCalls = 0;
+  rateLimitResult = { rateLimited: false };
   postHogFetch.mockClear();
   postHogFetch.mockResolvedValue(new Response(null, { status: 200 }));
 });
 
 afterAll(() => {
-  delete process.env.VERCEL;
+  restoreEnv("VERCEL", originalVercel);
+  restoreEnv("CMUX_CLIENT_CONFIG_RATE_LIMIT_ID", originalRateLimitId);
 });
 
 describe("iOS analytics events route", () => {
@@ -76,12 +90,17 @@ describe("iOS analytics events route", () => {
 
   test("rate limits Vercel analytics ingress before database access", async () => {
     process.env.VERCEL = "1";
-    checkRateLimit.mockResolvedValue({ rateLimited: true, error: null });
+    rateLimitResult = { rateLimited: true };
 
-    const response = await POST(analyticsRequest("8cb40ef2-af25-49ff-88e8-3ffcc9308174"));
+    const response = await POST(new Request("https://cmux.test/api/analytics/events", {
+      method: "POST",
+      body: "{not-json",
+    }));
 
     expect(response.status).toBe(429);
-    expect(checkRateLimit).toHaveBeenCalledTimes(1);
+    expect(rateLimitCalls).toBe(1);
+    expect(verifyRequest).not.toHaveBeenCalled();
+    expect(selectRows).not.toHaveBeenCalled();
     expect(postHogFetch).not.toHaveBeenCalled();
   });
 
@@ -108,4 +127,9 @@ function analyticsRequest(distinctID: string): Request {
       ],
     }),
   });
+}
+
+function restoreEnv(name: string, value: string | undefined): void {
+  if (value === undefined) delete process.env[name];
+  else process.env[name] = value;
 }

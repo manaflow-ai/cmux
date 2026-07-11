@@ -63,13 +63,14 @@ export async function hasBlockingAccountDeletionIdentity(
       userIdHash: accountDeletionTombstones.userIdHash,
       status: accountDeletionTombstones.status,
       updatedAt: accountDeletionTombstones.updatedAt,
+      analyticsDeletedAt: accountDeletionTombstones.analyticsDeletedAt,
     })
     .from(accountDeletionTombstones)
     .where(inArray(accountDeletionTombstones.userIdHash, userIdHashes));
 
   return tombstones.some((tombstone) =>
-    userIdHashes.includes(tombstone.userIdHash)
-      && isBlockingAccountDeletionTombstone(tombstone),
+    userIdHashes.includes(tombstone.userIdHash) &&
+      (tombstone.analyticsDeletedAt !== null || isBlockingAccountDeletionTombstone(tombstone)),
   );
 }
 

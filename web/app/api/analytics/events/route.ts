@@ -10,6 +10,7 @@
 // `web/app/api/**`, to stay structurally identical to that directly-analogous route.
 
 import { jsonResponse } from "../../../../services/vms/routeHelpers";
+import { checkRateLimit as checkVercelRateLimit } from "@vercel/firewall";
 import { verifyRequest } from "../../../../services/vms/auth";
 import { readBoundedJsonObject } from "../../../../services/apns/routePolicy";
 import { cloudDb } from "../../../../db/client";
@@ -33,12 +34,14 @@ type AnalyticsEventsDependencies = {
   ) => Promise<{ readonly id: string } | null>;
   readonly db: typeof cloudDb;
   readonly postHogFetch: typeof fetch;
+  readonly checkRateLimit: typeof checkVercelRateLimit;
 };
 
 const defaultDependencies: AnalyticsEventsDependencies = {
   verifyRequest,
   db: cloudDb,
   postHogFetch: fetch,
+  checkRateLimit: checkVercelRateLimit,
 };
 
 type IncomingEvent = {
@@ -52,6 +55,22 @@ export const POST = makeAnalyticsEventsHandler();
 
 export function makeAnalyticsEventsHandler(dependencies: AnalyticsEventsDependencies = defaultDependencies) {
   return async function POST(request: Request): Promise<Response> {
+    if (process.env.VERCEL === "1") {
+      const rateLimitId = process.env.CMUX_CLIENT_CONFIG_RATE_LIMIT_ID?.trim();
+      if (!rateLimitId) {
+        console.error("analytics.events.rate_limit_not_configured");
+        return jsonResponse({ error: "analytics_unavailable" }, 503);
+      }
+      const { error, rateLimited } = await dependencies.checkRateLimit(rateLimitId, { request });
+      if (rateLimited || error === "blocked") {
+        return jsonResponse({ error: "rate_limited" }, 429);
+      }
+      if (error) {
+        console.error("analytics.events.rate_limit_error", error);
+        return jsonResponse({ error: "analytics_unavailable" }, 503);
+      }
+    }
+
     // Auth is read opportunistically, NOT required: the two-phase identity design
     // depends on pre-auth events (install, sign-in attempts, pairing) flowing while
     // the user is still anonymous. When a Stack session is present we stamp the
@@ -60,17 +79,6 @@ export function makeAnalyticsEventsHandler(dependencies: AnalyticsEventsDependen
     // gate, not auth. The PostHog key is already public (the web client posts to
     // r.cmux.com directly), so an anonymous proxy is no weaker than today.
     //
-    // Rate limiting is deferred for Phase A (tracked in
-    // https://github.com/manaflow-ai/cmux/issues/5569). The only reusable limiter in
-    // the codebase (`services/apns/rateLimit.ts`) is a per-`userId` Postgres-
-    // transaction gate, which does not fit an anonymous-first, high-volume telemetry
-    // ingest path (no user id pre-auth, and a DB write + advisory lock per analytics
-    // batch would defeat a lightweight proxy; in-memory limiting does not work on
-    // Vercel's per-instance stateless functions). The shape gate (allowlist + 64 KB
-    // body cap + per-batch/per-event bounds below) limits payload abuse; a dedicated
-    // anonymous IP/edge rate limit on cmux's own compute is the follow-up. The
-    // downstream PostHog quota risk is no worse than the already-public direct
-    // r.cmux.com path.
     const user = await dependencies.verifyRequest(request, {
       allowCookie: false,
     });

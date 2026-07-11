@@ -60,6 +60,12 @@ public struct HTTPAnalyticsUploader: AnalyticsUploading {
         return await post(path: "/api/analytics/events", body: ["batch": [body]], label: "identify")
     }
 
+    public func cancelPendingUploads() {
+        session.getAllTasks { tasks in
+            for task in tasks { task.cancel() }
+        }
+    }
+
     private func post(
         path: String,
         body: [String: any Sendable],

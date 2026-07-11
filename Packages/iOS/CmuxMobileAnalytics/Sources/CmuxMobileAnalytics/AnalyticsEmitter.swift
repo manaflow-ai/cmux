@@ -4,6 +4,31 @@ internal import OSLog
 
 private let analyticsLog = Logger(subsystem: "dev.cmux.ios", category: "analytics")
 
+private final class AnalyticsConsentRevocationObserver: @unchecked Sendable {
+    private let notificationCenter: NotificationCenter
+    private let token: any NSObjectProtocol
+
+    init(
+        notificationCenter: NotificationCenter,
+        consent: any AnalyticsConsentProviding,
+        uploader: any AnalyticsUploading
+    ) {
+        self.notificationCenter = notificationCenter
+        self.token = notificationCenter.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: nil,
+            queue: nil
+        ) { _ in
+            guard !consent.isTelemetryEnabled else { return }
+            uploader.cancelPendingUploads()
+        }
+    }
+
+    deinit {
+        notificationCenter.removeObserver(token)
+    }
+}
+
 /// The de-singletonized, non-blocking product-analytics emitter.
 ///
 /// Constructed once at the app composition root and injected everywhere as `any
@@ -28,8 +53,9 @@ private let analyticsLog = Logger(subsystem: "dev.cmux.ios", category: "analytic
 ///
 /// ``capture(_:_:)`` consults the injected ``AnalyticsConsentProviding`` *before*
 /// yielding, so when telemetry is disabled nothing is even buffered, and no
-/// fire-site can bypass the opt-out. `identify` and super-property updates are
-/// gated the same way.
+/// fire-site can bypass the opt-out. `identify` is gated both before enqueue and
+/// immediately before transmission. Super-properties only mutate in-memory
+/// event context, so they are retained while opted out for a later opt-in.
 ///
 /// ### Flush barrier
 ///
@@ -53,6 +79,7 @@ public actor AnalyticsEmitter: AnalyticsEmitting {
     private let flushBatchSize: Int
     private let flushInterval: Duration
     private let maxPendingEvents: Int
+    private let consentObserver: AnalyticsConsentRevocationObserver
 
     private let stream: AsyncStream<Item>
     private let continuation: AsyncStream<Item>.Continuation
@@ -110,7 +137,8 @@ public actor AnalyticsEmitter: AnalyticsEmitting {
         now: @escaping @Sendable () -> Date = { Date() },
         flushBatchSize: Int = 50,
         flushInterval: Duration = .seconds(30),
-        maxPendingEvents: Int = 1000
+        maxPendingEvents: Int = 1000,
+        notificationCenter: NotificationCenter = .default
     ) {
         self.uploader = uploader
         self.consent = consent
@@ -122,6 +150,11 @@ public actor AnalyticsEmitter: AnalyticsEmitting {
         self.maxPendingEvents = max(flushBatchSize, maxPendingEvents)
         self.distinctID = anonymousID
         (self.stream, self.continuation) = AsyncStream.makeStream(bufferingPolicy: .unbounded)
+        self.consentObserver = AnalyticsConsentRevocationObserver(
+            notificationCenter: notificationCenter,
+            consent: consent,
+            uploader: uploader
+        )
         Task { await self.startConsuming() }
     }
 
@@ -218,6 +251,7 @@ public actor AnalyticsEmitter: AnalyticsEmitting {
         alias: String?,
         properties: [String: AnalyticsValue]
     ) async {
+        guard consent.isTelemetryEnabled else { return }
         distinctID = userID ?? anonymousID
         if let userID {
             superProperties["user_id"] = .string(userID)
