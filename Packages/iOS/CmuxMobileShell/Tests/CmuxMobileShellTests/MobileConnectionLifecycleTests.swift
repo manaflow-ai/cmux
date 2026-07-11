@@ -59,6 +59,24 @@ import Testing
         await router.waitForCount(of: "mobile.events.subscribe", atLeast: baselineSubscriptions + 1)
         #expect(await router.count(of: "mobile.events.subscribe") == baselineSubscriptions + 1)
     }
+
+    @Test func eventStreamLossRefreshesTheAuthoritativeWorkspaceList() async throws {
+        let router = LivenessHostRouter()
+        let box = TransportBox()
+        let clock = TestClock()
+        let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+        let baselineWorkspaceLists = await router.count(of: "mobile.workspace.list")
+            + router.count(of: "workspace.list")
+
+        store.requestConnectionLifecycleRecovery(.eventStreamLost)
+
+        let refreshed = try await pollUntil {
+            let current = await router.count(of: "mobile.workspace.list")
+                + router.count(of: "workspace.list")
+            return current > baselineWorkspaceLists
+        }
+        #expect(refreshed)
+    }
 }
 
 @MainActor

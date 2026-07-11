@@ -55,10 +55,17 @@ extension MobileShellComposite {
     /// Coalesces direct launch/auth callers onto the same reconnect episode as network and presence.
     @discardableResult
     public func reconnectActiveMacIfAvailable(stackUserID: String?) async -> Bool {
-        lastReconnectStackUserID = stackUserID
-        requestConnectionLifecycleRecovery(.storedMacReconnect)
-        let task = connectionLifecycleTask
-        await task?.value
+        guard remoteClient != nil || pairedMacStore != nil else {
+            return connectionState == .connected
+        }
+        let request = connectionLifecycle.requestStoredMacReconnect(
+            stackUserID: stackUserID,
+            health: connectionLifecycleHealth(at: runtime?.now() ?? Date())
+        )
+        applyConnectionLifecycleEffect(request.effect)
+        await withCheckedContinuation { continuation in
+            connectionLifecycleRequestWaiters[request.id] = continuation
+        }
         return connectionState == .connected
     }
 
@@ -66,19 +73,26 @@ extension MobileShellComposite {
         _ trigger: MobileConnectionLifecycleTrigger
     ) {
         guard remoteClient != nil || pairedMacStore != nil else { return }
+        if trigger == .eventStreamLost {
+            scheduleWorkspaceListRefreshFromEvent()
+        }
         let effect = connectionLifecycle.request(
             trigger,
-            health: connectionLifecycleHealth(at: runtime?.now() ?? Date())
+            health: connectionLifecycleHealth(at: runtime?.now() ?? Date()),
+            reconnectStackUserID: identityProvider?.currentUserID
         )
         applyConnectionLifecycleEffect(effect)
     }
 
     func resetConnectionLifecycle() {
         connectionLifecycle.reset()
+        resumeCompletedConnectionLifecycleRequests()
         storedMacReconnectGeneration &+= 1
         connectionLifecycleTask?.cancel()
         connectionLifecycleTask = nil
         isRecoveringConnection = false
+        isReconnectingStoredMac = false
+        didFinishStoredMacReconnectAttempt = true
     }
 
     func completeStreamRepairLifecycleEpisodeIfNeeded() {
@@ -124,7 +138,7 @@ extension MobileShellComposite {
                 self.isRecoveringConnection = true
                 self.connectionRecoveryFailed = false
                 let reconnected = await self.performStoredMacReconnect(
-                    stackUserID: self.lastReconnectStackUserID
+                    stackUserID: episode.reconnectStackUserID
                 )
                 guard !Task.isCancelled,
                       self.connectionLifecycle.ownsEpisode(episode.id) else { return }
@@ -145,6 +159,7 @@ extension MobileShellComposite {
             id: id,
             health: connectionLifecycleHealth(at: runtime?.now() ?? Date())
         )
+        resumeCompletedConnectionLifecycleRequests()
         if connectionLifecycleTask != nil,
            connectionLifecycle.activeEpisode?.id != id {
             connectionLifecycleTask = nil
@@ -153,6 +168,12 @@ extension MobileShellComposite {
             isRecoveringConnection = false
         }
         applyConnectionLifecycleEffect(effect)
+    }
+
+    private func resumeCompletedConnectionLifecycleRequests() {
+        for requestID in connectionLifecycle.drainCompletedRequestIDs() {
+            connectionLifecycleRequestWaiters.removeValue(forKey: requestID)?.resume()
+        }
     }
 
     func freshReconnectRoutesAfterLocalFailure(

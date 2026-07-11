@@ -1018,6 +1018,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     isolated deinit {
+        for continuation in connectionLifecycleRequestWaiters.values {
+            continuation.resume()
+        }
         connectionLifecycleTask?.cancel()
         presenceTask?.cancel()
         networkPathObservationTask?.cancel()
@@ -1421,7 +1424,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var networkPathObservationTask: Task<Void, Never>?
     var connectionLifecycle = MobileConnectionLifecycleStateMachine()
     var connectionLifecycleTask: Task<Void, Never>?
-    var lastReconnectStackUserID: String?
+    var connectionLifecycleRequestWaiters: [UInt64: CheckedContinuation<Void, Never>] = [:]
 
     /// Begin observing meaningful network path changes (Wi-Fi<->cellular,
     /// offline->online) so a live terminal recovers when the network moves out
@@ -7355,7 +7358,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         markTerminalBytesDelivered(surfaceID: surfaceID, endSeq: endSeq)
     }
 
-    private func scheduleWorkspaceListRefreshFromEvent() {
+    func scheduleWorkspaceListRefreshFromEvent() {
         guard remoteClient != nil else { return }
         // Keep the event path's "latest event wins" semantics: a `workspace.updated`
         // arriving mid-fetch restarts the fetch so the applied list reflects the
