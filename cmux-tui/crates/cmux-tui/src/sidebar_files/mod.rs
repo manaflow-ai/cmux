@@ -362,7 +362,7 @@ mod tests {
             assert!(browser.handle_key(&ev).is_none(), "ctrl+{ch} must be inert");
         }
         assert!(!browser.filter_mode, "ctrl+/ must not enter filter mode");
-        std::fs::remove_dir_all(&dir).ok();
+        fs::remove_dir_all(&dir).ok();
     }
 
     fn temp_dir(name: &str) -> PathBuf {
