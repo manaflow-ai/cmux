@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
-import { NextIntlClientProvider } from "next-intl";
 import { ContentLocaleLink } from "../app/[locale]/components/content-locale-link";
 import { fallbackContentLocales } from "../i18n/locale-availability";
 
@@ -24,14 +23,12 @@ describe("fallback-content links", () => {
 
 function renderLink(locale: string, href: string) {
   return renderToStaticMarkup(
-    <NextIntlClientProvider locale={locale} messages={{}}>
-      <ContentLocaleLink
-        href={href}
-        currentLocale={locale}
-        contentLocales={fallbackContentLocales}
-      >
-        Link
-      </ContentLocaleLink>
-    </NextIntlClientProvider>,
+    <ContentLocaleLink
+      href={href}
+      currentLocale={locale}
+      contentLocales={fallbackContentLocales}
+    >
+      Link
+    </ContentLocaleLink>,
   );
 }
