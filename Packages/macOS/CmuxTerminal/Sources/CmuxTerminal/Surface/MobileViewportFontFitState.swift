@@ -11,6 +11,12 @@ struct MobileViewportFontFitState: Equatable {
     var fittedFontPointSize: Float?
     var baseWasUserAdjusted: Bool?
 
+    mutating func cellMetricsDidChange() {}
+
+    mutating func consumeLiveFontProbeRequest() -> Bool {
+        true
+    }
+
     mutating func begin(
         baseFontPointSize: Float,
         configuredFontPointSize: Float,
