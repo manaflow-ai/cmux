@@ -73,6 +73,13 @@ describe("SEO metadata helpers", () => {
 });
 
 describe("SEO middleware", () => {
+  test("does not advertise unsupported locale variants globally", () => {
+    const response = middleware(requestFor("/docs/base"));
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("link")).toBeNull();
+  });
+
   test("serves the English remote tmux docs without locale redirect loops", () => {
     const unsupportedLocale = middleware(
       requestFor("/de/docs/remote-tmux", { "accept-language": "de" }),
