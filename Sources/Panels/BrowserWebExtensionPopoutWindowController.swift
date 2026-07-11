@@ -5,7 +5,7 @@ import WebKit
 /// e.g. Bitwarden's passkey-confirmation, unlock, and 2FA popouts.
 ///
 /// The controller is both the `WKWebExtensionWindow` and the owner of the native
-/// `NSWindow` + extension-page `WKWebView`; its single tab is a nested adapter.
+/// `NSWindow` + extension-page `WKWebView`; its single tab uses a dedicated adapter.
 @available(macOS 15.4, *)
 @MainActor
 final class BrowserWebExtensionPopoutWindowController: NSObject, WKWebExtensionWindow, NSWindowDelegate {
@@ -13,7 +13,7 @@ final class BrowserWebExtensionPopoutWindowController: NSObject, WKWebExtensionW
 
     let window: NSWindow
     let webView: WKWebView
-    private(set) lazy var tab = Tab(controller: self)
+    private(set) lazy var tab = BrowserWebExtensionPopoutTab(controller: self)
     private weak var support: BrowserWebExtensionSupport?
     private(set) weak var extensionContext: WKWebExtensionContext?
 
@@ -143,59 +143,4 @@ final class BrowserWebExtensionPopoutWindowController: NSObject, WKWebExtensionW
         return support?.canOpenExtensionPopupURL(url, for: extensionContext) == true
     }
 
-    // MARK: - Tab
-
-    /// The popout window's single extension-page tab.
-    @MainActor
-    final class Tab: NSObject, WKWebExtensionTab {
-        private weak var controller: BrowserWebExtensionPopoutWindowController?
-
-        init(controller: BrowserWebExtensionPopoutWindowController) {
-            self.controller = controller
-        }
-
-        func window(for context: WKWebExtensionContext) -> (any WKWebExtensionWindow)? {
-            controller
-        }
-
-        func indexInWindow(for context: WKWebExtensionContext) -> Int {
-            0
-        }
-
-        func webView(for context: WKWebExtensionContext) -> WKWebView? {
-            controller?.webView
-        }
-
-        func url(for context: WKWebExtensionContext) -> URL? {
-            controller?.webView.url
-        }
-
-        func title(for context: WKWebExtensionContext) -> String? {
-            controller?.webView.title
-        }
-
-        func isSelected(for context: WKWebExtensionContext) -> Bool {
-            true
-        }
-
-        func isLoadingComplete(for context: WKWebExtensionContext) -> Bool {
-            guard let webView = controller?.webView else { return true }
-            return !webView.isLoading
-        }
-
-        func loadURL(_ url: URL, for context: WKWebExtensionContext, completionHandler: @escaping (Error?) -> Void) {
-            guard let controller,
-                  controller.canLoadExtensionRequestedURL(url) else {
-                completionHandler(NSError(domain: "cmux.webExtension.popup", code: 1))
-                return
-            }
-            controller.webView.load(URLRequest(url: url))
-            completionHandler(nil)
-        }
-
-        func close(for context: WKWebExtensionContext, completionHandler: @escaping (Error?) -> Void) {
-            controller?.closeFromExtensionOrUser()
-            completionHandler(nil)
-        }
-    }
 }

@@ -14,9 +14,20 @@ import UniformTypeIdentifiers
 struct BrowserWebExtensionsCard: View {
     let model: JSONValueModel<[BrowserWebExtensionEntry]>
     let hostActions: SettingsHostActions
+    private let fileManager: FileManager
 
     @State private var cardState = BrowserWebExtensionsCardState()
     @State private var loadErrorsByEntryID: [String: String] = [:]
+
+    init(
+        model: JSONValueModel<[BrowserWebExtensionEntry]>,
+        hostActions: SettingsHostActions,
+        fileManager: FileManager = .default
+    ) {
+        self.model = model
+        self.hostActions = hostActions
+        self.fileManager = fileManager
+    }
 
     var body: some View {
         let entries = cardState.effectiveEntries(observed: model.current)
@@ -274,7 +285,7 @@ struct BrowserWebExtensionsCard: View {
         )
         guard panel.runModal() == .OK, let url = panel.url else { return }
         let manifestURL = url.appendingPathComponent("manifest.json", isDirectory: false)
-        guard FileManager.default.fileExists(atPath: manifestURL.path) else {
+        guard fileManager.fileExists(atPath: manifestURL.path) else {
             presentMissingManifestAlert(for: url)
             return
         }
@@ -336,19 +347,14 @@ struct BrowserWebExtensionsCard: View {
     }
 
     private func standardizedPath(_ path: String) -> String {
-        BrowserWebExtensionEntry.standardizedPath(path)
+        URL(fileURLWithPath: path).browserWebExtensionStandardizedPath
     }
 
     private func standardizedResourcePath(for entry: BrowserWebExtensionEntry) -> String {
-        switch entry.kind {
-        case .safariAppExtension:
-            return BrowserWebExtensionEntry.standardizedSafariAppExtensionResourceRootPath(entry.path)
-        case .unpackedDirectory:
-            return standardizedPath(entry.path)
-        }
+        entry.standardizedResourceRootPath
     }
 
     private func standardizedSafariAppExtensionResourcePath(_ path: String) -> String {
-        BrowserWebExtensionEntry.standardizedSafariAppExtensionResourceRootPath(path)
+        URL(fileURLWithPath: path).browserWebExtensionSafariResourceRootPath
     }
 }

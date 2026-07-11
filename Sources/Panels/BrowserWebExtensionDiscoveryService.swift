@@ -1,3 +1,4 @@
+import Dispatch
 import Foundation
 
 /// Discovers Safari web extensions registered with the system.
@@ -7,9 +8,11 @@ import Foundation
 /// (Bitwarden, 1Password, AdGuard, …) is found without configuration.
 actor BrowserWebExtensionDiscoveryService {
     private static let pluginkitURL = URL(fileURLWithPath: "/usr/bin/pluginkit")
-    private static let pluginkitTimeout: Duration = .seconds(10)
+    private static let pluginkitTimeout: TimeInterval = 10
     private var activePluginkitProcess: Process?
     private var activePluginkitStdout: Pipe?
+    private var activePluginkitTimeoutTimer: DispatchSourceTimer?
+    private var activePluginkitDidTimeOut = false
 
     func discoverInstalledSafariExtensions() async -> [BrowserWebExtensionCandidate] {
         let output: String
@@ -110,30 +113,46 @@ actor BrowserWebExtensionDiscoveryService {
         process.standardError = FileHandle.nullDevice
         activePluginkitProcess = process
         activePluginkitStdout = stdout
+        activePluginkitDidTimeOut = false
         try process.run()
     }
 
     private func readActivePluginkitOutputWithTimeout() async throws -> String {
-        try await withThrowingTaskGroup(of: String.self) { group in
-            group.addTask { try await self.readActivePluginkitOutput() }
-            group.addTask {
-                // This bounded sleep is the intended subprocess deadline; the
-                // task group cancels it as soon as pluginkit reaches EOF.
-                try await Task.sleep(for: Self.pluginkitTimeout)
-                await self.terminateActivePluginkitProcess()
-                throw CancellationError()
-            }
-            do {
-                let output = try await group.next() ?? ""
-                group.cancelAll()
-                clearActivePluginkitProcess()
-                return output
-            } catch {
-                group.cancelAll()
-                terminateActivePluginkitProcess()
-                throw error
-            }
+        scheduleActivePluginkitTimeout()
+        do {
+            let output = try await readActivePluginkitOutput()
+            let didTimeOut = activePluginkitDidTimeOut
+            cancelActivePluginkitTimeout()
+            clearActivePluginkitProcess()
+            guard !didTimeOut else { throw CancellationError() }
+            return output
+        } catch {
+            terminateActivePluginkitProcess()
+            throw error
         }
+    }
+
+    private func scheduleActivePluginkitTimeout() {
+        cancelActivePluginkitTimeout()
+        // A one-shot DispatchSourceTimer bridges Process/Pipe callbacks to the
+        // genuine subprocess deadline without sleeping in runtime code.
+        let timer = DispatchSource.makeTimerSource(queue: .global(qos: .utility))
+        timer.schedule(deadline: .now() + Self.pluginkitTimeout)
+        timer.setEventHandler { [weak self] in
+            Task { await self?.timeOutActivePluginkitProcess() }
+        }
+        activePluginkitTimeoutTimer = timer
+        timer.resume()
+    }
+
+    private func timeOutActivePluginkitProcess() {
+        activePluginkitDidTimeOut = true
+        terminateActivePluginkitProcess()
+    }
+
+    private func cancelActivePluginkitTimeout() {
+        activePluginkitTimeoutTimer?.cancel()
+        activePluginkitTimeoutTimer = nil
     }
 
     private func readActivePluginkitOutput() async throws -> String {
@@ -148,6 +167,7 @@ actor BrowserWebExtensionDiscoveryService {
     }
 
     private func terminateActivePluginkitProcess() {
+        cancelActivePluginkitTimeout()
         if let process = activePluginkitProcess, process.isRunning {
             process.terminate()
         }

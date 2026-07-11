@@ -2,25 +2,9 @@ import CmuxSettings
 import Foundation
 
 struct BrowserWebExtensionReconciliationPlanner {
-    struct LoadedEntry: Equatable {
-        let id: String
-        let standardizedPath: String
-    }
-
-    struct UnloadEntry: Equatable {
-        let id: String
-        let preservePermissionState: Bool
-    }
-
-    struct Plan: Equatable {
-        let desiredEntries: [BrowserWebExtensionEntry]
-        let unloadEntries: [UnloadEntry]
-        let loadEntries: [BrowserWebExtensionEntry]
-
-        var unloadEntryIDs: [String] {
-            unloadEntries.map(\.id)
-        }
-    }
+    typealias LoadedEntry = BrowserWebExtensionReconciliationLoadedEntry
+    typealias UnloadEntry = BrowserWebExtensionReconciliationUnloadEntry
+    typealias Plan = BrowserWebExtensionReconciliationPlan
 
     func plan(
         settingsEntries: [BrowserWebExtensionEntry],
@@ -88,7 +72,7 @@ struct BrowserWebExtensionReconciliationPlanner {
     }
 
     static func standardizedPath(_ path: String) -> String {
-        BrowserWebExtensionEntry.standardizedPath(path)
+        URL(fileURLWithPath: path).browserWebExtensionStandardizedPath
     }
 
     static func standardizedResourceRootPath(for entry: BrowserWebExtensionEntry) -> String {
@@ -96,11 +80,11 @@ struct BrowserWebExtensionReconciliationPlanner {
     }
 
     static func standardizedResourceRootPath(forEnvironmentPath path: String) -> String {
-        BrowserWebExtensionEntry.standardizedResourceRootPath(for: kind(forEnvironmentPath: path), path: path)
+        kind(forEnvironmentPath: path).standardizedResourceRootPath(for: path)
     }
 
-    private static func kind(forEnvironmentPath path: String) -> BrowserWebExtensionEntry.Kind {
-        let standardizedPath = BrowserWebExtensionEntry.standardizedPath(path)
+    private static func kind(forEnvironmentPath path: String) -> BrowserWebExtensionKind {
+        let standardizedPath = URL(fileURLWithPath: path).browserWebExtensionStandardizedPath
         return URL(fileURLWithPath: standardizedPath).pathExtension == "appex"
             ? .safariAppExtension
             : .unpackedDirectory

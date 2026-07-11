@@ -18,31 +18,7 @@ import WebKit
 @MainActor
 @Observable
 final class BrowserWebExtensionSupport: NSObject, BrowserWebExtensionHosting {
-    private struct TabMetadataSnapshot: Equatable {
-        let title: String?
-        let url: URL?
-        let isLoading: Bool
-        let isMuted: Bool
-
-        @MainActor
-        init(panel: BrowserPanel) {
-            title = panel.webView.title
-            url = panel.webView.url
-            isLoading = panel.webView.isLoading
-            isMuted = panel.isMuted
-        }
-
-        func changedProperties(
-            comparedTo previous: TabMetadataSnapshot
-        ) -> WKWebExtension.TabChangedProperties {
-            var properties: WKWebExtension.TabChangedProperties = []
-            if title != previous.title { properties.insert(.title) }
-            if url != previous.url { properties.insert(.URL) }
-            if isLoading != previous.isLoading { properties.insert(.loading) }
-            if isMuted != previous.isMuted { properties.insert(.muted) }
-            return properties
-        }
-    }
+    private typealias TabMetadataSnapshot = BrowserWebExtensionTabMetadataSnapshot
 
     /// Fixed identifier so extension storage (e.g. the Bitwarden vault cache)
     /// persists across app launches.

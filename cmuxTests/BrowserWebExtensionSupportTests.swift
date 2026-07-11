@@ -217,7 +217,7 @@ struct BrowserWebExtensionSupportTests {
     func reconciliationKeepsLoadedSafariExtensionWhenResourceRootMatches() {
         let planner = BrowserWebExtensionReconciliationPlanner()
         let appexPath = "/Applications/Bitwarden.app/Contents/PlugIns/safari.appex"
-        let resourcePath = BrowserWebExtensionEntry.standardizedSafariAppExtensionResourceRootPath(appexPath)
+        let resourcePath = URL(fileURLWithPath: appexPath).browserWebExtensionSafariResourceRootPath
         let plan = planner.plan(
             settingsEntries: [
                 BrowserWebExtensionEntry(
