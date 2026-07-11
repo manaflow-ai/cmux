@@ -275,12 +275,10 @@ extension TerminalSurface {
     }
 
     private static func agentHookStateDirectory(bundleIdentifier: String) -> String? {
-        let trimmedBundleIdentifier = bundleIdentifier.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedBundleIdentifier.isEmpty else { return nil }
-        let safeBundleIdentifier = trimmedBundleIdentifier.map { character -> Character in
-            character.isLetter || character.isNumber || character == "." || character == "-" || character == "_"
-                ? character
-                : "-"
+        if let configuredDirectory = ProcessInfo.processInfo.environment["CMUX_AGENT_HOOK_STATE_DIR"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+            !configuredDirectory.isEmpty {
+            return configuredDirectory
         }
         guard let applicationSupport = FileManager.default.urls(
             for: .applicationSupportDirectory,
@@ -288,11 +286,10 @@ extension TerminalSurface {
         ).first else {
             return nil
         }
-        return applicationSupport
-            .appendingPathComponent("cmux", isDirectory: true)
-            .appendingPathComponent("agent-hooks", isDirectory: true)
-            .appendingPathComponent(String(safeBundleIdentifier), isDirectory: true)
-            .path
+        return AgentHookStateLocation(
+            applicationSupportDirectory: applicationSupport,
+            bundleIdentifier: bundleIdentifier
+        )?.directoryURL.path
     }
 
     private func makeGhosttySurface(

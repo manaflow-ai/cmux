@@ -29,4 +29,48 @@ struct AgentHookStateLocationTests {
             bundleIdentifier: "  "
         ) == nil)
     }
+
+    @Test("Prefers an explicit hook state directory")
+    func resolvesEnvironmentOverride() {
+        let directory = AgentHookStateLocation.resolveDirectoryURL(
+            environment: ["CMUX_AGENT_HOOK_STATE_DIR": "~/hook-state"],
+            applicationSupportDirectory: URL(fileURLWithPath: "/tmp/app-support", isDirectory: true),
+            bundleIdentifier: "com.cmuxterm.app.nightly",
+            legacyHomeDirectory: URL(fileURLWithPath: "/tmp/home", isDirectory: true)
+        )
+
+        #expect(directory.path == NSString(string: "~/hook-state").expandingTildeInPath)
+    }
+
+    @Test("Uses the bundle scope when no override exists")
+    func resolvesBundleScope() {
+        let applicationSupport = URL(fileURLWithPath: "/tmp/app-support", isDirectory: true)
+        let directory = AgentHookStateLocation.resolveDirectoryURL(
+            environment: [:],
+            applicationSupportDirectory: applicationSupport,
+            bundleIdentifier: "com.cmuxterm.app.nightly",
+            legacyHomeDirectory: URL(fileURLWithPath: "/tmp/home", isDirectory: true)
+        )
+
+        #expect(
+            directory
+                == applicationSupport
+                    .appendingPathComponent("cmux", isDirectory: true)
+                    .appendingPathComponent("agent-hooks", isDirectory: true)
+                    .appendingPathComponent("com.cmuxterm.app.nightly", isDirectory: true)
+        )
+    }
+
+    @Test("Falls back to the legacy directory without a bundle scope")
+    func resolvesLegacyFallback() {
+        let home = URL(fileURLWithPath: "/tmp/home", isDirectory: true)
+        let directory = AgentHookStateLocation.resolveDirectoryURL(
+            environment: [:],
+            applicationSupportDirectory: nil,
+            bundleIdentifier: nil,
+            legacyHomeDirectory: home
+        )
+
+        #expect(directory == home.appendingPathComponent(".cmuxterm", isDirectory: true))
+    }
 }

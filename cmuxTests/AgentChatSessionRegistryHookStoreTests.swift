@@ -25,7 +25,10 @@ struct AgentChatSessionRegistryHookStoreTests {
             pid: 123
         )
 
-        let entry = AgentChatHookSessionStore(stateDirectory: stateDirectory)
+        let entry = AgentChatHookSessionStore(
+            homeDirectory: stateDirectory.deletingLastPathComponent(),
+            environment: ["CMUX_AGENT_HOOK_STATE_DIR": stateDirectory.path]
+        )
             .entry(agentSource: "claude", sessionID: sessionID)
 
         #expect(entry?.workspaceID == workspaceID)

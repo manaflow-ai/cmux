@@ -161,18 +161,27 @@ enum RestorableAgentKind: Codable, Hashable, Sendable {
     }
 
     func hookStoreFileURL(
-        homeDirectory: String = NSHomeDirectory(),
-        environment: [String: String] = ProcessInfo.processInfo.environment
+        homeDirectory: String? = nil,
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        applicationSupportDirectory: URL? = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first,
+        bundleIdentifier: String? = Bundle.main.bundleIdentifier
     ) -> URL {
-        let directory: URL
-        if let override = environment["CMUX_AGENT_HOOK_STATE_DIR"]?
-            .trimmingCharacters(in: .whitespacesAndNewlines),
-           !override.isEmpty {
-            directory = URL(fileURLWithPath: NSString(string: override).expandingTildeInPath, isDirectory: true)
-        } else {
-            directory = URL(fileURLWithPath: homeDirectory, isDirectory: true)
-                .appendingPathComponent(".cmuxterm", isDirectory: true)
-        }
+        let legacyHomeDirectory = URL(
+            fileURLWithPath: homeDirectory ?? NSHomeDirectory(),
+            isDirectory: true
+        )
+        let usesCurrentUserHome = homeDirectory == nil
+            || legacyHomeDirectory.standardizedFileURL
+                == FileManager.default.homeDirectoryForCurrentUser.standardizedFileURL
+        let directory = AgentHookStateLocation.resolveDirectoryURL(
+            environment: environment,
+            applicationSupportDirectory: usesCurrentUserHome ? applicationSupportDirectory : nil,
+            bundleIdentifier: usesCurrentUserHome ? bundleIdentifier : nil,
+            legacyHomeDirectory: legacyHomeDirectory
+        )
         return directory.appendingPathComponent(hookStoreFilename, isDirectory: false)
     }
 }

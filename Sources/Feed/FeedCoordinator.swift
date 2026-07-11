@@ -640,10 +640,8 @@ enum FeedJumpResolver {
         return (agent, sessionId)
     }
 
-    static func lookup(agent: String, sessionId: String) -> Target? {
-        let home = FileManager.default.homeDirectoryForCurrentUser
-        let file = home
-            .appendingPathComponent(".cmuxterm", isDirectory: true)
+    static func lookup(agent: String, sessionId: String, stateDirectory: URL? = nil) -> Target? {
+        let file = (stateDirectory ?? RestorableAgentKind.claude.hookStoreFileURL().deletingLastPathComponent())
             .appendingPathComponent("\(agent)-hook-sessions.json", isDirectory: false)
         guard let data = try? Data(contentsOf: file),
               let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any]

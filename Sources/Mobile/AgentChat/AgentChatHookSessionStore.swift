@@ -1,7 +1,8 @@
 import CmuxAgentChat
+import CMUXAgentLaunch
 import Foundation
 
-/// Reads the per-agent hook session stores (`~/.cmuxterm/<agent>-hook-sessions.json`)
+/// Reads the per-agent hook session stores from the configured hook state directory
 /// the `cmux hooks` CLI maintains, yielding terminal bindings and transcript
 /// paths for agent sessions.
 ///
@@ -27,14 +28,28 @@ struct AgentChatHookSessionStore: Sendable {
         let updatedAt: Date?
     }
 
-    private let homeDirectory: URL
+    private let stateDirectory: URL
 
     /// Creates a store reader.
     ///
-    /// - Parameter homeDirectory: The home directory containing
-    ///   `.cmuxterm/`; injectable for tests.
-    init(homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser) {
-        self.homeDirectory = homeDirectory
+    /// - Parameters:
+    ///   - homeDirectory: The home directory containing the legacy `.cmuxterm/` fallback.
+    ///   - environment: The process environment carrying `CMUX_AGENT_HOOK_STATE_DIR`.
+    init(
+        homeDirectory: URL? = nil,
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        applicationSupportDirectory: URL? = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first,
+        bundleIdentifier: String? = Bundle.main.bundleIdentifier
+    ) {
+        stateDirectory = AgentHookStateLocation.resolveDirectoryURL(
+            environment: environment,
+            applicationSupportDirectory: homeDirectory == nil ? applicationSupportDirectory : nil,
+            bundleIdentifier: homeDirectory == nil ? bundleIdentifier : nil,
+            legacyHomeDirectory: homeDirectory ?? FileManager.default.homeDirectoryForCurrentUser
+        )
     }
 
     /// Reads one agent's hook session store.
@@ -43,8 +58,7 @@ struct AgentChatHookSessionStore: Sendable {
     ///   `codex`, ...), which names the store file.
     /// - Returns: All entries, or empty when the store is absent/malformed.
     func entries(agentSource: String) -> [Entry] {
-        let file = homeDirectory
-            .appendingPathComponent(".cmuxterm", isDirectory: true)
+        let file = stateDirectory
             .appendingPathComponent("\(agentSource)-hook-sessions.json", isDirectory: false)
         guard let data = try? Data(contentsOf: file),
               let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
