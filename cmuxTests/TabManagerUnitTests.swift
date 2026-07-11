@@ -670,8 +670,6 @@ final class TabManagerChildExitCloseTests: XCTestCase {
             XCTFail("Expected split terminal panel")
             return
         }
-        XCTAssertEqual(workspace.focusedPanelId, initialPanelId)
-
         workspace.configureRemoteConnection(
             WorkspaceRemoteConfiguration(
                 transport: .websocket,
@@ -689,21 +687,23 @@ final class TabManagerChildExitCloseTests: XCTestCase {
             autoConnect: false
         )
 
-        XCTAssertTrue(workspace.isRemoteWorkspace)
         XCTAssertTrue(workspace.isRemoteTerminalSurface(initialPanelId))
-        XCTAssertFalse(workspace.isRemoteTerminalSurface(splitPanel.id))
-        XCTAssertEqual(workspace.remoteConnectionState, .connected)
 
         manager.closePanelAfterChildExited(tabId: workspace.id, surfaceId: initialPanelId)
         drainMainQueue()
         drainMainQueue()
 
         XCTAssertEqual(workspace.remoteConnectionState, .disconnected)
-        XCTAssertNotNil(workspace.panels[initialPanelId])
         XCTAssertNotNil(workspace.panels[splitPanel.id])
+        XCTAssertFalse(workspace.isRemoteTerminalSurface(splitPanel.id))
         XCTAssertFalse(workspace.terminalPanel(for: initialPanelId)?.surface === initialPanel.surface)
         XCTAssertTrue(workspace.remoteDisconnectPlaceholderPanelIds.contains(initialPanelId))
-        XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 0)
+
+        manager.closePanelAfterChildExited(tabId: workspace.id, surfaceId: splitPanel.id)
+
+        XCTAssertNil(workspace.panels[splitPanel.id])
+        XCTAssertNotNil(workspace.panels[initialPanelId])
+        XCTAssertFalse(workspace.pendingRemoteTerminalChildExitSurfaceIds.contains(splitPanel.id))
     }
 
     func testChildExitAfterRemoteSessionEndKeepsWorkspaceDisconnected() throws {

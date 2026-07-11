@@ -2796,23 +2796,23 @@ class TabManager: ObservableObject {
     func closePanelAfterChildExited(tabId: UUID, surfaceId: UUID) {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
         if tab.panels[surfaceId] == nil { tab.closeDockPanelAndClearNotifications(surfaceId, force: true); return }
+        let ownsRemoteChildExit =
+            tab.isRemoteTerminalSurface(surfaceId) || tab.pendingRemoteTerminalChildExitSurfaceIds.contains(surfaceId)
         let keepsPersistentRemoteSurfaceOpen =
             tab.shouldKeepPersistentRemoteSurfaceOpenAfterChildExit(surfaceId)
         if !keepsPersistentRemoteSurfaceOpen,
            tab.shouldDemoteWorkspaceAfterChildExit(surfaceId: surfaceId) {
-            let relayPort: Int?
-            if tab.remoteConfiguration?.transport == .ssh {
-                relayPort = tab.remoteConfiguration?.relayPort
-            } else {
-                relayPort = nil
-            }
+            let relayPort: Int? = tab.remoteConfiguration?.transport == .ssh
+                ? tab.remoteConfiguration?.relayPort
+                : nil
             tab.markRemoteTerminalSessionEnded(
                 surfaceId: surfaceId,
                 relayPort: relayPort,
-                allowUntracked: !tab.isRemoteTerminalSurface(surfaceId)
+                allowUntracked: ownsRemoteChildExit
             )
         }
-        let handlesRemoteExitThroughWorkspace = tab.pendingRemoteTerminalChildExitSurfaceIds.contains(surfaceId)
+        let handlesRemoteExitThroughWorkspace =
+            ownsRemoteChildExit && tab.pendingRemoteTerminalChildExitSurfaceIds.contains(surfaceId)
 
 #if DEBUG
         cmuxDebugLog(
