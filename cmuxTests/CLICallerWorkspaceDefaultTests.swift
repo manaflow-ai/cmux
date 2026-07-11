@@ -16,7 +16,7 @@ import Testing
 struct CLICallerWorkspaceDefaultTests {
     /// Every noun-style workspace command that permits an omitted target must use
     /// the invoking terminal's workspace instead of global foreground selection.
-    @Test func workspaceNamespaceCommandsDefaultToCallerWorkspace() throws {
+    @Test func workspaceScopedNamespaceCommandsDefaultToCallerWorkspace() throws {
         let cases: [(arguments: [String], method: String)] = [
             (["workspace", "env"], "workspace.env"),
             (["workspace", "close"], "workspace.close"),
@@ -24,6 +24,7 @@ struct CLICallerWorkspaceDefaultTests {
             (["workspace", "rename", "--title", "renamed"], "workspace.rename"),
             (["workspace", "reconnect"], "workspace.remote.reconnect"),
             (["workspace", "disconnect"], "workspace.remote.disconnect"),
+            (["canvas", "info"], "canvas.info"),
         ]
 
         for testCase in cases {
