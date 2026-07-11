@@ -15,7 +15,7 @@ export async function generateMetadata({
   const title = seoTitle(locale, t("metaTitle"));
   const description = seoDescription(locale, t("metaDescription"));
   return {
-    title,
+    title: { absolute: title },
     description,
     alternates,
     openGraph: {

@@ -13,11 +13,10 @@ export async function generateMetadata({
   const { locale } = await params;
   const t = await getTranslations({ locale, namespace: "blog.cmuxHistory" });
   const alternates = buildAlternates(locale, "/blog/cmux-history");
-  // Leave room for the blog layout's localized title suffix.
-  const title = seoTitle(locale, t("metaTitle"), { maxLength: 48 });
+  const title = seoTitle(locale, t("metaTitle"));
   const description = seoDescription(locale, t("metaDescription"));
   return {
-    title,
+    title: { absolute: title },
     description,
     openGraph: {
       ...openGraphDefaults(locale, "article"),

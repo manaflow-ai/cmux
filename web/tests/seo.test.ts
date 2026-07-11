@@ -51,6 +51,24 @@ describe("SEO metadata helpers", () => {
     expect(long).not.toMatch(/\s…$/);
   });
 
+  test("keeps truncated descriptions above the minimum boundary", () => {
+    const description = seoDescription(
+      "en",
+      `${"A".repeat(100)}. ${"B".repeat(100)}`,
+    );
+    expect(Array.from(description).length).toBeGreaterThanOrEqual(110);
+    expect(Array.from(description).length).toBeLessThanOrEqual(160);
+  });
+
+  test("does not split Unicode characters at the metadata cutoff", () => {
+    const description = seoDescription(
+      "en",
+      `${"A".repeat(158)}😀${"B".repeat(20)}`,
+    );
+    expect(description).toContain("😀");
+    expect(Array.from(description).length).toBeLessThanOrEqual(160);
+  });
+
   test("adds useful context to short titles and trims long titles", () => {
     expect(seoTitle("en", "Blog")).toBe(
       "Blog — The terminal built for multitasking",

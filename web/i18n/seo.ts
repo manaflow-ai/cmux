@@ -111,13 +111,21 @@ export function hasLocalizedSeoCopy(locale: string) {
 export function seoDescription(locale: string, description: string) {
   const trimmed = description.trim();
   if (trimmed.length >= MIN_DESCRIPTION_LENGTH) {
-    return truncateMetadataText(trimmed, MAX_DESCRIPTION_LENGTH);
+    return truncateMetadataText(
+      trimmed,
+      MAX_DESCRIPTION_LENGTH,
+      MIN_DESCRIPTION_LENGTH,
+    );
   }
 
   const suffix =
     shortDescriptionSuffixes[locale] ?? shortDescriptionSuffixes.en;
   if (trimmed.includes(suffix)) {
-    return truncateMetadataText(trimmed, MAX_DESCRIPTION_LENGTH);
+    return truncateMetadataText(
+      trimmed,
+      MAX_DESCRIPTION_LENGTH,
+      MIN_DESCRIPTION_LENGTH,
+    );
   }
 
   const separator =
@@ -125,6 +133,7 @@ export function seoDescription(locale: string, description: string) {
   return truncateMetadataText(
     `${trimmed}${separator}${suffix}`,
     MAX_DESCRIPTION_LENGTH,
+    MIN_DESCRIPTION_LENGTH,
   );
 }
 
@@ -147,30 +156,43 @@ export function seoTitle(
   return truncateMetadataText(normalized, maxLength);
 }
 
-function truncateMetadataText(value: string, maxLength: number) {
-  if (value.length <= maxLength) return value;
+function truncateMetadataText(
+  value: string,
+  maxLength: number,
+  minLength = 0,
+) {
+  const characters = Array.from(value);
+  if (characters.length <= maxLength) return value;
 
-  const candidate = value.slice(0, maxLength - 1).trimEnd();
-  const minimumBoundary = Math.floor(maxLength * 0.6);
-  const sentenceBoundary = Math.max(
-    candidate.lastIndexOf("."),
-    candidate.lastIndexOf("!"),
-    candidate.lastIndexOf("?"),
-    candidate.lastIndexOf("。"),
-    candidate.lastIndexOf("！"),
-    candidate.lastIndexOf("？"),
+  const candidate = characters.slice(0, maxLength - 1);
+  while (/\s/u.test(candidate.at(-1) ?? "")) candidate.pop();
+
+  const minimumBoundary = Math.max(
+    minLength,
+    Math.floor(maxLength * 0.6),
   );
-  const wordBoundary = candidate.lastIndexOf(" ");
+  const sentenceTerminators = new Set([".", "!", "?", "。", "！", "？"]);
+  const sentenceBoundary = candidate.findLastIndex(
+    (character, index) =>
+      index >= minimumBoundary && sentenceTerminators.has(character),
+  );
+  const wordBoundary = candidate.findLastIndex(
+    (character, index) => index >= minimumBoundary && character === " ",
+  );
   const boundary =
     sentenceBoundary >= minimumBoundary
       ? sentenceBoundary + 1
       : wordBoundary >= minimumBoundary
         ? wordBoundary
         : candidate.length;
-  const truncated = candidate
+  let truncated = candidate
     .slice(0, boundary)
+    .join("")
     .replace(/[-,:;–—]+$/u, "")
     .trimEnd();
+  if (Array.from(truncated).length + 1 < minLength) {
+    truncated = candidate.join("").trimEnd();
+  }
   return `${truncated}…`;
 }
 
