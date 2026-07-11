@@ -15,10 +15,12 @@ public actor AndroidEmulatorProcessLauncher: AndroidEmulatorProcessLaunching {
 
     /// Implements ``AndroidEmulatorProcessLaunching/consolePortPairIsAvailable(_:)``.
     public func consolePortPairIsAvailable(_ consolePort: Int) -> Bool {
-        Self.loopbackPortIsAvailable(consolePort) && Self.loopbackPortIsAvailable(consolePort + 1)
+        Self.loopbackPortIsAvailable(consolePort)
+            && Self.loopbackPortIsAvailable(consolePort + 1)
+            && Self.loopbackPortIsAvailable(Self.grpcPort(consolePort: consolePort))
     }
 
-    /// Starts the installed emulator with `-avd` and `-port`, without hiding its vendor window.
+    /// Starts the installed emulator headlessly with an authenticated local gRPC endpoint.
     public func launch(
         executableURL: URL,
         avdName: String,
@@ -28,7 +30,7 @@ public actor AndroidEmulatorProcessLauncher: AndroidEmulatorProcessLaunching {
         let process = Process()
         let processID = UUID()
         process.executableURL = executableURL
-        process.arguments = ["-avd", avdName, "-port", String(consolePort)]
+        process.arguments = Self.launchArguments(avdName: avdName, consolePort: consolePort)
         process.currentDirectoryURL = sdkRootURL
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = FileHandle.nullDevice
@@ -80,6 +82,20 @@ public actor AndroidEmulatorProcessLauncher: AndroidEmulatorProcessLaunching {
             try? await clock.sleep(for: .milliseconds(50))
         }
         return !process.isRunning
+    }
+
+    static func launchArguments(avdName: String, consolePort: Int) -> [String] {
+        [
+            "-avd", avdName,
+            "-port", String(consolePort),
+            "-qt-hide-window",
+            "-grpc", String(grpcPort(consolePort: consolePort)),
+            "-grpc-use-token",
+        ]
+    }
+
+    static func grpcPort(consolePort: Int) -> Int {
+        consolePort + 3_000
     }
 
     // Darwin bind is the only atomic OS check for whether the emulator can claim a TCP port.

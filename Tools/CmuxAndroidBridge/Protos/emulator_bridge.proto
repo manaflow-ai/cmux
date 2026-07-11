@@ -1,0 +1,78 @@
+// Wire-compatible subset of the protocol shipped in Android SDK emulator/lib.
+syntax = "proto3";
+
+package android.emulation.control;
+import "google/protobuf/empty.proto";
+
+service EmulatorController {
+  rpc streamScreenshot(ImageFormat) returns (stream Image) {}
+  rpc sendTouch(TouchEvent) returns (google.protobuf.Empty) {}
+  rpc sendKey(KeyboardEvent) returns (google.protobuf.Empty) {}
+}
+
+message Rotation {
+  enum SkinRotation {
+    PORTRAIT = 0;
+    LANDSCAPE = 1;
+    REVERSE_PORTRAIT = 2;
+    REVERSE_LANDSCAPE = 3;
+  }
+  SkinRotation rotation = 1;
+  double xAxis = 2;
+  double yAxis = 3;
+  double zAxis = 4;
+}
+
+message ImageFormat {
+  enum ImgFormat {
+    PNG = 0;
+    RGBA8888 = 1;
+    RGB888 = 2;
+  }
+  ImgFormat format = 1;
+  Rotation rotation = 2;
+  uint32 width = 3;
+  uint32 height = 4;
+  uint32 display = 5;
+}
+
+message Image {
+  ImageFormat format = 1;
+  uint32 width = 2 [deprecated = true];
+  uint32 height = 3 [deprecated = true];
+  bytes image = 4;
+  uint32 seq = 5;
+  uint64 timestampUs = 6;
+}
+
+message Touch {
+  int32 x = 1;
+  int32 y = 2;
+  int32 identifier = 3;
+  int32 pressure = 4;
+}
+
+message TouchEvent {
+  repeated Touch touches = 1;
+  int32 display = 2;
+}
+
+message KeyboardEvent {
+  enum KeyCodeType {
+    Usb = 0;
+    Evdev = 1;
+    XKB = 2;
+    Win = 3;
+    Mac = 4;
+  }
+  enum KeyEventType {
+    keydown = 0;
+    keyup = 1;
+    keypress = 2;
+  }
+  KeyCodeType codeType = 1;
+  KeyEventType eventType = 2;
+  int32 keyCode = 3;
+  string key = 4;
+  string text = 5;
+}

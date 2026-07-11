@@ -4,15 +4,22 @@ import Foundation
 /// Fail-closed host-process identity for Android Emulator windows.
 public struct AndroidEmulatorProcessIdentity: Sendable {
     public typealias ProcessArgumentsProvider = @Sendable (Int32) -> [String]?
+    public typealias ListeningPortsProvider = @Sendable (Int32) -> Set<Int>?
 
     private let processArguments: ProcessArgumentsProvider
+    private let listeningPorts: ListeningPortsProvider
 
     public init() {
         self.processArguments = Self.commandLineArguments
+        self.listeningPorts = Self.listeningTCPPorts
     }
 
-    public init(processArguments: @escaping ProcessArgumentsProvider) {
+    init(
+        processArguments: @escaping ProcessArgumentsProvider,
+        listeningPorts: @escaping ListeningPortsProvider
+    ) {
         self.processArguments = processArguments
+        self.listeningPorts = listeningPorts
     }
 
     /// Returns whether the process command line identifies the selected AVD and ADB serial.
@@ -23,10 +30,21 @@ public struct AndroidEmulatorProcessIdentity: Sendable {
               let arguments = processArguments(processIdentifier) else {
             return false
         }
-        return Self.argumentsMatchEmulator(arguments, avdName: avdName, consolePort: consolePort)
+        let requiresPortLookup = !arguments.contains("-port") && !arguments.contains("-ports")
+        return Self.argumentsMatchEmulator(
+            arguments,
+            avdName: avdName,
+            consolePort: consolePort,
+            listeningPorts: requiresPortLookup ? listeningPorts(processIdentifier) : nil
+        )
     }
 
-    static func argumentsMatchEmulator(_ arguments: [String], avdName: String, consolePort: Int) -> Bool {
+    static func argumentsMatchEmulator(
+        _ arguments: [String],
+        avdName: String,
+        consolePort: Int,
+        listeningPorts: Set<Int>?
+    ) -> Bool {
         let avdMatches = arguments.contains("@\(avdName)") || arguments.indices.contains { index in
             arguments[index] == "-avd"
                 && arguments.indices.contains(index + 1)
@@ -46,8 +64,8 @@ public struct AndroidEmulatorProcessIdentity: Sendable {
             return listedConsolePort == consolePort
         }
 
-        // Android Emulator uses console port 5554 when neither port option is supplied.
-        return consolePort == 5554
+        // Android Studio can omit port flags and let the emulator choose any available console port.
+        return listeningPorts?.contains(consolePort) == true
     }
 
     static func parseKernProcArguments(_ bytes: [UInt8]) -> [String]? {
@@ -92,6 +110,45 @@ public struct AndroidEmulatorProcessIdentity: Sendable {
         }
         guard success else { return nil }
         return parseKernProcArguments(Array(buffer.prefix(Int(size))))
+    }
+
+    private static func listeningTCPPorts(processIdentifier: Int32) -> Set<Int>? {
+        let requiredBytes = proc_pidinfo(processIdentifier, PROC_PIDLISTFDS, 0, nil, 0)
+        guard requiredBytes > 0 else { return nil }
+
+        let descriptorCapacity = Int(requiredBytes) / MemoryLayout<proc_fdinfo>.stride
+        guard descriptorCapacity > 0 else { return nil }
+        var descriptors = [proc_fdinfo](repeating: proc_fdinfo(), count: descriptorCapacity)
+        let descriptorBytes = proc_pidinfo(
+            processIdentifier,
+            PROC_PIDLISTFDS,
+            0,
+            &descriptors,
+            Int32(descriptors.count * MemoryLayout<proc_fdinfo>.stride)
+        )
+        guard descriptorBytes > 0 else { return nil }
+
+        let descriptorCount = Int(descriptorBytes) / MemoryLayout<proc_fdinfo>.stride
+        return Set(descriptors.prefix(descriptorCount).compactMap { descriptor in
+            guard descriptor.proc_fdtype == PROX_FDTYPE_SOCKET else { return nil }
+            var socket = socket_fdinfo()
+            let socketBytes = proc_pidfdinfo(
+                processIdentifier,
+                descriptor.proc_fd,
+                PROC_PIDFDSOCKETINFO,
+                &socket,
+                Int32(MemoryLayout<socket_fdinfo>.stride)
+            )
+            guard socketBytes == MemoryLayout<socket_fdinfo>.stride,
+                  socket.psi.soi_kind == SOCKINFO_TCP,
+                  socket.psi.soi_proto.pri_tcp.tcpsi_state == TSI_S_LISTEN else {
+                return nil
+            }
+            let networkPort = UInt16(
+                truncatingIfNeeded: socket.psi.soi_proto.pri_tcp.tcpsi_ini.insi_lport
+            )
+            return Int(UInt16(bigEndian: networkPort))
+        })
     }
 
     private static func skipString(in bytes: [UInt8], index: inout Int) {

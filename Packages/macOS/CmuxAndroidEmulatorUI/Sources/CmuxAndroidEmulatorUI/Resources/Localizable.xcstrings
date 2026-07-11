@@ -36,6 +36,41 @@
         "ja": { "stringUnit": { "state": "translated", "value": "再試行" } }
       }
     },
+    "androidEmulator.bridge.disconnected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The Android bridge disconnected." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Android ブリッジが切断されました。" } }
+      }
+    },
+    "androidEmulator.bridge.incompatible": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The installed Android bridge is incompatible with this version of cmux." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "インストールされている Android ブリッジは、このバージョンの cmux と互換性がありません。" } }
+      }
+    },
+    "androidEmulator.bridge.notInstalled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Install cmux-android-bridge to show the emulator in this pane." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "このペインにエミュレータを表示するには、cmux-android-bridge をインストールしてください。" } }
+      }
+    },
+    "androidEmulator.bridge.socketPathTooLong": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The Android bridge socket path is too long." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Android ブリッジのソケットパスが長すぎます。" } }
+      }
+    },
+    "androidEmulator.bridge.systemCallFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%1$@ failed with error %2$ld." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%1$@ がエラー %2$ld で失敗しました。" } }
+      }
+    },
     "androidEmulator.control.back": {
       "extractionState": "manual", "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "Back" } },

@@ -1,8 +1,7 @@
 import AppKit
-import AVFoundation
 import CmuxAndroidEmulator
-import CoreImage
-import ScreenCaptureKit
+import CoreGraphics
+import Darwin
 import SwiftUI
 
 struct AndroidEmulatorCaptureView: NSViewRepresentable {
@@ -15,19 +14,18 @@ struct AndroidEmulatorCaptureView: NSViewRepresentable {
     func makeNSView(context: Context) -> AndroidEmulatorCaptureNSView {
         let view = AndroidEmulatorCaptureNSView()
         controller.attachCaptureView(view)
-        view.onGesture = controller.perform
         return view
     }
 
     func updateNSView(_ view: AndroidEmulatorCaptureNSView, context: Context) {
         controller.attachCaptureView(view)
-        view.onGesture = controller.perform
         view.setDisplaySize(displaySize)
         view.setVisible(
             isVisible,
             avdName: controller.avdName,
             serial: controller.serial,
             sdkRootURL: sdkRootURL,
+            displaySize: displaySize,
             retryGeneration: retryGeneration,
             onStarted: controller.clearCaptureError,
             onError: controller.reportCaptureError
@@ -41,35 +39,21 @@ struct AndroidEmulatorCaptureView: NSViewRepresentable {
 
 @MainActor
 final class AndroidEmulatorCaptureNSView: NSView {
-    var onGesture: ((AndroidEmulatorControlAction) -> Void)?
-
-    private let displayLayer = AVSampleBufferDisplayLayer()
-    private var capture: AndroidEmulatorWindowCapture?
-    private var captureTask: Task<Void, Never>?
+    private let displayLayer = CALayer()
+    private var bridge: AndroidEmulatorBridgeSession?
+    private var bridgeTask: Task<Void, Never>?
     private var configuration: CaptureConfiguration?
     private var displaySize = AndroidEmulatorDisplaySize(width: 1080, height: 1920)
     private var zoomScale: CGFloat = 1
-    private var mouseDownPoint: CGPoint?
-    private var mouseDownTimestamp: TimeInterval?
-    private let retryWait: @Sendable (Duration) async throws -> Void
+    private var latestImage: CGImage?
+    private var retainedSlots: [Int] = []
 
     override init(frame frameRect: NSRect) {
-        let clock = ContinuousClock()
-        self.retryWait = { duration in try await clock.sleep(for: duration) }
         super.init(frame: frameRect)
-        configureDisplayLayer()
-    }
-
-    init(frame frameRect: NSRect, retryWait: @escaping @Sendable (Duration) async throws -> Void) {
-        self.retryWait = retryWait
-        super.init(frame: frameRect)
-        configureDisplayLayer()
-    }
-
-    private func configureDisplayLayer() {
         wantsLayer = true
-        layer?.backgroundColor = NSColor.black.cgColor
-        displayLayer.videoGravity = .resizeAspect
+        layer?.backgroundColor = NSColor.clear.cgColor
+        displayLayer.backgroundColor = NSColor.clear.cgColor
+        displayLayer.contentsGravity = .resizeAspect
         layer?.addSublayer(displayLayer)
     }
 
@@ -79,6 +63,8 @@ final class AndroidEmulatorCaptureNSView: NSView {
     }
 
     override var acceptsFirstResponder: Bool { true }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     override func layout() {
         super.layout()
@@ -102,6 +88,7 @@ final class AndroidEmulatorCaptureNSView: NSView {
         avdName: String,
         serial: String,
         sdkRootURL: URL,
+        displaySize: AndroidEmulatorDisplaySize,
         retryGeneration: Int,
         onStarted: @escaping () -> Void,
         onError: @escaping (any Error) -> Void
@@ -120,21 +107,23 @@ final class AndroidEmulatorCaptureNSView: NSView {
         guard configuration != next else { return }
         stopCapture()
         configuration = next
-        captureTask = Task { @MainActor [weak self] in
+        bridgeTask = Task { @MainActor [weak self] in
             guard let self else { return }
             do {
-                let capture = try await startCaptureWithRetry(
+                let bridge = try await AndroidEmulatorBridgeSession.start(
                     avdName: avdName,
                     serial: serial,
-                    sdkRootURL: sdkRootURL,
                     displaySize: displaySize,
-                    displayLayer: displayLayer
+                    onFrame: { [weak self] image, slot in
+                        self?.display(image, from: slot)
+                    },
+                    onError: onError
                 )
                 guard !Task.isCancelled else {
-                    await capture.stop()
+                    bridge.stop()
                     return
                 }
-                self.capture = capture
+                self.bridge = bridge
                 onStarted()
             } catch is CancellationError {
                 return
@@ -144,49 +133,19 @@ final class AndroidEmulatorCaptureNSView: NSView {
         }
     }
 
-    private func startCaptureWithRetry(
-        avdName: String,
-        serial: String,
-        sdkRootURL: URL,
-        displaySize: AndroidEmulatorDisplaySize,
-        displayLayer: AVSampleBufferDisplayLayer
-    ) async throws -> AndroidEmulatorWindowCapture {
-        var retryDelays: [Duration] = [
-            .milliseconds(250),
-            .milliseconds(500),
-            .seconds(1),
-            .seconds(2),
-        ]
-        while true {
-            do {
-                return try await AndroidEmulatorWindowCapture.start(
-                    avdName: avdName,
-                    serial: serial,
-                    sdkRootURL: sdkRootURL,
-                    displaySize: displaySize,
-                    displayLayer: displayLayer
-                )
-            } catch let error as AndroidEmulatorCaptureError {
-                guard case .windowNotFound = error, !retryDelays.isEmpty else { throw error }
-                let delay = retryDelays.removeFirst()
-                try Task.checkCancellation()
-                try await retryWait(delay)
-            }
-        }
-    }
-
     func stopCapture() {
         configuration = nil
-        captureTask?.cancel()
-        captureTask = nil
-        let activeCapture = capture
-        capture = nil
-        displayLayer.flushAndRemoveImage()
-        Task { await activeCapture?.stop() }
+        bridgeTask?.cancel()
+        bridgeTask = nil
+        bridge?.stop()
+        bridge = nil
+        retainedSlots.removeAll()
+        latestImage = nil
+        displayLayer.contents = nil
     }
 
     func saveScreenshot() {
-        guard let image = capture?.latestImage() else { return }
+        guard let latestImage else { return }
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.png]
         panel.nameFieldStringValue = "\(configuration?.avdName ?? "android")-screenshot.png"
@@ -201,45 +160,81 @@ final class AndroidEmulatorCaptureNSView: NSView {
             bundle: .module
         )
         guard panel.runModal() == .OK, let url = panel.url,
-              let data = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) else {
+              let data = NSBitmapImageRep(cgImage: latestImage).representation(using: .png, properties: [:]) else {
             return
         }
         try? data.write(to: url, options: .atomic)
     }
 
     func showVendorWindow() {
-        capture?.showVendorWindow()
+        guard let configuration else { return }
+        let identity = AndroidEmulatorProcessIdentity()
+        let emulatorDirectory = configuration.sdkRootURL
+            .appendingPathComponent("emulator", isDirectory: true)
+            .standardizedFileURL.resolvingSymlinksInPath()
+        NSWorkspace.shared.runningApplications.first { application in
+            guard let executable = application.executableURL?.standardizedFileURL.resolvingSymlinksInPath(),
+                  executable.pathComponents.starts(with: emulatorDirectory.pathComponents) else {
+                return false
+            }
+            return identity.matches(
+                processIdentifier: Int32(application.processIdentifier),
+                avdName: configuration.avdName,
+                serial: configuration.serial
+            )
+        }?.activate()
     }
 
     override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
-        mouseDownPoint = convert(event.locationInWindow, from: nil)
-        mouseDownTimestamp = event.timestamp
+        guard let point = androidPoint(for: convert(event.locationInWindow, from: nil)) else { return }
+        bridge?.sendTouch(x: point.x, y: point.y, phase: "down")
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard let point = androidPoint(for: convert(event.locationInWindow, from: nil)) else { return }
+        bridge?.sendTouch(x: point.x, y: point.y, phase: "move")
     }
 
     override func mouseUp(with event: NSEvent) {
-        guard let start = mouseDownPoint,
-              let startAndroid = androidPoint(for: start),
-              let endAndroid = androidPoint(for: convert(event.locationInWindow, from: nil)) else {
-            return
-        }
-        let dx = endAndroid.x - startAndroid.x
-        let dy = endAndroid.y - startAndroid.y
-        let distance = hypot(Double(dx), Double(dy))
-        if distance < 12 {
-            onGesture?(.tap(x: startAndroid.x, y: startAndroid.y))
+        guard let point = androidPoint(for: convert(event.locationInWindow, from: nil)) else { return }
+        bridge?.sendTouch(x: point.x, y: point.y, phase: "up")
+    }
+
+    override func keyDown(with event: NSEvent) {
+        if let key = Self.webKey(for: event) {
+            bridge?.sendKey(key: key)
+        } else if let characters = event.characters, !characters.isEmpty {
+            bridge?.sendText(characters)
         } else {
-            let duration = max(1, Int((event.timestamp - (mouseDownTimestamp ?? event.timestamp)) * 1000))
-            onGesture?(.swipe(
-                fromX: startAndroid.x,
-                fromY: startAndroid.y,
-                toX: endAndroid.x,
-                toY: endAndroid.y,
-                durationMilliseconds: duration
-            ))
+            super.keyDown(with: event)
         }
-        mouseDownPoint = nil
-        mouseDownTimestamp = nil
+    }
+
+    private func display(_ image: CGImage, from slot: Int) {
+        retainedSlots.append(slot)
+        latestImage = image
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        displayLayer.contents = image
+        CATransaction.commit()
+        if retainedSlots.count > 2 {
+            bridge?.release(slot: retainedSlots.removeFirst())
+        }
+    }
+
+    private static func webKey(for event: NSEvent) -> String? {
+        switch event.keyCode {
+        case 36, 76: "Enter"
+        case 48: "Tab"
+        case 51: "Backspace"
+        case 53: "Escape"
+        case 123: "ArrowLeft"
+        case 124: "ArrowRight"
+        case 125: "ArrowDown"
+        case 126: "ArrowUp"
+        default: nil
+        }
     }
 
     private func layoutDisplayLayer() {
@@ -247,12 +242,9 @@ final class AndroidEmulatorCaptureNSView: NSView {
         let fitWidth = min(bounds.width, bounds.height * aspect)
         let fitHeight = fitWidth / aspect
         let size = CGSize(width: fitWidth * zoomScale, height: fitHeight * zoomScale)
-        displayLayer.frame = CGRect(
-            x: bounds.midX - size.width / 2,
-            y: bounds.midY - size.height / 2,
-            width: size.width,
-            height: size.height
-        ).integral
+        displayLayer.bounds = CGRect(origin: .zero, size: size)
+        displayLayer.position = CGPoint(x: bounds.midX, y: bounds.midY)
+        displayLayer.setAffineTransform(.identity)
     }
 
     private func androidPoint(for point: CGPoint) -> (x: Int, y: Int)? {
@@ -262,8 +254,8 @@ final class AndroidEmulatorCaptureNSView: NSView {
         let normalizedX = (point.x - displayLayer.frame.minX) / displayLayer.frame.width
         let normalizedY = 1 - ((point.y - displayLayer.frame.minY) / displayLayer.frame.height)
         return (
-            Int((normalizedX * CGFloat(displaySize.width)).rounded()),
-            Int((normalizedY * CGFloat(displaySize.height)).rounded())
+            min(displaySize.width - 1, max(0, Int(normalizedX * CGFloat(displaySize.width)))),
+            min(displaySize.height - 1, max(0, Int(normalizedY * CGFloat(displaySize.height))))
         )
     }
 
@@ -276,187 +268,438 @@ final class AndroidEmulatorCaptureNSView: NSView {
     }
 }
 
-private final class AndroidEmulatorWindowCapture: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sendable {
-    private nonisolated(unsafe) weak var displayLayer: AVSampleBufferDisplayLayer?
-    private nonisolated(unsafe) var latestSampleBuffer: CMSampleBuffer?
-    private let stream: SCStream
-    private let processIdentifier: pid_t
-    private var isStreamOutputRegistered = false
+@MainActor
+private final class AndroidEmulatorBridgeSession {
+    private static let protocolVersion = 1
+    private static let renderWidth = 720
 
-    private init(stream: SCStream, displayLayer: AVSampleBufferDisplayLayer, processIdentifier: pid_t) {
-        self.stream = stream
-        self.displayLayer = displayLayer
-        self.processIdentifier = processIdentifier
+    private let process: Process
+    private let handle: FileHandle
+    private let directoryURL: URL
+    private let mappedFrames: AndroidMappedFrameBuffer
+    private let onFrame: (CGImage, Int) -> Void
+    private let onError: (any Error) -> Void
+    private var readTask: Task<Void, Never>?
+    private var stopped = false
+    private let encoder = JSONEncoder()
+
+    private init(
+        process: Process,
+        handle: FileHandle,
+        directoryURL: URL,
+        mappedFrames: AndroidMappedFrameBuffer,
+        onFrame: @escaping (CGImage, Int) -> Void,
+        onError: @escaping (any Error) -> Void
+    ) {
+        self.process = process
+        self.handle = handle
+        self.directoryURL = directoryURL
+        self.mappedFrames = mappedFrames
+        self.onFrame = onFrame
+        self.onError = onError
     }
 
-    @MainActor
     static func start(
         avdName: String,
         serial: String,
-        sdkRootURL: URL,
         displaySize: AndroidEmulatorDisplaySize,
-        displayLayer: AVSampleBufferDisplayLayer
-    ) async throws -> AndroidEmulatorWindowCapture {
-        let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
-        let deviceAspect = CGFloat(displaySize.width) / CGFloat(displaySize.height)
-        let processIdentity = AndroidEmulatorProcessIdentity()
-        var processMatchesSelectedAVD: [pid_t: Bool] = [:]
-        let window = content.windows
-            .filter { window in
-                guard window.frame.width > 0,
-                      window.frame.height > 0,
-                      let processID = window.owningApplication?.processID,
-                  let executableURL = NSRunningApplication(processIdentifier: processID)?.executableURL else {
-                    return false
-                }
-                guard AndroidEmulatorCapturePolicy.isExpectedEmulatorExecutable(
-                    executableURL,
-                    sdkRootURL: sdkRootURL
-                ) else {
-                    return false
-                }
-                if let cachedMatch = processMatchesSelectedAVD[processID] {
-                    return cachedMatch
-                }
-                    let matches = processIdentity.matches(
-                        processIdentifier: Int32(processID),
-                        avdName: avdName,
-                        serial: serial
-                    )
-                processMatchesSelectedAVD[processID] = matches
-                return matches
-            }
-            .min { lhs, rhs in
-                let lhsError = AndroidEmulatorCapturePolicy.aspectError(lhs.frame.size, deviceAspect: deviceAspect)
-                let rhsError = AndroidEmulatorCapturePolicy.aspectError(rhs.frame.size, deviceAspect: deviceAspect)
-                if abs(lhsError - rhsError) > 0.001 {
-                    return lhsError < rhsError
-                }
-                return lhs.frame.width * lhs.frame.height > rhs.frame.width * rhs.frame.height
-            }
-        guard let window, let application = window.owningApplication else {
-            throw AndroidEmulatorCaptureError.windowNotFound(avdName)
-        }
-
-        let filter = SCContentFilter(desktopIndependentWindow: window)
-        let configuration = SCStreamConfiguration()
-        configuration.sourceRect = AndroidEmulatorCapturePolicy.sourceRect(
-            windowSize: window.frame.size,
-            displaySize: displaySize
+        onFrame: @escaping (CGImage, Int) -> Void,
+        onError: @escaping (any Error) -> Void
+    ) async throws -> AndroidEmulatorBridgeSession {
+        let helperURL = try AndroidEmulatorBridgeLocator().executableURL()
+        let directoryURL = AndroidEmulatorBridgeRuntimePath.directoryURL(identifier: UUID())
+        try FileManager.default.createDirectory(
+            at: directoryURL,
+            withIntermediateDirectories: false,
+            attributes: [.posixPermissions: 0o700]
         )
-        configuration.width = displaySize.width
-        configuration.height = displaySize.height
-        configuration.minimumFrameInterval = CMTime(value: 1, timescale: 30)
-        configuration.queueDepth = 2
-        configuration.showsCursor = false
-        configuration.scalesToFit = true
-        configuration.preservesAspectRatio = true
+        let socketURL = directoryURL.appendingPathComponent("bridge.sock")
+        let sharedMemoryURL = directoryURL.appendingPathComponent("frames.bin")
+        let renderHeight = max(1, Int(
+            (Double(renderWidth) * Double(displaySize.height) / Double(displaySize.width)).rounded()
+        ))
 
-        let stream = SCStream(filter: filter, configuration: configuration, delegate: nil)
-        let capture = AndroidEmulatorWindowCapture(
-            stream: stream,
-            displayLayer: displayLayer,
-            processIdentifier: application.processID
-        )
-        try stream.addStreamOutput(capture, type: .screen, sampleHandlerQueue: .main)
-        capture.isStreamOutputRegistered = true
+        let process = Process()
+        process.executableURL = helperURL
+        process.arguments = [
+            "--avd", avdName,
+            "--serial", serial,
+            "--socket", socketURL.path,
+            "--shared-memory", sharedMemoryURL.path,
+            "--width", String(renderWidth),
+            "--height", String(renderHeight),
+        ]
         do {
-            try await stream.startCapture()
+            try process.run()
+            let handle = try await AndroidUnixSocket.connect(path: socketURL.path)
+            let helloData = try await AndroidUnixSocket.readLine(from: handle)
+            let hello = try JSONDecoder().decode(AndroidBridgeEvent.self, from: helloData)
+            guard hello.type == "hello", hello.version == protocolVersion,
+                  hello.sharedMemoryPath == sharedMemoryURL.path,
+                  let slotCount = hello.slotCount, let slotSize = hello.slotSize,
+                  slotCount == 3, slotSize >= renderWidth * renderHeight * 4 else {
+                throw AndroidEmulatorBridgeError.incompatibleProtocol
+            }
+            let mappedFrames = try AndroidMappedFrameBuffer(
+                path: sharedMemoryURL.path,
+                slotCount: slotCount,
+                slotSize: slotSize
+            )
+            let session = AndroidEmulatorBridgeSession(
+                process: process,
+                handle: handle,
+                directoryURL: directoryURL,
+                mappedFrames: mappedFrames,
+                onFrame: onFrame,
+                onError: onError
+            )
+            session.startReading()
+            return session
         } catch {
-            await capture.stop()
+            if process.isRunning { process.terminate() }
+            try? FileManager.default.removeItem(at: directoryURL)
             throw error
         }
-        return capture
     }
 
-    @MainActor
-    func stop() async {
-        try? await stream.stopCapture()
-        removeStreamOutputIfNeeded()
-        latestSampleBuffer = nil
-        displayLayer = nil
+    private func startReading() {
+        readTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            let decoder = JSONDecoder()
+            var pending = Data()
+            do {
+                for try await byte in handle.bytes {
+                    try Task.checkCancellation()
+                    if byte == 0x0A {
+                        guard !pending.isEmpty else { continue }
+                        let event = try decoder.decode(AndroidBridgeEvent.self, from: pending)
+                        pending.removeAll(keepingCapacity: true)
+                        process(event)
+                    } else {
+                        pending.append(byte)
+                    }
+                }
+                if !stopped { throw AndroidEmulatorBridgeError.disconnected }
+            } catch is CancellationError {
+                return
+            } catch {
+                if !stopped { onError(error) }
+            }
+        }
     }
 
-    @MainActor
-    private func removeStreamOutputIfNeeded() {
-        guard isStreamOutputRegistered else { return }
-        isStreamOutputRegistered = false
-        try? stream.removeStreamOutput(self, type: .screen)
+    private func process(_ event: AndroidBridgeEvent) {
+        guard event.type == "frame", let slot = event.slot,
+              let width = event.width, let height = event.height,
+              let bytesPerRow = event.bytesPerRow else {
+            return
+        }
+        guard let image = mappedFrames.image(
+            slot: slot,
+            width: width,
+            height: height,
+            bytesPerRow: bytesPerRow
+        ) else {
+            release(slot: slot)
+            return
+        }
+        onFrame(image, slot)
     }
 
-    @MainActor
-    func latestImage() -> CGImage? {
-        guard let sampleBuffer = latestSampleBuffer,
-              let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else {
+    func sendTouch(x: Int, y: Int, phase: String) {
+        send(AndroidBridgeCommand(type: "touch", x: x, y: y, phase: phase))
+    }
+
+    func sendText(_ text: String) {
+        send(AndroidBridgeCommand(type: "key", text: text))
+    }
+
+    func sendKey(key: String) {
+        send(AndroidBridgeCommand(type: "key", key: key))
+    }
+
+    func release(slot: Int) {
+        send(AndroidBridgeCommand(type: "release", slot: slot))
+    }
+
+    private func send(_ command: AndroidBridgeCommand) {
+        guard !stopped else { return }
+        do {
+            var data = try encoder.encode(command)
+            data.append(0x0A)
+            try handle.write(contentsOf: data)
+        } catch {
+            onError(error)
+        }
+    }
+
+    func stop() {
+        guard !stopped else { return }
+        stopped = true
+        readTask?.cancel()
+        readTask = nil
+        try? handle.close()
+        if process.isRunning { process.terminate() }
+        try? FileManager.default.removeItem(at: directoryURL)
+    }
+
+    deinit {
+        if process.isRunning { process.terminate() }
+    }
+}
+
+private struct AndroidBridgeEvent: Decodable, Sendable {
+    let type: String
+    var version: Int?
+    var sharedMemoryPath: String?
+    var slotCount: Int?
+    var slotSize: Int?
+    var slot: Int?
+    var width: Int?
+    var height: Int?
+    var bytesPerRow: Int?
+}
+
+private struct AndroidBridgeCommand: Encodable, Sendable {
+    let type: String
+    var slot: Int?
+    var x: Int?
+    var y: Int?
+    var phase: String?
+    var text: String?
+    var key: String?
+
+    init(
+        type: String,
+        slot: Int? = nil,
+        x: Int? = nil,
+        y: Int? = nil,
+        phase: String? = nil,
+        text: String? = nil,
+        key: String? = nil
+    ) {
+        self.type = type
+        self.slot = slot
+        self.x = x
+        self.y = y
+        self.phase = phase
+        self.text = text
+        self.key = key
+    }
+}
+
+private final class AndroidMappedFrameBuffer: @unchecked Sendable {
+    private let descriptor: Int32
+    private let baseAddress: UnsafeRawPointer
+    private let byteCount: Int
+    private let slotCount: Int
+    private let slotSize: Int
+
+    init(path: String, slotCount: Int, slotSize: Int) throws {
+        let descriptor = Darwin.open(path, O_RDONLY)
+        guard descriptor >= 0 else {
+            throw AndroidEmulatorBridgeError.systemCall("open", errno)
+        }
+        let byteCount = slotCount * slotSize
+        guard let mapping = mmap(nil, byteCount, PROT_READ, MAP_SHARED, descriptor, 0),
+              mapping != MAP_FAILED else {
+            Darwin.close(descriptor)
+            throw AndroidEmulatorBridgeError.systemCall("mmap", errno)
+        }
+        self.descriptor = descriptor
+        self.baseAddress = UnsafeRawPointer(mapping)
+        self.byteCount = byteCount
+        self.slotCount = slotCount
+        self.slotSize = slotSize
+    }
+
+    func image(slot: Int, width: Int, height: Int, bytesPerRow: Int) -> CGImage? {
+        let frameBytes = bytesPerRow * height
+        guard (0 ..< slotCount).contains(slot), width > 0, height > 0,
+              bytesPerRow >= width * 4, frameBytes <= slotSize else {
             return nil
         }
-        let image = CIImage(cvPixelBuffer: pixelBuffer)
-        return CIContext().createCGImage(image, from: image.extent)
-    }
-
-    @MainActor
-    func showVendorWindow() {
-        NSRunningApplication(processIdentifier: processIdentifier)?.activate()
-    }
-
-    nonisolated func stream(
-        _ stream: SCStream,
-        didOutputSampleBuffer sampleBuffer: CMSampleBuffer,
-        of outputType: SCStreamOutputType
-    ) {
-        guard outputType == .screen, sampleBuffer.isValid else { return }
-        latestSampleBuffer = sampleBuffer
-        displayLayer?.enqueue(sampleBuffer)
-    }
-}
-
-enum AndroidEmulatorCapturePolicy {
-    static func aspectError(_ windowSize: CGSize, deviceAspect: CGFloat) -> CGFloat {
-        abs((windowSize.width / windowSize.height) - deviceAspect)
-    }
-
-    static func isExpectedEmulatorExecutable(_ executableURL: URL, sdkRootURL: URL) -> Bool {
-        let emulatorDirectory = sdkRootURL
-            .appendingPathComponent("emulator", isDirectory: true)
-            .standardizedFileURL
-            .resolvingSymlinksInPath()
-        let executable = executableURL.standardizedFileURL.resolvingSymlinksInPath()
-        let directoryComponents = emulatorDirectory.pathComponents
-        let executableComponents = executable.pathComponents
-        return executableComponents.count > directoryComponents.count
-            && executableComponents.starts(with: directoryComponents)
-    }
-
-    static func sourceRect(
-        windowSize: CGSize,
-        displaySize: AndroidEmulatorDisplaySize
-    ) -> CGRect {
-        let width = max(1, windowSize.width)
-        let height = max(1, windowSize.height)
-        let aspect = CGFloat(displaySize.width) / CGFloat(displaySize.height)
-        let deviceWidth = min(width, height * aspect)
-        let deviceHeight = deviceWidth / aspect
-        return CGRect(
-            x: 0,
-            y: max(0, height - deviceHeight),
-            width: deviceWidth,
-            height: deviceHeight
+        let bytes = baseAddress.advanced(by: slot * slotSize)
+        guard let provider = CGDataProvider(
+            dataInfo: nil,
+            data: bytes,
+            size: frameBytes,
+            releaseData: { _, _, _ in }
+        ) else { return nil }
+        return CGImage(
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bitsPerPixel: 32,
+            bytesPerRow: bytesPerRow,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
+                .union(.byteOrder32Big),
+            provider: provider,
+            decode: nil,
+            shouldInterpolate: true,
+            intent: .defaultIntent
         )
     }
+
+    deinit {
+        munmap(UnsafeMutableRawPointer(mutating: baseAddress), byteCount)
+        Darwin.close(descriptor)
+    }
 }
 
-private enum AndroidEmulatorCaptureError: LocalizedError {
-    case windowNotFound(String)
+struct AndroidEmulatorBridgeLocator: Sendable {
+    private let environment: [String: String]
+    private let homeDirectory: URL
+
+    init(
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
+    ) {
+        self.environment = environment
+        self.homeDirectory = homeDirectory
+    }
+
+    func executableURL() throws -> URL {
+        var candidates: [URL] = []
+        if let override = environment["CMUX_ANDROID_BRIDGE_PATH"], !override.isEmpty {
+            candidates.append(URL(fileURLWithPath: override))
+        }
+        candidates.append(homeDirectory.appendingPathComponent(".local/bin/cmux-android-bridge"))
+        candidates.append(URL(fileURLWithPath: "/opt/homebrew/bin/cmux-android-bridge"))
+        candidates.append(URL(fileURLWithPath: "/usr/local/bin/cmux-android-bridge"))
+        if let path = environment["PATH"] {
+            candidates.append(contentsOf: path.split(separator: ":").map {
+                URL(fileURLWithPath: String($0)).appendingPathComponent("cmux-android-bridge")
+            })
+        }
+        guard let executable = candidates.first(where: {
+            FileManager.default.isExecutableFile(atPath: $0.path)
+        }) else {
+            throw AndroidEmulatorBridgeError.helperNotInstalled
+        }
+        return executable
+    }
+}
+
+enum AndroidEmulatorBridgeRuntimePath {
+    static func directoryURL(identifier: UUID) -> URL {
+        // AF_UNIX paths are capped at 104 bytes on macOS. The per-user temporary
+        // directory can already consume most of that budget.
+        URL(fileURLWithPath: "/tmp", isDirectory: true)
+            .appendingPathComponent("cmux-android-\(identifier.uuidString)", isDirectory: true)
+    }
+}
+
+private enum AndroidUnixSocket {
+    static func connect(path: String) async throws -> FileHandle {
+        let clock = ContinuousClock()
+        var lastError: (any Error)?
+        for attempt in 0 ..< 40 {
+            try Task.checkCancellation()
+            do {
+                return try await Task.detached { try connectOnce(path: path) }.value
+            } catch {
+                lastError = error
+                guard attempt < 39 else { break }
+                try await clock.sleep(for: .milliseconds(50))
+            }
+        }
+        throw lastError ?? AndroidEmulatorBridgeError.disconnected
+    }
+
+    static func readLine(from handle: FileHandle) async throws -> Data {
+        try await Task.detached {
+            var line = Data()
+            while true {
+                guard let byte = try handle.read(upToCount: 1), !byte.isEmpty else {
+                    throw AndroidEmulatorBridgeError.disconnected
+                }
+                if byte[0] == 0x0A { return line }
+                line.append(byte)
+                guard line.count <= 64 * 1024 else {
+                    throw AndroidEmulatorBridgeError.incompatibleProtocol
+                }
+            }
+        }.value
+    }
+
+    private static func connectOnce(path: String) throws -> FileHandle {
+        let descriptor = socket(AF_UNIX, SOCK_STREAM, 0)
+        guard descriptor >= 0 else { throw AndroidEmulatorBridgeError.systemCall("socket", errno) }
+        var address = sockaddr_un()
+        address.sun_family = sa_family_t(AF_UNIX)
+        let bytes = Array(path.utf8CString)
+        let capacity = MemoryLayout.size(ofValue: address.sun_path)
+        guard bytes.count <= capacity else {
+            Darwin.close(descriptor)
+            throw AndroidEmulatorBridgeError.socketPathTooLong
+        }
+        path.withCString { source in
+            withUnsafeMutablePointer(to: &address.sun_path) { destination in
+                destination.withMemoryRebound(to: CChar.self, capacity: capacity) {
+                    _ = memcpy($0, source, bytes.count)
+                }
+            }
+        }
+        let result = withUnsafePointer(to: &address) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                Darwin.connect(
+                    descriptor,
+                    $0,
+                    socklen_t(MemoryLayout<sa_family_t>.size + bytes.count)
+                )
+            }
+        }
+        guard result == 0 else {
+            let code = errno
+            Darwin.close(descriptor)
+            throw AndroidEmulatorBridgeError.systemCall("connect", code)
+        }
+        return FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
+    }
+}
+
+private enum AndroidEmulatorBridgeError: LocalizedError {
+    case helperNotInstalled
+    case incompatibleProtocol
+    case disconnected
+    case socketPathTooLong
+    case systemCall(String, Int32)
 
     var errorDescription: String? {
         switch self {
-        case .windowNotFound(let name):
-            let format = String(
-                localized: "androidEmulator.capture.windowNotFound",
-                defaultValue: "The vendor window for “%@” is not available.",
+        case .helperNotInstalled:
+            return String(
+                localized: "androidEmulator.bridge.notInstalled",
+                defaultValue: "Install cmux-android-bridge to show the emulator in this pane.",
                 bundle: .module
             )
-            return String(format: format, name)
+        case .incompatibleProtocol:
+            return String(
+                localized: "androidEmulator.bridge.incompatible",
+                defaultValue: "The installed Android bridge is incompatible with this version of cmux.",
+                bundle: .module
+            )
+        case .disconnected:
+            return String(
+                localized: "androidEmulator.bridge.disconnected",
+                defaultValue: "The Android bridge disconnected.",
+                bundle: .module
+            )
+        case .socketPathTooLong:
+            return String(
+                localized: "androidEmulator.bridge.socketPathTooLong",
+                defaultValue: "The Android bridge socket path is too long.",
+                bundle: .module
+            )
+        case .systemCall(let operation, let code):
+            let format = String(
+                localized: "androidEmulator.bridge.systemCallFailed",
+                defaultValue: "%1$@ failed with error %2$ld.",
+                bundle: .module
+            )
+            return String(format: format, operation, Int(code))
         }
     }
 }
