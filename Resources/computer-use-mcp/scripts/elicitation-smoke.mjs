@@ -349,8 +349,18 @@ async function runPrivateProviderLayoutSmoke() {
       providerPath,
       [
         "#!/bin/sh",
-        "cat >/dev/null",
-        "printf '%s' '{\"ok\":true,\"apps\":[{\"name\":\"PrivateProviderApp\",\"bundleIdentifier\":\"com.cmux.private-provider\",\"pid\":4242}]}'",
+        "input=\"$(cat)\"",
+        "case \"$input\" in",
+        "  *'\"op\":\"list_apps\"'*)",
+        "    printf '%s' '{\"ok\":true,\"apps\":[{\"name\":\"PrivateProviderApp\",\"bundleIdentifier\":\"com.cmux.private-provider\",\"pid\":4242}]}'",
+        "    ;;",
+        "  *'\"op\":\"open_app\"'*)",
+        "    printf '%s' '{\"ok\":true,\"target\":{\"name\":\"PrivateProviderApp\",\"bundleIdentifier\":\"com.cmux.private-provider\",\"pid\":4242}}'",
+        "    ;;",
+        "  *)",
+        "    printf '%s' '{\"ok\":false,\"code\":\"provider.appNotFound\",\"error\":\"test app is not running\",\"details\":{\"app\":\"PrivateProviderApp\"}}'",
+        "    ;;",
+        "esac",
         "",
       ].join("\n"),
       "utf8"
@@ -365,9 +375,12 @@ async function runPrivateProviderLayoutSmoke() {
     });
     const client = new Client({ name: "cu-private-provider-smoke", version: "0.0.1" });
     await client.connect(transport);
-    const result = summarizeResult(await client.callTool({ name: "computer_apps", arguments: {} }));
+    const apps = summarizeResult(await client.callTool({ name: "computer_apps", arguments: {} }));
+    const opened = summarizeResult(
+      await client.callTool({ name: "computer_open", arguments: { app: "PrivateProviderApp" } })
+    );
     await client.close();
-    return result;
+    return { apps, opened };
   } finally {
     await rm(tmp, { recursive: true, force: true });
   }
@@ -962,8 +975,15 @@ if (
 }
 
 const privateProviderLayout = await runPrivateProviderLayoutSmoke();
-console.log(`private provider layout -> isError=${privateProviderLayout.isError} text=${privateProviderLayout.text}`);
-if (privateProviderLayout.isError || !privateProviderLayout.text.includes("PrivateProviderApp")) {
+console.log(
+  `private provider layout -> apps=${privateProviderLayout.apps.isError} open=${privateProviderLayout.opened.isError}`
+);
+if (
+  privateProviderLayout.apps.isError ||
+  !privateProviderLayout.apps.text.includes("PrivateProviderApp") ||
+  privateProviderLayout.opened.isError ||
+  !privateProviderLayout.opened.text.includes("PrivateProviderApp")
+) {
   console.error("FAIL: bundled MCP server should resolve the native provider from private libexec");
   process.exit(1);
 }
