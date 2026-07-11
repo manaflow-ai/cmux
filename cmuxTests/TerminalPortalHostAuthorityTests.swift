@@ -457,7 +457,7 @@ struct TerminalPortalHostAuthorityTests {
             },
             reason: "test.replacement.queued"
         ))
-        #expect(surface.claimPortalHost(
+        #expect(!surface.claimPortalHost(
             hostId: ObjectIdentifier(host), paneId: pane, ownershipGeneration: 1,
             inWindow: false, bounds: bounds, reason: "test.current.detached"
         ))
