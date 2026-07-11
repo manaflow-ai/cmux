@@ -33,4 +33,18 @@ describe("audited docs metadata", () => {
 
     expect(typeof metadata.title).toBe("string");
   });
+
+  test("leaves room for the docs template instead of stacking taglines", async () => {
+    const metadata = await auditedDocsMetadata({
+      locale: "en",
+      pageKey: "ssh",
+      path: "/docs/ssh",
+      messages: (key) => {
+        if (key === "metaTitle" || key === "title") return "SSH";
+        return key;
+      },
+    });
+
+    expect(metadata.title).toBe("SSH — AI coding on macOS");
+  });
 });
