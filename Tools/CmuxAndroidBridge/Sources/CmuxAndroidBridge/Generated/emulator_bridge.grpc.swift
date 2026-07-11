@@ -32,6 +32,7 @@ internal protocol Android_Emulation_Control_EmulatorControllerClientProtocol: GR
     callOptions: CallOptions?
   ) -> UnaryCall<Android_Emulation_Control_KeyboardEvent, SwiftProtobuf.Google_Protobuf_Empty>
 }
+
 extension Android_Emulation_Control_EmulatorControllerClientProtocol {
   internal var serviceName: String {
     return "android.emulation.control.EmulatorController"
@@ -315,6 +316,470 @@ internal enum Android_Emulation_Control_EmulatorControllerClientMetadata {
     internal static let sendKey = GRPCMethodDescriptor(
       name: "sendKey",
       path: "/android.emulation.control.EmulatorController/sendKey",
+      type: GRPCCallType.unary
+    )
+  }
+}
+
+/// Usage: instantiate `Android_Emulation_Control_UiControllerClient`, then call methods of this protocol to make API calls.
+internal protocol Android_Emulation_Control_UiControllerClientProtocol: GRPCClient {
+  var serviceName: String { get }
+  var interceptors: Android_Emulation_Control_UiControllerClientInterceptorFactoryProtocol? { get }
+
+  func showExtendedControls(
+    _ request: Android_Emulation_Control_PaneEntry,
+    callOptions: CallOptions?
+  ) -> UnaryCall<Android_Emulation_Control_PaneEntry, Android_Emulation_Control_ExtendedControlsStatus>
+}
+
+extension Android_Emulation_Control_UiControllerClientProtocol {
+  internal var serviceName: String {
+    return "android.emulation.control.UiController"
+  }
+
+  /// Unary call to showExtendedControls
+  ///
+  /// - Parameters:
+  ///   - request: Request to send to showExtendedControls.
+  ///   - callOptions: Call options.
+  /// - Returns: A `UnaryCall` with futures for the metadata, status and response.
+  internal func showExtendedControls(
+    _ request: Android_Emulation_Control_PaneEntry,
+    callOptions: CallOptions? = nil
+  ) -> UnaryCall<Android_Emulation_Control_PaneEntry, Android_Emulation_Control_ExtendedControlsStatus> {
+    return self.makeUnaryCall(
+      path: Android_Emulation_Control_UiControllerClientMetadata.Methods.showExtendedControls.path,
+      request: request,
+      callOptions: callOptions ?? self.defaultCallOptions,
+      interceptors: self.interceptors?.makeshowExtendedControlsInterceptors() ?? []
+    )
+  }
+}
+
+@available(*, deprecated)
+extension Android_Emulation_Control_UiControllerClient: @unchecked Sendable {}
+
+@available(*, deprecated, renamed: "Android_Emulation_Control_UiControllerNIOClient")
+internal final class Android_Emulation_Control_UiControllerClient: Android_Emulation_Control_UiControllerClientProtocol {
+  private let lock = Lock()
+  private var _defaultCallOptions: CallOptions
+  private var _interceptors: Android_Emulation_Control_UiControllerClientInterceptorFactoryProtocol?
+  internal let channel: GRPCChannel
+  internal var defaultCallOptions: CallOptions {
+    get { self.lock.withLock { return self._defaultCallOptions } }
+    set { self.lock.withLockVoid { self._defaultCallOptions = newValue } }
+  }
+  internal var interceptors: Android_Emulation_Control_UiControllerClientInterceptorFactoryProtocol? {
+    get { self.lock.withLock { return self._interceptors } }
+    set { self.lock.withLockVoid { self._interceptors = newValue } }
+  }
+
+  /// Creates a client for the android.emulation.control.UiController service.
+  ///
+  /// - Parameters:
+  ///   - channel: `GRPCChannel` to the service host.
+  ///   - defaultCallOptions: Options to use for each service call if the user doesn't provide them.
+  ///   - interceptors: A factory providing interceptors for each RPC.
+  internal init(
+    channel: GRPCChannel,
+    defaultCallOptions: CallOptions = CallOptions(),
+    interceptors: Android_Emulation_Control_UiControllerClientInterceptorFactoryProtocol? = nil
+  ) {
+    self.channel = channel
+    self._defaultCallOptions = defaultCallOptions
+    self._interceptors = interceptors
+  }
+}
+
+internal struct Android_Emulation_Control_UiControllerNIOClient: Android_Emulation_Control_UiControllerClientProtocol {
+  internal var channel: GRPCChannel
+  internal var defaultCallOptions: CallOptions
+  internal var interceptors: Android_Emulation_Control_UiControllerClientInterceptorFactoryProtocol?
+
+  /// Creates a client for the android.emulation.control.UiController service.
+  ///
+  /// - Parameters:
+  ///   - channel: `GRPCChannel` to the service host.
+  ///   - defaultCallOptions: Options to use for each service call if the user doesn't provide them.
+  ///   - interceptors: A factory providing interceptors for each RPC.
+  internal init(
+    channel: GRPCChannel,
+    defaultCallOptions: CallOptions = CallOptions(),
+    interceptors: Android_Emulation_Control_UiControllerClientInterceptorFactoryProtocol? = nil
+  ) {
+    self.channel = channel
+    self.defaultCallOptions = defaultCallOptions
+    self.interceptors = interceptors
+  }
+}
+
+@available(macOS 10.15, iOS 13, tvOS 13, watchOS 6, *)
+internal protocol Android_Emulation_Control_UiControllerAsyncClientProtocol: GRPCClient {
+  static var serviceDescriptor: GRPCServiceDescriptor { get }
+  var interceptors: Android_Emulation_Control_UiControllerClientInterceptorFactoryProtocol? { get }
+
+  func makeShowExtendedControlsCall(
+    _ request: Android_Emulation_Control_PaneEntry,
+    callOptions: CallOptions?
+  ) -> GRPCAsyncUnaryCall<Android_Emulation_Control_PaneEntry, Android_Emulation_Control_ExtendedControlsStatus>
+}
+
+@available(macOS 10.15, iOS 13, tvOS 13, watchOS 6, *)
+extension Android_Emulation_Control_UiControllerAsyncClientProtocol {
+  internal static var serviceDescriptor: GRPCServiceDescriptor {
+    return Android_Emulation_Control_UiControllerClientMetadata.serviceDescriptor
+  }
+
+  internal var interceptors: Android_Emulation_Control_UiControllerClientInterceptorFactoryProtocol? {
+    return nil
+  }
+
+  internal func makeShowExtendedControlsCall(
+    _ request: Android_Emulation_Control_PaneEntry,
+    callOptions: CallOptions? = nil
+  ) -> GRPCAsyncUnaryCall<Android_Emulation_Control_PaneEntry, Android_Emulation_Control_ExtendedControlsStatus> {
+    return self.makeAsyncUnaryCall(
+      path: Android_Emulation_Control_UiControllerClientMetadata.Methods.showExtendedControls.path,
+      request: request,
+      callOptions: callOptions ?? self.defaultCallOptions,
+      interceptors: self.interceptors?.makeshowExtendedControlsInterceptors() ?? []
+    )
+  }
+}
+
+@available(macOS 10.15, iOS 13, tvOS 13, watchOS 6, *)
+extension Android_Emulation_Control_UiControllerAsyncClientProtocol {
+  internal func showExtendedControls(
+    _ request: Android_Emulation_Control_PaneEntry,
+    callOptions: CallOptions? = nil
+  ) async throws -> Android_Emulation_Control_ExtendedControlsStatus {
+    return try await self.performAsyncUnaryCall(
+      path: Android_Emulation_Control_UiControllerClientMetadata.Methods.showExtendedControls.path,
+      request: request,
+      callOptions: callOptions ?? self.defaultCallOptions,
+      interceptors: self.interceptors?.makeshowExtendedControlsInterceptors() ?? []
+    )
+  }
+}
+
+@available(macOS 10.15, iOS 13, tvOS 13, watchOS 6, *)
+internal struct Android_Emulation_Control_UiControllerAsyncClient: Android_Emulation_Control_UiControllerAsyncClientProtocol {
+  internal var channel: GRPCChannel
+  internal var defaultCallOptions: CallOptions
+  internal var interceptors: Android_Emulation_Control_UiControllerClientInterceptorFactoryProtocol?
+
+  internal init(
+    channel: GRPCChannel,
+    defaultCallOptions: CallOptions = CallOptions(),
+    interceptors: Android_Emulation_Control_UiControllerClientInterceptorFactoryProtocol? = nil
+  ) {
+    self.channel = channel
+    self.defaultCallOptions = defaultCallOptions
+    self.interceptors = interceptors
+  }
+}
+
+internal protocol Android_Emulation_Control_UiControllerClientInterceptorFactoryProtocol: Sendable {
+
+  /// - Returns: Interceptors to use when invoking 'showExtendedControls'.
+  func makeshowExtendedControlsInterceptors() -> [ClientInterceptor<Android_Emulation_Control_PaneEntry, Android_Emulation_Control_ExtendedControlsStatus>]
+}
+
+internal enum Android_Emulation_Control_UiControllerClientMetadata {
+  internal static let serviceDescriptor = GRPCServiceDescriptor(
+    name: "UiController",
+    fullName: "android.emulation.control.UiController",
+    methods: [
+      Android_Emulation_Control_UiControllerClientMetadata.Methods.showExtendedControls,
+    ]
+  )
+
+  internal enum Methods {
+    internal static let showExtendedControls = GRPCMethodDescriptor(
+      name: "showExtendedControls",
+      path: "/android.emulation.control.UiController/showExtendedControls",
+      type: GRPCCallType.unary
+    )
+  }
+}
+
+/// To build a server, implement a class that conforms to this protocol.
+internal protocol Android_Emulation_Control_EmulatorControllerProvider: CallHandlerProvider {
+  var interceptors: Android_Emulation_Control_EmulatorControllerServerInterceptorFactoryProtocol? { get }
+
+  func streamScreenshot(request: Android_Emulation_Control_ImageFormat, context: StreamingResponseCallContext<Android_Emulation_Control_Image>) -> EventLoopFuture<GRPCStatus>
+
+  func sendTouch(request: Android_Emulation_Control_TouchEvent, context: StatusOnlyCallContext) -> EventLoopFuture<SwiftProtobuf.Google_Protobuf_Empty>
+
+  func sendKey(request: Android_Emulation_Control_KeyboardEvent, context: StatusOnlyCallContext) -> EventLoopFuture<SwiftProtobuf.Google_Protobuf_Empty>
+}
+
+extension Android_Emulation_Control_EmulatorControllerProvider {
+  internal var serviceName: Substring {
+    return Android_Emulation_Control_EmulatorControllerServerMetadata.serviceDescriptor.fullName[...]
+  }
+
+  /// Determines, calls and returns the appropriate request handler, depending on the request's method.
+  /// Returns nil for methods not handled by this service.
+  internal func handle(
+    method name: Substring,
+    context: CallHandlerContext
+  ) -> GRPCServerHandlerProtocol? {
+    switch name {
+    case "streamScreenshot":
+      return ServerStreamingServerHandler(
+        context: context,
+        requestDeserializer: ProtobufDeserializer<Android_Emulation_Control_ImageFormat>(),
+        responseSerializer: ProtobufSerializer<Android_Emulation_Control_Image>(),
+        interceptors: self.interceptors?.makestreamScreenshotInterceptors() ?? [],
+        userFunction: self.streamScreenshot(request:context:)
+      )
+
+    case "sendTouch":
+      return UnaryServerHandler(
+        context: context,
+        requestDeserializer: ProtobufDeserializer<Android_Emulation_Control_TouchEvent>(),
+        responseSerializer: ProtobufSerializer<SwiftProtobuf.Google_Protobuf_Empty>(),
+        interceptors: self.interceptors?.makesendTouchInterceptors() ?? [],
+        userFunction: self.sendTouch(request:context:)
+      )
+
+    case "sendKey":
+      return UnaryServerHandler(
+        context: context,
+        requestDeserializer: ProtobufDeserializer<Android_Emulation_Control_KeyboardEvent>(),
+        responseSerializer: ProtobufSerializer<SwiftProtobuf.Google_Protobuf_Empty>(),
+        interceptors: self.interceptors?.makesendKeyInterceptors() ?? [],
+        userFunction: self.sendKey(request:context:)
+      )
+
+    default:
+      return nil
+    }
+  }
+}
+
+/// To implement a server, implement an object which conforms to this protocol.
+@available(macOS 10.15, iOS 13, tvOS 13, watchOS 6, *)
+internal protocol Android_Emulation_Control_EmulatorControllerAsyncProvider: CallHandlerProvider, Sendable {
+  static var serviceDescriptor: GRPCServiceDescriptor { get }
+  var interceptors: Android_Emulation_Control_EmulatorControllerServerInterceptorFactoryProtocol? { get }
+
+  func streamScreenshot(
+    request: Android_Emulation_Control_ImageFormat,
+    responseStream: GRPCAsyncResponseStreamWriter<Android_Emulation_Control_Image>,
+    context: GRPCAsyncServerCallContext
+  ) async throws
+
+  func sendTouch(
+    request: Android_Emulation_Control_TouchEvent,
+    context: GRPCAsyncServerCallContext
+  ) async throws -> SwiftProtobuf.Google_Protobuf_Empty
+
+  func sendKey(
+    request: Android_Emulation_Control_KeyboardEvent,
+    context: GRPCAsyncServerCallContext
+  ) async throws -> SwiftProtobuf.Google_Protobuf_Empty
+}
+
+@available(macOS 10.15, iOS 13, tvOS 13, watchOS 6, *)
+extension Android_Emulation_Control_EmulatorControllerAsyncProvider {
+  internal static var serviceDescriptor: GRPCServiceDescriptor {
+    return Android_Emulation_Control_EmulatorControllerServerMetadata.serviceDescriptor
+  }
+
+  internal var serviceName: Substring {
+    return Android_Emulation_Control_EmulatorControllerServerMetadata.serviceDescriptor.fullName[...]
+  }
+
+  internal var interceptors: Android_Emulation_Control_EmulatorControllerServerInterceptorFactoryProtocol? {
+    return nil
+  }
+
+  internal func handle(
+    method name: Substring,
+    context: CallHandlerContext
+  ) -> GRPCServerHandlerProtocol? {
+    switch name {
+    case "streamScreenshot":
+      return GRPCAsyncServerHandler(
+        context: context,
+        requestDeserializer: ProtobufDeserializer<Android_Emulation_Control_ImageFormat>(),
+        responseSerializer: ProtobufSerializer<Android_Emulation_Control_Image>(),
+        interceptors: self.interceptors?.makestreamScreenshotInterceptors() ?? [],
+        wrapping: { try await self.streamScreenshot(request: $0, responseStream: $1, context: $2) }
+      )
+
+    case "sendTouch":
+      return GRPCAsyncServerHandler(
+        context: context,
+        requestDeserializer: ProtobufDeserializer<Android_Emulation_Control_TouchEvent>(),
+        responseSerializer: ProtobufSerializer<SwiftProtobuf.Google_Protobuf_Empty>(),
+        interceptors: self.interceptors?.makesendTouchInterceptors() ?? [],
+        wrapping: { try await self.sendTouch(request: $0, context: $1) }
+      )
+
+    case "sendKey":
+      return GRPCAsyncServerHandler(
+        context: context,
+        requestDeserializer: ProtobufDeserializer<Android_Emulation_Control_KeyboardEvent>(),
+        responseSerializer: ProtobufSerializer<SwiftProtobuf.Google_Protobuf_Empty>(),
+        interceptors: self.interceptors?.makesendKeyInterceptors() ?? [],
+        wrapping: { try await self.sendKey(request: $0, context: $1) }
+      )
+
+    default:
+      return nil
+    }
+  }
+}
+
+internal protocol Android_Emulation_Control_EmulatorControllerServerInterceptorFactoryProtocol: Sendable {
+
+  /// - Returns: Interceptors to use when handling 'streamScreenshot'.
+  ///   Defaults to calling `self.makeInterceptors()`.
+  func makestreamScreenshotInterceptors() -> [ServerInterceptor<Android_Emulation_Control_ImageFormat, Android_Emulation_Control_Image>]
+
+  /// - Returns: Interceptors to use when handling 'sendTouch'.
+  ///   Defaults to calling `self.makeInterceptors()`.
+  func makesendTouchInterceptors() -> [ServerInterceptor<Android_Emulation_Control_TouchEvent, SwiftProtobuf.Google_Protobuf_Empty>]
+
+  /// - Returns: Interceptors to use when handling 'sendKey'.
+  ///   Defaults to calling `self.makeInterceptors()`.
+  func makesendKeyInterceptors() -> [ServerInterceptor<Android_Emulation_Control_KeyboardEvent, SwiftProtobuf.Google_Protobuf_Empty>]
+}
+
+internal enum Android_Emulation_Control_EmulatorControllerServerMetadata {
+  internal static let serviceDescriptor = GRPCServiceDescriptor(
+    name: "EmulatorController",
+    fullName: "android.emulation.control.EmulatorController",
+    methods: [
+      Android_Emulation_Control_EmulatorControllerServerMetadata.Methods.streamScreenshot,
+      Android_Emulation_Control_EmulatorControllerServerMetadata.Methods.sendTouch,
+      Android_Emulation_Control_EmulatorControllerServerMetadata.Methods.sendKey,
+    ]
+  )
+
+  internal enum Methods {
+    internal static let streamScreenshot = GRPCMethodDescriptor(
+      name: "streamScreenshot",
+      path: "/android.emulation.control.EmulatorController/streamScreenshot",
+      type: GRPCCallType.serverStreaming
+    )
+
+    internal static let sendTouch = GRPCMethodDescriptor(
+      name: "sendTouch",
+      path: "/android.emulation.control.EmulatorController/sendTouch",
+      type: GRPCCallType.unary
+    )
+
+    internal static let sendKey = GRPCMethodDescriptor(
+      name: "sendKey",
+      path: "/android.emulation.control.EmulatorController/sendKey",
+      type: GRPCCallType.unary
+    )
+  }
+}
+/// To build a server, implement a class that conforms to this protocol.
+internal protocol Android_Emulation_Control_UiControllerProvider: CallHandlerProvider {
+  var interceptors: Android_Emulation_Control_UiControllerServerInterceptorFactoryProtocol? { get }
+
+  func showExtendedControls(request: Android_Emulation_Control_PaneEntry, context: StatusOnlyCallContext) -> EventLoopFuture<Android_Emulation_Control_ExtendedControlsStatus>
+}
+
+extension Android_Emulation_Control_UiControllerProvider {
+  internal var serviceName: Substring {
+    return Android_Emulation_Control_UiControllerServerMetadata.serviceDescriptor.fullName[...]
+  }
+
+  /// Determines, calls and returns the appropriate request handler, depending on the request's method.
+  /// Returns nil for methods not handled by this service.
+  internal func handle(
+    method name: Substring,
+    context: CallHandlerContext
+  ) -> GRPCServerHandlerProtocol? {
+    switch name {
+    case "showExtendedControls":
+      return UnaryServerHandler(
+        context: context,
+        requestDeserializer: ProtobufDeserializer<Android_Emulation_Control_PaneEntry>(),
+        responseSerializer: ProtobufSerializer<Android_Emulation_Control_ExtendedControlsStatus>(),
+        interceptors: self.interceptors?.makeshowExtendedControlsInterceptors() ?? [],
+        userFunction: self.showExtendedControls(request:context:)
+      )
+
+    default:
+      return nil
+    }
+  }
+}
+
+/// To implement a server, implement an object which conforms to this protocol.
+@available(macOS 10.15, iOS 13, tvOS 13, watchOS 6, *)
+internal protocol Android_Emulation_Control_UiControllerAsyncProvider: CallHandlerProvider, Sendable {
+  static var serviceDescriptor: GRPCServiceDescriptor { get }
+  var interceptors: Android_Emulation_Control_UiControllerServerInterceptorFactoryProtocol? { get }
+
+  func showExtendedControls(
+    request: Android_Emulation_Control_PaneEntry,
+    context: GRPCAsyncServerCallContext
+  ) async throws -> Android_Emulation_Control_ExtendedControlsStatus
+}
+
+@available(macOS 10.15, iOS 13, tvOS 13, watchOS 6, *)
+extension Android_Emulation_Control_UiControllerAsyncProvider {
+  internal static var serviceDescriptor: GRPCServiceDescriptor {
+    return Android_Emulation_Control_UiControllerServerMetadata.serviceDescriptor
+  }
+
+  internal var serviceName: Substring {
+    return Android_Emulation_Control_UiControllerServerMetadata.serviceDescriptor.fullName[...]
+  }
+
+  internal var interceptors: Android_Emulation_Control_UiControllerServerInterceptorFactoryProtocol? {
+    return nil
+  }
+
+  internal func handle(
+    method name: Substring,
+    context: CallHandlerContext
+  ) -> GRPCServerHandlerProtocol? {
+    switch name {
+    case "showExtendedControls":
+      return GRPCAsyncServerHandler(
+        context: context,
+        requestDeserializer: ProtobufDeserializer<Android_Emulation_Control_PaneEntry>(),
+        responseSerializer: ProtobufSerializer<Android_Emulation_Control_ExtendedControlsStatus>(),
+        interceptors: self.interceptors?.makeshowExtendedControlsInterceptors() ?? [],
+        wrapping: { try await self.showExtendedControls(request: $0, context: $1) }
+      )
+
+    default:
+      return nil
+    }
+  }
+}
+
+internal protocol Android_Emulation_Control_UiControllerServerInterceptorFactoryProtocol: Sendable {
+
+  /// - Returns: Interceptors to use when handling 'showExtendedControls'.
+  ///   Defaults to calling `self.makeInterceptors()`.
+  func makeshowExtendedControlsInterceptors() -> [ServerInterceptor<Android_Emulation_Control_PaneEntry, Android_Emulation_Control_ExtendedControlsStatus>]
+}
+
+internal enum Android_Emulation_Control_UiControllerServerMetadata {
+  internal static let serviceDescriptor = GRPCServiceDescriptor(
+    name: "UiController",
+    fullName: "android.emulation.control.UiController",
+    methods: [
+      Android_Emulation_Control_UiControllerServerMetadata.Methods.showExtendedControls,
+    ]
+  )
+
+  internal enum Methods {
+    internal static let showExtendedControls = GRPCMethodDescriptor(
+      name: "showExtendedControls",
+      path: "/android.emulation.control.UiController/showExtendedControls",
       type: GRPCCallType.unary
     )
   }

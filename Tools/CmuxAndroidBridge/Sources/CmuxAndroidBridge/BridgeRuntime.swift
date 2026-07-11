@@ -41,6 +41,12 @@ struct BridgeRuntime {
                 customMetadata: ["authorization": "Bearer \(endpoint.bearerToken)"]
             )
         )
+        let uiClient = Android_Emulation_Control_UiControllerAsyncClient(
+            channel: channel,
+            defaultCallOptions: CallOptions(
+                customMetadata: ["authorization": "Bearer \(endpoint.bearerToken)"]
+            )
+        )
 
         do {
             try await withThrowingTaskGroup(of: Void.self) { group in
@@ -55,6 +61,7 @@ struct BridgeRuntime {
                     try await processCommands(
                         from: handle,
                         client: client,
+                        uiClient: uiClient,
                         frameBuffer: frameBuffer
                     )
                 }
@@ -104,6 +111,7 @@ struct BridgeRuntime {
     private func processCommands(
         from handle: FileHandle,
         client: Android_Emulation_Control_EmulatorControllerAsyncClient,
+        uiClient: Android_Emulation_Control_UiControllerAsyncClient,
         frameBuffer: SharedFrameBuffer
     ) async throws {
         let decoder = JSONDecoder()
@@ -114,7 +122,7 @@ struct BridgeRuntime {
                 guard !pending.isEmpty else { continue }
                 let command = try decoder.decode(BridgeCommand.self, from: pending)
                 pending.removeAll(keepingCapacity: true)
-                try await process(command, client: client, frameBuffer: frameBuffer)
+                try await process(command, client: client, uiClient: uiClient, frameBuffer: frameBuffer)
             } else {
                 pending.append(byte)
             }
@@ -124,6 +132,7 @@ struct BridgeRuntime {
     private func process(
         _ command: BridgeCommand,
         client: Android_Emulation_Control_EmulatorControllerAsyncClient,
+        uiClient: Android_Emulation_Control_UiControllerAsyncClient,
         frameBuffer: SharedFrameBuffer
     ) async throws {
         switch command.type {
@@ -145,6 +154,10 @@ struct BridgeRuntime {
             event.key = command.key ?? ""
             event.text = command.text ?? ""
             _ = try await client.sendKey(event)
+        case "showExtendedControls":
+            var entry = Android_Emulation_Control_PaneEntry()
+            entry.index = .keepCurrent
+            _ = try await uiClient.showExtendedControls(entry)
         default:
             return
         }

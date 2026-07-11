@@ -185,22 +185,7 @@ final class AndroidEmulatorCaptureNSView: NSView {
     }
 
     func showVendorWindow() {
-        guard let configuration else { return }
-        let identity = AndroidEmulatorProcessIdentity()
-        let emulatorDirectory = configuration.sdkRootURL
-            .appendingPathComponent("emulator", isDirectory: true)
-            .standardizedFileURL.resolvingSymlinksInPath()
-        NSWorkspace.shared.runningApplications.first { application in
-            guard let executable = application.executableURL?.standardizedFileURL.resolvingSymlinksInPath(),
-                  executable.pathComponents.starts(with: emulatorDirectory.pathComponents) else {
-                return false
-            }
-            return identity.matches(
-                processIdentifier: Int32(application.processIdentifier),
-                avdName: configuration.avdName,
-                serial: configuration.serial
-            )
-        }?.activate()
+        bridge?.showExtendedControls()
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -445,6 +430,10 @@ private final class AndroidEmulatorBridgeSession {
 
     func sendKey(key: String) {
         send(AndroidBridgeCommand(type: "key", key: key))
+    }
+
+    func showExtendedControls() {
+        send(AndroidBridgeCommand(type: "showExtendedControls"))
     }
 
     func release(slot: Int) {

@@ -10,6 +10,21 @@ service EmulatorController {
   rpc sendKey(KeyboardEvent) returns (google.protobuf.Empty) {}
 }
 
+service UiController {
+  rpc showExtendedControls(PaneEntry) returns (ExtendedControlsStatus) {}
+}
+
+message PaneEntry {
+  enum PaneIndex {
+    KEEP_CURRENT = 0;
+  }
+  PaneIndex index = 1;
+}
+
+message ExtendedControlsStatus {
+  bool visibilityChanged = 1;
+}
+
 message Rotation {
   enum SkinRotation {
     PORTRAIT = 0;
