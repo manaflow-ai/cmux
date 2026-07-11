@@ -21,11 +21,13 @@ import {
   assetsSeoCopy,
   bestTerminalSeoCopy,
   blogIndexSeoCopy,
+  blogPostSeoCopy,
   cmuxHistorySeoCopy,
   communitySeoCopy,
   compareIndexSeoCopy,
   comparePageSeoCopy,
   homeSeoCopy,
+  landingPageSeoCopy,
   ohMyPiSeoCopy,
   pricingSeoCopy,
 } from "../i18n/audited-seo";
@@ -339,6 +341,75 @@ describe("SEO metadata helpers", () => {
         );
       }
       expect(new Set(compareTitles).size).toBe(comparePages.length);
+
+      const auditedBlogPosts = [
+        ["cmux-omo", "cmuxOmo"],
+        ["gpl", "gpl"],
+        ["show-hn-launch", "showHnLaunch"],
+        ["session-restore", "sessionRestore"],
+        ["cmux-home", "cmuxHome"],
+        ["introducing-cmux", "introducingCmux"],
+        ["claude-code-best-worktree-manager", "claudeCodeBestWorktreeManager"],
+        ["zen-of-cmux", "zenOfCmux"],
+        ["cmd-shift-u", "cmdShiftU"],
+        ["unread-shortcuts", "unreadShortcuts"],
+        ["passkey-auth", "passkeyAuth"],
+      ] as const;
+      for (const [slug, postKey] of auditedBlogPosts) {
+        const metadata = messages.blog[postKey];
+        const post = messages.blog.posts[postKey];
+        rows.push(
+          auditedRow(
+            `/blog/${slug}`,
+            blogPostSeoCopy(
+              locale,
+              postKey,
+              messageLookup(metadata),
+              messageLookup(post),
+              siteMeta,
+            ),
+            [metadata.metaDescription, post.title, post.summary],
+            [metadata.metaTitle, post.title],
+          ),
+        );
+      }
+
+      rows.push(
+        auditedRow(
+          "/nightly",
+          landingPageSeoCopy(
+            locale,
+            messageLookup(messages.nightly),
+            siteMeta,
+            ["title", "description", "subtitle"],
+          ),
+          [
+            messages.nightly.metaDescription,
+            messages.nightly.title,
+            messages.nightly.description,
+            messages.nightly.subtitle,
+          ],
+          [messages.nightly.metaTitle, messages.nightly.title],
+        ),
+        auditedRow(
+          "/guides",
+          landingPageSeoCopy(
+            locale,
+            messageLookup(messages.landing.guides),
+            siteMeta,
+            ["title", "intro"],
+          ),
+          [
+            messages.landing.guides.metaDescription,
+            messages.landing.guides.title,
+            messages.landing.guides.intro,
+          ],
+          [
+            messages.landing.guides.metaTitle,
+            messages.landing.guides.title,
+          ],
+        ),
+      );
 
       if (locale === "en" || locale === "ja") {
         const pricing = messageLookup(messages.pricing);
