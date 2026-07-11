@@ -84,6 +84,136 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
 
     @MainActor
     @Test
+    func currentPortalOwnerGeometryChurnCreatesNoCandidateCleanupTasks() async {
+        let surface = TerminalSurface(
+            tabId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+        defer { surface.teardownSurface() }
+        let host = TerminalPortalHostContainerView(
+            frame: CGRect(x: 0, y: 0, width: 400, height: 300)
+        )
+        let pane = PaneID()
+        let coordinator = GhosttyTerminalView.Coordinator()
+        coordinator.attachGeneration = 1
+        let ownershipGeneration = surface.currentPortalHostOwnershipGeneration()
+        #expect(surface.claimPortalHost(
+            hostId: ObjectIdentifier(host),
+            paneId: pane,
+            ownershipGeneration: ownershipGeneration,
+            inWindow: true,
+            bounds: host.bounds,
+            reason: "test.currentOwner.cleanupPressure"
+        ))
+        let snapshot = TerminalPortalMutationSnapshot(
+            attachGeneration: 1,
+            expectedSurfaceId: surface.id,
+            expectedSurfaceGeneration: surface.portalBindingGeneration(),
+            paneId: pane,
+            ownershipGeneration: ownershipGeneration,
+            portalPresentation: { .visible(isActive: true, zPriority: 2) },
+            showsInactiveOverlay: false,
+            showsUnreadNotificationRing: false,
+            inactiveOverlayColor: .clear,
+            inactiveOverlayOpacity: 0,
+            searchState: nil,
+            paneDropZone: nil,
+            keyStateIndicatorText: nil,
+            onFocus: nil,
+            onTriggerFlash: nil
+        )
+        var lastSchedule: TerminalPortalMutationSchedule?
+        var cleanupTaskCount = 0
+
+        for _ in 0..<128 {
+            let schedule = GhosttyTerminalView.schedulePortalMutation(
+                host: host,
+                hostedView: surface.hostedView,
+                terminalSurface: surface,
+                coordinator: coordinator,
+                snapshot: snapshot,
+                reason: "test.currentOwner.cleanupPressure"
+            )
+            if schedule?.candidateCleanupTask != nil {
+                cleanupTaskCount += 1
+            }
+            lastSchedule = schedule
+        }
+
+        #expect(
+            cleanupTaskCount == 0,
+            "Repeated current-owner layout updates must share the scheduler drain without candidate cleanup tasks"
+        )
+        coordinator.portalMutationScheduler.cancel()
+        if let lastSchedule {
+            await lastSchedule.value
+        }
+    }
+
+    @MainActor
+    @Test
+    func replacementPortalHostCreatesCandidateCleanupTask() async {
+        let surface = TerminalSurface(
+            tabId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+        defer { surface.teardownSurface() }
+        let owner = TerminalPortalHostContainerView(
+            frame: CGRect(x: 0, y: 0, width: 400, height: 300)
+        )
+        let replacement = TerminalPortalHostContainerView(frame: owner.frame)
+        let pane = PaneID()
+        let coordinator = GhosttyTerminalView.Coordinator()
+        coordinator.attachGeneration = 1
+        let ownershipGeneration = surface.currentPortalHostOwnershipGeneration()
+        #expect(surface.claimPortalHost(
+            hostId: ObjectIdentifier(owner),
+            paneId: pane,
+            ownershipGeneration: ownershipGeneration,
+            inWindow: true,
+            bounds: owner.bounds,
+            reason: "test.replacement.cleanup"
+        ))
+        let snapshot = TerminalPortalMutationSnapshot(
+            attachGeneration: 1,
+            expectedSurfaceId: surface.id,
+            expectedSurfaceGeneration: surface.portalBindingGeneration(),
+            paneId: pane,
+            ownershipGeneration: ownershipGeneration,
+            portalPresentation: { .visible(isActive: true, zPriority: 2) },
+            showsInactiveOverlay: false,
+            showsUnreadNotificationRing: false,
+            inactiveOverlayColor: .clear,
+            inactiveOverlayOpacity: 0,
+            searchState: nil,
+            paneDropZone: nil,
+            keyStateIndicatorText: nil,
+            onFocus: nil,
+            onTriggerFlash: nil
+        )
+
+        let schedule = GhosttyTerminalView.schedulePortalMutation(
+            host: replacement,
+            hostedView: surface.hostedView,
+            terminalSurface: surface,
+            coordinator: coordinator,
+            snapshot: snapshot,
+            reason: "test.replacement.cleanup"
+        )
+
+        #expect(schedule?.candidateCleanupTask != nil)
+        coordinator.portalMutationScheduler.cancel()
+        if let schedule {
+            await schedule.value
+        }
+    }
+
+    @MainActor
+    @Test
     func portalMutationSchedulerReadsLiveWorkspaceSelection() async throws {
         let manager = TabManager()
         defer { manager.tabs.forEach { $0.teardownAllPanels() } }
