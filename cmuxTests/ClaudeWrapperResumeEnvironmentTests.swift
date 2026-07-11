@@ -35,7 +35,7 @@ import Testing
             #!/usr/bin/env bash
             {
               printf 'argv=%s\\n' "$*"
-              for key in CLAUDECODE CLAUDE_CODE CLAUDE_CODE_CHILD_SESSION CLAUDE_CODE_PARENT_SESSION_ID CLAUDE_CODE_SESSION_ID CLAUDE_CODE_ENTRYPOINT CLAUDE_CODE_EXECPATH CLAUDE_CODE_SSE_PORT CLAUDE_CODE_USE_VERTEX; do
+              for key in CLAUDECODE CLAUDE_CODE CLAUDE_CODE_CHILD_SESSION CLAUDE_CODE_BRIDGE_SESSION_ID CLAUDE_CODE_PARENT_SESSION_ID CLAUDE_CODE_SESSION_ID CLAUDE_CODE_ENTRYPOINT CLAUDE_CODE_EXECPATH CLAUDE_CODE_SSE_PORT CLAUDE_CODE_USE_VERTEX; do
                 if value="$(printenv "$key")"; then
                   printf '%s=%s\\n' "$key" "$value"
                 else
@@ -70,6 +70,7 @@ import Testing
             "CLAUDECODE": "1",
             "CLAUDE_CODE": "1",
             "CLAUDE_CODE_CHILD_SESSION": "parent-child",
+            "CLAUDE_CODE_BRIDGE_SESSION_ID": "session_parent-bridge",
             "CLAUDE_CODE_PARENT_SESSION_ID": "parent-session",
             "CLAUDE_CODE_SESSION_ID": "parent-session",
             "CLAUDE_CODE_ENTRYPOINT": "cli",
@@ -89,6 +90,7 @@ import Testing
             "CLAUDECODE",
             "CLAUDE_CODE",
             "CLAUDE_CODE_CHILD_SESSION",
+            "CLAUDE_CODE_BRIDGE_SESSION_ID",
             "CLAUDE_CODE_PARENT_SESSION_ID",
             "CLAUDE_CODE_SESSION_ID",
             "CLAUDE_CODE_ENTRYPOINT",
