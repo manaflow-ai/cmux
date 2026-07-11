@@ -657,7 +657,8 @@ public actor CmxIrohHostRuntime {
         } catch is CancellationError {
             return
         } catch {
-            guard Self.preservesVerifiedPolicyDuringRefresh(error) else {
+            guard CmxIrohTrustBrokerClientError
+                .preservesVerifiedPolicyDuringRefresh(error) else {
                 lifecyclePhase = .stopping
                 lifecycleRevision &+= 1
                 let failureRevision = lifecycleRevision
@@ -673,9 +674,9 @@ public actor CmxIrohHostRuntime {
                 }
                 return
             }
-            // A connectivity outage or broker throttle cannot invalidate policy
-            // that this generation already authenticated. The next real network
-            // change can retry without a local busy loop.
+            // Broker availability cannot invalidate policy that this generation
+            // already authenticated. The next network change can retry without a
+            // local busy loop.
         }
     }
 
@@ -791,17 +792,6 @@ public actor CmxIrohHostRuntime {
             return false
         }
         return brokerError == .connectivity
-    }
-
-    private static func preservesVerifiedPolicyDuringRefresh(
-        _ error: any Error
-    ) -> Bool {
-        if isConnectivityFailure(error) { return true }
-        guard let brokerError = error as? CmxIrohTrustBrokerClientError,
-              case let .rejected(statusCode, _) = brokerError else {
-            return false
-        }
-        return statusCode == 429
     }
 
     private static func date(_ value: String) -> Date? {

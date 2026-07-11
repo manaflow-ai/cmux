@@ -301,16 +301,27 @@ struct CmxIrohHostRuntimeTests {
         await runtime.stop()
     }
 
-    @Test
-    func rateLimitedRegistrationRefreshPreservesActiveEndpoint() async throws {
+    @Test(arguments: [
+        CmxIrohTrustBrokerClientError.rejected(
+            statusCode: 408,
+            code: "request_timeout"
+        ),
+        .rejected(statusCode: 425, code: "too_early"),
+        CmxIrohTrustBrokerClientError.rejected(
+            statusCode: 429,
+            code: "challenge_rate_limited"
+        ),
+        .rejected(statusCode: 503, code: "unavailable"),
+    ])
+    func unavailableRegistrationRefreshPreservesActiveEndpoint(
+        _ failure: CmxIrohTrustBrokerClientError
+    ) async throws {
         let fixture = try HostRuntimeFixture()
         let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
         let broker = TestIrohHostBroker(
             registrationBinding: fixture.binding,
             discovery: fixture.discovery,
-            subsequentRegistrationErrors: [
-                .rejected(statusCode: 429, code: "challenge_rate_limited"),
-            ]
+            subsequentRegistrationErrors: [failure]
         )
         let deactivations = HostRuntimeDeactivationRecorder()
         let runtime = CmxIrohHostRuntime(
@@ -334,6 +345,40 @@ struct CmxIrohHostRuntimeTests {
         #expect(await endpoint.observedCloseCallCount() == 0)
         #expect(await deactivations.values().isEmpty)
         await runtime.stop()
+    }
+
+    @Test
+    func unauthorizedRegistrationRefreshDeactivatesActiveEndpoint() async throws {
+        let fixture = try HostRuntimeFixture()
+        let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
+        let broker = TestIrohHostBroker(
+            registrationBinding: fixture.binding,
+            discovery: fixture.discovery,
+            subsequentRegistrationErrors: [
+                .rejected(statusCode: 401, code: "unauthorized"),
+            ]
+        )
+        let deactivations = HostRuntimeDeactivationRecorder()
+        let runtime = CmxIrohHostRuntime(
+            factory: TestIrohEndpointFactory(endpoints: [endpoint]),
+            broker: broker,
+            configuration: fixture.configuration,
+            pendingRevocations: fixture.pendingRevocations(),
+            handleTransport: { session, _ in await session.close() },
+            handleDeactivation: { bindingID in
+                await deactivations.record(bindingID)
+            }
+        )
+        try await runtime.start()
+
+        await endpoint.emit(.networkChanged)
+        await broker.waitForRegistrationCount(2)
+        // Give the runtime actor a bounded window to finish fail-closed teardown.
+        try await ContinuousClock().sleep(for: .milliseconds(50))
+
+        #expect(await runtime.snapshot().state == .failed)
+        #expect(await endpoint.observedCloseCallCount() == 1)
+        #expect(await deactivations.values() == [fixture.binding.bindingID])
     }
 
     @Test

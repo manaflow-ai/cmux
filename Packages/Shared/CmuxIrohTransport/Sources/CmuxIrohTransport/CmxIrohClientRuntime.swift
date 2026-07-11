@@ -637,8 +637,10 @@ public actor CmxIrohClientRuntime {
                 await handleCachedBindings(policy.cachedTargetBindings, lanRendezvous)
             }
         } catch {
-            guard !Self.isConnectivity(error) else {
-                // Keep the last exact verified binding only while the broker is unreachable.
+            guard !CmxIrohTrustBrokerClientError
+                .preservesVerifiedPolicyDuringRefresh(error) else {
+                // Keep the last exact verified binding while broker availability
+                // prevents a refresh.
                 return
             }
             lifecyclePhase = .stopping

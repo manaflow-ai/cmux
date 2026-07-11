@@ -214,8 +214,21 @@ struct CmxIrohClientRuntimeTests {
         await runtime.stop()
     }
 
-    @Test
-    func foregroundRateLimitKeepsLastVerifiedPolicy() async throws {
+    @Test(arguments: [
+        CmxIrohTrustBrokerClientError.rejected(
+            statusCode: 408,
+            code: "request_timeout"
+        ),
+        .rejected(statusCode: 425, code: "too_early"),
+        CmxIrohTrustBrokerClientError.rejected(
+            statusCode: 429,
+            code: "challenge_rate_limited"
+        ),
+        .rejected(statusCode: 503, code: "unavailable"),
+    ])
+    func foregroundAvailabilityFailureKeepsLastVerifiedPolicy(
+        _ failure: CmxIrohTrustBrokerClientError
+    ) async throws {
         let fixture = try ClientRuntimeTestFixture()
         let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
         let broker = TestIrohClientBroker(
@@ -239,12 +252,7 @@ struct CmxIrohClientRuntimeTests {
             }
         )
         try await runtime.start()
-        await broker.setRegistrationError(
-            CmxIrohTrustBrokerClientError.rejected(
-                statusCode: 429,
-                code: "challenge_rate_limited"
-            )
-        )
+        await broker.setRegistrationError(failure)
 
         try await runtime.didBecomeActive()
 
