@@ -12,6 +12,8 @@
 import { jsonResponse } from "../../../../services/vms/routeHelpers";
 import { verifyRequest } from "../../../../services/vms/auth";
 import { readBoundedJsonObject } from "../../../../services/apns/routePolicy";
+import { cloudDb } from "../../../../db/client";
+import { hasBlockingAccountDeletionIdentity } from "../../../../services/account/deletionLock";
 import {
   MAX_ANALYTICS_BATCH_EVENTS,
   MAX_ANALYTICS_EVENT_PROPERTIES,
@@ -78,6 +80,17 @@ export async function POST(request: Request): Promise<Response> {
     // Every event was rejected by the allowlist/shape check. Treat as a client
     // bug (4xx): retrying the same payload will not help.
     return jsonResponse({ error: "no_valid_events" }, 400);
+  }
+
+  // A queued identified batch can arrive after Stack authentication has been
+  // deleted. In that case the old account id becomes client-supplied input, so
+  // check both the authenticated identity and every accepted client distinct id
+  // against durable deletion tombstones before PostHog can recreate the person.
+  const identityCandidates = user
+    ? [user.id]
+    : accepted.flatMap((event) => event.distinctID ? [event.distinctID] : []);
+  if (await hasBlockingAccountDeletionIdentity(cloudDb(), identityCandidates)) {
+    return jsonResponse({ error: "account_deleted" }, 410);
   }
 
   const forwarded = await forwardToPostHog(accepted, user?.id ?? null);

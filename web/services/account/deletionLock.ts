@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { eq, sql } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
 import type { cloudDb } from "../../db/client";
 import { accountDeletionTombstones } from "../../db/schema";
 
@@ -43,6 +43,34 @@ export function isBlockingAccountDeletionTombstone(
   if (!isBlockingAccountDeletionStatus(tombstone.status)) return false;
   if (tombstone.status === "completed" || tombstone.status === "cleanup_incomplete") return true;
   return !isStaleAccountDeletionTombstone(tombstone.updatedAt, now);
+}
+
+export async function hasBlockingAccountDeletionIdentity(
+  db: ReturnType<typeof cloudDb>,
+  userIds: readonly string[],
+): Promise<boolean> {
+  const userIdHashes = [
+    ...new Set(
+      userIds
+        .filter((userId) => userId.length > 0)
+        .map(accountDeletionUserHash),
+    ),
+  ];
+  if (userIdHashes.length === 0) return false;
+
+  const tombstones = await db
+    .select({
+      userIdHash: accountDeletionTombstones.userIdHash,
+      status: accountDeletionTombstones.status,
+      updatedAt: accountDeletionTombstones.updatedAt,
+    })
+    .from(accountDeletionTombstones)
+    .where(inArray(accountDeletionTombstones.userIdHash, userIdHashes));
+
+  return tombstones.some((tombstone) =>
+    userIdHashes.includes(tombstone.userIdHash)
+      && isBlockingAccountDeletionTombstone(tombstone),
+  );
 }
 
 export async function assertAccountDeletionUserMutationAllowed(
