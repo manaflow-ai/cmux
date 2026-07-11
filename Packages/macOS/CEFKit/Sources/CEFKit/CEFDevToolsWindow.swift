@@ -14,7 +14,16 @@ public final class CEFDevToolsWindow: NSObject, NSWindowDelegate {
     /// Runs on the main thread after the window and its browser are gone.
     public var onClose: (() -> Void)?
 
-    /// Instances keep themselves alive while their window is open.
+    /// Set when the window closes; a browser creation completing afterwards
+    /// must tear the browser down instead of resurrecting the window.
+    private var isClosed = false
+    /// True while the frontend browser's asynchronous creation is in
+    /// flight; teardown is deferred to the creation completion so the
+    /// delegate/parent view outlive CEF's async creation.
+    private var isAwaitingBrowser = false
+
+    /// Instances keep themselves alive while their window is open (and
+    /// while a browser creation is still in flight).
     private static var openWindows: Set<CEFDevToolsWindow> = []
 
     /// Opens a DevTools window for `browser`. Completion runs on the main
@@ -37,15 +46,31 @@ public final class CEFDevToolsWindow: NSObject, NSWindowDelegate {
             let devToolsWindow = CEFDevToolsWindow(title: title)
             let container = devToolsWindow.window.contentView as! CEFBrowserContainerView
             openWindows.insert(devToolsWindow)
+            devToolsWindow.isAwaitingBrowser = true
             CEFBrowser.create(
                 in: container,
                 frame: container.bounds,
                 url: frontend,
                 delegate: devToolsWindow
             ) { devToolsBrowser in
+                devToolsWindow.isAwaitingBrowser = false
                 guard let devToolsBrowser else {
                     openWindows.remove(devToolsWindow)
-                    devToolsWindow.window.close()
+                    if devToolsWindow.isClosed {
+                        devToolsWindow.onClose?()
+                    } else {
+                        devToolsWindow.window.close()
+                    }
+                    completion(nil)
+                    return
+                }
+                if devToolsWindow.isClosed {
+                    // The window was dismissed while creation was in
+                    // flight: do not resurrect it. Adopt the browser only
+                    // to close it; browserDidClose finishes the deferred
+                    // teardown (onClose + openWindows removal).
+                    devToolsWindow.browser = devToolsBrowser
+                    devToolsBrowser.close(force: true)
                     completion(nil)
                     return
                 }
@@ -82,11 +107,13 @@ public final class CEFDevToolsWindow: NSObject, NSWindowDelegate {
     /// browser view, and browser destruction is asynchronous. The window (and
     /// this controller) must stay alive until browserDidClose confirms the
     /// browser is gone; releasing the NSWindow first is a use-after-free
-    /// inside Chromium (objc_zombie NSWindow abort).
+    /// inside Chromium (objc_zombie NSWindow abort). Closing while creation
+    /// is still in flight defers teardown to the creation completion.
     public func windowWillClose(_ notification: Notification) {
+        isClosed = true
         if let browser {
             browser.close(force: true)
-        } else {
+        } else if !isAwaitingBrowser {
             onClose?()
             Self.openWindows.remove(self)
         }
