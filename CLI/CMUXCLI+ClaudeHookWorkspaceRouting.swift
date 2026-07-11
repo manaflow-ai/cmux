@@ -40,7 +40,7 @@ extension CMUXCLI {
             }
             let validated = CallerTerminalBindingResolution(
                 binding: binding,
-                isAmbiguous: resolution.isAmbiguous && binding == nil,
+                isAmbiguous: resolution.isAmbiguous || (resolution.binding != nil && binding == nil),
                 usedTargetedResolver: true
             )
             cached = validated
@@ -99,6 +99,10 @@ extension CMUXCLI {
                client: client
            ) {
             return callerWorkspaceId
+        }
+        if preferCallerTTYOverFallback,
+           callerTerminalBinding?().isAmbiguous == true {
+            return nil
         }
         if let fallback = nonEmptyClaudeHookIdentifier(fallback),
            let resolved = strictClaudeHookWorkspaceId(fallback, client: client) {
@@ -161,12 +165,14 @@ extension CMUXCLI {
         if let pid, pid > 0 { targetedParams["pid"] = pid }
         if !targetedParams.isEmpty,
            let payload = try? client.sendV2(method: "system.resolve_terminal", params: targetedParams) {
-            return targetedCallerTerminalBindingResolution(payload)
+            if let resolution = targetedCallerTerminalBindingResolution(payload) {
+                return resolution
+            }
         }
         if !allowDiagnosticFallback {
             return CallerTerminalBindingResolution(
                 binding: nil,
-                isAmbiguous: false,
+                isAmbiguous: !targetedParams.isEmpty,
                 usedTargetedResolver: true
             )
         }
@@ -196,7 +202,12 @@ extension CMUXCLI {
 
     private func targetedCallerTerminalBindingResolution(
         _ payload: [String: Any]
-    ) -> CallerTerminalBindingResolution {
+    ) -> CallerTerminalBindingResolution? {
+        guard let rawTTYBindings = payload["tty_bindings"] as? [Any],
+              payload.keys.contains("pid_binding"),
+              payload["pid_binding"] is NSNull || payload["pid_binding"] is [String: Any] else {
+            return nil
+        }
         func binding(_ value: Any?) -> CallerTerminalBinding? {
             guard let object = value as? [String: Any],
                   let workspaceId = normalizedHandleValue(object["workspace_id"] as? String),
@@ -211,14 +222,18 @@ extension CMUXCLI {
         }
 
         var ttyBindings: [CallerTerminalBinding] = []
-        for raw in payload["tty_bindings"] as? [Any] ?? [] {
-            guard let candidate = binding(raw),
-                  !ttyBindings.contains(where: { same($0, candidate) }) else {
-                continue
-            }
+        for raw in rawTTYBindings {
+            guard let candidate = binding(raw) else { return nil }
+            guard !ttyBindings.contains(where: { same($0, candidate) }) else { continue }
             ttyBindings.append(candidate)
         }
-        let pidBinding = binding(payload["pid_binding"])
+        let pidBinding: CallerTerminalBinding?
+        if payload["pid_binding"] is NSNull {
+            pidBinding = nil
+        } else {
+            guard let decoded = binding(payload["pid_binding"]) else { return nil }
+            pidBinding = decoded
+        }
         if ttyBindings.count == 1, let ttyBinding = ttyBindings.first {
             if let pidBinding, !same(ttyBinding, pidBinding) {
                 return CallerTerminalBindingResolution(

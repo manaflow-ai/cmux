@@ -2290,7 +2290,7 @@ final class Workspace: Identifiable, ObservableObject {
     /// surface-registry sub-model.
     var surfaceTTYNames: [UUID: String] {
         get { surfaceRegistry.surfaceTTYNames }
-        set { surfaceRegistry.surfaceTTYNames = newValue }
+        set { surfaceRegistry.surfaceTTYNames = newValue; TerminalController.invalidateTerminalResolverBindingCaches() }
     }
     private var remoteSessionController: RemoteSessionCoordinator?
     private var pendingRemoteForegroundAuthToken: String?
