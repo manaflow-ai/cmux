@@ -123,6 +123,11 @@ describe("iOS analytics events route", () => {
 
   test("serializes an in-flight forward before account deletion can tombstone and delete analytics", async () => {
     let transactionTail = Promise.resolve();
+    let transactionAttempts = 0;
+    let markSecondTransactionAttempted: (() => void) | undefined;
+    const secondTransactionAttempted = new Promise<void>((resolve) => {
+      markSecondTransactionAttempted = resolve;
+    });
     let deletionStarted = false;
     let releaseForward: (() => void) | undefined;
     let markForwardStarted: (() => void) | undefined;
@@ -140,6 +145,8 @@ describe("iOS analytics events route", () => {
         transactionTail = new Promise<void>((resolve) => {
           releaseTransaction = resolve;
         });
+        transactionAttempts += 1;
+        if (transactionAttempts === 2) markSecondTransactionAttempted?.();
         await previousTransaction;
         try {
           return await operation({
@@ -172,7 +179,7 @@ describe("iOS analytics events route", () => {
         updatedAt: new Date(),
       }];
     });
-    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    await secondTransactionAttempted;
 
     expect(deletionStarted).toBe(false);
 
