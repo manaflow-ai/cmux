@@ -172,6 +172,7 @@ public struct HTTPAnalyticsUploader: AnalyticsUploading {
             guard let http = response as? HTTPURLResponse else { return .retry }
             return Self.result(forStatusCode: http.statusCode, label: label)
         } catch {
+            if Task.isCancelled { return .drop }
             analyticsUploadLog.error("\(label, privacy: .public) transport error=\(error.localizedDescription, privacy: .private)")
             return .retry
         }

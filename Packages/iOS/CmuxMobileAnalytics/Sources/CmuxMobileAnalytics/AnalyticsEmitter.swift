@@ -298,6 +298,7 @@ public actor AnalyticsEmitter: AnalyticsEmitting {
         // its barrier, so an opt-out followed by a background flush also drops.
         guard consent.isTelemetryEnabled else {
             pending.removeAll()
+            uploadOutageOpen = false
             return
         }
         while !pending.isEmpty {
