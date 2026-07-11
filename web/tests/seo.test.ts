@@ -74,7 +74,7 @@ describe("SEO metadata helpers", () => {
 
 describe("SEO middleware", () => {
   test("does not advertise unsupported locale variants globally", () => {
-    const response = middleware(requestFor("/docs/base"));
+    const response = middleware(requestFor("/ja/docs/remote-tmux"));
 
     expect(response.status).toBe(200);
     expect(response.headers.get("link")).toBeNull();
