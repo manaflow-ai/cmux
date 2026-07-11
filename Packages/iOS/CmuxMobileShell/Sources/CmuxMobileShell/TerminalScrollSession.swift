@@ -185,9 +185,12 @@ final class TerminalScrollSession {
 
     func submit(lines: Double, col: Int, row: Int) {
         guard lines != 0 else { return }
-        prepareIntent()
         latestClientRevision &+= 1
         if latestClientRevision == 0 { latestClientRevision = 1 }
+        // Stamp the newer revision before invalidating an unclaimed
+        // reconciliation delivery so any stale apply acknowledgement cannot
+        // complete the new intent.
+        prepareIntent()
         lastDirectionLines = lines
         lastCol = max(0, col)
         lastRow = max(0, row)

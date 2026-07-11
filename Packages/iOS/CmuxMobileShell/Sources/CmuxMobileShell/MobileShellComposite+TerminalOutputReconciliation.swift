@@ -23,7 +23,7 @@ extension MobileShellComposite {
 
     func prepareTerminalOutputForOptimisticScroll(surfaceID: String) {
         guard var queue = terminalOutputQueuesBySurfaceID[surfaceID] else { return }
-        let promoted = queue.discardUnclaimedViewportDeliveries()
+        let promoted = queue.discardUnclaimedForOptimisticScroll()
         terminalOutputQueuesBySurfaceID[surfaceID] = queue
         guard let promoted,
               let continuation = terminalByteContinuationsBySurfaceID[surfaceID],

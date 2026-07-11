@@ -139,7 +139,7 @@ import Testing
     #expect(queue.enqueue(rawBytes) == nil)
     #expect(queue.enqueue(pendingGrid) == nil)
 
-    #expect(queue.discardUnclaimedViewportDeliveries() == rawBytes)
+    #expect(queue.discardUnclaimedForOptimisticScroll() == rawBytes)
     let staleClaim = queue.claimInFlight(deliveryID: yieldedGrid.deliveryID)
     let rawClaim = queue.claimInFlight(deliveryID: rawBytes.deliveryID)
     #expect(!staleClaim)
@@ -167,7 +167,7 @@ import Testing
     #expect(queue.enqueue(rawBytes) == nil)
     #expect(queue.enqueue(pendingGrid) == nil)
 
-    #expect(queue.discardUnclaimedViewportDeliveries() == nil)
+    #expect(queue.discardUnclaimedForOptimisticScroll() == nil)
     #expect(queue.currentInFlight == claimedGrid)
     #expect(queue.completeInFlight() == rawBytes)
     #expect(queue.completeInFlight() == nil)
@@ -203,10 +203,65 @@ import Testing
     #expect(queue.enqueue(rawBytes) == nil)
     #expect(queue.enqueue(replaceableGrid) == nil)
 
-    #expect(queue.discardUnclaimedViewportDeliveries() == nil)
+    #expect(queue.discardUnclaimedForOptimisticScroll() == nil)
     #expect(queue.currentInFlight == incrementalGrid)
     #expect(queue.completeInFlight() == rawBytes)
     #expect(queue.completeInFlight() == nil)
+}
+
+@Test func optimisticScrollDiscardsUnclaimedIncrementalReconciliation() throws {
+    var queue = TerminalOutputDeliveryQueue()
+    let reconciliation = TerminalScrollReconciliation(interactionEpoch: 1, clientRevision: 1)
+    let frame = try MobileTerminalRenderGridFrame.fromPlainRows(
+        surfaceID: "terminal",
+        stateSeq: 1,
+        columns: 12,
+        rows: 2,
+        text: "old\nreconcile",
+        full: false,
+        changedRows: [0]
+    )
+    let stale = TerminalOutputDelivery(
+        renderGrid: frame,
+        replaceable: false,
+        scrollReconciliation: reconciliation
+    )
+    let rawBytes = TerminalOutputDelivery(bytes: Data("raw".utf8), replaceable: false)
+
+    #expect(queue.enqueue(stale) == stale)
+    #expect(queue.enqueue(rawBytes) == nil)
+    #expect(queue.discardUnclaimedForOptimisticScroll() == rawBytes)
+    let staleClaim = queue.claimInFlight(deliveryID: stale.deliveryID)
+    let rawClaim = queue.claimInFlight(deliveryID: rawBytes.deliveryID)
+    #expect(!staleClaim)
+    #expect(rawClaim)
+}
+
+@MainActor
+@Test func terminalOutputUnmountRetiresScrollRevisionState() async throws {
+    let store = MobileShellComposite.preview()
+    let surfaceID = "terminal"
+    _ = store.mountTerminalScrollSession(
+        surfaceID: surfaceID,
+        applyLocal: { _ in true },
+        cancelLocal: {}
+    )
+    store.acceptTerminalRenderRevision(42, surfaceID: surfaceID)
+    let consumer = Task { @MainActor in
+        for await _ in store.terminalOutputStream(surfaceID: surfaceID) {}
+    }
+    let registered = try await pollUntil {
+        store.terminalOutputStreamTokensBySurfaceID[surfaceID] != nil
+    }
+    #expect(registered)
+
+    consumer.cancel()
+    await consumer.value
+    let retired = try await pollUntil {
+        store.terminalInteractionEpochsBySurfaceID[surfaceID] == nil
+            && store.acceptedTerminalRenderRevisionsBySurfaceID[surfaceID] == nil
+    }
+    #expect(retired)
 }
 
 @Test func deferredIncrementalRenderGridsRequireReplayWithoutGrowingAQueue() throws {

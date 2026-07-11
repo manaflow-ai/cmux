@@ -84,6 +84,10 @@ struct TerminalOutputDelivery: Equatable, Sendable {
         replacementScope == .renderGridViewport || replacementScope == .byteViewport
     }
 
+    var isSupersededByOptimisticScroll: Bool {
+        isViewportRepaint || scrollReconciliation != nil
+    }
+
     var bytes: Data {
         switch payload {
         case .bytes(let bytes):
@@ -184,9 +188,9 @@ struct TerminalOutputDeliveryQueue: Sendable {
     /// a subsequently submitted local scroll. Raw PTY bytes and policy barriers
     /// remain ordered. Returns the newly promoted delivery, if the yielded
     /// current frame itself was discarded.
-    mutating func discardUnclaimedViewportDeliveries() -> TerminalOutputDelivery? {
-        discardPendingViewportDeliveries()
-        guard inFlight?.isViewportRepaint == true, !inFlightClaimed else { return nil }
+    mutating func discardUnclaimedForOptimisticScroll() -> TerminalOutputDelivery? {
+        discardPendingOptimisticScrollDeliveries()
+        guard inFlight?.isSupersededByOptimisticScroll == true, !inFlightClaimed else { return nil }
         inFlight = popPending()
         inFlightClaimed = false
         return inFlight
@@ -224,9 +228,9 @@ struct TerminalOutputDeliveryQueue: Sendable {
         return next
     }
 
-    private mutating func discardPendingViewportDeliveries() {
+    private mutating func discardPendingOptimisticScrollDeliveries() {
         guard pendingHeadIndex < pending.count else { return }
-        pending = pending[pendingHeadIndex...].filter { !$0.isViewportRepaint }
+        pending = pending[pendingHeadIndex...].filter { !$0.isSupersededByOptimisticScroll }
         pendingHeadIndex = 0
     }
 }
