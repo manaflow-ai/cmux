@@ -296,12 +296,79 @@ import Testing
         #expect(await events.next() == .installReplied)
         #expect(received.choices == [.install])
     }
+
+    @Test func retryingFailedTerminationWaitsForFreshHostPreparation() async {
+        let model = UpdateStateModel()
+        let driver = UpdateDriver(
+            model: model,
+            log: NoopUpdateLog(),
+            clock: SystemUpdateClock(),
+            isDevLikeBundle: false
+        )
+        let events = RelaunchPreparationEventQueue()
+        let delegate = SuspendedRelaunchPreparationDelegate(events: events)
+        driver.actionDelegate = delegate
+
+        driver.showReady { _ in
+            MainActor.assumeIsolated { events.send(.installReplied) }
+        }
+        #expect(await events.next() == .preparationBegan)
+        delegate.finishPreparation()
+        #expect(await events.next() == .installReplied)
+
+        driver.showInstallingUpdate(withApplicationTerminated: false) {
+            MainActor.assumeIsolated { events.send(.terminationRetryInvoked) }
+        }
+        guard case .installing(let installing) = model.state else {
+            Issue.record("failed termination did not expose retry controls")
+            return
+        }
+
+        installing.retryTerminatingApplication()
+        guard await events.next() == .preparationBegan else {
+            Issue.record("Sparkle retry ran before a fresh host preparation")
+            return
+        }
+        delegate.finishPreparation()
+        #expect(await events.next() == .terminationRetryInvoked)
+    }
+
+    @Test func dismissingFailedTerminationInvalidatesHostPreparation() async {
+        let model = UpdateStateModel()
+        let driver = UpdateDriver(
+            model: model,
+            log: NoopUpdateLog(),
+            clock: SystemUpdateClock(),
+            isDevLikeBundle: false
+        )
+        let events = RelaunchPreparationEventQueue()
+        let delegate = SuspendedRelaunchPreparationDelegate(events: events)
+        driver.actionDelegate = delegate
+
+        driver.showReady { _ in
+            MainActor.assumeIsolated { events.send(.installReplied) }
+        }
+        #expect(await events.next() == .preparationBegan)
+        delegate.finishPreparation()
+        #expect(await events.next() == .installReplied)
+
+        driver.showInstallingUpdate(withApplicationTerminated: false, retryTerminatingApplication: {})
+        guard case .installing(let installing) = model.state else {
+            Issue.record("failed termination did not expose dismiss controls")
+            return
+        }
+        installing.dismiss()
+
+        #expect(delegate.relaunchInvalidationCount == 1)
+        #expect(model.state.isIdle)
+    }
 }
 
 @MainActor
 private final class SuspendedRelaunchPreparationDelegate: UpdateActionDelegate {
     private let events: RelaunchPreparationEventQueue
     private var preparationContinuation: CheckedContinuation<Void, Never>?
+    private(set) var relaunchInvalidationCount = 0
 
     init(events: RelaunchPreparationEventQueue) {
         self.events = events
@@ -314,6 +381,10 @@ private final class SuspendedRelaunchPreparationDelegate: UpdateActionDelegate {
         await withCheckedContinuation { continuation in
             preparationContinuation = continuation
         }
+    }
+
+    func updaterAbandonsRelaunchPreparation() {
+        relaunchInvalidationCount += 1
     }
 
     func updaterWillRelaunchApplication() {}
@@ -329,6 +400,7 @@ private final class RelaunchPreparationEventQueue {
     enum Event: Equatable {
         case preparationBegan
         case installReplied
+        case terminationRetryInvoked
     }
 
     private var bufferedEvents: [Event] = []
