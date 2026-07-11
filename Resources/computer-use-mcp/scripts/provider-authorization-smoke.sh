@@ -29,11 +29,20 @@ process.waitUntilExit()
 exit(process.terminationStatus)
 SWIFT
 /usr/bin/xcrun swiftc "$TMP/launcher.swift" -o "$LAUNCHER"
-cat > "$APP_HOST" <<'HOST'
-#!/bin/sh
-exit 0
-HOST
-chmod +x "$APP_HOST"
+cat > "$TMP/app-host.swift" <<'SWIFT'
+import Foundation
+
+let process = Process()
+process.executableURL = URL(fileURLWithPath: CommandLine.arguments[1])
+process.arguments = Array(CommandLine.arguments.dropFirst(2))
+process.standardInput = FileHandle.standardInput
+process.standardOutput = FileHandle.standardOutput
+process.standardError = FileHandle.standardError
+try process.run()
+process.waitUntilExit()
+exit(process.terminationStatus)
+SWIFT
+/usr/bin/xcrun swiftc "$TMP/app-host.swift" -o "$APP_HOST"
 cat > "$APP/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -53,7 +62,13 @@ const result = JSON.parse(process.argv[1]);
 if (result.ok !== false || result.code !== "provider.authorizationRequired") process.exit(1);
 ' "$DIRECT_OUTPUT"
 
-AUTHORIZED_OUTPUT="$(printf '%s\n' '{"op":"list_apps"}' | "$LAUNCHER" "$PROVIDER")"
+STANDALONE_OUTPUT="$(printf '%s\n' '{"op":"list_apps"}' | "$LAUNCHER" "$PROVIDER" || true)"
+node -e '
+const result = JSON.parse(process.argv[1]);
+if (result.ok !== false || result.code !== "provider.authorizationRequired") process.exit(1);
+' "$STANDALONE_OUTPUT"
+
+AUTHORIZED_OUTPUT="$(printf '%s\n' '{"op":"list_apps"}' | "$APP_HOST" "$LAUNCHER" "$PROVIDER")"
 node -e '
 const result = JSON.parse(process.argv[1]);
 if (result.ok !== true || !Array.isArray(result.apps)) process.exit(1);
