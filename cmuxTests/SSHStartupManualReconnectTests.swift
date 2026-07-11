@@ -202,7 +202,20 @@ struct SSHStartupManualReconnectTests {
         #expect(disconnectedPanel.surface !== panel.surface)
         #expect(workspace.remoteDisconnectPlaceholderPanelIds.contains(panel.id))
         let replayPath = try #require(disconnectedPanel.surface.startupEnvironmentValue(SessionScrollbackReplayStore.environmentKey))
+        defer { try? FileManager.default.removeItem(atPath: replayPath) }
         #expect(try String(contentsOfFile: replayPath, encoding: .utf8) == output)
+        let wrapperPath = try #require(disconnectedPanel.surface.initialCommand)
+        defer { try? FileManager.default.removeItem(atPath: wrapperPath) }
+        let result = Self.runProcess(
+            executablePath: "/bin/sh",
+            arguments: [wrapperPath],
+            environment: ["PATH": "/usr/bin", SessionScrollbackReplayStore.environmentKey: replayPath],
+            timeout: 5
+        )
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(result.stdout.contains(output), Comment(rawValue: result.stdout))
+        #expect(!FileManager.default.fileExists(atPath: replayPath))
     }
 
     private static func makeRemoteConfiguration() -> WorkspaceRemoteConfiguration {

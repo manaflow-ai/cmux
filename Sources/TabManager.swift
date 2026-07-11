@@ -2812,8 +2812,7 @@ class TabManager: ObservableObject {
                 allowUntracked: !tab.isRemoteTerminalSurface(surfaceId)
             )
         }
-        let handlesRemoteExitThroughWorkspace =
-            tab.pendingRemoteTerminalChildExitSurfaceIds.contains(surfaceId)
+        let handlesRemoteExitThroughWorkspace = tab.pendingRemoteTerminalChildExitSurfaceIds.contains(surfaceId)
 
 #if DEBUG
         cmuxDebugLog(
@@ -2835,9 +2834,7 @@ class TabManager: ObservableObject {
         // Workspace owns the remote terminal's active -> disconnected transition so the
         // logical pane and its rendered history survive the runtime replacement.
         if handlesRemoteExitThroughWorkspace {
-            if tab.transitionRemoteTerminalToDisconnectedPlaceholder(surfaceId: surfaceId) {
-                return
-            }
+            guard !tab.transitionRemoteTerminalToDisconnectedPlaceholder(surfaceId: surfaceId) else { return }
             closeRuntimeSurface(tabId: tabId, surfaceId: surfaceId)
             return
         }

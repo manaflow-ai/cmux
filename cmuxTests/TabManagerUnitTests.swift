@@ -273,7 +273,8 @@ final class TabManagerChildExitCloseTests: XCTestCase {
     func testChildExitOnLastRemotePanelKeepsWorkspaceDisconnected() throws {
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace,
-              let remotePanelId = workspace.focusedPanelId else {
+              let remotePanelId = workspace.focusedPanelId,
+              let remotePanel = workspace.terminalPanel(for: remotePanelId) else {
             XCTFail("Expected selected workspace with focused panel")
             return
         }
@@ -302,13 +303,11 @@ final class TabManagerChildExitCloseTests: XCTestCase {
         drainMainQueue()
 
         XCTAssertEqual(manager.tabs.count, 1)
-        XCTAssertEqual(manager.selectedTabId, workspace.id)
-        XCTAssertEqual(manager.tabs.first?.id, workspace.id)
-        XCTAssertTrue(workspace.isRemoteWorkspace)
         XCTAssertEqual(workspace.remoteConnectionState, .disconnected)
-        XCTAssertNil(workspace.panels[remotePanelId])
-        XCTAssertEqual(workspace.panels.count, 1)
-        XCTAssertNotEqual(workspace.focusedPanelId, remotePanelId)
+        XCTAssertNotNil(workspace.panels[remotePanelId])
+        XCTAssertEqual(workspace.focusedPanelId, remotePanelId)
+        XCTAssertFalse(workspace.terminalPanel(for: remotePanelId)?.surface === remotePanel.surface)
+        XCTAssertTrue(workspace.remoteDisconnectPlaceholderPanelIds.contains(remotePanelId))
         XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 0)
     }
 
@@ -657,7 +656,8 @@ final class TabManagerChildExitCloseTests: XCTestCase {
     func testFocusedRemoteChildExitWithMultipleTerminalsDisconnectsWorkspace() throws {
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace,
-              let initialPanelId = workspace.focusedPanelId else {
+              let initialPanelId = workspace.focusedPanelId,
+              let initialPanel = workspace.terminalPanel(for: initialPanelId) else {
             XCTFail("Expected selected workspace with focused panel")
             return
         }
@@ -698,17 +698,19 @@ final class TabManagerChildExitCloseTests: XCTestCase {
         drainMainQueue()
         drainMainQueue()
 
-        XCTAssertTrue(workspace.isRemoteWorkspace)
         XCTAssertEqual(workspace.remoteConnectionState, .disconnected)
-        XCTAssertNil(workspace.panels[initialPanelId])
+        XCTAssertNotNil(workspace.panels[initialPanelId])
         XCTAssertNotNil(workspace.panels[splitPanel.id])
+        XCTAssertFalse(workspace.terminalPanel(for: initialPanelId)?.surface === initialPanel.surface)
+        XCTAssertTrue(workspace.remoteDisconnectPlaceholderPanelIds.contains(initialPanelId))
         XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 0)
     }
 
     func testChildExitAfterRemoteSessionEndKeepsWorkspaceDisconnected() throws {
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace,
-              let remotePanelId = workspace.focusedPanelId else {
+              let remotePanelId = workspace.focusedPanelId,
+              let remotePanel = workspace.terminalPanel(for: remotePanelId) else {
             XCTFail("Expected selected workspace with focused panel")
             return
         }
@@ -739,13 +741,11 @@ final class TabManagerChildExitCloseTests: XCTestCase {
         drainMainQueue()
 
         XCTAssertEqual(manager.tabs.count, 1)
-        XCTAssertEqual(manager.selectedTabId, workspace.id)
-        XCTAssertEqual(manager.tabs.first?.id, workspace.id)
-        XCTAssertTrue(workspace.isRemoteWorkspace)
         XCTAssertEqual(workspace.remoteConnectionState, .disconnected)
-        XCTAssertNil(workspace.panels[remotePanelId])
-        XCTAssertEqual(workspace.panels.count, 1)
-        XCTAssertNotEqual(workspace.focusedPanelId, remotePanelId)
+        XCTAssertNotNil(workspace.panels[remotePanelId])
+        XCTAssertEqual(workspace.focusedPanelId, remotePanelId)
+        XCTAssertFalse(workspace.terminalPanel(for: remotePanelId)?.surface === remotePanel.surface)
+        XCTAssertTrue(workspace.remoteDisconnectPlaceholderPanelIds.contains(remotePanelId))
         XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 0)
     }
 
