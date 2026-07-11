@@ -37,6 +37,33 @@ private actor GateClock: FileWatchClock {
     }
 }
 
+private final class ManualFileWatchEventSource: FileWatchEventSource, @unchecked Sendable {
+    let events: AsyncStream<FileWatchEventIdentity>
+    private let continuation: AsyncStream<FileWatchEventIdentity>.Continuation
+
+    init() {
+        (events, continuation) = AsyncStream<FileWatchEventIdentity>.makeStream()
+    }
+
+    func send(_ identity: FileWatchEventIdentity) {
+        continuation.yield(identity)
+    }
+
+    func stop() {
+        continuation.finish()
+    }
+}
+
+@discardableResult
+private func yieldPendingIdentity(
+    from state: inout FileWatchEventCoalescingState,
+    into continuation: AsyncStream<FileWatchEventIdentity>.Continuation
+) -> FileWatchEventIdentity? {
+    guard let identity = state.takePendingIdentity() else { return nil }
+    state.recordYield(continuation.yield(identity))
+    return identity
+}
+
 @Suite struct RecursivePathWatcherTests {
     @Test func emptyPathsFailsInitialization() {
         let watcher = RecursivePathWatcher(paths: [])
@@ -55,75 +82,77 @@ private actor GateClock: FileWatchClock {
         await watcher?.stop()
     }
 
-    /// A burst of events inside one throttle window coalesces into a single
-    /// yield, a fresh event re-arms the throttle, and `stop()` finishes the
-    /// stream. This is the leading-edge behavior the watcher provides: react once
-    /// per window during a storm, never once per event and never only after
-    /// changes stop.
-    @Test func burstCoalescesAndThrottleRearms() async {
+    @Test func burstCoalescingStateArmsOnceAndRearmsAfterFlush() {
+        var state = FileWatchEventCoalescingState()
+
+        let didArmFirstWindow = state.record(.stable(FileWatchEventID(rawValue: 1)))
+        #expect(didArmFirstWindow)
+        for rawID in 2...5 {
+            let didRearm = state.record(.stable(FileWatchEventID(rawValue: UInt64(rawID))))
+            #expect(!didRearm)
+        }
+        let firstWindowIdentity = state.takePendingIdentity()
+        let didArmSecondWindow = state.record(.stable(FileWatchEventID(rawValue: 6)))
+        #expect(firstWindowIdentity == .stable(FileWatchEventID(rawValue: 5)))
+        #expect(didArmSecondWindow)
+    }
+
+    /// The transport pump, virtual clock, and output stream share the same
+    /// production path as FSEvents. A completed window must permit a later event
+    /// to arm a fresh delay.
+    @Test func sourceEventsFlowThroughThrottleAndRearm() async {
         let clock = GateClock()
-        let watcher = RecursivePathWatcher(testThrottleClock: clock)
+        let source = ManualFileWatchEventSource()
+        let watcher = RecursivePathWatcher(
+            watchedPaths: ["/manual"],
+            eventSource: source,
+            clock: clock
+        )
         var iterator = watcher.events.makeAsyncIterator()
 
-        // Window 1: five events, but only the first arms the throttle.
-        for _ in 0..<5 {
-            await watcher.simulateFileSystemEventForTesting()
-        }
+        source.send(.stable(FileWatchEventID(rawValue: 1)))
         await clock.waitForSleeper()
         #expect(await clock.sleeperCount == 1)
-
         await clock.releaseOne()
-        let first: FileWatchEventIdentity? = await iterator.next()
-        #expect(first != nil)
+        #expect(await iterator.next() == .stable(FileWatchEventID(rawValue: 1)))
 
-        // Window 2: the throttle re-arms after the previous flush.
-        for _ in 0..<3 {
-            await watcher.simulateFileSystemEventForTesting()
-        }
+        source.send(.stable(FileWatchEventID(rawValue: 2)))
         await clock.waitForSleeper()
         #expect(await clock.sleeperCount == 1)
-
         await clock.releaseOne()
-        let second: FileWatchEventIdentity? = await iterator.next()
-        #expect(second != nil)
+        #expect(await iterator.next() == .stable(FileWatchEventID(rawValue: 2)))
 
         await watcher.stop()
-        let afterStop: FileWatchEventIdentity? = await iterator.next()
-        #expect(afterStop == nil)
+        #expect(await iterator.next() == nil)
     }
 
     /// Events delivered after `stop()` produce no further yields.
     @Test func eventsAfterStopAreIgnored() async {
         let clock = GateClock()
-        let watcher = RecursivePathWatcher(testThrottleClock: clock)
+        let source = ManualFileWatchEventSource()
+        let watcher = RecursivePathWatcher(
+            watchedPaths: ["/manual"],
+            eventSource: source,
+            clock: clock
+        )
         var iterator = watcher.events.makeAsyncIterator()
 
         await watcher.stop()
-        await watcher.simulateFileSystemEventForTesting()
+        source.send(.stable(FileWatchEventID(rawValue: 1)))
         let next: FileWatchEventIdentity? = await iterator.next()
         #expect(next == nil)
         #expect(await clock.sleeperCount == 0)
     }
 
-    @Test func eventsEmitLatestStableIDFromThrottleWindow() async {
-        let clock = GateClock()
-        let watcher = RecursivePathWatcher(testThrottleClock: clock)
-        var iterator = watcher.events.makeAsyncIterator()
+    @Test func eventsEmitLatestStableIDFromThrottleWindow() {
+        var state = FileWatchEventCoalescingState()
 
-        await watcher.simulateFileSystemEventForTesting(
-            id: FileWatchEventID(rawValue: 41)
-        )
-        await watcher.simulateFileSystemEventForTesting(
-            id: FileWatchEventID(rawValue: 43)
-        )
-        await watcher.simulateFileSystemEventForTesting(
-            id: FileWatchEventID(rawValue: 42)
-        )
-        await clock.waitForSleeper()
-        await clock.releaseOne()
+        _ = state.record(.stable(FileWatchEventID(rawValue: 41)))
+        _ = state.record(.stable(FileWatchEventID(rawValue: 43)))
+        _ = state.record(.stable(FileWatchEventID(rawValue: 42)))
 
-        #expect(await iterator.next() == .stable(FileWatchEventID(rawValue: 43)))
-        await watcher.stop()
+        let identity = state.takePendingIdentity()
+        #expect(identity == .stable(FileWatchEventID(rawValue: 43)))
     }
 
     @Test func droppedAndWrappedBatchesStayConservative() async {
@@ -151,78 +180,68 @@ private actor GateClock: FileWatchClock {
     }
 
     @Test func conservativeIdentityDominatesOnlyUntilBufferedResetIsObserved() async {
-        let clock = GateClock()
-        let watcher = RecursivePathWatcher(testThrottleClock: clock)
-        var iterator = watcher.events.makeAsyncIterator()
+        var state = FileWatchEventCoalescingState()
+        let (events, continuation) = AsyncStream<FileWatchEventIdentity>.makeStream(
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        var iterator = events.makeAsyncIterator()
 
-        await watcher.simulateFileSystemEventForTesting(
-            id: FileWatchEventID(rawValue: 50)
-        )
-        await watcher.simulateFileSystemEventForTesting(identity: .mustRescan)
-        await watcher.simulateFileSystemEventForTesting(
-            id: FileWatchEventID(rawValue: 51)
-        )
-        await clock.waitForSleeper()
-        await clock.releaseOne()
+        _ = state.record(.stable(FileWatchEventID(rawValue: 50)))
+        _ = state.record(.mustRescan)
+        _ = state.record(.stable(FileWatchEventID(rawValue: 51)))
+        let firstReset = yieldPendingIdentity(from: &state, into: continuation)
+        #expect(firstReset == .mustRescan)
         #expect(await iterator.next() == .mustRescan)
 
-        await watcher.simulateFileSystemEventForTesting(
-            id: FileWatchEventID(rawValue: 52)
-        )
-        await clock.waitForSleeper()
-        await clock.releaseOne()
+        _ = state.record(.stable(FileWatchEventID(rawValue: 52)))
+        let repeatedReset = yieldPendingIdentity(from: &state, into: continuation)
+        #expect(repeatedReset == .mustRescan)
         // Repeat the conservative signal once after the consumer drains it. This
         // acknowledges the bounded AsyncStream buffer without losing a reset to
         // a newer stable watermark.
         #expect(await iterator.next() == .mustRescan)
 
-        await watcher.simulateFileSystemEventForTesting(
-            id: FileWatchEventID(rawValue: 53)
-        )
-        await clock.waitForSleeper()
-        await clock.releaseOne()
+        _ = state.record(.stable(FileWatchEventID(rawValue: 53)))
+        let resumedStableIdentity = yieldPendingIdentity(from: &state, into: continuation)
+        #expect(resumedStableIdentity == .stable(FileWatchEventID(rawValue: 53)))
         #expect(await iterator.next() == .stable(FileWatchEventID(rawValue: 53)))
 
-        await watcher.simulateFileSystemEventForTesting(
-            id: FileWatchEventID(rawValue: 54)
-        )
-        await watcher.simulateFileSystemEventForTesting(identity: .eventIDsWrapped)
-        await clock.waitForSleeper()
-        await clock.releaseOne()
+        _ = state.record(.stable(FileWatchEventID(rawValue: 54)))
+        _ = state.record(.eventIDsWrapped)
+        let wrappedReset = yieldPendingIdentity(from: &state, into: continuation)
+        #expect(wrappedReset == .eventIDsWrapped)
         #expect(await iterator.next() == .eventIDsWrapped)
 
-        await watcher.simulateFileSystemEventForTesting(
-            id: FileWatchEventID(rawValue: 1)
-        )
-        await clock.waitForSleeper()
-        await clock.releaseOne()
+        _ = state.record(.stable(FileWatchEventID(rawValue: 1)))
+        let repeatedWrappedReset = yieldPendingIdentity(from: &state, into: continuation)
+        #expect(repeatedWrappedReset == .eventIDsWrapped)
         #expect(await iterator.next() == .eventIDsWrapped)
 
-        await watcher.simulateFileSystemEventForTesting(
-            id: FileWatchEventID(rawValue: 2)
+        _ = state.record(.stable(FileWatchEventID(rawValue: 2)))
+        let resumedWrappedStableIdentity = yieldPendingIdentity(
+            from: &state,
+            into: continuation
         )
-        await clock.waitForSleeper()
-        await clock.releaseOne()
+        #expect(resumedWrappedStableIdentity == .stable(FileWatchEventID(rawValue: 2)))
         #expect(await iterator.next() == .stable(FileWatchEventID(rawValue: 2)))
-        await watcher.stop()
+        continuation.finish()
+        #expect(await iterator.next() == nil)
     }
 
     @Test func unconsumedStreamRetainsOnlyNewestStableWatermark() async {
-        let clock = GateClock()
-        let watcher = RecursivePathWatcher(testThrottleClock: clock)
+        var state = FileWatchEventCoalescingState()
+        let (events, continuation) = AsyncStream<FileWatchEventIdentity>.makeStream(
+            bufferingPolicy: .bufferingNewest(1)
+        )
 
         for rawID in 1...100 {
-            await watcher.simulateFileSystemEventForTesting(
-                id: FileWatchEventID(rawValue: UInt64(rawID))
-            )
-            await clock.waitForSleeper()
-            await clock.releaseOne()
-            await watcher.waitForThrottleFlushForTesting()
+            _ = state.record(.stable(FileWatchEventID(rawValue: UInt64(rawID))))
+            _ = yieldPendingIdentity(from: &state, into: continuation)
         }
 
-        var iterator = watcher.events.makeAsyncIterator()
+        var iterator = events.makeAsyncIterator()
         #expect(await iterator.next() == .stable(FileWatchEventID(rawValue: 100)))
-        await watcher.stop()
+        continuation.finish()
         #expect(await iterator.next() == nil)
     }
 }

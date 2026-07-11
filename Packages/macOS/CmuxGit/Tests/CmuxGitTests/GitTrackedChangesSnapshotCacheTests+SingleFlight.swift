@@ -231,16 +231,31 @@ extension GitTrackedChangesSnapshotCacheTests {
             return fixture
         }
         let scope = GitTrackedChangesSnapshotScope(maximumRepositoryCount: 2)
+        var identities: [GitTrackedChangesRepositoryIdentity] = []
+        var originalAuthorities: [GitTrackedChangesSnapshotAuthority] = []
 
         for fixture in fixtures {
             let repository = try #require(
                 GitMetadataService.resolveGitRepository(containing: fixture.root.path)
             )
             let identity = GitTrackedChangesRepositoryIdentity(repository: repository)
-            _ = await scope.authority(for: identity, fallbackRoundID: nil)
+            identities.append(identity)
+            originalAuthorities.append(
+                await scope.authority(for: identity, fallbackRoundID: nil)
+            )
         }
 
-        #expect(await scope.repositoryStateCountForTesting() == 2)
+        let renewedFirst = await scope.authority(
+            for: identities[0],
+            fallbackRoundID: nil
+        )
+        let renewedSecond = await scope.authority(
+            for: identities[1],
+            fallbackRoundID: nil
+        )
+
+        #expect(renewedFirst.repositoryEpoch != originalAuthorities[0].repositoryEpoch)
+        #expect(renewedSecond.repositoryEpoch != originalAuthorities[1].repositoryEpoch)
     }
 
     @Test func refreshedCacheEntryMovesBehindOlderEntryForEviction() async throws {

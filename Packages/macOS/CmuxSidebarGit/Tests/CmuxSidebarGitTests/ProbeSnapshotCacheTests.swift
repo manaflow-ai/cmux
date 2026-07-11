@@ -285,18 +285,16 @@ actor SequencedGatedMetadataReader: WorkspaceGitMetadataReading {
         service?.workspaceGitTrackedDirectoryByKey[key] = "/tmp/repo"
         service?.updateWorkspaceGitMetadataFallbackTimer()
 
-        #expect(coordinator.registeredServiceCountForTesting == 1)
-        #expect(coordinator.hasScheduledTimerForTesting)
         await fallbackClock.waitForSleeper(duration: 5 * 60)
+        #expect(await fallbackClock.pendingSleeperCount == 1)
 
         service = nil
         #expect(weakService == nil)
-        #expect(await waitUntil {
-            coordinator.registeredServiceCountForTesting == 0
-                && !coordinator.hasScheduledTimerForTesting
-        })
-        #expect(coordinator.registeredServiceCountForTesting == 0)
-        #expect(!coordinator.hasScheduledTimerForTesting)
+        coordinator.serviceStateDidChange()
+        while await fallbackClock.pendingSleeperCount != 0 {
+            await Task.yield()
+        }
+        #expect(await fallbackClock.pendingSleeperCount == 0)
     }
 
     @Test(.timeLimit(.minutes(1)))

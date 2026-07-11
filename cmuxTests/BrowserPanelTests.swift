@@ -2897,7 +2897,8 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         firstAnchor.frame = NSRect(x: 44, y: 24, width: 150, height: 140)
         layoutRoot.needsDisplay = true
         window.resetDisplayIfNeededCallCount()
-        portal.browserPortalTestSynchronizeExternalGeometryNow()
+        NotificationCenter.default.post(name: NSWindow.didResizeNotification, object: window)
+        drainMainQueue()
 
         XCTAssertEqual(
             layoutRoot.layoutSubtreeCallCount,

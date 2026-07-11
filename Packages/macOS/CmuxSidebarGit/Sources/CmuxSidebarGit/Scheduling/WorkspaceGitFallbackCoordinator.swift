@@ -56,15 +56,6 @@ public final class WorkspaceGitFallbackCoordinator {
         broadcastFallbackRound()
     }
 
-    var registeredServiceCountForTesting: Int {
-        pruneReleasedServices()
-        return services.count
-    }
-
-    var hasScheduledTimerForTesting: Bool {
-        fallbackTask != nil
-    }
-
     private func startTimerIfNeeded() {
         guard fallbackTask == nil else { return }
         let clock = clock

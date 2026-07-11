@@ -14,12 +14,6 @@ public actor GitTrackedChangesSnapshotCache {
         private var result: GitTrackedChangesSnapshot?
         private var isResolved = false
 
-        var isPending: Bool {
-            lock.lock()
-            defer { lock.unlock() }
-            return !isResolved
-        }
-
         func value() async -> GitTrackedChangesSnapshot? {
             await withCheckedContinuation { continuation in
                 lock.lock()
@@ -119,14 +113,15 @@ public actor GitTrackedChangesSnapshotCache {
             key: key,
             load: load
         )
-        return await withTaskCancellationHandler {
+        let snapshot = await withTaskCancellationHandler {
             await waiter.value()
         } onCancel: {
-            guard waiter.cancel() else { return }
-            Task { [weak self] in
-                await self?.removeCanceledWaiter(waiterID, key: key)
-            }
+            waiter.cancel()
         }
+        if snapshot == nil {
+            removeCanceledWaiter(waiterID, key: key)
+        }
+        return snapshot
     }
 
     func store(
@@ -217,16 +212,6 @@ public actor GitTrackedChangesSnapshotCache {
         }
         if deliveredResult {
             store(snapshot, for: key)
-        }
-    }
-
-    func inFlightSnapshotCountForTesting() -> Int {
-        inFlightSnapshotsByKey.count
-    }
-
-    func inFlightWaiterCountForTesting() -> Int {
-        inFlightSnapshotsByKey.values.reduce(0) { count, inFlight in
-            count + inFlight.waitersByID.values.lazy.filter(\.isPending).count
         }
     }
 

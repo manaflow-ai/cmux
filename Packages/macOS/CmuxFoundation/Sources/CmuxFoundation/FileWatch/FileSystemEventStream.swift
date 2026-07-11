@@ -1,8 +1,19 @@
 import CoreServices
 import Foundation
 
+/// A stoppable source of raw filesystem-event identities.
+///
+/// `RecursivePathWatcher` owns this source and applies its coalescing policy to
+/// ``events``. Keeping acquisition behind this small protocol separates the
+/// FSEvents transport from the event pipeline without exposing either one's
+/// mutable state.
+protocol FileWatchEventSource: Sendable {
+    var events: AsyncStream<FileWatchEventIdentity> { get }
+    func stop()
+}
+
 /// A thin owner of an `FSEventStream` that reports raw filesystem events through
-/// a `@Sendable` sink.
+/// an `AsyncStream`.
 ///
 /// `FSEventStream` is a C API with no async-native replacement, and it is the
 /// only macOS primitive that watches a *set of paths recursively* with a single
@@ -14,9 +25,8 @@ import Foundation
 /// **Threading.** Every instance shares one serial dispatch queue (rather than
 /// one queue per stream) to bound thread usage when many workspaces are tracked.
 /// All mutable state is touched only on that queue, which is why the type is
-/// `@unchecked Sendable`. ``onEvent`` fires on the shared queue, so it MUST be
-/// non-blocking — a slow sink would serialize behind every other stream's
-/// teardown. The production sink only spawns a `Task` and returns.
+/// `@unchecked Sendable`. The callback only yields into ``events``, so it never
+/// blocks the shared queue behind a consumer's work.
 ///
 /// **Context lifetime.** The stream is registered with FSEvents as its own
 /// context `info` pointer, passed *unretained* (no `retain`/`release` callbacks).
@@ -26,7 +36,7 @@ import Foundation
 /// completion before the `queue.sync` teardown block, and none is delivered
 /// after `FSEventStreamInvalidate`. No callback ever touches a freed instance,
 /// so a separately retained context box is unnecessary.
-final class FileSystemEventStream: @unchecked Sendable {
+final class FileSystemEventStream: FileWatchEventSource, @unchecked Sendable {
     private static let queueSpecificKey = DispatchSpecificKey<UInt8>()
     private static let queue: DispatchQueue = {
         let queue = DispatchQueue(label: "com.cmux.recursive-path-watcher", qos: .utility)
@@ -53,15 +63,14 @@ final class FileSystemEventStream: @unchecked Sendable {
         Unmanaged<FileSystemEventStream>
             .fromOpaque(info)
             .takeUnretainedValue()
-            .onEvent(eventIdentity(
+            .continuation.yield(eventIdentity(
                 latestEventID: latestEventID,
                 flags: combinedFlags
             ))
     }
 
-    /// The non-blocking sink invoked on the shared queue for each coalesced batch
-    /// of filesystem events.
-    private let onEvent: @Sendable (FileWatchEventIdentity) -> Void
+    let events: AsyncStream<FileWatchEventIdentity>
+    private let continuation: AsyncStream<FileWatchEventIdentity>.Continuation
     private var stream: FSEventStreamRef?
 
     /// Creates and starts a stream for `paths`.
@@ -69,17 +78,14 @@ final class FileSystemEventStream: @unchecked Sendable {
     /// - Parameters:
     ///   - paths: The files and directories to watch. Must be non-empty.
     ///   - latency: The FSEvents coalescing latency in seconds.
-    ///   - onEvent: A non-blocking sink invoked on the shared queue for each
-    ///     coalesced batch of filesystem events.
     /// - Returns: `nil` if `paths` is empty or the underlying `FSEventStream`
     ///   could not be created or started.
     init?(
         paths: [String],
-        latency: TimeInterval,
-        onEvent: @escaping @Sendable (FileWatchEventIdentity) -> Void
+        latency: TimeInterval
     ) {
         guard !paths.isEmpty else { return nil }
-        self.onEvent = onEvent
+        (self.events, self.continuation) = AsyncStream<FileWatchEventIdentity>.makeStream()
         self.stream = nil
 
         var context = FSEventStreamContext(
@@ -99,6 +105,7 @@ final class FileSystemEventStream: @unchecked Sendable {
             latency,
             flags
         ) else {
+            continuation.finish()
             return nil
         }
         self.stream = stream
@@ -138,6 +145,7 @@ final class FileSystemEventStream: @unchecked Sendable {
         } else {
             Self.queue.sync { stopOnQueue() }
         }
+        continuation.finish()
     }
 
     private func stopOnQueue() {

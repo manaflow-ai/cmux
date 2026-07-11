@@ -136,10 +136,6 @@ public actor GitTrackedChangesSnapshotScope {
         return GitTrackedChangesSnapshotRead(snapshot: snapshot, isCurrent: isCurrent)
     }
 
-    func repositoryStateCountForTesting() -> Int {
-        repositoryStates.count
-    }
-
     private func state(
         for identity: GitTrackedChangesRepositoryIdentity
     ) -> RepositoryState {

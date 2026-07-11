@@ -1946,9 +1946,6 @@ final class WindowBrowserPortal: NSObject {
         // frames, and invalidate WebKit only when visible presentation state changed.
         _ = synchronizeAllWebViews(excluding: nil, source: "externalGeometry")
     }
-#if DEBUG
-    func browserPortalTestSynchronizeExternalGeometryNow() { synchronizeAllEntriesFromExternalGeometryChange() }
-#endif
 
     @discardableResult
     private func ensureInstalled() -> Bool {

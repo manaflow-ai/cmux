@@ -293,20 +293,13 @@ private final class BlockingSnapshotLoadGate: @unchecked Sendable {
         defer { reader.openGate() }
 
         #expect(await waitUntil { reader.callCount(atPath: filePath) == 1 })
-        while await cache.inFlightWaiterCountForTesting() < 2 {
-            await Task.yield()
-        }
         for waiter in canceledWaiters {
             waiter.cancel()
         }
-        while await cache.inFlightWaiterCountForTesting() != 0 {
-            await Task.yield()
-        }
-        reader.openGate()
         for waiter in canceledWaiters {
             _ = await waiter.value
         }
-        #expect(await cache.inFlightSnapshotCountForTesting() == 0)
+        reader.openGate()
         _ = await service.gitTrackedChangesSnapshot(
             repository: repository,
             snapshotRequest: .watcherEvent(authority)
