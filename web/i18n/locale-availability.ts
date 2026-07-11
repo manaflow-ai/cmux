@@ -31,6 +31,7 @@ const fallbackContentRoutes = [
     path: "/docs/agent-integrations/oh-my-pi",
     locales: fallbackContentLocales,
   },
+  { path: "/blog/cmux-ssh", locales: fallbackContentLocales },
   {
     path: "/blog/cmux-claude-teams",
     locales: englishFallbackContentLocales,

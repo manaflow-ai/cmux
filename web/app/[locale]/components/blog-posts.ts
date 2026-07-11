@@ -1,4 +1,7 @@
-import { englishFallbackContentLocales } from "@/i18n/locale-availability";
+import {
+  englishFallbackContentLocales,
+  fallbackContentLocales,
+} from "@/i18n/locale-availability";
 
 type BlogPost = {
   slug: string;
@@ -97,6 +100,7 @@ export const blogPosts = [
     date: "2026-03-30",
     summary:
       "One command gives you persistent remote sessions, browser panes that reach remote ports, and agent notifications that come home.",
+    locales: fallbackContentLocales,
   },
   {
     slug: "cmux-claude-teams",

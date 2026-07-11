@@ -127,7 +127,11 @@ export const agentReadablePages = [
   { path: "/blog/markdown-viewer", title: "A better markdown viewer in cmux" },
   { path: "/blog/unread-shortcuts", title: "Unread workspace shortcuts in cmux" },
   { path: "/blog/session-restore", title: "Session restore in cmux" },
-  { path: "/blog/cmux-ssh", title: "cmux SSH" },
+  {
+    path: "/blog/cmux-ssh",
+    title: "cmux SSH",
+    locales: fallbackContentLocales,
+  },
   {
     path: "/blog/cmux-claude-teams",
     title: "Claude Code teammate agents as native cmux panes",
