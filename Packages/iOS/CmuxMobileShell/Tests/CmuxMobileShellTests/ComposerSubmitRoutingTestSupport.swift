@@ -52,6 +52,7 @@ actor RoutingHostRouter {
     private var firstPasteImageReachedWaiters: [CheckedContinuation<Void, Never>] = []
     private var workspaceCreateCount = 0
     private var rejectWorkspaceCreate = false
+    private var rejectWorkspaceList = false
     private var holdFirstWorkspaceCreate = false
     private var firstWorkspaceCreateHeld = false
     private var firstWorkspaceCreateContinuation: CheckedContinuation<Void, Never>?
@@ -98,6 +99,10 @@ actor RoutingHostRouter {
         rejectWorkspaceCreate = reject
     }
 
+    func setRejectWorkspaceList(_ reject: Bool) {
+        rejectWorkspaceList = reject
+    }
+
     func setHoldFirstWorkspaceCreate(_ hold: Bool) {
         holdFirstWorkspaceCreate = hold
     }
@@ -138,6 +143,9 @@ actor RoutingHostRouter {
         let id = info.id
         switch method {
         case "workspace.list", "mobile.workspace.list":
+            if rejectWorkspaceList {
+                return try? Self.errorFrame(id: id, message: "workspace.list rejected")
+            }
             return try? Self.resultFrame(id: id, result: [
                 "workspaces": [
                     [

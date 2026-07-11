@@ -100,6 +100,48 @@ struct MobileWorkspaceListFidelityTests {
         #expect(before != after, "a pure reorder must change the mobile summary hash")
     }
 
+    @Test func focusingAnotherPaneChangesObserverHash() throws {
+        let (workspace, ordered) = try makeWorkspaceWithSplitTerminals(count: 2)
+        let before = MobileWorkspaceListObserver.summaryHashForTesting(
+            tabs: [workspace],
+            selectedTabID: workspace.id
+        )
+
+        workspace.focusPanel(ordered[1])
+
+        #expect(workspace.focusedPanelId == ordered[1])
+        let after = MobileWorkspaceListObserver.summaryHashForTesting(
+            tabs: [workspace],
+            selectedTabID: workspace.id
+        )
+        #expect(before != after, "focused pane and selected terminal are mobile payload state")
+    }
+
+    @Test func movingTerminalAcrossPanesChangesHashWhenFlatOrderDoesNot() throws {
+        let (workspace, ordered) = try makeWorkspaceWithTabTerminals(count: 2)
+        let split = try #require(
+            workspace.newTerminalSplit(from: ordered[1], orientation: .horizontal, focus: false)
+        )
+        let initialFlatOrder = workspace.orderedPanelIds
+        let panes = workspace.bonsplitController.allPaneIds
+        #expect(panes.count == 2)
+        let movedTabID = try #require(workspace.surfaceIdFromPanelId(ordered[1]))
+        let before = MobileWorkspaceListObserver.summaryHashForTesting(
+            tabs: [workspace],
+            selectedTabID: workspace.id
+        )
+
+        #expect(workspace.bonsplitController.moveTab(movedTabID, toPane: panes[1], atIndex: 0))
+
+        #expect(workspace.orderedPanelIds == initialFlatOrder)
+        #expect(workspace.orderedPanelIds.last == split.id)
+        let after = MobileWorkspaceListObserver.summaryHashForTesting(
+            tabs: [workspace],
+            selectedTabID: workspace.id
+        )
+        #expect(before != after, "pane membership is mobile payload state")
+    }
+
     @Test func renamingTerminalChangesObserverHashAndDisplayedTitle() throws {
         let (workspace, ordered) = try makeWorkspaceWithTabTerminals(count: 2)
         let panelId = try #require(ordered.first)

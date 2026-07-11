@@ -7,13 +7,15 @@ import Testing
         _ contentWidth: CGFloat,
         hasBackButton: Bool = true,
         hasTrailingCluster: Bool = true,
-        hasChatToggle: Bool = true
+        hasChatToggle: Bool = true,
+        hasTerminalAdd: Bool = true
     ) -> CGFloat {
         MobileLeadingToolbarTitleWidth(
             contentWidth: contentWidth,
             hasBackButton: hasBackButton,
             hasTrailingCluster: hasTrailingCluster,
-            hasChatToggle: hasChatToggle
+            hasChatToggle: hasChatToggle,
+            hasTerminalAdd: hasTerminalAdd
         ).cap
     }
 
