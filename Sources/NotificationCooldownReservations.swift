@@ -1,7 +1,7 @@
 import Foundation
 
 extension TerminalNotificationStore {
-    static func externalBannerTransition(
+    nonisolated static func externalBannerTransition(
         incoming: TerminalNotification,
         latestExisting: TerminalNotification?
     ) -> (supersededId: String?, suppressIncoming: Bool) {

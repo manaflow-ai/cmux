@@ -69,8 +69,10 @@ struct NotificationChronologyTests {
         let newerId = UUID()
         var deliveredIds: [UUID] = []
         var suppressedIds: [UUID] = []
+        let originalAppFocusOverride = AppFocusState.overrideIsFocused
 
         store.replaceNotificationsForTesting([])
+        AppFocusState.overrideIsFocused = false
         store.configureNotificationDeliveryHandlerForTesting { _, notification in
             deliveredIds.append(notification.id)
         }
@@ -81,6 +83,7 @@ struct NotificationChronologyTests {
             store.replaceNotificationsForTesting([])
             store.resetNotificationDeliveryHandlerForTesting()
             store.resetSuppressedNotificationFeedbackHandlerForTesting()
+            AppFocusState.overrideIsFocused = originalAppFocusOverride
         }
 
         store.addNotification(

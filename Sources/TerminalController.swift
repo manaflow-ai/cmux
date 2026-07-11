@@ -12326,7 +12326,7 @@ class TerminalController {
             title: title,
             subtitle: subtitle,
             body: body,
-            backpressure: { v2MainSync { TerminalMutationBus.shared.drainForBackpressure() } }
+            backpressure: { TerminalMutationBus.shared.waitForNotificationCapacity() }
         )
         return "OK"
     }

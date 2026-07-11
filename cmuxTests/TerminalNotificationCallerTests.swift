@@ -262,6 +262,14 @@ final class TerminalNotificationCallerTests: XCTestCase {
 
         let focusedPanelId = try XCTUnwrap(workspace.focusedPanelId)
 
+        TerminalMutationBus.shared.enqueueNotificationForTesting(
+            tabId: workspace.id,
+            surfaceId: focusedPanelId,
+            title: "Queued before sync",
+            subtitle: "Must survive",
+            body: "Body"
+        )
+
         TerminalController.shared.start(
             tabManager: manager,
             socketPath: socketPath,
@@ -283,6 +291,8 @@ final class TerminalNotificationCallerTests: XCTestCase {
         XCTAssertEqual(responses, ["OK"])
         XCTAssertTrue(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: focusedPanelId))
         XCTAssertEqual(store.notifications.first?.title, "Sync")
+        TerminalMutationBus.shared.drainForTesting()
+        XCTAssertEqual(store.notifications.map(\.title), ["Sync", "Queued before sync"])
 
         store.replaceNotificationsForTesting([])
         let callerResponse = try await sendV2RequestAsync(

@@ -33,7 +33,7 @@ final class TerminalMutationBus: @unchecked Sendable {
     static let shared = TerminalMutationBus()
     static let maximumPendingMutationCount = 256
 
-    private let lock = NSLock()
+    private let lock = NSCondition()
     private var pending: [TerminalSocketMutationEntry] = []
     private var pendingHead = 0
     private var drainScheduled = false
@@ -158,6 +158,17 @@ final class TerminalMutationBus: @unchecked Sendable {
         return true
     }
 
+    /// Suspends a producer on the queue's capacity signal. The main-actor
+    /// drain broadcasts after removing a FIFO batch, so saturation never
+    /// requires a synchronous worker-to-main hop.
+    nonisolated func waitForNotificationCapacity() {
+        lock.lock()
+        while pending.count - pendingHead >= Self.maximumPendingMutationCount {
+            lock.wait()
+        }
+        lock.unlock()
+    }
+
     private func enqueueClear(
         _ mutation: TerminalSocketMutation,
         dropping shouldDrop: (QueuedTerminalNotification) -> Bool
@@ -182,6 +193,7 @@ final class TerminalMutationBus: @unchecked Sendable {
         if shouldScheduleDrain {
             drainScheduled = true
         }
+        lock.broadcast()
         lock.unlock()
         guard shouldScheduleDrain else { return }
         scheduleDrain()
@@ -250,6 +262,7 @@ final class TerminalMutationBus: @unchecked Sendable {
         if advanceGeneration {
             currentNotificationGeneration &+= 1
         }
+        lock.broadcast()
         lock.unlock()
     }
 
@@ -330,6 +343,7 @@ final class TerminalMutationBus: @unchecked Sendable {
             batch = Array(pending[pendingHead..<end])
             pendingHead = end
             compactPendingAfterDrain()
+            lock.broadcast()
         } else {
             batch = []
         }
