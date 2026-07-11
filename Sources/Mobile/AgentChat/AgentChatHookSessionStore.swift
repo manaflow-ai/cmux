@@ -9,7 +9,7 @@ import Foundation
 /// Mirrors `FeedJumpResolver.lookup`'s tolerant parsing (nested `sessions`
 /// dict with a flat-layout fallback) but surfaces the additional fields the
 /// chat service needs (`cwd`, `transcriptPath`, `pid`).
-struct AgentChatHookSessionStore: Sendable {
+struct AgentChatHookSessionStore {
     /// One hook-store entry's chat-relevant fields.
     struct Entry: Sendable {
         /// The agent's session identifier (the store key).
