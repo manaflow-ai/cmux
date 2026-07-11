@@ -14,6 +14,7 @@ enum MobileAttachTarget: String, Sendable {
     }
 
     func selectRoutes(from routes: [CmxAttachRoute]) throws -> [CmxAttachRoute] {
+        guard !routes.isEmpty else { throw MobileAttachTicketStoreError.noRoutes }
         let selected: [CmxAttachRoute]
         switch self {
         case .ticketOnly:
