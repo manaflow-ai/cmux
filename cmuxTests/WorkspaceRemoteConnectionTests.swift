@@ -1351,7 +1351,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         workspace.notifyRemoteForegroundAuthenticationReady(token: "token-a")
         workspace.configureRemoteConnection(config, autoConnect: false)
 
-        XCTAssertEqual(workspace.remoteConnectionState, .disconnected)
+        XCTAssertEqual(workspace.remoteConnectionState, .connecting)
     }
 
     @MainActor
@@ -1401,7 +1401,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         workspace.configureRemoteConnection(config, autoConnect: false)
         workspace.notifyRemoteForegroundAuthenticationReady(token: "token-b")
 
-        XCTAssertEqual(workspace.remoteConnectionState, .disconnected)
+        XCTAssertEqual(workspace.remoteConnectionState, .connecting)
     }
 
     @MainActor
@@ -6672,7 +6672,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
                         "workspace_ref": workspaceRef,
                         "remote": [
                             "enabled": true,
-                            "state": autoConnect ? "connecting" : "disconnected",
+                            "state": autoConnect || params["foreground_auth_token"] != nil ? "connecting" : "disconnected",
                         ],
                     ]
                 )
