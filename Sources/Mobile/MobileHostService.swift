@@ -1075,13 +1075,7 @@ final class MobileHostService {
         guard let listenerPort else { throw MobileAttachTicketStoreError.noRoutes }
         let routes = routeResolver.routes(port: listenerPort).routes
         let filteredRoutes = try Self.filteredRoutes(routes, routeID: routeID, routeKind: routeKind)
-        let selectedRoutes: [CmxAttachRoute]
-        if let target {
-            selectedRoutes = try target.selectRoutes(from: filteredRoutes)
-        } else {
-            guard !filteredRoutes.isEmpty else { throw MobileAttachTicketStoreError.noRoutes }
-            selectedRoutes = filteredRoutes
-        }
+        let selectedRoutes = try target.selectRoutes(from: filteredRoutes)
         let ticket = try ticketStore.createTicket(
             workspaceID: workspaceID,
             terminalID: terminalID,

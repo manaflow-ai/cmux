@@ -148,6 +148,45 @@ struct MobileHostWorkspaceTicketAuthorizationTests {
         #expect(try compactTicket(from: attachURL).routes == ticket.routes)
     }
 
+    #if DEBUG
+    @Test func omittedTargetRPCPreservesLegacyAttachURL() async throws {
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let manager = TabManager()
+        TerminalController.shared.setActiveTabManager(manager)
+        defer { TerminalController.shared.setActiveTabManager(previousManager) }
+
+        let service = MobileHostService.shared
+        service.debugSetListenerStateForTesting(
+            generation: UUID(),
+            usesEphemeralFallback: false,
+            port: 61_234
+        )
+        defer {
+            service.debugSetListenerStateForTesting(
+                generation: UUID(),
+                usesEphemeralFallback: false,
+                port: nil
+            )
+        }
+        let workspace = try #require(manager.selectedWorkspace)
+
+        let response = await TerminalController.shared.mobileHostHandleRPC(
+            MobileHostRPCRequest(
+                id: "legacy-attach-ticket",
+                method: "mobile.attach_ticket.create",
+                params: ["workspace_id": workspace.id.uuidString],
+                auth: nil
+            )
+        )
+
+        guard case let .ok(rawPayload) = response,
+              let payload = rawPayload as? [String: Any] else {
+            return #expect(Bool(false), "Expected attach ticket payload")
+        }
+        #expect(payload["attach_url"] as? String != nil)
+    }
+    #endif
+
     @Test func physicalDevicePayloadNeverFallsBackToLoopbackV1() throws {
         let store = MobileAttachTicketStore()
         let ticket = try store.createTicket(

@@ -46,3 +46,14 @@ enum MobileAttachTarget: String, Sendable {
         return selected
     }
 }
+
+extension Optional where Wrapped == MobileAttachTarget {
+    /// A missing target preserves the legacy full-route ticket contract.
+    func selectRoutes(from routes: [CmxAttachRoute]) throws -> [CmxAttachRoute] {
+        guard let target = self else {
+            guard !routes.isEmpty else { throw MobileAttachTicketStoreError.noRoutes }
+            return routes
+        }
+        return try target.selectRoutes(from: routes)
+    }
+}

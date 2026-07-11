@@ -1523,7 +1523,6 @@ final class TerminalOffscreenStartupTests: XCTestCase {
             return
         }
         XCTAssertNil(ticket["terminalID"])
-        XCTAssertNotNil(payload["attach_url"] as? String)
     }
 
     func testMobileAttachTicketCreateResolvesTerminalIDAcrossWorkspaces() async throws {
