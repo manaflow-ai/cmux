@@ -121,6 +121,34 @@ public actor AndroidEmulatorService: AndroidEmulatorServicing {
         )
     }
 
+    /// Restarts the SDK's adb server so stale emulator transports can be rediscovered.
+    public func restartADB() async throws {
+        let installation = try resolvedInstallation()
+        guard let adbURL = installation.adbURL else {
+            throw AndroidEmulatorError.adbMissing(sdkPath: installation.rootURL.path)
+        }
+
+        let killResult = await adbCommands.run(
+            directory: installation.rootURL.path,
+            executable: adbURL.path,
+            arguments: ["kill-server"],
+            timeout: 5
+        )
+        guard Self.succeeded(killResult) else {
+            throw AndroidEmulatorError.commandFailed(tool: "adb", detail: Self.failureDetail(killResult))
+        }
+
+        let startResult = await adbCommands.run(
+            directory: installation.rootURL.path,
+            executable: adbURL.path,
+            arguments: ["start-server"],
+            timeout: 10
+        )
+        guard Self.succeeded(startResult) else {
+            throw AndroidEmulatorError.commandFailed(tool: "adb", detail: Self.failureDetail(startResult))
+        }
+    }
+
     /// Validates the AVD against the installed emulator before spawning it.
     public func launch(avdName: String) async throws {
         let installation = try resolvedInstallation()

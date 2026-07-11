@@ -328,6 +328,13 @@
         "ja": { "stringUnit": { "state": "translated", "value": "停止中" } }
       }
     },
+    "androidEmulator.action.restartADB": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Restart adb" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "adbを再起動" } }
+      }
+    },
     "androidEmulator.status.unavailable": {
       "extractionState": "manual",
       "localizations": {

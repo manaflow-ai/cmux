@@ -18,6 +18,9 @@ public final class AndroidEmulatorCoordinator {
     /// Whether a snapshot refresh is currently running.
     public private(set) var isRefreshing = false
 
+    /// Whether adb recovery is currently running.
+    public private(set) var isRestartingADB = false
+
     private let service: any AndroidEmulatorServicing
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
 
@@ -42,6 +45,25 @@ public final class AndroidEmulatorCoordinator {
         }
         refreshTask = task
         await task.value
+    }
+
+    /// Restarts adb, then refreshes emulator state when recovery succeeds.
+    public func restartADB() async {
+        guard !isRestartingADB else { return }
+        actionError = nil
+        isRestartingADB = true
+        defer { isRestartingADB = false }
+
+        do {
+            try await service.restartADB()
+        } catch let error as AndroidEmulatorError {
+            actionError = error
+            return
+        } catch {
+            actionError = .commandFailed(tool: "adb", detail: String(describing: error))
+            return
+        }
+        await refresh()
     }
 
     private func performRefresh() async {

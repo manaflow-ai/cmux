@@ -3,6 +3,9 @@ public protocol AndroidEmulatorServicing: Sendable {
     /// Reads installed AVDs and their current Android Debug Bridge state.
     func snapshot() async throws -> AndroidEmulatorSnapshot
 
+    /// Restarts the user-installed Android Debug Bridge server.
+    func restartADB() async throws
+
     /// Launches a validated AVD in the vendor emulator window.
     func launch(avdName: String) async throws
 

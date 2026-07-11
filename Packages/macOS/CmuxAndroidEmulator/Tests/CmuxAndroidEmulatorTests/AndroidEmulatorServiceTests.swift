@@ -4,6 +4,27 @@ import Foundation
 import Testing
 
 @Suite struct AndroidEmulatorServiceTests {
+    @Test func restartADBUsesResolvedSDKServerCommands() async throws {
+        let installation = Self.installation
+        let commands = StubCommandRunner(results: [
+            StubCommand(
+                executable: installation.adbURL!.path,
+                arguments: ["kill-server"]
+            ): .success(""),
+            StubCommand(
+                executable: installation.adbURL!.path,
+                arguments: ["start-server"]
+            ): .success("* daemon started successfully *\n"),
+        ])
+        let service = AndroidEmulatorService(
+            sdkLocator: StubSDKLocator(resolution: .available(installation)),
+            commands: commands,
+            processLauncher: RecordingAndroidEmulatorLauncher()
+        )
+
+        try await service.restartADB()
+    }
+
     @Test func snapshotMapsConnectedSerialToInstalledAVD() async throws {
         let installation = Self.installation
         let commands = StubCommandRunner(results: [

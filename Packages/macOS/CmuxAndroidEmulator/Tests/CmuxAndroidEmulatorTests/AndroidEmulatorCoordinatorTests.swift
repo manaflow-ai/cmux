@@ -78,6 +78,20 @@ import Testing
         #expect(coordinator.stoppingSerials.isEmpty)
     }
 
+    @Test func restartADBRefreshesUnavailableSnapshot() async {
+        let service = StubAndroidEmulatorService(
+            snapshots: [.success(Self.runningSnapshot)]
+        )
+        let coordinator = AndroidEmulatorCoordinator(service: service)
+
+        await coordinator.restartADB()
+
+        #expect(await service.restartADBRequestCount == 1)
+        #expect(coordinator.loadState == .loaded(Self.runningSnapshot))
+        #expect(coordinator.actionError == nil)
+        #expect(!coordinator.isRestartingADB)
+    }
+
     private static let runningSnapshot = AndroidEmulatorSnapshot(
         sdkRootURL: URL(fileURLWithPath: "/sdk", isDirectory: true),
         devices: [AndroidVirtualDevice(
@@ -108,6 +122,8 @@ private actor StubAndroidEmulatorService: AndroidEmulatorServicing {
     private var stopStartContinuation: CheckedContinuation<Void, Never>?
     private var launchReleaseContinuation: CheckedContinuation<Void, Never>?
     private var stopReleaseContinuation: CheckedContinuation<Void, Never>?
+    private var restartADBRequests = 0
+    var restartADBRequestCount: Int { restartADBRequests }
 
     init(
         snapshots: [Result<AndroidEmulatorSnapshot, AndroidEmulatorError>],
@@ -133,6 +149,10 @@ private actor StubAndroidEmulatorService: AndroidEmulatorServicing {
             )
         }
         return try snapshots.removeFirst().get()
+    }
+
+    func restartADB() async throws {
+        restartADBRequests += 1
     }
 
     func launch(avdName: String) async throws {

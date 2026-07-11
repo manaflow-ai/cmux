@@ -102,6 +102,7 @@ public struct AndroidEmulatorPickerView: View {
                     icon: "exclamationmark.circle.fill",
                     text: warningText(warning),
                     color: .yellow,
+                    action: warningAction(warning),
                     dismissAction: nil
                 )
             }
@@ -198,6 +199,7 @@ public struct AndroidEmulatorPickerView: View {
         icon: String,
         text: String,
         color: Color,
+        action: (title: String, isRunning: Bool, handler: () -> Void)? = nil,
         dismissAction: (() -> Void)?
     ) -> some View {
         HStack(spacing: 8) {
@@ -207,6 +209,19 @@ public struct AndroidEmulatorPickerView: View {
                 .font(.system(size: 11))
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .textSelection(.enabled)
+            if let action {
+                Button(action: action.handler) {
+                    if action.isRunning {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else {
+                        Text(action.title)
+                    }
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .disabled(action.isRunning)
+            }
             if let dismissAction {
                 Button(action: dismissAction) {
                     Image(systemName: "xmark")
@@ -222,6 +237,17 @@ public struct AndroidEmulatorPickerView: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 9)
         .background(color.opacity(0.09))
+    }
+
+    private func warningAction(
+        _ warning: AndroidEmulatorWarning
+    ) -> (title: String, isRunning: Bool, handler: () -> Void)? {
+        guard case .adbQueryFailed = warning else { return nil }
+        return (
+            String(localized: "androidEmulator.action.restartADB", defaultValue: "Restart adb", bundle: .module),
+            coordinator.isRestartingADB,
+            { Task { await coordinator.restartADB() } }
+        )
     }
 
     private func warningText(_ warning: AndroidEmulatorWarning) -> String {

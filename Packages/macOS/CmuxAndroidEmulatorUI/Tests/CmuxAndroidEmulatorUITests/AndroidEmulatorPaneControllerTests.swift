@@ -111,6 +111,7 @@ private actor RetryDisplaySizeService: AndroidEmulatorServicing {
     var displaySizeRequestCount: Int { requestCount }
 
     func snapshot() async throws -> AndroidEmulatorSnapshot { throw TestError.unused }
+    func restartADB() async throws { throw TestError.unused }
     func launch(avdName: String) async throws { throw TestError.unused }
     func stop(avdName: String, serial: String, transportID: String) async throws { throw TestError.unused }
     func perform(
@@ -147,6 +148,7 @@ private actor SuccessfulStopService: AndroidEmulatorServicing {
     }
 
     func launch(avdName: String) async throws {}
+    func restartADB() async throws {}
 
     func stop(avdName: String, serial: String, transportID: String) async throws {}
 
@@ -177,6 +179,10 @@ private actor SerializingControlService: AndroidEmulatorServicing {
     var maximumConcurrentControls: Int { maximumActiveControlCount }
 
     func snapshot() async throws -> AndroidEmulatorSnapshot {
+        throw TestError.unused
+    }
+
+    func restartADB() async throws {
         throw TestError.unused
     }
 
