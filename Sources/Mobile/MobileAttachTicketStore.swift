@@ -64,12 +64,20 @@ final class MobileAttachTicketStore {
         return ticket
     }
 
-    func payload(for ticket: CmxAttachTicket, target: MobileAttachTarget) throws -> [String: Any] {
+    func payload(
+        for ticket: CmxAttachTicket,
+        target: MobileAttachTarget? = nil
+    ) throws -> [String: Any] {
         var payload: [String: Any] = [
             "ticket": try Self.jsonObject(ticket),
             "routes": ticket.routes.map(\.mobileHostJSONObject)
         ]
-        if target != .ticketOnly {
+        switch target {
+        case nil:
+            payload["attach_url"] = try legacyAttachURL(for: ticket).absoluteString
+        case .ticketOnly:
+            break
+        case .some(let target):
             payload["attach_url"] = try attachURL(for: ticket, target: target).absoluteString
         }
         // `expires_at` describes the minted attach token's lifetime (tickets
@@ -79,6 +87,23 @@ final class MobileAttachTicketStore {
             payload["expires_at"] = ISO8601DateFormatter().string(from: expiresAt)
         }
         return payload
+    }
+
+    /// Preserves the pre-target RPC contract for callers that omit `target`.
+    /// Explicit targets use their stricter destination-specific encoders below.
+    private func legacyAttachURL(for ticket: CmxAttachTicket) throws -> URL {
+        if let pairingURL = CmxPairingQRCode().encode(ticket),
+           let url = URL(string: pairingURL) {
+            return url
+        }
+        let data = try CmxAttachTicketCompactCoder().encode(ticket)
+        let payload = Self.base64URLEncode(data)
+        guard let url = URL(
+            string: "\(CmxPairingURLScheme.current)://attach?v=\(ticket.version)&payload=\(payload)"
+        ) else {
+            throw MobileAttachTicketStoreError.invalidAttachURL
+        }
+        return url
     }
 
     func validTicket(authToken: String?, now: Date = Date()) -> CmxAttachTicket? {

@@ -1070,12 +1070,18 @@ final class MobileHostService {
         ttl: TimeInterval,
         routeID: String? = nil,
         routeKind: String? = nil,
-        target: MobileAttachTarget = .ticketOnly
+        target: MobileAttachTarget? = nil
     ) async throws -> [String: Any] {
         guard let listenerPort else { throw MobileAttachTicketStoreError.noRoutes }
         let routes = routeResolver.routes(port: listenerPort).routes
         let filteredRoutes = try Self.filteredRoutes(routes, routeID: routeID, routeKind: routeKind)
-        let selectedRoutes = try target.selectRoutes(from: filteredRoutes)
+        let selectedRoutes: [CmxAttachRoute]
+        if let target {
+            selectedRoutes = try target.selectRoutes(from: filteredRoutes)
+        } else {
+            guard !filteredRoutes.isEmpty else { throw MobileAttachTicketStoreError.noRoutes }
+            selectedRoutes = filteredRoutes
+        }
         let ticket = try ticketStore.createTicket(
             workspaceID: workspaceID,
             terminalID: terminalID,

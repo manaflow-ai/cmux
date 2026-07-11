@@ -12,7 +12,7 @@ extension TerminalController {
             ?? v2OptionalTrimmedRawString(params, "routeKind")
         let scope = v2OptionalTrimmedRawString(params, "scope")
         let rawTarget = v2OptionalTrimmedRawString(params, "target")
-        let target: MobileAttachTarget
+        let target: MobileAttachTarget?
         if let rawTarget {
             guard let parsed = MobileAttachTarget(wireValue: rawTarget) else {
                 return .err(
@@ -23,9 +23,9 @@ extension TerminalController {
             }
             target = parsed
         } else {
-            // Network clients that only need a ticket predate target-aware URL
-            // minting. They preserve the full route set and receive no URL.
-            target = .ticketOnly
+            // Preserve the pre-target contract for older control-socket callers:
+            // keep the full route set and continue returning `attach_url`.
+            target = nil
         }
         // scope=mac mints a Mac-wide ticket that grants access to every
         // workspace on the host. Without this, the ticket gets pinned to
@@ -100,7 +100,7 @@ extension TerminalController {
             return .err(
                 code: "unavailable",
                 message: "Selected mobile host routes cannot be represented for the requested target",
-                data: ["target": target.rawValue]
+                data: ["target": target?.rawValue ?? "legacy"]
             )
         } catch {
             return .err(
