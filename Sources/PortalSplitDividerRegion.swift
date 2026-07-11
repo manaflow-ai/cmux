@@ -26,80 +26,6 @@ struct PortalDividerCursorOcclusion {
     }
 }
 
-/// Orientation of a hovered split divider and the resize cursor it shows.
-/// Shared by the portal host views and the hosted web-inspector divider.
-/// `.both` marks the intersection square where a vertical and a horizontal
-/// divider band overlap and a drag resizes along both axes.
-enum PortalDividerCursorKind: Equatable {
-    case vertical
-    case horizontal
-    case both
-
-    var cursor: NSCursor {
-        switch self {
-        case .vertical: return .resizeLeftRight
-        case .horizontal: return .resizeUpDown
-        case .both: return Self.allAxesCursor
-        }
-    }
-
-    /// AppKit ships no public four-way resize cursor, and the private
-    /// `_moveCursor` cannot be resolved by selector: on macOS 15 the class
-    /// method exists (`responds(to:)` is true) but its implementation is a
-    /// tombstone that raises `doesNotRecognizeSelector`, crashing the app the
-    /// moment the cursor is first used. Draw the classic four-directions
-    /// move cursor (N/S/E/W arrows meeting at the center, dark glyph with a
-    /// white rim like the system resize cursors) with bezier paths, so it
-    /// needs no symbol or private API at all.
-    private static let allAxesCursor: NSCursor = {
-        let side: CGFloat = 24
-        let image = NSImage(size: NSSize(width: side, height: side), flipped: false) { _ in
-            let path = fourDirectionsArrowsPath(center: NSPoint(x: side / 2, y: side / 2))
-            NSColor.white.setStroke()
-            path.lineWidth = 3
-            path.lineJoinStyle = .round
-            path.stroke()
-            NSColor.black.setFill()
-            path.fill()
-            return true
-        }
-        return NSCursor(image: image, hotSpot: NSPoint(x: side / 2, y: side / 2))
-    }()
-
-    /// Cross of four arrows: shafts from the center with a triangular head
-    /// per compass direction. Sized for a 24pt cursor image.
-    private static func fourDirectionsArrowsPath(center c: NSPoint) -> NSBezierPath {
-        let tip: CGFloat = 10.5      // center -> arrow tip
-        let headLength: CGFloat = 4.5
-        let headHalfWidth: CGFloat = 3.6
-        let shaftHalfWidth: CGFloat = 1.2
-
-        let path = NSBezierPath()
-        // Shafts (one cross: horizontal + vertical bars up to the head bases).
-        let base = tip - headLength
-        path.appendRect(NSRect(
-            x: c.x - base, y: c.y - shaftHalfWidth, width: base * 2, height: shaftHalfWidth * 2
-        ))
-        path.appendRect(NSRect(
-            x: c.x - shaftHalfWidth, y: c.y - base, width: shaftHalfWidth * 2, height: base * 2
-        ))
-        // Heads: (unit direction, per-direction perpendicular).
-        let directions: [(dx: CGFloat, dy: CGFloat)] = [(0, 1), (0, -1), (1, 0), (-1, 0)]
-        for d in directions {
-            let tipPoint = NSPoint(x: c.x + d.dx * tip, y: c.y + d.dy * tip)
-            let basePoint = NSPoint(x: c.x + d.dx * base, y: c.y + d.dy * base)
-            let perp = NSPoint(x: -d.dy, y: d.dx)
-            let head = NSBezierPath()
-            head.move(to: tipPoint)
-            head.line(to: NSPoint(x: basePoint.x + perp.x * headHalfWidth, y: basePoint.y + perp.y * headHalfWidth))
-            head.line(to: NSPoint(x: basePoint.x - perp.x * headHalfWidth, y: basePoint.y - perp.y * headHalfWidth))
-            head.close()
-            path.append(head)
-        }
-        return path
-    }
-}
-
 /// A point where a vertical and a horizontal divider's hit bands overlap.
 /// Only dividers from the same nested split tree pair up, so unrelated
 /// splits (e.g. the dock sidebar next to the main tree) never co-drag.
@@ -303,6 +229,69 @@ final class PortalSplitDividerRegion {
         checkLiveness: Bool = true
     ) -> PortalDividerIntersection? {
         dividerHits(at: windowPoint, in: regions, checkLiveness: checkLiveness).intersection
+    }
+
+    /// Cursor-rect plan for a host view: single-axis band rects with the
+    /// corner zones cut out, plus the corner zones themselves for the
+    /// four-way cursor. Without the cut, a band's AppKit cursor rect keeps
+    /// asserting a single-axis arrow inside the corner and the pointer
+    /// flickers between it and the four-way cursor. All rects are in window
+    /// coordinates; hosts convert, clip, and register them.
+    static func cursorRectPlan(
+        for regions: [PortalSplitDividerRegion]
+    ) -> (bands: [(rect: NSRect, isVertical: Bool)], corners: [NSRect]) {
+        var corners: [NSRect] = []
+        let verticals = regions.filter { $0.isVertical && !$0.isInHostedContent }
+        let horizontals = regions.filter { !$0.isVertical && !$0.isInHostedContent }
+        for vertical in verticals {
+            for horizontal in horizontals where areNested(vertical, horizontal) {
+                let corner = vertical.intersectionHitRectInWindow
+                    .intersection(horizontal.intersectionHitRectInWindow)
+                if !corner.isNull, corner.width > 0, corner.height > 0 {
+                    corners.append(corner)
+                }
+            }
+        }
+        var bands: [(rect: NSRect, isVertical: Bool)] = []
+        for region in regions {
+            let band = region.hitRectInWindow
+            guard !band.isNull, band.width > 0, band.height > 0 else { continue }
+            for segment in subtractingAlongAxis(corners, from: band, isVertical: region.isVertical) {
+                bands.append((segment, region.isVertical))
+            }
+        }
+        return (bands, corners)
+    }
+
+    /// Splits `band` along its long axis around each intersecting hole. The
+    /// corner zones are wider than the band's short axis, so subtraction
+    /// reduces to 1-D range splitting.
+    private static func subtractingAlongAxis(
+        _ holes: [NSRect],
+        from band: NSRect,
+        isVertical: Bool
+    ) -> [NSRect] {
+        var ranges: [(lo: CGFloat, hi: CGFloat)] =
+            isVertical ? [(band.minY, band.maxY)] : [(band.minX, band.maxX)]
+        for hole in holes where hole.intersects(band) {
+            let holeLo = isVertical ? hole.minY : hole.minX
+            let holeHi = isVertical ? hole.maxY : hole.maxX
+            var next: [(lo: CGFloat, hi: CGFloat)] = []
+            for range in ranges {
+                if holeHi <= range.lo || holeLo >= range.hi {
+                    next.append(range)
+                    continue
+                }
+                if holeLo > range.lo { next.append((range.lo, holeLo)) }
+                if holeHi < range.hi { next.append((holeHi, range.hi)) }
+            }
+            ranges = next
+        }
+        return ranges.filter { $0.hi - $0.lo > 0.5 }.map { range in
+            isVertical
+                ? NSRect(x: band.minX, y: range.lo, width: band.width, height: range.hi - range.lo)
+                : NSRect(x: range.lo, y: band.minY, width: range.hi - range.lo, height: band.height)
+        }
     }
 
     /// True when one region's split view is nested inside the other's tree,

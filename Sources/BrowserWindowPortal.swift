@@ -340,17 +340,13 @@ final class WindowBrowserHostView: NSView {
     override func resetCursorRects() {
         super.resetCursorRects()
         invalidateSplitDividerRegionCache()
-        let regions = splitDividerRegions()
-        let expansion = PortalSplitDividerRegion.dividerHitExpansion
-        for region in regions {
-            var rectInHost = convert(region.rectInWindow, from: nil)
-            rectInHost = rectInHost.insetBy(
-                dx: region.isVertical ? -expansion : 0,
-                dy: region.isVertical ? 0 : -expansion
-            )
-            let clipped = rectInHost.intersection(bounds)
+        let plan = PortalSplitDividerRegion.cursorRectPlan(for: splitDividerRegions())
+        let planned = plan.bands.map { ($0.rect, $0.isVertical ? NSCursor.resizeLeftRight : .resizeUpDown) }
+            + plan.corners.map { ($0, PortalDividerCursorKind.both.cursor) }
+        for (rect, cursor) in planned {
+            let clipped = convert(rect, from: nil).intersection(bounds)
             guard !clipped.isNull, clipped.width > 0, clipped.height > 0 else { continue }
-            addCursorRect(clipped, cursor: region.isVertical ? .resizeLeftRight : .resizeUpDown)
+            addCursorRect(clipped, cursor: cursor)
         }
     }
 
@@ -450,6 +446,10 @@ final class WindowBrowserHostView: NSView {
         }
         if splitPassThrough {
             if claimsIntersectionMouseDown(at: point, eventType: eventType, dividerHitKind: dividerHit?.kind) {
+                return self
+            }
+            // Claim corner-zone hover too, or a passed-through cursorUpdate lets the split view flicker its single-axis cursor.
+            if dividerHit?.kind == .both, PortalDividerCursorKind.isPointerHoverEvent(eventType) {
                 return self
             }
 #if DEBUG

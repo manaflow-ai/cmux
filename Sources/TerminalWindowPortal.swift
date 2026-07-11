@@ -77,18 +77,18 @@ final class WindowTerminalHostView: NSView {
     override func resetCursorRects() {
         super.resetCursorRects()
         invalidateSplitDividerRegionCache()
-        let regions = splitDividerRegions()
-        let expansion = PortalSplitDividerRegion.dividerHitExpansion
-        for region in regions {
-            var rectInHost = convert(region.rectInWindow, from: nil)
-            rectInHost = rectInHost.insetBy(
-                dx: region.isVertical ? -expansion : 0,
-                dy: region.isVertical ? 0 : -expansion
-            )
-            let clipped = rectInHost.intersection(bounds)
+        let plan = PortalSplitDividerRegion.cursorRectPlan(for: splitDividerRegions())
+        for band in plan.bands {
+            let clipped = convert(band.rect, from: nil).intersection(bounds)
             guard !clipped.isNull, clipped.width > 0, clipped.height > 0 else { continue }
             guard !cursorRectIntersectsChromePassThrough(clipped) else { continue }
-            addCursorRect(clipped, cursor: region.isVertical ? .resizeLeftRight : .resizeUpDown)
+            addCursorRect(clipped, cursor: band.isVertical ? .resizeLeftRight : .resizeUpDown)
+        }
+        for corner in plan.corners {
+            let clipped = convert(corner, from: nil).intersection(bounds)
+            guard !clipped.isNull, clipped.width > 0, clipped.height > 0 else { continue }
+            guard !cursorRectIntersectsChromePassThrough(clipped) else { continue }
+            addCursorRect(clipped, cursor: PortalDividerCursorKind.both.cursor)
         }
     }
 
@@ -196,6 +196,14 @@ final class WindowTerminalHostView: NSView {
                     // preceding hover event `activeDividerCursorKind` would
                     // stay nil and `clearActiveDividerCursor` at mouse-up
                     // could not restore the arrow.
+                    assertDividerCursor(kind)
+                    return self
+                }
+                // Claim hover in the corner zone too: a passed-through
+                // cursorUpdate reaches the split view underneath, whose
+                // native divider cursor then fights the four-way one and
+                // the pointer flickers between them.
+                if kind == .both, PortalDividerCursorKind.isPointerHoverEvent(currentEvent?.type) {
                     assertDividerCursor(kind)
                     return self
                 }

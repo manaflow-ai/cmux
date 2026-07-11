@@ -205,6 +205,30 @@ import Testing
         #expect(intersection == nil)
     }
 
+    @Test func cursorRectPlanCutsCornersOutOfBands() {
+        let (outer, inner) = makeNestedSplits()
+        let horizontal = region(outer, rect: horizontalDividerRect, isVertical: false)
+        let vertical = region(inner, rect: verticalDividerRect, isVertical: true)
+
+        let plan = PortalSplitDividerRegion.cursorRectPlan(for: [horizontal, vertical])
+
+        // One ~28x28 corner square centered on the junction.
+        #expect(plan.corners.count == 1)
+        if let corner = plan.corners.first {
+            #expect(corner.contains(NSPoint(x: 400, y: 300)))
+            #expect(abs(corner.width - 29) < 1 && abs(corner.height - 29) < 1)
+            // No band rect may overlap the corner: an overlapping single-axis
+            // cursor rect would flicker against the four-way cursor there.
+            for band in plan.bands {
+                #expect(!band.rect.intersects(corner))
+            }
+        }
+        // The vertical band is cut where it meets the corner; the horizontal
+        // band keeps its segment left of the corner.
+        #expect(plan.bands.contains { $0.isVertical && $0.rect.maxY <= 287 })
+        #expect(plan.bands.contains { !$0.isVertical && $0.rect.maxX <= 387 })
+    }
+
     @Test func hostedContentRegionsDoNotPair() {
         let (outer, inner) = makeNestedSplits()
         let horizontal = region(outer, rect: horizontalDividerRect, isVertical: false)
