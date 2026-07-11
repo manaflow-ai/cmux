@@ -482,9 +482,16 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
                 )
             }
             let createdAt = existing?.createdAt ?? claimedLegacy?.createdAt ?? now
-            let persistedInstanceTag = routeWriteCondition == nil
-                ? instanceTag
-                : current?.instanceTag
+            let persistedInstanceTag: String?
+            if routeWriteCondition != nil {
+                persistedInstanceTag = current?.instanceTag
+            } else if onlyIfOlder, instanceTag == nil {
+                // Legacy backups predate authenticated instance identity. They
+                // may refresh host metadata without revoking live authority.
+                persistedInstanceTag = current?.instanceTag
+            } else {
+                persistedInstanceTag = instanceTag
+            }
             try upsertMacRow(
                 macDeviceID: macDeviceID,
                 ownerKey: ownerKey,
