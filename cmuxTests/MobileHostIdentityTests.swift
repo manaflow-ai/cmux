@@ -10,6 +10,26 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct MobileHostIdentityTests {
+    @Test func authenticatedStatusIncludesAuthoritativeInstanceTag() {
+        let previousTag = ProcessInfo.processInfo.environment["CMUX_TAG"]
+        setenv("CMUX_TAG", "future-one", 1)
+        defer {
+            if let previousTag {
+                setenv("CMUX_TAG", previousTag, 1)
+            } else {
+                unsetenv("CMUX_TAG")
+            }
+        }
+
+        let payload = MobileHostService.identityStatusPayload(routesPayload: [])
+        #expect(payload["mac_instance_tag"] as? String == "future-one")
+    }
+
+    @Test func publicStatusOmitsInstanceTag() {
+        let payload = MobileHostService.publicStatusPayload(routesPayload: [])
+        #expect(payload["mac_instance_tag"] == nil)
+    }
+
     @Test func taggedDebugBuildSuffixesPairingDisplayName() throws {
         let suiteName = "mobile-host-display-name-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
