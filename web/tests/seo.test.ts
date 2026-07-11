@@ -502,7 +502,7 @@ describe("SEO metadata helpers", () => {
           /[{}]|__CMUXPH/iu,
         );
         expect(row.copy.description).not.toMatch(/[!?។៕。！？؟]\./u);
-        expect(row.copy.description).not.toMatch(/[:：][.。]/u);
+        expect(row.copy.description).not.toMatch(/[:：][.!?។៕。！？؟]/u);
         expect(row.copy.description).toMatch(/[.!?。！？؟។៕]$/u);
         const hasRouteContext = row.contexts.some(
           (context) =>
@@ -855,6 +855,9 @@ function plainSeoMessageLookup(messages: object) {
     const value = lookup(key);
     if (value.includes("<")) {
       throw new Error(`SEO metadata requested rich message ${key} as plain text`);
+    }
+    if (/[:：]\s*$/u.test(value)) {
+      throw new Error(`SEO metadata requested list lead-in ${key} as prose`);
     }
     return value;
   };

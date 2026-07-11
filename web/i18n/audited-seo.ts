@@ -39,7 +39,7 @@ const blogDescriptionCandidateKeys: Record<
   zenOfCmux: ["summary", "p1", "p2", "p3", "p4"],
   cmdShiftU: ["summary", "p1"],
   unreadShortcuts: ["summary", "p1", "p2", "p3", "p4", "p5"],
-  passkeyAuth: ["summary", "p1", "p2", "p3"],
+  passkeyAuth: ["summary", "p1", "p3"],
 };
 
 const conciseTitleLocales = new Set(["ja", "zh-CN", "zh-TW", "ko"]);
