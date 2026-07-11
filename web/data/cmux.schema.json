@@ -65,6 +65,113 @@
         "additionalProperties": true
       }
     },
+    "agentChat": {
+      "title": "agentChat",
+      "description": "Agent Chat GUI server settings. The built-in New agent chat action opens this URL in a browser workspace, probing /healthz first and optionally starting the server with startCommand.",
+      "descriptionKey": "schemaDescriptions.agentChat.description",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https?://",
+          "minLength": 1,
+          "default": "http://127.0.0.1:7739",
+          "description": "Base URL for the machine-local Agent Chat GUI server. cmux probes <url>/healthz before opening the workspace.",
+          "descriptionKey": "schemaDescriptions.agentChat.url"
+        },
+        "startCommand": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Optional shell command to start the Agent Chat server when <url>/healthz is unreachable. cmux runs it detached with the user's SHELL, polls healthz for a short bounded window, then opens the workspace either way.",
+          "descriptionKey": "schemaDescriptions.agentChat.startCommand"
+        },
+        "keys": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Keyboard behavior overrides for the Agent Chat web UI.",
+          "descriptionKey": "schemaDescriptions.agentChat.keys.description",
+          "properties": {
+            "ctrlJ": {
+              "type": "string",
+              "enum": ["newline", "menu"],
+              "default": "newline",
+              "description": "Behavior for Ctrl+J in Agent Chat text fields. Use newline to insert a line break, or menu to move to the next popup item while a menu is open.",
+              "descriptionKey": "schemaDescriptions.agentChat.keys.ctrlJ"
+            }
+          }
+        },
+        "fonts": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Font overrides for the Agent Chat web UI. Omitted values fall back to Ghostty and built-in defaults.",
+          "descriptionKey": "schemaDescriptions.agentChat.fonts.description",
+          "properties": {
+            "sansFamily": {
+              "type": "string",
+              "minLength": 1,
+              "description": "CSS font family used for Agent Chat body and UI text.",
+              "descriptionKey": "schemaDescriptions.agentChat.fonts.sansFamily"
+            },
+            "bodyFamily": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Alias for sansFamily.",
+              "descriptionKey": "schemaDescriptions.agentChat.fonts.bodyFamily"
+            },
+            "family": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Alias for sansFamily.",
+              "descriptionKey": "schemaDescriptions.agentChat.fonts.family"
+            },
+            "baseSize": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "description": "Base Agent Chat font size in CSS pixels.",
+              "descriptionKey": "schemaDescriptions.agentChat.fonts.baseSize"
+            },
+            "bodySize": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "description": "Alias for baseSize.",
+              "descriptionKey": "schemaDescriptions.agentChat.fonts.bodySize"
+            },
+            "monoFamily": {
+              "type": "string",
+              "minLength": 1,
+              "description": "CSS font family used for Agent Chat code and monospace text.",
+              "descriptionKey": "schemaDescriptions.agentChat.fonts.monoFamily"
+            },
+            "codeFamily": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Alias for monoFamily.",
+              "descriptionKey": "schemaDescriptions.agentChat.fonts.codeFamily"
+            },
+            "codeSize": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "description": "Agent Chat code font size in CSS pixels.",
+              "descriptionKey": "schemaDescriptions.agentChat.fonts.codeSize"
+            },
+            "monoSize": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "description": "Alias for codeSize.",
+              "descriptionKey": "schemaDescriptions.agentChat.fonts.monoSize"
+            },
+            "codeLineHeight": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "description": "Line-height multiplier used for Agent Chat code blocks.",
+              "descriptionKey": "schemaDescriptions.agentChat.fonts.codeLineHeight"
+            }
+          }
+        }
+      }
+    },
     "vault": {
       "title": "vault",
       "description": "Vault session restore agent registrations. cmux includes Pi by default; use this section to add or override JSONL-backed coding agents without an app update.",
@@ -928,6 +1035,23 @@
           "type": "boolean",
           "default": true,
           "description": "Show progress indicators."
+        },
+        "showAgentActivity": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the loading spinner on workspaces with running coding agents or active loaders."
+        },
+        "loadingSpinnerPosition": {
+          "type": "string",
+          "enum": ["leading", "trailing"],
+          "default": "leading",
+          "description": "Which side of the workspace row the loading spinner appears on: leading (left, sharing the unread-badge slot) or trailing (right)."
+        },
+        "notificationBadgePosition": {
+          "type": "string",
+          "enum": ["leading", "trailing"],
+          "default": "leading",
+          "description": "Which side of the workspace row the unread notification badge appears on: leading (left) or trailing (right)."
         },
         "showCustomMetadata": {
           "type": "boolean",

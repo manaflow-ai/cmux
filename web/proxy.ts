@@ -5,6 +5,7 @@ import { isAgentPageVariantPath } from "./app/lib/agent-page-paths";
 import {
   featureWorkflowContentLocales,
   featureWorkflowDocRequestForPathname,
+  remoteTmuxDocsLocales,
 } from "./i18n/locale-availability";
 import { buildAlternateLinkHeader } from "./i18n/seo";
 
@@ -43,6 +44,10 @@ export default function middleware(request: NextRequest) {
   }
 
   if (pathname === "/app-pricing" || pathname === "/app-pricing/") {
+    return NextResponse.next();
+  }
+
+  if (pathname === "/app-pro-welcome" || pathname === "/app-pro-welcome/") {
     return NextResponse.next();
   }
 
@@ -91,6 +96,25 @@ export default function middleware(request: NextRequest) {
       url.pathname = rest;
       return NextResponse.redirect(url, 301);
     }
+  }
+
+  const remoteTmuxMatch = pathname.match(
+    /^\/([a-z]{2}(?:-[A-Z]{2})?)\/docs\/remote-tmux\/?$/,
+  );
+  if (
+    remoteTmuxMatch &&
+    !remoteTmuxDocsLocales.includes(
+      remoteTmuxMatch[1] as (typeof remoteTmuxDocsLocales)[number],
+    )
+  ) {
+    const url = request.nextUrl.clone();
+    url.pathname = "/docs/remote-tmux";
+    return NextResponse.redirect(url, 301);
+  }
+  if (pathname === "/docs/remote-tmux" || pathname === "/docs/remote-tmux/") {
+    const url = request.nextUrl.clone();
+    url.pathname = "/en/docs/remote-tmux";
+    return NextResponse.rewrite(url);
   }
 
   const response = intlMiddleware(request);

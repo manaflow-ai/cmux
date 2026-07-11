@@ -11,6 +11,10 @@
     {
       "path": "/api/cron/vm-alerts",
       "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/internal/vm/leases/revoke-expired",
+      "schedule": "*/10 * * * *"
     }
   ]
 }

@@ -10,6 +10,7 @@ import {
   isStripeBillingConfigured,
   stripe,
 } from "../../../../services/billing/stripe";
+import { resolveBillingTeam } from "../../../../services/billing/teamResolution";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -30,7 +31,7 @@ export async function GET(request: NextRequest) {
     stackUserId = user.id;
 
     const requestedScope = billingPortalScope(request.nextUrl.searchParams.get("scope"));
-    const team = requestedScope === "team" ? await billingTeamForUser(user) : null;
+    const team = requestedScope === "team" ? await resolveBillingTeam(user) : null;
     const customerId = team?.id
       ? await stripeCustomerIdForStackTeam(team.id)
       : await stripeCustomerIdForStackUser(user.id);
@@ -46,7 +47,7 @@ export async function GET(request: NextRequest) {
           },
         );
       }
-      return pricingRedirect(request, "external");
+      return pricingRedirect(request, "unavailable");
     }
 
     const session = await stripe().billingPortal.sessions.create({
@@ -100,28 +101,7 @@ function billingPortalScope(raw: string | null): "user" | "team" {
   return raw === "team" ? "team" : "user";
 }
 
-type BillingTeamLike = { readonly id?: string };
-type BillingTeamUserLike = {
-  readonly selectedTeam?: unknown;
-  readonly listTeams?: () => Promise<readonly unknown[]>;
-};
-
-async function billingTeamForUser(user: BillingTeamUserLike): Promise<BillingTeamLike | null> {
-  const selected = teamFromUnknown(user.selectedTeam);
-  if (selected) return selected;
-  const teams = typeof user.listTeams === "function"
-    ? (await user.listTeams()).map(teamFromUnknown).filter((team): team is BillingTeamLike => !!team)
-    : [];
-  return teams.length === 1 ? teams[0] : null;
-}
-
-function teamFromUnknown(value: unknown): BillingTeamLike | null {
-  if (!value || typeof value !== "object") return null;
-  const id = (value as { id?: unknown }).id;
-  return typeof id === "string" && id ? { id } : null;
-}
-
-function pricingRedirect(request: NextRequest, billing: "unavailable" | "external" | "error") {
+function pricingRedirect(request: NextRequest, billing: "unavailable" | "error") {
   return NextResponse.redirect(new URL(`/pricing?billing=${billing}`, request.url), 302);
 }
 

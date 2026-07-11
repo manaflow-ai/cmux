@@ -1,5 +1,6 @@
 import CMUXMobileCore
 import CmuxMobileAnalytics
+import CmuxMobileCrashReporting
 import CmuxMobileShellModel
 import CmuxMobileSupport
 import CmuxMobileTransport
@@ -34,6 +35,10 @@ final class AppCompositionRoot {
     /// observing port, injected down so pairing and disconnected surfaces can
     /// explain a Tailscale-off phone.
     let tailscaleStatusMonitor: TailscaleStatusMonitorAdapter
+    /// Owns the crash reporter's consent-revocation observation for the life
+    /// of the process (closes Sentry + purges its stores if telemetry is
+    /// turned off mid-session).
+    let crashRevocationWatcher = MobileCrashReporter.RevocationWatcher()
 
     #if DEBUG
     /// The structured diagnostic log, built once here and injected into the
@@ -49,12 +54,24 @@ final class AppCompositionRoot {
         auth: MobileAuthComposition,
         reachability: any ReachabilityProviding
     ) {
+        #if DEBUG
+        // Arm the durable debug log at launch: `.shared` is lazy, and without
+        // this a run that never logs would create no file or crash capture.
+        MobileDebugLog.shared.append("app launch · composition root initialized")
+        #endif
+
         self.runtime = runtime
         self.auth = auth
         self.reachability = reachability
+        let telemetryConsent = UserDefaultsAnalyticsConsentProvider(defaults: .standard)
+        MobileCrashReporter.startIfEnabled(
+            consent: telemetryConsent,
+            revocationWatcher: crashRevocationWatcher
+        )
         self.analytics = MobileAnalyticsComposition(
             apiBaseURL: auth.config.apiBaseURL,
-            tokenProvider: auth.coordinator
+            tokenProvider: auth.coordinator,
+            consent: telemetryConsent
         )
         self.pushCoordinator = MobilePushCoordinator(
             registration: auth.pushRegistration,

@@ -1,0 +1,233 @@
+import CmuxCore
+import Foundation
+import Testing
+@testable import CmuxRemoteWorkspace
+
+extension FakeProxyTunnel {
+    func ptySessionLifecycle(sessionID: String, lifecycleID: String) -> RemotePTYSessionLifecycle {
+        record("ptySessionLifecycle", [sessionID, lifecycleID])
+        return lock.withLock {
+            ptyLifecycleRegistry.lifecycle(
+                for: RemotePTYLifecycleKey(sessionID: sessionID, lifecycleID: lifecycleID)
+            )
+        }
+    }
+
+    func acknowledgePTYLifecycle(sessionID: String, lifecycleID: String) {
+        record("acknowledgePTYLifecycle", [sessionID, lifecycleID])
+        lock.withLock {
+            ptyLifecycleRegistry.acknowledge(
+                RemotePTYLifecycleKey(sessionID: sessionID, lifecycleID: lifecycleID)
+            )
+        }
+    }
+
+    func acknowledgePTYLifecycleIfKnown(sessionID: String, lifecycleID: String) -> Bool {
+        record("acknowledgePTYLifecycleIfKnown", [sessionID, lifecycleID])
+        return lock.withLock {
+            ptyLifecycleRegistry.acknowledgeIfKnown(
+                RemotePTYLifecycleKey(sessionID: sessionID, lifecycleID: lifecycleID)
+            )
+        }
+    }
+
+    func reportLifecycleEnded(sessionID: String, lifecycleID: String) {
+        let callback = lock.withLock {
+            lifecycleEndCallbacks.removeValue(
+                forKey: RemotePTYLifecycleKey(sessionID: sessionID, lifecycleID: lifecycleID)
+            )
+        }
+        callback?()
+    }
+}
+
+@Suite("RemoteProxyBroker PTY lifecycle restart", .serialized)
+struct RemoteProxyBrokerPTYLifecycleRestartTests {
+    @Test("intentional-close lifecycle survives a failed automatic tunnel replacement")
+    func intentionalCloseSurvivesTunnelReplacement() throws {
+        let provider = FakeTunnelProvider()
+        let clock = ManualRetryClock()
+        let broker = RemoteProxyBroker(tunnelProvider: provider, clock: clock)
+        let configuration = makeConfiguration()
+        let lease = broker.acquire(configuration: configuration, remotePath: "/r/p") { _ in }
+        defer { lease.release() }
+
+        _ = try broker.startPTYBridge(
+            configuration: configuration,
+            sessionID: "session",
+            lifecycleID: "generation",
+            attachmentID: "surface",
+            command: nil,
+            requireExisting: true
+        )
+        try broker.closePTY(
+            configuration: configuration,
+            sessionID: "session",
+            deadline: .distantFuture
+        )
+        #expect(try broker.ptySessionLifecycle(
+            configuration: configuration,
+            sessionID: "session",
+            lifecycleID: "generation"
+        ) == .intentionallyClosed)
+
+        provider.failNextStarts(1)
+        let fatalError = try #require(provider.fatalErrorCallback(at: 0))
+        fatalError("transport died")
+        #expect(clock.waitForSleeps(1))
+        #expect(try broker.ptySessionLifecycle(
+            configuration: configuration,
+            sessionID: "session",
+            lifecycleID: "generation"
+        ) == .intentionallyClosed)
+        clock.fireOldestSleep()
+        #expect(clock.waitForSleeps(2))
+        clock.fireOldestSleep()
+        let deadline = Date().addingTimeInterval(5.0)
+        while provider.tunnels.count < 3 && Date() < deadline { usleep(10_000) }
+        #expect(provider.tunnels.count == 3)
+
+        #expect(try broker.ptySessionLifecycle(
+            configuration: configuration,
+            sessionID: "session",
+            lifecycleID: "generation"
+        ) == .intentionallyClosed)
+        #expect(throws: RemotePTYLifecycleError.self) {
+            try broker.startPTYBridge(
+                configuration: configuration,
+                sessionID: "session",
+                lifecycleID: "generation",
+                attachmentID: "surface",
+                command: nil,
+                requireExisting: true
+            )
+        }
+    }
+
+    @Test("wrapper end retires a generation while tunnel replacement is pending")
+    func wrapperEndRetiresReplacementSnapshot() throws {
+        let provider = FakeTunnelProvider()
+        let clock = ManualRetryClock()
+        let broker = RemoteProxyBroker(tunnelProvider: provider, clock: clock)
+        let configuration = makeConfiguration()
+        let lease = broker.acquire(configuration: configuration, remotePath: "/r/p") { _ in }
+        defer { lease.release() }
+
+        _ = try broker.startPTYBridge(
+            configuration: configuration,
+            sessionID: "UPPERCASE-SESSION",
+            lifecycleID: "generation",
+            attachmentID: "surface",
+            command: nil,
+            requireExisting: true
+        )
+        let fatalError = try #require(provider.fatalErrorCallback(at: 0))
+        fatalError("transport died")
+        #expect(clock.waitForSleeps(1))
+
+        broker.acknowledgePTYLifecycleAfterWrapperEnd(
+            sessionID: "UPPERCASE-SESSION",
+            lifecycleID: "generation"
+        )
+        #expect(try broker.ptySessionLifecycle(
+            configuration: configuration,
+            sessionID: "UPPERCASE-SESSION",
+            lifecycleID: "generation"
+        ) == .intentionallyClosed)
+        clock.fireOldestSleep()
+        let deadline = Date().addingTimeInterval(5.0)
+        while provider.tunnels.count < 2 && Date() < deadline { usleep(10_000) }
+
+        #expect(try broker.ptySessionLifecycle(
+            configuration: configuration,
+            sessionID: "UPPERCASE-SESSION",
+            lifecycleID: "generation"
+        ) == .intentionallyClosed)
+    }
+
+    @Test("wrapper retirement finds its owner without tombstoning unrelated generations")
+    func wrapperRetirementFindsOnlyKnownGeneration() throws {
+        let provider = FakeTunnelProvider()
+        let broker = RemoteProxyBroker(tunnelProvider: provider, clock: ManualRetryClock())
+        let configuration = makeConfiguration()
+        let lease = broker.acquire(configuration: configuration, remotePath: "/r/p") { _ in }
+        defer { lease.release() }
+
+        _ = try broker.startPTYBridge(
+            configuration: configuration,
+            sessionID: "session",
+            lifecycleID: "known",
+            attachmentID: "surface",
+            command: nil,
+            requireExisting: true
+        )
+        broker.acknowledgePTYLifecycleAfterWrapperEnd(sessionID: "session", lifecycleID: "known")
+        broker.acknowledgePTYLifecycleAfterWrapperEnd(sessionID: "session", lifecycleID: "unknown")
+
+        #expect(try broker.ptySessionLifecycle(
+            configuration: configuration,
+            sessionID: "session",
+            lifecycleID: "known"
+        ) == .intentionallyClosed)
+        _ = try broker.startPTYBridge(
+            configuration: configuration,
+            sessionID: "session",
+            lifecycleID: "unknown",
+            attachmentID: "surface",
+            command: nil,
+            requireExisting: true
+        )
+    }
+
+    @Test("ended lifecycle removes its broker owner index")
+    func endedLifecycleRemovesOwnerIndex() throws {
+        let provider = FakeTunnelProvider()
+        let broker = RemoteProxyBroker(tunnelProvider: provider, clock: ManualRetryClock())
+        let configuration = makeConfiguration()
+        let lease = broker.acquire(configuration: configuration, remotePath: "/r/p") { _ in }
+        defer { lease.release() }
+
+        _ = try broker.startPTYBridge(
+            configuration: configuration,
+            sessionID: "session",
+            lifecycleID: "unused",
+            attachmentID: "surface",
+            command: nil,
+            requireExisting: true
+        )
+        let tunnel = try #require(provider.tunnels.first)
+        tunnel.reportLifecycleEnded(sessionID: "session", lifecycleID: "unused")
+        _ = try broker.listPTY(configuration: configuration)
+
+        broker.acknowledgePTYLifecycleAfterWrapperEnd(sessionID: "session", lifecycleID: "unused")
+        _ = try broker.listPTY(configuration: configuration)
+
+        #expect(!tunnel.ptyCalls.contains { $0.name == "acknowledgePTYLifecycleIfKnown" })
+    }
+
+    @Test("forced local proxy port is used verbatim")
+    func forcedLocalProxyPort() throws {
+        let provider = FakeTunnelProvider()
+        let broker = RemoteProxyBroker(tunnelProvider: provider, clock: ManualRetryClock())
+        let configuration = makeConfiguration(localProxyPort: 45_678)
+        let lease = broker.acquire(configuration: configuration, remotePath: "/r/p") { _ in }
+        defer { lease.release() }
+
+        #expect(try #require(provider.tunnels.first).localPort == 45_678)
+    }
+
+    private func makeConfiguration(localProxyPort: Int? = nil) -> WorkspaceRemoteConfiguration {
+        WorkspaceRemoteConfiguration(
+            destination: "test@example.invalid",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: localProxyPort,
+            relayPort: nil,
+            relayID: nil,
+            relayToken: nil,
+            localSocketPath: nil,
+            terminalStartupCommand: nil
+        )
+    }
+}

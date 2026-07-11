@@ -20,6 +20,8 @@ import {
   TEAM_PLAN_ID,
   resolveProPlanStatus,
 } from "@/services/billing/pro";
+import { resolveBillingTeam, type BillingTeamLike } from "@/services/billing/teamResolution";
+import { AccountPlanBadge } from "../components/account-plan-badge";
 
 export const dynamic = "force-dynamic";
 
@@ -35,11 +37,6 @@ type StripeSubscriptionRow = {
   currentPeriodEnd: Date | null;
   cancelAtPeriodEnd: boolean;
   raw: Record<string, unknown> | null;
-};
-
-type BillingTeam = {
-  id: string;
-  displayName: string | null;
 };
 
 export default async function DashboardBillingPage({
@@ -62,7 +59,7 @@ export default async function DashboardBillingPage({
     redirect(vaultSignInHref(localizedVaultPath(locale, "/dashboard/billing")));
   }
 
-  const billingTeamPromise = billingTeamForUser(user);
+  const billingTeamPromise = resolveBillingTeam(user);
   const [
     t,
     pricingT,
@@ -91,6 +88,9 @@ export default async function DashboardBillingPage({
         <p className="text-xs font-medium text-muted">{t("eyebrow")}</p>
         <h1 className="mt-1 text-sm font-medium">{t("title")}</h1>
         <p className="mt-1 max-w-2xl text-muted">{t("description")}</p>
+        <div className="mt-2">
+          <AccountPlanBadge />
+        </div>
       </div>
 
       {banner ? (
@@ -111,7 +111,7 @@ export default async function DashboardBillingPage({
           canManageBilling={hasStripeCustomer}
         />
       ) : (
-        <LegacyPlan t={t} />
+        <FreePlan t={t} />
       )}
 
       {billingTeam && teamSubscription ? (
@@ -193,32 +193,6 @@ async function hasTeamCustomerRow(stackTeamId: string): Promise<boolean> {
     .where(eq(stripeCustomers.stackTeamId, stackTeamId))
     .limit(1);
   return rows.length > 0;
-}
-
-async function billingTeamForUser(user: unknown): Promise<BillingTeam | null> {
-  const stackUser = user as {
-    selectedTeam?: unknown;
-    listTeams?: () => Promise<readonly unknown[]>;
-  };
-  const selected = teamFromUnknown(stackUser.selectedTeam);
-  if (selected) return selected;
-  const teams = typeof stackUser.listTeams === "function"
-    ? (await stackUser.listTeams()).map(teamFromUnknown).filter((team): team is BillingTeam => !!team)
-    : [];
-  return teams.length === 1 ? teams[0] : null;
-}
-
-function teamFromUnknown(value: unknown): BillingTeam | null {
-  if (!value || typeof value !== "object") return null;
-  const id = (value as { id?: unknown }).id;
-  if (typeof id !== "string" || !id) return null;
-  const displayName = (value as { displayName?: unknown }).displayName;
-  return {
-    id,
-    displayName: typeof displayName === "string" && displayName.trim()
-      ? displayName
-      : null,
-  };
 }
 
 function FreePlan({ t }: { t: Awaited<ReturnType<typeof getTranslations>> }) {
@@ -391,7 +365,7 @@ function TeamPlan({
 }: {
   t: Awaited<ReturnType<typeof getTranslations>>;
   locale: string;
-  team: BillingTeam;
+  team: BillingTeamLike;
   subscription: StripeSubscriptionRow;
   canManageBilling: boolean;
 }) {
@@ -468,15 +442,6 @@ function TeamPlan({
           </a>
         ) : null}
       </div>
-    </section>
-  );
-}
-
-function LegacyPlan({ t }: { t: Awaited<ReturnType<typeof getTranslations>> }) {
-  return (
-    <section className="border border-border p-3">
-      <h2 className="text-sm font-medium">{t("pro.name")}</h2>
-      <p className="mt-2 max-w-2xl text-muted">{t("legacy.body")}</p>
     </section>
   );
 }

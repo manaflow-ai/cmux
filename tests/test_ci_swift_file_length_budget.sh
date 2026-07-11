@@ -339,3 +339,154 @@ if ! grep -Fq 'duplicate entry' "$TMP_DIR/duplicate.out"; then
   cat "$TMP_DIR/duplicate.out" >&2
   exit 1
 fi
+
+if ! git merge-tree --write-tree HEAD HEAD >/dev/null 2>&1; then
+  echo "Skipping speculative merge-tree budget tests: git merge-tree --write-tree is unsupported by this git."
+  exit 0
+fi
+
+RACE_FIXTURE="$TMP_DIR/race-repo"
+
+python3 - "$RACE_FIXTURE" <<'PY'
+import pathlib
+import sys
+
+root = pathlib.Path(sys.argv[1])
+
+def write_lines(path: pathlib.Path, count: int) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("".join(f"line {index}\n" for index in range(count)), encoding="utf-8")
+
+write_lines(root / "Sources" / "Racy.swift", 40)
+(root / ".github").mkdir(parents=True, exist_ok=True)
+(root / ".github" / "test-budget.tsv").write_text("40\tSources/Racy.swift\n", encoding="utf-8")
+(root / ".gitattributes").write_text("Sources/Racy.swift merge=keepFeature\n", encoding="utf-8")
+(root / "README.md").write_text("base readme\n", encoding="utf-8")
+PY
+
+git -C "$RACE_FIXTURE" init -q
+git -C "$RACE_FIXTURE" config merge.keepFeature.name 'keep feature side for race fixture'
+git -C "$RACE_FIXTURE" config merge.keepFeature.driver 'cp %B %A'
+git -C "$RACE_FIXTURE" add .
+git -C "$RACE_FIXTURE" -c user.name='cmux CI' -c user.email='ci@example.invalid' commit -qm baseline
+git -C "$RACE_FIXTURE" branch -M main
+RACE_BASE="$(git -C "$RACE_FIXTURE" rev-parse HEAD)"
+
+git -C "$RACE_FIXTURE" checkout -q -b feature
+python3 - "$RACE_FIXTURE/Sources/Racy.swift" <<'PY'
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+path.write_text(
+    "".join(f"line {index}\n" for index in range(40))
+    + "feature line 40\n"
+    + "feature line 41\n",
+    encoding="utf-8",
+)
+PY
+git -C "$RACE_FIXTURE" add Sources/Racy.swift
+git -C "$RACE_FIXTURE" -c user.name='cmux CI' -c user.email='ci@example.invalid' commit -qm 'grow racy file'
+
+git -C "$RACE_FIXTURE" checkout -q main
+python3 - "$RACE_FIXTURE" <<'PY'
+import pathlib
+import sys
+
+root = pathlib.Path(sys.argv[1])
+(root / "Sources" / "Racy.swift").write_text(
+    "".join(f"split line {index}\n" for index in range(6)),
+    encoding="utf-8",
+)
+(root / ".github" / "test-budget.tsv").write_text("6\tSources/Racy.swift\n", encoding="utf-8")
+(root / "README.md").write_text("main readme\n", encoding="utf-8")
+PY
+git -C "$RACE_FIXTURE" add Sources/Racy.swift .github/test-budget.tsv README.md
+git -C "$RACE_FIXTURE" -c user.name='cmux CI' -c user.email='ci@example.invalid' commit -qm 'split racy file and lower budget'
+
+git -C "$RACE_FIXTURE" checkout -q feature
+RACE_MERGE_BASE="$(git -C "$RACE_FIXTURE" merge-base main feature)"
+python3 scripts/swift_file_length_budget.py \
+  --repo-root "$RACE_FIXTURE" \
+  --budget .github/test-budget.tsv \
+  --threshold 5 \
+  --base-ref "$RACE_MERGE_BASE" \
+  --incidental-growth 3 \
+  --hard-cap 100 >"$TMP_DIR/race-old-behavior.out"
+
+if python3 scripts/swift_file_length_budget.py \
+  --repo-root "$RACE_FIXTURE" \
+  --budget .github/test-budget.tsv \
+  --threshold 5 \
+  --base-ref "$RACE_MERGE_BASE" \
+  --merge-ref main \
+  --merge-head feature \
+  --incidental-growth 3 \
+  --hard-cap 100 >"$TMP_DIR/race-merge-ref.out" 2>&1; then
+  echo "expected speculative merge budget check to catch racy growth" >&2
+  cat "$TMP_DIR/race-merge-ref.out" >&2
+  exit 1
+fi
+
+if ! grep -Fq 'Sources/Racy.swift' "$TMP_DIR/race-merge-ref.out"; then
+  echo "expected speculative merge failure to name Racy.swift" >&2
+  cat "$TMP_DIR/race-merge-ref.out" >&2
+  exit 1
+fi
+
+if python3 scripts/swift_file_length_budget.py \
+  --repo-root "$RACE_FIXTURE" \
+  --budget .github/test-budget.tsv \
+  --threshold 5 \
+  --merge-ref main \
+  --write-budget >"$TMP_DIR/race-write-budget.out" 2>&1; then
+  echo "expected --write-budget with --merge-ref to fail" >&2
+  exit 1
+fi
+
+if ! grep -Fq -- '--write-budget cannot be used with --merge-ref' "$TMP_DIR/race-write-budget.out"; then
+  echo "expected --write-budget merge-ref argument error" >&2
+  cat "$TMP_DIR/race-write-budget.out" >&2
+  exit 1
+fi
+
+git -C "$RACE_FIXTURE" checkout -q -b conflict "$RACE_BASE"
+printf 'feature readme\n' >"$RACE_FIXTURE/README.md"
+git -C "$RACE_FIXTURE" add README.md
+git -C "$RACE_FIXTURE" -c user.name='cmux CI' -c user.email='ci@example.invalid' commit -qm 'conflict on readme'
+
+CONFLICT_MERGE_BASE="$(git -C "$RACE_FIXTURE" merge-base main conflict)"
+set +e
+python3 scripts/swift_file_length_budget.py \
+  --repo-root "$RACE_FIXTURE" \
+  --budget .github/test-budget.tsv \
+  --threshold 5 \
+  --base-ref "$CONFLICT_MERGE_BASE" \
+  --incidental-growth 3 \
+  --hard-cap 100 >"$TMP_DIR/conflict-plain.out" 2>&1
+PLAIN_CONFLICT_STATUS=$?
+python3 scripts/swift_file_length_budget.py \
+  --repo-root "$RACE_FIXTURE" \
+  --budget .github/test-budget.tsv \
+  --threshold 5 \
+  --base-ref "$CONFLICT_MERGE_BASE" \
+  --merge-ref main \
+  --merge-head conflict \
+  --incidental-growth 3 \
+  --hard-cap 100 >"$TMP_DIR/conflict-merge-ref.out" 2>&1
+MERGE_REF_CONFLICT_STATUS=$?
+set -e
+
+if [ "$PLAIN_CONFLICT_STATUS" -ne "$MERGE_REF_CONFLICT_STATUS" ]; then
+  echo "conflict fallback should produce the same exit code as plain base-ref evaluation" >&2
+  echo "plain status: $PLAIN_CONFLICT_STATUS" >&2
+  echo "merge-ref status: $MERGE_REF_CONFLICT_STATUS" >&2
+  cat "$TMP_DIR/conflict-merge-ref.out" >&2
+  exit 1
+fi
+
+if ! grep -Fq 'falling back to working-tree evaluation' "$TMP_DIR/conflict-merge-ref.out"; then
+  echo "expected conflict fallback notice" >&2
+  cat "$TMP_DIR/conflict-merge-ref.out" >&2
+  exit 1
+fi
