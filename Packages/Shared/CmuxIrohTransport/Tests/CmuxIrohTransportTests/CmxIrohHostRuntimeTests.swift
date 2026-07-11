@@ -295,8 +295,37 @@ struct CmxIrohHostRuntimeTests {
         try await runtime.start()
 
         await endpoint.emit(.networkChanged)
-        await recorder.waitForRefresh()
+        #expect(await recorder.waitForRefresh(timeout: .seconds(1)))
 
+        #expect(await recorder.count() == 1)
+        await runtime.stop()
+    }
+
+    @Test
+    func networkChangeDuringRegistrationIsObservedAfterStartup() async throws {
+        let fixture = try HostRuntimeFixture()
+        let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
+        let recorder = HostRuntimeLANRefreshRecorder()
+        let broker = TestIrohHostBroker(
+            registrationBinding: fixture.binding,
+            discovery: fixture.discovery,
+            registrationHook: {
+                await endpoint.emit(.networkChanged)
+                return await recorder.waitForRefresh(timeout: .seconds(1))
+            }
+        )
+        let runtime = CmxIrohHostRuntime(
+            factory: TestIrohEndpointFactory(endpoints: [endpoint]),
+            broker: broker,
+            configuration: fixture.configuration,
+            pendingRevocations: fixture.pendingRevocations(),
+            handleTransport: { session, _ in await session.close() },
+            handleLANRefresh: { await recorder.record() }
+        )
+
+        try await runtime.start()
+
+        #expect(await broker.observedRegistrationHookResult() == true)
         #expect(await recorder.count() == 1)
         await runtime.stop()
     }
@@ -712,7 +741,9 @@ private actor TestIrohHostBroker: CmxIrohHostBrokerServing {
     private let registrationError: CmxIrohTrustBrokerClientError?
     private let discoveryError: CmxIrohTrustBrokerClientError?
     private let revokeError: CmxIrohTrustBrokerClientError?
+    private let registrationHook: (@Sendable () async -> Bool)?
     private var registrationCount = 0
+    private var registrationHookResult: Bool?
     private var revokedBindingIDs: [String] = []
 
     init(
@@ -721,21 +752,26 @@ private actor TestIrohHostBroker: CmxIrohHostBrokerServing {
         subsequentDiscoveries: [CmxIrohDiscoveryResponse] = [],
         registrationError: CmxIrohTrustBrokerClientError? = nil,
         discoveryError: CmxIrohTrustBrokerClientError? = nil,
-        revokeError: CmxIrohTrustBrokerClientError? = nil
+        revokeError: CmxIrohTrustBrokerClientError? = nil,
+        registrationHook: (@Sendable () async -> Bool)? = nil
     ) {
         self.registrationBinding = registrationBinding
         discoveryResponses = [discovery] + subsequentDiscoveries
         self.registrationError = registrationError
         self.discoveryError = discoveryError
         self.revokeError = revokeError
+        self.registrationHook = registrationHook
     }
 
     func register(
         prepared _: CmxIrohPreparedRegistration,
         signer _: CmxIrohRegistrationSigner
-    ) throws -> CmxIrohRegistrationResponse {
+    ) async throws -> CmxIrohRegistrationResponse {
         registrationCount += 1
         if let registrationError { throw registrationError }
+        if let registrationHook {
+            registrationHookResult = await registrationHook()
+        }
         return CmxIrohRegistrationResponse(
             binding: registrationBinding,
             relay: .unavailable
@@ -771,6 +807,7 @@ private actor TestIrohHostBroker: CmxIrohHostBrokerServing {
     }
 
     func observedRegistrationCount() -> Int { registrationCount }
+    func observedRegistrationHookResult() -> Bool? { registrationHookResult }
     func observedRevokedBindingIDs() -> [String] { revokedBindingIDs }
 }
 
@@ -790,21 +827,56 @@ private actor HostRuntimeDeactivationRecorder {
 
 private actor HostRuntimeLANRefreshRecorder {
     private var recordedCount = 0
-    private var waiters: [CheckedContinuation<Void, Never>] = []
+    private var waiters: [UUID: CheckedContinuation<Void, Never>] = [:]
 
     func record() {
         recordedCount += 1
-        let pending = waiters
-        waiters.removeAll()
+        let pending = waiters.values
+        waiters.removeAll(keepingCapacity: false)
         for waiter in pending { waiter.resume() }
     }
 
-    func waitForRefresh() async {
-        if recordedCount > 0 { return }
-        await withCheckedContinuation { waiters.append($0) }
+    func waitForRefresh(timeout: Duration) async -> Bool {
+        if recordedCount > 0 { return true }
+        return await withTaskGroup(of: Bool.self) { group in
+            group.addTask {
+                await self.waitForRefresh()
+                return true
+            }
+            group.addTask {
+                do {
+                    // A bounded test deadline prevents a missing lifecycle signal from hanging CI.
+                    try await ContinuousClock().sleep(for: timeout)
+                } catch {}
+                return false
+            }
+            let result = await group.next() ?? false
+            group.cancelAll()
+            return result
+        }
     }
 
     func count() -> Int { recordedCount }
+
+    private func waitForRefresh() async {
+        if recordedCount > 0 { return }
+        let id = UUID()
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                if Task.isCancelled {
+                    continuation.resume()
+                } else {
+                    waiters[id] = continuation
+                }
+            }
+        } onCancel: {
+            Task { await self.cancelWaiter(id) }
+        }
+    }
+
+    private func cancelWaiter(_ id: UUID) {
+        waiters.removeValue(forKey: id)?.resume()
+    }
 }
 
 private actor HostRuntimeLANPolicyRecorder {
