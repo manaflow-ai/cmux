@@ -11,8 +11,11 @@ final class SplitIntersectionDragUITests: XCTestCase {
     func testIntersectionDragResizesBothAxes() {
         let app = XCUIApplication()
         // Debug launches outside reload.sh need a tag or XCUIApplication
-        // fails with "does not have a process ID" on CI runners.
+        // fails with "does not have a process ID" on CI runners, and UI-test
+        // mode keeps launch activation deterministic (every passing UI test
+        // sets it; without it the app stays Running Background on runners).
         app.launchEnvironment["CMUX_TAG"] = "ui-tests-intersection-\(UUID().uuidString.prefix(8))"
+        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         app.launch()
         XCTAssertTrue(
             ensureForegroundAfterLaunch(app, timeout: 15.0),
