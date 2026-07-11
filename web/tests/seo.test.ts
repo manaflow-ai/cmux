@@ -193,13 +193,38 @@ describe("SEO middleware", () => {
       expect(canonical.headers.get("x-middleware-rewrite")).toBe(
         `https://cmux.com/en${canonicalPath}`,
       );
+      expect(canonical.headers.get("Link")).toContain('hreflang="ja"');
+      expect(canonical.headers.get("Link")).not.toContain('hreflang="de"');
     }
+
+    const negotiatedJapanese = middleware(
+      requestFor("/pricing", { "accept-language": "ja,en;q=0.9" }),
+    );
+    expect(negotiatedJapanese.status).toBe(307);
+    expect(negotiatedJapanese.headers.get("location")).toBe(
+      "https://cmux.com/ja/pricing",
+    );
+    expect(negotiatedJapanese.headers.get("location")).not.toContain("/en/");
+
+    const cookieJapanese = middleware(
+      requestFor("/pricing", {
+        cookie: "NEXT_LOCALE=ja",
+        "accept-language": "en",
+      }),
+    );
+    expect(cookieJapanese.status).toBe(307);
+    expect(cookieJapanese.headers.get("location")).toBe(
+      "https://cmux.com/ja/pricing",
+    );
 
     const japanese = middleware(
       requestFor("/ja/pricing", { "accept-language": "ja" }),
     );
     expect(japanese.status).toBe(200);
     expect(japanese.headers.get("location")).toBeNull();
+    expect(japanese.headers.get("Link")).toContain('hreflang="en"');
+    expect(japanese.headers.get("Link")).toContain('hreflang="ja"');
+    expect(japanese.headers.get("Link")).not.toContain('hreflang="de"');
   });
 
   test("lists only translated fallback-content locales in the sitemap", () => {

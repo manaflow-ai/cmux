@@ -3,6 +3,7 @@ import createMiddleware from "next-intl/middleware";
 import { routing } from "./i18n/routing";
 import { isAgentPageVariantPath } from "./app/lib/agent-page-paths";
 import {
+  fallbackContentLocales,
   fallbackContentRequestForPathname,
   featureWorkflowContentLocales,
   featureWorkflowDocRequestForPathname,
@@ -80,9 +81,19 @@ export default function middleware(request: NextRequest) {
 
   const fallbackContentRequest = fallbackContentRequestForPathname(pathname);
   if (fallbackContentRequest && !fallbackContentRequest.locale) {
+    const preferredLocale = preferredFallbackContentLocale(request);
     const url = request.nextUrl.clone();
-    url.pathname = `/en${fallbackContentRequest.path}`;
-    return NextResponse.rewrite(url);
+    url.pathname = `/${preferredLocale}${fallbackContentRequest.path}`;
+    const response =
+      preferredLocale === "en"
+        ? NextResponse.rewrite(url)
+        : NextResponse.redirect(url, 307);
+    setFallbackContentLinkHeader(
+      response,
+      request,
+      fallbackContentRequest.path,
+    );
+    return response;
   }
   if (
     fallbackContentRequest?.locale &&
@@ -142,8 +153,61 @@ export default function middleware(request: NextRequest) {
       featureWorkflowDocRequest.path,
     );
   }
+  if (fallbackContentRequest) {
+    setFallbackContentLinkHeader(
+      response,
+      request,
+      fallbackContentRequest.path,
+    );
+  }
 
   return response;
+}
+
+function setFallbackContentLinkHeader(
+  response: NextResponse,
+  request: NextRequest,
+  path: string,
+) {
+  response.headers.set(
+    "Link",
+    buildAlternateLinkHeader(
+      requestOrigin(request),
+      path,
+      fallbackContentLocales,
+    ),
+  );
+}
+
+function preferredFallbackContentLocale(request: NextRequest): "en" | "ja" {
+  const cookieLocale = request.cookies.get("NEXT_LOCALE")?.value;
+  if (cookieLocale && hasFallbackContent(cookieLocale)) {
+    return cookieLocale;
+  }
+
+  const preferences = (request.headers.get("accept-language") ?? "")
+    .split(",")
+    .map((preference, index) => {
+      const [tag, ...parameters] = preference.trim().split(";");
+      const qualityParameter = parameters.find((parameter) =>
+        parameter.trim().startsWith("q="),
+      );
+      const quality = qualityParameter
+        ? Number.parseFloat(qualityParameter.trim().slice(2))
+        : 1;
+      return { tag: tag.toLowerCase(), quality, index };
+    })
+    .filter(({ quality }) => Number.isFinite(quality) && quality > 0)
+    .sort(
+      (left, right) =>
+        right.quality - left.quality || left.index - right.index,
+    );
+
+  for (const { tag } of preferences) {
+    if (tag === "ja" || tag.startsWith("ja-")) return "ja";
+    if (tag === "en" || tag.startsWith("en-")) return "en";
+  }
+  return "en";
 }
 
 function setFeatureWorkflowDocLinkHeader(
