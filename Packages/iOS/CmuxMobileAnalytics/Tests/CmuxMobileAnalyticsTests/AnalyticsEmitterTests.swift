@@ -103,6 +103,24 @@ private final class MutableConsent: AnalyticsConsentProviding, @unchecked Sendab
         #expect(event?.properties["launch_type"] == .string("cold"))
     }
 
+    @Test func superPropertiesConfiguredBeforeOptInApplyAfterConsentIsEnabled() async {
+        let uploader = RecordingAnalyticsUploader()
+        let consent = MutableConsent(enabled: false)
+        let emitter = makeEmitter(uploader: uploader, consent: consent)
+
+        emitter.setSuperProperties([
+            "app_version": .string("1.2.3"),
+            "device_model": .string("iPhone"),
+        ])
+        consent.set(true)
+        emitter.capture("ios_app_launched", [:])
+        await emitter.flush()
+
+        let event = await uploader.uploadedEvents.first
+        #expect(event?.properties["app_version"] == .string("1.2.3"))
+        #expect(event?.properties["device_model"] == .string("iPhone"))
+    }
+
     @Test func identifyForwardsUserAndAnonymousIDs() async {
         let uploader = RecordingAnalyticsUploader()
         let emitter = makeEmitter(uploader: uploader, anonymousID: "anon-42")
