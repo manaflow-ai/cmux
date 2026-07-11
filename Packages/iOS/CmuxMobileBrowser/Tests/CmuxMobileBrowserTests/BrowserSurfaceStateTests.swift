@@ -151,6 +151,28 @@ import Testing
         #expect(state.lastFailedURL == nil)
     }
 
+    @Test func sameDocumentNavigationUpdatesCommittedIdentity() {
+        let originalURL = URL(string: "https://example.com/first")!
+        let updatedURL = URL(string: "https://example.com/second")!
+        let state = makeState(initialURL: originalURL)
+
+        state.navigationURLDidChange(updatedURL)
+
+        #expect(state.currentURL == updatedURL)
+        #expect(state.addressText == updatedURL.absoluteString)
+    }
+
+    @Test func sameDocumentNavigationPreservesInProgressAddressEditing() {
+        let state = makeState(initialURL: URL(string: "https://example.com/first")!)
+        state.isAddressEditing = true
+        state.addressText = "typed query"
+
+        state.navigationURLDidChange(URL(string: "https://example.com/second")!)
+
+        #expect(state.currentURL == URL(string: "https://example.com/second")!)
+        #expect(state.addressText == "typed query")
+    }
+
     @Test func commandQueueConsumedOnce() {
         let state = makeState()
         state.request(.reload)

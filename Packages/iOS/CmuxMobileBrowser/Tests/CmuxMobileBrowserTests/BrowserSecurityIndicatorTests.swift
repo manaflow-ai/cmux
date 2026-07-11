@@ -21,6 +21,11 @@ import Testing
         "http://fe80.example.com",
         // Outside the CGNAT 100.64.0.0/10 range.
         "http://100.128.0.1",
+        // These abbreviated first hextets are not inside fc00::/7.
+        "http://[fc::1]",
+        // Immediately outside fe80::/10.
+        "http://[fe7f::1]",
+        "http://[fec0::1]",
     ])
     func publicHTTPURLIsInsecure(rawURL: String) throws {
         let url = try #require(URL(string: rawURL))
@@ -36,8 +41,11 @@ import Testing
         "http://192.168.1.10",
         "http://169.254.169.254",
         "http://100.100.1.50",
+        "http://[fc00::1]",
         "http://[fd00::1]",
         "http://[fe80::1]",
+        "http://[fe81::1]",
+        "http://[febf::1]",
         "http://[::ffff:127.0.0.1]",
     ])
     func localAndPrivateHTTPURLsShowNoIndicator(rawURL: String) throws {
