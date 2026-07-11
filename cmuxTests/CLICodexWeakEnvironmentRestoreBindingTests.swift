@@ -362,7 +362,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
     }
 
-    func testCodexHookDoesNotPublishResumeBindingFromAmbiguousTTYAndWorkspaceOnlyEnvironment() throws {
+    func testCodexHookDoesNotPublishResumeBindingFromMappedSurfaceUnderAmbiguousTTY() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("codex-ambiguous-tty-workspace-only")
         let listenerFD = try bindUnixSocket(at: socketPath)
@@ -377,6 +377,14 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let ttyName = "ttys011"
 
         try FileManager.default.createDirectory(at: repo, withIntermediateDirectories: true)
+        try writeCodexHookStore(
+            root: root,
+            sessionId: sessionId,
+            workspaceId: workspaceId,
+            surfaceId: focusedSurfaceId,
+            cwd: repo.path,
+            launchCommand: nil
+        )
         defer {
             Darwin.close(listenerFD)
             unlink(socketPath)
@@ -449,7 +457,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(result.status, 0, result.stderr)
         XCTAssertFalse(
             state.snapshot().contains { self.jsonObject($0)?["method"] as? String == "surface.resume.set" },
-            "ambiguous TTY must not fall back to the focused/default surface"
+            "ambiguous TTY must not reuse a mapped surface without independent PID identity"
         )
     }
 
