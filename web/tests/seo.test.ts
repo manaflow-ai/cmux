@@ -87,6 +87,11 @@ describe("SEO metadata helpers", () => {
     expect(long.endsWith("…")).toBe(true);
   });
 
+  test("can preserve a complete localized title below the generic minimum", () => {
+    const title = "cmux — 专为多任务打造的终端";
+    expect(seoTitle("zh-CN", title, { minLength: 0 })).toBe(title);
+  });
+
   test("adds complete shared social metadata", () => {
     expect(openGraphDefaults("en", "article")).toEqual({
       siteName: "cmux",
