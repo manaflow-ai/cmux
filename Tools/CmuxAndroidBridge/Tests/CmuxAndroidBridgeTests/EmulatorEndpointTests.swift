@@ -17,7 +17,10 @@ struct EmulatorEndpointTests {
         grpc.token=token=with=padding
         """.write(to: directory.appendingPathComponent("pid_42.ini"), atomically: true, encoding: .utf8)
 
-        let endpoint = try EmulatorEndpointLocator(runningDirectoryURL: directory, processIsRunning: { _ in true })
+        let endpoint = try EmulatorEndpointLocator(
+            runningDirectoryURL: directory,
+            processMatches: { _, _, _, _ in true }
+        )
             .endpoint(avdName: "Pixel_9", serial: "emulator-5556")
 
         #expect(endpoint == EmulatorEndpoint(port: 8556, bearerToken: "token=with=padding"))
@@ -37,7 +40,10 @@ struct EmulatorEndpointTests {
         """.write(to: directory.appendingPathComponent("pid_42.ini"), atomically: true, encoding: .utf8)
 
         #expect(throws: BridgeFailure.self) {
-            _ = try EmulatorEndpointLocator(runningDirectoryURL: directory, processIsRunning: { _ in true })
+            _ = try EmulatorEndpointLocator(
+                runningDirectoryURL: directory,
+                processMatches: { _, _, _, _ in true }
+            )
                 .endpoint(avdName: "Pixel_9", serial: "emulator-5556")
         }
     }
@@ -56,7 +62,10 @@ struct EmulatorEndpointTests {
         """.write(to: directory.appendingPathComponent("pid_42.ini"), atomically: true, encoding: .utf8)
 
         #expect(throws: BridgeFailure.self) {
-            _ = try EmulatorEndpointLocator(runningDirectoryURL: directory, processIsRunning: { _ in false })
+            _ = try EmulatorEndpointLocator(
+                runningDirectoryURL: directory,
+                processMatches: { _, _, _, _ in false }
+            )
                 .endpoint(avdName: "Pixel_9", serial: "emulator-5554")
         }
     }

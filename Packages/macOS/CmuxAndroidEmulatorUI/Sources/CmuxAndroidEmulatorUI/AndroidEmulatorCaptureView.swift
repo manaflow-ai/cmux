@@ -341,10 +341,11 @@ private final class AndroidEmulatorBridgeSession {
             let handle = try await AndroidUnixSocket.connect(path: socketURL.path)
             let helloData = try await AndroidUnixSocket.readLine(from: handle)
             let hello = try JSONDecoder().decode(AndroidBridgeEvent.self, from: helloData)
+            let expectedSlotSize = renderWidth * renderHeight * 4
             guard hello.type == "hello", hello.version == protocolVersion,
                   hello.sharedMemoryPath == sharedMemoryURL.path,
                   let slotCount = hello.slotCount, let slotSize = hello.slotSize,
-                  slotCount == 3, slotSize >= renderWidth * renderHeight * 4 else {
+                  slotCount == 3, slotSize == expectedSlotSize else {
                 throw AndroidEmulatorBridgeError.incompatibleProtocol
             }
             let mappedFrames = try AndroidMappedFrameBuffer(
@@ -533,9 +534,11 @@ private final class AndroidMappedFrameBuffer: @unchecked Sendable {
     }
 
     func image(slot: Int, width: Int, height: Int, bytesPerRow: Int) -> CGImage? {
-        let frameBytes = bytesPerRow * height
-        guard (0 ..< slotCount).contains(slot), width > 0, height > 0,
-              bytesPerRow >= width * 4, frameBytes <= slotSize else {
+        let (minimumBytesPerRow, rowWidthOverflow) = width.multipliedReportingOverflow(by: 4)
+        let (frameBytes, frameSizeOverflow) = bytesPerRow.multipliedReportingOverflow(by: height)
+        guard (0 ..< slotCount).contains(slot), width > 0, height > 0, bytesPerRow > 0,
+              !rowWidthOverflow, !frameSizeOverflow,
+              bytesPerRow >= minimumBytesPerRow, frameBytes <= slotSize else {
             return nil
         }
         let bytes = baseAddress.advanced(by: slot * slotSize)
