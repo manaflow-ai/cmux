@@ -70,4 +70,25 @@ struct MobileTerminalReorderIndexResolverTests {
             targetTerminalIndex: 1
         ) == nil)
     }
+
+    @Test func rejectsMoveAcrossPinnedTerminalBoundary() {
+        let pinnedTerminal = UUID()
+        let unpinnedTerminal = UUID()
+        let terminals: Set<UUID> = [pinnedTerminal, unpinnedTerminal]
+
+        #expect(MobileTerminalReorderIndexResolver.destinationIndex(
+            panePanelIDs: [pinnedTerminal, unpinnedTerminal],
+            terminalPanelIDs: terminals,
+            pinnedPanelIDs: [pinnedTerminal],
+            movingPanelID: unpinnedTerminal,
+            targetTerminalIndex: 0
+        ) == nil)
+        #expect(MobileTerminalReorderIndexResolver.destinationIndex(
+            panePanelIDs: [pinnedTerminal, unpinnedTerminal],
+            terminalPanelIDs: terminals,
+            pinnedPanelIDs: [pinnedTerminal],
+            movingPanelID: pinnedTerminal,
+            targetTerminalIndex: 1
+        ) == nil)
+    }
 }

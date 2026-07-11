@@ -38,4 +38,32 @@ struct MobileWorkspacePanePayloadTests {
         #expect(terminals.count == terminalIDs.count)
         #expect(terminals.allSatisfy { $0["pane_id"] as? String == paneID.id.uuidString })
     }
+
+    @Test func backgroundTerminalReorderPreservesMacPaneAndTabFocus() throws {
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        let focusedPanelID = try #require(workspace.focusedPanelId)
+        let focusedPaneID = try #require(workspace.paneId(forPanelId: focusedPanelID))
+        let backgroundTerminal = try #require(workspace.newTerminalSplit(
+            from: focusedPanelID,
+            orientation: .horizontal,
+            focus: false
+        ))
+        let backgroundPaneID = try #require(workspace.paneId(forPanelId: backgroundTerminal.id))
+        let secondBackgroundTerminal = try #require(workspace.newTerminalSurface(
+            inPane: backgroundPaneID,
+            focus: false
+        ))
+        let selectedBackgroundTab = workspace.bonsplitController.selectedTab(inPane: backgroundPaneID)?.id
+
+        #expect(workspace.reorderSurface(
+            panelId: secondBackgroundTerminal.id,
+            toIndex: 0,
+            focus: false
+        ))
+
+        #expect(workspace.bonsplitController.focusedPaneId == focusedPaneID)
+        #expect(workspace.bonsplitController.selectedTab(inPane: backgroundPaneID)?.id == selectedBackgroundTab)
+        #expect(workspace.focusedPanelId == focusedPanelID)
+    }
 }
