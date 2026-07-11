@@ -151,71 +151,8 @@ public struct MobileCrashReporter {
         return options
     }
 
-    /// Watches the shared telemetry consent setting for process-lifetime
-    /// transitions. UserDefaults changes are observed via
-    /// `UserDefaults.didChangeNotification`, the same backing store the consent
-    /// provider reads.
-    // Safety: the app composition root is the single owner that calls `arm`.
-    // Notification callbacks enqueue onto the private serial lifecycle queue;
-    // all mutable transition state is confined to that queue after setup.
-    public final class RevocationWatcher: @unchecked Sendable {
-        // Safety: lifecycle closures cross only onto `lifecycleQueue`, which is
-        // their single serialized executor for the watcher's lifetime.
-        private struct LifecycleAction: @unchecked Sendable {
-            let body: () -> Void
-        }
-
-        private let lifecycleQueue = DispatchQueue(label: "dev.cmux.ios.crash-consent-lifecycle")
-        private var token: (any NSObjectProtocol)?
-        private var center: NotificationCenter?
-        private var isEnabled: Bool?
-        private var onEnable: LifecycleAction?
-        private var onRevoke: LifecycleAction?
-
-        /// Owned by the app composition root (one per process); tests create
-        /// fresh instances so parallel suites cannot stomp each other.
-        public init() {}
-
-        deinit {
-            if let token, let center { center.removeObserver(token) }
-        }
-
-        func arm(
-            consent: any AnalyticsConsentProviding,
-            notificationCenter: NotificationCenter,
-            onEnable: @escaping () -> Void,
-            onRevoke: @escaping () -> Void,
-            onInitiallyDisabled: @escaping () -> Void
-        ) {
-            if let token, let center { center.removeObserver(token) }
-            let initialIsEnabled = consent.isTelemetryEnabled
-            center = notificationCenter
-            if initialIsEnabled {
-                onEnable()
-            } else {
-                onInitiallyDisabled()
-            }
-            let enableAction = LifecycleAction(body: onEnable)
-            let revokeAction = LifecycleAction(body: onRevoke)
-            lifecycleQueue.async { [self] in
-                isEnabled = initialIsEnabled
-                self.onEnable = enableAction
-                self.onRevoke = revokeAction
-            }
-            token = notificationCenter.addObserver(
-                forName: UserDefaults.didChangeNotification,
-                object: nil,
-                queue: nil
-            ) { _ in
-                let nextIsEnabled = consent.isTelemetryEnabled
-                self.lifecycleQueue.async { [self] in
-                    guard nextIsEnabled != isEnabled else { return }
-                    isEnabled = nextIsEnabled
-                    (nextIsEnabled ? self.onEnable : self.onRevoke)?.body()
-                }
-            }
-        }
-    }
+    /// Process-lifetime telemetry-consent watcher used by the app composition root.
+    public typealias RevocationWatcher = MobileCrashRevocationWatcher
 
     private func isTestRun(environment: [String: String]) -> Bool {
         for key in Self.testEnvironmentKeys where environment[key] != nil {

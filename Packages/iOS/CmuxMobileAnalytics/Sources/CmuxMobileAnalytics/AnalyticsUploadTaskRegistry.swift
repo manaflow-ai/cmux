@@ -1,16 +1,12 @@
 internal import Foundation
 
 final class AnalyticsUploadTaskRegistry: Sendable {
-    private enum Command: Sendable {
-        case register(Task<AnalyticsUploadResult, Never>, UUID, CheckedContinuation<Bool, Never>)
-        case remove(UUID)
-        case setEnabled(Bool)
-    }
-
-    private let continuation: AsyncStream<Command>.Continuation
+    private let continuation: AsyncStream<AnalyticsUploadTaskRegistryCommand>.Continuation
 
     init() {
-        let (stream, continuation) = AsyncStream<Command>.makeStream(bufferingPolicy: .unbounded)
+        let (stream, continuation) = AsyncStream<AnalyticsUploadTaskRegistryCommand>.makeStream(
+            bufferingPolicy: .unbounded
+        )
         self.continuation = continuation
         Task {
             var isEnabled = true
