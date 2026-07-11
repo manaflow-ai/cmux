@@ -1,7 +1,10 @@
 import { locales } from "../../i18n/routing";
 import { comparePages, comparePath } from "./compare-pages";
 import type { ComparePageKey } from "./compare-pages";
-import { featureWorkflowContentLocales } from "../../i18n/locale-availability";
+import {
+  featureWorkflowContentLocales,
+  remoteTmuxDocsLocales,
+} from "../../i18n/locale-availability";
 
 export type AgentPageFormat = "md" | "txt";
 
@@ -154,6 +157,7 @@ export const agentReadablePages = [
   { path: "/docs/skills", title: "Skills" },
   { path: "/docs/notifications", title: "Notifications" },
   { path: "/docs/ssh", title: "SSH" },
+  { path: "/docs/remote-tmux", title: "Remote tmux", locales: remoteTmuxDocsLocales },
   { path: "/docs/ios", title: "iOS App" },
   {
     path: "/docs/agent-integrations/claude-code-teams",
@@ -166,6 +170,10 @@ export const agentReadablePages = [
   {
     path: "/docs/agent-integrations/oh-my-codex",
     title: "oh-my-codex",
+  },
+  {
+    path: "/docs/agent-integrations/oh-my-pi",
+    title: "oh-my-pi",
   },
   {
     path: "/docs/agent-integrations/oh-my-claudecode",
@@ -284,6 +292,8 @@ export function buildLlmsText(origin: string): string {
     "- Built on: libghostty (the Ghostty terminal engine)",
     "- Works with: Claude Code, Codex, OpenCode, Gemini CLI, Aider, and any CLI tool",
     "- Automation: `cmux` CLI and Unix socket API, browser automation, hooks, skills, and custom commands",
+    "- Remote tmux: attach to existing tmux sessions over SSH while preserving cmux workspaces and notifications.",
+    "- Agent pages: every public page has Markdown and plain-text variants for AI crawlers and answer engines.",
     `- Download: ${origin}/docs/getting-started`,
     "- Source: https://github.com/manaflow-ai/cmux",
     "",

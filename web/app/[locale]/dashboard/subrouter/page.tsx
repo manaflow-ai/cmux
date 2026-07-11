@@ -1,6 +1,6 @@
 import { getTranslations } from "next-intl/server";
 import { redirect } from "next/navigation";
-import { buildAlternates } from "@/i18n/seo";
+import { buildAlternates, openGraphDefaults, seoDescription, twitterSummary } from "@/i18n/seo";
 import { Link } from "@/i18n/navigation";
 import { cloudDb } from "@/db/client";
 import { getStackServerApp, isStackConfigured } from "@/app/lib/stack";
@@ -44,16 +44,25 @@ type AccountState =
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
   const t = await getTranslations({ locale, namespace: "dashboard.aiAccounts" });
+  const alternates = buildAlternates(locale, "/dashboard/subrouter");
+  const title = t("metaTitle");
+  const description = seoDescription(locale, t("metaDescription"));
   return {
-    title: t("metaTitle"),
-    description: t("metaDescription"),
-    alternates: buildAlternates(locale, "/dashboard/subrouter"),
+    title,
+    description,
+    alternates,
+    openGraph: {
+      ...openGraphDefaults(locale, "website"),
+      title,
+      description,
+      url: alternates.canonical,
+    },
+    twitter: twitterSummary(locale, title, description),
   };
 }
 
 export default async function SubrouterOverviewPage({ params, searchParams }: PageProps) {
-  const { locale } = await params;
-  const { team: teamParam } = await searchParams;
+  const [{ locale }, { team: teamParam }] = await Promise.all([params, searchParams]);
   const team = Array.isArray(teamParam) ? teamParam[0] : teamParam;
 
   if (!isStackConfigured()) {
@@ -64,8 +73,10 @@ export default async function SubrouterOverviewPage({ params, searchParams }: Pa
     redirect(vaultSignInHref(localizedVaultPath(locale, "/dashboard/subrouter")));
   }
 
-  const tPage = await getTranslations({ locale, namespace: "dashboard.subrouter" });
-  const t = await getTranslations({ locale, namespace: "dashboard.aiAccounts" });
+  const [tPage, t] = await Promise.all([
+    getTranslations({ locale, namespace: "dashboard.subrouter" }),
+    getTranslations({ locale, namespace: "dashboard.aiAccounts" }),
+  ]);
   const teams = await dashboardTeams(stackUser, t("personalTeam"));
   const selectedTeam = selectTeam(teams, team);
   const accountState = await loadAccounts(selectedTeam);

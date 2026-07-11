@@ -1,36 +1,22 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { NextRequest } from "next/server";
 
-const currentUser = {
-  id: "user-pro",
-  isAnonymous: false,
-  primaryEmail: "Pro@Example.com",
-  displayName: "Pro User",
-  clientReadOnlyMetadata: {},
-  listProducts: mock(async () =>
-    Object.assign(
-      eligible
-        ? [
-            {
-              id: "pro",
-              quantity: 1,
-              subscription: {
-                cancelAtPeriodEnd: false,
-                currentPeriodEnd: new Date("2026-12-01T00:00:00Z"),
-              },
-            },
-          ]
-        : [],
-      { nextCursor: null },
-    ),
-  ),
-  update: mock(async () => undefined),
-};
+import {
+  createTestflightUser,
+  testflightUserEligibility,
+} from "./helpers/testflight-user";
+
+const dbClientModule = await import("../db/client");
+const realCloudDb = dbClientModule.cloudDb;
+const realCloseCloudDbForTests = dbClientModule.closeCloudDbForTests;
+const realCreateAwsRdsIamPool = dbClientModule.createAwsRdsIamPool;
+const billingProModule = await import("../services/billing/pro");
 
 let stackConfigured = true;
 let ascConfigured = true;
-let eligible = true;
+let currentUser = createTestflightUser();
 let user: typeof currentUser | null = currentUser;
+let useStubDb = false;
 
 const getUser = mock(async () => user);
 const ascFetch = mock(async (path: unknown) => {
@@ -48,6 +34,14 @@ const ascFetch = mock(async (path: unknown) => {
   return {};
 });
 const captureAscError = mock(() => undefined);
+const isTestflightEligible = mock(async (candidate: unknown) =>
+  testflightUserEligibility(candidate) ?? false,
+);
+
+mock.module("../services/billing/pro", () => ({
+  ...billingProModule,
+  isTestflightEligible,
+}));
 
 mock.module("../app/lib/stack", () => ({
   getStackServerApp: () => ({ getUser }),
@@ -68,17 +62,40 @@ mock.module("../services/errors", () => ({
   captureBillingError: mock(() => undefined),
 }));
 
+mock.module("../db/client", () => ({
+  createAwsRdsIamPool: realCreateAwsRdsIamPool,
+  closeCloudDbForTests: realCloseCloudDbForTests,
+  cloudDb: (() =>
+    useStubDb
+      ? ({
+          select: () => ({
+            from: () => ({
+              where: () => ({
+                limit: async () => [],
+              }),
+            }),
+          }),
+        } as unknown as ReturnType<typeof realCloudDb>)
+      : realCloudDb()) as typeof realCloudDb,
+}));
+
 const { POST } = await import("../app/api/testflight/route");
+
+beforeAll(() => {
+  useStubDb = true;
+});
+
+afterAll(() => {
+  useStubDb = false;
+});
 
 describe("TestFlight route", () => {
   beforeEach(() => {
     stackConfigured = true;
     ascConfigured = true;
-    eligible = true;
+    currentUser = createTestflightUser();
     user = currentUser;
     getUser.mockClear();
-    currentUser.listProducts.mockClear();
-    currentUser.update.mockClear();
     ascFetch.mockClear();
     captureAscError.mockClear();
     mockImplementation(ascFetch, async (path: unknown) => {
@@ -117,7 +134,8 @@ describe("TestFlight route", () => {
   });
 
   test("does not enroll ineligible users", async () => {
-    eligible = false;
+    currentUser = createTestflightUser({ eligible: false });
+    user = currentUser;
 
     const response = await postAction("join");
 

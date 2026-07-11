@@ -84,4 +84,34 @@ struct RemoteTmuxLayoutNode: Sendable, Equatable, Codable {
             return children.flatMap { $0.paneIDsInOrder }
         }
     }
+
+    /// A copy of this tree with each pane leaf's cell rect replaced by its
+    /// REAL rect (from `list-panes`), where one is known. The layout string
+    /// alone is not ground truth: under `pane-border-status` tmux publishes
+    /// the pre-title tree while the displayed panes sit one row lower and
+    /// shorter — placement must follow where the panes actually are. Split
+    /// nodes keep their string geometry; the renderer reads only leaf rects
+    /// and split-node origins, both of which stay coherent.
+    func patchingLeafRects(
+        _ rects: [Int: (x: Int, y: Int, width: Int, height: Int)]
+    ) -> RemoteTmuxLayoutNode {
+        switch content {
+        case let .pane(id):
+            guard let rect = rects[id] else { return self }
+            return RemoteTmuxLayoutNode(
+                width: rect.width, height: rect.height, x: rect.x, y: rect.y,
+                content: .pane(id)
+            )
+        case let .horizontal(children):
+            return RemoteTmuxLayoutNode(
+                width: width, height: height, x: x, y: y,
+                content: .horizontal(children.map { $0.patchingLeafRects(rects) })
+            )
+        case let .vertical(children):
+            return RemoteTmuxLayoutNode(
+                width: width, height: height, x: x, y: y,
+                content: .vertical(children.map { $0.patchingLeafRects(rects) })
+            )
+        }
+    }
 }

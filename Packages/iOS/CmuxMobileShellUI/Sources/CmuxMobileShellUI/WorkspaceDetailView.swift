@@ -22,15 +22,18 @@ struct WorkspaceDetailView: View {
     let createWorkspace: () -> Void
     let canCreateWorkspace: Bool
     let createTerminal: () -> Void
-    /// Close this workspace on the Mac. When `nil` (older Macs without the `workspace.close.v1`
-    /// capability, or previews) the close affordance is hidden from the top-bar menu.
+    let renameWorkspace: ((MobileWorkspacePreview.ID, String) -> Void)?
+    let setWorkspaceUnread: ((MobileWorkspacePreview.ID, Bool) -> Void)?
+    /// Close this workspace on the Mac. When `nil`, the close affordance is
+    /// hidden from the top-bar menu, matching the workspace list's gating.
     let closeWorkspace: ((MobileWorkspacePreview.ID) -> Void)?
     let reportTerminalViewport: (MobileWorkspacePreview.ID, MobileTerminalPreview.ID, MobileTerminalViewportSize) -> Void
     let sendTerminalInput: (String) -> Void
     let safeAreaContext: MobileTerminalSafeAreaContext
     let backButtonConfiguration: WorkspaceBackButtonConfiguration?
     let signOut: (() -> Void)?
-    @Environment(BrowserSurfaceStore.self) private var browserStore
+    @Environment(BrowserSurfaceStore.self) var browserStore
+    @Environment(MobileDisplaySettings.self) private var displaySettings
     /// Drives the destructive close-workspace confirmation dialog.
     @State var isConfirmingClose = false
     #if canImport(UIKit)
@@ -69,10 +72,18 @@ struct WorkspaceDetailView: View {
     @Environment(\.scenePhase) var scenePhase
     #endif
     /// The active browser surface for this workspace, when a browser pane is open.
-    private var activeBrowser: BrowserSurfaceState? {
+    var activeBrowser: BrowserSurfaceState? {
         browserStore.activeBrowser(for: workspace.id.rawValue)
     }
-
+    #if os(iOS)
+    var activeSurface: WorkspaceActiveSurface {
+        WorkspaceActiveSurface.derive(
+            isChatMode: isChatMode,
+            hasChosenChatSession: chosenChatSession != nil,
+            hasActiveBrowser: activeBrowser != nil
+        )
+    }
+    #endif
     var body: some View {
         let content = Group { detailSurfaceContent }
 
@@ -128,6 +139,15 @@ struct WorkspaceDetailView: View {
         ToolbarItem(id: "workspace-title", placement: .topBarLeading) {
             workspaceTitleToolbarMenu
         }
+        if let selectedTerminalID,
+           store.isAlternateScreen(surfaceID: selectedTerminalID),
+           displaySettings.showAltScreenNotice {
+            ToolbarItem(id: "workspace-altscreen-notice", placement: .topBarTrailing) {
+                AltScreenNoticeButton {
+                    displaySettings.showAltScreenNotice = false
+                }
+            }
+        }
         ToolbarItem(id: "workspace-trailing", placement: .topBarTrailing) {
             toolbarTrailingCluster
         }
@@ -145,7 +165,6 @@ struct WorkspaceDetailView: View {
             toolbarTitleLabel
         }
     }
-
     @ViewBuilder
     private var toolbarTitleLabel: some View {
         if isChatMode,
@@ -171,52 +190,22 @@ struct WorkspaceDetailView: View {
     }
     #endif
 
-    @ViewBuilder
-    private var detailSurfaceContent: some View {
-        #if os(iOS)
-        if isChatMode, let session = chosenChatSession {
-            chatContent(session)
-                .transition(.opacity)
-        } else if let browser = activeBrowser {
-            browserContent(browser)
-        } else {
-            detailContent()
-        }
-        #else
-        detailContent()
-        #endif
-    }
-
-    #if os(iOS)
-    /// The browser pane shown when this workspace has an active browser surface.
-    /// It carries its own navigation chrome, so it does not get the terminal's
-    /// keyboard/safe-area handling. Closing returns to the terminal.
-    @ViewBuilder
-    private func browserContent(_ browser: BrowserSurfaceState) -> some View {
-        MobileBrowserPane(
-            state: browser,
-            onClose: { browserStore.closeBrowser(for: workspace.id.rawValue) }
-        )
-        // Key on the surface id so switching/reopening rebuilds the WKWebView.
-        .id(browser.id.rawValue)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-    #endif
-
-    private func detailContent() -> some View {
+    func detailContent() -> some View {
         // `GhosttySurfaceView` owns the bottom accessory bar and reserves its
         // height in the terminal grid.
         Group {
             #if os(iOS)
             if let terminalID = selectedTerminal?.id.rawValue {
+                let shouldAutoFocus = activeSurface == .terminal
+                    && store.shouldAutoFocusTerminalSurface(terminalID)
+                    && !store.isComposerPresented
                 GhosttySurfaceRepresentable(
                     surfaceID: terminalID,
                     store: store,
                     fontSize: MobileTerminalFontPreference.defaultSize,
                     // Do not let a terminal reattach steal focus while the
                     // composer owns or intentionally withholds the keyboard.
-                    autoFocusOnWindowAttach: store.shouldAutoFocusTerminalSurface(terminalID)
-                        && !store.isComposerPresented,
+                    autoFocusOnWindowAttach: shouldAutoFocus,
                     isComposerActive: store.isComposerPresented,
                     // Drives the live recolor: when the synced theme changes the
                     // shell bumps this, and the representable rebuilds the runtime
@@ -337,6 +326,8 @@ struct WorkspaceDetailView: View {
     var titleMenuContent: some View {
         WorkspaceTitleMenuContent(
             workspace: workspace,
+            canRenameWorkspace: renameWorkspace != nil,
+            canToggleReadState: setWorkspaceUnread != nil,
             canCloseWorkspace: closeWorkspace != nil,
             presentRename: presentRenameFromMenu,
             toggleReadState: toggleWorkspaceReadStateFromMenu,
@@ -630,15 +621,11 @@ struct WorkspaceDetailView: View {
         closeWorkspace?(workspace.id)
     }
 
-    /// Toggle the current workspace's read state on the Mac from the picker menu.
-    /// Flips relative to the workspace's current `hasUnread`; the authoritative
-    /// list re-sync inside `setWorkspaceUnread` reconciles the row + back-button
-    /// count.
+    /// Toggle the current workspace's read state from the picker menu.
     private func toggleWorkspaceReadStateFromMenu() {
-        let store = store
         let id = workspace.id
         let markUnread = !workspace.hasUnread
-        Task { await store.setWorkspaceUnread(id: id, markUnread) }
+        setWorkspaceUnread?(id, markUnread)
     }
 
     #if canImport(UIKit)
@@ -654,9 +641,8 @@ struct WorkspaceDetailView: View {
     func commitRenameFromDialog() {
         let trimmed = renameText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        let store = store
         let id = workspace.id
-        Task { await store.renameWorkspace(id: id, title: trimmed) }
+        renameWorkspace?(id, trimmed)
     }
     #endif
 
@@ -690,7 +676,7 @@ struct WorkspaceDetailView: View {
         store.selectTerminalFromChrome(terminalID)
     }
 
-    private func dismissTerminalKeyboardForChrome() {
+    func dismissTerminalKeyboardForChrome() {
         // Resign the terminal's hidden text input first so the surface clears
         // its keyboard geometry and recomputes full-height before chrome covers
         // it; then sweep any other responder across the scene.
