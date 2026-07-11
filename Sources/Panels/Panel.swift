@@ -6,6 +6,7 @@ import AppKit
 public enum PanelType: String, Codable, Sendable {
     case terminal
     case browser
+    case cefBrowser
     case markdown
     case filePreview = "filepreview"
     case rightSidebarTool
@@ -24,6 +25,10 @@ public enum PanelType: String, Codable, Sendable {
         }
         if rawValue.lowercased() == Self.filePreview.rawValue {
             self = .filePreview
+            return
+        }
+        if rawValue.lowercased() == Self.cefBrowser.rawValue.lowercased() {
+            self = .cefBrowser
             return
         }
         if rawValue.lowercased() == Self.rightSidebarTool.rawValue.lowercased() {

@@ -38,6 +38,19 @@ extension ContentView {
             subtitle: constant(String(localized: "command.closeWindow.subtitle", defaultValue: "Window")),
             keywords: ["chromium", "cef", "chrome", "browser", "devtools", "extension", "profile"]
         ))
+        contributions.append(CommandPaletteCommandContribution(
+            commandId: "palette.cefBrowserSplitRight",
+            title: constant(String(
+                localized: "command.cefBrowserSplitRight.title",
+                defaultValue: "Chromium Browser: Split Right"
+            )),
+            subtitle: constant(String(
+                localized: "command.openRightSidebarToolAsPane.subtitle",
+                defaultValue: "Pane"
+            )),
+            keywords: ["chromium", "cef", "chrome", "browser", "pane", "split", "right"],
+            when: { $0.bool(CommandPaletteContextKeys.hasFocusedPanel) }
+        ))
         #endif
         return contributions
     }
@@ -97,6 +110,11 @@ extension ContentView {
         #if DEBUG
         registry.register(commandId: "palette.openCefBrowser") {
             CEFBrowserDebugWindowController.shared.show()
+        }
+        registry.register(commandId: "palette.cefBrowserSplitRight") {
+            guard let workspace = tabManager.selectedWorkspace,
+                  let focusedPanelId = workspace.focusedPanelId else { return }
+            _ = workspace.newCEFBrowserSplit(from: focusedPanelId)
         }
         #endif
     }

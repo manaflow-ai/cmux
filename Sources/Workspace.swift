@@ -667,9 +667,7 @@ extension Workspace {
                 selectedConfigurationName: projectPanel.selectedConfigurationName
             )
             agentSessionSnapshot = nil
-        case .extensionBrowser:
-            return nil
-        case .cloudVMLoading:
+        case .cefBrowser, .extensionBrowser, .cloudVMLoading:
             return nil
         }
         return SessionPanelSnapshot(
@@ -1663,9 +1661,7 @@ extension Workspace {
             }
             applySessionPanelMetadata(snapshot, toPanelId: projectPanel.id)
             return projectPanel.id
-        case .extensionBrowser:
-            return nil
-        case .cloudVMLoading:
+        case .cefBrowser, .extensionBrowser, .cloudVMLoading:
             return nil
         }
     }

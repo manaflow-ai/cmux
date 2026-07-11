@@ -71,6 +71,14 @@ struct PanelContentView: View {
                     onRequestPanelFocus: onRequestPanelFocus
                 )
             }
+        case .cefBrowser:
+            if let cefBrowserPanel = panel as? CEFBrowserPanel {
+                CEFBrowserPanelView(
+                    panel: cefBrowserPanel,
+                    isFocused: isFocused,
+                    onRequestPanelFocus: onRequestPanelFocus
+                )
+            }
         case .markdown:
             if let markdownPanel = panel as? MarkdownPanel {
                 MarkdownPanelView(
@@ -167,7 +175,7 @@ struct PanelContentView: View {
     private var shouldInstallPaneDropTarget: Bool {
         guard isVisibleInUI else { return false }
         switch panel.panelType {
-        case .markdown, .filePreview, .rightSidebarTool, .customSidebar, .agentSession, .project, .extensionBrowser, .cloudVMLoading:
+        case .cefBrowser, .markdown, .filePreview, .rightSidebarTool, .customSidebar, .agentSession, .project, .extensionBrowser, .cloudVMLoading:
             return true
         case .terminal, .browser:
             return false

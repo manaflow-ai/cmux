@@ -5507,7 +5507,7 @@ struct ContentView: View {
         switch panelType {
         case .terminal:
             return String(localized: "commandPalette.kind.terminal", defaultValue: "Terminal")
-        case .browser:
+        case .browser, .cefBrowser:
             return String(localized: "commandPalette.kind.browser", defaultValue: "Browser")
         case .markdown:
             return String(localized: "commandPalette.kind.markdown", defaultValue: "Markdown")
@@ -5531,8 +5531,8 @@ struct ContentView: View {
         switch panelType {
         case .terminal:
             return ["terminal", "shell", "console"]
-        case .browser:
-            return ["browser", "web", "page"]
+        case .browser, .cefBrowser:
+            return ["chromium", "cef", "chrome", "browser", "web", "page"]
         case .markdown:
             return ["markdown", "note", "preview"]
         case .filePreview:
@@ -10992,7 +10992,7 @@ struct VerticalTabsSidebar: View {
             return .filePreview
         case .rightSidebarTool:
             return .rightSidebarTool
-        case .customSidebar:
+        case .cefBrowser, .customSidebar:
             return .unknown
         case .agentSession:
             return .agentSession

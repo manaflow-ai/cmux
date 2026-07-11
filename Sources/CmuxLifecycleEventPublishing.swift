@@ -1,6 +1,7 @@
 import Foundation
 import AppKit
 import Bonsplit
+import CmuxWorkspaces
 
 @MainActor
 private enum CmuxSelectionEventState {
@@ -209,6 +210,8 @@ extension Workspace {
             return "terminal"
         case .browser:
             return "browser"
+        case .cefBrowser:
+            return SurfaceKind.cefBrowser.rawValue
         case .markdown:
             return "markdown"
         case .filePreview:

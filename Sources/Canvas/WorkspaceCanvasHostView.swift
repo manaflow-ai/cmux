@@ -82,6 +82,7 @@ struct WorkspaceCanvasHostView: View {
         switch panelType {
         case .terminal: return "terminal"
         case .browser: return "globe"
+        case .cefBrowser: return "globe"
         case .markdown: return "doc.richtext"
         case .filePreview: return "doc.text.magnifyingglass"
         case .rightSidebarTool: return "sidebar.right"

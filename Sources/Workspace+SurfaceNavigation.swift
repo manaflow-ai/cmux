@@ -15,6 +15,8 @@ extension Workspace {
             return SurfaceKind.terminal.rawValue
         case .browser:
             return SurfaceKind.browser.rawValue
+        case .cefBrowser:
+            return SurfaceKind.cefBrowser.rawValue
         case .markdown:
             return SurfaceKind.markdown.rawValue
         case .filePreview:
