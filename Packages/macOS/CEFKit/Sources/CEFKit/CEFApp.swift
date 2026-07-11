@@ -461,6 +461,10 @@ final class CEFMessagePump {
 
     private func scheduleOnMain(_ delayMs: Int64) {
         ensureBackstop()
+        // Replacing the pending timer unconditionally IS the contract: the
+        // header for on_schedule_message_pump_work says "any currently
+        // pending scheduled call should be cancelled" — the newest request
+        // is authoritative even when its deadline is later.
         scheduledTimer?.invalidate()
         // Never pump synchronously from inside a CEF callback; even a 0ms
         // request goes through the run loop.
