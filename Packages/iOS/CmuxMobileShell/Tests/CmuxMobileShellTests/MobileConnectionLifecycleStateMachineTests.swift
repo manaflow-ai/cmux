@@ -40,6 +40,37 @@ import Testing
         #expect(reducer.activeEpisode == nil)
     }
 
+    @Test func connectedRecoveryTriggersRepairTheStreamWithoutReplacingTheClient() {
+        for trigger in [
+            MobileConnectionLifecycleTrigger.networkPathChanged,
+            .presenceRoutesChanged,
+            .manualRetry,
+        ] {
+            var reducer = MobileConnectionLifecycleStateMachine()
+            guard case .start(let episode) = reducer.request(trigger, health: .healthy) else {
+                Issue.record("connected recovery must start one episode for \(trigger)")
+                continue
+            }
+
+            #expect(episode.kind == .streamRepair)
+        }
+    }
+
+    @Test func joinedStreamRepairRequestsAccumulateTheirTriggers() {
+        var reducer = MobileConnectionLifecycleStateMachine()
+        guard case .start(let episode) = reducer.request(
+            .networkPathChanged,
+            health: .healthy
+        ) else {
+            Issue.record("network path recovery must start one episode")
+            return
+        }
+
+        #expect(reducer.request(.eventStreamLost, health: .healthy) == nil)
+        #expect(reducer.activeEpisode?.id == episode.id)
+        #expect(reducer.activeEpisode?.triggers == [.networkPathChanged, .eventStreamLost])
+    }
+
     @MainActor
     @Test func staleShellFinishCannotDropNewerEpisodeTaskHandle() {
         let store = MobileShellComposite.preview()
@@ -65,6 +96,18 @@ import Testing
 
         #expect(store.connectionLifecycle.ownsEpisode(newEpisode.id))
         #expect(store.connectionLifecycleTask != nil)
+    }
+
+    @MainActor
+    @Test func lifecycleResetResolvesTheStoredMacRestoringGate() {
+        let store = MobileShellComposite.preview()
+        store.isReconnectingStoredMac = true
+        store.didFinishStoredMacReconnectAttempt = false
+
+        store.resetConnectionLifecycle()
+
+        #expect(!store.isReconnectingStoredMac)
+        #expect(store.didFinishStoredMacReconnectAttempt)
     }
 }
 
