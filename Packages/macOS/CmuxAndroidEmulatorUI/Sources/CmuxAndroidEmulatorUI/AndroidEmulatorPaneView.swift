@@ -16,7 +16,12 @@ public struct AndroidEmulatorPaneView: View {
             Divider()
             HStack(spacing: 0) {
                 ZStack(alignment: .topTrailing) {
-                    AndroidEmulatorCaptureView(controller: controller, isVisible: isVisible)
+                    AndroidEmulatorCaptureView(
+                        controller: controller,
+                        isVisible: isVisible && controller.isCaptureReady,
+                        sdkRootURL: controller.sdkRootURL,
+                        displaySize: controller.displaySize
+                    )
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .clipped()
                     if controller.controlsCollapsed {

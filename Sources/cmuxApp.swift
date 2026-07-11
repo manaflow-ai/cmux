@@ -875,12 +875,8 @@ struct cmuxApp: App {
     @CommandsBuilder
     private var windowAndViewCommands: some Commands {
         CommandGroup(after: .windowArrangement) {
-            Button(String(localized: "menu.window.taskManager", defaultValue: "Task Manager...")) {
-                TaskManagerWindowController.shared.show()
-            }
-            Button(String(localized: "menu.window.androidEmulators", defaultValue: "Android Emulators...")) {
-                appDelegate.showAndroidEmulators()
-            }
+            Button(String(localized: "menu.window.taskManager", defaultValue: "Task Manager...")) { TaskManagerWindowController.shared.show() }
+            Button(String(localized: "menu.window.androidEmulators", defaultValue: "Android Emulators...")) { appDelegate.showAndroidEmulators() }
         }
         helpCommands
         historyCommands
@@ -1477,8 +1473,7 @@ private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
     "cmux.bonsplitTabBarDebug",
     "cmux.titlebarLayoutDebug",
     "cmux.devWindowDisplay",
-    "cmux.mobilePairingWindow",
-    "cmux.androidEmulators",
+    "cmux.mobilePairingWindow", "cmux.androidEmulators",
 ]
 
 /// Returns whether the given window should handle the standard close shortcut

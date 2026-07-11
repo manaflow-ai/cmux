@@ -144,19 +144,12 @@ public final class AndroidEmulatorCoordinator {
         avdName: String,
         serial: String,
         transportID: String
-    ) async -> AndroidEmulatorDisplaySize? {
-        do {
-            return try await service.displaySize(
-                avdName: avdName,
-                serial: serial,
-                transportID: transportID
-            )
-        } catch let error as AndroidEmulatorError {
-            actionError = error
-        } catch {
-            actionError = .commandFailed(tool: "adb", detail: String(describing: error))
-        }
-        return nil
+    ) async throws -> AndroidEmulatorDisplaySize {
+        try await service.displaySize(
+            avdName: avdName,
+            serial: serial,
+            transportID: transportID
+        )
     }
 
     private func refreshAfterPendingAction() async {

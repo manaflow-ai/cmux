@@ -669,9 +669,7 @@ extension Workspace {
             agentSessionSnapshot = nil
         case .extensionBrowser:
             return nil
-        case .cloudVMLoading:
-            return nil
-        case .androidEmulator:
+        case .cloudVMLoading, .androidEmulator:
             return nil
         }
         return SessionPanelSnapshot(
@@ -1667,9 +1665,7 @@ extension Workspace {
             return projectPanel.id
         case .extensionBrowser:
             return nil
-        case .cloudVMLoading:
-            return nil
-        case .androidEmulator:
+        case .cloudVMLoading, .androidEmulator:
             return nil
         }
     }

@@ -5503,56 +5503,6 @@ struct ContentView: View {
             ports: ports
         )
     }
-    private func commandPaletteSurfaceKindLabel(for panelType: PanelType) -> String {
-        switch panelType {
-        case .terminal:
-            return String(localized: "commandPalette.kind.terminal", defaultValue: "Terminal")
-        case .browser:
-            return String(localized: "commandPalette.kind.browser", defaultValue: "Browser")
-        case .markdown:
-            return String(localized: "commandPalette.kind.markdown", defaultValue: "Markdown")
-        case .filePreview:
-            return String(localized: "commandPalette.kind.filePreview", defaultValue: "File Preview")
-        case .rightSidebarTool:
-            return String(localized: "commandPalette.kind.rightSidebarTool", defaultValue: "Tool")
-        case .customSidebar:
-            return String(localized: "commandPalette.kind.customSidebar", defaultValue: "Custom Sidebar")
-        case .agentSession:
-            return String(localized: "commandPalette.kind.agentSession", defaultValue: "Agent")
-        case .project:
-            return String(localized: "commandPalette.kind.project", defaultValue: "Project")
-        case .extensionBrowser:
-            return String(localized: "sidebar.extensions.browser.title", defaultValue: "Sidebar Extensions")
-        case .cloudVMLoading:
-            return String(localized: "commandPalette.kind.cloudVMLoading", defaultValue: "Cloud VM")
-        case .androidEmulator: return String(localized: "commandPalette.kind.androidEmulator", defaultValue: "Android Emulator")
-        }
-    }
-    private func commandPaletteSurfaceKeywords(for panelType: PanelType) -> [String] {
-        switch panelType {
-        case .terminal:
-            return ["terminal", "shell", "console"]
-        case .browser:
-            return ["browser", "web", "page"]
-        case .markdown:
-            return ["markdown", "note", "preview"]
-        case .filePreview:
-            return ["file", "preview", "text", "pdf", "image", "audio", "video"]
-        case .rightSidebarTool:
-            return ["tool", "files", "find", "vault", "sidebar"]
-        case .customSidebar:
-            return ["custom", "sidebar", "pane"]
-        case .agentSession:
-            return ["agent", "codex", "claude", "opencode", "react", "solid"]
-        case .project:
-            return ["project", "xcode", "build", "settings", "schemes", "targets"]
-        case .extensionBrowser:
-            return ["sidebar", "extensions", "extensionkit", "browser"]
-        case .cloudVMLoading:
-            return ["cloud", "vm", "loading"]
-        case .androidEmulator: return ["android", "emulator", "device", "mobile"]
-        }
-    }
     private func commandPaletteCachedCommandsContext() -> CommandPaletteCommandsContext {
         commandPaletteCommandsContext(
             terminalOpenTargets: commandPaletteTerminalOpenTargetAvailability
@@ -6350,20 +6300,7 @@ struct ContentView: View {
                 when: { !$0.bool(CommandPaletteContextKeys.cliInstalledInPATH) }
             )
         )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.androidEmulators",
-                title: constant(String(
-                    localized: "command.androidEmulators.title",
-                    defaultValue: "Open Android Emulators…"
-                )),
-                subtitle: constant(String(
-                    localized: "command.androidEmulators.subtitle",
-                    defaultValue: "Developer Tools"
-                )),
-                keywords: ["android", "emulator", "avd", "device", "studio", "sdk"]
-            )
-        )
+        contributions.append(Self.commandPaletteAndroidEmulatorContribution())
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.uninstallCLI",
@@ -7610,9 +7547,7 @@ struct ContentView: View {
         registry.register(commandId: "palette.uninstallCLI") {
             AppDelegate.shared?.uninstallCmuxCLIInPath(nil)
         }
-        registry.register(commandId: "palette.androidEmulators") {
-            AppDelegate.shared?.showAndroidEmulators()
-        }
+        registerAndroidEmulatorCommandHandler(&registry)
         registry.register(commandId: "palette.newTerminalTab") {
             if !executeConfiguredAction(id: CmuxSurfaceTabBarBuiltInAction.newTerminal.configID) {
                 tabManager.newSurface()

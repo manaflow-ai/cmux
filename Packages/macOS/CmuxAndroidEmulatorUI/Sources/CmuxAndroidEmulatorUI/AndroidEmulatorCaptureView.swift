@@ -8,6 +8,8 @@ import SwiftUI
 struct AndroidEmulatorCaptureView: NSViewRepresentable {
     let controller: AndroidEmulatorPaneController
     let isVisible: Bool
+    let sdkRootURL: URL
+    let displaySize: AndroidEmulatorDisplaySize
 
     func makeNSView(context: Context) -> AndroidEmulatorCaptureNSView {
         let view = AndroidEmulatorCaptureNSView()
@@ -19,10 +21,12 @@ struct AndroidEmulatorCaptureView: NSViewRepresentable {
     func updateNSView(_ view: AndroidEmulatorCaptureNSView, context: Context) {
         controller.attachCaptureView(view)
         view.onGesture = controller.perform
+        view.setDisplaySize(displaySize)
         view.setVisible(
             isVisible,
             avdName: controller.avdName,
             serial: controller.serial,
+            sdkRootURL: sdkRootURL,
             onStarted: controller.clearCaptureError,
             onError: controller.reportCaptureError
         )
@@ -82,10 +86,16 @@ final class AndroidEmulatorCaptureNSView: NSView {
         _ visible: Bool,
         avdName: String,
         serial: String,
+        sdkRootURL: URL,
         onStarted: @escaping () -> Void,
         onError: @escaping (any Error) -> Void
     ) {
-        let next = CaptureConfiguration(avdName: avdName, serial: serial)
+        let next = CaptureConfiguration(
+            avdName: avdName,
+            serial: serial,
+            sdkRootURL: sdkRootURL,
+            displaySize: displaySize
+        )
         guard visible else {
             stopCapture()
             return
@@ -99,6 +109,7 @@ final class AndroidEmulatorCaptureNSView: NSView {
                 let capture = try await AndroidEmulatorWindowCapture.start(
                     avdName: avdName,
                     serial: serial,
+                    sdkRootURL: sdkRootURL,
                     displaySize: displaySize,
                     displayLayer: displayLayer
                 )
@@ -209,6 +220,8 @@ final class AndroidEmulatorCaptureNSView: NSView {
     private struct CaptureConfiguration: Equatable {
         let avdName: String
         let serial: String
+        let sdkRootURL: URL
+        let displaySize: AndroidEmulatorDisplaySize
     }
 }
 
@@ -228,28 +241,33 @@ private final class AndroidEmulatorWindowCapture: NSObject, SCStreamOutput, SCSt
     static func start(
         avdName: String,
         serial: String,
+        sdkRootURL: URL,
         displaySize: AndroidEmulatorDisplaySize,
         displayLayer: AVSampleBufferDisplayLayer
     ) async throws -> AndroidEmulatorWindowCapture {
         let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
         let port = serial.split(separator: "-").last.map(String.init) ?? serial
-        guard let window = content.windows.first(where: {
-            let title = $0.title ?? ""
-            return title.contains(avdName) && title.contains(port)
+        let expectedTitle = "Android Emulator - \(avdName):\(port)"
+        guard let window = content.windows.first(where: { window in
+            guard window.title == expectedTitle,
+                  let processID = window.owningApplication?.processID,
+                  let executableURL = NSRunningApplication(processIdentifier: processID)?.executableURL else {
+                return false
+            }
+            return AndroidEmulatorCapturePolicy.isExpectedEmulatorExecutable(
+                executableURL,
+                sdkRootURL: sdkRootURL
+            )
         }), let application = window.owningApplication else {
             throw AndroidEmulatorCaptureError.windowNotFound(avdName)
         }
 
         let filter = SCContentFilter(desktopIndependentWindow: window)
         let configuration = SCStreamConfiguration()
-        let titlebarHeight: CGFloat = 25
-        let toolbarWidth: CGFloat = 48
-        let availableWidth = max(1, window.frame.width - toolbarWidth)
-        let availableHeight = max(1, window.frame.height - titlebarHeight)
-        let aspect = CGFloat(displaySize.width) / CGFloat(displaySize.height)
-        let deviceWidth = min(availableWidth, availableHeight * aspect)
-        let deviceHeight = deviceWidth / aspect
-        configuration.sourceRect = CGRect(x: 0, y: titlebarHeight, width: deviceWidth, height: deviceHeight)
+        configuration.sourceRect = AndroidEmulatorCapturePolicy.sourceRect(
+            windowSize: window.frame.size,
+            displaySize: displaySize
+        )
         configuration.width = displaySize.width
         configuration.height = displaySize.height
         configuration.minimumFrameInterval = CMTime(value: 1, timescale: 30)
@@ -296,6 +314,37 @@ private final class AndroidEmulatorWindowCapture: NSObject, SCStreamOutput, SCSt
         guard outputType == .screen, sampleBuffer.isValid else { return }
         latestSampleBuffer = sampleBuffer
         displayLayer?.enqueue(sampleBuffer)
+    }
+}
+
+enum AndroidEmulatorCapturePolicy {
+    static func isExpectedEmulatorExecutable(_ executableURL: URL, sdkRootURL: URL) -> Bool {
+        let emulatorDirectory = sdkRootURL
+            .appendingPathComponent("emulator", isDirectory: true)
+            .standardizedFileURL
+            .resolvingSymlinksInPath()
+        let executable = executableURL.standardizedFileURL.resolvingSymlinksInPath()
+        let directoryComponents = emulatorDirectory.pathComponents
+        let executableComponents = executable.pathComponents
+        return executableComponents.count > directoryComponents.count
+            && executableComponents.starts(with: directoryComponents)
+    }
+
+    static func sourceRect(
+        windowSize: CGSize,
+        displaySize: AndroidEmulatorDisplaySize
+    ) -> CGRect {
+        let width = max(1, windowSize.width)
+        let height = max(1, windowSize.height)
+        let aspect = CGFloat(displaySize.width) / CGFloat(displaySize.height)
+        let deviceWidth = min(width, height * aspect)
+        let deviceHeight = deviceWidth / aspect
+        return CGRect(
+            x: 0,
+            y: max(0, height - deviceHeight),
+            width: deviceWidth,
+            height: deviceHeight
+        )
     }
 }
 

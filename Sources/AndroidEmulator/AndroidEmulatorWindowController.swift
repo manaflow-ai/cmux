@@ -58,9 +58,11 @@ extension AppDelegate {
     }
 
     func openAndroidEmulatorPane(_ device: AndroidVirtualDevice) {
-        guard let workspace = tabManager?.selectedWorkspace else { return }
+        guard let workspace = tabManager?.selectedWorkspace,
+              case .loaded(let snapshot) = androidEmulatorEnvironment.coordinator.loadState else { return }
         _ = workspace.openAndroidEmulatorPane(
             device: device,
+            sdkRootURL: snapshot.sdkRootURL,
             coordinator: androidEmulatorEnvironment.coordinator
         )
     }

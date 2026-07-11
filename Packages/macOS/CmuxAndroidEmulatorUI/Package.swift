@@ -32,5 +32,14 @@ let package = Package(
                 .enableUpcomingFeature("InternalImportsByDefault"),
             ]
         ),
+        .testTarget(
+            name: "CmuxAndroidEmulatorUITests",
+            dependencies: ["CmuxAndroidEmulatorUI"],
+            swiftSettings: [
+                .swiftLanguageMode(.v6),
+                .enableUpcomingFeature("ExistentialAny"),
+                .enableUpcomingFeature("InternalImportsByDefault"),
+            ]
+        ),
     ]
 )

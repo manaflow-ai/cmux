@@ -8,6 +8,7 @@ extension Workspace {
     @discardableResult
     func openAndroidEmulatorPane(
         device: AndroidVirtualDevice,
+        sdkRootURL: URL,
         coordinator: AndroidEmulatorCoordinator
     ) -> AndroidEmulatorPanel? {
         guard case .running(let serial, _, let transportID) = device.state else { return nil }
@@ -22,6 +23,7 @@ extension Workspace {
             avdName: device.name,
             serial: serial,
             transportID: transportID,
+            sdkRootURL: sdkRootURL,
             coordinator: coordinator
         )
         guard let sourcePanelID = focusedPanelId else { return nil }

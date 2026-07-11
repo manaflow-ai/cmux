@@ -1,5 +1,6 @@
 public import CmuxAndroidEmulator
 import AppKit
+public import Foundation
 public import Observation
 
 /// Main-actor projection for one transport-bound emulator pane.
@@ -8,7 +9,9 @@ public final class AndroidEmulatorPaneController {
     public let avdName: String
     public let serial: String
     public let transportID: String
+    public let sdkRootURL: URL
     public private(set) var displaySize = AndroidEmulatorDisplaySize(width: 1080, height: 1920)
+    public private(set) var isCaptureReady = false
     public private(set) var captureError: String?
     public private(set) var zoomScale: Double = 1
     public var controlsCollapsed = false
@@ -20,22 +23,35 @@ public final class AndroidEmulatorPaneController {
         avdName: String,
         serial: String,
         transportID: String,
+        sdkRootURL: URL,
         coordinator: AndroidEmulatorCoordinator
     ) {
         self.avdName = avdName
         self.serial = serial
         self.transportID = transportID
+        self.sdkRootURL = sdkRootURL
         self.coordinator = coordinator
     }
 
     public func prepare() async {
-        if let size = await coordinator.displaySize(
+        guard !isCaptureReady else { return }
+        await refreshDisplaySize()
+    }
+
+    private func refreshDisplaySize() async {
+        do {
+            let size = try await coordinator.displaySize(
             avdName: avdName,
             serial: serial,
             transportID: transportID
-        ) {
+            )
             displaySize = size
             captureView?.setDisplaySize(size)
+            isCaptureReady = true
+            clearCaptureError()
+        } catch {
+            isCaptureReady = false
+            reportCaptureError(error)
         }
     }
 
@@ -47,6 +63,9 @@ public final class AndroidEmulatorPaneController {
                 serial: serial,
                 transportID: transportID
             )
+            if action == .rotateLeft || action == .rotateRight {
+                await refreshDisplaySize()
+            }
         }
     }
 

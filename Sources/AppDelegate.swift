@@ -505,8 +505,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     nonisolated(unsafe) static var shared: AppDelegate?
     /// Stateless control-socket syscall layer (CmuxControlSocket); composition-root owned.
     nonisolated let socketTransport = SocketTransport()
-    /// Owns the About Titlebar Debug subsystem (CmuxAppKitSupportUI); composition-root
-    /// owned and created lazily so the window-decoration seam can point back at `self`.
+    /// Owns the About Titlebar Debug subsystem, created lazily for the window-decoration seam.
     lazy var debugWindowsCoordinator = DebugWindowsCoordinator(decorator: self)
     lazy var androidEmulatorEnvironment = AndroidEmulatorEnvironment(appDelegate: self)
     /// About Titlebar Debug options store, applied by the About/Acknowledgments windows.
