@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import Foundation
 
 extension CMUXCLI {
@@ -72,13 +73,27 @@ extension CMUXCLI {
             limit = 100
         }
 
-        let stateDir = sessionsListExpandedPath(
-            stateDirRaw
-                ?? processEnv["CMUX_AGENT_HOOK_STATE_DIR"]
-                ?? URL(fileURLWithPath: processEnv["HOME"] ?? NSHomeDirectory(), isDirectory: true)
-                    .appendingPathComponent(".cmuxterm", isDirectory: true)
-                    .path
+        var hookStateEnvironment = processEnv
+        if let stateDirRaw {
+            hookStateEnvironment["CMUX_AGENT_HOOK_STATE_DIR"] = sessionsListExpandedPath(stateDirRaw)
+        }
+        let inheritedHome = sessionsListNormalized(processEnv["HOME"])
+        let legacyHomeDirectory = URL(
+            fileURLWithPath: inheritedHome ?? fileManager.homeDirectoryForCurrentUser.path,
+            isDirectory: true
         )
+        let hookStateLocation = AgentHookStateReaderLocation(
+            environment: hookStateEnvironment,
+            applicationSupportDirectory: fileManager.urls(
+                for: .applicationSupportDirectory,
+                in: .userDomainMask
+            ).first,
+            bundleIdentifier: sessionsListNormalized(processEnv["CMUX_BUNDLE_ID"])
+                ?? CLISocketPathResolver.currentAppBundleIdentifier(),
+            legacyHomeDirectory: legacyHomeDirectory,
+            fileManager: fileManager
+        )
+        let stateDir = hookStateLocation.directoryURL.path
         let defaultCodexHome = sessionsListExpandedPath(
             codexHomeRaw
                 ?? processEnv["CODEX_HOME"]
@@ -121,22 +136,23 @@ extension CMUXCLI {
 
         let decoder = JSONDecoder()
         for spec in selectedSpecs {
-            let storePath = URL(fileURLWithPath: stateDir, isDirectory: true)
-                .appendingPathComponent("\(spec.sessionStoreSuffix)-hook-sessions.json", isDirectory: false)
+            let storeFilename = "\(spec.sessionStoreSuffix)-hook-sessions.json"
+            let storePath = hookStateLocation.directoryURL
+                .appendingPathComponent(storeFilename, isDirectory: false)
                 .path
+            let storeData = hookStateLocation.storeData(named: storeFilename, fileManager: fileManager)
             var storePayload: [String: Any] = [
                 "agent": spec.name,
                 "path": storePath,
-                "exists": fileManager.fileExists(atPath: storePath)
+                "exists": storeData != nil
             ]
 
-            guard fileManager.fileExists(atPath: storePath) else {
+            guard let storeData else {
                 storePayload["session_count"] = 0
                 stores.append(storePayload)
                 continue
             }
 
-            let storeData = try Data(contentsOf: URL(fileURLWithPath: storePath))
             let store = try decoder.decode(ClaudeHookSessionStoreFile.self, from: storeData)
             storePayload["session_count"] = store.sessions.count
             stores.append(storePayload)
@@ -301,7 +317,8 @@ extension CMUXCLI {
         Usage: cmux sessions list [options]
                cmux sessions [options]
 
-        Print saved agent session records from ~/.cmuxterm/*-hook-sessions.json.
+        Print saved agent session records for the current cmux app.
+        Stable and Nightly include compatible records from the legacy ~/.cmuxterm store.
         This command does not require a running cmux socket.
         By default, broad output shows active, restorable, or transcript-backed records.
         Pass --all to inspect every saved hook record.
