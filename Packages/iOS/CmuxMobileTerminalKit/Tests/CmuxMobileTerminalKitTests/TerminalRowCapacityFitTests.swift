@@ -6,38 +6,38 @@ import Testing
 struct TerminalRowCapacityFitTests {
     @Test("phone overlay transitions preserve a previously rendered full width")
     func phoneOverlayTransitionPreservesFullWidth() {
-        let selected = TerminalColumnReportWidthSelection.width(
+        let selected = TerminalColumnReportWidthSelection(
             currentWidth: 642,
             widestRenderedWidth: 1_032,
             preservesWidestRenderedWidth: true
-        )
+        ).width
 
         #expect(selected == 1_032)
     }
 
     @Test("split panes report their current drawable width")
     func splitPaneUsesCurrentWidth() {
-        let selected = TerminalColumnReportWidthSelection.width(
+        let selected = TerminalColumnReportWidthSelection(
             currentWidth: 642,
             widestRenderedWidth: 1_032,
             preservesWidestRenderedWidth: false
-        )
+        ).width
 
         #expect(selected == 642)
     }
 
     @Test("invalid report widths are rejected")
     func invalidReportWidthsAreRejected() {
-        #expect(TerminalColumnReportWidthSelection.width(
+        #expect(TerminalColumnReportWidthSelection(
             currentWidth: 0,
             widestRenderedWidth: 1_032,
             preservesWidestRenderedWidth: true
-        ) == nil)
-        #expect(TerminalColumnReportWidthSelection.width(
+        ).width == nil)
+        #expect(TerminalColumnReportWidthSelection(
             currentWidth: 642,
             widestRenderedWidth: 0,
             preservesWidestRenderedWidth: true
-        ) == nil)
+        ).width == nil)
     }
 
     @Test("column capacity normalizes stretched live cell width back to the base font")
