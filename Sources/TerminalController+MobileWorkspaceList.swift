@@ -194,7 +194,7 @@ extension TerminalController {
     ) -> [String: Any] {
         let focusedPaneID = workspace.bonsplitController.focusedPaneId
         let panePayloads: [[String: Any]] = workspace.bonsplitController.allPaneIds.enumerated().map { spatialIndex, paneID in
-            let terminalIDs = workspace.bonsplitController.tabs(inPane: paneID).compactMap { tab in
+            let terminalIDs: [String] = workspace.bonsplitController.tabs(inPane: paneID).compactMap { tab -> String? in
                 guard let panelID = workspace.panelIdFromSurfaceId(tab.id),
                       workspace.terminalPanel(for: panelID) != nil else {
                     return nil

@@ -8,7 +8,12 @@ import Testing
         name: "A very long workspace name used for Dynamic Type coverage",
         terminals: [
             MobileTerminalPreview(id: "terminal-a", name: "shell", paneID: "pane-left"),
-            MobileTerminalPreview(id: "terminal-b", name: "shell", paneID: "pane-left"),
+            MobileTerminalPreview(
+                id: "terminal-b",
+                name: "shell",
+                paneID: "pane-left",
+                requiresCloseConfirmation: true
+            ),
             MobileTerminalPreview(id: "terminal-c", name: "logs", paneID: "pane-right"),
         ],
         panes: [
