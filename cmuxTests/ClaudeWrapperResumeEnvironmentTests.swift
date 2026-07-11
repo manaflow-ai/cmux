@@ -4,7 +4,7 @@ import Foundation
 import Testing
 
 @Suite struct ClaudeWrapperResumeEnvironmentTests {
-    @Test func bundledClaudeWrapperScrubsNestedSessionEnvironmentOnResume() throws {
+    @Test func bundledClaudeWrapperScrubsSessionIdentityAndPreservesTrustBypassOnResume() throws {
         let fileManager = FileManager.default
         let repoRoot = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
         let wrapperURL = repoRoot.appendingPathComponent("Resources/bin/cmux-claude-wrapper", isDirectory: false)
@@ -30,16 +30,17 @@ import Testing
         }
 
         let recordURL = sandbox.appendingPathComponent("record.txt", isDirectory: false)
-        let inheritedLaunchKeys = ClaudeSessionEnvironmentPolicy()
-            .inheritedIndependentLaunchKeys
-            .sorted()
+        let environmentPolicy = ClaudeSessionEnvironmentPolicy()
+        let sessionIdentityKeys = environmentPolicy.inheritedSessionIdentityKeys.sorted()
+        let trustBypassKeys = environmentPolicy.inheritedTrustBypassKeys.sorted()
+        let observedKeys = sessionIdentityKeys + trustBypassKeys
         try writeExecutable(
             binDir.appendingPathComponent("claude", isDirectory: false),
             """
             #!/usr/bin/env bash
             {
               printf 'argv=%s\\n' "$*"
-              for key in \(inheritedLaunchKeys.joined(separator: " ")) CLAUDE_CODE_USE_VERTEX; do
+              for key in \(observedKeys.joined(separator: " ")) CLAUDE_CODE_USE_VERTEX; do
                 if value="$(printenv "$key")"; then
                   printf '%s=%s\\n' "$key" "$value"
                 else
@@ -73,7 +74,7 @@ import Testing
             "CMUX_BUNDLED_CLI_PATH": fakeCmuxURL.path,
             "CLAUDE_CODE_USE_VERTEX": "1",
         ]
-        for key in inheritedLaunchKeys {
+        for key in observedKeys {
             environment[key] = "inherited-parent-value"
         }
         process.environment = environment
@@ -85,8 +86,11 @@ import Testing
         let recorded = try String(contentsOf: recordURL, encoding: .utf8)
         #expect(recorded.contains("--settings"), Comment(rawValue: recorded))
         #expect(recorded.contains("--resume claude-session-123"), Comment(rawValue: recorded))
-        for key in inheritedLaunchKeys {
+        for key in sessionIdentityKeys {
             #expect(recorded.contains("\(key)=<unset>"), Comment(rawValue: recorded))
+        }
+        for key in trustBypassKeys {
+            #expect(recorded.contains("\(key)=inherited-parent-value"), Comment(rawValue: recorded))
         }
         #expect(recorded.contains("CLAUDE_CODE_USE_VERTEX=1"), Comment(rawValue: recorded))
     }

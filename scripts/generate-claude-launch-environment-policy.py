@@ -86,7 +86,9 @@ export const inheritedClaudeLaunchStateKeys = [
 
 
 def render_wrapper(wrapper: str, manifest: Dict[str, List[str]]) -> str:
-    keys = manifest["inheritedSessionIdentityKeys"] + manifest["inheritedTrustBypassKeys"]
+    # The wrapper continues an authorized cmux launch, so only detach it from
+    # the inherited conversation; independent launchers also clear trust state.
+    keys = manifest["inheritedSessionIdentityKeys"]
     generated_block = "\n".join(
         [WRAPPER_BEGIN, *(f"    unset {key}" for key in keys), WRAPPER_END]
     )
