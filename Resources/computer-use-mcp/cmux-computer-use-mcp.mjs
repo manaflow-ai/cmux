@@ -537,14 +537,23 @@ function delay(ms) {
 class FakeComputerUseProvider {
   constructor() {
     this.rotatingIdentityPid = 2000;
+    this.disposed = false;
+    this.dormantTestAppOpened = false;
+  }
+
+  ensureActive() {
+    if (this.disposed) {
+      throw new ProviderOperationError("provider.processFailed", "fake provider was reused after disposal");
+    }
   }
 
   async listApps() {
+    this.ensureActive();
     return this.identities();
   }
 
   identities() {
-    return [
+    const identities = [
       { name: "TestApp", bundleIdentifier: "com.cmux.testapp", pid: 1001 },
       { name: "QueueHoldApp", bundleIdentifier: "com.cmux.queuehold", pid: 1002 },
       { name: "SlowStateApp", bundleIdentifier: "com.cmux.slowstate", pid: 1003 },
@@ -553,6 +562,10 @@ class FakeComputerUseProvider {
       { name: "NoScreenshotApp", bundleIdentifier: "com.cmux.noscreenshot", pid: 1006 },
       { name: "RotatingIdentityApp", bundleIdentifier: "com.cmux.rotating", pid: this.rotatingIdentityPid },
     ];
+    if (this.dormantTestAppOpened) {
+      identities.push({ name: "DormantTestApp", bundleIdentifier: "com.cmux.dormant", pid: 1007 });
+    }
+    return identities;
   }
 
   identityForApp(app, target = null) {
@@ -577,6 +590,7 @@ class FakeComputerUseProvider {
   }
 
   async resolveApp(app, { allowPartialMatch = false } = {}) {
+    this.ensureActive();
     if (app === "RotatingIdentityApp") {
       this.rotatingIdentityPid += 1;
       return { name: app, bundleIdentifier: "com.cmux.rotating", pid: this.rotatingIdentityPid };
@@ -601,11 +615,17 @@ class FakeComputerUseProvider {
   }
 
   async openApp(app) {
+    this.ensureActive();
+    if (["dormanttestapp", "com.cmux.dormant"].includes(app.toLowerCase())) {
+      this.dormantTestAppOpened = true;
+      return this.identityForApp("DormantTestApp");
+    }
     return this.resolveApp(app, { allowPartialMatch: true });
   }
 
   async getState(app, { includeScreenshot = true, target = null } = {}) {
     if (app === "SlowStateApp" || app === "QueueHoldApp") await delay(140);
+    this.ensureActive();
     const identity = this.identityForApp(app, target);
     const windowId = app === "NoWindowIdentityApp" ? null : 42;
     return {
@@ -666,6 +686,7 @@ class FakeComputerUseProvider {
   }
 
   async input(action) {
+    this.ensureActive();
     if (action.app === "QueueHoldApp") await delay(40);
     if (["click_element", "scroll", "action"].includes(action.op)) {
       const expected = action.expectedElement;
@@ -694,6 +715,7 @@ class FakeComputerUseProvider {
   }
 
   async listWindows(match) {
+    this.ensureActive();
     const windows = [
       {
         id: 42,
@@ -709,6 +731,10 @@ class FakeComputerUseProvider {
     return windows.filter(
       (w) => String(w.app).toLowerCase().includes(needle) || String(w.title).toLowerCase().includes(needle)
     );
+  }
+
+  dispose() {
+    this.disposed = true;
   }
 }
 

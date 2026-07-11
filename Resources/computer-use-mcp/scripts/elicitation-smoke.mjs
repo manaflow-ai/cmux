@@ -342,7 +342,7 @@ async function runRawCancellationSmoke({ queued }) {
       const afterCancel = await request(
         "after-cancel",
         "tools/call",
-        { name: "computer_target", arguments: {} },
+        { name: "computer_apps", arguments: {} },
         1000
       )
         .then((message) => summarizeResult(message.result))
@@ -1073,5 +1073,17 @@ const openAccepted = await run({
 console.log(`computer_open with accepted elicitation -> isError=${openAccepted.isError}`);
 if (openAccepted.isError || openAccepted.text.includes("not approved") || !openAccepted.text.includes("TestApp")) {
   console.error("FAIL: accepted app launch should return the canonical resolved app identity");
+  process.exit(1);
+}
+
+const dormantOpenAccepted = await run({
+  withElicitation: true,
+  tool: "computer_open",
+  args: { app: "DormantTestApp" },
+  expectMessage: "DormantTestApp",
+});
+console.log(`computer_open for non-running app -> isError=${dormantOpenAccepted.isError}`);
+if (dormantOpenAccepted.isError || !dormantOpenAccepted.text.includes("DormantTestApp")) {
+  console.error("FAIL: computer_open should launch an installed app that is not already running");
   process.exit(1);
 }
