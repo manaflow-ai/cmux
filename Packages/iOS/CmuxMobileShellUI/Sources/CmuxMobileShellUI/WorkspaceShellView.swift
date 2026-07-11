@@ -127,6 +127,7 @@ struct WorkspaceShellView: View {
                 selectWorkspace: selectWorkspace,
                 createWorkspace: createWorkspaceInCompactStack,
                 createWorkspaceInGroup: createWorkspaceInGroupInCompactStackClosure,
+                createWorkspaceGroup: createWorkspaceGroupInCompactStackClosure,
                 canCreateWorkspace: canCreateWorkspaceForMacSelection,
                 macSelection: $macSelection,
                 switchMac: { macDeviceID in
@@ -235,6 +236,7 @@ struct WorkspaceShellView: View {
                 selectWorkspace: selectWorkspace,
                 createWorkspace: createWorkspaceIfConnected,
                 createWorkspaceInGroup: createWorkspaceInGroupIfConnectedClosure,
+                createWorkspaceGroup: createWorkspaceGroupIfConnectedClosure,
                 canCreateWorkspace: canCreateWorkspaceForMacSelection,
                 macSelection: $macSelection,
                 switchMac: { macDeviceID in
