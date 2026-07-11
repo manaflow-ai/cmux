@@ -380,10 +380,21 @@ describe("SEO metadata helpers", () => {
               messageLookup(page),
               messages.docs.layoutTitle,
             ),
-            Object.values(page).filter(
-              (value): value is string =>
-                typeof value === "string" && !value.includes("<"),
-            ),
+            Object.values(page)
+              .filter(
+                (value): value is string =>
+                  typeof value === "string",
+              )
+              .flatMap((value) => {
+                const sentences = metadataSentenceFragments(value);
+                return [
+                  ...sentences,
+                  ...sentences.flatMap((sentence) =>
+                    metadataClauseFragments(locale, sentence),
+                  ),
+                  boundedMetadataPrefix(value),
+                ];
+              }),
             [
               page.metaTitle,
               page.title,
@@ -548,6 +559,45 @@ describe("SEO metadata helpers", () => {
     expect(arabicTitle.split(arabicMessages.docs.layoutTitle)).toHaveLength(2);
     expect(searchSnippetLength(arabicTitle)).toBeGreaterThanOrEqual(30);
     expect(searchSnippetLength(arabicTitle)).toBeLessThanOrEqual(60);
+  });
+
+  test("keeps docs descriptions grounded in route-specific prose", async () => {
+    const cases = [
+      ["en", "configuration", "Ghostty config"],
+      ["de", "ios", "Telefon"],
+      ["de", "workspaceGroups", "Workspace-Gruppen"],
+      ["it", "customCommands", "cmux.json"],
+    ] as const;
+
+    for (const [locale, pageKey, expectedRouteText] of cases) {
+      const messages = await messagesFor(locale);
+      const page = messages.docs[pageKey];
+      const copy = docsPageSeoCopy(
+        locale,
+        pageKey,
+        messageLookup(page),
+        messages.docs.layoutTitle,
+      );
+      expect(copy.description).toContain(expectedRouteText);
+      expect(searchSnippetLength(copy.description)).toBeGreaterThanOrEqual(110);
+      expect(searchSnippetLength(copy.description)).toBeLessThanOrEqual(160);
+    }
+  });
+
+  test("selects social titles independently from the docs layout template", async () => {
+    const messages = await messagesFor("de");
+    const page = messages.docs.ohMyOpenCode;
+    const copy = docsPageSeoCopy(
+      "de",
+      "ohMyOpenCode",
+      messageLookup(page),
+      messages.docs.layoutTitle,
+    );
+
+    expect(copy.title).toBe("oh-my-opencode — macOS");
+    expect(copy.socialTitle).toBe(page.metaTitle);
+    expect(copy.socialTitle).not.toBe(copy.title);
+    expect(searchSnippetLength(copy.socialTitle)).toBeLessThanOrEqual(60);
   });
 
   test("keeps synthesized compare metadata tied to its localized route", async () => {
@@ -826,6 +876,44 @@ function searchSnippetLength(value: string) {
     if (zeroWidthSearchCodePoint.test(codePoint)) return sum;
     return sum + (wideSearchBaseCodePoint.test(codePoint) ? 2 : 1);
   }, 0);
+}
+
+function metadataSentenceFragments(value: string) {
+  return value
+    .split(/(?<=[。！？])|(?<=[.!?؟។៕])\s+/u)
+    .map((fragment) => fragment.trim())
+    .filter(Boolean);
+}
+
+function metadataClauseFragments(locale: string, sentence: string) {
+  const fragments: string[] = [];
+  for (const match of sentence.matchAll(/[,;:：៖]\s*/gu)) {
+    const prefix = sentence.slice(0, match.index).trim();
+    const suffix = sentence.slice(match.index + match[0].length).trim();
+    if (prefix.length >= 20) fragments.push(prefix);
+    if (suffix.length >= 20) {
+      fragments.push(
+        suffix.replace(/^\p{L}/u, (letter) =>
+          letter.toLocaleUpperCase(locale),
+        ),
+      );
+    }
+  }
+  return fragments;
+}
+
+function boundedMetadataPrefix(value: string) {
+  const words = value.trim().split(/\s+/u);
+  let best = "";
+  for (let count = 1; count <= words.length; count += 1) {
+    const candidate = words
+      .slice(0, count)
+      .join(" ")
+      .replace(/[,;:：៖]+$/u, "");
+    if (searchSnippetLength(candidate) > 160) break;
+    best = candidate;
+  }
+  return best;
 }
 
 function messageLookup(messages: object) {
