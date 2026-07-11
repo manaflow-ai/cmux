@@ -69,17 +69,65 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
 
     @MainActor
     @Test
+    func portalMutationSchedulerCoalescesLatestDrainCompletionThroughFollowUp() async {
+        let scheduler = TerminalPortalMutationScheduler()
+        var committedValues: [Int] = []
+        var completedValues: [Int] = []
+
+        let drain = scheduler.schedule(afterDrain: { completedValues.append(0) }) {
+            committedValues.append(0)
+        }
+        for value in 1...64 {
+            scheduler.schedule(afterDrain: { completedValues.append(value) }) {
+                committedValues.append(value)
+            }
+        }
+        scheduler.schedule(afterDrain: { completedValues.append(100) }) {
+            committedValues.append(100)
+            scheduler.schedule(afterDrain: { completedValues.append(101) }) {
+                committedValues.append(101)
+            }
+        }
+
+        await drain.value
+        #expect(committedValues == [100, 101])
+        #expect(completedValues == [101])
+    }
+
+    @MainActor
+    @Test
+    func portalMutationSchedulerPreservesCandidateCompletionAcrossOwnerRefresh() async {
+        let scheduler = TerminalPortalMutationScheduler()
+        var committedValues: [Int] = []
+        var completionCount = 0
+
+        let drain = scheduler.schedule(afterDrain: { completionCount += 1 }) {
+            committedValues.append(1)
+        }
+        scheduler.schedule {
+            committedValues.append(2)
+        }
+
+        await drain.value
+        #expect(committedValues == [2])
+        #expect(completionCount == 1)
+    }
+
+    @MainActor
+    @Test
     func portalMutationSchedulerCancelInvalidatesPendingCommit() async {
         let scheduler = TerminalPortalMutationScheduler()
         var didCommit = false
+        var didComplete = false
 
-        let commit = scheduler.schedule {
+        let commit = scheduler.schedule(afterDrain: { didComplete = true }) {
             didCommit = true
         }
         scheduler.cancel()
 
         await commit.value
         #expect(!didCommit)
+        #expect(!didComplete)
     }
 
     @MainActor
