@@ -80,6 +80,27 @@ import Testing
         ])
     }
 
+    @Test func newestPageWithOlderHistoryDoesNotRequestTheSameTailAgain() {
+        let store = ConversationReplica(
+            sessionID: ReplicaTestSupport.session,
+            journalID: ReplicaTestSupport.journal,
+            clock: ReplicaTestSupport.clock()
+        )
+        store.mergePage(
+            journal: ReplicaTestSupport.journal,
+            entries: (51...100).map { ReplicaTestSupport.entry($0) },
+            windowStart: ReplicaTestSupport.seq(51),
+            windowEnd: ReplicaTestSupport.seq(100),
+            tailSeq: ReplicaTestSupport.seq(100),
+            hasMoreBefore: true
+        )
+
+        #expect(store.holes == [
+            EntryRange(lowerBound: ReplicaTestSupport.seq(1), upperBound: ReplicaTestSupport.seq(50)),
+        ])
+        #expect(!store.needsTailPull)
+    }
+
     @Test func mergePageInterleavedWithDuplicateLiveAppendKeepsPulledWindow() {
         let store = ConversationReplica(sessionID: ReplicaTestSupport.session, journalID: ReplicaTestSupport.journal, clock: ReplicaTestSupport.clock())
         store.mergePage(

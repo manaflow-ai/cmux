@@ -240,6 +240,19 @@ struct TranscriptProjectorTests {
     }
 
     @Test
+    func productionProjectionOmitsDateHeadersWithoutRealTimestamps() {
+        let rows = projector.project(TranscriptProjectionInput(entries: [
+            Self.user(seq: 1, text: "hello"),
+            Self.agent(seq: 2, text: "world"),
+        ])).rows
+
+        #expect(!rows.contains { row in
+            if case .dateHeader = row.rowKind { return true }
+            return false
+        })
+    }
+
+    @Test
     func nonMonotonicDayKeysAreDeduplicatedWithoutTrapping() {
         let input = TranscriptProjectionInput(
             entries: [

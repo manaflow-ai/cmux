@@ -174,6 +174,32 @@ struct TranscriptDecoderTests {
     }
 
     @Test
+    func codexRequestUserInputPreservesPromptAndOptionLabels() {
+        let arguments = #"{"questions":[{"header":"Color","id":"color","question":"Pick a color family.","options":[{"label":"Warm","description":"Reds and oranges."},{"label":"Cool","description":"Blues and greens."}]}]}"#
+        let lines = [
+            #"{"type":"response_item","payload":{"type":"function_call","name":"request_user_input","call_id":"call_question","arguments":"\#(arguments.replacingOccurrences(of: "\"", with: "\\\""))"}}"#,
+        ]
+        var decoder = CodexTranscriptDecoder()
+        let batch = decoder.feed(lines, startingAt: 0, journalID: JournalID(rawValue: "journal"))
+
+        #expect(questionPayload(in: batch, seq: 0)?.prompt == "Pick a color family.")
+        #expect(questionPayload(in: batch, seq: 0)?.options == ["Warm", "Cool"])
+    }
+
+    @Test
+    func codexToolOutputIsBoundedBeforeEnteringTheReplica() {
+        let oversized = String(repeating: "x", count: 32_000)
+        let lines = [
+            #"{"type":"response_item","payload":{"type":"function_call","name":"shell","call_id":"call_large","arguments":{"command":["bash","-lc","echo done"]}}}"#,
+            #"{"type":"response_item","payload":{"type":"function_call_output","call_id":"call_large","output":"\#(oversized)"}}"#,
+        ]
+        var decoder = CodexTranscriptDecoder()
+        let batch = decoder.feed(lines, startingAt: 0, journalID: JournalID(rawValue: "journal"))
+
+        #expect((toolRunPayload(in: batch, seq: 1)?.resultSummary?.utf8.count ?? .max) <= 16_384)
+    }
+
+    @Test
     func claudeNonShellToolResultSynthesizesZeroExitCode() {
         let lines = [
             #"{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"tool_non_shell","name":"WebSearch","input":{"query":"example"}}]}}"#,
