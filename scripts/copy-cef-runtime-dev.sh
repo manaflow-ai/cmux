@@ -124,4 +124,14 @@ rm -rf "${APP_RESOURCES}/CEFExtensions"
 mkdir -p "${APP_RESOURCES}/CEFExtensions"
 ditto "${CEF_PKG}/Demo/TestExtension" "${APP_RESOURCES}/CEFExtensions/cefkit-test-extension"
 
+# Preinstalled extensions fetched by Packages/macOS/CEFKit/scripts/
+# fetch-extensions.sh (uBlock Origin, Bitwarden). Best-effort: dev builds
+# without a fetch just skip them.
+if [[ -d "${CEF_PKG}/third_party/extensions" ]]; then
+  for ext_dir in "${CEF_PKG}/third_party/extensions"/*; do
+    [[ -f "${ext_dir}/manifest.json" ]] || continue
+    ditto "${ext_dir}" "${APP_RESOURCES}/CEFExtensions/$(basename "${ext_dir}")"
+  done
+fi
+
 echo "copy-cef-runtime-dev: bundled CEF runtime into ${FULL_PRODUCT_NAME}"
