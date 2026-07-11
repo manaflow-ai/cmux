@@ -2,8 +2,8 @@
 
 import { useLocale, useTranslations } from "next-intl";
 import { useSearchParams } from "next/navigation";
-import { Link } from "../../../i18n/navigation";
-import { hasFallbackContent } from "../../../i18n/locale-availability";
+import { fallbackContentLocales } from "../../../i18n/locale-availability";
+import { ContentLocaleLink } from "./content-locale-link";
 
 // Reads the ?welcome= / ?billing= states set by /api/billing/checkout so the
 // /pro page itself can stay static.
@@ -11,7 +11,6 @@ import { hasFallbackContent } from "../../../i18n/locale-availability";
 export function ProWelcomeBanner() {
   const t = useTranslations("pricing");
   const locale = useLocale();
-  const pricingLocale = hasFallbackContent(locale) ? locale : "en";
   const params = useSearchParams();
   const welcome = params.get("welcome");
   const billing = params.get("billing");
@@ -45,13 +44,14 @@ export function ProWelcomeBanner() {
       {welcome === "pending" && (
         <>
           {" "}
-          <Link
+          <ContentLocaleLink
             href="/pricing"
-            locale={pricingLocale}
+            currentLocale={locale}
+            contentLocales={fallbackContentLocales}
             className="underline underline-offset-2 decoration-link-underline hover:decoration-foreground transition-colors"
           >
             {t("welcomePendingAction")}
-          </Link>
+          </ContentLocaleLink>
         </>
       )}
     </div>
