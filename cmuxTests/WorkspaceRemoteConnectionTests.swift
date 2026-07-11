@@ -1297,11 +1297,12 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             terminalStartupCommand: "ssh cmux-macmini",
             foregroundAuthToken: "token-a"
         )
-
         workspace.notifyRemoteForegroundAuthenticationReady(token: "token-a")
+        XCTAssertEqual(workspace.remoteConnectionState, .disconnected)
+        XCTAssertNil(workspace.activeRemoteSessionControllerID)
         workspace.configureRemoteConnection(config, autoConnect: false)
-
         XCTAssertEqual(workspace.remoteConnectionState, .connecting)
+        XCTAssertNotNil(workspace.activeRemoteSessionControllerID)
         workspace.disconnectRemoteConnection(clearConfiguration: true)
     }
 
@@ -1321,13 +1322,12 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             terminalStartupCommand: "ssh cmux-macmini",
             foregroundAuthToken: "token-a"
         )
-
         workspace.configureRemoteConnection(config, autoConnect: false)
         XCTAssertEqual(workspace.remoteConnectionState, .connecting)
-
+        XCTAssertNil(workspace.activeRemoteSessionControllerID)
         workspace.notifyRemoteForegroundAuthenticationReady(token: "token-a")
-
         XCTAssertEqual(workspace.remoteConnectionState, .connecting)
+        XCTAssertNotNil(workspace.activeRemoteSessionControllerID)
         workspace.disconnectRemoteConnection(clearConfiguration: true)
     }
 
@@ -1347,11 +1347,10 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             terminalStartupCommand: "ssh cmux-macmini",
             foregroundAuthToken: "token-b"
         )
-
         workspace.notifyRemoteForegroundAuthenticationReady(token: "token-a")
         workspace.configureRemoteConnection(config, autoConnect: false)
-
         XCTAssertEqual(workspace.remoteConnectionState, .connecting)
+        XCTAssertNil(workspace.activeRemoteSessionControllerID)
     }
 
     @MainActor
@@ -1397,11 +1396,10 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             terminalStartupCommand: "ssh cmux-macmini",
             foregroundAuthToken: "token-a"
         )
-
         workspace.configureRemoteConnection(config, autoConnect: false)
         workspace.notifyRemoteForegroundAuthenticationReady(token: "token-b")
-
         XCTAssertEqual(workspace.remoteConnectionState, .connecting)
+        XCTAssertNil(workspace.activeRemoteSessionControllerID)
     }
 
     @MainActor
