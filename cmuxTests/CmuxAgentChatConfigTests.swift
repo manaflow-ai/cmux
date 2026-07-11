@@ -480,17 +480,24 @@ struct CmuxAgentChatConfigTests {
     }
 
     @MainActor
-    @Test func performNewAgentChatActionRejectsWhenBrowserSurfacesAreDisabled() throws {
+    @Test func performNewAgentChatActionUsesNativeSessionWhenBrowserSurfacesAreDisabled() throws {
         try withAgentChatUIFlag(true) {
             try withBrowserDisabled {
+                let tabManager = TabManager()
                 let didStart = AppDelegate().performNewAgentChatAction(
-                    tabManager: TabManager(),
+                    tabManager: tabManager,
                     agentChat: .default,
                     globalConfigPath: nil,
                     preferredWindow: nil
                 )
 
-                #expect(!didStart)
+                #expect(didStart)
+                #expect(tabManager.tabs.count == 2)
+                let workspace = try #require(tabManager.selectedWorkspace)
+                #expect(workspace.customTitle == "Agent Chat")
+                let panel = try #require(workspace.panels.values.first as? AgentSessionPanel)
+                #expect(panel.rendererKind == .react)
+                #expect(panel.currentProviderID == .codex)
             }
         }
     }
