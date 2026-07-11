@@ -1,4 +1,5 @@
 import Foundation
+import CmuxTerminalCore
 import SwiftUI
 import Testing
 
