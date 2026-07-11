@@ -351,6 +351,52 @@ struct AgentHookStateLocationTests {
         #expect((sessions["writer-update"] as? [String: Any])?["workspaceId"] as? String == "writer")
     }
 
+    @Test("One-shot readers merge legacy state while migration is deferred")
+    func oneShotReaderMergesLegacyStateWhileMigrationIsDeferred() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-hook-state-one-shot-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let applicationSupport = root.appendingPathComponent("app-support", isDirectory: true)
+        let home = root.appendingPathComponent("home", isDirectory: true)
+        let legacy = home.appendingPathComponent(".cmuxterm", isDirectory: true)
+        let scoped = applicationSupport
+            .appendingPathComponent("cmux/agent-hooks/com.cmuxterm.app.nightly", isDirectory: true)
+        try FileManager.default.createDirectory(at: legacy, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: scoped, withIntermediateDirectories: true)
+        let filename = "codex-hook-sessions.json"
+        try JSONSerialization.data(withJSONObject: [
+            "sessions": ["legacy-only": ["workspaceId": "legacy"]],
+        ]).write(to: legacy.appendingPathComponent(filename))
+        try JSONSerialization.data(withJSONObject: [
+            "sessions": ["scoped-only": ["workspaceId": "scoped"]],
+        ]).write(to: scoped.appendingPathComponent(filename))
+
+        let lockFile = scoped.appendingPathComponent(filename + ".lock")
+        let lockDescriptor = lockFile.withUnsafeFileSystemRepresentation { path in
+            path.map { open($0, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR) } ?? -1
+        }
+        #expect(lockDescriptor >= 0)
+        defer {
+            _ = flock(lockDescriptor, LOCK_UN)
+            close(lockDescriptor)
+        }
+        #expect(flock(lockDescriptor, LOCK_EX) == 0)
+
+        let location = AgentHookStateReaderLocation(
+            environment: [:],
+            applicationSupportDirectory: applicationSupport,
+            bundleIdentifier: "com.cmuxterm.app.nightly",
+            legacyHomeDirectory: home,
+            fileManager: .default
+        )
+        let data = try #require(location.storeData(named: filename, fileManager: .default))
+        let rootObject = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let sessions = try #require(rootObject["sessions"] as? [String: Any])
+
+        #expect((sessions["legacy-only"] as? [String: Any])?["workspaceId"] as? String == "legacy")
+        #expect((sessions["scoped-only"] as? [String: Any])?["workspaceId"] as? String == "scoped")
+    }
+
     @Test("Malformed legacy stores leave migration pending for a later retry")
     func malformedLegacyStoreRetriesAfterRepair() throws {
         let root = FileManager.default.temporaryDirectory
