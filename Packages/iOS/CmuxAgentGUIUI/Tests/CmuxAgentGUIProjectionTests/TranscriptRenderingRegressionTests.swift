@@ -84,6 +84,44 @@ import UIKit
         #expect(collection.contentOffset == offset)
         #expect(container.terminalThemeGeneration == 5)
         #expect(list.currentTheme == replacement)
+        #expect(container.view.backgroundColor == UIColor(replacement.background))
+        #expect(collection.backgroundColor == UIColor(replacement.background))
+    }
+
+    @Test func terminalThemeBackgroundOwnsContainerListAndCellCanvas() throws {
+        var terminalTheme = TerminalTheme.monokai
+        terminalTheme.background = "#102030"
+        terminalTheme.foreground = "#f4f0d8"
+        let theme = AgentGUITheme(terminalTheme: terminalTheme)
+        let controller = TranscriptLiveContainerViewController(
+            theme: theme,
+            terminalThemeGeneration: 1
+        )
+        controller.loadViewIfNeeded()
+        controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+        controller.apply(input: TranscriptProjectionInput(entries: [
+            EntrySnapshot(
+                journalID: JournalID(rawValue: "background-owner"),
+                seq: EntrySeq(rawValue: 1),
+                kind: EntryKind.agentProse,
+                content: EntryContent(
+                    contentHash: 1,
+                    payload: .agentProse(AgentProsePayload(markdown: "Visible answer"))
+                ),
+                version: EntityVersion(rawValue: 1)
+            ),
+        ]))
+        controller.view.layoutIfNeeded()
+        controller.transcript.collectionView.layoutIfNeeded()
+
+        let cell = try #require(
+            controller.transcript.collectionView.visibleCells.first as? TranscriptCollectionCell
+        )
+        #expect(controller.view.backgroundColor == UIColor(theme.background))
+        #expect(controller.transcript.view.backgroundColor == UIColor(theme.background))
+        #expect(controller.transcript.collectionView.backgroundColor == UIColor(theme.background))
+        #expect(cell.backgroundConfiguration?.backgroundColor == UIColor.clear)
+        #expect(cell.contentView.backgroundColor == UIColor.clear)
     }
 
     @Test func tallFixtureAndBurstAppendImmediatelyUpdateProjection() {

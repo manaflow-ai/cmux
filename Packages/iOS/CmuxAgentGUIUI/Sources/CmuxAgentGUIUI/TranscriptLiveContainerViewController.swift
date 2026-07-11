@@ -6,11 +6,13 @@ public import UIKit
 @MainActor public final class TranscriptLiveContainerViewController: UIViewController {
     let transcript: TranscriptListViewController
     private(set) var terminalThemeGeneration: UInt64
+    private var currentTheme: AgentGUITheme
 
     /// Creates a live container with the current terminal-derived palette.
     public init(theme: AgentGUITheme, terminalThemeGeneration: UInt64) {
         transcript = TranscriptListViewController(theme: theme)
         self.terminalThemeGeneration = terminalThemeGeneration
+        currentTheme = theme
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -25,6 +27,7 @@ public import UIKit
 
     public override func viewDidLoad() {
         super.viewDidLoad()
+        view.backgroundColor = UIColor(currentTheme.background)
         addChild(transcript)
         transcript.view.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(transcript.view)
@@ -48,6 +51,10 @@ public import UIKit
     /// Recolors the mounted transcript without replacing its list or collection view.
     public func apply(theme: AgentGUITheme, terminalThemeGeneration: UInt64) {
         self.terminalThemeGeneration = terminalThemeGeneration
+        currentTheme = theme
+        if isViewLoaded {
+            view.backgroundColor = UIColor(theme.background)
+        }
         transcript.apply(theme: theme)
     }
 

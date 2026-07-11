@@ -16,10 +16,11 @@ public struct TranscriptDemoScreen: View {
     public init() {}
 
     public var body: some View {
+        let theme = AgentGUITheme(terminalTheme: TerminalThemeStore.current)
         ZStack(alignment: .bottom) {
             TranscriptDemoControllerRepresentable(
                 input: model.input,
-                theme: AgentGUITheme(terminalTheme: TerminalThemeStore.current),
+                theme: theme,
                 jumpToken: jumpToken,
                 bottomChromeHeight: bottomChromeHeight
             )
@@ -27,6 +28,7 @@ public struct TranscriptDemoScreen: View {
 
             composerSurface
         }
+        .background(Color(theme.background).ignoresSafeArea())
         .navigationTitle(AgentGUIL10n.string("agent.demo.title", defaultValue: "Transcript Demo"))
         .navigationBarTitleDisplayMode(.inline)
         .onDisappear {

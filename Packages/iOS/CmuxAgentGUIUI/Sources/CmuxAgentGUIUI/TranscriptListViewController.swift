@@ -159,6 +159,9 @@ public import UIKit
     private func configureCollectionView() {
         var configuration = UICollectionLayoutListConfiguration(appearance: .plain)
         configuration.showsSeparators = false
+        // The list layout otherwise installs its system background behind the
+        // clear cells, which breaks terminal-derived palettes.
+        configuration.backgroundColor = .clear
         let layout = UICollectionViewCompositionalLayout.list(using: configuration)
         let collection = TranscriptCollectionView(frame: .zero, collectionViewLayout: layout)
         collection.translatesAutoresizingMaskIntoConstraints = false
@@ -177,8 +180,10 @@ public import UIKit
         let viewport = UIView()
         viewport.translatesAutoresizingMaskIntoConstraints = false
         viewport.clipsToBounds = true
+        viewport.backgroundColor = .clear
         let motionView = UIView()
         motionView.translatesAutoresizingMaskIntoConstraints = false
+        motionView.backgroundColor = .clear
         viewport.addSubview(motionView)
         motionView.addSubview(collection)
         view.addSubview(viewport)

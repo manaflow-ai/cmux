@@ -37,6 +37,11 @@ final class TranscriptCollectionCell: UICollectionViewListCell {
             TranscriptRowContentView(row: row, spacing: rowSpacing, theme: theme)
         }
         .margins(.all, 0)
+        // UICollectionViewListCell may refresh its default background when its
+        // hosting configuration changes. Reassert transparency so the single
+        // transcript canvas remains visible through row gaps.
+        backgroundConfiguration = .clear()
+        contentView.backgroundColor = .clear
         isAccessibilityElement = true
         accessibilityTraits = .staticText
         accessibilityLabel = row.accessibilityLabel

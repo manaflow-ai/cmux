@@ -4,9 +4,11 @@ import UIKit
 
 final class TranscriptDemoContainerViewController: UIViewController {
     private let transcript: TranscriptListViewController
+    private var currentTheme: AgentGUITheme
 
     init(theme: AgentGUITheme) {
         transcript = TranscriptListViewController(theme: theme)
+        currentTheme = theme
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -16,6 +18,7 @@ final class TranscriptDemoContainerViewController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        view.backgroundColor = UIColor(currentTheme.background)
         addChild(transcript)
         transcript.view.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(transcript.view)
@@ -35,6 +38,10 @@ final class TranscriptDemoContainerViewController: UIViewController {
     }
 
     func apply(theme: AgentGUITheme) {
+        currentTheme = theme
+        if isViewLoaded {
+            view.backgroundColor = UIColor(theme.background)
+        }
         transcript.apply(theme: theme)
     }
 
