@@ -302,6 +302,41 @@ struct CmxIrohHostRuntimeTests {
     }
 
     @Test
+    func rateLimitedRegistrationRefreshPreservesActiveEndpoint() async throws {
+        let fixture = try HostRuntimeFixture()
+        let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
+        let broker = TestIrohHostBroker(
+            registrationBinding: fixture.binding,
+            discovery: fixture.discovery,
+            subsequentRegistrationErrors: [
+                .rejected(statusCode: 429, code: "challenge_rate_limited"),
+            ]
+        )
+        let deactivations = HostRuntimeDeactivationRecorder()
+        let runtime = CmxIrohHostRuntime(
+            factory: TestIrohEndpointFactory(endpoints: [endpoint]),
+            broker: broker,
+            configuration: fixture.configuration,
+            pendingRevocations: fixture.pendingRevocations(),
+            handleTransport: { session, _ in await session.close() },
+            handleDeactivation: { bindingID in
+                await deactivations.record(bindingID)
+            }
+        )
+        try await runtime.start()
+
+        await endpoint.emit(.networkChanged)
+        await broker.waitForRegistrationCount(2)
+        // Give the runtime actor a bounded window to apply the refresh result.
+        try await ContinuousClock().sleep(for: .milliseconds(50))
+
+        #expect(await runtime.snapshot().state == .active)
+        #expect(await endpoint.observedCloseCallCount() == 0)
+        #expect(await deactivations.values().isEmpty)
+        await runtime.stop()
+    }
+
+    @Test
     func networkChangeDuringRegistrationIsObservedAfterStartup() async throws {
         let fixture = try HostRuntimeFixture()
         let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
@@ -742,9 +777,13 @@ private actor TestIrohHostBroker: CmxIrohHostBrokerServing {
     private let discoveryError: CmxIrohTrustBrokerClientError?
     private let revokeError: CmxIrohTrustBrokerClientError?
     private let registrationHook: (@Sendable () async -> Bool)?
+    private var subsequentRegistrationErrors: [CmxIrohTrustBrokerClientError]
     private var registrationCount = 0
     private var registrationHookResult: Bool?
     private var revokedBindingIDs: [String] = []
+    private var registrationCountWaiters: [
+        (minimum: Int, continuation: CheckedContinuation<Void, Never>)
+    ] = []
 
     init(
         registrationBinding: CmxIrohBrokerBinding,
@@ -753,7 +792,8 @@ private actor TestIrohHostBroker: CmxIrohHostBrokerServing {
         registrationError: CmxIrohTrustBrokerClientError? = nil,
         discoveryError: CmxIrohTrustBrokerClientError? = nil,
         revokeError: CmxIrohTrustBrokerClientError? = nil,
-        registrationHook: (@Sendable () async -> Bool)? = nil
+        registrationHook: (@Sendable () async -> Bool)? = nil,
+        subsequentRegistrationErrors: [CmxIrohTrustBrokerClientError] = []
     ) {
         self.registrationBinding = registrationBinding
         discoveryResponses = [discovery] + subsequentDiscoveries
@@ -761,6 +801,7 @@ private actor TestIrohHostBroker: CmxIrohHostBrokerServing {
         self.discoveryError = discoveryError
         self.revokeError = revokeError
         self.registrationHook = registrationHook
+        self.subsequentRegistrationErrors = subsequentRegistrationErrors
     }
 
     func register(
@@ -768,7 +809,19 @@ private actor TestIrohHostBroker: CmxIrohHostBrokerServing {
         signer _: CmxIrohRegistrationSigner
     ) async throws -> CmxIrohRegistrationResponse {
         registrationCount += 1
-        if let registrationError { throw registrationError }
+        let ready = registrationCountWaiters.filter {
+            registrationCount >= $0.minimum
+        }
+        registrationCountWaiters.removeAll {
+            registrationCount >= $0.minimum
+        }
+        for waiter in ready { waiter.continuation.resume() }
+        if registrationCount == 1, let registrationError {
+            throw registrationError
+        }
+        if registrationCount > 1, !subsequentRegistrationErrors.isEmpty {
+            throw subsequentRegistrationErrors.removeFirst()
+        }
         if let registrationHook {
             registrationHookResult = await registrationHook()
         }
@@ -807,6 +860,14 @@ private actor TestIrohHostBroker: CmxIrohHostBrokerServing {
     }
 
     func observedRegistrationCount() -> Int { registrationCount }
+
+    func waitForRegistrationCount(_ minimum: Int) async {
+        if registrationCount >= minimum { return }
+        await withCheckedContinuation { continuation in
+            registrationCountWaiters.append((minimum, continuation))
+        }
+    }
+
     func observedRegistrationHookResult() -> Bool? { registrationHookResult }
     func observedRevokedBindingIDs() -> [String] { revokedBindingIDs }
 }
