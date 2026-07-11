@@ -29,19 +29,25 @@ private struct FixedConsent: AnalyticsConsentProviding {
 
     @Test func consentEnabledStartsExactlyOnce() {
         var startCount = 0
+        var capturedOptions: Options?
 
         MobileCrashReporter.startIfEnabled(
             consent: FixedConsent(isTelemetryEnabled: true),
             arguments: ["cmux"],
             environment: [:],
             revocationWatcher: MobileCrashReporter.RevocationWatcher(),
-            start: { _ in startCount += 1 },
+            start: {
+                capturedOptions = $0
+                startCount += 1
+            },
             close: {},
             purgeCache: {},
             crash: {}
         )
 
         #expect(startCount == 1)
+        #expect(capturedOptions?.urlSession != nil)
+        #expect(capturedOptions?.shutdownTimeInterval == 0)
     }
 
     @Test func optionsFactoryMatchesMobileContract() {
