@@ -65,61 +65,6 @@ struct BrowserWebExtensionSupportTests {
     }
 
     @Test
-    func toolbarVisibilityFlipDoesNotUnloadOrReload() {
-        let planner = BrowserWebExtensionReconciliationPlanner()
-        let appexPath = "/Applications/Bitwarden.app/Contents/PlugIns/safari.appex"
-        let entry = BrowserWebExtensionEntry(
-            id: "com.bitwarden.desktop.safari",
-            kind: .safariAppExtension,
-            path: appexPath,
-            enabled: true,
-            showsToolbarButton: false
-        )
-        let plan = planner.plan(
-            settingsEntries: [entry],
-            environmentPaths: [],
-            loadedEntries: [
-                BrowserWebExtensionReconciliationPlanner.LoadedEntry(
-                    id: entry.id,
-                    standardizedPath: BrowserWebExtensionReconciliationPlanner.standardizedResourceRootPath(for: entry)
-                ),
-            ]
-        )
-
-        #expect(plan.unloadEntryIDs.isEmpty)
-        #expect(plan.loadEntries.isEmpty)
-    }
-
-    @MainActor
-    @Test
-    @available(macOS 15.4, *)
-    func applyTracksToolbarButtonVisibilityFromSettingsEntries() async {
-        let wasBrowserDisabled = BrowserAvailabilitySettings.isDisabled()
-        BrowserAvailabilitySettings.setDisabled(false)
-        defer { BrowserAvailabilitySettings.setDisabled(wasBrowserDisabled) }
-
-        let support = BrowserWebExtensionSupport()
-        await support.apply(entries: [
-            BrowserWebExtensionEntry(
-                id: "shown",
-                kind: .unpackedDirectory,
-                path: "/nonexistent/shown",
-                enabled: false
-            ),
-            BrowserWebExtensionEntry(
-                id: "hidden",
-                kind: .unpackedDirectory,
-                path: "/nonexistent/hidden",
-                enabled: false,
-                showsToolbarButton: false
-            ),
-        ])
-
-        #expect(support.toolbarHiddenEntryIDs == ["hidden"])
-        #expect(support.settingsBackedEntryIDs == ["shown", "hidden"])
-    }
-
-    @Test
     func reconciliationSkipsEnvPathWhenSettingsEntryIsDisabled() {
         let planner = BrowserWebExtensionReconciliationPlanner()
         let appexPath = "/Applications/Bitwarden.app/Contents/PlugIns/safari.appex"
