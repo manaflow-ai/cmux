@@ -839,9 +839,8 @@ final class WindowTerminalPortal: NSObject {
     }
 
     fileprivate func synchronizeAllEntriesFromExternalGeometryChange() {
-        // Resize/split notifications are delivered after AppKit has laid out the
-        // hierarchy. Consume those current frames without feeding another ancestor
-        // layout pass back into the same notification cycle.
+        // Resize notifications arrive after layout. Consume current frames without
+        // feeding another ancestor pass into the same notification cycle.
         guard synchronizeAllHostedViews(excluding: nil, syncLayout: false) else { return }
         reconcileVisibleHostedViewsAfterGeometrySync(reason: "portal.externalGeometrySync")
     }
@@ -849,9 +848,7 @@ final class WindowTerminalPortal: NSObject {
     @discardableResult
     private func prepareForHostedViewSynchronization(syncLayout: Bool) -> Bool {
         guard ensureInstalled(syncLayout: false) else { return false }
-        if syncLayout {
-            synchronizeLayoutHierarchy()
-        }
+        if syncLayout { synchronizeLayoutHierarchy() }
         return true
     }
 
@@ -1762,7 +1759,6 @@ final class WindowTerminalPortal: NSObject {
     func debugHostedSubviewCount() -> Int {
         hostView.subviews.count
     }
-
 #endif
 
     private func hostedScrollViewAtWindowPoint(_ windowPoint: NSPoint) -> (view: GhosttySurfaceScrollView, point: NSPoint)? {

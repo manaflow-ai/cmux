@@ -2901,9 +2901,8 @@ final class Workspace: Identifiable, ObservableObject {
         self.currentDirectory = initialDirectory
         self.surfaceTabBarDirectory = initialDirectory
 
-        // Panel models own terminal surfaces, browser web views, and restoration state, so hidden
-        // tabs do not need a parallel SwiftUI tree. Mounting only the selected tab keeps routine
-        // workspace updates proportional to visible panes instead of every panel in each pane.
+        // Panel models own restoration state, so hidden tabs need no parallel SwiftUI tree.
+        // Mounting only the selected tab keeps updates proportional to visible panes.
         let initialSurfaceTabBarFontSize = GhosttyConfig.load(globalFontMagnificationPercent: GlobalFontMagnification.storedPercent).surfaceTabBarFontSize
         let appearance = Self.bonsplitAppearance(
             from: GhosttyApp.shared.defaultBackgroundColor,

@@ -127,14 +127,10 @@ class TerminalController {
     @MainActor var agentChatTranscriptService: AgentChatTranscriptService?
     // Sendable value type; injected at construction so socket auth never reaches a global.
     private nonisolated let passwordStore: SocketControlPasswordStore
-    /// Process-wide proxy-tunnel broker (one shared tunnel per remote transport across all
-    /// windows), constructed at this app-hub composition point and injected into each
-    /// `WorkspaceRemoteSessionController`; ownership moves to the composition root with the
-    /// planned `RemoteSessionCoordinator` wiring.
+    /// Process-wide proxy-tunnel broker, constructed at this composition point and injected
+    /// into each `WorkspaceRemoteSessionController`.
     nonisolated let remoteProxyBroker: any RemoteProxyBrokering
-    /// Process-wide native orphan cleanup, shared by every remote coordinator.
     nonisolated let remoteOrphanedProcessReaper: RemoteOrphanedProcessReaper
-    // Stateless Sendable structs from CmuxControlSocket; injected at construction.
     // `transport` is internal so sibling-file extensions (CmuxEventStream) can write through it.
     nonisolated let transport: SocketTransport
     // The package-owned listener: path/bind/lock lifecycle, accept source,
@@ -1355,13 +1351,9 @@ class TerminalController {
         case "system.capabilities":
             return v2Ok(id: request.id, result: v2Capabilities())
         case "system.top":
-            return v2AsyncResultCall(id: request.id, timeoutSeconds: 30) {
-                await self.v2SystemTop(params: request.params)
-            }
+            return v2AsyncResultCall(id: request.id, timeoutSeconds: 30) { await self.v2SystemTop(params: request.params) }
         case "system.memory":
-            return v2AsyncResultCall(id: request.id, timeoutSeconds: 30) {
-                await self.v2SystemMemory(params: request.params)
-            }
+            return v2AsyncResultCall(id: request.id, timeoutSeconds: 30) { await self.v2SystemMemory(params: request.params) }
         case "surface.read_text":
             return v2Result(id: request.id, v2SurfaceReadText(params: request.params))
         case "workspace.env":
@@ -2809,13 +2801,10 @@ class TerminalController {
         }
         v2AttachTopApplicationProcess(to: &windowNodes)
 
-        let requirements: CmuxTopProcessSnapshotRequirements = includeProcesses
-            ? [.processDetails, .cmuxScope]
-            : .cmuxScope
+        let requirements: CmuxTopProcessSnapshotRequirements = includeProcesses ? [.processDetails, .cmuxScope] : .cmuxScope
         let processSnapshot = await CmuxTopProcessSnapshotStore.shared.snapshot(
             requirements: requirements,
-            maximumAge: 1,
-            consumer: .systemTop
+            maximumAge: 1, consumer: .systemTop
         )
         let browserPIDOccurrences = v2TopBrowserPIDOccurrences(in: windowNodes)
         var annotatedWindows = windowNodes
@@ -2864,13 +2853,10 @@ class TerminalController {
               var windowNodes = payload.removeValue(forKey: "windows") as? [[String: Any]] else {
             return .err(code: "internal_error", message: "Invalid system.top payload", data: nil)
         }
-        let requirements: CmuxTopProcessSnapshotRequirements = includeProcesses
-            ? [.processDetails, .cmuxScope]
-            : .cmuxScope
+        let requirements: CmuxTopProcessSnapshotRequirements = includeProcesses ? [.processDetails, .cmuxScope] : .cmuxScope
         let processSnapshot = await CmuxTopProcessSnapshotStore.shared.snapshot(
             requirements: requirements,
-            maximumAge: 1,
-            consumer: .systemTop
+            maximumAge: 1, consumer: .systemTop
         )
         let browserPIDOccurrences = v2TopBrowserPIDOccurrences(in: windowNodes)
         let totalPIDs = v2AnnotateTopWindows(
@@ -2949,8 +2935,7 @@ class TerminalController {
         let topGroupLimit = topGroupLimitValue ?? groupLimitValue ?? 12
         let processSnapshot = await CmuxTopProcessSnapshotStore.shared.snapshot(
             requirements: [.processDetails, .cmuxScope],
-            maximumAge: 2,
-            consumer: .systemTop
+            maximumAge: 2, consumer: .systemTop
         )
         let browserPIDOccurrences = v2TopBrowserPIDOccurrences(in: windowNodes)
         _ = v2AnnotateTopWindows(

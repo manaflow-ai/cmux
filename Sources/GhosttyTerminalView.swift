@@ -3427,11 +3427,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var _pendingScrollbar: GhosttyScrollbar?
     private var _scrollbarFlushScheduled = false
     private let _scrollbarLock = NSLock()
-    private var _renderedFrameFlushScheduled = false
-    private let _renderedFrameLock = NSLock()
-    private let rendererProfilingSignposts = TerminalRendererProfilingSignposts()
-    private var rendererProfilingCoalescedUpdateCount = 0
-    private var rendererProfilingUpdateState: OSSignpostIntervalState?
+    var _renderedFrameFlushScheduled = false
+    let _renderedFrameLock = NSLock()
+    let rendererProfilingSignposts = TerminalRendererProfilingSignposts()
+    var rendererProfilingCoalescedUpdateCount = 0
+    var rendererProfilingUpdateState: OSSignpostIntervalState?
     nonisolated let selectionAccessibilitySignal = TerminalSelectionAccessibilitySignal()
     private var selectionAccessibilityNotifier: TerminalSelectionAccessibilityNotifier?
     var cellSize: CGSize = .zero
@@ -3542,74 +3542,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return true
     }
 
-    func enqueueRenderedFrameUpdate() {
-        let profilingEnabled = rendererProfilingSignposts.isEnabled
-        guard TerminalRenderedFrameDeliveryPolicy.shouldEnqueue(
-            renderDemandActive: GhosttyApp.renderedFrameNotificationDemand.isActive,
-            profilingEnabled: profilingEnabled
-        ) else { return }
-
-        _renderedFrameLock.lock()
-        rendererProfilingCoalescedUpdateCount += 1
-        let needsSchedule = !_renderedFrameFlushScheduled
-        if needsSchedule {
-            _renderedFrameFlushScheduled = true
-        }
-        _renderedFrameLock.unlock()
-
-        guard needsSchedule else { return }
-        if profilingEnabled, let metadata = rendererProfilingMetadata(coalescedUpdateCount: 1) {
-            rendererProfilingUpdateState = rendererProfilingSignposts.beginUpdate(metadata)
-        }
-        DispatchQueue.main.async { [weak self] in
-            self?.flushRenderedFrameUpdate()
-        }
-    }
-
-    private func flushRenderedFrameUpdate() {
-        _renderedFrameLock.lock()
-        _renderedFrameFlushScheduled = false
-        let coalescedUpdateCount = rendererProfilingCoalescedUpdateCount
-        rendererProfilingCoalescedUpdateCount = 0
-        let profilingState = rendererProfilingUpdateState
-        rendererProfilingUpdateState = nil
-        _renderedFrameLock.unlock()
-
-        if let metadata = rendererProfilingMetadata(coalescedUpdateCount: coalescedUpdateCount) {
-            rendererProfilingSignposts.endUpdate(profilingState, metadata)
-        }
-        guard GhosttyApp.renderedFrameNotificationDemand.isActive else { return }
-        NotificationCenter.default.post(
-            name: .ghosttyDidRenderFrame,
-            object: self
-        )
-    }
-
-    private func rendererProfilingMetadata(
-        coalescedUpdateCount: Int
-    ) -> TerminalRendererProfilingMetadata? {
-        guard let terminalSurface else { return nil }
-        return TerminalRendererProfilingMetadata(
-            identity: terminalSurface.rendererProfilingIdentity,
-            visible: isVisibleInUI,
-            focused: desiredFocus,
-            wakeReason: .terminalOutput,
-            coalescedUpdateCount: coalescedUpdateCount,
-            dirtyRowCount: nil,
-            fullRedraw: nil
-        )
-    }
-
-    fileprivate func updateRendererProfilingState(
-        wakeReason: TerminalRendererProfilingWakeReason
-    ) {
-        (layer as? GhosttyMetalLayer)?.setProfilingState(
-            identity: terminalSurface?.rendererProfilingIdentity,
-            visible: isVisibleInUI,
-            focused: desiredFocus,
-            wakeReason: wakeReason
-        )
-    }
 
     var desiredFocus: Bool = false
     var suppressingReparentFocus: Bool = false
@@ -3713,7 +3645,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     // Visibility is used for focus gating. Explicit portal visibility transitions
     // also drive Ghostty occlusion so hidden workspace/split surfaces pause and
     // queue a redraw when they become visible again.
-    fileprivate var isVisibleInUI: Bool { visibleInUI }
+    var isVisibleInUI: Bool { visibleInUI }
     fileprivate func setVisibleInUI(_ visible: Bool) {
         visibleInUI = visible
         updateRendererProfilingState(wakeReason: .visibility)

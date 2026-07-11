@@ -1942,17 +1942,12 @@ final class WindowBrowserPortal: NSObject {
     }
 
     private func synchronizeAllEntriesFromExternalGeometryChange() {
-        // AppKit posts resize/split notifications after completing its layout pass.
-        // Consume those current frames without forcing the ancestor hierarchy back
-        // through layout. synchronizeWebView invalidates WebKit only when a visible
-        // entry's frame, bounds, attachment, or presentation state actually changed.
+        // AppKit has completed layout before resize notifications arrive. Consume current
+        // frames, and invalidate WebKit only when visible presentation state changed.
         _ = synchronizeAllWebViews(excluding: nil, source: "externalGeometry")
     }
-
 #if DEBUG
-    func browserPortalTestSynchronizeExternalGeometryNow() {
-        synchronizeAllEntriesFromExternalGeometryChange()
-    }
+    func browserPortalTestSynchronizeExternalGeometryNow() { synchronizeAllEntriesFromExternalGeometryChange() }
 #endif
 
     @discardableResult
@@ -2395,11 +2390,8 @@ final class WindowBrowserPortal: NSObject {
             webKitSubview.displayIfNeeded()
         }
         containerView.displayIfNeeded()
-        // Geometry-only refreshes run from AppKit's resize notifications. A
-        // window-wide display here can satisfy an unrelated ancestor's
-        // `needsLayout`, feeding the geometry consumer back into the layout
-        // producer. Full presentation recovery still flushes the window after
-        // WebKit rendering state is reattached.
+        // Geometry refreshes must not flush unrelated ancestor layout. Full presentation
+        // recovery still flushes the window after WebKit rendering state is reattached.
         if reattachRenderingState {
             (containerView.window ?? webView.window ?? hostView.window)?.displayIfNeeded()
         }
@@ -2988,10 +2980,7 @@ final class WindowBrowserPortal: NSObject {
         let anchorId = ObjectIdentifier(anchorView)
         let primaryWebViewId = webViewByAnchorId[anchorId]
         if let primaryWebViewId {
-            synchronizePreparedWebView(
-                withId: primaryWebViewId,
-                source: "anchorPrimary"
-            )
+            synchronizePreparedWebView(withId: primaryWebViewId, source: "anchorPrimary")
         }
 
         // During rapid geometry changes (e.g. divider drag), syncing every web view
@@ -3019,19 +3008,13 @@ final class WindowBrowserPortal: NSObject {
     }
 
     @discardableResult
-    private func synchronizeAllWebViews(
-        excluding webViewIdToSkip: ObjectIdentifier?,
-        source: String
-    ) -> Bool {
+    private func synchronizeAllWebViews(excluding webViewIdToSkip: ObjectIdentifier?, source: String) -> Bool {
         guard ensureInstalled() else { return false }
         pruneDeadEntries()
         let webViewIds = Array(entriesByWebViewId.keys)
         for webViewId in webViewIds {
             if webViewId == webViewIdToSkip { continue }
-            synchronizePreparedWebView(
-                withId: webViewId,
-                source: source
-            )
+            synchronizePreparedWebView(withId: webViewId, source: source)
         }
         return true
     }
@@ -3083,18 +3066,10 @@ final class WindowBrowserPortal: NSObject {
         forcePresentationRefresh: Bool = false
     ) {
         guard ensureInstalled() else { return }
-        synchronizePreparedWebView(
-            withId: webViewId,
-            source: source,
-            forcePresentationRefresh: forcePresentationRefresh
-        )
+        synchronizePreparedWebView(withId: webViewId, source: source, forcePresentationRefresh: forcePresentationRefresh)
     }
 
-    private func synchronizePreparedWebView(
-        withId webViewId: ObjectIdentifier,
-        source: String,
-        forcePresentationRefresh: Bool = false
-    ) {
+    private func synchronizePreparedWebView(withId webViewId: ObjectIdentifier, source: String, forcePresentationRefresh: Bool = false) {
         guard var entry = entriesByWebViewId[webViewId] else { return }
         guard let webView = entry.webView else {
             entriesByWebViewId.removeValue(forKey: webViewId)

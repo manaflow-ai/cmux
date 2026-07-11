@@ -553,7 +553,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let workspaceActionSaveCaptureCoordinator = WorkspaceActionSaveCaptureCoordinator()
         /// Per-window Dock owned by this context and torn down with it.
         var windowDock: DockSplitStore?
-
         init(
             windowId: UUID,
             tabManager: TabManager,
