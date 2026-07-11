@@ -2,25 +2,52 @@ import Darwin
 import Foundation
 
 /// Fail-closed host-process identity for Android Emulator windows.
-public enum AndroidEmulatorProcessIdentity {
-    /// Returns whether the process command line identifies the selected AVD.
-    public static func matches(processIdentifier: Int32, avdName: String) -> Bool {
-        guard processIdentifier > 0,
-              let arguments = commandLineArguments(processIdentifier: processIdentifier) else {
-            return false
-        }
-        return argumentsMatchAVD(arguments, avdName: avdName)
+public struct AndroidEmulatorProcessIdentity: Sendable {
+    public typealias ProcessArgumentsProvider = @Sendable (Int32) -> [String]?
+
+    private let processArguments: ProcessArgumentsProvider
+
+    public init() {
+        self.processArguments = Self.commandLineArguments
     }
 
-    static func argumentsMatchAVD(_ arguments: [String], avdName: String) -> Bool {
-        if arguments.contains("@\(avdName)") {
-            return true
+    public init(processArguments: @escaping ProcessArgumentsProvider) {
+        self.processArguments = processArguments
+    }
+
+    /// Returns whether the process command line identifies the selected AVD and ADB serial.
+    public func matches(processIdentifier: Int32, avdName: String, serial: String) -> Bool {
+        guard processIdentifier > 0,
+              serial.hasPrefix("emulator-"),
+              let consolePort = Int(serial.dropFirst("emulator-".count)),
+              let arguments = processArguments(processIdentifier) else {
+            return false
         }
-        return arguments.indices.contains { index in
+        return Self.argumentsMatchEmulator(arguments, avdName: avdName, consolePort: consolePort)
+    }
+
+    static func argumentsMatchEmulator(_ arguments: [String], avdName: String, consolePort: Int) -> Bool {
+        let avdMatches = arguments.contains("@\(avdName)") || arguments.indices.contains { index in
             arguments[index] == "-avd"
                 && arguments.indices.contains(index + 1)
                 && arguments[index + 1] == avdName
         }
+        guard avdMatches else { return false }
+
+        if let portFlagIndex = arguments.firstIndex(of: "-port") {
+            return arguments.indices.contains(portFlagIndex + 1)
+                && Int(arguments[portFlagIndex + 1]) == consolePort
+        }
+        if let portsFlagIndex = arguments.firstIndex(of: "-ports") {
+            guard arguments.indices.contains(portsFlagIndex + 1),
+                  let listedConsolePort = arguments[portsFlagIndex + 1].split(separator: ",").first.flatMap({ Int($0) }) else {
+                return false
+            }
+            return listedConsolePort == consolePort
+        }
+
+        // Android Emulator uses console port 5554 when neither port option is supplied.
+        return consolePort == 5554
     }
 
     static func parseKernProcArguments(_ bytes: [UInt8]) -> [String]? {

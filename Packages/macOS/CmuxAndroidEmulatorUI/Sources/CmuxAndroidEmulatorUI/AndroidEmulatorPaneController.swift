@@ -13,6 +13,7 @@ public final class AndroidEmulatorPaneController {
     public private(set) var displaySize = AndroidEmulatorDisplaySize(width: 1080, height: 1920)
     public private(set) var isCaptureReady = false
     public private(set) var captureError: String?
+    public private(set) var captureRetryGeneration = 0
     public private(set) var zoomScale: Double = 1
     public var controlsCollapsed = false
 
@@ -41,9 +42,9 @@ public final class AndroidEmulatorPaneController {
     private func refreshDisplaySize() async {
         do {
             let size = try await coordinator.displaySize(
-            avdName: avdName,
-            serial: serial,
-            transportID: transportID
+                avdName: avdName,
+                serial: serial,
+                transportID: transportID
             )
             displaySize = size
             captureView?.setDisplaySize(size)
@@ -94,6 +95,11 @@ public final class AndroidEmulatorPaneController {
 
     public func showVendorControls() {
         captureView?.showVendorWindow()
+    }
+
+    public func retryCapture() {
+        captureError = nil
+        captureRetryGeneration += 1
     }
 
     public func closePane() {

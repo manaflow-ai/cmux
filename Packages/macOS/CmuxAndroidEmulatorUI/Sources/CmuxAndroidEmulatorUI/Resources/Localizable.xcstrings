@@ -29,6 +29,13 @@
         "ja": { "stringUnit": { "state": "translated", "value": "「%@」のベンダーウインドウを利用できません。" } }
       }
     },
+    "androidEmulator.capture.retry": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Retry" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "再試行" } }
+      }
+    },
     "androidEmulator.control.back": {
       "extractionState": "manual", "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "Back" } },

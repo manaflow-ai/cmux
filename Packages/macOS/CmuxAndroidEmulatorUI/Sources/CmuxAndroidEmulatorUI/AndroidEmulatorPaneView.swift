@@ -20,7 +20,8 @@ public struct AndroidEmulatorPaneView: View {
                         controller: controller,
                         isVisible: isVisible && controller.isCaptureReady,
                         sdkRootURL: controller.sdkRootURL,
-                        displaySize: controller.displaySize
+                        displaySize: controller.displaySize,
+                        retryGeneration: controller.captureRetryGeneration
                     )
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .clipped()
@@ -47,7 +48,7 @@ public struct AndroidEmulatorPaneView: View {
                 }
             }
             if let error = controller.captureError {
-                AndroidEmulatorCaptureErrorBanner(error: error)
+                AndroidEmulatorCaptureErrorBanner(error: error, retryAction: controller.retryCapture)
             }
         }
         .background(.black)
@@ -78,6 +79,7 @@ private struct AndroidEmulatorPaneHeader: View {
 
 private struct AndroidEmulatorCaptureErrorBanner: View {
     let error: String
+    let retryAction: () -> Void
 
     var body: some View {
         HStack(spacing: 8) {
@@ -87,6 +89,12 @@ private struct AndroidEmulatorCaptureErrorBanner: View {
                 .font(.caption)
                 .lineLimit(2)
             Spacer()
+            Button(String(
+                localized: "androidEmulator.capture.retry",
+                defaultValue: "Retry",
+                bundle: .module
+            ), action: retryAction)
+            .controlSize(.small)
         }
         .padding(8)
         .background(.bar)

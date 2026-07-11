@@ -10,6 +10,7 @@ struct AndroidEmulatorCaptureView: NSViewRepresentable {
     let isVisible: Bool
     let sdkRootURL: URL
     let displaySize: AndroidEmulatorDisplaySize
+    let retryGeneration: Int
 
     func makeNSView(context: Context) -> AndroidEmulatorCaptureNSView {
         let view = AndroidEmulatorCaptureNSView()
@@ -27,6 +28,7 @@ struct AndroidEmulatorCaptureView: NSViewRepresentable {
             avdName: controller.avdName,
             serial: controller.serial,
             sdkRootURL: sdkRootURL,
+            retryGeneration: retryGeneration,
             onStarted: controller.clearCaptureError,
             onError: controller.reportCaptureError
         )
@@ -49,9 +51,22 @@ final class AndroidEmulatorCaptureNSView: NSView {
     private var zoomScale: CGFloat = 1
     private var mouseDownPoint: CGPoint?
     private var mouseDownTimestamp: TimeInterval?
+    private let retryWait: @Sendable (Duration) async throws -> Void
 
     override init(frame frameRect: NSRect) {
+        let clock = ContinuousClock()
+        self.retryWait = { duration in try await clock.sleep(for: duration) }
         super.init(frame: frameRect)
+        configureDisplayLayer()
+    }
+
+    init(frame frameRect: NSRect, retryWait: @escaping @Sendable (Duration) async throws -> Void) {
+        self.retryWait = retryWait
+        super.init(frame: frameRect)
+        configureDisplayLayer()
+    }
+
+    private func configureDisplayLayer() {
         wantsLayer = true
         layer?.backgroundColor = NSColor.black.cgColor
         displayLayer.videoGravity = .resizeAspect
@@ -87,6 +102,7 @@ final class AndroidEmulatorCaptureNSView: NSView {
         avdName: String,
         serial: String,
         sdkRootURL: URL,
+        retryGeneration: Int,
         onStarted: @escaping () -> Void,
         onError: @escaping (any Error) -> Void
     ) {
@@ -94,7 +110,8 @@ final class AndroidEmulatorCaptureNSView: NSView {
             avdName: avdName,
             serial: serial,
             sdkRootURL: sdkRootURL,
-            displaySize: displaySize
+            displaySize: displaySize,
+            retryGeneration: retryGeneration
         )
         guard visible else {
             stopCapture()
@@ -106,7 +123,7 @@ final class AndroidEmulatorCaptureNSView: NSView {
         captureTask = Task { @MainActor [weak self] in
             guard let self else { return }
             do {
-                let capture = try await AndroidEmulatorWindowCapture.start(
+                let capture = try await startCaptureWithRetry(
                     avdName: avdName,
                     serial: serial,
                     sdkRootURL: sdkRootURL,
@@ -119,8 +136,41 @@ final class AndroidEmulatorCaptureNSView: NSView {
                 }
                 self.capture = capture
                 onStarted()
+            } catch is CancellationError {
+                return
             } catch {
                 onError(error)
+            }
+        }
+    }
+
+    private func startCaptureWithRetry(
+        avdName: String,
+        serial: String,
+        sdkRootURL: URL,
+        displaySize: AndroidEmulatorDisplaySize,
+        displayLayer: AVSampleBufferDisplayLayer
+    ) async throws -> AndroidEmulatorWindowCapture {
+        var retryDelays: [Duration] = [
+            .milliseconds(250),
+            .milliseconds(500),
+            .seconds(1),
+            .seconds(2),
+        ]
+        while true {
+            do {
+                return try await AndroidEmulatorWindowCapture.start(
+                    avdName: avdName,
+                    serial: serial,
+                    sdkRootURL: sdkRootURL,
+                    displaySize: displaySize,
+                    displayLayer: displayLayer
+                )
+            } catch let error as AndroidEmulatorCaptureError {
+                guard case .windowNotFound = error, !retryDelays.isEmpty else { throw error }
+                let delay = retryDelays.removeFirst()
+                try Task.checkCancellation()
+                try await retryWait(delay)
             }
         }
     }
@@ -222,6 +272,7 @@ final class AndroidEmulatorCaptureNSView: NSView {
         let serial: String
         let sdkRootURL: URL
         let displaySize: AndroidEmulatorDisplaySize
+        let retryGeneration: Int
     }
 }
 
@@ -247,6 +298,8 @@ private final class AndroidEmulatorWindowCapture: NSObject, SCStreamOutput, SCSt
     ) async throws -> AndroidEmulatorWindowCapture {
         let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
         let deviceAspect = CGFloat(displaySize.width) / CGFloat(displaySize.height)
+        let processIdentity = AndroidEmulatorProcessIdentity()
+        var processMatchesSelectedAVD: [pid_t: Bool] = [:]
         let window = content.windows
             .filter { window in
                 guard window.frame.width > 0,
@@ -255,13 +308,22 @@ private final class AndroidEmulatorWindowCapture: NSObject, SCStreamOutput, SCSt
                   let executableURL = NSRunningApplication(processIdentifier: processID)?.executableURL else {
                     return false
                 }
-                return AndroidEmulatorCapturePolicy.isExpectedEmulatorExecutable(
+                guard AndroidEmulatorCapturePolicy.isExpectedEmulatorExecutable(
                     executableURL,
                     sdkRootURL: sdkRootURL
-                ) && AndroidEmulatorProcessIdentity.matches(
-                    processIdentifier: Int32(processID),
-                    avdName: avdName
-                )
+                ) else {
+                    return false
+                }
+                if let cachedMatch = processMatchesSelectedAVD[processID] {
+                    return cachedMatch
+                }
+                    let matches = processIdentity.matches(
+                        processIdentifier: Int32(processID),
+                        avdName: avdName,
+                        serial: serial
+                    )
+                processMatchesSelectedAVD[processID] = matches
+                return matches
             }
             .min { lhs, rhs in
                 let lhsError = AndroidEmulatorCapturePolicy.aspectError(lhs.frame.size, deviceAspect: deviceAspect)
