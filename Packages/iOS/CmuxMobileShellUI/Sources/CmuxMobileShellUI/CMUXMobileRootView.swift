@@ -115,7 +115,7 @@ struct CMUXMobileRootView: View {
             syncShellAuthentication(isAuthenticated)
             store.resumeForegroundRefresh()
             #if os(iOS)
-            pushCoordinator.bind(store: store)
+            pushCoordinator.bind(store: store, browserStore: browserStore)
             #endif
             // If the view mounts already authenticated (cached session, or a
             // mock/fixture launch), `onChange(of: isAuthenticated)` never fires,

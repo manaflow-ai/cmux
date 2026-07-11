@@ -51,6 +51,7 @@ extension WorkspaceDetailView {
     func browserContent(_ browser: BrowserSurfaceState) -> some View {
         MobileBrowserPane(
             state: browser,
+            websiteDataStore: browserStore.websiteDataStore,
             onClose: { browserStore.closeBrowser(for: workspace.browserSurfaceIdentity) }
         )
         .id(browser.id.rawValue)

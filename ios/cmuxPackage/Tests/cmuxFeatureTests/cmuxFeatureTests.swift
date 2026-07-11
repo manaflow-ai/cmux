@@ -1,5 +1,6 @@
 import CMUXMobileCore
 import CmuxAuthRuntime
+import CmuxMobileBrowser
 import CmuxMobilePairedMac
 import CmuxMobileRPC
 @testable import CmuxMobileShell
@@ -4131,6 +4132,15 @@ private struct InertPushRegistration: PushRegistering {
     )
 }
 
+@MainActor private func bindPushCoordinator(
+    _ coordinator: MobilePushCoordinator,
+    to store: CMUXMobileShellStore
+) -> BrowserSurfaceStore {
+    let browserStore = BrowserSurfaceStore()
+    coordinator.bind(store: store, browserStore: browserStore)
+    return browserStore
+}
+
 /// Cold launch from a notification tap: `didReceive` fires before the root
 /// view has mounted, so no store is bound yet. The tap must survive until the
 /// store binds and its workspace list loads, then navigate. Pre-fix the tap
@@ -4145,10 +4155,15 @@ private struct InertPushRegistration: PushRegistering {
     // Root view mounts: store binds already carrying the attached list.
     let store = deeplinkTestStore()
     store.replaceForegroundWorkspaceState(PreviewMobileHost.workspaces)
-    coordinator.bind(store: store)
+    let docs = try #require(store.workspaces.first(where: { $0.id == "workspace-docs" }))
+    let browserStore = BrowserSurfaceStore()
+    let browser = browserStore.openBrowser(for: docs.browserSurfaceIdentity)
+    coordinator.bind(store: store, browserStore: browserStore)
 
     #expect(store.selectedWorkspaceID == MobileWorkspacePreview.ID(rawValue: "workspace-docs"))
     #expect(store.selectedTerminalID == MobileTerminalPreview.ID(rawValue: "terminal-notes"))
+    #expect(browserStore.browser(for: docs.browserSurfaceIdentity) === browser)
+    #expect(browserStore.activeBrowser(for: docs.browserSurfaceIdentity) == nil)
 }
 
 /// Tap lands while the store is bound but the Mac attach has not delivered
@@ -4157,7 +4172,7 @@ private struct InertPushRegistration: PushRegistering {
 @Test @MainActor func notificationTapBeforeAttachAppliesWhenWorkspaceArrives() async throws {
     let coordinator = MobilePushCoordinator(registration: InertPushRegistration())
     let store = deeplinkTestStore()
-    coordinator.bind(store: store)
+    _ = bindPushCoordinator(coordinator, to: store)
 
     coordinator.handleTap(workspaceId: "workspace-docs", surfaceId: "terminal-notes")
     // Target not loaded yet: no navigation to an absent workspace.
@@ -4183,7 +4198,7 @@ private struct InertPushRegistration: PushRegistering {
     currentTime = currentTime.addingTimeInterval(121)
     let store = deeplinkTestStore()
     store.replaceForegroundWorkspaceState(PreviewMobileHost.workspaces)
-    coordinator.bind(store: store)
+    _ = bindPushCoordinator(coordinator, to: store)
 
     #expect(store.selectedWorkspaceID == nil)
     #expect(store.selectedTerminalID == nil)
@@ -4197,7 +4212,7 @@ private struct InertPushRegistration: PushRegistering {
 @Test @MainActor func surfaceOnlyNotificationTapWaitsForOwningWorkspace() async throws {
     let coordinator = MobilePushCoordinator(registration: InertPushRegistration())
     let store = deeplinkTestStore()
-    coordinator.bind(store: store)
+    _ = bindPushCoordinator(coordinator, to: store)
 
     coordinator.handleTap(workspaceId: nil, surfaceId: "terminal-notes")
     // Nothing loaded yet: the tap must stay parked, not be spent.
@@ -4217,7 +4232,7 @@ private struct InertPushRegistration: PushRegistering {
 @Test @MainActor func notificationTapKeepsTerminalParkedUntilItsSnapshotArrives() async throws {
     let coordinator = MobilePushCoordinator(registration: InertPushRegistration())
     let store = deeplinkTestStore()
-    coordinator.bind(store: store)
+    _ = bindPushCoordinator(coordinator, to: store)
 
     coordinator.handleTap(workspaceId: "workspace-docs", surfaceId: "terminal-notes")
     store.replaceForegroundWorkspaceState([
@@ -4243,7 +4258,7 @@ private struct InertPushRegistration: PushRegistering {
     let coordinator = MobilePushCoordinator(registration: InertPushRegistration())
     let store = deeplinkTestStore()
     store.replaceForegroundWorkspaceState(PreviewMobileHost.workspaces)
-    coordinator.bind(store: store)
+    _ = bindPushCoordinator(coordinator, to: store)
 
     coordinator.handleTap(workspaceId: "workspace-docs", surfaceId: nil)
 

@@ -1,5 +1,6 @@
 #if canImport(UIKit)
 public import SwiftUI
+public import WebKit
 import CmuxMobileSupport
 
 /// A complete phone browser pane: a navigation chrome bar (back / forward /
@@ -14,6 +15,8 @@ import CmuxMobileSupport
 public struct MobileBrowserPane: View {
     /// The browser surface state this pane drives and reflects.
     @State private var state: BrowserSurfaceState
+    /// The authenticated scope's isolated cookie and website-data container.
+    private let websiteDataStore: WKWebsiteDataStore
 
     /// Whether the address field currently has editing focus. While editing,
     /// the field shows the user's in-progress text rather than the live URL.
@@ -28,9 +31,15 @@ public struct MobileBrowserPane: View {
     /// Creates a browser pane.
     /// - Parameters:
     ///   - state: The browser surface state to host.
+    ///   - websiteDataStore: The authenticated scope's WebKit data container.
     ///   - onClose: Invoked when the user dismisses the pane.
-    public init(state: BrowserSurfaceState, onClose: @escaping () -> Void) {
+    public init(
+        state: BrowserSurfaceState,
+        websiteDataStore: WKWebsiteDataStore,
+        onClose: @escaping () -> Void
+    ) {
         _state = State(initialValue: state)
+        self.websiteDataStore = websiteDataStore
         self.onClose = onClose
     }
 
@@ -127,7 +136,10 @@ public struct MobileBrowserPane: View {
 
     @ViewBuilder
     private var securityIndicator: some View {
-        switch BrowserSecurityIndicator(url: state.currentURL) {
+        // A provisional destination can already differ from `currentURL` while
+        // WebKit is loading. Hide committed-page security chrome until the new
+        // page finishes so an HTTPS lock can never label an HTTP destination.
+        switch BrowserSecurityIndicator(url: state.isLoading ? nil : state.currentURL) {
         case .secure:
             Image(systemName: "lock.fill")
                 .font(.caption)
@@ -247,7 +259,7 @@ public struct MobileBrowserPane: View {
     @ViewBuilder
     private var browserContent: some View {
         ZStack {
-            MobileBrowserView(state: state)
+            MobileBrowserView(state: state, websiteDataStore: websiteDataStore)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             if let error = state.lastErrorMessage {

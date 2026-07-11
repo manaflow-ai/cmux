@@ -1,5 +1,8 @@
 public import Foundation
 import Observation
+#if canImport(WebKit)
+public import WebKit
+#endif
 
 /// Owns the phone-local browser surfaces, one optional active surface per
 /// workspace.
@@ -43,6 +46,11 @@ public final class BrowserSurfaceStore {
     /// The authenticated owner allowed to read and write the persisted archive.
     private var persistenceScope: BrowserPersistenceScope?
 
+    #if canImport(WebKit)
+    /// The account-and-team-isolated WebKit storage container for new browser views.
+    public private(set) var websiteDataStore: WKWebsiteDataStore
+    #endif
+
     /// Coalesces page-controlled same-document URL churn into bounded durable
     /// writes instead of serializing every retained surface for every callback.
     private var scheduledPersistenceTask: Task<Void, Never>?
@@ -76,6 +84,9 @@ public final class BrowserSurfaceStore {
         self.snapshotSourcesByWorkspace = [:]
         self.persistenceScope = nil
         self.scheduledPersistenceTask = nil
+        #if canImport(WebKit)
+        self.websiteDataStore = .nonPersistent()
+        #endif
     }
 
     /// Moves durable browser state to a new authenticated account and team.
@@ -98,6 +109,17 @@ public final class BrowserSurfaceStore {
         selectedBrowserWorkspaceIDs.removeAll()
         snapshotSourcesByWorkspace.removeAll()
         persistenceScope = newScope
+        #if canImport(WebKit)
+        if let newScope, let persistenceDefaults {
+            let identifier = BrowserWebsiteDataStoreIDStore(
+                defaults: persistenceDefaults,
+                key: "\(persistenceKey).websiteDataStoreIDs"
+            ).identifier(for: newScope)
+            websiteDataStore = WKWebsiteDataStore(forIdentifier: identifier)
+        } else {
+            websiteDataStore = .nonPersistent()
+        }
+        #endif
         guard newScope != nil else { return }
         restorePersistedSurfaces()
         installPersistenceCallbacks()

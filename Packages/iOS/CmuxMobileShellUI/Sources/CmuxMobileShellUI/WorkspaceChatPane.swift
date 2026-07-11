@@ -49,15 +49,14 @@ struct WorkspaceChatPane: View {
     /// chat mode so the terminal shows.
     private func openTerminal() {
         if let terminalID = session.terminalID {
-            // Leaving chat for the terminal is a chrome action, not a typing
-            // intent, so suppress the target's autofocus (matches the terminal
-            // picker). Using selectTerminalFromChrome instead of setting
-            // selectedTerminalID directly avoids a surprise keyboard pop.
-            store.selectTerminalFromChrome(MobileTerminalPreview.ID(rawValue: terminalID))
+            WorkspaceTerminalSurfaceSelection(
+                store: store,
+                browserStore: browserStore
+            ).selectFromChrome(
+                terminalID: MobileTerminalPreview.ID(rawValue: terminalID),
+                browserWorkspaceIdentity: browserWorkspaceIdentity
+            )
         }
-        // Hide any selected browser first. Its phone-local session remains
-        // retained so the Safari grid can reveal the same browser later.
-        browserStore.showNonBrowserSurface(for: browserWorkspaceIdentity)
         onExitChat()
     }
 

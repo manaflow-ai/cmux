@@ -16,11 +16,16 @@ public import WebKit
 public struct MobileBrowserView: UIViewRepresentable {
     /// The state this view drives and reflects.
     public let state: BrowserSurfaceState
+    /// The authenticated scope's isolated cookie and website-data container.
+    public let websiteDataStore: WKWebsiteDataStore
 
     /// Creates a browser view bound to a surface state.
-    /// - Parameter state: The browser surface state to host.
-    public init(state: BrowserSurfaceState) {
+    /// - Parameters:
+    ///   - state: The browser surface state to host.
+    ///   - websiteDataStore: The authenticated scope's WebKit data container.
+    public init(state: BrowserSurfaceState, websiteDataStore: WKWebsiteDataStore) {
         self.state = state
+        self.websiteDataStore = websiteDataStore
     }
 
     /// Builds the coordinator that owns the web view and its observations.
@@ -33,7 +38,7 @@ public struct MobileBrowserView: UIViewRepresentable {
     /// - Parameter context: The representable context carrying the coordinator.
     /// - Returns: The configured web view.
     public func makeUIView(context: Context) -> WKWebView {
-        let webView = Self.makeConfiguredWebView()
+        let webView = makeConfiguredWebView()
         webView.navigationDelegate = context.coordinator
         webView.uiDelegate = context.coordinator
         context.coordinator.attach(webView: webView)
@@ -43,11 +48,9 @@ public struct MobileBrowserView: UIViewRepresentable {
     /// Builds the hosted web view with the surface's fixed configuration,
     /// independent of the SwiftUI `Context` so the gesture policy can be
     /// unit-tested.
-    static func makeConfiguredWebView() -> WKWebView {
+    func makeConfiguredWebView() -> WKWebView {
         let configuration = WKWebViewConfiguration()
-        // Default persistent data store: cookies/localStorage persist on the
-        // phone across launches. Cross-device sync with the Mac is P2.
-        configuration.websiteDataStore = .default()
+        configuration.websiteDataStore = websiteDataStore
         configuration.allowsInlineMediaPlayback = true
         let webView = WKWebView(frame: .zero, configuration: configuration)
         // Off, by design: the browser pane is pushed onto the workspace
@@ -105,12 +108,15 @@ public struct MobileBrowserView: UIViewRepresentable {
             // menu label and toggle direction are correct on first use.
             state.recommendedContentModeIsDesktop =
                 UIDevice.current.userInterfaceIdiom == .pad
+            let pendingLoadURL = state.consumeLoadRequest()
             // A fresh web view starts idle, but the surface may still carry
             // `isLoading` from a navigation that was in flight when the old
-            // web view was torn down. Mirror the new web view's state so the
-            // progress line does not persist; the loads below drive it again
-            // through the navigation delegate.
-            state.isLoading = webView.isLoading
+            // web view was torn down. Keep the synchronous loading state for a
+            // pending destination; otherwise mirror the fresh web view so a
+            // stale progress line does not persist.
+            if pendingLoadURL == nil {
+                state.isLoading = webView.isLoading
+            }
             state.estimatedProgress = webView.estimatedProgress
             mirrorNavigationCapabilities(from: webView)
 
@@ -118,7 +124,7 @@ public struct MobileBrowserView: UIViewRepresentable {
             // queued while unmounted) wins outright. A command queued before
             // the remount targeted the old web view's history and would cancel
             // or no-op against this fresh load, so drop it.
-            if let url = state.consumeLoadRequest() {
+            if let url = pendingLoadURL {
                 webView.load(URLRequest(url: url))
                 _ = state.consumeCommand()
                 return
@@ -262,22 +268,26 @@ public struct MobileBrowserView: UIViewRepresentable {
 
         // MARK: - WKNavigationDelegate
 
+        /// Marks the surface as loading when WebKit starts a provisional navigation.
         public func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
             guard acceptsCallbacks(from: webView) else { return }
             state.navigationDidStart()
         }
 
+        /// Commits the final URL, title, and interaction state after a successful navigation.
         public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             guard acceptsCallbacks(from: webView) else { return }
             state.navigationDidFinish(url: webView.url, title: webView.title)
             captureInteractionState(from: webView)
         }
 
+        /// Presents a failure that occurred after WebKit committed the destination.
         public func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: any Error) {
             guard acceptsCallbacks(from: webView) else { return }
             failNavigation(on: webView, with: error, wasProvisional: false)
         }
 
+        /// Presents a failure that occurred before WebKit committed the destination.
         public func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: any Error) {
             guard acceptsCallbacks(from: webView) else { return }
             failNavigation(on: webView, with: error, wasProvisional: true)

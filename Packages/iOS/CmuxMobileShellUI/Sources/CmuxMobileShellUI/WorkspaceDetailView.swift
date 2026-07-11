@@ -667,13 +667,13 @@ struct WorkspaceDetailView: View {
         dismissTerminalKeyboardForChrome()
         // Choosing a terminal returns from the browser pane while retaining the
         // local browser session for a later grid selection.
-        browserStore.showNonBrowserSurface(for: workspace.browserSurfaceIdentity)
-        // Switching from the picker is chrome, not a typing intent, so the
-        // newly-selected surface must not grab the keyboard on attach. The
-        // store suppresses the target's autofocus (and is a no-op when it is
-        // already selected). A push-notification deep link uses the plain
-        // `selectTerminal` path instead and is allowed to autofocus.
-        store.selectTerminalFromChrome(terminalID)
+        WorkspaceTerminalSurfaceSelection(
+            store: store,
+            browserStore: browserStore
+        ).selectFromChrome(
+            terminalID: terminalID,
+            browserWorkspaceIdentity: workspace.browserSurfaceIdentity
+        )
     }
 
     func dismissTerminalKeyboardForChrome() {

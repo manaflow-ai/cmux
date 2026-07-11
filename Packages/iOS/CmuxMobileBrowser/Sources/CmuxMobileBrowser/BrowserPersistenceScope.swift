@@ -1,5 +1,5 @@
 /// The authenticated owner of persisted phone-local browser history.
-public struct BrowserPersistenceScope: Codable, Equatable, Sendable {
+public struct BrowserPersistenceScope: Codable, Equatable, Hashable, Sendable {
     /// The authenticated Stack user identifier.
     public let userID: String
     /// The selected Stack team identifier, when one is selected.

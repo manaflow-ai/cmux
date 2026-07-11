@@ -149,7 +149,7 @@ public final class BrowserSurfaceState: Identifiable {
         self.savedInteractionState = nil
         self.contentModePreference = .recommended
         self.recommendedContentModeIsDesktop = false
-        self.isLoading = false
+        self.isLoading = initialURL != nil
         self.estimatedProgress = 0
         self.canGoBack = false
         self.canGoForward = false
@@ -167,6 +167,8 @@ public final class BrowserSurfaceState: Identifiable {
     public func load(_ url: URL) {
         loadRequest = url
         addressText = url.absoluteString
+        isLoading = true
+        estimatedProgress = 0
         lastErrorMessage = nil
         lastFailedURL = nil
         lastFailureWasProvisional = false

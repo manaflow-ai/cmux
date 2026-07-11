@@ -15,7 +15,12 @@ struct MobileSwipeBackGestureTests {
     /// to the workspace list. Web history stays reachable via the chrome bar.
     @Test("browser web view does not claim the edge swipe-back")
     func browserWebViewDisablesBackForwardGestures() {
-        let webView = MobileBrowserView.makeConfiguredWebView()
+        let store = BrowserSurfaceStore()
+        let state = BrowserSurfaceState(id: .init(rawValue: "gesture-test"))
+        let webView = MobileBrowserView(
+            state: state,
+            websiteDataStore: store.websiteDataStore
+        ).makeConfiguredWebView()
         #expect(webView.allowsBackForwardNavigationGestures == false)
     }
 

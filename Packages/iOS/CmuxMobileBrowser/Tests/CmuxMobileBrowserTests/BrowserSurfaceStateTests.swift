@@ -16,6 +16,7 @@ import Testing
         let state = makeState(initialURL: url)
         #expect(state.addressText == "https://example.com")
         #expect(state.currentURL == url)
+        #expect(state.isLoading)
         #expect(state.consumeLoadRequest() == url)
         // Consumed exactly once.
         #expect(state.consumeLoadRequest() == nil)
@@ -53,6 +54,7 @@ import Testing
         state.load(url)
         #expect(state.addressText == "https://cmux.dev")
         #expect(state.lastErrorMessage == nil)
+        #expect(state.isLoading)
         #expect(state.savedInteractionState == nil)
         #expect(state.consumeLoadRequest() == url)
     }
