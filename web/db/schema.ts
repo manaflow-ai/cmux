@@ -99,6 +99,21 @@ export const accountDeletionTombstones = pgTable(
   ],
 );
 
+export const accountAnalyticsForwardLeases = pgTable(
+  "account_analytics_forward_leases",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    operationId: uuid("operation_id").notNull(),
+    userIdHash: text("user_id_hash").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    index("account_analytics_forward_leases_user_expiry_idx").on(table.userIdHash, table.expiresAt),
+    index("account_analytics_forward_leases_operation_idx").on(table.operationId),
+  ],
+);
+
 export const cloudVmLeases = pgTable(
   "cloud_vm_leases",
   {

@@ -14,8 +14,17 @@ let tombstoneRows: Array<{
   readonly updatedAt: Date | null;
   readonly analyticsDeletedAt?: Date | null;
 }> = [];
+let activeLeaseRows = 0;
+let leaseDeleteCalls = 0;
+let leaseCleanupError: unknown = null;
 
-const postHogFetch = mock(async () => new Response(null, { status: 200 }));
+let postHogFetchError: unknown = null;
+let postHogRequestInit: RequestInit | undefined;
+const postHogFetch = mock(async (...args: unknown[]) => {
+  postHogRequestInit = (args as Parameters<typeof fetch>)[1];
+  if (postHogFetchError) throw postHogFetchError;
+  return new Response(null, { status: 200 });
+});
 let rateLimitCalls = 0;
 let rateLimitResult: Awaited<ReturnType<typeof checkVercelRateLimit>> = { rateLimited: false };
 const checkRateLimit: typeof checkVercelRateLimit = async () => {
@@ -30,10 +39,7 @@ const selectRows = mock(() => ({
 }));
 const transaction = mock(async (...args: unknown[]) => {
   const operation = args[0] as (tx: unknown) => Promise<unknown>;
-  return await operation({
-    execute: async () => undefined,
-    select: selectRows,
-  });
+  return await operation(analyticsTransactionContext());
 });
 const db = {
   select: selectRows,
@@ -50,13 +56,17 @@ beforeEach(() => {
   delete process.env.VERCEL;
   process.env.CMUX_CLIENT_CONFIG_RATE_LIMIT_ID = "cmux-client-config-test";
   tombstoneRows = [];
+  activeLeaseRows = 0;
+  leaseDeleteCalls = 0;
+  leaseCleanupError = null;
   verifyRequest.mockClear();
   selectRows.mockClear();
   transaction.mockClear();
   rateLimitCalls = 0;
   rateLimitResult = { rateLimited: false };
+  postHogFetchError = null;
+  postHogRequestInit = undefined;
   postHogFetch.mockClear();
-  postHogFetch.mockResolvedValue(new Response(null, { status: 200 }));
 });
 
 afterAll(() => {
@@ -119,6 +129,8 @@ describe("iOS analytics events route", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ ok: true, forwarded: 1 });
     expect(postHogFetch).toHaveBeenCalledTimes(1);
+    expect(postHogRequestInit?.signal).toBeInstanceOf(AbortSignal);
+    expect(activeLeaseRows).toBe(0);
   });
 
   test("releases the database transaction while an analytics forward is in flight", async () => {
@@ -143,10 +155,7 @@ describe("iOS analytics events route", () => {
         await previousTransaction;
         transactionActive = true;
         try {
-          return await operation({
-            execute: async () => undefined,
-            select: selectRows,
-          });
+          return await operation(analyticsTransactionContext());
         } finally {
           transactionActive = false;
           releaseTransaction?.();
@@ -172,7 +181,44 @@ describe("iOS analytics events route", () => {
     expect((await analyticsResponse).status).toBe(200);
     expect(transactionWasReleased).toBe(true);
   });
+
+  test("retains the durable lease when PostHog may accept but the client observes a timeout", async () => {
+    postHogFetchError = new DOMException("timed out", "TimeoutError");
+
+    const response = await POST(analyticsRequest(deletedUserID));
+
+    expect(response.status).toBe(502);
+    expect(activeLeaseRows).toBe(1);
+  });
+
+  test("leaves a bounded durable lease when cleanup fails after a successful forward", async () => {
+    leaseCleanupError = new Error("database unavailable during cleanup");
+
+    const response = await POST(analyticsRequest(deletedUserID));
+
+    expect(response.status).toBe(200);
+    expect(activeLeaseRows).toBe(1);
+  });
 });
+
+function analyticsTransactionContext(): unknown {
+  return {
+    execute: async () => undefined,
+    select: selectRows,
+    delete: () => ({
+      where: async () => {
+        leaseDeleteCalls += 1;
+        if (leaseCleanupError && leaseDeleteCalls > 1) throw leaseCleanupError;
+        activeLeaseRows = 0;
+      },
+    }),
+    insert: () => ({
+      values: async (values: readonly unknown[]) => {
+        activeLeaseRows = values.length;
+      },
+    }),
+  };
+}
 
 function analyticsRequest(distinctID: string): Request {
   return new Request("https://cmux.test/api/analytics/events", {

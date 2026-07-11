@@ -1,6 +1,7 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import {
+  accountAnalyticsForwardLeases,
   accountDeletionTombstones,
   cloudVmBaseGenerations,
   cloudVmBases,
@@ -85,6 +86,7 @@ const transactionSelect = mock(() => {
   let selectedTable: unknown = null;
   const rows = () => {
     if (selectedTable === accountDeletionTombstones) return nextTransactionTombstoneSelectResult();
+    if (selectedTable === accountAnalyticsForwardLeases) return nextTransactionAnalyticsLeaseSelectResult();
     if (
       selectedTable === vaultSnapshots ||
       selectedTable === vaultUploadGrants ||
@@ -115,6 +117,16 @@ const transactionSelect = mock(() => {
 });
 const transactionExecute = mock(async () => {
   routeEvents.push("transaction-lock");
+});
+const transactionDeleteRows = mock((table: unknown) => {
+  if (table === accountAnalyticsForwardLeases) {
+    return {
+      where: async () => {
+        routeEvents.push("analytics-lease-cleanup");
+      },
+    };
+  }
+  return deleteRows(table);
 });
 const deleteRows = mock((table: unknown) => {
   deletedTables.push(table);
@@ -286,6 +298,7 @@ let stackUserIds: Array<string | undefined> = [];
 let selectResults: unknown[][] = [];
 let transactionSelectResults: unknown[][] = [];
 let transactionTombstoneSelectResults: unknown[][] = [];
+let transactionAnalyticsLeaseSelectResults: unknown[][] = [];
 let deletedVaultObjects: string[] = [];
 let vaultDeleteError: unknown = null;
 let postStackVaultDeleteError: unknown = null;
@@ -373,7 +386,7 @@ type SelectResult = Promise<unknown[]> & {
 const mockTransaction: MockTransaction = {
   select: transactionSelect,
   execute: transactionExecute,
-  delete: deleteRows,
+  delete: transactionDeleteRows,
   insert: insertRows,
   update: updateRows,
 };
@@ -388,6 +401,10 @@ function nextTransactionSelectResult(): unknown[] {
 
 function nextTransactionTombstoneSelectResult(): unknown[] {
   return transactionTombstoneSelectResults.shift() ?? [];
+}
+
+function nextTransactionAnalyticsLeaseSelectResult(): unknown[] {
+  return transactionAnalyticsLeaseSelectResults.shift() ?? [];
 }
 
 function chainableSelectResult(rows: unknown[]): SelectResult {
@@ -578,6 +595,7 @@ beforeEach(() => {
   transaction.mockClear();
   transactionSelect.mockClear();
   transactionExecute.mockClear();
+  transactionDeleteRows.mockClear();
   deleteRows.mockClear();
   insertRows.mockClear();
   updateRows.mockClear();
@@ -609,6 +627,7 @@ beforeEach(() => {
   selectResults = [[], [], [], [], [], []];
   transactionSelectResults = [];
   transactionTombstoneSelectResults = [];
+  transactionAnalyticsLeaseSelectResults = [];
   deletedVaultObjects = [];
   vaultDeleteError = null;
   postStackVaultDeleteError = null;
@@ -695,7 +714,7 @@ describe("account deletion route", () => {
       providerVmId: "personal-vm-2",
       provider: "freestyle",
     }));
-    expect(transaction).toHaveBeenCalledTimes(3);
+    expect(transaction).toHaveBeenCalledTimes(4);
     expect(deletedTableCount).toBeGreaterThan(10);
     expect(deletedTables).toContain(cloudVmBillingGrants);
     expect(deletedTables).toContain(devices);
@@ -772,6 +791,9 @@ describe("account deletion route", () => {
       "vault-delete",
       "vault-delete",
       "vault-delete",
+      "transaction",
+      "transaction-lock",
+      "analytics-lease-cleanup",
       "posthog-delete",
       "transaction",
       "transaction-lock",
@@ -857,6 +879,32 @@ describe("account deletion route", () => {
     expect(tombstoneUpdates.some((values) =>
       (values as { readonly analyticsDeletedAt?: unknown }).analyticsDeletedAt instanceof Date
     )).toBe(true);
+  });
+
+  test("fails closed before PostHog deletion while an analytics forward lease is active", async () => {
+    transactionAnalyticsLeaseSelectResults = [[{ id: "active-forward-lease" }]];
+
+    const response = await DELETE(accountDeletionRequest());
+
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({
+      error: "account_delete_retryable",
+      retryable: true,
+      destroyedVms: 2,
+    });
+    expect(postHogDeleteFetch).not.toHaveBeenCalled();
+    expect(deleteStackUser).not.toHaveBeenCalled();
+  });
+
+  test("cleans stale analytics leases and retries PostHog deletion", async () => {
+    transactionAnalyticsLeaseSelectResults = [[]];
+
+    const response = await DELETE(accountDeletionRequest());
+
+    expect(response.status).toBe(200);
+    expect(routeEvents).toContain("analytics-lease-cleanup");
+    expect(postHogDeleteFetch).toHaveBeenCalledTimes(1);
+    expect(deleteStackUser).toHaveBeenCalledTimes(1);
   });
 
   test("fails closed before PostHog deletion when no explicit environment is configured", async () => {
@@ -949,7 +997,7 @@ describe("account deletion route", () => {
     const customerDelete = deletedWhere.find((entry) => entry.table === stripeCustomers);
     expect(conditionColumnNames(customerDelete?.condition)).toContain("stack_team_id");
     expect(revokeTenant).toHaveBeenCalledWith("tenant-team-personal");
-    expect(transactionExecute).toHaveBeenCalledTimes(5);
+    expect(transactionExecute).toHaveBeenCalledTimes(6);
     const grantDelete = deletedWhere.find((entry) => entry.table === cloudVmBillingGrants);
     expect(conditionColumnNames(grantDelete?.condition)).toContain("billing_customer_id");
     const baseDelete = deletedWhere.find((entry) => entry.table === cloudVmBases);
@@ -1088,7 +1136,7 @@ describe("account deletion route", () => {
       providerVmId: "shared-team-vm",
       provider: "freestyle",
     });
-    expect(transactionExecute).toHaveBeenCalledTimes(3);
+    expect(transactionExecute).toHaveBeenCalledTimes(4);
   });
 
   test("uses the listed Stack team when selectedTeam has no member listing", async () => {
@@ -1489,7 +1537,7 @@ describe("account deletion route", () => {
     });
     expect(revokeTenant).toHaveBeenCalledWith("tenant-personal");
     expect(deletedTables).toContain(subrouterTenants);
-    expect(transaction).toHaveBeenCalledTimes(2);
+    expect(transaction).toHaveBeenCalledTimes(3);
     expect(deleteStackUser).toHaveBeenCalledTimes(1);
     expect(updateStackUser).toHaveBeenNthCalledWith(1, {
       clientReadOnlyMetadata: { cmuxAccountDeleting: true },
@@ -1605,9 +1653,9 @@ describe("account deletion route", () => {
       retryable: true,
       destroyedVms: 2,
     });
-    expect(transaction).toHaveBeenCalledTimes(2);
-    expect(transactionExecute).toHaveBeenCalledTimes(2);
-    expect(transactionSelect).toHaveBeenCalledTimes(2);
+    expect(transaction).toHaveBeenCalledTimes(3);
+    expect(transactionExecute).toHaveBeenCalledTimes(3);
+    expect(transactionSelect).toHaveBeenCalledTimes(3);
     expect(deletedTableCount).toBe(0);
     expect(deleteStackUser).not.toHaveBeenCalled();
     expect(consoleError).toHaveBeenCalledWith(
@@ -1946,7 +1994,7 @@ describe("account deletion route", () => {
       retryable: true,
       destroyedVms: 2,
     });
-    expect(transaction).toHaveBeenCalledTimes(2);
+    expect(transaction).toHaveBeenCalledTimes(3);
     expect(deletedTableCount).toBeGreaterThan(10);
     expect(updateStackUser).toHaveBeenCalledWith({
       clientReadOnlyMetadata: { cmuxAccountDeleting: true },
@@ -1970,6 +2018,9 @@ describe("account deletion route", () => {
       "list-vms",
       "destroy-vm",
       "destroy-vm",
+      "transaction",
+      "transaction-lock",
+      "analytics-lease-cleanup",
       "posthog-delete",
       "transaction",
       "transaction-lock",
@@ -2006,7 +2057,7 @@ describe("account deletion route", () => {
       destroyedVms: 2,
     });
     expect(deleteStackUser).toHaveBeenCalledTimes(1);
-    expect(transaction).toHaveBeenCalledTimes(2);
+    expect(transaction).toHaveBeenCalledTimes(3);
     expect(tombstoneUpdates.some((values) =>
       (values as { readonly status?: unknown }).status === "completed"
     )).toBe(false);
@@ -2103,7 +2154,7 @@ describe("account deletion route", () => {
     expect(await response.json()).toEqual({ ok: true, destroyedVms: 2 });
     expect(cancelledStripeSubscriptions).toEqual(["sub_user_active"]);
     expect(deletedStripeCustomers).toEqual(["cus_user"]);
-    expect(transaction).toHaveBeenCalledTimes(3);
+    expect(transaction).toHaveBeenCalledTimes(4);
     expect(deleteStackUser).toHaveBeenCalledTimes(1);
   });
 

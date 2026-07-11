@@ -14,7 +14,7 @@ import { checkRateLimit as checkVercelRateLimit } from "@vercel/firewall";
 import { verifyRequest } from "../../../../services/vms/auth";
 import { readBoundedJsonObject } from "../../../../services/apns/routePolicy";
 import { cloudDb } from "../../../../db/client";
-import { withAccountDeletionIdentityLocks } from "../../../../services/account/deletionLock";
+import { withAccountDeletionAnalyticsForwardLease } from "../../../../services/account/deletionLock";
 import {
   MAX_ANALYTICS_BATCH_EVENTS,
   MAX_ANALYTICS_EVENT_PROPERTIES,
@@ -26,6 +26,8 @@ import {
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+const POSTHOG_CAPTURE_TIMEOUT_MS = 10_000;
 
 type AnalyticsEventsDependencies = {
   readonly verifyRequest: (
@@ -117,10 +119,11 @@ export function makeAnalyticsEventsHandler(dependencies: AnalyticsEventsDependen
     const identityCandidates = user
       ? [user.id]
       : accepted.flatMap((event) => (event.distinctID ? [event.distinctID] : []));
-    const forwardResult = await withAccountDeletionIdentityLocks(
+    const forwardResult = await withAccountDeletionAnalyticsForwardLease(
       dependencies.db(),
       identityCandidates,
       () => forwardToPostHog(accepted, user?.id ?? null, dependencies.postHogFetch),
+      (result) => result.ok || result.delivery === "definitive",
     );
     if (forwardResult.kind === "blocked") {
       return jsonResponse({ error: "account_deleted" }, 410);
@@ -176,7 +179,10 @@ async function forwardToPostHog(
   events: readonly IncomingEvent[],
   userId: string | null,
   postHogFetch: typeof fetch,
-): Promise<{ readonly ok: true } | { readonly ok: false; readonly status: number }> {
+): Promise<
+  | { readonly ok: true }
+  | { readonly ok: false; readonly status: number; readonly delivery: "definitive" | "ambiguous" }
+> {
   // When authenticated, the server stamps the authoritative user id as the
   // distinct id so a client cannot attribute events to another user. When
   // anonymous, the client-supplied distinct id (the install `client_id`) is
@@ -194,14 +200,15 @@ async function forwardToPostHog(
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ api_key: POSTHOG_PROJECT_KEY, batch }),
+      signal: AbortSignal.timeout(POSTHOG_CAPTURE_TIMEOUT_MS),
     });
     if (!response.ok) {
       // PostHog 4xx is a permanent client problem; 5xx is transient. Surface the
       // class so the app's uploader can decide drop vs. retry.
-      return { ok: false, status: response.status >= 500 ? 502 : 400 };
+      return { ok: false, status: response.status >= 500 ? 502 : 400, delivery: "definitive" };
     }
     return { ok: true };
   } catch {
-    return { ok: false, status: 502 };
+    return { ok: false, status: 502, delivery: "ambiguous" };
   }
 }

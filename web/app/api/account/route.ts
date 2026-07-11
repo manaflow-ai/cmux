@@ -46,6 +46,7 @@ import { withVaultUserQuotaLock } from "../../../services/vault/usage";
 import {
   accountDeletionAdvisoryLockKey,
   accountDeletionUserHash,
+  assertNoAccountAnalyticsForwardInProgress,
   isBlockingAccountDeletionTombstone,
 } from "../../../services/account/deletionLock";
 import { unauthorized } from "../../../services/vms/auth";
@@ -663,6 +664,11 @@ async function deletePostHogPersonForAccountDeletion(
     : options.config;
   if (!config) return;
 
+  // The deletion tombstone already blocks new reservations. Reject an older
+  // in-flight forward before asking PostHog to delete, so every accepted event
+  // is ordered before the bulk-delete request without holding a DB connection
+  // across either external request.
+  await assertNoAccountAnalyticsForwardInProgress(cloudDb(), userId);
   options.beforeExternalRequest?.();
   const response = await fetch(
     `${config.apiHost}/api/environments/${encodeURIComponent(config.environmentId)}/persons/bulk_delete/`,
