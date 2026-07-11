@@ -108,6 +108,7 @@ final class MacPairedMacBackupPublisher {
                     macDeviceID: MobileHostIdentity.deviceID(),
                     displayName: MobileHostIdentity.baseDisplayName(),
                     routes: routes,
+                    instanceTag: MobileHostIdentity.instanceTag(),
                     createdAt: nowMs,
                     lastSeenAt: nowMs,
                     // Mark active so a fresh dev iOS build auto-targets the

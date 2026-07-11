@@ -52,7 +52,7 @@ struct MacComputerDetailView: View {
     private var presence: PresenceMap.DeviceSummary? {
         store.presenceSummary(
             for: macDeviceID,
-            instanceTag: store.pairedMacInstanceTag
+            instanceTag: pairedMac?.instanceTag
         )
     }
     private var isForeground: Bool { store.connectedMacDeviceID == macDeviceID }

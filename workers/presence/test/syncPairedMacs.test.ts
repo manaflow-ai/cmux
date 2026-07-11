@@ -115,6 +115,77 @@ describe("parsePairedMacBackup", () => {
 });
 
 describe("applyBackupOps", () => {
+  it("keeps stored tag and routes atomic across legacy omitted-tag uploads", async () => {
+    const storage = new FakeStorage();
+    const tagged = {
+      ...record("mac-a", "10.0.0.1", 22),
+      instanceTag: "feature-a",
+    };
+    await applyBackupOps(
+      storage,
+      "user-1",
+      [{ kind: "upsert", id: "mac-a", record: tagged, providedInstanceTag: true }],
+      T0,
+    );
+
+    const legacyRoutes = {
+      ...record("mac-a", "10.0.0.99", 99),
+      displayName: "Legacy overwrite",
+      lastSeenAt: T0 + 100,
+      isActive: false,
+    };
+    await applyBackupOps(
+      storage,
+      "user-1",
+      [{ kind: "upsert", id: "mac-a", record: legacyRoutes, providedInstanceTag: false }],
+      T0 + 1,
+    );
+
+    const restored = (await listBackupSnapshot(storage, "user-1")).records[0];
+    expect(restored?.instanceTag).toBe("feature-a");
+    expect(restored?.routes).toEqual(tagged.routes);
+    expect(restored).toEqual(tagged);
+  });
+
+  it("lets a Mac publisher refresh only an unclaimed or same-tag authority tuple", async () => {
+    const storage = new FakeStorage();
+    const routesA1 = { ...record("mac-a", "10.0.0.1", 22), instanceTag: "feature-a" };
+    const routesA2 = { ...record("mac-a", "10.0.0.2", 23), instanceTag: "feature-a" };
+    await applyBackupOps(storage, "user-1", [{
+      kind: "upsert",
+      id: "mac-a",
+      record: routesA1,
+      providedInstanceTag: true,
+      instanceTagWriteMode: "compare_and_set",
+    }], T0);
+    await applyBackupOps(storage, "user-1", [{
+      kind: "upsert",
+      id: "mac-a",
+      record: routesA2,
+      providedInstanceTag: true,
+      instanceTagWriteMode: "compare_and_set",
+    }], T0 + 1);
+    let refreshed = (await listBackupSnapshot(storage, "user-1")).records[0];
+    expect(refreshed?.instanceTag).toBe("feature-a");
+    expect(refreshed?.routes).toEqual(routesA2.routes);
+
+    const explicitB = { ...record("mac-a", "10.0.0.3", 24), instanceTag: "feature-b" };
+    await applyBackupOps(storage, "user-1", [{
+      kind: "upsert", id: "mac-a", record: explicitB, providedInstanceTag: true,
+    }], T0 + 2);
+    await applyBackupOps(storage, "user-1", [{
+      kind: "upsert",
+      id: "mac-a",
+      record: { ...routesA1, lastSeenAt: T0 + 500, isActive: false },
+      providedInstanceTag: true,
+      instanceTagWriteMode: "compare_and_set",
+    }], T0 + 3);
+    const retained = (await listBackupSnapshot(storage, "user-1")).records[0];
+    expect(retained?.instanceTag).toBe("feature-b");
+    expect(retained?.routes).toEqual(explicitB.routes);
+    expect(retained).toEqual(explicitB);
+  });
+
   it("normalizes optional client scopes into separate per-user collections", async () => {
     const storage = new FakeStorage();
     await applyBackupOps(

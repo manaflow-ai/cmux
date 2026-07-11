@@ -67,6 +67,7 @@ export const MAX_BACKUP_OPS = MAX_PAIRED_MACS_PER_USER;
  * display-name bound and a generous id bound). */
 export const MAX_MAC_ID_LENGTH = 256;
 export const MAX_DISPLAY_NAME_LENGTH = 128;
+export const MAX_INSTANCE_TAG_LENGTH = 64;
 export const MAX_CLIENT_SCOPE_LENGTH = 128;
 const SYNC_HEAD_PREFIX = "synchead:";
 /** Route bounds mirror validate.ts so the backup payload can't exceed what a
@@ -91,6 +92,8 @@ export const MAX_PAIRED_MAC_BACKUP_BYTES =
 export interface PairedMacBackupRecord {
   macDeviceID: string;
   displayName?: string;
+  /** Authenticated Mac app-instance identity that owns the reconnect routes. */
+  instanceTag?: string;
   routes: unknown[];
   /** epoch ms */
   createdAt: number;
@@ -124,6 +127,12 @@ export type PairedMacBackupOp =
        * Absent here (e.g. a hand-built op) is treated as "all provided", i.e. the
        * record's custom fields are authoritative as-is. */
       providedCustom?: { name: boolean; color: boolean; icon: boolean };
+      /** Whether this client carried `instanceTag`. Older iOS builds omitted it,
+       * so their uploads preserve newer stored authority instead of clearing it. */
+      providedInstanceTag?: boolean;
+      /** Mac self-publishers may claim an empty/same-tag row but cannot switch
+       * another authenticated app instance's authority. */
+      instanceTagWriteMode?: "compare_and_set";
       /** Explicit user re-add of an id with a retained server tombstone. Normal
        * route refreshes and full reconciles must leave tombstones authoritative. */
       allowTombstoneRevive?: boolean;
@@ -230,6 +239,15 @@ export function parsePairedMacBackup(body: Record<string, unknown>): PairedMacBa
     if (displayName.length > MAX_DISPLAY_NAME_LENGTH) {
       return { ok: false, error: "invalid_display_name" };
     }
+    const providedInstanceTag = "instanceTag" in r;
+    const instanceTag = trimmedString(r.instanceTag);
+    if (instanceTag.length > MAX_INSTANCE_TAG_LENGTH) {
+      return { ok: false, error: "invalid_instance_tag" };
+    }
+    const rawInstanceTagWriteMode = r.instanceTagWriteMode;
+    if (rawInstanceTagWriteMode !== undefined && rawInstanceTagWriteMode !== "compare_and_set") {
+      return { ok: false, error: "invalid_instance_tag_write_mode" };
+    }
     // User customizations: opaque strings, bounded like the display name. Over-long
     // values are rejected rather than silently truncated. Track whether each key was
     // PRESENT in the upload (vs absent) so the server can preserve a stored value
@@ -272,10 +290,13 @@ export function parsePairedMacBackup(body: Record<string, unknown>): PairedMacBa
       kind: "upsert",
       id,
       providedCustom,
+      providedInstanceTag,
+      instanceTagWriteMode: rawInstanceTagWriteMode,
       allowTombstoneRevive: e.reviveDeleted === true,
       record: {
         macDeviceID: id,
         displayName: displayName || undefined,
+        instanceTag: instanceTag || undefined,
         routes,
         createdAt,
         lastSeenAt,
@@ -302,6 +323,7 @@ export function pairedMacShapeEqual(a: PairedMacBackupRecord, b: PairedMacBackup
   return (
     a.macDeviceID === b.macDeviceID &&
     (a.displayName ?? "") === (b.displayName ?? "") &&
+    (a.instanceTag ?? "") === (b.instanceTag ?? "") &&
     a.isActive === b.isActive &&
     // User customizations are part of the shape: a rename / color / icon change
     // must mint a rev and broadcast so the user's other devices receive it.
@@ -400,6 +422,20 @@ export async function applyBackupOps(
     const provided = op.providedCustom ?? { name: true, color: true, icon: true };
     if (existing !== undefined && !existing.deleted) {
       const prev = existing.payload;
+      const legacyCannotReplaceAuthority = !(op.providedInstanceTag ?? true) && prev.instanceTag;
+      const publisherCannotSwitchAuthority =
+        op.instanceTagWriteMode === "compare_and_set" &&
+        !!prev.instanceTag &&
+        prev.instanceTag !== record.instanceTag;
+      if (legacyCannotReplaceAuthority || publisherCannotSwitchAuthority) {
+        // A pre-instance-identity client cannot atomically identify the Mac
+        // process that supplied its record. Ignore the WHOLE stale operation so
+        // its routes, active bit, and freshness cannot make the retained tag's
+        // payload appear newly authoritative. A Mac self-publisher has the same
+        // CAS rule when another nonnil tag owns the row. Explicit authenticated
+        // iOS pairing uploads carry the key without CAS and may switch authority.
+        continue;
+      }
       if (!provided.name) record.customName = prev.customName;
       if (!provided.color) record.customColor = prev.customColor;
       if (!provided.icon) record.customIcon = prev.customIcon;

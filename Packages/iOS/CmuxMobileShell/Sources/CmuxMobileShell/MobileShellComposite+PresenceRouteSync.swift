@@ -10,7 +10,7 @@ private let presenceRouteSyncLog = Logger(
 
 @MainActor
 extension MobileShellComposite {
-    /// Writes one presence instance through the build-scoped route authority.
+    /// Writes one presence instance through its paired Mac's route authority.
     func syncPushedRoutes(from instance: PresenceInstance, scope: MobileShellScopeSnapshot) {
         syncPushedRoutes(from: [instance], scope: scope)
     }
@@ -20,7 +20,6 @@ extension MobileShellComposite {
     func syncPushedRoutes(from instances: [PresenceInstance], scope: MobileShellScopeSnapshot) {
         let hostInstances = instances.filter { $0.platform.lowercased() != "ios" }
         guard !hostInstances.isEmpty else { return }
-        let recoveryTag = pairedMacInstanceTag
         let task = Task { @MainActor [weak self] in
             guard let self else { return }
             await self.performSerializedPairedMacWrite(ifStillCurrent: nil) { [weak self] in
@@ -29,26 +28,30 @@ extension MobileShellComposite {
                     await self.loadPairedMacs()
                 }
                 guard await self.isScopeCurrent(scope) else { return }
-                var onlineDeviceIds: Set<String> = []
                 for instance in hostInstances {
                     guard await self.isScopeCurrent(scope) else { return }
-                    if instance.online,
-                       recoveryTag == nil || recoveryTag == instance.tag {
-                        onlineDeviceIds.insert(instance.deviceId)
-                    }
                     await self.applyPushedRoutes(from: instance, scope: scope)
                 }
                 guard await self.isScopeCurrent(scope) else { return }
                 let knownMacs = self.pairedMacsForIdentityMatching
                 if self.connectionState != .connected,
-                   let activeMacID = self.pairedMacs.first(where: { $0.isActive })?.macDeviceID,
-                   !onlineDeviceIds.isDisjoint(with: Self.macDeviceIDsForLogicalPairedMac(
+                   let activeMacID = self.pairedMacs.first(where: { $0.isActive })?.macDeviceID {
+                    let activeIDs = Self.macDeviceIDsForLogicalPairedMac(
                         activeMacID,
                         in: knownMacs,
                         supportedKinds: self.runtime?.supportedRouteKinds ?? [],
                         preferNonLoopback: Self.prefersNonLoopbackRoutes
-                   )) {
-                    self.recoverMobileConnection(trigger: .presencePush)
+                    )
+                    let hasOnlineAuthority = activeIDs.contains { deviceID in
+                        let instanceTag = knownMacs.first { $0.macDeviceID == deviceID }?.instanceTag
+                        return self.presenceMap.reconnectRouteAuthority(
+                            deviceId: deviceID,
+                            pairedMacInstanceTag: instanceTag
+                        ) != nil
+                    }
+                    if hasOnlineAuthority {
+                        self.recoverMobileConnection(trigger: .presencePush)
+                    }
                 }
             }
         }
@@ -65,30 +68,34 @@ extension MobileShellComposite {
                .firstIndex(where: { $0.tag == instance.tag }) {
             registryDevices[deviceIndex].instances[instanceIndex].routes = routes
         }
-        let knownMacs = pairedMacsForIdentityMatching
-        guard knownMacs.contains(where: { $0.macDeviceID == deviceId }) else { return }
         guard !routes.isEmpty,
+              let pairedMacStore,
+              let mac = try? await pairedMacStore.loadAll(
+                  stackUserID: scope.userID,
+                  teamID: scope.teamID
+              ).first(where: { $0.macDeviceID == deviceId }),
+              await isScopeCurrent(scope),
               presenceMap.reconnectRouteAuthority(
                   deviceId: deviceId,
-                  pairedMacInstanceTag: pairedMacInstanceTag
+                  pairedMacInstanceTag: mac.instanceTag
               )?.tag == instance.tag,
-              let mac = knownMacs.first(where: { $0.macDeviceID == deviceId }),
               let updated = DeviceRegistryService.selectReconnectRoutes(
                   local: mac.routes,
                   registry: routes
               ),
-              let pairedMacStore,
               await isScopeCurrent(scope) else { return }
         do {
-            try await pairedMacStore.upsert(
+            let wrote = try await pairedMacStore.upsertRoutesIfAuthorized(
                 macDeviceID: mac.macDeviceID,
                 displayName: mac.displayName,
                 routes: updated,
-                markActive: mac.isActive,
+                condition: .matchingInstanceTag(mac.instanceTag),
+                markActive: nil,
                 stackUserID: scope.userID,
                 teamID: scope.teamID,
                 now: Date()
             )
+            guard wrote else { return }
             guard await isScopeCurrent(scope) else { return }
             if await removeStoredPairedMacIfForgotten(mac.macDeviceID, scope: scope) { return }
             await loadPairedMacs()

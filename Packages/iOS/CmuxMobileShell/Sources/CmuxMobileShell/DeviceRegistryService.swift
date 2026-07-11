@@ -40,7 +40,6 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
 
     private let apiBaseURL: String
     private let deviceID: String
-    private let pairedMacInstanceTag: String?
     private let tokenSource: TokenSource
     private let teamIDProvider: @Sendable () async -> String?
     private let session: URLSession
@@ -49,8 +48,6 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
     /// - Parameters:
     ///   - apiBaseURL: The cmux web API base URL (no trailing slash).
     ///   - deviceID: This iOS device's registry id (``deviceID(defaults:)``).
-    ///   - pairedMacInstanceTag: The exact Mac app instance allowed to supply
-    ///     reconnect routes. `nil` retains stable's sole-instance policy.
     ///   - tokenSource: Supplies the Stack access/refresh tokens.
     ///   - teamIDProvider: Supplies the team id to scope to, or `nil` to let the
     ///     server use the Stack-selected team.
@@ -60,7 +57,6 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
     public init(
         apiBaseURL: String,
         deviceID: String,
-        pairedMacInstanceTag: String? = nil,
         tokenSource: TokenSource,
         teamIDProvider: @escaping @Sendable () async -> String? = { nil },
         session: sending URLSession = .shared,
@@ -68,7 +64,6 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
     ) {
         self.apiBaseURL = apiBaseURL
         self.deviceID = deviceID
-        self.pairedMacInstanceTag = pairedMacInstanceTag
         self.tokenSource = tokenSource
         self.teamIDProvider = teamIDProvider
         self.session = session
@@ -133,16 +128,21 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
         capturedUserID: String?,
         currentUserID: String?,
         activeMacID: String?,
-        targetMacID: String
+        activeMacInstanceTag: String? = nil,
+        targetMacID: String,
+        targetInstanceTag: String? = nil
     ) -> Bool {
         guard isSignedIn else { return false }
         guard capturedUserID == currentUserID else { return false }
-        return activeMacID == targetMacID
+        return activeMacID == targetMacID && activeMacInstanceTag == targetInstanceTag
     }
 
     // MARK: - DeviceRegistryRefreshing
 
-    public func freshRoutes(forMacDeviceID macDeviceID: String) async -> [CmxAttachRoute]? {
+    public func freshRoutes(
+        forMacDeviceID macDeviceID: String,
+        instanceTag: String?
+    ) async -> [CmxAttachRoute]? {
         guard let request = await makeRequest(method: "GET", path: "/api/devices", body: nil) else {
             return nil
         }
@@ -159,7 +159,7 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
         }
         return Self.routes(
             forMacDeviceID: macDeviceID,
-            pairedMacInstanceTag: pairedMacInstanceTag,
+            pairedMacInstanceTag: instanceTag,
             in: data
         )
     }

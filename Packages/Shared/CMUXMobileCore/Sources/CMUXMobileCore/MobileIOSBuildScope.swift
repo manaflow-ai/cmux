@@ -65,21 +65,6 @@ public struct MobileIOSBuildScope: Sendable, Equatable {
         "ios:\(Self.serializedScopeVersion):\(storageComponent)"
     }
 
-    /// The Mac app-instance tag expected on the resolved auth channel.
-    ///
-    /// Normal development-auth builds pair with the same tagged Mac build. The
-    /// supported `ios/scripts/reload.sh --prod-auth` flow instead pairs this
-    /// tagged iOS app with a beta/stable Mac, whose registry/presence tag is
-    /// `default`. This route-authority identity is intentionally separate from
-    /// the iOS storage/display scope above.
-    ///
-    /// - Parameter isDevelopmentAuthEnvironment: Whether the iOS app uses the
-    ///   development auth/presence channel.
-    /// - Returns: The exact Mac app-instance tag allowed to supply routes.
-    public func pairedMacInstanceTag(isDevelopmentAuthEnvironment: Bool) -> String {
-        isDevelopmentAuthEnvironment ? value : "default"
-    }
-
     /// Presentation name for a Mac shown by this tagged iOS build.
     ///
     /// The suffix comes from the running iOS bundle, so restored or offline

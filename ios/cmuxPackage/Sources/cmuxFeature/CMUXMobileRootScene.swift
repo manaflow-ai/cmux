@@ -143,14 +143,13 @@ public struct CMUXMobileRootScene: View {
     /// service is failure-tolerant, so a missing API base URL or a registry
     /// outage simply means reconnect falls back to local paired-Mac routes.
     @MainActor
-    private func makeDeviceRegistry(pairedMacInstanceTag: String?) -> DeviceRegistryService? {
+    private func makeDeviceRegistry() -> DeviceRegistryService? {
         let baseURL = auth.config.apiBaseURL
         guard !baseURL.isEmpty else { return nil }
         let coordinator = auth.coordinator
         return DeviceRegistryService(
             apiBaseURL: baseURL,
             deviceID: DeviceRegistryService.deviceID(),
-            pairedMacInstanceTag: pairedMacInstanceTag,
             tokenSource: DeviceRegistryService.TokenSource(
                 accessToken: { try? await coordinator.accessToken() },
                 refreshToken: { await coordinator.refreshToken() }
@@ -265,14 +264,11 @@ public struct CMUXMobileRootScene: View {
     private func makeStore() -> CMUXMobileShellStore {
         let coordinator = auth.coordinator
         let buildScope = MobileIOSBuildScope.current()
-        let pairedMacInstanceTag = buildScope?.pairedMacInstanceTag(
-            isDevelopmentAuthEnvironment: auth.authEnvironment == .development
-        )
         let identityProvider = AuthCoordinatorIdentityProvider(
             coordinator: auth.coordinator,
             isDevelopmentAuthEnvironment: auth.authEnvironment == .development
         )
-        let deviceRegistry = makeDeviceRegistry(pairedMacInstanceTag: pairedMacInstanceTag)
+        let deviceRegistry = makeDeviceRegistry()
         let restoreBoundary = PairedMacRestoreBoundary()
         let backedUpPairedMacStore = makeBackedUpPairedMacStore(
             restoreBoundary: restoreBoundary,
@@ -287,8 +283,6 @@ public struct CMUXMobileRootScene: View {
         return CMUXMobileShellStore(
             runtime: runtime,
             pairedMacStore: backedUpPairedMacStore,
-            iosBuildScope: buildScope,
-            pairedMacInstanceTag: pairedMacInstanceTag,
             pairedMacRestoreBoundary: restoreBoundary,
             deviceRegistry: deviceRegistry,
             presence: makePresenceClient(),
@@ -306,8 +300,6 @@ public struct CMUXMobileRootScene: View {
         return CMUXMobileShellStore(
             runtime: runtime,
             pairedMacStore: backedUpPairedMacStore,
-            iosBuildScope: buildScope,
-            pairedMacInstanceTag: pairedMacInstanceTag,
             pairedMacRestoreBoundary: restoreBoundary,
             deviceRegistry: deviceRegistry,
             presence: makePresenceClient(),

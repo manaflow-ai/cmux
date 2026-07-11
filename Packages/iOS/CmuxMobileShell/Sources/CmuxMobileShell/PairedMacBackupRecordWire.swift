@@ -13,6 +13,10 @@ struct PairedMacBackupRecordWire: Encodable {
         try c.encode(record.createdAt, forKey: .createdAt)
         try c.encode(record.lastSeenAt, forKey: .lastSeenAt)
         try c.encode(record.isActive, forKey: .isActive)
+        // Host instance identity is authoritative on every iOS upload. Encode
+        // an explicit null for legacy/unknown hosts so stale backup authority
+        // is cleared; older clients omit the key and the worker preserves it.
+        try c.encode(record.instanceTag, forKey: .instanceTag)
         guard includesCustomizations else { return }
         try c.encode(record.customName, forKey: .customName)
         try c.encode(record.customColor, forKey: .customColor)

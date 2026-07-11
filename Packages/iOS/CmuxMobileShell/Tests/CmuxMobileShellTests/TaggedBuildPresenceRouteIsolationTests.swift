@@ -15,14 +15,12 @@ import Testing
         let restartedB = try route(id: "b-restart", host: "100.64.0.3", port: 52_002)
         let restartedA = try route(id: "a-restart", host: "100.64.0.4", port: 52_001)
         let pairedStore = DelayedTeamPairedMacStore(
-            recordsByTeam: ["team-a": [pairedMac(routes: [original])]],
+            recordsByTeam: ["team-a": [pairedMac(routes: [original], instanceTag: "feature-a")]],
             blockedTeams: []
         )
-        let buildScope = try #require(MobileIOSBuildScope("feature-a"))
         let store = MobileShellComposite(
             isSignedIn: true,
             pairedMacStore: pairedStore,
-            iosBuildScope: buildScope,
             identityProvider: StaticIdentityProvider(userID: "user-1"),
             teamIDProvider: { "team-a" }
         )
@@ -135,15 +133,16 @@ import Testing
         let defaultRoute = try route(id: "stable", host: "100.64.0.2", port: 51_001)
         let routeB = try route(id: "b", host: "100.64.0.3", port: 51_002)
         let pairedStore = DelayedTeamPairedMacStore(
-            recordsByTeam: ["team-a": [pairedMac(routes: [original], isActive: true)]],
+            recordsByTeam: ["team-a": [pairedMac(
+                routes: [original],
+                isActive: true,
+                instanceTag: "default"
+            )]],
             blockedTeams: []
         )
-        let buildScope = try #require(MobileIOSBuildScope("future-one"))
         let store = MobileShellComposite(
             isSignedIn: true,
             pairedMacStore: pairedStore,
-            iosBuildScope: buildScope,
-            pairedMacInstanceTag: "default",
             identityProvider: StaticIdentityProvider(userID: "user-1"),
             teamIDProvider: { "team-a" },
             reachability: AlwaysOnlineReachability()
@@ -178,7 +177,7 @@ import Testing
         )
         await store.pushedRouteSyncTask?.value
 
-        #expect(store.pairedMacInstanceTag == "default")
+        #expect(try await storedInstanceTag(in: pairedStore) == "default")
         #expect(await pairedStore.currentUpsertCount() == 1)
         #expect(try await storedRoutes(in: pairedStore) == [defaultRoute])
         let recoveryRan = try await pollUntil(attempts: 50) {
@@ -191,14 +190,12 @@ import Testing
         let original = try route(id: "original", host: "100.64.0.1", port: 50_000)
         let advertised = try route(id: "advertised", host: "100.64.0.2", port: 51_001)
         let pairedStore = DelayedTeamPairedMacStore(
-            recordsByTeam: ["team-a": [pairedMac(routes: [original])]],
+            recordsByTeam: ["team-a": [pairedMac(routes: [original], instanceTag: "feature-a")]],
             blockedTeams: []
         )
-        let buildScope = try #require(MobileIOSBuildScope("feature-a"))
         let store = MobileShellComposite(
             isSignedIn: true,
             pairedMacStore: pairedStore,
-            iosBuildScope: buildScope,
             identityProvider: StaticIdentityProvider(userID: "user-1"),
             teamIDProvider: { "team-a" }
         )
@@ -227,7 +224,7 @@ import Testing
         #expect(try await storedRoutes(in: pairedStore) == [original])
     }
 
-    @Test func unscopedMultiTagPresenceStillTriggersLastKnownGoodRecovery() async throws {
+    @Test func legacyMacWithAmbiguousMultiTagPresenceDoesNotTriggerRecovery() async throws {
         let original = try route(id: "original", host: "100.64.0.1", port: 50_000)
         let routeA = try route(id: "a", host: "100.64.0.1", port: 51_001)
         let routeB = try route(id: "b", host: "100.64.0.2", port: 51_002)
@@ -254,12 +251,57 @@ import Testing
         )
         await store.pushedRouteSyncTask?.value
 
-        let recoveryRan = try await pollUntil(attempts: 50) {
-            store.connectionRecoveryFailed
-        }
-        #expect(recoveryRan)
+        #expect(!store.connectionRecoveryFailed)
         #expect(await pairedStore.currentUpsertCount() == 0)
         #expect(try await storedRoutes(in: pairedStore) == [original])
+    }
+
+    @Test func twoPairedMacsUseTheirOwnAuthenticatedTags() async throws {
+        let originalA = try route(id: "original-a", host: "100.64.0.1", port: 50_001)
+        let originalB = try route(id: "original-b", host: "100.64.0.2", port: 50_002)
+        let updatedA = try route(id: "updated-a", host: "100.64.0.3", port: 51_001)
+        let updatedB = try route(id: "updated-b", host: "100.64.0.4", port: 51_002)
+        let noiseA = try route(id: "noise-a", host: "100.64.0.5", port: 52_001)
+        let noiseB = try route(id: "noise-b", host: "100.64.0.6", port: 52_002)
+        let pairedStore = DelayedTeamPairedMacStore(
+            recordsByTeam: ["team-a": [
+                pairedMac(deviceID: "mac-a", routes: [originalA], instanceTag: "feature-a"),
+                pairedMac(deviceID: "mac-b", routes: [originalB], instanceTag: "default"),
+            ]],
+            blockedTeams: []
+        )
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { "team-a" }
+        )
+        await store.loadPairedMacs()
+        let scope = MobileShellScopeSnapshot(userID: "user-1", teamID: "team-a", generation: 0)
+
+        store.applyPresenceUpdate(.snapshot(PresenceSnapshot(
+            teamId: "team-a",
+            now: 1_000,
+            heartbeatIntervalMs: 15_000,
+            offlineTimeoutMs: 45_000,
+            devices: [
+                presenceDevice(id: "mac-a", instances: [
+                    instance(deviceId: "mac-a", tag: "feature-a", routes: [updatedA]),
+                    instance(deviceId: "mac-a", tag: "default", routes: [noiseA]),
+                ]),
+                presenceDevice(id: "mac-b", instances: [
+                    instance(deviceId: "mac-b", tag: "default", routes: [updatedB]),
+                    instance(deviceId: "mac-b", tag: "feature-a", routes: [noiseB]),
+                ]),
+            ]
+        )), scope: scope)
+        await store.pushedRouteSyncTask?.value
+
+        let stored = try await pairedStore.loadAll(stackUserID: "user-1", teamID: "team-a")
+        #expect(stored.first { $0.macDeviceID == "mac-a" }?.routes == [updatedA])
+        #expect(stored.first { $0.macDeviceID == "mac-a" }?.instanceTag == "feature-a")
+        #expect(stored.first { $0.macDeviceID == "mac-b" }?.routes == [updatedB])
+        #expect(stored.first { $0.macDeviceID == "mac-b" }?.instanceTag == "default")
     }
 
     private func route(id: String, host: String, port: Int) throws -> CmxAttachRoute {
@@ -270,16 +312,22 @@ import Testing
         )
     }
 
-    private func pairedMac(routes: [CmxAttachRoute], isActive: Bool = false) -> MobilePairedMac {
+    private func pairedMac(
+        deviceID: String = "shared-physical-mac",
+        routes: [CmxAttachRoute],
+        isActive: Bool = false,
+        instanceTag: String? = nil
+    ) -> MobilePairedMac {
         MobilePairedMac(
-            macDeviceID: "shared-physical-mac",
+            macDeviceID: deviceID,
             displayName: "Studio",
             routes: routes,
             createdAt: Date(timeIntervalSince1970: 1),
             lastSeenAt: Date(timeIntervalSince1970: 2),
             isActive: isActive,
             stackUserID: "user-1",
-            teamID: "team-a"
+            teamID: "team-a",
+            instanceTag: instanceTag
         )
     }
 
@@ -315,7 +363,21 @@ import Testing
         ))
     }
 
+    private func presenceDevice(id: String, instances: [PresenceInstance]) -> PresenceDevice {
+        PresenceDevice(
+            deviceId: id,
+            platform: "mac",
+            online: true,
+            lastSeenAt: 1_000,
+            instances: instances
+        )
+    }
+
     private func storedRoutes(in store: DelayedTeamPairedMacStore) async throws -> [CmxAttachRoute]? {
         try await store.loadAll(stackUserID: "user-1", teamID: "team-a").first?.routes
+    }
+
+    private func storedInstanceTag(in store: DelayedTeamPairedMacStore) async throws -> String? {
+        try await store.loadAll(stackUserID: "user-1", teamID: "team-a").first?.instanceTag
     }
 }

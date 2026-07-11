@@ -18,14 +18,14 @@ extension MacComputerSnapshot {
         instanceTag: String? = nil
     ) -> [MacComputerSnapshot] {
         let colorIndex = store.machineColorIndex
-        // The iOS tag remains the display suffix/storage partition, while the
-        // Mac tag can be `default` for a tagged `--prod-auth` iOS build.
+        // The iOS tag remains the display suffix/storage partition. Route and
+        // presence identity comes from each authenticated paired Mac instead.
         let buildScope = MobileIOSBuildScope.current() ?? MobileIOSBuildScope(instanceTag)
-        let presenceInstanceTag = instanceTag ?? store.pairedMacInstanceTag
         // The PHONE's own per-Mac connection (foreground or live secondary) — the
         // source of truth for the dot, distinct from presence.
         let connectionStatuses = store.macConnectionStatuses
         var snapshots = store.displayPairedMacs.map { mac in
+            let presenceInstanceTag = instanceTag ?? mac.instanceTag
             let aliases = store.pairedMacAliasIDs(for: mac.macDeviceID)
             let summary = store.presenceSummary(
                 for: mac.macDeviceID,
