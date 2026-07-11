@@ -2,6 +2,7 @@ import AppKit
 import CCEF
 import Foundation
 
+/// Options for CEFApp.initialize; only rootCachePath is required.
 public struct CEFConfiguration {
     /// Parent directory for all browser storage. Profile caches are created
     /// beneath it.
@@ -12,6 +13,7 @@ public struct CEFConfiguration {
     public var extensionDirectories: [URL] = []
     /// 0 disables the Chrome DevTools protocol endpoint.
     public var remoteDebuggingPort: Int = 0
+    /// Chromium log destination; CEF's default location when nil.
     public var logFile: URL?
     /// Extra browser-process command line switches (value nil for flags).
     public var extraSwitches: [(name: String, value: String?)] = []
@@ -19,25 +21,38 @@ public struct CEFConfiguration {
     /// when nil.
     public var browserSubprocessPath: URL?
 
+    /// Creates a configuration storing all browser data under
+    /// `rootCachePath`.
     public init(rootCachePath: URL) {
         self.rootCachePath = rootCachePath
     }
 }
 
+/// Failures from CEFApp.initialize.
 public enum CEFAppError: Error {
+    /// The Chromium Embedded Framework binary could not be loaded.
     case frameworkLoadFailed
+    /// CEF was already initialized in this process (it cannot re-initialize).
     case alreadyInitialized
+    /// cef_initialize returned failure; see the configured log file.
     case initializeFailed
 }
 
 /// Process-wide CEF lifecycle: initialize, message pump integration, shutdown,
 /// and the helper-process entry point.
 public final class CEFApp {
+    /// CEF is process-global and single-init; all lifecycle goes through
+    /// this instance.
     public static let shared = CEFApp()
 
+    /// True between successful initialize and shutdown.
     public private(set) var isInitialized = false
+    /// True once CEF's browser context is ready (browsers may be created).
     public private(set) var isContextInitialized = false
+    /// True if initialize ever succeeded this process; CEF cannot
+    /// re-initialize after shutdown.
     public private(set) var wasEverInitialized = false
+    /// The active CDP endpoint port; 0 when disabled.
     public private(set) var remoteDebuggingPort = 0
     var rootCachePath: URL?
 
@@ -141,6 +156,12 @@ public final class CEFApp {
         }
         isInitialized = true
         wasEverInitialized = true
+        Self.registerProcessExitHandlerOnce()
+        // Context initialization runs before any browser exists; keep the
+        // backstop up for that bounded window so a missed schedule cannot
+        // stall it (browser/creation demand takes over afterwards).
+        isAwaitingContextInitialization = true
+        updateBackstopDemand()
     }
 
     /// Runs `action` once the CEF context is ready (immediately if it already
@@ -156,10 +177,11 @@ public final class CEFApp {
     /// Full cef_shutdown. NOTE: with the chrome bootstrap this reliably
     /// DCHECKs in debug/beta CEF builds even after every browser has closed
     /// (browser_context.cc all_.empty() — the global browser context never
-    /// finishes releasing). The termination path therefore uses quiesce() +
-    /// finalizeProcessExitIfNeeded() instead, the same skip-C++-teardown
-    /// strategy Chrome itself ships with; this method remains for hosts that
-    /// want to try a full teardown anyway.
+    /// finishes releasing). The termination path therefore uses
+    /// prepareForTermination's drain plus the atexit _exit handler
+    /// registered at initialize, the same skip-C++-teardown strategy Chrome
+    /// itself ships with; this method remains for hosts that want to try a
+    /// full teardown anyway.
     public func shutdown() {
         guard isInitialized else { return }
         CEFMessagePump.shared.stop()
@@ -170,27 +192,68 @@ public final class CEFApp {
         isContextInitialized = false
     }
 
-    /// Ends the process without running atexit handlers. Call at the very
-    /// end of the host's applicationWillTerminate when CEF was used this
-    /// session: Chromium's atexit/static-destructor path DCHECKs (SIGTRAP)
-    /// even after a clean browser drain, and production Chrome itself exits
-    /// this way. No-op if CEF never initialized.
-    public func finalizeProcessExitIfNeeded() {
-        guard wasEverInitialized else { return }
-        _exit(0)
+    /// Chromium's atexit handlers and static destructors DCHECK (SIGTRAP)
+    /// in the exiting browser process even after a clean browser drain, and
+    /// production Chrome itself skips them. atexit runs LIFO, so a handler
+    /// registered here — after libcef is loaded — fires BEFORE every
+    /// Chromium handler and cuts the process over to _exit, while handlers
+    /// the host registers later still run first. Unlike calling _exit from
+    /// applicationWillTerminate, this runs only once AppKit's exit() starts,
+    /// i.e. after every willTerminateNotification observer has finished, so
+    /// no other component's final persistence is starved. Browser process
+    /// only (helper processes must propagate their real exit codes).
+    /// Tradeoff, documented: after CEF has initialized, any exit(status)
+    /// in this process reports status 0; AppKit termination always exits 0
+    /// anyway.
+    private static var processExitHandlerRegistered = false
+
+    private static func registerProcessExitHandlerOnce() {
+        guard !processExitHandlerRegistered else { return }
+        processExitHandlerRegistered = true
+        atexit { _exit(0) }
     }
 
     /// Number of live CEF browsers (created and not yet destroyed).
     public private(set) var liveBrowserCount = 0
+    /// Creations in flight (createBrowser accepted, on_after_created not yet
+    /// fired); they need the pump backstop just like live browsers.
+    private var pendingBrowserCreations = 0
+    /// True from cef_initialize until on_context_initialized.
+    private var isAwaitingContextInitialization = false
     private var terminationCompletion: (() -> Void)?
     /// True while the post-close message-loop drain is still running; quit
     /// must keep waiting even though liveBrowserCount is already zero.
     private var isDrainingAfterClose = false
 
-    func browserDidStart() { liveBrowserCount += 1 }
+    func browserCreationDidStart() {
+        pendingBrowserCreations += 1
+        updateBackstopDemand()
+    }
+
+    func browserCreationDidSettle() {
+        pendingBrowserCreations = max(0, pendingBrowserCreations - 1)
+        updateBackstopDemand()
+    }
+
+    func browserDidStart() {
+        liveBrowserCount += 1
+        updateBackstopDemand()
+    }
+
+    /// The 30 Hz backstop runs only while browsers exist (or are being
+    /// created); otherwise a host that opened a browser once would pay
+    /// permanent main-thread wakeups for the rest of the process. Without
+    /// demand the pump stays purely schedule-driven
+    /// (on_schedule_message_pump_work one-shot timers).
+    private func updateBackstopDemand() {
+        CEFMessagePump.shared.setBackstopDemand(
+            liveBrowserCount > 0 || pendingBrowserCreations > 0 || isAwaitingContextInitialization
+        )
+    }
 
     func browserDidStop() {
         liveBrowserCount = max(0, liveBrowserCount - 1)
+        updateBackstopDemand()
         guard liveBrowserCount == 0, terminationCompletion != nil, !isDrainingAfterClose else { return }
         // browserDidStop runs inside the last browser's on_before_close,
         // which fires BEFORE destruction finishes. Defer a turn and
@@ -228,7 +291,8 @@ public final class CEFApp {
     /// on the main thread after every browser has closed (re-invoke
     /// NSApp.terminate there). CEF stays initialized either way — a
     /// termination the host later cancels leaves the feature usable, and
-    /// process exit skips Chromium teardown via finalizeProcessExitIfNeeded.
+    /// process exit skips Chromium teardown via the atexit _exit handler
+    /// registered at initialize.
     public func prepareForTermination(onReady: @escaping () -> Void) -> Bool {
         guard isInitialized else { return true }
         if liveBrowserCount == 0, !isDrainingAfterClose {
@@ -245,6 +309,8 @@ public final class CEFApp {
 
     func contextDidInitialize() {
         isContextInitialized = true
+        isAwaitingContextInitialization = false
+        updateBackstopDemand()
         let actions = pendingContextInitialized
         pendingContextInitialized = []
         actions.forEach { $0() }
@@ -350,64 +416,5 @@ final class CEFAppHandlerImpl {
         }
         browserProcessHandlerPtr = ptr
         return ptr
-    }
-}
-
-// MARK: - External message pump
-
-/// Drives cef_do_message_loop_work on the main run loop. CEF requests pumps
-/// via on_schedule_message_pump_work; a coarse repeating timer backstops any
-/// missed schedule so the browser never stalls.
-final class CEFMessagePump {
-    static let shared = CEFMessagePump()
-
-    private var scheduledTimer: Timer?
-    private var backstopTimer: Timer?
-    private var isPumping = false
-
-    private init() {}
-
-    func schedule(afterMilliseconds delayMs: Int64) {
-        if Thread.isMainThread {
-            scheduleOnMain(delayMs)
-        } else {
-            DispatchQueue.main.async { self.scheduleOnMain(delayMs) }
-        }
-    }
-
-    func stop() {
-        scheduledTimer?.invalidate()
-        scheduledTimer = nil
-        backstopTimer?.invalidate()
-        backstopTimer = nil
-    }
-
-    private func scheduleOnMain(_ delayMs: Int64) {
-        ensureBackstop()
-        scheduledTimer?.invalidate()
-        // Never pump synchronously from inside a CEF callback; even a 0ms
-        // request goes through the run loop.
-        let timer = Timer(timeInterval: Double(max(delayMs, 0)) / 1000.0, repeats: false) { [weak self] _ in
-            self?.pump()
-        }
-        timer.tolerance = 0
-        RunLoop.main.add(timer, forMode: .common)
-        scheduledTimer = timer
-    }
-
-    private func ensureBackstop() {
-        guard backstopTimer == nil else { return }
-        let timer = Timer(timeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
-            self?.pump()
-        }
-        RunLoop.main.add(timer, forMode: .common)
-        backstopTimer = timer
-    }
-
-    private func pump() {
-        guard !isPumping, CEFApp.shared.isInitialized else { return }
-        isPumping = true
-        CEFRuntime.doMessageLoopWork()
-        isPumping = false
     }
 }

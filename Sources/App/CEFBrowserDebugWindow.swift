@@ -100,7 +100,10 @@ final class CEFBrowserDebugWindowController: ReleasingWindowController {
             backing: .buffered,
             defer: false
         )
-        window.title = "Chromium Browser (CEF)"
+        window.title = String(
+            localized: "cef.debugWindow.title",
+            defaultValue: "Chromium Browser (CEF)"
+        )
         window.identifier = NSUserInterfaceItemIdentifier("cmux.cefBrowserDebug")
         window.isReleasedWhenClosed = false
         window.center()
@@ -117,14 +120,20 @@ final class CEFBrowserDebugWindowController: ReleasingWindowController {
     func show() {
         guard CEFRuntimeSupport.isRuntimeBundled else {
             let alert = NSAlert()
-            alert.messageText = "CEF runtime is not bundled in this build"
-            alert.informativeText = """
-            Fetch the CEF distribution and rebuild:
-              Packages/macOS/CEFKit/scripts/fetch-cef.sh
-              ./scripts/reload.sh --tag <tag>
-            The dev build phase bundles CEF automatically when the \
-            distribution is present.
-            """
+            alert.messageText = String(
+                localized: "cef.debugWindow.runtimeMissing.title",
+                defaultValue: "CEF runtime is not bundled in this build"
+            )
+            alert.informativeText = String(
+                localized: "cef.debugWindow.runtimeMissing.message",
+                defaultValue: """
+                Fetch the CEF distribution and rebuild:
+                  Packages/macOS/CEFKit/scripts/fetch-cef.sh
+                  ./scripts/reload.sh --tag <tag>
+                The dev build phase bundles CEF automatically when the \
+                distribution is present.
+                """
+            )
             alert.runModal()
             return
         }
@@ -132,7 +141,10 @@ final class CEFBrowserDebugWindowController: ReleasingWindowController {
             try CEFRuntimeSupport.startIfNeeded()
         } catch {
             let alert = NSAlert()
-            alert.messageText = "CEF failed to initialize"
+            alert.messageText = String(
+                localized: "cef.debugWindow.initFailed.title",
+                defaultValue: "CEF failed to initialize"
+            )
             alert.informativeText = "\(error)"
             alert.runModal()
             return
@@ -144,7 +156,23 @@ final class CEFBrowserDebugWindowController: ReleasingWindowController {
 
 /// The window content: toolbar + per-profile browsers + docked DevTools pane.
 final class CEFBrowserDebugView: NSView {
+    /// Stable profile identifiers (dictionary keys and cache-directory
+    /// inputs); the picker shows localized display titles, so selection is
+    /// resolved by index, never by title.
     private let profileNames = ["Default", "Work", "Personal"]
+
+    private static func localizedProfileTitle(_ name: String) -> String {
+        switch name {
+        case "Default":
+            return String(localized: "cef.debugWindow.profile.default", defaultValue: "Default")
+        case "Work":
+            return String(localized: "cef.debugWindow.profile.work", defaultValue: "Work")
+        case "Personal":
+            return String(localized: "cef.debugWindow.profile.personal", defaultValue: "Personal")
+        default:
+            return name
+        }
+    }
     private var profiles: [String: CEFProfile] = [:]
     private var browsers: [String: CEFBrowser] = [:]
     private var containers: [String: CEFBrowserContainerView] = [:]
@@ -339,8 +367,9 @@ final class CEFBrowserDebugView: NSView {
     }
 
     @objc private func profileChanged(_ sender: NSPopUpButton) {
-        guard let name = sender.titleOfSelectedItem else { return }
-        showProfile(name)
+        let index = sender.indexOfSelectedItem
+        guard profileNames.indices.contains(index) else { return }
+        showProfile(profileNames[index])
     }
 
     @objc private func devToolsChanged(_ sender: NSPopUpButton) {
@@ -393,10 +422,14 @@ final class CEFBrowserDebugView: NSView {
         urlField.target = self
         urlField.action = #selector(navigate)
         urlField.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        profilePicker.addItems(withTitles: profileNames)
+        profilePicker.addItems(withTitles: profileNames.map(Self.localizedProfileTitle))
         profilePicker.target = self
         profilePicker.action = #selector(profileChanged(_:))
-        devToolsPicker.addItems(withTitles: ["DevTools: Off", "DevTools: Docked", "DevTools: Window"])
+        devToolsPicker.addItems(withTitles: [
+            String(localized: "cef.debugWindow.devtools.off", defaultValue: "DevTools: Off"),
+            String(localized: "cef.debugWindow.devtools.docked", defaultValue: "DevTools: Docked"),
+            String(localized: "cef.debugWindow.devtools.window", defaultValue: "DevTools: Window"),
+        ])
         devToolsPicker.target = self
         devToolsPicker.action = #selector(devToolsChanged(_:))
 
@@ -434,7 +467,7 @@ extension CEFBrowserDebugView: CEFBrowserDelegate {
 
     func browser(_ browser: CEFBrowser, didUpdateTitle title: String) {
         guard browser === activeBrowser else { return }
-        window?.title = "\(title) — \(activeProfileName)"
+        window?.title = "\(title) — \(Self.localizedProfileTitle(activeProfileName))"
     }
 
     func browser(_ browser: CEFBrowser, didUpdateLoadingState isLoading: Bool, canGoBack: Bool, canGoForward: Bool) {

@@ -2013,7 +2013,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         unregisterDisplayReconfigurationCallbackIfNeeded()
         StartupBreadcrumbLog.append("appDelegate.willTerminate.complete")
         enableSuddenTerminationIfNeeded()
-        cefFinalizeProcessExit()  // Must stay last: skips Chromium's crashing atexit handlers.
+        // CEF sessions end via CEFKit's atexit _exit handler, after all willTerminate observers.
     }
 
     func applicationWillResignActive(_ notification: Notification) {

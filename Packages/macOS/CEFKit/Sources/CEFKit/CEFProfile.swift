@@ -6,6 +6,8 @@ import Foundation
 /// `<rootCachePath>/Profile-<name>`. Pass nil (the default profile) to share
 /// the global context.
 public final class CEFProfile {
+    /// The caller-supplied profile identity (not sanitized; the cache
+    /// directory name is derived from it).
     public let name: String
     let contextPtr: UnsafeMutablePointer<cef_request_context_t>
 
@@ -13,11 +15,10 @@ public final class CEFProfile {
     /// a context over the same on-disk profile.
     public init?(name: String) {
         guard CEFApp.shared.isInitialized, let root = CEFApp.shared.rootCachePath else { return nil }
-        let sanitized = name.map { $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" ? $0 : "-" }
         // Chrome-bootstrap CEF requires profile directories to be direct
         // children of root_cache_path; nesting fails with "Cannot create
         // profile at path".
-        let cachePath = root.appendingPathComponent("Profile-\(String(sanitized))", isDirectory: true)
+        let cachePath = root.appendingPathComponent(Self.cacheDirectoryName(for: name), isDirectory: true)
 
         var settings = cef_request_context_settings_t()
         settings.size = numericCast(MemoryLayout<cef_request_context_settings_t>.size)
@@ -28,6 +29,26 @@ public final class CEFProfile {
         self.name = name
         self.contextPtr = ptr
         Self.register(self)
+    }
+
+    /// Maps a profile name to its directory name under the root cache path.
+    /// Unsupported characters are replaced, and because that replacement is
+    /// not injective ("Work?" and "Work!" both sanitize to "Work-"), a stable
+    /// hash of the original name is appended whenever sanitization altered
+    /// it — distinct profiles must never share a cache directory (and its
+    /// cookies/storage). djb2, not hashValue: Swift string hashes are seeded
+    /// per process and would move the directory every launch.
+    static func cacheDirectoryName(for name: String) -> String {
+        let sanitized = name.map { $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" ? $0 : "-" }
+        var directoryName = String(sanitized)
+        if directoryName != name {
+            var hash: UInt64 = 5381
+            for byte in name.utf8 {
+                hash = hash &* 33 &+ UInt64(byte)
+            }
+            directoryName += "-" + String(hash, radix: 16)
+        }
+        return "Profile-\(directoryName)"
     }
 
     deinit {

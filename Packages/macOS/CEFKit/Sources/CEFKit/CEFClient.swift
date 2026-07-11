@@ -3,16 +3,25 @@ import Foundation
 
 /// Browser lifecycle and state callbacks, delivered on the main thread.
 public protocol CEFBrowserDelegate: AnyObject {
+    /// The main frame's address changed.
     func browser(_ browser: CEFBrowser, didUpdateURL url: String)
+    /// The page title changed.
     func browser(_ browser: CEFBrowser, didUpdateTitle title: String)
+    /// Loading started/finished or history availability changed.
     func browser(_ browser: CEFBrowser, didUpdateLoadingState isLoading: Bool, canGoBack: Bool, canGoForward: Bool)
+    /// Browser destruction completed; the browser is unusable afterwards.
     func browserDidClose(_ browser: CEFBrowser)
 }
 
+/// All delegate callbacks are optional.
 public extension CEFBrowserDelegate {
+    /// Default no-op.
     func browser(_ browser: CEFBrowser, didUpdateURL url: String) {}
+    /// Default no-op.
     func browser(_ browser: CEFBrowser, didUpdateTitle title: String) {}
+    /// Default no-op.
     func browser(_ browser: CEFBrowser, didUpdateLoadingState isLoading: Bool, canGoBack: Bool, canGoForward: Bool) {}
+    /// Default no-op.
     func browserDidClose(_ browser: CEFBrowser) {}
 }
 

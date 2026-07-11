@@ -6,8 +6,12 @@ import AppKit
 /// under window churn in CEF 146 (see CEFBrowser.showDevToolsWindow).
 /// Requires CEFConfiguration.remoteDebuggingPort != 0.
 public final class CEFDevToolsWindow: NSObject, NSWindowDelegate {
+    /// The app-owned window hosting the DevTools frontend.
     public let window: NSWindow
+    /// The embedded frontend browser; nil until open's completion fires and
+    /// after the browser closes.
     public private(set) var browser: CEFBrowser?
+    /// Runs on the main thread after the window and its browser are gone.
     public var onClose: (() -> Void)?
 
     /// Instances keep themselves alive while their window is open.
@@ -68,15 +72,17 @@ public final class CEFDevToolsWindow: NSObject, NSWindowDelegate {
         window.center()
     }
 
+    /// Closes the window; the embedded browser is force-closed from
+    /// windowWillClose and `onClose` fires once destruction completes.
     public func close() {
         window.close()
     }
 
-    // Teardown order matters: Chromium observes the NSWindow that hosts a
-    // browser view, and browser destruction is asynchronous. The window (and
-    // this controller) must stay alive until browserDidClose confirms the
-    // browser is gone; releasing the NSWindow first is a use-after-free
-    // inside Chromium (objc_zombie NSWindow abort).
+    /// Teardown order matters: Chromium observes the NSWindow that hosts a
+    /// browser view, and browser destruction is asynchronous. The window (and
+    /// this controller) must stay alive until browserDidClose confirms the
+    /// browser is gone; releasing the NSWindow first is a use-after-free
+    /// inside Chromium (objc_zombie NSWindow abort).
     public func windowWillClose(_ notification: Notification) {
         if let browser {
             browser.close(force: true)
@@ -88,6 +94,8 @@ public final class CEFDevToolsWindow: NSObject, NSWindowDelegate {
 }
 
 extension CEFDevToolsWindow: CEFBrowserDelegate {
+    /// Completes teardown once CEF confirms the frontend browser is
+    /// destroyed; closes the window if the browser died on its own.
     public func browserDidClose(_ closedBrowser: CEFBrowser) {
         browser = nil
         if window.isVisible {

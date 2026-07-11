@@ -23,5 +23,14 @@ let package = Package(
             name: "cefkit-helper",
             dependencies: ["CEFKit"]
         ),
+        // Exercises the pure-Swift ownership layer (handler refcount
+        // trampolines, client close handshake, profile directory mapping,
+        // extension staging). Runs without the CEF distribution: nothing
+        // links libcef at build time and the tests never trigger the dlsym
+        // resolution in CEFRuntime.
+        .testTarget(
+            name: "CEFKitTests",
+            dependencies: ["CEFKit", "CCEF"]
+        ),
     ]
 )

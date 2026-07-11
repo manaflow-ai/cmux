@@ -14,6 +14,7 @@ public final class CEFBrowser {
     /// browser's view from the window before close (see close()).
     weak var hostView: NSView?
 
+    /// Receives lifecycle and state callbacks on the main thread.
     public var delegate: CEFBrowserDelegate? {
         get { client.delegate }
         set { client.delegate = newValue }
@@ -43,7 +44,11 @@ public final class CEFBrowser {
         let clientImpl = CEFClientImpl()
         clientImpl.delegate = delegate
         let profileRef = profile
+        // Keeps the pump backstop running while creation is in flight (the
+        // browser is not counted live until on_after_created).
+        CEFApp.shared.browserCreationDidStart()
         clientImpl.onBrowserCreated = { [weak parentView] browser in
+            CEFApp.shared.browserCreationDidSettle()
             browser.profile = profileRef
             browser.hostView = parentView
             CEFDebugDump.scheduleDump(for: browser, label: url)
@@ -80,6 +85,7 @@ public final class CEFBrowser {
             // wraps its ref-counted arguments (client, request context) into
             // CefRefPtr on entry, so the transferred references are consumed
             // and released by libcef even when it returns 0.
+            CEFApp.shared.browserCreationDidSettle()
             completion(nil)
         }
     }
@@ -114,19 +120,23 @@ public final class CEFBrowser {
 
     // MARK: Navigation
 
+    /// Navigates the main frame to `url`.
     public func load(url: String) {
         guard !isClosed, let frame = ptr.pointee.get_main_frame?(ptr) else { return }
         defer { cefRelease(UnsafeMutableRawPointer(frame)) }
         withCEFString(url) { frame.pointee.load_url?(frame, $0) }
     }
 
+    /// The main frame's current URL; nil once the browser has closed.
     public var url: String? {
         guard !isClosed, let frame = ptr.pointee.get_main_frame?(ptr) else { return nil }
         defer { cefRelease(UnsafeMutableRawPointer(frame)) }
         return String(consumingCEFUserFree: frame.pointee.get_url?(frame))
     }
 
+    /// Whether back navigation is available.
     public var canGoBack: Bool { !isClosed && ptr.pointee.can_go_back?(ptr) != 0 }
+    /// Whether forward navigation is available.
     public var canGoForward: Bool { !isClosed && ptr.pointee.can_go_forward?(ptr) != 0 }
 
     /// Runs after each main-frame load completes.
@@ -146,13 +156,18 @@ public final class CEFBrowser {
         }
     }
 
+    /// Navigates back in session history.
     public func goBack() { guard !isClosed else { return }; ptr.pointee.go_back?(ptr) }
+    /// Navigates forward in session history.
     public func goForward() { guard !isClosed else { return }; ptr.pointee.go_forward?(ptr) }
+    /// Reloads the current page.
     public func reload() { guard !isClosed else { return }; ptr.pointee.reload?(ptr) }
+    /// Cancels the in-flight load, if any.
     public func stopLoad() { guard !isClosed else { return }; ptr.pointee.stop_load?(ptr) }
 
     // MARK: Host
 
+    /// CEF's per-browser id; stable across close (cached at destruction).
     public var identifier: Int32 {
         guard !isClosed else { return cachedIdentifier }
         return ptr.pointee.get_identifier?(ptr) ?? 0
@@ -160,6 +175,7 @@ public final class CEFBrowser {
 
     private var cachedIdentifier: Int32 = 0
 
+    /// Gives or removes keyboard focus for the browser view.
     public func setFocus(_ focused: Bool) {
         withHost { $0.pointee.set_focus?($0, focused ? 1 : 0) }
     }
@@ -220,10 +236,12 @@ public final class CEFBrowser {
         }
     }
 
+    /// Closes CEF-native DevTools opened via showDevToolsWindow.
     public func closeDevTools() {
         withHost { $0.pointee.close_dev_tools?($0) }
     }
 
+    /// Whether CEF-native DevTools is currently shown for this browser.
     public var hasDevTools: Bool {
         var result = false
         withHost { result = $0.pointee.has_dev_tools?($0) != 0 }
@@ -258,8 +276,11 @@ public final class CEFBrowser {
 /// Host view for an embedded browser: keeps the CEF-created child view sized
 /// to its own bounds.
 public final class CEFBrowserContainerView: NSView {
+    /// Flipped so the CEF child view's top-left origin matches Chromium's
+    /// coordinate expectations.
     public override var isFlipped: Bool { true }
 
+    /// Keeps the CEF-created child view sized to this view's bounds.
     public override func layout() {
         super.layout()
         for subview in subviews {
