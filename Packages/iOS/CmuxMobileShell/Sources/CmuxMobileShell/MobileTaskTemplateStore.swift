@@ -27,7 +27,7 @@ public final class UserDefaultsMobileTaskTemplateStore: MobileTaskTemplateStorin
 
     /// Creates a task template store backed by `defaults`.
     /// - Parameter defaults: The `UserDefaults` instance to persist into.
-    public init(defaults: UserDefaults = .standard) {
+    public init(defaults: UserDefaults) {
         self.defaults = defaults
     }
 

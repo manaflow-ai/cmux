@@ -291,7 +291,7 @@ public struct CMUXMobileRootScene: View {
             feedbackEmailSubmitter: feedbackEmailSubmitter,
             feedbackStampProvider: feedbackStampProvider,
             draftStore: draftStore,
-            taskTemplateStore: UserDefaultsMobileTaskTemplateStore()
+            taskTemplateStore: UserDefaultsMobileTaskTemplateStore(defaults: .standard)
         )
         #else
         return CMUXMobileShellStore(
@@ -308,7 +308,7 @@ public struct CMUXMobileRootScene: View {
             feedbackEmailSubmitter: feedbackEmailSubmitter,
             feedbackStampProvider: feedbackStampProvider,
             draftStore: draftStore,
-            taskTemplateStore: UserDefaultsMobileTaskTemplateStore()
+            taskTemplateStore: UserDefaultsMobileTaskTemplateStore(defaults: .standard)
         )
         #endif
     }

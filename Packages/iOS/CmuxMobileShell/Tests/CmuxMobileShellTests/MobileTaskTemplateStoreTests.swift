@@ -102,6 +102,23 @@ import CmuxMobileShellModel
         #expect(UserDefaultsMobileTaskTemplateStore(defaults: defaults).composerDraft() == nil)
     }
 
+    @Test func signOutClearsPersistedComposerDraftBeforeAnotherAccountCanRestoreIt() {
+        let defaults = Self.defaults()
+        let templateStore = UserDefaultsMobileTaskTemplateStore(defaults: defaults)
+        templateStore.setComposerDraft(MobileTaskComposerDraft(
+            prompt: "Account A secret",
+            templateID: nil,
+            macDeviceID: "mac-a",
+            directory: "~/Account-A",
+            didEditDirectory: true
+        ))
+        let shell = MobileShellComposite(isSignedIn: true, taskTemplateStore: templateStore)
+
+        shell.signOut()
+
+        #expect(UserDefaultsMobileTaskTemplateStore(defaults: defaults).composerDraft() == nil)
+    }
+
     private static func defaults() -> UserDefaults {
         let suiteName = "MobileTaskTemplateStoreTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!

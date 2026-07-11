@@ -78,7 +78,7 @@ extension MobileShellComposite {
             )
             let response = try MobileSyncWorkspaceListResponse.decode(resultData)
             guard isCurrentRemoteOperation(client: client, generation: generation), !Task.isCancelled else {
-                return .success(())
+                return .failure(.notConnected(hostDisplayName: connectedHostName))
             }
             applyRemoteWorkspaceList(response, mergeExistingWorkspaces: true)
             let createdWorkspace = response.createdWorkspaceID.map(MobileWorkspacePreview.ID.init(rawValue:))
@@ -97,9 +97,9 @@ extension MobileShellComposite {
             }
             return .success(())
         } catch {
-            // The caller cancelled (e.g. the composer sheet was dismissed): the
-            // result is dropped anyway, so don't fabricate a failure.
-            guard !Task.isCancelled else { return .success(()) }
+            if Task.isCancelled {
+                return .failure(.notConnected(hostDisplayName: connectedHostName))
+            }
             // A stale operation (connection replaced mid-flight) must not mutate
             // the NEW connection's state, but it must still report failure:
             // mapping it to success lets the task composer dismiss and persist

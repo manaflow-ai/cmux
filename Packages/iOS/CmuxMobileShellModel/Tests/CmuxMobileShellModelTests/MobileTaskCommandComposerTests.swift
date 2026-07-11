@@ -4,16 +4,12 @@ import Testing
 @Suite struct MobileTaskCommandComposerTests {
     private let composer = MobileTaskCommandComposer()
 
-    @Test func shellQuotedEscapesSingleQuotesNewlinesAndEmoji() {
-        #expect(composer.shellQuoted("fix Bob's\nemoji 😀") == "'fix Bob'\\''s\nemoji 😀'")
-    }
-
     @Test func placeholderReplacesEveryOccurrence() {
         let template = MobileTaskTemplate(name: "Echo", icon: "terminal", command: "echo {prompt}; printf %s {prompt}")
 
         let result = composer.compose(template: template, prompt: "ship it")
 
-        #expect(result.initialCommand == "echo 'ship it'; printf %s 'ship it'")
+        #expect(result.initialCommand == "echo \"${CMUX_TASK_PROMPT}\"; printf %s \"${CMUX_TASK_PROMPT}\"")
         #expect(result.initialEnv == ["CMUX_TASK_PROMPT": "ship it"])
     }
 
@@ -22,7 +18,7 @@ import Testing
 
         let result = composer.compose(template: template, prompt: " \n ")
 
-        #expect(result.initialCommand == "echo ''")
+        #expect(result.initialCommand == "echo \"${CMUX_TASK_PROMPT}\"")
         #expect(result.initialEnv.isEmpty)
         #expect(result.title == nil)
     }
@@ -42,8 +38,26 @@ import Testing
 
         let result = composer.compose(template: template, prompt: "fix 'quote'")
 
-        #expect(result.initialCommand == "claude 'fix '\\''quote'\\'''")
+        #expect(result.initialCommand == "claude \"${CMUX_TASK_PROMPT}\"")
         #expect(result.initialEnv == ["CMUX_TASK_PROMPT": "fix 'quote'"])
+    }
+
+    @Test func placeholdersInsideShellQuotesCannotReparsePromptText() {
+        let template = MobileTaskTemplate(
+            name: "Quoted",
+            icon: "terminal",
+            command: "claude \"{prompt}\"; codex '{prompt}'; tool --prompt={prompt}"
+        )
+        let prompt = "$(touch /tmp/injected) `id` $HOME ' \""
+
+        let result = composer.compose(template: template, prompt: prompt)
+
+        #expect(
+            result.initialCommand
+                == "claude \"${CMUX_TASK_PROMPT}\"; codex ''\"${CMUX_TASK_PROMPT}\"''; tool --prompt=\"${CMUX_TASK_PROMPT}\""
+        )
+        #expect(result.initialCommand?.contains("touch") == false)
+        #expect(result.initialEnv == ["CMUX_TASK_PROMPT": prompt])
     }
 
     @Test func appendModeLeavesCommandUnchangedForEmptyPrompt() {
