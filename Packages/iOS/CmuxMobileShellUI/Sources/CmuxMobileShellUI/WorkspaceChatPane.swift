@@ -54,12 +54,10 @@ struct WorkspaceChatPane: View {
             // selectedTerminalID directly avoids a surprise keyboard pop.
             store.selectTerminalFromChrome(MobileTerminalPreview.ID(rawValue: terminalID))
         }
-        // Close any active browser pane for this workspace first: the detail
-        // body prefers browser over terminal, so leaving a browser open would
-        // make "Open Terminal" land back on the browser instead of the
-        // terminal the user asked for (matches the terminal-picker path).
+        // Hide any selected browser first. Its phone-local session remains
+        // retained so the Safari grid can reveal the same browser later.
         if let workspaceID = session.workspaceID {
-            browserStore.closeBrowser(for: workspaceID)
+            browserStore.showNonBrowserSurface(for: workspaceID)
         }
         onExitChat()
     }

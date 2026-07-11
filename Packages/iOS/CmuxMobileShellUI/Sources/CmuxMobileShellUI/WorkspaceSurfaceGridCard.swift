@@ -41,6 +41,7 @@ struct WorkspaceSurfaceGridCard: View {
             .opacity(item.isDimmed ? 0.66 : 1)
             .accessibilityElement(children: .combine)
             .accessibilityAddTraits(.isButton)
+            .accessibilityAddTraits(item.isSelected ? .isSelected : [])
             .accessibilityIdentifier("MobileSurfaceGridCard-\(item.id)")
 
             if item.canClose {
@@ -68,7 +69,7 @@ struct WorkspaceSurfaceGridCard: View {
         Button(action: close) {
             Image(systemName: "xmark")
                 .font(.system(size: 14, weight: .bold))
-                .frame(width: 34, height: 34)
+                .frame(width: 44, height: 44)
                 .background(Color.black.opacity(0.48), in: Circle())
                 .overlay(Circle().stroke(.white.opacity(0.15), lineWidth: 1))
         }

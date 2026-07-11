@@ -113,10 +113,42 @@ import Testing
     @Test func navigationFailureSurfacesMessageAndStopsLoading() {
         let state = makeState()
         state.navigationDidStart()
-        state.navigationDidFail(message: "no network")
+        let failedURL = URL(string: "https://unreachable.invalid")!
+        state.navigationDidFail(message: "no network", url: failedURL)
         #expect(state.isLoading == false)
         #expect(state.estimatedProgress == 0)
         #expect(state.lastErrorMessage == "no network")
+        #expect(state.lastFailedURL == failedURL)
+    }
+
+    @Test func retryFailureQueuesExactDestinationAndClearsError() {
+        let state = makeState()
+        let failedURL = URL(string: "https://unreachable.invalid/path")!
+        state.navigationDidFail(message: "offline", url: failedURL)
+
+        state.retryFailedNavigation()
+
+        #expect(state.consumeLoadRequest() == failedURL)
+        #expect(state.addressText == failedURL.absoluteString)
+        #expect(state.lastErrorMessage == nil)
+        #expect(state.lastFailedURL == nil)
+    }
+
+    @Test func laterSuccessClearsFailureAndCommitsPageIdentity() {
+        let state = makeState()
+        state.navigationDidFail(
+            message: "offline",
+            url: URL(string: "https://example.com/failed")!
+        )
+        let committedURL = URL(string: "https://example.com/success")!
+
+        state.navigationDidFinish(url: committedURL, title: "Success")
+
+        #expect(state.currentURL == committedURL)
+        #expect(state.addressText == committedURL.absoluteString)
+        #expect(state.title == "Success")
+        #expect(state.lastErrorMessage == nil)
+        #expect(state.lastFailedURL == nil)
     }
 
     @Test func commandQueueConsumedOnce() {

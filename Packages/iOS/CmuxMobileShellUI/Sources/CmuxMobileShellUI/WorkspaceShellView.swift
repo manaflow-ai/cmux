@@ -289,7 +289,7 @@ struct WorkspaceShellView: View {
 
     private func openTerminalFromSurfaceGrid(_ workspaceID: MobileWorkspacePreview.ID, terminalID: MobileTerminalPreview.ID) {
         pendingCompactCreateNavigationWorkspaceIDs = nil
-        browserStore.closeBrowser(for: workspaceID.rawValue)
+        browserStore.showNonBrowserSurface(for: workspaceID.rawValue)
         store.selectedWorkspaceID = workspaceID
         store.selectTerminalFromChrome(terminalID)
         compactNavigationPath = [workspaceID]
@@ -308,7 +308,7 @@ struct WorkspaceShellView: View {
 
     private func createTerminalFromSurfaceGrid(_ workspaceID: MobileWorkspacePreview.ID) {
         pendingCompactCreateNavigationWorkspaceIDs = nil
-        browserStore.closeBrowser(for: workspaceID.rawValue)
+        browserStore.showNonBrowserSurface(for: workspaceID.rawValue)
         store.createTerminal(in: workspaceID)
         compactNavigationPath = [workspaceID]
     }

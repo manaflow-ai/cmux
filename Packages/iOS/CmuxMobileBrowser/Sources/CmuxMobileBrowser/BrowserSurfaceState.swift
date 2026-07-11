@@ -122,6 +122,10 @@ public final class BrowserSurfaceState: Identifiable {
     /// `nil` when the last navigation succeeded or none has occurred.
     public var lastErrorMessage: String?
 
+    /// The destination associated with ``lastErrorMessage``, used by the
+    /// recoverable error UI for retry.
+    public var lastFailedURL: URL?
+
     /// A pending URL the representable should load, set by ``load(_:)``. The
     /// view consumes it via ``consumeLoadRequest()`` and clears it so the same
     /// request is not replayed on re-render.
@@ -131,6 +135,11 @@ public final class BrowserSurfaceState: Identifiable {
     /// the `WKWebView` (back, forward, reload, stop). The view consumes it via
     /// ``consumeCommand()`` and clears it so the same command runs once.
     public private(set) var pendingCommand: NavigationCommand?
+
+    /// Invoked after the durable subset of this state changes. The owning
+    /// ``BrowserSurfaceStore`` installs this so workspace association and the
+    /// last committed page survive a cold app launch.
+    private var persistDurableState: (@MainActor () -> Void)?
 
     /// Creates a browser surface state.
     ///
@@ -152,7 +161,9 @@ public final class BrowserSurfaceState: Identifiable {
         self.canGoBack = false
         self.canGoForward = false
         self.lastErrorMessage = nil
+        self.lastFailedURL = nil
         self.loadRequest = initialURL
+        self.persistDurableState = nil
     }
 
     /// Request a navigation to `url`. Sets ``loadRequest`` for the view to pick
@@ -163,6 +174,7 @@ public final class BrowserSurfaceState: Identifiable {
         loadRequest = url
         addressText = url.absoluteString
         lastErrorMessage = nil
+        lastFailedURL = nil
         savedInteractionState = nil
     }
 
@@ -182,6 +194,7 @@ public final class BrowserSurfaceState: Identifiable {
     public func setContentModePreference(_ preference: ContentModePreference) {
         guard contentModePreference != preference else { return }
         contentModePreference = preference
+        persistDurableState?()
         if loadRequest == nil, currentURL != nil {
             request(.reload)
         }
@@ -251,20 +264,57 @@ public final class BrowserSurfaceState: Identifiable {
         isLoading = true
         estimatedProgress = 0
         lastErrorMessage = nil
+        lastFailedURL = nil
     }
 
-    /// Mark a successful navigation finish: loading ends and progress completes.
-    public func navigationDidFinish() {
+    /// Mark a successful navigation finish and save its committed identity.
+    ///
+    /// - Parameters:
+    ///   - url: The URL WebKit committed for the completed navigation.
+    ///   - title: The page title WebKit reported, when non-empty.
+    public func navigationDidFinish(url: URL? = nil, title: String? = nil) {
         isLoading = false
         estimatedProgress = 1
+        if let url {
+            currentURL = url
+            if !isAddressEditing {
+                addressText = url.absoluteString
+            }
+        }
+        if let title, !title.isEmpty {
+            self.title = title
+        }
+        lastErrorMessage = nil
+        lastFailedURL = nil
+        persistDurableState?()
     }
 
     /// Mark a navigation failure with a user-facing message.
     ///
-    /// - Parameter message: The error description to surface in the chrome.
-    public func navigationDidFail(message: String) {
+    /// - Parameters:
+    ///   - message: The error description to surface in the chrome.
+    ///   - url: The failed destination, when known.
+    public func navigationDidFail(message: String, url: URL? = nil) {
         isLoading = false
         estimatedProgress = 0
         lastErrorMessage = message
+        lastFailedURL = url
+    }
+
+    /// Retry the failed destination, if one was recorded.
+    public func retryFailedNavigation() {
+        guard let lastFailedURL else { return }
+        load(lastFailedURL)
+    }
+
+    /// Clear a visible navigation error without changing the committed page.
+    public func clearNavigationError() {
+        lastErrorMessage = nil
+        lastFailedURL = nil
+    }
+
+    /// Install the store-owned durable-state callback.
+    func installPersistence(_ action: @escaping @MainActor () -> Void) {
+        persistDurableState = action
     }
 }

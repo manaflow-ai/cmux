@@ -31,7 +31,7 @@ public struct CMUXMobileAppView: View {
     ///     and ad-hoc construction never present onboarding.
     public init(
         store: CMUXMobileShellStore = .preview(),
-        browserStore: BrowserSurfaceStore = BrowserSurfaceStore(),
+        browserStore: BrowserSurfaceStore = BrowserSurfaceStore(persistenceDefaults: .standard),
         onboardingStore: MobileOnboardingStore = MobileOnboardingStore(defaults: .standard, forceSeen: true)
     ) {
         _store = State(initialValue: store)

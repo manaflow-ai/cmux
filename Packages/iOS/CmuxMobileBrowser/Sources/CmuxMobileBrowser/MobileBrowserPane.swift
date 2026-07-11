@@ -38,46 +38,53 @@ public struct MobileBrowserPane: View {
         VStack(spacing: 0) {
             chromeBar
             progressLine
-            MobileBrowserView(state: state)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            browserContent
         }
         .background(Color(.systemBackground))
     }
 
     private var chromeBar: some View {
-        HStack(spacing: 12) {
-            Button {
-                state.request(.goBack)
-            } label: {
-                Image(systemName: "chevron.backward")
-            }
-            .disabled(!state.canGoBack)
-            .accessibilityLabel(L10n.string("mobile.browser.back", defaultValue: "Back"))
-            .accessibilityIdentifier("MobileBrowserBackButton")
-
-            Button {
-                state.request(.goForward)
-            } label: {
-                Image(systemName: "chevron.forward")
-            }
-            .disabled(!state.canGoForward)
-            .accessibilityLabel(L10n.string("mobile.browser.forward", defaultValue: "Forward"))
-            .accessibilityIdentifier("MobileBrowserForwardButton")
-
+        VStack(spacing: 4) {
             addressField
 
-            reloadOrStopButton
+            HStack(spacing: 8) {
+                Button {
+                    state.request(.goBack)
+                } label: {
+                    Image(systemName: "chevron.backward")
+                        .frame(width: 44, height: 44)
+                }
+                .disabled(!state.canGoBack)
+                .accessibilityLabel(L10n.string("mobile.browser.back", defaultValue: "Back"))
+                .accessibilityIdentifier("MobileBrowserBackButton")
 
-            overflowMenu
+                Button {
+                    state.request(.goForward)
+                } label: {
+                    Image(systemName: "chevron.forward")
+                        .frame(width: 44, height: 44)
+                }
+                .disabled(!state.canGoForward)
+                .accessibilityLabel(L10n.string("mobile.browser.forward", defaultValue: "Forward"))
+                .accessibilityIdentifier("MobileBrowserForwardButton")
 
-            Button(action: onClose) {
-                Image(systemName: "xmark")
+                Spacer(minLength: 8)
+
+                reloadOrStopButton
+
+                overflowMenu
+
+                Button(action: onClose) {
+                    Image(systemName: "xmark")
+                        .frame(width: 44, height: 44)
+                }
+                .accessibilityLabel(L10n.string("mobile.browser.close", defaultValue: "Close Browser"))
+                .accessibilityIdentifier("MobileBrowserCloseButton")
             }
-            .accessibilityLabel(L10n.string("mobile.browser.close", defaultValue: "Close Browser"))
-            .accessibilityIdentifier("MobileBrowserCloseButton")
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .padding(.top, 8)
+        .padding(.bottom, 4)
         .background(.bar)
     }
 
@@ -109,7 +116,7 @@ public struct MobileBrowserPane: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 7)
-        .frame(minHeight: 36)
+        .frame(minHeight: 44)
         .background(Color(.secondarySystemBackground))
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         .overlay {
@@ -145,6 +152,7 @@ public struct MobileBrowserPane: View {
                 state.request(.stopLoading)
             } label: {
                 Image(systemName: "xmark.circle")
+                    .frame(width: 44, height: 44)
             }
             .accessibilityLabel(L10n.string("mobile.browser.stop", defaultValue: "Stop"))
             .accessibilityIdentifier("MobileBrowserStopButton")
@@ -153,6 +161,7 @@ public struct MobileBrowserPane: View {
                 state.request(.reload)
             } label: {
                 Image(systemName: "arrow.clockwise")
+                    .frame(width: 44, height: 44)
             }
             .accessibilityLabel(L10n.string("mobile.browser.reload", defaultValue: "Reload"))
             .accessibilityIdentifier("MobileBrowserReloadButton")
@@ -227,9 +236,35 @@ public struct MobileBrowserPane: View {
             ProgressView(value: state.estimatedProgress)
                 .progressViewStyle(.linear)
                 .frame(height: 2)
+                .accessibilityLabel(L10n.string("mobile.browser.loading", defaultValue: "Loading"))
+                .accessibilityValue(Text(state.estimatedProgress, format: .percent))
                 .accessibilityIdentifier("MobileBrowserProgress")
         } else {
             Color.clear.frame(height: 2)
+        }
+    }
+
+    @ViewBuilder
+    private var browserContent: some View {
+        ZStack {
+            MobileBrowserView(state: state)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            if let error = state.lastErrorMessage {
+                BrowserNavigationErrorView(
+                    failedURL: state.lastFailedURL,
+                    errorDescription: error,
+                    retry: state.retryFailedNavigation,
+                    goBack: recoverBackwardFromError
+                )
+            }
+        }
+    }
+
+    private func recoverBackwardFromError() {
+        state.clearNavigationError()
+        if state.canGoBack {
+            state.request(.goBack)
         }
     }
 }

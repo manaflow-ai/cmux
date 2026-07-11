@@ -649,9 +649,9 @@ struct WorkspaceDetailView: View {
     private func createTerminalFromToolbar() {
         dismissTerminalKeyboardForChrome()
         // Creating a terminal from the (shared) chrome must surface it. If a
-        // browser pane is up, close it so `body` leaves the browser branch and
-        // shows the new terminal instead of staying on the browser.
-        browserStore.closeBrowser(for: workspace.id.rawValue)
+        // browser pane is up, hide it so `body` shows the new terminal while
+        // retaining the phone-local browser for the Safari grid.
+        browserStore.showNonBrowserSurface(for: workspace.id.rawValue)
         createTerminal()
     }
 
@@ -665,9 +665,9 @@ struct WorkspaceDetailView: View {
 
     private func selectTerminalFromPicker(_ terminalID: MobileTerminalPreview.ID) {
         dismissTerminalKeyboardForChrome()
-        // Choosing a terminal returns from the browser pane (if up) to the
-        // terminal. Closing the browser is enough to flip the detail view back.
-        browserStore.closeBrowser(for: workspace.id.rawValue)
+        // Choosing a terminal returns from the browser pane while retaining the
+        // local browser session for a later grid selection.
+        browserStore.showNonBrowserSurface(for: workspace.id.rawValue)
         // Switching from the picker is chrome, not a typing intent, so the
         // newly-selected surface must not grab the keyboard on attach. The
         // store suppresses the target's autofocus (and is a no-op when it is

@@ -58,7 +58,7 @@ struct WorkspaceSurfaceGridView: View {
             )
         }
 
-        if let browser = browserStore.activeBrowser(for: workspace.id.rawValue) {
+        if let browser = browserStore.browser(for: workspace.id.rawValue) {
             items.insert(
                 WorkspaceSurfaceGridItem(
                     id: "browser-\(browser.id.rawValue)",
@@ -69,8 +69,8 @@ struct WorkspaceSurfaceGridView: View {
                     detail: browser.currentURL?.absoluteString
                         ?? L10n.string("mobile.surfaceGrid.browserAddressEmpty", defaultValue: "No page loaded"),
                     systemImage: "globe",
-                    isSelected: true,
-                    isDimmed: connectionStatus != .connected,
+                    isSelected: browserStore.isBrowserSelected(for: workspace.id.rawValue),
+                    isDimmed: false,
                     canClose: true
                 ),
                 at: 0
@@ -245,9 +245,9 @@ struct WorkspaceSurfaceGridView: View {
                 Button(action: reconnect) {
                     Text(L10n.string("mobile.workspace.reconnect", defaultValue: "Reconnect"))
                         .font(.caption.weight(.semibold))
+                        .frame(minHeight: 44)
                 }
                 .buttonStyle(.borderedProminent)
-                .controlSize(.small)
             }
         }
         .padding(12)
@@ -376,7 +376,7 @@ struct WorkspaceSurfaceGridView: View {
 
     private func canOpenSelectedSurface(in workspace: MobileWorkspacePreview?) -> Bool {
         guard let workspace else { return false }
-        if browserStore.activeBrowser(for: workspace.id.rawValue) != nil {
+        if browserStore.isBrowserSelected(for: workspace.id.rawValue) {
             return true
         }
         return WorkspaceSurfaceGridSelection(
@@ -387,7 +387,7 @@ struct WorkspaceSurfaceGridView: View {
 
     private func openSelectedSurface(in workspace: MobileWorkspacePreview?) {
         guard let workspace else { return }
-        if browserStore.activeBrowser(for: workspace.id.rawValue) != nil {
+        if browserStore.isBrowserSelected(for: workspace.id.rawValue) {
             openBrowser(workspace.id)
             return
         }

@@ -72,7 +72,7 @@ public struct WorkspaceListLayoutPreviewView: View {
                         openTerminal: { workspaceID, terminalID in
                             selectedWorkspaceID = workspaceID
                             selectedTerminalID = terminalID
-                            browserStore.closeBrowser(for: workspaceID.rawValue)
+                            browserStore.showNonBrowserSurface(for: workspaceID.rawValue)
                         },
                         openBrowser: { workspaceID in
                             selectedWorkspaceID = workspaceID
@@ -123,7 +123,7 @@ public struct WorkspaceListLayoutPreviewView: View {
         workspaces[index].terminals.append(terminal)
         selectedWorkspaceID = workspaceID
         selectedTerminalID = terminal.id
-        browserStore.closeBrowser(for: workspaceID.rawValue)
+        browserStore.showNonBrowserSurface(for: workspaceID.rawValue)
     }
 }
 #endif

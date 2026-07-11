@@ -95,6 +95,9 @@ public struct MobileBrowserView: UIViewRepresentable {
         /// and kicks off the first pending load.
         /// - Parameter webView: The web view to observe and drive.
         func attach(webView: WKWebView) {
+            if self.webView != nil, self.webView !== webView {
+                detach()
+            }
             self.webView = webView
             observe(webView)
             // WebKit's `.recommended` content mode resolves to desktop on
@@ -186,36 +189,50 @@ public struct MobileBrowserView: UIViewRepresentable {
             // state on the main actor. `options: [.initial]` is intentionally
             // omitted so the seeded state is not overwritten before first load.
             observations = [
-                webView.observe(\.estimatedProgress) { [state] webView, _ in
+                webView.observe(\.estimatedProgress) { [weak self, state] webView, _ in
                     MainActor.assumeIsolated {
+                        guard self?.acceptsCallbacks(from: webView) == true else { return }
                         state.estimatedProgress = webView.estimatedProgress
                     }
                 },
-                webView.observe(\.title) { [state] webView, _ in
+                webView.observe(\.title) { [weak self, state] webView, _ in
                     MainActor.assumeIsolated {
+                        guard self?.acceptsCallbacks(from: webView) == true else { return }
                         if let title = webView.title, !title.isEmpty {
                             state.title = title
                         }
                     }
                 },
-                webView.observe(\.url) { [state] webView, _ in
+                webView.observe(\.url) { [weak self, state] webView, _ in
                     MainActor.assumeIsolated {
-                        state.currentURL = webView.url
+                        guard self?.acceptsCallbacks(from: webView) == true else { return }
                         // Do not clobber the user's in-progress typing: only
-                        // mirror the live URL into the address bar when the user
-                        // is not editing it.
+                        // mirror the live provisional URL into the address bar
+                        // when the user is not editing it. `currentURL` remains
+                        // the last committed destination until `didFinish`, so
+                        // persistence never records a failed provisional load.
                         if let url = webView.url, !state.isAddressEditing {
                             state.addressText = url.absoluteString
                         }
                     }
                 },
-                webView.observe(\.canGoBack) { [state] webView, _ in
-                    MainActor.assumeIsolated { state.canGoBack = webView.canGoBack }
+                webView.observe(\.canGoBack) { [weak self, state] webView, _ in
+                    MainActor.assumeIsolated {
+                        guard self?.acceptsCallbacks(from: webView) == true else { return }
+                        state.canGoBack = webView.canGoBack
+                    }
                 },
-                webView.observe(\.canGoForward) { [state] webView, _ in
-                    MainActor.assumeIsolated { state.canGoForward = webView.canGoForward }
+                webView.observe(\.canGoForward) { [weak self, state] webView, _ in
+                    MainActor.assumeIsolated {
+                        guard self?.acceptsCallbacks(from: webView) == true else { return }
+                        state.canGoForward = webView.canGoForward
+                    }
                 },
             ]
+        }
+
+        private func acceptsCallbacks(from candidate: WKWebView) -> Bool {
+            webView === candidate
         }
 
         private func restoreInteractionState(on webView: WKWebView) -> Bool {
@@ -238,26 +255,27 @@ public struct MobileBrowserView: UIViewRepresentable {
         // MARK: - WKNavigationDelegate
 
         public func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+            guard acceptsCallbacks(from: webView) else { return }
             state.navigationDidStart()
         }
 
         public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-            state.navigationDidFinish()
-            if let title = webView.title, !title.isEmpty {
-                state.title = title
-            }
+            guard acceptsCallbacks(from: webView) else { return }
+            state.navigationDidFinish(url: webView.url, title: webView.title)
             captureInteractionState(from: webView)
         }
 
         public func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: any Error) {
-            failNavigation(with: error)
+            guard acceptsCallbacks(from: webView) else { return }
+            failNavigation(on: webView, with: error)
         }
 
         public func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: any Error) {
-            failNavigation(with: error)
+            guard acceptsCallbacks(from: webView) else { return }
+            failNavigation(on: webView, with: error)
         }
 
-        private func failNavigation(with error: any Error) {
+        private func failNavigation(on webView: WKWebView, with error: any Error) {
             // A cancelled load reports `NSURLErrorCancelled`. This is not a
             // failure to surface; it happens on a user stop AND when a new
             // navigation replaces an in-flight one. Mirror the web view's real
@@ -265,11 +283,16 @@ public struct MobileBrowserView: UIViewRepresentable {
             // loading state when a replacement navigation is still in flight.
             let nsError = error as NSError
             if nsError.domain == NSURLErrorDomain, nsError.code == NSURLErrorCancelled {
-                state.isLoading = webView?.isLoading ?? false
+                state.isLoading = webView.isLoading
                 if !state.isLoading { state.estimatedProgress = 0 }
                 return
             }
-            state.navigationDidFail(message: error.localizedDescription)
+            let failingValue = nsError.userInfo[NSURLErrorFailingURLErrorKey]
+            let failedURL = failingValue as? URL
+                ?? (failingValue as? String).flatMap(URL.init(string:))
+                ?? webView.url
+                ?? state.currentURL
+            state.navigationDidFail(message: error.localizedDescription, url: failedURL)
         }
 
         /// Applies the surface's content-mode preference (mobile/desktop/
@@ -280,6 +303,10 @@ public struct MobileBrowserView: UIViewRepresentable {
             preferences: WKWebpagePreferences,
             decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy, WKWebpagePreferences) -> Void
         ) {
+            guard acceptsCallbacks(from: webView) else {
+                decisionHandler(.cancel, preferences)
+                return
+            }
             preferences.preferredContentMode = state.contentModePreference.webKitContentMode
             decisionHandler(.allow, preferences)
         }
@@ -292,6 +319,7 @@ public struct MobileBrowserView: UIViewRepresentable {
             for navigationAction: WKNavigationAction,
             windowFeatures: WKWindowFeatures
         ) -> WKWebView? {
+            guard acceptsCallbacks(from: webView) else { return nil }
             // P1 is a single-pane browser with no tabs, so `target="_blank"` /
             // `window.open` links (which arrive with a nil `targetFrame`) would
             // otherwise be silently dropped. Load them in the current web view
