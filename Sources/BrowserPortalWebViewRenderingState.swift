@@ -9,15 +9,28 @@ import WebKit
 /// hidden or alpha-0 window. When such a webview becomes visible again (a
 /// portal reveal, or adoption out of the prewarm pool's offscreen host), the
 /// refresh pass must fire WebKit's re-enter selectors or the first paint
-/// keeps the stale layer tree from the hidden host.
+/// keeps the stale layer tree from the hidden host. A first-sized reveal also
+/// delivers a real geometry delta so WebKit recomputes scrollable content.
 
 private var cmuxBrowserPortalNeedsRenderingStateReattachKey: UInt8 = 0
+private var cmuxBrowserPortalNeedsFirstSizedRevealNudgeKey: UInt8 = 0
+private var cmuxBrowserPortalFirstSizedRevealNudgeGenerationKey: UInt8 = 0
 
 #if DEBUG
 private func browserPortalRenderingStateDebugToken(_ view: NSView?) -> String {
     guard let view else { return "nil" }
     let ptr = Unmanaged.passUnretained(view).toOpaque()
     return String(describing: ptr)
+}
+
+private func browserPortalRenderingStateDebugFrame(_ frame: NSRect) -> String {
+    String(
+        format: "%.1f,%.1f %.1fx%.1f",
+        frame.origin.x,
+        frame.origin.y,
+        frame.size.width,
+        frame.size.height
+    )
 }
 #endif
 
@@ -34,6 +47,17 @@ private extension NSObject {
 }
 
 extension WKWebView {
+    private static func browserPortalRectApproximatelyEqual(
+        _ lhs: NSRect,
+        _ rhs: NSRect,
+        epsilon: CGFloat = 0.5
+    ) -> Bool {
+        abs(lhs.origin.x - rhs.origin.x) <= epsilon &&
+            abs(lhs.origin.y - rhs.origin.y) <= epsilon &&
+            abs(lhs.size.width - rhs.size.width) <= epsilon &&
+            abs(lhs.size.height - rhs.size.height) <= epsilon
+    }
+
     fileprivate var browserPortalNeedsRenderingStateReattach: Bool {
         get {
             (objc_getAssociatedObject(self, &cmuxBrowserPortalNeedsRenderingStateReattachKey) as? NSNumber)?
@@ -49,8 +73,69 @@ extension WKWebView {
         }
     }
 
+    fileprivate var browserPortalNeedsFirstSizedRevealNudge: Bool {
+        get {
+            (objc_getAssociatedObject(self, &cmuxBrowserPortalNeedsFirstSizedRevealNudgeKey) as? NSNumber)?
+                .boolValue ?? false
+        }
+        set {
+            objc_setAssociatedObject(
+                self,
+                &cmuxBrowserPortalNeedsFirstSizedRevealNudgeKey,
+                NSNumber(value: newValue),
+                .OBJC_ASSOCIATION_RETAIN_NONATOMIC
+            )
+        }
+    }
+
+    fileprivate var browserPortalFirstSizedRevealNudgeGeneration: UInt64 {
+        get {
+            (objc_getAssociatedObject(self, &cmuxBrowserPortalFirstSizedRevealNudgeGenerationKey) as? NSNumber)?
+                .uint64Value ?? 0
+        }
+        set {
+            objc_setAssociatedObject(
+                self,
+                &cmuxBrowserPortalFirstSizedRevealNudgeGenerationKey,
+                NSNumber(value: newValue),
+                .OBJC_ASSOCIATION_RETAIN_NONATOMIC
+            )
+        }
+    }
+
     var browserPortalRequiresRenderingStateReattach: Bool {
         browserPortalNeedsRenderingStateReattach
+    }
+
+    var browserPortalRequiresFirstSizedRevealNudge: Bool {
+        browserPortalNeedsFirstSizedRevealNudge
+    }
+
+#if DEBUG
+    var browserPortalHasPendingFirstSizedRevealNudgeForTesting: Bool {
+        browserPortalNeedsFirstSizedRevealNudge
+    }
+#endif
+
+    func browserPortalMarkNeedsFirstSizedRevealNudge(reason: String) {
+        browserPortalNeedsFirstSizedRevealNudge = true
+#if DEBUG
+        cmuxDebugLog(
+            "browser.portal.webview.firstSizedReveal.flag web=\(browserPortalRenderingStateDebugToken(self)) " +
+            "reason=\(reason) window=\(window == nil ? 0 : 1) frame=\(browserPortalRenderingStateDebugFrame(frame))"
+        )
+#endif
+    }
+
+    func browserPortalMarkFirstSizedRevealNudgeIfNavigationStartsUnsized(reason: String) {
+        guard window == nil ||
+            !frame.size.width.isFinite ||
+            !frame.size.height.isFinite ||
+            frame.width <= 1 ||
+            frame.height <= 1 else {
+            return
+        }
+        browserPortalMarkNeedsFirstSizedRevealNudge(reason: reason)
     }
 
     /// A pool-prewarmed webview loads inside an alpha-0 offscreen window, so
@@ -75,6 +160,125 @@ extension WKWebView {
             )
         }
 #endif
+    }
+
+    @discardableResult
+    func browserPortalApplyFirstSizedRevealGeometryNudgeIfNeeded(
+        reason: String,
+        hasCompanionWKSubviews: Bool,
+        managedByExternalFullscreenWindow: Bool
+    ) -> Bool {
+        guard browserPortalNeedsFirstSizedRevealNudge else { return false }
+        guard window != nil else {
+#if DEBUG
+            cmuxDebugLog(
+                "browser.portal.webview.firstSizedReveal.skip web=\(browserPortalRenderingStateDebugToken(self)) " +
+                "reason=\(reason) skip=noWindow frame=\(browserPortalRenderingStateDebugFrame(frame))"
+            )
+#endif
+            return false
+        }
+        guard frame.size.width.isFinite,
+              frame.size.height.isFinite,
+              frame.width > 1,
+              frame.height > 1 else {
+#if DEBUG
+            cmuxDebugLog(
+                "browser.portal.webview.firstSizedReveal.skip web=\(browserPortalRenderingStateDebugToken(self)) " +
+                "reason=\(reason) skip=tinyFrame frame=\(browserPortalRenderingStateDebugFrame(frame))"
+            )
+#endif
+            return false
+        }
+        guard !hasCompanionWKSubviews else {
+            browserPortalNeedsFirstSizedRevealNudge = false
+#if DEBUG
+            cmuxDebugLog(
+                "browser.portal.webview.firstSizedReveal.skip web=\(browserPortalRenderingStateDebugToken(self)) " +
+                "reason=\(reason) skip=companionWKSubviews frame=\(browserPortalRenderingStateDebugFrame(frame))"
+            )
+#endif
+            return false
+        }
+        guard !managedByExternalFullscreenWindow else {
+            browserPortalNeedsFirstSizedRevealNudge = false
+#if DEBUG
+            cmuxDebugLog(
+                "browser.portal.webview.firstSizedReveal.skip web=\(browserPortalRenderingStateDebugToken(self)) " +
+                "reason=\(reason) skip=externalFullscreen frame=\(browserPortalRenderingStateDebugFrame(frame))"
+            )
+#endif
+            return false
+        }
+
+        let originalFrame = frame
+        let originalSize = originalFrame.size
+        let nudgedSize = NSSize(width: originalSize.width, height: max(1, originalSize.height - 1))
+        let nudgedFrame = NSRect(origin: originalFrame.origin, size: nudgedSize)
+        guard !Self.browserPortalRectApproximatelyEqual(originalFrame, nudgedFrame) else {
+            browserPortalNeedsFirstSizedRevealNudge = false
+#if DEBUG
+            cmuxDebugLog(
+                "browser.portal.webview.firstSizedReveal.skip web=\(browserPortalRenderingStateDebugToken(self)) " +
+                "reason=\(reason) skip=noDelta frame=\(browserPortalRenderingStateDebugFrame(frame))"
+            )
+#endif
+            return false
+        }
+
+        browserPortalNeedsFirstSizedRevealNudge = false
+        browserPortalFirstSizedRevealNudgeGeneration &+= 1
+        let generation = browserPortalFirstSizedRevealNudgeGeneration
+
+#if DEBUG
+        cmuxDebugLog(
+            "browser.portal.webview.firstSizedReveal.nudge web=\(browserPortalRenderingStateDebugToken(self)) " +
+            "reason=\(reason) old=\(browserPortalRenderingStateDebugFrame(originalFrame)) " +
+            "nudge=\(browserPortalRenderingStateDebugFrame(nudgedFrame))"
+        )
+#endif
+
+        setFrameSize(nudgedSize)
+        needsLayout = true
+        layoutSubtreeIfNeeded()
+        enclosingScrollView?.layoutSubtreeIfNeeded()
+        displayIfNeeded()
+
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            guard self.browserPortalFirstSizedRevealNudgeGeneration == generation else { return }
+            guard self.window != nil else {
+#if DEBUG
+                cmuxDebugLog(
+                    "browser.portal.webview.firstSizedReveal.restore.skip web=\(browserPortalRenderingStateDebugToken(self)) " +
+                    "reason=\(reason) skip=noWindow"
+                )
+#endif
+                return
+            }
+            guard Self.browserPortalRectApproximatelyEqual(self.frame, nudgedFrame) else {
+#if DEBUG
+                cmuxDebugLog(
+                    "browser.portal.webview.firstSizedReveal.restore.skip web=\(browserPortalRenderingStateDebugToken(self)) " +
+                    "reason=\(reason) skip=frameChanged current=\(browserPortalRenderingStateDebugFrame(self.frame)) " +
+                    "expected=\(browserPortalRenderingStateDebugFrame(nudgedFrame))"
+                )
+#endif
+                return
+            }
+            self.setFrameSize(originalSize)
+            self.needsLayout = true
+            self.layoutSubtreeIfNeeded()
+            self.enclosingScrollView?.layoutSubtreeIfNeeded()
+            self.displayIfNeeded()
+#if DEBUG
+            cmuxDebugLog(
+                "browser.portal.webview.firstSizedReveal.restore web=\(browserPortalRenderingStateDebugToken(self)) " +
+                "reason=\(reason) frame=\(browserPortalRenderingStateDebugFrame(self.frame))"
+            )
+#endif
+        }
+        return true
     }
 
     func browserPortalReattachRenderingState(reason: String) {

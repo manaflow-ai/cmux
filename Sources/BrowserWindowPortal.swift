@@ -1513,7 +1513,7 @@ final class WindowBrowserSlotView: NSView {
     func pinHostedWebView(_ webView: WKWebView) {
         guard webView.superview === self else { return }
 
-        let hasCompanionWKSubviews = Self.hasWebKitCompanionSubview(in: self, primaryWebView: webView)
+        let hasCompanionWKSubviews = hasVisibleWebKitCompanionSubview(for: webView)
         let needsPlainWebViewFrameReset =
             !hasCompanionWKSubviews &&
             Self.frameDiffersFromBounds(webView.frame, bounds: bounds)
@@ -1571,6 +1571,10 @@ final class WindowBrowserSlotView: NSView {
             stack.append(contentsOf: current.subviews)
         }
         return false
+    }
+
+    func hasVisibleWebKitCompanionSubview(for primaryWebView: WKWebView) -> Bool {
+        Self.hasWebKitCompanionSubview(in: self, primaryWebView: primaryWebView)
     }
 
     func effectivePaneTopChromeHeight() -> CGFloat {
