@@ -14,6 +14,7 @@ import {
   twitterSummary,
 } from "../i18n/seo";
 import { locales } from "../i18n/routing";
+import thMessages from "../messages/th.json";
 
 describe("SEO metadata helpers", () => {
   test("keeps canonical URLs locale-aware", () => {
@@ -77,6 +78,24 @@ describe("SEO metadata helpers", () => {
     );
     expect(description).toContain("👩🏽‍💻");
     expect(searchSnippetLength(description)).toBeLessThanOrEqual(160);
+  });
+
+  test("keeps dotted product names intact in localized descriptions", () => {
+    const description = seoDescription(
+      "th",
+      thMessages.landing.bestTerminal.metaDescription,
+    );
+    expect(description).toContain("Terminal.app");
+    expect(description).not.toContain("Terminal.…");
+    expect(searchSnippetLength(description)).toBeLessThanOrEqual(160);
+  });
+
+  test("truncates Thai titles at a word boundary", () => {
+    const title = seoTitle("th", thMessages.blog.cmuxHistory.metaTitle);
+    expect(title).toBe(
+      "cmux history: เปิดเทอร์มินัลและเซสชันที่ปิด…",
+    );
+    expect(searchSnippetLength(title)).toBeLessThanOrEqual(60);
   });
 
   test("adds useful context to short titles and trims long titles", () => {
