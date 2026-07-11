@@ -79,6 +79,11 @@ export default function middleware(request: NextRequest) {
   }
 
   const fallbackContentRequest = fallbackContentRequestForPathname(pathname);
+  if (fallbackContentRequest && !fallbackContentRequest.locale) {
+    const url = request.nextUrl.clone();
+    url.pathname = `/en${fallbackContentRequest.path}`;
+    return NextResponse.rewrite(url);
+  }
   if (
     fallbackContentRequest?.locale &&
     !hasFallbackContent(fallbackContentRequest.locale)

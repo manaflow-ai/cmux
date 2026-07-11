@@ -172,24 +172,34 @@ describe("SEO middleware", () => {
   });
 
   test("redirects fallback-only locale routes to translated content", () => {
-    for (const path of [
-      "/de/pricing",
-      "/de/docs/agent-integrations/oh-my-pi",
+    for (const canonicalPath of [
+      "/pricing",
+      "/docs/agent-integrations/oh-my-pi",
     ]) {
+      const path = `/de${canonicalPath}`;
       const response = middleware(
         requestFor(path, { "accept-language": "de" }),
       );
       expect(response.status).toBe(301);
       expect(response.headers.get("location")).toBe(
-        `https://cmux.com${path.replace("/de", "")}`,
+        `https://cmux.com${canonicalPath}`,
+      );
+
+      const canonical = middleware(
+        requestFor(canonicalPath, { "accept-language": "de" }),
+      );
+      expect(canonical.status).toBe(200);
+      expect(canonical.headers.get("location")).toBeNull();
+      expect(canonical.headers.get("x-middleware-rewrite")).toBe(
+        `https://cmux.com/en${canonicalPath}`,
       );
     }
 
-    expect(
-      middleware(
-        requestFor("/ja/pricing", { "accept-language": "ja" }),
-      ).status,
-    ).toBe(200);
+    const japanese = middleware(
+      requestFor("/ja/pricing", { "accept-language": "ja" }),
+    );
+    expect(japanese.status).toBe(200);
+    expect(japanese.headers.get("location")).toBeNull();
   });
 
   test("lists only translated fallback-content locales in the sitemap", () => {
