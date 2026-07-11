@@ -5,10 +5,9 @@ import { DocsHeading } from "@/app/[locale]/components/docs-heading";
 import {
   buildAlternates,
   openGraphDefaults,
-  seoDescription,
-  seoTitle,
   twitterSummary,
 } from "@/i18n/seo";
+import { ohMyPiSeoCopy } from "@/i18n/audited-seo";
 import {
   fallbackContentLocales,
   hasFallbackContent,
@@ -18,16 +17,18 @@ import { DocsSchema } from "../../docs-schema";
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
   const t = await getTranslations({ locale, namespace: "docs.ohMyPi" });
+  const siteMeta = await getTranslations({ locale, namespace: "meta" });
   const contentLocale = hasFallbackContent(locale) ? locale : "en";
   const alternates = buildAlternates(
     contentLocale,
     "/docs/agent-integrations/oh-my-pi",
     fallbackContentLocales,
   );
-  const title = seoTitle(contentLocale, t("metaTitle"));
-  const description = seoDescription(contentLocale, t("metaDescription"), {
-    minLength: 110,
-  });
+  const { title, description } = ohMyPiSeoCopy(
+    contentLocale,
+    t,
+    siteMeta,
+  );
   return {
     title: { absolute: title },
     description,

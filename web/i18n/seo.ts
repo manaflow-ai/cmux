@@ -138,157 +138,95 @@ export function hasLocalizedSeoCopy(locale: string) {
   );
 }
 
+export function detailedSeoDescriptionCandidate(locale: string) {
+  return detailedDescriptionSuffixes[locale] ?? detailedDescriptionSuffixes.en;
+}
+
+export function shortSeoDescriptionCandidate(locale: string) {
+  return shortDescriptionSuffixes[locale] ?? shortDescriptionSuffixes.en;
+}
+
 export function seoDescription(
   locale: string,
   description: string,
-  options: { minLength?: number } = {},
+  options: {
+    minLength?: number;
+    fallbackCandidates?: readonly string[];
+  } = {},
 ) {
   const minLength = options.minLength ?? DEFAULT_MIN_DESCRIPTION_LENGTH;
   const trimmed = description.trim();
-  if (metadataSearchLength(trimmed) >= minLength) {
-    return truncateMetadataText(
-      locale,
-      trimmed,
-      MAX_DESCRIPTION_LENGTH,
-      minLength,
-    );
+  const candidates = [...(options.fallbackCandidates ?? [])];
+
+  if (metadataSearchLength(trimmed) < minLength) {
+    const suffixes =
+      minLength >= AUDIT_MIN_DESCRIPTION_LENGTH
+        ? detailedDescriptionSuffixes
+        : shortDescriptionSuffixes;
+    const suffix = suffixes[locale] ?? suffixes.en;
+    if (!trimmed.includes(suffix)) {
+      const separator =
+        /[。！？.!?]$/.test(trimmed) || trimmed.endsWith("؟") ? " " : ". ";
+      candidates.push(`${trimmed}${separator}${suffix}`);
+    }
   }
 
-  const suffixes =
-    minLength >= AUDIT_MIN_DESCRIPTION_LENGTH
-      ? detailedDescriptionSuffixes
-      : shortDescriptionSuffixes;
-  const suffix = suffixes[locale] ?? suffixes.en;
-  if (trimmed.includes(suffix)) {
-    return truncateMetadataText(
-      locale,
-      trimmed,
-      MAX_DESCRIPTION_LENGTH,
-      minLength,
-    );
-  }
-
-  const separator =
-    /[。！？.!?]$/.test(trimmed) || trimmed.endsWith("؟") ? " " : ". ";
-  return truncateMetadataText(
-    locale,
-    `${trimmed}${separator}${suffix}`,
-    MAX_DESCRIPTION_LENGTH,
+  return selectCompleteMetadataCandidate(
+    trimmed,
+    candidates,
     minLength,
+    MAX_DESCRIPTION_LENGTH,
   );
 }
 
 export function seoTitle(
   locale: string,
   title: string,
-  options: { minLength?: number; maxLength?: number } = {},
+  options: {
+    minLength?: number;
+    maxLength?: number;
+    fallbackCandidates?: readonly string[];
+  } = {},
 ) {
   const minLength = options.minLength ?? MIN_TITLE_LENGTH;
   const maxLength = options.maxLength ?? MAX_TITLE_LENGTH;
-  let normalized = title.trim();
+  const normalized = title.trim();
+  const candidates = [...(options.fallbackCandidates ?? [])];
 
   if (metadataSearchLength(normalized) < minLength) {
     const context = openGraphImageTagline(locale);
     if (!normalized.includes(context)) {
-      normalized = `${normalized} — ${context}`;
+      candidates.push(`${normalized} — ${context}`);
     }
   }
 
-  return truncateMetadataText(locale, normalized, maxLength);
-}
-
-function truncateMetadataText(
-  locale: string,
-  value: string,
-  maxLength: number,
-  minLength = 0,
-) {
-  const characters = metadataCharacters(value);
-  if (metadataSearchLength(value) <= maxLength) return value;
-
-  const candidate: string[] = [];
-  let candidateWidth = 0;
-  for (const character of characters) {
-    const characterWidth = metadataGraphemeWidth(character);
-    if (candidateWidth + characterWidth > maxLength - 1) break;
-    candidate.push(character);
-    candidateWidth += characterWidth;
-  }
-  while (/\s/u.test(candidate.at(-1) ?? "")) candidate.pop();
-
-  const minimumBoundaryWidth = Math.max(
+  return selectCompleteMetadataCandidate(
+    normalized,
+    candidates,
     minLength,
-    Math.floor(maxLength * 0.6),
+    maxLength,
   );
-  const maximumBoundaryWidth = maxLength - 1;
-  const sentenceBoundary = lastSentenceBoundary(
-    value,
-    locale,
-    minimumBoundaryWidth,
-    maximumBoundaryWidth,
-  );
-  const wordBoundary = lastWordBoundary(
-    value,
-    locale,
-    minimumBoundaryWidth,
-    maximumBoundaryWidth,
-  );
-  const boundary =
-    sentenceBoundary >= 0
-      ? sentenceBoundary
-      : wordBoundary >= 0
-        ? wordBoundary
-        : -1;
-  let truncated = (boundary >= 0 ? value.slice(0, boundary) : candidate.join(""))
-    .replace(/[-,:;–—]+$/u, "")
-    .trimEnd();
-  if (metadataSearchLength(truncated) + 1 < minLength) {
-    truncated = candidate.join("").trimEnd();
-  }
-  return `${truncated}…`;
 }
 
-const terminalSentencePunctuation = /[.!?。！？؟][”’"')\]}»›]*$/u;
-
-function lastSentenceBoundary(
-  value: string,
-  locale: string,
-  minWidth: number,
-  maxWidth: number,
+function selectCompleteMetadataCandidate(
+  original: string,
+  candidates: readonly string[],
+  minLength: number,
+  maxLength: number,
 ) {
-  const segments = new Intl.Segmenter(locale, {
-    granularity: "sentence",
-  }).segment(value);
-  let boundary = -1;
-  for (const { index, segment } of segments) {
-    const sentence = segment.trimEnd();
-    if (!terminalSentencePunctuation.test(sentence)) continue;
-    const end = index + sentence.length;
-    const width = metadataSearchLength(value.slice(0, end));
-    if (width > maxWidth) break;
-    if (width >= minWidth) boundary = end;
+  const normalizedCandidates = candidates
+    .map((candidate) => candidate.trim())
+    .filter((candidate) => !/<\/?[a-z][^>]*>/iu.test(candidate));
+  const withinAllBounds = normalizedCandidates.find((candidate) => {
+    const length = metadataSearchLength(candidate);
+    return length >= minLength && length <= maxLength;
+  });
+  const originalLength = metadataSearchLength(original);
+  if (originalLength >= minLength && originalLength <= maxLength) {
+    return original;
   }
-  return boundary;
-}
-
-function lastWordBoundary(
-  value: string,
-  locale: string,
-  minWidth: number,
-  maxWidth: number,
-) {
-  const segments = new Intl.Segmenter(locale, {
-    granularity: "word",
-  }).segment(value);
-  let boundary = -1;
-  for (const { index, isWordLike, segment } of segments) {
-    if (!isWordLike && !wideMetadataGrapheme.test(segment)) continue;
-    const end = index + segment.length;
-    const width = metadataSearchLength(value.slice(0, end));
-    if (width > maxWidth) break;
-    if (width >= minWidth) boundary = end;
-  }
-  return boundary;
+  if (withinAllBounds) return withinAllBounds;
+  return original;
 }
 
 function metadataCharacters(value: string) {

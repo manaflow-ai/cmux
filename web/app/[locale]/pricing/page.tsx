@@ -10,10 +10,9 @@ import { resolveProPlanStatus } from "../../../services/billing/pro";
 import {
   buildAlternates,
   openGraphDefaults,
-  seoDescription,
-  seoTitle,
   twitterSummary,
 } from "../../../i18n/seo";
+import { pricingSeoCopy } from "../../../i18n/audited-seo";
 import {
   fallbackContentLocales,
   hasFallbackContent,
@@ -52,18 +51,19 @@ export async function generateMetadata({
 }) {
   const { locale } = await params;
   const t = await getTranslations({ locale, namespace: "pricing" });
+  const siteMeta = await getTranslations({ locale, namespace: "meta" });
   const contentLocale = hasFallbackContent(locale) ? locale : "en";
-  const description = seoDescription(
+  const { title, description } = pricingSeoCopy(
     contentLocale,
-    SHOW_VAULT ? t("metaDescription") : t("metaDescriptionNoVault"),
-    { minLength: 110 },
+    t,
+    siteMeta,
+    SHOW_VAULT ? "metaDescription" : "metaDescriptionNoVault",
   );
   const alternates = buildAlternates(
     contentLocale,
     "/pricing",
     fallbackContentLocales,
   );
-  const title = seoTitle(contentLocale, t("metaTitle"));
   return {
     title,
     description,

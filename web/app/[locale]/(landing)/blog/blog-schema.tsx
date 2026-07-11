@@ -6,18 +6,22 @@ import {
 } from "@/app/[locale]/components/json-ld";
 
 /**
- * Article + BreadcrumbList JSON-LD for a blog post. Reads the post title from
- * the post's `blog.posts.<key>` namespace and the description from the post's
- * `blog.<key>.metaDescription`. Breadcrumb is Home > Blog > <post>.
+ * Article + BreadcrumbList JSON-LD for a blog post. Defaults to the post's
+ * localized title and metadata description; callers with audited SEO copy can
+ * pass the exact headline and description shared by page metadata.
  */
 export function BlogSchema({
   postKey,
   path,
   datePublished,
+  headline: headlineOverride,
+  description: descriptionOverride,
 }: {
   postKey: string;
   path: string;
   datePublished: string;
+  headline?: string;
+  description?: string;
 }) {
   const tp = useTranslations(`blog.posts.${postKey}`);
   const tm = useTranslations(`blog.${postKey}`);
@@ -25,8 +29,8 @@ export function BlogSchema({
   const tn = useTranslations("nav");
   const locale = useLocale();
 
-  const headline = tp("title");
-  const description = tm("metaDescription");
+  const headline = headlineOverride ?? tp("title");
+  const description = descriptionOverride ?? tm("metaDescription");
 
   return (
     <>
