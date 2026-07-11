@@ -83,7 +83,7 @@ struct SimulatorFramebufferOrientationStateTests {
         )
 
         #expect(pendingOrientation == .landscapeRight)
-        #expect(pendingGeometry.presentationRotationDegrees == -90)
+        #expect(pendingGeometry.presentationRotationDegrees == 90)
         #expect(settledOrientation == .landscapeRight)
         #expect(!settledGeometry.needsRawTransform)
     }

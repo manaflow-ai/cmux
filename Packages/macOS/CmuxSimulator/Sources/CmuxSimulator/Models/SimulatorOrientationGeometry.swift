@@ -48,8 +48,8 @@ public struct SimulatorOrientationGeometry: Equatable, Sendable {
         return switch requestedOrientation {
         case .portrait: 0
         case .portraitUpsideDown: 180
-        case .landscapeLeft: 90
-        case .landscapeRight: -90
+        case .landscapeLeft: -90
+        case .landscapeRight: 90
         }
     }
 
@@ -83,9 +83,9 @@ public struct SimulatorOrientationGeometry: Equatable, Sendable {
         case .portraitUpsideDown:
             SimulatorPoint(x: 1 - point.x, y: 1 - point.y)
         case .landscapeLeft:
-            SimulatorPoint(x: point.y, y: 1 - point.x)
-        case .landscapeRight:
             SimulatorPoint(x: 1 - point.y, y: point.x)
+        case .landscapeRight:
+            SimulatorPoint(x: point.y, y: 1 - point.x)
         }
     }
 
@@ -98,9 +98,9 @@ public struct SimulatorOrientationGeometry: Equatable, Sendable {
         case .portraitUpsideDown:
             SimulatorInputDelta(x: -delta.x, y: -delta.y)
         case .landscapeLeft:
-            SimulatorInputDelta(x: delta.y, y: -delta.x)
-        case .landscapeRight:
             SimulatorInputDelta(x: -delta.y, y: delta.x)
+        case .landscapeRight:
+            SimulatorInputDelta(x: delta.y, y: -delta.x)
         }
     }
 
@@ -114,14 +114,14 @@ public struct SimulatorOrientationGeometry: Equatable, Sendable {
         case (.portraitUpsideDown, .right): .left
         case (.portraitUpsideDown, .top): .bottom
         case (.portraitUpsideDown, .bottom): .top
-        case (.landscapeLeft, .left): .bottom
-        case (.landscapeLeft, .right): .top
-        case (.landscapeLeft, .top): .left
-        case (.landscapeLeft, .bottom): .right
-        case (.landscapeRight, .left): .top
-        case (.landscapeRight, .right): .bottom
-        case (.landscapeRight, .top): .right
-        case (.landscapeRight, .bottom): .left
+        case (.landscapeLeft, .left): .top
+        case (.landscapeLeft, .right): .bottom
+        case (.landscapeLeft, .top): .right
+        case (.landscapeLeft, .bottom): .left
+        case (.landscapeRight, .left): .bottom
+        case (.landscapeRight, .right): .top
+        case (.landscapeRight, .top): .left
+        case (.landscapeRight, .bottom): .right
         }
     }
 

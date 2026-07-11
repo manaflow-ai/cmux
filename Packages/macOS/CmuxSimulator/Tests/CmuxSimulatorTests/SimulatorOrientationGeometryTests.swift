@@ -129,10 +129,10 @@ private let cases: [GeometryCase] = [
     GeometryCase(
         name: "left, raw portrait",
         rawWidth: 400, rawHeight: 800, orientation: .landscapeLeft,
-        needsTransform: true, rotationDegrees: 90, displayWidth: 800, displayHeight: 400,
-        primary: SimulatorPoint(x: 0.3, y: 0.8),
-        secondary: SimulatorPoint(x: 0.8, y: 0.3),
-        delta: SimulatorInputDelta(x: 0.2, y: -0.1), edge: .right
+        needsTransform: true, rotationDegrees: -90, displayWidth: 800, displayHeight: 400,
+        primary: SimulatorPoint(x: 0.7, y: 0.2),
+        secondary: SimulatorPoint(x: 0.2, y: 0.7),
+        delta: SimulatorInputDelta(x: -0.2, y: 0.1), edge: .left
     ),
     GeometryCase(
         name: "left, already landscape",
@@ -145,10 +145,10 @@ private let cases: [GeometryCase] = [
     GeometryCase(
         name: "right, raw portrait",
         rawWidth: 400, rawHeight: 800, orientation: .landscapeRight,
-        needsTransform: true, rotationDegrees: -90, displayWidth: 800, displayHeight: 400,
-        primary: SimulatorPoint(x: 0.7, y: 0.2),
-        secondary: SimulatorPoint(x: 0.2, y: 0.7),
-        delta: SimulatorInputDelta(x: -0.2, y: 0.1), edge: .left
+        needsTransform: true, rotationDegrees: 90, displayWidth: 800, displayHeight: 400,
+        primary: SimulatorPoint(x: 0.3, y: 0.8),
+        secondary: SimulatorPoint(x: 0.8, y: 0.3),
+        delta: SimulatorInputDelta(x: 0.2, y: -0.1), edge: .right
     ),
     GeometryCase(
         name: "right, already landscape",

@@ -195,9 +195,9 @@ struct SimulatorInputStateMachineTests {
 
         #expect(touch == [.pointer(SimulatorPointerEvent(
             phase: .began,
-            primary: SimulatorPoint(x: 1, y: 0.5),
-            secondary: SimulatorPoint(x: 0, y: 0.5),
-            edge: .right
+            primary: SimulatorPoint(x: 0, y: 0.5),
+            secondary: SimulatorPoint(x: 1, y: 0.5),
+            edge: .left
         ))])
         #expect(scroll == [
             .pointer(SimulatorPointerEvent(
@@ -206,7 +206,7 @@ struct SimulatorInputStateMachineTests {
             )),
             .pointer(SimulatorPointerEvent(
                 phase: .moved,
-                primary: SimulatorPoint(x: 0.5, y: 0.6)
+                primary: SimulatorPoint(x: 0.5, y: 0.4)
             )),
         ])
     }
