@@ -36,7 +36,8 @@ struct MobileRecoveryStressMonitorState: Equatable, Sendable {
             startedMilliseconds: now,
             pendingFreesAfter: nil,
             freeDrained: false,
-            drainedMilliseconds: nil
+            drainedMilliseconds: nil,
+            recoveryOutputGeneration: nil
         )
     }
 
@@ -58,6 +59,15 @@ struct MobileRecoveryStressMonitorState: Equatable, Sendable {
 
     var activeCycleDrained: Bool {
         activeCycle?.freeDrained == true
+    }
+
+    mutating func recordRecoveryOutputApplied(generation: UInt64) {
+        activeCycle?.recoveryOutputGeneration = generation
+    }
+
+    var activeCycleCompleted: Bool {
+        guard let cycle = activeCycle else { return false }
+        return cycle.freeDrained && cycle.recoveryOutputGeneration != nil
     }
 
     mutating func evaluate(atMilliseconds now: Int64) -> MobileRecoveryStressStall? {

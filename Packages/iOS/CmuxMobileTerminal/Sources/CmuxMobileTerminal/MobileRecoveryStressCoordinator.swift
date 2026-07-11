@@ -139,7 +139,29 @@ final class MobileRecoveryStressCoordinator: NSObject, GhosttySurfaceViewDelegat
                 "recovery.stress.cycle cycle=\(cycle) generation=\(before.generation) pendingBefore=\(before.pendingSurfaceFreeCount) pendingAfter=\(after.pendingSurfaceFreeCount)"
             )
 
-            guard await waitForActiveCycleToDrain(cycle: cycle) else {
+            guard after.generation != before.generation,
+                  after.hasSurface,
+                  !after.recoveryPaused else {
+                reporter.emit(
+                    "recovery.stress.DEADLOCK kind=recovery cycle=\(cycle) generation=\(after.generation) pendingFrees=\(after.pendingSurfaceFreeCount)"
+                )
+                return
+            }
+            let recoveryOutputApplied = await view.processOutputAndWait(
+                Self.postRecoveryOutput(cycle: cycle, generation: after.generation)
+            )
+            guard recoveryOutputApplied else {
+                reporter.emit(
+                    "recovery.stress.DEADLOCK kind=output_apply cycle=\(cycle) generation=\(after.generation) pendingFrees=\(after.pendingSurfaceFreeCount)"
+                )
+                return
+            }
+            await monitor.recordRecoveryOutputApplied(generation: after.generation)
+            reporter.emit(
+                "recovery.stress.output_applied cycle=\(cycle) generation=\(after.generation) sentinel=RECOVERY-STRESS-RECOVERED-\(cycle)"
+            )
+
+            guard await waitForActiveCycleToComplete(cycle: cycle) else {
                 return
             }
         }
@@ -164,12 +186,12 @@ final class MobileRecoveryStressCoordinator: NSObject, GhosttySurfaceViewDelegat
         return view.window != nil && view.bounds.width > 100 && view.bounds.height > 100 && view.surface != nil
     }
 
-    private func waitForActiveCycleToDrain(cycle: Int) async -> Bool {
+    private func waitForActiveCycleToComplete(cycle: Int) async -> Bool {
         while !Task.isCancelled {
-            if await monitor.activeCycleDrained() {
+            if await monitor.activeCycleCompleted() {
                 if let record = await monitor.activeCycleRecord() {
                     reporter.emit(
-                        "recovery.stress.drain cycle=\(cycle) generation=\(record.generation) drained=\(record.freeDrained) pendingAfter=\(record.pendingFreesAfter ?? -1)"
+                        "recovery.stress.drain cycle=\(cycle) generation=\(record.generation) recoveredGeneration=\(record.recoveryOutputGeneration ?? 0) drained=\(record.freeDrained) pendingAfter=\(record.pendingFreesAfter ?? -1)"
                     )
                 }
                 return true
@@ -215,6 +237,17 @@ final class MobileRecoveryStressCoordinator: NSObject, GhosttySurfaceViewDelegat
             }
         }
         text += "\u{1b}]133;B\u{07}\u{1b}[?2004l\r\n"
+        return Data(text.utf8)
+    }
+
+    private static func postRecoveryOutput(cycle: Int, generation: UInt64) -> Data {
+        var text = "\u{1b}[2J\u{1b}[H\u{1b}]0;recovery stress recovered \(cycle)\u{07}"
+        for line in 0..<48 {
+            text += "\u{1b}[38;5;\((line + cycle + 32) % 216)m"
+            text += "post-recovery cycle=\(cycle) generation=\(generation) line=\(line) "
+            text += "replacement surface accepted output\u{1b}[0m\r\n"
+        }
+        text += "\u{1b}[1;32mRECOVERY-STRESS-RECOVERED-\(cycle) generation=\(generation)\u{1b}[0m"
         return Data(text.utf8)
     }
 }
