@@ -1,14 +1,5 @@
 import AppKit
 
-/// The interaction that ended one visible command-palette lifecycle.
-public enum CommandPaletteInteractionDismissal: Sendable, Equatable {
-    /// A process-local pointer event occurred outside the palette panel.
-    case pointer(CommandPalettePointerEvent)
-
-    /// The palette's host window stopped being the key window.
-    case windowResignedKey
-}
-
 /// Owns every process-level observation used while one command palette is visible.
 ///
 /// Activation is idempotent for a window: repeated render updates refresh the
