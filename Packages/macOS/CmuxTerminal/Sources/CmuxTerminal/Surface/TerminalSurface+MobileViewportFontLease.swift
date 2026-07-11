@@ -11,21 +11,12 @@ nonisolated public struct MobileViewportFontFitReloadLease {
     let userAdjustedBaseFontPointSize: Float?
 }
 
-nonisolated enum MobileViewportConfiguredFontPointSize {
+nonisolated enum MobileViewportResetFontPointSize {
     static func resolve(
-        templateBaseFontPointSize: Float?,
         runtimeConfigFontPointSize: Float?,
         fallbackBaseFontPointSize: Float,
         magnificationPercent: Int
     ) -> Float {
-        if let templateBaseFontPointSize,
-           templateBaseFontPointSize.isFinite,
-           templateBaseFontPointSize > 0 {
-            return CmuxSurfaceConfigTemplate.runtimeFontSize(
-                fromBasePoints: templateBaseFontPointSize,
-                percent: magnificationPercent
-            )
-        }
         if let runtimeConfigFontPointSize,
            runtimeConfigFontPointSize.isFinite,
            runtimeConfigFontPointSize > 0 {
@@ -41,8 +32,7 @@ nonisolated enum MobileViewportConfiguredFontPointSize {
 extension TerminalSurface {
     @MainActor
     func configuredMobileViewportFontPointSize() -> Float {
-        MobileViewportConfiguredFontPointSize.resolve(
-            templateBaseFontPointSize: configTemplate?.fontSize,
+        MobileViewportResetFontPointSize.resolve(
             runtimeConfigFontPointSize: runtimeConfigFontPointSize(),
             fallbackBaseFontPointSize: Float(GhosttyConfig().fontSize),
             magnificationPercent: globalFontMagnificationPercent()

@@ -47,8 +47,7 @@ struct MobileViewportFitGeometryTests {
     }
 
     @Test func activeRuntimeConfigWinsWhenSurfaceHasNoTemplateFont() {
-        let resolved = MobileViewportConfiguredFontPointSize.resolve(
-            templateBaseFontPointSize: nil,
+        let resolved = MobileViewportResetFontPointSize.resolve(
             runtimeConfigFontPointSize: 16,
             fallbackBaseFontPointSize: 12,
             magnificationPercent: 100
@@ -58,14 +57,17 @@ struct MobileViewportFitGeometryTests {
     }
 
     @Test func activeRuntimeConfigDefinesResetTargetForInheritedTemplateFont() {
-        let resolved = MobileViewportConfiguredFontPointSize.resolve(
-            templateBaseFontPointSize: 14,
+        let configured = MobileViewportResetFontPointSize.resolve(
             runtimeConfigFontPointSize: 12,
             fallbackBaseFontPointSize: 12,
             magnificationPercent: 100
         )
+        var state = MobileViewportFontFitState()
+        state.begin(baseFontPointSize: 14, configuredFontPointSize: configured)
+        state.recordFittedFontPointSize(9)
 
-        #expect(resolved == 12)
+        #expect(state.baseWasUserAdjusted == true)
+        #expect(state.restorePlan(configuredFontPointSize: configured) == .resetThenSet(14))
     }
 
     @Test func configuredBaselineTracksConfigChangesDuringAutomaticFit() {
