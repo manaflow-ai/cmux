@@ -245,7 +245,11 @@ function selectCompleteMetadataCandidate(
 ) {
   const normalizedCandidates = candidates
     .map((candidate) => candidate.trim())
-    .filter((candidate) => !/<\/?[a-z][^>]*>/iu.test(candidate));
+    .filter(
+      (candidate) =>
+        !/<\/?[a-z][^>]*>/iu.test(candidate) &&
+        !/\{[a-z][a-z0-9_]*\}/iu.test(candidate),
+    );
   const withinAllBounds = normalizedCandidates.find((candidate) => {
     const length = metadataSearchLength(candidate);
     return length >= minLength && length <= maxLength;

@@ -90,6 +90,17 @@ describe("SEO metadata helpers", () => {
     expect(
       seoTitle("en", title, { fallbackCandidates: ["Short fallback"] }),
     ).toBe(title);
+
+    const safeCandidate = `Complete localized route description ${"B".repeat(75)}`;
+    expect(
+      seoDescription("en", "X".repeat(200), {
+        minLength: 110,
+        fallbackCandidates: [
+          `Literal {new} placeholder ${"A".repeat(85)}`,
+          safeCandidate,
+        ],
+      }),
+    ).toBe(safeCandidate);
   });
 
   test("adds useful context to short titles and selects complete fallbacks", () => {
@@ -358,6 +369,9 @@ describe("SEO metadata helpers", () => {
         expect(titleLength).toBeLessThanOrEqual(60);
         expect(`${row.copy.title}${row.copy.description}`).not.toMatch(
           /…|<\/?(?:link|code)>/u,
+        );
+        expect(`${row.copy.title}${row.copy.description}`).not.toMatch(
+          /\{[a-z][a-z0-9_]*\}/iu,
         );
         expect(row.copy.description).not.toMatch(/[!?។៕。！？؟]\./u);
         expect(row.copy.description).not.toMatch(/[:：][.。]/u);
