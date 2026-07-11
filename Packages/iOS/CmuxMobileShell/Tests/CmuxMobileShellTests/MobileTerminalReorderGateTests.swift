@@ -3,17 +3,19 @@ import Testing
 @testable import CmuxMobileShell
 
 @MainActor
-@Test func reorderGateSurvivesHierarchySheetRecreation() {
+@Test func reorderReservationSurvivesHierarchySheetRecreation() throws {
     let store = MobileShellComposite.preview()
     let firstSheetGate = store.terminalReorderGate
 
-    #expect(firstSheetGate.begin(workspaceID: "workspace", paneID: "pane-left"))
+    let reservation = try #require(
+        firstSheetGate.reserve(workspaceID: "workspace", paneID: "pane-left")
+    )
 
     let reopenedSheetGate = store.terminalReorderGate
     #expect(reopenedSheetGate === firstSheetGate)
     #expect(reopenedSheetGate.isActive)
-    #expect(!reopenedSheetGate.begin(workspaceID: "workspace", paneID: "pane-right"))
+    #expect(reopenedSheetGate.reserve(workspaceID: "workspace", paneID: "pane-right") == nil)
 
-    reopenedSheetGate.finish(workspaceID: "workspace", paneID: "pane-left")
+    reopenedSheetGate.finish(reservation)
     #expect(!firstSheetGate.isActive)
 }
