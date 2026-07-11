@@ -57,6 +57,12 @@ extension MobileShellComposite {
               pane.terminalIDs.contains(intent.terminalID) else {
             return .failure(.rejected(hostDisplayName: workspaceHostDisplayName(for: workspaceID)))
         }
+        guard terminalReorderGate.begin(workspaceID: workspaceID, paneID: intent.paneID) else {
+            return .failure(.busy(hostDisplayName: workspaceHostDisplayName(for: workspaceID)))
+        }
+        defer {
+            terminalReorderGate.finish(workspaceID: workspaceID, paneID: intent.paneID)
+        }
         var params = workspaceMutationParams(id: workspaceID)
         params["surface_id"] = intent.terminalID.rawValue
         params["pane_id"] = intent.paneID.rawValue

@@ -8,6 +8,7 @@ public struct TerminalHierarchyPreviewView: View {
     @State private var workspace: MobileWorkspacePreview
     @State private var selectedTerminalID: MobileTerminalPreview.ID?
     @State private var hasSimulatedMutationFailure = false
+    @State private var reorderGate = MobileTerminalReorderGate()
     private let simulatesMutationFailure: Bool
 
     /// Creates the preview fixture.
@@ -56,6 +57,7 @@ public struct TerminalHierarchyPreviewView: View {
             ),
             createTerminal: createTerminal,
             selectTerminal: { selectedTerminalID = $0 },
+            reorderGate: reorderGate,
             reorderTerminal: reorderTerminal,
             closeTerminal: closeTerminal
         )

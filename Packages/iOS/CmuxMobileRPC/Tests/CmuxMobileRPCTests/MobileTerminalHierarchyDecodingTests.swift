@@ -46,8 +46,9 @@ import Testing
     let remote = try #require(response.workspaces.first)
     let workspace = MobileWorkspacePreview(remote: remote)
     let terminal = try #require(workspace.terminals.first)
+    let pane = try #require(workspace.resolvedPanes.first)
     #expect(!terminal.canClose)
     #expect(terminal.requiresCloseConfirmation)
     #expect(workspace.resolvedPanes.count == 1)
-    #expect(workspace.resolvedPanes[0].terminalIDs == [terminal.id])
+    #expect(pane.terminalIDs == [terminal.id])
 }

@@ -22,9 +22,7 @@ private let mobileShellLog = Logger(
 /// composed coordinators behind ``MobileShellComposite``. Remove once every
 /// consumer binds to ``MobileShellComposite`` directly.
 public typealias CMUXMobileShellStore = MobileShellComposite
-
 /// The decomposed home object the iOS shell views bind to.
-///
 /// Holds the connection lifecycle, network-recovery state machine,
 /// workspace/terminal list state, and the render-grid-vs-raw-bytes terminal
 /// output pipeline behind one `@Observable` read surface. Constructed at the
@@ -498,6 +496,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             syncSelectedTerminalForWorkspace()
         }
     }
+    /// Shared owner for one terminal reorder across hierarchy sheet lifetimes.
+    public let terminalReorderGate = MobileTerminalReorderGate()
     /// The terminal whose surface (and composer draft) is currently shown.
     ///
     /// Changing it swaps the composer draft: `willSet` captures the outgoing

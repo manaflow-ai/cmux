@@ -17,9 +17,19 @@ extension MobileShellComposite {
         } else {
             resolvedPaneID = nil
         }
-        let terminalIndex = workspace.terminals.count + 1
+        var terminalIndex = workspace.terminals.count + 1
+        let existingTerminalIDs = Set(workspace.terminals.map(\.id))
+        var terminalID = MobileTerminalPreview.ID(
+            rawValue: "\(workspace.id.rawValue)-terminal-\(terminalIndex)"
+        )
+        while existingTerminalIDs.contains(terminalID) {
+            terminalIndex += 1
+            terminalID = MobileTerminalPreview.ID(
+                rawValue: "\(workspace.id.rawValue)-terminal-\(terminalIndex)"
+            )
+        }
         let terminal = MobileTerminalPreview(
-            id: .init(rawValue: "\(workspace.id.rawValue)-terminal-\(terminalIndex)"),
+            id: terminalID,
             name: L10n.terminalName(index: terminalIndex),
             paneID: resolvedPaneID
         )

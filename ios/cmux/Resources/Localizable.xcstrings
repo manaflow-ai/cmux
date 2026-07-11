@@ -9298,12 +9298,6 @@
         "ja": { "stringUnit": { "state": "translated", "value": "起動中…" } }
       }
     },
-    "mobile.terminal.hierarchy.close": {
-      "extractionState": "manual", "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Close Terminal" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "ターミナルを閉じる" } }
-      }
-    },
     "mobile.terminal.hierarchy.switch": {
       "extractionState": "manual", "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "Switch to Terminal" } },
@@ -9314,12 +9308,6 @@
       "extractionState": "manual", "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "%1$@, %2$d" } },
         "ja": { "stringUnit": { "state": "translated", "value": "%1$@、%2$d" } }
-      }
-    },
-    "mobile.terminal.hierarchy.activeLabel": {
-      "extractionState": "manual", "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "%@, active terminal" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "%@、使用中のターミナル" } }
       }
     },
     "mobile.terminal.hierarchy.title": {
@@ -9392,18 +9380,6 @@
       "extractionState": "manual", "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "Creates and selects a terminal in the focused pane" } },
         "ja": { "stringUnit": { "state": "translated", "value": "フォーカス中のペインにターミナルを作成して選択します" } }
-      }
-    },
-    "mobile.terminal.hierarchy.closeMessage": {
-      "extractionState": "manual", "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "The terminal will close and its position will be removed from this pane." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "ターミナルが閉じ、このペインからその位置が削除されます。" } }
-      }
-    },
-    "mobile.terminal.hierarchy.closeRunningMessage": {
-      "extractionState": "manual", "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "This terminal is running a process. Closing it ends that process and cannot be undone." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "このターミナルではプロセスが実行中です。閉じるとプロセスが終了し、元に戻せません。" } }
       }
     },
     "mobile.terminal.hierarchy.switchedAnnouncement": {

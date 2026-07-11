@@ -120,6 +120,7 @@ struct WorkspaceDetailView: View {
                     ),
                     createTerminal: createTerminalFromToolbar,
                     selectTerminal: selectTerminalFromPicker,
+                    reorderGate: store.terminalReorderGate,
                     reorderTerminal: reorderTerminal,
                     closeTerminal: closeTerminal
                 )
