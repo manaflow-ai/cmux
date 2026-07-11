@@ -215,6 +215,47 @@ struct CmxIrohClientRuntimeTests {
     }
 
     @Test
+    func foregroundRateLimitKeepsLastVerifiedPolicy() async throws {
+        let fixture = try ClientRuntimeTestFixture()
+        let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
+        let broker = TestIrohClientBroker(
+            binding: fixture.binding,
+            discovery: fixture.discovery,
+            relay: fixture.relayResponse()
+        )
+        let offlineStore = TestSecureCredentialStore()
+        let recorder = ClientRuntimeTestRecorder()
+        let runtime = try CmxIrohClientRuntime(
+            factory: TestIrohEndpointFactory(endpoints: [endpoint]),
+            broker: broker,
+            configuration: fixture.configuration,
+            pendingRevocations: fixture.pendingRevocations(),
+            offlinePolicyCache: CmxIrohClientOfflinePolicyCache(
+                secureStore: offlineStore
+            ),
+            now: { fixture.now },
+            handlePolicyInvalidation: {
+                await recorder.recordPolicyInvalidation()
+            }
+        )
+        try await runtime.start()
+        await broker.setRegistrationError(
+            CmxIrohTrustBrokerClientError.rejected(
+                statusCode: 429,
+                code: "challenge_rate_limited"
+            )
+        )
+
+        try await runtime.didBecomeActive()
+
+        #expect(await runtime.snapshot().state == .active)
+        #expect(await endpoint.observedCloseCallCount() == 0)
+        #expect(await offlineStore.deleteAllCount() == 0)
+        #expect(await recorder.observedPolicyInvalidationCount() == 0)
+        await runtime.stop()
+    }
+
+    @Test
     func signOutWipesLocallyBeforeBestEffortRemoteRevocation() async throws {
         let fixture = try ClientRuntimeTestFixture()
         let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
