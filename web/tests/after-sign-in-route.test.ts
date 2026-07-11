@@ -7,14 +7,25 @@ process.env.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY = "test-publishable-key";
 process.env.STACK_SECRET_SERVER_KEY = "test-secret-key";
 
 const HANDOFF_COOKIE = "cmux-native-auth-handoff";
+type TestStackAuthSession = {
+  getTokens: () => Promise<{ refreshToken?: string; accessToken?: string }>;
+};
+type TestStackAuthUser = {
+  createSession: (options: { expiresInMillis: number }) => Promise<TestStackAuthSession>;
+};
+
 let handoffCookie: string | undefined;
 let rawRefreshCookie: string;
 let rawAccessCookie: string;
-let getUserResponses: unknown[] = [];
-const getUser = mock(async (): Promise<any> => getUserResponses.shift() ?? null);
-const signOut = mock((_options?: unknown) => Promise.resolve());
+let getUserResponses: Array<TestStackAuthUser | null> = [];
+const getUser = mock(async (): Promise<TestStackAuthUser | null> => getUserResponses.shift() ?? null);
+const signOut = mock((options?: unknown) => {
+  void options;
+  return Promise.resolve();
+});
 
 const { makeAfterSignInHandler } = await import("../app/handler/after-sign-in/handler");
+const { GET: startNativeSignIn } = await import("../app/handler/native-sign-in/route");
 const { makeSignOutAndSignInHandler } = await import("../app/handler/sign-out-and-sign-in/route");
 
 const GET = makeAfterSignInHandler({
@@ -67,23 +78,57 @@ describe("after sign-in native handoff", () => {
     signOut.mockClear();
   });
 
-  test("keeps an interactive return page for verified native handoffs", async () => {
+  test("issues and clears the handoff nonce with one cookie contract", async () => {
+    const nativeReturnTo = "cmux://auth-callback?cmux_auth_state=state-123";
+    const afterSignIn = new URL("/handler/after-sign-in", "https://cmux.test");
+    afterSignIn.searchParams.set("native_app_return_to", nativeReturnTo);
+    const startURL = new URL("/handler/native-sign-in", "https://cmux.test");
+    startURL.searchParams.set(
+      "after_auth_return_to",
+      `${afterSignIn.pathname}${afterSignIn.search}`
+    );
+
+    const startResponse = startNativeSignIn(
+      new NextRequest(startURL, {
+        headers: { "sec-fetch-site": "none" },
+      })
+    );
+    const issuedCookie = startResponse.headers.get("set-cookie");
+    expect(issuedCookie).toBeTruthy();
+
+    const signInURL = new URL(startResponse.headers.get("location")!);
+    const callbackURL = new URL(signInURL.searchParams.get("after_auth_return_to")!);
+    const handoffNonce = callbackURL.searchParams.get("cmux_auth_handoff");
+    expect(handoffNonce).toBeTruthy();
+    handoffCookie = handoffNonce!;
+
+    const finishResponse = await GET(signInRequest(nativeReturnTo, handoffNonce!));
+    const clearedCookie = finishResponse.headers.get("set-cookie");
+    expect(clearedCookie).toBeTruthy();
+
+    for (const cookie of [issuedCookie!, clearedCookie!]) {
+      expect(cookie).toContain(`${HANDOFF_COOKIE}=`);
+      expect(cookie).toContain("Path=/handler/after-sign-in");
+      expect(cookie).toContain("HttpOnly");
+      expect(cookie).toContain("SameSite=lax");
+      expect(cookie).toContain("Secure");
+    }
+    expect(issuedCookie).toContain("Max-Age=600");
+    expect(clearedCookie).toContain("Max-Age=0");
+  });
+
+  test("redirects verified native handoffs directly to the native callback", async () => {
     handoffCookie = "handoff-nonce";
     const nativeReturnTo = "cmux://auth-callback?cmux_auth_state=state-123";
 
     const response = await GET(signInRequest(nativeReturnTo, "handoff-nonce"));
 
-    expect(response.status).toBe(200);
+    expect(response.status).toBe(307);
     expect(response.headers.get("cache-control")).toBe("no-store");
-    const html = await response.text();
-    expect(html).toContain("Signed in to cmux");
-    expect(html).toContain("Return to cmux");
-    expect(html).toContain("window.location.replace");
-    expect(html).toContain("window.clearTimeout");
-    expect(html).toContain("document.querySelectorAll(\"a\")");
-    expect(html).not.toContain("http-equiv=\"refresh\"");
 
-    const callbackURL = new URL(returnHref(html));
+    const location = response.headers.get("location");
+    expect(location).toBeTruthy();
+    const callbackURL = new URL(location!);
     expect(callbackURL.protocol).toBe("cmux:");
     expect(callbackURL.hostname).toBe("auth-callback");
     expect(callbackURL.searchParams.get("cmux_auth_state")).toBe("state-123");
@@ -95,6 +140,20 @@ describe("after sign-in native handoff", () => {
     expect(setCookie).toContain(`${HANDOFF_COOKIE}=;`);
     expect(setCookie).toContain("Max-Age=0");
     expect(setCookie).toContain("Path=/handler/after-sign-in");
+  });
+
+  test("keeps the manual return page when the handoff nonce is not verified", async () => {
+    handoffCookie = "different-nonce";
+    const nativeReturnTo = "cmux://auth-callback?cmux_auth_state=state-123";
+
+    const response = await GET(signInRequest(nativeReturnTo, "handoff-nonce"));
+
+    expect(response.status).toBe(200);
+    const html = await response.text();
+    expect(html).toContain("Signed in to cmux");
+    expect(html).toContain("Return to cmux");
+    expect(html).not.toContain("window.location.replace");
+    expect(returnHref(html)).toContain("cmux://auth-callback");
 
     const switchURL = new URL(switchAccountHref(html), "https://cmux.test");
     expect(switchURL.pathname).toBe("/handler/sign-out-and-sign-in");
@@ -110,20 +169,6 @@ describe("after sign-in native handoff", () => {
     expect(afterSignInTarget.pathname).toBe("/handler/after-sign-in");
     expect(afterSignInTarget.searchParams.get("native_app_return_to")).toBe(nativeReturnTo);
     expect(afterSignInTarget.searchParams.has("after_auth_return_to")).toBe(false);
-  });
-
-  test("keeps the manual return page when the handoff nonce is not verified", async () => {
-    handoffCookie = "different-nonce";
-    const nativeReturnTo = "cmux://auth-callback?cmux_auth_state=state-123";
-
-    const response = await GET(signInRequest(nativeReturnTo, "handoff-nonce"));
-
-    expect(response.status).toBe(200);
-    const html = await response.text();
-    expect(html).toContain("Signed in to cmux");
-    expect(html).toContain("Return to cmux");
-    expect(html).not.toContain("window.location.replace");
-    expect(returnHref(html)).toContain("cmux://auth-callback");
   });
 
   test("omits account switching when there is no native return target to preserve", async () => {

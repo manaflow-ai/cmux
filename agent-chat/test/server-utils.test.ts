@@ -16,14 +16,25 @@ import {
   recordFilesChangedForTest,
   recordTurnBaselineForTest,
   rebuildFileDiffAllowlistForTest,
+  renderPageForTest,
   resetAssetCachesForTest,
   resolveFileDiffPath,
   sendPromptForTest,
+  stripAuthPrefixForTest,
+  themeCssVars,
+  themeMtimesChangedForTest,
+  themeMessageForTest,
+  themeOverrideStateForTest,
+  themeSourceMtimes,
+  themeVarMap,
   turnBaselineCountForTest,
   turnBaselineKeysForTest,
+  validateCmuxThemePayload,
+  writeStateFileForTest,
 } from "../server";
+import { applyManagedThemeOverrideForTest, pickAccentColor, resolveThemeNameForTest, type GhosttyTheme } from "../theme";
 import type { Adapter, AgentEvent, SessionCtx, SessionStatus } from "../types";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 function assert(cond: unknown, msg: string): asserts cond {
@@ -48,6 +59,21 @@ try {
 }
 
 const cwd = "/tmp/agent-chat-path-test";
+assert(stripAuthPrefixForTest("/secret/app.js", "secret") === "/app.js", "token-prefixed route should be accepted and stripped");
+assert(stripAuthPrefixForTest("/secret", "secret") === "/", "bare token route should map to app root");
+assert(stripAuthPrefixForTest("/wrong/app.js", "secret") === null, "wrong token route should be hidden");
+assert(stripAuthPrefixForTest("/app.js", "secret") === null, "untokened route should be hidden when token is configured");
+assert(stripAuthPrefixForTest("/healthz", "secret") === "/healthz", "healthz should remain tokenless");
+const tokenHtml = renderPageForTest("/gallery", "/secret");
+assert(tokenHtml.includes('<base href="/secret/">'), "tokened HTML should inject the token base path");
+assert(tokenHtml.includes('src="gallery.js"') && tokenHtml.includes('href="app.css"'), "tokened HTML should use relative asset URLs");
+assert(!tokenHtml.includes('src="/app.js"') && !tokenHtml.includes('href="/app.css"'), "tokened HTML should not use root-absolute asset URLs");
+const statePath = join(import.meta.dir, "..", "scratch", "agent-chat-state-test.json");
+await rm(statePath, { force: true });
+await writeStateFileForTest(statePath, 54321);
+const state = JSON.parse(await readFile(statePath, "utf8"));
+assert(state.port === 54321 && state.pid === process.pid && state.protocolVersion === 1, `state file should contain discovery JSON: ${JSON.stringify(state)}`);
+
 assert(resolveFileDiffPath(cwd, "src/../file.ts") === "file.ts", "normal in-cwd paths should normalize");
 for (const path of ["src/../../x", "../x", "..", "a\0b"]) {
   let rejected = false;
@@ -64,6 +90,84 @@ const sanitized = cssFontFamily(`Bad";} body { color:red</style>, Good\\Name`, f
 assert(!/[;{}<>]/.test(sanitized), `sanitized font family should not contain CSS/HTML breakers: ${sanitized}`);
 assert(sanitized.includes(`"Bad\\" body  color:red/style"`), `sanitized font family should escape quotes and strip angle brackets: ${sanitized}`);
 assert(sanitized.includes(`"Good\\\\Name"`), `sanitized font family should escape backslashes: ${sanitized}`);
+
+const fakeTheme: GhosttyTheme = {
+  background: "#112233",
+  foreground: "#ddeeff",
+  palette: [
+    "#000000", "#110000", "#001100", "#111100", "#000011", "#110011", "#001111", "#bbbbbb",
+    "#444444", "#ff0000", "#00ff00", "#ffff00", "#0000ff", "#ff00ff", "#00ffff", "#ffffff",
+  ],
+  selectionBackground: "#334455",
+  cursorColor: "#abcdef",
+  fontFamily: "Test Mono",
+  fontSize: 13,
+  opacity: 0.72,
+  blur: 0,
+  isLight: false,
+  source: "test",
+  sources: ["/tmp/ghostty-config"],
+};
+const themeVars = themeVarMap(fakeTheme, { transparent: true });
+assert(themeVars["--bg"] === "#112233", "theme vars should include background");
+assert(themeVars["--bg-html"] === "transparent", "transparent theme vars should keep html clear");
+assert(themeVars["--bg-body"] === "rgba(17, 34, 51, 0.72)", `transparent theme vars should use theme opacity: ${themeVars["--bg-body"]}`);
+assert(themeVars["--ansi-bright-blue"] === "#0000ff", "theme vars should include named ANSI colors");
+assert(themeCssVars(fakeTheme).includes("--font-mono"), "theme CSS should include resolved font variables");
+const themeMsg = JSON.parse(themeMessageForTest(fakeTheme));
+assert(themeMsg.kind === "theme" && themeMsg.vars["--accent"] === "#000011", "theme WS message should carry the resolved variable map");
+const monokaiTheme = {
+  ...fakeTheme,
+  foreground: "#f8f8f2",
+  palette: [
+    "#272822", "#f92672", "#a6e22e", "#f4bf75", "#fd971f", "#ae81ff", "#66d9ef", "#f8f8f2",
+    "#75715e", "#f92672", "#a6e22e", "#f4bf75", "#fd971f", "#ae81ff", "#66d9ef", "#f9f8f5",
+  ],
+};
+assert(pickAccentColor(monokaiTheme) !== "#fd971f", "Monokai's warm blue slot should not be selected as accent");
+assert(pickAccentColor(monokaiTheme) === "#66d9ef", `Monokai should pick the first cyan/violet candidate, got ${pickAccentColor(monokaiTheme)}`);
+assert(pickAccentColor(fakeTheme) === "#000011", "normal blue slot should remain the accent");
+assert(pickAccentColor({ ...fakeTheme, accent: "#123456" }) === "#123456", "explicit accent override should win");
+const { sources: _sources, ...postTheme } = fakeTheme;
+const cmuxTheme = validateCmuxThemePayload({ ...postTheme, source: "cmux", accent: "#123456" });
+assert(cmuxTheme.source === "cmux" && cmuxTheme.palette.length === 16, "valid cmux theme POST payload should normalize");
+assert(themeVarMap(cmuxTheme)["--accent"] === "#123456", "cmux POST accent override should drive --accent");
+// A cmux push without an accent must inherit the file-configured agent-chat-accent
+// (the Swift payload has no accent field; clobbering would break the documented override).
+const inheritTheme = validateCmuxThemePayload({ ...postTheme, source: "cmux" });
+assert(inheritTheme.accent == null, "cmux payload without accent should validate with null accent");
+// background-opacity = 0 is legal ghostty config; Swift encoders may omit nil optionals entirely.
+const { selectionBackground: _sb, cursorColor: _cc, fontFamily: _ff, fontSize: _fs, ...sparseTheme } = postTheme;
+const sparse = validateCmuxThemePayload({ ...sparseTheme, source: "cmux", opacity: 0 });
+assert(sparse.opacity === 0 && sparse.fontFamily === null && sparse.selectionBackground === null, "omitted nullable keys default to null and opacity 0 validates");
+assert(themeOverrideStateForTest("cmux", cmuxTheme).hasOverride, "cmux theme push should become the authoritative override");
+const ghosttyWins = themeOverrideStateForTest("ghostty", { ...fakeTheme, background: "#010203", source: "show-config:test" });
+assert(!ghosttyWins.hasOverride && ghosttyWins.current.background === "#010203", "later ghostty refresh should supersede a stale cmux override");
+assert(themeOverrideStateForTest("cmux", cmuxTheme).current.source === "cmux", "newer cmux push should win again");
+for (const bad of [
+  { ...postTheme, source: "ghostty" },
+  { ...postTheme, source: "cmux", palette: fakeTheme.palette.slice(0, 15) },
+  { ...postTheme, source: "cmux", extra: true },
+]) {
+  let rejected = false;
+  try {
+    validateCmuxThemePayload(bad);
+  } catch {
+    rejected = true;
+  }
+  assert(rejected, `invalid cmux theme payload should be rejected: ${JSON.stringify(bad)}`);
+}
+assert(resolveThemeNameForTest("theme = light:Paper,dark:Ink\n", "light") === "Paper", "managed light theme pair should resolve by light appearance");
+assert(resolveThemeNameForTest("theme = light:Paper,dark:Ink\n", "dark") === "Ink", "managed dark theme pair should resolve by dark appearance");
+assert(resolveThemeNameForTest("theme = Old\ntheme = New\n", "light") === "New", "managed theme directives should be last-wins");
+const managed = applyManagedThemeOverrideForTest(new Map([["background", "#000000"]]), new Map([["background", "#ffffff"]]));
+assert(managed.get("background") === "#ffffff", "managed override theme should apply after show-config values");
+const mtimesA = new Map([["a", 1], ["b", 2]]);
+const mtimesB = new Map([["a", 1], ["b", 2]]);
+const mtimesC = new Map([["a", 1], ["b", 3]]);
+assert(!themeMtimesChangedForTest(mtimesA, mtimesB), "unchanged mtimes should not trigger a theme resolve");
+assert(themeMtimesChangedForTest(mtimesA, mtimesC), "changed mtimes should trigger a theme resolve");
+assert(themeSourceMtimes(["/definitely/missing/theme-file"]).get("/definitely/missing/theme-file") === 0, "missing watched files should use a stable zero mtime");
 
 const root = join(import.meta.dir, "..", "scratch", "git-output-cap-test");
 await rm(root, { recursive: true, force: true });

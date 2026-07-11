@@ -163,6 +163,14 @@
       "codexJsonPlaceholder": "{\"accessToken\":\"...\",\"refreshToken\":\"...\",\"idToken\":\"...\",\"accountID\":\"...\"}",
       "anthropicKeyPlaceholder": "sk-ant-...",
       "openAiKeyPlaceholder": "sk-..."
+    },
+    "billing": {
+      "plan": {
+        "heading": "Vaš lični plan",
+        "free": "Besplatno",
+        "pro": "Pro",
+        "loading": "Učitavanje…"
+      }
     }
   },
   "community": {
@@ -3461,6 +3469,9 @@
         }
       }
     }
+  },
+  "pricing": {
+    "billingUnavailable": "Naplata trenutno nije dostupna. Pokušajte ponovo kasnije."
   },
   "platforms": {
     "macos": "macOS",

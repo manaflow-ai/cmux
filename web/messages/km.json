@@ -163,6 +163,14 @@
       "codexJsonPlaceholder": "{\"accessToken\":\"...\",\"refreshToken\":\"...\",\"idToken\":\"...\",\"accountID\":\"...\"}",
       "anthropicKeyPlaceholder": "sk-ant-...",
       "openAiKeyPlaceholder": "sk-..."
+    },
+    "billing": {
+      "plan": {
+        "heading": "គម្រោងផ្ទាល់ខ្លួនរបស់អ្នក",
+        "free": "ឥតគិតថ្លៃ",
+        "pro": "Pro",
+        "loading": "កំពុងផ្ទុក…"
+      }
     }
   },
   "community": {
@@ -3461,6 +3469,9 @@
       "faqQ4": "តើ cmux ឥតគិតថ្លៃសម្រាប់ប្រើជាមួយ Cursor CLI ឬ?",
       "faqA4": "ឥតគិតថ្លៃ។ cmux ឥតគិតថ្លៃ និងជាប្រភពកូដបើកចំហសម្រាប់ macOS។"
     }
+  },
+  "pricing": {
+    "billingUnavailable": "ការទូទាត់មិនអាចប្រើបាននៅពេលនេះទេ។ សូមព្យាយាមម្តងទៀតនៅពេលក្រោយ។"
   },
   "platforms": {
     "macos": "macOS",

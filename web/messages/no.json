@@ -163,6 +163,14 @@
       "codexJsonPlaceholder": "{\"accessToken\":\"...\",\"refreshToken\":\"...\",\"idToken\":\"...\",\"accountID\":\"...\"}",
       "anthropicKeyPlaceholder": "sk-ant-...",
       "openAiKeyPlaceholder": "sk-..."
+    },
+    "billing": {
+      "plan": {
+        "heading": "Ditt personlige abonnement",
+        "free": "Gratis",
+        "pro": "Pro",
+        "loading": "Laster…"
+      }
     }
   },
   "community": {
@@ -3461,6 +3469,9 @@
         }
       }
     }
+  },
+  "pricing": {
+    "billingUnavailable": "Betaling er ikke tilgjengelig akkurat nå. Prøv igjen senere."
   },
   "platforms": {
     "macos": "macOS",

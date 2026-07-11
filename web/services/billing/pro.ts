@@ -1,9 +1,5 @@
 // cmux Pro subscription helpers.
 //
-// The `pro` product (user-scoped, product line `cmux-pro`) lives in the Stack
-// Auth project config, not in this repo. Prices: yearly $240 (listed first so
-// the hosted purchase page pre-selects it) and monthly $30.
-//
 // VM entitlements (services/vms/auth.ts) read the plan id from the user's
 // `clientReadOnlyMetadata.cmuxPlan`, so syncing that key after a verified
 // purchase is what upgrades Cloud VM limits — no VM code changes needed.
@@ -16,36 +12,11 @@ import { cloudDb } from "../../db/client";
 import { stripeSubscriptions } from "../../db/schema";
 import { resolveBillingTeam, type BillingTeamUserLike } from "./teamResolution";
 
-export const PRO_PRODUCT_ID = "pro";
-export const TEAM_PRODUCT_ID = process.env.CMUX_TEAM_PRODUCT_ID?.trim() || "team";
 export const PRO_PLAN_ID = "pro";
 export const TEAM_PLAN_ID = "team";
 export const FREE_PLAN_ID = "free";
 export const PRO_ACCESS_ITEM_ID = "cmux-pro-access";
 export const ACTIVE_STRIPE_PRO_STATUSES = ["active", "trialing", "past_due"] as const;
-
-const PRODUCTS_PAGE_LIMIT = 50;
-const MAX_PRODUCT_PAGES = 10;
-
-type CustomerProductLike = {
-  readonly id: string | null;
-  readonly quantity: number;
-  readonly subscription: null | {
-    readonly cancelAtPeriodEnd: boolean;
-    readonly currentPeriodEnd: Date | null;
-  };
-};
-
-type ProductsPage = readonly CustomerProductLike[] & {
-  readonly nextCursor: string | null;
-};
-
-export type ProductsCustomer = {
-  listProducts(options?: {
-    cursor?: string;
-    limit?: number;
-  }): Promise<ProductsPage>;
-};
 
 // Mirrors Stack's ReadonlyJson so ServerUser.update stays assignable.
 export type ProMetadataJson =
@@ -64,36 +35,6 @@ export type ProMetadataCustomer = {
 };
 
 /**
- * True when the customer owns the `pro` product, either through an active
- * subscription (including one set to cancel at period end — access lasts
- * until the period actually ends) or a manual `grantProduct` comp
- * (subscription null, quantity > 0).
- */
-export async function hasActiveProSubscription(
-  customer: ProductsCustomer,
-): Promise<boolean> {
-  let cursor: string | undefined;
-  for (let page = 0; page < MAX_PRODUCT_PAGES; page++) {
-    const products = await customer.listProducts({
-      cursor,
-      limit: PRODUCTS_PAGE_LIMIT,
-    });
-    for (const product of products) {
-      if (product.id !== PRO_PRODUCT_ID) continue;
-      if (product.subscription !== null) {
-        const end = product.subscription.currentPeriodEnd;
-        if (!end || end.getTime() > Date.now()) return true;
-        continue;
-      }
-      if (product.quantity > 0) return true;
-    }
-    if (!products.nextCursor) return false;
-    cursor = products.nextCursor;
-  }
-  return false;
-}
-
-/**
  * Writes `cmuxPlan: "pro"` into the user's clientReadOnlyMetadata when Pro is
  * active, and removes it when Pro lapsed. No-op when already in sync.
  */
@@ -106,6 +47,7 @@ export async function syncProPlanMetadata(
     raw && typeof raw === "object" && !Array.isArray(raw)
       ? { ...(raw as Record<string, unknown>) }
       : {};
+  if (metadata.cmuxAccountDeleting === true) return;
   const current = metadata.cmuxPlan;
 
   if (isPro) {
@@ -119,12 +61,12 @@ export async function syncProPlanMetadata(
   await user.update({ clientReadOnlyMetadata: metadata as ProMetadataJson });
 }
 
-export type ProReconcileUser = ProductsCustomer & ProMetadataCustomer & {
+export type ProReconcileUser = ProMetadataCustomer & {
   readonly id?: string;
 };
 
 export type ActiveStripeSubscriptionQuery = (stackUserId: string) => Promise<boolean>;
-export type BillingManagementKind = "stripe" | "external" | "none";
+export type BillingManagementKind = "stripe" | "none";
 
 export type ProPlanStatus = {
   readonly planId: typeof FREE_PLAN_ID | typeof PRO_PLAN_ID;
@@ -137,11 +79,9 @@ export type ProPlanStatus = {
 
 /**
  * Read-time reconciliation: compares the `cmuxPlan` metadata against the
- * actual Pro subscription state and syncs it in either direction (upgrade
- * that never hit /api/billing/confirm, or a lapse the user never revisited
- * billing to observe). Skipped when a manual `cmuxVmPlan` override is set —
- * that key wins in plan resolution and is operator-owned. Returns true when
- * metadata was changed.
+ * actual Stripe Pro subscription state and syncs it in either direction.
+ * Skipped when a manual `cmuxVmPlan` override is set — that key wins in plan
+ * resolution and is operator-owned. Returns true when metadata was changed.
  */
 export async function reconcileProPlanMetadata(
   user: ProReconcileUser,
@@ -155,7 +95,9 @@ export async function reconcileProPlanMetadata(
   const override = metadata.cmuxVmPlan;
   if (typeof override === "string" && override.trim()) return false;
 
-  const isPro = await hasAnyActiveProSubscription(user, options.hasActiveStripeSubscription);
+  const isPro = user.id
+    ? await (options.hasActiveStripeSubscription ?? hasActiveStripeProSubscription)(user.id)
+    : false;
   if (isPro === (metadata.cmuxPlan === PRO_PLAN_ID)) return false;
   await syncProPlanMetadata(user, isPro);
   return true;
@@ -168,11 +110,9 @@ export async function resolveProPlanStatus(
   const metadata = proMetadataRecord(user.clientReadOnlyMetadata);
   const hasManualVmPlanOverride = hasManualVmOverride(metadata);
   const metadataPlanId = planIdFromMetadata(metadata);
-  const subscriptionState = await activeProSubscriptionState(
-    user,
-    options.hasActiveStripeSubscription,
-  );
-  const isPro = subscriptionState.stackActive || subscriptionState.stripeActive;
+  const isPro = user.id
+    ? await (options.hasActiveStripeSubscription ?? hasActiveStripeProSubscription)(user.id)
+    : false;
   let metadataChanged = false;
 
   if (!hasManualVmPlanOverride && isPro !== (metadataPlanId === PRO_PLAN_ID)) {
@@ -183,11 +123,7 @@ export async function resolveProPlanStatus(
   return {
     planId: isPro ? PRO_PLAN_ID : FREE_PLAN_ID,
     isPro,
-    billingManagement: subscriptionState.stripeActive
-      ? "stripe"
-      : isPro
-        ? "external"
-        : "none",
+    billingManagement: isPro ? "stripe" : "none",
     metadataPlanId,
     hasManualVmPlanOverride,
     metadataChanged,
@@ -277,26 +213,6 @@ export async function syncTeamPlanMetadata(
     delete metadata.cmuxPlan;
   }
   await team.update({ clientReadOnlyMetadata: metadata as ProMetadataJson });
-}
-
-async function hasAnyActiveProSubscription(
-  user: ProReconcileUser,
-  hasActiveStripeSubscription: ActiveStripeSubscriptionQuery = hasActiveStripeProSubscription,
-): Promise<boolean> {
-  const state = await activeProSubscriptionState(user, hasActiveStripeSubscription);
-  return state.stackActive || state.stripeActive;
-}
-
-async function activeProSubscriptionState(
-  user: ProReconcileUser,
-  hasActiveStripeSubscription: ActiveStripeSubscriptionQuery = hasActiveStripeProSubscription,
-): Promise<{ stackActive: boolean; stripeActive: boolean }> {
-  const stackActive =
-    typeof user.listProducts === "function"
-      ? await hasActiveProSubscription(user)
-      : false;
-  const stripeActive = user.id ? await hasActiveStripeSubscription(user.id) : false;
-  return { stackActive, stripeActive };
 }
 
 function proMetadataRecord(raw: unknown): Record<string, unknown> {

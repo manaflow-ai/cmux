@@ -163,6 +163,14 @@
       "codexJsonPlaceholder": "{\"accessToken\":\"...\",\"refreshToken\":\"...\",\"idToken\":\"...\",\"accountID\":\"...\"}",
       "anthropicKeyPlaceholder": "sk-ant-...",
       "openAiKeyPlaceholder": "sk-..."
+    },
+    "billing": {
+      "plan": {
+        "heading": "Twój plan osobisty",
+        "free": "Darmowy",
+        "pro": "Pro",
+        "loading": "Ładowanie…"
+      }
     }
   },
   "community": {
@@ -3461,6 +3469,9 @@
       "faqQ4": "Czy cmux jest darmowy w użyciu z Cursor CLI?",
       "faqA4": "Tak. cmux jest darmowy i open source dla macOS."
     }
+  },
+  "pricing": {
+    "billingUnavailable": "Płatności są teraz niedostępne. Spróbuj ponownie później."
   },
   "platforms": {
     "macos": "macOS",
