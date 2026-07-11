@@ -7,6 +7,44 @@ extension BrowserWebExtensionSupport {
         permissionStateStore.state(for: entryID, standardizedPath: standardizedPath)?.apply(to: context)
     }
 
+    /// Grants the manifest-required permission sets the first time an
+    /// explicitly configured extension loads — the Safari install model:
+    /// adding the extension is consent to what its manifest requires, so APIs
+    /// like `storage` work immediately (Bitwarden's and uBlock's popups hang
+    /// without it). Runs only while the user has made no permission decisions,
+    /// so later revocations stick; optional runtime requests still prompt.
+    func grantManifestRequestedPermissionsOnFirstLoad(
+        for context: WKWebExtensionContext,
+        entryID: String,
+        standardizedPath: String
+    ) {
+        let hasDecisions = !context.grantedPermissions.isEmpty
+            || !context.deniedPermissions.isEmpty
+            || !context.grantedPermissionMatchPatterns.isEmpty
+            || !context.deniedPermissionMatchPatterns.isEmpty
+        guard !hasDecisions else { return }
+
+        let expiration = Date.distantFuture
+        var grantedPermissions = context.grantedPermissions
+        for permission in context.webExtension.requestedPermissions {
+            grantedPermissions[permission] = expiration
+        }
+        context.grantedPermissions = grantedPermissions
+
+        var grantedPatterns = context.grantedPermissionMatchPatterns
+        for pattern in context.webExtension.requestedPermissionMatchPatterns {
+            grantedPatterns[pattern] = expiration
+        }
+        context.grantedPermissionMatchPatterns = grantedPatterns
+#if DEBUG
+        cmuxDebugLog(
+            "browser.webext.permissions grantedManifestRequested id=\(entryID) " +
+            "permissions=\(context.grantedPermissions.count) patterns=\(context.grantedPermissionMatchPatterns.count)"
+        )
+#endif
+        persistPermissionState(entryID: entryID, standardizedPath: standardizedPath, context: context)
+    }
+
     func persistPermissionState(entryID: String, standardizedPath: String, context: WKWebExtensionContext) {
         permissionStateStore.save(
             BrowserWebExtensionPermissionState(context: context),
