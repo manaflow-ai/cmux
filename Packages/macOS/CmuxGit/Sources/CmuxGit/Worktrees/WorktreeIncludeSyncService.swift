@@ -11,7 +11,11 @@ public import Foundation
 /// Copy and matching failures are returned as diagnostics rather than thrown so
 /// callers never discard an otherwise valid worktree.
 public struct WorktreeIncludeSyncService: Sendable {
+    private static let maximumPathspecBatchCount = 256
+    private static let maximumPathspecBatchBytes = 64 * 1024
+
     private let commandRunner: any CommandRunning
+    private let gitTimeout: TimeInterval
     // FileManager operations used here are documented thread-safe, and this
     // immutable injected instance has no delegate or mutable caller-owned state.
     private nonisolated(unsafe) let fileManager: FileManager
@@ -21,12 +25,15 @@ public struct WorktreeIncludeSyncService: Sendable {
     /// - Parameters:
     ///   - commandRunner: Runs Git pattern matching. Tests may inject a fake command runner.
     ///   - fileManager: Performs filesystem inspection and copies. Tests may inject an isolated manager.
+    ///   - gitTimeout: Maximum duration of each Git matching command.
     public init(
         commandRunner: any CommandRunning = CommandRunner(),
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        gitTimeout: TimeInterval = 30
     ) {
         self.commandRunner = commandRunner
         self.fileManager = fileManager
+        self.gitTimeout = gitTimeout
     }
 
     /// Copies untracked paths selected by the source repository's `.worktreeinclude` file.
@@ -70,50 +77,34 @@ public struct WorktreeIncludeSyncService: Sendable {
             "--ignored",
             "--exclude-from=\(includeFile.path)",
         ]
-        let standardIgnoreArguments = [
-            "ls-files",
-            "--others",
-            "--ignored",
-            "--exclude-standard",
-        ]
-        async let includeCollapsedResult = gitPaths(
+        let includeCollapsed = await gitPaths(
             source: source,
             arguments: includeArguments + ["--directory", "--no-empty-directory", "-z", "--"]
         )
-        async let standardCollapsedResult = gitPaths(
+        let includeDirectories = includeCollapsed.paths.filter { $0.hasSuffix("/") }
+        let standardCollapsed = await standardIgnoredPaths(
             source: source,
-            arguments: standardIgnoreArguments + ["--directory", "--no-empty-directory", "-z", "--"]
+            candidates: includeDirectories,
+            collapseDirectories: true
         )
-        let (includeCollapsed, standardCollapsed) = await (
-            includeCollapsedResult,
-            standardCollapsedResult
-        )
-
-        let collapsedDirectories = collapsedDirectoryIntersections(
-            includePaths: includeCollapsed.paths,
-            standardIgnorePaths: standardCollapsed.paths
-        )
-        let filePathspecs = ["."] + collapsedDirectories.map {
-            ":(top,exclude,literal)\($0)"
+        let collapsedDirectoryExclusions = includeDirectories.map {
+            "--exclude=!/\(gitignoreEscapedLiteralPath($0))"
         }
-        async let includeFileResult = gitPaths(
+        let includeFiles = await gitPaths(
             source: source,
-            arguments: includeArguments + ["-z", "--"] + filePathspecs
+            arguments: includeArguments + collapsedDirectoryExclusions + ["-z", "--"]
         )
-        async let standardFileResult = gitPaths(
+        let standardFiles = await standardIgnoredPaths(
             source: source,
-            arguments: standardIgnoreArguments + ["-z", "--"] + filePathspecs
+            candidates: includeFiles.paths,
+            collapseDirectories: false
         )
-        let (includeFiles, standardFiles) = await (includeFileResult, standardFileResult)
 
         var diagnostics = [
             includeCollapsed.diagnostic,
-            standardCollapsed.diagnostic,
             includeFiles.diagnostic,
-            standardFiles.diagnostic,
-        ].compactMap { $0 }
-        let matchingFiles = Set(includeFiles.paths).intersection(standardFiles.paths)
-        let candidates = Set(collapsedDirectories + Array(matchingFiles)).sorted()
+        ].compactMap { $0 } + standardCollapsed.diagnostics + standardFiles.diagnostics
+        let candidates = Set(standardCollapsed.paths + standardFiles.paths).sorted()
         let protectedSourceSubtree = destinationContainer(
             destination: destination,
             inside: source
@@ -154,14 +145,19 @@ public struct WorktreeIncludeSyncService: Sendable {
             directory: source.path,
             executable: "git",
             arguments: arguments,
-            timeout: nil
+            timeout: gitTimeout
         )
         guard result.executionError == nil,
               !result.timedOut,
               result.exitStatus == 0 else {
-            let detail = result.executionError
-                ?? result.stderr?.trimmingCharacters(in: .whitespacesAndNewlines)
-                ?? "git exited with status \(result.exitStatus.map(String.init) ?? "unknown")"
+            let detail: String
+            if result.timedOut {
+                detail = "git timed out after \(gitTimeout) seconds"
+            } else {
+                detail = result.executionError
+                    ?? result.stderr?.trimmingCharacters(in: .whitespacesAndNewlines)
+                    ?? "git exited with status \(result.exitStatus.map(String.init) ?? "unknown")"
+            }
             return ([], "Could not evaluate .worktreeinclude: \(detail)")
         }
         let paths = (result.stdout ?? "")
@@ -170,51 +166,67 @@ public struct WorktreeIncludeSyncService: Sendable {
         return (paths, nil)
     }
 
-    private nonisolated func collapsedDirectoryIntersections(
-        includePaths: [String],
-        standardIgnorePaths: [String]
-    ) -> [String] {
-        let includeDirectories = includePaths.filter { $0.hasSuffix("/") }
-        let standardDirectories = standardIgnorePaths.filter { $0.hasSuffix("/") }.sorted()
-        let standardDirectorySet = Set(standardDirectories)
-        var intersections = Set<String>()
-
-        for includeDirectory in includeDirectories {
-            var ancestor = ""
-            var hasIgnoredAncestor = false
-            for component in includeDirectory.split(separator: "/", omittingEmptySubsequences: true) {
-                ancestor.append(contentsOf: component)
-                ancestor.append("/")
-                if standardDirectorySet.contains(ancestor) {
-                    intersections.insert(includeDirectory)
-                    hasIgnoredAncestor = true
-                    break
-                }
+    private nonisolated func standardIgnoredPaths(
+        source: URL,
+        candidates: [String],
+        collapseDirectories: Bool
+    ) async -> (paths: [String], diagnostics: [String]) {
+        var paths: [String] = []
+        var diagnostics: [String] = []
+        for pathspecs in literalPathspecBatches(candidates) {
+            var arguments = [
+                "ls-files",
+                "--others",
+                "--ignored",
+                "--exclude-standard",
+            ]
+            if collapseDirectories {
+                arguments += ["--directory", "--no-empty-directory"]
             }
-            guard !hasIgnoredAncestor else { continue }
-
-            var index = lowerBound(of: includeDirectory, in: standardDirectories)
-            while index < standardDirectories.count,
-                  standardDirectories[index].hasPrefix(includeDirectory) {
-                intersections.insert(standardDirectories[index])
-                index += 1
+            arguments += ["-z", "--"] + pathspecs
+            let result = await gitPaths(source: source, arguments: arguments)
+            paths += result.paths
+            if let diagnostic = result.diagnostic {
+                diagnostics.append(diagnostic)
             }
         }
-        return intersections.sorted()
+        return (paths, diagnostics)
     }
 
-    private nonisolated func lowerBound(of value: String, in values: [String]) -> Int {
-        var lower = 0
-        var upper = values.count
-        while lower < upper {
-            let middle = lower + (upper - lower) / 2
-            if values[middle] < value {
-                lower = middle + 1
-            } else {
-                upper = middle
+    private nonisolated func literalPathspecBatches(_ paths: [String]) -> [[String]] {
+        var batches: [[String]] = []
+        var batch: [String] = []
+        var batchBytes = 0
+
+        for path in paths {
+            let pathspec = ":(top,literal)\(path)"
+            let pathspecBytes = pathspec.utf8.count + 1
+            if !batch.isEmpty,
+               batch.count >= Self.maximumPathspecBatchCount
+                || batchBytes + pathspecBytes > Self.maximumPathspecBatchBytes {
+                batches.append(batch)
+                batch = []
+                batchBytes = 0
             }
+            batch.append(pathspec)
+            batchBytes += pathspecBytes
         }
-        return lower
+        if !batch.isEmpty {
+            batches.append(batch)
+        }
+        return batches
+    }
+
+    private nonisolated func gitignoreEscapedLiteralPath(_ path: String) -> String {
+        var escaped = ""
+        escaped.reserveCapacity(path.count)
+        for character in path {
+            if "\\*?[".contains(character) {
+                escaped.append("\\")
+            }
+            escaped.append(character)
+        }
+        return escaped
     }
 
     private nonisolated func destinationContainer(
