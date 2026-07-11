@@ -37,34 +37,38 @@ extension GhosttyTerminalView {
                     )
             )
         }
-        let drain = coordinator.portalMutationScheduler.schedule {
-            @MainActor [weak host, weak hostedView, weak terminalSurface, weak coordinator] in
-            guard let host, let hostedView, let terminalSurface, let coordinator else { return }
-            guard coordinator.attachGeneration == snapshot.attachGeneration else { return }
-            guard terminalSurface.canAcceptPortalBinding(
-                expectedSurfaceId: snapshot.expectedSurfaceId,
-                expectedGeneration: snapshot.expectedSurfaceGeneration
-            ) else { return }
-            Self.applyPortalMutation(
-                host: host,
-                hostedView: hostedView,
-                terminalSurface: terminalSurface,
-                coordinator: coordinator,
-                snapshot: snapshot,
-                reason: reason
-            )
-        }
+        let cleanup: (@MainActor () -> Void)?
         if let candidateRegistrationToken {
-            Task { @MainActor [weak hostedView] in
-                await drain.value
+            cleanup = { @MainActor [weak hostedView] in
                 hostedView?.unregisterTransientPortalHostCandidate(
                     hostId: hostId,
                     ownershipGeneration: snapshot.ownershipGeneration,
                     registrationToken: candidateRegistrationToken
                 )
             }
+        } else {
+            cleanup = nil
         }
-        return drain
+        return coordinator.portalMutationScheduler.schedule(
+            {
+                @MainActor [weak host, weak hostedView, weak terminalSurface, weak coordinator] in
+                guard let host, let hostedView, let terminalSurface, let coordinator else { return }
+                guard coordinator.attachGeneration == snapshot.attachGeneration else { return }
+                guard terminalSurface.canAcceptPortalBinding(
+                    expectedSurfaceId: snapshot.expectedSurfaceId,
+                    expectedGeneration: snapshot.expectedSurfaceGeneration
+                ) else { return }
+                Self.applyPortalMutation(
+                    host: host,
+                    hostedView: hostedView,
+                    terminalSurface: terminalSurface,
+                    coordinator: coordinator,
+                    snapshot: snapshot,
+                    reason: reason
+                )
+            },
+            onDrain: cleanup
+        )
     }
 
     static func installPortalHostHandlers(
