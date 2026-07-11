@@ -103,9 +103,15 @@ struct CommandPaletteInteractionMonitorTests {
     func outsideMouseDownDismissesAndCleansUp() {
         let notificationCenter = RecordingCommandPaletteNotificationCenter()
         let eventSource = RecordingCommandPaletteEventMonitorSource()
+        let mainMenu = NSMenu()
+        let appMenu = NSMenu()
+        let appMenuItem = NSMenuItem()
+        appMenuItem.submenu = appMenu
+        mainMenu.addItem(appMenuItem)
         let monitor = CommandPaletteInteractionMonitor(
             notificationCenter: notificationCenter,
-            eventSource: eventSource
+            eventSource: eventSource,
+            mainMenuProvider: { mainMenu }
         )
         let window = NSObject()
 
@@ -122,6 +128,7 @@ struct CommandPaletteInteractionMonitorTests {
         #expect(notificationCenter.addedObservers.map(\.name) == [
             CommandPaletteInteractionMonitor.windowDidBecomeKeyNotification,
             CommandPaletteInteractionMonitor.windowDidResignKeyNotification,
+            CommandPaletteInteractionMonitor.menuDidBeginTrackingNotification,
         ])
 
         eventSource.send(CommandPalettePointerEvent(
@@ -150,6 +157,17 @@ struct CommandPaletteInteractionMonitorTests {
             )),
             .windowResignedKey,
         ])
+
+        notificationCenter.send(
+            name: CommandPaletteInteractionMonitor.menuDidBeginTrackingNotification,
+            object: NSMenu()
+        )
+        #expect(dismissals.count == 2)
+        notificationCenter.send(
+            name: CommandPaletteInteractionMonitor.menuDidBeginTrackingNotification,
+            object: appMenu
+        )
+        #expect(dismissals.last == .mainMenuBeganTracking)
 
         monitor.deactivate()
         #expect(eventSource.removeCount == 1)
@@ -299,7 +317,8 @@ private final class RecordingCommandPaletteNotificationCenter: NotificationCente
     }
 
     func send(name: Notification.Name, object: AnyObject) {
-        for observer in addedObservers where observer.name == name && observer.object === object {
+        for observer in addedObservers where
+            observer.name == name && (observer.object == nil || observer.object === object) {
             observer.block(Notification(name: name, object: object))
         }
     }

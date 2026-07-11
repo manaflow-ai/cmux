@@ -5,4 +5,7 @@ public enum CommandPaletteInteractionDismissal: Sendable, Equatable {
 
     /// The palette's host window stopped being the key window.
     case windowResignedKey
+
+    /// The application main menu entered its nested tracking loop.
+    case mainMenuBeganTracking
 }

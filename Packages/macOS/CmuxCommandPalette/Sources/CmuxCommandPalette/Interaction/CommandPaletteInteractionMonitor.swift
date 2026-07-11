@@ -9,8 +9,10 @@ import AppKit
 public final class CommandPaletteInteractionMonitor {
     static let windowDidBecomeKeyNotification = NSWindow.didBecomeKeyNotification
     static let windowDidResignKeyNotification = NSWindow.didResignKeyNotification
+    static let menuDidBeginTrackingNotification = NSMenu.didBeginTrackingNotification
     private let notificationCenter: NotificationCenter
     private let eventSource: any CommandPaletteEventMonitorSource
+    private let mainMenuProvider: () -> NSMenu?
     private weak var window: AnyObject?
     private var localMouseDownMonitor: Any?
     private var windowObserverTokens: [any NSObjectProtocol] = []
@@ -22,16 +24,19 @@ public final class CommandPaletteInteractionMonitor {
     public convenience init() {
         self.init(
             notificationCenter: .default,
-            eventSource: AppKitCommandPaletteEventMonitorSource()
+            eventSource: AppKitCommandPaletteEventMonitorSource(),
+            mainMenuProvider: { NSApp.mainMenu }
         )
     }
 
     init(
         notificationCenter: NotificationCenter,
-        eventSource: any CommandPaletteEventMonitorSource
+        eventSource: any CommandPaletteEventMonitorSource,
+        mainMenuProvider: @escaping () -> NSMenu? = { NSApp.mainMenu }
     ) {
         self.notificationCenter = notificationCenter
         self.eventSource = eventSource
+        self.mainMenuProvider = mainMenuProvider
     }
 
     isolated deinit {
@@ -74,6 +79,7 @@ public final class CommandPaletteInteractionMonitor {
         windowObserverTokens = [
             observe(Self.windowDidBecomeKeyNotification, window: window, dismissal: nil),
             observe(Self.windowDidResignKeyNotification, window: window, dismissal: .windowResignedKey),
+            observeMainMenuTracking(),
         ]
     }
 
@@ -109,6 +115,27 @@ public final class CommandPaletteInteractionMonitor {
                 if let dismissal {
                     self.onDismiss?(dismissal)
                 }
+            }
+        }
+    }
+
+    private func observeMainMenuTracking() -> any NSObjectProtocol {
+        notificationCenter.addObserver(
+            forName: Self.menuDidBeginTrackingNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let trackedMenu = notification.object as? NSMenu else { return }
+            var rootMenu = trackedMenu
+            while let supermenu = rootMenu.supermenu {
+                rootMenu = supermenu
+            }
+            let trackedRootIdentifier = ObjectIdentifier(rootMenu)
+            MainActor.assumeIsolated {
+                guard let self,
+                      let mainMenu = self.mainMenuProvider(),
+                      ObjectIdentifier(mainMenu) == trackedRootIdentifier else { return }
+                self.onDismiss?(.mainMenuBeganTracking)
             }
         }
     }
