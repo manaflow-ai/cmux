@@ -161,6 +161,38 @@ struct WorktreeIncludeSyncServiceTests {
         #expect(try contents(at: destination.appendingPathComponent(".cmux/settings/value")) == "setting\n")
     }
 
+    @Test("direct-child destinations copy safe matches and skip their own subtree")
+    func directChildDestination() async throws {
+        let root = try makeRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = root.appendingPathComponent("source", isDirectory: true)
+        let destination = source.appendingPathComponent("new-worktree", isDirectory: true)
+        try initializeGitRepository(at: source)
+        try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+        try ".env\nnew-worktree/\n".write(
+            to: source.appendingPathComponent(".worktreeinclude"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "secret=value\n".write(
+            to: source.appendingPathComponent(".env"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "keep\n".write(
+            to: destination.appendingPathComponent("marker"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let diagnostics = await WorktreeIncludeSyncService().sync(from: source, to: destination)
+
+        #expect(diagnostics.contains { $0.contains("Skipped unsafe") && $0.contains("new-worktree/") })
+        #expect(try contents(at: destination.appendingPathComponent(".env")) == "secret=value\n")
+        #expect(try contents(at: destination.appendingPathComponent("marker")) == "keep\n")
+        #expect(!FileManager.default.fileExists(atPath: destination.appendingPathComponent("new-worktree").path))
+    }
+
     @Test("copy failures are diagnostics and do not stop later copies")
     func copyFailuresAreNonFatal() async throws {
         let root = try makeRoot()
