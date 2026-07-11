@@ -2,7 +2,7 @@ import CmuxFoundation
 import Foundation
 
 /// Records worktree-include Git calls and returns a bounded ignored-path fixture.
-actor CandidateFilteringCommandRunner: StandardInputCommandRunning {
+actor CandidateFilteringCommandRunner: OutputLimitedCommandRunning {
     struct Invocation: Sendable {
         let arguments: [String]
         let timeout: TimeInterval?
@@ -45,6 +45,21 @@ actor CandidateFilteringCommandRunner: StandardInputCommandRunning {
         directory: String,
         executable: String,
         arguments: [String],
+        maximumOutputBytes: Int,
+        timeout: TimeInterval?
+    ) async -> CommandResult {
+        await run(
+            directory: directory,
+            executable: executable,
+            arguments: arguments,
+            timeout: timeout
+        )
+    }
+
+    func run(
+        directory: String,
+        executable: String,
+        arguments: [String],
         standardInput: Data,
         timeout: TimeInterval?
     ) async -> CommandResult {
@@ -58,6 +73,23 @@ actor CandidateFilteringCommandRunner: StandardInputCommandRunning {
         let ignored = candidates.filter { $0 == ".env" }
         let stdout = ignored.map(String.init).joined(separator: "\0") + (ignored.isEmpty ? "" : "\0")
         return successfulResult(stdout: stdout)
+    }
+
+    func run(
+        directory: String,
+        executable: String,
+        arguments: [String],
+        standardInput: Data,
+        maximumOutputBytes: Int,
+        timeout: TimeInterval?
+    ) async -> CommandResult {
+        await run(
+            directory: directory,
+            executable: executable,
+            arguments: arguments,
+            standardInput: standardInput,
+            timeout: timeout
+        )
     }
 
     func invocations() -> [Invocation] {

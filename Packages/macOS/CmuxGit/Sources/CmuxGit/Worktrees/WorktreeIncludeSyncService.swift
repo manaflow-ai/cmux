@@ -13,8 +13,10 @@ public import Foundation
 public struct WorktreeIncludeSyncService: Sendable {
     private static let maximumPathspecBatchCount = 256
     private static let maximumPathspecBatchBytes = 64 * 1024
+    private static let maximumMatchedPathCount = 10_000
+    private static let maximumMatchedPathBytes = 16 * 1024 * 1024
 
-    private let commandRunner: any StandardInputCommandRunning
+    private let commandRunner: any OutputLimitedCommandRunning
     private let gitTimeout: TimeInterval
     // FileManager operations used here are documented thread-safe, and this
     // immutable injected instance has no delegate or mutable caller-owned state.
@@ -27,7 +29,7 @@ public struct WorktreeIncludeSyncService: Sendable {
     ///   - fileManager: Performs filesystem inspection and copies. Tests may inject an isolated manager.
     ///   - gitTimeout: Maximum duration of each Git matching command.
     public init(
-        commandRunner: any StandardInputCommandRunning = CommandRunner(),
+        commandRunner: any OutputLimitedCommandRunning = CommandRunner(),
         fileManager: FileManager = .default,
         gitTimeout: TimeInterval = 30
     ) {
@@ -81,20 +83,34 @@ public struct WorktreeIncludeSyncService: Sendable {
             source: source,
             arguments: includeArguments + ["--directory", "--no-empty-directory", "-z", "--"]
         )
+        if includeCollapsed.limitExceeded {
+            return [includeCollapsed.diagnostic].compactMap { $0 }
+        }
         let includeDirectories = includeCollapsed.paths.filter { $0.hasSuffix("/") }
         let standardCollapsed = await standardCollapsedDirectories(
             source: source,
             candidates: includeDirectories
         )
+        if standardCollapsed.limitExceeded {
+            return [includeCollapsed.diagnostic].compactMap { $0 } + standardCollapsed.diagnostics
+        }
+        let hasNewlineCollapsedPath = standardCollapsed.paths.contains {
+            $0.contains("\n") || $0.contains("\r")
+        }
+        if hasNewlineCollapsedPath {
+            return [includeCollapsed.diagnostic].compactMap { $0 }
+                + standardCollapsed.diagnostics
+                + ["Skipped .worktreeinclude sync because a matched directory name contains a newline."]
+        }
         let exclusionFile = writeCollapsedDirectoryExclusions(standardCollapsed.paths)
         defer {
             if let url = exclusionFile.url {
                 try? fileManager.removeItem(at: url)
             }
         }
-        let includeFiles: (paths: [String], diagnostic: String?)
+        let includeFiles: (paths: [String], diagnostic: String?, limitExceeded: Bool)
         if let exclusionDiagnostic = exclusionFile.diagnostic {
-            includeFiles = ([], exclusionDiagnostic)
+            includeFiles = ([], exclusionDiagnostic, false)
         } else {
             let exclusionArguments = exclusionFile.url.map { ["--exclude-from=\($0.path)"] } ?? []
             includeFiles = await gitPaths(
@@ -102,16 +118,31 @@ public struct WorktreeIncludeSyncService: Sendable {
                 arguments: includeArguments + exclusionArguments + ["-z", "--"]
             )
         }
+        if includeFiles.limitExceeded {
+            return [includeCollapsed.diagnostic, includeFiles.diagnostic].compactMap { $0 }
+                + standardCollapsed.diagnostics
+        }
         let standardFiles = await standardIgnoredFiles(
             source: source,
             candidates: includeFiles.paths
         )
+        if standardFiles.limitExceeded {
+            return [includeCollapsed.diagnostic, includeFiles.diagnostic].compactMap { $0 }
+                + standardCollapsed.diagnostics
+                + standardFiles.diagnostics
+        }
 
         var diagnostics = [
             includeCollapsed.diagnostic,
             includeFiles.diagnostic,
         ].compactMap { $0 } + standardCollapsed.diagnostics + standardFiles.diagnostics
-        let candidates = Set(standardCollapsed.paths + standardFiles.paths).sorted()
+        let matchedPaths = standardCollapsed.paths + standardFiles.paths
+        guard matchedPaths.count <= Self.maximumMatchedPathCount,
+              matchedPathBytes(matchedPaths) <= Self.maximumMatchedPathBytes else {
+            diagnostics.append(matchLimitDiagnostic)
+            return diagnostics
+        }
+        let candidates = Set(matchedPaths).sorted()
         let protectedSourceSubtree = destinationContainer(
             destination: destination,
             inside: source
@@ -147,25 +178,40 @@ public struct WorktreeIncludeSyncService: Sendable {
     private nonisolated func gitPaths(
         source: URL,
         arguments: [String]
-    ) async -> (paths: [String], diagnostic: String?) {
+    ) async -> (paths: [String], diagnostic: String?, limitExceeded: Bool) {
         let result = await commandRunner.run(
             directory: source.path,
             executable: "git",
             arguments: arguments,
+            maximumOutputBytes: Self.maximumMatchedPathBytes,
             timeout: gitTimeout
         )
+        if result.outputLimitExceeded {
+            return ([], matchLimitDiagnostic, true)
+        }
         guard result.executionError == nil,
               !result.timedOut,
               result.exitStatus == 0 else {
-            return ([], "Could not evaluate .worktreeinclude: \(gitFailureDetail(result))")
+            return ([], "Could not evaluate .worktreeinclude: \(gitFailureDetail(result))", false)
         }
-        return (parseNulPaths(result.stdout), nil)
+        guard let paths = parseNulPaths(result.stdout) else {
+            return ([], matchLimitDiagnostic, true)
+        }
+        return (paths, nil, false)
     }
 
-    private nonisolated func parseNulPaths(_ output: String?) -> [String] {
-        (output ?? "")
-            .split(separator: "\0", omittingEmptySubsequences: true)
-            .map(String.init)
+    private nonisolated func parseNulPaths(_ output: String?) -> [String]? {
+        let records = (output ?? "").split(
+            separator: "\0",
+            maxSplits: Self.maximumMatchedPathCount,
+            omittingEmptySubsequences: true
+        )
+        guard records.count <= Self.maximumMatchedPathCount else { return nil }
+        return records.map(String.init)
+    }
+
+    private nonisolated var matchLimitDiagnostic: String {
+        "Could not evaluate .worktreeinclude: too many paths or output bytes (limit: \(Self.maximumMatchedPathCount) paths and \(Self.maximumMatchedPathBytes) bytes)."
     }
 
     private nonisolated func gitFailureDetail(_ result: CommandResult) -> String {
@@ -180,11 +226,12 @@ public struct WorktreeIncludeSyncService: Sendable {
     private nonisolated func standardCollapsedDirectories(
         source: URL,
         candidates: [String]
-    ) async -> (paths: [String], diagnostics: [String]) {
+    ) async -> (paths: [String], diagnostics: [String], limitExceeded: Bool) {
         // Every candidate originated in `git ls-files --others`, so tracked
         // descendants cannot enter a directory copied from this result.
         var paths: [String] = []
         var diagnostics: [String] = []
+        var retainedPathBytes = 0
         for pathspecs in literalPathspecBatches(candidates) {
             let collapsedResult = await gitPaths(
                 source: source,
@@ -201,23 +248,34 @@ public struct WorktreeIncludeSyncService: Sendable {
             )
             if let diagnostic = collapsedResult.diagnostic {
                 diagnostics.append(diagnostic)
+                if collapsedResult.limitExceeded {
+                    return ([], diagnostics, true)
+                }
                 continue
             }
+            let newPathBytes = matchedPathBytes(collapsedResult.paths)
+            guard paths.count + collapsedResult.paths.count <= Self.maximumMatchedPathCount,
+                  retainedPathBytes + newPathBytes <= Self.maximumMatchedPathBytes else {
+                diagnostics.append(matchLimitDiagnostic)
+                return ([], diagnostics, true)
+            }
             paths += collapsedResult.paths
+            retainedPathBytes += newPathBytes
         }
-        return (paths, diagnostics)
+        return (paths, diagnostics, false)
     }
 
     private nonisolated func standardIgnoredFiles(
         source: URL,
         candidates: [String]
-    ) async -> (paths: [String], diagnostics: [String]) {
+    ) async -> (paths: [String], diagnostics: [String], limitExceeded: Bool) {
         // `--no-index` asks check-ignore to evaluate each supplied path without
         // changing scope: every candidate already came from `ls-files --others`.
         // NUL-delimited stdin preserves arbitrary Git path bytes representable
         // by CommandRunner's UTF-8 output contract.
         var paths: [String] = []
         var diagnostics: [String] = []
+        var retainedPathBytes = 0
         for batch in nulPathBatches(candidates) {
             var input = Data()
             input.reserveCapacity(batch.reduce(0) { $0 + $1.utf8.count + 1 })
@@ -230,17 +288,37 @@ public struct WorktreeIncludeSyncService: Sendable {
                 executable: "git",
                 arguments: ["check-ignore", "--no-index", "--stdin", "-z"],
                 standardInput: input,
+                maximumOutputBytes: Self.maximumMatchedPathBytes,
                 timeout: gitTimeout
             )
+            if result.outputLimitExceeded {
+                diagnostics.append(matchLimitDiagnostic)
+                return ([], diagnostics, true)
+            }
             guard result.executionError == nil,
                   !result.timedOut,
                   result.exitStatus == 0 || result.exitStatus == 1 else {
                 diagnostics.append("Could not evaluate .worktreeinclude: \(gitFailureDetail(result))")
                 continue
             }
-            paths += parseNulPaths(result.stdout)
+            guard let matched = parseNulPaths(result.stdout) else {
+                diagnostics.append(matchLimitDiagnostic)
+                return ([], diagnostics, true)
+            }
+            let newPathBytes = matchedPathBytes(matched)
+            guard paths.count + matched.count <= Self.maximumMatchedPathCount,
+                  retainedPathBytes + newPathBytes <= Self.maximumMatchedPathBytes else {
+                diagnostics.append(matchLimitDiagnostic)
+                return ([], diagnostics, true)
+            }
+            paths += matched
+            retainedPathBytes += newPathBytes
         }
-        return (paths, diagnostics)
+        return (paths, diagnostics, false)
+    }
+
+    private nonisolated func matchedPathBytes(_ paths: [String]) -> Int {
+        paths.reduce(0) { $0 + $1.utf8.count + 1 }
     }
 
     private nonisolated func writeCollapsedDirectoryExclusions(
