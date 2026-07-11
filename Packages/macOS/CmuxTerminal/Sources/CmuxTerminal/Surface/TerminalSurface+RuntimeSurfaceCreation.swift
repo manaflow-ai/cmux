@@ -2,6 +2,7 @@ internal import AppKit
 internal import Foundation
 internal import GhosttyKit
 internal import CmuxTerminalCore
+internal import CMUXAgentLaunch
 internal import Darwin
 #if DEBUG
 internal import CMUXDebugLog
