@@ -89,10 +89,19 @@ export function fallbackContentRequestForPathname(
 }
 
 function unprefixLocale(pathname: string): { locale: Locale | null; path: string } {
+  let decoded: string;
+  try {
+    decoded = decodeURI(pathname)
+      .replace(/\\/gu, "%5C")
+      .replace(/[\t\n\r]/gu, "")
+      .replace(/\/+/gu, "/");
+  } catch {
+    return { locale: null, path: pathname };
+  }
   const normalized =
-    pathname.length > 1 && pathname.endsWith("/")
-      ? pathname.slice(0, -1)
-      : pathname;
+    decoded.length > 1 && decoded.endsWith("/")
+      ? decoded.slice(0, -1)
+      : decoded;
   for (const locale of locales) {
     if (normalized === `/${locale}`) {
       return { locale, path: "/" };

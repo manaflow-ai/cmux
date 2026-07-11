@@ -26,6 +26,17 @@ const shortDescriptionSuffixes: Record<string, string> = {
   uk: "Створено для AI-агентів програмування на macOS.",
 };
 
+const conciseDescriptionSuffixes: Record<string, string> = {
+  ...shortDescriptionSuffixes,
+  en: "Built for AI coding agents on macOS.",
+  es: "Creado para agentes de codificación con IA en macOS.",
+  fr: "Conçu pour les agents de codage IA sur macOS.",
+  pl: "Stworzone dla agentów kodowania AI na macOS.",
+  bs: "Napravljeno za AI agente za kodiranje na macOS-u.",
+  th: "สร้างมาเพื่อเอเจนต์เขียนโค้ด AI บน macOS.",
+  km: "បង្កើតសម្រាប់ភ្នាក់ងារ AI សរសេរកូដលើ macOS។",
+};
+
 const detailedDescriptionSuffixes: Record<string, string> = {
   en: "Built for AI coding agents on macOS, with vertical tabs, notifications, split panes, and browser automation.",
   ja: "macOS の AI コーディングエージェント向け。縦型タブ、通知、分割ペイン、ブラウザ自動化、セッション復元を備えています。",
@@ -215,7 +226,11 @@ export function seoDescription(
     const suffixes =
       minLength >= AUDIT_MIN_DESCRIPTION_LENGTH
         ? [detailedDescriptionSuffixes]
-        : [shortDescriptionSuffixes, detailedDescriptionSuffixes];
+        : [
+            shortDescriptionSuffixes,
+            conciseDescriptionSuffixes,
+            detailedDescriptionSuffixes,
+          ];
     for (const localizedSuffixes of suffixes) {
       const suffix = localizedSuffixes[locale] ?? localizedSuffixes.en;
       if (!trimmed.includes(suffix)) {

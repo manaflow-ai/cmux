@@ -53,6 +53,15 @@ describe("SEO metadata helpers", () => {
     );
     expect(seoDescription("ja", "Hacker Newsでcmuxをローンチした話。"))
       .toContain("縦型タブ、通知、分割ペイン、ブラウザ自動化、セッション復元");
+    const thaiDescription = seoDescription(
+      "th",
+      "ทำไมเราถึงสร้าง cmux เทอร์มินัลใหม่สำหรับ macOS",
+    );
+    expect(thaiDescription).toContain(
+      "สร้างมาเพื่อเอเจนต์เขียนโค้ด AI บน macOS.",
+    );
+    expect(searchSnippetLength(thaiDescription)).toBeGreaterThanOrEqual(90);
+    expect(searchSnippetLength(thaiDescription)).toBeLessThanOrEqual(160);
     const overboundWithSuffix =
       "A detailed page about running multiple coding agents in cmux on macOS.";
     expect(
@@ -637,6 +646,24 @@ describe("SEO middleware", () => {
       "https://cmux.com/en/pricing",
     );
     expect(unavailableCookieLocale.headers.get("set-cookie")).toBeNull();
+
+    const encodedUnavailableLocale = middleware(
+      requestFor("/de/pr%69cing", { "accept-language": "de" }),
+    );
+    expect(encodedUnavailableLocale.status).toBe(301);
+    expect(encodedUnavailableLocale.headers.get("location")).toBe(
+      "https://cmux.com/pricing",
+    );
+
+    const encodedDocsLocale = middleware(
+      requestFor("/de/docs/agent-integrations/oh-my-p%69", {
+        "accept-language": "de",
+      }),
+    );
+    expect(encodedDocsLocale.status).toBe(301);
+    expect(encodedDocsLocale.headers.get("location")).toBe(
+      "https://cmux.com/docs/agent-integrations/oh-my-pi",
+    );
 
     const japanese = middleware(
       requestFor("/ja/pricing", { "accept-language": "ja" }),
