@@ -103,7 +103,7 @@ public struct AgentHookStateReaderLocation {
             throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
         }
         defer { close(descriptor) }
-        guard flock(descriptor, LOCK_EX) == 0 else {
+        guard flock(descriptor, LOCK_EX | LOCK_NB) == 0 else {
             throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
         }
         defer { flock(descriptor, LOCK_UN) }
