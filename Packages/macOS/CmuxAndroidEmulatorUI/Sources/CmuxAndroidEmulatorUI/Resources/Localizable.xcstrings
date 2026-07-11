@@ -18,8 +18,8 @@
     "androidEmulator.action.openInPane": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Open in Pane" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "ペインで開く" } }
+        "en": { "stringUnit": { "state": "translated", "value": "Open" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "開く" } }
       }
     },
     "androidEmulator.capture.windowNotFound": {

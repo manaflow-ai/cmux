@@ -97,8 +97,9 @@ public final class AndroidEmulatorCoordinator {
     ///   - avdName: The selected AVD name used to revalidate the reusable emulator serial.
     ///   - serial: The selected emulator's validated Android Debug Bridge serial.
     ///   - transportID: The non-reusable transport identity captured with the selected row.
-    public func stop(avdName: String, serial: String, transportID: String) async {
-        guard !stoppingSerials.contains(serial) else { return }
+    @discardableResult
+    public func stop(avdName: String, serial: String, transportID: String) async -> AndroidEmulatorError? {
+        guard !stoppingSerials.contains(serial) else { return nil }
         actionError = nil
         stoppingSerials.insert(serial)
         do {
@@ -106,24 +107,27 @@ public final class AndroidEmulatorCoordinator {
         } catch let error as AndroidEmulatorError {
             stoppingSerials.remove(serial)
             actionError = error
-            return
+            return error
         } catch {
             stoppingSerials.remove(serial)
-            actionError = .commandFailed(tool: "adb", detail: String(describing: error))
-            return
+            let actionError = AndroidEmulatorError.commandFailed(tool: "adb", detail: String(describing: error))
+            self.actionError = actionError
+            return actionError
         }
 
         await refreshAfterPendingAction()
         stoppingSerials.remove(serial)
+        return nil
     }
 
     /// Routes an emulator control through the same transport validation used by lifecycle actions.
+    @discardableResult
     public func perform(
         _ action: AndroidEmulatorControlAction,
         avdName: String,
         serial: String,
         transportID: String
-    ) async {
+    ) async -> AndroidEmulatorError? {
         actionError = nil
         do {
             try await service.perform(
@@ -134,9 +138,13 @@ public final class AndroidEmulatorCoordinator {
             )
         } catch let error as AndroidEmulatorError {
             actionError = error
+            return error
         } catch {
-            actionError = .commandFailed(tool: "adb", detail: String(describing: error))
+            let actionError = AndroidEmulatorError.commandFailed(tool: "adb", detail: String(describing: error))
+            self.actionError = actionError
+            return actionError
         }
+        return nil
     }
 
     /// Returns the current primary display dimensions for an authoritative running row.

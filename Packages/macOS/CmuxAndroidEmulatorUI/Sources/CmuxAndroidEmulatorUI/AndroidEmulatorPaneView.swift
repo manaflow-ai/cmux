@@ -4,10 +4,16 @@ public import SwiftUI
 public struct AndroidEmulatorPaneView: View {
     let controller: AndroidEmulatorPaneController
     let isVisible: Bool
+    let backgroundColor: Color
 
-    public init(controller: AndroidEmulatorPaneController, isVisible: Bool) {
+    public init(
+        controller: AndroidEmulatorPaneController,
+        isVisible: Bool,
+        backgroundColor: Color = .black
+    ) {
         self.controller = controller
         self.isVisible = isVisible
+        self.backgroundColor = backgroundColor
     }
 
     public var body: some View {
@@ -50,8 +56,11 @@ public struct AndroidEmulatorPaneView: View {
             if let error = controller.captureError {
                 AndroidEmulatorCaptureErrorBanner(error: error, retryAction: controller.retryCapture)
             }
+            if let error = controller.operationError {
+                AndroidEmulatorCaptureErrorBanner(error: error, retryAction: controller.retryOperation)
+            }
         }
-        .background(.black)
+        .background(backgroundColor)
         .task { await controller.prepare() }
     }
 }

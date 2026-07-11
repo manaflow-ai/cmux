@@ -14,11 +14,15 @@ public final class AndroidEmulatorPaneController {
     public private(set) var isCaptureReady = false
     public private(set) var captureError: String?
     public private(set) var captureRetryGeneration = 0
+    public private(set) var operationError: String?
     public private(set) var zoomScale: Double = 1
     public var controlsCollapsed = false
 
     private let coordinator: AndroidEmulatorCoordinator
     @ObservationIgnored weak var captureView: AndroidEmulatorCaptureNSView?
+    @ObservationIgnored private var failedOperation: FailedOperation?
+    @ObservationIgnored private var stopConfirmedHandler: (() -> Void)?
+    @ObservationIgnored private var stopInFlight = false
 
     public init(
         avdName: String,
@@ -58,26 +62,50 @@ public final class AndroidEmulatorPaneController {
 
     public func perform(_ action: AndroidEmulatorControlAction) {
         Task {
-            await coordinator.perform(
+            await performControl(action)
+        }
+    }
+
+    private func performControl(_ action: AndroidEmulatorControlAction) async {
+        operationError = nil
+        failedOperation = nil
+        if let error = await coordinator.perform(
                 action,
                 avdName: avdName,
                 serial: serial,
                 transportID: transportID
-            )
-            if action == .rotateLeft || action == .rotateRight {
-                await refreshDisplaySize()
-            }
+        ) {
+            operationError = AndroidEmulatorPickerView.errorDetail(error)
+            failedOperation = .control(action)
+            return
+        }
+        if action == .rotateLeft || action == .rotateRight {
+            await refreshDisplaySize()
         }
     }
 
     public func stop() {
         Task {
-            await coordinator.stop(
+            await performStop()
+        }
+    }
+
+    private func performStop() async {
+        guard !stopInFlight else { return }
+        stopInFlight = true
+        defer { stopInFlight = false }
+        operationError = nil
+        failedOperation = nil
+        if let error = await coordinator.stop(
                 avdName: avdName,
                 serial: serial,
                 transportID: transportID
-            )
+        ) {
+            operationError = AndroidEmulatorPickerView.errorDetail(error)
+            failedOperation = .stop
+            return
         }
+        stopConfirmedHandler?()
     }
 
     public func cycleZoom() {
@@ -102,6 +130,20 @@ public final class AndroidEmulatorPaneController {
         captureRetryGeneration += 1
     }
 
+    public func retryOperation() {
+        guard let failedOperation else { return }
+        switch failedOperation {
+        case .control(let action):
+            perform(action)
+        case .stop:
+            stop()
+        }
+    }
+
+    public func setStopConfirmedHandler(_ handler: @escaping () -> Void) {
+        stopConfirmedHandler = handler
+    }
+
     public func closePane() {
         captureView?.stopCapture()
     }
@@ -123,5 +165,10 @@ public final class AndroidEmulatorPaneController {
 
     func clearCaptureError() {
         captureError = nil
+    }
+
+    private enum FailedOperation {
+        case control(AndroidEmulatorControlAction)
+        case stop
     }
 }

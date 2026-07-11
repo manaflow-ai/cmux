@@ -43,7 +43,7 @@ import Testing
         )
         let coordinator = AndroidEmulatorCoordinator(service: service)
 
-        await coordinator.stop(
+        let error = await coordinator.stop(
             avdName: "Pixel_9_API_35",
             serial: "emulator-5554",
             transportID: "42"
@@ -51,6 +51,7 @@ import Testing
 
         #expect(coordinator.stoppingSerials.isEmpty)
         #expect(coordinator.actionError == .stopNotConfirmed(serial: "emulator-5554"))
+        #expect(error == .stopNotConfirmed(serial: "emulator-5554"))
     }
 
     @Test func unavailableSnapshotDoesNotConfirmPendingStop() async {
@@ -73,7 +74,7 @@ import Testing
         #expect(coordinator.stoppingSerials == ["emulator-5554"])
 
         await service.releaseStop()
-        await stopTask.value
+        _ = await stopTask.value
         #expect(coordinator.stoppingSerials.isEmpty)
     }
 

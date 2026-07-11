@@ -507,7 +507,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     nonisolated let socketTransport = SocketTransport()
     /// Owns the About Titlebar Debug subsystem, created lazily for the window-decoration seam.
     lazy var debugWindowsCoordinator = DebugWindowsCoordinator(decorator: self)
-    lazy var androidEmulatorEnvironment = AndroidEmulatorEnvironment(appDelegate: self)
+    lazy var androidEmulatorEnvironment = AndroidEmulatorEnvironment()
     /// About Titlebar Debug options store, applied by the About/Acknowledgments windows.
     var aboutTitlebarDebugStore: AboutTitlebarDebugStore { debugWindowsCoordinator.aboutTitlebarStore }
     /// Coordinates remote tmux (`ssh … tmux -CC`) mirroring; composition-root owned.

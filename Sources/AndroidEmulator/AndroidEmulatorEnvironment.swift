@@ -6,9 +6,8 @@ import Foundation
 @MainActor
 final class AndroidEmulatorEnvironment {
     let coordinator: AndroidEmulatorCoordinator
-    let windowController: AndroidEmulatorWindowController
 
-    init(appDelegate: AppDelegate) {
+    init() {
         let environment = ProcessInfo.processInfo.environment
         let locator = AndroidSDKLocator(
             environment: environment,
@@ -21,13 +20,6 @@ final class AndroidEmulatorEnvironment {
             processLauncher: AndroidEmulatorProcessLauncher(baseEnvironment: environment),
             adbCommands: AndroidADBCommandRunner(environment: environment)
         )
-        let coordinator = AndroidEmulatorCoordinator(service: service)
-        self.coordinator = coordinator
-        self.windowController = AndroidEmulatorWindowController(
-            coordinator: coordinator,
-            onOpenInPane: { [weak appDelegate] device in
-                appDelegate?.openAndroidEmulatorPane(device)
-            }
-        )
+        self.coordinator = AndroidEmulatorCoordinator(service: service)
     }
 }

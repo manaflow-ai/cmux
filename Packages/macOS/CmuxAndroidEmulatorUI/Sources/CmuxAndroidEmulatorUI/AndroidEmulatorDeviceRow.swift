@@ -45,7 +45,7 @@ struct AndroidEmulatorDeviceRow: View {
                     HStack(spacing: 6) {
                         Button(String(
                             localized: "androidEmulator.action.openInPane",
-                            defaultValue: "Open in Pane",
+                            defaultValue: "Open",
                             bundle: .module
                         )) {
                             onOpenInPane()

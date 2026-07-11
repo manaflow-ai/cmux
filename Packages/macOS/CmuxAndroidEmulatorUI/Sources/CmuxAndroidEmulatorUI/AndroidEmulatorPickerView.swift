@@ -24,7 +24,7 @@ public struct AndroidEmulatorPickerView: View {
             Divider()
             content
         }
-        .frame(minWidth: 560, minHeight: 380)
+        .frame(minWidth: 320, minHeight: 240)
         .task {
             if case .idle = coordinator.loadState {
                 await coordinator.refresh()
@@ -91,7 +91,7 @@ public struct AndroidEmulatorPickerView: View {
             if let actionError = coordinator.actionError {
                 messageBanner(
                     icon: "exclamationmark.triangle.fill",
-                    text: errorDetail(actionError),
+                    text: Self.errorDetail(actionError),
                     color: .orange,
                     dismissAction: coordinator.clearActionError
                 )
@@ -162,6 +162,7 @@ public struct AndroidEmulatorPickerView: View {
                     )
                 }
                 .listStyle(.inset)
+                .scrollContentBackground(.hidden)
             }
         }
     }
@@ -173,7 +174,7 @@ public struct AndroidEmulatorPickerView: View {
                 .foregroundStyle(.secondary)
             Text(errorTitle(error))
                 .font(.system(size: 15, weight: .semibold))
-            Text(errorDetail(error))
+            Text(Self.errorDetail(error))
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -252,7 +253,7 @@ public struct AndroidEmulatorPickerView: View {
         }
     }
 
-    private func errorDetail(_ error: AndroidEmulatorError) -> String {
+    static func errorDetail(_ error: AndroidEmulatorError) -> String {
         switch error {
         case .sdkNotFound:
             return String(

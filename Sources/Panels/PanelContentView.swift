@@ -153,9 +153,10 @@ struct PanelContentView: View {
             }
         case .androidEmulator:
             if let androidPanel = panel as? AndroidEmulatorPanel {
-                AndroidEmulatorPaneView(
-                    controller: androidPanel.controller,
-                    isVisible: isVisibleInUI
+                AndroidEmulatorPanelContentView(
+                    panel: androidPanel,
+                    isVisible: isVisibleInUI,
+                    backgroundColor: Color(nsColor: windowAppearance.terminalBackgroundColor)
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
