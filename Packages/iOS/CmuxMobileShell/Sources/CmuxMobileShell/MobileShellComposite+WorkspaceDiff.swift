@@ -40,9 +40,14 @@ extension MobileShellComposite {
     ///   - workspaceID: The workspace to review.
     ///   - path: Repository-relative path.
     /// - Returns: One-file diff payload from the paired Mac.
-    public func fetchFileDiff(workspaceID: MobileWorkspacePreview.ID, path: String) async throws -> MobileWorkspaceDiffFileResponse {
+    public func fetchFileDiff(
+        workspaceID: MobileWorkspacePreview.ID,
+        path: String,
+        repoRoot: String
+    ) async throws -> MobileWorkspaceDiffFileResponse {
         var params = workspaceDiffParams(workspaceID: workspaceID)
         params["path"] = path
+        params["repo_root"] = repoRoot
         let data = try await sendWorkspaceDiffRequest(
             method: "mobile.workspace.diff_file",
             params: params,

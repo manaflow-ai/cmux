@@ -5,7 +5,7 @@ import SwiftUI
 struct DiffReviewFilesView: View {
     let workspaceName: String
     let fetchStatus: () async throws -> MobileWorkspaceDiffStatusResponse
-    let fetchFile: (String) async throws -> MobileWorkspaceDiffFileResponse
+    let fetchFile: (String, String) async throws -> MobileWorkspaceDiffFileResponse
 
     @State private var session = DiffReviewSession()
     @State private var isLoading = false
@@ -13,6 +13,7 @@ struct DiffReviewFilesView: View {
     @State private var isFilePresented = false
     @State private var isListTruncated = false
     @State private var statusLoadGeneration = 0
+    @State private var repoRoot = ""
 
     var body: some View {
         List {
@@ -57,7 +58,10 @@ struct DiffReviewFilesView: View {
             }
         }
         .navigationDestination(isPresented: $isFilePresented) {
-            DiffReviewFileView(session: session, fetchFile: fetchFile)
+            DiffReviewFileView(
+                session: session,
+                fetchFile: { path in try await fetchFile(path, repoRoot) }
+            )
         }
     }
 
@@ -80,6 +84,7 @@ struct DiffReviewFilesView: View {
             let response = try await fetchStatus()
             guard statusLoadGeneration == generation, !Task.isCancelled else { return }
             session.setFiles(response.files)
+            repoRoot = response.repoRoot
             isListTruncated = response.truncated
         } catch is CancellationError {
             return

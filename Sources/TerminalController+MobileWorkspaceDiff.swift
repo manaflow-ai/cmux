@@ -4,12 +4,17 @@ import Foundation
 // MARK: - Mobile workspace diff review
 
 extension TerminalController {
-    nonisolated static let mobileWorkspaceDiffByteCap = 2 * 1024 * 1024
+    /// The file cap stays below one sixth of the 8 MiB frame limit because JSON
+    /// may encode each control byte as a six-byte `\\u00xx` escape.
+    nonisolated static let mobileWorkspaceDiffFileByteCap = 1 * 1024 * 1024
+    /// Status runs three bounded listings; this keeps their worst-case escaped
+    /// aggregate plus envelope metadata below the same 8 MiB frame limit.
+    nonisolated static let mobileWorkspaceDiffStatusReadCap = 256 * 1024
     /// Process-level bound on diff bytes read from git, slightly above the
     /// response cap so `utf8BoundaryCapped` still sees more than
-    /// `mobileWorkspaceDiffByteCap` bytes and reports truncation. Keeps a huge
+    /// `mobileWorkspaceDiffFileByteCap` bytes and reports truncation. Keeps a huge
     /// diff from accumulating unbounded memory before response capping.
-    nonisolated static let mobileWorkspaceDiffReadCap = mobileWorkspaceDiffByteCap + 4096
+    nonisolated static let mobileWorkspaceDiffReadCap = mobileWorkspaceDiffFileByteCap + 4096
     /// Upper bound on changed-file rows returned to the phone; larger change
     /// sets are cut off and reported as truncated so the response stays a
     /// mobile-sized payload.
@@ -49,14 +54,20 @@ extension TerminalController {
 
     func v2MobileWorkspaceDiffFile(params: [String: Any]) async -> V2CallResult {
         guard let rawPath = params["path"] as? String,
-              !rawPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+              !rawPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              let expectedRepoRoot = params["repo_root"] as? String,
+              !expectedRepoRoot.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return .err(code: "invalid_params", message: "Missing or invalid path", data: nil)
         }
         switch mobileWorkspaceDiffSnapshot(params: params) {
         case .failure(let error):
             return error
         case .success(let snapshot):
-            let result = await Self.mobileWorkspaceDiffFileResult(directory: snapshot.directory, path: rawPath)
+            let result = await Self.mobileWorkspaceDiffFileResult(
+                directory: snapshot.directory,
+                path: rawPath,
+                expectedRepoRoot: expectedRepoRoot
+            )
             return Self.v2MobileWorkspaceDiffResult(result)
         }
     }
@@ -78,7 +89,7 @@ extension TerminalController {
               let workspace = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
             return .failure(.err(code: "unavailable", message: "Workspace context is unavailable", data: nil))
         }
-        guard !workspace.isRemoteWorkspace else {
+        guard !workspace.isRemoteWorkspace, !workspace.isRemoteTmuxMirror else {
             return .failure(.err(code: "unavailable", message: "diff unavailable for remote workspaces", data: nil))
         }
         guard let directory = workspace.presentedCurrentDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -94,9 +105,17 @@ extension TerminalController {
         }
     }
 
-    private nonisolated static func mobileWorkspaceDiffFileResult(directory: String, path: String) async -> MobileWorkspaceDiffFileResult {
+    private nonisolated static func mobileWorkspaceDiffFileResult(
+        directory: String,
+        path: String,
+        expectedRepoRoot: String
+    ) async -> MobileWorkspaceDiffFileResult {
         await detachedCancellable {
-            mobileWorkspaceDiffFileResultSync(directory: directory, path: path)
+            mobileWorkspaceDiffFileResultSync(
+                directory: directory,
+                path: path,
+                expectedRepoRoot: expectedRepoRoot
+            )
         }
     }
 
@@ -127,7 +146,7 @@ extension TerminalController {
         guard let repoRoot = service.repositoryRoot(for: directory) else {
             return .repositoryNotFound
         }
-        let changed = service.changedFiles(repoRoot: repoRoot, maxOutputBytes: mobileWorkspaceDiffByteCap)
+        let changed = service.changedFiles(repoRoot: repoRoot, maxOutputBytes: mobileWorkspaceDiffStatusReadCap)
         let files = Array(changed.files.prefix(mobileWorkspaceDiffMaxFiles))
         return .ok(
             repoRoot: repoRoot,
@@ -136,15 +155,23 @@ extension TerminalController {
         )
     }
 
-    private nonisolated static func mobileWorkspaceDiffFileResultSync(directory: String, path: String) -> MobileWorkspaceDiffFileResult {
+    private nonisolated static func mobileWorkspaceDiffFileResultSync(
+        directory: String,
+        path: String,
+        expectedRepoRoot: String
+    ) -> MobileWorkspaceDiffFileResult {
         let service = GitDiffService()
         guard let repoRoot = service.repositoryRoot(for: directory) else {
             return .repositoryNotFound
         }
+        guard URL(fileURLWithPath: repoRoot).resolvingSymlinksInPath().standardizedFileURL
+            == URL(fileURLWithPath: expectedRepoRoot).resolvingSymlinksInPath().standardizedFileURL else {
+            return .repositoryChanged
+        }
         guard let diff = service.fileDiff(repoRoot: repoRoot, path: path, maxOutputBytes: mobileWorkspaceDiffReadCap) else {
             return .fileNotFound(path: path)
         }
-        let capped = utf8BoundaryCapped(diff.unifiedDiff, byteLimit: mobileWorkspaceDiffByteCap)
+        let capped = utf8BoundaryCapped(diff.unifiedDiff, byteLimit: mobileWorkspaceDiffFileByteCap)
         return .ok(path: diff.path, unifiedDiff: capped.text, truncated: capped.truncated)
     }
 
@@ -192,6 +219,8 @@ extension TerminalController {
             return .err(code: "not_found", message: "Git repository not found", data: nil)
         case .fileNotFound(let path):
             return .err(code: "not_found", message: "File diff not found", data: ["path": path])
+        case .repositoryChanged:
+            return .err(code: "stale_repository", message: "Workspace repository changed", data: nil)
         case .ok(let path, let unifiedDiff, let truncated):
             return .ok([
                 "path": path,
@@ -222,6 +251,7 @@ private enum MobileWorkspaceDiffStatusResult: Sendable {
 
 private enum MobileWorkspaceDiffFileResult: Sendable {
     case repositoryNotFound
+    case repositoryChanged
     case fileNotFound(path: String)
     case ok(path: String, unifiedDiff: String, truncated: Bool)
 }
