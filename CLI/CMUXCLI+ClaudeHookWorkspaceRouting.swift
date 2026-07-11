@@ -8,11 +8,10 @@ extension CMUXCLI {
         isAmbiguous: Bool
     )
 
-    /// Resolve the workspace a Claude hook should mutate, in strict priority order:
-    /// the recorded/preferred workspace, an unambiguous caller-TTY binding (only when
-    /// `preferCallerTTYOverFallback`), the live `CMUX_WORKSPACE_ID` fallback, then an
-    /// unambiguous caller-TTY binding. Each candidate is validated against a live
-    /// workspace before it is accepted.
+    /// Resolve the workspace a Claude hook should mutate. Unresolved caller-TTY
+    /// ambiguity fails closed before any implicit candidate; otherwise priority is
+    /// the recorded/preferred workspace, caller binding, live ambient workspace,
+    /// then caller binding. Each candidate is validated against a live workspace.
     ///
     /// Returns `nil` when the caller cannot be positively identified. It deliberately
     /// does NOT fall back to `workspace.current` (the focused tab): routing a
@@ -27,6 +26,13 @@ extension CMUXCLI {
         callerTerminalBinding: (() -> CallerTerminalBindingResolution)? = nil,
         client: SocketClient
     ) throws -> String? {
+        // With no explicit routing flags, unresolved TTY ambiguity invalidates
+        // every ambient or stored candidate. PID recovery is folded into the
+        // provider first and clears isAmbiguous when it proves one live pane.
+        if preferCallerTTYOverFallback,
+           callerTerminalBinding?().isAmbiguous == true {
+            return nil
+        }
         if let preferred = nonEmptyClaudeHookIdentifier(preferred),
            let resolved = strictClaudeHookWorkspaceId(preferred, client: client) {
             return resolved
@@ -37,10 +43,6 @@ extension CMUXCLI {
                client: client
            ) {
             return callerWorkspaceId
-        }
-        if preferCallerTTYOverFallback,
-           callerTerminalBinding?().isAmbiguous == true {
-            return nil
         }
         if let fallback = nonEmptyClaudeHookIdentifier(fallback),
            let resolved = strictClaudeHookWorkspaceId(fallback, client: client) {
