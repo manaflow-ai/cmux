@@ -22,6 +22,27 @@ struct TerminalSurfaceResizePolicyTests {
     }
 
     @Test
+    func sameGridPixelShrinkIsCoalesced() {
+        // With Ghostty's 4 px of explicit horizontal padding, both widths
+        // resolve to 80 columns: floor((width - padding) / cellWidth).
+        // Live resize must not forward a redundant PTY resize for this step.
+        #expect(
+            !TerminalSurface.shouldApplySurfacePixelSizeChange(
+                currentColumns: 80,
+                currentRows: 24,
+                currentWidthPx: 805,
+                currentHeightPx: 485,
+                currentCellWidthPx: 10,
+                currentCellHeightPx: 20,
+                targetWidthPx: 804,
+                targetHeightPx: 485,
+                coalescePixelOnlyResize: true,
+                hasAppliedPixelSize: true
+            )
+        )
+    }
+
+    @Test
     func ambiguousRemainderShrinkKeepsGridChangeDetectionConservative() {
         #expect(
             !TerminalSurface.shouldApplySurfacePixelSizeChange(
