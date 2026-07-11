@@ -252,12 +252,13 @@ extension ControlCommandCoordinator {
     /// argument is the real path unless `--path=` supplies one, in which case
     /// the positional becomes a display-only sidebar label.
     ///
-    /// The explicit-scope shell-integration path validates and enqueues on the
-    /// worker lane with zero main hops. Its scheduler uses a per-panel
-    /// directory replacement key, so a burst remains last-write-wins and
-    /// bounded while the main actor is unavailable. The fallback path retains
-    /// the legacy TabManager-availability-before-parse ordering inside its one
-    /// synchronous resolution hop.
+    /// The legacy body checks TabManager availability BEFORE any parse error,
+    /// so the reply is selected inside this command's single hop, over parse
+    /// results precomputed on the calling thread, in that exact order. The
+    /// explicit-scope enqueue also runs inside the hop (an enqueue from the
+    /// main actor, exactly as the legacy main-lane body did), keeping the
+    /// whole command to one hop instead of an availability hop plus a write
+    /// hop.
     nonisolated func sidebarReportPwd(_ args: String, context: (any ControlCommandContext)?) -> String {
         let parsed = sidebarParseOptions(args)
 
@@ -283,24 +284,20 @@ extension ControlCommandCoordinator {
         let hasTabOption = parsed.options["tab"] != nil
 
         guard let context else { return "ERROR: TabManager not available" }
-        if let scope {
-            if let parseError {
-                return parseError
-            }
-            context.controlSidebarScheduleScopedDirectoryUpdate(
-                scope: scope,
-                directory: directory,
-                displayLabel: displayLabel
-            )
-            return "OK"
-        }
-
         return context.controlSidebarOnMain { seam in
             guard seam.controlSidebarTabManagerAvailable() else {
                 return "ERROR: TabManager not available"
             }
             if let parseError {
                 return parseError
+            }
+            if let scope {
+                seam.controlSidebarScheduleScopedDirectoryUpdate(
+                    scope: scope,
+                    directory: directory,
+                    displayLabel: displayLabel
+                )
+                return "OK"
             }
             return self.sidebarPanelWriteReply(
                 seam.controlSidebarUpdateDirectory(
