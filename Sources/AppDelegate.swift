@@ -8841,7 +8841,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             cmuxConfigStore: cmuxConfigStore
         )
         publishCmuxWindowLifecycle(name: "window.created", windowId: windowId, origin: "create")
-        installFileDropOverlay(on: window, tabManager: tabManager)
+        installFileDropOverlayWhenReady(on: window, tabManager: tabManager)
         if !shouldActivate || TerminalController.shouldSuppressSocketCommandActivation() {
             window.orderFront(nil)
             if shouldActivate, TerminalController.socketCommandAllowsInAppFocusMutations() {

@@ -146,7 +146,11 @@ private final class WindowCommandPaletteOverlayController: NSObject {
             hostingView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
             hostingView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
         ])
-        _ = ensureInstalled()
+        // WindowAccessor can create this controller while SwiftUI is attaching
+        // its hosting view. Defer NSThemeFrame mutation until that update ends.
+        DispatchQueue.main.async { [weak self] in
+            _ = self?.ensureInstalled()
+        }
         installWindowKeyObservers()
     }
 
@@ -741,13 +745,15 @@ func installFileDropOverlayWhenReady(
     tabManager: TabManager,
     remainingAttempts: Int = 16
 ) {
-    guard !installFileDropOverlay(on: window, tabManager: tabManager),
-          remainingAttempts > 0 else { return }
+    guard remainingAttempts >= 0 else { return }
 
-    // Defer retrying until the next main-loop turn so we don't mutate the
-    // NSThemeFrame hierarchy while SwiftUI/AppKit is still attaching views.
+    // Always defer the first attempt as well as retries. Callers can reach this
+    // while SwiftUI/AppKit is still attaching the NSHostingView to NSThemeFrame;
+    // mutating that hierarchy synchronously causes layout re-entry warnings.
     DispatchQueue.main.async { [weak window, weak tabManager] in
         guard let window, let tabManager else { return }
+        guard !installFileDropOverlay(on: window, tabManager: tabManager),
+              remainingAttempts > 0 else { return }
         installFileDropOverlayWhenReady(
             on: window,
             tabManager: tabManager,

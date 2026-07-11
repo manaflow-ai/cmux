@@ -1997,6 +1997,25 @@ enum TerminalWindowPortalRegistry {
         expectedGeneration: UInt64? = nil,
         deferLayoutSynchronization: Bool = false
     ) {
+        if deferLayoutSynchronization {
+            // HostContainerView can move into its window while SwiftUI is still
+            // rendering. Defer portal creation itself, not only layout sync, so
+            // ensureInstalled does not mutate NSThemeFrame re-entrantly.
+            DispatchQueue.main.async { [weak hostedView, weak anchorView] in
+                guard let hostedView, let anchorView else { return }
+                bind(
+                    hostedView: hostedView,
+                    to: anchorView,
+                    visibleInUI: visibleInUI,
+                    zPriority: zPriority,
+                    expectedSurfaceId: expectedSurfaceId,
+                    expectedGeneration: expectedGeneration,
+                    deferLayoutSynchronization: false
+                )
+            }
+            return
+        }
+
         guard let window = anchorView.window else { return }
 
         let windowId = ObjectIdentifier(window)
