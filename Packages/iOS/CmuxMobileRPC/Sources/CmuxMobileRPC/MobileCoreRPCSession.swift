@@ -9,17 +9,17 @@ actor MobileCoreRPCSession {
     typealias ConnectingTask = (id: UUID, lease: MobileRPCConnectAttemptLease?, task: Task<any CmxByteTransport, any Error>, waiters: Set<UUID>, completed: Bool)
     static let defaultAbandonedConnectCleanupTimeoutNanoseconds: UInt64 = 1_000_000_000
     static let defaultLateAbandonedConnectCloseTimeoutNanoseconds: UInt64 = 5_000_000_000
-    private static let maximumReceiveBufferByteCount =
+    static let maximumReceiveBufferByteCount =
         MobileSyncFrameCodec.defaultMaximumFrameByteCount
         + MobileSyncFrameCodec.headerByteCount
-    private static let maximumDecodedFrameCountPerRead = 256
+    static let maximumDecodedFrameCountPerRead = 256
 
     struct EventSubscription {
         let id: UUID
         let stream: AsyncStream<MobileEventEnvelope>
     }
 
-    private struct EventListener {
+    struct EventListener {
         let topics: Set<String>
         let continuation: AsyncStream<MobileEventEnvelope>.Continuation
     }
@@ -30,39 +30,39 @@ actor MobileCoreRPCSession {
         let frame: Data
     }
 
-    private struct IndependentEventPreparation: Sendable {
+    struct IndependentEventPreparation: Sendable {
         let id: UUID
         let task: Task<CmxIndependentEventByteStream, any Error>
     }
 
-    private struct IndependentEventReader: Sendable {
+    struct IndependentEventReader: Sendable {
         let id: UUID
         let task: Task<Void, Never>
     }
 
-    private let taskTimeout = RPCTaskTimeout()
+    let taskTimeout = RPCTaskTimeout()
     private let connectAttemptKey: String?
     let connectAttemptRegistry: MobileRPCConnectAttemptRegistry
     let abandonedConnectCleanupTimeoutNanoseconds: UInt64
     let lateAbandonedConnectCloseTimeoutNanoseconds: UInt64
     private let makeTransport: TransportFactory
-    private let makeIndependentEventByteStream: IndependentEventByteStreamFactory?
+    let makeIndependentEventByteStream: IndependentEventByteStreamFactory?
     private let didReceiveConnectedCandidate: ConnectedCandidateHook?
     private var transport: (any CmxByteTransport)?
     private var connectionTask: ConnectingTask?
     private var installedConnectionID: UUID?
     private var readerTask: Task<Void, Never>?
-    private var independentEventPreparation: IndependentEventPreparation?
-    private var independentEventReader: IndependentEventReader?
-    private var pending: [String: PendingContinuation] = [:]
-    private var requestTimeoutTasks: [String: Task<Void, Never>] = [:]
+    var independentEventPreparation: IndependentEventPreparation?
+    var independentEventReader: IndependentEventReader?
+    var pending: [String: PendingContinuation] = [:]
+    var requestTimeoutTasks: [String: Task<Void, Never>] = [:]
     private var queuedWriteIDs: [String: UUID] = [:]
     private var cancelledQueuedWriteIDs: Set<UUID> = []
     // `internal` so cancellation tests can observe the writer-queue gate via
     // `@testable import` without adding a production debug hook.
     var queuedRequestIDs: Set<String> { Set(queuedWriteIDs.keys) }
-    private var listeners: [UUID: EventListener] = [:]
-    private var isTearingDown: Bool = false
+    var listeners: [UUID: EventListener] = [:]
+    var isTearingDown: Bool = false
     private var writeQueue: AsyncStream<PendingWrite>.Continuation?
     private var writerTask: Task<Void, Never>?
 
@@ -161,68 +161,7 @@ actor MobileCoreRPCSession {
         listeners.removeValue(forKey: id)
     }
 
-    /// Prepares one independently framed server-event reader when the active
-    /// route supports it. Concurrent callers coalesce onto the same provider
-    /// operation and never create competing stream consumers.
-    func prepareIndependentServerEvents(
-        timeoutNanoseconds: UInt64? = nil
-    ) async -> Bool {
-        if independentEventReader != nil { return true }
-        guard !isTearingDown, let makeIndependentEventByteStream else { return false }
-
-        let preparation: IndependentEventPreparation
-        if let current = independentEventPreparation {
-            preparation = current
-        } else {
-            let task = Task {
-                try await makeIndependentEventByteStream()
-            }
-            preparation = IndependentEventPreparation(id: UUID(), task: task)
-            independentEventPreparation = preparation
-        }
-
-        do {
-            let stream: CmxIndependentEventByteStream
-            if let timeoutNanoseconds {
-                stream = try await taskTimeout.value(
-                    preparation.task,
-                    timeoutNanoseconds: timeoutNanoseconds
-                )
-            } else {
-                stream = try await preparation.task.value
-            }
-            guard independentEventPreparation?.id == preparation.id else {
-                return independentEventReader != nil
-            }
-            independentEventPreparation = nil
-            guard !isTearingDown else { return false }
-            if independentEventReader != nil { return true }
-
-            let readerID = UUID()
-            let task = Task { [weak self] in
-                guard let self else { return }
-                await self.readIndependentEventLoop(stream: stream, id: readerID)
-            }
-            independentEventReader = IndependentEventReader(id: readerID, task: task)
-            return true
-        } catch MobileShellConnectionError.requestTimedOut {
-            // The optional preparation does not consume the control RPC's full
-            // deadline. Keep the shared provider operation alive so a later
-            // subscribe can adopt it, while this request uses control fallback.
-            return independentEventReader != nil
-        } catch is CancellationError {
-            return independentEventReader != nil
-        } catch {
-            if independentEventPreparation?.id == preparation.id {
-                independentEventPreparation = nil
-            }
-            return independentEventReader != nil
-        }
-    }
-
     func connectWaiterCountForTesting() -> Int { connectionTask?.waiters.count ?? 0 }
-    var hasIndependentEventReaderForTesting: Bool { independentEventReader != nil }
-    var eventListenerCountForTesting: Int { listeners.count }
 
     func tearDown(error: MobileShellConnectionError) async {
         guard !isTearingDown else { return }
@@ -508,92 +447,6 @@ actor MobileCoreRPCSession {
             for frame in frames {
                 dispatch(frame: frame)
             }
-        }
-    }
-
-    /// Reads only independently framed event bytes. A malformed or closed
-    /// event stream disables this optional path without tearing down control
-    /// RPCs or finishing their existing event listeners. The next subscribe
-    /// reassertion may prepare a fresh event stream and the host can fall back
-    /// to control delivery in the meantime.
-    private func readIndependentEventLoop(
-        stream: CmxIndependentEventByteStream,
-        id: UUID
-    ) async {
-        defer {
-            if independentEventReader?.id == id {
-                independentEventReader = nil
-            }
-        }
-
-        var buffer = Data()
-        do {
-            for try await chunk in stream {
-                try Task.checkCancellation()
-                guard !chunk.isEmpty else { continue }
-                guard chunk.count <= Self.maximumReceiveBufferByteCount - buffer.count else {
-                    throw MobileSyncFrameCodecError.frameTooLarge(
-                        buffer.count + chunk.count
-                    )
-                }
-                buffer.append(chunk)
-                let frames = try MobileSyncFrameCodec.decodeFrames(
-                    from: &buffer,
-                    maximumDecodedFrameCount: Self.maximumDecodedFrameCountPerRead
-                )
-                for frame in frames {
-                    dispatch(frame: frame)
-                }
-            }
-        } catch {
-            // Optional-lane failure deliberately leaves the control session and
-            // listener registrations alive for rolling fallback.
-        }
-    }
-
-    private func dispatch(frame: Data) {
-        let parsed = try? JSONSerialization.jsonObject(with: frame) as? [String: Any]
-        guard let envelope = parsed else { return }
-        if (envelope["kind"] as? String) == "event" {
-            guard let topic = envelope["topic"] as? String else { return }
-            let payloadData: Data?
-            if let payload = envelope["payload"] {
-                payloadData = try? JSONSerialization.data(withJSONObject: payload)
-            } else {
-                payloadData = nil
-            }
-            let streamID = envelope["stream_id"] as? String
-            let event = MobileEventEnvelope(topic: topic, payloadJSON: payloadData, streamID: streamID)
-            for (_, listener) in listeners where listener.topics.contains(topic) {
-                listener.continuation.yield(event)
-            }
-            return
-        }
-        guard let id = envelope["id"] as? String else { return }
-        guard let cont = pending.removeValue(forKey: id) else { return }
-        requestTimeoutTasks.removeValue(forKey: id)?.cancel()
-        if (envelope["ok"] as? Bool) == true {
-            let result = envelope["result"] ?? [:]
-            if let data = try? JSONSerialization.data(withJSONObject: result) {
-                cont.resume(returning: .success(data))
-            } else {
-                cont.resume(returning: .failure(.invalidResponse))
-            }
-            return
-        }
-        let errorPayload = envelope["error"] as? [String: Any]
-        let message = (errorPayload?["message"] as? String) ?? "RPC error"
-        let code = errorPayload?["code"] as? String
-        switch code {
-        case "unauthorized":
-            cont.resume(returning: .failure(.authorizationFailed(message)))
-        case "account_mismatch":
-            // The Mac is signed in to a different cmux account. Surface a
-            // distinct error so the shell drives a re-auth flow into the owner's
-            // account rather than retrying with this account's fresh token.
-            cont.resume(returning: .failure(.accountMismatch(message)))
-        default:
-            cont.resume(returning: .failure(.rpcError(code, message)))
         }
     }
 

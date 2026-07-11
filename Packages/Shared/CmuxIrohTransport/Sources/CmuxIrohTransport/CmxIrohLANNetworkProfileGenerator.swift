@@ -4,7 +4,7 @@ import Foundation
 
 /// Derives account-private local profile IDs without disclosing interface names.
 public struct CmxIrohLANNetworkProfileGenerator: Sendable {
-    private let key: SymmetricKey
+    private let keyBytes: [UInt8]
     private let rendezvousGeneration: Int
 
     public init(rendezvous: CmxIrohLANRendezvous) throws {
@@ -15,7 +15,7 @@ public struct CmxIrohLANNetworkProfileGenerator: Sendable {
         guard let data = Data(base64Encoded: standard), data.count == 32 else {
             throw CmxIrohLANRendezvousAliasError.invalidKey
         }
-        key = SymmetricKey(data: data)
+        keyBytes = Array(data)
         rendezvousGeneration = rendezvous.generation
     }
 
@@ -27,6 +27,7 @@ public struct CmxIrohLANNetworkProfileGenerator: Sendable {
         let transcript = Data(
             "cmux/iroh/lan-network-profile/v1\0\(rendezvousGeneration)\0\(pathGeneration)\0\(interfaceIndex)".utf8
         )
+        let key = SymmetricKey(data: keyBytes)
         let digest = HMAC<SHA256>.authenticationCode(for: transcript, using: key)
             .map { String(format: "%02x", $0) }
             .joined()

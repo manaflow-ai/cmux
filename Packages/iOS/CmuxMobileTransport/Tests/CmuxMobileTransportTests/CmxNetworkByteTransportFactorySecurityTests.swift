@@ -1,6 +1,29 @@
 import CMUXMobileCore
+import Network
 import Testing
 @testable import CmuxMobileTransport
+
+private enum RejectingTailscaleAuthorityError: Error {
+    case rejected
+}
+
+private actor RejectingTailscaleAuthority: CmxTailscaleRouteAuthorizing {
+    private(set) var preparationCount = 0
+
+    func prepare(
+        request _: CmxByteTransportRequest
+    ) throws -> CmxPreparedTailscaleRoute {
+        preparationCount += 1
+        throw RejectingTailscaleAuthorityError.rejected
+    }
+
+    func validate(
+        proof _: CmxTailscaleRouteProof,
+        connectionPath _: NWPath
+    ) throws {
+        throw RejectingTailscaleAuthorityError.rejected
+    }
+}
 
 @Suite struct CmxTransportFactorySecurityTests {
     @Test func buildsLoopbackTransportWithExplicitAuthorizationIntent() throws {
@@ -67,5 +90,30 @@ import Testing
         #expect(throws: (any Error).self) {
             _ = try CmxNetworkByteTransportFactory().makeTransport(for: request)
         }
+    }
+
+    @Test func preparesInjectedTailscaleAuthorityAtConnectBoundary() async throws {
+        let route = try CmxAttachRoute(
+            id: "tailscale",
+            kind: .tailscale,
+            endpoint: .hostPort(host: "100.64.1.2", port: 49831)
+        )
+        let request = CmxByteTransportRequest(
+            route: route,
+            expectedPeerDeviceID: "mac-1",
+            authorizationMode: .stackBearer
+        )
+        let authority = RejectingTailscaleAuthority()
+        let factory = CmxNetworkByteTransportFactory(
+            tailscaleRouteAuthority: authority
+        )
+
+        let transport = try factory.makeTransport(for: request)
+        #expect(await authority.preparationCount == 0)
+
+        await #expect(throws: CmxNetworkByteTransportError.tailscaleAuthorizationUnavailable) {
+            try await transport.connect()
+        }
+        #expect(await authority.preparationCount == 1)
     }
 }

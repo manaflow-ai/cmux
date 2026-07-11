@@ -12,7 +12,7 @@ import Testing
 /// dials the phone's own loopback and silently fails to connect.
 @MainActor
 @Suite struct ReconnectRouteSelectionTests {
-    private func loopback(_ port: Int = 50906) throws -> CmxAttachRoute {
+    func loopback(_ port: Int = 50906) throws -> CmxAttachRoute {
         try CmxAttachRoute(
             id: "debug_loopback",
             kind: .debugLoopback,
@@ -21,7 +21,7 @@ import Testing
         )
     }
 
-    private func tailscale(_ port: Int = 50906) throws -> CmxAttachRoute {
+    func tailscale(_ port: Int = 50906) throws -> CmxAttachRoute {
         try CmxAttachRoute(
             id: "tailscale",
             kind: .tailscale,
@@ -30,7 +30,7 @@ import Testing
         )
     }
 
-    private func iroh(priority: Int = -10_000) throws -> CmxAttachRoute {
+    func iroh(priority: Int = -10_000) throws -> CmxAttachRoute {
         try CmxAttachRoute(
             id: "iroh-personal",
             kind: .iroh,
@@ -146,132 +146,6 @@ import Testing
         )
 
         #expect(candidates.isEmpty)
-    }
-
-    @Test func reconnectActiveMacUsesPersistedIrohBeforeNetworkFallback() async throws {
-        let clock = TestClock()
-        let router = LivenessHostRouter()
-        let box = TransportBox()
-        let factory = KindRecordingTransportFactory(router: router, box: box)
-        let store = try await makeReconnectStore(
-            routes: [try tailscale(), try iroh()],
-            runtime: LivenessTestRuntime(
-                transportFactory: factory,
-                now: { clock.now },
-                supportedRouteKinds: [.iroh, .tailscale]
-            )
-        )
-
-        let connected = await store.reconnectActiveMacIfAvailable(stackUserID: "user-1")
-
-        #expect(connected)
-        #expect(store.connectionState == .connected)
-        #expect(factory.attemptedKinds() == [.iroh])
-        #expect(store.activeRoute?.kind == .iroh)
-        #expect(await router.workspaceIDs(for: "workspace.list") == [nil])
-        #expect(store.workspaces.map(\.rpcWorkspaceID.rawValue) == ["live-workspace"])
-        #expect(!store.workspaces.contains {
-            $0.rpcWorkspaceID.rawValue == "stored-workspace"
-        })
-    }
-
-    @Test func rejectedIrohReconnectNeverDowngradesToRawTailscale() async throws {
-        let clock = TestClock()
-        let router = LivenessHostRouter()
-        let box = TransportBox()
-        let factory = KindRecordingTransportFactory(
-            router: router,
-            box: box,
-            failingKinds: [.iroh]
-        )
-        let store = try await makeReconnectStore(
-            routes: [try tailscale(), try iroh()],
-            runtime: LivenessTestRuntime(
-                transportFactory: factory,
-                now: { clock.now },
-                supportedRouteKinds: [.iroh, .tailscale]
-            )
-        )
-
-        let connected = await store.reconnectActiveMacIfAvailable(stackUserID: "user-1")
-
-        #expect(!connected)
-        #expect(store.connectionState == .disconnected)
-        #expect(factory.attemptedKinds() == [.iroh])
-    }
-
-    @Test func legacyMacWithoutIrohStillReconnectsOverTailscale() async throws {
-        let clock = TestClock()
-        let router = LivenessHostRouter()
-        let box = TransportBox()
-        let factory = KindRecordingTransportFactory(router: router, box: box)
-        let store = try await makeReconnectStore(
-            routes: [try tailscale()],
-            runtime: LivenessTestRuntime(
-                transportFactory: factory,
-                now: { clock.now },
-                supportedRouteKinds: [.iroh, .tailscale]
-            )
-        )
-
-        let connected = await store.reconnectActiveMacIfAvailable(stackUserID: "user-1")
-
-        #expect(connected)
-        let attemptedKinds = factory.attemptedKinds()
-        #expect(!attemptedKinds.isEmpty)
-        #expect(attemptedKinds.allSatisfy { $0 == .tailscale })
-    }
-
-    @Test func switchingToIrohCapableMacUsesPinnedIrohRoute() async throws {
-        let clock = TestClock()
-        let router = LivenessHostRouter()
-        let box = TransportBox()
-        let factory = KindRecordingTransportFactory(router: router, box: box)
-        let store = try await makeReconnectStore(
-            routes: [try tailscale(), try iroh()],
-            runtime: LivenessTestRuntime(
-                transportFactory: factory,
-                now: { clock.now },
-                supportedRouteKinds: [.iroh, .tailscale]
-            )
-        )
-
-        let connected = await store.switchToMac(macDeviceID: "test-mac")
-
-        #expect(connected)
-        #expect(factory.attemptedKinds() == [.iroh])
-        #expect(store.activeRoute?.kind == .iroh)
-    }
-
-    @Test func foregroundResumeRedialsDeadIrohSessionBeforeUserAction() async throws {
-        let clock = TestClock()
-        let router = LivenessHostRouter()
-        let box = TransportBox()
-        let store = try await makeReconnectStore(
-            routes: [try iroh()],
-            runtime: LivenessTestRuntime(
-                transportFactory: LivenessTransportFactory(router: router, box: box),
-                now: { clock.now },
-                supportedRouteKinds: [.iroh]
-            )
-        )
-        #expect(await store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
-        let firstTransport = try #require(box.get())
-        await firstTransport.close()
-
-        store.suspendForegroundRefresh()
-        clock.advance(by: 61)
-        store.resumeForegroundRefresh()
-
-        let recovered = try await pollUntil(attempts: 100) {
-            guard let current = box.get() else { return false }
-            let foregroundProbeCount = await router.count(of: "mobile.workspace.list")
-            return current !== firstTransport
-                && store.connectionState == .connected
-                && foregroundProbeCount >= 1
-        }
-        #expect(recovered)
-        #expect(store.activeRoute?.kind == .iroh)
     }
 
     private func magicDNS(_ port: Int = 50906) throws -> CmxAttachRoute {
@@ -458,7 +332,7 @@ import Testing
         )
     }
 
-    private func makeReconnectStore(
+    func makeReconnectStore(
         routes: [CmxAttachRoute],
         runtime: any MobileSyncRuntime
     ) async throws -> MobileShellComposite {
@@ -597,7 +471,7 @@ private actor HeldFailingConnectTransport: CmxByteTransport {
     func close() async {}
 }
 
-private final class KindRecordingTransportFactory: CmxByteTransportFactory, @unchecked Sendable {
+final class KindRecordingTransportFactory: CmxByteTransportFactory, @unchecked Sendable {
     private let router: LivenessHostRouter
     private let box: TransportBox
     private let failingKinds: Set<CmxAttachTransportKind>

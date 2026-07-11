@@ -14,9 +14,9 @@ struct MobilePairingView: View {
     /// The manual-entry value that was just copied (the host or the port
     /// string), so only the matching button shows the brief "Copied" flash.
     /// The two values can never collide: one is a host, the other a port.
-    @State private var copiedValue: String?
+    @State var copiedValue: String?
     /// Bumped per copy so an older flash's dismissal can't clear a newer one.
-    @State private var copiedValueGeneration = 0
+    @State var copiedValueGeneration = 0
     /// Defaults to the Iroh identity QR. The user may explicitly reveal the
     /// separately minted released-client Tailscale code when one is available.
     @State private var showsLegacyPairingCode = false
@@ -28,7 +28,7 @@ struct MobilePairingView: View {
 
     private static let tailscaleDownloadURL = URL(string: "https://tailscale.com/download")!
     /// Where a Mac user goes to get cmux for iPhone while the beta is invite-only.
-    private static let iphoneAppURL = URL(string: "https://github.com/manaflow-ai/cmux#founders-edition")!
+    static let iphoneAppURL = URL(string: "https://github.com/manaflow-ai/cmux#founders-edition")!
 
     var body: some View {
         ScrollView {
@@ -442,127 +442,4 @@ struct MobilePairingView: View {
         }
     }
 
-    @ViewBuilder
-    private func connectedContent(_ ready: MobilePairingModel.Ready) -> some View {
-        VStack(spacing: 12) {
-            Image(systemName: "checkmark.circle.fill")
-                .cmuxFont(size: 36)
-                .foregroundStyle(.green)
-            Text(String(localized: "mobile.pairing.connected.title", defaultValue: "iPhone connected"))
-                .cmuxFont(.title3, weight: .semibold)
-            Text(String(localized: "mobile.pairing.connected.subtitle", defaultValue: "Your terminal workspaces are now syncing to your iPhone. You can close this window."))
-                .multilineTextAlignment(.center)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .frame(maxWidth: .infinity, minHeight: 200)
-    }
-
-    private var steps: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            step(1, String(localized: "mobile.pairing.step.install", defaultValue: "Install cmux on your iPhone and open it."))
-            HStack(spacing: 4) {
-                Spacer(minLength: 30)
-                Text(String(localized: "mobile.pairing.getApp.prompt", defaultValue: "Don't have it yet?"))
-                    .cmuxFont(.caption)
-                    .foregroundStyle(.secondary)
-                Link(
-                    String(localized: "mobile.pairing.getApp.link", defaultValue: "Get cmux for iPhone"),
-                    destination: Self.iphoneAppURL
-                )
-                .cmuxFont(.caption)
-                Spacer(minLength: 0)
-            }
-            step(2, String(localized: "mobile.pairing.step.signIn", defaultValue: "Sign in with the same account you use on this Mac."))
-            step(3, String(localized: "mobile.pairing.step.scan", defaultValue: "Tap Add device, then Scan QR Code, and point the camera at the code above."))
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private func step(_ number: Int, _ text: String) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 10) {
-            Text("\(number)")
-                .cmuxFont(.caption, weight: .bold)
-                .foregroundStyle(.white)
-                .frame(width: 20, height: 20)
-                .background(Color.accentColor, in: Circle())
-            Text(text)
-                .cmuxFont(.callout)
-                .fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: 0)
-        }
-    }
-
-    @ViewBuilder
-    private func manualFallback(_ ready: MobilePairingModel.Ready) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(String(localized: "mobile.pairing.manual.title", defaultValue: "Can't scan? Add this Mac manually:"))
-                .cmuxFont(.caption, weight: .semibold)
-                .foregroundStyle(.secondary)
-            ForEach(ready.tailscaleLines, id: \.self) { line in
-                Text(line)
-                    .cmuxFont(.caption, design: .monospaced)
-                    .textSelection(.enabled)
-                    .foregroundStyle(.secondary)
-            }
-            if let entry = ready.manualEntry {
-                HStack(spacing: 8) {
-                    copyButton(
-                        label: String(localized: "mobile.pairing.manual.copyIP", defaultValue: "Copy IP"),
-                        value: entry.host
-                    )
-                    copyButton(
-                        label: String(localized: "mobile.pairing.manual.copyPort", defaultValue: "Copy Port"),
-                        value: String(entry.port)
-                    )
-                }
-                .padding(.top, 2)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(12)
-        .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
-    }
-
-    /// One of the two manual-entry copy controls. Copies `value` to the
-    /// general pasteboard and briefly swaps its label to a "Copied" check.
-    private func copyButton(label: String, value: String) -> some View {
-        Button {
-            let pasteboard = NSPasteboard.general
-            pasteboard.clearContents()
-            pasteboard.setString(value, forType: .string)
-            flashCopied(value)
-        } label: {
-            HStack(spacing: 4) {
-                Image(systemName: copiedValue == value ? "checkmark" : "doc.on.doc")
-                Text(
-                    copiedValue == value
-                        ? String(localized: "mobile.pairing.manual.copied", defaultValue: "Copied")
-                        : label
-                )
-            }
-            .cmuxFont(.caption)
-        }
-        .buttonStyle(.bordered)
-        .controlSize(.small)
-    }
-
-    private func flashCopied(_ value: String) {
-        copiedValueGeneration &+= 1
-        let generation = copiedValueGeneration
-        copiedValue = value
-        Task { @MainActor in
-            // Bounded, intended auto-dismiss for the "Copied" flash (same
-            // pattern as MarkdownPanelView's copy confirmation); a newer copy
-            // supersedes this one via the generation guard.
-            try? await ContinuousClock().sleep(for: .seconds(1.6))
-            guard copiedValueGeneration == generation else { return }
-            copiedValue = nil
-        }
-    }
-
-    private func centered<C: View>(@ViewBuilder _ content: () -> C) -> some View {
-        HStack(spacing: 10) { content() }
-            .frame(maxWidth: .infinity, minHeight: 200)
-    }
 }

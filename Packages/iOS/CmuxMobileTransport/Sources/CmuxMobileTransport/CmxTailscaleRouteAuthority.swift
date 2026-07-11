@@ -2,7 +2,6 @@ internal import CMUXMobileCore
 import Darwin
 import Foundation
 @preconcurrency import Network
-import os
 
 struct CmxPreparedTailscaleRoute: Sendable {
     let proof: CmxTailscaleRouteProof
@@ -10,13 +9,11 @@ struct CmxPreparedTailscaleRoute: Sendable {
 }
 
 protocol CmxTailscaleRouteAuthorizing: Sendable {
-    func prepare(request: CmxByteTransportRequest) throws -> CmxPreparedTailscaleRoute
-    func validate(proof: CmxTailscaleRouteProof, connectionPath: NWPath) throws
+    func prepare(request: CmxByteTransportRequest) async throws -> CmxPreparedTailscaleRoute
+    func validate(proof: CmxTailscaleRouteProof, connectionPath: NWPath) async throws
 }
 
-final class CmxSystemTailscaleRouteAuthority: CmxTailscaleRouteAuthorizing, @unchecked Sendable {
-    static let shared = CmxSystemTailscaleRouteAuthority()
-
+actor CmxSystemTailscaleRouteAuthority: CmxTailscaleRouteAuthorizing {
     private struct PathState: Sendable {
         var generation: UInt64 = 0
         var path: NWPath?
@@ -27,23 +24,23 @@ final class CmxSystemTailscaleRouteAuthority: CmxTailscaleRouteAuthorizing, @unc
         let path: NWPath
     }
 
-    private let pathState = OSAllocatedUnfairLock(initialState: PathState())
+    private var pathState = PathState()
     private let monitor: NWPathMonitor
-    private let monitorQueue = DispatchQueue(label: "dev.cmux.mobile.tailscale-route-authority")
 
-    private init() {
+    init() {
         let monitor = NWPathMonitor()
         self.monitor = monitor
-        let pathState = pathState
-        monitor.pathUpdateHandler = { path in
-            pathState.withLock { state in
-                if state.path != path {
-                    state.generation = Self.nextGeneration(after: state.generation)
-                    state.path = path
-                }
-            }
+        monitor.pathUpdateHandler = { [weak self] path in
+            guard let self else { return }
+            Task { await self.observe(path) }
         }
-        monitor.start(queue: monitorQueue)
+        // Network.framework requires a callback queue. The callback immediately
+        // enters this actor, which is the sole owner of the mutable path state.
+        monitor.start(
+            queue: DispatchQueue(
+                label: "dev.cmux.mobile.tailscale-route-authority"
+            )
+        )
     }
 
     deinit {
@@ -56,7 +53,7 @@ final class CmxSystemTailscaleRouteAuthority: CmxTailscaleRouteAuthorizing, @unc
             generation: observed.generation,
             path: observed.path
         )
-        let proof = try CmxTailscaleRouteProofValidator.prepare(
+        let proof = try CmxTailscaleRouteProofValidator().prepare(
             request: request,
             snapshot: snapshot
         )
@@ -75,7 +72,7 @@ final class CmxSystemTailscaleRouteAuthority: CmxTailscaleRouteAuthorizing, @unc
             path: observed.path
         )
         let connectionSnapshot = Self.connectionPathSnapshot(connectionPath)
-        try CmxTailscaleRouteProofValidator.validate(
+        try CmxTailscaleRouteProofValidator().validate(
             proof: proof,
             authoritySnapshot: authoritySnapshot,
             connectionPath: connectionSnapshot
@@ -84,15 +81,20 @@ final class CmxSystemTailscaleRouteAuthority: CmxTailscaleRouteAuthorizing, @unc
 
     private func observedPath() -> ObservedPath {
         let currentPath = monitor.currentPath
-        return pathState.withLock { state in
-            // `currentPath` can advance before the monitor callback reaches its
-            // queue. Observe that transition synchronously so the bearer gate
-            // cannot use the old generation in that callback window.
-            if state.path == nil || state.path != currentPath {
-                state.generation = Self.nextGeneration(after: state.generation)
-                state.path = currentPath
-            }
-            return ObservedPath(generation: state.generation, path: currentPath)
+        // `currentPath` can advance before the monitor callback reaches this
+        // actor. Observe that transition synchronously so the bearer gate
+        // cannot use the old generation in that callback window.
+        if pathState.path == nil || pathState.path != currentPath {
+            pathState.generation = Self.nextGeneration(after: pathState.generation)
+            pathState.path = currentPath
+        }
+        return ObservedPath(generation: pathState.generation, path: currentPath)
+    }
+
+    private func observe(_ path: NWPath) {
+        if pathState.path != path {
+            pathState.generation = Self.nextGeneration(after: pathState.generation)
+            pathState.path = path
         }
     }
 
@@ -110,7 +112,7 @@ final class CmxSystemTailscaleRouteAuthority: CmxTailscaleRouteAuthorizing, @unc
             availableInterfaces: Set(path.availableInterfaces.map {
                 CmxNetworkInterfaceIdentity(name: $0.name, index: $0.index)
             }),
-            systemInterfaces: CmxSystemInterfaceSnapshotReader.read()
+            systemInterfaces: CmxSystemInterfaceSnapshotReader().read()
         )
     }
 
@@ -161,7 +163,7 @@ final class CmxSystemTailscaleRouteAuthority: CmxTailscaleRouteAuthorizing, @unc
     }
 }
 
-private enum CmxSystemInterfaceSnapshotReader {
+private struct CmxSystemInterfaceSnapshotReader {
     private struct Builder {
         let identity: CmxNetworkInterfaceIdentity
         var isUp: Bool
@@ -169,7 +171,7 @@ private enum CmxSystemInterfaceSnapshotReader {
         var addresses: Set<CmxTailscaleIPAddress>
     }
 
-    static func read() -> [CmxTailscaleInterfaceSnapshot] {
+    func read() -> [CmxTailscaleInterfaceSnapshot] {
         var interfaces: UnsafeMutablePointer<ifaddrs>?
         guard getifaddrs(&interfaces) == 0, let first = interfaces else {
             return []
@@ -212,7 +214,7 @@ private enum CmxSystemInterfaceSnapshotReader {
         }
     }
 
-    private static func ipAddress(
+    private func ipAddress(
         from address: UnsafeMutablePointer<sockaddr>
     ) -> CmxTailscaleIPAddress? {
         switch Int32(address.pointee.sa_family) {

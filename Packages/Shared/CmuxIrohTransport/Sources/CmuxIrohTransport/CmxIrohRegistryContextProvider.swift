@@ -9,35 +9,19 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         _ rendezvous: CmxIrohLANRendezvous
     ) async -> [CmxIrohPathHint]
 
-    private struct GrantCache: Sendable {
-        let initiator: CmxIrohGrantPeer
-        let acceptor: CmxIrohGrantPeer
-        let response: CmxIrohPairGrantResponse
-        let expiresAt: Date
-    }
+    let supervisor: CmxIrohEndpointSupervisor
+    let broker: any CmxIrohRegistryServing
+    let localBindingExpectation: CmxIrohLocalBindingExpectation
+    let managedRelayURLs: Set<String>
+    let networkPathSnapshot: (@Sendable () async throws -> CmxIrohNetworkPathSnapshot)?
+    let offlinePolicy: CmxIrohClientOfflinePolicyContext?
+    let lanFallback: LANFallbackProvider?
+    let verifier: CmxIrohGrantVerifier
+    let now: @Sendable () -> Date
+    var grantCache: [CmxIrohPeerIdentity: CmxIrohRegistryGrantCache] = [:]
+    var lanAuthorities: [CmxIrohPeerIdentity: CmxIrohRegistryLANAuthority] = [:]
 
-    private struct LANAuthority: Sendable {
-        let target: CmxIrohBrokerBinding
-        let bindings: [CmxIrohBrokerBinding]
-        let rendezvous: CmxIrohLANRendezvous
-    }
-
-    private let supervisor: CmxIrohEndpointSupervisor
-    private let broker: any CmxIrohRegistryServing
-    private let localBindingExpectation: CmxIrohLocalBindingExpectation
-    private let managedRelayURLs: Set<String>
-    private let networkPathSnapshot: (@Sendable () async throws -> CmxIrohNetworkPathSnapshot)?
-    private let offlinePolicy: CmxIrohClientOfflinePolicyContext?
-    private let lanFallback: LANFallbackProvider?
-    private let verifier: CmxIrohGrantVerifier
-    private let now: @Sendable () -> Date
-    private var grantCache: [CmxIrohPeerIdentity: GrantCache] = [:]
-    private var lanAuthorities: [CmxIrohPeerIdentity: LANAuthority] = [:]
-
-    /// Creates a public-route provider from the legacy generation-less seam.
-    ///
-    /// Private hints remain disabled because a profile set alone cannot prove
-    /// that the network path stayed unchanged between admission and fallback.
+    /// Creates a public-route provider from the generation-less seam.
     public init(
         supervisor: CmxIrohEndpointSupervisor,
         broker: any CmxIrohRegistryServing,
@@ -207,7 +191,7 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
             at: clock
         )
         let profiles = pathSnapshot?.activeNetworkProfiles ?? []
-        let hints = Self.mergeHints(
+        let hints = CmxIrohRegistryPathMerger.merge(
             primary: targetBinding.pathHints,
             fallback: routeHints,
             at: clock,
@@ -277,7 +261,7 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         )
         guard !lanHints.isEmpty else { return context }
         let clock = now()
-        let combined = Self.mergeHints(
+        let combined = CmxIrohRegistryPathMerger.merge(
             primary: context.dialPlan.publicPaths + context.dialPlan.privateFallbackPaths,
             fallback: lanHints,
             at: clock,
@@ -339,13 +323,13 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
     }
 
     private func replaceLANAuthorities(with discovery: CmxIrohDiscoveryResponse) {
-        var replacement: [CmxIrohPeerIdentity: LANAuthority] = [:]
+        var replacement: [CmxIrohPeerIdentity: CmxIrohRegistryLANAuthority] = [:]
         let pairableMacs = discovery.bindings.filter {
             $0.platform == .mac && $0.pairingEnabled
         }
         let counts = Dictionary(grouping: pairableMacs, by: \.endpointID).mapValues(\.count)
         for target in pairableMacs.prefix(32) where counts[target.endpointID] == 1 {
-            replacement[target.endpointID] = LANAuthority(
+            replacement[target.endpointID] = CmxIrohRegistryLANAuthority(
                 target: target,
                 bindings: discovery.bindings,
                 rendezvous: discovery.lanRendezvous
@@ -360,7 +344,7 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
     ) {
         guard policy.targetBinding.platform == .mac,
               policy.targetBinding.pairingEnabled else { return }
-        lanAuthorities[policy.targetBinding.endpointID] = LANAuthority(
+        lanAuthorities[policy.targetBinding.endpointID] = CmxIrohRegistryLANAuthority(
             target: policy.targetBinding,
             bindings: bindings ?? [policy.targetBinding],
             rendezvous: policy.lanRendezvous
@@ -461,7 +445,7 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
             signedExpiry: signedExpiresAt,
             now: now
         )
-        grantCache[targetIdentity] = GrantCache(
+        grantCache[targetIdentity] = CmxIrohRegistryGrantCache(
             initiator: initiator,
             acceptor: acceptor,
             response: response,
@@ -493,57 +477,6 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         let canonical = uuid.uuidString.lowercased()
         guard value.lowercased() == canonical else { return nil }
         return canonical
-    }
-
-    private static func mergeHints(
-        primary: [CmxIrohPathHint],
-        fallback: [CmxIrohPathHint],
-        at now: Date,
-        managedRelayURLs: Set<String>,
-        activeNetworkProfiles: Set<CmxIrohNetworkProfileKey>
-    ) -> [CmxIrohPathHint] {
-        var result: [CmxIrohPathHint] = []
-        for hint in primary + fallback where hint.isUsable(at: now) {
-            guard isEligible(
-                hint,
-                managedRelayURLs: managedRelayURLs,
-                activeNetworkProfiles: activeNetworkProfiles
-            ) else {
-                continue
-            }
-            if !result.contains(where: { sameRoute($0, hint) }) {
-                result.append(hint)
-            }
-            if result.count == CmxAttachEndpoint.maximumIrohPathHintCount { break }
-        }
-        return result
-    }
-
-    private static func isEligible(
-        _ hint: CmxIrohPathHint,
-        managedRelayURLs: Set<String>,
-        activeNetworkProfiles: Set<CmxIrohNetworkProfileKey>
-    ) -> Bool {
-        if hint.privacyScope != .publicInternet {
-            guard let profile = hint.networkProfile else { return false }
-            return activeNetworkProfiles.contains(profile)
-        }
-        switch hint.kind {
-        case .directAddress:
-            return true
-        case .relayURL:
-            return managedRelayURLs.contains(hint.value)
-        case .relayIdentifier:
-            return false
-        }
-    }
-
-    private static func sameRoute(_ left: CmxIrohPathHint, _ right: CmxIrohPathHint) -> Bool {
-        left.kind == right.kind
-            && left.value == right.value
-            && left.source == right.source
-            && left.privacyScope == right.privacyScope
-            && left.networkProfile == right.networkProfile
     }
 
     private static func requireMatchingGrantExpiry(

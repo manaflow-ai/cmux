@@ -17,7 +17,7 @@ private let tailscaleInterface = CmxNetworkInterfaceIdentity(name: "utun4", inde
     )
 
     #expect(throws: CmxTailscaleRouteProofError.tailscaleInterfaceUnavailable) {
-        _ = try CmxTailscaleRouteProofValidator.prepare(
+        _ = try CmxTailscaleRouteProofValidator().prepare(
             request: request,
             snapshot: snapshot
         )
@@ -37,7 +37,7 @@ private let tailscaleInterface = CmxNetworkInterfaceIdentity(name: "utun4", inde
     )
 
     #expect(throws: CmxTailscaleRouteProofError.tailscaleInterfaceUnavailable) {
-        _ = try CmxTailscaleRouteProofValidator.prepare(
+        _ = try CmxTailscaleRouteProofValidator().prepare(
             request: request,
             snapshot: snapshot
         )
@@ -57,7 +57,7 @@ private let tailscaleInterface = CmxNetworkInterfaceIdentity(name: "utun4", inde
     )
 
     #expect(throws: CmxTailscaleRouteProofError.tailscaleInterfaceUnavailable) {
-        _ = try CmxTailscaleRouteProofValidator.prepare(
+        _ = try CmxTailscaleRouteProofValidator().prepare(
             request: request,
             snapshot: snapshot
         )
@@ -82,7 +82,7 @@ private let tailscaleInterface = CmxNetworkInterfaceIdentity(name: "utun4", inde
         ]
     )
 
-    let proof = try CmxTailscaleRouteProofValidator.prepare(
+    let proof = try CmxTailscaleRouteProofValidator().prepare(
         request: request,
         snapshot: snapshot
     )
@@ -90,10 +90,10 @@ private let tailscaleInterface = CmxNetworkInterfaceIdentity(name: "utun4", inde
     #expect(proof.interface == candidate)
 }
 
-@Test func rejectsInterfaceGenerationChangeAtWriteBoundary() throws {
+@Test func rejectsInterfaceGenerationChangeAtWriteBoundary() async throws {
     let request = try tailscaleRequest(host: "100.71.210.41")
     let preparedSnapshot = authoritySnapshot(generation: 41)
-    let proof = try CmxTailscaleRouteProofValidator.prepare(
+    let proof = try CmxTailscaleRouteProofValidator().prepare(
         request: request,
         snapshot: preparedSnapshot
     )
@@ -106,11 +106,15 @@ private let tailscaleInterface = CmxNetworkInterfaceIdentity(name: "utun4", inde
             interface(name: "utun5", index: 23, addresses: ["100.70.231.80"])
         ]
     )
+    let transport = try CmxNetworkByteTransport(
+        host: "127.0.0.1",
+        port: 58465
+    )
 
-    #expect(throws: CmxTailscaleRouteProofError.routeGenerationChanged) {
-        try CmxNetworkByteTransport.performAuthorizedWrite(
+    await #expect(throws: CmxTailscaleRouteProofError.routeGenerationChanged) {
+        try await transport.performAuthorizedWrite(
             authorization: {
-                try CmxTailscaleRouteProofValidator.validate(
+                try CmxTailscaleRouteProofValidator().validate(
                     proof: proof,
                     authoritySnapshot: changedSnapshot,
                     connectionPath: connectionPath()
@@ -125,7 +129,7 @@ private let tailscaleInterface = CmxNetworkInterfaceIdentity(name: "utun4", inde
 
 @Test func rejectsSameGenerationInterfaceSubstitution() throws {
     let request = try tailscaleRequest(host: "100.71.210.41")
-    let proof = try CmxTailscaleRouteProofValidator.prepare(
+    let proof = try CmxTailscaleRouteProofValidator().prepare(
         request: request,
         snapshot: authoritySnapshot(generation: 41)
     )
@@ -140,7 +144,7 @@ private let tailscaleInterface = CmxNetworkInterfaceIdentity(name: "utun4", inde
     )
 
     #expect(throws: CmxTailscaleRouteProofError.interfaceChanged) {
-        try CmxTailscaleRouteProofValidator.validate(
+        try CmxTailscaleRouteProofValidator().validate(
             proof: proof,
             authoritySnapshot: changedSnapshot,
             connectionPath: connectionPath()
@@ -155,19 +159,19 @@ private let tailscaleInterface = CmxNetworkInterfaceIdentity(name: "utun4", inde
     let snapshot = authoritySnapshot(generation: 1)
 
     #expect(throws: CmxTailscaleRouteProofError.nonNumericPeer) {
-        _ = try CmxTailscaleRouteProofValidator.prepare(
+        _ = try CmxTailscaleRouteProofValidator().prepare(
             request: magicDNS,
             snapshot: snapshot
         )
     }
     #expect(throws: CmxTailscaleRouteProofError.peerOutsideTailscaleRange) {
-        _ = try CmxTailscaleRouteProofValidator.prepare(
+        _ = try CmxTailscaleRouteProofValidator().prepare(
             request: substitutedPublicAddress,
             snapshot: snapshot
         )
     }
     #expect(throws: CmxTailscaleRouteProofError.peerOutsideTailscaleRange) {
-        _ = try CmxTailscaleRouteProofValidator.prepare(
+        _ = try CmxTailscaleRouteProofValidator().prepare(
             request: genericPrivateNetwork,
             snapshot: snapshot
         )
@@ -192,13 +196,13 @@ private let tailscaleInterface = CmxNetworkInterfaceIdentity(name: "utun4", inde
     let snapshot = authoritySnapshot(generation: 1)
 
     #expect(throws: CmxTailscaleRouteProofError.unsupportedRouteKind) {
-        _ = try CmxTailscaleRouteProofValidator.prepare(
+        _ = try CmxTailscaleRouteProofValidator().prepare(
             request: routeSubstitution,
             snapshot: snapshot
         )
     }
     #expect(throws: CmxTailscaleRouteProofError.unsupportedAuthorizationMode) {
-        _ = try CmxTailscaleRouteProofValidator.prepare(
+        _ = try CmxTailscaleRouteProofValidator().prepare(
             request: authorizationSubstitution,
             snapshot: snapshot
         )
@@ -208,12 +212,12 @@ private let tailscaleInterface = CmxNetworkInterfaceIdentity(name: "utun4", inde
 @Test func validatesSuccessfulInterfaceBoundTailscaleIPv4Write() throws {
     let request = try tailscaleRequest(host: "100.71.210.41")
     let snapshot = authoritySnapshot(generation: 41)
-    let proof = try CmxTailscaleRouteProofValidator.prepare(
+    let proof = try CmxTailscaleRouteProofValidator().prepare(
         request: request,
         snapshot: snapshot
     )
 
-    try CmxTailscaleRouteProofValidator.validate(
+    try CmxTailscaleRouteProofValidator().validate(
         proof: proof,
         authoritySnapshot: snapshot,
         connectionPath: connectionPath()
@@ -225,12 +229,12 @@ private let tailscaleInterface = CmxNetworkInterfaceIdentity(name: "utun4", inde
 @Test func validatesSuccessfulInterfaceBoundTailscaleIPv6Write() throws {
     let request = try tailscaleRequest(host: "fd7a:115c:a1e0::1234")
     let snapshot = authoritySnapshot(generation: 41)
-    let proof = try CmxTailscaleRouteProofValidator.prepare(
+    let proof = try CmxTailscaleRouteProofValidator().prepare(
         request: request,
         snapshot: snapshot
     )
 
-    try CmxTailscaleRouteProofValidator.validate(
+    try CmxTailscaleRouteProofValidator().validate(
         proof: proof,
         authoritySnapshot: snapshot,
         connectionPath: connectionPath(
@@ -242,7 +246,7 @@ private let tailscaleInterface = CmxNetworkInterfaceIdentity(name: "utun4", inde
 @Test func rejectsConnectionPathOnAnyInterfaceOtherThanRequiredInterface() throws {
     let request = try tailscaleRequest(host: "100.71.210.41")
     let snapshot = authoritySnapshot(generation: 41)
-    let proof = try CmxTailscaleRouteProofValidator.prepare(
+    let proof = try CmxTailscaleRouteProofValidator().prepare(
         request: request,
         snapshot: snapshot
     )
@@ -256,7 +260,7 @@ private let tailscaleInterface = CmxNetworkInterfaceIdentity(name: "utun4", inde
     )
 
     #expect(throws: CmxTailscaleRouteProofError.connectionPathUnavailable) {
-        try CmxTailscaleRouteProofValidator.validate(
+        try CmxTailscaleRouteProofValidator().validate(
             proof: proof,
             authoritySnapshot: snapshot,
             connectionPath: substitutedPath
@@ -278,7 +282,7 @@ private let tailscaleInterface = CmxNetworkInterfaceIdentity(name: "utun4", inde
     )
 
     #expect(throws: CmxTailscaleRouteProofError.ambiguousTailscaleInterfaces) {
-        _ = try CmxTailscaleRouteProofValidator.prepare(
+        _ = try CmxTailscaleRouteProofValidator().prepare(
             request: request,
             snapshot: snapshot
         )

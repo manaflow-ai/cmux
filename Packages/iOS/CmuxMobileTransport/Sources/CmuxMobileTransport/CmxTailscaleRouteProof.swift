@@ -138,8 +138,8 @@ struct CmxTailscaleRouteProof: Equatable, Sendable {
     let generation: UInt64
 }
 
-enum CmxTailscaleRouteProofValidator {
-    static func prepare(
+struct CmxTailscaleRouteProofValidator {
+    func prepare(
         request: CmxByteTransportRequest,
         snapshot: CmxTailscaleAuthoritySnapshot
     ) throws -> CmxTailscaleRouteProof {
@@ -183,7 +183,7 @@ enum CmxTailscaleRouteProofValidator {
         )
     }
 
-    static func validate(
+    func validate(
         proof: CmxTailscaleRouteProof,
         authoritySnapshot: CmxTailscaleAuthoritySnapshot,
         connectionPath: CmxTailscaleConnectionPathSnapshot
@@ -217,7 +217,7 @@ enum CmxTailscaleRouteProofValidator {
         }
     }
 
-    private static func tailscaleInterfaceCandidates(
+    private func tailscaleInterfaceCandidates(
         in snapshot: CmxTailscaleAuthoritySnapshot
     ) -> [CmxTailscaleInterfaceSnapshot] {
         snapshot.systemInterfaces.filter { interface in

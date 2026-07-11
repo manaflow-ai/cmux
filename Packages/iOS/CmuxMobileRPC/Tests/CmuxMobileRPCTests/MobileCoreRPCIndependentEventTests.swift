@@ -95,11 +95,11 @@ struct MobileCoreRPCIndependentEventTests {
         #expect(await client.prepareIndependentServerEvents())
         await source.finish(throwing: IndependentEventTestError.closed)
 
-        for _ in 0 ..< 100 where await client.session.hasIndependentEventReaderForTesting {
+        for _ in 0 ..< 100 where await client.session.independentEventReader != nil {
             await Task.yield()
         }
-        #expect(!(await client.session.hasIndependentEventReaderForTesting))
-        #expect(await client.session.eventListenerCountForTesting == 1)
+        #expect(await client.session.independentEventReader == nil)
+        #expect(await client.session.listeners.count == 1)
         _ = listener
 
         await client.disconnect()

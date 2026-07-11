@@ -11,7 +11,7 @@ public struct CmxIrohLANRendezvousAliasGenerator: Sendable {
     /// Bonjour aliases rotate every five minutes.
     public static let rotationInterval: TimeInterval = 5 * 60
 
-    private let key: SymmetricKey
+    private let keyBytes: [UInt8]
     private let generation: Int
 
     /// Creates a generator from authenticated broker rendezvous material.
@@ -20,7 +20,7 @@ public struct CmxIrohLANRendezvousAliasGenerator: Sendable {
               keyData.count == 32 else {
             throw CmxIrohLANRendezvousAliasError.invalidKey
         }
-        key = SymmetricKey(data: keyData)
+        keyBytes = Array(keyData)
         generation = rendezvous.generation
     }
 
@@ -79,6 +79,7 @@ public struct CmxIrohLANRendezvousAliasGenerator: Sendable {
         let transcript = Data(
             "cmux/iroh/lan-rendezvous-alias/v1\0\(generation)\0\(epoch)\0\(binding.bindingID)\0\(binding.deviceID)\0\(binding.appInstanceID)\0\(binding.tag)\0\(binding.platform.rawValue)\0\(binding.endpointID.endpointID)\0\(binding.identityGeneration)".utf8
         )
+        let key = SymmetricKey(data: keyBytes)
         return HMAC<SHA256>.authenticationCode(for: transcript, using: key)
             .prefix(16)
             .map { String(format: "%02x", $0) }

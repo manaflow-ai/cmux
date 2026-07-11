@@ -6,8 +6,12 @@ import Foundation
 /// the transport package (the only place that knows the concrete socket layer);
 /// the protocol and result type it satisfies live in CMUXMobileCore.
 public struct CmxNetworkRoutePinger: CmxRoutePinging {
+    private let transportFactory: CmxNetworkByteTransportFactory
+
     /// Creates a pinger that dials real TCP connections via ``CmxNetworkByteTransport``.
-    public init() {}
+    public init() {
+        transportFactory = CmxNetworkByteTransportFactory()
+    }
 
     /// Open a TCP connection to the route's host/port, measure the connect
     /// latency, then close. Returns the latency or a classified failure; never
@@ -28,9 +32,9 @@ public struct CmxNetworkRoutePinger: CmxRoutePinging {
                 expectedPeerDeviceID: nil,
                 authorizationMode: .stackBearer
             )
-            transport = try CmxNetworkByteTransportFactory(
-                connectTimeoutNanoseconds: timeoutNanoseconds
-            ).makeTransport(for: request)
+            var factory = transportFactory
+            factory.connectTimeoutNanoseconds = max(1, timeoutNanoseconds)
+            transport = try factory.makeTransport(for: request)
         } catch {
             // Empty host, bad port, unsupported endpoint, or unavailable
             // interface-bound Tailscale route: nothing safe to dial.

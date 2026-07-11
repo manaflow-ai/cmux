@@ -700,31 +700,6 @@ public final class AuthCoordinator {
         }
     }
 
-    /// Race `operation` against the phase deadline on the injected clock,
-    /// dispatching token-touching and side-effect phases to coordinator-owned
-    /// helpers so sign-out can still cancel late work after a timeout.
-    func runPhase<T: Sendable>(
-        _ phase: AuthPhase,
-        timeout: Duration,
-        _ operation: @escaping @Sendable () async throws -> T
-    ) async throws -> T {
-        if phase == .validateSession {
-            return try await runValidationPhase(timeout: timeout, operation)
-        }
-        if phase == .fetchUser || phase == .listTeams {
-            return try await runTokenTouchingPhase(phase, timeout: timeout, operation)
-        }
-        return try await withAuthPhaseTimeout(
-            phase,
-            duration: timeout,
-            clock: clock,
-            log: log,
-            registry: phaseTimeoutRegistry,
-            blocksRetriesWhileTimedOutOperationActive: phase == .sendCode,
-            operation: operation
-        )
-    }
-
     func apply(_ state: CMUXAuthState) {
         currentUser = state.currentUser
         isAuthenticated = state.isAuthenticated
