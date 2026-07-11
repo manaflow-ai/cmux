@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { NextRequest } from "next/server";
+import { createTranslator } from "use-intl/core";
 import { comparePages } from "../app/lib/compare-pages";
 import sitemap from "../app/sitemap";
 import { legalMetadata } from "../app/[locale]/(legal)/legal-metadata";
@@ -571,6 +572,29 @@ describe("SEO metadata helpers", () => {
     expect(khmerBlogCopy.description).toContain(
       khmerMessages.blog.description,
     );
+  });
+
+  test("reads docs candidates without formatting UI placeholders", async () => {
+    const messages = await messagesFor("zh-CN");
+    const docs = createTranslator({
+      locale: "zh-CN",
+      messages,
+      namespace: "docs.concepts",
+    });
+    const meta = createTranslator({
+      locale: "zh-CN",
+      messages,
+      namespace: "meta",
+    });
+
+    const copy = docsPageSeoCopy(
+      "zh-CN",
+      "concepts",
+      (key) => docs(key as never),
+      (key) => meta(key as never),
+    );
+
+    expect(`${copy.title}${copy.description}`).not.toMatch(/\{[^{}]+\}/u);
   });
 });
 
