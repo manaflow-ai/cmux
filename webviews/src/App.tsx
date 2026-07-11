@@ -84,6 +84,7 @@ type AppState = {
 
 type AppAction =
   | { type: "append-items"; items: DiffItem[] }
+  | { type: "reset-diff"; status: DiffViewerStatus }
   | { type: "remove-comment"; id: string }
   | { type: "rename-item"; oldId: string; newId: string }
   | { type: "set-active-item"; itemId: string; treePath?: string }
@@ -153,6 +154,18 @@ function reducer(state: AppState, action: AppAction): AppState {
       status: state.status.loading ? createDiffViewerStatus("", { loading: false }) : state.status,
     };
   }
+  case "reset-diff":
+    return {
+      ...state,
+      activeItemId: "",
+      activeTreePath: "",
+      draft: null,
+      items: [],
+      languages: ["text"],
+      metrics: null,
+      status: action.status,
+      treeSource: null,
+    };
   case "remove-comment": {
     const comments = state.comments.filter((comment) => comment.id !== action.id);
     return {
@@ -252,13 +265,16 @@ export function App({ config, initialStatus }: ConfigProps) {
   );
   const appearance = resolveDiffViewerAppearance(payload.appearance);
   const transport = useDiffTransport(payload.transport);
+  const [activeSessionSource, setActiveSessionSource] = useState<DiffSource | null>(
+    validDiffSource(payload.sessionSource) ? payload.sessionSource : null,
+  );
+  const [resolvedSessionSource, setResolvedSessionSource] = useState<DiffSource | null>(activeSessionSource);
   const [activePatchURL, setActivePatchURL] = useState<string | undefined>(payload.patchURL);
   const [state, dispatch] = useReducer(reducer, initialAppState(config, initialStatus));
   const latestState = useSyncedRef(state);
   const codeViewRef = useRef<CodeViewHandle<any> | null>(null);
   const copyFallbackRef = useRef<HTMLTextAreaElement | null>(null);
   const activeSessionRef = useRef<ActiveDiffSession | null>(null);
-  const closingSessionRef = useRef<Promise<void> | null>(null);
   const viewerContainerRef = useRef<HTMLDivElement | null>(null);
   const workerModuleURL = resolveDiffViewerAssetURL(config.assets?.workerModuleURL);
   const workerPoolOptions = createDiffWorkerPoolOptions(workerModuleURL);
@@ -275,15 +291,12 @@ export function App({ config, initialStatus }: ConfigProps) {
   const renderedCodeViewOptions = codeViewOptions(state.options, appearance);
   renderedCodeViewOptions.onGutterUtilityClick = comments.onGutterUtilityClick as any;
   const closeActiveSession = useCallback(() => {
-    if (closingSessionRef.current) {
-      return closingSessionRef.current;
-    }
     const activeSession = activeSessionRef.current;
     if (!activeSession || !transport) {
       return Promise.resolve();
     }
     activeSessionRef.current = null;
-    const closing = transport.request({
+    return transport.request({
         method: "sessionClose",
         params: activeSession,
       })
@@ -292,19 +305,23 @@ export function App({ config, initialStatus }: ConfigProps) {
         if (!activeSessionRef.current) {
           activeSessionRef.current = activeSession;
         }
-      })
-      .finally(() => {
-        if (closingSessionRef.current === closing) {
-          closingSessionRef.current = null;
-        }
       });
-    closingSessionRef.current = closing;
-    return closing;
   }, [transport]);
 
   usePageDataAttributes(state);
   usePendingReplacement(payload, label, dispatch, transport);
-  useRenderDiff(config, transport, label, dispatch, latestState, setActivePatchURL, activeSessionRef, closeActiveSession);
+  useRenderDiff(
+    config,
+    transport,
+    label,
+    dispatch,
+    latestState,
+    setActivePatchURL,
+    activeSessionRef,
+    closeActiveSession,
+    activeSessionSource,
+    setResolvedSessionSource,
+  );
   useCommentsBootstrap(bridgeAvailable ? repoRoot : null, comments.onLoaded);
   useKeyboardShortcuts(payload.shortcuts ?? {}, viewerContainerRef, dispatch);
   useOptionsDismiss(state.optionsOpen, dispatch);
@@ -400,6 +417,15 @@ export function App({ config, initialStatus }: ConfigProps) {
           // starts a new typed session and must stay responsive.
           void closeActiveSession();
           window.location.href = resolveDiffNavigationURL(url);
+        }}
+        activeSessionSource={resolvedSessionSource ?? activeSessionSource}
+        onSelectSessionSource={(source) => {
+          const status = createDiffViewerStatus(label("loadingDiff"), { pending: true });
+          applyDiffViewerStatusToDocument(status);
+          dispatch({ type: "reset-diff", status });
+          void closeActiveSession();
+          setResolvedSessionSource(source);
+          setActiveSessionSource(source);
         }}
         onReload={async () => {
           await closeActiveSession();
@@ -625,23 +651,27 @@ function WorkerRenderOptionsSync({
 }
 
 function Toolbar({
+  activeSessionSource,
   config,
   dispatch,
   label,
   onCopyGitApply,
   onJump,
   onNavigate,
+  onSelectSessionSource,
   onReload,
   onSetLayout,
   state,
   transport,
 }: {
+  activeSessionSource: DiffSource | null;
   config: DiffViewerConfig;
   dispatch: React.Dispatch<AppAction>;
   label: DiffViewerLabelResolver;
   onCopyGitApply: () => void;
   onJump: (itemId: string) => void;
   onNavigate: (url: string) => void;
+  onSelectSessionSource: (source: DiffSource) => void;
   onReload: () => void;
   onSetLayout: (layout: DiffViewerLayout) => void;
   state: AppState;
@@ -685,7 +715,14 @@ function Toolbar({
   const showExternalLink = externalURL != null && !overflow.has("external-link");
   return (
     <header id="toolbar" ref={toolbarRef}>
-      <SourceControls label={label} onNavigate={onNavigate} payload={payload} transport={transport} />
+      <SourceControls
+        activeSessionSource={activeSessionSource}
+        label={label}
+        onNavigate={onNavigate}
+        onSelectSessionSource={onSelectSessionSource}
+        payload={payload}
+        transport={transport}
+      />
       {/* Small diffs use a native jump select. Large diffs route this control to
           the virtualized file-tree search so the toolbar never creates one DOM
           option per file. */}
@@ -788,13 +825,17 @@ function hasRepoSelect(payload: any): boolean {
 }
 
 function SourceControls({
+  activeSessionSource,
   label,
   onNavigate,
+  onSelectSessionSource,
   payload,
   transport,
 }: {
+  activeSessionSource: DiffSource | null;
   label: DiffViewerLabelResolver;
   onNavigate: (url: string) => void;
+  onSelectSessionSource: (source: DiffSource) => void;
   payload: any;
   transport: DiffTransport | null;
 }) {
@@ -806,6 +847,8 @@ function SourceControls({
         id="source-select"
         options={payload.sourceOptions}
         onNavigate={onNavigate}
+        onSelectSessionSource={onSelectSessionSource}
+        selectedValue={diffSourceKind(activeSessionSource)}
       />
       {/* The repo select is ALWAYS rendered (a native <select> has no "..." menu
           equivalent, so dropping it would strand multi-repo users). It shrinks
@@ -816,8 +859,17 @@ function SourceControls({
         id="repo-select"
         options={payload.repoOptions}
         onNavigate={onNavigate}
+        onSelectSessionSource={onSelectSessionSource}
+        selectedValue={diffSourceRepoRoot(activeSessionSource)}
       />
-      <BaseControl label={label} onNavigate={onNavigate} payload={payload} transport={transport} />
+      <BaseControl
+        activeSessionSource={activeSessionSource}
+        label={label}
+        onNavigate={onNavigate}
+        onSelectSessionSource={onSelectSessionSource}
+        payload={payload}
+        transport={transport}
+      />
     </div>
   );
 }
@@ -828,16 +880,46 @@ function SourceControls({
  * `<select>` for older backends that only send `payload.baseOptions`.
  */
 function BaseControl({
+  activeSessionSource,
   label,
   onNavigate,
+  onSelectSessionSource,
   payload,
   transport,
 }: {
+  activeSessionSource: DiffSource | null;
   label: DiffViewerLabelResolver;
   onNavigate: (url: string) => void;
+  onSelectSessionSource: (source: DiffSource) => void;
   payload: any;
   transport: DiffTransport | null;
 }) {
+  if (activeSessionSource?.kind === "branch" && activeSessionSource.baseRef && transport) {
+    const typedPicker: BranchPickerPayload = {
+      repoRoot: activeSessionSource.repoRoot,
+      capabilityToken: payload.capabilityToken,
+      headRef: "HEAD",
+      currentRef: activeSessionSource.baseRef,
+      currentReason: "",
+      confidence: "high",
+      aheadBehind: null,
+      refsURL: "typed://branch-list",
+      regenerateURLTemplate: "typed://branch-change/{ref}",
+    };
+    return (
+      <BranchBasePicker
+        label={label}
+        onNavigate={onNavigate}
+        onSelectBranchBase={(baseRef) => onSelectSessionSource({
+          kind: "branch",
+          repoRoot: activeSessionSource.repoRoot,
+          baseRef,
+        })}
+        picker={typedPicker}
+        transport={transport}
+      />
+    );
+  }
   const picker = resolveBranchPicker(payload);
   if (picker) {
     return <BranchBasePicker label={label} onNavigate={onNavigate} picker={picker} transport={transport} />;
@@ -929,26 +1011,36 @@ function NavigationSelect({
   fallbackValue,
   id,
   onNavigate,
+  onSelectSessionSource,
   options,
+  selectedValue,
 }: {
   ariaLabel: string;
   fallbackValue: string;
   id: string;
   onNavigate: (url: string) => void;
+  onSelectSessionSource?: (source: DiffSource) => void;
   options: any[] | undefined;
+  selectedValue?: string | null;
 }) {
   if (!Array.isArray(options) || options.length < 2) {
     return null;
   }
-  const selected = options.find((option) => option.selected) ?? options.find((option) => !option.disabled);
+  const selected = options.find((option) => option.value === selectedValue)
+    ?? options.find((option) => option.selected)
+    ?? options.find((option) => !option.disabled);
   return (
     <select
       id={id}
       aria-label={ariaLabel}
-      defaultValue={selected?.value ?? fallbackValue}
+      value={selected?.value ?? fallbackValue}
       title={ariaLabel}
       onChange={(event) => {
         const next = options.find((option) => option.value === event.currentTarget.value);
+        if (validDiffSource(next?.sessionSource) && onSelectSessionSource) {
+          onSelectSessionSource(next.sessionSource);
+          return;
+        }
         if (!next?.url) {
           event.currentTarget.value = selected?.value ?? fallbackValue;
           return;
@@ -960,7 +1052,7 @@ function NavigationSelect({
         <option
           key={option.value}
           value={option.value}
-          disabled={option.disabled || !option.url}
+          disabled={option.disabled || (!option.url && !validDiffSource(option.sessionSource))}
           title={option.message}
         >
           {option.label}
@@ -1438,13 +1530,13 @@ function useRenderDiff(
   onPatchURL: (url: string) => void,
   activeSessionRef: React.MutableRefObject<ActiveDiffSession | null>,
   closeActiveSession: () => Promise<void>,
+  sessionSource: DiffSource | null,
+  onResolvedSessionSource: (source: DiffSource) => void,
 ) {
-  const started = useRef(false);
   useEffect(() => {
-    if (started.current || isStatusOnlyPayload(config.payload, transport)) {
+    if (isStatusOnlyPayload(config.payload, transport, sessionSource)) {
       return;
     }
-    started.current = true;
     const payload = config.payload ?? {};
     const appearance = resolveDiffViewerAppearance(payload.appearance);
     if (appearance.themes.light.name) {
@@ -1461,7 +1553,7 @@ function useRenderDiff(
     void (async () => {
       try {
         let patchURL = payload.patchURL as string | undefined;
-        const session = diffSessionRequest(payload, transport);
+        const session = diffSessionRequest(payload, transport, sessionSource);
         if (session) {
           const result = await transport!.request({ method: "sessionOpen", params: session });
           if (result.type !== "sessionOpened") {
@@ -1471,6 +1563,7 @@ function useRenderDiff(
             sessionId: result.value.sessionId,
             capabilityToken: String(payload.capabilityToken ?? ""),
           };
+          onResolvedSessionSource(result.value.source);
           if (cancelled) {
             await closeActiveSession();
             return;
@@ -1538,21 +1631,45 @@ function useRenderDiff(
       window.removeEventListener("pagehide", handlePageHide);
       void closeActiveSession();
     };
-  }, [activeSessionRef, closeActiveSession, config, dispatch, label, latestState, onPatchURL, transport]);
+  }, [activeSessionRef, closeActiveSession, config, dispatch, label, latestState, onPatchURL, onResolvedSessionSource, sessionSource, transport]);
 }
 
-function diffSessionRequest(payload: any, transport: DiffTransport | null): {
+function diffSessionRequest(payload: any, transport: DiffTransport | null, overrideSource?: DiffSource | null): {
   source: DiffSource;
   capabilityToken: string;
 } | null {
-  if (!transport || payload?.pendingReplacement !== true || typeof payload?.capabilityToken !== "string") {
+  if (!transport || typeof payload?.capabilityToken !== "string") {
     return null;
   }
-  const source = payload.sessionSource as DiffSource | undefined;
-  if (!source || typeof source !== "object" || typeof source.kind !== "string") {
+  const source = overrideSource ?? payload.sessionSource;
+  if (!validDiffSource(source)) {
     return null;
   }
   return { source, capabilityToken: payload.capabilityToken };
+}
+
+function validDiffSource(value: unknown): value is DiffSource {
+  if (!value || typeof value !== "object" || typeof (value as { kind?: unknown }).kind !== "string") {
+    return false;
+  }
+  const source = value as { kind: string; repoRoot?: unknown; path?: unknown; baseRef?: unknown };
+  if (source.kind === "patch") {
+    return typeof source.path === "string";
+  }
+  if (source.kind === "unstaged" || source.kind === "staged") {
+    return typeof source.repoRoot === "string";
+  }
+  return source.kind === "branch"
+    && typeof source.repoRoot === "string"
+    && (source.baseRef == null || typeof source.baseRef === "string");
+}
+
+function diffSourceKind(source: DiffSource | null): string | null {
+  return source?.kind ?? null;
+}
+
+function diffSourceRepoRoot(source: DiffSource | null): string | null {
+  return source && "repoRoot" in source ? source.repoRoot : null;
 }
 
 function resolveDiffItemLanguage(item: DiffItem): void {
@@ -1582,9 +1699,13 @@ function mergeLanguages(current: string[], next: string[]): string[] {
   return Array.from(languages);
 }
 
-function isStatusOnlyPayload(payload: any, transport: DiffTransport | null = null): boolean {
+function isStatusOnlyPayload(
+  payload: any,
+  transport: DiffTransport | null = null,
+  sessionSource: DiffSource | null = null,
+): boolean {
   if (payload?.pendingReplacement === true) {
-    return diffSessionRequest(payload, transport) == null;
+    return diffSessionRequest(payload, transport, sessionSource) == null;
   }
   return typeof payload?.statusMessage === "string" && payload.statusMessage.length > 0;
 }

@@ -142,11 +142,13 @@ function computePopoverStyle(rect: DOMRect): PopoverStyle {
 export function BranchBasePicker({
   label,
   onNavigate,
+  onSelectBranchBase,
   picker,
   transport = null,
 }: {
   label: DiffViewerLabelResolver;
   onNavigate: (url: string) => void;
+  onSelectBranchBase?: (baseRef: string) => void;
   picker: BranchPickerPayload;
   transport?: DiffTransport | null;
 }) {
@@ -217,6 +219,11 @@ export function BranchBasePicker({
     setGeneratingRef(trimmed);
     setRegenerationFailed(false);
     setOpen(false);
+    if (onSelectBranchBase) {
+      onSelectBranchBase(trimmed);
+      setGeneratingRef(null);
+      return;
+    }
     if (transport && picker.groupId && picker.capabilityToken) {
       transport.request({
         method: "branchChange",

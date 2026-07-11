@@ -72,6 +72,11 @@ struct BranchSessionAuthorization {
     allowed_repo_roots: Vec<String>,
 }
 
+#[derive(Deserialize)]
+struct ResolvedBranchBase {
+    r#ref: String,
+}
+
 const MAX_CACHED_MANIFESTS: usize = 64;
 const MAX_RPC_REQUEST_BYTES: usize = 1024 * 1024;
 const MAX_RPC_RESPONSE_BYTES: usize = 32 * 1024 * 1024;
@@ -478,6 +483,7 @@ async fn open_session(
                 byte_length: length,
                 revision: 1,
             },
+            source: params.source,
         });
     }
 
@@ -499,7 +505,8 @@ async fn open_session(
     let final_path = state.config.root.join(&file_name);
     let temporary_path = state.config.root.join(format!(".{file_name}.tmp"));
 
-    run_git_patch(&params.source, &canonical_repo, &temporary_path).await?;
+    let source = resolve_session_source(state, params.source, &canonical_repo).await?;
+    run_git_patch(&source, &canonical_repo, &temporary_path).await?;
     tokio::fs::rename(&temporary_path, &final_path)
         .await
         .map_err(|_| SessionOpenError::Failed)?;
@@ -540,6 +547,47 @@ async fn open_session(
             byte_length: Some(metadata.len()),
             revision: 1,
         },
+        source,
+    })
+}
+
+async fn resolve_session_source(
+    state: &AppState,
+    source: DiffSource,
+    repo: &Path,
+) -> Result<DiffSource, SessionOpenError> {
+    let DiffSource::Branch {
+        repo_root,
+        base_ref: None,
+    } = source
+    else {
+        return Ok(source);
+    };
+    let output = tokio::time::timeout(
+        SESSION_GIT_TIMEOUT,
+        Command::new(&state.config.cmux_executable)
+            .arg("__diff-viewer-base")
+            .arg("--repo")
+            .arg(repo)
+            .stdin(Stdio::null())
+            .stderr(Stdio::null())
+            .kill_on_drop(true)
+            .output(),
+    )
+    .await
+    .map_err(|_| SessionOpenError::Failed)?
+    .map_err(|_| SessionOpenError::Failed)?;
+    if !output.status.success() || output.stdout.len() > 4096 {
+        return Err(SessionOpenError::Failed);
+    }
+    let resolved: ResolvedBranchBase =
+        serde_json::from_slice(&output.stdout).map_err(|_| SessionOpenError::Failed)?;
+    if resolved.r#ref.is_empty() {
+        return Err(SessionOpenError::Failed);
+    }
+    Ok(DiffSource::Branch {
+        repo_root,
+        base_ref: Some(resolved.r#ref),
     })
 }
 
@@ -562,7 +610,10 @@ async fn run_git_patch(
             arguments.push("--cached".to_owned());
             arguments.push("--".to_owned());
         }
-        DiffSource::Branch { base_ref, .. } => {
+        DiffSource::Branch {
+            base_ref: Some(base_ref),
+            ..
+        } => {
             let base_commit = git_single_line(
                 repo,
                 &[
@@ -577,7 +628,9 @@ async fn run_git_patch(
             arguments.push(merge_base);
             arguments.push("--".to_owned());
         }
-        DiffSource::Patch { .. } => return Err(SessionOpenError::Failed),
+        DiffSource::Branch { base_ref: None, .. } | DiffSource::Patch { .. } => {
+            return Err(SessionOpenError::Failed);
+        }
     }
 
     let output = std::fs::File::create(output_path).map_err(|_| SessionOpenError::Failed)?;

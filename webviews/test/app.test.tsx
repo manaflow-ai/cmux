@@ -113,6 +113,7 @@ test("custom-scheme pending pages stream exactly one typed Rust session", async 
                   byteLength: 128,
                   revision: 1,
                 },
+                source: request.params.source,
               },
             },
             error: null,
@@ -130,8 +131,8 @@ test("custom-scheme pending pages stream exactly one typed Rust session", async 
           pendingReplacement: true,
           sessionSource: { kind: "branch", repoRoot: "/tmp/repo", baseRef: "main" },
           sourceOptions: [
-            { label: "Branch", selected: true, url: "cmux-diff-viewer://0123456789abcdef/branch.html", value: "branch" },
-            { label: "Unstaged", selected: false, url: "cmux-diff-viewer://0123456789abcdef/unstaged.html", value: "unstaged" },
+            { label: "Branch", selected: true, sessionSource: { kind: "branch", repoRoot: "/tmp/repo", baseRef: "main" }, value: "branch" },
+            { label: "Unstaged", selected: false, sessionSource: { kind: "unstaged", repoRoot: "/tmp/repo" }, value: "unstaged" },
           ],
           statusMessage: "Loading diff",
           title: "Diff",
@@ -150,13 +151,14 @@ test("custom-scheme pending pages stream exactly one typed Rust session", async 
   const sourceSelect = dom.window.document.getElementById("source-select") as HTMLSelectElement;
   sourceSelect.value = "unstaged";
   sourceSelect.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
-  await waitFor(() => requests.some((request) => request.method === "sessionClose"));
-  expect(requests.map((request) => request.method)).toEqual(["sessionOpen", "sessionClose"]);
+  await waitFor(() => fetched.length === 2);
+  expect(requests.map((request) => request.method)).toEqual(["sessionOpen", "sessionClose", "sessionOpen"]);
+  expect(requests[2].params.source).toEqual({ kind: "unstaged", repoRoot: "/tmp/repo" });
   dom.window.dispatchEvent(new dom.window.Event("pagehide"));
-  expect(requests.filter((request) => request.method === "sessionClose")).toHaveLength(1);
+  await waitFor(() => requests.filter((request) => request.method === "sessionClose").length === 2);
   flushSync(() => root?.unmount());
   root = null;
-  expect(requests.filter((request) => request.method === "sessionClose")).toHaveLength(1);
+  expect(requests.filter((request) => request.method === "sessionClose")).toHaveLength(2);
 });
 
 test("typed Rust empty diffs keep the localized source-specific message", async () => {

@@ -176,6 +176,20 @@ fn rpc_git_sessions_match_git_without_starting_a_server() {
             "--",
         ],
     );
+    assert_session_matches_git(
+        &root,
+        &repo,
+        token,
+        &serde_json::json!({"kind": "branch", "repoRoot": repo}),
+        &[
+            "diff",
+            "--no-ext-diff",
+            "--no-color",
+            "--binary",
+            "HEAD",
+            "--",
+        ],
+    );
     assert!(!root.join(".server.json").exists());
     let _ = std::fs::remove_dir_all(root);
 }
@@ -203,6 +217,9 @@ fn assert_session_matches_git(
     let response: serde_json::Value =
         serde_json::from_slice(&output.stdout).expect("decode response");
     assert_eq!(response["result"]["type"], "sessionOpened", "{response}");
+    if source["kind"] == "branch" && source.get("baseRef").is_none() {
+        assert_eq!(response["result"]["value"]["source"]["baseRef"], "HEAD");
+    }
     let session_id = response["result"]["value"]["sessionId"]
         .as_str()
         .expect("session id");

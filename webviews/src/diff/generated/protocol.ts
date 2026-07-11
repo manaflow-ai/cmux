@@ -26,7 +26,7 @@ export type DiffResult = { "type": "handshake", "value": HandshakeResult } | { "
 
 export type DiffSessionStatus = "opening" | "ready" | "closed";
 
-export type DiffSource = { "kind": "patch", path: string, } | { "kind": "unstaged", repoRoot: string, } | { "kind": "staged", repoRoot: string, } | { "kind": "branch", repoRoot: string, baseRef: string, };
+export type DiffSource = { "kind": "patch", path: string, } | { "kind": "unstaged", repoRoot: string, } | { "kind": "staged", repoRoot: string, } | { "kind": "branch", repoRoot: string, baseRef?: string, };
 
 export type DiffTransportConfig = { kind: DiffTransportKind, endpoint: string, protocolVersion: number, };
 
@@ -38,6 +38,6 @@ export type NavigationResult = { url: string, };
 
 export type OpenSessionRequest = { source: DiffSource, capabilityToken: string, };
 
-export type SessionOpened = { sessionId: string, patch: DiffResourceRef, };
+export type SessionOpened = { sessionId: string, patch: DiffResourceRef, source: DiffSource, };
 
 export type SessionRequest = { sessionId: string, capabilityToken: string, };

@@ -40,10 +40,21 @@ pub struct OpenSessionRequest {
 )]
 #[ts(export_to = "protocol.ts")]
 pub enum DiffSource {
-    Patch { path: String },
-    Unstaged { repo_root: String },
-    Staged { repo_root: String },
-    Branch { repo_root: String, base_ref: String },
+    Patch {
+        path: String,
+    },
+    Unstaged {
+        repo_root: String,
+    },
+    Staged {
+        repo_root: String,
+    },
+    Branch {
+        repo_root: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        base_ref: Option<String>,
+    },
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, TS)]
@@ -183,6 +194,7 @@ pub struct HandshakeResult {
 pub struct SessionOpened {
     pub session_id: String,
     pub patch: DiffResourceRef,
+    pub source: DiffSource,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, TS)]
