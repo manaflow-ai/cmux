@@ -25,44 +25,6 @@ private final class MutableConsent: AnalyticsConsentProviding, @unchecked Sendab
     }
 }
 
-private actor TestGate {
-    private var isOpen = false
-    private var waiters: [CheckedContinuation<Void, Never>] = []
-
-    func wait() async {
-        if isOpen { return }
-        await withCheckedContinuation { waiters.append($0) }
-    }
-
-    func open() {
-        isOpen = true
-        let currentWaiters = waiters
-        waiters.removeAll()
-        for waiter in currentWaiters { waiter.resume() }
-    }
-}
-
-private actor BlockingAnalyticsUploader: AnalyticsUploading {
-    nonisolated let uploadStarted = TestGate()
-    nonisolated let allowUploadToFinish = TestGate()
-    private(set) var identifyCalls = 0
-
-    func upload(_: [AnalyticsEvent]) async -> AnalyticsUploadResult {
-        await uploadStarted.open()
-        await allowUploadToFinish.wait()
-        return .accepted
-    }
-
-    func identify(
-        userID _: String?,
-        anonymousID _: String?,
-        properties _: [String: any Sendable]
-    ) async -> AnalyticsUploadResult {
-        identifyCalls += 1
-        return .accepted
-    }
-}
-
 @Suite struct AnalyticsEmitterTests {
     @Test func userDefaultsConsentDefaultsOffUntilEnabled() {
         let suiteName = "cmux.analytics-consent.\(UUID().uuidString)"

@@ -2,36 +2,6 @@ public import CmuxMobileAnalytics
 import Foundation
 public import Sentry
 
-protocol MobileCrashTransportSessionControlling: AnyObject {
-    func makeSession() -> URLSession
-    func invalidateAndCancel()
-}
-
-final class MobileCrashTransportSessionController: MobileCrashTransportSessionControlling, @unchecked Sendable {
-    // lint:allow lock — sanctioned carve-out: consent notifications may arrive
-    // off-main, and URLSession cancellation is synchronous/nonisolated.
-    private let lock = NSLock()
-    private var session: URLSession?
-
-    func makeSession() -> URLSession {
-        let nextSession = URLSession(configuration: .ephemeral)
-        lock.lock()
-        let previousSession = session
-        session = nextSession
-        lock.unlock()
-        previousSession?.invalidateAndCancel()
-        return nextSession
-    }
-
-    func invalidateAndCancel() {
-        lock.lock()
-        let session = session
-        self.session = nil
-        lock.unlock()
-        session?.invalidateAndCancel()
-    }
-}
-
 /// Starts Sentry-backed crash reporting for the iOS app.
 ///
 /// ``MobileCrashReporter`` intentionally reuses
@@ -42,57 +12,22 @@ final class MobileCrashTransportSessionController: MobileCrashTransportSessionCo
 /// until the macOS scrubber can be moved to a shared package.
 public struct MobileCrashReporter {
     private let transportSessionController: any MobileCrashTransportSessionControlling
+    private let cachePurger: SentryCachePurger
 
     /// Creates a mobile crash reporter.
     public init() {
-        self.init(transportSessionController: MobileCrashTransportSessionController())
-    }
-
-    init(transportSessionController: any MobileCrashTransportSessionControlling) {
-        self.transportSessionController = transportSessionController
-    }
-
-    /// Starts crash reporting with a default ``MobileCrashReporter`` instance.
-    ///
-    /// - Parameters:
-    ///   - consent: The shared analytics/crash telemetry opt-out gate.
-    ///   - arguments: Process arguments used to gate the DEBUG-only test crash.
-    ///     Defaults to `ProcessInfo.processInfo.arguments`.
-    ///   - start: The Sentry start function. Tests inject this closure so they
-    ///     can assert the consent gate without starting the real SDK.
-    ///   - crash: The DEBUG-only test crash function. Tests inject this closure
-    ///     with `--cmux-test-crash` so they can assert trigger gating without
-    ///     crashing the test process.
-    public static func startIfEnabled(
-        consent: any AnalyticsConsentProviding,
-        arguments: [String] = ProcessInfo.processInfo.arguments,
-        environment: [String: String] = ProcessInfo.processInfo.environment,
-        notificationCenter: NotificationCenter = .default,
-        revocationWatcher: RevocationWatcher,
-        start: @escaping (Options) -> Void = { SentrySDK.start(options: $0) },
-        close: @escaping @Sendable () -> Void = { SentrySDK.close() },
-        purgeCache: @escaping @Sendable () -> Void = { Self.purgeSentryCache() },
-        crash: @escaping () -> Void = { SentrySDK.crash() }
-    ) {
-        Self().startIfEnabled(
-            consent: consent,
-            arguments: arguments,
-            environment: environment,
-            notificationCenter: notificationCenter,
-            revocationWatcher: revocationWatcher,
-            start: start,
-            close: close,
-            purgeCache: purgeCache,
-            crash: crash
+        self.init(
+            transportSessionController: MobileCrashTransportSessionController(),
+            cachePurger: SentryCachePurger()
         )
     }
 
-    /// Builds the mobile Sentry options with a default ``MobileCrashReporter`` instance.
-    ///
-    /// - Returns: A fully configured Sentry ``Options`` value suitable for
-    ///   `SentrySDK.start(options:)`.
-    public static func makeOptions() -> Options {
-        Self().makeOptions()
+    init(
+        transportSessionController: any MobileCrashTransportSessionControlling,
+        cachePurger: SentryCachePurger = SentryCachePurger()
+    ) {
+        self.transportSessionController = transportSessionController
+        self.cachePurger = cachePurger
     }
 
     /// Starts crash reporting when the shared telemetry consent gate is enabled.
@@ -114,7 +49,7 @@ public struct MobileCrashReporter {
         revocationWatcher: RevocationWatcher,
         start: @escaping (Options) -> Void = { SentrySDK.start(options: $0) },
         close: @escaping @Sendable () -> Void = { SentrySDK.close() },
-        purgeCache: @escaping @Sendable () -> Void = { Self.purgeSentryCache() },
+        purgeCache: (@Sendable () -> Void)? = nil,
         crash: @escaping () -> Void = { SentrySDK.crash() }
     ) {
         // Never report from test runs: unit-test hosts, XCUITest
@@ -122,7 +57,9 @@ public struct MobileCrashReporter {
         // they carry other XCTest markers or this repo's CMUX_UITEST_ keys),
         // and CI sessions would all send deliberate crashes and hangs to the
         // shared Sentry project.
-        guard !Self.isTestRun(environment: environment) else { return }
+        guard !isTestRun(environment: environment) else { return }
+        let cachePurger = self.cachePurger
+        let purgeCache = purgeCache ?? { cachePurger.purge() }
 
         let startReporting = {
             let options = makeOptions()
@@ -218,23 +155,30 @@ public struct MobileCrashReporter {
     /// transitions. UserDefaults changes are observed via
     /// `UserDefaults.didChangeNotification`, the same backing store the consent
     /// provider reads.
+    // Safety: the app composition root is the single owner that calls `arm`.
+    // Notification callbacks enqueue onto the private serial lifecycle queue;
+    // all mutable transition state is confined to that queue after setup.
     public final class RevocationWatcher: @unchecked Sendable {
+        // Safety: lifecycle closures cross only onto `lifecycleQueue`, which is
+        // their single serialized executor for the watcher's lifetime.
+        private struct LifecycleAction: @unchecked Sendable {
+            let body: () -> Void
+        }
+
+        private let lifecycleQueue = DispatchQueue(label: "dev.cmux.ios.crash-consent-lifecycle")
+        private var token: (any NSObjectProtocol)?
+        private var center: NotificationCenter?
+        private var isEnabled: Bool?
+        private var onEnable: LifecycleAction?
+        private var onRevoke: LifecycleAction?
+
         /// Owned by the app composition root (one per process); tests create
         /// fresh instances so parallel suites cannot stomp each other.
         public init() {}
 
-        // lint:allow lock — sanctioned carve-out: guards a token swap across
-        // the notification-delivery thread and arm callers; an actor would
-        // force async hops into the synchronous notification callback.
-        private let lock = NSRecursiveLock()
-        private var token: (any NSObjectProtocol)?
-        private var center: NotificationCenter?
-        private var consent: (any AnalyticsConsentProviding)?
-        private var isEnabled: Bool?
-        private var onEnable: (() -> Void)?
-        private var onRevoke: (() -> Void)?
-        private var pendingActions: [() -> Void] = []
-        private var isDrainingActions = false
+        deinit {
+            if let token, let center { center.removeObserver(token) }
+        }
 
         func arm(
             consent: any AnalyticsConsentProviding,
@@ -243,90 +187,37 @@ public struct MobileCrashReporter {
             onRevoke: @escaping () -> Void,
             onInitiallyDisabled: @escaping () -> Void
         ) {
-            lock.lock()
             if let token, let center { center.removeObserver(token) }
             let initialIsEnabled = consent.isTelemetryEnabled
             center = notificationCenter
-            self.consent = consent
-            self.isEnabled = initialIsEnabled
-            self.onEnable = onEnable
-            self.onRevoke = onRevoke
+            if initialIsEnabled {
+                onEnable()
+            } else {
+                onInitiallyDisabled()
+            }
+            let enableAction = LifecycleAction(body: onEnable)
+            let revokeAction = LifecycleAction(body: onRevoke)
+            lifecycleQueue.async { [self] in
+                isEnabled = initialIsEnabled
+                self.onEnable = enableAction
+                self.onRevoke = revokeAction
+            }
             token = notificationCenter.addObserver(
                 forName: UserDefaults.didChangeNotification,
                 object: nil,
                 queue: nil
             ) { _ in
-                self.handleConsentChange()
-            }
-            // The initial lifecycle action is part of the same serialized
-            // transition as later notifications. This prevents an opt-out
-            // notification from closing Sentry and then racing with a delayed
-            // initial start after arm() returns.
-            let shouldDrain: Bool
-            if initialIsEnabled {
-                shouldDrain = enqueueActionLocked(onEnable)
-            } else {
-                // A crash captured during an earlier opted-out window must
-                // never upload after a later re-opt-in.
-                shouldDrain = enqueueActionLocked(onInitiallyDisabled)
-            }
-            lock.unlock()
-            if shouldDrain { drainActions() }
-        }
-
-        private func handleConsentChange() {
-            lock.lock()
-            guard let consent else {
-                lock.unlock()
-                return
-            }
-            let nextIsEnabled = consent.isTelemetryEnabled
-            guard nextIsEnabled != isEnabled else {
-                lock.unlock()
-                return
-            }
-            isEnabled = nextIsEnabled
-            let action = nextIsEnabled ? onEnable : onRevoke
-            let shouldDrain = action.map(enqueueActionLocked) ?? false
-            lock.unlock()
-            if shouldDrain { drainActions() }
-        }
-
-        private func enqueueActionLocked(_ action: @escaping () -> Void) -> Bool {
-            pendingActions.append(action)
-            guard !isDrainingActions else { return false }
-            isDrainingActions = true
-            return true
-        }
-
-        private func drainActions() {
-            while true {
-                lock.lock()
-                guard !pendingActions.isEmpty else {
-                    isDrainingActions = false
-                    lock.unlock()
-                    return
+                let nextIsEnabled = consent.isTelemetryEnabled
+                self.lifecycleQueue.async { [self] in
+                    guard nextIsEnabled != isEnabled else { return }
+                    isEnabled = nextIsEnabled
+                    (nextIsEnabled ? self.onEnable : self.onRevoke)?.body()
                 }
-                let action = pendingActions.removeFirst()
-                lock.unlock()
-                action()
             }
         }
     }
 
-    /// Deletes Sentry's on-disk stores: the envelope cache (`Caches/io.sentry`)
-    /// AND SentryCrash's raw report store (`Caches/SentryCrash/<bundle>`), which
-    /// holds crash reports before they are converted into envelopes.
-    public static func purgeSentryCache() {
-        guard let caches = FileManager.default.urls(
-            for: .cachesDirectory,
-            in: .userDomainMask
-        ).first else { return }
-        try? FileManager.default.removeItem(at: caches.appendingPathComponent("io.sentry"))
-        try? FileManager.default.removeItem(at: caches.appendingPathComponent("SentryCrash"))
-    }
-
-    static func isTestRun(environment: [String: String]) -> Bool {
+    private func isTestRun(environment: [String: String]) -> Bool {
         for key in Self.testEnvironmentKeys where environment[key] != nil {
             return true
         }

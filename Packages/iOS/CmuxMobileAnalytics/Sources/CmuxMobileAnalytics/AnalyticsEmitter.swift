@@ -4,34 +4,6 @@ internal import OSLog
 
 private let analyticsLog = Logger(subsystem: "dev.cmux.ios", category: "analytics")
 
-private final class AnalyticsConsentRevocationObserver: @unchecked Sendable {
-    private let notificationCenter: NotificationCenter
-    private let token: any NSObjectProtocol
-
-    init(
-        notificationCenter: NotificationCenter,
-        consent: any AnalyticsConsentProviding,
-        uploader: any AnalyticsUploading,
-        onConsentChange: @escaping @Sendable (Bool) -> Void
-    ) {
-        self.notificationCenter = notificationCenter
-        uploader.setUploadsEnabled(consent.isTelemetryEnabled)
-        self.token = notificationCenter.addObserver(
-            forName: UserDefaults.didChangeNotification,
-            object: nil,
-            queue: nil
-        ) { _ in
-            let isEnabled = consent.isTelemetryEnabled
-            if !isEnabled { uploader.setUploadsEnabled(false) }
-            onConsentChange(isEnabled)
-        }
-    }
-
-    deinit {
-        notificationCenter.removeObserver(token)
-    }
-}
-
 /// The de-singletonized, non-blocking product-analytics emitter.
 ///
 /// Constructed once at the app composition root and injected everywhere as `any
@@ -169,11 +141,13 @@ public actor AnalyticsEmitter: AnalyticsEmitting {
 
     // MARK: AnalyticsEmitting (non-blocking surface)
 
+    /// Enqueues an allowlisted product event when telemetry consent is enabled.
     public nonisolated func capture(_ event: String, _ properties: [String: AnalyticsValue]) {
         guard consent.isTelemetryEnabled else { return }
         continuation.yield(.event(name: event, properties: properties, timestamp: now()))
     }
 
+    /// Enqueues an identity transition when telemetry consent is enabled.
     public nonisolated func identify(
         userId: String?,
         alias: String?,
@@ -183,6 +157,7 @@ public actor AnalyticsEmitter: AnalyticsEmitting {
         continuation.yield(.identify(userID: userId, alias: alias, properties: properties))
     }
 
+    /// Merges context applied to subsequently captured in-memory events.
     public nonisolated func setSuperProperties(_ properties: [String: AnalyticsValue]) {
         // This only updates in-memory event context; it performs no upload.
         // Preserve launch-time app/device properties while consent is off so
@@ -191,6 +166,7 @@ public actor AnalyticsEmitter: AnalyticsEmitting {
         continuation.yield(.superProperties(properties))
     }
 
+    /// Drains all events submitted before this call reaches the FIFO barrier.
     public func flush() async {
         let id = UUID()
         await withCheckedContinuation { (resume: CheckedContinuation<Void, Never>) in

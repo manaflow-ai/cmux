@@ -64,7 +64,7 @@ final class AppCompositionRoot {
         self.auth = auth
         self.reachability = reachability
         let telemetryConsent = UserDefaultsAnalyticsConsentProvider(defaults: .standard)
-        MobileCrashReporter.startIfEnabled(
+        MobileCrashReporter().startIfEnabled(
             consent: telemetryConsent,
             revocationWatcher: crashRevocationWatcher
         )

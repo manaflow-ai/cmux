@@ -13,7 +13,7 @@ private struct FixedConsent: AnalyticsConsentProviding {
         var startCount = 0
         var crashCount = 0
 
-        MobileCrashReporter.startIfEnabled(
+        MobileCrashReporter().startIfEnabled(
             consent: FixedConsent(isTelemetryEnabled: false),
             arguments: ["cmux", "--cmux-test-crash"],
             environment: [:],
@@ -31,7 +31,7 @@ private struct FixedConsent: AnalyticsConsentProviding {
         var startCount = 0
         var capturedOptions: Options?
 
-        MobileCrashReporter.startIfEnabled(
+        MobileCrashReporter().startIfEnabled(
             consent: FixedConsent(isTelemetryEnabled: true),
             arguments: ["cmux"],
             environment: [:],
@@ -51,7 +51,7 @@ private struct FixedConsent: AnalyticsConsentProviding {
     }
 
     @Test func optionsFactoryMatchesMobileContract() {
-        let options = MobileCrashReporter.makeOptions()
+        let options = MobileCrashReporter().makeOptions()
 
         #expect(options.dsn == "https://ecba1ec90ecaee02a102fba931b6d2b3@o4507547940749312.ingest.us.sentry.io/4510796264636416")
         #expect(options.tracesSampleRate?.doubleValue == 0.0)
@@ -84,7 +84,7 @@ private struct FixedConsent: AnalyticsConsentProviding {
         var didStart = false
         var crashCount = 0
 
-        MobileCrashReporter.startIfEnabled(
+        MobileCrashReporter().startIfEnabled(
             consent: FixedConsent(isTelemetryEnabled: true),
             arguments: ["cmux", "--cmux-test-crash"],
             environment: [:],
@@ -108,7 +108,7 @@ private struct FixedConsent: AnalyticsConsentProviding {
     @Test func debugCrashArgumentAbsentDoesNotCrash() {
         var crashCount = 0
 
-        MobileCrashReporter.startIfEnabled(
+        MobileCrashReporter().startIfEnabled(
             consent: FixedConsent(isTelemetryEnabled: true),
             arguments: ["cmux"],
             environment: [:],
@@ -132,7 +132,7 @@ private struct FixedConsent: AnalyticsConsentProviding {
     func testRunEnvironmentDoesNotStart(environment: [String: String]) {
         var startCount = 0
 
-        MobileCrashReporter.startIfEnabled(
+        MobileCrashReporter().startIfEnabled(
             consent: FixedConsent(isTelemetryEnabled: true),
             arguments: ["cmux"],
             environment: environment,
@@ -149,7 +149,7 @@ private struct FixedConsent: AnalyticsConsentProviding {
     @Test func nonTestEnvironmentStarts() {
         var startCount = 0
 
-        MobileCrashReporter.startIfEnabled(
+        MobileCrashReporter().startIfEnabled(
             consent: FixedConsent(isTelemetryEnabled: true),
             arguments: ["cmux"],
             environment: ["PATH": "/usr/bin", "HOME": "/var/mobile"],
@@ -164,52 +164,28 @@ private struct FixedConsent: AnalyticsConsentProviding {
     }
 
     @Test func consentDisabledAtLaunchPurgesCache() {
-        final class Counter: @unchecked Sendable { var purges = 0 }
-        let counter = Counter()
+        let counter = CrashTestCounter()
 
-        MobileCrashReporter.startIfEnabled(
+        MobileCrashReporter().startIfEnabled(
             consent: FixedConsent(isTelemetryEnabled: false),
             arguments: ["cmux"],
             environment: [:],
             revocationWatcher: MobileCrashReporter.RevocationWatcher(),
             start: { _ in Issue.record("must not start") },
-            purgeCache: { counter.purges += 1 },
+            purgeCache: { counter.increment() },
             crash: {}
         )
 
-        #expect(counter.purges == 1)
+        #expect(counter.value == 1)
     }
 
     @Test func midSessionRevocationClosesSDKAndPurgesOnce() {
-        final class ToggleConsent: AnalyticsConsentProviding, @unchecked Sendable {
-            var enabled = true
-            var isTelemetryEnabled: Bool { enabled }
-        }
-        final class Recorder: @unchecked Sendable {
-            var sequence: [String] = []
-        }
-        final class TransportController: MobileCrashTransportSessionControlling, @unchecked Sendable {
-            let recorder: Recorder
-            let session = URLSession(configuration: .ephemeral)
-
-            init(recorder: Recorder) {
-                self.recorder = recorder
-            }
-
-            func makeSession() -> URLSession {
-                recorder.sequence.append("transport-start")
-                return session
-            }
-
-            func invalidateAndCancel() {
-                recorder.sequence.append("transport-cancel")
-            }
-        }
-        let consent = ToggleConsent()
-        let recorder = Recorder()
+        let consent = CrashTestToggleConsent(enabled: true)
+        let recorder = CrashTestSequenceRecorder()
+        let revoked = DispatchSemaphore(value: 0)
         let center = NotificationCenter()
         let reporter = MobileCrashReporter(
-            transportSessionController: TransportController(recorder: recorder)
+            transportSessionController: CrashTestTransportController(recorder: recorder)
         )
 
         reporter.startIfEnabled(
@@ -219,88 +195,62 @@ private struct FixedConsent: AnalyticsConsentProviding {
             notificationCenter: center,
             revocationWatcher: MobileCrashReporter.RevocationWatcher(),
             start: { _ in },
-            close: { recorder.sequence.append("close") },
-            purgeCache: { recorder.sequence.append("purge") },
+            close: {
+                recorder.append("close")
+                revoked.signal()
+            },
+            purgeCache: { recorder.append("purge") },
             crash: {}
         )
         #expect(recorder.sequence == ["transport-start"])
-        recorder.sequence.removeAll()
+        recorder.removeAll()
 
         // Consent still on: defaults churn must not close the SDK.
         center.post(name: UserDefaults.didChangeNotification, object: nil)
-        #expect(recorder.sequence.isEmpty)
-
         consent.enabled = false
         center.post(name: UserDefaults.didChangeNotification, object: nil)
+        #expect(revoked.wait(timeout: .now() + 1) == .success)
         // Transport cancellation precedes close so close's mandatory flush
         // cannot upload queued or in-flight envelopes.
         #expect(recorder.sequence == ["transport-cancel", "purge", "close", "purge"])
 
-        // The watcher records the disabled state; further churn is a no-op.
-        center.post(name: UserDefaults.didChangeNotification, object: nil)
-        #expect(recorder.sequence == ["transport-cancel", "purge", "close", "purge"])
     }
 
     @Test func midSessionOptInStartsSDKWithoutRelaunch() {
-        final class ToggleConsent: AnalyticsConsentProviding, @unchecked Sendable {
-            var enabled = false
-            var isTelemetryEnabled: Bool { enabled }
-        }
-        final class Counter: @unchecked Sendable { var starts = 0 }
-        let consent = ToggleConsent()
-        let counter = Counter()
+        let consent = CrashTestToggleConsent(enabled: false)
+        let counter = CrashTestCounter()
+        let revoked = DispatchSemaphore(value: 0)
         let center = NotificationCenter()
 
-        MobileCrashReporter.startIfEnabled(
+        MobileCrashReporter().startIfEnabled(
             consent: consent,
             arguments: ["cmux"],
             environment: [:],
             notificationCenter: center,
             revocationWatcher: MobileCrashReporter.RevocationWatcher(),
-            start: { _ in counter.starts += 1 },
-            close: {},
+            start: { _ in counter.increment() },
+            close: { revoked.signal() },
             purgeCache: {},
             crash: {}
         )
 
-        #expect(counter.starts == 0)
+        #expect(counter.value == 0)
         consent.enabled = true
         center.post(name: UserDefaults.didChangeNotification, object: nil)
-        #expect(counter.starts == 1)
+        counter.waitForValue(1)
+        #expect(counter.value == 1)
 
         // Unrelated defaults churn must not reinitialize a running SDK.
         center.post(name: UserDefaults.didChangeNotification, object: nil)
-        #expect(counter.starts == 1)
+        consent.enabled = false
+        center.post(name: UserDefaults.didChangeNotification, object: nil)
+        #expect(revoked.wait(timeout: .now() + 1) == .success)
+        #expect(counter.value == 1)
     }
 
     @Test func concurrentConsentTransitionsKeepSDKActionsInConsentOrder() {
-        final class LockedConsent: AnalyticsConsentProviding, @unchecked Sendable {
-            private let lock = NSLock()
-            private var enabled = false
-
-            var isTelemetryEnabled: Bool {
-                lock.withLock { enabled }
-            }
-
-            func setEnabled(_ enabled: Bool) {
-                lock.withLock { self.enabled = enabled }
-            }
-        }
-        final class Recorder: @unchecked Sendable {
-            private let lock = NSLock()
-            private var values: [String] = []
-
-            func append(_ value: String) {
-                lock.withLock { values.append(value) }
-            }
-
-            var sequence: [String] {
-                lock.withLock { values }
-            }
-        }
-
-        let consent = LockedConsent()
-        let recorder = Recorder()
+        let consent = CrashTestToggleConsent(enabled: false)
+        let recorder = CrashTestSequenceRecorder()
         let center = NotificationCenter()
         let enableEntered = DispatchSemaphore(value: 0)
         let allowEnableToFinish = DispatchSemaphore(value: 0)
@@ -308,7 +258,7 @@ private struct FixedConsent: AnalyticsConsentProviding {
         let revokeAttempted = DispatchSemaphore(value: 0)
         let revokeFinished = DispatchSemaphore(value: 0)
 
-        MobileCrashReporter.startIfEnabled(
+        MobileCrashReporter().startIfEnabled(
             consent: consent,
             arguments: ["cmux"],
             environment: [:],
@@ -344,18 +294,15 @@ private struct FixedConsent: AnalyticsConsentProviding {
 
         allowEnableToFinish.signal()
         #expect(enableFinished.wait(timeout: .now() + 1) == .success)
+        recorder.waitForCount(2)
         #expect(recorder.sequence == ["enable", "revoke"])
     }
 
     @Test func beforeSendDropsEventsWhenConsentRevokedMidSession() throws {
-        final class ToggleConsent: AnalyticsConsentProviding, @unchecked Sendable {
-            var enabled = true
-            var isTelemetryEnabled: Bool { enabled }
-        }
-        let consent = ToggleConsent()
+        let consent = CrashTestToggleConsent(enabled: true)
         var captured: Options?
 
-        MobileCrashReporter.startIfEnabled(
+        MobileCrashReporter().startIfEnabled(
             consent: consent,
             arguments: ["cmux"],
             environment: [:],

@@ -32,6 +32,7 @@ public protocol AnalyticsUploading: Sendable {
     func setUploadsEnabled(_ isEnabled: Bool)
 }
 
+/// Default request-lifecycle behavior for uploaders without a live transport.
 public extension AnalyticsUploading {
     /// Uploaders without a live transport have no request lifecycle to update.
     func setUploadsEnabled(_: Bool) {}

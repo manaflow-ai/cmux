@@ -3,67 +3,6 @@ internal import OSLog
 
 private let analyticsUploadLog = Logger(subsystem: "dev.cmux.ios", category: "analytics-upload")
 
-private final class AnalyticsUploadStartGate: @unchecked Sendable {
-    // lint:allow lock — synchronizes a one-shot gate before a request task is
-    // registered for synchronous consent-revocation cancellation.
-    private let lock = NSLock()
-    private var isOpen = false
-    private var continuation: CheckedContinuation<Void, Never>?
-
-    func wait() async {
-        await withCheckedContinuation { continuation in
-            lock.lock()
-            if isOpen {
-                lock.unlock()
-                continuation.resume()
-            } else {
-                self.continuation = continuation
-                lock.unlock()
-            }
-        }
-    }
-
-    func open() {
-        lock.lock()
-        isOpen = true
-        let continuation = continuation
-        self.continuation = nil
-        lock.unlock()
-        continuation?.resume()
-    }
-}
-
-private final class AnalyticsUploadTaskRegistry: @unchecked Sendable {
-    // lint:allow lock — consent notifications and request registration are
-    // synchronous cross-thread boundaries; an actor would reintroduce the race.
-    private let lock = NSLock()
-    private var isEnabled = true
-    private var tasks: [UUID: Task<AnalyticsUploadResult, Never>] = [:]
-
-    func register(_ task: Task<AnalyticsUploadResult, Never>, id: UUID) -> Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        guard isEnabled else { return false }
-        tasks[id] = task
-        return true
-    }
-
-    func remove(id: UUID) {
-        lock.lock()
-        tasks.removeValue(forKey: id)
-        lock.unlock()
-    }
-
-    func setEnabled(_ enabled: Bool) {
-        lock.lock()
-        isEnabled = enabled
-        let tasksToCancel = enabled ? [] : Array(tasks.values)
-        if !enabled { tasks.removeAll() }
-        lock.unlock()
-        for task in tasksToCancel { task.cancel() }
-    }
-}
-
 /// An ``AnalyticsUploading`` that POSTs batches to the cmux web analytics proxy.
 ///
 /// Mirrors ``PushRegistrationService``'s request shape: `Bearer <accessToken>` +
@@ -101,12 +40,14 @@ public struct HTTPAnalyticsUploader: AnalyticsUploading {
         self.session = session
     }
 
+    /// Uploads one event batch through the authenticated cmux analytics proxy.
     public func upload(_ events: [AnalyticsEvent]) async -> AnalyticsUploadResult {
         guard !events.isEmpty else { return .accepted }
         let batch: [String: any Sendable] = ["batch": events.map(\.wireObject)]
         return await post(path: "/api/analytics/events", body: batch, label: "capture")
     }
 
+    /// Sends an identity transition through the authenticated cmux analytics proxy.
     public func identify(
         userID: String?,
         anonymousID: String?,
@@ -122,6 +63,7 @@ public struct HTTPAnalyticsUploader: AnalyticsUploading {
         return await post(path: "/api/analytics/events", body: ["batch": [body]], label: "identify")
     }
 
+    /// Cancels registered requests when uploads are disabled and gates new ones.
     public func setUploadsEnabled(_ isEnabled: Bool) {
         taskRegistry.setEnabled(isEnabled)
     }
@@ -152,7 +94,7 @@ public struct HTTPAnalyticsUploader: AnalyticsUploading {
             guard !Task.isCancelled else { return .drop }
             return await perform(request: request, label: label)
         }
-        guard taskRegistry.register(task, id: id) else {
+        guard await taskRegistry.register(task, id: id) else {
             task.cancel()
             startGate.open()
             return .drop
