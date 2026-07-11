@@ -11,5 +11,7 @@ CREATE TABLE "account_analytics_forward_leases" (
 
 CREATE INDEX "account_analytics_forward_leases_user_expiry_idx"
   ON "account_analytics_forward_leases" USING btree ("user_id_hash", "expires_at");
+CREATE INDEX "account_analytics_forward_leases_expiry_idx"
+  ON "account_analytics_forward_leases" USING btree ("expires_at");
 CREATE INDEX "account_analytics_forward_leases_operation_idx"
   ON "account_analytics_forward_leases" USING btree ("operation_id");

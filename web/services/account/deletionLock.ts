@@ -112,10 +112,12 @@ export async function withAccountDeletionAnalyticsForwardLease<T>(
     if (await hasBlockingAccountDeletionIdentityHashes(tx, identities.map(([hash]) => hash))) {
       return { kind: "blocked" } as const;
     }
-    await tx.delete(accountAnalyticsForwardLeases).where(and(
-      inArray(accountAnalyticsForwardLeases.userIdHash, identities.map(([hash]) => hash)),
+    // Ordinary analytics traffic prunes expired leases for every identity.
+    // This bounds retained rows to the ingress volume within one lease window,
+    // including after an outage populated one-off anonymous identities.
+    await tx.delete(accountAnalyticsForwardLeases).where(
       lt(accountAnalyticsForwardLeases.expiresAt, now),
-    ));
+    );
     await tx.insert(accountAnalyticsForwardLeases).values(
       identities.map(([userIdHash]) => ({ operationId, userIdHash, expiresAt })),
     );

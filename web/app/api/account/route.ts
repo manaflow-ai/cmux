@@ -44,6 +44,7 @@ import {
 import { deleteObject } from "../../../services/vault/storage";
 import { withVaultUserQuotaLock } from "../../../services/vault/usage";
 import {
+  AccountDeletionAnalyticsForwardInProgressError,
   accountDeletionAdvisoryLockKey,
   accountDeletionUserHash,
   assertNoAccountAnalyticsForwardInProgress,
@@ -121,6 +122,7 @@ export async function DELETE(request: Request): Promise<Response> {
   let stackMetadataMarked = false;
   let accountDeletionTombstoneStarted = false;
   let cmuxOwnedRowsDeleted = false;
+  let analyticsCleanupStarted = false;
   let destructiveCleanupStarted = false;
   let destroyedVms = 0;
   let restoreBillingEntitlementsOnFailure = true;
@@ -151,6 +153,19 @@ export async function DELETE(request: Request): Promise<Response> {
     // introduce a second validation failure after destructive work begins.
     const postHogDeletionConfig = postHogPersonDeletionConfig();
     const accountScope = await accountDeletionScopeForUser(stackUser);
+    // The tombstone blocks new forwards before this fail-prone external call.
+    // Complete analytics deletion before billing, access, VM, vault, tenant,
+    // or Stack cleanup so a retryable PostHog failure leaves those resources
+    // intact and the signed-in user can safely retry.
+    await deletePostHogPersonForAccountDeletion(userId, {
+      config: postHogDeletionConfig,
+      beforeExternalRequest: () => {
+        analyticsCleanupStarted = true;
+      },
+      afterExternalMutation: async () => {
+        await markAccountDeletionTombstoneAnalyticsDeleted(userId);
+      },
+    });
     await markAccountDeletingAndClearBillingEntitlements(stackUser);
     stackMetadataMarked = true;
     await resolveUserBillingForAccountDeletion(
@@ -214,15 +229,6 @@ export async function DELETE(request: Request): Promise<Response> {
       },
     }, accountScope.teamIds);
     await refreshAccountDeletionTombstoneLease(userId);
-    await deletePostHogPersonForAccountDeletion(userId, {
-      config: postHogDeletionConfig,
-      beforeExternalRequest: () => {
-        destructiveCleanupStarted = true;
-      },
-      afterExternalMutation: async () => {
-        await markAccountDeletionTombstoneAnalyticsDeleted(userId);
-      },
-    });
     // Delete cmux-owned data before the Stack user so a Stack-side failure does
     // not strand retained app data behind an account the user can no longer use.
     // These deletes are idempotent, so the same signed-in user can retry the
@@ -279,6 +285,16 @@ export async function DELETE(request: Request): Promise<Response> {
     }
     if (accountDeletionTombstoneStarted) await markAccountDeletionTombstoneFailed(userId, error);
     logAccountDeleteError("account.delete.failed", error);
+    if (
+      analyticsCleanupStarted ||
+      error instanceof AccountDeletionAnalyticsForwardInProgressError
+    ) {
+      return jsonResponse({
+        error: "account_delete_retryable",
+        retryable: true,
+        destroyedVms,
+      }, 500);
+    }
     return jsonResponse({ error: "account_delete_failed" }, 500);
   }
 }

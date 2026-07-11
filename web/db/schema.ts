@@ -109,6 +109,7 @@ export const accountAnalyticsForwardLeases = pgTable(
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
   },
   (table) => [
+    index("account_analytics_forward_leases_expiry_idx").on(table.expiresAt),
     index("account_analytics_forward_leases_user_expiry_idx").on(table.userIdHash, table.expiresAt),
     index("account_analytics_forward_leases_operation_idx").on(table.operationId),
   ],

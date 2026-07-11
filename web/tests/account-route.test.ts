@@ -1270,7 +1270,11 @@ describe("account deletion route", () => {
     const response = await DELETE(accountDeletionRequest());
 
     expect(response.status).toBe(500);
-    expect(await response.json()).toEqual({ error: "account_delete_failed" });
+    expect(await response.json()).toEqual({
+      error: "account_delete_retryable",
+      retryable: true,
+      destroyedVms: 0,
+    });
     expect(updateCustomer).toHaveBeenCalledWith("cus_shared", expect.objectContaining({
       metadata: expect.objectContaining({ stackUserId: "other-user" }),
     }));
@@ -1362,9 +1366,13 @@ describe("account deletion route", () => {
     const response = await DELETE(accountDeletionRequest());
 
     expect(response.status).toBe(500);
-    expect(await response.json()).toEqual({ error: "account_delete_failed" });
+    expect(await response.json()).toEqual({
+      error: "account_delete_retryable",
+      retryable: true,
+      destroyedVms: 0,
+    });
     expect(deletedVaultObjects).toEqual([]);
-    expect(transaction).toHaveBeenCalledTimes(1);
+    expect(transaction).toHaveBeenCalledTimes(2);
     expect(deleteStackUser).not.toHaveBeenCalled();
     expect(updateStackUser).toHaveBeenNthCalledWith(1, {
       clientReadOnlyMetadata: { cmuxAccountDeleting: true },
@@ -1393,7 +1401,7 @@ describe("account deletion route", () => {
       destroyedVms: 0,
     });
     expectIdentityRevocationHeartbeatConfigured();
-    expect(transaction).toHaveBeenCalledTimes(1);
+    expect(transaction).toHaveBeenCalledTimes(2);
     expect(deleteStackUser).not.toHaveBeenCalled();
     expect(updateStackUser).toHaveBeenNthCalledWith(1, {
       clientReadOnlyMetadata: { cmuxAccountDeleting: true },
@@ -1407,11 +1415,15 @@ describe("account deletion route", () => {
     const response = await DELETE(accountDeletionRequest());
 
     expect(response.status).toBe(500);
-    expect(await response.json()).toEqual({ error: "account_delete_failed" });
+    expect(await response.json()).toEqual({
+      error: "account_delete_retryable",
+      retryable: true,
+      destroyedVms: 0,
+    });
     expectIdentityRevocationHeartbeatConfigured();
     expect(listUserVms).not.toHaveBeenCalled();
     expect(destroyVm).not.toHaveBeenCalled();
-    expect(transaction).toHaveBeenCalledTimes(1);
+    expect(transaction).toHaveBeenCalledTimes(2);
     expect(deleteStackUser).not.toHaveBeenCalled();
     expect(updateStackUser).toHaveBeenNthCalledWith(1, {
       clientReadOnlyMetadata: { cmuxAccountDeleting: true },
@@ -1435,10 +1447,14 @@ describe("account deletion route", () => {
     const response = await DELETE(accountDeletionRequest());
 
     expect(response.status).toBe(500);
-    expect(await response.json()).toEqual({ error: "account_delete_failed" });
+    expect(await response.json()).toEqual({
+      error: "account_delete_retryable",
+      retryable: true,
+      destroyedVms: 0,
+    });
     expect(routeEvents.indexOf("revoke-identities")).toBeLessThan(routeEvents.indexOf("destroy-vm"));
     expect(destroyVm).toHaveBeenCalledTimes(1);
-    expect(transaction).toHaveBeenCalledTimes(1);
+    expect(transaction).toHaveBeenCalledTimes(2);
     expect(deleteStackUser).not.toHaveBeenCalled();
     expect(updateStackUser).toHaveBeenNthCalledWith(1, {
       clientReadOnlyMetadata: { cmuxAccountDeleting: true },
@@ -1471,7 +1487,7 @@ describe("account deletion route", () => {
       destroyedVms: 0,
     });
     expect(routeEvents.indexOf("revoke-identities")).toBeLessThan(routeEvents.indexOf("destroy-vm"));
-    expect(transaction).toHaveBeenCalledTimes(1);
+    expect(transaction).toHaveBeenCalledTimes(2);
     expect(deleteStackUser).not.toHaveBeenCalled();
     expect(updateStackUser).toHaveBeenNthCalledWith(1, {
       clientReadOnlyMetadata: { cmuxAccountDeleting: true },
@@ -1509,7 +1525,7 @@ describe("account deletion route", () => {
     }).mock.calls;
     const [destroyInput] = destroyVmCalls[0];
     expect(typeof destroyInput.afterProviderDestroy).toBe("function");
-    expect(transaction).toHaveBeenCalledTimes(1);
+    expect(transaction).toHaveBeenCalledTimes(2);
     expect(deleteStackUser).not.toHaveBeenCalled();
     expect(updateStackUser).toHaveBeenNthCalledWith(1, {
       clientReadOnlyMetadata: { cmuxAccountDeleting: true },
@@ -1571,10 +1587,14 @@ describe("account deletion route", () => {
     const response = await DELETE(accountDeletionRequest());
 
     expect(response.status).toBe(500);
-    expect(await response.json()).toEqual({ error: "account_delete_failed" });
+    expect(await response.json()).toEqual({
+      error: "account_delete_retryable",
+      retryable: true,
+      destroyedVms: 0,
+    });
     expect(revokeTenant).toHaveBeenCalledWith("tenant-personal");
     expect(deletedTables).not.toContain(subrouterTenants);
-    expect(transaction).toHaveBeenCalledTimes(1);
+    expect(transaction).toHaveBeenCalledTimes(2);
     expect(deleteStackUser).not.toHaveBeenCalled();
     expect(updateStackUser).toHaveBeenNthCalledWith(1, {
       clientReadOnlyMetadata: { cmuxAccountDeleting: true },
@@ -1604,7 +1624,11 @@ describe("account deletion route", () => {
     const response = await DELETE(accountDeletionRequest());
 
     expect(response.status).toBe(500);
-    expect(await response.json()).toEqual({ error: "account_delete_failed" });
+    expect(await response.json()).toEqual({
+      error: "account_delete_retryable",
+      retryable: true,
+      destroyedVms: 0,
+    });
     expect(revokeTenant).toHaveBeenCalledWith("tenant-missing");
     expect(revokeTenant).toHaveBeenCalledWith("tenant-timeout");
     expect(deletedTables).not.toContain(subrouterTenants);
@@ -1634,10 +1658,14 @@ describe("account deletion route", () => {
     const response = await DELETE(accountDeletionRequest());
 
     expect(response.status).toBe(500);
-    expect(await response.json()).toEqual({ error: "account_delete_failed" });
+    expect(await response.json()).toEqual({
+      error: "account_delete_retryable",
+      retryable: true,
+      destroyedVms: 0,
+    });
     expect(revokeTenant).not.toHaveBeenCalled();
     expect(deletedTables).not.toContain(subrouterTenants);
-    expect(transaction).toHaveBeenCalledTimes(1);
+    expect(transaction).toHaveBeenCalledTimes(2);
     expect(deleteStackUser).not.toHaveBeenCalled();
     expect(updateStackUser).toHaveBeenNthCalledWith(1, {
       clientReadOnlyMetadata: { cmuxAccountDeleting: true },
@@ -1800,7 +1828,7 @@ describe("account deletion route", () => {
       retryable: true,
       destroyedVms: 2,
     });
-    expect(transaction).toHaveBeenCalledTimes(1);
+    expect(transaction).toHaveBeenCalledTimes(2);
     expect(deleteStackUser).not.toHaveBeenCalled();
     expect(updateStackUser).toHaveBeenNthCalledWith(1, {
       clientReadOnlyMetadata: { cmuxAccountDeleting: true },
@@ -1829,7 +1857,7 @@ describe("account deletion route", () => {
     });
     expect(cancelledStripeSubscriptions).toEqual(["sub_user_active"]);
     expect(deletedStripeCustomers).toEqual(["cus_user"]);
-    expect(transaction).toHaveBeenCalledTimes(1);
+    expect(transaction).toHaveBeenCalledTimes(2);
     expect(deleteStackUser).not.toHaveBeenCalled();
     expect(updateStackUser).toHaveBeenNthCalledWith(1, {
       clientReadOnlyMetadata: { cmuxAccountDeleting: true },
@@ -1855,7 +1883,7 @@ describe("account deletion route", () => {
     expect(cancelledStripeSubscriptions).toEqual(["sub_user_active"]);
     expect(deletedStripeCustomers).toEqual(["cus_user"]);
     expect(listUserVms).not.toHaveBeenCalled();
-    expect(transaction).toHaveBeenCalledTimes(1);
+    expect(transaction).toHaveBeenCalledTimes(2);
     expect(deleteStackUser).not.toHaveBeenCalled();
     expect(updateStackUser).toHaveBeenNthCalledWith(1, {
       clientReadOnlyMetadata: { cmuxAccountDeleting: true },
@@ -1880,7 +1908,7 @@ describe("account deletion route", () => {
     });
     expect(cancelledStripeSubscriptions).toEqual(["sub_user_active"]);
     expect(listUserVms).not.toHaveBeenCalled();
-    expect(transaction).toHaveBeenCalledTimes(1);
+    expect(transaction).toHaveBeenCalledTimes(2);
     expect(deleteStackUser).not.toHaveBeenCalled();
     expect(updateStackUser).toHaveBeenNthCalledWith(1, {
       clientReadOnlyMetadata: { cmuxAccountDeleting: true },
@@ -1912,7 +1940,7 @@ describe("account deletion route", () => {
       providerVmId: "personal-vm-2",
       provider: "freestyle",
     }));
-    expect(transaction).toHaveBeenCalledTimes(1);
+    expect(transaction).toHaveBeenCalledTimes(2);
     expect(deleteStackUser).not.toHaveBeenCalled();
     expect(updateStackUser).toHaveBeenNthCalledWith(1, {
       clientReadOnlyMetadata: { cmuxAccountDeleting: true },
@@ -1952,7 +1980,7 @@ describe("account deletion route", () => {
       providerVmId: "personal-vm-2",
       provider: "freestyle",
     }));
-    expect(transaction).toHaveBeenCalledTimes(1);
+    expect(transaction).toHaveBeenCalledTimes(2);
     expect(deleteStackUser).not.toHaveBeenCalled();
     expect(updateStackUser).toHaveBeenNthCalledWith(1, {
       clientReadOnlyMetadata: { cmuxAccountDeleting: true },
@@ -1978,9 +2006,13 @@ describe("account deletion route", () => {
     const response = await DELETE(accountDeletionRequest());
 
     expect(response.status).toBe(500);
-    expect(await response.json()).toEqual({ error: "account_delete_failed" });
+    expect(await response.json()).toEqual({
+      error: "account_delete_retryable",
+      retryable: true,
+      destroyedVms: 0,
+    });
     expect(cancelSubscription).not.toHaveBeenCalled();
-    expect(transaction).toHaveBeenCalledTimes(1);
+    expect(transaction).toHaveBeenCalledTimes(2);
     expect(deleteStackUser).not.toHaveBeenCalled();
     expect(updateStackUser).toHaveBeenNthCalledWith(1, {
       clientReadOnlyMetadata: { cmuxAccountDeleting: true },
@@ -2022,15 +2054,15 @@ describe("account deletion route", () => {
       "transaction",
       "transaction-lock",
       "tombstone-upsert",
+      "transaction",
+      "transaction-lock",
+      "analytics-lease-cleanup",
+      "posthog-delete",
       "metadata-update",
       "revoke-identities",
       "list-vms",
       "destroy-vm",
       "destroy-vm",
-      "transaction",
-      "transaction-lock",
-      "analytics-lease-cleanup",
-      "posthog-delete",
       "transaction",
       "transaction-lock",
       "stack-delete",
