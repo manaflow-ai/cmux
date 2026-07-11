@@ -385,19 +385,28 @@ final class TerminalNotificationStore: ObservableObject {
         didSet {
             indexes = Self.buildIndexes(for: notifications)
             deferredUnreadNavigationIds.removeAll { !indexes.ids.contains($0) }
+            rebuildUnreadNavigationNotifications()
             refreshUnreadPresentation()
             if !suppressNotificationDiffPublishing { CmuxEventBus.shared.publishNotificationChanges(oldValue: oldValue, newValue: notifications) }
         }
     }
     private var deferredUnreadNavigationIds: [UUID] = []
+    private var unreadNavigationNotifications: [TerminalNotification] = []
 
     var notificationsForUnreadNavigation: [TerminalNotification] {
-        guard !deferredUnreadNavigationIds.isEmpty else { return notifications }
+        unreadNavigationNotifications
+    }
+
+    private func rebuildUnreadNavigationNotifications() {
+        guard !deferredUnreadNavigationIds.isEmpty else {
+            unreadNavigationNotifications = notifications
+            return
+        }
         let deferredIds = Set(deferredUnreadNavigationIds)
         var ordered = notifications.filter { !deferredIds.contains($0.id) }
         let notificationById = Dictionary(uniqueKeysWithValues: notifications.map { ($0.id, $0) })
         ordered.append(contentsOf: deferredUnreadNavigationIds.compactMap { notificationById[$0] })
-        return ordered
+        unreadNavigationNotifications = ordered
     }
     @Published private(set) var notificationMenuSnapshot = NotificationMenuSnapshotBuilder.make(notifications: [])
     /// Coalesced, equality-guarded per-workspace unread projection for the
@@ -1154,11 +1163,16 @@ final class TerminalNotificationStore: ObservableObject {
         let insertionIndex = updated.firstIndex {
             Self.notificationSortPrecedes(notification, $0)
         } ?? updated.endIndex
-        let supersededExternalIds = updated.compactMap { existing in
-            existing.matches(tabId: notification.tabId, surfaceId: notification.surfaceId)
-                ? existing.id.uuidString
-                : nil
+        let matchingExisting = updated.filter {
+            $0.matches(tabId: notification.tabId, surfaceId: notification.surfaceId)
         }
+        let supersededExternalIds = matchingExisting.compactMap { existing in
+            Self.notificationSortPrecedes(notification, existing) ? existing.id.uuidString : nil
+        }
+        let hasNewerExternalOwner = matchingExisting.contains {
+            Self.notificationSortPrecedes($0, notification)
+        }
+        let suppressExternalDelivery = shouldSuppressExternalDelivery || hasNewerExternalOwner
         updated.insert(notification, at: insertionIndex)
         setWorkspaceManualUnread(false, forTabId: notification.tabId)
         notifications = updated
@@ -1171,12 +1185,12 @@ final class TerminalNotificationStore: ObservableObject {
         supersedeExternalBanners(
             ids: supersededExternalIds,
             with: notification,
-            shouldSuppressExternalDelivery: shouldSuppressExternalDelivery,
+            shouldSuppressExternalDelivery: suppressExternalDelivery,
             effects: effects
         )
         deliverNotificationSideEffects(
             notification,
-            shouldSuppressExternalDelivery: shouldSuppressExternalDelivery,
+            shouldSuppressExternalDelivery: suppressExternalDelivery,
             effects: effects
         )
     }

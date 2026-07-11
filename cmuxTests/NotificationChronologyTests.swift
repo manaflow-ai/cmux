@@ -61,6 +61,53 @@ struct NotificationChronologyTests {
     }
 
     @Test
+    func lateOlderRecordDoesNotReplaceNewerExternalDelivery() {
+        let store = TerminalNotificationStore.shared
+        let tabId = UUID()
+        let surfaceId = UUID()
+        let olderId = UUID()
+        let newerId = UUID()
+        var deliveredIds: [UUID] = []
+        var suppressedIds: [UUID] = []
+
+        store.replaceNotificationsForTesting([])
+        store.configureNotificationDeliveryHandlerForTesting { _, notification in
+            deliveredIds.append(notification.id)
+        }
+        store.configureSuppressedNotificationFeedbackHandlerForTesting { _, notification in
+            suppressedIds.append(notification.id)
+        }
+        defer {
+            store.replaceNotificationsForTesting([])
+            store.resetNotificationDeliveryHandlerForTesting()
+            store.resetSuppressedNotificationFeedbackHandlerForTesting()
+        }
+
+        store.addNotification(
+            id: newerId,
+            acceptedAt: Date(timeIntervalSince1970: 20),
+            tabId: tabId,
+            surfaceId: surfaceId,
+            title: "Newer",
+            subtitle: "",
+            body: ""
+        )
+        store.addNotification(
+            id: olderId,
+            acceptedAt: Date(timeIntervalSince1970: 10),
+            tabId: tabId,
+            surfaceId: surfaceId,
+            title: "Older",
+            subtitle: "",
+            body: ""
+        )
+
+        #expect(store.notifications.map(\.id) == [newerId, olderId])
+        #expect(deliveredIds == [newerId])
+        #expect(suppressedIds == [olderId])
+    }
+
+    @Test
     func restoreMergesLiveAndRestoredNotificationsExactlyOnceInStableOrder() {
         let store = TerminalNotificationStore.shared
         let tabId = UUID(uuidString: "10000000-0000-0000-0000-000000000000")!
