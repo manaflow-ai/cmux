@@ -26,6 +26,21 @@ import {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+type AnalyticsEventsDependencies = {
+  readonly verifyRequest: (
+    request: Request,
+    options: { readonly allowCookie: false },
+  ) => Promise<{ readonly id: string } | null>;
+  readonly db: typeof cloudDb;
+  readonly postHogFetch: typeof fetch;
+};
+
+const defaultDependencies: AnalyticsEventsDependencies = {
+  verifyRequest,
+  db: cloudDb,
+  postHogFetch: fetch,
+};
+
 type IncomingEvent = {
   readonly event: string;
   readonly distinctID?: string;
@@ -33,71 +48,77 @@ type IncomingEvent = {
   readonly timestamp?: string;
 };
 
-export async function POST(request: Request): Promise<Response> {
-  // Auth is read opportunistically, NOT required: the two-phase identity design
-  // depends on pre-auth events (install, sign-in attempts, pairing) flowing while
-  // the user is still anonymous. When a Stack session is present we stamp the
-  // authoritative `user.id` over the client distinct id; when absent we trust the
-  // client-supplied anonymous `client_id`. The event-name allowlist is the abuse
-  // gate, not auth. The PostHog key is already public (the web client posts to
-  // r.cmux.com directly), so an anonymous proxy is no weaker than today.
-  //
-  // Rate limiting is deferred for Phase A (tracked in
-  // https://github.com/manaflow-ai/cmux/issues/5569). The only reusable limiter in
-  // the codebase (`services/apns/rateLimit.ts`) is a per-`userId` Postgres-
-  // transaction gate, which does not fit an anonymous-first, high-volume telemetry
-  // ingest path (no user id pre-auth, and a DB write + advisory lock per analytics
-  // batch would defeat a lightweight proxy; in-memory limiting does not work on
-  // Vercel's per-instance stateless functions). The shape gate (allowlist + 64 KB
-  // body cap + per-batch/per-event bounds below) limits payload abuse; a dedicated
-  // anonymous IP/edge rate limit on cmux's own compute is the follow-up. The
-  // downstream PostHog quota risk is no worse than the already-public direct
-  // r.cmux.com path.
-  const user = await verifyRequest(request, { allowCookie: false });
+export const POST = makeAnalyticsEventsHandler();
 
-  const body = await readBoundedJsonObject(request, MAX_ANALYTICS_REQUEST_BYTES);
-  if (!body.ok) {
-    return jsonResponse({ error: body.error }, body.error === "request_too_large" ? 413 : 400);
-  }
+export function makeAnalyticsEventsHandler(dependencies: AnalyticsEventsDependencies = defaultDependencies) {
+  return async function POST(request: Request): Promise<Response> {
+    // Auth is read opportunistically, NOT required: the two-phase identity design
+    // depends on pre-auth events (install, sign-in attempts, pairing) flowing while
+    // the user is still anonymous. When a Stack session is present we stamp the
+    // authoritative `user.id` over the client distinct id; when absent we trust the
+    // client-supplied anonymous `client_id`. The event-name allowlist is the abuse
+    // gate, not auth. The PostHog key is already public (the web client posts to
+    // r.cmux.com directly), so an anonymous proxy is no weaker than today.
+    //
+    // Rate limiting is deferred for Phase A (tracked in
+    // https://github.com/manaflow-ai/cmux/issues/5569). The only reusable limiter in
+    // the codebase (`services/apns/rateLimit.ts`) is a per-`userId` Postgres-
+    // transaction gate, which does not fit an anonymous-first, high-volume telemetry
+    // ingest path (no user id pre-auth, and a DB write + advisory lock per analytics
+    // batch would defeat a lightweight proxy; in-memory limiting does not work on
+    // Vercel's per-instance stateless functions). The shape gate (allowlist + 64 KB
+    // body cap + per-batch/per-event bounds below) limits payload abuse; a dedicated
+    // anonymous IP/edge rate limit on cmux's own compute is the follow-up. The
+    // downstream PostHog quota risk is no worse than the already-public direct
+    // r.cmux.com path.
+    const user = await dependencies.verifyRequest(request, {
+      allowCookie: false,
+    });
 
-  const rawBatch = body.value.batch;
-  if (!Array.isArray(rawBatch)) {
-    return jsonResponse({ error: "missing_batch" }, 400);
-  }
-  if (rawBatch.length === 0) {
-    return jsonResponse({ ok: true, forwarded: 0 });
-  }
-  if (rawBatch.length > MAX_ANALYTICS_BATCH_EVENTS) {
-    return jsonResponse({ error: "batch_too_large" }, 400);
-  }
+    const body = await readBoundedJsonObject(request, MAX_ANALYTICS_REQUEST_BYTES);
+    if (!body.ok) {
+      return jsonResponse({ error: body.error }, body.error === "request_too_large" ? 413 : 400);
+    }
 
-  const accepted: IncomingEvent[] = [];
-  for (const candidate of rawBatch) {
-    const sanitized = sanitizeEvent(candidate);
-    if (sanitized) accepted.push(sanitized);
-  }
-  if (accepted.length === 0) {
-    // Every event was rejected by the allowlist/shape check. Treat as a client
-    // bug (4xx): retrying the same payload will not help.
-    return jsonResponse({ error: "no_valid_events" }, 400);
-  }
+    const rawBatch = body.value.batch;
+    if (!Array.isArray(rawBatch)) {
+      return jsonResponse({ error: "missing_batch" }, 400);
+    }
+    if (rawBatch.length === 0) {
+      return jsonResponse({ ok: true, forwarded: 0 });
+    }
+    if (rawBatch.length > MAX_ANALYTICS_BATCH_EVENTS) {
+      return jsonResponse({ error: "batch_too_large" }, 400);
+    }
 
-  // A queued identified batch can arrive after Stack authentication has been
-  // deleted. In that case the old account id becomes client-supplied input, so
-  // check both the authenticated identity and every accepted client distinct id
-  // against durable deletion tombstones before PostHog can recreate the person.
-  const identityCandidates = user
-    ? [user.id]
-    : accepted.flatMap((event) => event.distinctID ? [event.distinctID] : []);
-  if (await hasBlockingAccountDeletionIdentity(cloudDb(), identityCandidates)) {
-    return jsonResponse({ error: "account_deleted" }, 410);
-  }
+    const accepted: IncomingEvent[] = [];
+    for (const candidate of rawBatch) {
+      const sanitized = sanitizeEvent(candidate);
+      if (sanitized) accepted.push(sanitized);
+    }
+    if (accepted.length === 0) {
+      // Every event was rejected by the allowlist/shape check. Treat as a client
+      // bug (4xx): retrying the same payload will not help.
+      return jsonResponse({ error: "no_valid_events" }, 400);
+    }
 
-  const forwarded = await forwardToPostHog(accepted, user?.id ?? null);
-  if (!forwarded.ok) {
-    return jsonResponse({ error: "forward_failed" }, forwarded.status);
-  }
-  return jsonResponse({ ok: true, forwarded: accepted.length });
+    // A queued identified batch can arrive after Stack authentication has been
+    // deleted. In that case the old account id becomes client-supplied input, so
+    // check both the authenticated identity and every accepted client distinct id
+    // against durable deletion tombstones before PostHog can recreate the person.
+    const identityCandidates = user
+      ? [user.id]
+      : accepted.flatMap((event) => (event.distinctID ? [event.distinctID] : []));
+    if (await hasBlockingAccountDeletionIdentity(dependencies.db(), identityCandidates)) {
+      return jsonResponse({ error: "account_deleted" }, 410);
+    }
+
+    const forwarded = await forwardToPostHog(accepted, user?.id ?? null, dependencies.postHogFetch);
+    if (!forwarded.ok) {
+      return jsonResponse({ error: "forward_failed" }, forwarded.status);
+    }
+    return jsonResponse({ ok: true, forwarded: accepted.length });
+  };
 }
 
 function sanitizeEvent(candidate: unknown): IncomingEvent | null {
@@ -135,16 +156,13 @@ function sanitizeEvent(candidate: unknown): IncomingEvent | null {
 }
 
 function isScalar(value: unknown): boolean {
-  return (
-    typeof value === "string" ||
-    typeof value === "number" ||
-    typeof value === "boolean"
-  );
+  return typeof value === "string" || typeof value === "number" || typeof value === "boolean";
 }
 
 async function forwardToPostHog(
   events: readonly IncomingEvent[],
   userId: string | null,
+  postHogFetch: typeof fetch,
 ): Promise<{ readonly ok: true } | { readonly ok: false; readonly status: number }> {
   // When authenticated, the server stamps the authoritative user id as the
   // distinct id so a client cannot attribute events to another user. When
@@ -159,7 +177,7 @@ async function forwardToPostHog(
   }));
 
   try {
-    const response = await fetch(`${POSTHOG_HOST}/batch/`, {
+    const response = await postHogFetch(`${POSTHOG_HOST}/batch/`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ api_key: POSTHOG_PROJECT_KEY, batch }),
