@@ -1,4 +1,5 @@
 import AppKit
+import CMUXAgentLaunch
 import Foundation
 import CmuxTerminal
 import CmuxTerminalCore
@@ -142,7 +143,18 @@ extension TerminalSurfaceRuntimeFilesystem {
                     fileManager: .default
                 )
             },
-            isExecutableFile: { FileManager.default.isExecutableFile(atPath: $0) }
+            isExecutableFile: { FileManager.default.isExecutableFile(atPath: $0) },
+            agentHookStateDirectory: { bundleIdentifier in
+                AgentHookStateLocation(
+                    environment: ProcessInfo.processInfo.environment,
+                    applicationSupportDirectory: FileManager.default.urls(
+                        for: .applicationSupportDirectory,
+                        in: .userDomainMask
+                    ).first,
+                    bundleIdentifier: bundleIdentifier,
+                    legacyHomeDirectory: FileManager.default.homeDirectoryForCurrentUser
+                ).directoryURL.path
+            }
         )
     }
 }

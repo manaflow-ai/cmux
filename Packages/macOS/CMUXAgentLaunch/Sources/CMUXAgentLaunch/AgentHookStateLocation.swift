@@ -27,30 +27,29 @@ public struct AgentHookStateLocation: Sendable, Equatable {
     }
 
     /// Resolves the hook state directory used by both agent hooks and app readers.
-    public static func resolveDirectoryURL(
-        environment: [String: String] = ProcessInfo.processInfo.environment,
-        applicationSupportDirectory: URL? = FileManager.default.urls(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask
-        ).first,
-        bundleIdentifier: String? = Bundle.main.bundleIdentifier,
-        legacyHomeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
-    ) -> URL {
+    public init(
+        environment: [String: String],
+        applicationSupportDirectory: URL?,
+        bundleIdentifier: String?,
+        legacyHomeDirectory: URL
+    ) {
         if let override = environment["CMUX_AGENT_HOOK_STATE_DIR"]?
             .trimmingCharacters(in: .whitespacesAndNewlines),
             !override.isEmpty {
-            return URL(
+            directoryURL = URL(
                 fileURLWithPath: NSString(string: override).expandingTildeInPath,
                 isDirectory: true
             )
+            return
         }
         if let applicationSupportDirectory,
            let location = AgentHookStateLocation(
                applicationSupportDirectory: applicationSupportDirectory,
                bundleIdentifier: bundleIdentifier
            ) {
-            return location.directoryURL
+            directoryURL = location.directoryURL
+            return
         }
-        return legacyHomeDirectory.appendingPathComponent(".cmuxterm", isDirectory: true)
+        directoryURL = legacyHomeDirectory.appendingPathComponent(".cmuxterm", isDirectory: true)
     }
 }

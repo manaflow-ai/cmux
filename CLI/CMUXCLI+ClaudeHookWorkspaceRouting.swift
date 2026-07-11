@@ -3,10 +3,10 @@
 import Foundation
 
 extension CMUXCLI {
-    struct CallerTerminalBindingResolution {
-        let binding: CallerTerminalBinding?
-        let isAmbiguous: Bool
-    }
+    typealias CallerTerminalBindingResolution = (
+        binding: CallerTerminalBinding?,
+        isAmbiguous: Bool
+    )
 
     /// Resolve the workspace a Claude hook should mutate, in strict priority order:
     /// the recorded/preferred workspace, an unambiguous caller-TTY binding (only when

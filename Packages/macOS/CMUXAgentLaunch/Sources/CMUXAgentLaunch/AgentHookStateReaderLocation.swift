@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 /// Prepares the bundle-scoped hook state directory used by app-side readers.
@@ -16,12 +17,12 @@ public struct AgentHookStateReaderLocation {
         legacyHomeDirectory: URL,
         fileManager: FileManager
     ) {
-        directoryURL = AgentHookStateLocation.resolveDirectoryURL(
+        directoryURL = AgentHookStateLocation(
             environment: environment,
             applicationSupportDirectory: applicationSupportDirectory,
             bundleIdentifier: bundleIdentifier,
             legacyHomeDirectory: legacyHomeDirectory
-        )
+        ).directoryURL
 
         let override = environment["CMUX_AGENT_HOOK_STATE_DIR"]?
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -45,6 +46,20 @@ public struct AgentHookStateReaderLocation {
     private func migrateLegacyStores(from legacyDirectory: URL, fileManager: FileManager) throws {
         guard legacyDirectory.standardizedFileURL != directoryURL.standardizedFileURL else { return }
         try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        let lock = directoryURL.appendingPathComponent(".legacy-hook-state-migration.lock", isDirectory: false)
+        let lockDescriptor = lock.withUnsafeFileSystemRepresentation { path -> Int32 in
+            guard let path else { return -1 }
+            return open(path, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR)
+        }
+        guard lockDescriptor >= 0 else {
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
+        }
+        defer { close(lockDescriptor) }
+        guard flock(lockDescriptor, LOCK_EX) == 0 else {
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
+        }
+        defer { flock(lockDescriptor, LOCK_UN) }
+
         let marker = directoryURL.appendingPathComponent(".legacy-hook-state-migrated-v1", isDirectory: false)
         guard !fileManager.fileExists(atPath: marker.path) else { return }
 

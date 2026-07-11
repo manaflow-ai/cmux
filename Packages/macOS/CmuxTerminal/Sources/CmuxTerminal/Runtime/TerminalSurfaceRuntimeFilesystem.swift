@@ -13,15 +13,20 @@ public struct TerminalSurfaceRuntimeFilesystem: Sendable {
     /// Returns whether the path points at an executable file.
     public let isExecutableFile: @Sendable (_ path: String) -> Bool
 
+    /// Resolves the bundle-scoped directory inherited by agent hook processes.
+    public let agentHookStateDirectory: @Sendable (_ bundleIdentifier: String) -> String?
+
     /// Creates the runtime filesystem seam.
     public init(
         claudeCommandShimTemporaryDirectory: URL,
         installClaudeCommandShim:
             @escaping @Sendable (_ wrapperURL: URL, _ surfaceId: UUID, _ temporaryDirectory: URL) async -> TerminalSurfaceClaudeCommandShim?,
-        isExecutableFile: @escaping @Sendable (_ path: String) -> Bool
+        isExecutableFile: @escaping @Sendable (_ path: String) -> Bool,
+        agentHookStateDirectory: @escaping @Sendable (_ bundleIdentifier: String) -> String?
     ) {
         self.claudeCommandShimTemporaryDirectory = claudeCommandShimTemporaryDirectory
         self.installClaudeCommandShim = installClaudeCommandShim
         self.isExecutableFile = isExecutableFile
+        self.agentHookStateDirectory = agentHookStateDirectory
     }
 }

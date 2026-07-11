@@ -33,12 +33,12 @@ struct AgentHookStateLocationTests {
 
     @Test("Prefers an explicit hook state directory")
     func resolvesEnvironmentOverride() {
-        let directory = AgentHookStateLocation.resolveDirectoryURL(
+        let directory = AgentHookStateLocation(
             environment: ["CMUX_AGENT_HOOK_STATE_DIR": "~/hook-state"],
             applicationSupportDirectory: URL(fileURLWithPath: "/tmp/app-support", isDirectory: true),
             bundleIdentifier: "com.cmuxterm.app.nightly",
             legacyHomeDirectory: URL(fileURLWithPath: "/tmp/home", isDirectory: true)
-        )
+        ).directoryURL
 
         #expect(directory.path == NSString(string: "~/hook-state").expandingTildeInPath)
     }
@@ -46,12 +46,12 @@ struct AgentHookStateLocationTests {
     @Test("Uses the bundle scope when no override exists")
     func resolvesBundleScope() {
         let applicationSupport = URL(fileURLWithPath: "/tmp/app-support", isDirectory: true)
-        let directory = AgentHookStateLocation.resolveDirectoryURL(
+        let directory = AgentHookStateLocation(
             environment: [:],
             applicationSupportDirectory: applicationSupport,
             bundleIdentifier: "com.cmuxterm.app.nightly",
             legacyHomeDirectory: URL(fileURLWithPath: "/tmp/home", isDirectory: true)
-        )
+        ).directoryURL
 
         #expect(
             directory
@@ -65,12 +65,12 @@ struct AgentHookStateLocationTests {
     @Test("Falls back to the legacy directory without a bundle scope")
     func resolvesLegacyFallback() {
         let home = URL(fileURLWithPath: "/tmp/home", isDirectory: true)
-        let directory = AgentHookStateLocation.resolveDirectoryURL(
+        let directory = AgentHookStateLocation(
             environment: [:],
             applicationSupportDirectory: nil,
             bundleIdentifier: nil,
             legacyHomeDirectory: home
-        )
+        ).directoryURL
 
         #expect(directory == home.appendingPathComponent(".cmuxterm", isDirectory: true))
     }

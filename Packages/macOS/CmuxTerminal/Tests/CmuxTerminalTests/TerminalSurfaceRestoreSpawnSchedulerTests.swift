@@ -128,7 +128,8 @@ import CmuxTerminalCore
             installClaudeCommandShim: {
                 await shimInstaller.install(wrapperURL: $0, surfaceId: $1, temporaryDirectory: $2)
             },
-            isExecutableFile: { _ in false }
+            isExecutableFile: { _ in false },
+            agentHookStateDirectory: { _ in nil }
         )
         let surface = makeSurface(
             scheduler: scheduler,
@@ -355,7 +356,8 @@ import CmuxTerminalCore
         runtimeFilesystem: TerminalSurfaceRuntimeFilesystem = TerminalSurfaceRuntimeFilesystem(
             claudeCommandShimTemporaryDirectory: URL(fileURLWithPath: "/tmp/cmux-terminal-tests", isDirectory: true),
             installClaudeCommandShim: { _, _, _ in nil },
-            isExecutableFile: { _ in false }
+            isExecutableFile: { _ in false },
+            agentHookStateDirectory: { _ in nil }
         )
     ) -> TerminalSurface {
         TerminalSurface(

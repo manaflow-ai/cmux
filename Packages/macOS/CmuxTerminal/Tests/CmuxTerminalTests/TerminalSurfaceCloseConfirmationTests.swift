@@ -87,7 +87,8 @@ private func setGhosttyCloseState(_ needsConfirm: Bool, _ foregroundPID: UInt64,
                 runtimeFilesystem: TerminalSurfaceRuntimeFilesystem(
                     claudeCommandShimTemporaryDirectory: URL(fileURLWithPath: "/tmp/cmux-terminal-tests", isDirectory: true),
                     installClaudeCommandShim: { _, _, _ in nil },
-                    isExecutableFile: { _ in false }
+                    isExecutableFile: { _ in false },
+                    agentHookStateDirectory: { _ in nil }
                 ),
                 sessionPortBase: 40_000,
                 sessionPortRangeSize: 100,

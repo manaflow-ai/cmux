@@ -2,7 +2,6 @@ internal import AppKit
 internal import Foundation
 internal import GhosttyKit
 internal import CmuxTerminalCore
-internal import CMUXAgentLaunch
 internal import Darwin
 #if DEBUG
 internal import CMUXDebugLog
@@ -99,7 +98,7 @@ extension TerminalSurface {
         }
         if let bundleId = Bundle.main.bundleIdentifier, !bundleId.isEmpty {
             setManagedEnvironmentValue("CMUX_BUNDLE_ID", bundleId)
-            if let hookStateDirectory = Self.agentHookStateDirectory(bundleIdentifier: bundleId) {
+            if let hookStateDirectory = runtimeFilesystem.agentHookStateDirectory(bundleId) {
                 setManagedEnvironmentValue("CMUX_AGENT_HOOK_STATE_DIR", hookStateDirectory)
             }
         }
@@ -272,19 +271,6 @@ extension TerminalSurface {
             return body(nil)
         }
         return value.withCString(body)
-    }
-
-    private static func agentHookStateDirectory(bundleIdentifier: String) -> String? {
-        let applicationSupport = FileManager.default.urls(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask
-        ).first
-        return AgentHookStateLocation.resolveDirectoryURL(
-            environment: ProcessInfo.processInfo.environment,
-            applicationSupportDirectory: applicationSupport,
-            bundleIdentifier: bundleIdentifier,
-            legacyHomeDirectory: FileManager.default.homeDirectoryForCurrentUser
-        ).path
     }
 
     private func makeGhosttySurface(
