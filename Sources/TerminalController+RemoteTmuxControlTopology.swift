@@ -143,11 +143,14 @@ extension TerminalController {
         guard panel.surface.hasLiveSurface, let surface = panel.surface.surface else { return nil }
         let size = ghostty_surface_size(surface)
         guard size.columns > 0, size.rows > 0 else { return nil }
+        let cellPoints = panel.surface.cellSizePoints()
         return ControlPaneGridSize(
             columns: Int(size.columns),
             rows: Int(size.rows),
             cellWidthPx: Int(size.cell_width_px),
-            cellHeightPx: Int(size.cell_height_px)
+            cellHeightPx: Int(size.cell_height_px),
+            cellWidthPoints: cellPoints.map { Double($0.width) },
+            cellHeightPoints: cellPoints.map { Double($0.height) }
         )
     }
 

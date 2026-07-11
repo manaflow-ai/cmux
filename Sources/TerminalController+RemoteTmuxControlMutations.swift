@@ -216,4 +216,180 @@ extension TerminalController {
             surfaceID: location.pane.panel.id
         )
     }
+
+    /// Routes `pane.resize` to a projected mirror pane when the explicit or
+    /// focused target belongs to remote tmux. A `nil` result means the target is
+    /// owned by the workspace's ordinary Bonsplit tree.
+    func controlRemoteTmuxPaneResize(
+        workspace: Workspace,
+        tabManager: TabManager,
+        inputs: ControlPaneResizeInputs
+    ) -> ControlPaneResizeResolution? {
+        let location: Workspace.RemoteTmuxControlPaneLocation
+        if let paneID = inputs.paneID {
+            guard let remote = workspace.remoteTmuxControlPane(paneID: paneID) else { return nil }
+            location = remote
+        } else if let focusedPanelID = workspace.focusedPanelId,
+                  let mirror = workspace.remoteTmuxWindowMirror(forPanelId: focusedPanelID) {
+            guard let pane = mirror.activeControlPane() else { return .noFocusedPane }
+            location = (focusedPanelID, mirror, pane)
+        } else {
+            return nil
+        }
+
+        let paneID = location.pane.paneID.id
+        let unavailable = ControlPaneResizeResolution.remoteResizeUnavailable(
+            paneID: paneID,
+            message: String(
+                localized: "socket.pane.resize.remoteUnavailable",
+                defaultValue: "The remote tmux pane is not ready to resize; wait for it to become available and retry."
+            )
+        )
+        switch inputs.intent {
+        case .tmuxAbsoluteCells(let axis, let targetCells, let fallbackPoints):
+            guard location.mirror.requestResizePane(
+                location.pane.tmuxPaneID,
+                absoluteAxis: axis,
+                targetCells: targetCells
+            ) else {
+                return unavailable
+            }
+            return .remoteAbsoluteResizeRequested(
+                windowID: v2ResolveWindowId(tabManager: tabManager),
+                workspaceID: workspace.id,
+                paneID: paneID,
+                absoluteAxis: axis,
+                targetPixels: fallbackPoints
+            )
+
+        case .tmuxAbsolutePercentage(let axis, let percentage, let fallbackPoints):
+            guard location.mirror.requestResizePane(
+                location.pane.tmuxPaneID,
+                absoluteAxis: axis,
+                targetPercentage: percentage
+            ) else {
+                return unavailable
+            }
+            return .remoteAbsoluteResizeRequested(
+                windowID: v2ResolveWindowId(tabManager: tabManager),
+                workspaceID: workspace.id,
+                paneID: paneID,
+                absoluteAxis: axis,
+                targetPixels: fallbackPoints
+            )
+
+        case .tmuxRelative(let direction, let amountCells, let fallbackPoints):
+            guard location.mirror.requestResizePane(
+                location.pane.tmuxPaneID,
+                direction: direction,
+                amountCells: amountCells
+            ) else {
+                return unavailable
+            }
+            return .remoteRelativeResizeRequested(
+                windowID: v2ResolveWindowId(tabManager: tabManager),
+                workspaceID: workspace.id,
+                paneID: paneID,
+                direction: direction,
+                amount: fallbackPoints
+            )
+
+        case .outerAbsolute(let axis, let targetPoints):
+            guard targetPoints.isFinite else { return unavailable }
+            let orientation: SplitOrientation
+            switch axis {
+            case "horizontal": orientation = .horizontal
+            case "vertical": orientation = .vertical
+            default: return unavailable
+            }
+            guard let context = RemoteTmuxNativeSplitTree(layout: location.mirror.layout)
+                .paneResizeContext(
+                    paneID: location.pane.tmuxPaneID,
+                    orientation: orientation
+                ), let metrics = location.mirror.nativeLayoutMetrics() else {
+                return unavailable
+            }
+            guard context.hasSplitAncestor else {
+                return .noAbsoluteSplitAncestor(paneID: paneID, absoluteAxis: axis)
+            }
+            let targetCells = metrics.requestedTmuxSpan(
+                pane: context.pane,
+                orientation: orientation,
+                outerExtent: CGFloat(targetPoints)
+            )
+            guard location.mirror.requestResizePane(
+                location.pane.tmuxPaneID,
+                absoluteAxis: axis,
+                targetCells: targetCells
+            ) else {
+                return unavailable
+            }
+            return .remoteAbsoluteResizeRequested(
+                windowID: v2ResolveWindowId(tabManager: tabManager),
+                workspaceID: workspace.id,
+                paneID: paneID,
+                absoluteAxis: axis,
+                targetPixels: targetPoints
+            )
+
+        case .borderRelative(let directionRaw, let amountPoints):
+            guard let direction = V2PaneResizeDirection(rawValue: directionRaw),
+                  let metrics = location.mirror.nativeLayoutMetrics() else {
+                return unavailable
+            }
+            let orientation: SplitOrientation = direction.splitOrientation == "horizontal"
+                ? .horizontal
+                : .vertical
+            guard let context = RemoteTmuxNativeSplitTree(layout: location.mirror.layout)
+                .paneResizeContext(
+                    paneID: location.pane.tmuxPaneID,
+                    orientation: orientation
+                ) else {
+                return unavailable
+            }
+            guard context.hasSplitAncestor else {
+                return .noOrientationSplitAncestor(
+                    paneID: paneID,
+                    orientation: direction.splitOrientation,
+                    direction: directionRaw
+                )
+            }
+            let hasRequestedBorder = direction.requiresPaneInFirstChild
+                ? context.hasTrailingBorder
+                : context.hasLeadingBorder
+            guard hasRequestedBorder else {
+                return .noAdjacentBorder(paneID: paneID, direction: directionRaw)
+            }
+            let commandPaneID: Int
+            if direction.requiresPaneInFirstChild {
+                guard let target = context.trailingResizeTargetPaneID else {
+                    return unavailable
+                }
+                commandPaneID = target
+            } else {
+                guard let target = context.leadingResizeTargetPaneID else {
+                    return unavailable
+                }
+                commandPaneID = target
+            }
+            let amountCells = metrics.requestedTmuxCellDelta(
+                pointDelta: CGFloat(amountPoints),
+                orientation: orientation
+            )
+            guard location.mirror.requestResizePane(
+                commandPaneID,
+                direction: directionRaw,
+                amountCells: amountCells
+            ) else {
+                return unavailable
+            }
+            return .remoteRelativeResizeRequested(
+                windowID: v2ResolveWindowId(tabManager: tabManager),
+                workspaceID: workspace.id,
+                paneID: paneID,
+                direction: directionRaw,
+                amount: amountPoints
+            )
+        }
+    }
 }

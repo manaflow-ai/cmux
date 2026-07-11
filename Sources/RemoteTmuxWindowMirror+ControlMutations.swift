@@ -63,6 +63,57 @@ extension RemoteTmuxWindowMirror {
         )
     }
 
+    /// Resizes the addressed tmux pane by `amountCells` relative to one of its
+    /// borders. Tmux's next layout publication remains the sole source of applied
+    /// geometry.
+    @discardableResult
+    func requestResizePane(_ tmuxPaneID: Int, direction: String, amountCells: Int) -> Bool {
+        guard amountCells > 0 else { return false }
+        let flag: String
+        switch direction {
+        case "left": flag = "-L"
+        case "right": flag = "-R"
+        case "up": flag = "-U"
+        case "down": flag = "-D"
+        default: return false
+        }
+        return sendControlCommand(
+            "resize-pane -t @\(windowId).%\(tmuxPaneID) \(flag) \(amountCells)"
+        )
+    }
+
+    /// Sets the addressed tmux pane's width or height in terminal cells. This
+    /// is shared by CLI absolute resizing and native divider propagation.
+    @discardableResult
+    func requestResizePane(_ tmuxPaneID: Int, absoluteAxis: String, targetCells: Int) -> Bool {
+        guard targetCells > 0 else { return false }
+        let flag: String
+        switch absoluteAxis {
+        case "horizontal": flag = "-x"
+        case "vertical": flag = "-y"
+        default: return false
+        }
+        return sendControlCommand(
+            "resize-pane -t @\(windowId).%\(tmuxPaneID) \(flag) \(targetCells)"
+        )
+    }
+
+    /// Sets the addressed tmux pane's width or height as a percentage of the
+    /// tmux window, preserving native `resize-pane -x/-y N%` semantics.
+    @discardableResult
+    func requestResizePane(_ tmuxPaneID: Int, absoluteAxis: String, targetPercentage: Int) -> Bool {
+        guard targetPercentage > 0 else { return false }
+        let flag: String
+        switch absoluteAxis {
+        case "horizontal": flag = "-x"
+        case "vertical": flag = "-y"
+        default: return false
+        }
+        return sendControlCommand(
+            "resize-pane -t @\(windowId).%\(tmuxPaneID) \(flag) \(targetPercentage)%"
+        )
+    }
+
     /// Respawns the addressed tmux pane without replacing its projected IDs.
     @discardableResult
     func requestRespawnPane(
