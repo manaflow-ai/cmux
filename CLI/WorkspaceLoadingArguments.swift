@@ -8,6 +8,57 @@ struct WorkspaceLoadingArguments {
 }
 
 extension CMUXCLI {
+    struct WorkspaceNamespaceTarget {
+        let workspaceId: String
+        let windowId: String?
+        let remaining: [String]
+    }
+
+    /// Single source of truth for commands whose workspace target is optional.
+    /// Explicit windows suppress caller context because the caller may belong to
+    /// another window; `resolveWorkspaceId` then selects that window's workspace.
+    func resolveWorkspaceTarget(
+        workspaceOption: String?,
+        positional: String?,
+        windowOption: String?,
+        client: SocketClient,
+        windowOverride: String?
+    ) throws -> (workspaceId: String, windowId: String?) {
+        let windowId = try normalizeWindowHandle(windowOption ?? windowOverride, client: client)
+        let workspaceId = try resolveWorkspaceId(
+            workspaceOption ?? positional,
+            client: client,
+            windowHandle: windowId
+        )
+        return (workspaceId, windowId)
+    }
+
+    /// Resolve the common target grammar for `cmux workspace <subcommand>`:
+    /// `--workspace`, then a positional handle, then the invoking workspace,
+    /// then the selected workspace. An explicit window suppresses caller context
+    /// and resolves against that window's selection.
+    func resolveWorkspaceNamespaceTarget(
+        commandArgs: [String],
+        client: SocketClient,
+        windowOverride: String?
+    ) throws -> WorkspaceNamespaceTarget {
+        let (workspaceOption, argsAfterWorkspace) = parseOption(commandArgs, name: "--workspace")
+        let (windowOption, remaining) = parseOption(argsAfterWorkspace, name: "--window")
+        let positional = remaining.first { $0 != "--" && !$0.hasPrefix("--") }
+        let target = try resolveWorkspaceTarget(
+            workspaceOption: workspaceOption,
+            positional: positional,
+            windowOption: windowOption,
+            client: client,
+            windowOverride: windowOverride
+        )
+        return WorkspaceNamespaceTarget(
+            workspaceId: target.workspaceId,
+            windowId: target.windowId,
+            remaining: remaining
+        )
+    }
+
     func validateWorkspaceLoadingCommandBeforeSocket(
         command: String,
         commandArgs: [String]
