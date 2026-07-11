@@ -1,5 +1,4 @@
 import AppKit
-import CEFKit
 import CmuxAppKitSupportUI
 import CmuxAuthRuntime
 import CmuxBrowser
@@ -1090,7 +1089,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     var closeMainWindowContainingTabIdObserverForTesting: ((UUID, Bool) -> Void)?
 #endif
     // Avoid showing the quit warning twice after confirmation.
-    private var isQuitWarningConfirmed = false
+    var isQuitWarningConfirmed = false
     // One-shot guard for deferred terminate replies.
     private var didReplyToTerminate = false
     // True while remote tmux kill-before-quit owns the terminate reply.
@@ -1821,7 +1820,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     /// Sole caller of `NSApp.reply(toApplicationShouldTerminate:)`.
-    private func replyToTerminateOnce(_ shouldTerminate: Bool) {
+    func replyToTerminateOnce(_ shouldTerminate: Bool) {
         guard !didReplyToTerminate else { return }
         didReplyToTerminate = true
         NSApp.reply(toApplicationShouldTerminate: shouldTerminate)
@@ -1861,7 +1860,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
-    private func prepareForConfirmedAppTermination() {
+    func prepareForConfirmedAppTermination() {
         isTerminatingApp = true
         _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
         ClosedItemHistoryStore.shared.flushPendingSaves()
@@ -1899,17 +1898,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         let shouldQuit = response == .alertFirstButtonReturn
         if shouldQuit {
-            // Confirmed via dialog. If CEF browsers are open, they must close
-            // on the live run loop before termination proceeds: release this
-            // terminate request (the confirmed flag below makes the
-            // re-initiated termination skip the dialog and terminate).
-            isQuitWarningConfirmed = true
-            if !CEFRuntimeSupport.prepareForApplicationTermination() {
-                StartupBreadcrumbLog.append("appDelegate.shouldTerminate.cefDrainAfterConfirm")
-                replyToTerminateOnce(false)
-                return
-            }
-            prepareForConfirmedAppTermination()
+            guard cefGateConfirmedQuitAndPrepare() else { return }
             closeAllWebInspectorsBeforeAppTeardown()
             StartupBreadcrumbLog.append("appDelegate.shouldTerminate.reply", fields: ["shouldQuit": "1"])
             if deferTerminateForMarkedRemoteTmuxKills(reason: "confirmedDialog") {
@@ -1955,17 +1944,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             hasDirtyWorkspaces: hasDirtyWorkspaces,
             isDevBuild: buildFlavor == .dev
         ) {
-            // Quit is committed (no dialog will be shown). CEF browsers must
-            // finish closing on the live run loop before termination proceeds
-            // — Chromium's close handshake cannot complete while a terminate
-            // request is pending. Cancel this request; termination is
-            // re-initiated once the drain completes. No-op unless the
-            // Chromium (CEF) debug browser was used this session.
-            if !CEFRuntimeSupport.prepareForApplicationTermination() {
-                StartupBreadcrumbLog.append("appDelegate.shouldTerminate.cefDrain")
-                return .terminateCancel
-            }
-            prepareForConfirmedAppTermination()
+            guard cefGateCommittedTerminationAndPrepare() else { return .terminateCancel }
             closeAllWebInspectorsBeforeAppTeardown()
             let reason: String
             if isQuitWarningConfirmed {
@@ -2034,11 +2013,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         unregisterDisplayReconfigurationCallbackIfNeeded()
         StartupBreadcrumbLog.append("appDelegate.willTerminate.complete")
         enableSuddenTerminationIfNeeded()
-        // Must stay last: when the Chromium (CEF) debug browser was used this
-        // session, Chromium's atexit handlers crash the exiting process
-        // (SIGTRAP) even after a clean browser drain, so the process ends
-        // here without them. No-op otherwise.
-        CEFApp.shared.finalizeProcessExitIfNeeded()
+        cefFinalizeProcessExit()  // Must stay last: skips Chromium's crashing atexit handlers.
     }
 
     func applicationWillResignActive(_ notification: Notification) {
