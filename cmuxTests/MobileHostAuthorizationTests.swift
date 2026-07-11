@@ -1080,8 +1080,7 @@ struct MobileHostAuthorizationTests {
         #expect(capabilities.contains("workspace.close.v1"))
         #expect(capabilities.contains("workspace.move.v1"))
         #expect(capabilities.contains("workspace.group_actions.v1"))
-        #expect(capabilities.contains("workspace.task_create.v1"))
-        #expect(capabilities.contains("terminal.render_grid.v1"))
+        #expect(Set(capabilities).isSuperset(of: ["workspace.task_create.v1", "terminal.render_grid.v1"]))
     }
     // MARK: - Mobile workspace.action sub-action gate
     @Test func testMobileWorkspaceActionGateAllowsOnlyPinNameAndReadStateActions() {

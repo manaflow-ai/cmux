@@ -4,7 +4,7 @@ import Foundation
 extension TerminalController {
     final class WorkspaceCreateIdempotencyCache {
         private let capacity: Int
-        private var results: [UUID: V2CallResult] = [:]
+        private var workspaceIDs: [UUID: UUID] = [:]
         private var insertionOrder: [UUID] = []
         private var nextEvictionIndex = 0
 
@@ -13,21 +13,22 @@ extension TerminalController {
             self.capacity = capacity
         }
 
-        func resolve(operationID: UUID?, perform: () -> V2CallResult) -> V2CallResult {
-            guard let operationID else { return perform() }
-            if let result = results[operationID] { return result }
-            let result = perform()
-            guard case .ok = result else { return result }
-            results[operationID] = result
+        func workspaceID(for operationID: UUID) -> UUID? {
+            workspaceIDs[operationID]
+        }
+
+        func record(operationID: UUID, workspaceID: UUID) {
+            if workspaceIDs.updateValue(workspaceID, forKey: operationID) != nil {
+                return
+            }
             if insertionOrder.count < capacity {
                 insertionOrder.append(operationID)
             } else {
                 let evictedID = insertionOrder[nextEvictionIndex]
-                results.removeValue(forKey: evictedID)
+                workspaceIDs.removeValue(forKey: evictedID)
                 insertionOrder[nextEvictionIndex] = operationID
                 nextEvictionIndex = (nextEvictionIndex + 1) % capacity
             }
-            return result
         }
     }
 
@@ -56,20 +57,41 @@ extension TerminalController {
         } else {
             operationID = nil
         }
-        return workspaceCreateIdempotencyCache.resolve(operationID: operationID) {
-            v2PerformWorkspaceCreate(params: params, tabManager: resolvedTabManager)
-        }
+        return v2PerformWorkspaceCreate(
+            params: params,
+            tabManager: resolvedTabManager,
+            operationID: operationID
+        )
     }
 
     private func v2PerformWorkspaceCreate(
         params: [String: Any],
-        tabManager resolvedTabManager: TabManager?
+        tabManager resolvedTabManager: TabManager?,
+        operationID: UUID?
     ) -> V2CallResult {
         guard let tabManager = resolvedTabManager ?? v2ResolveTabManager(params: params) else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
 
+        if let operationID,
+           let workspace = existingTaskCreateWorkspace(operationID: operationID, tabManager: tabManager) {
+            return workspaceCreateResult(workspace: workspace, tabManager: tabManager)
+        }
+
         let workingDirectory = Self.v2ExpandedWorkingDirectory(v2RawString(params, "working_directory"))
+        if v2HasNonNullParam(params, "working_directory") {
+            var isDirectory: ObjCBool = false
+            guard let workingDirectory,
+                  (workingDirectory as NSString).isAbsolutePath,
+                  FileManager.default.fileExists(atPath: workingDirectory, isDirectory: &isDirectory),
+                  isDirectory.boolValue else {
+                return .err(
+                    code: "invalid_params",
+                    message: "working_directory must be an absolute existing directory",
+                    data: nil
+                )
+            }
+        }
 
         let requestedInitialCommand = v2RawString(params, "initial_command")?.trimmingCharacters(in: .whitespacesAndNewlines)
         let initialCommand = (requestedInitialCommand?.isEmpty == false) ? requestedInitialCommand : nil
@@ -155,8 +177,7 @@ extension TerminalController {
             }
         }
 
-        var newId: UUID?
-        var initialSurfaceId: UUID?
+        var newWorkspace: Workspace?
         let shouldFocus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? false)
         let shouldEagerLoadTerminal = v2Bool(params, "eager_load_terminal") ?? !shouldFocus
         let shouldAutoRefreshMetadata = v2Bool(params, "auto_refresh_metadata") ?? true
@@ -194,6 +215,7 @@ extension TerminalController {
                 eagerLoadTerminal: shouldEagerLoadTerminal,
                 autoRefreshMetadata: shouldAutoRefreshMetadata
             )
+            ws.taskCreateOperationID = operationID
             ws.setCustomDescription(description)
             if let layoutNode {
                 ws.applyCustomLayout(layoutNode, baseCwd: cwd ?? ws.currentDirectory)
@@ -206,23 +228,45 @@ extension TerminalController {
                     referenceWorkspaceId: groupReferenceWorkspaceId
                 )
             }
-            newId = ws.id
-            initialSurfaceId = ws.focusedPanelId
+            newWorkspace = ws
         }
 
-        guard let newId else {
+        guard let newWorkspace else {
             return .err(code: "internal_error", message: "Failed to create workspace", data: nil)
         }
+        if let operationID {
+            workspaceCreateIdempotencyCache.record(operationID: operationID, workspaceID: newWorkspace.id)
+        }
+        return workspaceCreateResult(workspace: newWorkspace, tabManager: tabManager)
+    }
+
+    private func existingTaskCreateWorkspace(operationID: UUID, tabManager: TabManager) -> Workspace? {
+        if let workspaceID = workspaceCreateIdempotencyCache.workspaceID(for: operationID),
+           let workspace = tabManager.tabs.first(where: { $0.id == workspaceID }),
+           workspace.taskCreateOperationID == operationID {
+            return workspace
+        }
+        guard let workspace = tabManager.tabs.first(where: { $0.taskCreateOperationID == operationID }) else {
+            return nil
+        }
+        workspaceCreateIdempotencyCache.record(operationID: operationID, workspaceID: workspace.id)
+        return workspace
+    }
+
+    private func workspaceCreateResult(workspace: Workspace, tabManager: TabManager) -> V2CallResult {
+        let workspaceID = workspace.id
+        let groupID = workspace.groupId
+        let surfaceID = workspace.focusedPanelId
         let windowId = v2ResolveWindowId(tabManager: tabManager)
         return .ok([
             "window_id": v2OrNull(windowId?.uuidString),
             "window_ref": v2Ref(kind: .window, uuid: windowId),
-            "workspace_id": newId.uuidString,
-            "workspace_ref": v2Ref(kind: .workspace, uuid: newId),
-            "group_id": v2OrNull(groupId?.uuidString),
-            "group_ref": v2Ref(kind: .workspaceGroup, uuid: groupId),
-            "surface_id": v2OrNull(initialSurfaceId?.uuidString),
-            "surface_ref": v2Ref(kind: .surface, uuid: initialSurfaceId)
+            "workspace_id": workspaceID.uuidString,
+            "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceID),
+            "group_id": v2OrNull(groupID?.uuidString),
+            "group_ref": v2Ref(kind: .workspaceGroup, uuid: groupID),
+            "surface_id": v2OrNull(surfaceID?.uuidString),
+            "surface_ref": v2Ref(kind: .surface, uuid: surfaceID)
         ])
     }
 

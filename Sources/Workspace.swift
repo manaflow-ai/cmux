@@ -122,6 +122,7 @@ extension Workspace {
         return SessionWorkspaceSnapshot(
             workspaceId: id,
             stableId: stableId,
+            taskCreateOperationID: taskCreateOperationID,
             processTitle: processTitle,
             customTitle: customTitle,
             customTitleSource: effectiveCustomTitleSource,
@@ -160,6 +161,7 @@ extension Workspace {
            sessionRestoreIdentityExclusions.shouldAdopt(persistedStableId) {
             stableId = persistedStableId
         }
+        taskCreateOperationID = snapshot.taskCreateOperationID
 
         restoredTerminalScrollbackByPanelId.removeAll(keepingCapacity: false)
 #if DEBUG
@@ -1946,14 +1948,12 @@ final class Workspace: Identifiable, ObservableObject {
     static let terminalScrollBarHiddenDidChangeNotification = Notification.Name(
         "cmux.workspaceTerminalScrollBarHiddenDidChange"
     )
-
     let id: UUID
     /// Restart-stable workspace identifier persisted for durable deep links.
     private(set) var stableId = UUID()
-    /// When this workspace instance came into existence in this app session
-    /// (creation, or restore at launch). The mobile list's last-activity
-    /// fallback: a workspace that never fired a notification still carries a
-    /// real timestamp instead of nothing.
+    /// Durable idempotency key for task-composer workspace creation.
+    var taskCreateOperationID: UUID?
+    /// Creation or restore time, used as mobile's last-activity fallback.
     let createdAt = Date()
     @Published var title: String
     @Published var customTitle: String?

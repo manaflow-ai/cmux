@@ -94,10 +94,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private static let workspaceMoveCapability = "workspace.move.v1"
     private static let workspaceGroupActionsCapability = "workspace.group_actions.v1"
     private static let workspaceCreateInGroupCapability = "workspace.create_in_group.v1"
+    static let taskCreateCapability = "workspace.task_create.v1"
     private static let dogfoodFeedbackCapability = "dogfood.v1"
     private static let workspaceGroupsCapability = "workspace.groups.v1"
     private static let terminalOutputCapabilityTimeoutNanoseconds: UInt64 = 750_000_000
-
     /// How long the render-grid stream may stay silent (no event of any topic)
     /// before the liveness watchdog suspects the push subscription is dead and
     /// runs a bounded host probe; only a failed probe forces the
@@ -309,7 +309,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// The connected Mac's `mobile.host.status` capabilities. Feature gates are
     /// computed from this set so version-skew checks cannot drift from the raw
     /// host payload.
-    public private(set) var supportedHostCapabilities: Set<String> = []
+    public internal(set) var supportedHostCapabilities: Set<String> = []
     /// Whether the Mac supports workspace group sections and collapse/expand RPCs.
     public var supportsWorkspaceGroups: Bool { supportedHostCapabilities.contains(Self.workspaceGroupsCapability) }
     /// Whether the Mac supports rename/pin workspace actions.
