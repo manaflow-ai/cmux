@@ -394,7 +394,11 @@ describe("agent page variants", () => {
   });
 
   test("limits English-only blog variants to their canonical routes", () => {
-    for (const path of ["/blog/cmux-omo", "/blog/gpl"]) {
+    for (const path of [
+      "/blog/cmux-claude-teams",
+      "/blog/cmux-omo",
+      "/blog/gpl",
+    ]) {
       expect(resolveAgentPageVariant(`${path}.md`)).not.toBeNull();
       expect(resolveAgentPageVariant(`/ja${path}.md`)).toBeNull();
       expect(resolveAgentPageVariant(`/de${path}.txt`)).toBeNull();

@@ -42,8 +42,10 @@ describe("SEO metadata helpers", () => {
 
     expect(englishSlugs).toContain("cmux-omo");
     expect(englishSlugs).toContain("gpl");
+    expect(englishSlugs).toContain("cmux-claude-teams");
     expect(japaneseSlugs).not.toContain("cmux-omo");
     expect(japaneseSlugs).not.toContain("gpl");
+    expect(japaneseSlugs).not.toContain("cmux-claude-teams");
   });
 
   test("keeps canonical URLs locale-aware", () => {
@@ -803,7 +805,11 @@ describe("SEO middleware", () => {
   });
 
   test("canonicalizes English-only blog posts", () => {
-    for (const canonicalPath of ["/blog/cmux-omo", "/blog/gpl"]) {
+    for (const canonicalPath of [
+      "/blog/cmux-claude-teams",
+      "/blog/cmux-omo",
+      "/blog/gpl",
+    ]) {
       const localized = middleware(
         requestFor(`/ja${canonicalPath}`, { "accept-language": "ja" }),
       );
@@ -826,9 +832,13 @@ describe("SEO middleware", () => {
     const urls = sitemap()
       .map((entry) => entry.url)
       .filter(
-        (url) => url.endsWith("/blog/cmux-omo") || url.endsWith("/blog/gpl"),
+        (url) =>
+          url.endsWith("/blog/cmux-claude-teams") ||
+          url.endsWith("/blog/cmux-omo") ||
+          url.endsWith("/blog/gpl"),
       );
     expect(urls).toEqual([
+      "https://cmux.com/blog/cmux-claude-teams",
       "https://cmux.com/blog/cmux-omo",
       "https://cmux.com/blog/gpl",
     ]);
