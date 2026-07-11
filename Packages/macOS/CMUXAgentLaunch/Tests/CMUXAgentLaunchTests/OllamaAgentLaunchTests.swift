@@ -11,7 +11,7 @@ struct OllamaAgentLaunchTests {
                 "run",
                 "qwen3:8b",
                 "--keepalive", "10m",
-                "--think=high",
+                "--think", "high",
                 "--verbose",
             ],
             launcher: "",
@@ -21,7 +21,7 @@ struct OllamaAgentLaunchTests {
             "run",
             "qwen3:8b",
             "--keepalive", "10m",
-            "--think=high",
+            "--think", "high",
             "--verbose",
         ])
     }

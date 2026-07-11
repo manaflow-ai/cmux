@@ -31,6 +31,12 @@ struct OllamaAgentDetectionTests {
             arguments: ["ollama", "list"],
             environment: [:]
         ) == nil)
+        #expect(CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
+            processName: "ollama",
+            processPath: "/opt/homebrew/bin/ollama",
+            arguments: ["ollama", "serve", "run"],
+            environment: [:]
+        ) == nil)
     }
 
     @Test("Restorable kind carries Ollama identity and relaunch semantics")

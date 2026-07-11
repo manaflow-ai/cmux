@@ -18,6 +18,7 @@ enum RestorableAgentKind: Codable, Hashable, Sendable {
     case codebuddy
     case factory
     case qoder
+    case ollama
     case custom(String)
 
     static let allCases: [RestorableAgentKind] = [
@@ -38,6 +39,7 @@ enum RestorableAgentKind: Codable, Hashable, Sendable {
         .codebuddy,
         .factory,
         .qoder,
+        .ollama,
     ]
 
     init?(rawValue: String) {
@@ -59,6 +61,7 @@ enum RestorableAgentKind: Codable, Hashable, Sendable {
         case "codebuddy": self = .codebuddy
         case "factory": self = .factory
         case "qoder": self = .qoder
+        case "ollama": self = .ollama
         default:
             guard CmuxVaultAgentRegistration.isValidID(value) else { return nil }
             self = .custom(value)
@@ -83,6 +86,7 @@ enum RestorableAgentKind: Codable, Hashable, Sendable {
         case .codebuddy: return "codebuddy"
         case .factory: return "factory"
         case .qoder: return "qoder"
+        case .ollama: return "ollama"
         case .custom(let id): return id
         }
     }
@@ -112,7 +116,17 @@ enum RestorableAgentKind: Codable, Hashable, Sendable {
         case .codebuddy: return "CodeBuddy"
         case .factory: return "Factory"
         case .qoder: return "Qoder"
+        case .ollama:
+            return String(localized: "agent.ollama.displayName", defaultValue: "Ollama")
         case .custom(let id): return id
+        }
+    }
+
+    /// How workspace restore reconstructs this agent after its process is gone.
+    var restoreMode: AgentRestoreMode {
+        switch self {
+        case .ollama: return .relaunchCommand
+        default: return .resumeSession
         }
     }
 

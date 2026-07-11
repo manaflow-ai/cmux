@@ -1,0 +1,66 @@
+import CMUXAgentLaunch
+import Foundation
+
+extension RestorableAgentSessionIndex {
+    static func processDetectedOllamaSnapshots(
+        processSnapshot: CmuxTopProcessSnapshot,
+        capturedAt: TimeInterval,
+        scopedProcessIDsByPanelKey: [PanelKey: Set<Int>],
+        processArgumentsProvider: (Int) -> CmuxTopProcessArguments?
+    ) -> [PanelKey: ProcessDetectedSnapshotEntry] {
+        var results: [PanelKey: ProcessDetectedSnapshotEntry] = [:]
+        for process in processSnapshot.cmuxScopedProcesses() {
+            guard process.isTerminalForegroundProcessGroup,
+                  let workspaceID = process.cmuxWorkspaceID,
+                  let surfaceID = process.cmuxSurfaceID,
+                  let details = processArgumentsProvider(process.pid),
+                  CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
+                      processName: process.name,
+                      processPath: process.path,
+                      arguments: details.arguments,
+                      environment: details.environment
+                  )?.id == "ollama",
+                  let sanitizedArguments = AgentLaunchSanitizer.sanitizedLaunchArguments(
+                      details.arguments,
+                      launcher: "",
+                      fallbackKind: "ollama"
+                  ) else {
+                continue
+            }
+
+            let workingDirectory = normalizedOllamaValue(
+                details.environment["CMUX_AGENT_LAUNCH_CWD"] ?? details.environment["PWD"]
+            )
+            let key = PanelKey(workspaceId: workspaceID, panelId: surfaceID)
+            let launchCommand = AgentLaunchCommandSnapshot(
+                processDetectedLauncher: "ollama",
+                executablePath: sanitizedArguments.first,
+                arguments: sanitizedArguments,
+                workingDirectory: workingDirectory,
+                environment: details.environment
+            )
+            results[key] = (
+                snapshot: SessionRestorableAgentSnapshot(
+                    kind: .ollama,
+                    sessionId: "",
+                    workingDirectory: workingDirectory,
+                    launchCommand: launchCommand,
+                    registration: nil
+                ),
+                updatedAt: capturedAt,
+                processIDs: scopedProcessIDsByPanelKey[key] ?? [process.pid],
+                agentProcessIDs: [process.pid],
+                sessionIDSource: .relaunchOnly
+            )
+        }
+        return results
+    }
+
+    private static func normalizedOllamaValue(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else {
+            return nil
+        }
+        return trimmed
+    }
+}
