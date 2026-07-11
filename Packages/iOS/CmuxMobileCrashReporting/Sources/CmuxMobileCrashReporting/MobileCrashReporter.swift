@@ -2,6 +2,36 @@ public import CmuxMobileAnalytics
 import Foundation
 public import Sentry
 
+protocol MobileCrashTransportSessionControlling: AnyObject {
+    func makeSession() -> URLSession
+    func invalidateAndCancel()
+}
+
+final class MobileCrashTransportSessionController: MobileCrashTransportSessionControlling, @unchecked Sendable {
+    // lint:allow lock — sanctioned carve-out: consent notifications may arrive
+    // off-main, and URLSession cancellation is synchronous/nonisolated.
+    private let lock = NSLock()
+    private var session: URLSession?
+
+    func makeSession() -> URLSession {
+        let nextSession = URLSession(configuration: .ephemeral)
+        lock.lock()
+        let previousSession = session
+        session = nextSession
+        lock.unlock()
+        previousSession?.invalidateAndCancel()
+        return nextSession
+    }
+
+    func invalidateAndCancel() {
+        lock.lock()
+        let session = session
+        self.session = nil
+        lock.unlock()
+        session?.invalidateAndCancel()
+    }
+}
+
 /// Starts Sentry-backed crash reporting for the iOS app.
 ///
 /// ``MobileCrashReporter`` intentionally reuses
@@ -11,8 +41,16 @@ public import Sentry
 /// limited to crash, watchdog, MetricKit, app-hang, stack, and device context
 /// until the macOS scrubber can be moved to a shared package.
 public struct MobileCrashReporter {
+    private let transportSessionController: any MobileCrashTransportSessionControlling
+
     /// Creates a mobile crash reporter.
-    public init() {}
+    public init() {
+        self.init(transportSessionController: MobileCrashTransportSessionController())
+    }
+
+    init(transportSessionController: any MobileCrashTransportSessionControlling) {
+        self.transportSessionController = transportSessionController
+    }
 
     /// Starts crash reporting with a default ``MobileCrashReporter`` instance.
     ///
@@ -88,6 +126,11 @@ public struct MobileCrashReporter {
 
         let startReporting = {
             let options = makeOptions()
+            // Sentry's close() always flushes. A dedicated transport session
+            // lets revocation cancel queued and in-flight requests before close
+            // attempts that flush; a zero timeout prevents shutdown waiting.
+            options.urlSession = transportSessionController.makeSession()
+            options.shutdownTimeInterval = 0
             // Consent is re-read per event, mirroring the analytics emitter's
             // per-capture gate: flipping sendAnonymousTelemetry off mid-session
             // drops every subsequent envelope (crash, hang, MetricKit) without
@@ -104,13 +147,11 @@ public struct MobileCrashReporter {
             #endif
         }
         let stopReporting = {
-            // Purge BEFORE close: close() flushes pending envelopes to the
-            // network, so persisted opted-out data must be gone first. The
-            // second purge removes anything close() persisted while draining
-            // its in-memory queue. Events close() flushes are dropped by the
-            // consent beforeSend gate; the only residual is an envelope already
-            // serialized into the in-memory transport queue at the instant of
-            // revocation, which the public SDK API cannot cancel.
+            // Cancel transport first. Sentry's close() always asks its transport
+            // to flush, even with a zero timeout, so invalidating the dedicated
+            // session is what prevents queued or in-flight envelopes from
+            // crossing the consent boundary.
+            transportSessionController.invalidateAndCancel()
             purgeCache()
             close()
             purgeCache()

@@ -188,11 +188,31 @@ private struct FixedConsent: AnalyticsConsentProviding {
         final class Recorder: @unchecked Sendable {
             var sequence: [String] = []
         }
+        final class TransportController: MobileCrashTransportSessionControlling, @unchecked Sendable {
+            let recorder: Recorder
+            let session = URLSession(configuration: .ephemeral)
+
+            init(recorder: Recorder) {
+                self.recorder = recorder
+            }
+
+            func makeSession() -> URLSession {
+                recorder.sequence.append("transport-start")
+                return session
+            }
+
+            func invalidateAndCancel() {
+                recorder.sequence.append("transport-cancel")
+            }
+        }
         let consent = ToggleConsent()
         let recorder = Recorder()
         let center = NotificationCenter()
+        let reporter = MobileCrashReporter(
+            transportSessionController: TransportController(recorder: recorder)
+        )
 
-        MobileCrashReporter.startIfEnabled(
+        reporter.startIfEnabled(
             consent: consent,
             arguments: ["cmux"],
             environment: [:],
@@ -203,6 +223,8 @@ private struct FixedConsent: AnalyticsConsentProviding {
             purgeCache: { recorder.sequence.append("purge") },
             crash: {}
         )
+        #expect(recorder.sequence == ["transport-start"])
+        recorder.sequence.removeAll()
 
         // Consent still on: defaults churn must not close the SDK.
         center.post(name: UserDefaults.didChangeNotification, object: nil)
@@ -210,14 +232,13 @@ private struct FixedConsent: AnalyticsConsentProviding {
 
         consent.enabled = false
         center.post(name: UserDefaults.didChangeNotification, object: nil)
-        // Purge precedes close so close's network flush cannot upload
-        // persisted opted-out data; the trailing purge removes anything the
-        // flush persisted.
-        #expect(recorder.sequence == ["purge", "close", "purge"])
+        // Transport cancellation precedes close so close's mandatory flush
+        // cannot upload queued or in-flight envelopes.
+        #expect(recorder.sequence == ["transport-cancel", "purge", "close", "purge"])
 
         // The watcher records the disabled state; further churn is a no-op.
         center.post(name: UserDefaults.didChangeNotification, object: nil)
-        #expect(recorder.sequence == ["purge", "close", "purge"])
+        #expect(recorder.sequence == ["transport-cancel", "purge", "close", "purge"])
     }
 
     @Test func midSessionOptInStartsSDKWithoutRelaunch() {
