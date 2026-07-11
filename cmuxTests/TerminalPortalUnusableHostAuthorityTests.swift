@@ -29,6 +29,7 @@ struct TerminalPortalUnusableHostAuthorityTests {
         let pane = PaneID()
         let bounds = CGRect(x: 0, y: 0, width: 400, height: 300)
         var retryCount = 0
+        var retryClaimedReplacement = false
 
         #expect(surface.claimPortalHost(
             hostId: ObjectIdentifier(host), paneId: pane, ownershipGeneration: 1,
@@ -39,10 +40,10 @@ struct TerminalPortalUnusableHostAuthorityTests {
             inWindow: true, bounds: bounds,
             retryWhenAvailable: {
                 retryCount += 1
-                #expect(surface.claimPortalHost(
+                retryClaimedReplacement = surface.claimPortalHost(
                     hostId: ObjectIdentifier(replacementHost), paneId: pane, ownershipGeneration: 1,
                     inWindow: true, bounds: bounds, reason: "test.replacement.retry"
-                ))
+                )
             },
             reason: "test.replacement.queued"
         ))
@@ -51,6 +52,7 @@ struct TerminalPortalUnusableHostAuthorityTests {
             inWindow: false, bounds: bounds, reason: "test.current.detached"
         ))
         #expect(retryCount == 1)
+        #expect(retryClaimedReplacement)
         #expect(
             surface.debugPortalHostLease().hostId ==
                 String(describing: ObjectIdentifier(replacementHost))
