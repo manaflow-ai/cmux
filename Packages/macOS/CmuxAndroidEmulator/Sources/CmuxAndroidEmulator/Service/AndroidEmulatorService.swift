@@ -247,10 +247,12 @@ public actor AndroidEmulatorService: AndroidEmulatorServicing {
                     detail: Self.failureDetail(refreshedDevicesResult)
                 )
             }
-            let connectedTransportIDs = Set(Self.parseConnectedEmulators(
+            let originalTransportIsStillUsable = Self.parseConnectedEmulators(
                 refreshedDevicesResult.stdout ?? ""
-            ).compactMap(\.transportID))
-            guard !connectedTransportIDs.contains(transportID) else {
+            ).contains { connected in
+                connected.transportID == transportID && connected.connectionState == "device"
+            }
+            guard !originalTransportIsStillUsable else {
                 throw AndroidEmulatorError.stopNotConfirmed(serial: serial)
             }
             return

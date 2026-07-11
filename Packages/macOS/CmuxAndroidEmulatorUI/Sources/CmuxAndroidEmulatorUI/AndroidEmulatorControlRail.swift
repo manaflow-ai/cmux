@@ -38,6 +38,7 @@ struct AndroidEmulatorControlRail: View {
         }
         .frame(width: 54)
         .background(.bar)
+        .disabled(controller.controlsBusy)
     }
 
     private func action(

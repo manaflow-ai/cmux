@@ -16,6 +16,7 @@ public final class AndroidEmulatorPaneController {
     public private(set) var captureRetryGeneration = 0
     public private(set) var operationError: String?
     public private(set) var zoomScale: Double = 1
+    public private(set) var controlsBusy = false
     public var controlsCollapsed = false
 
     private let coordinator: AndroidEmulatorCoordinator
@@ -64,6 +65,7 @@ public final class AndroidEmulatorPaneController {
     }
 
     public func perform(_ action: AndroidEmulatorControlAction) {
+        guard !controlsBusy else { return }
         enqueue(.control(action))
     }
 
@@ -97,6 +99,8 @@ public final class AndroidEmulatorPaneController {
         defer { stopInFlight = false }
         operationError = nil
         failedOperation = nil
+        clearCaptureError()
+        captureView?.stopCapture()
         if let error = await coordinator.stop(
                 avdName: avdName,
                 serial: serial,
@@ -104,6 +108,7 @@ public final class AndroidEmulatorPaneController {
         ) {
             operationError = AndroidEmulatorPickerView.errorDetail(error)
             failedOperation = .stop
+            retryCapture()
             return
         }
         stopConfirmedHandler?()
@@ -150,6 +155,7 @@ public final class AndroidEmulatorPaneController {
         operationTask = nil
         pendingOperations.removeAll()
         stopQueued = false
+        controlsBusy = false
         captureView?.stopCapture()
     }
 
@@ -173,6 +179,7 @@ public final class AndroidEmulatorPaneController {
     }
 
     private func enqueue(_ operation: PendingOperation) {
+        controlsBusy = true
         pendingOperations.append(operation)
         guard operationTask == nil else { return }
         operationTask = Task { @MainActor [weak self] in
@@ -192,6 +199,7 @@ public final class AndroidEmulatorPaneController {
             }
         }
         operationTask = nil
+        controlsBusy = false
     }
 
     private enum FailedOperation {
