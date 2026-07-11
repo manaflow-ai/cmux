@@ -1,13 +1,13 @@
 internal import CmuxMobileAnalytics
 internal import Foundation
 
+// Safety: the app composition root is the single owner that calls `arm`.
+// Notification callbacks enqueue onto the private serial lifecycle queue;
+// all mutable transition state is confined to that queue after setup.
 /// Watches the shared telemetry-consent setting for process-lifetime transitions.
 ///
 /// UserDefaults changes are observed through `UserDefaults.didChangeNotification`,
 /// the same backing store the consent provider reads.
-// Safety: the app composition root is the single owner that calls `arm`.
-// Notification callbacks enqueue onto the private serial lifecycle queue;
-// all mutable transition state is confined to that queue after setup.
 public final class MobileCrashRevocationWatcher: @unchecked Sendable {
     private let lifecycleQueue = DispatchQueue(label: "dev.cmux.ios.crash-consent-lifecycle")
     private var token: (any NSObjectProtocol)?
