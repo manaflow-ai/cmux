@@ -62,6 +62,7 @@ const realCreateAwsRdsIamPool = dbClientModule.createAwsRdsIamPool;
 
 let useWorkflowStubs = false;
 let useStubDb = false;
+let authTombstoneRows: Array<{ userIdHash: string; status: string; updatedAt: Date | null }> = [];
 
 function callMock(fn: unknown, args: unknown[]) {
   return (fn as (...args: unknown[]) => unknown)(...args);
@@ -120,6 +121,17 @@ mock.module("../db/client", () => ({
   createAwsRdsIamPool: realCreateAwsRdsIamPool,
   closeCloudDbForTests: realCloseCloudDbForTests,
   cloudDb: () => {
+    if (authTombstoneRows.length > 0) {
+      return {
+        select: () => ({
+          from: () => ({
+            where: () => ({
+              limit: async () => authTombstoneRows,
+            }),
+          }),
+        }),
+      };
+    }
     if (!useStubDb) return realCloudDb();
     throw new Error("DATABASE_URL is required for Cloud VM database access");
   },
@@ -137,12 +149,15 @@ const snapshotRoute = await import("../app/api/vm/[id]/snapshot/route");
 const sshRoute = await import("../app/api/vm/[id]/ssh-endpoint/route");
 const restoreRoute = await import("../app/api/vm/restore/route");
 const {
+  VmAccountDeletionInProgressError,
   VmCreateCreditsInsufficientError,
+  VmCreateDisabledError,
   VmCreateFailedError,
   VmProviderOperationError,
 } = await import("../services/vms/errors");
 const { verifyRequest } = await import("../services/vms/auth");
 const { withAuthedVmApiRoute } = await import("../services/vms/routeHelpers");
+const { accountDeletionUserHash } = await import("../services/account/deletionLock");
 
 beforeAll(() => {
   useWorkflowStubs = true;
@@ -158,6 +173,7 @@ beforeEach(() => {
   restoreVmEnv();
   getUser.mockClear();
   getUser.mockResolvedValue(null);
+  authTombstoneRows = [];
   runVmWorkflow.mockClear();
   createVm.mockClear();
   openBaseVm.mockClear();
@@ -198,6 +214,56 @@ describe("VM REST auth", () => {
     expect(response.status).toBe(401);
     expect(await response.json()).toEqual({ error: "unauthorized" });
     expect(runVmWorkflow).not.toHaveBeenCalled();
+  });
+
+  test("rejects account-deleting users before reaching workflows", async () => {
+    authTombstoneRows = [accountDeletionAuthTombstone("user-1", "pending", new Date())];
+    getUser.mockResolvedValue({
+      id: "user-1",
+      displayName: null,
+      primaryEmail: "user@example.com",
+      clientReadOnlyMetadata: { cmuxAccountDeleting: true },
+      selectedTeam: null,
+      listTeams: async () => [],
+    });
+
+    const response = await POST(
+      new Request("https://cmux.test/api/vm", {
+        method: "POST",
+        headers: {
+          authorization: "Bearer access-token",
+          "x-stack-refresh-token": "refresh-token",
+        },
+        body: JSON.stringify({ provider: "freestyle" }),
+      }),
+    );
+
+    expect(response.status).toBe(401);
+    expect(await response.json()).toEqual({ error: "unauthorized" });
+    expect(runVmWorkflow).not.toHaveBeenCalled();
+  });
+
+  test("allows stale account-deleting metadata after tombstone lease expires", async () => {
+    authTombstoneRows = [accountDeletionAuthTombstone("user-1", "pending", new Date(0))];
+    getUser.mockResolvedValue({
+      id: "user-1",
+      displayName: null,
+      primaryEmail: "user@example.com",
+      clientReadOnlyMetadata: { cmuxAccountDeleting: true },
+      selectedTeam: null,
+      listTeams: async () => [],
+    });
+
+    const user = await verifyRequest(
+      new Request("https://cmux.test/api/vm", {
+        headers: {
+          authorization: "Bearer access-token",
+          "x-stack-refresh-token": "refresh-token",
+        },
+      }),
+    );
+
+    expect(user?.id).toBe("user-1");
   });
 
   test("rejects unauthenticated VM mutations before reaching workflows", async () => {
@@ -492,7 +558,6 @@ describe("VM REST auth", () => {
         clientReadOnlyMetadata: { cmuxVmPlan: "pro" },
       },
       listTeams,
-      listProducts: async () => Object.assign([], { nextCursor: null }),
     });
     runVmWorkflow.mockResolvedValue({
       providerVmId: "provider-vm-body-team",
@@ -1227,6 +1292,65 @@ describe("VM REST auth", () => {
     expect(runVmWorkflow).not.toHaveBeenCalled();
   });
 
+  test("maps workflow VM create kill switch without an internal error", async () => {
+    getUser.mockResolvedValue(authedStackUser());
+    rejectRunVmWorkflowWith(
+      new VmCreateDisabledError({
+        provider: "freestyle",
+        reason: "Cloud VM creation is disabled.",
+      }),
+    );
+
+    const response = await POST(
+      new Request("https://cmux.test/api/vm", {
+        method: "POST",
+        headers: { origin: "https://cmux.test" },
+        body: JSON.stringify({ provider: "freestyle", image: "snapshot-test" }),
+      }),
+    );
+
+    expect(response.status).toBe(503);
+    const payload = await response.json();
+    expect(payload).toMatchObject({
+      error: "vm_create_disabled",
+      reason: "Cloud VM creation is disabled.",
+      phase: "create",
+    });
+    expectNoCloudVmImplementationLeaks(payload);
+    expect(payload.action).toContain("enable Cloud VM creation");
+    expect(runVmWorkflow).toHaveBeenCalled();
+  });
+
+  test("maps workflow account deletion blocks without environment-disabled guidance", async () => {
+    getUser.mockResolvedValue(authedStackUser());
+    rejectRunVmWorkflowWith(
+      new VmAccountDeletionInProgressError({
+        provider: "freestyle",
+        phase: "create",
+      }),
+    );
+
+    const response = await POST(
+      new Request("https://cmux.test/api/vm", {
+        method: "POST",
+        headers: { origin: "https://cmux.test" },
+        body: JSON.stringify({ provider: "freestyle", image: "snapshot-test" }),
+      }),
+    );
+
+    expect(response.status).toBe(409);
+    const payload = await response.json();
+    expect(payload).toMatchObject({
+      error: "account_deletion_in_progress",
+      phase: "create",
+      retryable: true,
+    });
+    expectNoCloudVmImplementationLeaks(payload);
+    expect(payload.action).toContain("account deletion");
+    expect(payload.action).not.toContain("enable Cloud VM creation");
+    expect(runVmWorkflow).toHaveBeenCalled();
+  });
+
   test("blocks provider kill switch before workflow", async () => {
     process.env.CMUX_VM_E2B_ENABLED = "false";
     getUser.mockResolvedValue(authedStackUser());
@@ -1371,6 +1495,14 @@ function freePlanStackUser() {
       id: "team-1",
       clientReadOnlyMetadata: { cmuxVmPlan: "free" },
     }],
+  };
+}
+
+function accountDeletionAuthTombstone(userId: string, status: string, updatedAt: Date | null) {
+  return {
+    userIdHash: accountDeletionUserHash(userId),
+    status,
+    updatedAt,
   };
 }
 

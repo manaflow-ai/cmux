@@ -215,17 +215,7 @@ final class WindowBrowserHostView: NSView {
         let initialInspectorFrame: NSRect
     }
 
-    private enum DividerCursorKind: Equatable {
-        case vertical
-        case horizontal
-
-        var cursor: NSCursor {
-            switch self {
-            case .vertical: return .resizeLeftRight
-            case .horizontal: return .resizeUpDown
-            }
-        }
-    }
+    private typealias DividerCursorKind = PortalDividerCursorKind
 
     override var isOpaque: Bool { false }
     private static let sidebarLeadingEdgeEpsilon: CGFloat = 1
@@ -240,6 +230,7 @@ final class WindowBrowserHostView: NSView {
     private var splitDividerResizeObserver: NSObjectProtocol?
     private var trackingArea: NSTrackingArea?
     private var activeDividerCursorKind: DividerCursorKind?
+    private let dividerCursorOcclusion = PortalDividerCursorOcclusion()
     private var hostedInspectorDividerDrag: HostedInspectorDividerDragState?
     private var lastHostedInspectorLayoutBoundsSize: NSSize?
 
@@ -347,7 +338,7 @@ final class WindowBrowserHostView: NSView {
         super.resetCursorRects()
         invalidateSplitDividerRegionCache()
         let regions = splitDividerRegions()
-        let expansion: CGFloat = 4
+        let expansion = PortalSplitDividerRegion.dividerHitExpansion
         for region in regions {
             var rectInHost = convert(region.rectInWindow, from: nil)
             rectInHost = rectInHost.insetBy(
@@ -768,6 +759,10 @@ final class WindowBrowserHostView: NSView {
             clearActiveDividerCursor(restoreArrow: true)
             return
         }
+        guard dividerCursorOcclusion.mayAssertDividerCursor(in: window) else {
+            clearActiveDividerCursor(restoreArrow: false)
+            return
+        }
         activeDividerCursorKind = nextKind
         nextKind.cursor.set()
     }
@@ -1153,57 +1148,6 @@ struct BrowserPortalSearchOverlayConfiguration {
     let onPrevious: () -> Void
     let onClose: () -> Void
     let onFieldDidFocus: () -> Void
-}
-
-struct BrowserPortalOmnibarSuggestionsConfiguration {
-    let panelId: UUID
-    let popupFrame: CGRect
-    let colorScheme: ColorScheme
-    let engineName: String
-    let items: [OmnibarSuggestion]
-    let selectedIndex: Int
-    let isLoadingRemoteSuggestions: Bool
-    let searchSuggestionsEnabled: Bool
-    let onCommit: (OmnibarSuggestion) -> Void
-    let onHighlight: (Int) -> Void
-}
-
-private struct BrowserPortalOmnibarSuggestionsOverlay: View {
-    let configuration: BrowserPortalOmnibarSuggestionsConfiguration
-
-    var body: some View {
-        Color.clear
-            .overlay(alignment: .topLeading) {
-                OmnibarSuggestionsView(
-                    engineName: configuration.engineName,
-                    items: configuration.items,
-                    selectedIndex: configuration.selectedIndex,
-                    isLoadingRemoteSuggestions: configuration.isLoadingRemoteSuggestions,
-                    searchSuggestionsEnabled: configuration.searchSuggestionsEnabled,
-                    onCommit: configuration.onCommit,
-                    onHighlight: configuration.onHighlight
-                )
-                .frame(width: configuration.popupFrame.width)
-                .offset(x: configuration.popupFrame.minX, y: configuration.popupFrame.minY)
-                .environment(\.colorScheme, configuration.colorScheme)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    }
-}
-
-private final class BrowserPortalOmnibarSuggestionsHostingView: NSHostingView<BrowserPortalOmnibarSuggestionsOverlay> {
-    var popupFrameInTopLeftCoordinates: CGRect = .zero
-
-    override func hitTest(_ point: NSPoint) -> NSView? {
-        let topLeftPoint: NSPoint
-        if isFlipped {
-            topLeftPoint = point
-        } else {
-            topLeftPoint = NSPoint(x: point.x, y: bounds.height - point.y)
-        }
-        guard popupFrameInTopLeftCoordinates.contains(topLeftPoint) else { return nil }
-        return super.hitTest(point)
-    }
 }
 
 struct BrowserPaneDropContext: Equatable {

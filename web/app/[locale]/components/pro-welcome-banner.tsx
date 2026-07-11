@@ -3,8 +3,8 @@
 import { useTranslations } from "next-intl";
 import { useSearchParams } from "next/navigation";
 
-// Reads the ?welcome= / ?billing= states set by /api/billing/checkout and
-// /api/billing/confirm so the /pro page itself can stay static.
+// Reads the ?welcome= / ?billing= states set by /api/billing/checkout so the
+// /pro page itself can stay static.
 // Render inside <Suspense> (useSearchParams requirement).
 export function ProWelcomeBanner() {
   const t = useTranslations("pricing");
@@ -25,13 +25,11 @@ export function ProWelcomeBanner() {
               ? t("billingError")
               : billing === "unavailable"
                 ? t("billingUnavailable")
-                : billing === "external"
-                  ? t("billingExternal")
-                  : billing === "cancelled"
-                    ? t("billingCancelled")
-                    : billing === "invalid_plan"
-                      ? t("billingInvalidPlan")
-                      : null;
+                : billing === "cancelled"
+                  ? t("billingCancelled")
+                  : billing === "invalid_plan"
+                    ? t("billingInvalidPlan")
+                    : null;
   if (!message) return null;
 
   return (
@@ -44,7 +42,7 @@ export function ProWelcomeBanner() {
         <>
           {" "}
           <a
-            href="/api/billing/confirm"
+            href="/pricing"
             className="underline underline-offset-2 decoration-link-underline hover:decoration-foreground transition-colors"
           >
             {t("welcomePendingAction")}

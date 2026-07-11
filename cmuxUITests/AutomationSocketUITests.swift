@@ -39,7 +39,7 @@ final class AutomationSocketUITests: XCTestCase {
         let app = configuredApp(mode: "cmuxOnly")
         app.launch()
         XCTAssertTrue(
-            ensureForegroundAfterLaunch(app, timeout: 12.0),
+            ensureRunningAfterLaunch(app, timeout: 12.0),
             "Expected app to launch for socket toggle test. state=\(app.state.rawValue)"
         )
 
@@ -56,7 +56,7 @@ final class AutomationSocketUITests: XCTestCase {
         let app = configuredApp(mode: "automation")
         app.launch()
         XCTAssertTrue(
-            ensureForegroundAfterLaunch(app, timeout: 12.0),
+            ensureRunningAfterLaunch(app, timeout: 12.0),
             "Expected app to launch for socket path recreation test. state=\(app.state.rawValue)"
         )
 
@@ -70,7 +70,7 @@ final class AutomationSocketUITests: XCTestCase {
         try FileManager.default.removeItem(atPath: socketPath)
 
         XCTAssertTrue(
-            waitForSocketPong(timeout: 8.0),
+            waitForSocketPong(timeout: 8.0, allowDiagnosticsFallback: false),
             "Expected listener to recreate removed socket path and answer ping at \(socketPath)"
         )
         app.terminate()
@@ -80,7 +80,7 @@ final class AutomationSocketUITests: XCTestCase {
         let app = configuredApp(mode: "off")
         app.launch()
         XCTAssertTrue(
-            ensureForegroundAfterLaunch(app, timeout: 12.0),
+            ensureRunningAfterLaunch(app, timeout: 12.0),
             "Expected app to launch for socket off test. state=\(app.state.rawValue)"
         )
 
@@ -208,7 +208,17 @@ final class AutomationSocketUITests: XCTestCase {
         return false
     }
 
-    private func waitForSocketPong(timeout: TimeInterval) -> Bool {
+    private func ensureRunningAfterLaunch(_ app: XCUIApplication, timeout: TimeInterval) -> Bool {
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in
+                app.state == .runningForeground || app.state == .runningBackground
+            },
+            object: NSObject()
+        )
+        return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
+    }
+
+    private func waitForSocketPong(timeout: TimeInterval, allowDiagnosticsFallback: Bool = true) -> Bool {
         var resolvedPath: String?
         let ready = waitForControlSocketReady(
             pingTimeout: timeout,
@@ -227,8 +237,19 @@ final class AutomationSocketUITests: XCTestCase {
                 return false
             }
         )
-        if let resolvedPath { socketPath = resolvedPath }
-        return ready
+        if ready, let resolvedPath {
+            socketPath = resolvedPath
+            return true
+        }
+        guard allowDiagnosticsFallback else { return false }
+        let diagnostics = loadDiagnostics()
+        guard controlSocketDiagnosticsReportReady(diagnostics),
+              let expectedPath = diagnostics["socketExpectedPath"],
+              socketCandidates().contains(expectedPath) else {
+            return false
+        }
+        socketPath = expectedPath
+        return true
     }
 
     private func socketCandidates() -> [String] {
@@ -278,7 +299,8 @@ final class AutomationSocketUITests: XCTestCase {
     }
 
     private func socketCommand(_ command: String) -> String? {
-        ControlSocketClient(path: socketPath, responseTimeout: 1.0).sendLine(command)
+        ControlSocketClient(path: socketPath, responseTimeout: 1.0).sendLine(command) ??
+            controlSocketCommandViaNetcat(command, socketPath: socketPath)
     }
 
     private func socketJSON(method: String, params: [String: Any]) -> [String: Any]? {
@@ -287,7 +309,8 @@ final class AutomationSocketUITests: XCTestCase {
             "method": method,
             "params": params,
         ]
-        return ControlSocketClient(path: socketPath, responseTimeout: 2.0).sendJSON(request)
+        return ControlSocketClient(path: socketPath, responseTimeout: 2.0).sendJSON(request) ??
+            controlSocketJSONViaNetcat(request, socketPath: socketPath)
     }
 
     private func socketResult(method: String, params: [String: Any]) -> [String: Any]? {

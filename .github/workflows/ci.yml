@@ -136,6 +136,9 @@ jobs:
       - name: Validate external TestFlight group assignment helper
         run: python3 tests/test_ios_testflight_external_distribution.py
 
+      - name: Validate iOS App Store lane identity
+        run: python3 tests/test_ios_appstore_lane_identity.py
+
       - name: Validate cmux scheme test configuration
         run: ./tests/test_ci_scheme_testaction_debug.sh
 
@@ -179,6 +182,12 @@ jobs:
 
       - name: Validate release-build timeout guard
         run: ./tests/test_ci_release_build_timeout.sh
+
+      - name: Validate markdown viewer asset compression
+        run: ./tests/test_compress_markdown_viewer_assets.sh
+
+      - name: Validate release bundle stripping
+        run: ./tests/test_strip_release_bundle.sh
 
       - name: Validate current GhosttyKit checksum pin
         run: ./tests/test_ci_ghosttykit_checksum_present.sh
@@ -575,6 +584,65 @@ jobs:
             -only-testing:cmuxTests/GhosttyOptionAsAltModsTests \
             test
 
+      - name: Run omnibar suggestion click regression
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        run: |
+          # Focused gate for https://github.com/manaflow-ai/cmux/issues/7380.
+          # The tolerant full-suite step can crash-skip late suites (see #5888
+          # note above), so this regression gets a non-tolerant focused
+          # invocation.
+          set -euo pipefail
+          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          scripts/ci/run-in-console-session.sh \
+            scripts/ci/run-app-host-xcodebuild.sh \
+            -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+            -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+            -disableAutomaticPackageResolution \
+            -destination "platform=macOS" \
+            CMUX_SKIP_ZIG_BUILD=1 \
+            -only-testing:cmuxTests/BrowserOmnibarSuggestionClickRoutingTests \
+            test
+
+      - name: Run remote tmux mirror active-pane regression
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        run: |
+          # Focused gates for https://github.com/manaflow-ai/cmux/issues/7372.
+          # The tolerant full-suite step can crash-skip late suites (see #5888
+          # note above), so the seed and immediate-update paths get a
+          # non-tolerant invocation.
+          set -euo pipefail
+          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          scripts/ci/run-in-console-session.sh \
+            scripts/ci/run-app-host-xcodebuild.sh \
+            -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+            -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+            -disableAutomaticPackageResolution \
+            -destination "platform=macOS" \
+            CMUX_SKIP_ZIG_BUILD=1 \
+            -only-testing:cmuxTests/RemoteTmuxWindowMirrorFocusSeedTests \
+            test
+
+      - name: Run remote tmux mirror layout identity regression
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        run: |
+          # The tolerant full-suite step may accept expected failures or stop
+          # after an app-host crash. Keep #7833's identity suite non-tolerant
+          # so a missing incremental-reconcile regression cannot pass the shard.
+          set -euo pipefail
+          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          scripts/ci/run-in-console-session.sh \
+            scripts/ci/run-app-host-xcodebuild.sh \
+            -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+            -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+            -disableAutomaticPackageResolution \
+            -destination "platform=macOS" \
+            CMUX_SKIP_ZIG_BUILD=1 \
+            -only-testing:cmuxTests/RemoteTmuxMirrorLayoutIdentityTests \
+            test
+
       - name: Run unit tests
         run: |
           set -euo pipefail
@@ -666,6 +734,32 @@ jobs:
           CMUX_SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages" \
             ./tests/test_bundled_ghostty_theme_picker_helper.sh
 
+      - name: Ensure node for wrapper regressions
+        id: detect-node
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        run: |
+          set -euo pipefail
+          # The claude wrapper regressions below exec `node` from fake claude
+          # binaries. The tart-macos-15 runner image shipped without node on
+          # the runner PATH (2026-07-10), which failed every branch. Reuse an
+          # image-provided node when present; otherwise install one below.
+          for candidate in "$(command -v node || true)" /opt/homebrew/bin/node /usr/local/bin/node; do
+            if [ -n "$candidate" ] && [ -x "$candidate" ]; then
+              dirname "$candidate" >> "$GITHUB_PATH"
+              "$candidate" --version
+              echo "found=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          done
+          echo "no node runtime in the runner image; installing via setup-node"
+          echo "found=false" >> "$GITHUB_OUTPUT"
+
+      - name: Install node (runner image has none)
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) && steps.detect-node.outputs.found == 'false' }}
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "20"
+
       - name: Run CLI no-socket regressions
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
         run: |
@@ -707,6 +801,7 @@ jobs:
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_claude_hook_push_notification.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_pi_extension_install.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_omp_extension_install.py
+          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_campfire_extension_install.py
 
   tests:
     name: tests
@@ -783,7 +878,8 @@ jobs:
     # transitive skip otherwise marks every macOS job skipped even when
     # linux-preflight itself succeeds. Require the direct needs explicitly.
     if: ${{ !cancelled() && needs.changes.result == 'success' && needs.linux-preflight.result == 'success' && needs.changes.outputs.macos == 'true' }}
-    runs-on: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}
+    # Build the release helper with SDK 15, then run package tests with SDK 26.
+    runs-on: ${{ vars.MACOS_RUNNER_DUAL_XCODE || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: 40
     env:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_15 }}

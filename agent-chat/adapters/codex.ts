@@ -1,6 +1,7 @@
 import type { Adapter, CommandEntry, OptionChoice, OptionValue, SessionCtx, SessionOption } from "../types";
 import { readLines, tryParse, truncate } from "./lines";
 import { prettifyModelLabel } from "./model-label";
+import { agentModelCatalog } from "../catalog";
 
 // Codex: one shared `codex app-server` process (JSON-RPC over NDJSON stdio,
 // the same interface the codex IDE extension uses) hosts a thread per chat
@@ -23,6 +24,7 @@ interface ModelInfo {
   serviceTiers: { id: string; name: string; description?: string }[];
   defaultServiceTier: string | null;
   isDefault?: boolean;
+  contextWindow?: string | number;
 }
 
 interface CodexState {
@@ -35,6 +37,8 @@ interface CodexState {
   fastMode: boolean;
   mode: string;
   currentTurnId?: string;
+  turnActive: boolean;
+  activeGeneration?: number;
   turnWaiters: ((id: string | null) => void)[];
   commands: CommandEntry[];
 }
@@ -66,7 +70,7 @@ export const codexAdapter: Adapter = {
       { id: "mode", label: "Mode", kind: "select", value: "default", choices: [{ value: "default", label: "Default" }, { value: "plan", label: "Plan" }] },
     ],
   },
-  async send(sess, prompt) {
+  async send(sess, prompt, generation?: number) {
     try {
       const srv = await ensureServer();
       const st = await ensureCodexState(sess);
@@ -94,7 +98,7 @@ export const codexAdapter: Adapter = {
         }
         threadId = await starting;
       }
-      if (sess.status === "running") {
+      if (codexSendRoute(st) === "steer") {
         const turnId = st.currentTurnId ?? await waitForTurnId(st);
         if (!turnId) throw new Error("codex turn is still starting");
         await srv.request("turn/steer", {
@@ -105,6 +109,8 @@ export const codexAdapter: Adapter = {
         return;
       }
       sess.setStatus("running");
+      st.turnActive = true;
+      st.activeGeneration = generation;
       await srv.request("turn/start", {
         threadId,
         input: [{ type: "text", text: prompt }],
@@ -117,8 +123,16 @@ export const codexAdapter: Adapter = {
       });
       // Completion arrives via the turn/completed notification.
     } catch (err) {
+      const st = sess.internal.codex as CodexState | undefined;
+      const generation = st?.activeGeneration;
+      if (st) {
+        st.turnActive = false;
+        st.currentTurnId = undefined;
+        st.activeGeneration = undefined;
+        resolveTurnWaiters(st, null);
+      }
       sess.emit({ kind: "error", message: truncate(String(err), 400) });
-      sess.emit({ kind: "done" });
+      sess.emit({ kind: "done", generation } as any);
       sess.setStatus("idle");
     }
   },
@@ -161,17 +175,23 @@ export const codexAdapter: Adapter = {
     target.internal.threadId = forkThreadId;
     srv.sessionsByThread.set(forkThreadId, target);
     const sourceState = codexState(source);
-    target.internal.codex = {
-      ...sourceState,
-      turnWaiters: [],
-      currentTurnId: undefined,
-      commands: sourceState.commands.slice(),
-    };
+    target.internal.codex = forkedCodexState(sourceState);
     target.internal.deltaItems = new Set<string>();
     target.emit({ kind: "meta", providerSessionId: forkThreadId });
     emitOptions(target);
   },
 };
+
+function forkedCodexState(sourceState: CodexState): CodexState {
+  return {
+    ...sourceState,
+    turnWaiters: [],
+    currentTurnId: undefined,
+    turnActive: false,
+    activeGeneration: undefined,
+    commands: sourceState.commands.slice(),
+  };
+}
 
 async function ensureServer(): Promise<AppServer> {
   if (shared && shared.proc.exitCode === null && !shared.proc.killed) return shared;
@@ -237,9 +257,15 @@ async function startServer(): Promise<AppServer> {
     for (const p of pending.values()) p.reject(new Error("codex app-server exited"));
     pending.clear();
     for (const sess of srv.sessionsByThread.values()) {
-      if (sess.status === "running") {
+      const st = codexState(sess);
+      if (st.turnActive) {
+        const generation = st.activeGeneration;
+        st.turnActive = false;
+        st.currentTurnId = undefined;
+        st.activeGeneration = undefined;
+        resolveTurnWaiters(st, null);
         sess.emit({ kind: "error", message: "codex app-server exited mid-turn" });
-        sess.emit({ kind: "done" });
+        sess.emit({ kind: "done", generation } as any);
         sess.setStatus("idle");
       }
       sess.internal.threadId = undefined;
@@ -312,6 +338,7 @@ function handleServerMessage(srv: AppServer, msg: any) {
 
   switch (msg.method) {
     case "turn/started":
+      st.turnActive = true;
       st.currentTurnId = p.turn?.id;
       resolveTurnWaiters(st, st.currentTurnId ?? null);
       break;
@@ -343,7 +370,10 @@ function handleServerMessage(srv: AppServer, msg: any) {
       sess.internal.lastUsage = p.tokenUsage?.total;
       break;
     case "turn/completed": {
+      st.turnActive = false;
       st.currentTurnId = undefined;
+      const generation = st.activeGeneration;
+      st.activeGeneration = undefined;
       resolveTurnWaiters(st, null);
       const u = sess.internal.lastUsage as any;
       const secs = p.turn?.durationMs != null ? `${(p.turn.durationMs / 1000).toFixed(1)}s` : null;
@@ -351,15 +381,18 @@ function handleServerMessage(srv: AppServer, msg: any) {
         u ? `${u.inputTokens ?? 0} in · ${u.outputTokens ?? 0} out` : null,
         secs,
       ].filter(Boolean).join(" · ");
-      sess.emit({ kind: "done", stats });
+      sess.emit({ kind: "done", stats, generation } as any);
       sess.setStatus("idle");
       break;
     }
     case "turn/failed": {
+      st.turnActive = false;
       st.currentTurnId = undefined;
+      const generation = st.activeGeneration;
+      st.activeGeneration = undefined;
       resolveTurnWaiters(st, null);
       sess.emit({ kind: "error", message: truncate(p.error?.message ?? p.turn?.error?.message ?? "turn failed", 400) });
-      sess.emit({ kind: "done" });
+      sess.emit({ kind: "done", generation } as any);
       sess.setStatus("idle");
       break;
     }
@@ -432,9 +465,37 @@ function defaultState(autoApprove: boolean): CodexState {
     sandbox: autoApprove ? "workspace-write" : "read-only",
     fastMode: false,
     mode: "default",
+    turnActive: false,
+    activeGeneration: undefined,
     turnWaiters: [],
     commands: [],
   };
+}
+
+export function codexForkStateForTest(sourceState: Partial<CodexState>): { turnActive: boolean; currentTurnId?: string; activeGeneration?: number } {
+  const forked = forkedCodexState({
+    ...defaultState(true),
+    ...sourceState,
+    commands: sourceState.commands ?? [],
+  });
+  return {
+    turnActive: forked.turnActive,
+    currentTurnId: forked.currentTurnId,
+    activeGeneration: forked.activeGeneration,
+  };
+}
+
+export function codexSendRouteForTest(st: { turnActive?: boolean; currentTurnId?: string }, _sessStatus?: string): "start" | "steer" {
+  return st.turnActive ? "steer" : "start";
+}
+
+(codexAdapter as any).attributionMode = (sess: SessionCtx) => {
+  const st = sess.internal.codex as { turnActive?: boolean; currentTurnId?: string } | undefined;
+  return st && codexSendRouteForTest(st) === "steer" ? "current-turn" : "new-turn";
+};
+
+function codexSendRoute(st: Pick<CodexState, "turnActive" | "currentTurnId">): "start" | "steer" {
+  return codexSendRouteForTest(st);
 }
 
 function waitForTurnId(st: CodexState): Promise<string | null> {
@@ -565,7 +626,34 @@ async function listModels(): Promise<ModelInfo[]> {
     for (const m of res.data ?? []) out.push(normalizeModel(m));
     cursor = res.nextCursor ?? null;
   } while (cursor);
-  return out;
+  return mergeCodexModels(out, agentModelCatalog.provider("codex"));
+}
+
+export function mergeCodexModels(binaryModels: ModelInfo[], remote = agentModelCatalog.provider("codex")): ModelInfo[] {
+  if (!remote) return binaryModels;
+  const binary = new Map(binaryModels.map((model) => [model.value, model]));
+  const merged = remote.models.map((model) => {
+    const reported = binary.get(model.id);
+    binary.delete(model.id);
+    const remoteEfforts = (model.efforts ?? [])
+      .map((effort) => ({ value: effort.value, label: effort.label, description: effort.description }))
+      .filter((effort) => !isOffLike(effort.value));
+    const efforts = remoteEfforts.length ? remoteEfforts : reported?.efforts ?? FALLBACK_EFFORTS;
+    const requestedEffort = model.defaultEffort ?? reported?.defaultEffort ?? "";
+    const defaultEffort = efforts.some((effort) => effort.value === requestedEffort) ? requestedEffort : efforts[0]?.value ?? "medium";
+    return {
+      value: model.id,
+      label: model.label,
+      description: model.description ?? reported?.description,
+      contextWindow: model.contextWindow ?? reported?.contextWindow,
+      efforts,
+      defaultEffort,
+      serviceTiers: model.serviceTiers ?? reported?.serviceTiers ?? [],
+      defaultServiceTier: model.defaultServiceTier !== undefined ? model.defaultServiceTier : reported?.defaultServiceTier ?? null,
+      isDefault: model.id === remote.defaultModel,
+    };
+  });
+  return [...merged, ...binary.values()];
 }
 
 function normalizeModel(m: any): ModelInfo {

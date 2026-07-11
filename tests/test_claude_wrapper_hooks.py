@@ -14,6 +14,8 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+from node_runtime import ensure_node_on_path
+
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE_WRAPPER = ROOT / "Resources" / "bin" / "cmux-claude-wrapper"
@@ -1877,6 +1879,9 @@ def test_stale_socket_skips_hook_injection(failures: list[str]) -> None:
 
 
 def main() -> int:
+    if ensure_node_on_path() is None:
+        print("SKIP: node runtime not found; wrapper fakes exec node")
+        return 0
     failures: list[str] = []
     test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures)
     test_live_socket_merges_user_settings_into_hooks(failures)

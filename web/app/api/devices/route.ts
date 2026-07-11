@@ -24,6 +24,10 @@ import {
   manualRoutesAreValid,
   routesContainLoopback,
 } from "./route-classification";
+import {
+  AccountDeletionMutationBlockedError,
+  assertAccountDeletionUserMutationAllowed,
+} from "../../../services/account/deletionLock";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -191,112 +195,121 @@ export async function POST(request: Request): Promise<Response> {
   const db = cloudDb();
   const now = new Date();
 
-  const registered = await db.transaction(async (tx) => {
-    // Serialize concurrent registrations for the same team so the per-team cap
-    // is enforced without a race (mirrors the device-tokens advisory lock).
-    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${team.teamId}, 7))`);
+  let registered: { error: "device_not_owned" | "too_many_devices" | "too_many_instances" | null };
+  try {
+    registered = await db.transaction(async (tx) => {
+      await assertAccountDeletionUserMutationAllowed(tx, user.id);
+      // Serialize concurrent registrations for the same team so the per-team cap
+      // is enforced without a race (mirrors the device-tokens advisory lock).
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${team.teamId}, 7))`);
 
-    // Device identity is per team: a row keyed by (teamId, deviceUuid). The
-    // same cmux device UUID registering under a different team is a separate,
-    // legitimate row (a Mac in two teams), so there is no cross-team conflict to
-    // guard against. Team B creating its own row cannot read or mutate team A's.
-    const [existingDevice] = await tx
-      .select({ id: devices.id, userId: devices.userId })
-      .from(devices)
-      .where(and(eq(devices.teamId, team.teamId), eq(devices.deviceUuid, deviceUuid)))
-      .limit(1);
-
-    // Only the user who registered a device row may update it. GET exposes
-    // device UUIDs to every team member, so without this a co-member could POST
-    // another member's device UUID and overwrite its attach routes (redirecting
-    // that user's phone reconnect at their own host). This keeps route
-    // population owned by the registering user, matching the pre-registry trust
-    // boundary where only the user's own pairing populated their phone's routes.
-    // Cryptographic proof-of-possession (so even the same user must prove they
-    // hold the device) is the deferred key-pinning phase.
-    if (existingDevice && existingDevice.userId !== user.id) {
-      return { error: "device_not_owned" as const };
-    }
-
-    if (!existingDevice) {
-      const [{ total }] = await tx
-        .select({ total: sql<number>`count(*)::int` })
+      // Device identity is per team: a row keyed by (teamId, deviceUuid). The
+      // same cmux device UUID registering under a different team is a separate,
+      // legitimate row (a Mac in two teams), so there is no cross-team conflict to
+      // guard against. Team B creating its own row cannot read or mutate team A's.
+      const [existingDevice] = await tx
+        .select({ id: devices.id, userId: devices.userId })
         .from(devices)
-        .where(eq(devices.teamId, team.teamId));
-      if (Number(total) >= MAX_DEVICES_PER_TEAM) {
-        return { error: "too_many_devices" as const };
-      }
-    }
+        .where(and(eq(devices.teamId, team.teamId), eq(devices.deviceUuid, deviceUuid)))
+        .limit(1);
 
-    const [deviceRow] = await tx
-      .insert(devices)
-      .values({
-        teamId: team.teamId,
-        deviceUuid,
-        userId: user.id,
-        platform,
-        displayName,
-        labels: deviceLabels,
-        lastSeenAt: now,
-        updatedAt: now,
-      })
-      .onConflictDoUpdate({
-        target: [devices.teamId, devices.deviceUuid],
-        set: {
+      // Only the user who registered a device row may update it. GET exposes
+      // device UUIDs to every team member, so without this a co-member could POST
+      // another member's device UUID and overwrite its attach routes (redirecting
+      // that user's phone reconnect at their own host). This keeps route
+      // population owned by the registering user, matching the pre-registry trust
+      // boundary where only the user's own pairing populated their phone's routes.
+      // Cryptographic proof-of-possession (so even the same user must prove they
+      // hold the device) is the deferred key-pinning phase.
+      if (existingDevice && existingDevice.userId !== user.id) {
+        return { error: "device_not_owned" as const };
+      }
+
+      if (!existingDevice) {
+        const [{ total }] = await tx
+          .select({ total: sql<number>`count(*)::int` })
+          .from(devices)
+          .where(eq(devices.teamId, team.teamId));
+        if (Number(total) >= MAX_DEVICES_PER_TEAM) {
+          return { error: "too_many_devices" as const };
+        }
+      }
+
+      const [deviceRow] = await tx
+        .insert(devices)
+        .values({
+          teamId: team.teamId,
+          deviceUuid,
           userId: user.id,
           platform,
           displayName,
           labels: deviceLabels,
           lastSeenAt: now,
           updatedAt: now,
-        },
-      })
-      .returning({ id: devices.id });
-    const deviceRowId = deviceRow.id;
+        })
+        .onConflictDoUpdate({
+          target: [devices.teamId, devices.deviceUuid],
+          set: {
+            userId: user.id,
+            platform,
+            displayName,
+            labels: deviceLabels,
+            lastSeenAt: now,
+            updatedAt: now,
+          },
+        })
+        .returning({ id: devices.id });
+      const deviceRowId = deviceRow.id;
 
-    // Cap instances per device row. `tag` is client-supplied and the instance
-    // key is `(deviceId, tag)`, so without this a single device could create
-    // unbounded rows by varying the tag. Re-registering an existing tag is an
-    // update (the onConflict below), so only a genuinely new tag counts.
-    const [existingInstance] = await tx
-      .select({ id: deviceAppInstances.id })
-      .from(deviceAppInstances)
-      .where(and(eq(deviceAppInstances.deviceId, deviceRowId), eq(deviceAppInstances.tag, tag)))
-      .limit(1);
-    if (!existingInstance) {
-      const [{ total }] = await tx
-        .select({ total: sql<number>`count(*)::int` })
+      // Cap instances per device row. `tag` is client-supplied and the instance
+      // key is `(deviceId, tag)`, so without this a single device could create
+      // unbounded rows by varying the tag. Re-registering an existing tag is an
+      // update (the onConflict below), so only a genuinely new tag counts.
+      const [existingInstance] = await tx
+        .select({ id: deviceAppInstances.id })
         .from(deviceAppInstances)
-        .where(eq(deviceAppInstances.deviceId, deviceRowId));
-      if (Number(total) >= MAX_INSTANCES_PER_DEVICE) {
-        return { error: "too_many_instances" as const };
+        .where(and(eq(deviceAppInstances.deviceId, deviceRowId), eq(deviceAppInstances.tag, tag)))
+        .limit(1);
+      if (!existingInstance) {
+        const [{ total }] = await tx
+          .select({ total: sql<number>`count(*)::int` })
+          .from(deviceAppInstances)
+          .where(eq(deviceAppInstances.deviceId, deviceRowId));
+        if (Number(total) >= MAX_INSTANCES_PER_DEVICE) {
+          return { error: "too_many_instances" as const };
+        }
       }
-    }
 
-    await tx
-      .insert(deviceAppInstances)
-      .values({
-        deviceId: deviceRowId,
-        teamId: team.teamId,
-        tag,
-        routes,
-        labels: instanceLabels,
-        lastSeenAt: now,
-        updatedAt: now,
-      })
-      .onConflictDoUpdate({
-        target: [deviceAppInstances.deviceId, deviceAppInstances.tag],
-        set: {
+      await tx
+        .insert(deviceAppInstances)
+        .values({
+          deviceId: deviceRowId,
           teamId: team.teamId,
+          tag,
           routes,
           labels: instanceLabels,
           lastSeenAt: now,
           updatedAt: now,
-        },
-      });
+        })
+        .onConflictDoUpdate({
+          target: [deviceAppInstances.deviceId, deviceAppInstances.tag],
+          set: {
+            teamId: team.teamId,
+            routes,
+            labels: instanceLabels,
+            lastSeenAt: now,
+            updatedAt: now,
+          },
+        });
 
-    return { error: null };
-  });
+      return { error: null };
+    });
+  } catch (error) {
+    if (error instanceof AccountDeletionMutationBlockedError) {
+      return jsonResponse({ error: "account_deletion_in_progress" }, 409);
+    }
+    throw error;
+  }
 
   if (registered.error === "device_not_owned") {
     return jsonResponse({ error: "device_not_owned" }, 403);

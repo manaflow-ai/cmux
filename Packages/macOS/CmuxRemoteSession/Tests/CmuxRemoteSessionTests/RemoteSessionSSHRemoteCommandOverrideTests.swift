@@ -168,7 +168,22 @@ private final class UnusedRemoteProxyBroker: RemoteProxyBrokering, @unchecked Se
     }
 
     func listPTY(configuration: WorkspaceRemoteConfiguration) throws -> [[String: Any]] { [] }
-    func closePTY(configuration: WorkspaceRemoteConfiguration, sessionID: String) throws {}
+    func closePTY(
+        configuration: WorkspaceRemoteConfiguration,
+        sessionID: String,
+        deadline: DispatchTime
+    ) throws {}
+    func ptySessionLifecycle(
+        configuration: WorkspaceRemoteConfiguration,
+        sessionID: String,
+        lifecycleID: String
+    ) throws -> RemotePTYSessionLifecycle { .active }
+    func acknowledgePTYLifecycle(
+        configuration: WorkspaceRemoteConfiguration,
+        sessionID: String,
+        lifecycleID: String
+    ) throws {}
+    func acknowledgePTYLifecycleAfterWrapperEnd(sessionID: String, lifecycleID: String) {}
     func resizePTY(
         configuration: WorkspaceRemoteConfiguration,
         sessionID: String,
@@ -186,6 +201,7 @@ private final class UnusedRemoteProxyBroker: RemoteProxyBrokering, @unchecked Se
     func startPTYBridge(
         configuration: WorkspaceRemoteConfiguration,
         sessionID: String,
+        lifecycleID: String,
         attachmentID: String,
         command: String?,
         requireExisting: Bool

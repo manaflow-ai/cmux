@@ -1,7 +1,7 @@
 import { getTranslations } from "next-intl/server";
 import { notFound } from "next/navigation";
 import { remoteTmuxDocsLocales } from "@/i18n/locale-availability";
-import { buildAlternates } from "@/i18n/seo";
+import { buildAlternates, openGraphDefaults, seoDescription, twitterSummary } from "@/i18n/seo";
 import { DocsSchema } from "../docs-schema";
 import { Callout } from "@/app/[locale]/components/callout";
 import { CodeBlock } from "@/app/[locale]/components/code-block";
@@ -21,10 +21,20 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
   const { locale } = await params;
   assertSupportedLocale(locale);
   const t = await getTranslations({ locale, namespace: "docs.remoteTmux" });
+  const alternates = buildAlternates(locale, "/docs/remote-tmux", remoteTmuxDocsLocales);
+  const title = t("metaTitle");
+  const description = seoDescription(locale, t("metaDescription"));
   return {
-    title: t("metaTitle"),
-    description: t("metaDescription"),
-    alternates: buildAlternates(locale, "/docs/remote-tmux", remoteTmuxDocsLocales),
+    title,
+    description,
+    alternates,
+    openGraph: {
+      ...openGraphDefaults(locale, "article"),
+      title,
+      description,
+      url: alternates.canonical,
+    },
+    twitter: twitterSummary(locale, title, description),
   };
 }
 
@@ -106,8 +116,7 @@ export default async function RemoteTmuxPage({
         <tbody>
           <tr><td><code>remote.tmux.sessions</code></td><td><code>host</code>, <code>port?</code>, <code>identity_file?</code></td><td>{t("methodSessions")}</td></tr>
           <tr><td><code>remote.tmux.attach</code></td><td><code>host</code>, <code>session</code>, <code>create?</code></td><td>{t("methodAttach")}</td></tr>
-          <tr><td><code>remote.tmux.mirror</code></td><td><code>host</code></td><td>{t("methodMirror")}</td></tr>
-          <tr><td><code>remote.tmux.window</code></td><td><code>host</code>, <code>port?</code>, <code>identity_file?</code></td><td>{t("methodWindow")}</td></tr>
+          <tr><td><code>remote.tmux.mirror</code></td><td><code>host</code>, <code>port?</code>, <code>identity_file?</code>, <code>activate?</code></td><td>{t("methodMirror")}</td></tr>
           <tr><td><code>remote.tmux.detach</code></td><td><code>host</code>, <code>session</code></td><td>{t("methodDetach")}</td></tr>
           <tr><td><code>remote.tmux.state</code></td><td><code>host</code>, <code>session</code></td><td>{t("methodState")}</td></tr>
         </tbody>
