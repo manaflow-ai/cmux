@@ -304,6 +304,105 @@ import Testing
         #expect(stored.first { $0.macDeviceID == "mac-b" }?.instanceTag == "default")
     }
 
+    @Test func snapshotIndexesPairedMacsBeforeScanningManyInstances() async throws {
+        let original = try route(id: "original", host: "100.64.0.1", port: 50_000)
+        let updated = try route(id: "updated", host: "100.64.0.2", port: 51_000)
+        let noise = try route(id: "noise", host: "100.64.0.3", port: 52_000)
+        let pairedStore = DelayedTeamPairedMacStore(
+            recordsByTeam: ["team-a": [pairedMac(
+                deviceID: "paired-mac",
+                routes: [original],
+                instanceTag: "feature-a"
+            )]],
+            blockedTeams: []
+        )
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { "team-a" }
+        )
+        await store.loadPairedMacs()
+        await pairedStore.resetLoadAllCount()
+        let noiseDevices = (0..<200).map { index in
+            let id = "unpaired-\(index)"
+            return presenceDevice(id: id, instances: [
+                instance(deviceId: id, tag: "feature-a", routes: [noise]),
+            ])
+        }
+        let pairedDevice = presenceDevice(id: "paired-mac", instances: [
+            instance(deviceId: "paired-mac", tag: "feature-a", routes: [updated]),
+        ])
+        let scope = MobileShellScopeSnapshot(
+            userID: "user-1", teamID: "team-a", generation: 0
+        )
+
+        store.applyPresenceUpdate(.snapshot(PresenceSnapshot(
+            teamId: "team-a",
+            now: 1_000,
+            heartbeatIntervalMs: 15_000,
+            offlineTimeoutMs: 45_000,
+            devices: noiseDevices + [pairedDevice]
+        )), scope: scope)
+        await store.pushedRouteSyncTask?.value
+
+        #expect(await pairedStore.currentUpsertCount() == 1)
+        #expect(await pairedStore.currentLoadAllCount() == 2)
+        #expect(try await storedRoutes(in: pairedStore) == [updated])
+    }
+
+    @Test func presenceUsesPairedMacAddedAfterTheDisplayCacheLoaded() async throws {
+        let originalA = try route(id: "original-a", host: "100.64.0.1", port: 50_001)
+        let originalB = try route(id: "original-b", host: "100.64.0.2", port: 50_002)
+        let updatedB = try route(id: "updated-b", host: "100.64.0.3", port: 51_002)
+        let pairedStore = DelayedTeamPairedMacStore(
+            recordsByTeam: ["team-a": [pairedMac(
+                deviceID: "mac-a",
+                routes: [originalA],
+                instanceTag: "feature-a"
+            )]],
+            blockedTeams: []
+        )
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { "team-a" }
+        )
+        await store.loadPairedMacs()
+        try await pairedStore.upsert(
+            macDeviceID: "mac-b",
+            displayName: "Studio B",
+            routes: [originalB],
+            instanceTag: "feature-b",
+            markActive: false,
+            stackUserID: "user-1",
+            teamID: "team-a",
+            now: Date(timeIntervalSince1970: 3)
+        )
+        let upsertsBeforePresence = await pairedStore.currentUpsertCount()
+        await pairedStore.resetLoadAllCount()
+        let scope = MobileShellScopeSnapshot(
+            userID: "user-1", teamID: "team-a", generation: 0
+        )
+
+        store.applyPresenceUpdate(.snapshot(PresenceSnapshot(
+            teamId: "team-a",
+            now: 1_000,
+            heartbeatIntervalMs: 15_000,
+            offlineTimeoutMs: 45_000,
+            devices: [presenceDevice(id: "mac-b", instances: [
+                instance(deviceId: "mac-b", tag: "feature-b", routes: [updatedB]),
+            ])]
+        )), scope: scope)
+        await store.pushedRouteSyncTask?.value
+
+        #expect(await pairedStore.currentUpsertCount() == upsertsBeforePresence + 1)
+        #expect(await pairedStore.currentLoadAllCount() == 2)
+        let stored = try await pairedStore.loadAll(stackUserID: "user-1", teamID: "team-a")
+        #expect(stored.first { $0.macDeviceID == "mac-b" }?.routes == [updatedB])
+    }
+
     private func route(id: String, host: String, port: Int) throws -> CmxAttachRoute {
         try CmxAttachRoute(
             id: id,

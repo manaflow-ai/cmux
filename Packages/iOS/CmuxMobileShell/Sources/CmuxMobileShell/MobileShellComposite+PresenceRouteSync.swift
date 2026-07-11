@@ -24,13 +24,32 @@ extension MobileShellComposite {
             guard let self else { return }
             await self.performSerializedPairedMacWrite(ifStillCurrent: nil) { [weak self] in
                 guard let self, await self.isScopeCurrent(scope) else { return }
-                if self.pairedMacsForIdentityMatching.isEmpty {
-                    await self.loadPairedMacs()
-                }
+                // Presence can arrive after another path paired or restored a Mac
+                // without refreshing this shell's display cache. Take one scoped
+                // store snapshot per delivery so every host is matched against the
+                // current authority set without doing a database scan per instance.
+                await self.loadPairedMacs()
                 guard await self.isScopeCurrent(scope) else { return }
+                let pairedMacsByDeviceID = Dictionary(
+                    self.pairedMacsForIdentityMatching.map { ($0.macDeviceID, $0) },
+                    uniquingKeysWith: { current, candidate in
+                        current.lastSeenAt >= candidate.lastSeenAt ? current : candidate
+                    }
+                )
+                var persistedRoutes = false
                 for instance in hostInstances {
                     guard await self.isScopeCurrent(scope) else { return }
-                    await self.applyPushedRoutes(from: instance, scope: scope)
+                    if await self.applyPushedRoutes(
+                        from: instance,
+                        pairedMac: pairedMacsByDeviceID[instance.deviceId],
+                        scope: scope
+                    ) {
+                        persistedRoutes = true
+                    }
+                }
+                guard await self.isScopeCurrent(scope) else { return }
+                if persistedRoutes {
+                    await self.loadPairedMacs()
                 }
                 guard await self.isScopeCurrent(scope) else { return }
                 let knownMacs = self.pairedMacsForIdentityMatching
@@ -59,10 +78,14 @@ extension MobileShellComposite {
     }
 
     /// Updates live registry routes, then persists only a nonempty authority payload.
-    func applyPushedRoutes(from instance: PresenceInstance, scope: MobileShellScopeSnapshot) async {
-        guard let routes = instance.routes, await isScopeCurrent(scope) else { return }
+    func applyPushedRoutes(
+        from instance: PresenceInstance,
+        pairedMac: MobilePairedMac?,
+        scope: MobileShellScopeSnapshot
+    ) async -> Bool {
+        guard let routes = instance.routes, await isScopeCurrent(scope) else { return false }
         let deviceId = instance.deviceId
-        guard await !isForgottenMacDeviceID(deviceId, scope: scope) else { return }
+        guard await !isForgottenMacDeviceID(deviceId, scope: scope) else { return false }
         if let deviceIndex = registryDevices.firstIndex(where: { $0.deviceId == deviceId }),
            let instanceIndex = registryDevices[deviceIndex].instances
                .firstIndex(where: { $0.tag == instance.tag }) {
@@ -70,10 +93,7 @@ extension MobileShellComposite {
         }
         guard !routes.isEmpty,
               let pairedMacStore,
-              let mac = try? await pairedMacStore.loadAll(
-                  stackUserID: scope.userID,
-                  teamID: scope.teamID
-              ).first(where: { $0.macDeviceID == deviceId }),
+              let mac = pairedMac,
               await isScopeCurrent(scope),
               presenceMap.reconnectRouteAuthority(
                   deviceId: deviceId,
@@ -83,7 +103,7 @@ extension MobileShellComposite {
                   local: mac.routes,
                   registry: routes
               ),
-              await isScopeCurrent(scope) else { return }
+              await isScopeCurrent(scope) else { return false }
         do {
             let wrote = try await pairedMacStore.upsertRoutesIfAuthorized(
                 macDeviceID: mac.macDeviceID,
@@ -95,14 +115,15 @@ extension MobileShellComposite {
                 teamID: scope.teamID,
                 now: Date()
             )
-            guard wrote else { return }
-            guard await isScopeCurrent(scope) else { return }
-            if await removeStoredPairedMacIfForgotten(mac.macDeviceID, scope: scope) { return }
-            await loadPairedMacs()
+            guard wrote else { return false }
+            guard await isScopeCurrent(scope) else { return true }
+            _ = await removeStoredPairedMacIfForgotten(mac.macDeviceID, scope: scope)
+            return true
         } catch {
             presenceRouteSyncLog.debug(
                 "presence route upsert failed: \(String(describing: error), privacy: .public)"
             )
+            return false
         }
     }
 }

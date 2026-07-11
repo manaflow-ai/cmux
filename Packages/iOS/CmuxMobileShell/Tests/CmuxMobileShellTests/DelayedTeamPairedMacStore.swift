@@ -9,6 +9,7 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring {
     private var startWaiters: [String: [CheckedContinuation<Void, Never>]] = [:]
     private var blockers: [String: CheckedContinuation<Void, Never>] = [:]
     private var upsertCount = 0
+    private var loadAllCount = 0
     private var upsertWaiters: [(Int, CheckedContinuation<Void, Never>)] = []
     private var gatedUpsertIDs: Set<String> = []
     private var upsertStartedIDs: Set<String> = []
@@ -133,6 +134,7 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring {
     }
 
     func loadAll(stackUserID: String?, teamID: String?) async throws -> [MobilePairedMac] {
+        loadAllCount += 1
         let key = teamID ?? ""
         markStarted(key)
         if blockedTeams.contains(key) {
@@ -211,6 +213,14 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring {
 
     func currentUpsertCount() -> Int {
         upsertCount
+    }
+
+    func resetLoadAllCount() {
+        loadAllCount = 0
+    }
+
+    func currentLoadAllCount() -> Int {
+        loadAllCount
     }
 
     func gateUpsert(macDeviceID: String) {
