@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { NextRequest } from "next/server";
 import { comparePages } from "../app/lib/compare-pages";
+import { blogPostsForLocale } from "../app/[locale]/components/blog-posts";
 import sitemap from "../app/sitemap";
 import { legalMetadata } from "../app/[locale]/(legal)/legal-metadata";
 import middleware from "../proxy";
@@ -35,6 +36,16 @@ import { englishFallbackContentLocales } from "../i18n/locale-availability";
 import { locales } from "../i18n/routing";
 
 describe("SEO metadata helpers", () => {
+  test("omits English-only posts from localized blog navigation", () => {
+    const englishSlugs = blogPostsForLocale("en").map((post) => post.slug);
+    const japaneseSlugs = blogPostsForLocale("ja").map((post) => post.slug);
+
+    expect(englishSlugs).toContain("cmux-omo");
+    expect(englishSlugs).toContain("gpl");
+    expect(japaneseSlugs).not.toContain("cmux-omo");
+    expect(japaneseSlugs).not.toContain("gpl");
+  });
+
   test("keeps canonical URLs locale-aware", () => {
     expect(canonicalUrl("en", "/docs")).toBe("https://cmux.com/docs");
     expect(canonicalUrl("ja", "/docs")).toBe("https://cmux.com/ja/docs");
