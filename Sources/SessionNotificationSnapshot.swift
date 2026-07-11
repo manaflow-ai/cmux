@@ -88,22 +88,19 @@ extension TerminalNotificationStore {
             clickActionKey = ["1", path]
         }
 
-        return [
-            notification.id.uuidString,
-            notification.tabId.uuidString,
-            notification.surfaceId == nil ? "0" : "1",
-            notification.surfaceId?.uuidString ?? "",
-            notification.panelId == nil ? "0" : "1",
-            notification.panelId?.uuidString ?? "",
-            notification.title,
-            notification.subtitle,
-            notification.body,
-            notification.isRead ? "1" : "0",
-            notification.paneFlash ? "1" : "0",
-            notification.scrollPosition == nil ? "0" : "1",
-            notification.scrollPosition.map { String($0.row) } ?? "",
-            notification.scrollPosition?.totalRows == nil ? "0" : "1",
-            notification.scrollPosition?.totalRows.map(String.init) ?? "",
-        ] + clickActionKey
+        var key = [notification.id.uuidString, notification.tabId.uuidString]
+        key.append(notification.surfaceId == nil ? "0" : "1")
+        key.append(notification.surfaceId?.uuidString ?? "")
+        key.append(notification.panelId == nil ? "0" : "1")
+        key.append(notification.panelId?.uuidString ?? "")
+        key.append(contentsOf: [notification.title, notification.subtitle, notification.body])
+        key.append(notification.isRead ? "1" : "0")
+        key.append(notification.paneFlash ? "1" : "0")
+        key.append(notification.scrollPosition == nil ? "0" : "1")
+        key.append(notification.scrollPosition.map { String($0.row) } ?? "")
+        key.append(notification.scrollPosition?.totalRows == nil ? "0" : "1")
+        key.append(notification.scrollPosition?.totalRows.map(String.init) ?? "")
+        key.append(contentsOf: clickActionKey)
+        return key
     }
 }

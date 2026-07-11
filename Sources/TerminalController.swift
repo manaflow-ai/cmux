@@ -12320,14 +12320,13 @@ class TerminalController {
             "socket.notifyTargetAsync.enqueue workspace=\(tabId.uuidString.prefix(8)) surface=\(surfaceId.uuidString.prefix(8)) titleLen=\(title.count) subtitleLen=\(subtitle.count) bodyLen=\(body.count)"
         )
 #endif
-        TerminalMutationBus.shared.enqueueNotification(
+        guard TerminalMutationBus.shared.enqueueNotification(
             tabId: tabId,
             surfaceId: surfaceId,
             title: title,
             subtitle: subtitle,
-            body: body,
-            backpressure: { TerminalMutationBus.shared.waitForNotificationCapacity() }
-        )
+            body: body
+        ) else { return "ERROR: notification queue saturated; retry" }
         return "OK"
     }
 

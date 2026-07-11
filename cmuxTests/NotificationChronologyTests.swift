@@ -180,7 +180,7 @@ struct NotificationChronologyTests {
                 title: "Queued \(offset)",
                 subtitle: "",
                 body: "",
-                backpressure: {
+                saturationHandler: {
                     backpressureCount += 1
                     TerminalMutationBus.shared.drainForBackpressure()
                 }
@@ -491,7 +491,7 @@ extension TerminalMutationBus {
             title: title,
             subtitle: subtitle,
             body: body,
-            backpressure: { drainForBackpressure() }
+            saturationHandler: { self.drainForBackpressure() }
         )
     }
 }
