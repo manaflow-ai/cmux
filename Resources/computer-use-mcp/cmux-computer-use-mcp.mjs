@@ -430,6 +430,10 @@ function normalizeAppName(app) {
   return typeof app === "string" ? app.trim() : "";
 }
 
+function isBundleIdentifier(app) {
+  return /^[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$/.test(app);
+}
+
 function shortErrorMessage(error) {
   return String(error?.message ?? error ?? "").replace(/\s+/g, " ").trim().slice(0, 500);
 }
@@ -833,10 +837,17 @@ class MacComputerUseProvider {
 
   async openApp(app) {
     try {
-      const target = await this.resolveApp(app, { allowPartialMatch: true });
+      let target = null;
+      try {
+        target = await this.resolveApp(app, { allowPartialMatch: true });
+      } catch (error) {
+        if (error?.providerCode !== "provider.appNotFound") throw error;
+      }
       const args = target?.bundleIdentifier
         ? ["-b", target.bundleIdentifier]
-        : ["-a", target?.name ?? app];
+        : isBundleIdentifier(app)
+          ? ["-b", app]
+          : ["-a", target?.name ?? app];
       await execFileTool("/usr/bin/open", args, {
         timeout: TIMEOUT_MS,
         env: childEnv(),
@@ -999,6 +1010,12 @@ async function session() {
     );
   }
   return currentSession;
+}
+
+function disposeCurrentSession() {
+  const disposedSession = currentSession;
+  currentSession = null;
+  disposedSession?.dispose();
 }
 
 function finiteNumberOrNull(value) {
@@ -1573,13 +1590,14 @@ const TOOLS = [
         s = await session();
         target = retainableTarget(await s.provider.resolveApp(normalizedApp, { allowPartialMatch: true }));
       } catch (error) {
-        return providerError(error);
+        if (error?.providerCode !== "provider.appNotFound") return providerError(error);
+        target = null;
       }
-      if (!target) return err(localizedMessage("providerAppNotFound", { app: normalizedApp }));
       const appDisplay = appControlName(normalizedApp, target);
+      const approvalTarget = target?.bundleIdentifier || target?.name || normalizedApp.toLowerCase();
       if (
         !(await approveLocalCapability(
-          `open:${target.bundleIdentifier || target.name}:${target.pid}`,
+          `open:${approvalTarget}:${target?.pid ?? "not-running"}`,
           localizedMessage("openAppApproval", appDisplay)
         ))
       ) {
@@ -1590,7 +1608,7 @@ const TOOLS = [
       s.revoke(normalizedApp, target);
       try {
         const openedTarget = retainableTarget(
-          await s.provider.openApp(target.bundleIdentifier || target.name)
+          await s.provider.openApp(target?.bundleIdentifier || target?.name || normalizedApp)
         );
         if (!openedTarget) {
           throw new ProviderOperationError("provider.appNotFound", `app not found: ${app}`, { app });
@@ -1853,7 +1871,7 @@ function cancelToolRequest(requestId) {
     }
     token.abortControllers.clear();
     try {
-      currentSession?.dispose();
+      disposeCurrentSession();
     } catch {
       // best effort: a canceled input action leaves unknown state.
     }
@@ -2166,7 +2184,7 @@ function shutdown() {
   }
   activeProviderDirs.clear();
   try {
-    if (currentSession) currentSession.dispose();
+    disposeCurrentSession();
   } catch {
     // best effort
   }
