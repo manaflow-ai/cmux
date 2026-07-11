@@ -842,6 +842,23 @@ describe("account deletion route", () => {
     )).toBe(false);
   });
 
+  test("accepts a complete PostHog deletion response when optional deletion errors are omitted", async () => {
+    postHogDeleteResponse = {
+      persons_found: 1,
+      persons_deleted: 1,
+      events_queued_for_deletion: true,
+      recordings_queued_for_deletion: true,
+    };
+
+    const response = await DELETE(accountDeletionRequest());
+
+    expect(response.status).toBe(200);
+    expect(deleteStackUser).toHaveBeenCalledTimes(1);
+    expect(tombstoneUpdates.some((values) =>
+      (values as { readonly analyticsDeletedAt?: unknown }).analyticsDeletedAt instanceof Date
+    )).toBe(true);
+  });
+
   test("fails closed before PostHog deletion when no explicit environment is configured", async () => {
     delete process.env.POSTHOG_ENVIRONMENT_ID;
     delete process.env.POSTHOG_PROJECT_ID;

@@ -111,6 +111,67 @@ describe("iOS analytics events route", () => {
     expect(await response.json()).toEqual({ ok: true, forwarded: 1 });
     expect(postHogFetch).toHaveBeenCalledTimes(1);
   });
+
+  test("serializes an in-flight forward before account deletion can tombstone and delete analytics", async () => {
+    let releaseTransaction: (() => void) | undefined;
+    let transactionTail = Promise.resolve();
+    let deletionStarted = false;
+    let releaseForward: (() => void) | undefined;
+    let markForwardStarted: (() => void) | undefined;
+    const forwardStarted = new Promise<void>((resolve) => {
+      markForwardStarted = resolve;
+    });
+    const forwardReleased = new Promise<void>((resolve) => {
+      releaseForward = resolve;
+    });
+    const transactionDb = {
+      select: selectRows,
+      transaction: async (operation: (tx: unknown) => Promise<unknown>) => {
+        const previousTransaction = transactionTail;
+        transactionTail = new Promise<void>((resolve) => {
+          releaseTransaction = resolve;
+        });
+        await previousTransaction;
+        try {
+          return await operation({
+            execute: async () => undefined,
+            select: selectRows,
+          });
+        } finally {
+          releaseTransaction?.();
+        }
+      },
+    } as unknown as ReturnType<typeof cloudDb>;
+    const handler = makeAnalyticsEventsHandler({
+      verifyRequest,
+      db: () => transactionDb,
+      postHogFetch: async () => {
+        markForwardStarted?.();
+        await forwardReleased;
+        return new Response(null, { status: 200 });
+      },
+      checkRateLimit,
+    });
+
+    const analyticsResponse = handler(analyticsRequest(deletedUserID));
+    await forwardStarted;
+    const deletion = transactionDb.transaction(async () => {
+      deletionStarted = true;
+      tombstoneRows = [{
+        userIdHash: accountDeletionUserHash(deletedUserID),
+        status: "completed",
+        updatedAt: new Date(),
+      }];
+    });
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+    expect(deletionStarted).toBe(false);
+
+    releaseForward?.();
+    expect((await analyticsResponse).status).toBe(200);
+    await deletion;
+    expect(deletionStarted).toBe(true);
+  });
 });
 
 function analyticsRequest(distinctID: string): Request {
