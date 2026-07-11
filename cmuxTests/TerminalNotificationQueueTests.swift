@@ -254,7 +254,7 @@ final class TerminalNotificationQueueTests: XCTestCase {
         XCTAssertTrue(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: focusedPanelId))
     }
 
-    func testQueuedNotificationCoalescesRepeatedEventsForSameSurface() throws {
+    func testQueuedNotificationRetainsRepeatedEventsForSameSurface() throws {
         let store = TerminalNotificationStore.shared
         let appDelegate = AppDelegate.shared ?? AppDelegate()
         let manager = appDelegate.tabManager ?? TabManager()
@@ -303,8 +303,8 @@ final class TerminalNotificationQueueTests: XCTestCase {
         }
         TerminalMutationBus.shared.drainForTesting()
         let workspaceNotifications = store.notifications.filter { $0.tabId == workspace.id }
-        XCTAssertEqual(workspaceNotifications.map(\.title), ["Second"])
-        XCTAssertEqual(deliveredTitles, ["Second"])
+        XCTAssertEqual(workspaceNotifications.map(\.title), ["Second", "First"])
+        XCTAssertEqual(deliveredTitles, ["First", "Second"])
     }
 
     func testNotifyTargetAsyncCommandDoesNotCoalesceRepeatedEventsForSameSurface() throws {
@@ -355,7 +355,7 @@ final class TerminalNotificationQueueTests: XCTestCase {
         TerminalMutationBus.shared.drainForTesting()
 
         let workspaceNotifications = store.notifications.filter { $0.tabId == workspace.id }
-        XCTAssertEqual(workspaceNotifications.map(\.title), ["Second"])
+        XCTAssertEqual(workspaceNotifications.map(\.title), ["Second", "First"])
         XCTAssertEqual(deliveredTitles, ["First", "Second"])
     }
 

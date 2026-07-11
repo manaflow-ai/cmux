@@ -148,7 +148,7 @@ final class SessionPersistenceTests: XCTestCase {
     }
 
     @MainActor
-    func testRestoreSessionNotificationsKeepsNotificationIdsUniqueWhenSnapshotIsDuplicated() throws {
+    func testRestoreSessionNotificationsTreatsDuplicateIdAsReplay() throws {
         let store = TerminalNotificationStore.shared
         store.replaceNotificationsForTesting([])
         defer { store.replaceNotificationsForTesting([]) }
@@ -180,10 +180,10 @@ final class SessionPersistenceTests: XCTestCase {
         store.replaceNotificationsForTesting([existing])
         store.restoreSessionNotifications([restored], forTabId: restoredWorkspaceId)
 
-        XCTAssertEqual(store.notifications.count, 2)
-        XCTAssertEqual(Set(store.notifications.map(\.id)).count, 2)
+        XCTAssertEqual(store.notifications.count, 1)
+        XCTAssertEqual(Set(store.notifications.map(\.id)).count, 1)
         XCTAssertTrue(store.notifications.contains { $0.tabId == liveWorkspaceId && $0.id == duplicateId })
-        XCTAssertTrue(store.notifications.contains { $0.tabId == restoredWorkspaceId && $0.id != duplicateId })
+        XCTAssertFalse(store.notifications.contains { $0.tabId == restoredWorkspaceId })
     }
 
     func testSaveAndLoadRoundTripWithCustomSnapshotPath() throws {
