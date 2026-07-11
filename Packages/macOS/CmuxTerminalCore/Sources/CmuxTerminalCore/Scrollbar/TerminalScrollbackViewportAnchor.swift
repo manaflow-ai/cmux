@@ -1,8 +1,10 @@
-/// A terminal viewport position that remains stable as output grows.
+/// A bottom-relative anchor for restoring a captured terminal viewport.
 ///
 /// The anchor stores the viewport's bottom edge relative to the end of the
-/// captured scrollback. Use ``topRow(in:)`` to translate that semantic position
-/// into Ghostty's top-relative `scroll_to_row` coordinate.
+/// captured scrollback. It preserves the captured position while those rows
+/// remain addressable; bounded scrollback can evict rows without exposing a
+/// persistent row identity. Use ``topRow(in:)`` to translate the anchor into
+/// Ghostty's top-relative `scroll_to_row` coordinate.
 public struct TerminalScrollbackViewportAnchor: Equatable, Sendable {
     /// The number of captured rows below the viewport's bottom edge.
     public let rowsBelowViewport: Int
@@ -43,9 +45,9 @@ public struct TerminalScrollbackViewportAnchor: Equatable, Sendable {
 
     /// Resolves the first visible row for Ghostty's current scrollback geometry.
     ///
-    /// The captured viewport bottom remains attached to the same output when new
-    /// rows arrive. If history or viewport geometry makes that position invalid,
-    /// the result is clamped to the current scroll range.
+    /// The captured viewport bottom remains attached to the same output while
+    /// its rows remain addressable. If history or viewport geometry makes that
+    /// position invalid, the result is clamped to the current scroll range.
     ///
     /// - Parameter scrollbar: The current top-relative Ghostty scrollbar state.
     /// - Returns: The absolute first visible row, or `nil` before the runtime has
