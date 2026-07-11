@@ -14,6 +14,7 @@ mod host_colors;
 mod keys;
 mod plugin_manager;
 mod session;
+mod sidebar_files;
 mod ui;
 
 use std::path::PathBuf;
@@ -66,19 +67,20 @@ OPTIONS:
   -V, --version      Print the cmux-tui version.
 
 KEYS (prefix: Ctrl-b)
-  c  new tab in pane   B    new browser tab    n/p  next/prev tab
-  1-9  select tab
-  %  split right       \"  split down          x    close tab
-  ,  rename pane       $    rename workspace
-  Tab  next screen     S    new screen
+  t  new tab in pane   B    new browser tab    Tab/BackTab  next/prev tab
+  1-9  select screen
+  %  split right       \"  split down          x/X  close pane/tab
+  ,  rename screen     $    rename workspace   c    new screen
+  n/p  next/prev screen
   h/j/k/l or arrows    move focus              d    quit (attach: detach)
   w  next workspace    W    new workspace       s    toggle sidebar
+  e  toggle sidebar view                       S    focus sidebar
   <  browser back      >    browser forward     r/u  browser reload/edit URL
   Ctrl-b  send a literal Ctrl-b
 
 MOUSE
   Right-click a pane for rename/new tab/split/close; right-click a
-  sidebar workspace or a status-bar screen for rename/close. Click
+  workspace-sidebar row or a status-bar screen for rename/close. Click
   tab-bar entries to switch tabs (+ for a new tab), and status-bar
   screen entries to switch screens (+ for a new screen).
 
