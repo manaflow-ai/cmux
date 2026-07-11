@@ -442,6 +442,12 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
                 claimedLegacy = nil
             }
             let current = existing ?? claimedLegacy
+            if onlyIfOlder, instanceTag == nil, current?.instanceTag != nil {
+                // An authority-less backup cannot identify the process that
+                // supplied its host tuple. Reject the whole tuple instead of
+                // combining its routes or freshness with retained authority.
+                return
+            }
             if let routeWriteCondition {
                 switch routeWriteCondition {
                 case .matchingInstanceTag(let expectedInstanceTag):
@@ -482,16 +488,9 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
                 )
             }
             let createdAt = existing?.createdAt ?? claimedLegacy?.createdAt ?? now
-            let persistedInstanceTag: String?
-            if routeWriteCondition != nil {
-                persistedInstanceTag = current?.instanceTag
-            } else if onlyIfOlder, instanceTag == nil {
-                // Legacy backups predate authenticated instance identity. They
-                // may refresh host metadata without revoking live authority.
-                persistedInstanceTag = current?.instanceTag
-            } else {
-                persistedInstanceTag = instanceTag
-            }
+            let persistedInstanceTag = routeWriteCondition == nil
+                ? instanceTag
+                : current?.instanceTag
             try upsertMacRow(
                 macDeviceID: macDeviceID,
                 ownerKey: ownerKey,
