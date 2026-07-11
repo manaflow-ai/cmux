@@ -402,6 +402,8 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertTrue(Self.rawOrDeflatedFileExists(assetDirectory.appendingPathComponent("worker-pool/worker-pool.mjs")))
         XCTAssertTrue(Self.rawOrDeflatedFileExists(assetDirectory.appendingPathComponent("worker-pool/worker-portable.js")))
         XCTAssertTrue(Self.rawOrDeflatedFileExists(appAssetDirectory.appendingPathComponent("main.mjs")))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: appAssetDirectory.appendingPathComponent("main.mjs").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: appAssetDirectory.appendingPathComponent("main.mjs.deflate").path))
         XCTAssertEqual(viewerAssets["diffsModuleURL"], "./assets/pierre-diffs-1.2.7-trees-1.0.0-beta.4/diffs.mjs")
         XCTAssertEqual(viewerAssets["treesModuleURL"], "./assets/pierre-diffs-1.2.7-trees-1.0.0-beta.4/trees.mjs")
         XCTAssertEqual(viewerAssets["workerPoolModuleURL"], "./assets/pierre-diffs-1.2.7-trees-1.0.0-beta.4/worker-pool/worker-pool.mjs")
@@ -2620,6 +2622,11 @@ final class CMUXOpenCommandTests: XCTestCase {
         try Self.writeDeflatedTextAsset(appMain,
             to: appURL.appendingPathComponent("main.mjs", isDirectory: false),
             addingDeflateExtension: true
+        )
+        try "export const staleRawFixture = true;\n".write(
+            to: appURL.appendingPathComponent("main.mjs", isDirectory: false),
+            atomically: true,
+            encoding: .utf8
         )
     }
 

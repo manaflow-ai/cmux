@@ -7758,13 +7758,13 @@ extension CMUXCLI {
     }
 
     private func diffViewerBundledAssetFileURL(relativePath: String, in sourceDirectory: URL) throws -> URL {
-        let rawURL = sourceDirectory.appendingPathComponent(relativePath, isDirectory: false)
-        if FileManager.default.fileExists(atPath: rawURL.path) {
-            return rawURL
-        }
         let deflatedURL = sourceDirectory.appendingPathComponent(relativePath + ".deflate", isDirectory: false)
         if FileManager.default.fileExists(atPath: deflatedURL.path) {
             return deflatedURL
+        }
+        let rawURL = sourceDirectory.appendingPathComponent(relativePath, isDirectory: false)
+        if FileManager.default.fileExists(atPath: rawURL.path) {
+            return rawURL
         }
         throw CLIError(message: "Bundled diff viewer asset not found: \(relativePath)")
     }
