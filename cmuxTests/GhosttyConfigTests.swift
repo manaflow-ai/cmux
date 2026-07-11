@@ -2746,7 +2746,7 @@ final class WorkspaceRemoteConfigurationTransportKeyTests: XCTestCase {
 }
 
 final class WorkspaceRemoteSSHCleanupTests: XCTestCase {
-    func testOrphanedCMUXRemoteSSHPIDsRequiresExactOwnershipIdentity() {
+    func testOrphanedCMUXRemoteSSHPIDsMatchesOnlyParentOneRelayAndDaemonTransports() {
         let psOutput = """
           101 1 /usr/bin/ssh -N -T -S none -o ControlPath=/tmp/cmux-ssh-501-56080-%C -R 127.0.0.1:56080:127.0.0.1:64048 cmux-macmini
           102 1 /usr/bin/ssh -T -S none -o RequestTTY=no cmux-macmini sh -c 'exec .cmux/bin/cmuxd-remote/0.63.1/darwin-arm64/cmuxd-remote serve --stdio'
@@ -2762,7 +2762,7 @@ final class WorkspaceRemoteSSHCleanupTests: XCTestCase {
                 psOutput: psOutput,
                 destination: "cmux-macmini"
             ),
-            []
+            [101, 102, 107]
         )
     }
 
@@ -2829,7 +2829,7 @@ final class WorkspaceRemoteSSHCleanupTests: XCTestCase {
         )
     }
 
-    func testOrphanedCMUXRemoteSSHPIDsWithSlotAndNoRelayMatchesOnlyThatSlot() {
+    func testOrphanedCMUXRemoteSSHPIDsWithSlotAndNoRelayKeepsGenericCleanup() {
         let psOutput = """
           301 1 /usr/bin/ssh -N -T -S none -R 127.0.0.1:56080:127.0.0.1:64048 cmux-macmini
           302 1 /usr/bin/ssh -T -S none -o RequestTTY=no cmux-macmini sh -c 'exec .cmux/bin/cmuxd-remote/0.63.1/darwin-arm64/cmuxd-remote serve --stdio'
@@ -2844,7 +2844,7 @@ final class WorkspaceRemoteSSHCleanupTests: XCTestCase {
                 destination: "cmux-macmini",
                 persistentDaemonSlot: "ssh-test"
             ),
-            [303]
+            [301, 302, 303]
         )
     }
 }

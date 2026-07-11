@@ -5340,8 +5340,7 @@ final class Workspace: Identifiable, ObservableObject {
             relayCommandRewriter: WorkspaceRemoteRelayCommandRewriter(),
             buildInfo: WorkspaceRemoteSessionBuildInfo(),
             daemonStrings: RemoteDaemonStrings.appLocalized,
-            strings: RemoteSessionStrings.appLocalized,
-            orphanedProcessReaper: TerminalController.shared.remoteOrphanedProcessReaper
+            strings: RemoteSessionStrings.appLocalized
         )
         activeRemoteSessionControllerID = controllerID
         remoteSessionController = controller

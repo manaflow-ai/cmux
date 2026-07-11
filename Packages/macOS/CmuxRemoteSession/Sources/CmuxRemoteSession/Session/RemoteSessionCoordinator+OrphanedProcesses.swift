@@ -1,17 +1,16 @@
+internal import CmuxFoundation
 internal import Foundation
 
 // Best-effort cleanup of orphaned `ssh` transports (reverse relays and
 // cmuxd-remote serve-stdio children reparented to launchd after a crash or
-// force-quit) before each connection attempt. The legacy `ps` parser remains
-// public for compatibility, while live cleanup consumes the package-local
-// native process snapshot shared across every coordinator.
+// force-quit) before each connection attempt. Faithful lift; the `ps` parse
+// and command classification are pinned by tests.
 extension RemoteSessionCoordinator {
     /// Parses `ps -axo pid=,ppid=,command=` output and returns the PIDs of
     /// orphaned (PPID 1) cmux-owned ssh transports for `destination`,
-    /// identified by an exact `relayPort` or `persistentDaemonSlot`. Ambiguous
-    /// transports are never returned. Public because the matching predicate is
-    /// pinned by app tests. Live cleanup applies the same predicate to the
-    /// shared native snapshot.
+    /// narrowed to `relayPort`/`persistentDaemonSlot` when provided. Public
+    /// because the matching predicate is pinned by app tests;
+    /// `killOrphanedRemoteSSHProcesses` feeds it live `ps` output.
     public static func orphanedCMUXRemoteSSHPIDs(
         psOutput: String,
         destination: String,
@@ -20,49 +19,72 @@ extension RemoteSessionCoordinator {
     ) -> [Int] {
         let trimmedDestination = destination.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedDestination.isEmpty else { return [] }
-        let trimmedPersistentDaemonSlot = persistentDaemonSlot?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard relayPort != nil || trimmedPersistentDaemonSlot?.isEmpty == false else { return [] }
+        let trimmedPersistentDaemonSlot = persistentDaemonSlot
 
-        let snapshots = psOutput
+        return psOutput
             .split(separator: "\n", omittingEmptySubsequences: false)
-            .compactMap { line -> RemoteOrphanProcessSnapshot? in
+            .compactMap { line -> Int? in
                 guard let parsed = parsePSLine(line) else { return nil }
-                return RemoteOrphanProcessSnapshot(
-                    pid: parsed.pid,
-                    parentPID: parsed.ppid,
-                    command: parsed.command
-                )
-            }
-        return orphanedCMUXRemoteSSHSnapshots(
-            snapshots,
-            destination: trimmedDestination,
-            relayPort: relayPort,
-            persistentDaemonSlot: trimmedPersistentDaemonSlot
-        )
-            .map(\.pid)
-            .sorted()
-    }
-
-    static func orphanedCMUXRemoteSSHSnapshots(
-        _ snapshots: [RemoteOrphanProcessSnapshot],
-        destination: String,
-        relayPort: Int?,
-        persistentDaemonSlot: String?
-    ) -> [RemoteOrphanProcessSnapshot] {
-        let trimmedDestination = destination.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedDestination.isEmpty else { return [] }
-        let trimmedPersistentDaemonSlot = persistentDaemonSlot?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard relayPort != nil || trimmedPersistentDaemonSlot?.isEmpty == false else { return [] }
-        return snapshots.filter { snapshot in
-            snapshot.parentPID == 1
-                && isOrphanedCMUXRemoteSSHCommand(
-                    snapshot.command,
+                guard parsed.ppid == 1 else { return nil }
+                guard isOrphanedCMUXRemoteSSHCommand(
+                    parsed.command,
                     destination: trimmedDestination,
                     relayPort: relayPort,
                     persistentDaemonSlot: trimmedPersistentDaemonSlot
-                )
+                ) else {
+                    return nil
+                }
+                return parsed.pid
+            }
+            .sorted()
+    }
+
+    static func killOrphanedRemoteSSHProcesses(
+        destination: String,
+        relayPort: Int? = nil,
+        persistentDaemonSlot: String? = nil
+    ) {
+        guard let output = captureCommandStandardOutput(
+            executablePath: "/bin/ps",
+            arguments: ["-axo", "pid=,ppid=,command="]
+        ) else {
+            return
+        }
+
+        for pid in orphanedCMUXRemoteSSHPIDs(
+            psOutput: output,
+            destination: destination,
+            relayPort: relayPort,
+            persistentDaemonSlot: persistentDaemonSlot
+        ) {
+            _ = Darwin.kill(pid_t(pid), SIGTERM)
+        }
+    }
+
+    private static func captureCommandStandardOutput(
+        executablePath: String,
+        arguments: [String]
+    ) -> String? {
+        let process = Process()
+        let stdoutPipe = Pipe()
+        process.executableURL = URL(fileURLWithPath: executablePath)
+        process.arguments = arguments
+        process.standardOutput = stdoutPipe
+        process.standardError = FileHandle.nullDevice
+
+        do {
+            try process.run()
+            let outputData = stdoutPipe.fileHandleForReading.readDataToEndOfFileOrEmpty()
+            process.waitUntilExit()
+            guard process.terminationStatus == 0,
+                  let output = String(data: outputData, encoding: .utf8),
+                  !output.isEmpty else {
+                return nil
+            }
+            return output
+        } catch {
+            // Best effort cleanup only.
+            return nil
         }
     }
 
@@ -111,11 +133,22 @@ extension RemoteSessionCoordinator {
             )
         }
 
-        guard let trimmedPersistentDaemonSlot else { return false }
-        return isCMUXRemotePersistentDaemonServeStdioCommand(
-            trimmed,
-            slot: trimmedPersistentDaemonSlot
-        )
+        if trimmed.contains(" -N ") && trimmed.contains(" -R 127.0.0.1:") {
+            return true
+        }
+        if let trimmedPersistentDaemonSlot {
+            if isCMUXRemotePersistentDaemonServeStdioCommand(
+                trimmed,
+                slot: trimmedPersistentDaemonSlot
+            ) {
+                return true
+            }
+            return isCMUXRemoteNonPersistentDaemonServeStdioCommand(trimmed)
+        }
+        if isCMUXRemoteDaemonServeStdioCommand(trimmed) {
+            return true
+        }
+        return false
     }
 
     private static func isCMUXRemoteDaemonServeStdioCommand(_ command: String) -> Bool {
@@ -124,6 +157,14 @@ extension RemoteSessionCoordinator {
             .replacingOccurrences(of: "'", with: " ")
             .replacingOccurrences(of: "\"", with: " ")
         return normalized.contains(" serve ") && normalized.contains(" --stdio")
+    }
+
+    private static func isCMUXRemoteNonPersistentDaemonServeStdioCommand(_ command: String) -> Bool {
+        guard isCMUXRemoteDaemonServeStdioCommand(command) else { return false }
+        let normalized = command
+            .replacingOccurrences(of: "'", with: " ")
+            .replacingOccurrences(of: "\"", with: " ")
+        return !normalized.contains(" --persistent")
     }
 
     private static func isCMUXRemotePersistentDaemonServeStdioCommand(

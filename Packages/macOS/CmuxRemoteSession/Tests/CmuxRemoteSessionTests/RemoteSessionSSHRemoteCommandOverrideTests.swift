@@ -125,8 +125,7 @@ struct RemoteSessionSSHRemoteCommandOverrideTests {
             strings: RemoteSessionStrings(
                 connectedVMNoProxyFormat: "%@",
                 suspendedDetailFormat: "%@"
-            ),
-            orphanedProcessReaper: RemoteOrphanedProcessReaper()
+            )
         )
     }
 }
