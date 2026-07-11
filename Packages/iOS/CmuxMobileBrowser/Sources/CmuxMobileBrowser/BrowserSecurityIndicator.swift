@@ -76,9 +76,14 @@ public enum BrowserSecurityIndicator: Equatable, Sendable {
         if host.hasPrefix("::ffff:") {
             return isPrivateOrLoopbackIPv4(String(host.dropFirst("::ffff:".count)))
         }
-        if host.hasPrefix("fc") || host.hasPrefix("fd") {
+        guard let firstHextetText = host.split(separator: ":", omittingEmptySubsequences: false).first,
+              let firstHextet = UInt16(firstHextetText, radix: 16)
+        else {
+            return false
+        }
+        if (0xFC00...0xFDFF).contains(firstHextet) {
             return true
         }
-        return host.hasPrefix("fe80:")
+        return (0xFE80...0xFEBF).contains(firstHextet)
     }
 }

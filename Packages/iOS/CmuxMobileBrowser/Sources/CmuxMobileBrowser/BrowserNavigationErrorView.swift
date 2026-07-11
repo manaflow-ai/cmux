@@ -30,6 +30,7 @@ struct BrowserNavigationErrorView: View {
                         .accessibilityLabel(
                             L10n.string("mobile.browser.error.destination", defaultValue: "Failed destination")
                         )
+                        .accessibilityValue(failedURL.absoluteString)
                 }
 
                 Text(errorDescription)

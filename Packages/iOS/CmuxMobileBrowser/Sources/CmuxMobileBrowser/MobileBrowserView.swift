@@ -206,12 +206,14 @@ public struct MobileBrowserView: UIViewRepresentable {
                 webView.observe(\.url) { [weak self, state] webView, _ in
                     MainActor.assumeIsolated {
                         guard self?.acceptsCallbacks(from: webView) == true else { return }
-                        // Do not clobber the user's in-progress typing: only
-                        // mirror the live provisional URL into the address bar
-                        // when the user is not editing it. `currentURL` remains
-                        // the last committed destination until `didFinish`, so
-                        // persistence never records a failed provisional load.
-                        if let url = webView.url, !state.isAddressEditing {
+                        guard let url = webView.url else { return }
+                        if !webView.isLoading {
+                            // History API and same-document navigation update
+                            // `url` without a matching `didFinish` callback.
+                            state.navigationURLDidChange(url)
+                        } else if !state.isAddressEditing {
+                            // Mirror provisional destinations into the address
+                            // bar without persisting them as committed pages.
                             state.addressText = url.absoluteString
                         }
                     }

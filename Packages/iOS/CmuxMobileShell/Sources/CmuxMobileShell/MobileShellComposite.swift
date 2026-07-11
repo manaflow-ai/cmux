@@ -4154,13 +4154,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Callers that act on a specific workspace (e.g. the "+" button on a
     /// workspace row) should pass its id so an in-flight create can't land in a
     /// different workspace if the selection drifts before the async work runs.
-    public func createTerminal(in workspaceID: MobileWorkspacePreview.ID? = nil) {
+    ///
+    /// - Returns: `true` when creation started or completed, or `false` when
+    ///   the request was rejected before starting.
+    @discardableResult
+    public func createTerminal(in workspaceID: MobileWorkspacePreview.ID? = nil) -> Bool {
         let targetWorkspaceID = workspaceID ?? selectedWorkspace?.id
         guard remoteClient == nil else {
             // Bail BEFORE pinning selection when a create is already in flight,
             // so a second "+" on another workspace can't strand the UI on that
             // workspace with no new terminal while the earlier RPC still runs.
-            guard createTerminalTask == nil else { return }
+            guard createTerminalTask == nil else { return false }
             // Pin selection to the target so the async create + the resulting
             // terminal selection stay on the workspace the caller intended.
             if let targetWorkspaceID { selectedWorkspaceID = targetWorkspaceID }
@@ -4171,10 +4175,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 guard let self else { return }
                 await self.createRemoteTerminal(in: targetWorkspaceID)
             }
-            return
+            return true
         }
         guard let workspace = workspaces.first(where: { $0.id == targetWorkspaceID }) else {
-            return
+            return false
         }
         selectedWorkspaceID = targetWorkspaceID
         let terminalIndex = workspace.terminals.count + 1
@@ -4189,6 +4193,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         selectedTerminalID = terminal.id
         suppressTerminalAutoFocusOnNextAttach(for: terminal.id)
+        return true
     }
 
     /// Select the active terminal by id without changing workspace selection.

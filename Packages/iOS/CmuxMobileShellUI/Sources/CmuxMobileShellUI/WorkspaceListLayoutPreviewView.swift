@@ -68,7 +68,7 @@ public struct WorkspaceListLayoutPreviewView: View {
                         connectionStatus: .connected,
                         canCreateWorkspace: true,
                         canCreateTerminal: true,
-                        selectWorkspace: { selectedWorkspaceID = $0 },
+                        selectWorkspace: selectWorkspace,
                         openTerminal: { workspaceID, terminalID in
                             selectedWorkspaceID = workspaceID
                             selectedTerminalID = terminalID
@@ -111,6 +111,11 @@ public struct WorkspaceListLayoutPreviewView: View {
         workspaces.append(workspace)
         selectedWorkspaceID = workspace.id
         selectedTerminalID = workspace.terminals.first?.id
+    }
+
+    private func selectWorkspace(_ workspaceID: MobileWorkspacePreview.ID) {
+        selectedWorkspaceID = workspaceID
+        selectedTerminalID = workspaces.first(where: { $0.id == workspaceID })?.terminals.first?.id
     }
 
     private func createTerminal(_ workspaceID: MobileWorkspacePreview.ID) {

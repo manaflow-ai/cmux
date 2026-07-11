@@ -115,7 +115,7 @@ struct WorkspaceShellView: View {
                 selectedTerminalID: store.selectedTerminalID,
                 host: store.connectedHostName,
                 connectionStatus: listConnectionStatus,
-                canCreateWorkspace: canCreateWorkspaceForMacSelection,
+                canCreateWorkspace: canCreateWorkspace,
                 canCreateTerminal: canCreateTerminal,
                 selectWorkspace: selectWorkspaceFromSurfaceGrid,
                 openTerminal: openTerminalFromSurfaceGrid,
@@ -131,6 +131,7 @@ struct WorkspaceShellView: View {
                 workspaceDestination(
                     for: workspaceID,
                     createWorkspace: createWorkspaceInCompactStack,
+                    canCreateWorkspaceInContext: canCreateWorkspace,
                     backButtonConfiguration: WorkspaceBackButtonConfiguration(
                         unreadCount: unreadWorkspaceCount(excluding: workspaceID),
                         badgeContrast: .darkBackground,
@@ -246,6 +247,7 @@ struct WorkspaceShellView: View {
             workspaceDestination(
                 for: store.selectedWorkspaceID,
                 createWorkspace: createWorkspaceIfConnected,
+                canCreateWorkspaceInContext: canCreateWorkspaceForMacSelection,
                 safeAreaContext: splitColumnVisibility == .detailOnly ? .fullWidth : .splitSidebarVisible
             )
         }
@@ -308,9 +310,10 @@ struct WorkspaceShellView: View {
 
     private func createTerminalFromSurfaceGrid(_ workspaceID: MobileWorkspacePreview.ID) {
         pendingCompactCreateNavigationWorkspaceIDs = nil
-        browserStore.showNonBrowserSurface(for: workspaceID.rawValue)
-        store.createTerminal(in: workspaceID)
-        compactNavigationPath = [workspaceID]
+        if store.createTerminal(in: workspaceID) {
+            browserStore.showNonBrowserSurface(for: workspaceID.rawValue)
+            compactNavigationPath = [workspaceID]
+        }
     }
 
     /// Pull-to-refresh closure for the workspace list. Awaits the store's real
@@ -331,7 +334,7 @@ struct WorkspaceShellView: View {
         return { Task { await store.reconnectOrRefresh() } }
     }
 
-    private var canCreateWorkspace: Bool {
+    var canCreateWorkspace: Bool {
         canCreateWorkspaceOnForegroundConnection
     }
 
@@ -420,6 +423,7 @@ struct WorkspaceShellView: View {
     private func workspaceDestination(
         for workspaceID: MobileWorkspacePreview.ID?,
         createWorkspace: @escaping () -> Void,
+        canCreateWorkspaceInContext: Bool,
         safeAreaContext: MobileTerminalSafeAreaContext = .fullWidth,
         backButtonConfiguration: WorkspaceBackButtonConfiguration? = nil
     ) -> some View {
@@ -427,7 +431,7 @@ struct WorkspaceShellView: View {
             store: store,
             workspaceID: workspaceID,
             createWorkspace: createWorkspace,
-            canCreateWorkspace: canCreateWorkspaceForMacSelection,
+            canCreateWorkspace: canCreateWorkspaceInContext,
             renameWorkspace: renameWorkspaceClosure,
             setWorkspaceUnread: setWorkspaceUnreadClosure,
             closeWorkspace: closeWorkspaceClosure,

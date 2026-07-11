@@ -267,6 +267,19 @@ public final class BrowserSurfaceState: Identifiable {
         lastFailedURL = nil
     }
 
+    /// Commit a URL change that WebKit reports without a full navigation
+    /// lifecycle, such as `history.pushState` or a fragment change.
+    ///
+    /// - Parameter url: The page identity currently visible in WebKit.
+    func navigationURLDidChange(_ url: URL) {
+        guard currentURL != url else { return }
+        currentURL = url
+        if !isAddressEditing {
+            addressText = url.absoluteString
+        }
+        persistDurableState?()
+    }
+
     /// Mark a successful navigation finish and save its committed identity.
     ///
     /// - Parameters:
