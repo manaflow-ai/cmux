@@ -1,4 +1,5 @@
 import CMUXAgentLaunch
+import CmuxAgentReplica
 import CmuxAgentWire
 import Foundation
 import Testing
@@ -22,7 +23,7 @@ struct AgentGUIRPCHandlerTests {
             params: try AgentGUICodableBridge.dictionary(GuiHelloParams(protocolMin: 1, protocolMax: 1, clientCaps: [])),
             auth: nil
         ))
-        let payload = try okPayload(result)
+        let payload = try Self.okPayload(result)
         let data = try JSONSerialization.data(withJSONObject: payload)
         let decoded = try JSONDecoder().decode(GuiHelloResult.self, from: data)
 
@@ -75,7 +76,7 @@ struct AgentGUIRPCHandlerTests {
             )),
             auth: nil
         ))
-        #expect(try sendResult(accepted) == GuiSendResult(accepted: true, queuedOnMac: false))
+        #expect(try Self.sendResult(accepted) == GuiSendResult(accepted: true, queuedOnMac: false))
         #expect(injector.prompts == ["hello"])
 
         service.handleHookEventSerial(WorkstreamEvent(
@@ -104,7 +105,7 @@ struct AgentGUIRPCHandlerTests {
             )),
             auth: nil
         ))
-        #expect(try sendResult(queued) == GuiSendResult(accepted: true, queuedOnMac: true))
+        #expect(try Self.sendResult(queued) == GuiSendResult(accepted: true, queuedOnMac: true))
         #expect(injector.prompts == ["hello"])
     }
 
@@ -132,7 +133,7 @@ struct AgentGUIRPCHandlerTests {
             )),
             auth: nil
         ))
-        #expect(try failure(bindingLost).code == "binding_lost")
+        #expect(try Self.failure(bindingLost).code == "binding_lost")
 
         let attachmentRejected = await handler.handle(MobileHostRPCRequest(
             id: nil,
@@ -145,7 +146,7 @@ struct AgentGUIRPCHandlerTests {
             )),
             auth: nil
         ))
-        let error = try failure(attachmentRejected)
+        let error = try Self.failure(attachmentRejected)
         #expect(error.code == "send_rejected")
         #expect((error.data as? [String: String])?["detail"] == "attachment_unsupported")
     }
@@ -160,7 +161,7 @@ struct AgentGUIRPCHandlerTests {
     }
 
     private static func sendResult(_ result: MobileHostRPCResult?) throws -> GuiSendResult {
-        let payload = try okPayload(result)
+        let payload = try Self.okPayload(result)
         let data = try JSONSerialization.data(withJSONObject: payload)
         return try JSONDecoder().decode(GuiSendResult.self, from: data)
     }

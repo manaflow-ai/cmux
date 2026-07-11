@@ -48,7 +48,7 @@ final class AgentProcessObservationSource {
         timer = nil
     }
 
-    private static func captureObservations() -> [ProcessObservation] {
+    private nonisolated static func captureObservations() -> [ProcessObservation] {
         let snapshot = CmuxTopProcessSnapshot.captureCached(
             includeProcessDetails: true,
             includeCMUXScope: true,
@@ -59,7 +59,7 @@ final class AgentProcessObservationSource {
         }
     }
 
-    private static func observation(for process: CmuxTopProcessInfo) -> ProcessObservation? {
+    private nonisolated static func observation(for process: CmuxTopProcessInfo) -> ProcessObservation? {
         guard let details = CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: process.pid) else {
             return nil
         }
@@ -86,7 +86,7 @@ final class AgentProcessObservationSource {
         )
     }
 
-    private static func agentKind(arguments: [String], environment: [String: String], processName: String) -> AgentKind {
+    private nonisolated static func agentKind(arguments: [String], environment: [String: String], processName: String) -> AgentKind {
         if let launchKind = normalized(environment["CMUX_AGENT_LAUNCH_KIND"]) {
             return AgentKind(rawValue: launchKind)
         }
@@ -100,7 +100,7 @@ final class AgentProcessObservationSource {
         return .unknown("unknown")
     }
 
-    private static func normalized(_ value: String?) -> String? {
+    private nonisolated static func normalized(_ value: String?) -> String? {
         let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed?.isEmpty == false ? trimmed : nil
     }
