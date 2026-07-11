@@ -48,6 +48,20 @@ struct OllamaAgentLaunchTests {
         ) == nil)
     }
 
+    @Test("Invalid thinking levels cannot be mistaken for the model")
+    func sanitizerRejectsInvalidThinkingLevels() {
+        #expect(AgentLaunchSanitizer.sanitizedLaunchArguments(
+            ["ollama", "run", "--think", "extreme", "qwen3"],
+            launcher: "",
+            fallbackKind: "ollama"
+        ) == nil)
+        #expect(AgentLaunchSanitizer.sanitizedLaunchArguments(
+            ["ollama", "run", "qwen3", "--think=extreme"],
+            launcher: "",
+            fallbackKind: "ollama"
+        ) == nil)
+    }
+
     @Test("Relaunch argv starts a fresh conversation with the captured model")
     func relaunchArgvReusesSanitizedCommand() {
         #expect(AgentResumeArgv().builtInRelaunchKind(

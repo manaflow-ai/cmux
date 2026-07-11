@@ -76,16 +76,25 @@ struct OllamaLaunchArgumentsPreserver {
     ) -> Bool {
         let option = argument.split(separator: "=", maxSplits: 1).first.map(String.init) ?? argument
         if option == "--think" {
-            guard !argument.hasSuffix("=") else { return false }
-            result.append(argument)
-            if !argument.contains("="),
-               index + 1 < arguments.count,
-               Self.thinkingLevels.contains(arguments[index + 1].lowercased()) {
-                result.append(arguments[index + 1])
-                index += 2
-            } else {
+            if argument.contains("=") {
+                let value = argument.dropFirst(option.count + 1)
+                guard Self.thinkingLevels.contains(value.lowercased()) else { return false }
+                result.append(argument)
                 index += 1
+                return true
             }
+
+            result.append(argument)
+            guard index + 1 < arguments.count,
+                  !arguments[index + 1].hasPrefix("-") else {
+                index += 1
+                return true
+            }
+            guard Self.thinkingLevels.contains(arguments[index + 1].lowercased()) else {
+                return false
+            }
+            result.append(arguments[index + 1])
+            index += 2
             return true
         }
         if Self.flagOptions.contains(option) {
