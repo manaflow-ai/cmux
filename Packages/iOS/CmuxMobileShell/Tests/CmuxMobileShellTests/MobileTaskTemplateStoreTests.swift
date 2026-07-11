@@ -122,6 +122,64 @@ import CmuxMobileShellModel
         #expect(UserDefaultsMobileTaskTemplateStore(defaults: defaults).composerDraft() == nil)
     }
 
+    @Test func staleComposerSheetCannotRepersistDraftAfterSignOut() {
+        let defaults = Self.defaults()
+        let templateStore = UserDefaultsMobileTaskTemplateStore(defaults: defaults)
+        let shell = MobileShellComposite(isSignedIn: true, taskTemplateStore: templateStore)
+        let capturedGeneration = shell.currentSessionGeneration
+        let staleDraft = MobileTaskComposerDraft(
+            prompt: "Account A secret",
+            templateID: nil,
+            macDeviceID: "mac-a",
+            directory: "~/Account-A",
+            didEditDirectory: true,
+            operationID: UUID()
+        )
+
+        shell.signOut()
+        let didPersist = shell.persistTaskComposerDraft(
+            staleDraft,
+            ifSessionGeneration: capturedGeneration
+        )
+
+        #expect(!didPersist)
+        #expect(UserDefaultsMobileTaskTemplateStore(defaults: defaults).composerDraft() == nil)
+    }
+
+    @Test func staleComposerSheetCannotClearNewSessionDraft() {
+        let defaults = Self.defaults()
+        let templateStore = UserDefaultsMobileTaskTemplateStore(defaults: defaults)
+        let shell = MobileShellComposite(isSignedIn: true, taskTemplateStore: templateStore)
+        let staleGeneration = shell.currentSessionGeneration
+        let staleDraft = MobileTaskComposerDraft(
+            prompt: "Account A secret",
+            templateID: nil,
+            macDeviceID: "mac-a",
+            directory: "~/Account-A",
+            didEditDirectory: true,
+            operationID: UUID()
+        )
+        let currentDraft = MobileTaskComposerDraft(
+            prompt: "Account B task",
+            templateID: nil,
+            macDeviceID: "mac-b",
+            directory: "~/Account-B",
+            didEditDirectory: true,
+            operationID: UUID()
+        )
+
+        shell.signOut()
+        shell.signIn()
+        templateStore.setComposerDraft(currentDraft)
+        let didPersist = shell.persistTaskComposerDraft(
+            staleDraft,
+            ifSessionGeneration: staleGeneration
+        )
+
+        #expect(!didPersist)
+        #expect(UserDefaultsMobileTaskTemplateStore(defaults: defaults).composerDraft() == currentDraft)
+    }
+
     private static func defaults() -> UserDefaults {
         let suiteName = "MobileTaskTemplateStoreTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
