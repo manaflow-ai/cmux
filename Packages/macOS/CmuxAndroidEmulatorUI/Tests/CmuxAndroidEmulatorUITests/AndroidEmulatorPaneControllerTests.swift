@@ -7,7 +7,7 @@ import Testing
 struct AndroidEmulatorPaneControllerTests {
     @MainActor
     @Test
-    func serializesRapidControlActions() async {
+    func boundsRapidControlActionsWhileOneIsRunning() async {
         let service = SerializingControlService()
         let controller = AndroidEmulatorPaneController(
             avdName: "Pixel_9_API_35",
@@ -20,11 +20,86 @@ struct AndroidEmulatorPaneControllerTests {
         controller.perform(.rotateRight)
         controller.perform(.rotateRight)
         await service.waitUntilFirstControlStarts()
-        await service.releaseFirstControl()
-        await service.waitUntilControlCount(2)
 
-        #expect(await service.recordedControls == [.rotateRight, .rotateRight])
+        #expect(controller.controlsBusy)
+        #expect(await service.recordedControls == [.rotateRight])
         #expect(await service.maximumConcurrentControls == 1)
+        await service.releaseFirstControl()
+    }
+
+    @MainActor
+    @Test
+    func successfulStopClearsAnExpectedCaptureDisconnectError() async {
+        let service = SuccessfulStopService()
+        let controller = AndroidEmulatorPaneController(
+            avdName: "Pixel_9_API_35",
+            serial: "emulator-5554",
+            transportID: "42",
+            sdkRootURL: URL(fileURLWithPath: "/sdk"),
+            coordinator: AndroidEmulatorCoordinator(service: service)
+        )
+        let confirmation = StopConfirmation()
+        controller.setStopConfirmedHandler { confirmation.confirm() }
+        controller.reportCaptureError(TestCaptureError.disconnected)
+
+        controller.stop()
+        await confirmation.wait()
+
+        #expect(controller.captureError == nil)
+        #expect(controller.operationError == nil)
+    }
+}
+
+@MainActor
+private final class StopConfirmation {
+    private var continuation: CheckedContinuation<Void, Never>?
+    private var confirmed = false
+
+    func confirm() {
+        confirmed = true
+        continuation?.resume()
+        continuation = nil
+    }
+
+    func wait() async {
+        guard !confirmed else { return }
+        await withCheckedContinuation { continuation = $0 }
+    }
+}
+
+private enum TestCaptureError: LocalizedError {
+    case disconnected
+
+    var errorDescription: String? { "The file couldn’t be saved." }
+}
+
+private actor SuccessfulStopService: AndroidEmulatorServicing {
+    func snapshot() async throws -> AndroidEmulatorSnapshot {
+        AndroidEmulatorSnapshot(
+            sdkRootURL: URL(fileURLWithPath: "/sdk"),
+            devices: [AndroidVirtualDevice(name: "Pixel_9_API_35", state: .stopped)],
+            warning: nil,
+            connectedEmulatorSerials: []
+        )
+    }
+
+    func launch(avdName: String) async throws {}
+
+    func stop(avdName: String, serial: String, transportID: String) async throws {}
+
+    func perform(
+        _ action: AndroidEmulatorControlAction,
+        avdName: String,
+        serial: String,
+        transportID: String
+    ) async throws {}
+
+    func displaySize(
+        avdName: String,
+        serial: String,
+        transportID: String
+    ) async throws -> AndroidEmulatorDisplaySize {
+        AndroidEmulatorDisplaySize(width: 1080, height: 1920)
     }
 }
 
@@ -34,7 +109,6 @@ private actor SerializingControlService: AndroidEmulatorServicing {
     private var maximumActiveControlCount = 0
     private var firstControlStarted: CheckedContinuation<Void, Never>?
     private var firstControlRelease: CheckedContinuation<Void, Never>?
-    private var controlCountWaiters: [(Int, CheckedContinuation<Void, Never>)] = []
 
     var recordedControls: [AndroidEmulatorControlAction] { controls }
     var maximumConcurrentControls: Int { maximumActiveControlCount }
@@ -62,7 +136,6 @@ private actor SerializingControlService: AndroidEmulatorServicing {
         maximumActiveControlCount = max(maximumActiveControlCount, activeControlCount)
         firstControlStarted?.resume()
         firstControlStarted = nil
-        notifyControlCountWaiters()
         if controls.count == 1 {
             await withCheckedContinuation { continuation in
                 firstControlRelease = continuation
@@ -89,25 +162,6 @@ private actor SerializingControlService: AndroidEmulatorServicing {
     func releaseFirstControl() {
         firstControlRelease?.resume()
         firstControlRelease = nil
-    }
-
-    func waitUntilControlCount(_ count: Int) async {
-        guard controls.count < count else { return }
-        await withCheckedContinuation { continuation in
-            controlCountWaiters.append((count, continuation))
-        }
-    }
-
-    private func notifyControlCountWaiters() {
-        var pending: [(Int, CheckedContinuation<Void, Never>)] = []
-        for (count, continuation) in controlCountWaiters {
-            if controls.count >= count {
-                continuation.resume()
-            } else {
-                pending.append((count, continuation))
-            }
-        }
-        controlCountWaiters = pending
     }
 
     private enum TestError: Error {

@@ -41,6 +41,36 @@ actor StubCommandRunner: CommandRunning {
     }
 }
 
+actor SequencedCommandRunner: CommandRunning {
+    private var results: [CommandResult]
+    private(set) var invocations: [StubCommand] = []
+
+    init(results: [CommandResult]) {
+        self.results = results
+    }
+
+    func run(
+        directory: String,
+        executable: String,
+        arguments: [String],
+        timeout: TimeInterval?
+    ) async -> CommandResult {
+        _ = directory
+        _ = timeout
+        invocations.append(StubCommand(executable: executable, arguments: arguments))
+        guard !results.isEmpty else {
+            return CommandResult(
+                stdout: nil,
+                stderr: "unexpected command",
+                exitStatus: 127,
+                timedOut: false,
+                executionError: nil
+            )
+        }
+        return results.removeFirst()
+    }
+}
+
 extension CommandResult {
     static func success(_ stdout: String) -> CommandResult {
         CommandResult(

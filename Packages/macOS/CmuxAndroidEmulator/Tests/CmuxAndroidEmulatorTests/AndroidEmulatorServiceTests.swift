@@ -264,6 +264,37 @@ import Testing
         #expect(await commands.invocations.count == 3)
     }
 
+    @Test func stopAcceptsTheOriginalTransportWhileADBReportsItOffline() async throws {
+        let installation = Self.installation
+        let disconnectFailure = CommandResult(
+            stdout: nil,
+            stderr: "error: device offline",
+            exitStatus: 1,
+            timedOut: false,
+            executionError: nil
+        )
+        let commands = SequencedCommandRunner(results: [
+            .success("List of devices attached\nemulator-5554\tdevice transport_id:42\n"),
+            .success("Pixel_9_API_35\nOK\n"),
+            .success("OK: killing emulator, bye bye\n"),
+            disconnectFailure,
+            .success("List of devices attached\nemulator-5554\toffline transport_id:42\n"),
+        ])
+        let service = AndroidEmulatorService(
+            sdkLocator: StubSDKLocator(resolution: .available(installation)),
+            commands: commands,
+            processLauncher: RecordingAndroidEmulatorLauncher()
+        )
+
+        try await service.stop(
+            avdName: "Pixel_9_API_35",
+            serial: "emulator-5554",
+            transportID: "42"
+        )
+
+        #expect(await commands.invocations.count == 5)
+    }
+
     @Test func stopRejectsReusedSerialOwnedByDifferentAVD() async {
         let installation = Self.installation
         let commands = StubCommandRunner(results: [
