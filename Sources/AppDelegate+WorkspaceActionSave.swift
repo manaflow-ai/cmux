@@ -177,53 +177,16 @@ extension AppDelegate {
         presentSaveWorkspaceActionDialog(
             workspace: workspace,
             cmuxConfigStore: cmuxConfigStore,
-            window: window,
-            captureCoordinator: context.workspaceActionSaveCaptureCoordinator
+            window: window
         )
     }
 
     private func presentSaveWorkspaceActionDialog(
         workspace: Workspace,
         cmuxConfigStore: CmuxConfigStore,
-        window: NSWindow,
-        captureCoordinator: WorkspaceActionSaveCaptureCoordinator
-    ) {
-        let capture = workspace.captureConfigActionState()
-        captureCoordinator.begin(
-            capture: capture,
-            loadLiveCommands: { ttyDevices in
-                guard !ttyDevices.isEmpty else { return [:] }
-                let processSnapshot = await CmuxTopProcessSnapshotStore.shared.snapshot(
-                    requirements: .processDetails,
-                    maximumAge: 1,
-                    consumer: .unspecified
-                )
-                guard !Task.isCancelled else { return [:] }
-                return await Task.detached(priority: .userInitiated) {
-                    TerminalForegroundCommandCapture.liveCommands(
-                        forTTYDevices: ttyDevices,
-                        processSnapshot: processSnapshot
-                    )
-                }.value
-            },
-            onReady: { [weak self, weak workspace, weak window] snapshot, initialName in
-                guard let self, workspace != nil, let window else { return }
-                self.presentSaveWorkspaceActionDialog(
-                    snapshot: snapshot,
-                    initialName: initialName,
-                    cmuxConfigStore: cmuxConfigStore,
-                    window: window
-                )
-            }
-        )
-    }
-
-    private func presentSaveWorkspaceActionDialog(
-        snapshot: WorkspaceConfigActionSnapshot,
-        initialName: String,
-        cmuxConfigStore: CmuxConfigStore,
         window: NSWindow
     ) {
+        let snapshot = workspace.captureConfigActionSnapshot()
         let globalConfigPath = cmuxConfigStore.globalConfigPath
         if !snapshot.oversizedCommands.isEmpty {
             presentWorkspaceCommandTooLongAlert(for: window)
@@ -254,7 +217,8 @@ extension AppDelegate {
 
         let accessory = WorkspaceActionSaveDialogAccessory(
             snapshot: snapshot,
-            initialName: initialName
+            initialName: workspace.customTitle
+                ?? URL(fileURLWithPath: workspace.currentDirectory).lastPathComponent
         )
         alert.accessoryView = accessory.view
         alert.window.initialFirstResponder = accessory.nameField
